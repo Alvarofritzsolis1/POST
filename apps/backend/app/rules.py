@@ -59,7 +59,7 @@ def document_type(text: str) -> str:
     if re.search(r"\bf[-\s]?30[-\s]?1\b", s) or "certificado de cumplimiento de obligaciones laborales" in s:
         return "f30_1"
     if "cotizante independiente" in s or "trabajador independiente" in s:
-        return "independientes"
+        return "cotizaciones"
     if any(word in s for word in ("previred", "afp", "fonasa", "isapre", "cotizaciones previsionales", "planilla previsional", "comprobante de pago")):
         return "cotizaciones"
     return "desconocido"
@@ -68,6 +68,7 @@ def document_type(text: str) -> str:
 NEGATIVE = re.compile(
     r"declaracion\s+y\s+no\s+pago|declarad[ao]\s+sin\s+pago|"
     r"pendiente\s+de\s+pago|pago\s+rechazado|pago\s+fallido|no\s+pagad[oa]|sin\s+pago"
+    r"|\bno\s+pago\b"
 )
 RECEIPT = re.compile(r"comprobante\s+de\s+pago|recibo\s+de\s+pago|comprobante\s+transaccional")
 SUCCESS = re.compile(
@@ -78,6 +79,23 @@ TRANSACTION = re.compile(
     r"(?:folio|numero\s+(?:de\s+)?operacion|id\s+(?:de\s+)?transaccion|"
     r"codigo\s+(?:de\s+)?pago)\s*[:#\-]?\s*[a-z0-9][a-z0-9\-]{3,}"
 )
+FOLIO_LABEL = re.compile(r"^(?:folio|numero\s+(?:de\s+)?operacion|id\s+(?:de\s+)?transaccion|codigo\s+(?:de\s+)?pago)\b")
+STATE_LABEL = re.compile(r"^(?:estado|resultado|situacion|pago\s+(?:realizado|exitoso|efectuado|aprobado))\b")
+
+
+def _evidence_close(text: str, period: str | None) -> bool:
+    """Exige que folio, estado, comprobante y período estén cerca en texto lineal."""
+    if not period:
+        return False
+    lines = [line.strip() for line in text.splitlines() if line.strip()]
+    receipts = [i for i, line in enumerate(lines) if RECEIPT.search(line)]
+    states = [i for i, line in enumerate(lines) if STATE_LABEL.match(line) and SUCCESS.search(line)]
+    folios = [i for i, line in enumerate(lines) if FOLIO_LABEL.match(line) and TRANSACTION.search(line)]
+    periods = [i for i, line in enumerate(lines)
+               if period_from_text(line + " " + (lines[i + 1] if i + 1 < len(lines) else "")) == period]
+    return any(abs(f - s) <= 2 and any(abs(f - r) <= 12 for r in receipts)
+               and any(abs(f - p) <= 12 for p in periods)
+               for f in folios for s in states)
 
 
 def assess_page(text: str, page: int, confidence: float | None) -> dict:
@@ -87,17 +105,26 @@ def assess_page(text: str, page: int, confidence: float | None) -> dict:
     receipt = bool(RECEIPT.search(t))
     status = bool(SUCCESS.search(t))
     operation = bool(TRANSACTION.search(t))
-    # No mezclar automáticamente fragmentos de distintas páginas/organismos.
-    enough = bool(receipt and status and operation and period and not negative)
+    # Sin parser de filas, cualquier indicio de varios registros exige revisión.
+    ambiguous_rows = (bool(re.search(r"\btrabajador(?:es|a|as)?\b|\bnomina\b", t))
+                      or len(extract_ruts(text)) > 1
+                      or len(list(TRANSACTION.finditer(t))) > 1
+                      or len(list(SUCCESS.finditer(t))) > 1)
+    nearby = not ambiguous_rows and _evidence_close(t, period)
+    enough = bool(receipt and status and operation and period and nearby
+                  and not ambiguous_rows and not negative)
     if confidence is not None and confidence < 75:
         enough = False  # números y estados de escaneos dudosos se revisan
     return {
         "page": page, "period": period, "negative": negative,
         "receipt": receipt, "paid_state": status, "transaction": operation,
+        "ambiguous_rows": ambiguous_rows, "evidence_close": nearby,
         "evidence_sufficient": enough,
         "reasons": ([] if enough else [
             name for name, ok in (("comprobante", receipt), ("estado de pago", status),
                                   ("folio de operación", operation), ("período", bool(period)),
+                                  ("evidencia cercana", nearby),
+                                  ("filas sin asociación verificada", not ambiguous_rows),
                                   ("lectura confiable", confidence is None or confidence >= 75))
             if not ok
         ])

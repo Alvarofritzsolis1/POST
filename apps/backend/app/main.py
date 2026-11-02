@@ -1,9 +1,7 @@
 """API GALANT POST. Ficheros privados, acceso por organización y procesamiento diferido."""
 from __future__ import annotations
-import csv
 import hashlib
-import io
-import os
+import logging
 import re
 import time
 from collections import defaultdict, deque
@@ -12,21 +10,25 @@ from uuid import uuid4
 import fitz
 from PIL import Image, UnidentifiedImageError
 from fastapi import Depends, FastAPI, File, Form, HTTPException, Request, Response, UploadFile
-from fastapi.responses import FileResponse, StreamingResponse
+from fastapi.responses import FileResponse
 from sqlalchemy import func, select, text
-from sqlalchemy.orm import Session
+from sqlalchemy.orm import Session, load_only
 
 from .config import settings
 from .db import get_db
 from .models import AuditEvent, Document, User, utcnow
-from .schemas import Dashboard, DocumentView, Login, Profile
+from .pipeline import extraction_path
+from .reports import build_workbook
+from .schemas import Dashboard, DocumentSummary, DocumentView, Login, Profile
 from .security import CSRF, SESSION, authorized_user, editor, new_session, verify_password
+from .version import VERSION
 
-app = FastAPI(title="GALANT POST — Document Intelligence", version="0.1.0", docs_url=None, redoc_url=None)
+app = FastAPI(title="GALANT POST — Document Intelligence", version=VERSION, docs_url=None, redoc_url=None)
+logger = logging.getLogger("galant.post.api")
 API = "/api/v1"
 attempts: dict[str, deque] = defaultdict(deque)
 SUPPORTED = {".pdf", ".png", ".jpg", ".jpeg", ".tif", ".tiff"}
-TYPES = {"auto", "cotizaciones", "f30_1", "independientes"}
+TYPES = {"auto", "cotizaciones", "f30_1"}
 
 
 def audit(db: Session, user: User, action: str, target: str | None = None):
@@ -46,7 +48,12 @@ def health(db: Session = Depends(get_db)):
         db.execute(text("SELECT 1"))
     except Exception:
         raise HTTPException(503, "Servicio temporalmente no disponible") from None
-    return {"status": "ok", "service": "galant-post-api"}
+    return {"status": "ok", "service": "galant-post-api", "version": VERSION}
+
+
+@app.get(API + "/version")
+def version():
+    return {"version": VERSION}
 
 
 @app.post(API + "/auth/login", response_model=Profile)
@@ -103,9 +110,12 @@ def dashboard(user: User = Depends(authorized_user), db: Session = Depends(get_d
     )
 
 
-@app.get(API + "/documents", response_model=list[DocumentView])
+@app.get(API + "/documents", response_model=list[DocumentSummary])
 def documents(category: str | None = None, user: User = Depends(authorized_user), db: Session = Depends(get_db)):
-    query = select(Document).where(Document.org_id == user.org_id)
+    query = select(Document).options(load_only(
+        Document.id, Document.original_name, Document.declared_type, Document.detected_type,
+        Document.status, Document.payment_status, Document.created_at,
+    )).where(Document.org_id == user.org_id)
     if category in TYPES - {"auto"}:
         query = query.where((Document.declared_type == category) | (Document.detected_type == category))
     return db.scalars(query.order_by(Document.created_at.desc()).limit(200)).all()
@@ -114,6 +124,7 @@ def documents(category: str | None = None, user: User = Depends(authorized_user)
 @app.post(API + "/documents", response_model=DocumentView, status_code=202)
 async def upload(file: UploadFile = File(...), category: str = Form("auto"),
                  user: User = Depends(editor), db: Session = Depends(get_db)):
+    started = time.perf_counter()
     if category not in TYPES:
         raise HTTPException(422, "Módulo inválido")
     name = re.sub(r"[^\w .()\-_]", "_", Path(file.filename or "documento.pdf").name)[:240]
@@ -157,10 +168,17 @@ async def upload(file: UploadFile = File(...), category: str = Form("auto"),
                         raise HTTPException(413, "Resolución demasiado alta")
             except (UnidentifiedImageError, OSError, Image.DecompressionBombError):
                 raise HTTPException(422, "Imagen inválida") from None
+        if db.get_bind().dialect.name == "postgresql":
+            lock_material = f"{user.org_id}:{digest.hexdigest()}:{category}".encode()
+            lock_key = int.from_bytes(hashlib.sha256(lock_material).digest()[:8], "big", signed=True)
+            db.execute(text("SELECT pg_advisory_xact_lock(:key)"), {"key": lock_key})
         already = db.scalar(select(Document).where(Document.org_id == user.org_id,
-                                                   Document.sha256 == digest.hexdigest()))
+                                                   Document.sha256 == digest.hexdigest(),
+                                                   Document.declared_type == category))
         if already:
             path.unlink(missing_ok=True)
+            logger.info("Carga duplicada %s bytes=%d validacion_s=%.4f", already.id, size,
+                        time.perf_counter() - started)
             return already
         doc = Document(id=doc_id, org_id=user.org_id, user_id=user.id,
                        original_name=name, storage_path=str(path), sha256=digest.hexdigest(),
@@ -169,6 +187,8 @@ async def upload(file: UploadFile = File(...), category: str = Form("auto"),
         audit(db, user, "document.uploaded", doc_id)
         db.commit()
         db.refresh(doc)
+        logger.info("Carga recibida %s bytes=%d validacion_s=%.4f", doc_id, size,
+                    time.perf_counter() - started)
         return doc
     except Exception:
         path.unlink(missing_ok=True)
@@ -194,6 +214,18 @@ def document_file(doc_id: str, user: User = Depends(authorized_user), db: Sessio
                         headers={"Cache-Control": "no-store", "Content-Security-Policy": "sandbox"})
 
 
+@app.get(API + "/documents/{doc_id}/extraction")
+def document_extraction(doc_id: str, user: User = Depends(authorized_user), db: Session = Depends(get_db)):
+    doc = document_for(db, user, doc_id)
+    if doc.status != "complete":
+        raise HTTPException(409, "La extracción aún no está disponible")
+    path = extraction_path(doc.storage_path)
+    if not path.is_file():
+        raise HTTPException(404, "Extracción no disponible para este documento")
+    return FileResponse(path, media_type="application/json", filename=f"galant-{doc_id}-ocr.json",
+                        headers={"Cache-Control": "no-store"})
+
+
 @app.post(API + "/documents/{doc_id}/retry", response_model=DocumentView)
 def retry(doc_id: str, user: User = Depends(editor), db: Session = Depends(get_db)):
     doc = document_for(db, user, doc_id)
@@ -201,6 +233,12 @@ def retry(doc_id: str, user: User = Depends(editor), db: Session = Depends(get_d
         raise HTTPException(409, "Ya se encuentra procesando")
     doc.status = "queued"
     doc.error = None
+    doc.detected_type = None
+    doc.payment_status = None
+    doc.page_count = 0
+    doc.extracted = {}
+    doc.evidence = []
+    doc.warnings = []
     doc.updated_at = utcnow()
     audit(db, user, "document.retry", doc_id)
     db.commit()
@@ -208,34 +246,17 @@ def retry(doc_id: str, user: User = Depends(editor), db: Session = Depends(get_d
     return doc
 
 
-def safe_csv(value):
-    out = str(value) if value is not None else ""
-    if out.startswith(("=", "+", "-", "@", "\t", "\r")):
-        out = "'" + out
-    return out
-
-
 @app.get(API + "/documents/{doc_id}/report")
 def export(doc_id: str, user: User = Depends(authorized_user), db: Session = Depends(get_db)):
+    started = time.perf_counter()
     doc = document_for(db, user, doc_id)
     if doc.status != "complete":
         raise HTTPException(409, "El procesamiento aún no ha terminado")
-    buf = io.StringIO()
-    writer = csv.writer(buf)
-    writer.writerow(["CAMPO", "VALOR"])
-    writer.writerow(["Archivo", safe_csv(doc.original_name)])
-    writer.writerow(["Estado", safe_csv(doc.payment_status)])
-    writer.writerow(["Tipo", safe_csv(doc.detected_type)])
-    writer.writerow(["Período", safe_csv(doc.extracted.get("periodo"))])
-    writer.writerow(["RUT válidos", safe_csv(", ".join(doc.extracted.get("ruts_validos", [])))])
-    writer.writerow(["Verificación ante institución", "NO"])
-    for item in doc.evidence:
-        writer.writerow(["Evidencia página " + str(item.get("pagina")), safe_csv(item.get("extracto", ""))])
-    for note in doc.warnings:
-        writer.writerow(["Observación", safe_csv(note)])
-    buf.seek(0)
+    content = build_workbook(doc)
     audit(db, user, "document.export", doc_id)
     db.commit()
-    return StreamingResponse(iter([buf.getvalue().encode("utf-8-sig")]), media_type="text/csv",
-                             headers={"Content-Disposition": f'attachment; filename="galant-{doc_id}.csv"',
-                                      "Cache-Control": "no-store"})
+    logger.info("Excel generado %s bytes=%d exportacion_s=%.4f", doc_id, len(content),
+                time.perf_counter() - started)
+    return Response(content=content, media_type="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+                    headers={"Content-Disposition": f'attachment; filename="galant-{doc_id}.xlsx"',
+                             "Cache-Control": "no-store"})

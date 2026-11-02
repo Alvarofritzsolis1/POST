@@ -1,13 +1,14 @@
 # Arquitectura POST
 
-Sistema nuevo sin Streamlit. React/Vite en navegador -> Caddy privado -> FastAPI -> PostgreSQL -> worker OCR independiente -> evidencias almacenadas y resultado.
+Sistema nuevo sin Streamlit. React/Vite en navegador -> Caddy privado -> FastAPI -> PostgreSQL -> worker OCR independiente -> JSON de extracción privado -> interpretación -> evidencias y resultado estructurado.
 
 Componentes con responsabilidades:
 - Interfaz: carga, navegación, informes y visor autenticado. Nunca ejecuta OCR.
 - API: credenciales, validación de archivos, control organizacional, publicación de resultado y trazabilidad.
-- Worker: archivo original -> texto nativo -> OCR selectivo -> interpretador documental -> base de datos.
+- Worker: archivo original -> diagnóstico por página -> texto nativo/OCR selectivo -> JSON completo por página -> interpretador documental -> base de datos. La reinterpretación verifica SHA-256, versión del motor, configuración e idioma OCR efectivo antes de reutilizar el JSON.
 - PostgreSQL: documentos, sesiones representadas por JWT, organizaciones y registros de auditoría.
-- Almacenamiento privado: volumen de archivos no expuesto al proxy ni disponible desde enlaces públicos.
+- Almacenamiento privado: volumen de archivos y JSON OCR no expuesto al proxy. Un endpoint autenticado y limitado por organización permite descargar la extracción de un documento completado.
+- Excel: se genera a partir de campos estructurados y controles por página; no exporta texto OCR bruto como resultado validado ni inventa asociaciones entre RUT y trabajadores.
 - Infraestructura: Docker Compose en puerto 18512 de loopback del VPS, sin dominio ni servicios antiguos.
 
 Las lecturas de confianza de Tesseract no son probabilidades calibradas de que un pago sea auténtico.

@@ -2,23 +2,22 @@ import {useCallback,useEffect,useMemo,useState,type ChangeEvent,type DragEvent} 
 import {
   Activity,ArrowDownToLine,ArrowRight,CheckCircle2,ChevronRight,Clock3,
   FileCheck2,FileSearch,FileText,History,LayoutDashboard,LoaderCircle,
-  LogOut,RefreshCcw,ScanLine,ShieldCheck,UploadCloud,Users2,XCircle
+  LogOut,RefreshCcw,ScanLine,ShieldCheck,UploadCloud,XCircle
 } from "lucide-react"
-import {api,type Dashboard,type DocumentView,type Profile} from "./api"
+import {api,type Dashboard,type DocumentSummary,type DocumentView,type Profile} from "./api"
 
-type Area="dashboard"|"cotizaciones"|"f30_1"|"independientes"|"history"|"review"
+type Area="dashboard"|"cotizaciones"|"f30_1"|"history"|"review"
 const nav=[
   {id:"dashboard" as Area,title:"Vista general",icon:LayoutDashboard},
   {id:"cotizaciones" as Area,title:"Cotizaciones",icon:FileCheck2},
   {id:"f30_1" as Area,title:"Certificados F30-1",icon:FileText},
-  {id:"independientes" as Area,title:"Independientes",icon:Users2},
   {id:"history" as Area,title:"Historial OCR",icon:History},
   {id:"review" as Area,title:"Pendientes de revisión",icon:FileSearch},
 ]
-const labels:Record<string,string>={cotizaciones:"Cotizaciones previsionales",f30_1:"F30-1",independientes:"Independientes",auto:"Automático",desconocido:"No identificado"}
+const labels:Record<string,string>={cotizaciones:"Cotizaciones previsionales",f30_1:"F30-1",independientes:"Cotizaciones previsionales",auto:"Automático",desconocido:"No identificado"}
 const formatDate=(value:string)=>new Date(value).toLocaleString("es-CL",{day:"2-digit",month:"short",year:"numeric",hour:"2-digit",minute:"2-digit"})
 const statusName=(value:string)=>value==="queued"?"En cola":value==="processing"?"Procesando":value==="complete"?"Procesado":"Error"
-const badgeClass=(doc:DocumentView)=>{
+const badgeClass=(doc:DocumentSummary)=>{
   if(doc.status==="error")return "status error"
   if(doc.status!=="complete")return "status waiting"
   if(doc.payment_status==="Pago acreditado documentalmente")return "status success"
@@ -56,18 +55,21 @@ function Metric({title,value,icon:Icon,kind}:{title:string;value:number;icon:typ
   return <div className="metric"><span className={"metric-icon "+(kind||"")}><Icon size={19}/></span><span className="metric-label">{title}</span><span className="metric-value">{value.toLocaleString("es-CL")}</span></div>
 }
 function App(){
+  const [version,setVersion]=useState<string|null>(null)
   const [user,setUser]=useState<Profile|null>(null)
   const [authReady,setAuthReady]=useState(false)
   const [section,setSection]=useState<Area>("dashboard")
   const [stats,setStats]=useState<Dashboard|null>(null)
-  const [list,setList]=useState<DocumentView[]>([])
+  const [list,setList]=useState<DocumentSummary[]>([])
   const [chosen,setChosen]=useState<string|null>(null)
+  const [selected,setSelected]=useState<DocumentView|null>(null)
   const [uploading,setUploading]=useState(false)
   const [dragging,setDragging]=useState(false)
   const [error,setError]=useState("")
   const [notice,setNotice]=useState("")
   const [uploadFile,setUploadFile]=useState<File|null>(null)
   useEffect(()=>{void api.me().then(setUser).catch(()=>{}).finally(()=>setAuthReady(true))},[])
+  useEffect(()=>{void api.version().then(info=>setVersion(info.version)).catch(()=>{})},[])
   const refresh=useCallback(async()=>{
     if(!user)return
     try{
@@ -81,19 +83,31 @@ function App(){
     const timer=window.setInterval(()=>void refresh(),7000)
     return()=>window.clearInterval(timer)
   },[user,refresh])
-  const selected=useMemo(()=>list.find(d=>d.id===chosen)||null,[list,chosen])
+  useEffect(()=>{
+    if(!user||!chosen)return
+    if(selected?.id===chosen&&(selected.status==="complete"||selected.status==="error"))return
+    let active=true
+    const load=async()=>{
+      try{const detail=await api.get(chosen);if(active)setSelected(detail)}
+      catch(err){if(active)setError(err instanceof Error?err.message:"No se pudo consultar el documento")}
+    }
+    void load()
+    const timer=window.setInterval(()=>void load(),7000)
+    return()=>{active=false;window.clearInterval(timer)}
+  },[user,chosen,selected?.id,selected?.status])
   const filtered=useMemo(()=>{
     if(section==="review")return list.filter(d=>d.payment_status==="Pendiente de revisión"||d.status==="error")
-    if(section==="cotizaciones"||section==="f30_1"||section==="independientes")return list.filter(d=>d.declared_type===section||d.detected_type===section)
+    if(section==="cotizaciones")return list.filter(d=>d.declared_type===section||d.detected_type===section||d.detected_type==="independientes")
+    if(section==="f30_1")return list.filter(d=>d.declared_type===section||d.detected_type===section)
     return list
   },[list,section])
-  const category=(section==="cotizaciones"||section==="f30_1"||section==="independientes")?section:"auto"
+  const category=(section==="cotizaciones"||section==="f30_1")?section:"auto"
   async function upload(){
     if(!uploadFile)return
     setUploading(true);setError("");setNotice("")
     try{
       const document=await api.upload(uploadFile,category)
-      setChosen(document.id);setUploadFile(null)
+      setSelected(document);setChosen(document.id);setUploadFile(null)
       setNotice("Archivo recibido. El motor OCR procesará el documento en segundo plano.")
       await refresh()
     }catch(err){setError(err instanceof Error?err.message:"Error de carga")}
@@ -103,16 +117,16 @@ function App(){
   function dropped(ev:DragEvent<HTMLDivElement>){
     ev.preventDefault();setDragging(false);const doc=ev.dataTransfer.files?.[0];if(doc)setUploadFile(doc)
   }
-  async function logout(){try{await api.logout()}catch{}setUser(null);setList([]);setStats(null);setChosen(null)}
+  async function logout(){try{await api.logout()}catch{}setUser(null);setList([]);setStats(null);setChosen(null);setSelected(null)}
   async function retry(id:string){
-    setError("");try{await api.retry(id);setNotice("El documento volvió a la cola de procesamiento.");await refresh()}
+    setError("");try{setSelected(await api.retry(id));setNotice("El documento volvió a la cola de procesamiento.");await refresh()}
     catch(err){setError(err instanceof Error?err.message:"No se pudo reprocesar")}
   }
   if(!authReady)return <div className="app-loading"><ScanLine size={28}/> Cargando GALANT…</div>
   if(!user)return <Login onLogin={setUser}/>
   return <div className="shell">
     <aside className="sidebar"><Logo/><div className="sidebar-label">ESPACIO DE TRABAJO</div><nav aria-label="Navegación principal">
-      {nav.map(link=><button key={link.id} className={"nav-item "+(section===link.id?"active":"")} onClick={()=>{setSection(link.id);setChosen(null);setError("");setNotice("")}}>
+      {nav.map(link=><button key={link.id} className={"nav-item "+(section===link.id?"active":"")} onClick={()=>{setSection(link.id);setChosen(null);setSelected(null);setError("");setNotice("")}}>
         <link.icon size={18}/><span>{link.title}</span>{section===link.id&&<ChevronRight size={15} className="nav-arrow"/>}
       </button>)}
     </nav><div className="sidebar-bottom"><div className="security-note"><ShieldCheck size={18}/><div><b>Verificación responsable</b><span>La evidencia documental no confirma una transacción oficial.</span></div></div><button className="profile-button" onClick={()=>void logout()} title="Cerrar sesión">
@@ -124,7 +138,7 @@ function App(){
       <div className="page">
         <div className="intro"><div><span className="eyebrow">INTELIGENCIA DOCUMENTAL · CHILE</span><h1>{section==="dashboard"?"Visión general":nav.find(x=>x.id===section)?.title}</h1>
           <p>{section==="dashboard"?"Control y trazabilidad de tus análisis documentales en un solo lugar.":"Analiza documentos y revisa las evidencias recuperadas del archivo original."}</p></div>
-        <span className="version-tag">POST / PREVIEW v0.1</span></div>
+        <span className="version-tag">GALANT — Versión {version?"v"+version:"no disponible"}</span></div>
         {error&&<div role="alert" className="alert danger"><XCircle size={18}/>{error}<button onClick={()=>setError("")}>Cerrar</button></div>}
         {notice&&<div role="status" className="alert success"><CheckCircle2 size={18}/>{notice}<button onClick={()=>setNotice("")}>Cerrar</button></div>}
         {section==="dashboard"&&<div className="stats">
@@ -151,20 +165,26 @@ function App(){
             <td><div className="file-name"><span className="file-icon"><FileText size={17}/></span><div><strong title={doc.original_name}>{doc.original_name}</strong><small>{statusName(doc.status)}</small></div></div></td>
             <td>{labels[doc.detected_type||doc.declared_type]||"Desconocido"}</td><td className="small-date">{formatDate(doc.created_at)}</td>
             <td><span className={badgeClass(doc)}>{doc.status!=="complete"?statusName(doc.status):doc.payment_status||"Sin resultado"}</span></td>
-            <td><button className="row-open" onClick={()=>setChosen(chosen===doc.id?null:doc.id)} aria-label={"Ver detalles de "+doc.original_name}><ChevronRight size={18}/></button></td></tr>)}</tbody></table></div>}
+            <td><button className="row-open" onClick={()=>{setSelected(null);setChosen(chosen===doc.id?null:doc.id)}} aria-label={"Ver detalles de "+doc.original_name}><ChevronRight size={18}/></button></td></tr>)}</tbody></table></div>}
         </section>
+        {chosen&&!selected&&<section className="detail-card"><div className="card-heading"><LoaderCircle className="spin" size={18}/> Cargando detalle del documento…</div></section>}
         {selected&&<section className="detail-card"><div className="card-heading"><div><span className="eyebrow">EVIDENCIA Y TRAZABILIDAD</span><h2>Resultado del documento</h2><p className="filename-detail">{selected.original_name}</p></div>
-          <button className="secondary close-detail" onClick={()=>setChosen(null)}>Cerrar</button></div>
+          <button className="secondary close-detail" onClick={()=>{setChosen(null);setSelected(null)}}>Cerrar</button></div>
           <div className="detail-grid"><div className="detail-info">
             <div className="detail-result"><small>ESTADO DOCUMENTAL</small><h3>{selected.payment_status||statusName(selected.status)}</h3><p>Este análisis no constituye una confirmación oficial de Previred, AFP, DT ni entidad bancaria.</p></div>
             <dl className="fields"><div><dt>Período</dt><dd>{selected.extracted.periodo||"Por determinar"}</dd></div>
-              <div><dt>Páginas</dt><dd>{selected.page_count||"Pendiente"}</dd></div>
+              <div><dt>Páginas</dt><dd>{selected.status==="processing"&&selected.extracted.progreso?
+                `${selected.extracted.progreso.procesadas} de ${selected.extracted.progreso.total??"?"} procesadas`:
+                selected.page_count||"Pendiente"}</dd></div>
               <div><dt>Identificadores RUT válidos</dt><dd>{selected.extracted.ruts_validos?.join(", ")||"No identificados"}</dd></div>
-              <div><dt>Tipo de archivo</dt><dd>{labels[selected.detected_type||selected.declared_type]||"No identificado"}</dd></div></dl>
+              <div><dt>Tipo de archivo</dt><dd>{labels[selected.detected_type||selected.declared_type]||"No identificado"}</dd></div>
+              {selected.extracted.tiempo_procesamiento_s!==undefined&&<div><dt>Tiempo de procesamiento</dt><dd>{selected.extracted.tiempo_procesamiento_s.toFixed(2)} s</dd></div>}
+              {selected.status==="complete"&&<div><dt>Extracción OCR</dt><dd>{selected.extracted.ocr_reutilizado?"Reutilizada":"Nueva"}</dd></div>}</dl>
             {selected.warnings.length>0&&<div className="observations"><b>Observaciones</b>{selected.warnings.map((w,i)=><p key={i}><Clock3 size={14}/>{w}</p>)}</div>}
             {selected.error&&<p className="form-error">{selected.error}</p>}
-            <div className="detail-actions">{selected.status==="complete"&&<a className="primary" href={api.csv(selected.id)}><ArrowDownToLine size={16}/> Descargar CSV</a>}
-              {(selected.status==="complete"||selected.status==="error")&&user.role!=="viewer"&&<button className="secondary" onClick={()=>void retry(selected.id)}><RefreshCcw size={16}/> Reprocesar</button>}</div>
+            <div className="detail-actions">{selected.status==="complete"&&<a className="primary" href={api.excel(selected.id)}><ArrowDownToLine size={16}/> Descargar Excel</a>}
+              {selected.status==="complete"&&<a className="secondary" href={api.extraction(selected.id)}><ArrowDownToLine size={16}/> Extracción JSON</a>}
+              {(selected.status==="complete"||selected.status==="error")&&user.role!=="viewer"&&<button className="secondary" onClick={()=>void retry(selected.id)}><RefreshCcw size={16}/> Volver a analizar</button>}</div>
           </div><div className="document-preview"><div className="preview-title"><FileSearch size={16}/> Documento original <span>Acceso privado</span></div>
             {selected.original_name.toLowerCase().endsWith(".pdf")?<iframe title="Vista del documento original" src={api.pdf(selected.id)}/>:
               <img alt={"Documento "+selected.original_name} src={api.pdf(selected.id)}/>}

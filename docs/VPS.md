@@ -6,7 +6,7 @@ Requisitos: Docker Engine, Compose v2, Git, Ubuntu 24.04, al menos 2.5 GB RAM li
 
 Pasos en VPS:
 
-    git clone -b feat/galant-ocr-enterprise-20261102 https://github.com/Alvarofritzsolis1/POST.git /opt/galant-post
+    git clone https://github.com/Alvarofritzsolis1/POST.git /opt/galant-post
     cd /opt/galant-post
     sudo bash scripts/install-preview.sh
 
@@ -30,4 +30,4 @@ Detener solo POST sin borrar datos:
 
     sudo docker compose --env-file .env.preview -f docker-compose.preview.yml stop
 
-No usar down -v. No modificar puertos públicos ni dominio hasta ensayar el OCR, los accesos y la seguridad. Para la eventual publicación, Nginx deberá actuar como proxy HTTPS del puerto interno 18512 y establecer SECURE_COOKIES=true en el entorno de API.
+No usar down -v. No modificar puertos públicos ni dominio hasta ensayar el OCR, los accesos y la seguridad. La versión v0.2.0 está preparada localmente, pero estas instrucciones solo serán aplicables a ese código cuando se publique en la rama que se clone. No se auditó el VPS en esta ejecución porque no hubo acceso al servidor. Para la eventual publicación, Nginx deberá actuar como proxy HTTPS del puerto interno 18512 y establecer SECURE_COOKIES=true en el entorno de API.

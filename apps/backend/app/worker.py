@@ -7,7 +7,7 @@ from sqlalchemy import or_, select
 from .config import settings
 from .db import SessionLocal
 from .models import Document, utcnow
-from .ocr import analyze
+from .pipeline import process_document
 
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger("galant.post.worker")
@@ -30,10 +30,20 @@ def process_next() -> bool:
         if doc is None:
             return False
         doc.status = "processing"
+        doc.page_count = 0
+        doc.extracted = {"progreso": {"procesadas": 0, "total": None}}
         doc.updated_at = utcnow()
-        doc_id, storage, category = doc.id, doc.storage_path, doc.declared_type
+        doc_id, storage, category, digest = doc.id, doc.storage_path, doc.declared_type, doc.sha256
     try:
-        outcome = analyze(storage, category)
+        def progress(done: int, total: int) -> None:
+            with SessionLocal.begin() as db:
+                current = db.get(Document, doc_id)
+                if current and current.status == "processing":
+                    current.page_count = done
+                    current.extracted = {"progreso": {"procesadas": done, "total": total}}
+                    current.updated_at = utcnow()
+
+        outcome = process_document(storage, category, expected_sha256=digest, progress=progress)
         with SessionLocal.begin() as db:
             doc = db.get(Document, doc_id)
             if doc:

@@ -5,9 +5,10 @@ export type Evidence = {pagina:number;motor:string;confianza_ocr:number|null;ext
 export type DocumentView = {
   id:string;original_name:string;declared_type:string;detected_type:string|null;
   status:"queued"|"processing"|"complete"|"error";payment_status:string|null;
-  page_count:number;extracted:{periodo?:string|null;ruts_validos?:string[];verificacion_externa?:boolean;controles_por_pagina?:PaymentControl[]};
+  page_count:number;extracted:{periodo?:string|null;ruts_validos?:string[];verificacion_externa?:boolean;controles_por_pagina?:PaymentControl[];ocr_reutilizado?:boolean;tiempo_ocr_s?:number;tiempo_procesamiento_s?:number;progreso?:{procesadas:number;total:number|null}};
   evidence:Evidence[];warnings:string[];error:string|null;created_at:string;updated_at:string;
 }
+export type DocumentSummary = Pick<DocumentView,"id"|"original_name"|"declared_type"|"detected_type"|"status"|"payment_status"|"created_at">
 const base="/api/v1"
 const csrf=()=>document.cookie.split("; ").find(item=>item.startsWith("galant_post_csrf="))?.split("=")[1] || ""
 
@@ -25,11 +26,12 @@ export async function request<T>(url:string,options:RequestInit={}):Promise<T> {
   return response.json() as Promise<T>
 }
 export const api={
+  version:()=>request<{version:string}>("/version"),
   login:(email:string,password:string)=>request<Profile>("/auth/login",{method:"POST",body:JSON.stringify({email,password})}),
   me:()=>request<Profile>("/auth/me"),
   logout:()=>request<{ok:boolean}>("/auth/logout",{method:"POST"}),
   dashboard:()=>request<Dashboard>("/dashboard"),
-  list:(category?:string)=>request<DocumentView[]>("/documents"+(category?"?category="+encodeURIComponent(category):"")),
+  list:(category?:string)=>request<DocumentSummary[]>("/documents"+(category?"?category="+encodeURIComponent(category):"")),
   get:(id:string)=>request<DocumentView>("/documents/"+encodeURIComponent(id)),
   upload:(file:File,category:string)=>{
     const data=new FormData()
@@ -39,5 +41,6 @@ export const api={
   },
   retry:(id:string)=>request<DocumentView>("/documents/"+encodeURIComponent(id)+"/retry",{method:"POST"}),
   pdf:(id:string)=>base+"/documents/"+encodeURIComponent(id)+"/file",
-  csv:(id:string)=>base+"/documents/"+encodeURIComponent(id)+"/report"
+  excel:(id:string)=>base+"/documents/"+encodeURIComponent(id)+"/report",
+  extraction:(id:string)=>base+"/documents/"+encodeURIComponent(id)+"/extraction"
 }
