@@ -71,6 +71,8 @@ h1{letter-spacing:-.055em}
 .login-version{display:inline-flex;align-items:center;gap:9px;margin:0 0 29px;padding:7px 11px;border:1px solid #e6e5df;border-radius:9px;font-size:10px;letter-spacing:.04em;background:#fff;color:#596b80;font-weight:700}
 .version-indicator{width:7px;height:7px;background:#4e9e84;border-radius:50%;box-shadow:0 0 0 3px rgba(78,158,132,.12)}
 .login-box form{gap:19px}
+.login-box form .form-field{display:flex;flex-direction:column;gap:10px}
+.login-box form .form-field>label{display:block}
 .login-box form label{font-size:11.5px;font-weight:800;gap:10px;color:#3d4c63}
 .login-box input{height:49px;border-color:#dfe3e9;border-radius:10px;padding:12px 15px;background:#fff;font-size:13px;color:#19273e}
 .login-box input::placeholder{color:#a2abbb}
