@@ -49,8 +49,9 @@ def test_auth_upload_and_deduplicate(client):
     csrf = client.cookies.get("galant_post_csrf")
     assert csrf
     assert client.post("/api/v1/documents", files={"file": ("test.pdf", pdf_bytes(), "application/pdf")}, data={"category":"cotizaciones"}).status_code == 403
+    upload_bytes = pdf_bytes()
     def send():
-        return client.post("/api/v1/documents", headers={"X-CSRF-Token": csrf}, files={"file": ("test.pdf", pdf_bytes(), "application/pdf")}, data={"category":"cotizaciones"})
+        return client.post("/api/v1/documents", headers={"X-CSRF-Token": csrf}, files={"file": ("test.pdf", upload_bytes, "application/pdf")}, data={"category":"cotizaciones"})
     first = send()
     assert first.status_code == 202
     doc = first.json()

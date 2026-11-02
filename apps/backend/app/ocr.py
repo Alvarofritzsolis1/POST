@@ -88,9 +88,9 @@ def rapidocr_optional(image: Image.Image, n: int) -> dict | None:
         from rapidocr import RapidOCR
         engine = RapidOCR()
         result = engine(np.array(image.convert("RGB")))
-        texts = list(result.txts or [])
+        texts = [str(t) for t in result.txts] if result.txts is not None else []
         boxes = result.boxes if result.boxes is not None else []
-        scores = list(result.scores or [])
+        scores = [float(s) for s in result.scores] if result.scores is not None else []
         tokens = []
         for i, txt in enumerate(texts[:150]):
             box = boxes[i].tolist() if hasattr(boxes[i], "tolist") else boxes[i]

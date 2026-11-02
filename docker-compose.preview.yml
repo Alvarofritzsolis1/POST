@@ -7,7 +7,7 @@ services:
     environment:
       POSTGRES_DB: galant
       POSTGRES_USER: galant
-      POSTGRES_PASSWORD: \${POSTGRES_PASSWORD:?Missing password}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?Missing password}
     volumes:
       - post_db:/var/lib/postgresql/data
     networks: [internal]
@@ -25,14 +25,14 @@ services:
     build: {context: ., dockerfile: apps/backend/Dockerfile}
     restart: unless-stopped
     environment: &backend
-      APP_SECRET: \${APP_SECRET:?Missing APP_SECRET}
-      DATABASE_URL: postgresql+psycopg://galant:\${POSTGRES_PASSWORD}@db:5432/galant
+      APP_SECRET: ${APP_SECRET:?Missing APP_SECRET}
+      DATABASE_URL: postgresql+psycopg://galant:${POSTGRES_PASSWORD}@db:5432/galant
       DOCUMENT_DIR: /data/private
-      OCR_LANGUAGE: \${OCR_LANGUAGE:-spa+eng}
+      OCR_LANGUAGE: ${OCR_LANGUAGE:-spa+eng}
       OCR_SECONDARY: disabled
-      SECURE_COOKIES: \${SECURE_COOKIES:-false}
-      MAX_UPLOAD_MB: \${MAX_UPLOAD_MB:-20}
-      MAX_PDF_PAGES: \${MAX_PDF_PAGES:-50}
+      SECURE_COOKIES: ${SECURE_COOKIES:-false}
+      MAX_UPLOAD_MB: ${MAX_UPLOAD_MB:-20}
+      MAX_PDF_PAGES: ${MAX_PDF_PAGES:-50}
     volumes: ["./preview-storage:/data/private"]
     depends_on: {db: {condition: service_healthy}}
     networks: [internal]
@@ -72,7 +72,7 @@ services:
   proxy:
     image: caddy:2-alpine
     restart: unless-stopped
-    ports: ["127.0.0.1:\${PORT:-18512}:80"]
+    ports: ["127.0.0.1:${PORT:-18512}:80"]
     volumes:
       - ./infrastructure/Caddyfile:/etc/caddy/Caddyfile:ro
     depends_on: [frontend, api]

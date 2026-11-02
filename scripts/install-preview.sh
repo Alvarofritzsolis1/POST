@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 set -Eeuo pipefail
 umask 077
-cd "$(dirname "\${BASH_SOURCE[0]}")/.."
+cd "$(dirname "${BASH_SOURCE[0]}")/.."
 if [[ $(id -u) -ne 0 ]]; then echo "Ejecuta con sudo." >&2; exit 1; fi
 if ! grep -qi '^ID=ubuntu' /etc/os-release || ! grep -Eq '^VERSION_ID="?24[.]04"?' /etc/os-release; then
     echo "Requiere Ubuntu 24.04." >&2; exit 1
@@ -21,7 +21,7 @@ if ! grep -Eq '^APP_SECRET=[[:xdigit:]]{64,}$' .env.preview || ! grep -Eq '^POST
 fi
 free_memory=$(awk '/MemAvailable:/ {print int($2/1024)}' /proc/meminfo)
 free_disk=$(df -Pm . | awk 'NR==2 {print $4}')
-echo "RAM libre: \${free_memory} MB; disco libre: \${free_disk} MB."
+echo "RAM libre: ${free_memory} MB; disco libre: ${free_disk} MB."
 if (( free_memory < 2500 || free_disk < 5500 )); then
     echo "Insuficiente RAM/disco para mantener un segundo stack. No se hizo despliegue." >&2
     exit 1
@@ -33,18 +33,18 @@ fi
 install -d -m 0700 preview-storage
 chown 10001:10001 preview-storage
 compose=(docker compose --env-file .env.preview -f docker-compose.preview.yml)
-"\${compose[@]}" config --quiet
-COMPOSE_PARALLEL_LIMIT=1 "\${compose[@]}" build
-"\${compose[@]}" up -d db api worker frontend proxy
-"\${compose[@]}" exec -T api python -m app.cli init-db
+"${compose[@]}" config --quiet
+COMPOSE_PARALLEL_LIMIT=1 "${compose[@]}" build
+"${compose[@]}" up -d db api worker frontend proxy
+"${compose[@]}" exec -T api python -m app.cli init-db
 ok=0
 for i in {1..35}; do
     if curl -fsS --max-time 4 http://127.0.0.1:18512/api/v1/health | grep -q '"status":"ok"'; then ok=1; break; fi
     sleep 3
 done
 if (( ok == 0 )); then
-    "\${compose[@]}" ps
-    "\${compose[@]}" logs --tail=50 api db proxy
+    "${compose[@]}" ps
+    "${compose[@]}" logs --tail=50 api db proxy
     echo "No se verificó salud del servicio" >&2
     exit 1
 fi
