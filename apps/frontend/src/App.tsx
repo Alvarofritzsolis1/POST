@@ -65,12 +65,13 @@ function Login({onLogin,version}:{onLogin:(user:Profile)=>void;version:string|nu
           <label>Correo electrónico
             <input type="email" required value={email} onChange={e=>setEmail(e.target.value)} autoComplete="username" placeholder="nombre@empresa.cl"/>
           </label>
-          <label>Contraseña
+          <div className="form-field">
+            <label htmlFor="galant-password">Contraseña</label>
             <span className="password-field">
-              <input type={showPassword?"text":"password"} required value={password} onChange={e=>setPassword(e.target.value)} autoComplete="current-password" placeholder="Ingresa tu contraseña"/>
+              <input id="galant-password" type={showPassword?"text":"password"} required value={password} onChange={e=>setPassword(e.target.value)} autoComplete="current-password" placeholder="Ingresa tu contraseña"/>
               <button type="button" className="password-toggle" aria-label={showPassword?"Ocultar contraseña":"Mostrar contraseña"} aria-pressed={showPassword} onClick={()=>setShowPassword(!showPassword)}>{showPassword?<EyeOff size={17}/>:<Eye size={17}/>}</button>
             </span>
-          </label>
+          </div>
           {error&&<p className="form-error" role="alert">{error}</p>}
           <button type="submit" className="primary full" disabled={pending}>{pending?<LoaderCircle size={17} className="spin"/>:null} Ingresar a GALANT <ArrowRight size={17}/></button>
         </form>
