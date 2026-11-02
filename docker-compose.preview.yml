@@ -1,0 +1,87 @@
+# Entorno de prueba POST, aislado del antiguo GALANT.
+name: galant-post-preview
+services:
+  db:
+    image: postgres:16-alpine
+    restart: unless-stopped
+    environment:
+      POSTGRES_DB: galant
+      POSTGRES_USER: galant
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?Missing password}
+    volumes:
+      - post_db:/var/lib/postgresql/data
+    networks: [internal]
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U galant -d galant"]
+      interval: 10s
+      timeout: 5s
+      retries: 8
+    security_opt: [no-new-privileges:true]
+    mem_limit: 384m
+    logging: &logs
+      driver: json-file
+      options: {max-size: "10m", max-file: "3"}
+  api:
+    build: {context: ., dockerfile: apps/backend/Dockerfile}
+    restart: unless-stopped
+    environment: &backend
+      APP_SECRET: ${APP_SECRET:?Missing APP_SECRET}
+      DATABASE_URL: postgresql+psycopg://galant:${POSTGRES_PASSWORD}@db:5432/galant
+      DOCUMENT_DIR: /data/private
+      OCR_LANGUAGE: ${OCR_LANGUAGE:-spa+eng}
+      OCR_SECONDARY: disabled
+      SECURE_COOKIES: ${SECURE_COOKIES:-false}
+      MAX_UPLOAD_MB: ${MAX_UPLOAD_MB:-20}
+      MAX_PDF_PAGES: ${MAX_PDF_PAGES:-50}
+    volumes: ["./preview-storage:/data/private"]
+    depends_on: {db: {condition: service_healthy}}
+    networks: [internal]
+    healthcheck:
+      test: ["CMD", "python", "-c", "import urllib.request;urllib.request.urlopen('http://127.0.0.1:8000/api/v1/health',timeout=5)"]
+      interval: 15s
+      retries: 8
+      timeout: 7s
+      start_period: 35s
+    security_opt: [no-new-privileges:true]
+    cap_drop: [ALL]
+    pids_limit: 100
+    mem_limit: 550m
+    logging: *logs
+  worker:
+    build: {context: ., dockerfile: apps/backend/Dockerfile}
+    restart: unless-stopped
+    command: ["python", "-m", "app.worker"]
+    environment: *backend
+    volumes: ["./preview-storage:/data/private"]
+    depends_on: {db: {condition: service_healthy}}
+    networks: [internal]
+    security_opt: [no-new-privileges:true]
+    cap_drop: [ALL]
+    mem_limit: 950m
+    cpus: 1.0
+    pids_limit: 100
+    logging: *logs
+  frontend:
+    build: {context: ., dockerfile: apps/frontend/Dockerfile}
+    restart: unless-stopped
+    depends_on: [api]
+    networks: [internal]
+    mem_limit: 120m
+    security_opt: [no-new-privileges:true]
+    logging: *logs
+  proxy:
+    image: caddy:2-alpine
+    restart: unless-stopped
+    ports: ["127.0.0.1:${PORT:-18512}:80"]
+    volumes:
+      - ./infrastructure/Caddyfile:/etc/caddy/Caddyfile:ro
+    depends_on: [frontend, api]
+    networks: [internal, frontend-network]
+    mem_limit: 130m
+    security_opt: [no-new-privileges:true]
+    logging: *logs
+networks:
+  internal: {internal: true}
+  frontend-network: {}
+volumes:
+  post_db: {}

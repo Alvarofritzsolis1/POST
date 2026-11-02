@@ -1,0 +1,5 @@
+-r requirements.txt
+# Opt-in, needs more RAM. Default stack only uses Tesseract.
+rapidocr>=3.10,<4
+onnxruntime>=1.19,<2
+numpy>=1.26,<3
