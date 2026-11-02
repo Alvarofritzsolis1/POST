@@ -32,6 +32,17 @@ class DocumentView(BaseModel):
     updated_at: datetime
 
 
+class DocumentSummary(BaseModel):
+    model_config = ConfigDict(from_attributes=True)
+    id: str
+    original_name: str
+    declared_type: str
+    detected_type: str | None
+    status: str
+    payment_status: str | None
+    created_at: datetime
+
+
 class Dashboard(BaseModel):
     total: int = 0
     finished: int = 0

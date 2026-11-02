@@ -6,13 +6,27 @@ Requisitos: Docker Engine, Compose v2, Git, Ubuntu 24.04, al menos 2.5 GB RAM li
 
 Pasos en VPS:
 
-    git clone -b feat/galant-ocr-enterprise-20261102 https://github.com/Alvarofritzsolis1/POST.git /opt/galant-post
+    git clone https://github.com/Alvarofritzsolis1/POST.git /opt/galant-post
     cd /opt/galant-post
     sudo bash scripts/install-preview.sh
 
 Después de fusionar main, ya se podrá clonar sin especificar rama. Crear admin (contraseña ingresada localmente):
 
     sudo docker compose --env-file .env.preview -f docker-compose.preview.yml exec api python -m app.cli create-admin --email ADMIN@EMPRESA.CL
+
+## Actualización automática desde GitHub
+
+El job `Deploy VPS` actualiza `/opt/galant-post` después de que la CI termine correctamente para cada push a `main` o a `feat/galant-ocr-v0.2.0`, pero solo cuando la variable de repositorio `VPS_AUTODEPLOY` tiene el valor `true`.
+
+Configura estos secretos del repositorio en GitHub antes de activar la variable:
+
+- `VPS_HOST`: IP o nombre del VPS.
+- `VPS_USER`: usuario con el que se instaló POST; en la instalación documentada es `root`.
+- `VPS_PORT`: puerto SSH, normalmente `22`.
+- `VPS_SSH_KEY`: clave privada exclusiva para este despliegue.
+- `VPS_KNOWN_HOSTS`: línea de clave de host SSH verificada para el VPS.
+
+El VPS debe conservar acceso de solo lectura al repositorio para que `git fetch origin` pueda obtener el commit. El flujo valida los servicios y la versión de la API; si falla, vuelve al commit anterior sin borrar volúmenes ni `preview-storage`.
 
 En Windows PowerShell nuevo:
 
@@ -30,4 +44,4 @@ Detener solo POST sin borrar datos:
 
     sudo docker compose --env-file .env.preview -f docker-compose.preview.yml stop
 
-No usar down -v. No modificar puertos públicos ni dominio hasta ensayar el OCR, los accesos y la seguridad. Para la eventual publicación, Nginx deberá actuar como proxy HTTPS del puerto interno 18512 y establecer SECURE_COOKIES=true en el entorno de API.
+No usar down -v. No modificar puertos públicos ni dominio hasta ensayar el OCR, los accesos y la seguridad. La versión v0.2.0 está preparada localmente, pero estas instrucciones solo serán aplicables a ese código cuando se publique en la rama que se clone. No se auditó el VPS en esta ejecución porque no hubo acceso al servidor. Para la eventual publicación, Nginx deberá actuar como proxy HTTPS del puerto interno 18512 y establecer SECURE_COOKIES=true en el entorno de API.

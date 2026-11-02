@@ -1,19 +1,20 @@
-# GALANT POST — Enterprise Document Intelligence
+# GALANT POST — v0.2.0
 
 Software documental chileno construido de cero en el repositorio POST. Frontend React + TypeScript, backend FastAPI y PostgreSQL, OCR nativo y escaneado con Tesseract. **No usa Streamlit ni importa código anterior.**
 
-> ESTADO: Base inicial en pruebas. NO usar documentos laborales reales ni publicar como producción. Ningún resultado es confirmación oficial ante Previred, DT, AFP o institución bancaria.
+> ESTADO: Versión local de evaluación. No desplegar como producción sin validar seguridad, datos y reversión. Ningún resultado confirma una transacción ante Previred, DT, AFP o una institución bancaria.
 
 ## Funciones implementadas
 
-- Interfaz original: login, dashboard, carga drag-and-drop, módulos cotizaciones / F30-1 / independientes, historial, bandeja de revisión y visor del documento.
+- Interfaz: login, dashboard, carga, módulos cotizaciones y F30-1, historial, bandeja de revisión y visor del documento. La versión visible se consulta al backend desplegado.
 - FastAPI autenticada con cookies HttpOnly, CSRF, roles, Argon2 y separación de organizaciones.
 - Carga privada de PDF / imágenes con límites, inspección de firma PDF y deduplicación SHA256.
 - Cola persistente PostgreSQL y worker OCR que registra resultados y errores.
-- PyMuPDF para texto seleccionable y páginas mixtas, Tesseract para escaneos con orientación y contraste selectivo.
-- RapidOCR opcional (no habilitado por defecto): debe evaluarse con documentos de prueba y RAM adecuada.
+- PyMuPDF para texto seleccionable y páginas mixtas, Tesseract para escaneos con orientación corregida y contraste selectivo.
+- Extracción completa por página en JSON privado con coordenadas, líneas identificables y diagnóstico. La reinterpretación reutiliza el JSON si no cambiaron el archivo, el motor y el idioma disponible.
+- RapidOCR opcional, desactivado por defecto por su consumo de memoria observado.
 - Reglas de evidencia de pago basadas en período, comprobante, estado y folio, en contexto de la misma página; nunca declarar verificación externa.
-- Evidencia por página, confianza OCR orientativa, RUT válidos, reportes CSV y reprocesamiento.
+- Evidencia por página, confianza OCR orientativa, RUT válidos, exportación Excel de campos interpretados y reinterpretación sin repetir OCR.
 
 ## Despliegue aislado en Contabo
 
@@ -22,10 +23,6 @@ En Ubuntu 24.04 con Docker Compose v2 y Git instalados:
     git clone https://github.com/Alvarofritzsolis1/POST.git /opt/galant-post
     cd /opt/galant-post
     sudo bash scripts/install-preview.sh
-
-Antes de fusionar la nueva rama a main, usar:
-
-    git clone -b feat/galant-ocr-enterprise-20261102 https://github.com/Alvarofritzsolis1/POST.git /opt/galant-post
 
 Crear administrador mediante contraseña introducida en el VPS:
 
@@ -41,10 +38,10 @@ Esta modalidad no modifica GALANT anterior, Nginx, DNS, 80/443 ni SSH. Publicaci
 
 ## Pruebas
 
-En apps/backend, instalar requirements-dev.txt, Tesseract español/inglés y ejecutar pytest -q. En apps/frontend ejecutar npm install y npm run build. GitHub Actions contiene las verificaciones.
+En apps/backend, instalar requirements-dev.txt, Tesseract español/inglés y ejecutar pytest -q. En apps/frontend ejecutar npm ci y npm run build. Para comparar OCR inicial y reinterpretación, ejecutar `python scripts/benchmark_ocr.py` o añadir `--file` con una ruta autorizada. El benchmark copia el documento a un directorio temporal privado y solo imprime métricas. GitHub Actions contiene verificaciones semanales una vez que el flujo esté en la rama principal.
 
 ## Limitaciones no resueltas
 
-Esta versión inicial NO demuestra superar al OCR antiguo en documentos reales. Faltan parser tabular por institución y trabajador, benchmark de 30+ comprobantes reales autorizados, antivirus documental, políticas de retención, migraciones formales, backup/restore probado, rate limiting distribuido, pruebas de seguridad y HTTPS. El archivo no debe considerarse aprobado en pagos solo por señales OCR.
+Un caso privado de 14 páginas reproduce y confirma la corrección de la orientación, pero no constituye una medición general de precisión. Faltan transcripciones de referencia, parser tabular por institución y trabajador, corpus amplio autorizado, antivirus documental, políticas de retención, migraciones formales, backup/restore probado, rate limiting distribuido, pruebas de seguridad y HTTPS. El archivo no debe considerarse aprobado en pagos solo por señales OCR.
 
-Consulta docs/ARQUITECTURA.md, docs/OCR_EVALUACION.md y docs/VPS.md.
+Consulta docs/ARQUITECTURA.md, docs/AUDITORIA_0.2.0.md, docs/OCR_EVALUACION.md, docs/CAMBIOS_0.2.0.md, docs/PLAN_PRUEBAS_12_MESES.md y docs/VPS.md.

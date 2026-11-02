@@ -27,6 +27,25 @@ def test_evidencia_de_paginas_distintas_no_aprueba():
     b = page("Folio: ABC12345\nEstado: Pagado AFP", n=2)
     assert assess_document([a, b], "cotizaciones")["payment_status"] == REVIEW
 
+
+def test_folio_y_estado_de_distintos_trabajadores_no_acreditan():
+    text = ("PREVIRED COMPROBANTE DE PAGO\nPeriodo: 10/2026\n"
+            "Trabajador A: Folio: ABCD123456\nTrabajador B: Estado: Pagado")
+    result = assess_document([page(text)], "cotizaciones")
+    assert result["payment_status"] == REVIEW
+    assert result["extracted"]["controles_por_pagina"][0]["ambiguous_rows"] is True
+
+
+def test_folio_y_estado_de_filas_sin_etiqueta_no_acreditan():
+    text = ("PREVIRED COMPROBANTE DE PAGO\nPeriodo: 10/2026\n"
+            "A Folio: ABCD123456\nB Estado: Pagado")
+    assert assess_document([page(text)], "cotizaciones")["payment_status"] == REVIEW
+
+
+def test_no_pago_en_lineas_separadas_no_acredita():
+    text = "PREVIRED COMPROBANTE DE PAGO\nPeriodo: 10/2026\nFolio: ABCD123456\nEstado: Pagado\nNO\nPAGO"
+    assert assess_document([page(text)], "cotizaciones")["payment_status"] == REVIEW
+
 def test_declaracion_sin_pago():
     text = "PREVIRED COMPROBANTE DE PAGO\nFolio: 123456\nPeriodo: 10/2026\nEstado: Pagado\nDECLARACION Y NO PAGO"
     assert assess_document([page(text)], "cotizaciones")["payment_status"] == REVIEW
@@ -40,3 +59,7 @@ def test_f301_separado():
     assert document_type(text) == "f30_1"
     assert assess_document([page(text)], "f30_1")["payment_status"] == REVIEW
     assert assess_document([page(text)], "cotizaciones")["payment_status"] == WRONG
+
+
+def test_cotizante_independiente_pertenece_a_cotizaciones():
+    assert document_type("Comprobante de pago de cotizante independiente") == "cotizaciones"

@@ -15,6 +15,7 @@ __pycache__/
 .venv/
 node_modules/
 dist/
+*.tsbuildinfo
 coverage/
 *.log
 .DS_Store
