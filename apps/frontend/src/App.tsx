@@ -27,7 +27,7 @@ const badgeClass=(doc:DocumentSummary)=>{
 function Logo(){
   return <div className="logo"><span className="logo-symbol"><ScanLine size={21}/></span><span><strong>GALANT</strong><small>DOCUMENT INTELLIGENCE</small></span></div>
 }
-function Login({onLogin}:{onLogin:(user:Profile)=>void}){
+function Login({onLogin,version}:{onLogin:(user:Profile)=>void;version:string|null}){
   const [email,setEmail]=useState("")
   const [password,setPassword]=useState("")
   const [error,setError]=useState("")
@@ -40,7 +40,7 @@ function Login({onLogin}:{onLogin:(user:Profile)=>void}){
   }
   return <div className="login-page">
     <div className="login-decoration"><div className="login-decoration-inner"><ScanLine size={60}/><h1>Documentos complejos.<br/>Decisiones más claras.</h1><p>Un espacio de trabajo para analizar evidencia previsional con OCR, trazabilidad y revisión humana.</p><span>GALANT POST · Plataforma de evaluación</span></div></div>
-    <div className="login-panel"><div className="login-box"><Logo/><p className="eyebrow login-intro">ACCESO PRIVADO</p><h2>Bienvenido de nuevo</h2><p className="muted">Ingresa con tu cuenta autorizada para comenzar.</p>
+    <div className="login-panel"><div className="login-box"><Logo/><p className="login-version">GALANT — Versión {version?"v"+version:"cargando…"}</p><p className="eyebrow login-intro">ACCESO PRIVADO</p><h2>Bienvenido de nuevo</h2><p className="muted">Ingresa con tu cuenta autorizada para comenzar.</p>
       <form onSubmit={submit}>
         <label>Correo electrónico<input type="email" required value={email} onChange={e=>setEmail(e.target.value)} autoComplete="username" placeholder="correo@empresa.cl"/></label>
         <label>Contraseña<input type="password" required value={password} onChange={e=>setPassword(e.target.value)} autoComplete="current-password" placeholder="Tu contraseña"/></label>
@@ -123,7 +123,7 @@ function App(){
     catch(err){setError(err instanceof Error?err.message:"No se pudo reprocesar")}
   }
   if(!authReady)return <div className="app-loading"><ScanLine size={28}/> Cargando GALANT…</div>
-  if(!user)return <Login onLogin={setUser}/>
+  if(!user)return <Login onLogin={setUser} version={version}/>
   return <div className="shell">
     <aside className="sidebar"><Logo/><div className="sidebar-label">ESPACIO DE TRABAJO</div><nav aria-label="Navegación principal">
       {nav.map(link=><button key={link.id} className={"nav-item "+(section===link.id?"active":"")} onClick={()=>{setSection(link.id);setChosen(null);setSelected(null);setError("");setNotice("")}}>

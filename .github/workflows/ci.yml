@@ -5,6 +5,9 @@ on:
   schedule:
     - cron: "0 9 * * 1"
   workflow_dispatch:
+
+permissions:
+  contents: read
 jobs:
   backend:
     runs-on: ubuntu-latest
@@ -72,3 +75,64 @@ jobs:
                   assert not ports
           PY
           rm -f .env.preview
+  deploy-vps:
+    name: Deploy VPS
+    needs: [backend, frontend, compose]
+    if: >-
+      vars.VPS_AUTODEPLOY == 'true' &&
+      (github.event_name == 'workflow_dispatch' ||
+       (github.event_name == 'push' &&
+        (github.ref == 'refs/heads/main' ||
+         github.ref == 'refs/heads/feat/galant-ocr-v0.2.0')))
+    runs-on: ubuntu-latest
+    timeout-minutes: 25
+    concurrency:
+      group: galant-post-vps-preview
+      cancel-in-progress: false
+    env:
+      VPS_HOST: ${{ secrets.VPS_HOST }}
+      VPS_USER: ${{ secrets.VPS_USER }}
+      VPS_PORT: ${{ secrets.VPS_PORT }}
+      VPS_SSH_KEY: ${{ secrets.VPS_SSH_KEY }}
+      VPS_KNOWN_HOSTS: ${{ secrets.VPS_KNOWN_HOSTS }}
+      DEPLOY_SHA: ${{ github.sha }}
+    steps:
+      - name: Validate deployment configuration
+        shell: bash
+        run: |
+          set -Eeuo pipefail
+          for key in VPS_HOST VPS_USER VPS_SSH_KEY VPS_KNOWN_HOSTS; do
+            if [[ -z "${!key}" ]]; then
+              echo "Falta el secreto ${key}." >&2
+              exit 1
+            fi
+          done
+      - name: Configure verified SSH access
+        shell: bash
+        run: |
+          set -Eeuo pipefail
+          umask 077
+          printf '%s\n' "$VPS_SSH_KEY" > "$RUNNER_TEMP/galant_vps_key"
+          printf '%s\n' "$VPS_KNOWN_HOSTS" > "$RUNNER_TEMP/galant_known_hosts"
+          chmod 600 "$RUNNER_TEMP/galant_vps_key"
+      - name: Update the isolated VPS stack
+        shell: bash
+        run: |
+          set -Eeuo pipefail
+          ssh_port="${VPS_PORT:-22}"
+          ssh -i "$RUNNER_TEMP/galant_vps_key" \
+            -o IdentitiesOnly=yes \
+            -o StrictHostKeyChecking=yes \
+            -o UserKnownHostsFile="$RUNNER_TEMP/galant_known_hosts" \
+            -p "$ssh_port" \
+            "$VPS_USER@$VPS_HOST" \
+            "bash -s -- '$DEPLOY_SHA'" <<'REMOTE'
+          set -Eeuo pipefail
+          target_ref="$1"
+          cd /opt/galant-post
+          git fetch --no-tags --depth=1 origin "$target_ref"
+          bootstrap_script="/tmp/galant-post-update-${target_ref}.sh"
+          trap 'rm -f "$bootstrap_script"' EXIT
+          git show "${target_ref}:scripts/update-preview.sh" > "$bootstrap_script"
+          GALANT_DEPLOY_DIR=/opt/galant-post bash "$bootstrap_script" "$target_ref"
+          REMOTE

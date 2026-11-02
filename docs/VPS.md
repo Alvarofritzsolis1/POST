@@ -14,6 +14,20 @@ Después de fusionar main, ya se podrá clonar sin especificar rama. Crear admin
 
     sudo docker compose --env-file .env.preview -f docker-compose.preview.yml exec api python -m app.cli create-admin --email ADMIN@EMPRESA.CL
 
+## Actualización automática desde GitHub
+
+El job `Deploy VPS` actualiza `/opt/galant-post` después de que la CI termine correctamente para cada push a `main` o a `feat/galant-ocr-v0.2.0`, pero solo cuando la variable de repositorio `VPS_AUTODEPLOY` tiene el valor `true`.
+
+Configura estos secretos del repositorio en GitHub antes de activar la variable:
+
+- `VPS_HOST`: IP o nombre del VPS.
+- `VPS_USER`: usuario con el que se instaló POST; en la instalación documentada es `root`.
+- `VPS_PORT`: puerto SSH, normalmente `22`.
+- `VPS_SSH_KEY`: clave privada exclusiva para este despliegue.
+- `VPS_KNOWN_HOSTS`: línea de clave de host SSH verificada para el VPS.
+
+El VPS debe conservar acceso de solo lectura al repositorio para que `git fetch origin` pueda obtener el commit. El flujo valida los servicios y la versión de la API; si falla, vuelve al commit anterior sin borrar volúmenes ni `preview-storage`.
+
 En Windows PowerShell nuevo:
 
     ssh -N -L 18512:127.0.0.1:18512 root@89.117.144.140
