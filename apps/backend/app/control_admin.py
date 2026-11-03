@@ -9,13 +9,13 @@ from pydantic import BaseModel, Field, model_validator
 from sqlalchemy import select
 from sqlalchemy.orm import Session
 
-from .control_api import REQUIREMENTS, today, validate_worker, validated_period
+from .control_api import REQUIREMENTS, nature_defaults, today, validate_worker, validated_period
 from .control_models import (ContractRegister, ContributionControl, MonthlyActivity,
-                             OffboardingCase, ProcessCalendar, WorkTask)
+                             OffboardingCase, ProcessCalendar, RequirementApplicability, WorkTask)
 from .db import get_db
 from .models import User, utcnow
 from .ops_api import association_for, audit_change, site_for
-from .ops_models import ContractorWorksite, MonthlyDocument
+from .ops_models import Contractor, ContractorWorksite, MonthlyDocument
 from .security import authorized_user, editor
 
 router = APIRouter(prefix="/api/v1/control/admin", tags=["Gestión administrativa"])
@@ -364,6 +364,65 @@ def list_alerts(site_id: str | None = None, user: User = Depends(authorized_user
             alerts.append({"kind": "contribution_difference", "priority": "critical",
                 "association_id": link.id, "date": None,
                 "message": "Diferencia de días cotizados", "reference_id": row.id})
+    # Documentos exigibles solo desde el inicio de solicitud configurado.
+    schedules = select(ProcessCalendar).where(
+        ProcessCalendar.org_id == user.org_id,
+        ProcessCalendar.request_date <= today_date)
+    if site_id:
+        schedules = schedules.where(ProcessCalendar.worksite_id == site_id)
+    for scheduled in db.scalars(schedules).all():
+        contractors = db.execute(select(ContractorWorksite, Contractor).join(
+            Contractor, Contractor.id == ContractorWorksite.contractor_id).where(
+            ContractorWorksite.org_id == user.org_id,
+            Contractor.org_id == user.org_id,
+            ContractorWorksite.worksite_id == scheduled.worksite_id)).all()
+        for link, company in contractors:
+            applicability = db.scalar(select(RequirementApplicability).where(
+                RequirementApplicability.org_id == user.org_id,
+                RequirementApplicability.association_id == link.id,
+                RequirementApplicability.period == scheduled.period,
+                RequirementApplicability.kind == scheduled.kind))
+            required = (applicability.applicable if applicability is not None else
+                        nature_defaults(company, link).get(scheduled.kind))
+            if required is not True:
+                continue
+            entries = db.scalars(select(MonthlyDocument).where(
+                MonthlyDocument.org_id == user.org_id,
+                MonthlyDocument.association_id == link.id,
+                MonthlyDocument.period == scheduled.period,
+                MonthlyDocument.kind == scheduled.kind)).all()
+            if any(x.review_status in ("approved", "not_applicable") for x in entries):
+                continue
+            if not entries or any(x.review_status in ("observed", "rejected", "pending") for x in entries):
+                alerts.append({"kind": "document_pending", "priority": "high" if today_date>scheduled.due_date else "normal",
+                    "association_id": link.id, "date": scheduled.due_date,
+                    "message": f"{company.name}: documento {scheduled.kind} pendiente ({scheduled.period})",
+                    "reference_id": scheduled.id})
+    # No movimientos + evidencia de asistencia o portería: alerta, nunca baja automática.
+    inactivity = select(MonthlyActivity).where(
+        MonthlyActivity.org_id == user.org_id, MonthlyActivity.status == "no_movements")
+    for item in db.scalars(inactivity).all():
+        link = db.scalar(select(ContractorWorksite).where(
+            ContractorWorksite.id == item.association_id,
+            ContractorWorksite.org_id == user.org_id))
+        if not link or (site_id and link.worksite_id != site_id):
+            continue
+        has_attendance = db.scalar(select(ContributionControl.id).where(
+            ContributionControl.org_id == user.org_id,
+            ContributionControl.association_id == link.id,
+            ContributionControl.period == item.period,
+            ContributionControl.attendance_days > 0).limit(1)) is not None
+        has_gate_report = db.scalar(select(MonthlyDocument.id).where(
+            MonthlyDocument.org_id == user.org_id,
+            MonthlyDocument.association_id == link.id,
+            MonthlyDocument.period == item.period,
+            MonthlyDocument.kind == "porteria",
+            MonthlyDocument.review_status == "approved").limit(1)) is not None
+        if has_attendance or has_gate_report:
+            alerts.append({"kind": "movement_conflict", "priority": "critical",
+                "association_id": link.id, "date": None,
+                "message": f"Sin movimientos incompatible con asistencia/portería en {item.period}",
+                "reference_id": item.id})
     return {"date": today_date, "total": len(alerts),
             "alerts": sorted(alerts, key=lambda a: (
                 {"critical": 0, "high": 1, "normal": 2, "low": 3}.get(a["priority"], 4),
