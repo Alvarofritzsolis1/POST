@@ -127,3 +127,19 @@ class RequirementApplicability(Base):
     justification: Mapped[str] = mapped_column(Text, default="", nullable=False)
     updated_by: Mapped[str] = mapped_column(ForeignKey("users.id"), nullable=False)
     updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow, nullable=False)
+
+
+class ContractAmendment(Base):
+    """Anexo contractual con trazabilidad; nunca reemplaza el contrato original."""
+    __tablename__ = "contract_amendments"
+    __table_args__ = (UniqueConstraint("contract_id", "reference", name="uq_contract_amendment_ref"),)
+    id: Mapped[str] = mapped_column(String(36), primary_key=True, default=uid)
+    org_id: Mapped[str] = mapped_column(ForeignKey("organizations.id"), nullable=False, index=True)
+    contract_id: Mapped[str] = mapped_column(ForeignKey("contract_register.id"), nullable=False, index=True)
+    amendment_date: Mapped[date] = mapped_column(Date, nullable=False)
+    previous_end_date: Mapped[date | None] = mapped_column(Date, nullable=True)
+    new_end_date: Mapped[date | None] = mapped_column(Date, nullable=True)
+    reference: Mapped[str] = mapped_column(String(160), nullable=False)
+    notes: Mapped[str] = mapped_column(Text, default="", nullable=False)
+    created_by: Mapped[str] = mapped_column(ForeignKey("users.id"), nullable=False)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow, nullable=False)
