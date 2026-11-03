@@ -6,6 +6,7 @@ import {opsControlApi,type Matrix,type Overview,type Contribution,type Contribut
         type MatrixCompany,type WorkTask,type Contract,type CalendarEntry,type Activity as MonthlyActivity,
         type Alert} from "./opsControlApi"
 import HistoricalTrends from "./HistoricalTrends"
+import AnalyticsCharts from "./AnalyticsCharts"
 import ContractImporter from "./ContractImporter"
 import "./control.css"
 
@@ -253,6 +254,7 @@ export default function ControlCenter({readOnly}:{readOnly:boolean}){
           </div>)}
         </section>
         <HistoricalTrends period={period} siteId={siteId||null}/>
+        <AnalyticsCharts period={period} siteId={siteId||null}/>
         <section className="control-card"><h2>Situaciones que requieren gestión</h2>
           <p>{alerts.length} alertas o actividades abiertas. No se aplican retenciones ni bajas automáticamente.</p>
           {alerts.slice(0,18).map((a,i)=><div className="control-alert" key={a.reference_id+"-"+i}>
