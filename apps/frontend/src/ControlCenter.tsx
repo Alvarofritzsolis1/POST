@@ -5,6 +5,8 @@ import {opsApi,type Site,type Worker} from "./opsApi"
 import {opsControlApi,type Matrix,type Overview,type Contribution,type ContributionInput,
         type MatrixCompany,type WorkTask,type Contract,type CalendarEntry,type Activity as MonthlyActivity,
         type Alert} from "./opsControlApi"
+import HistoricalTrends from "./HistoricalTrends"
+import ContractImporter from "./ContractImporter"
 import "./control.css"
 
 type Tab="overview"|"documents"|"contributions"|"contracts"|"calendar"|"tasks"|"offboarding"
@@ -250,6 +252,7 @@ export default function ControlCenter({readOnly}:{readOnly:boolean}){
             <strong>{s.compliance==null?"Sin evaluar":s.compliance+"%"}</strong>
           </div>)}
         </section>
+        <HistoricalTrends period={period} siteId={siteId||null}/>
         <section className="control-card"><h2>Situaciones que requieren gestión</h2>
           <p>{alerts.length} alertas o actividades abiertas. No se aplican retenciones ni bajas automáticamente.</p>
           {alerts.slice(0,18).map((a,i)=><div className="control-alert" key={a.reference_id+"-"+i}>
@@ -351,7 +354,7 @@ export default function ControlCenter({readOnly}:{readOnly:boolean}){
           <td>{c.payment_confirmed?"Confirmado manualmente":"Sin confirmar"}</td></tr>)}
         </tbody></table></div>
       </section>}
-      {tab==="contracts"&&<section className="control-card"><h2>Contratos y vigencias</h2>
+      {tab==="contracts"&&<><section className="control-card"><h2>Contratos y vigencias</h2>
         <p>Alertas para 30, 15 y 7 días. Los indefinidos no vencen por carecer de fecha de término.</p>
         {siteId&&!readOnly&&<form className="control-form-inline" onSubmit={event=>void saveContract(event)}>
           <label>Contratista<select value={selectedAssoc} onChange={e=>setSelectedAssoc(e.target.value)}>
@@ -369,6 +372,8 @@ export default function ControlCenter({readOnly}:{readOnly:boolean}){
             <td>{c.expiry_alert||c.status}</td></tr>)}
         </tbody></table></div>
       </section>}
+      {siteId&&tab==="contracts"&&!readOnly&&<ContractImporter siteId={siteId} onImported={()=>{void reload().catch(e=>setError(errText(e)))}}/>}
+      </>}
       {tab==="calendar"&&<section className="control-card"><h2>Calendario de exigibilidad</h2>
         <p>La solicitud se activa desde la fecha configurada; antes no se marcará vencido.</p>
         {siteId&&!readOnly&&<form className="control-form-inline" onSubmit={event=>void saveCalendar(event)}>
