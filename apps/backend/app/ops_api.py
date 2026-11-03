@@ -17,6 +17,7 @@ from .ops_models import (
     WorkerAssignment, Worksite,
 )
 from .rules import valid_rut
+from .platform_models import ContractorDetails
 from .security import authorized_user, editor
 
 router = APIRouter(prefix="/api/v1/ops", tags=["Operación manual"])
@@ -203,12 +204,20 @@ def has_active_workers(db: Session, org_id: str, contractor_id: str) -> bool:
     ).limit(1)) is not None
 
 
+def contractor_classification(link: ContractorWorksite, contractor: Contractor) -> str:
+    """One explicit classification shared by UI, imports, controls and reports."""
+    if link.frequency == "sporadic":
+        return "ESP"
+    return {"with_workers": "CT", "independent": "CI"}.get(contractor.nature, "SIN CLASIFICAR")
+
+
 def contractor_view(link: ContractorWorksite, contractor: Contractor, worker_count: int = 0) -> dict:
     return {
         "id": link.id, "site_id": link.worksite_id,
         "contractor_id": contractor.id, "name": contractor.name, "rut": contractor.rut,
         "historical_code": link.historical_code, "nature": contractor.nature,
         "frequency": link.frequency, "contract_status": link.contract_status,
+        "classification": contractor_classification(link, contractor),
         "worker_count": worker_count,
     }
 
@@ -240,7 +249,8 @@ def contractors(site_id: str, user: User = Depends(authorized_user), db: Session
         WorkerAssignment.worksite_id == site_id,
         WorkerAssignment.active.is_(True),
     ).group_by(WorkerAssignment.contractor_id)).all())
-    return [contractor_view(link, contractor, counts.get(contractor.id, 0)) for link, contractor in rows]
+    extras = {r.contractor_id: r.values for r in db.scalars(select(ContractorDetails).where(ContractorDetails.contractor_id.in_([c.id for _, c in rows])))}
+    return [{**contractor_view(link, contractor, counts.get(contractor.id, 0)), "details": extras.get(contractor.id, {})} for link, contractor in rows]
 
 
 @router.post("/contractors", status_code=201)

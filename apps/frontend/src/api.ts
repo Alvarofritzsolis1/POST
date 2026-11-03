@@ -19,6 +19,7 @@ export async function request<T>(url:string,options:RequestInit={}):Promise<T> {
   if(method!=="GET"&&method!=="HEAD") headers.set("X-CSRF-Token",csrf())
   const response=await fetch(base+url,{...options,headers,credentials:"include",cache:"no-store"})
   if(!response.ok){
+    if(response.status===401)window.dispatchEvent(new Event("galant-session-ended"))
     let message="Error HTTP "+response.status
     try {
       const data=await response.json()

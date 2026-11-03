@@ -106,10 +106,12 @@ def main():
                 if not path.is_file() or path.stat().st_size == 0:
                     raise SystemExit("Se requiere respaldo pg_dump custom no vacío")
                 subprocess.run(["pg_restore", "--list", str(path)], check=True, stdout=subprocess.DEVNULL)
+                with path.open("rb") as backup_stream:
+                    backup_hash = hashlib.file_digest(backup_stream, "sha256").hexdigest()
                 old_org = target.org_id
                 target.org_id = admin.org_id
                 from .ops_api import audit_change
-                audit_change(db, admin, "user", target.id, {"organization_link": {"from": old_org, "to": admin.org_id, "backup_sha256": hashlib.sha256(path.read_bytes()).hexdigest()}})
+                audit_change(db, admin, "user", target.id, {"organization_link": {"from": old_org, "to": admin.org_id, "backup_sha256": backup_hash}})
             target.role = args.role
         print("Usuario vinculado a la misma organización. Debe cerrar sesión y volver a ingresar")
         return

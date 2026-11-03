@@ -71,13 +71,14 @@ PY
 COMPOSE_PARALLEL_LIMIT=1 "${compose[@]}" up -d --build db api worker frontend proxy
 "${compose[@]}" exec -T api python -m app.cli init-db
 
+expected_version="$("${compose[@]}" exec -T api python -c 'from app.version import VERSION; print(VERSION)')"
 health=""
 for attempt in $(seq 1 40); do
   health="$(curl -fsS --max-time 5 http://127.0.0.1:18612/api/v1/health 2>/dev/null || true)"
-  if [[ "$health" == *'"status":"ok"'* && "$health" == *'"version":"0.4.0-rc1"'* ]]; then break; fi
+  if [[ "$health" == *'"status":"ok"'* && "$health" == *"\"version\":\"${expected_version}\""* ]]; then break; fi
   sleep 3
 done
-if [[ "$health" != *'"status":"ok"'* || "$health" != *'"version":"0.4.0-rc1"'* ]]; then
+if [[ "$health" != *'"status":"ok"'* || "$health" != *"\"version\":\"${expected_version}\""* ]]; then
   echo "QA no superó healthcheck: revisar docker compose logs" >&2; exit 4
 fi
 echo "ENTORNO QA AISLADO PREPARADO: http://127.0.0.1:18612 (solo loopback)"

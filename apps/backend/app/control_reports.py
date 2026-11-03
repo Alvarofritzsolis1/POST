@@ -17,7 +17,7 @@ from .control_api import list_contributions, monthly_matrix, validated_period, t
 from .control_models import MonthlyActivity, OffboardingCase
 from .db import get_db
 from .models import User
-from .ops_api import site_for
+from .ops_api import site_for, contractor_classification
 from .ops_models import Contractor, ContractorWorksite, Worksite, WorkerAssignment
 from .security import authorized_user
 
@@ -150,12 +150,13 @@ def cotizaciones_excel(period: str, site_id: str | None = None,
             ContractorWorksite.org_id == user.org_id,
             Contractor.org_id == user.org_id,
             ContractorWorksite.worksite_id == site.id,
-            ContractorWorksite.historical_code.in_(("CT", "CI")),
+            Contractor.nature.in_(("with_workers", "independent")),
+            ContractorWorksite.frequency != "sporadic",
         ).order_by(Contractor.name)).all()
         for link, company in rows:
             current = by_association.get(link.id, [])
             if not current:
-                sh.append([site.name, company.name, company.rut, link.historical_code,
+                sh.append([site.name, company.name, company.rut, contractor_classification(link, company),
                            period, "Sin registros", None, None, None, None, None,
                            "Sin verificar", "Sin evaluar"])
                 continue
@@ -164,7 +165,7 @@ def cotizaciones_excel(period: str, site_id: str | None = None,
                 proposal = (Decimal(row["retention_suggested"])
                             if row["retention_suggested"] is not None else None)
                 total_retention += proposal or Decimal("0.00")
-                sh.append([site.name, company.name, company.rut, link.historical_code,
+                sh.append([site.name, company.name, company.rut, contractor_classification(link, company),
                            period, row["worker"] or "Independiente",
                            row["attendance_days"], row["required_days"], row["paid_days"],
                            row["missing_days"], float(proposal) if proposal is not None else None,

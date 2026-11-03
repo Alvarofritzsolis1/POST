@@ -1,4 +1,5 @@
 """Organization-scoped administration. Cross-organization transfers are CLI-only."""
+
 from datetime import date
 from typing import Literal
 from fastapi import APIRouter, Depends, HTTPException
@@ -56,18 +57,38 @@ class SiteCreate(BaseModel):
 
 
 class Catalogs(BaseModel):
-    status_mapping: dict[str, Literal["active", "offboarding", "inactive"]] = Field(default_factory=lambda: {"ACTIVO": "active", "INACTIVO": "inactive", "BAJA": "inactive"})
-    classification_mapping: dict[str, Literal["CT", "CI", "ESP"]] = Field(default_factory=dict)
-    deadline_day: int = Field(default=10, ge=1, le=31)
+    status_mapping: dict[str, Literal["active", "offboarding", "inactive"]] = Field(
+        default_factory=lambda: {
+            "ACTIVO": "active",
+            "INACTIVO": "inactive",
+            "BAJA": "inactive",
+        }
+    )
+    classification_mapping: dict[str, Literal["CT", "CI", "ESP"]] = Field(
+        default_factory=dict
+    )
 
 
 class RateCreate(BaseModel):
+    @field_validator("effective_from")
+    @classmethod
+    def monthly_rate(cls, value):
+        if value.day != 1:
+            raise ValueError("La vigencia debe comenzar el primer día del mes auditado")
+        return value
+
     effective_from: date
     daily_clp: int = Field(ge=0, le=10000000)
 
 
 def account_view(row):
-    return {"id": row.id, "email": row.email, "role": row.role, "enabled": row.enabled, "org_id": row.org_id}
+    return {
+        "id": row.id,
+        "email": row.email,
+        "role": row.role,
+        "enabled": row.enabled,
+        "org_id": row.org_id,
+    }
 
 
 def catalogs_for(db, org_id):
@@ -79,12 +100,22 @@ def catalogs_for(db, org_id):
 def profile(user: User = Depends(authorized_user), db: Session = Depends(get_db)):
     pref = db.get(UserPreferences, user.id)
     org = db.get(Organization, user.org_id)
-    return {"user": account_view(user), "organization": org.name,
-            "preferences": Preferences.model_validate(pref.values if pref else {}).model_dump(), "version": VERSION}
+    return {
+        "user": account_view(user),
+        "organization": org.name,
+        "preferences": Preferences.model_validate(
+            pref.values if pref else {}
+        ).model_dump(),
+        "version": VERSION,
+    }
 
 
 @router.put("/preferences")
-def preferences(body: Preferences, user: User = Depends(authorized_user), db: Session = Depends(get_db)):
+def preferences(
+    body: Preferences,
+    user: User = Depends(authorized_user),
+    db: Session = Depends(get_db),
+):
     if body.default_site:
         site_for(db, user.org_id, body.default_site)
     row = db.get(UserPreferences, user.id)
@@ -97,7 +128,11 @@ def preferences(body: Preferences, user: User = Depends(authorized_user), db: Se
 
 
 @router.post("/password")
-def password(body: PasswordChange, user: User = Depends(authorized_user), db: Session = Depends(get_db)):
+def password(
+    body: PasswordChange,
+    user: User = Depends(authorized_user),
+    db: Session = Depends(get_db),
+):
     if not verify_password(body.current_password, user.password_hash):
         raise HTTPException(403, "Contraseña actual incorrecta")
     user.password_hash = hash_password(body.new_password)
@@ -108,20 +143,45 @@ def password(body: PasswordChange, user: User = Depends(authorized_user), db: Se
 
 @router.get("/users")
 def users(user: User = Depends(administrator), db: Session = Depends(get_db)):
-    return [account_view(r) for r in db.scalars(select(User).where(User.org_id == user.org_id).order_by(User.email))]
+    return [
+        account_view(r)
+        for r in db.scalars(
+            select(User).where(User.org_id == user.org_id).order_by(User.email)
+        )
+    ]
 
 
 @router.post("/users", status_code=201)
-def create_user(body: AccountCreate, user: User = Depends(administrator), db: Session = Depends(get_db)):
+def create_user(
+    body: AccountCreate,
+    user: User = Depends(administrator),
+    db: Session = Depends(get_db),
+):
     # Lock the organization to serialize administration and prevent removal of its last admin.
-    db.scalar(select(Organization).where(Organization.id == user.org_id).with_for_update())
+    db.scalar(
+        select(Organization).where(Organization.id == user.org_id).with_for_update()
+    )
     if db.scalar(select(User.id).where(User.email == body.email)):
-        raise HTTPException(409, "La cuenta ya existe. Si está en otra organización, requiere diagnóstico y vinculación supervisada desde el VPS")
-    row = User(org_id=user.org_id, email=body.email, role=body.role, password_hash=hash_password(body.password))
+        raise HTTPException(
+            409,
+            "La cuenta ya existe. Si está en otra organización, requiere diagnóstico y vinculación supervisada desde el VPS",
+        )
+    row = User(
+        org_id=user.org_id,
+        email=body.email,
+        role=body.role,
+        password_hash=hash_password(body.password),
+    )
     db.add(row)
     try:
         db.flush()
-        audit_change(db, user, "user", row.id, {"created": {"email": row.email, "role": row.role}})
+        audit_change(
+            db,
+            user,
+            "user",
+            row.id,
+            {"created": {"email": row.email, "role": row.role}},
+        )
         db.commit()
     except IntegrityError:
         db.rollback()
@@ -130,8 +190,15 @@ def create_user(body: AccountCreate, user: User = Depends(administrator), db: Se
 
 
 @router.patch("/users/{user_id}")
-def update_user(user_id: str, body: AccountPatch, user: User = Depends(administrator), db: Session = Depends(get_db)):
-    db.scalar(select(Organization).where(Organization.id == user.org_id).with_for_update())
+def update_user(
+    user_id: str,
+    body: AccountPatch,
+    user: User = Depends(administrator),
+    db: Session = Depends(get_db),
+):
+    db.scalar(
+        select(Organization).where(Organization.id == user.org_id).with_for_update()
+    )
     row = db.scalar(select(User).where(User.id == user_id, User.org_id == user.org_id))
     if row is None:
         raise HTTPException(404, "Usuario no encontrado")
@@ -145,10 +212,16 @@ def update_user(user_id: str, body: AccountPatch, user: User = Depends(administr
 
 
 @router.post("/sites", status_code=201)
-def create_site(body: SiteCreate, user: User = Depends(administrator), db: Session = Depends(get_db)):
+def create_site(
+    body: SiteCreate, user: User = Depends(administrator), db: Session = Depends(get_db)
+):
     from .ops_import import _key
+
     name = clean_name(body.name)
-    if any(_key(s.name) == _key(name) for s in db.scalars(select(Worksite).where(Worksite.org_id == user.org_id))):
+    if any(
+        _key(s.name) == _key(name)
+        for s in db.scalars(select(Worksite).where(Worksite.org_id == user.org_id))
+    ):
         raise HTTPException(409, "Ya existe una obra con ese nombre")
     row = Worksite(org_id=user.org_id, name=name)
     db.add(row)
@@ -164,7 +237,9 @@ def catalogs(user: User = Depends(authorized_user), db: Session = Depends(get_db
 
 
 @router.put("/catalogs")
-def update_catalogs(body: Catalogs, user: User = Depends(administrator), db: Session = Depends(get_db)):
+def update_catalogs(
+    body: Catalogs, user: User = Depends(administrator), db: Session = Depends(get_db)
+):
     row = db.get(OrganizationSettings, user.org_id)
     if row is None:
         row = OrganizationSettings(org_id=user.org_id)
@@ -178,19 +253,39 @@ def update_catalogs(body: Catalogs, user: User = Depends(administrator), db: Ses
 
 @router.get("/rates")
 def rates(user: User = Depends(authorized_user), db: Session = Depends(get_db)):
-    return [{"effective_from": r.effective_from, "daily_clp": r.daily_clp, "user_id": r.user_id} for r in db.scalars(
-        select(RetentionRate).where(RetentionRate.org_id == user.org_id).order_by(RetentionRate.effective_from.desc()))]
+    return [
+        {
+            "effective_from": r.effective_from,
+            "daily_clp": r.daily_clp,
+            "user_id": r.user_id,
+        }
+        for r in db.scalars(
+            select(RetentionRate)
+            .where(RetentionRate.org_id == user.org_id)
+            .order_by(RetentionRate.effective_from.desc())
+        )
+    ]
 
 
 @router.post("/rates", status_code=201)
-def create_rate(body: RateCreate, user: User = Depends(administrator), db: Session = Depends(get_db)):
+def create_rate(
+    body: RateCreate, user: User = Depends(administrator), db: Session = Depends(get_db)
+):
     row = RetentionRate(org_id=user.org_id, user_id=user.id, **body.model_dump())
     db.add(row)
     try:
         db.flush()
-        audit_change(db, user, "retention_rate", row.id, {"created": body.model_dump(mode="json")})
+        audit_change(
+            db,
+            user,
+            "retention_rate",
+            row.id,
+            {"created": body.model_dump(mode="json")},
+        )
         db.commit()
     except IntegrityError:
         db.rollback()
-        raise HTTPException(409, "Ya existe un valor para esa vigencia; se conserva su trazabilidad") from None
+        raise HTTPException(
+            409, "Ya existe un valor para esa vigencia; se conserva su trazabilidad"
+        ) from None
     return {"id": row.id}

@@ -1,4 +1,13 @@
-# GALANT POST — v0.4.0-rc1
+# GALANT POST — v0.5.0-rc1
+
+Administración compartida de contratistas, trabajadores, documentación y cotizaciones. Esta versión incorpora administración de cuentas, importaciones Excel especializadas y un espacio de trabajo por obra/período. Reutiliza los controles y contratos de la versión 0.4.0-rc1.
+
+- [Implementación, evidencia y límites](docs/ENTREGA_0.5.0.md)
+- [Matriz de auditoría](docs/AUDITORIA_0.5.0.md)
+- [Instrucciones de respaldo y actualización del VPS](docs/VPS_0.5.0.md)
+
+No se ha desplegado esta candidata ni validado la cuenta real de Ximena. Las pruebas usan datos sintéticos en entornos aislados. Los siguientes apartados conservan antecedentes de las etapas anteriores.
+
 
 Plataforma GALANT para gestión manual de contratistas y trabajadores, con importación Excel/CSV y un módulo OCR Beta separado. Frontend React + TypeScript, backend FastAPI y PostgreSQL. **No usa Streamlit ni importa código anterior.**
 

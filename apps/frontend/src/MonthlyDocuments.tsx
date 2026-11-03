@@ -38,10 +38,8 @@ export default function MonthlyDocuments({contractor,readOnly}:{contractor:Contr
   const [error,setError]=useState("")
   const [notice,setNotice]=useState("")
   const [notes,setNotes]=useState<Record<string,string>>({})
-  const independent=contractor.nature==="independent"||
-    (contractor.nature==="unclassified"&&contractor.historical_code==="CI")
-  const withWorkers=contractor.nature==="with_workers"||
-    (contractor.nature==="unclassified"&&contractor.historical_code==="CT")
+  const independent=contractor.nature==="independent"
+  const withWorkers=contractor.nature==="with_workers"
   const required=types.filter(t=>t.value!=="otros").map(t=>t.value)
 
   const reload=useCallback(async()=>{

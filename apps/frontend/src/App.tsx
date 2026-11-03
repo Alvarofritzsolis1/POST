@@ -1,52 +1,1120 @@
-import {useCallback,useEffect,useState} from 'react'
-import {Building2,LayoutDashboard,Users,FileCheck2,CalendarDays,FileSpreadsheet,BarChart3,Settings as SettingsIcon,UserCircle,LogOut,RefreshCcw,Menu} from 'lucide-react'
-import {api,type Profile} from './api'
-import {opsApi,type Site} from './opsApi'
-import {Login} from './DocumentAnalysis'
-import DocumentAnalysis from './DocumentAnalysis'
-import Operations from './Operations'
-import ControlCenter from './ControlCenter'
-import BulkImport from './BulkImport'
-import Settings from './Settings'
-import {read,send,type Contribution,type Summary,type MatrixRow,type OrgProfile,type Preferences} from './platformApi'
-const nav=[['home','Inicio',LayoutDashboard],['contractors','Contratistas',Building2],['workers','Trabajadores',Users],['documents','Control documental',FileCheck2],['contributions','Cotizaciones y asistencia',CalendarDays],['imports','Importación masiva',FileSpreadsheet],['administration','Gestión administrativa',CalendarDays],['reports','Informes',BarChart3],['settings','Configuración',SettingsIcon]] as const
-const number=(v:number|null|undefined)=>v==null?'Sin información':v.toLocaleString('es-CL',{maximumFractionDigits:2})
-const errorText=(e:unknown)=>e instanceof Error?e.message:String(e)
-type Overview={classifications:Record<string,number>;active_workers:number;up_to_date:number;observed:number;pending_documents:number;contributions:Summary;contractors:{association_id:string;contractor:string;classification:string;state:string;approved:number;pending:number;applicable:number}[]}
-function App(){
- const [user,setUser]=useState<Profile|null>(null),[ready,setReady]=useState(false),[version,setVersion]=useState<string|null>(null),[section,setSection]=useState('home'),[sites,setSites]=useState<Site[]>([]),[site,setSite]=useState(''),[period,setPeriod]=useState(()=>new Intl.DateTimeFormat('sv-SE',{timeZone:'America/Santiago',year:'numeric',month:'2-digit'}).format(new Date())),[profile,setProfile]=useState<OrgProfile|null>(null),[overview,setOverview]=useState<Overview|null>(null),[contributions,setContributions]=useState<{rows:Contribution[];summary:Summary}|null>(null),[matrix,setMatrix]=useState<MatrixRow[]>([]),[error,setError]=useState(''),[notice,setNotice]=useState(''),[profileOpen,setProfileOpen]=useState(false),[mobileOpen,setMobileOpen]=useState(false),[loading,setLoading]=useState(false),[search,setSearch]=useState(''),[filter,setFilter]=useState('all'),[classification,setClassification]=useState('all'),[editing,setEditing]=useState<Contribution|null>(null),[reviewing,setReviewing]=useState<MatrixRow|null>(null),[evidence,setEvidence]=useState(false),[sporadic,setSporadic]=useState(false),[page,setPage]=useState(0)
- const readonly=user?.role==='viewer'
- const params='period='+encodeURIComponent(period)+(site?'&site_id='+encodeURIComponent(site):'')
- const applyPreferences=useCallback((p:Preferences)=>{document.documentElement.dataset.theme=p.appearance;document.documentElement.dataset.density=p.density;setProfile(old=>old?{...old,preferences:p}:old)},[])
- useEffect(()=>{void api.me().then(setUser).catch(()=>{}).finally(()=>setReady(true));void api.version().then(v=>setVersion(v.version)).catch(()=>{})},[])
- useEffect(()=>{if(!user)return;void Promise.all([opsApi.sites(),read<OrgProfile>('/admin/profile')]).then(([s,p])=>{setSites(s);setProfile(p);applyPreferences(p.preferences);setSite(p.preferences.default_site||'')}).catch(e=>setError(errorText(e)))},[user,applyPreferences])
- const refresh=useCallback(async()=>{
-  if(!user)return
-  try{const [o,c,m]=await Promise.all([read<Overview>('/ops/overview?'+params),read<{rows:Contribution[];summary:Summary}>('/ops/contributions?'+params+'&include_sporadic='+sporadic),read<MatrixRow[]>('/ops/document-reviews?'+params)]);setOverview(o);setContributions(c);setMatrix(m);setError('')}
-  catch(e){setError(errorText(e))}
- },[user,params,sporadic])
- useEffect(()=>{if(!user)return;let active=true;const update=()=>{if(active)void refresh()};setLoading(true);void refresh().finally(()=>{if(active)setLoading(false)});const timer=setInterval(update,10000);window.addEventListener('focus',update);window.addEventListener('galant-changed',update);const sitesUpdate=()=>{void opsApi.sites().then(setSites).catch(e=>setError(errorText(e)))};window.addEventListener('galant-changed',sitesUpdate);return()=>{active=false;clearInterval(timer);window.removeEventListener('focus',update);window.removeEventListener('galant-changed',update);window.removeEventListener('galant-changed',sitesUpdate)}},[refresh,user])
- useEffect(()=>{setPage(0)},[site,period,search,filter,classification,section])
- async function logout(){try{await api.logout();setUser(null);setProfile(null);setSites([]);setOverview(null);setContributions(null);setMatrix([])}catch(e){setError(errorText(e))}}
- async function save(path:string,body:unknown){try{await send(path,body,'PUT');setNotice('Control guardado y disponible para la organización.');setEditing(null);setReviewing(null);await refresh()}catch(e){setError(errorText(e))}}
- function go(s:string){setSection(s);setFilter('all');setSearch('');setMobileOpen(false);setError('');setNotice('')}
- function drill(s:string,value='all'){go(s);setFilter(value)}
- if(!ready)return <div className="app-loading">Cargando GALANT…</div>
- if(!user)return <Login onLogin={setUser} version={version}/>
- const rows=(contributions?.rows||[]).filter(r=>(!search||(r.worker+' '+r.contractor+' '+r.worker_rut).toLowerCase().includes(search.toLowerCase()))&&(filter==='all'||r.state===filter)&&(classification==='all'||r.classification===classification))
- const cards=(overview?.contractors||[]).filter(r=>(filter==='all'||r.state===filter)&&(classification==='all'||r.classification===classification)&&r.contractor.toLowerCase().includes(search.toLowerCase()))
- const docs=matrix.filter(r=>(filter==='all'||r.state===filter)&&(r.name+' '+r.contractor).toLowerCase().includes(search.toLowerCase()))
- return <div className={'shell platform '+(mobileOpen?'menu-open':'')}><aside className="sidebar"><div className="brand"><Building2/><div><b>GALANT POST</b><small>Gestión de contratistas</small></div></div><p className="sidebar-label">ORGANIZACIÓN COMPARTIDA</p><nav aria-label="Navegación principal">{nav.map(([id,label,Icon])=><button key={id} className={'nav-item '+(section===id?'active':'')} aria-current={section===id?'page':undefined} onClick={()=>go(id)}><Icon size={18}/>{label}</button>)}</nav><div className="sidebar-bottom"><p>{profile?.organization}</p><small>v{version} · {user.role==='admin'?'Administrador':user.role==='viewer'?'Visualizador':'Analista'}</small></div></aside><main className="main"><header className="topbar"><button className="icon-button menu-toggle" aria-label="Abrir menú" onClick={()=>setMobileOpen(!mobileOpen)}><Menu/></button><strong>GALANT POST</strong><div className="global-filters"><label>Obra<select aria-label="Obra seleccionada" value={site} onChange={e=>{setSite(e.target.value);setOverview(null);setContributions(null);setMatrix([])}}><option value="">Todas las obras</option>{sites.map(s=><option key={s.id} value={s.id}>{s.name}</option>)}</select></label><label>Período<input aria-label="Período auditado" type="month" value={period} onChange={e=>{if(e.target.value){setPeriod(e.target.value);setOverview(null);setContributions(null);setMatrix([])}}}/></label></div><button className="icon-button" title="Actualizar datos" aria-label="Actualizar datos" onClick={()=>void refresh()}><RefreshCcw size={18}/></button><div className="profile-menu"><button className="profile-trigger" aria-label="Menú de perfil" aria-expanded={profileOpen} onClick={()=>setProfileOpen(!profileOpen)}><UserCircle/><span>{profile?.preferences.name||user.email}</span></button>{profileOpen&&<div className="profile-popover"><p>{user.email}</p><button onClick={()=>{go('settings');setProfileOpen(false)}}>Perfil y configuración</button><button onClick={()=>void logout()}><LogOut size={16}/> Cerrar sesión</button></div>}</div></header><div className="page"><div className="intro"><div><span className="eyebrow">{profile?.organization} / {sites.find(s=>s.id===site)?.name||'Todas las obras'}</span><h1>{nav.find(([id])=>id===section)?.[1]}</h1><p>Información compartida de tu organización · Período {period}</p></div>{section==='contractors'&&!readonly&&<button className="primary" onClick={()=>go('imports')}>Importar desde Excel</button>}</div>{error&&<div role="alert" className="alert danger">{error}</div>}{notice&&<div role="status" className="alert success">{notice}</div>}{loading&&<p role="status">Actualizando datos…</p>}
- {section==='home'&&overview&&<><div className="kpi-grid">{Object.entries(overview.classifications).map(([key,value])=><button className="kpi" key={key} onClick={()=>{drill('contractors');setClassification(key)}}><small>Contratistas {key}</small><strong>{value}</strong><span>Ver registros →</span></button>)}{[
- ['Trabajadores activos',overview.active_workers,'workers','all'],['Contratistas al día',overview.up_to_date,'home','al día'],['Con observaciones',overview.observed,'home','con observaciones'],['Documentación pendiente',overview.pending_documents,'documents','pending'],['Pagos confirmados',overview.contributions.confirmed,'contributions','confirmado'],['Pendientes de confirmación',overview.contributions.pending_confirmation,'contributions','pendiente de confirmación'],['Registros sin información',overview.contributions.without_information,'contributions','sin información'],['Promedio días registrados',number(overview.contributions.average_paid_days),'contributions','all'],['Retención estimada CLP',number(overview.contributions.estimated_retention),'contributions','all']].map(([title,value,target,state])=><button className="kpi" key={title} onClick={()=>drill(String(target),String(state))}><small>{title}</small><strong>{value}</strong><span>Ver detalle →</span></button>)}</div><p className="muted">Promedio: {overview.contributions.denominator} registros individuales con días informados. La falta de información permanece pendiente; las observaciones requieren revisión.</p><div className="toolbar"><input aria-label="Buscar contratista" placeholder="Buscar contratista" value={search} onChange={e=>setSearch(e.target.value)}/><select aria-label="Estado de cumplimiento" value={filter} onChange={e=>setFilter(e.target.value)}><option value="all">Todos los estados</option>{['al día','con observaciones','pendiente de información'].map(v=><option key={v}>{v}</option>)}</select></div><div className="contractor-grid">{cards.map(c=><button className="panel contractor-card" key={c.association_id} onClick={()=>{go('documents');setSearch(c.contractor)}}><small>{c.classification}</small><h3>{c.contractor}</h3><span className={'state '+(c.state==='al día'?'good':c.state==='con observaciones'?'bad':'pending')}>{c.state==='al día'?'✓':'△'} {c.state}</span><p>{c.approved} aprobados · {c.pending} pendientes / {c.applicable} aplicables</p></button>)}</div>{!cards.length&&<p className="empty">No hay contratistas para estos filtros. Crea una ficha o importa un Excel.</p>}</>}
- {(section==='contractors'||section==='workers')&&<Operations readOnly={readonly} externalSiteId={site} mode={section} onImport={()=>go('imports')} classificationFilter={classification}/>}
- {section==='imports'&&<BulkImport readOnly={readonly} siteId={site}/>}
- {(section==='contributions'||section==='reports')&&<section className="panel"><div className="toolbar"><input placeholder="Buscar trabajador o contratista" aria-label="Buscar control" value={search} onChange={e=>setSearch(e.target.value)}/><select aria-label="Clasificación" value={classification} onChange={e=>setClassification(e.target.value)}><option value="all">Todas las clasificaciones</option>{['CT','CI','ESP'].map(v=><option key={v}>{v}</option>)}</select><select aria-label="Estado pago" value={filter} onChange={e=>setFilter(e.target.value)}><option value="all">Todos los estados</option>{['confirmado','con diferencias','sin información','pendiente de confirmación','justificado'].map(v=><option key={v}>{v}</option>)}</select><label className="check"><input type="checkbox" checked={sporadic} onChange={e=>setSporadic(e.target.checked)}/>Incluir esporádicos y sin clasificar</label><a className="primary" href={'/api/v1/ops/contributions/report?'+params+'&include_sporadic='+sporadic}>Exportar Excel por obra</a>{section==='contributions'&&<button onClick={()=>setEvidence(!evidence)}>Analizar evidencia documental</button>}</div><p>Promedio registrado: <b>{number(contributions?.summary.average_paid_days)}</b> días · Denominador: {contributions?.summary.denominator} · Sin información: {contributions?.summary.without_information} · Retención estimada: ${number(contributions?.summary.estimated_retention)} CLP</p><div className="table-wrap"><table><thead><tr><th>Obra / contratista</th><th>Trabajador / CI</th><th>Requeridos</th><th>Pagados</th><th>Asistencia</th><th>Faltantes</th><th>Estimación CLP</th><th>Estado</th><th>Control</th></tr></thead><tbody>{rows.slice(page*50,(page+1)*50).map(r=><tr key={r.site_id+r.subject}><td>{r.site}<br/><b>{r.contractor}</b> · {r.classification}</td><td>{r.worker}<br/><small>{r.worker_rut}</small></td><td>{number(r.required_days)}</td><td>{number(r.paid_days)}</td><td>{number(r.attendance_days)}</td><td>{number(r.missing_days)}</td><td>{number(r.estimated_retention)}</td><td><span className={'state '+(r.state==='confirmado'?'good':'pending')}>{r.state}</span></td><td>{!readonly&&<button onClick={()=>setEditing({...r})}>Revisar</button>}</td></tr>)}</tbody></table></div>{!rows.length&&<p className="empty">Sin registros para estos filtros. Clasifica contratistas CT/CI y registra sus trabajadores.</p>}<div className="toolbar"><button disabled={!page} onClick={()=>setPage(page-1)}>Anterior</button><span>Página {page+1}</span><button disabled={(page+1)*50>=rows.length} onClick={()=>setPage(page+1)}>Siguiente</button></div><p className="muted">La retención es una estimación administrativa. Los días registrados no confirman por sí solos un pago. Para comparar meses, cambia el período; cada exportación conserva su competencia.</p>{evidence&&<DocumentAnalysis/>}</section>}
- {section==='documents'&&<section className="panel"><div className="toolbar"><input aria-label="Buscar documentación" placeholder="Buscar contratista o trabajador" value={search} onChange={e=>setSearch(e.target.value)}/><select aria-label="Estado documental" value={filter} onChange={e=>setFilter(e.target.value)}><option value="all">Todos los estados</option><option value="pending">Pendiente</option><option value="approved">Aprobado</option><option value="observed">Observado</option><option value="not_applicable">No aplica</option></select></div><div className="table-wrap"><table><thead><tr><th>Contratista</th><th>Persona</th><th>Requisito</th><th>Estado</th><th>Observación</th><th></th></tr></thead><tbody>{docs.slice(page*50,(page+1)*50).map((r,i)=><tr key={i}><td>{r.contractor}</td><td>{r.name}</td><td>{r.requirement}</td><td>{({pending:'△ Pendiente',approved:'✓ Aprobado',observed:'! Observado',not_applicable:'— No aplica',schedule_not_configured:'△ Sin plazo configurado',not_yet_required:'No exigible todavía',overdue:'△ Fuera de plazo',needs_classification:'Confirmar exigibilidad',rejected:'! Rechazado'} as Record<string,string>)[r.state]}</td><td>{r.observation}</td><td>{!readonly&&<button onClick={()=>setReviewing({...r})}>Revisar</button>}</td></tr>)}</tbody></table></div><div className="toolbar"><button disabled={!page} onClick={()=>setPage(page-1)}>Anterior</button><span>Página {page+1}</span><button disabled={(page+1)*50>=docs.length} onClick={()=>setPage(page+1)}>Siguiente</button></div>{!docs.length&&<p className="empty">Sin requisitos aplicables. Revisa obra y clasificación CT/CI.</p>}</section>}
- {section==='administration'&&<ControlCenter readOnly={readonly} externalSiteId={site} externalPeriod={period} initialTab="contracts"/>}
- {section==='settings'&&<Settings admin={user.role==='admin'} sites={sites} onPreferences={applyPreferences}/>}
- {editing&&<div className="modal-backdrop"><section className="panel" role="dialog" aria-modal="true" aria-label="Revisar cotizaciones"><h2>{editing.worker} · {period}</h2><p>{editing.contractor} / {editing.site}</p><form onSubmit={e=>{e.preventDefault();void save('/ops/contributions',editing)}}>{(['required_days','paid_days','attendance_days'] as const).map(key=><label key={key}>{{required_days:'Días requeridos (confirmación manual)',paid_days:'Días pagados registrados',attendance_days:'Días asistencia'}[key]}<input type="number" min="0" max="31" value={editing[key]??''} onChange={e=>setEditing({...editing,[key]:e.target.value===''?null:Number(e.target.value)})}/></label>)}{editing.suggested_days!==null&&<p>Sugerencia según historial laboral: {editing.suggested_days} días. Requiere revisión.</p>}<label>Justificación<textarea value={editing.justification} onChange={e=>setEditing({...editing,justification:e.target.value})}/></label><label className="check"><input type="checkbox" checked={editing.confirmed} onChange={e=>setEditing({...editing,confirmed:e.target.checked})}/>Pago confirmado manualmente</label><div className="toolbar"><button className="primary">Guardar control</button><button type="button" onClick={()=>setEditing(null)}>Cancelar</button></div></form>{error&&<p role="alert" className="form-error">{error}</p>}</section></div>}
- {reviewing&&<div className="modal-backdrop"><section className="panel" role="dialog" aria-modal="true" aria-label="Revisión documental"><h2>{reviewing.name}</h2><p>{reviewing.requirement} · {period}</p><form onSubmit={e=>{e.preventDefault();void save('/ops/document-reviews',reviewing)}}><label>Estado<select value={reviewing.state} onChange={e=>setReviewing({...reviewing,state:e.target.value})}><option value="pending">Pendiente</option><option value="approved">Aprobado manualmente</option><option value="observed">Observado</option><option value="not_applicable">No aplica (requiere justificación)</option></select></label><label>Observación<textarea value={reviewing.observation} onChange={e=>setReviewing({...reviewing,observation:e.target.value})}/></label><label>ID de documento existente (opcional)<input value={reviewing.document_id||''} onChange={e=>setReviewing({...reviewing,document_id:e.target.value||null})}/></label><div className="toolbar"><button className="primary">Guardar revisión</button><button type="button" onClick={()=>setReviewing(null)}>Cancelar</button></div></form>{error&&<p role="alert" className="form-error">{error}</p>}</section></div>}
- <footer className="footer">GALANT POST v{version} · {profile?.organization}<span>Datos de la organización · Actualización automática cada 10 segundos</span></footer></div></main></div>
+import { useCallback, useEffect, useState, useRef } from "react";
+import {
+  Building2,
+  LayoutDashboard,
+  Users,
+  FileCheck2,
+  CalendarDays,
+  FileSpreadsheet,
+  BarChart3,
+  Settings as SettingsIcon,
+  UserCircle,
+  LogOut,
+  RefreshCcw,
+  Menu,
+} from "lucide-react";
+import { api, type Profile } from "./api";
+import { opsApi, type Site } from "./opsApi";
+import { Login } from "./DocumentAnalysis";
+import DocumentAnalysis from "./DocumentAnalysis";
+import Operations from "./Operations";
+import ControlCenter from "./ControlCenter";
+import BulkImport from "./BulkImport";
+import Settings from "./Settings";
+import {
+  read,
+  send,
+  type Contribution,
+  type Summary,
+  type MatrixRow,
+  type OrgProfile,
+  type Preferences,
+} from "./platformApi";
+const nav = [
+  ["home", "Inicio", LayoutDashboard],
+  ["contractors", "Contratistas", Building2],
+  ["workers", "Trabajadores", Users],
+  ["documents", "Control documental", FileCheck2],
+  ["contributions", "Cotizaciones y asistencia", CalendarDays],
+  ["imports", "Importación masiva", FileSpreadsheet],
+  ["administration", "Gestión administrativa", CalendarDays],
+  ["reports", "Informes", BarChart3],
+  ["settings", "Configuración", SettingsIcon],
+] as const;
+const number = (v: number | null | undefined) =>
+  v == null
+    ? "Sin información"
+    : v.toLocaleString("es-CL", { maximumFractionDigits: 2 });
+const errorText = (e: unknown) => (e instanceof Error ? e.message : String(e));
+type Overview = {
+  activity: { id: string; kind: string; at: string; actor: string }[];
+  classifications: Record<string, number>;
+  active_workers: number;
+  observed_workers: number;
+  up_to_date: number;
+  observed: number;
+  pending_documents: number;
+  contributions: Summary;
+  contractors: {
+    association_id: string;
+    contractor: string;
+    classification: string;
+    state: string;
+    approved: number;
+    pending: number;
+    applicable: number;
+    warnings: string[];
+  }[];
+};
+function App() {
+  const [user, setUser] = useState<Profile | null>(null),
+    [ready, setReady] = useState(false),
+    [version, setVersion] = useState<string | null>(null),
+    [section, setSection] = useState("home"),
+    [sites, setSites] = useState<Site[]>([]),
+    [site, setSite] = useState(""),
+    [period, setPeriod] = useState(() =>
+      new Intl.DateTimeFormat("sv-SE", {
+        timeZone: "America/Santiago",
+        year: "numeric",
+        month: "2-digit",
+      }).format(new Date()),
+    ),
+    [profile, setProfile] = useState<OrgProfile | null>(null),
+    [overview, setOverview] = useState<Overview | null>(null),
+    [contributions, setContributions] = useState<{
+      rows: Contribution[];
+      total: number;
+      summary: Summary;
+    } | null>(null),
+    [matrix, setMatrix] = useState<MatrixRow[]>([]),
+    [error, setError] = useState(""),
+    [notice, setNotice] = useState(""),
+    [profileOpen, setProfileOpen] = useState(false),
+    [mobileOpen, setMobileOpen] = useState(false),
+    [loading, setLoading] = useState(false),
+    [search, setSearch] = useState(""),
+    [filter, setFilter] = useState("all"),
+    [classification, setClassification] = useState("all"),
+    [editing, setEditing] = useState<Contribution | null>(null),
+    [reviewing, setReviewing] = useState<MatrixRow | null>(null),
+    [evidence, setEvidence] = useState(false),
+    [sporadic, setSporadic] = useState(false),
+    [page, setPage] = useState(0);
+  const refreshGeneration = useRef(0);
+  const lastActivity = useRef<string | null>(null);
+  useEffect(() => {
+    const expired = () => {
+      setUser(null);
+      setOverview(null);
+      setContributions(null);
+      setMatrix([]);
+      setProfile(null);
+      setSites([]);
+      setEditing(null);
+      setReviewing(null);
+    };
+    window.addEventListener("galant-session-ended", expired);
+    return () => window.removeEventListener("galant-session-ended", expired);
+  }, []);
+  const readonly = user?.role === "viewer";
+  const params =
+    "period=" +
+    encodeURIComponent(period) +
+    (site ? "&site_id=" + encodeURIComponent(site) : "");
+  const applyPreferences = useCallback((p: Preferences) => {
+    document.documentElement.dataset.theme = p.appearance;
+    document.documentElement.dataset.density = p.density;
+    setProfile((old) => (old ? { ...old, preferences: p } : old));
+  }, []);
+  useEffect(() => {
+    void api
+      .me()
+      .then(setUser)
+      .catch(() => {})
+      .finally(() => setReady(true));
+    void api
+      .version()
+      .then((v) => setVersion(v.version))
+      .catch(() => {});
+  }, []);
+  useEffect(() => {
+    if (!user) return;
+    void Promise.all([opsApi.sites(), read<OrgProfile>("/admin/profile")])
+      .then(([s, p]) => {
+        setSites(s);
+        setProfile(p);
+        applyPreferences(p.preferences);
+        setSite(p.preferences.default_site || "");
+      })
+      .catch((e) => setError(errorText(e)));
+  }, [user, applyPreferences]);
+  const refresh = useCallback(async () => {
+    if (!user) return;
+    const generation = ++refreshGeneration.current;
+    try {
+      const [o, c, m] = await Promise.all([
+        read<Overview>("/ops/overview?" + params),
+        read<{ rows: Contribution[]; total: number; summary: Summary }>(
+          "/ops/contributions?" +
+            params +
+            "&include_sporadic=" +
+            sporadic +
+            "&limit=50&offset=" +
+            page * 50 +
+            "&q=" +
+            encodeURIComponent(search) +
+            "&state=" +
+            encodeURIComponent(filter) +
+            "&kind=" +
+            encodeURIComponent(classification),
+        ),
+        read<MatrixRow[]>("/ops/document-reviews?" + params),
+      ]);
+      if (generation === refreshGeneration.current) {
+        if (
+          lastActivity.current &&
+          o.activity[0]?.id !== lastActivity.current &&
+          profile?.preferences.notifications
+        )
+          setNotice(
+            "Hay nueva actividad en tu organización. Los datos se actualizaron.",
+          );
+        lastActivity.current = o.activity[0]?.id || null;
+        setOverview(o);
+        setContributions(c);
+        setMatrix(m);
+        setError("");
+      }
+    } catch (e) {
+      if (generation === refreshGeneration.current) setError(errorText(e));
+    }
+  }, [
+    user,
+    params,
+    sporadic,
+    profile?.preferences.notifications,
+    page,
+    search,
+    filter,
+    classification,
+  ]);
+  useEffect(() => {
+    if (!user) return;
+    let active = true;
+    const update = () => {
+      if (active) void refresh();
+    };
+    setLoading(true);
+    void refresh().finally(() => {
+      if (active) setLoading(false);
+    });
+    const timer = setInterval(update, 10000);
+    window.addEventListener("focus", update);
+    window.addEventListener("galant-changed", update);
+    const sitesUpdate = () => {
+      void opsApi
+        .sites()
+        .then(setSites)
+        .catch((e) => setError(errorText(e)));
+    };
+    window.addEventListener("galant-changed", sitesUpdate);
+    return () => {
+      active = false;
+      clearInterval(timer);
+      window.removeEventListener("focus", update);
+      window.removeEventListener("galant-changed", update);
+      window.removeEventListener("galant-changed", sitesUpdate);
+    };
+  }, [refresh, user]);
+  useEffect(() => {
+    setPage(0);
+  }, [site, period, search, filter, classification, section]);
+  async function logout() {
+    try {
+      await api.logout();
+      setUser(null);
+      setProfile(null);
+      setSites([]);
+      setOverview(null);
+      setContributions(null);
+      setMatrix([]);
+      lastActivity.current = null;
+    } catch (e) {
+      setError(errorText(e));
+    }
+  }
+  async function save(path: string, body: unknown) {
+    try {
+      await send(path, body, "PUT");
+      setNotice("Control guardado y disponible para la organización.");
+      setEditing(null);
+      setReviewing(null);
+      await refresh();
+    } catch (e) {
+      setError(errorText(e));
+    }
+  }
+  function go(s: string) {
+    setSection(s);
+    setFilter("all");
+    setSearch("");
+    setMobileOpen(false);
+    setError("");
+    setNotice("");
+  }
+  function drill(s: string, value = "all") {
+    go(s);
+    setFilter(value);
+  }
+  if (!ready) return <div className="app-loading">Cargando GALANT…</div>;
+  if (!user) return <Login onLogin={setUser} version={version} />;
+  const rows = (contributions?.rows || []).filter(
+    (r) =>
+      (!search ||
+        (r.worker + " " + r.contractor + " " + r.worker_rut)
+          .toLowerCase()
+          .includes(search.toLowerCase())) &&
+      (filter === "all" ||
+        r.state === filter ||
+        (filter === "payment_confirmed" && r.confirmed) ||
+        (filter === "payment_pending" &&
+          r.paid_days !== null &&
+          !r.confirmed) ||
+        (filter === "differences" && (r.missing_days || 0) > 0)) &&
+      (classification === "all" || r.classification === classification),
+  );
+  const cards = (overview?.contractors || []).filter(
+    (r) =>
+      (filter === "all" || r.state === filter) &&
+      (classification === "all" || r.classification === classification) &&
+      r.contractor.toLowerCase().includes(search.toLowerCase()),
+  );
+  const docs = matrix.filter(
+    (r) =>
+      (filter === "all" ||
+        r.state === filter ||
+        (filter === "pending" &&
+          ["pending", "overdue", "schedule_not_configured"].includes(
+            r.state,
+          ))) &&
+      (r.name + " " + r.contractor)
+        .toLowerCase()
+        .includes(search.toLowerCase()),
+  );
+  return (
+    <div className={"shell platform " + (mobileOpen ? "menu-open" : "")}>
+      <aside className="sidebar">
+        <div className="brand">
+          <Building2 />
+          <div>
+            <b>GALANT POST</b>
+            <small>Gestión de contratistas</small>
+          </div>
+        </div>
+        <p className="sidebar-label">ORGANIZACIÓN COMPARTIDA</p>
+        <nav aria-label="Navegación principal">
+          {nav.map(([id, label, Icon]) => (
+            <button
+              key={id}
+              className={"nav-item " + (section === id ? "active" : "")}
+              aria-current={section === id ? "page" : undefined}
+              onClick={() => go(id)}
+            >
+              <Icon size={18} />
+              {label}
+            </button>
+          ))}
+        </nav>
+        <div className="sidebar-bottom">
+          <p>{profile?.organization}</p>
+          <small>
+            v{version} ·{" "}
+            {user.role === "admin"
+              ? "Administrador"
+              : user.role === "viewer"
+                ? "Visualizador"
+                : "Analista"}
+          </small>
+        </div>
+      </aside>
+      <main className="main">
+        <header className="topbar">
+          <button
+            className="icon-button menu-toggle"
+            aria-label="Abrir menú"
+            onClick={() => setMobileOpen(!mobileOpen)}
+          >
+            <Menu />
+          </button>
+          <strong>GALANT POST</strong>
+          <div className="global-filters">
+            <label>
+              Obra
+              <select
+                aria-label="Obra seleccionada"
+                value={site}
+                onChange={(e) => {
+                  setSite(e.target.value);
+                  setOverview(null);
+                  setContributions(null);
+                  setMatrix([]);
+                }}
+              >
+                <option value="">Todas las obras</option>
+                {sites.map((s) => (
+                  <option key={s.id} value={s.id}>
+                    {s.name}
+                  </option>
+                ))}
+              </select>
+            </label>
+            <label>
+              Período
+              <input
+                aria-label="Período auditado"
+                type="month"
+                value={period}
+                onChange={(e) => {
+                  if (e.target.value) {
+                    setPeriod(e.target.value);
+                    setOverview(null);
+                    setContributions(null);
+                    setMatrix([]);
+                  }
+                }}
+              />
+            </label>
+          </div>
+          <button
+            className="icon-button"
+            title="Actualizar datos"
+            aria-label="Actualizar datos"
+            onClick={() => void refresh()}
+          >
+            <RefreshCcw size={18} />
+          </button>
+          <div className="profile-menu">
+            <button
+              className="profile-trigger"
+              aria-label="Menú de perfil"
+              aria-expanded={profileOpen}
+              onClick={() => setProfileOpen(!profileOpen)}
+            >
+              <UserCircle />
+              <span>{profile?.preferences.name || user.email}</span>
+            </button>
+            {profileOpen && (
+              <div className="profile-popover">
+                <p>{user.email}</p>
+                <button
+                  onClick={() => {
+                    go("settings");
+                    setProfileOpen(false);
+                  }}
+                >
+                  Perfil y configuración
+                </button>
+                <button onClick={() => void logout()}>
+                  <LogOut size={16} /> Cerrar sesión
+                </button>
+              </div>
+            )}
+          </div>
+        </header>
+        <div className="page">
+          <div className="intro">
+            <div>
+              <span className="eyebrow">
+                {profile?.organization} /{" "}
+                {sites.find((s) => s.id === site)?.name || "Todas las obras"}
+              </span>
+              <h1>{nav.find(([id]) => id === section)?.[1]}</h1>
+              <p>
+                Información compartida de tu organización · Período {period}
+              </p>
+            </div>
+            {section === "contractors" && !readonly && (
+              <button className="primary" onClick={() => go("imports")}>
+                Importar desde Excel
+              </button>
+            )}
+          </div>
+          {error && (
+            <div role="alert" className="alert danger">
+              {error}
+            </div>
+          )}
+          {notice && (
+            <div role="status" className="alert success">
+              {notice}
+            </div>
+          )}
+          {loading && <p role="status">Actualizando datos…</p>}
+          {section === "home" && overview && (
+            <>
+              <div className="kpi-grid">
+                {Object.entries(overview.classifications).map(
+                  ([key, value]) => (
+                    <button
+                      className="kpi"
+                      key={key}
+                      onClick={() => {
+                        drill("contractors");
+                        setClassification(key);
+                      }}
+                    >
+                      <small>Contratistas {key}</small>
+                      <strong>{value}</strong>
+                      <span>Ver registros →</span>
+                    </button>
+                  ),
+                )}
+                {[
+                  [
+                    "Trabajadores activos",
+                    overview.active_workers,
+                    "workers",
+                    "all",
+                  ],
+                  [
+                    "Contratistas al día",
+                    overview.up_to_date,
+                    "home",
+                    "al día",
+                  ],
+                  [
+                    "Con observaciones",
+                    overview.observed,
+                    "home",
+                    "con observaciones",
+                  ],
+                  [
+                    "Documentación pendiente",
+                    overview.pending_documents,
+                    "documents",
+                    "pending",
+                  ],
+                  [
+                    "Pagos confirmados",
+                    overview.contributions.confirmed,
+                    "contributions",
+                    "payment_confirmed",
+                  ],
+                  [
+                    "Pendientes de confirmación",
+                    overview.contributions.pending_confirmation,
+                    "contributions",
+                    "payment_pending",
+                  ],
+                  [
+                    "Registros sin información",
+                    overview.contributions.without_information,
+                    "contributions",
+                    "sin información",
+                  ],
+                  [
+                    "Promedio días registrados",
+                    number(overview.contributions.average_paid_days),
+                    "contributions",
+                    "all",
+                  ],
+                  [
+                    "Trabajadores con observaciones",
+                    overview.observed_workers,
+                    "documents",
+                    "observed",
+                  ],
+                  [
+                    "Registros con diferencias",
+                    overview.contributions.with_differences,
+                    "contributions",
+                    "differences",
+                  ],
+                  [
+                    "Días faltantes acumulados",
+                    overview.contributions.missing_days,
+                    "contributions",
+                    "differences",
+                  ],
+                  [
+                    "Retención estimada CLP",
+                    number(overview.contributions.estimated_retention),
+                    "contributions",
+                    "all",
+                  ],
+                ].map(([title, value, target, state]) => (
+                  <button
+                    className="kpi"
+                    key={title}
+                    onClick={() => drill(String(target), String(state))}
+                  >
+                    <small>{title}</small>
+                    <strong>{value}</strong>
+                    <span>Ver detalle →</span>
+                  </button>
+                ))}
+              </div>
+              <p className="muted">
+                Promedio: {overview.contributions.denominator} registros
+                individuales con días informados. La falta de información
+                permanece pendiente; las observaciones requieren revisión.
+              </p>
+              <div className="toolbar">
+                <input
+                  aria-label="Buscar contratista"
+                  placeholder="Buscar contratista"
+                  value={search}
+                  onChange={(e) => setSearch(e.target.value)}
+                />
+                <select
+                  aria-label="Estado de cumplimiento"
+                  value={filter}
+                  onChange={(e) => setFilter(e.target.value)}
+                >
+                  <option value="all">Todos los estados</option>
+                  {[
+                    "al día",
+                    "con observaciones",
+                    "pendiente de información",
+                  ].map((v) => (
+                    <option key={v}>{v}</option>
+                  ))}
+                </select>
+              </div>
+              <div className="contractor-grid">
+                {cards.map((c) => (
+                  <button
+                    className="panel contractor-card"
+                    key={c.association_id}
+                    onClick={() => {
+                      go("documents");
+                      setSearch(c.contractor);
+                    }}
+                  >
+                    <small>{c.classification}</small>
+                    <h3>{c.contractor}</h3>
+                    <span
+                      className={
+                        "state " +
+                        (c.state === "al día"
+                          ? "good"
+                          : c.state === "con observaciones"
+                            ? "bad"
+                            : "pending")
+                      }
+                    >
+                      {c.state === "al día" ? "✓" : "△"} {c.state}
+                    </span>
+                    <p>
+                      {c.approved} aprobados · {c.pending} pendientes /{" "}
+                      {c.applicable} aplicables
+                    </p>
+                  </button>
+                ))}
+              </div>
+              {!cards.length && (
+                <p className="empty">
+                  No hay contratistas para estos filtros. Crea una ficha o
+                  importa un Excel.
+                </p>
+              )}
+              <section className="panel">
+                <h2>Actividad reciente</h2>
+                {overview.activity.length ? (
+                  <ul className="activity-list">
+                    {overview.activity.map((a) => (
+                      <li key={a.id}>
+                        <span>
+                          {(
+                            {
+                              contractor: "Contratista actualizado",
+                              contractor_worksite: "Asignación de contratista",
+                              worker: "Trabajador actualizado",
+                              worker_assignment: "Asignación laboral",
+                              contractors: "Importación de contratistas",
+                              workers: "Importación de trabajadores",
+                              contribution_control: "Control de cotizaciones",
+                              monthly_document: "Revisión documental",
+                              user: "Administración de cuenta",
+                              catalogs: "Catálogos actualizados",
+                              retention_rate: "Valor de retención actualizado",
+                            } as Record<string, string>
+                          )[a.kind] || "Registro administrativo actualizado"}
+                        </span>
+                        <small>
+                          {a.actor} ·{" "}
+                          {new Date(a.at).toLocaleString("es-CL", {
+                            timeZone: "America/Santiago",
+                          })}
+                        </small>
+                      </li>
+                    ))}
+                  </ul>
+                ) : (
+                  <p>Aún no hay actividad registrada.</p>
+                )}
+              </section>
+            </>
+          )}
+          {(section === "contractors" || section === "workers") &&
+            (site ? (
+              <Operations
+                readOnly={readonly}
+                externalSiteId={site}
+                mode={section}
+                onImport={() => go("imports")}
+                classificationFilter={classification}
+                onSiteChange={setSite}
+              />
+            ) : (
+              <div className="panel empty">
+                Selecciona una obra en la barra superior para administrar sus
+                contratistas y trabajadores.
+              </div>
+            ))}
+          {section === "imports" && (
+            <BulkImport readOnly={readonly} siteId={site} />
+          )}
+          {(section === "contributions" || section === "reports") && (
+            <section className="panel">
+              <div className="toolbar">
+                <input
+                  placeholder="Buscar trabajador o contratista"
+                  aria-label="Buscar control"
+                  value={search}
+                  onChange={(e) => setSearch(e.target.value)}
+                />
+                <select
+                  aria-label="Clasificación"
+                  value={classification}
+                  onChange={(e) => setClassification(e.target.value)}
+                >
+                  <option value="all">Todas las clasificaciones</option>
+                  {["CT", "CI", "ESP"].map((v) => (
+                    <option key={v}>{v}</option>
+                  ))}
+                </select>
+                <select
+                  aria-label="Estado pago"
+                  value={filter}
+                  onChange={(e) => setFilter(e.target.value)}
+                >
+                  <option value="all">Todos los estados</option>
+                  {[
+                    "confirmado",
+                    "con diferencias",
+                    "sin información",
+                    "pendiente de confirmación",
+                    "justificado",
+                  ].map((v) => (
+                    <option key={v}>{v}</option>
+                  ))}
+                </select>
+                <label className="check">
+                  <input
+                    type="checkbox"
+                    checked={sporadic}
+                    onChange={(e) => setSporadic(e.target.checked)}
+                  />
+                  Incluir esporádicos y sin clasificar
+                </label>
+                <a
+                  className="primary"
+                  href={
+                    "/api/v1/ops/contributions/report?" +
+                    params +
+                    "&include_sporadic=" +
+                    sporadic +
+                    "&q=" +
+                    encodeURIComponent(search) +
+                    "&state=" +
+                    encodeURIComponent(filter) +
+                    "&kind=" +
+                    encodeURIComponent(classification)
+                  }
+                >
+                  Exportar Excel por obra
+                </a>
+                {section === "contributions" && (
+                  <button onClick={() => setEvidence(!evidence)}>
+                    Analizar evidencia documental
+                  </button>
+                )}
+              </div>
+              <p>
+                Promedio registrado:{" "}
+                <b>{number(contributions?.summary.average_paid_days)}</b> días ·
+                Denominador: {contributions?.summary.denominator} · Sin
+                información: {contributions?.summary.without_information} ·
+                Retención estimada: $
+                {number(contributions?.summary.estimated_retention)} CLP
+              </p>
+              <div className="table-wrap">
+                <table>
+                  <thead>
+                    <tr>
+                      <th>Obra / contratista</th>
+                      <th>Trabajador / CI</th>
+                      <th>Requeridos</th>
+                      <th>Pagados</th>
+                      <th>Asistencia</th>
+                      <th>Faltantes</th>
+                      <th>Estimación CLP</th>
+                      <th>Estado</th>
+                      <th>Control</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {rows.map((r) => (
+                      <tr key={r.site_id + r.subject}>
+                        <td>
+                          {r.site}
+                          <br />
+                          <b>{r.contractor}</b> · {r.classification}
+                        </td>
+                        <td>
+                          {r.worker}
+                          <br />
+                          <small>{r.worker_rut}</small>
+                        </td>
+                        <td>{number(r.required_days)}</td>
+                        <td>{number(r.paid_days)}</td>
+                        <td>{number(r.attendance_days)}</td>
+                        <td>{number(r.missing_days)}</td>
+                        <td>{number(r.estimated_retention)}</td>
+                        <td>
+                          <span
+                            className={
+                              "state " +
+                              (r.state === "confirmado" ? "good" : "pending")
+                            }
+                          >
+                            {r.state}
+                          </span>
+                        </td>
+                        <td>
+                          {!readonly && (
+                            <button onClick={() => setEditing({ ...r })}>
+                              Revisar
+                            </button>
+                          )}
+                        </td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+              {!rows.length && (
+                <p className="empty">
+                  Sin registros para estos filtros. Clasifica contratistas CT/CI
+                  y registra sus trabajadores.
+                </p>
+              )}
+              <div className="toolbar">
+                <button disabled={!page} onClick={() => setPage(page - 1)}>
+                  Anterior
+                </button>
+                <span>Página {page + 1}</span>
+                <button
+                  disabled={(page + 1) * 50 >= (contributions?.total || 0)}
+                  onClick={() => setPage(page + 1)}
+                >
+                  Siguiente
+                </button>
+              </div>
+              <p className="muted">
+                La retención es una estimación administrativa. Los días
+                registrados no confirman por sí solos un pago. Para comparar
+                meses, cambia el período; cada exportación conserva su
+                competencia.
+              </p>
+              {evidence && <DocumentAnalysis />}
+            </section>
+          )}
+          {section === "documents" && (
+            <section className="panel">
+              <div className="toolbar">
+                <input
+                  aria-label="Buscar documentación"
+                  placeholder="Buscar contratista o trabajador"
+                  value={search}
+                  onChange={(e) => setSearch(e.target.value)}
+                />
+                <select
+                  aria-label="Estado documental"
+                  value={filter}
+                  onChange={(e) => setFilter(e.target.value)}
+                >
+                  <option value="all">Todos los estados</option>
+                  <option value="pending">Pendiente</option>
+                  <option value="approved">Aprobado</option>
+                  <option value="observed">Observado</option>
+                  <option value="not_applicable">No aplica</option>
+                </select>
+              </div>
+              <div className="table-wrap">
+                <table>
+                  <thead>
+                    <tr>
+                      <th>Contratista</th>
+                      <th>Persona</th>
+                      <th>Requisito</th>
+                      <th>Estado</th>
+                      <th>Observación</th>
+                      <th></th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {docs.slice(page * 50, (page + 1) * 50).map((r, i) => (
+                      <tr key={i}>
+                        <td>{r.contractor}</td>
+                        <td>{r.name}</td>
+                        <td>{r.requirement}</td>
+                        <td>
+                          {
+                            (
+                              {
+                                pending: "△ Pendiente",
+                                approved: "✓ Aprobado",
+                                observed: "! Observado",
+                                not_applicable: "— No aplica",
+                                schedule_not_configured:
+                                  "△ Sin plazo configurado",
+                                not_yet_required: "No exigible todavía",
+                                overdue: "△ Fuera de plazo",
+                                needs_classification: "Confirmar exigibilidad",
+                                rejected: "! Rechazado",
+                              } as Record<string, string>
+                            )[r.state]
+                          }
+                        </td>
+                        <td>{r.observation}</td>
+                        <td>
+                          {!readonly && (
+                            <button onClick={() => setReviewing({ ...r })}>
+                              Revisar
+                            </button>
+                          )}
+                        </td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+              <div className="toolbar">
+                <button disabled={!page} onClick={() => setPage(page - 1)}>
+                  Anterior
+                </button>
+                <span>Página {page + 1}</span>
+                <button
+                  disabled={(page + 1) * 50 >= docs.length}
+                  onClick={() => setPage(page + 1)}
+                >
+                  Siguiente
+                </button>
+              </div>
+              {!docs.length && (
+                <p className="empty">
+                  Sin requisitos aplicables. Revisa obra y clasificación CT/CI.
+                </p>
+              )}
+            </section>
+          )}
+          {section === "administration" && (
+            <ControlCenter
+              readOnly={readonly}
+              externalSiteId={site}
+              externalPeriod={period}
+              initialTab="contracts"
+              onContextChange={(s, p) => {
+                setSite(s);
+                setPeriod(p);
+              }}
+            />
+          )}
+          {section === "settings" && (
+            <Settings
+              admin={user.role === "admin"}
+              sites={sites}
+              onPreferences={applyPreferences}
+            />
+          )}
+          {editing && (
+            <div className="modal-backdrop">
+              <section
+                className="panel"
+                role="dialog"
+                aria-modal="true"
+                aria-label="Revisar cotizaciones"
+              >
+                <h2>
+                  {editing.worker} · {period}
+                </h2>
+                <p>
+                  {editing.contractor} / {editing.site}
+                </p>
+                <form
+                  onSubmit={(e) => {
+                    e.preventDefault();
+                    void save("/ops/contributions", editing);
+                  }}
+                >
+                  {(
+                    ["required_days", "paid_days", "attendance_days"] as const
+                  ).map((key) => (
+                    <label key={key}>
+                      {
+                        {
+                          required_days:
+                            "Días requeridos (confirmación manual)",
+                          paid_days: "Días pagados registrados",
+                          attendance_days: "Días asistencia",
+                        }[key]
+                      }
+                      <input
+                        type="number"
+                        min="0"
+                        max="31"
+                        value={editing[key] ?? ""}
+                        onChange={(e) =>
+                          setEditing({
+                            ...editing,
+                            [key]:
+                              e.target.value === ""
+                                ? null
+                                : Number(e.target.value),
+                          })
+                        }
+                      />
+                    </label>
+                  ))}
+                  {editing.suggested_days !== null && (
+                    <p>
+                      Sugerencia según historial laboral:{" "}
+                      {editing.suggested_days} días. Requiere revisión.
+                    </p>
+                  )}
+                  <label>
+                    Justificación
+                    <textarea
+                      value={editing.justification}
+                      onChange={(e) =>
+                        setEditing({
+                          ...editing,
+                          justification: e.target.value,
+                        })
+                      }
+                    />
+                  </label>
+                  <label className="check">
+                    <input
+                      type="checkbox"
+                      checked={editing.confirmed}
+                      onChange={(e) =>
+                        setEditing({ ...editing, confirmed: e.target.checked })
+                      }
+                    />
+                    Pago confirmado manualmente
+                  </label>
+                  <div className="toolbar">
+                    <button className="primary">Guardar control</button>
+                    <button type="button" onClick={() => setEditing(null)}>
+                      Cancelar
+                    </button>
+                  </div>
+                </form>
+                {error && (
+                  <p role="alert" className="form-error">
+                    {error}
+                  </p>
+                )}
+              </section>
+            </div>
+          )}
+          {reviewing && (
+            <div className="modal-backdrop">
+              <section
+                className="panel"
+                role="dialog"
+                aria-modal="true"
+                aria-label="Revisión documental"
+              >
+                <h2>{reviewing.name}</h2>
+                <p>
+                  {reviewing.requirement} · {period}
+                </p>
+                <form
+                  onSubmit={(e) => {
+                    e.preventDefault();
+                    void save("/ops/document-reviews", reviewing);
+                  }}
+                >
+                  <label>
+                    Estado
+                    <select
+                      value={reviewing.state}
+                      onChange={(e) =>
+                        setReviewing({ ...reviewing, state: e.target.value })
+                      }
+                    >
+                      <option value="pending">Pendiente</option>
+                      <option value="approved">Aprobado manualmente</option>
+                      <option value="observed">Observado</option>
+                      <option value="not_applicable">
+                        No aplica (requiere justificación)
+                      </option>
+                    </select>
+                  </label>
+                  <label>
+                    Observación
+                    <textarea
+                      value={reviewing.observation}
+                      onChange={(e) =>
+                        setReviewing({
+                          ...reviewing,
+                          observation: e.target.value,
+                        })
+                      }
+                    />
+                  </label>
+                  <label>
+                    ID de documento existente (opcional)
+                    <input
+                      value={reviewing.document_id || ""}
+                      onChange={(e) =>
+                        setReviewing({
+                          ...reviewing,
+                          document_id: e.target.value || null,
+                        })
+                      }
+                    />
+                  </label>
+                  <div className="toolbar">
+                    <button className="primary">Guardar revisión</button>
+                    <button type="button" onClick={() => setReviewing(null)}>
+                      Cancelar
+                    </button>
+                  </div>
+                </form>
+                {error && (
+                  <p role="alert" className="form-error">
+                    {error}
+                  </p>
+                )}
+              </section>
+            </div>
+          )}
+          <footer className="footer">
+            GALANT POST v{version} · {profile?.organization}
+            <span>
+              Datos de la organización · Actualización automática cada 10
+              segundos
+            </span>
+          </footer>
+        </div>
+      </main>
+    </div>
+  );
 }
-export default App
+export default App;

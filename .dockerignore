@@ -1,0 +1,13 @@
+.git
+.env*
+!.env.example
+**/node_modules
+**/dist
+**/__pycache__
+**/.pytest_cache
+**/*.pyc
+**/galant-local.db
+preview-storage
+qa-storage
+backups
+.venv

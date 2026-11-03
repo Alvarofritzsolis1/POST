@@ -172,7 +172,7 @@ function App(){
           <Metric title="Evidencia de pago" value={stats?.accredited||0} icon={ShieldCheck} kind="blue"/>
           <Metric title="Requieren revisión" value={(stats?.review||0)+(stats?.errors||0)} icon={Clock3} kind="amber"/>
         </div>}
-        {section!=="history"&&section!=="review"&&<section className="upload-card">
+        {user.role!=="viewer"&&section!=="history"&&section!=="review"&&<section className="upload-card">
           <div className="card-heading"><div><div className="section-kicker"><span>01</span> NUEVO ANÁLISIS</div><h2>Centro de análisis OCR</h2><p>PDF digitales, escaneados o fotografías. Hasta 20 MB, máximo 50 páginas.</p></div><span className="chip"><Activity size={14}/> Motor híbrido</span></div>
           <div className={"dropzone "+(dragging?"dragging":"")} onDragOver={e=>{e.preventDefault();setDragging(true)}} onDragLeave={()=>setDragging(false)} onDrop={dropped}>
             <span className="upload-icon"><UploadCloud size={25}/></span><strong>{uploadFile?uploadFile.name:"Arrastra tu documento aquí"}</strong>
