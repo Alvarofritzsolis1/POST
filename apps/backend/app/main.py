@@ -17,6 +17,8 @@ from sqlalchemy.orm import Session, load_only
 from .config import settings
 from .db import get_db
 from .models import AuditEvent, Document, User, utcnow
+from .ops_api import router as ops_router
+from .ops_import_api import router as ops_import_router
 from .pipeline import extraction_path
 from .reports import build_workbook
 from .schemas import Dashboard, DocumentSummary, DocumentView, Login, Profile
@@ -24,6 +26,8 @@ from .security import CSRF, SESSION, authorized_user, editor, new_session, verif
 from .version import VERSION
 
 app = FastAPI(title="GALANT POST — Document Intelligence", version=VERSION, docs_url=None, redoc_url=None)
+app.include_router(ops_router)
+app.include_router(ops_import_router)
 logger = logging.getLogger("galant.post.api")
 API = "/api/v1"
 attempts: dict[str, deque] = defaultdict(deque)
