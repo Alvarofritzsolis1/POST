@@ -17,8 +17,22 @@ mkdir -m 700 "$sandbox/pgdata"
 container_name="galant-restore-${$}-$(date +%s)"
 pass="$(openssl rand -hex 24)"
 cleanup() {
+  local status=$?
+  trap - EXIT
   docker rm --force "$container_name" >/dev/null 2>&1 || true
-  rm -rf -- "$sandbox"
+  # PostgreSQL crea archivos propiedad de UID postgres; el runner CI no
+  # puede borrarlos sin limpieza aislada con root dentro de Docker.
+  if ! docker run --rm --pull never --network none \
+      --entrypoint sh --mount "type=bind,src=$sandbox,dst=/sandbox" \
+      postgres:16-alpine -c 'rm -rf -- /sandbox/pgdata' >/dev/null; then
+    echo "No se pudieron eliminar los datos temporales de restauración" >&2
+    status=1
+  fi
+  if ! rm -rf -- "$sandbox"; then
+    echo "Quedaron archivos temporales: revisar permisos" >&2
+    status=1
+  fi
+  exit "$status"
 }
 trap cleanup EXIT
 
