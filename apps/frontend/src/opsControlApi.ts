@@ -47,6 +47,17 @@ export type CalendarEntry = {id:string;worksite_id:string;period:string;kind:str
 export type Activity = {id:string;association_id:string;period:string;status:string;reason:string;changed_by:string}
 export type Alert = {kind:string;priority:string;association_id:string|null;date:string|null;
  message:string;reference_id:string}
+export type OperationalAnalytics = {
+  period:string;worksites:Array<{
+    site_id:string;site:string;
+    distribution:Record<string,number>;document_states:Record<string,number>;
+    contract_expiry:Record<string,number>;
+    missing_days:number;retention_suggested:string;unverified_payments:number;open_tasks:number
+  }>;
+  distribution:Record<string,number>;document_states:Record<string,number>;
+  contract_expiry:Record<string,number>;
+  missing_days:number;retention_suggested:string
+}
 export type HistoricalTrend = {
   until:string;months:number;sites:Array<{id:string;name:string}>;
   series:Array<{period:string;applicable:number;approved:number;reviewed:number;pending:number;
@@ -74,6 +85,7 @@ const q=(data:Record<string,string|null|undefined>)=>{
 }
 const ROOT="/control"
 export const opsControlApi={
+ analytics:(period:string,site_id:string|null)=>request<OperationalAnalytics>(ROOT+"/reports/analytics"+q({period,site_id})),
  trends:(period:string,site_id:string|null,months=12)=>request<HistoricalTrend>(ROOT+"/reports/trends"+q({period,site_id,months:String(months)})),
  previewContracts:(file:File,site_id:string)=>{
    const form=new FormData()
