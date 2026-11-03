@@ -5,6 +5,7 @@ from __future__ import annotations
 import argparse
 import http.cookiejar
 import json
+import os
 import time
 import urllib.error
 import urllib.request
@@ -61,9 +62,11 @@ def verify(a,b):
 def main():
     parser=argparse.ArgumentParser()
     parser.add_argument("--url",default="http://127.0.0.1:18612")
-    parser.add_argument("--password",required=True)
+    parser.add_argument("--password",default=os.environ.get("QA_SMOKE_PASSWORD"))
     parser.add_argument("--verify-only",action="store_true")
     args=parser.parse_args()
+    if not args.password:
+        parser.error("Configura QA_SMOKE_PASSWORD")
     if args.url not in ("http://127.0.0.1:18612","http://localhost:18612"):
         parser.error("Solo QA localhost:18612, nunca producción")
     a,b=Account(args.url),Account(args.url)
