@@ -9,6 +9,9 @@ services:
     volumes:
       - ./qa-storage:/data/private
   worker:
+    command: ["python", "-m", "app.control_worker"]
+    mem_limit: 180m
+    cpus: 0.3
     volumes:
       - ./qa-storage:/data/private
   frontend:
