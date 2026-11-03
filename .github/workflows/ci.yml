@@ -139,9 +139,73 @@ jobs:
           test -d "$backup_path"
           bash scripts/verify-restore-preview.sh "$backup_path"
           echo "Isolated backup and restoration verified in CI"
+  qa-stack-smoke:
+    name: QA isolated stack - two users and restart
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    env:
+      QA_SMOKE_PASSWORD: "qa-synthetic-only-2026-unique-no-real-users"
+    steps:
+      - uses: actions/checkout@v4
+      - name: Configure isolated QA
+        run: |
+          set -Eeuo pipefail
+          cat > .env.qa <<'ENV'
+          APP_SECRET=qa-synthetic-only-test-secret-42-chars-long
+          POSTGRES_PASSWORD=qa-synthetic-db-only-2026
+          PORT=18612
+          SECURE_COOKIES=false
+          ENV
+          mkdir -m 700 qa-storage
+          docker compose -p galant-post-qa --env-file .env.qa -f docker-compose.preview.yml -f docker-compose.qa.yml config --quiet
+      - name: Build and start isolated QA services
+        run: |
+          set -Eeuo pipefail
+          COMPOSE_PARALLEL_LIMIT=1 docker compose -p galant-post-qa --env-file .env.qa -f docker-compose.preview.yml -f docker-compose.qa.yml up -d --build db api worker frontend proxy
+          docker compose -p galant-post-qa --env-file .env.qa -f docker-compose.preview.yml -f docker-compose.qa.yml exec -T api python -m app.cli init-db
+      - name: Seed two synthetic users in same org
+        run: |
+          set -Eeuo pipefail
+          docker compose -p galant-post-qa --env-file .env.qa -f docker-compose.preview.yml -f docker-compose.qa.yml exec -T -e QA_SMOKE_PASSWORD api python - <<'PY'
+          import os
+          from app.db import SessionLocal
+          from app.models import Organization, User
+          from app.security import hash_password
+          from app.ops_api import ensure_sites
+          with SessionLocal.begin() as db:
+              org = Organization(name="Synthetic QA Company")
+              db.add(org)
+              db.flush()
+              org_id = org.id
+              pw = hash_password(os.environ["QA_SMOKE_PASSWORD"])
+              db.add_all([
+                  User(org_id=org_id, email="qa-admin@example.test", role="admin", password_hash=pw),
+                  User(org_id=org_id, email="qa-reviewer@example.test", role="analyst", password_hash=pw),
+              ])
+          with SessionLocal() as db:
+              ensure_sites(db, org_id)
+          PY
+      - name: Verify shared state and restart persistence
+        run: |
+          set -Eeuo pipefail
+          python3 scripts/qa_stack_smoke.py
+          docker compose -p galant-post-qa --env-file .env.qa -f docker-compose.preview.yml -f docker-compose.qa.yml restart api worker frontend proxy
+          python3 scripts/qa_stack_smoke.py --verify-only
+      - name: Collect QA diagnostics on failure
+        if: failure()
+        run: |
+          docker compose -p galant-post-qa --env-file .env.qa -f docker-compose.preview.yml -f docker-compose.qa.yml ps || true
+          docker compose -p galant-post-qa --env-file .env.qa -f docker-compose.preview.yml -f docker-compose.qa.yml logs --tail=80 api worker proxy || true
+      - name: Stop synthetic QA without touching preview
+        if: always()
+        run: |
+          if [ -f .env.qa ]; then
+            docker compose -p galant-post-qa --env-file .env.qa -f docker-compose.preview.yml -f docker-compose.qa.yml down --volumes --remove-orphans || true
+          fi
+          rm -rf qa-storage .env.qa
   deploy-vps:
     name: Deploy VPS
-    needs: [backend, frontend, compose, restore-smoke]
+    needs: [backend, frontend, compose, restore-smoke, qa-stack-smoke]
     if: >-
       (github.event_name == 'workflow_dispatch' &&
        github.ref == 'refs/heads/main' &&
