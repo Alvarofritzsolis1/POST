@@ -103,7 +103,6 @@ class WorkTask(Base):
 
 class OffboardingCase(Base):
     __tablename__ = "offboarding_cases"
-    __table_args__ = (UniqueConstraint("association_id", "status", name="uq_offboarding_status"),)
     id: Mapped[str] = mapped_column(String(36), primary_key=True, default=uid)
     org_id: Mapped[str] = mapped_column(ForeignKey("organizations.id"), nullable=False, index=True)
     association_id: Mapped[str] = mapped_column(ForeignKey("contractor_worksites.id"), nullable=False, index=True)
