@@ -74,6 +74,14 @@ const q=(data:Record<string,string|null|undefined>)=>{
 }
 const ROOT="/control"
 export const opsControlApi={
+ trends:(period:string,site_id:string|null,months=12)=>request<HistoricalTrend>(ROOT+"/reports/trends"+q({period,site_id,months:String(months)})),
+ previewContracts:(file:File,site_id:string)=>{
+   const form=new FormData()
+   form.append("file",file);form.append("site_id",site_id)
+   return request<ContractImportPreview>(ROOT+"/import/contracts/preview",{method:"POST",body:form})
+ },
+ commitContracts:(site_id:string,rows:ContractImportRow[],preview_token:string)=>request<{created:number;amendments:number;unchanged:number}>(ROOT+"/import/contracts/commit",{method:"POST",body:JSON.stringify({site_id,rows,preview_token})}),
+ contractTemplate:()=>"/api/v1"+ROOT+"/import/contracts/template",
  overview:(period:string,site_id:string|null)=>request<Overview>(ROOT+"/reports/overview"+q({period,site_id})),
  matrix:(site_id:string,period:string)=>request<Matrix>(ROOT+"/matrix"+q({site_id,period})),
  reviews:(data:{association_id:string;period:string;kind:string;status:string;notes:string})=>
