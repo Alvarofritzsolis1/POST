@@ -120,6 +120,25 @@ def main():
     assert float(rec["retention_suggested"]) == 9900, rec
     from_admin = admin.request("/control/contributions?period=" + period + "&site_id=" + site_id)
     assert any(x["id"] == rec["id"] and x["missing_days"] == 2 for x in from_admin)
+    confirm_payload = {
+        "association_id": assignment, "period": period,
+        "worker_assignment_id": worker["id"], "attendance_days": 25,
+        "required_days": 25, "paid_days": 23, "payment_confirmed": True,
+        "daily_rate": 4950, "justification": "", "notes": "Confirmación sintética",
+        "review_status": "approved", "retention_status": "confirmed",
+    }
+    confirmed = admin.request("/control/contributions", confirm_payload, method="PUT")
+    assert confirmed["retention_status"] == "confirmed"
+    changed = reviewer.request("/control/contributions", {
+        **confirm_payload, "paid_days": 24, "retention_status": "proposed",
+    }, method="PUT")
+    assert changed["review_status"] == "pending"
+    assert changed["retention_status"] == "proposed"
+    assert changed["missing_days"] == 1
+    assert float(changed["retention_suggested"]) == 4950
+    expect_denied(admin, "/control/contributions", 422, {
+        **confirm_payload, "required_days": 24, "paid_days": 24,
+    }, "PUT")
 
     independent = admin.request("/ops/contractors", {
         "site_id": site_id, "name": "QA INDEPENDIENTE",
@@ -136,6 +155,19 @@ def main():
     matrix = reviewer.request("/control/matrix?site_id=" + site_id + "&period=" + period)
     ci = next(c for c in matrix["contractors"] if c["association_id"] == independent["id"])
     assert next(r for r in ci["requirements"] if r["kind"] == "anticipos")["applicable"] is False
+    # Un requisito condicional no se puede aprobar antes de definirlo.
+    unknown_requirement = {
+        "association_id": assignment, "period": period, "kind": "porteria",
+        "status": "approved", "notes": "",
+    }
+    expect_denied(admin, "/control/reviews", 422, unknown_requirement, "POST")
+    rule = admin.request("/control/applicability", {
+        "association_id": assignment, "period": period, "kind": "porteria",
+        "applicable": True, "justification": "Requisito QA de control de acceso",
+    }, method="PUT")
+    assert rule["applicable"] is True
+    manual = admin.request("/control/reviews", unknown_requirement, method="POST")
+    assert manual["status"] == "approved"
 
     # Calendar, contract and reminders are real API records, not local UI cache.
     calendar = admin.request("/control/admin/calendar", {
