@@ -51,7 +51,7 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
-      - run: bash -n scripts/install-preview.sh scripts/diagnose.sh scripts/backup-preview.sh scripts/verify-restore-preview.sh scripts/update-preview.sh
+      - run: bash -n scripts/install-preview.sh scripts/diagnose.sh scripts/backup-preview.sh scripts/verify-restore-preview.sh scripts/update-preview.sh scripts/start-qa-preview.sh
       - run: python3 -m py_compile scripts/soak_24h.py
       - name: Validate isolated Docker preview config
         env:
@@ -75,7 +75,29 @@ jobs:
               else:
                   assert not ports
           PY
-          rm -f .env.preview
+          cat > .env.qa <<'ENV'
+          APP_SECRET=qa_test_secret
+          POSTGRES_PASSWORD=qa_test_password
+          PORT=18612
+          ENV
+          docker compose -p galant-post-qa --env-file .env.qa -f docker-compose.preview.yml -f docker-compose.qa.yml config --quiet
+          python3 - <<'PY'
+          import json, subprocess, pathlib
+          cmd=["docker","compose","-p","galant-post-qa","--env-file",".env.qa",
+               "-f","docker-compose.preview.yml","-f","docker-compose.qa.yml",
+               "config","--format","json"]
+          config=json.loads(subprocess.check_output(cmd,text=True))
+          assert config["name"]=="galant-post-qa"
+          for service in ("api","worker"):
+              volumes=[v for v in config["services"][service]["volumes"] if v.get("target")=="/data/private"]
+              assert len(volumes)==1, (service, volumes)
+              assert pathlib.Path(volumes[0]["source"]).resolve() == pathlib.Path("qa-storage").resolve(), (service, volumes)
+          ports=config["services"]["proxy"]["ports"]
+          assert len(ports)==1 and ports[0].get("host_ip")=="127.0.0.1",ports
+          assert str(ports[0].get("published"))=="18612",ports
+          print("La QA no comparte almacenamiento ni puertos de preview")
+          PY
+          rm -f .env.preview .env.qa
   restore-smoke:
     name: Backup + isolated restore (synthetic)
     runs-on: ubuntu-latest
