@@ -367,6 +367,10 @@ def save_contributions(payload: ContributionInput, user: User = Depends(editor),
         setattr(row, field, getattr(payload, field))
     row.updated_by = user.id
     row.updated_at = utcnow()
+    if (not independent and row.retention_status == "none" and
+            row.required_days is not None and row.paid_days is not None and
+            row.required_days > row.paid_days):
+        row.retention_status = "proposed"  # sugerencia, nunca descuento automático
     if payload.review_status != "pending":
         row.reviewer_id = user.id
     if old and any(old[field] != getattr(row, field) for field in
