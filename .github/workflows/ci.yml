@@ -51,7 +51,7 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
-      - run: bash -n scripts/install-preview.sh scripts/diagnose.sh scripts/backup-preview.sh scripts/update-preview.sh
+      - run: bash -n scripts/install-preview.sh scripts/diagnose.sh scripts/backup-preview.sh scripts/verify-restore-preview.sh scripts/update-preview.sh
       - name: Validate isolated Docker preview config
         env:
           APP_SECRET: ci_test_secret
@@ -75,6 +75,44 @@ jobs:
                   assert not ports
           PY
           rm -f .env.preview
+  restore-smoke:
+    name: Backup + isolated restore (synthetic)
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+      - name: Create a temporary private PDF and minimal relational schema
+        shell: bash
+        run: |
+          set -Eeuo pipefail
+          umask 077
+          printf 'APP_SECRET=ci-only-test-secret\\nPOSTGRES_PASSWORD=ci-only-test-db\\n' > .env.preview
+          mkdir -p preview-storage/fixture
+          printf 'Synthetic document only: no user data\\n' > preview-storage/fixture/evidence.txt
+          docker compose --env-file .env.preview -f docker-compose.preview.yml up -d db
+          for i in {1..30}; do
+            if docker compose --env-file .env.preview -f docker-compose.preview.yml exec -T db pg_isready -U galant -d galant; then break; fi
+            sleep 2
+          done
+          digest="$(sha256sum preview-storage/fixture/evidence.txt | cut -d' ' -f1)"
+          docker compose --env-file .env.preview -f docker-compose.preview.yml exec -T db psql -v ON_ERROR_STOP=1 -U galant -d galant <<SQL
+          CREATE TABLE organizations (id text primary key, name text not null);
+          CREATE TABLE users (id text primary key, org_id text not null references organizations(id));
+          CREATE TABLE documents (id text primary key, org_id text not null references organizations(id), storage_path text not null, sha256 text not null);
+          INSERT INTO organizations VALUES ('company-1','Test firm');
+          INSERT INTO users VALUES ('user-1','company-1');
+          INSERT INTO documents VALUES ('doc-1','company-1','/data/private/fixture/evidence.txt','$digest');
+          SQL
+      - name: Backup and restore the synthetic database and verify private file hashes
+        shell: bash
+        run: |
+          set -Eeuo pipefail
+          export GALANT_BACKUP_DIR="$RUNNER_TEMP/galant-ci-backups"
+          bash scripts/backup-preview.sh | tee "$RUNNER_TEMP/galant-backup.log"
+          backup_path="$(sed -n 's/^BACKUP_PATH=//p' "$RUNNER_TEMP/galant-backup.log" | tail -1)"
+          test -d "$backup_path"
+          bash scripts/verify-restore-preview.sh "$backup_path"
+          echo "Isolated backup and restoration verified in CI"
   deploy-vps:
     name: Deploy VPS
     needs: [backend, frontend, compose]
