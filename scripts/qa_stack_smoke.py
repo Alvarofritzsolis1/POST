@@ -37,7 +37,6 @@ def verify(a,b):
     sites=a.call("/ops/sites")
     assert len(sites)>=3
     site=next((s for s in sites if s["name"]=="Concepción"),sites[0])
-    contractor=a.call("/ops/contractors",) if False else None
     qs="?site_id="+site["id"]
     names=a.call("/ops/contractors"+qs)
     record=next((r for r in names if r["name"]=="QA CONTRACTOR TEST"),None)
