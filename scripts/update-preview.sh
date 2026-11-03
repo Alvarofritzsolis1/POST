@@ -79,8 +79,8 @@ switched=1
 # Un fallo de respaldo/restauración aborta la actualización; rollback restaura
 # únicamente el checkout previo (el volumen de datos no se altera).
 backup_output="$(bash scripts/backup-preview.sh)"
-printf '%s\\n' "$backup_output"
-backup_path="$(printf '%s\\n' "$backup_output" | sed -n 's/^BACKUP_PATH=//p' | tail -1)"
+printf '%s\n' "$backup_output"
+backup_path="$(printf '%s\n' "$backup_output" | sed -n 's/^BACKUP_PATH=//p' | tail -1)"
 if [[ -z "$backup_path" || ! -d "$backup_path" ]]; then
     echo "No existe directorio de respaldo verificable; despliegue cancelado" >&2
     exit 1
