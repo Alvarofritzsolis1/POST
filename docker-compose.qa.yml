@@ -1,0 +1,17 @@
+# Entorno QA aislado para el ensayo de 24 horas: no reutilizar PDF ni BD preview.
+# Combinar con docker-compose.preview.yml y .env.qa (PORT=18612).
+name: galant-post-qa
+services:
+  db:
+    mem_limit: 256m
+  api:
+    mem_limit: 450m
+    volumes:
+      - ./qa-storage:/data/private
+  worker:
+    volumes:
+      - ./qa-storage:/data/private
+  frontend:
+    mem_limit: 110m
+  proxy:
+    mem_limit: 105m
