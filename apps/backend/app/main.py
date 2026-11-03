@@ -21,6 +21,7 @@ from .ops_api import router as ops_router
 from .control_api import router as control_router
 from .control_admin import router as control_admin_router
 from .control_reports import router as control_reports_router
+from .contract_import_api import router as contract_import_router
 from .monthly_api import router as monthly_router
 from .ops_import_api import router as ops_import_router
 from .pipeline import extraction_path
@@ -34,6 +35,7 @@ app.include_router(ops_router)
 app.include_router(control_router)
 app.include_router(control_admin_router)
 app.include_router(control_reports_router)
+app.include_router(contract_import_router)
 app.include_router(monthly_router)
 app.include_router(ops_import_router)
 logger = logging.getLogger("galant.post.api")
