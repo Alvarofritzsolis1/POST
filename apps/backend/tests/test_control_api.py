@@ -213,3 +213,78 @@ def test_no_movements_creates_task_without_offboarding_and_calendar_scheduling(e
     assert next(x for x in post["contractors"][0]["requirements"] if x["kind"]=="cotizaciones")["state"]=="overdue"
     monthly=client.get("/api/v1/control/admin/tasks",params={"site_id":site}).json()
     assert any(t["kind"]=="monthly_request" for t in monthly)
+
+
+def _rut(number: int) -> str:
+    weights=(2,3,4,5,6,7)
+    total=sum(int(digit)*weights[i % len(weights)]
+              for i,digit in enumerate(reversed(str(number))))
+    modulus=11-(total%11)
+    digit="0" if modulus==11 else "K" if modulus==10 else str(modulus)
+    return f"{number}-{digit}"
+
+
+def test_historical_contract_import_preview_idempotency_and_privacy(env):
+    """Import contracts and annexes without copying worker/company data."""
+    from app.control_models import ContractAmendment, ContractRegister
+    from sqlalchemy import select
+    client,sessions=env
+    headers=login(client,"a@example.cl")
+    site=client.get("/api/v1/ops/sites").json()[0]["id"]
+    company=client.post("/api/v1/ops/contractors",headers=headers,json={
+        "site_id":site,"name":"Contratista Histórico","rut":_rut(12345678),
+        "nature":"with_workers","historical_code":"CT"}).json()
+    text=("RUT contratista;RUT trabajador;Tipo contrato;Fecha inicio;Fecha término;"
+          "Tipo registro;Fecha anexo;Referencia;Estado contrato;Observaciones\n"
+          f"{_rut(12345678)};;Plazo fijo;01/09/2026;30/09/2026;"
+          "Contrato;;CONTRATO-001;Activo;Inicial\n"
+          f"{_rut(12345678)};;Plazo fijo;01/09/2026;31/10/2026;"
+          "Anexo;25/09/2026;ANEXO-001;Activo;Prórroga\n")
+    preview=client.post("/api/v1/control/import/contracts/preview",headers=headers,
+        files={"file":("historico.csv",text.encode("utf-8"),"text/csv")},
+        data={"site_id":site})
+    assert preview.status_code==200,preview.text
+    result=preview.json()
+    assert result["summary"]["contracts"]==1 and result["summary"]["amendments"]==1
+    assert result["summary"]["errors"]==0, result
+    commit=client.post("/api/v1/control/import/contracts/commit",headers=headers,json={
+        "site_id":site,"rows":result["rows"],"preview_token":result["preview_token"]})
+    assert commit.status_code==200,commit.text
+    assert commit.json()["created"]==1 and commit.json()["amendments"]==1
+    records=client.get("/api/v1/control/admin/contracts",params={"site_id":site}).json()
+    assert any(record["end_date"]=="2026-10-31" for record in records)
+    with sessions() as db:
+        assert len(db.scalars(select(ContractRegister)).all())==1
+        assert len(db.scalars(select(ContractAmendment)).all())==1
+
+    # Repeating the same preview must be idempotent, no extra annex or rewriting.
+    repeated=client.post("/api/v1/control/import/contracts/commit",headers=headers,json={
+        "site_id":site,"rows":result["rows"],"preview_token":result["preview_token"]})
+    assert repeated.status_code==200,repeated.text
+    assert repeated.json()["unchanged"]==2
+
+    # An altered row not present in the signed preview is forbidden.
+    bad=client.post("/api/v1/control/import/contracts/commit",headers=headers,json={
+        "site_id":site,"rows":result["rows"]+[dict(result["rows"][0],row_id="invented:99")],
+        "preview_token":result["preview_token"]})
+    assert bad.status_code in (403,422)
+
+    login(client,"outside@example.cl")
+    assert client.get("/api/v1/control/admin/contracts",params={"site_id":site}).status_code==404
+
+
+def test_historical_contract_import_rejects_unknown_rut_and_ambiguous_dates(env):
+    client,_=env
+    headers=login(client,"a@example.cl")
+    site=client.get("/api/v1/ops/sites").json()[0]["id"]
+    rows=("RUT contratista;Tipo contrato;Fecha inicio;Fecha término\n"
+          f"{_rut(13579246)};Plazo fijo;31/02/2026;30/09/2026\n").encode()
+    response=client.post("/api/v1/control/import/contracts/preview",headers=headers,
+        files={"file":("invalid.csv",rows,"text/csv")},data={"site_id":site})
+    assert response.status_code==200,response.text
+    preview=response.json()
+    assert preview["summary"]["errors"]==1
+    assert any("Fecha" in x for x in preview["rows"][0]["errors"])
+    commit=client.post("/api/v1/control/import/contracts/commit",headers=headers,json={
+        "site_id":site,"rows":preview["rows"],"preview_token":preview["preview_token"]})
+    assert commit.status_code==422
