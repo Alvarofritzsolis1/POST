@@ -114,3 +114,17 @@ class OffboardingCase(Base):
     notes: Mapped[str] = mapped_column(Text, default="", nullable=False)
     changed_by: Mapped[str] = mapped_column(ForeignKey("users.id"), nullable=False)
     updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow, nullable=False)
+
+
+class RequirementApplicability(Base):
+    __tablename__ = "requirement_applicability"
+    __table_args__ = (UniqueConstraint("association_id", "period", "kind", name="uq_applicability_association_period_kind"),)
+    id: Mapped[str] = mapped_column(String(36), primary_key=True, default=uid)
+    org_id: Mapped[str] = mapped_column(ForeignKey("organizations.id"), nullable=False, index=True)
+    association_id: Mapped[str] = mapped_column(ForeignKey("contractor_worksites.id"), nullable=False, index=True)
+    period: Mapped[str] = mapped_column(String(7), nullable=False)
+    kind: Mapped[str] = mapped_column(String(32), nullable=False)
+    applicable: Mapped[bool] = mapped_column(Boolean, nullable=False)
+    justification: Mapped[str] = mapped_column(Text, default="", nullable=False)
+    updated_by: Mapped[str] = mapped_column(ForeignKey("users.id"), nullable=False)
+    updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow, nullable=False)
