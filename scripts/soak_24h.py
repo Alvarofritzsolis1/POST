@@ -37,8 +37,17 @@ class Account:
         body = None if data is None else json.dumps(data).encode("utf-8")
         headers = {"Content-Type": "application/json", "Cache-Control": "no-store"}
         req = urllib.request.Request(url, data=body, headers=headers)
-        with self.opener.open(req, timeout=20) as response:
-            return json.load(response)
+        try:
+            with self.opener.open(req, timeout=20) as response:
+                return json.load(response)
+        except urllib.error.HTTPError as exc:
+            # Una sesión normal dura varias horas. Renovar solo si expiró,
+            # para no disparar el limitador de inicios de sesión.
+            if exc.code != 401 or path == "/auth/login":
+                raise
+            self.login()
+            with self.opener.open(req, timeout=20) as response:
+                return json.load(response)
 
     def login(self):
         return self.request("/auth/login", {"email": self.email, "password": self.password})
@@ -80,10 +89,10 @@ def main():
     second = Account(args.url, secrets[2], secrets[3])
     start = time.monotonic()
     samples, failures, mismatches = 0, [], 0
+    first.login()
+    second.login()
     while True:
         try:
-            first.login()
-            second.login()
             health = first.request("/health")
             a = snapshot(first, args.period)
             b = snapshot(second, args.period)
