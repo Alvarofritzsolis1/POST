@@ -86,7 +86,10 @@ jobs:
         run: |
           set -Eeuo pipefail
           umask 077
-          printf 'APP_SECRET=ci-only-test-secret\\nPOSTGRES_PASSWORD=ci-only-test-db\\n' > .env.preview
+          cat > .env.preview <<'CONFIG'
+          APP_SECRET=ci-only-test-secret
+          POSTGRES_PASSWORD=ci-only-test-db
+          CONFIG
           mkdir -p preview-storage/fixture
           printf 'Synthetic document only: no user data\\n' > preview-storage/fixture/evidence.txt
           docker compose --env-file .env.preview -f docker-compose.preview.yml up -d db
