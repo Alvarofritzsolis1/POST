@@ -16,9 +16,9 @@ Después de fusionar main, ya se podrá clonar sin especificar rama. Crear admin
 
 ## Actualización automática desde GitHub
 
-El job `Deploy VPS` actualiza `/opt/galant-post` después de que la CI termine correctamente para cada push a `main` o a `feat/galant-ocr-v0.2.0`, pero solo cuando la variable de repositorio `VPS_AUTODEPLOY` tiene el valor `true`. La etapa operativa v0.3.0 en `feat/galant-manual-stage1` se actualizará automáticamente al integrarse en `main` si esa configuración está activa. Publicar solamente la rama de trabajo no activa el despliegue.
+El job `Deploy VPS` actualiza `/opt/galant-post` después de que la CI termine correctamente para cada push a `main`. El despliegue queda activo por defecto; para detenerlo durante una incidencia, configura temporalmente la variable de repositorio `VPS_AUTODEPLOY` con el valor `false`. Los pushes a ramas de trabajo no despliegan el VPS.
 
-Configura estos secretos del repositorio en GitHub antes de activar la variable:
+Configura estos secretos del repositorio en GitHub para que el despliegue pueda conectarse al servidor:
 
 - `VPS_HOST`: IP o nombre del VPS.
 - `VPS_USER`: usuario con el que se instaló POST; en la instalación documentada es `root`.

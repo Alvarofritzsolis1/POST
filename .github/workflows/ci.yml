@@ -79,11 +79,10 @@ jobs:
     name: Deploy VPS
     needs: [backend, frontend, compose]
     if: >-
-      vars.VPS_AUTODEPLOY == 'true' &&
-      (github.event_name == 'workflow_dispatch' ||
-       (github.event_name == 'push' &&
-        (github.ref == 'refs/heads/main' ||
-         github.ref == 'refs/heads/feat/galant-ocr-v0.2.0')))
+      github.event_name == 'workflow_dispatch' ||
+      (github.event_name == 'push' &&
+       github.ref == 'refs/heads/main' &&
+       vars.VPS_AUTODEPLOY != 'false')
     runs-on: ubuntu-latest
     timeout-minutes: 25
     concurrency:
