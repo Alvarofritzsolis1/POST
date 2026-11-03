@@ -53,8 +53,9 @@ wait_for_health() {
 
 rollback() {
     local status=$?
-    trap - ERR
-    if (( switched )); then
+    # EXIT captura también los 'exit 1' explícitos (ERR no lo hace).
+    trap - EXIT ERR
+    if (( status != 0 && switched )); then
         echo "La actualización falló; restaurando ${previous_ref}." >&2
         if git checkout --detach "$previous_ref" \
             && "${compose[@]}" config --quiet \
@@ -68,7 +69,7 @@ rollback() {
     fi
     exit "$status"
 }
-trap rollback ERR
+trap rollback EXIT
 
 git fetch --no-tags --depth=1 origin "$target_ref"
 git cat-file -e "${target_ref}^{commit}"
@@ -89,5 +90,6 @@ bash scripts/verify-restore-preview.sh "$backup_path"
 COMPOSE_PARALLEL_LIMIT=1 "${compose[@]}" up -d --build db api worker frontend proxy
 "${compose[@]}" exec -T api python -m app.cli init-db
 wait_for_health
-trap - ERR
+switched=0
+trap - EXIT
 echo "GALANT actualizado a ${target_ref}."
