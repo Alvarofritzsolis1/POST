@@ -45,11 +45,6 @@ chmod 600 .env.qa
 
 compose=(docker compose -p galant-post-qa --env-file .env.qa -f docker-compose.preview.yml -f docker-compose.qa.yml)
 "${compose[@]}" config --quiet
-"${compose[@]}" config --format json | python3 - "$qa_dir" <<'PY'
-import json, pathlib, sys
-# docker compose prints JSON to stdout. Capture independently to avoid
-# consuming stdin with both a heredoc and a pipeline.
-PY
 # Recalcular la config por stdin simple; verifica todos los montajes críticos.
 config_file="$(mktemp)"
 trap 'rm -f "$config_file"' EXIT
