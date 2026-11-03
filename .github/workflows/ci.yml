@@ -51,7 +51,7 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
-      - run: bash -n scripts/install-preview.sh scripts/diagnose.sh
+      - run: bash -n scripts/install-preview.sh scripts/diagnose.sh scripts/backup-preview.sh scripts/update-preview.sh
       - name: Validate isolated Docker preview config
         env:
           APP_SECRET: ci_test_secret
@@ -82,7 +82,7 @@ jobs:
       github.event_name == 'workflow_dispatch' ||
       (github.event_name == 'push' &&
        github.ref == 'refs/heads/main' &&
-       vars.VPS_AUTODEPLOY != 'false')
+       vars.VPS_AUTODEPLOY == 'true')
     runs-on: ubuntu-latest
     timeout-minutes: 25
     concurrency:
