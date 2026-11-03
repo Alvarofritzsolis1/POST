@@ -64,6 +64,7 @@ export default function ControlCenter({readOnly}:{readOnly:boolean}){
   const [notice,setNotice]=useState("")
   const [taskText,setTaskText]=useState("")
   const [contractType,setContractType]=useState("fixed_term")
+  const [contractSubject,setContractSubject]=useState("")
   const [contractStart,setContractStart]=useState("")
   const [contractEnd,setContractEnd]=useState("")
   const [calendarKind,setCalendarKind]=useState("cotizaciones")
@@ -162,7 +163,7 @@ export default function ControlCenter({readOnly}:{readOnly:boolean}){
   }
   async function saveContribution(event:FormEvent){
     event.preventDefault()
-    if(!selectedAssoc||readOnly||(!isIndependent(currentCompany!)&&!subject))return
+    if(!selectedAssoc||!currentCompany||readOnly||(!isIndependent(currentCompany)&&!subject))return
     await perform(()=>opsControlApi.saveContribution({...form,association_id:selectedAssoc,
       worker_assignment_id:currentCompany&&isIndependent(currentCompany)?null:subject,period}),
       "Control de cotizaciones y asistencia actualizado.")
@@ -179,7 +180,7 @@ export default function ControlCenter({readOnly}:{readOnly:boolean}){
     event.preventDefault()
     if(!selectedAssoc||!contractStart||readOnly)return
     await perform(()=>opsControlApi.saveContract({association_id:selectedAssoc,
-      worker_assignment_id:null,contract_type:contractType,start_date:contractStart,
+      worker_assignment_id:contractSubject||null,contract_type:contractType,start_date:contractStart,
       end_date:contractType==="indefinite"?null:contractEnd||null,status:"active",notes:""}),
       "Vigencia contractual registrada.")
   }
@@ -355,6 +356,7 @@ export default function ControlCenter({readOnly}:{readOnly:boolean}){
         {siteId&&!readOnly&&<form className="control-form-inline" onSubmit={event=>void saveContract(event)}>
           <label>Contratista<select value={selectedAssoc} onChange={e=>setSelectedAssoc(e.target.value)}>
             <option value="">Seleccionar</option>{matrix?.contractors.map(c=><option key={c.association_id} value={c.association_id}>{c.name}</option>)}</select></label>
+          <label>Contrato de<select value={contractSubject} onChange={e=>setContractSubject(e.target.value)}><option value="">Contratista</option>{workers.map(w=><option key={w.id} value={w.id}>Trabajador: {w.name}</option>)}</select></label>
           <label>Tipo<select value={contractType} onChange={e=>setContractType(e.target.value)}>
             <option value="fixed_term">Plazo fijo</option><option value="indefinite">Indefinido</option>
             <option value="project">Por obra</option><option value="services">Servicios</option></select></label>
