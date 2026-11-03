@@ -26,26 +26,46 @@ docker compose --env-file .env.preview -f docker-compose.preview.yml ps
 
 Abortar ante un directorio diferente, cambios locales rastreados o un stack que no sea `galant-post-preview`.
 
-## 2. Prueba continua de 24 horas
+## 2. Instancia QA aislada y ensayo real de 24 horas antes de fusionar
 
-El script `scripts/soak_24h.py` realiza consultas de solo lectura a salud, organización, obras y requisitos mensuales. No requiere PDFs ni carga información en el servidor.
+**No se necesita publicar la rama en producción.** La rama de prueba dispone de un stack Docker independiente con PostgreSQL `galant-post-qa`, almacenamiento `/opt/galant-post-qa/qa-storage` y proxy limitado a `127.0.0.1:18612`. Nunca reutiliza los datos laborales de `galant-post-preview`.
 
-Configurar en una terminal protegida las variables `GALANT_SOAK_EMAIL_A`, `GALANT_SOAK_PASSWORD_A`, `GALANT_SOAK_EMAIL_B`, `GALANT_SOAK_PASSWORD_B` para **dos cuentas sintéticas de la misma organización**. No publicar contraseñas, ni copiarlas a GitHub.
+Primero, desde SSH como administrador, obtener el script de la rama sin cambiar el checkout actualmente operativo:
 
-Ejemplo de comprobación desde el VPS o un túnel privado SSH, con el script de esta rama ya disponible:
+```bash
+cd /opt/galant-post
+git fetch --no-tags origin feat/galant-operational-control-20261103
+git show FETCH_HEAD:scripts/start-qa-preview.sh > /tmp/galant-start-qa.sh
+sudo env GALANT_BASE_DIR=/opt/galant-post bash /tmp/galant-start-qa.sh
+rm -f /tmp/galant-start-qa.sh
+```
+
+El procedimiento comprueba memoria y espacio disponible, el repositorio remoto, que no exista otro QA previo y que los montajes y puertos de QA estén aislados. **Si falla cualquiera de estas condiciones, detenerse**; no ejecutar Docker sobre los volúmenes principales. El puerto 18612 es privado al servidor, por lo que desde Windows puede accederse mediante un túnel `ssh -L 18612:127.0.0.1:18612 root@IP_DEL_VPS` y luego `http://localhost:18612`. No abrir el puerto a Internet.
+
+En el nuevo directorio, crear el administrador **sintético** y un segundo usuario de esa misma organización:
+
+```bash
+cd /opt/galant-post-qa
+docker compose -p galant-post-qa --env-file .env.qa -f docker-compose.preview.yml -f docker-compose.qa.yml exec api python -m app.cli create-admin --email admin.qa@example.test
+docker compose -p galant-post-qa --env-file .env.qa -f docker-compose.preview.yml -f docker-compose.qa.yml exec api python -m app.cli create-user --email revisor.qa@example.test --admin-email admin.qa@example.test --role analyst
+```
+
+Elegir claves exclusivas para QA e introducirlas en la terminal, no en GitHub. Registrar un contratista sintético por obra, trabajadores sintéticos, una aprobación manual mensual, asistencia y cotizaciones en la web QA. Comprobar que ambas cuentas ven los mismos registros y que la sesión de visualización no puede editar.
+
+A continuación, configurar las cuatro variables secretas `GALANT_SOAK_EMAIL_A`, `GALANT_SOAK_PASSWORD_A`, `GALANT_SOAK_EMAIL_B`, `GALANT_SOAK_PASSWORD_B` en un entorno privado del VPS y ejecutar desde `/opt/galant-post-qa`:
 
 ```bash
 python3 scripts/soak_24h.py \
-  --url http://127.0.0.1:18512 \
+  --url http://127.0.0.1:18612 \
   --period 2026-09 \
   --duration-seconds 86400 \
   --interval-seconds 60 \
   --output /var/tmp/galant-soak-24h.json
 ```
 
-La prueba debe **completar los 86.400 segundos** y generar `result: PASS`, `failure_count: 0`, `mismatches: 0`. No ejecutar el test si las cuentas aún no existen, los valores de acceso no son seguros o el endpoint de previsualización no está disponible.
+Esta prueba necesita **86.400 segundos reales de ejecución**; no está ejecutada desde ChatGPT. La salida debe indicar `result: PASS`, `failure_count: 0` y `mismatches: 0`. La ruta de salida debe ser privada, y deben revisarse adicionalmente logs, reinicio controlado, integridad de documentos y límites de RAM/CPU. Si no puede correrse en Contabo por memoria o disco, usar una instancia de QA equivalente separada.
 
-El script de la nueva rama debe estar accesible en la máquina donde se ejecuta la prueba. La prueba debe realizarse **antes** de publicar la versión como validada; es posible usar una instancia aislada para evitar efectos sobre documentos reales.
+**La prueba de dos cuentas nunca debe confundirse con comprobar 24 horas de uptime desde GitHub Actions**, ni se permite fusionar antes de examinar su resultado.
 
 ## 3. Fusión y actualización segura
 
