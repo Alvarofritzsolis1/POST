@@ -150,7 +150,7 @@ jobs:
       - name: Configure isolated QA
         run: |
           set -Eeuo pipefail
-          cat > .env.qa <<'ENV'
+          cat > .env.qa <<ENV
           APP_SECRET=$(openssl rand -hex 48)
           POSTGRES_PASSWORD=qa-synthetic-db-only-2026
           PORT=18612
