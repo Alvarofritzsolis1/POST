@@ -38,13 +38,15 @@ def is_independent(company: Contractor, association: ContractorWorksite) -> bool
 
 
 def nature_defaults(company: Contractor, association: ContractorWorksite) -> dict[str, bool | None]:
-    if association.frequency == "sporadic":
-        return dict.fromkeys(REQUIREMENTS)
+    # Los independientes nunca tienen requisito de anticipos, aunque su
+    # frecuencia administrativa esté marcada como esporádica.
     if is_independent(company, association):
         # Anticipos nunca se piden a un independiente.
         return dict.fromkeys(REQUIREMENTS) | {
             "cotizaciones": True, "declaracion_jurada": True, "anticipos": False,
         }
+    if association.frequency == "sporadic":
+        return dict.fromkeys(REQUIREMENTS)
     if company.nature == "with_workers":
         return dict.fromkeys(REQUIREMENTS) | {
             "cotizaciones": True, "f30_1": True, "liquidaciones": True,
