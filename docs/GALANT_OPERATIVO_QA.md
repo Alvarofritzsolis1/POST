@@ -27,6 +27,12 @@ La especificación de aceptación es el documento de 22 secciones compartido por
 | Despliegue y backup | Backup + restauración PostgreSQL y PDFs SHA256 en Docker aislado, comprobados con prueba sintética; actualización detiene ante error | Falta ejecutar la restauración de ensayo en el VPS real y validar usuario/volumen/permisos |
 | 24 horas de estabilidad | Script 24h con reutilización de cookies (evita bloqueo por logins) preparado | **No ejecutado**; el tiempo no debe presentarse como probado |
 
+## Protección adicional incorporada al PR
+
+El escenario Docker QA ejercita el flujo de contratistas y trabajadores CT/CI, diferencias de cotizaciones, retenciones propuestas, justificaciones, contrato y anexo importado desde CSV, reportes Excel y permisos. Ahora también revisa que un cambio posterior en días cotizados invalide aprobaciones y una retención previamente confirmada. El reinicio valida persistencia de cotizaciones, contratos, documentos y tareas. Las pruebas se ejecutan con datos sintéticos, no con documentos laborales.
+
+Los dos workflows de despliegue a Contabo requieren la habilitación expresa `GALANT_POST_RELEASE_APPROVED=true`. Aunque CI pase, la rama permanece en borrador hasta concluir la validación real de 24 horas en QA y el respaldo/restauración de producción. Después de publicar, se recomienda volver a desactivar esa variable.
+
 ## Aprobación de la implantación
 
 No fusionar ni desplegar mientras exista alguna prueba de CI fallida. La aprobación debe incluir:
@@ -40,7 +46,8 @@ No fusionar ni desplegar mientras exista alguna prueba de CI fallida. La aprobac
 7. Verificar obra A ≠ obra B, incluidos períodos y bajas.
 8. Confirmar exportación Excel CT/CI, dato sin evaluar y periodo sin fecha de solicitud.
 9. Reiniciar servicios **sin borrar volúmenes**, comprobar persistencia con datos sintéticos.
-10. Ejecutar el ensayo de resistencia durante 86.400 segundos, guardar evidencia y no etiquetarlo como aprobado antes de terminar.\n11. Solo entonces autorizar la fusión y el despliegue; conservar la posibilidad de rollback.
+10. Ejecutar el ensayo de resistencia durante 86.400 segundos, guardar evidencia y no etiquetarlo como aprobado antes de terminar.
+11. Solo entonces autorizar la fusión y el despliegue; conservar la posibilidad de rollback.
 
 **Nunca ejecutar** `docker compose down -v`, `docker volume prune`, `DROP DATABASE` ni `git reset --hard` sobre el VPS de datos.
 
