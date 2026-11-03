@@ -16,7 +16,7 @@ concurrency:
 
 jobs:
   deploy-preview:
-    if: ${{ vars.POST_AUTODEPLOY_ENABLED == 'true' && (github.event_name == 'workflow_dispatch' || github.event.workflow_run.conclusion == 'success') }}
+    if: ${{ vars.POST_AUTODEPLOY_ENABLED == 'true' && vars.GALANT_POST_RELEASE_APPROVED == 'true' && (github.event_name == 'workflow_dispatch' || github.event.workflow_run.conclusion == 'success') }}
     runs-on: ubuntu-latest
     timeout-minutes: 25
     environment: post-preview
@@ -57,18 +57,13 @@ jobs:
             *) echo "El directorio NO apunta a POST; abortado"; exit 1;;
           esac
           test -f .env.preview || { echo "Falta .env.preview; ejecutar instalador de POST primero"; exit 1; }
-          git fetch origin main
-          if git show-ref --verify --quiet refs/heads/main; then
-            git checkout main
-          else
-            git checkout -b main origin/main
-          fi
-          git pull --ff-only origin main
-          docker compose --env-file .env.preview -f docker-compose.preview.yml config --quiet
-          COMPOSE_PARALLEL_LIMIT=1 docker compose --env-file .env.preview -f docker-compose.preview.yml build
-          docker compose --env-file .env.preview -f docker-compose.preview.yml up -d
-          docker compose --env-file .env.preview -f docker-compose.preview.yml exec -T api python -m app.cli init-db
-          curl --fail --silent --show-error --retry 12 --retry-delay 5 --retry-connrefused \
-            http://127.0.0.1:18512/api/v1/health | grep -q '"status":"ok"'
-          git log -1 --pretty='POST desplegado: %h %s'
+          # Siempre usar el mecanismo seguro y versionado; nunca hacer
+          # pull / up directamente sin respaldo, restauración y rollback.
+          git fetch --no-tags origin main
+          target_sha="$(git rev-parse origin/main)"
+          safe_script="/tmp/galant-post-safe-${target_sha}.sh"
+          trap 'rm -f "$safe_script"' EXIT
+          git show "${target_sha}:scripts/update-preview.sh" > "$safe_script"
+          GALANT_DEPLOY_DIR=/opt/galant-post bash "$safe_script" "$target_sha"
+          git log -1 --pretty='POST desplegado de forma segura: %h %s'
           REMOTE

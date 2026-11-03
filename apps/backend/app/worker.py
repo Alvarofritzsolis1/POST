@@ -8,6 +8,7 @@ from .config import settings
 from .db import SessionLocal
 from .models import Document, utcnow
 from .pipeline import process_document
+from .control_scheduler import calendar_tick
 
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger("galant.post.worker")
@@ -70,8 +71,15 @@ def process_next() -> bool:
 def main() -> None:
     signal.signal(signal.SIGTERM, stop)
     signal.signal(signal.SIGINT, stop)
+    next_calendar_check = 0.0
     while not stopping:
         try:
+            if time.monotonic() >= next_calendar_check:
+                with SessionLocal.begin() as db:
+                    created = calendar_tick(db)
+                if created:
+                    logger.info("Calendario: %d solicitudes generadas", created)
+                next_calendar_check = time.monotonic() + 300
             if not process_next():
                 time.sleep(settings().worker_poll_seconds)
         except Exception:

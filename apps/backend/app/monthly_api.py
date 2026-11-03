@@ -19,7 +19,7 @@ from .security import authorized_user, editor
 router = APIRouter(prefix="/api/v1/ops/monthly-documents", tags=["Documentación mensual"])
 
 DocumentKind = Literal["cotizaciones", "f30_1", "asistencia", "liquidaciones",
-                       "declaracion_jurada", "otros"]
+                       "declaracion_jurada", "porteria", "anticipos", "otros"]
 ReviewStatus = Literal["pending", "approved", "observed", "rejected", "not_applicable"]
 
 
@@ -57,6 +57,7 @@ def view(row: MonthlyDocument, document: Document | None) -> dict:
         "kind": row.kind,
         "document_id": row.document_id,
         "review_status": row.review_status,
+        "review_source": "manual_without_pdf" if row.document_id is None else "with_document",
         "notes": row.notes,
         "created_by": row.created_by,
         "reviewed_by": row.reviewed_by,
@@ -157,11 +158,9 @@ def review_monthly_document(
     if record is None:
         raise HTTPException(404, "Registro mensual no encontrado")
     association_for(db, user.org_id, record.association_id)
-    if record.document_id is None and payload.review_status != "not_applicable":
-        raise HTTPException(422, "No se puede aprobar un registro sin documento")
     if record.document_id is not None and payload.review_status == "not_applicable":
         raise HTTPException(422, "No aplica requiere registro sin documento")
-    if payload.review_status in {"observed", "rejected"} and not payload.notes.strip():
+    if payload.review_status in {"observed", "rejected", "not_applicable"} and not payload.notes.strip():
         raise HTTPException(422, "Se requiere una observación para rechazar u observar")
     old = {"review_status": record.review_status, "notes": record.notes}
     record.review_status = payload.review_status

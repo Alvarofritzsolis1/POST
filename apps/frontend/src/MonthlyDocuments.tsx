@@ -2,6 +2,7 @@ import {useCallback,useEffect,useState,type FormEvent} from "react"
 import {CheckCircle2,FileText,LoaderCircle,RefreshCcw,UploadCloud} from "lucide-react"
 import {api,type DocumentSummary} from "./api"
 import {opsApi,type Contractor,type MonthlyRecord} from "./opsApi"
+import {opsControlApi,type Requirement} from "./opsControlApi"
 import "./monthly.css"
 
 const types=[
@@ -9,12 +10,16 @@ const types=[
   {value:"f30_1",label:"Formulario F30-1"},
   {value:"asistencia",label:"Registro de asistencia"},
   {value:"liquidaciones",label:"Liquidaciones de sueldo"},
+  {value:"porteria",label:"Informe de portería"},
   {value:"declaracion_jurada",label:"Declaración jurada"},
+  {value:"anticipos",label:"Listado de anticipos"},
   {value:"otros",label:"Otro documento"}
 ]
 const statuses:Record<string,string>={
   pending:"Pendiente de revisión",approved:"Aprobado",observed:"Observado",
-  rejected:"Rechazado",not_applicable:"No aplica"
+  rejected:"Rechazado",not_applicable:"No aplica",needs_classification:"Definir exigibilidad",
+  not_yet_required:"No exigible todavía",overdue:"Vencido",
+  schedule_not_configured:"Sin calendario configurado"
 }
 const nameOf=(kind:string)=>types.find(item=>item.value===kind)?.label||kind
 const todayMonth=()=>{const now=new Date();return now.getFullYear()+"-"+String(now.getMonth()+1).padStart(2,"0")}
@@ -23,6 +28,7 @@ const errText=(error:unknown)=>error instanceof Error?error.message:"No fue posi
 export default function MonthlyDocuments({contractor,readOnly}:{contractor:Contractor;readOnly:boolean}){
   const [period,setPeriod]=useState(todayMonth)
   const [rows,setRows]=useState<MonthlyRecord[]>([])
+  const [requirements,setRequirements]=useState<Requirement[]>([])
   const [existing,setExisting]=useState<DocumentSummary[]>([])
   const [kind,setKind]=useState("cotizaciones")
   const [file,setFile]=useState<File|null>(null)
@@ -36,32 +42,34 @@ export default function MonthlyDocuments({contractor,readOnly}:{contractor:Contr
     (contractor.nature==="unclassified"&&contractor.historical_code==="CI")
   const withWorkers=contractor.nature==="with_workers"||
     (contractor.nature==="unclassified"&&contractor.historical_code==="CT")
-  const required=independent?["cotizaciones","declaracion_jurada"]:
-    withWorkers?["cotizaciones","f30_1","asistencia","liquidaciones"]:["cotizaciones"]
+  const required=types.filter(t=>t.value!=="otros").map(t=>t.value)
 
   const reload=useCallback(async()=>{
-    const [monthly,uploads]=await Promise.all([
-      opsApi.monthlyDocuments(contractor.id,period),api.list()
+    const [monthly,uploads,matrix]=await Promise.all([
+      opsApi.monthlyDocuments(contractor.id,period),api.list(),
+      opsControlApi.matrix(contractor.site_id,period)
     ])
     setRows(monthly)
     setExisting(uploads)
-  },[contractor.id,period])
+    setRequirements(matrix.contractors.find(c=>c.association_id===contractor.id)?.requirements||[])
+  },[contractor.id,contractor.site_id,period])
 
   useEffect(()=>{
     let active=true
     const refresh=async()=>{
       try{
-        const [monthly,uploads]=await Promise.all([
-          opsApi.monthlyDocuments(contractor.id,period),api.list()
+        const [monthly,uploads,matrix]=await Promise.all([
+          opsApi.monthlyDocuments(contractor.id,period),api.list(),
+          opsControlApi.matrix(contractor.site_id,period)
         ])
-        if(active){setRows(monthly);setExisting(uploads);setError("");setLoading(false)}
+        if(active){setRows(monthly);setExisting(uploads);setRequirements(matrix.contractors.find(c=>c.association_id===contractor.id)?.requirements||[]);setError("");setLoading(false)}
       }catch(err){if(active){setError(errText(err));setLoading(false)}}
     }
     setRows([]);setLoading(true);setError("");setNotice("")
     void refresh()
     const interval=window.setInterval(()=>void refresh(),15000)
     return()=>{active=false;window.clearInterval(interval)}
-  },[contractor.id,period])
+  },[contractor.id,contractor.site_id,period])
 
   async function uploadAndLink(event:FormEvent){
     event.preventDefault()
@@ -111,11 +119,25 @@ export default function MonthlyDocuments({contractor,readOnly}:{contractor:Contr
     }catch(err){setError(errText(err))}
     finally{setBusy(false)}
   }
+  async function manualReview(documentKind:string,status:"approved"|"observed"|"pending"|"not_applicable"){
+    if(readOnly)return
+    let message=""
+    if(status==="observed"||status==="not_applicable"){
+      const entered=window.prompt("Justifica la revisión de "+nameOf(documentKind)+":")
+      if(entered===null)return
+      message=entered.trim()
+      if(!message){setError("Indica un motivo para registrar este estado");return}
+    }
+    setBusy(true);setError("");setNotice("")
+    try{
+      await opsControlApi.reviews({association_id:contractor.id,period,kind:documentKind,status,notes:message})
+      await reload();setNotice("Revisión guardada para todos los usuarios autorizados.")
+    }catch(err){setError(errText(err))}
+    finally{setBusy(false)}
+  }
   const latest=(documentKind:string)=>rows.find(row=>row.kind===documentKind)
-  const approved=required.filter(item=>{
-    const row=latest(item)
-    return row?.review_status==="approved"||row?.review_status==="not_applicable"
-  }).length
+  const eligible=requirements.filter(r=>r.applicable===true)
+  const approved=eligible.filter(r=>r.state==="approved").length
   return <section className="monthly-panel" aria-labelledby="monthly-title">
     <div className="monthly-header">
       <div><span className="eyebrow">CONTROL DOCUMENTAL COMPARTIDO</span><h3 id="monthly-title">Documentación mensual</h3>
@@ -124,17 +146,22 @@ export default function MonthlyDocuments({contractor,readOnly}:{contractor:Contr
         <input id="monthly-period" type="month" min="2000-01" max="2099-12" value={period} onChange={e=>setPeriod(e.target.value)}/>
         <button type="button" className="secondary" disabled={loading||busy} onClick={()=>void reload().catch(err=>setError(errText(err)))} title="Actualizar documentos"><RefreshCcw size={16}/> Actualizar</button></div>
     </div>
-    <div className="monthly-summary"><strong>{approved} de {required.length}</strong><span>requisitos aprobados o no aplicables en {period}</span></div>
+    <div className="monthly-summary"><strong>{eligible.length?approved+" de "+eligible.length:"Sin evaluar"}</strong><span>requisitos exigibles aprobados en {period}; no aplica y no exigible no cuentan como incumplimiento</span></div>
     {!independent&&!withWorkers&&<p className="ops-help">Contratista sin clasificación documental completa: confirma su naturaleza y obligaciones antes de aprobar el período.</p>}
     {error&&<p className="form-error" role="alert">{error}</p>}
     {notice&&<p className="alert success" role="status"><CheckCircle2 size={16}/>{notice}</p>}
     {loading?<p><LoaderCircle size={16} className="spin"/> Cargando documentación mensual…</p>:<>
       <div className="table-wrap"><table className="ops-list-table monthly-table"><thead><tr><th>REQUISITO</th><th>ESTADO</th><th>DOCUMENTO</th><th>ACCIÓN</th></tr></thead><tbody>
-        {required.map(item=>{const row=latest(item);return <tr key={item}>
-          <td><strong>{nameOf(item)}</strong></td>
-          <td><span className={"status "+(row?.review_status==="approved"?"success":row?.review_status==="rejected"?"error":"waiting")}>{row?statuses[row.review_status]:"Sin documento"}</span></td>
-          <td>{row?.original_name||"—"}</td>
-          <td>{row?.document_id?<a className="secondary ops-small-button" href={api.pdf(row.document_id)} target="_blank" rel="noreferrer">Ver archivo</a>:!row&&!readOnly?<button type="button" className="secondary ops-small-button" disabled={busy} onClick={()=>void markNotApplicable(item)}>No aplica</button>:"—"}</td>
+        {required.map(item=>{const row=latest(item);const req=requirements.find(r=>r.kind===item);const state=req?.state||row?.review_status||"needs_classification";return <tr key={item}>
+          <td><strong>{nameOf(item)}</strong><small style={{display:"block"}}>{req?.applicable===null?"Confirmar exigibilidad":req?.applicable===false?"No aplicable":"Requisito aplicable"}</small></td>
+          <td><span className={"status "+(state==="approved"?"success":state==="observed"||state==="rejected"||state==="overdue"?"error":"waiting")}>{statuses[state]||state}</span></td>
+          <td>{row?.document_id?<a href={api.pdf(row.document_id)} target="_blank" rel="noreferrer">{row.original_name||"Abrir archivo"}</a>:row?"Revisión manual sin archivo":"—"}</td>
+          <td>{!readOnly&&req?.applicable===true?<div className="control-cell-actions">
+            <button type="button" disabled={busy} onClick={()=>void manualReview(item,"approved")}>Aprobar</button>
+            <button type="button" disabled={busy} onClick={()=>void manualReview(item,"observed")}>Observar</button>
+            <button type="button" disabled={busy} onClick={()=>void manualReview(item,"pending")}>Pendiente</button>
+            <button type="button" disabled={busy} onClick={()=>void manualReview(item,"not_applicable")}>No aplica</button>
+          </div>:req?.applicable===null?"Configura la exigibilidad en Centro de control":"—"}</td>
         </tr>})}
       </tbody></table></div>
       {!readOnly&&<div className="monthly-forms">
@@ -160,12 +187,12 @@ export default function MonthlyDocuments({contractor,readOnly}:{contractor:Contr
         {rows.map(row=><tr key={row.id}>
           <td>{new Date(row.created_at).toLocaleDateString("es-CL")}</td>
           <td>{nameOf(row.kind)}</td>
-          <td>{row.document_id?<a href={api.pdf(row.document_id)} target="_blank" rel="noreferrer">{row.original_name||"Abrir archivo"}</a>:"No aplica"}<small className="monthly-ocr"> {row.ocr_status?"OCR: "+row.ocr_status:""}</small></td>
-          <td>{readOnly||!row.document_id?statuses[row.review_status]:<select aria-label={"Estado documental "+row.id} value={row.review_status} disabled={busy} onChange={e=>void review(row,e.target.value as MonthlyRecord["review_status"])}>
+          <td>{row.document_id?<a href={api.pdf(row.document_id)} target="_blank" rel="noreferrer">{row.original_name||"Abrir archivo"}</a>:"Revisión manual sin PDF"}<small className="monthly-ocr"> {row.ocr_status?"OCR: "+row.ocr_status:""}</small></td>
+          <td>{readOnly?statuses[row.review_status]:<select aria-label={"Estado documental "+row.id} value={row.review_status} disabled={busy} onChange={e=>void review(row,e.target.value as MonthlyRecord["review_status"])}>
             <option value="pending">Pendiente</option><option value="approved">Aprobado</option><option value="observed">Observado</option><option value="rejected">Rechazado</option>
           </select>}</td>
           <td>{readOnly?row.notes:<input aria-label={"Observación "+row.id} maxLength={2000} placeholder="Motivo u observación" value={notes[row.id]??row.notes} onChange={e=>setNotes(current=>({...current,[row.id]:e.target.value}))}/>}
-            {!readOnly&&row.document_id&&<button type="button" className="secondary ops-small-button" disabled={busy} onClick={()=>void review(row,row.review_status)}>Guardar nota</button>}</td>
+            {!readOnly&&<button type="button" className="secondary ops-small-button" disabled={busy} onClick={()=>void review(row,row.review_status)}>Guardar nota</button>}</td>
         </tr>)}
       </tbody></table></div>}
     </>}

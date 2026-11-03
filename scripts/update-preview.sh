@@ -53,8 +53,9 @@ wait_for_health() {
 
 rollback() {
     local status=$?
-    trap - ERR
-    if (( switched )); then
+    # EXIT captura también los 'exit 1' explícitos (ERR no lo hace).
+    trap - EXIT ERR
+    if (( status != 0 && switched )); then
         echo "La actualización falló; restaurando ${previous_ref}." >&2
         if git checkout --detach "$previous_ref" \
             && "${compose[@]}" config --quiet \
@@ -68,15 +69,27 @@ rollback() {
     fi
     exit "$status"
 }
-trap rollback ERR
+trap rollback EXIT
 
 git fetch --no-tags --depth=1 origin "$target_ref"
 git cat-file -e "${target_ref}^{commit}"
 git checkout --detach "$target_ref"
 switched=1
 "${compose[@]}" config --quiet
+# Antes de sustituir contenedores, restaurar el respaldo en PostgreSQL aislado.
+# Un fallo de respaldo/restauración aborta la actualización; rollback restaura
+# únicamente el checkout previo (el volumen de datos no se altera).
+backup_output="$(bash scripts/backup-preview.sh)"
+printf '%s\n' "$backup_output"
+backup_path="$(printf '%s\n' "$backup_output" | sed -n 's/^BACKUP_PATH=//p' | tail -1)"
+if [[ -z "$backup_path" || ! -d "$backup_path" ]]; then
+    echo "No existe directorio de respaldo verificable; despliegue cancelado" >&2
+    exit 1
+fi
+bash scripts/verify-restore-preview.sh "$backup_path"
 COMPOSE_PARALLEL_LIMIT=1 "${compose[@]}" up -d --build db api worker frontend proxy
 "${compose[@]}" exec -T api python -m app.cli init-db
 wait_for_health
-trap - ERR
+switched=0
+trap - EXIT
 echo "GALANT actualizado a ${target_ref}."

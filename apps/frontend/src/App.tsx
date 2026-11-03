@@ -6,9 +6,11 @@ import {
 } from "lucide-react"
 import {api,type Dashboard,type DocumentSummary,type DocumentView,type Profile} from "./api"
 import Operations from "./Operations"
+import ControlCenter from "./ControlCenter"
 
-type Area="operations"|"dashboard"|"cotizaciones"|"f30_1"|"history"|"review"
+type Area="control"|"operations"|"dashboard"|"cotizaciones"|"f30_1"|"history"|"review"
 const nav=[
+  {id:"control" as Area,title:"Centro de control",icon:LayoutDashboard},
   {id:"operations" as Area,title:"Obras y personas",icon:Building2},
   {id:"dashboard" as Area,title:"Revisión OCR — Beta",icon:LayoutDashboard},
   {id:"cotizaciones" as Area,title:"Cotizaciones OCR",icon:FileCheck2},
@@ -89,7 +91,7 @@ function App(){
   const [version,setVersion]=useState<string|null>(null)
   const [user,setUser]=useState<Profile|null>(null)
   const [authReady,setAuthReady]=useState(false)
-  const [section,setSection]=useState<Area>("operations")
+  const [section,setSection]=useState<Area>("control")
   const [stats,setStats]=useState<Dashboard|null>(null)
   const [list,setList]=useState<DocumentSummary[]>([])
   const [chosen,setChosen]=useState<string|null>(null)
@@ -109,7 +111,7 @@ function App(){
     }catch(err){setError(err instanceof Error?err.message:"No se pudo actualizar")}
   },[user])
   useEffect(()=>{
-    if(!user||section==="operations")return
+    if(!user||(section==="operations"||section==="control"))return
     void refresh()
     const timer=window.setInterval(()=>void refresh(),7000)
     return()=>window.clearInterval(timer)
@@ -165,9 +167,9 @@ function App(){
     </aside>
     <main className="main">
       <header className="topbar"><div className="breadcrumbs"><span>GALANT POST</span><ChevronRight size={15}/><strong>{nav.find(x=>x.id===section)?.title}</strong></div>
-      <div className="top-actions"><span className="private-pill"><span className="online-dot"/>Entorno privado</span>{section!=="operations"&&<button className="icon-button" type="button" aria-label="Actualizar datos" title="Actualizar datos" onClick={()=>void refresh()}><RefreshCcw size={17}/></button>}<button type="button" className="icon-button mobile-logout" title="Cerrar sesión" aria-label="Cerrar sesión" onClick={()=>void logout()}><LogOut size={17}/></button></div></header>
+      <div className="top-actions"><span className="private-pill"><span className="online-dot"/>Entorno privado</span>{section!=="operations"&&section!=="control"&&<button className="icon-button" type="button" aria-label="Actualizar datos" title="Actualizar datos" onClick={()=>void refresh()}><RefreshCcw size={17}/></button>}<button type="button" className="icon-button mobile-logout" title="Cerrar sesión" aria-label="Cerrar sesión" onClick={()=>void logout()}><LogOut size={17}/></button></div></header>
       <div className="page">
-        {section==="operations"?<Operations readOnly={user.role==="viewer"}/>:<>
+        {section==="control"?<ControlCenter readOnly={user.role==="viewer"}/>:section==="operations"?<Operations readOnly={user.role==="viewer"}/>:<>
         <div className="intro">
           <div><span className="eyebrow">INTELIGENCIA DOCUMENTAL / CHILE</span>
             <h1>{section==="dashboard"?"Visión general":nav.find(x=>x.id===section)?.title}</h1>

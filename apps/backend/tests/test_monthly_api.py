@@ -95,9 +95,12 @@ def test_shared_monthly_record_across_users(monkeypatch):
                       "kind":"otros","not_applicable":True},
                 headers={"X-CSRF-Token":client.cookies["galant_post_csrf"]})
             assert not_applicable.status_code==201,not_applicable.text
-            assert client.patch("/api/v1/ops/monthly-documents/"+not_applicable.json()["id"],
-                json={"review_status":"approved","notes":""},
-                headers={"X-CSRF-Token":client.cookies["galant_post_csrf"]}).status_code==422
+            # Regla actual: se permite aprobación manual sin PDF, conservando trazabilidad.
+            approved_manual=client.patch("/api/v1/ops/monthly-documents/"+not_applicable.json()["id"],
+                json={"review_status":"approved","notes":"Aprobación manual sin respaldo adjunto"},
+                headers={"X-CSRF-Token":client.cookies["galant_post_csrf"]})
+            assert approved_manual.status_code==200,approved_manual.text
+            assert approved_manual.json()["review_source"]=="manual_without_pdf"
     finally:
         app.dependency_overrides.clear()
         settings.cache_clear()
