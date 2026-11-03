@@ -228,10 +228,12 @@ jobs:
     if: >-
       (github.event_name == 'workflow_dispatch' &&
        github.ref == 'refs/heads/main' &&
-       vars.VPS_MANUAL_DEPLOY_ALLOWED == 'true') ||
+       vars.VPS_MANUAL_DEPLOY_ALLOWED == 'true' &&
+       vars.GALANT_POST_RELEASE_APPROVED == 'true') ||
       (github.event_name == 'push' &&
        github.ref == 'refs/heads/main' &&
-       vars.VPS_AUTODEPLOY == 'true')
+       vars.VPS_AUTODEPLOY == 'true' &&
+       vars.GALANT_POST_RELEASE_APPROVED == 'true')
     runs-on: ubuntu-latest
     timeout-minutes: 25
     concurrency:
