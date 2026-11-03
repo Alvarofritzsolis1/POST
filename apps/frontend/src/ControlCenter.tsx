@@ -169,7 +169,8 @@ export default function ControlCenter({readOnly,externalSiteId,externalPeriod,in
     event.preventDefault()
     if(!selectedAssoc||!currentCompany||readOnly||(!isIndependent(currentCompany)&&!subject))return
     await perform(()=>opsControlApi.saveContribution({...form,association_id:selectedAssoc,
-      worker_assignment_id:currentCompany&&isIndependent(currentCompany)?null:subject,period}),
+      worker_assignment_id:currentCompany&&isIndependent(currentCompany)?null:subject,
+      required_days:form.attendance_days,period}),
       "Control de cotizaciones y asistencia actualizado.")
   }
   async function saveTask(event:FormEvent){
@@ -204,8 +205,8 @@ export default function ControlCenter({readOnly,externalSiteId,externalPeriod,in
   }
   const selectedCount=selection.size
   const summary=overview?.totals
-  const days=form.required_days!=null&&form.paid_days!=null&&currentCompany&&!isIndependent(currentCompany)
-    ?Math.max(0,form.required_days-form.paid_days):null
+  const days=form.attendance_days!=null&&form.paid_days!=null&&currentCompany&&!isIndependent(currentCompany)
+    ?Math.max(0,form.attendance_days-form.paid_days):null
   const amount=days==null?null:days*form.daily_rate
   const existingActivity=activities.find(a=>a.association_id===selectedAssoc)
   const siteName=sites.find(s=>s.id===siteId)?.name||"Todas las obras"
@@ -297,7 +298,7 @@ export default function ControlCenter({readOnly,externalSiteId,externalPeriod,in
         </>}
       </section>}
       {tab==="contributions"&&<section className="control-card"><h2>Control manual de cotizaciones y asistencia</h2>
-        <p>Los días exigibles pueden diferir de los asistidos. Un pago confirmado manualmente no equivale a una validación bancaria o de Previred.</p>
+        <p>Compara asistencia y días cotizados. Registra excepciones justificadas; confirmar manualmente no reemplaza la evidencia de Previred.</p>
         {!siteId?<p>Selecciona una obra para registrar días y cotizaciones.</p>:<>
         <label>Contratista<select value={selectedAssoc} onChange={e=>setSelectedAssoc(e.target.value)}>
           <option value="">Seleccionar</option>{matrix?.contractors.map(c=><option key={c.association_id} value={c.association_id}>{c.name} · {c.code||"Otro"}</option>)}
@@ -321,9 +322,8 @@ export default function ControlCenter({readOnly,externalSiteId,externalPeriod,in
               </select></label>:<p><strong>Independiente:</strong> registro directo a nombre del contratista, sin trabajador ficticio ni retención diaria automática.</p>}
             <div className="control-form-grid">
               <label>Días de asistencia<input type="number" min="0" max="31" value={form.attendance_days??""}
-                onChange={e=>setForm(f=>({...f,attendance_days:e.target.value===""?null:Number(e.target.value)}))}/></label>
-              <label>Días exigibles<input type="number" min="0" max="31" value={form.required_days??""}
-                onChange={e=>setForm(f=>({...f,required_days:e.target.value===""?null:Number(e.target.value)}))}/></label>
+                onChange={e=>{const days=e.target.value===""?null:Number(e.target.value);
+                  setForm(f=>({...f,attendance_days:days,required_days:days}))}}/></label>
               <label>Días cotizados<input type="number" min="0" max="31" value={form.paid_days??""}
                 onChange={e=>setForm(f=>({...f,paid_days:e.target.value===""?null:Number(e.target.value)}))}/></label>
               <label>Tarifa diaria CLP<input type="number" min="0" step="0.01" value={form.daily_rate}
@@ -340,7 +340,7 @@ export default function ControlCenter({readOnly,externalSiteId,externalPeriod,in
             </div>
             <label className="control-check"><input type="checkbox" checked={form.payment_confirmed}
               onChange={e=>setForm(f=>({...f,payment_confirmed:e.target.checked}))}/> Confirmo manualmente el pago de cotizaciones</label>
-            <label>Justificación de días exigibles / diferencia<input value={form.justification}
+            <label>Justificación de la diferencia<input value={form.justification}
               maxLength={2000} onChange={e=>setForm(f=>({...f,justification:e.target.value}))}/></label>
             <label>Observaciones<input value={form.notes} maxLength={2000}
               onChange={e=>setForm(f=>({...f,notes:e.target.value}))}/></label>
@@ -349,10 +349,10 @@ export default function ControlCenter({readOnly,externalSiteId,externalPeriod,in
             {!readOnly&&<button className="primary" disabled={busy||(!isIndependent(currentCompany)&&!subject)}>Guardar control</button>}
           </form></>}
         </>}
-        <div className="table-wrap"><table className="control-table"><thead><tr><th>Contratista / trabajador</th><th>Exigibles</th><th>Pagados</th><th>Faltantes</th><th>Retención sugerida</th><th>Pago</th></tr></thead><tbody>
+        <div className="table-wrap"><table className="control-table"><thead><tr><th>Contratista / trabajador</th><th>Asistencia</th><th>Pagados</th><th>Faltantes</th><th>Retención sugerida</th><th>Pago</th></tr></thead><tbody>
         {contributions.filter(c=>!siteId||c.site_id===siteId).map(c=><tr key={c.id}>
           <td><strong>{c.contractor}</strong><small>{c.worker||"Independiente"} · {c.code}</small></td>
-          <td>{c.required_days??"—"}</td><td>{c.paid_days??"—"}</td>
+          <td>{c.attendance_days??"—"}</td><td>{c.paid_days??"—"}</td>
           <td>{c.missing_days??"No comparable"}</td><td>{money(c.retention_suggested)}</td>
           <td>{c.payment_confirmed?"Confirmado manualmente":"Sin confirmar"}</td></tr>)}
         </tbody></table></div>
