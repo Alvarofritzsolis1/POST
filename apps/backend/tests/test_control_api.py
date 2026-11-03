@@ -288,3 +288,81 @@ def test_historical_contract_import_rejects_unknown_rut_and_ambiguous_dates(env)
     commit=client.post("/api/v1/control/import/contracts/commit",headers=headers,json={
         "site_id":site,"rows":preview["rows"],"preview_token":preview["preview_token"]})
     assert commit.status_code==422
+
+
+def test_pago_parcial_es_incompleto_y_sincroniza_control_documental(env):
+    """Regresión: 16 días asistidos, 14 pagados y evidencia confirmada."""
+    client, _ = env
+    headers = login(client, "a@example.cl")
+    site = client.get("/api/v1/ops/sites").json()[0]["id"]
+    company = create_company(client, headers, site, "CT", "Contratista de prueba")
+    worker_response = client.post("/api/v1/ops/workers", headers=headers, json={
+        "site_id": site, "contractor_id": company["contractor_id"],
+        "name": "Trabajador de prueba",
+    })
+    assert worker_response.status_code == 201, worker_response.text
+    worker = worker_response.json()
+    payload = {
+        "association_id": company["id"],
+        "subject": worker["id"],
+        "period": "2026-11",
+        "required_days": 14,  # Campo legado: asistencia debe prevalecer.
+        "attendance_days": 16,
+        "paid_days": 14,
+        "confirmed": True,
+    }
+    saved = client.put("/api/v1/ops/contributions", headers=headers, json=payload)
+    assert saved.status_code == 200, saved.text
+    response = client.get("/api/v1/ops/contributions", params={
+        "site_id": site, "period": "2026-11",
+    })
+    assert response.status_code == 200, response.text
+    result = next(row for row in response.json()["rows"] if row["subject"] == worker["id"])
+    assert result["required_days"] == 16
+    assert result["missing_days"] == 2
+    assert result["estimated_retention"] == 9900
+    assert result["state"] == "incompleto"
+    monthly = client.get("/api/v1/control/contributions", params={
+        "site_id": site, "period": "2026-11",
+    })
+    assert monthly.status_code == 200, monthly.text
+    assert monthly.json()[0]["compliance_status"] == "incomplete"
+    docs = client.get("/api/v1/ops/document-reviews", params={
+        "site_id": site, "period": "2026-11",
+    })
+    assert docs.status_code == 200, docs.text
+    doc = next(row for row in docs.json() if
+        row["subject"] == worker["id"] and row["requirement"] == "Cotizaciones")
+    assert doc["state"] == "incomplete"
+    cannot_approve = client.put("/api/v1/ops/document-reviews", headers=headers, json={
+        "association_id": company["id"], "subject": worker["id"],
+        "period": "2026-11", "requirement": "Cotizaciones",
+        "state": "approved", "observation": "",
+    })
+    assert cannot_approve.status_code == 422
+
+    regularized = client.put("/api/v1/ops/contributions", headers=headers, json={
+        **payload, "paid_days": 16,
+    })
+    assert regularized.status_code == 200, regularized.text
+    result = next(row for row in client.get("/api/v1/ops/contributions", params={
+        "site_id": site, "period": "2026-11",
+    }).json()["rows"] if row["subject"] == worker["id"])
+    assert result["state"] == "conforme"
+    assert result["missing_days"] == 0
+    assert result["estimated_retention"] == 0
+    approved = client.put("/api/v1/ops/document-reviews", headers=headers, json={
+        "association_id": company["id"], "subject": worker["id"],
+        "period": "2026-11", "requirement": "Cotizaciones",
+        "state": "approved", "observation": "Regularización acreditada",
+    })
+    assert approved.status_code == 200, approved.text
+
+    changed = client.put("/api/v1/ops/contributions", headers=headers, json=payload)
+    assert changed.status_code == 200, changed.text
+    docs = client.get("/api/v1/ops/document-reviews", params={
+        "site_id": site, "period": "2026-11",
+    }).json()
+    doc = next(row for row in docs if
+        row["subject"] == worker["id"] and row["requirement"] == "Cotizaciones")
+    assert doc["state"] == "incomplete"
