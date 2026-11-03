@@ -2,6 +2,7 @@
 from __future__ import annotations
 
 from datetime import datetime
+from decimal import Decimal
 from io import BytesIO
 from zoneinfo import ZoneInfo
 
@@ -39,6 +40,7 @@ def overview(period: str, site_id: str | None = None,
     sites = site_rows(db, user, site_id)
     summaries = []
     unique_companies = set()
+    unique_workers = set()
     totals = {"ct": 0, "ci": 0, "sporadic": 0, "active": 0,
               "workers": 0, "without_movements": 0, "offboarding_open": 0}
     total_applicable = total_approved = total_reviewed = 0
@@ -57,10 +59,12 @@ def overview(period: str, site_id: str | None = None,
                 totals["active"] += 1
         workers = 0
         if ids:
-            workers = db.scalar(select(func.count(WorkerAssignment.id)).where(
+            worker_ids = db.scalars(select(WorkerAssignment.worker_id).where(
                 WorkerAssignment.org_id == user.org_id,
                 WorkerAssignment.worksite_id == site.id,
-                WorkerAssignment.active.is_(True))) or 0
+                WorkerAssignment.active.is_(True))).all()
+            workers = len(worker_ids)
+            unique_workers.update(worker_ids)
             movements = db.scalar(select(func.count(MonthlyActivity.id)).where(
                 MonthlyActivity.org_id == user.org_id,
                 MonthlyActivity.association_id.in_(ids),
@@ -75,14 +79,15 @@ def overview(period: str, site_id: str | None = None,
         summaries.append({"site_id": site.id, "site": site.name,
                           "contractors": len(result["contractors"]),
                           "workers": workers, **numbers})
+    totals["workers"] = len(unique_workers)
     totals["unique_companies"] = len(unique_companies)
     totals["associations"] = sum(s["contractors"] for s in summaries)
     contributions = list_contributions(period, site_id, user, db)
     totals["unverified_payments"] = sum(not c["payment_confirmed"] for c in contributions)
     totals["days_missing"] = sum(c["missing_days"] or 0 for c in contributions)
     totals["retention_proposed"] = str(sum(
-        (float(c["retention_suggested"]) for c in contributions
-         if c["missing_days"] and c["retention_suggested"] is not None), 0.0))
+        (Decimal(c["retention_suggested"]) for c in contributions
+         if c["missing_days"] and c["retention_suggested"] is not None), Decimal("0.00")))
     active_contracts = list_contracts(site_id=site_id, user=user, db=db)
     totals["expiring_contracts"] = sum(bool(c["expiry_alert"]) for c in active_contracts)
     tasks = list_tasks(site_id=site_id, status="open", user=user, db=db)
@@ -138,7 +143,7 @@ def cotizaciones_excel(period: str, site_id: str | None = None,
                "Retención sugerida CLP", "Pago confirmado manualmente", "Estado de revisión",
                "Retención", "Justificación", "Observaciones", "Responsable"])
     total_missing = 0
-    total_retention = 0.0
+    total_retention = Decimal("0.00")
     for site in sites:
         rows = db.execute(select(ContractorWorksite, Contractor).join(
             Contractor, Contractor.id == ContractorWorksite.contractor_id).where(
@@ -156,13 +161,13 @@ def cotizaciones_excel(period: str, site_id: str | None = None,
                 continue
             for row in current:
                 total_missing += row["missing_days"] or 0
-                proposal = (float(row["retention_suggested"])
+                proposal = (Decimal(row["retention_suggested"])
                             if row["retention_suggested"] is not None else None)
-                total_retention += proposal or 0.0
+                total_retention += proposal or Decimal("0.00")
                 sh.append([site.name, company.name, company.rut, link.historical_code,
                            period, row["worker"] or "Independiente",
                            row["attendance_days"], row["required_days"], row["paid_days"],
-                           row["missing_days"], proposal,
+                           row["missing_days"], float(proposal) if proposal is not None else None,
                            "Sí (registro manual)" if row["payment_confirmed"] else "Pendiente",
                            row["review_status"], row["retention_status"],
                            row["justification"], row["notes"], row["reviewer_id"]])
@@ -170,7 +175,7 @@ def cotizaciones_excel(period: str, site_id: str | None = None,
     summary.append(["Métrica", "Valor"])
     summary.append(["Período", period])
     summary.append(["Total días faltantes CT (sin compensaciones)", total_missing])
-    summary.append(["Retenciones sugeridas totales CLP", total_retention])
+    summary.append(["Retenciones sugeridas totales CLP", float(total_retention)])
     summary.append(["Importante", "Propuestas administrativas; no se aplican automáticamente"])
     return format_book(wb, f"GALANT_COTIZACIONES_CT_CI_{period}.xlsx")
 
