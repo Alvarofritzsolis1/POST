@@ -6,8 +6,9 @@ from sqlalchemy import func, select
 
 from .db import Base, SessionLocal, engine
 from .models import AuditEvent, Document, Organization, User
-from . import ops_models  # registrar tablas antes de crear esquema
+from . import ops_models, control_models  # registrar tablas antes de crear esquema
 from .ops_models import AuditPeriod, Contractor, ContractorWorksite, MonthlyDocument, OpsChange, Worker, WorkerAssignment, Worksite
+from .control_models import ContributionControl, MonthlyActivity, ContractRegister, ProcessCalendar, WorkTask, OffboardingCase, RequirementApplicability
 from .ops_api import DEFAULT_SITES, INITIAL_PERIOD, ensure_sites
 from .security import hash_password
 
@@ -24,7 +25,7 @@ def check_empty_organization(db, org_id: str, user_id: str) -> None:
     others = db.scalar(select(func.count(User.id)).where(User.org_id == org_id, User.id != user_id))
     if others:
         raise SystemExit("Organización de origen con otros usuarios: requiere migración administrada")
-    for model in (Document, Contractor, ContractorWorksite, Worker, WorkerAssignment, OpsChange, MonthlyDocument):
+    for model in (Document, Contractor, ContractorWorksite, Worker, WorkerAssignment, OpsChange, MonthlyDocument, ContributionControl, MonthlyActivity, ContractRegister, ProcessCalendar, WorkTask, OffboardingCase, RequirementApplicability):
         if db.scalar(select(model.id).where(model.org_id == org_id).limit(1)):
             raise SystemExit("La organización de origen tiene registros: no se moverán ni perderán datos. Requiere migración supervisada")
     # Se permiten únicamente las tres obras y períodos iniciales creados por init-db.
