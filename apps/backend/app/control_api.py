@@ -349,6 +349,13 @@ def save_contributions(payload: ContributionInput, user: User = Depends(editor),
         raise HTTPException(422, "No calcular retención por días automáticamente a independientes")
     if payload.retention_status == "confirmed" and user.role != "admin":
         raise HTTPException(403, "Solo un administrador puede confirmar una retención propuesta")
+    if payload.retention_status in ("proposed", "confirmed") and (
+        payload.required_days is None or payload.paid_days is None
+        or payload.required_days <= payload.paid_days
+    ):
+        raise HTTPException(422, "La retención propuesta requiere días faltantes comprobables")
+    if payload.retention_status == "confirmed" and not payload.notes.strip():
+        raise HTTPException(422, "La confirmación administrativa requiere observaciones de respaldo")
     if payload.retention_status == "justified" and not payload.justification.strip():
         raise HTTPException(422, "Indica la justificación para la diferencia")
     worker = None
@@ -362,47 +369,73 @@ def save_contributions(payload: ContributionInput, user: User = Depends(editor),
         ContributionControl.subject_key == subject_key))
     old = None
     if row is None:
-        row = ContributionControl(org_id=user.org_id, association_id=link.id,
+        row = ContributionControl(
+            org_id=user.org_id, association_id=link.id,
             period=payload.period, subject_key=subject_key,
             worker_assignment_id=worker.id if worker else None,
-            created_by=user.id, updated_by=user.id)
+            created_by=user.id, updated_by=user.id,
+        )
         db.add(row)
         db.flush()
     else:
-        old = {"required_days": row.required_days, "paid_days": row.paid_days,
-               "attendance_days": row.attendance_days, "payment_confirmed": row.payment_confirmed,
-               "review_status": row.review_status}
-    for field in ("attendance_days", "required_days", "paid_days", "payment_confirmed",
-                  "daily_rate", "justification", "notes", "review_status", "retention_status"):
+        old = {
+            "attendance_days": row.attendance_days, "required_days": row.required_days,
+            "paid_days": row.paid_days, "payment_confirmed": row.payment_confirmed,
+            "daily_rate": str(row.daily_rate), "review_status": row.review_status,
+            "retention_status": row.retention_status,
+            "justification": row.justification, "notes": row.notes,
+        }
+    for field in (
+        "attendance_days", "required_days", "paid_days", "payment_confirmed",
+        "daily_rate", "justification", "notes", "review_status", "retention_status",
+    ):
         setattr(row, field, getattr(payload, field))
     row.updated_by = user.id
     row.updated_at = utcnow()
-    if (not independent and row.retention_status == "none" and
-            row.required_days is not None and row.paid_days is not None and
-            row.required_days > row.paid_days):
-        row.retention_status = "proposed"  # sugerencia, nunca descuento automático
-    if payload.review_status != "pending":
-        row.reviewer_id = user.id
-    if old and any(old[field] != getattr(row, field) for field in
-                   ("required_days", "paid_days", "attendance_days", "payment_confirmed")):
-        # Changing evidence after approval requires fresh review.
+    evidence_changed = bool(old and (
+        any(old[field] != getattr(row, field) for field in (
+            "attendance_days", "required_days", "paid_days", "payment_confirmed",
+        )) or Decimal(old["daily_rate"]) != row.daily_rate
+    ))
+    if evidence_changed:
+        # Una aprobación previa y cualquier retención confirmada deben
+        # reexaminarse cuando cambian los días, el pago o la tarifa.
         if old["review_status"] == "approved":
             row.review_status = "pending"
-            row.reviewer_id = None
+        if old["retention_status"] == "confirmed":
+            row.retention_status = "proposed" if (
+                not independent and row.required_days is not None
+                and row.paid_days is not None
+                and row.required_days > row.paid_days
+            ) else "none"
         for doc in db.scalars(select(MonthlyDocument).where(
             MonthlyDocument.org_id == user.org_id,
             MonthlyDocument.association_id == link.id,
             MonthlyDocument.period == payload.period,
             MonthlyDocument.kind == "cotizaciones",
-            MonthlyDocument.review_status == "approved")).all():
+            MonthlyDocument.review_status == "approved",
+        )).all():
             doc.review_status = "pending"
             doc.updated_at = utcnow()
             audit_change(db, user, "monthly_document", doc.id,
-                {"review_invalidated": "Información previsional modificada"})
-    audit_change(db, user, "contribution_control", row.id,
-                 {"before": old, "after": {"required_days": row.required_days,
-                  "paid_days": row.paid_days, "payment_confirmed": row.payment_confirmed,
-                  "review_status": row.review_status}})
+                         {"review_invalidated": "Datos de cotizaciones modificados"})
+    if (not independent and row.retention_status == "none"
+            and row.required_days is not None and row.paid_days is not None
+            and row.required_days > row.paid_days):
+        row.retention_status = "proposed"  # sugerencia, no descuento.
+    row.reviewer_id = user.id if row.review_status != "pending" else None
+    audit_change(db, user, "contribution_control", row.id, {
+        "before": old,
+        "after": {
+            "attendance_days": row.attendance_days,
+            "required_days": row.required_days, "paid_days": row.paid_days,
+            "payment_confirmed": row.payment_confirmed,
+            "daily_rate": str(row.daily_rate), "review_status": row.review_status,
+            "retention_status": row.retention_status,
+            "justification": row.justification, "notes": row.notes,
+        },
+        "evidence_changed": evidence_changed,
+    })
     db.commit()
     name = None
     if worker:
