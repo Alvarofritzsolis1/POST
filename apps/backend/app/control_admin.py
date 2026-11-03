@@ -107,9 +107,11 @@ def task_view(row: WorkTask):
 def contract_view(row: ContractRegister):
     return {"id": row.id, "association_id": row.association_id,
             "worker_assignment_id": row.worker_assignment_id,
-            "contract_type": row.contract_type, "start_date": row.start_date,
-            "end_date": row.end_date, "status": row.status, "notes": row.notes,
-            "created_by": row.created_by, "updated_at": row.updated_at}
+            "contract_type": row.contract_type, "start_date": row.start_date.isoformat(),
+            "end_date": row.end_date.isoformat() if row.end_date else None,
+            "status": row.status, "notes": row.notes,
+            "created_by": row.created_by,
+            "updated_at": row.updated_at.isoformat() if row.updated_at else None}
 
 
 @router.put("/calendar")
