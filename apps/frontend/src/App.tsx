@@ -1,16 +1,18 @@
 import {useCallback,useEffect,useMemo,useState,type ChangeEvent,type DragEvent} from "react"
 import {
-  Activity,ArrowDownToLine,ArrowRight,CheckCircle2,ChevronRight,Clock3,
+  Activity,ArrowDownToLine,ArrowRight,Building2,CheckCircle2,ChevronRight,Clock3,
   Eye,EyeOff,FileCheck2,FileSearch,FileText,History,LayoutDashboard,LoaderCircle,
   LogOut,RefreshCcw,ScanLine,ShieldCheck,UploadCloud,XCircle
 } from "lucide-react"
 import {api,type Dashboard,type DocumentSummary,type DocumentView,type Profile} from "./api"
+import Operations from "./Operations"
 
-type Area="dashboard"|"cotizaciones"|"f30_1"|"history"|"review"
+type Area="operations"|"dashboard"|"cotizaciones"|"f30_1"|"history"|"review"
 const nav=[
-  {id:"dashboard" as Area,title:"Vista general",icon:LayoutDashboard},
-  {id:"cotizaciones" as Area,title:"Cotizaciones",icon:FileCheck2},
-  {id:"f30_1" as Area,title:"Certificados F30-1",icon:FileText},
+  {id:"operations" as Area,title:"Obras y personas",icon:Building2},
+  {id:"dashboard" as Area,title:"Revisión OCR — Beta",icon:LayoutDashboard},
+  {id:"cotizaciones" as Area,title:"Cotizaciones OCR",icon:FileCheck2},
+  {id:"f30_1" as Area,title:"Certificados F30-1 OCR",icon:FileText},
   {id:"history" as Area,title:"Historial OCR",icon:History},
   {id:"review" as Area,title:"Pendientes de revisión",icon:FileSearch},
 ]
@@ -42,14 +44,14 @@ function Login({onLogin,version}:{onLogin:(user:Profile)=>void;version:string|nu
   return <div className="login-page">
     <div className="login-decoration">
       <div className="login-decoration-inner">
-        <div className="login-eyebrow"><span className="login-eyebrow-dot"/> PLATAFORMA DOCUMENTAL · CHILE</div>
+        <div className="login-eyebrow"><span className="login-eyebrow-dot"/> GESTIÓN DE CONTRATISTAS · CHILE</div>
         <span className="login-hero-icon"><ScanLine size={31} strokeWidth={1.6}/></span>
         <h1>Más claridad.<br/><em>Mejor control.</em><br/>Un solo lugar.</h1>
-        <p>Transforma archivos complejos en evidencia organizada. Analiza cotizaciones y certificados F30-1 con OCR, trazabilidad y revisión humana.</p>
+        <p>Organiza tus obras, contratistas y trabajadores en un solo lugar. Carga datos manualmente o desde Excel y conserva la revisión OCR como apoyo.</p>
         <div className="login-process" aria-label="Etapas de análisis">
-          <span><b>01</b> Carga documental</span>
-          <span><b>02</b> Análisis OCR</span>
-          <span><b>03</b> Revisión de evidencia</span>
+          <span><b>01</b> Organiza obras</span>
+          <span><b>02</b> Importa datos</span>
+          <span><b>03</b> Revisa registros</span>
         </div>
         <div className="login-decoration-foot"><span>GALANT POST</span><span>DOCUMENT INTELLIGENCE</span></div>
       </div>
@@ -59,7 +61,7 @@ function Login({onLogin,version}:{onLogin:(user:Profile)=>void;version:string|nu
         <div className="login-panel-head"><Logo/><span className="login-edition">ACCESO PRIVADO</span></div>
         <span className="login-greeting">TU ESPACIO DE TRABAJO</span>
         <h2>Bienvenido a GALANT<span className="heading-period">.</span></h2>
-        <p className="muted">Ingresa con tu cuenta autorizada para acceder a tu espacio documental.</p>
+        <p className="muted">Ingresa con tu cuenta autorizada para acceder a tus obras y registros.</p>
         <div className="login-version"><span className="version-indicator" aria-hidden="true"/> GALANT POST · Versión {version?"v"+version:"no disponible"}</div>
         <form onSubmit={submit}>
           <label>Correo electrónico
@@ -87,7 +89,7 @@ function App(){
   const [version,setVersion]=useState<string|null>(null)
   const [user,setUser]=useState<Profile|null>(null)
   const [authReady,setAuthReady]=useState(false)
-  const [section,setSection]=useState<Area>("dashboard")
+  const [section,setSection]=useState<Area>("operations")
   const [stats,setStats]=useState<Dashboard|null>(null)
   const [list,setList]=useState<DocumentSummary[]>([])
   const [chosen,setChosen]=useState<string|null>(null)
@@ -107,11 +109,11 @@ function App(){
     }catch(err){setError(err instanceof Error?err.message:"No se pudo actualizar")}
   },[user])
   useEffect(()=>{
-    if(!user)return
+    if(!user||section==="operations")return
     void refresh()
     const timer=window.setInterval(()=>void refresh(),7000)
     return()=>window.clearInterval(timer)
-  },[user,refresh])
+  },[user,refresh,section])
   useEffect(()=>{
     if(!user||!chosen)return
     if(selected?.id===chosen&&(selected.status==="complete"||selected.status==="error"))return
@@ -163,8 +165,9 @@ function App(){
     </aside>
     <main className="main">
       <header className="topbar"><div className="breadcrumbs"><span>GALANT POST</span><ChevronRight size={15}/><strong>{nav.find(x=>x.id===section)?.title}</strong></div>
-      <div className="top-actions"><span className="private-pill"><span className="online-dot"/>Entorno privado</span><button className="icon-button" type="button" aria-label="Actualizar datos" title="Actualizar datos" onClick={()=>void refresh()}><RefreshCcw size={17}/></button><button type="button" className="icon-button mobile-logout" title="Cerrar sesión" aria-label="Cerrar sesión" onClick={()=>void logout()}><LogOut size={17}/></button></div></header>
+      <div className="top-actions"><span className="private-pill"><span className="online-dot"/>Entorno privado</span>{section!=="operations"&&<button className="icon-button" type="button" aria-label="Actualizar datos" title="Actualizar datos" onClick={()=>void refresh()}><RefreshCcw size={17}/></button>}<button type="button" className="icon-button mobile-logout" title="Cerrar sesión" aria-label="Cerrar sesión" onClick={()=>void logout()}><LogOut size={17}/></button></div></header>
       <div className="page">
+        {section==="operations"?<Operations readOnly={user.role==="viewer"}/>:<>
         <div className="intro">
           <div><span className="eyebrow">INTELIGENCIA DOCUMENTAL / CHILE</span>
             <h1>{section==="dashboard"?"Visión general":nav.find(x=>x.id===section)?.title}</h1>
@@ -236,7 +239,8 @@ function App(){
               <span>{e.control_pago.period||"Período por identificar"}</span></div></div>):
             <p className="muted">El motor OCR aún no ha generado evidencia.</p>}</div>
         </section>}
-        <footer className="footer">GALANT POST · Document Intelligence · Análisis documental no vinculante <span>Protección de datos y revisión humana</span></footer>
+        </>}
+        <footer className="footer">GALANT POST · Gestión administrativa y documental <span>Protección de datos y revisión humana</span></footer>
       </div>
     </main>
   </div>

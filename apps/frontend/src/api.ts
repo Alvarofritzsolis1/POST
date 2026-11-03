@@ -20,7 +20,16 @@ export async function request<T>(url:string,options:RequestInit={}):Promise<T> {
   const response=await fetch(base+url,{...options,headers,credentials:"include",cache:"no-store"})
   if(!response.ok){
     let message="Error HTTP "+response.status
-    try {const data=await response.json();if(typeof data.detail==="string")message=data.detail}catch{}
+    try {
+      const data=await response.json()
+      const detail=data.detail
+      if(typeof detail==="string")message=detail
+      else if(Array.isArray(detail))message=detail.map((item:{loc?:Array<string|number>;msg?:string})=>`${item.loc?.join(".")||"Datos"}: ${item.msg||"inválidos"}`).join("; ")
+      else if(detail&&typeof detail==="object"){
+        if(Array.isArray(detail.rows))message="Filas inválidas: "+detail.rows.map((row:{row_id?:string;errors?:string[]})=>`${row.row_id||"fila"}: ${(row.errors||[]).join(", ")}`).join("; ")
+        else if(typeof detail.error==="string")message=(detail.row_id?detail.row_id+": ":"")+detail.error
+      }
+    }catch{}
     throw new Error(message)
   }
   return response.json() as Promise<T>

@@ -77,7 +77,7 @@ def test_reject_malformed_pdf(client):
 
 
 def test_excel_endpoint_uses_completed_document_result(client):
-    assert client.get("/api/v1/version").json()["version"] == "0.2.0"
+    assert client.get("/api/v1/version").json()["version"] == "0.3.0"
     client.post("/api/v1/auth/login", json={"email":"admin@example.cl","password":"contrasena-segura-2026"})
     csrf = client.cookies.get("galant_post_csrf")
     uploaded = client.post("/api/v1/documents", headers={"X-CSRF-Token": csrf},

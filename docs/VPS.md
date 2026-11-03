@@ -16,7 +16,7 @@ Después de fusionar main, ya se podrá clonar sin especificar rama. Crear admin
 
 ## Actualización automática desde GitHub
 
-El job `Deploy VPS` actualiza `/opt/galant-post` después de que la CI termine correctamente para cada push a `main` o a `feat/galant-ocr-v0.2.0`, pero solo cuando la variable de repositorio `VPS_AUTODEPLOY` tiene el valor `true`.
+El job `Deploy VPS` actualiza `/opt/galant-post` después de que la CI termine correctamente para cada push a `main` o a `feat/galant-ocr-v0.2.0`, pero solo cuando la variable de repositorio `VPS_AUTODEPLOY` tiene el valor `true`. La etapa operativa v0.3.0 en `feat/galant-manual-stage1` se actualizará automáticamente al integrarse en `main` si esa configuración está activa. Publicar solamente la rama de trabajo no activa el despliegue.
 
 Configura estos secretos del repositorio en GitHub antes de activar la variable:
 
@@ -44,4 +44,4 @@ Detener solo POST sin borrar datos:
 
     sudo docker compose --env-file .env.preview -f docker-compose.preview.yml stop
 
-No usar down -v. No modificar puertos públicos ni dominio hasta ensayar el OCR, los accesos y la seguridad. La versión v0.2.0 está preparada localmente, pero estas instrucciones solo serán aplicables a ese código cuando se publique en la rama que se clone. No se auditó el VPS en esta ejecución porque no hubo acceso al servidor. Para la eventual publicación, Nginx deberá actuar como proxy HTTPS del puerto interno 18512 y establecer SECURE_COOKIES=true en el entorno de API.
+No usar down -v. No modificar puertos públicos ni dominio hasta ensayar el OCR, los accesos y la seguridad. `init-db` agrega las tablas operativas y las tres obras sin borrar documentos OCR. No se auditó ni actualizó el VPS en esta ejecución porque no hubo acceso al servidor ni confirmación de sus secretos de CI. Para una publicación en Internet, Nginx deberá actuar como proxy HTTPS del puerto interno 18512 y establecer SECURE_COOKIES=true en el entorno de API.

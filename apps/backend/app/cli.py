@@ -3,6 +3,8 @@ from getpass import getpass
 from sqlalchemy import select
 from .db import Base, engine, SessionLocal
 from .models import Organization, User
+from . import ops_models  # register additive operational tables with Base.metadata
+from .ops_api import ensure_sites
 from .security import hash_password
 
 
@@ -16,6 +18,11 @@ def main():
     args = parser.parse_args()
     if args.action == "init-db":
         Base.metadata.create_all(bind=engine)
+        with SessionLocal() as db:
+            org_ids = db.scalars(select(Organization.id)).all()
+        for org_id in org_ids:
+            with SessionLocal() as db:
+                ensure_sites(db, org_id)
         print("Tablas inicializadas")
         return
     pw = getpass("Contraseña (mínimo 12 caracteres): ")
@@ -30,6 +37,9 @@ def main():
         db.flush()
         db.add(User(email=email, org_id=org.id, role="admin",
                     password_hash=hash_password(pw)))
+        org_id = org.id
+    with SessionLocal() as db:
+        ensure_sites(db, org_id)
     print("Administrador creado")
 
 
