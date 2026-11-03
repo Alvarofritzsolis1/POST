@@ -140,7 +140,17 @@ def commit_contracts(
         if row["kind"] == "contract":
             if contract:
                 original_end = row["end_date"]
-                if ((contract.end_date.isoformat() if contract.end_date else None) != original_end
+                current_end = contract.end_date.isoformat() if contract.end_date else None
+                # Al reimportar un Excel ya aplicado, un anexo histórico puede
+                # haber extendido el término. Revisar su evidencia en lugar
+                # de tratar esa extensión auditada como un conflicto.
+                amended_from_original = db.scalar(select(ContractAmendment.id).where(
+                    ContractAmendment.org_id == user.org_id,
+                    ContractAmendment.contract_id == contract.id,
+                    ContractAmendment.previous_end_date == (
+                        date.fromisoformat(original_end) if original_end else None
+                    )).limit(1)) is not None
+                if ((current_end != original_end and not amended_from_original)
                     or contract.status != row["status"]):
                     raise HTTPException(409, f"Fila {row['row_id']}: contrato existente con datos diferentes. Revisa antes de sobrescribir")
                 counters["unchanged"] += 1
