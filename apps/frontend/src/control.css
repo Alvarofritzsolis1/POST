@@ -26,3 +26,26 @@
 .contract-import-preview .control-bulk{justify-content:flex-start;flex-wrap:wrap}
 .contract-importer .control-download{display:inline-flex;gap:6px;align-items:center}
 @media(max-width:660px){.control-trends-header{flex-direction:column}.control-retention-bars{grid-template-columns:repeat(2,minmax(0,1fr))}}
+
+/* Gráficos operativos basados en registros reales */
+.control-analytics{display:grid;gap:14px}
+.control-analytics h2{display:flex;align-items:center;gap:9px}
+.control-category-grid{display:grid;grid-template-columns:repeat(4,minmax(0,1fr));gap:12px}
+.control-category-stat{display:flex;flex-direction:column;gap:5px;background:#f5f8fc;border:1px solid #e2ebf4;border-radius:12px;padding:18px}
+.control-category-stat strong{font-size:1.6rem;color:#1b3659}
+.control-category-stat span{font-size:.79rem;color:#607692}
+.control-chart-row{display:grid;grid-template-columns:minmax(130px,200px) 1fr auto;align-items:center;gap:14px;padding:13px 0;border-bottom:1px solid #ecf0f5}
+.control-chart-label{display:flex;flex-direction:column;gap:4px;min-width:0}
+.control-chart-label strong{font-size:.85rem}
+.control-chart-label small{font-size:.72rem;color:#8693a6}
+.control-stacked{display:flex;height:17px;overflow:hidden;background:#f0f4f8;border-radius:7px}
+.control-stacked>div{height:100%;min-width:0}
+.control-chart-row>strong{font-size:.84rem;white-space:nowrap;color:#3e556e}
+.control-exception-grid{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:14px}
+.control-exception-item{padding:16px;border:1px solid #e1eaf4;background:#f8fafc;border-radius:11px;display:grid;gap:10px}
+.control-exception-item>strong{font-size:.94rem;color:#243e60}
+.control-exception-item>div{display:flex;justify-content:space-between;gap:7px;font-size:.8rem}
+.control-exception-item span{color:#74849a}
+.control-exception-item b{font-variant-numeric:tabular-nums;color:#264666}
+@media(max-width:960px){.control-exception-grid{grid-template-columns:repeat(2,minmax(0,1fr))}.control-category-grid{grid-template-columns:repeat(2,minmax(0,1fr))}}
+@media(max-width:600px){.control-exception-grid{grid-template-columns:1fr}.control-chart-row{grid-template-columns:1fr;gap:7px}.control-chart-row>strong{justify-self:start}}
