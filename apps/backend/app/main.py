@@ -18,6 +18,11 @@ from .config import settings
 from .db import get_db
 from .models import AuditEvent, Document, User, utcnow
 from .ops_api import router as ops_router
+from .control_api import router as control_router
+from .control_admin import router as control_admin_router
+from .control_reports import router as control_reports_router
+from .contract_import_api import router as contract_import_router
+from .monthly_api import router as monthly_router
 from .ops_import_api import router as ops_import_router
 from . import bulk_import
 from .pipeline import extraction_path
@@ -33,6 +38,11 @@ app = FastAPI(title="GALANT POST — Document Intelligence", version=VERSION, do
 app.include_router(compliance_router)
 app.include_router(admin_router)
 app.include_router(ops_router)
+app.include_router(control_router)
+app.include_router(control_admin_router)
+app.include_router(control_reports_router)
+app.include_router(contract_import_router)
+app.include_router(monthly_router)
 app.include_router(ops_import_router)
 @app.middleware("http")
 async def private_cache_policy(request, call_next):

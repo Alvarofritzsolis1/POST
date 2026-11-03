@@ -1,0 +1,69 @@
+name: POST - despliegue automatico privado
+
+on:
+  workflow_run:
+    workflows: ["GALANT POST - CI"]
+    types: [completed]
+    branches: [main]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: post-preview-vps
+  cancel-in-progress: false
+
+jobs:
+  deploy-preview:
+    if: ${{ vars.POST_AUTODEPLOY_ENABLED == 'true' && vars.GALANT_POST_RELEASE_APPROVED == 'true' && (github.event_name == 'workflow_dispatch' || github.event.workflow_run.conclusion == 'success') }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 25
+    environment: post-preview
+    steps:
+      - name: Comprobar configuracion SSH
+        env:
+          DEPLOY_HOST: ${{ secrets.POST_DEPLOY_HOST }}
+          DEPLOY_USER: ${{ secrets.POST_DEPLOY_USER }}
+          DEPLOY_KEY: ${{ secrets.POST_DEPLOY_SSH_KEY }}
+          DEPLOY_KNOWN_HOSTS: ${{ secrets.POST_DEPLOY_KNOWN_HOSTS }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          for value in "$DEPLOY_HOST" "$DEPLOY_USER" "$DEPLOY_KEY" "$DEPLOY_KNOWN_HOSTS"; do
+            if [[ -z "$value" ]]; then
+              echo "Faltan Secrets POST_DEPLOY_* en el environment post-preview"
+              exit 1
+            fi
+          done
+          install -d -m 700 "$HOME/.ssh"
+          printf '%s\n' "$DEPLOY_KEY" > "$HOME/.ssh/id_ed25519"
+          printf '%s\n' "$DEPLOY_KNOWN_HOSTS" > "$HOME/.ssh/known_hosts"
+          chmod 600 "$HOME/.ssh/id_ed25519" "$HOME/.ssh/known_hosts"
+      - name: Actualizar solo POST, nunca GALANT antiguo
+        env:
+          DEPLOY_HOST: ${{ secrets.POST_DEPLOY_HOST }}
+          DEPLOY_USER: ${{ secrets.POST_DEPLOY_USER }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          ssh -o BatchMode=yes -o StrictHostKeyChecking=yes -o ServerAliveInterval=30 \
+            -i "$HOME/.ssh/id_ed25519" "$DEPLOY_USER@$DEPLOY_HOST" 'bash -se' <<'REMOTE'
+          set -euo pipefail
+          cd /opt/galant-post
+          actual_remote="$(git remote get-url origin)"
+          case "$actual_remote" in
+            "https://github.com/Alvarofritzsolis1/POST.git"|"git@github.com:Alvarofritzsolis1/POST.git") ;;
+            *) echo "El directorio NO apunta a POST; abortado"; exit 1;;
+          esac
+          test -f .env.preview || { echo "Falta .env.preview; ejecutar instalador de POST primero"; exit 1; }
+          # Siempre usar el mecanismo seguro y versionado; nunca hacer
+          # pull / up directamente sin respaldo, restauración y rollback.
+          git fetch --no-tags origin main
+          target_sha="$(git rev-parse origin/main)"
+          safe_script="/tmp/galant-post-safe-${target_sha}.sh"
+          trap 'rm -f "$safe_script"' EXIT
+          git show "${target_sha}:scripts/update-preview.sh" > "$safe_script"
+          GALANT_DEPLOY_DIR=/opt/galant-post bash "$safe_script" "$target_sha"
+          git log -1 --pretty='POST desplegado de forma segura: %h %s'
+          REMOTE

@@ -7,6 +7,11 @@ WORKDIR /srv
 COPY apps/backend/requirements.txt ./requirements.txt
 RUN pip install --no-cache-dir -r requirements.txt
 COPY apps/backend/app ./app
+# git checkout de despliegue utiliza umask 077: el contexto puede contener
+# archivos 0600 y directorios 0700. COPY preserva esos permisos.
+# Dejar el código legible (no escribible) para UID 10001 sin relajar permisos
+# de secretos ni modificar el checkout o volúmenes del VPS.
+RUN chmod -R a+rX /srv/app
 RUN useradd --uid 10001 --create-home --shell /usr/sbin/nologin galant
 USER galant
 EXPOSE 8000

@@ -51,7 +51,8 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
-      - run: bash -n scripts/install-preview.sh scripts/diagnose.sh
+      - run: bash -n scripts/install-preview.sh scripts/diagnose.sh scripts/backup-preview.sh scripts/verify-restore-preview.sh scripts/update-preview.sh scripts/start-qa-preview.sh
+      - run: python3 -m py_compile scripts/soak_24h.py scripts/qa_stack_smoke.py scripts/qa_operational_smoke.py
       - name: Validate isolated Docker preview config
         env:
           APP_SECRET: ci_test_secret
@@ -74,15 +75,169 @@ jobs:
               else:
                   assert not ports
           PY
-          rm -f .env.preview
+          cat > .env.qa <<'ENV'
+          APP_SECRET=qa_test_secret
+          POSTGRES_PASSWORD=qa_test_password
+          PORT=18612
+          ENV
+          docker compose -p galant-post-qa --env-file .env.qa -f docker-compose.preview.yml -f docker-compose.qa.yml config --quiet
+          python3 - <<'PY'
+          import json, subprocess, pathlib
+          cmd=["docker","compose","-p","galant-post-qa","--env-file",".env.qa",
+               "-f","docker-compose.preview.yml","-f","docker-compose.qa.yml",
+               "config","--format","json"]
+          config=json.loads(subprocess.check_output(cmd,text=True))
+          assert config["name"]=="galant-post-qa"
+          for service in ("api","worker"):
+              volumes=[v for v in config["services"][service]["volumes"] if v.get("target")=="/data/private"]
+              assert len(volumes)==1, (service, volumes)
+              assert pathlib.Path(volumes[0]["source"]).resolve() == pathlib.Path("qa-storage").resolve(), (service, volumes)
+          ports=config["services"]["proxy"]["ports"]
+          assert len(ports)==1 and ports[0].get("host_ip")=="127.0.0.1",ports
+          assert str(ports[0].get("published"))=="18612",ports
+          print("La QA no comparte almacenamiento ni puertos de preview")
+          PY
+          rm -f .env.preview .env.qa
+  restore-smoke:
+    name: Backup + isolated restore (synthetic)
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+      - name: Create a temporary private PDF and minimal relational schema
+        shell: bash
+        run: |
+          set -Eeuo pipefail
+          umask 077
+          cat > .env.preview <<'CONFIG'
+          APP_SECRET=ci-only-test-secret
+          POSTGRES_PASSWORD=ci-only-test-db
+          CONFIG
+          mkdir -p preview-storage/fixture
+          printf 'Synthetic document only: no user data\\n' > preview-storage/fixture/evidence.txt
+          docker compose --env-file .env.preview -f docker-compose.preview.yml up -d db
+          for i in {1..30}; do
+            if docker compose --env-file .env.preview -f docker-compose.preview.yml exec -T db pg_isready -U galant -d galant; then break; fi
+            sleep 2
+          done
+          digest="$(sha256sum preview-storage/fixture/evidence.txt | cut -d' ' -f1)"
+          docker compose --env-file .env.preview -f docker-compose.preview.yml exec -T db psql -v ON_ERROR_STOP=1 -U galant -d galant <<SQL
+          CREATE TABLE organizations (id text primary key, name text not null);
+          CREATE TABLE users (id text primary key, org_id text not null references organizations(id));
+          CREATE TABLE documents (id text primary key, org_id text not null references organizations(id), storage_path text not null, sha256 text not null);
+          INSERT INTO organizations VALUES ('company-1','Test firm');
+          INSERT INTO users VALUES ('user-1','company-1');
+          INSERT INTO documents VALUES ('doc-1','company-1','/data/private/fixture/evidence.txt','$digest');
+          SQL
+      - name: Backup and restore the synthetic database and verify private file hashes
+        shell: bash
+        run: |
+          set -Eeuo pipefail
+          export GALANT_BACKUP_DIR="$RUNNER_TEMP/galant-ci-backups"
+          bash scripts/backup-preview.sh | tee "$RUNNER_TEMP/galant-backup.log"
+          backup_path="$(sed -n 's/^BACKUP_PATH=//p' "$RUNNER_TEMP/galant-backup.log" | tail -1)"
+          test -d "$backup_path"
+          bash scripts/verify-restore-preview.sh "$backup_path"
+          echo "Isolated backup and restoration verified in CI"
+  qa-stack-smoke:
+    name: QA isolated stack - two users and restart
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    env:
+      QA_SMOKE_PASSWORD: "qa-synthetic-only-2026-unique-no-real-users"
+    steps:
+      - uses: actions/checkout@v4
+      - name: Configure isolated QA
+        run: |
+          set -Eeuo pipefail
+          cat > .env.qa <<ENV
+          APP_SECRET=$(openssl rand -hex 48)
+          POSTGRES_PASSWORD=qa-synthetic-db-only-2026
+          PORT=18612
+          SECURE_COOKIES=false
+          ENV
+          mkdir -m 700 qa-storage
+          docker compose -p galant-post-qa --env-file .env.qa -f docker-compose.preview.yml -f docker-compose.qa.yml config --quiet
+      - name: Build and start isolated QA services (restricted source file permissions)
+        run: |
+          set -Eeuo pipefail
+          # Reproduce the VPS checkout under umask 077 (0600 files/0700 dirs).
+          # Previously this made /srv/app/main.py and cli.py unreadable by UID 10001.
+          chmod -R go-rwx apps/backend/app
+          COMPOSE_PARALLEL_LIMIT=1 docker compose -p galant-post-qa --env-file .env.qa -f docker-compose.preview.yml -f docker-compose.qa.yml up -d --build db api worker frontend proxy
+          docker compose -p galant-post-qa --env-file .env.qa -f docker-compose.preview.yml -f docker-compose.qa.yml exec -T api python -m app.cli init-db
+          docker compose -p galant-post-qa --env-file .env.qa -f docker-compose.preview.yml -f docker-compose.qa.yml exec -T api sh -c 'test -r /srv/app/main.py && test -r /srv/app/cli.py'
+      - name: Seed two synthetic users in same org
+        run: |
+          set -Eeuo pipefail
+          docker compose -p galant-post-qa --env-file .env.qa -f docker-compose.preview.yml -f docker-compose.qa.yml exec -T -e QA_SMOKE_PASSWORD api python - <<'PY'
+          import os
+          from app.db import SessionLocal
+          from app.models import Organization, User
+          from app.security import hash_password
+          from app.ops_api import ensure_sites
+          with SessionLocal.begin() as db:
+              org = Organization(name="Synthetic QA Company")
+              other_org = Organization(name="Isolated Test Tenant")
+              db.add_all([org, other_org])
+              db.flush()
+              org_id = org.id
+              pw = hash_password(os.environ["QA_SMOKE_PASSWORD"])
+              db.add_all([
+                  User(org_id=org_id, email="qa-admin@example.test", role="admin", password_hash=pw),
+                  User(org_id=org_id, email="qa-reviewer@example.test", role="analyst", password_hash=pw),
+                  User(org_id=org_id, email="qa-viewer@example.test", role="viewer", password_hash=pw),
+                  User(org_id=other_org.id, email="qa-outside@example.test", role="admin", password_hash=pw),
+              ])
+          with SessionLocal() as db:
+              ensure_sites(db, org_id)
+          PY
+      - name: Verify shared state and restart persistence
+        run: |
+          set -Eeuo pipefail
+          python3 scripts/qa_stack_smoke.py
+          python3 scripts/qa_operational_smoke.py
+          # Breve autoprueba del verificador de 24 horas; no equivale a 24 h reales.
+          export GALANT_SOAK_EMAIL_A=qa-admin@example.test
+          export GALANT_SOAK_EMAIL_B=qa-reviewer@example.test
+          export GALANT_SOAK_PASSWORD_A="$QA_SMOKE_PASSWORD"
+          export GALANT_SOAK_PASSWORD_B="$QA_SMOKE_PASSWORD"
+          python3 scripts/soak_24h.py --url http://127.0.0.1:18612 --period 2026-09 --duration-seconds 4 --interval-seconds 1 --output "$RUNNER_TEMP/qa-soak-check.json"
+          python3 - "$RUNNER_TEMP/qa-soak-check.json" <<'PY'
+          import json, os, stat, sys
+          report=json.load(open(sys.argv[1],encoding="utf-8"))
+          assert report["result"]=="PASS",report
+          assert report["successful_samples"]>=2,report
+          assert report["completed_at"] is not None
+          assert report["elapsed_seconds"]>=4
+          assert stat.S_IMODE(os.stat(sys.argv[1]).st_mode)==0o600
+          PY
+          docker compose -p galant-post-qa --env-file .env.qa -f docker-compose.preview.yml -f docker-compose.qa.yml restart api worker frontend proxy
+          python3 scripts/qa_stack_smoke.py --verify-only
+      - name: Collect QA diagnostics on failure
+        if: failure()
+        run: |
+          docker compose -p galant-post-qa --env-file .env.qa -f docker-compose.preview.yml -f docker-compose.qa.yml ps || true
+          docker compose -p galant-post-qa --env-file .env.qa -f docker-compose.preview.yml -f docker-compose.qa.yml logs --tail=80 api worker proxy || true
+      - name: Stop synthetic QA without touching preview
+        if: always()
+        run: |
+          if [ -f .env.qa ]; then
+            docker compose -p galant-post-qa --env-file .env.qa -f docker-compose.preview.yml -f docker-compose.qa.yml down --volumes --remove-orphans || true
+          fi
+          rm -rf qa-storage .env.qa
   deploy-vps:
     name: Deploy VPS
-    needs: [backend, frontend, compose]
+    needs: [backend, frontend, compose, restore-smoke, qa-stack-smoke]
     if: >-
-      github.event_name == 'workflow_dispatch' ||
+      (github.event_name == 'workflow_dispatch' &&
+       github.ref == 'refs/heads/main' &&
+       vars.VPS_MANUAL_DEPLOY_ALLOWED == 'true' &&
+       vars.GALANT_POST_RELEASE_APPROVED == 'true') ||
       (github.event_name == 'push' &&
        github.ref == 'refs/heads/main' &&
-       vars.VPS_AUTODEPLOY != 'false')
+       vars.VPS_AUTODEPLOY == 'true' &&
+       vars.GALANT_POST_RELEASE_APPROVED == 'true')
     runs-on: ubuntu-latest
     timeout-minutes: 25
     concurrency:
