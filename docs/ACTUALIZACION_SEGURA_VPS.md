@@ -63,7 +63,23 @@ python3 scripts/soak_24h.py \
   --output /var/tmp/galant-soak-24h.json
 ```
 
-Esta prueba necesita **86.400 segundos reales de ejecución**; no está ejecutada desde ChatGPT. La salida debe indicar `result: PASS`, `failure_count: 0` y `mismatches: 0`. La ruta de salida debe ser privada, y deben revisarse adicionalmente logs, reinicio controlado, integridad de documentos y límites de RAM/CPU. Si no puede correrse en Contabo por memoria o disco, usar una instancia de QA equivalente separada.
+Esta prueba necesita **86.400 segundos reales de ejecución**; no está ejecutada desde ChatGPT. La salida debe indicar `result: PASS`, `failure_count: 0` y `mismatches: 0`, con `elapsed_seconds` de al menos 86400. Cada muestra actualiza un JSON privado por reemplazo atómico; si se corta el proceso, el archivo conserva `result: RUNNING` y `last_checked_at` antiguo, **no una aprobación**. Se deben revisar además logs, reinicio controlado, integridad de documentos y límites de RAM/CPU. Si no puede correrse en Contabo por memoria o disco, usar una instancia QA equivalente separada.
+
+Para dejar la prueba ejecutándose aun cuando se cierre SSH, utilizar una sesión `tmux` en el VPS (instalar `tmux` mediante el administrador si falta). En esa sesión configurar primero los correos sintéticos y leer las contraseñas con `read -rsp` sin escribirlas en el historial:
+
+```bash
+cd /opt/galant-post-qa
+export GALANT_SOAK_EMAIL_A='admin.qa@example.test'
+export GALANT_SOAK_EMAIL_B='revisor.qa@example.test'
+read -rsp 'Contraseña QA A: ' GALANT_SOAK_PASSWORD_A; echo
+read -rsp 'Contraseña QA B: ' GALANT_SOAK_PASSWORD_B; echo
+export GALANT_SOAK_PASSWORD_A GALANT_SOAK_PASSWORD_B
+python3 scripts/soak_24h.py --url http://127.0.0.1:18612 --period 2026-09 --duration-seconds 86400 --interval-seconds 60 --output /var/tmp/galant-soak-24h.json
+```
+
+Separarse de `tmux` con **Ctrl+B, luego D**; volver mediante `tmux attach`. Consultar en otra terminal, sin contraseñas: `python3 -m json.tool /var/tmp/galant-soak-24h.json`. No mostrar el contenido de ese archivo ni las contraseñas públicamente, aunque el reporte omite RUT y nombres.
+
+Este paso continúa **pendiente** hasta ejecutarse de verdad y analizar su reporte final.
 
 **La prueba de dos cuentas nunca debe confundirse con comprobar 24 horas de uptime desde GitHub Actions**, ni se permite fusionar antes de examinar su resultado.
 
