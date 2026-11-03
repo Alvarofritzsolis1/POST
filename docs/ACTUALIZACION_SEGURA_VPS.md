@@ -12,6 +12,8 @@ Este procedimiento está diseñado para el checkout existente **`/opt/galant-pos
 - Se ejecutó un ensayo de 24 horas con dos cuentas de prueba y se revisaron sus resultados.
 - Capacidad de disco suficiente para la copia de PostgreSQL, PDFs y una base temporal de restauración.
 
+**Autorización explícita de lanzamiento:** ambos workflows GitHub exigen `GALANT_POST_RELEASE_APPROVED=true` además de sus indicadores individuales (`VPS_AUTODEPLOY`, `VPS_MANUAL_DEPLOY_ALLOWED` o `POST_AUTODEPLOY_ENABLED`). No activar esa variable antes de revisar respaldo, QA y las 24 horas reales. Deshabilitarla nuevamente después del despliegue para impedir publicaciones accidentales de commits posteriores.
+
 **Estado actual:** GitHub CI comprobó respaldo y restauración con datos sintéticos. **No se ha ejecutado la restauración del VPS real ni las 24 horas de prueba.** No marcar como validado antes de hacerlo.
 
 ## 1. Identificar el checkout y estado en SSH
