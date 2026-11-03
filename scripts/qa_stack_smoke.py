@@ -89,7 +89,18 @@ def main():
         result=b.call("/control/matrix?site_id="+target["id"]+"&period=2026-09")
         company=next(x for x in result["contractors"] if x["name"]=="QA CONTRACTOR TEST")
         assert next(x for x in company["requirements"] if x["kind"]=="cotizaciones")["state"]=="approved"
-        print("QA Docker restart persistence verified")
+        # Todos los módulos operativos deben persistir, no solo documentos.
+        controls=a.call("/control/contributions?period=2026-09&site_id="+target["id"])
+        assert any(row["missing_days"]==1 and
+                   float(row["retention_suggested"])==4950
+                   for row in controls), "Días/retenciones no persistieron"
+        assert any(row["subject_key"]=="independent" and row["payment_confirmed"]
+                   for row in controls), "Pago manual CI no persistió"
+        contracts=a.call("/control/admin/contracts?site_id="+target["id"])
+        assert any(row["end_date"]=="2026-11-30" for row in contracts), "Anexo no persistió"
+        tasks=a.call("/control/admin/tasks?site_id="+target["id"])
+        assert any(row["kind"]=="review_continuity" for row in tasks), "Tarea administrativa no persistió"
+        print("QA Docker restart persistence verified: documentos, CT/CI, anexos y tareas")
     else:
         verify(a,b)
         print("QA two-account shared state verified")
