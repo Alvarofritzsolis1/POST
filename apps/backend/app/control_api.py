@@ -254,6 +254,8 @@ def monthly_matrix(site_id: str, period: str, user: User = Depends(authorized_us
             override = by_override.get((link.id, kind))
             applicable = override.applicable if override is not None else defaults[kind]
             row = by_doc.get((link.id, kind))
+            if row is not None and row.review_status == "not_applicable":
+                applicable = False
             schedule = calendar.get(kind)
             if applicable is False:
                 state = "not_applicable"
