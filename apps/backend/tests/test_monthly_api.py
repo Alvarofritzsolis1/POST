@@ -20,11 +20,14 @@ def test_shared_monthly_record_across_users(monkeypatch):
     sessions = sessionmaker(bind=engine, expire_on_commit=False)
     with sessions.begin() as db:
         org = Organization(name="Organización de prueba")
-        db.add(org)
+        separate = Organization(name="Otra organización")
+        db.add_all([org, separate])
         db.flush()
         db.add_all([
             User(org_id=org.id, email="admin1@example.cl", role="admin", password_hash=hash_password("password-seguro-2026")),
-            User(org_id=org.id, email="admin2@example.cl", role="analyst", password_hash=hash_password("password-seguro-2026"))
+            User(org_id=org.id, email="admin2@example.cl", role="analyst", password_hash=hash_password("password-seguro-2026")),
+            User(org_id=org.id, email="viewer@example.cl", role="viewer", password_hash=hash_password("password-seguro-2026")),
+            User(org_id=separate.id, email="outsider@example.cl", role="admin", password_hash=hash_password("password-seguro-2026"))
         ])
         org_id = org.id
     def override_db():
@@ -72,6 +75,29 @@ def test_shared_monthly_record_across_users(monkeypatch):
             records=client.get("/api/v1/ops/monthly-documents",
                 params={"association_id":association_id,"period":"2026-10"}).json()
             assert records[0]["review_status"]=="approved"
+            login(client,"viewer@example.cl")
+            assert client.get("/api/v1/ops/monthly-documents",
+                params={"association_id":association_id,"period":"2026-10"}).json()[0]["review_status"]=="approved"
+            cannot_review=client.patch("/api/v1/ops/monthly-documents/"+monthly_id,
+                json={"review_status":"rejected","notes":"Sin autorización"},
+                headers={"X-CSRF-Token":client.cookies["galant_post_csrf"]})
+            assert cannot_review.status_code==403
+            login(client,"outsider@example.cl")
+            assert client.get("/api/v1/ops/monthly-documents",
+                params={"association_id":association_id,"period":"2026-10"}).status_code==404
+            login(client,"admin1@example.cl")
+            assert client.post("/api/v1/ops/monthly-documents",
+                json={"association_id":association_id,"period":"2026-13",
+                      "kind":"cotizaciones","document_id":document_id},
+                headers={"X-CSRF-Token":client.cookies["galant_post_csrf"]}).status_code==422
+            not_applicable=client.post("/api/v1/ops/monthly-documents",
+                json={"association_id":association_id,"period":"2026-11",
+                      "kind":"otros","not_applicable":True},
+                headers={"X-CSRF-Token":client.cookies["galant_post_csrf"]})
+            assert not_applicable.status_code==201,not_applicable.text
+            assert client.patch("/api/v1/ops/monthly-documents/"+not_applicable.json()["id"],
+                json={"review_status":"approved","notes":""},
+                headers={"X-CSRF-Token":client.cookies["galant_post_csrf"]}).status_code==422
     finally:
         app.dependency_overrides.clear()
         settings.cache_clear()
