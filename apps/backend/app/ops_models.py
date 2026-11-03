@@ -7,7 +7,7 @@ from __future__ import annotations
 
 from datetime import datetime
 
-from sqlalchemy import Boolean, DateTime, ForeignKey, JSON, String, UniqueConstraint
+from sqlalchemy import Boolean, DateTime, ForeignKey, JSON, String, Text, UniqueConstraint
 from sqlalchemy.orm import Mapped, mapped_column
 
 from .db import Base
@@ -101,3 +101,31 @@ class OpsChange(Base):
     entity_id: Mapped[str] = mapped_column(String(36), nullable=False, index=True)
     changes: Mapped[dict] = mapped_column(JSON, default=dict, nullable=False)
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow, nullable=False)
+
+
+class MonthlyDocument(Base):
+    """Documento de un contratista/obra para un mes de competencia.
+
+    El archivo OCR permanece en documents; la aprobación documental es humana
+    y no altera el resultado del motor OCR ni su evidencia original.
+    """
+    __tablename__ = "monthly_documents"
+    __table_args__ = (
+        UniqueConstraint("association_id", "period", "kind", "document_id",
+                         name="uq_monthly_document_link"),
+    )
+
+    id: Mapped[str] = mapped_column(String(36), primary_key=True, default=uid)
+    org_id: Mapped[str] = mapped_column(ForeignKey("organizations.id"), index=True, nullable=False)
+    association_id: Mapped[str] = mapped_column(ForeignKey("contractor_worksites.id"), index=True, nullable=False)
+    contractor_id: Mapped[str] = mapped_column(ForeignKey("contractors.id"), index=True, nullable=False)
+    period: Mapped[str] = mapped_column(String(7), index=True, nullable=False)
+    kind: Mapped[str] = mapped_column(String(32), nullable=False)
+    document_id: Mapped[str | None] = mapped_column(ForeignKey("documents.id"), nullable=True, index=True)
+    review_status: Mapped[str] = mapped_column(String(24), default="pending", nullable=False)
+    notes: Mapped[str] = mapped_column(Text, default="", nullable=False)
+    created_by: Mapped[str] = mapped_column(ForeignKey("users.id"), nullable=False)
+    reviewed_by: Mapped[str | None] = mapped_column(ForeignKey("users.id"), nullable=True)
+    reviewed_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow, nullable=False)
+    updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow, nullable=False)
