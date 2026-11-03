@@ -158,11 +158,15 @@ jobs:
           ENV
           mkdir -m 700 qa-storage
           docker compose -p galant-post-qa --env-file .env.qa -f docker-compose.preview.yml -f docker-compose.qa.yml config --quiet
-      - name: Build and start isolated QA services
+      - name: Build and start isolated QA services (restricted source file permissions)
         run: |
           set -Eeuo pipefail
+          # Reproduce the VPS checkout under umask 077 (0600 files/0700 dirs).
+          # Previously this made /srv/app/main.py and cli.py unreadable by UID 10001.
+          chmod -R go-rwx apps/backend/app
           COMPOSE_PARALLEL_LIMIT=1 docker compose -p galant-post-qa --env-file .env.qa -f docker-compose.preview.yml -f docker-compose.qa.yml up -d --build db api worker frontend proxy
           docker compose -p galant-post-qa --env-file .env.qa -f docker-compose.preview.yml -f docker-compose.qa.yml exec -T api python -m app.cli init-db
+          docker compose -p galant-post-qa --env-file .env.qa -f docker-compose.preview.yml -f docker-compose.qa.yml exec -T api sh -c 'test -r /srv/app/main.py && test -r /srv/app/cli.py'
       - name: Seed two synthetic users in same org
         run: |
           set -Eeuo pipefail
