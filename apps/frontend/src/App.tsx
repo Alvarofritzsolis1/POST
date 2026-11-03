@@ -91,7 +91,7 @@ function App(){
   const [version,setVersion]=useState<string|null>(null)
   const [user,setUser]=useState<Profile|null>(null)
   const [authReady,setAuthReady]=useState(false)
-  const [section,setSection]=useState<Area>("operations")
+  const [section,setSection]=useState<Area>("control")
   const [stats,setStats]=useState<Dashboard|null>(null)
   const [list,setList]=useState<DocumentSummary[]>([])
   const [chosen,setChosen]=useState<string|null>(null)
