@@ -202,3 +202,58 @@ def monthly_excel(period: str, site_id: str | None = None,
                            item["state"], item["source"], item["notes"],
                            item["request_date"], item["due_date"], item["reviewed_by"]])
     return format_book(wb, f"GALANT_MATRIZ_MENSUAL_{period}.xlsx")
+
+
+def month_shift(period: str, offset: int) -> str:
+    year, month = (int(x) for x in period.split("-"))
+    index = year * 12 + month - 1 + offset
+    return f"{index // 12:04d}-{index % 12 + 1:02d}"
+
+
+@router.get("/trends")
+def monthly_trends(
+    period: str, months: int = 12, site_id: str | None = None,
+    user: User = Depends(authorized_user), db: Session = Depends(get_db),
+):
+    """Series reales; meses sin evaluaciones se representan como null, nunca 100%."""
+    validated_period(period)
+    if not 1 <= months <= 24:
+        from fastapi import HTTPException
+        raise HTTPException(422, "Selecciona entre 1 y 24 meses")
+    sites = site_rows(db, user, site_id)
+    periods = [month_shift(period, offset) for offset in range(1 - months, 1)]
+    series = []
+    for target in periods:
+        per_site = []
+        applicable = approved = reviewed = 0
+        for site in sites:
+            matrix = monthly_matrix(site.id, target, user, db)
+            metrics = matrix["summary"]
+            per_site.append({
+                "site_id": site.id, "site": site.name,
+                "applicable": metrics["applicable"],
+                "approved": metrics["approved"],
+                "reviewed": metrics["reviewed"],
+                "compliance": metrics["compliance"],
+                "progress": metrics["progress"],
+                "pending": max(0, metrics["applicable"] - metrics["approved"]),
+            })
+            applicable += metrics["applicable"]
+            approved += metrics["approved"]
+            reviewed += metrics["reviewed"]
+        contribs = list_contributions(target, site_id, user, db)
+        suggested = sum(
+            (Decimal(item["retention_suggested"]) for item in contribs
+             if item["retention_suggested"] is not None), Decimal("0"))
+        series.append({
+            "period": target, "site_summaries": per_site,
+            "applicable": applicable, "approved": approved, "reviewed": reviewed,
+            "pending": max(0, applicable - approved),
+            "compliance": round(100 * approved / applicable, 1) if applicable else None,
+            "progress": round(100 * reviewed / applicable, 1) if applicable else None,
+            "retention_suggested": str(suggested),
+            "missing_days": sum(item["missing_days"] or 0 for item in contribs),
+            "unverified_payments": sum(not item["payment_confirmed"] for item in contribs),
+        })
+    return {"until": period, "months": months, "sites": [
+        {"id": s.id, "name": s.name} for s in sites], "series": series}
