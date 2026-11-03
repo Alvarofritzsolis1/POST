@@ -109,7 +109,9 @@ def save_contribution(
         association_id=link.id,
         period=body.period,
         worker_assignment_id=None if body.subject == "independent" else body.subject,
-        required_days=body.required_days,
+        # La asistencia es la base del cuadre operativo. El campo heredado
+        # required_days se conserva solo para clientes anteriores sin asistencia.
+        required_days=body.attendance_days if body.attendance_days is not None else body.required_days,
         paid_days=body.paid_days,
         attendance_days=body.attendance_days,
         payment_confirmed=body.confirmed,
@@ -209,24 +211,29 @@ def contribution_rows(
                         )
                     )
                 suggested = min(30, len(days))
-            required = record.required_days if record else None
+            required = (
+                record.attendance_days
+                if record and record.attendance_days is not None
+                else record.required_days if record else None
+            )
             paid = record.paid_days if record else None
             difference = (
                 required - paid if required is not None and paid is not None else None
             )
             missing = max(0, difference) if difference is not None else None
             confirmed = bool(record and record.payment_confirmed)
-            # Missing data and unconfirmed declarations never become confirmed breaches.
+            # Pago acreditado parcial != documento no entregado. Una
+            # justificación escrita requiere revisión, no es aprobación automática.
             state = (
-                "sin información"
+                "no entregado"
                 if paid is None
-                else "justificado"
-                if record.justification
                 else "pendiente de confirmación"
                 if not confirmed
-                else "con diferencias"
+                else "observado"
+                if missing and record and record.justification.strip()
+                else "incompleto"
                 if missing
-                else "confirmado"
+                else "conforme"
             )
             rows.append(
                 {
@@ -588,6 +595,15 @@ def document_matrix(
             )
         )
     }
+    contributions_by_subject = {
+        (item.association_id, item.subject_key): item
+        for item in db.scalars(
+            select(ContributionControl).where(
+                ContributionControl.org_id == user.org_id,
+                ContributionControl.period == period,
+            )
+        )
+    }
     first, last = period_dates(period)
     worker_pairs = db.execute(
         select(WorkerAssignment, Worker)
@@ -663,6 +679,25 @@ def document_matrix(
                 keys.append("Listado de anticipos")
             for requirement in keys:
                 r = controls.get((link.id, subject, requirement))
+                contribution = (
+                    contributions_by_subject.get((link.id, subject))
+                    if requirement == "Cotizaciones" else None
+                )
+                missing = None
+                if contribution and contribution.paid_days is not None:
+                    required = (
+                        contribution.attendance_days
+                        if contribution.attendance_days is not None
+                        else contribution.required_days
+                    )
+                    if required is not None:
+                        missing = max(0, required - contribution.paid_days)
+                # Una aprobación documental previa jamás debe ocultar una
+                # diferencia previsional acreditada pendiente de resolver.
+                incomplete = bool(
+                    contribution and contribution.payment_confirmed and missing
+                    and not contribution.justification.strip()
+                )
                 rows.append(
                     {
                         "association_id": link.id,
@@ -672,8 +707,11 @@ def document_matrix(
                         "name": name,
                         "period": period,
                         "requirement": requirement,
-                        "state": r.state if r else "pending",
-                        "observation": r.observation if r else "",
+                        "state": "incomplete" if incomplete else (r.state if r else "pending"),
+                        "observation": (
+                            f"Pago incompleto: {missing} día(s) pendientes de revisar"
+                            if incomplete else (r.observation if r else "")
+                        ),
                         "document_id": r.document_id if r else None,
                         "reviewed_by": r.reviewed_by if r else None,
                         "reviewed_at": r.reviewed_at.isoformat() if r else None,
