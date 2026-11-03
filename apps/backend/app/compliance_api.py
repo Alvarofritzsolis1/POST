@@ -520,6 +520,25 @@ def save_review(
         "Listado de anticipos"
     ]:
         raise HTTPException(422, "Requisito no aplicable; revisar clasificación")
+    if body.requirement == "Cotizaciones" and body.state == "approved":
+        contribution = db.scalar(select(ContributionControl).where(
+            ContributionControl.org_id == user.org_id,
+            ContributionControl.association_id == link.id,
+            ContributionControl.period == body.period,
+            ContributionControl.subject_key == body.subject,
+        ))
+        if contribution and contribution.payment_confirmed:
+            required = (
+                contribution.attendance_days
+                if contribution.attendance_days is not None
+                else contribution.required_days
+            )
+            if (required is not None and contribution.paid_days is not None
+                    and required > contribution.paid_days
+                    and not contribution.justification.strip()):
+                raise HTTPException(
+                    422, "Cotizaciones incompletas: primero regulariza o justifica los días faltantes"
+                )
     if company.nature == "independent" and body.requirement == "Listado de anticipos":
         raise HTTPException(422, "Anticipos no aplican a CI")
     if body.state in {"observed", "not_applicable"} and not body.observation.strip():
@@ -701,6 +720,7 @@ def document_matrix(
                 observed_difference = bool(
                     contribution and contribution.payment_confirmed and missing
                     and contribution.justification.strip()
+                    and not (r and r.state == "approved")
                 )
                 rows.append(
                     {
