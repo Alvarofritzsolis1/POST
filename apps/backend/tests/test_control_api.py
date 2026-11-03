@@ -130,7 +130,7 @@ def test_contributions_retention_calculation_and_CT_CI_excel(env):
     site=client.get("/api/v1/ops/sites").json()[0]["id"]
     ct=create_company(client,headers,site,"CT","Contratista CT")
     ci=create_company(client,headers,site,"CI","Independiente CI","independent")
-    other=create_company(client,headers,site,"OTHER","Contratista OTRO")
+    other=create_company(client,headers,site,"OTHER","Contratista OTRO",nature="unclassified")
     worker=client.post("/api/v1/ops/workers",headers=headers,json={
         "site_id":site,"contractor_id":ct["contractor_id"],
         "name":"Persona Empleada"}).json()

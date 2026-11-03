@@ -39,14 +39,15 @@ const emptyContribution=(association_id:string,period:string):ContributionInput=
   required_days:null,paid_days:null,payment_confirmed:false,daily_rate:4950,
   justification:"",notes:"",review_status:"pending",retention_status:"none"
 })
-const isIndependent=(c:MatrixCompany)=>c.nature==="independent"||
-  (c.nature==="unclassified"&&c.code==="CI")
+const isIndependent=(c:MatrixCompany)=>c.nature==="independent"
 
-export default function ControlCenter({readOnly}:{readOnly:boolean}){
+export default function ControlCenter({readOnly,externalSiteId,externalPeriod,initialTab,onContextChange}:{readOnly:boolean;externalSiteId?:string;externalPeriod?:string;initialTab?:Tab;onContextChange?:(site:string,period:string)=>void}){
   const [sites,setSites]=useState<Site[]>([])
   const [siteId,setSiteId]=useState("")
   const [period,setPeriod]=useState(periodNow)
-  const [tab,setTab]=useState<Tab>("overview")
+  const [tab,setTab]=useState<Tab>(initialTab||"overview")
+  useEffect(()=>{if(externalSiteId!==undefined)setSiteId(externalSiteId)},[externalSiteId])
+  useEffect(()=>{if(externalPeriod)setPeriod(externalPeriod)},[externalPeriod])
   const [overview,setOverview]=useState<Overview|null>(null)
   const [matrix,setMatrix]=useState<Matrix|null>(null)
   const [contributions,setContributions]=useState<Contribution[]>([])
@@ -215,12 +216,12 @@ export default function ControlCenter({readOnly}:{readOnly:boolean}){
       <button className="secondary" type="button" disabled={loading||busy} onClick={()=>void reload().catch(e=>setError(errText(e)))}><RefreshCcw size={17}/> Actualizar</button>
     </header>
     <div className="control-toolbar">
-      <label>Obra<select value={siteId} onChange={e=>{setSiteId(e.target.value);setSelectedAssoc("")}}>
+      <label>Obra<select value={siteId} onChange={e=>{setSiteId(e.target.value);onContextChange?.(e.target.value,period);setSelectedAssoc("")}}>
         <option value="">Consolidado general · tres obras</option>
         {sites.map(s=><option key={s.id} value={s.id}>{s.name}</option>)}
       </select></label>
       <label>Mes auditado<input type="month" value={period} min="2000-01" max="2099-12"
-        onChange={e=>setPeriod(e.target.value)}/></label>
+        onChange={e=>{setPeriod(e.target.value);onContextChange?.(siteId,e.target.value)}}/></label>
       <span className="control-context">{siteName} · {period}</span>
       <a className="secondary control-download" href={"/api/v1"+opsControlApi.excelMensual(period,siteId||null)}><FileSpreadsheet size={16}/> Exportar matriz</a>
       <a className="secondary control-download" href={"/api/v1"+opsControlApi.excelCotizaciones(period,siteId||null)}><FileSpreadsheet size={16}/> Informe CT/CI</a>

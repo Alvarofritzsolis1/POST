@@ -3,7 +3,7 @@ import {request} from "./api"
 export type Site = {id:string;name:string;initial_period:string}
 export type Contractor = {
   id:string;site_id:string;contractor_id:string;name:string;rut:string|null;historical_code:string|null;
-  nature:string;frequency:string;contract_status:string;worker_count:number
+  nature:string;frequency:string;contract_status:string;worker_count:number;details?:Record<string,string>
 }
 export type Worker = {
   id:string;site_id:string;worker_id:string;contractor_id:string;name:string;rut:string|null;active:boolean

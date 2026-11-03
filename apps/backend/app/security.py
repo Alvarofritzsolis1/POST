@@ -65,3 +65,9 @@ def editor(user: User = Depends(authorized_user)) -> User:
     if user.role not in {"admin", "analyst"}:
         raise HTTPException(403, "Sin permiso de escritura")
     return user
+
+
+def administrator(user: User = Depends(authorized_user)) -> User:
+    if user.role != "admin":
+        raise HTTPException(403, "Solo el administrador puede realizar esta acción")
+    return user

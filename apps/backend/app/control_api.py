@@ -16,7 +16,7 @@ from .control_models import (ContributionControl, MonthlyActivity, ProcessCalend
 from .db import get_db
 from .models import User, utcnow
 from .monthly_api import valid_period
-from .ops_api import association_for, audit_change, site_for
+from .ops_api import association_for, audit_change, site_for, contractor_classification
 from .ops_models import (Contractor, ContractorWorksite, MonthlyDocument,
                          Worker, WorkerAssignment)
 from .security import authorized_user, editor
@@ -33,18 +33,18 @@ def today():
 
 
 def is_independent(company: Contractor, association: ContractorWorksite) -> bool:
-    return company.nature == "independent" or (
-        company.nature == "unclassified" and association.historical_code == "CI")
+    return company.nature == "independent"
 
 
 def nature_defaults(company: Contractor, association: ContractorWorksite) -> dict[str, bool | None]:
+    if association.frequency == "sporadic":
+        return dict.fromkeys(REQUIREMENTS)
     if is_independent(company, association):
         # Anticipos nunca se piden a un independiente.
         return dict.fromkeys(REQUIREMENTS) | {
             "cotizaciones": True, "declaracion_jurada": True, "anticipos": False,
         }
-    if company.nature == "with_workers" or (
-        company.nature == "unclassified" and association.historical_code == "CT"):
+    if company.nature == "with_workers":
         return dict.fromkeys(REQUIREMENTS) | {
             "cotizaciones": True, "f30_1": True, "liquidaciones": True,
             "asistencia": True, "declaracion_jurada": False,
@@ -302,7 +302,7 @@ def monthly_matrix(site_id: str, period: str, user: User = Depends(authorized_us
         contractors.append({
             "association_id": link.id, "contractor_id": company.id,
             "name": company.name, "rut": company.rut,
-            "code": link.historical_code, "nature": company.nature,
+            "code": contractor_classification(link, company), "historical_code": link.historical_code, "nature": company.nature,
             "frequency": link.frequency, "status": link.contract_status,
             "requirements": requirements,
         })
@@ -317,11 +317,11 @@ def contribution_view(row: ContributionControl, association: ContractorWorksite,
                       company: Contractor, worker_name: str | None) -> dict:
     independent = row.subject_key == "independent"
     missing = (max(0, row.required_days - row.paid_days)
-               if not independent and row.required_days is not None and row.paid_days is not None else None)
+               if row.required_days is not None and row.paid_days is not None else None)
     proposal = (Decimal(missing) * row.daily_rate if missing is not None else None)
     return {
         "id": row.id, "association_id": association.id, "site_id": association.worksite_id,
-        "contractor": company.name, "contractor_rut": company.rut, "code": association.historical_code,
+        "contractor": company.name, "contractor_rut": company.rut, "code": contractor_classification(association, company), "historical_code": association.historical_code,
         "period": row.period, "subject_key": row.subject_key,
         "worker_assignment_id": row.worker_assignment_id,
         "worker": worker_name, "attendance_days": row.attendance_days,

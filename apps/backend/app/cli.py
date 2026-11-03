@@ -6,6 +6,7 @@ from sqlalchemy import func, select
 
 from .db import Base, SessionLocal, engine
 from .models import AuditEvent, Document, Organization, User
+from . import platform_models
 from . import ops_models, control_models  # registrar tablas antes de crear esquema
 from .ops_models import AuditPeriod, Contractor, ContractorWorksite, MonthlyDocument, OpsChange, Worker, WorkerAssignment, Worksite
 from .control_models import ContributionControl, MonthlyActivity, ContractRegister, ContractAmendment, ProcessCalendar, WorkTask, OffboardingCase, RequirementApplicability
@@ -49,7 +50,25 @@ def main():
         cmd.add_argument("--email", required=True)
         cmd.add_argument("--admin-email", required=True, help="Administrador de la empresa que compartirá sus contratistas")
         cmd.add_argument("--role", choices=("admin", "analyst", "viewer"), default="analyst")
+        if command == "link-user":
+            cmd.add_argument("--apply", action="store_true")
+            cmd.add_argument("--backup", help="pg_dump custom validado con pg_restore --list")
+    diag = cmds.add_parser("diagnose-user")
+    diag.add_argument("--email", required=True)
     args = parser.parse_args()
+    if args.action == "diagnose-user":
+        import json
+        with SessionLocal() as db:
+            target = db.scalar(select(User).where(User.email == args.email.strip().lower()))
+            if target is None:
+                raise SystemExit("Cuenta no encontrada")
+            org = db.get(Organization, target.org_id)
+            records = {}
+            for table in Base.metadata.sorted_tables:
+                if "org_id" in table.c:
+                    records[table.name] = db.scalar(select(func.count()).select_from(table).where(table.c.org_id == org.id))
+            print(json.dumps({"email": target.email, "user_id": target.id, "org_id": org.id, "organization": org.name, "records": records}, ensure_ascii=False))
+        return
 
     if args.action == "init-db":
         Base.metadata.create_all(bind=engine)
@@ -71,8 +90,28 @@ def main():
             if target.id == admin.id:
                 raise SystemExit("No puedes reasignar la cuenta del administrador de referencia")
             if target.org_id != admin.org_id:
+                db.scalar(select(Organization).where(Organization.id == target.org_id).with_for_update())
                 check_empty_organization(db, target.org_id, target.id)
+                for table in Base.metadata.sorted_tables:
+                    if "org_id" in table.c and table.name not in {"users", "worksites", "audit_periods", "audit_events"}:
+                        if db.scalar(select(func.count()).select_from(table).where(table.c.org_id == target.org_id)):
+                            raise SystemExit("La organización contiene datos; requiere migración supervisada")
+                if not args.apply:
+                    print("Plan: vincular cuenta vacía. Repetir con --apply --backup RUTA tras verificar restauración")
+                    return
+                import hashlib
+                import subprocess
+                from pathlib import Path
+                path = Path(args.backup or "")
+                if not path.is_file() or path.stat().st_size == 0:
+                    raise SystemExit("Se requiere respaldo pg_dump custom no vacío")
+                subprocess.run(["pg_restore", "--list", str(path)], check=True, stdout=subprocess.DEVNULL)
+                with path.open("rb") as backup_stream:
+                    backup_hash = hashlib.file_digest(backup_stream, "sha256").hexdigest()
+                old_org = target.org_id
                 target.org_id = admin.org_id
+                from .ops_api import audit_change
+                audit_change(db, admin, "user", target.id, {"organization_link": {"from": old_org, "to": admin.org_id, "backup_sha256": backup_hash}})
             target.role = args.role
         print("Usuario vinculado a la misma organización. Debe cerrar sesión y volver a ingresar")
         return
@@ -85,6 +124,8 @@ def main():
         if db.scalar(select(User.id).where(User.email == email)):
             raise SystemExit("Ese correo ya existe. Para una cuenta vacía usa link-user")
         if args.action == "create-admin":
+            if db.scalar(select(Organization.id).where(Organization.name == args.organization)):
+                raise SystemExit("Ya existe esa organización; usa create-user --admin-email para compartir datos")
             org = Organization(name=args.organization)
             db.add(org)
             db.flush()

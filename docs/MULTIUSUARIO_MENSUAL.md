@@ -1,5 +1,7 @@
 # GALANT POST — cuentas compartidas y documentación mensual
 
+> Actualización 0.5.0-rc1: `link-user` ahora muestra un plan sin aplicar cambios. Para una vinculación vacía exige `--apply --backup` y respaldo validado. Ver [procedimiento vigente](VPS_0.5.0.md). La revisión manual sin PDF ya existe en el centro de control; las restricciones del módulo inicial descritas más abajo son antecedentes históricos.
+
 ## Diagnóstico comprobado en el código
 
 El comando `create-admin` crea una nueva fila de `organizations` y asigna al administrador un `org_id` propio. Los endpoints de contratistas y archivos aplican correctamente `org_id` para aislar empresas distintas. **No eliminar los filtros por organización:** el arreglo consiste en asignar colaboradores internos al mismo `org_id` de su empresa.
