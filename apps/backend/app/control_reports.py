@@ -257,3 +257,67 @@ def monthly_trends(
         })
     return {"until": period, "months": months, "sites": [
         {"id": s.id, "name": s.name} for s in sites], "series": series}
+
+
+@router.get("/analytics")
+def analytics(
+    period: str, site_id: str | None = None,
+    user: User = Depends(authorized_user), db: Session = Depends(get_db)
+):
+    """Datos auditables para diagramas de gestión por obra; sin estimaciones."""
+    validated_period(period)
+    worksites = site_rows(db, user, site_id)
+    summaries = []
+    distribution = {"ct": 0, "ci": 0, "other": 0, "sporadic": 0}
+    states = {status: 0 for status in (
+        "approved", "pending", "observed", "rejected", "overdue",
+        "not_yet_required", "needs_classification", "schedule_not_configured", "not_applicable"
+    )}
+    expiry = {key: 0 for key in ("expired", "7_days", "15_days", "30_days", "not_due", "no_end_date")}
+    for site in worksites:
+        matrix = monthly_matrix(site.id, period, user, db)
+        contributions = list_contributions(period, site.id, user, db)
+        contracts = list_contracts(site.id, user, db)
+        site_states = dict.fromkeys(states, 0)
+        site_dist = dict.fromkeys(distribution, 0)
+        site_expiry = dict.fromkeys(expiry, 0)
+        for company in matrix["contractors"]:
+            code = company["code"] if company["code"] in ("CT", "CI") else "other"
+            site_dist[code] += 1
+            if company["frequency"] == "sporadic":
+                site_dist["sporadic"] += 1
+            for req in company["requirements"]:
+                status = req["state"]
+                site_states[status] = site_states.get(status, 0) + 1
+        for contract in contracts:
+            if contract["expiry_alert"]:
+                site_expiry[contract["expiry_alert"]] += 1
+            elif contract["end_date"] is None:
+                site_expiry["no_end_date"] += 1
+            else:
+                site_expiry["not_due"] += 1
+        for key, value in site_dist.items():
+            distribution[key] += value
+        for key, value in site_states.items():
+            states[key] += value
+        for key, value in site_expiry.items():
+            expiry[key] += value
+        summaries.append({
+            "site_id": site.id, "site": site.name,
+            "distribution": site_dist, "document_states": site_states,
+            "contract_expiry": site_expiry,
+            "missing_days": sum(c["missing_days"] or 0 for c in contributions),
+            "retention_suggested": str(sum(
+                (Decimal(c["retention_suggested"]) for c in contributions
+                 if c["retention_suggested"] is not None), Decimal("0"))),
+            "unverified_payments": sum(not c["payment_confirmed"] for c in contributions),
+            "open_tasks": len(list_tasks(site.id, status="open", user=user, db=db)),
+        })
+    return {
+        "period": period, "worksites": summaries,
+        "distribution": distribution, "document_states": states,
+        "contract_expiry": expiry,
+        "missing_days": sum(row["missing_days"] for row in summaries),
+        "retention_suggested": str(sum(
+            (Decimal(row["retention_suggested"]) for row in summaries), Decimal("0"))),
+    }
