@@ -225,7 +225,9 @@ def contribution_rows(
             # Pago acreditado parcial != documento no entregado. Una
             # justificación escrita requiere revisión, no es aprobación automática.
             state = (
-                "no entregado"
+                "conforme"
+                if subject == "independent" and confirmed
+                else "no entregado"
                 if paid is None
                 else "pendiente de confirmación"
                 if not confirmed
