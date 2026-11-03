@@ -282,7 +282,7 @@ def analytics(
         site_dist = dict.fromkeys(distribution, 0)
         site_expiry = dict.fromkeys(expiry, 0)
         for company in matrix["contractors"]:
-            code = company["code"] if company["code"] in ("CT", "CI") else "other"
+            code = company["code"].lower() if company["code"] in ("CT", "CI") else "other"
             site_dist[code] += 1
             if company["frequency"] == "sporadic":
                 site_dist["sporadic"] += 1
