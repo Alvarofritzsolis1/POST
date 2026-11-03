@@ -16,7 +16,7 @@ concurrency:
 
 jobs:
   deploy-preview:
-    if: ${{ vars.POST_AUTODEPLOY_ENABLED == 'true' && (github.event_name == 'workflow_dispatch' || github.event.workflow_run.conclusion == 'success') }}
+    if: ${{ vars.POST_AUTODEPLOY_ENABLED == 'true' && vars.GALANT_POST_RELEASE_APPROVED == 'true' && (github.event_name == 'workflow_dispatch' || github.event.workflow_run.conclusion == 'success') }}
     runs-on: ubuntu-latest
     timeout-minutes: 25
     environment: post-preview
