@@ -52,7 +52,7 @@ jobs:
     steps:
       - uses: actions/checkout@v4
       - run: bash -n scripts/install-preview.sh scripts/diagnose.sh scripts/backup-preview.sh scripts/verify-restore-preview.sh scripts/update-preview.sh scripts/start-qa-preview.sh
-      - run: python3 -m py_compile scripts/soak_24h.py
+      - run: python3 -m py_compile scripts/soak_24h.py scripts/qa_stack_smoke.py scripts/qa_operational_smoke.py
       - name: Validate isolated Docker preview config
         env:
           APP_SECRET: ci_test_secret
@@ -174,13 +174,16 @@ jobs:
           from app.ops_api import ensure_sites
           with SessionLocal.begin() as db:
               org = Organization(name="Synthetic QA Company")
-              db.add(org)
+              other_org = Organization(name="Isolated Test Tenant")
+              db.add_all([org, other_org])
               db.flush()
               org_id = org.id
               pw = hash_password(os.environ["QA_SMOKE_PASSWORD"])
               db.add_all([
                   User(org_id=org_id, email="qa-admin@example.test", role="admin", password_hash=pw),
                   User(org_id=org_id, email="qa-reviewer@example.test", role="analyst", password_hash=pw),
+                  User(org_id=org_id, email="qa-viewer@example.test", role="viewer", password_hash=pw),
+                  User(org_id=other_org.id, email="qa-outside@example.test", role="admin", password_hash=pw),
               ])
           with SessionLocal() as db:
               ensure_sites(db, org_id)
@@ -189,6 +192,7 @@ jobs:
         run: |
           set -Eeuo pipefail
           python3 scripts/qa_stack_smoke.py
+          python3 scripts/qa_operational_smoke.py
           docker compose -p galant-post-qa --env-file .env.qa -f docker-compose.preview.yml -f docker-compose.qa.yml restart api worker frontend proxy
           python3 scripts/qa_stack_smoke.py --verify-only
       - name: Collect QA diagnostics on failure
