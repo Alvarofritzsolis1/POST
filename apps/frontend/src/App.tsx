@@ -901,7 +901,11 @@ function App() {
                         <td>{r.observation}</td>
                         <td>
                           {!readonly && (
-                            <button onClick={() => setReviewing({ ...r })}>
+                            <button onClick={() => setReviewing({
+                              ...r,
+                              state: (["pending", "approved", "observed", "not_applicable"].includes(r.state)
+                                ? r.state : "pending"),
+                            })}>
                               Revisar
                             </button>
                           )}
