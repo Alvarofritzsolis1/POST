@@ -193,6 +193,21 @@ jobs:
           set -Eeuo pipefail
           python3 scripts/qa_stack_smoke.py
           python3 scripts/qa_operational_smoke.py
+          # Breve autoprueba del verificador de 24 horas; no equivale a 24 h reales.
+          export GALANT_SOAK_EMAIL_A=qa-admin@example.test
+          export GALANT_SOAK_EMAIL_B=qa-reviewer@example.test
+          export GALANT_SOAK_PASSWORD_A="$QA_SMOKE_PASSWORD"
+          export GALANT_SOAK_PASSWORD_B="$QA_SMOKE_PASSWORD"
+          python3 scripts/soak_24h.py --url http://127.0.0.1:18612 --period 2026-09 --duration-seconds 4 --interval-seconds 1 --output "$RUNNER_TEMP/qa-soak-check.json"
+          python3 - "$RUNNER_TEMP/qa-soak-check.json" <<'PY'
+          import json, os, stat, sys
+          report=json.load(open(sys.argv[1],encoding="utf-8"))
+          assert report["result"]=="PASS",report
+          assert report["successful_samples"]>=2,report
+          assert report["completed_at"] is not None
+          assert report["elapsed_seconds"]>=4
+          assert stat.S_IMODE(os.stat(sys.argv[1]).st_mode)==0o600
+          PY
           docker compose -p galant-post-qa --env-file .env.qa -f docker-compose.preview.yml -f docker-compose.qa.yml restart api worker frontend proxy
           python3 scripts/qa_stack_smoke.py --verify-only
       - name: Collect QA diagnostics on failure
