@@ -151,7 +151,7 @@ jobs:
         run: |
           set -Eeuo pipefail
           cat > .env.qa <<'ENV'
-          APP_SECRET=qa-synthetic-only-test-secret-42-chars-long
+          APP_SECRET=$(openssl rand -hex 48)
           POSTGRES_PASSWORD=qa-synthetic-db-only-2026
           PORT=18612
           SECURE_COOKIES=false
