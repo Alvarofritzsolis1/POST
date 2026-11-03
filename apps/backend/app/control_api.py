@@ -130,10 +130,20 @@ def validate_worker(db: Session, user: User, association: ContractorWorksite, wo
 def change_review(db: Session, user: User, payload: ManualReviewInput) -> MonthlyDocument:
     association, company = association_for(db, user.org_id, payload.association_id)
     defaults = nature_defaults(company, association)
-    if defaults.get(payload.kind) is False and payload.status != "not_applicable":
-        raise HTTPException(422, "Este requisito no corresponde a la naturaleza del contratista")
+    default_applicability = defaults.get(payload.kind)
+    override = db.scalar(select(RequirementApplicability).where(
+        RequirementApplicability.org_id == user.org_id,
+        RequirementApplicability.association_id == association.id,
+        RequirementApplicability.period == payload.period,
+        RequirementApplicability.kind == payload.kind,
+    ))
     if payload.kind == "anticipos" and is_independent(company, association) and payload.status != "not_applicable":
         raise HTTPException(422, "Un independiente no puede requerir listado de anticipos")
+    applicable = override.applicable if override is not None else default_applicability
+    if applicable is False and payload.status != "not_applicable":
+        raise HTTPException(422, "Este requisito no aplica al contratista; configura su exigibilidad si corresponde")
+    if applicable is None and payload.status != "not_applicable":
+        raise HTTPException(422, "Primero configura si el requisito es exigible; no se puede aprobar sin clasificar")
     if payload.status in ("observed", "rejected", "not_applicable") and not payload.notes.strip():
         raise HTTPException(422, "Indica un motivo verificable para este estado")
     db.execute(select(ContractorWorksite).where(ContractorWorksite.id == association.id, ContractorWorksite.org_id == user.org_id).with_for_update()).scalar_one()
