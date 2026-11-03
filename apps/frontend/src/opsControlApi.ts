@@ -47,6 +47,26 @@ export type CalendarEntry = {id:string;worksite_id:string;period:string;kind:str
 export type Activity = {id:string;association_id:string;period:string;status:string;reason:string;changed_by:string}
 export type Alert = {kind:string;priority:string;association_id:string|null;date:string|null;
  message:string;reference_id:string}
+export type HistoricalTrend = {
+  until:string;months:number;sites:Array<{id:string;name:string}>;
+  series:Array<{period:string;applicable:number;approved:number;reviewed:number;pending:number;
+    compliance:number|null;progress:number|null;retention_suggested:string;
+    missing_days:number;unverified_payments:number;
+    site_summaries:Array<{site_id:string;site:string;applicable:number;approved:number;
+      reviewed:number;compliance:number|null;progress:number|null;pending:number}>}>
+}
+export type ContractImportRow = {
+  row_id:string;kind:string;source_sheet:string;source_row:number;
+  contractor_rut:string;worker_rut:string;contract_type:string;
+  start_date:string|null;end_date:string|null;amendment_date:string|null;
+  reference:string;status:string;notes:string;errors:string[]
+}
+export type ContractImportPreview = {
+  rows:ContractImportRow[];
+  detected_columns:Record<string,Record<string,string>>;
+  summary:{total:number;contracts:number;amendments:number;errors:number};
+  preview_token:string;site_id:string
+}
 const q=(data:Record<string,string|null|undefined>)=>{
  const p=new URLSearchParams()
  Object.entries(data).forEach(([key,value])=>{if(value)p.set(key,value)})
