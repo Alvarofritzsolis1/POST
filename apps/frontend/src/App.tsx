@@ -1,248 +1,50 @@
-import {useCallback,useEffect,useMemo,useState,type ChangeEvent,type DragEvent} from "react"
-import {
-  Activity,ArrowDownToLine,ArrowRight,Building2,CheckCircle2,ChevronRight,Clock3,
-  Eye,EyeOff,FileCheck2,FileSearch,FileText,History,LayoutDashboard,LoaderCircle,
-  LogOut,RefreshCcw,ScanLine,ShieldCheck,UploadCloud,XCircle
-} from "lucide-react"
-import {api,type Dashboard,type DocumentSummary,type DocumentView,type Profile} from "./api"
-import Operations from "./Operations"
-
-type Area="operations"|"dashboard"|"cotizaciones"|"f30_1"|"history"|"review"
-const nav=[
-  {id:"operations" as Area,title:"Obras y personas",icon:Building2},
-  {id:"dashboard" as Area,title:"Revisión OCR — Beta",icon:LayoutDashboard},
-  {id:"cotizaciones" as Area,title:"Cotizaciones OCR",icon:FileCheck2},
-  {id:"f30_1" as Area,title:"Certificados F30-1 OCR",icon:FileText},
-  {id:"history" as Area,title:"Historial OCR",icon:History},
-  {id:"review" as Area,title:"Pendientes de revisión",icon:FileSearch},
-]
-const labels:Record<string,string>={cotizaciones:"Cotizaciones previsionales",f30_1:"F30-1",independientes:"Cotizaciones previsionales",auto:"Automático",desconocido:"No identificado"}
-const formatDate=(value:string)=>new Date(value).toLocaleString("es-CL",{day:"2-digit",month:"short",year:"numeric",hour:"2-digit",minute:"2-digit"})
-const statusName=(value:string)=>value==="queued"?"En cola":value==="processing"?"Procesando":value==="complete"?"Procesado":"Error"
-const badgeClass=(doc:DocumentSummary)=>{
-  if(doc.status==="error")return "status error"
-  if(doc.status!=="complete")return "status waiting"
-  if(doc.payment_status==="Pago acreditado documentalmente")return "status success"
-  if(doc.payment_status==="Documento incorrecto"||doc.payment_status==="Documento ilegible")return "status error"
-  return "status review"
-}
-function Logo(){
-  return <div className="logo"><span className="logo-symbol"><ScanLine size={21}/></span><span><strong>GALANT</strong><small>DOCUMENT INTELLIGENCE</small></span></div>
-}
-function Login({onLogin,version}:{onLogin:(user:Profile)=>void;version:string|null}){
-  const [email,setEmail]=useState("")
-  const [password,setPassword]=useState("")
-  const [showPassword,setShowPassword]=useState(false)
-  const [error,setError]=useState("")
-  const [pending,setPending]=useState(false)
-  async function submit(e:React.FormEvent){
-    e.preventDefault();setError("");setPending(true)
-    try{onLogin(await api.login(email,password))}
-    catch(err){setError(err instanceof Error?err.message:"No fue posible ingresar")}
-    finally{setPending(false)}
-  }
-  return <div className="login-page">
-    <div className="login-decoration">
-      <div className="login-decoration-inner">
-        <div className="login-eyebrow"><span className="login-eyebrow-dot"/> GESTIÓN DE CONTRATISTAS · CHILE</div>
-        <span className="login-hero-icon"><ScanLine size={31} strokeWidth={1.6}/></span>
-        <h1>Más claridad.<br/><em>Mejor control.</em><br/>Un solo lugar.</h1>
-        <p>Organiza tus obras, contratistas y trabajadores en un solo lugar. Carga datos manualmente o desde Excel y conserva la revisión OCR como apoyo.</p>
-        <div className="login-process" aria-label="Etapas de análisis">
-          <span><b>01</b> Organiza obras</span>
-          <span><b>02</b> Importa datos</span>
-          <span><b>03</b> Revisa registros</span>
-        </div>
-        <div className="login-decoration-foot"><span>GALANT POST</span><span>DOCUMENT INTELLIGENCE</span></div>
-      </div>
-    </div>
-    <div className="login-panel">
-      <div className="login-box">
-        <div className="login-panel-head"><Logo/><span className="login-edition">ACCESO PRIVADO</span></div>
-        <span className="login-greeting">TU ESPACIO DE TRABAJO</span>
-        <h2>Bienvenido a GALANT<span className="heading-period">.</span></h2>
-        <p className="muted">Ingresa con tu cuenta autorizada para acceder a tus obras y registros.</p>
-        <div className="login-version"><span className="version-indicator" aria-hidden="true"/> GALANT POST · Versión {version?"v"+version:"no disponible"}</div>
-        <form onSubmit={submit}>
-          <label>Correo electrónico
-            <input type="email" required value={email} onChange={e=>setEmail(e.target.value)} autoComplete="username" placeholder="nombre@empresa.cl"/>
-          </label>
-          <div className="form-field">
-            <label htmlFor="galant-password">Contraseña</label>
-            <span className="password-field">
-              <input id="galant-password" type={showPassword?"text":"password"} required value={password} onChange={e=>setPassword(e.target.value)} autoComplete="current-password" placeholder="Ingresa tu contraseña"/>
-              <button type="button" className="password-toggle" aria-label={showPassword?"Ocultar contraseña":"Mostrar contraseña"} aria-pressed={showPassword} onClick={()=>setShowPassword(!showPassword)}>{showPassword?<EyeOff size={17}/>:<Eye size={17}/>}</button>
-            </span>
-          </div>
-          {error&&<p className="form-error" role="alert">{error}</p>}
-          <button type="submit" className="primary full" disabled={pending}>{pending?<LoaderCircle size={17} className="spin"/>:null} Ingresar a GALANT <ArrowRight size={17}/></button>
-        </form>
-        <div className="login-footer"><ShieldCheck size={17}/> Espacio de acceso restringido. Cada resultado requiere evaluación documental responsable.</div>
-      </div>
-    </div>
-  </div>
-}
-function Metric({title,value,icon:Icon,kind}:{title:string;value:number;icon:typeof Activity;kind?:string}){
-  return <div className="metric"><div className="metric-top"><span className={"metric-icon "+(kind||"")}><Icon size={19}/></span><span className="metric-rule" aria-hidden="true"/></div><span className="metric-label">{title}</span><span className="metric-value">{value.toLocaleString("es-CL")}</span></div>
-}
+import {useCallback,useEffect,useState} from 'react'
+import {Building2,LayoutDashboard,Users,FileCheck2,CalendarDays,FileSpreadsheet,BarChart3,Settings as SettingsIcon,UserCircle,LogOut,RefreshCcw,Menu} from 'lucide-react'
+import {api,type Profile} from './api'
+import {opsApi,type Site} from './opsApi'
+import {Login} from './DocumentAnalysis'
+import DocumentAnalysis from './DocumentAnalysis'
+import Operations from './Operations'
+import BulkImport from './BulkImport'
+import Settings from './Settings'
+import {read,send,type Contribution,type Summary,type MatrixRow,type OrgProfile,type Preferences} from './platformApi'
+const nav=[['home','Inicio',LayoutDashboard],['contractors','Contratistas',Building2],['workers','Trabajadores',Users],['documents','Control documental',FileCheck2],['contributions','Cotizaciones y asistencia',CalendarDays],['imports','Importación masiva',FileSpreadsheet],['reports','Informes',BarChart3],['settings','Configuración',SettingsIcon]] as const
+const number=(v:number|null|undefined)=>v==null?'Sin información':v.toLocaleString('es-CL',{maximumFractionDigits:2})
+const errorText=(e:unknown)=>e instanceof Error?e.message:String(e)
+type Overview={classifications:Record<string,number>;active_workers:number;up_to_date:number;observed:number;pending_documents:number;contributions:Summary;contractors:{association_id:string;contractor:string;classification:string;state:string;approved:number;pending:number;applicable:number}[]}
 function App(){
-  const [version,setVersion]=useState<string|null>(null)
-  const [user,setUser]=useState<Profile|null>(null)
-  const [authReady,setAuthReady]=useState(false)
-  const [section,setSection]=useState<Area>("operations")
-  const [stats,setStats]=useState<Dashboard|null>(null)
-  const [list,setList]=useState<DocumentSummary[]>([])
-  const [chosen,setChosen]=useState<string|null>(null)
-  const [selected,setSelected]=useState<DocumentView|null>(null)
-  const [uploading,setUploading]=useState(false)
-  const [dragging,setDragging]=useState(false)
-  const [error,setError]=useState("")
-  const [notice,setNotice]=useState("")
-  const [uploadFile,setUploadFile]=useState<File|null>(null)
-  useEffect(()=>{void api.me().then(setUser).catch(()=>{}).finally(()=>setAuthReady(true))},[])
-  useEffect(()=>{void api.version().then(info=>setVersion(info.version)).catch(()=>{})},[])
-  const refresh=useCallback(async()=>{
-    if(!user)return
-    try{
-      const [nextStats,nextDocs]=await Promise.all([api.dashboard(),api.list()])
-      setStats(nextStats);setList(nextDocs)
-    }catch(err){setError(err instanceof Error?err.message:"No se pudo actualizar")}
-  },[user])
-  useEffect(()=>{
-    if(!user||section==="operations")return
-    void refresh()
-    const timer=window.setInterval(()=>void refresh(),7000)
-    return()=>window.clearInterval(timer)
-  },[user,refresh,section])
-  useEffect(()=>{
-    if(!user||!chosen)return
-    if(selected?.id===chosen&&(selected.status==="complete"||selected.status==="error"))return
-    let active=true
-    const load=async()=>{
-      try{const detail=await api.get(chosen);if(active)setSelected(detail)}
-      catch(err){if(active)setError(err instanceof Error?err.message:"No se pudo consultar el documento")}
-    }
-    void load()
-    const timer=window.setInterval(()=>void load(),7000)
-    return()=>{active=false;window.clearInterval(timer)}
-  },[user,chosen,selected?.id,selected?.status])
-  const filtered=useMemo(()=>{
-    if(section==="review")return list.filter(d=>d.payment_status==="Pendiente de revisión"||d.status==="error")
-    if(section==="cotizaciones")return list.filter(d=>d.declared_type===section||d.detected_type===section||d.detected_type==="independientes")
-    if(section==="f30_1")return list.filter(d=>d.declared_type===section||d.detected_type===section)
-    return list
-  },[list,section])
-  const category=(section==="cotizaciones"||section==="f30_1")?section:"auto"
-  async function upload(){
-    if(!uploadFile)return
-    setUploading(true);setError("");setNotice("")
-    try{
-      const document=await api.upload(uploadFile,category)
-      setSelected(document);setChosen(document.id);setUploadFile(null)
-      setNotice("Archivo recibido. El motor OCR procesará el documento en segundo plano.")
-      await refresh()
-    }catch(err){setError(err instanceof Error?err.message:"Error de carga")}
-    finally{setUploading(false)}
-  }
-  const changeFile=(ev:ChangeEvent<HTMLInputElement>)=>setUploadFile(ev.target.files?.[0]||null)
-  function dropped(ev:DragEvent<HTMLDivElement>){
-    ev.preventDefault();setDragging(false);const doc=ev.dataTransfer.files?.[0];if(doc)setUploadFile(doc)
-  }
-  async function logout(){try{await api.logout()}catch{}setUser(null);setList([]);setStats(null);setChosen(null);setSelected(null)}
-  async function retry(id:string){
-    setError("");try{setSelected(await api.retry(id));setNotice("El documento volvió a la cola de procesamiento.");await refresh()}
-    catch(err){setError(err instanceof Error?err.message:"No se pudo reprocesar")}
-  }
-  if(!authReady)return <div className="app-loading"><ScanLine size={28}/> Cargando GALANT…</div>
-  if(!user)return <Login onLogin={setUser} version={version}/>
-  return <div className="shell">
-    <aside className="sidebar"><Logo/><div className="sidebar-label">ESPACIO DE TRABAJO</div><nav aria-label="Navegación principal">
-      {nav.map(link=><button key={link.id} type="button" aria-current={section===link.id?"page":undefined} className={"nav-item "+(section===link.id?"active":"")} onClick={()=>{setSection(link.id);setChosen(null);setSelected(null);setError("");setNotice("")}}>
-        <link.icon size={18}/><span>{link.title}</span>{section===link.id&&<ChevronRight size={15} className="nav-arrow"/>}
-      </button>)}
-    </nav><div className="sidebar-bottom"><div className="security-note"><ShieldCheck size={18}/><div><b>Verificación responsable</b><span>La evidencia documental no confirma una transacción oficial.</span></div></div><button className="profile-button" onClick={()=>void logout()} title="Cerrar sesión">
-      <span className="avatar">{user.email[0]?.toUpperCase()}</span><span className="profile-copy"><b>{user.email}</b><small>{user.role}</small></span><LogOut size={16}/></button></div>
-    </aside>
-    <main className="main">
-      <header className="topbar"><div className="breadcrumbs"><span>GALANT POST</span><ChevronRight size={15}/><strong>{nav.find(x=>x.id===section)?.title}</strong></div>
-      <div className="top-actions"><span className="private-pill"><span className="online-dot"/>Entorno privado</span>{section!=="operations"&&<button className="icon-button" type="button" aria-label="Actualizar datos" title="Actualizar datos" onClick={()=>void refresh()}><RefreshCcw size={17}/></button>}<button type="button" className="icon-button mobile-logout" title="Cerrar sesión" aria-label="Cerrar sesión" onClick={()=>void logout()}><LogOut size={17}/></button></div></header>
-      <div className="page">
-        {section==="operations"?<Operations readOnly={user.role==="viewer"}/>:<>
-        <div className="intro">
-          <div><span className="eyebrow">INTELIGENCIA DOCUMENTAL / CHILE</span>
-            <h1>{section==="dashboard"?"Visión general":nav.find(x=>x.id===section)?.title}</h1>
-            <p>{section==="dashboard"?"Un espacio para evaluar documentos, identificar evidencias y dar seguimiento a cada revisión.":"Revisa documentos, resultados OCR y evidencia localizada en el archivo original."}</p>
-          </div>
-          <div className="intro-aside"><span className="intro-context">PANEL DE OPERACIONES</span><span className="version-tag">GALANT · v{version||"—"}</span></div>
-        </div>
-        {section==="dashboard"&&<section className="overview-banner" aria-label="Descripción de GALANT">
-          <div className="overview-banner-copy"><span className="eyebrow">TECNOLOGÍA AL SERVICIO DEL CONTROL</span>
-            <h2>De documentos complejos<br/>a información más clara.</h2>
-            <p>Centraliza tus análisis de cotizaciones y F30-1. Conserva la evidencia y decide con revisión humana.</p>
-          </div>
-          <span className="overview-banner-badge"><ShieldCheck size={17}/> Análisis documental responsable</span>
-        </section>}
-        {error&&<div role="alert" className="alert danger"><XCircle size={18}/>{error}<button onClick={()=>setError("")}>Cerrar</button></div>}
-        {notice&&<div role="status" className="alert success"><CheckCircle2 size={18}/>{notice}<button onClick={()=>setNotice("")}>Cerrar</button></div>}
-        {section==="dashboard"&&<div className="stats">
-          <Metric title="Documentos ingresados" value={stats?.total||0} icon={FileText}/>
-          <Metric title="Análisis completados" value={stats?.finished||0} icon={CheckCircle2} kind="good"/>
-          <Metric title="Evidencia de pago" value={stats?.accredited||0} icon={ShieldCheck} kind="blue"/>
-          <Metric title="Requieren revisión" value={(stats?.review||0)+(stats?.errors||0)} icon={Clock3} kind="amber"/>
-        </div>}
-        {section!=="history"&&section!=="review"&&<section className="upload-card">
-          <div className="card-heading"><div><div className="section-kicker"><span>01</span> NUEVO ANÁLISIS</div><h2>Centro de análisis OCR</h2><p>PDF digitales, escaneados o fotografías. Hasta 20 MB, máximo 50 páginas.</p></div><span className="chip"><Activity size={14}/> Motor híbrido</span></div>
-          <div className={"dropzone "+(dragging?"dragging":"")} onDragOver={e=>{e.preventDefault();setDragging(true)}} onDragLeave={()=>setDragging(false)} onDrop={dropped}>
-            <span className="upload-icon"><UploadCloud size={25}/></span><strong>{uploadFile?uploadFile.name:"Arrastra tu documento aquí"}</strong>
-            <span>{uploadFile?"Archivo preparado para el análisis.":"O selecciona un PDF o imagen desde tu computador"}</span>
-            <label className="secondary picker">Seleccionar archivo<input hidden type="file" accept=".pdf,.png,.jpg,.jpeg,.tif,.tiff" onChange={changeFile}/></label>
-          </div>
-          <div className="upload-bottom"><div><span className="muted">Tipo seleccionado</span><strong>{labels[category]}</strong></div>
-            <button className="primary" disabled={!uploadFile||uploading} onClick={()=>void upload()}>{uploading?<LoaderCircle className="spin" size={16}/>:<ScanLine size={16}/>} Analizar documento <ArrowRight size={16}/></button></div>
-          <div className="safety-caption"><ShieldCheck size={14}/> Las conclusiones se basan únicamente en el archivo. Un OCR ilegible o incierto requiere validación humana.</div>
-        </section>}
-        <section className="results-card"><div className="card-heading"><div><div className="section-kicker"><span>02</span> REGISTRO DOCUMENTAL</div><h2>{section==="dashboard"?"Actividad reciente":"Documentos"}</h2><p>Selecciona un documento para consultar su evidencia y diagnóstico.</p></div><span className="count">{filtered.length} registros</span></div>
-          {filtered.length===0?<div className="empty"><FileSearch size={30}/><strong>Sin documentos todavía</strong><span>Los análisis realizados aparecerán en este espacio.</span></div>:
-          <div className="table-wrap"><table><thead><tr><th>DOCUMENTO</th><th>TIPO</th><th>FECHA</th><th>RESULTADO</th><th></th></tr></thead>
-          <tbody>{filtered.map(doc=><tr key={doc.id} className={chosen===doc.id?"selected-row":""}>
-            <td><div className="file-name"><span className="file-icon"><FileText size={17}/></span><div><strong title={doc.original_name}>{doc.original_name}</strong><small>{statusName(doc.status)}</small></div></div></td>
-            <td>{labels[doc.detected_type||doc.declared_type]||"Desconocido"}</td><td className="small-date">{formatDate(doc.created_at)}</td>
-            <td><span className={badgeClass(doc)}>{doc.status!=="complete"?statusName(doc.status):doc.payment_status||"Sin resultado"}</span></td>
-            <td><button className="row-open" onClick={()=>{setSelected(null);setChosen(chosen===doc.id?null:doc.id)}} aria-label={"Ver detalles de "+doc.original_name}><ChevronRight size={18}/></button></td></tr>)}</tbody></table></div>}
-        </section>
-        {chosen&&!selected&&<section className="detail-card"><div className="card-heading"><LoaderCircle className="spin" size={18}/> Cargando detalle del documento…</div></section>}
-        {selected&&<section className="detail-card"><div className="card-heading"><div><div className="section-kicker"><span>03</span> EVIDENCIA Y TRAZABILIDAD</div><h2>Resultado del documento</h2><p className="filename-detail">{selected.original_name}</p></div>
-          <button className="secondary close-detail" onClick={()=>{setChosen(null);setSelected(null)}}>Cerrar</button></div>
-          <div className="detail-grid"><div className="detail-info">
-            <div className="detail-result"><small>ESTADO DOCUMENTAL</small><h3>{selected.payment_status||statusName(selected.status)}</h3><p>Este análisis no constituye una confirmación oficial de Previred, AFP, DT ni entidad bancaria.</p></div>
-            <dl className="fields"><div><dt>Período</dt><dd>{selected.extracted.periodo||"Por determinar"}</dd></div>
-              <div><dt>Páginas</dt><dd>{selected.status==="processing"&&selected.extracted.progreso?
-                `${selected.extracted.progreso.procesadas} de ${selected.extracted.progreso.total??"?"} procesadas`:
-                selected.page_count||"Pendiente"}</dd></div>
-              <div><dt>Identificadores RUT válidos</dt><dd>{selected.extracted.ruts_validos?.join(", ")||"No identificados"}</dd></div>
-              <div><dt>Tipo de archivo</dt><dd>{labels[selected.detected_type||selected.declared_type]||"No identificado"}</dd></div>
-              {selected.extracted.tiempo_procesamiento_s!==undefined&&<div><dt>Tiempo de procesamiento</dt><dd>{selected.extracted.tiempo_procesamiento_s.toFixed(2)} s</dd></div>}
-              {selected.status==="complete"&&<div><dt>Extracción OCR</dt><dd>{selected.extracted.ocr_reutilizado?"Reutilizada":"Nueva"}</dd></div>}</dl>
-            {selected.warnings.length>0&&<div className="observations"><b>Observaciones</b>{selected.warnings.map((w,i)=><p key={i}><Clock3 size={14}/>{w}</p>)}</div>}
-            {selected.error&&<p className="form-error">{selected.error}</p>}
-            <div className="detail-actions">{selected.status==="complete"&&<a className="primary" href={api.excel(selected.id)}><ArrowDownToLine size={16}/> Descargar Excel</a>}
-              {selected.status==="complete"&&<a className="secondary" href={api.extraction(selected.id)}><ArrowDownToLine size={16}/> Extracción JSON</a>}
-              {(selected.status==="complete"||selected.status==="error")&&user.role!=="viewer"&&<button className="secondary" onClick={()=>void retry(selected.id)}><RefreshCcw size={16}/> Volver a analizar</button>}</div>
-          </div><div className="document-preview"><div className="preview-title"><FileSearch size={16}/> Documento original <span>Acceso privado</span></div>
-            {selected.original_name.toLowerCase().endsWith(".pdf")?<iframe title="Vista del documento original" src={api.pdf(selected.id)}/>:
-              <img alt={"Documento "+selected.original_name} src={api.pdf(selected.id)}/>}
-          </div></div>
-          <div className="evidence"><h3>Evidencia por página</h3>{selected.evidence.length?selected.evidence.map(e=><div key={e.pagina} className="evidence-item">
-            <div className="evidence-header"><b>Página {e.pagina}</b><span>{e.motor}</span><span>Confianza OCR: {e.confianza_ocr===null?"Texto digital":e.confianza_ocr+"%"}</span></div>
-            <p>{e.extracto||"Sin texto recuperado"}</p><div className="evidence-controls">
-              {e.control_pago.evidence_sufficient?<span className="status success">Evidencia documental localizada</span>:<span className="status review">Revisión recomendada</span>}
-              <span>{e.control_pago.period||"Período por identificar"}</span></div></div>):
-            <p className="muted">El motor OCR aún no ha generado evidencia.</p>}</div>
-        </section>}
-        </>}
-        <footer className="footer">GALANT POST · Gestión administrativa y documental <span>Protección de datos y revisión humana</span></footer>
-      </div>
-    </main>
-  </div>
+ const [user,setUser]=useState<Profile|null>(null),[ready,setReady]=useState(false),[version,setVersion]=useState<string|null>(null),[section,setSection]=useState('home'),[sites,setSites]=useState<Site[]>([]),[site,setSite]=useState(''),[period,setPeriod]=useState(()=>new Intl.DateTimeFormat('sv-SE',{timeZone:'America/Santiago',year:'numeric',month:'2-digit'}).format(new Date())),[profile,setProfile]=useState<OrgProfile|null>(null),[overview,setOverview]=useState<Overview|null>(null),[contributions,setContributions]=useState<{rows:Contribution[];summary:Summary}|null>(null),[matrix,setMatrix]=useState<MatrixRow[]>([]),[error,setError]=useState(''),[notice,setNotice]=useState(''),[profileOpen,setProfileOpen]=useState(false),[mobileOpen,setMobileOpen]=useState(false),[loading,setLoading]=useState(false),[search,setSearch]=useState(''),[filter,setFilter]=useState('all'),[classification,setClassification]=useState('all'),[editing,setEditing]=useState<Contribution|null>(null),[reviewing,setReviewing]=useState<MatrixRow|null>(null),[evidence,setEvidence]=useState(false),[sporadic,setSporadic]=useState(false),[page,setPage]=useState(0)
+ const readonly=user?.role==='viewer'
+ const params='period='+encodeURIComponent(period)+(site?'&site_id='+encodeURIComponent(site):'')
+ const applyPreferences=useCallback((p:Preferences)=>{document.documentElement.dataset.theme=p.appearance;document.documentElement.dataset.density=p.density;setProfile(old=>old?{...old,preferences:p}:old)},[])
+ useEffect(()=>{void api.me().then(setUser).catch(()=>{}).finally(()=>setReady(true));void api.version().then(v=>setVersion(v.version)).catch(()=>{})},[])
+ useEffect(()=>{if(!user)return;void Promise.all([opsApi.sites(),read<OrgProfile>('/admin/profile')]).then(([s,p])=>{setSites(s);setProfile(p);applyPreferences(p.preferences);setSite(p.preferences.default_site||'')}).catch(e=>setError(errorText(e)))},[user,applyPreferences])
+ const refresh=useCallback(async()=>{
+  if(!user)return
+  try{const [o,c,m]=await Promise.all([read<Overview>('/ops/overview?'+params),read<{rows:Contribution[];summary:Summary}>('/ops/contributions?'+params+'&include_sporadic='+sporadic),read<MatrixRow[]>('/ops/document-reviews?'+params)]);setOverview(o);setContributions(c);setMatrix(m);setError('')}
+  catch(e){setError(errorText(e))}
+ },[user,params,sporadic])
+ useEffect(()=>{if(!user)return;let active=true;const update=()=>{if(active)void refresh()};setLoading(true);void refresh().finally(()=>{if(active)setLoading(false)});const timer=setInterval(update,10000);window.addEventListener('focus',update);window.addEventListener('galant-changed',update);const sitesUpdate=()=>{void opsApi.sites().then(setSites).catch(e=>setError(errorText(e)))};window.addEventListener('galant-changed',sitesUpdate);return()=>{active=false;clearInterval(timer);window.removeEventListener('focus',update);window.removeEventListener('galant-changed',update);window.removeEventListener('galant-changed',sitesUpdate)}},[refresh,user])
+ useEffect(()=>{setPage(0)},[site,period,search,filter,classification,section])
+ async function logout(){try{await api.logout();setUser(null);setProfile(null);setSites([]);setOverview(null);setContributions(null);setMatrix([])}catch(e){setError(errorText(e))}}
+ async function save(path:string,body:unknown){try{await send(path,body,'PUT');setNotice('Control guardado y disponible para la organización.');setEditing(null);setReviewing(null);await refresh()}catch(e){setError(errorText(e))}}
+ function go(s:string){setSection(s);setFilter('all');setSearch('');setMobileOpen(false);setError('');setNotice('')}
+ function drill(s:string,value='all'){go(s);setFilter(value)}
+ if(!ready)return <div className="app-loading">Cargando GALANT…</div>
+ if(!user)return <Login onLogin={setUser} version={version}/>
+ const rows=(contributions?.rows||[]).filter(r=>(!search||(r.worker+' '+r.contractor+' '+r.worker_rut).toLowerCase().includes(search.toLowerCase()))&&(filter==='all'||r.state===filter)&&(classification==='all'||r.classification===classification))
+ const cards=(overview?.contractors||[]).filter(r=>(filter==='all'||r.state===filter)&&(classification==='all'||r.classification===classification)&&r.contractor.toLowerCase().includes(search.toLowerCase()))
+ const docs=matrix.filter(r=>(filter==='all'||r.state===filter)&&(r.name+' '+r.contractor).toLowerCase().includes(search.toLowerCase()))
+ return <div className={'shell platform '+(mobileOpen?'menu-open':'')}><aside className="sidebar"><div className="brand"><Building2/><div><b>GALANT POST</b><small>Gestión de contratistas</small></div></div><p className="sidebar-label">ORGANIZACIÓN COMPARTIDA</p><nav aria-label="Navegación principal">{nav.map(([id,label,Icon])=><button key={id} className={'nav-item '+(section===id?'active':'')} aria-current={section===id?'page':undefined} onClick={()=>go(id)}><Icon size={18}/>{label}</button>)}</nav><div className="sidebar-bottom"><p>{profile?.organization}</p><small>v{version} · {user.role==='admin'?'Administrador':user.role==='viewer'?'Visualizador':'Analista'}</small></div></aside><main className="main"><header className="topbar"><button className="icon-button menu-toggle" aria-label="Abrir menú" onClick={()=>setMobileOpen(!mobileOpen)}><Menu/></button><strong>GALANT POST</strong><div className="global-filters"><label>Obra<select aria-label="Obra seleccionada" value={site} onChange={e=>{setSite(e.target.value);setOverview(null);setContributions(null);setMatrix([])}}><option value="">Todas las obras</option>{sites.map(s=><option key={s.id} value={s.id}>{s.name}</option>)}</select></label><label>Período<input aria-label="Período auditado" type="month" value={period} onChange={e=>{if(e.target.value){setPeriod(e.target.value);setOverview(null);setContributions(null);setMatrix([])}}}/></label></div><button className="icon-button" title="Actualizar datos" aria-label="Actualizar datos" onClick={()=>void refresh()}><RefreshCcw size={18}/></button><div className="profile-menu"><button className="profile-trigger" aria-label="Menú de perfil" aria-expanded={profileOpen} onClick={()=>setProfileOpen(!profileOpen)}><UserCircle/><span>{profile?.preferences.name||user.email}</span></button>{profileOpen&&<div className="profile-popover"><p>{user.email}</p><button onClick={()=>{go('settings');setProfileOpen(false)}}>Perfil y configuración</button><button onClick={()=>void logout()}><LogOut size={16}/> Cerrar sesión</button></div>}</div></header><div className="page"><div className="intro"><div><span className="eyebrow">{profile?.organization} / {sites.find(s=>s.id===site)?.name||'Todas las obras'}</span><h1>{nav.find(([id])=>id===section)?.[1]}</h1><p>Información compartida de tu organización · Período {period}</p></div>{section==='contractors'&&!readonly&&<button className="primary" onClick={()=>go('imports')}>Importar desde Excel</button>}</div>{error&&<div role="alert" className="alert danger">{error}</div>}{notice&&<div role="status" className="alert success">{notice}</div>}{loading&&<p role="status">Actualizando datos…</p>}
+ {section==='home'&&overview&&<><div className="kpi-grid">{Object.entries(overview.classifications).map(([key,value])=><button className="kpi" key={key} onClick={()=>{drill('contractors');setClassification(key)}}><small>Contratistas {key}</small><strong>{value}</strong><span>Ver registros →</span></button>)}{[
+ ['Trabajadores activos',overview.active_workers,'workers','all'],['Contratistas al día',overview.up_to_date,'home','al día'],['Con observaciones',overview.observed,'home','con observaciones'],['Documentación pendiente',overview.pending_documents,'documents','pending'],['Pagos confirmados',overview.contributions.confirmed,'contributions','confirmado'],['Pendientes de confirmación',overview.contributions.pending_confirmation,'contributions','pendiente de confirmación'],['Registros sin información',overview.contributions.without_information,'contributions','sin información'],['Promedio días registrados',number(overview.contributions.average_paid_days),'contributions','all'],['Retención estimada CLP',number(overview.contributions.estimated_retention),'contributions','all']].map(([title,value,target,state])=><button className="kpi" key={title} onClick={()=>drill(String(target),String(state))}><small>{title}</small><strong>{value}</strong><span>Ver detalle →</span></button>)}</div><p className="muted">Promedio: {overview.contributions.denominator} registros individuales con días informados. La falta de información permanece pendiente; las observaciones requieren revisión.</p><div className="toolbar"><input aria-label="Buscar contratista" placeholder="Buscar contratista" value={search} onChange={e=>setSearch(e.target.value)}/><select aria-label="Estado de cumplimiento" value={filter} onChange={e=>setFilter(e.target.value)}><option value="all">Todos los estados</option>{['al día','con observaciones','pendiente de información'].map(v=><option key={v}>{v}</option>)}</select></div><div className="contractor-grid">{cards.map(c=><button className="panel contractor-card" key={c.association_id} onClick={()=>{go('documents');setSearch(c.contractor)}}><small>{c.classification}</small><h3>{c.contractor}</h3><span className={'state '+(c.state==='al día'?'good':c.state==='con observaciones'?'bad':'pending')}>{c.state==='al día'?'✓':'△'} {c.state}</span><p>{c.approved} aprobados · {c.pending} pendientes / {c.applicable} aplicables</p></button>)}</div>{!cards.length&&<p className="empty">No hay contratistas para estos filtros. Crea una ficha o importa un Excel.</p>}</>}
+ {(section==='contractors'||section==='workers')&&<Operations readOnly={readonly} externalSiteId={site} mode={section} onImport={()=>go('imports')} classificationFilter={classification}/>}
+ {section==='imports'&&<BulkImport readOnly={readonly} siteId={site}/>}
+ {(section==='contributions'||section==='reports')&&<section className="panel"><div className="toolbar"><input placeholder="Buscar trabajador o contratista" aria-label="Buscar control" value={search} onChange={e=>setSearch(e.target.value)}/><select aria-label="Clasificación" value={classification} onChange={e=>setClassification(e.target.value)}><option value="all">Todas las clasificaciones</option>{['CT','CI','ESP'].map(v=><option key={v}>{v}</option>)}</select><select aria-label="Estado pago" value={filter} onChange={e=>setFilter(e.target.value)}><option value="all">Todos los estados</option>{['confirmado','con diferencias','sin información','pendiente de confirmación','justificado'].map(v=><option key={v}>{v}</option>)}</select><label className="check"><input type="checkbox" checked={sporadic} onChange={e=>setSporadic(e.target.checked)}/>Incluir esporádicos y sin clasificar</label><a className="primary" href={'/api/v1/ops/contributions/report?'+params+'&include_sporadic='+sporadic}>Exportar Excel por obra</a>{section==='contributions'&&<button onClick={()=>setEvidence(!evidence)}>Analizar evidencia documental</button>}</div><p>Promedio registrado: <b>{number(contributions?.summary.average_paid_days)}</b> días · Denominador: {contributions?.summary.denominator} · Sin información: {contributions?.summary.without_information} · Retención estimada: ${number(contributions?.summary.estimated_retention)} CLP</p><div className="table-wrap"><table><thead><tr><th>Obra / contratista</th><th>Trabajador / CI</th><th>Requeridos</th><th>Pagados</th><th>Asistencia</th><th>Faltantes</th><th>Estimación CLP</th><th>Estado</th><th>Control</th></tr></thead><tbody>{rows.slice(page*50,(page+1)*50).map(r=><tr key={r.site_id+r.subject}><td>{r.site}<br/><b>{r.contractor}</b> · {r.classification}</td><td>{r.worker}<br/><small>{r.worker_rut}</small></td><td>{number(r.required_days)}</td><td>{number(r.paid_days)}</td><td>{number(r.attendance_days)}</td><td>{number(r.missing_days)}</td><td>{number(r.estimated_retention)}</td><td><span className={'state '+(r.state==='confirmado'?'good':'pending')}>{r.state}</span></td><td>{!readonly&&<button onClick={()=>setEditing({...r})}>Revisar</button>}</td></tr>)}</tbody></table></div>{!rows.length&&<p className="empty">Sin registros para estos filtros. Clasifica contratistas CT/CI y registra sus trabajadores.</p>}<div className="toolbar"><button disabled={!page} onClick={()=>setPage(page-1)}>Anterior</button><span>Página {page+1}</span><button disabled={(page+1)*50>=rows.length} onClick={()=>setPage(page+1)}>Siguiente</button></div><p className="muted">La retención es una estimación administrativa. Los días registrados no confirman por sí solos un pago. Para comparar meses, cambia el período; cada exportación conserva su competencia.</p>{evidence&&<DocumentAnalysis/>}</section>}
+ {section==='documents'&&<section className="panel"><div className="toolbar"><input aria-label="Buscar documentación" placeholder="Buscar contratista o trabajador" value={search} onChange={e=>setSearch(e.target.value)}/><select aria-label="Estado documental" value={filter} onChange={e=>setFilter(e.target.value)}><option value="all">Todos los estados</option><option value="pending">Pendiente</option><option value="approved">Aprobado</option><option value="observed">Observado</option><option value="not_applicable">No aplica</option></select></div><div className="table-wrap"><table><thead><tr><th>Contratista</th><th>Persona</th><th>Requisito</th><th>Estado</th><th>Observación</th><th></th></tr></thead><tbody>{docs.slice(page*50,(page+1)*50).map((r,i)=><tr key={i}><td>{r.contractor}</td><td>{r.name}</td><td>{r.requirement}</td><td>{({pending:'△ Pendiente',approved:'✓ Aprobado',observed:'! Observado',not_applicable:'— No aplica'} as Record<string,string>)[r.state]}</td><td>{r.observation}</td><td>{!readonly&&<button onClick={()=>setReviewing({...r})}>Revisar</button>}</td></tr>)}</tbody></table></div><div className="toolbar"><button disabled={!page} onClick={()=>setPage(page-1)}>Anterior</button><span>Página {page+1}</span><button disabled={(page+1)*50>=docs.length} onClick={()=>setPage(page+1)}>Siguiente</button></div>{!docs.length&&<p className="empty">Sin requisitos aplicables. Revisa obra y clasificación CT/CI.</p>}</section>}
+ {section==='settings'&&<Settings admin={user.role==='admin'} sites={sites} onPreferences={applyPreferences}/>}
+ {editing&&<div className="modal-backdrop"><section className="panel" role="dialog" aria-modal="true" aria-label="Revisar cotizaciones"><h2>{editing.worker} · {period}</h2><p>{editing.contractor} / {editing.site}</p><form onSubmit={e=>{e.preventDefault();void save('/ops/contributions',editing)}}>{(['required_days','paid_days','attendance_days'] as const).map(key=><label key={key}>{{required_days:'Días requeridos (confirmación manual)',paid_days:'Días pagados registrados',attendance_days:'Días asistencia'}[key]}<input type="number" min="0" max="31" value={editing[key]??''} onChange={e=>setEditing({...editing,[key]:e.target.value===''?null:Number(e.target.value)})}/></label>)}{editing.suggested_days!==null&&<p>Sugerencia según historial laboral: {editing.suggested_days} días. Requiere revisión.</p>}<label>Justificación<textarea value={editing.justification} onChange={e=>setEditing({...editing,justification:e.target.value})}/></label><label className="check"><input type="checkbox" checked={editing.confirmed} onChange={e=>setEditing({...editing,confirmed:e.target.checked})}/>Pago confirmado manualmente</label><div className="toolbar"><button className="primary">Guardar control</button><button type="button" onClick={()=>setEditing(null)}>Cancelar</button></div></form>{error&&<p role="alert" className="form-error">{error}</p>}</section></div>}
+ {reviewing&&<div className="modal-backdrop"><section className="panel" role="dialog" aria-modal="true" aria-label="Revisión documental"><h2>{reviewing.name}</h2><p>{reviewing.requirement} · {period}</p><form onSubmit={e=>{e.preventDefault();void save('/ops/document-reviews',reviewing)}}><label>Estado<select value={reviewing.state} onChange={e=>setReviewing({...reviewing,state:e.target.value})}><option value="pending">Pendiente</option><option value="approved">Aprobado manualmente</option><option value="observed">Observado</option><option value="not_applicable">No aplica (requiere justificación)</option></select></label><label>Observación<textarea value={reviewing.observation} onChange={e=>setReviewing({...reviewing,observation:e.target.value})}/></label><label>ID de documento existente (opcional)<input value={reviewing.document_id||''} onChange={e=>setReviewing({...reviewing,document_id:e.target.value||null})}/></label><div className="toolbar"><button className="primary">Guardar revisión</button><button type="button" onClick={()=>setReviewing(null)}>Cancelar</button></div></form>{error&&<p role="alert" className="form-error">{error}</p>}</section></div>}
+ <footer className="footer">GALANT POST v{version} · {profile?.organization}<span>Datos de la organización · Actualización automática cada 10 segundos</span></footer></div></main></div>
 }
 export default App

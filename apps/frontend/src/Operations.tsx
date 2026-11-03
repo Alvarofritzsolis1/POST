@@ -50,9 +50,10 @@ const blankWorker=(siteId:string,contractorId:string):WorkerInput=>({site_id:sit
 const errorText=(err:unknown)=>err instanceof Error?err.message:"No fue posible completar la operación"
 const templateUrl=(kind:string)=>"/api/v1/ops/imports/templates/"+encodeURIComponent(kind)+"?format=xlsx"
 
-export default function Operations({readOnly}:{readOnly:boolean}){
+export default function Operations({readOnly,externalSiteId,mode,onImport,classificationFilter="all"}:{readOnly:boolean;externalSiteId?:string;mode?:string;onImport?:()=>void;classificationFilter?:string}){
   const [sites,setSites]=useState<Site[]>([])
-  const [siteId,setSiteId]=useState("")
+  const [siteId,setSiteId]=useState(externalSiteId||"")
+  useEffect(()=>{if(externalSiteId)setSiteId(externalSiteId)},[externalSiteId])
   const [contractors,setContractors]=useState<Contractor[]>([])
   const [selectedId,setSelectedId]=useState<string|null>(null)
   const [workers,setWorkers]=useState<Worker[]>([])
@@ -122,11 +123,19 @@ export default function Operations({readOnly}:{readOnly:boolean}){
     ++workerRequest.current;setWorkers([])
     if(siteId&&selected)void loadWorkers(siteId,selected.contractor_id,selected.id)
   },[siteId,selected?.contractor_id,selected?.id,loadWorkers])
+  useEffect(()=>{
+    if(!siteId)return
+    const refresh=()=>{void loadContractors(siteId);if(selected)void loadWorkers(siteId,selected.contractor_id,selected.id)}
+    const timer=window.setInterval(refresh,10000)
+    window.addEventListener('focus',refresh)
+    return()=>{window.clearInterval(timer);window.removeEventListener('focus',refresh)}
+  },[siteId,selected?.id,selected?.contractor_id,loadContractors,loadWorkers])
   const filtered=useMemo(()=>visibleContractors.filter(item=>{
     const term=search.trim().toLocaleLowerCase("es-CL")
     const matches=!term||item.name.toLocaleLowerCase("es-CL").includes(term)||(item.rut||"").toLocaleLowerCase("es-CL").includes(term)
-    return matches&&(codeFilter==="all"||item.historical_code===codeFilter||(codeFilter==="other"&&item.historical_code!=="CT"&&item.historical_code!=="CI"))
-  }),[visibleContractors,search,codeFilter])
+    const kind=item.frequency==='sporadic'?'ESP':item.nature==='independent'?'CI':item.nature==='with_workers'?'CT':'SIN CLASIFICAR'
+    return matches&&(classificationFilter==='all'||kind===classificationFilter)&&(codeFilter==="all"||item.historical_code===codeFilter||(codeFilter==="other"&&item.historical_code!=="CT"&&item.historical_code!=="CI"))
+  }),[visibleContractors,search,codeFilter,classificationFilter])
   const statusSymbols=useMemo(()=>{
     const values=new Set<string>()
     for(const row of preview?.rows||[])for(const raw of Object.values(row.historical_statuses||{}))if(raw)values.add(raw.toUpperCase())
@@ -219,7 +228,7 @@ export default function Operations({readOnly}:{readOnly:boolean}){
   }
 
   return <div className="ops-workspace">
-    <div className="intro ops-intro"><div><span className="eyebrow">BASE OPERATIVA · CHILE</span><h1>Obras y personas</h1><p>Administra contratistas y trabajadores por obra. La revisión documental y el OCR Beta se mantienen separados.</p></div></div>
+    <p>{mode==="workers"?"Selecciona un contratista para consultar y administrar sus trabajadores.":"Ficha compartida de contratistas y sus asignaciones por obra."}</p>
     <div className="ops-toolbar">
       <label>Obra<select value={siteId} onChange={event=>{setPreview(null);setImportResult(null);setContractors([]);setWorkers([]);setSelectedId(null);setSiteId(event.target.value)}}>{sites.map(site=><option key={site.id} value={site.id}>{site.name}</option>)}</select></label>
       <span className="ops-toolbar-note">Los registros de esta vista pertenecen a la obra seleccionada.</span>
@@ -235,7 +244,7 @@ export default function Operations({readOnly}:{readOnly:boolean}){
     </div>
     <section className="results-card ops-card">
       <div className="card-heading ops-card-heading"><div><h2>Contratistas</h2><p>Busca por nombre o RUT y selecciona una empresa para ver sus trabajadores.</p></div><div className="ops-actions">
-        {!readOnly&&<button className="secondary" onClick={()=>{setImportOpen(!importOpen);setContractorForm(null)}}><FileSpreadsheet size={16}/> Importar Excel o CSV</button>}
+        {!readOnly&&<button className="secondary" onClick={()=>{if(onImport)onImport();else setImportOpen(!importOpen);setContractorForm(null)}}><FileSpreadsheet size={16}/> Importar Excel o CSV</button>}
         {!readOnly&&<button className="primary" onClick={()=>startContractor("new")}><Plus size={16}/> Nuevo contratista</button>}
       </div></div>
       {importOpen&&<div className="ops-import-panel">
