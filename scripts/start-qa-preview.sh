@@ -67,8 +67,8 @@ assert str(ports[0].get("published")) == "18612"
 print("QA isolation verified")
 PY
 
-# Omitimos el worker OCR: no es necesario para los controles manuales.
-COMPOSE_PARALLEL_LIMIT=1 "${compose[@]}" up -d --build db api frontend proxy
+# En QA se arranca un worker administrativo liviano y no el motor OCR.
+COMPOSE_PARALLEL_LIMIT=1 "${compose[@]}" up -d --build db api worker frontend proxy
 "${compose[@]}" exec -T api python -m app.cli init-db
 
 health=""
