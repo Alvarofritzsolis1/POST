@@ -19,6 +19,7 @@ from .monthly_api import valid_period
 from .ops_api import association_for, audit_change, site_for, contractor_classification
 from .ops_models import (Contractor, ContractorWorksite, MonthlyDocument,
                          Worker, WorkerAssignment)
+from .platform_models import DocumentReview
 from .security import authorized_user, editor
 
 router = APIRouter(prefix="/api/v1/control", tags=["GALANT control operativo"])
@@ -316,9 +317,14 @@ def monthly_matrix(site_id: str, period: str, user: User = Depends(authorized_us
 def contribution_view(row: ContributionControl, association: ContractorWorksite,
                       company: Contractor, worker_name: str | None) -> dict:
     independent = row.subject_key == "independent"
-    missing = (max(0, row.required_days - row.paid_days)
-               if row.required_days is not None and row.paid_days is not None else None)
+    required = row.attendance_days if row.attendance_days is not None else row.required_days
+    missing = (max(0, required - row.paid_days)
+               if required is not None and row.paid_days is not None else None)
     proposal = (Decimal(missing) * row.daily_rate if missing is not None else None)
+    compliance = ("no_entregado" if row.paid_days is None else
+                  "pendiente" if not row.payment_confirmed else
+                  "observado" if missing and row.justification.strip() else
+                  "incomplete" if missing else "conforme")
     return {
         "id": row.id, "association_id": association.id, "site_id": association.worksite_id,
         "contractor": company.name, "contractor_rut": company.rut, "code": contractor_classification(association, company), "historical_code": association.historical_code,
@@ -330,6 +336,7 @@ def contribution_view(row: ContributionControl, association: ContractorWorksite,
         "daily_rate": str(row.daily_rate), "missing_days": missing,
         "retention_suggested": str(proposal) if proposal is not None else None,
         "retention_status": row.retention_status, "review_status": row.review_status,
+        "compliance_status": compliance,
         "justification": row.justification, "notes": row.notes,
         "reviewer_id": row.reviewer_id, "updated_by": row.updated_by,
         "updated_at": row.updated_at,
@@ -419,6 +426,21 @@ def save_contributions(payload: ContributionInput, user: User = Depends(editor),
             doc.updated_at = utcnow()
             audit_change(db, user, "monthly_document", doc.id,
                          {"review_invalidated": "Datos de cotizaciones modificados"})
+        if worker:
+            for review in db.scalars(select(DocumentReview).where(
+                DocumentReview.org_id == user.org_id,
+                DocumentReview.association_id == link.id,
+                DocumentReview.period == payload.period,
+                DocumentReview.subject == worker.id,
+                DocumentReview.requirement == "Cotizaciones",
+                DocumentReview.state == "approved",
+            )).all():
+                review.state = "pending"
+                review.observation = "Revisar nuevamente: cambiaron los días o el pago de cotizaciones"
+                review.reviewed_by = user.id
+                review.reviewed_at = utcnow()
+                audit_change(db, user, "document_review", review.id,
+                             {"review_invalidated": "Datos de cotizaciones modificados"})
     if (not independent and row.retention_status == "none"
             and row.required_days is not None and row.paid_days is not None
             and row.required_days > row.paid_days):
