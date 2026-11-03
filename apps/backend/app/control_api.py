@@ -54,7 +54,10 @@ def nature_defaults(company: Contractor, association: ContractorWorksite) -> dic
 
 
 def validated_period(value: str) -> str:
-    return valid_period(value)
+    try:
+        return valid_period(value)
+    except ValueError as exc:
+        raise HTTPException(422, str(exc)) from None
 
 
 class PeriodInput(BaseModel):
@@ -133,6 +136,7 @@ def change_review(db: Session, user: User, payload: ManualReviewInput) -> Monthl
         raise HTTPException(422, "Un independiente no puede requerir listado de anticipos")
     if payload.status in ("observed", "rejected", "not_applicable") and not payload.notes.strip():
         raise HTTPException(422, "Indica un motivo verificable para este estado")
+    db.execute(select(ContractorWorksite).where(ContractorWorksite.id == association.id, ContractorWorksite.org_id == user.org_id).with_for_update()).scalar_one()
     row = db.scalar(select(MonthlyDocument).where(
         MonthlyDocument.org_id == user.org_id,
         MonthlyDocument.association_id == association.id,
