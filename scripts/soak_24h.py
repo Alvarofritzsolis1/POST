@@ -7,7 +7,6 @@ Credentials are read from environment variables; no PII is printed or persisted.
 from __future__ import annotations
 
 import argparse
-import hashlib
 import http.cookiejar
 import json
 import os
@@ -87,10 +86,39 @@ def main():
         parser.error("Usa HTTPS o un túnel privado al localhost")
     first = Account(args.url, secrets[0], secrets[1])
     second = Account(args.url, secrets[2], secrets[3])
+    os.umask(0o077)
+    started_at = utc_now()
     start = time.monotonic()
     samples, failures, mismatches = 0, [], 0
-    first.login()
-    second.login()
+    destination = Path(args.output).expanduser()
+
+    def checkpoint(result: str) -> dict:
+        now = utc_now()
+        report = {
+            "started_at": started_at, "last_checked_at": now,
+            "completed_at": now if result != "RUNNING" else None,
+            "requested_duration_seconds": args.duration_seconds,
+            "elapsed_seconds": round(time.monotonic() - start),
+            "period": args.period, "successful_samples": samples,
+            "failure_count": len(failures), "mismatches": mismatches,
+            "failures": failures[-60:], "result": result,
+        }
+        # Actualización atómica; un corte nunca deja un JSON parcial.
+        temporary = destination.with_name(destination.name + ".tmp")
+        temporary.write_text(json.dumps(report, ensure_ascii=False, indent=2))
+        os.chmod(temporary, 0o600)
+        os.replace(temporary, destination)
+        return report
+
+    checkpoint("RUNNING")
+    try:
+        first.login()
+        second.login()
+    except Exception as exc:
+        failures.append({"time": utc_now(), "error_type": type(exc).__name__,
+                         "detail": str(exc)[:160]})
+        checkpoint("FAIL")
+        return 1
     while True:
         try:
             health = first.request("/health")
@@ -109,18 +137,15 @@ def main():
         except Exception as exc:
             failures.append({"time": utc_now(), "error_type": type(exc).__name__,
                              "detail": str(exc)[:160]})
+        checkpoint("RUNNING")
         if time.monotonic() - start >= args.duration_seconds:
             break
-        time.sleep(min(args.interval_seconds, max(0, args.duration_seconds - (time.monotonic() - start))))
-    report = {"completed_at": utc_now(), "requested_duration_seconds": args.duration_seconds,
-              "elapsed_seconds": round(time.monotonic()-start),
-              "period": args.period, "successful_samples": samples,
-              "failure_count": len(failures), "mismatches": mismatches,
-              "failures": failures[:60],
-              "result": "PASS" if samples>0 and not failures else "FAIL"}
-    destination = Path(args.output).expanduser()
-    destination.write_text(json.dumps(report, ensure_ascii=False, indent=2))
-    print(f"24h soak result: {report['result']}, samples={samples}, failures={len(failures)}")
+        time.sleep(min(args.interval_seconds, max(
+            0, args.duration_seconds - (time.monotonic() - start)
+        )))
+    report = checkpoint("PASS" if samples > 0 and not failures else "FAIL")
+    print(f"QA soak result: {report['result']}, elapsed={report['elapsed_seconds']}s, "
+          f"samples={samples}, failures={len(failures)}")
     return 0 if report["result"] == "PASS" else 1
 
 
