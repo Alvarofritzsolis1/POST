@@ -30,7 +30,19 @@ export type ImportResult = {
 }
 export type OpsChange = {id:string;entity_type:string;entity_id:string;user_id:string;changes:Record<string,unknown>;created_at:string}
 
+export type MonthlyRecord = {
+  id:string;association_id:string;contractor_id:string;period:string;kind:string;
+  document_id:string|null;review_status:"pending"|"approved"|"observed"|"rejected"|"not_applicable";
+  notes:string;created_by:string;reviewed_by:string|null;reviewed_at:string|null;
+  created_at:string;updated_at:string;original_name:string|null;ocr_status:string|null;
+  payment_status:string|null;
+}
+export type MonthlyLinkInput = {association_id:string;period:string;kind:string;document_id?:string|null;not_applicable?:boolean;notes?:string}
+
 export const opsApi = {
+  monthlyDocuments:(associationId:string,period:string)=>request<MonthlyRecord[]>("/ops/monthly-documents?association_id="+encodeURIComponent(associationId)+"&period="+encodeURIComponent(period)),
+  linkMonthly:(data:MonthlyLinkInput)=>request<MonthlyRecord>("/ops/monthly-documents",{method:"POST",body:JSON.stringify(data)}),
+  reviewMonthly:(id:string,review_status:MonthlyRecord["review_status"],notes:string)=>request<MonthlyRecord>("/ops/monthly-documents/"+encodeURIComponent(id),{method:"PATCH",body:JSON.stringify({review_status,notes})}),
   sites:()=>request<Site[]>("/ops/sites"),
   contractors:(siteId:string)=>request<Contractor[]>("/ops/contractors?site_id="+encodeURIComponent(siteId)),
   createContractor:(data:ContractorInput)=>request<Contractor>("/ops/contractors",{method:"POST",body:JSON.stringify(data)}),

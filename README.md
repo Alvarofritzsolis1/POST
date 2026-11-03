@@ -2,7 +2,7 @@
 
 Plataforma GALANT para gestión manual de contratistas y trabajadores, con importación Excel/CSV y un módulo OCR Beta separado. Frontend React + TypeScript, backend FastAPI y PostgreSQL. **No usa Streamlit ni importa código anterior.**
 
-> ESTADO: Versión de evaluación. La etapa 1 permite organizar datos operativos; la matriz documental y los cálculos previsionales aún no están disponibles. Ningún resultado OCR confirma una transacción ante Previred, DT, AFP o una institución bancaria.
+> ESTADO: Versión de evaluación. La etapa 1 permite organizar datos operativos. Ahora existe una **vinculación documental mensual básica** con revisión manual; la matriz normativa completa de siete requisitos, los cálculos previsionales y los reportes CT/CI permanecen pendientes. Ningún resultado OCR confirma una transacción ante Previred, DT, AFP o una institución bancaria.
 
 ## Base operativa (etapa 1)
 
@@ -10,6 +10,29 @@ Plataforma GALANT para gestión manual de contratistas y trabajadores, con impor
 - Fichas editables de contratistas y trabajadores, asignaciones por obra, búsqueda, validación de RUT e historial de modificaciones.
 - Importación Excel/CSV con vista previa, corrección de filas, detección de errores y duplicados, confirmación de la interpretación de OK/P/NA, resumen de resultados y plantillas descargables. Los estados históricos conservan origen y quedan pendientes de validación; no equivalen a una aprobación documental.
 - FastAPI autenticada con cookies HttpOnly, CSRF, roles, Argon2 y separación de organizaciones.
+
+## Usuarios compartidos y documentación mensual
+
+**Por qué se separaban los usuarios:** el comando `create-admin` crea una organización nueva. Si las cuentas pertenecen a organizaciones distintas, sus contratistas y sus PDF quedan correctamente aislados. No se deben eliminar los filtros por organización.
+
+Para agregar un colaborador a la **misma organización** del administrador original:
+
+```bash
+cd /opt/galant-post
+sudo docker compose --env-file .env.preview -f docker-compose.preview.yml exec api python -m app.cli create-user --email NUEVO@EMPRESA.CL --admin-email ADMIN_ORIGINAL@EMPRESA.CL --role analyst
+```
+
+Para una cuenta creada antes con `create-admin` por equivocación, si su organización **no contiene datos operativos**, se puede vincular sin cambiar la contraseña:
+
+```bash
+sudo docker compose --env-file .env.preview -f docker-compose.preview.yml exec api python -m app.cli link-user --email CUENTA_EXISTENTE@EMPRESA.CL --admin-email ADMIN_ORIGINAL@EMPRESA.CL --role analyst
+```
+
+El comando **rechaza** una cuenta que ya tenga contratistas, documentos, importaciones operativas u otros usuarios en su organización de origen: primero se requiere una migración supervisada para no perder registros. Después de vincular la cuenta es obligatorio cerrar sesión y volver a ingresar. Roles: `admin`, `analyst`, `viewer`.
+
+**Documentación mensual básica:** en la ficha de un contratista se puede elegir AAAA-MM, ver los requisitos orientativos según su naturaleza, subir un PDF/imagen, asociar uno ya cargado en el OCR y registrar aprobación, observación, rechazo o excepción No aplica. Se mantiene el archivo original en la biblioteca OCR y la vinculación en PostgreSQL, compartida por usuarios de la misma organización. **El pago no se valida automáticamente**, y documentos antiguos sin asociación deben ser vinculados por una persona para evitar falsos positivos.
+
+**Importante:** ejecutar `python -m app.cli init-db` tras actualizar el código para crear únicamente la tabla adicional `monthly_documents`. Realizar previamente respaldo de PostgreSQL y `preview-storage`, confirmar el ambiente y probar con dos cuentas. No ejecutar `docker compose down -v`. Para el procedimiento detallado consultar [manual de usuarios y períodos](docs/MULTIUSUARIO_MENSUAL.md).
 
 ## Revisión OCR — Beta
 
@@ -48,6 +71,6 @@ En apps/backend, instalar requirements-dev.txt, Tesseract español/inglés y eje
 
 ## Pendiente
 
-La matriz documental, aprobaciones, comparación de asistencia y cotizaciones, informe CT/CI, dashboard INE y calendario pertenecen a las etapas 2–4. No se ha recibido la planilla Excel histórica para validar el reconocimiento de sus columnas; pruebe primero una copia autorizada en vista previa. El esquema actual permite agregar tablas con `init-db`, pero todavía no dispone de migraciones versionadas. También faltan backup/restore probado, antivirus documental, políticas de retención y HTTPS. Un caso privado de 14 páginas corrigió la orientación OCR, pero no demuestra precisión general de pagos.
+La matriz reglamentaria completa, comparación de asistencia y cotizaciones, informe CT/CI, dashboard INE y calendario permanecen pendientes. Ya se incorporó la vinculación mensual básica con aprobaciones manuales; aún debe verificarse en el despliegue real. No se ha recibido la planilla Excel histórica para validar el reconocimiento de sus columnas; pruebe primero una copia autorizada en vista previa. El esquema actual permite agregar tablas con `init-db`, pero todavía no dispone de migraciones versionadas. También faltan backup/restore probado, antivirus documental, políticas de retención y HTTPS. Un caso privado de 14 páginas corrigió la orientación OCR, pero no demuestra precisión general de pagos.
 
 Consulta [especificación maestra](docs/ESPECIFICACION_MAESTRA_GALANT.md), [plan por etapas](docs/PLAN_GALANT_OPERATIVO.md), docs/ARQUITECTURA.md, docs/AUDITORIA_0.2.0.md, docs/OCR_EVALUACION.md y docs/VPS.md.
