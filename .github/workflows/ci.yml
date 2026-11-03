@@ -51,7 +51,7 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
-      - run: bash -n scripts/install-preview.sh scripts/diagnose.sh scripts/backup-preview.sh scripts/verify-restore-preview.sh scripts/update-preview.sh
+      - run: bash -n scripts/install-preview.sh scripts/diagnose.sh scripts/backup-preview.sh scripts/verify-restore-preview.sh scripts/update-preview.sh\n      - run: python3 -m py_compile scripts/soak_24h.py
       - name: Validate isolated Docker preview config
         env:
           APP_SECRET: ci_test_secret
@@ -118,9 +118,9 @@ jobs:
           echo "Isolated backup and restoration verified in CI"
   deploy-vps:
     name: Deploy VPS
-    needs: [backend, frontend, compose]
+    needs: [backend, frontend, compose, restore-smoke]
     if: >-
-      github.event_name == 'workflow_dispatch' ||
+      (github.event_name == 'workflow_dispatch' &&\n       github.ref == 'refs/heads/main' &&\n       vars.VPS_MANUAL_DEPLOY_ALLOWED == 'true') ||
       (github.event_name == 'push' &&
        github.ref == 'refs/heads/main' &&
        vars.VPS_AUTODEPLOY == 'true')
