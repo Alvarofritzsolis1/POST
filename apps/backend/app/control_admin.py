@@ -55,6 +55,8 @@ class ContractInput(BaseModel):
             raise ValueError("Fecha de término anterior al inicio")
         if self.contract_type == "indefinite" and self.end_date is not None:
             raise ValueError("No indicar término para contrato indefinido; registra su baja expresamente")
+        if self.contract_type == "fixed_term" and self.end_date is None:
+            raise ValueError("El contrato a plazo fijo debe indicar su fecha de término")
         return self
 
 
