@@ -27,4 +27,5 @@ tar --list --gzip --file "$target/preview-storage.tar.gz" >/dev/null
 (cd "$target" && sha256sum postgres.dump preview-storage.tar.gz > SHA256SUMS && sha256sum --check SHA256SUMS)
 chmod 600 "$target"/*
 echo "RESPALDO GENERADO Y ARCHIVOS VALIDOS: $target"
+printf "BACKUP_PATH=%s\\n" "$target"
 echo "Importante: esta verificación comprueba la legibilidad de archivos; no sustituye ensayo de restauración en BD aislada."
