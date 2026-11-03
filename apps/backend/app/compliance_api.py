@@ -698,6 +698,10 @@ def document_matrix(
                     contribution and contribution.payment_confirmed and missing
                     and not contribution.justification.strip()
                 )
+                observed_difference = bool(
+                    contribution and contribution.payment_confirmed and missing
+                    and contribution.justification.strip()
+                )
                 rows.append(
                     {
                         "association_id": link.id,
@@ -707,10 +711,16 @@ def document_matrix(
                         "name": name,
                         "period": period,
                         "requirement": requirement,
-                        "state": "incomplete" if incomplete else (r.state if r else "pending"),
+                        "state": (
+                            "incomplete" if incomplete else
+                            "observed" if observed_difference else
+                            (r.state if r else "pending")
+                        ),
                         "observation": (
                             f"Pago incompleto: {missing} día(s) pendientes de revisar"
-                            if incomplete else (r.observation if r else "")
+                            if incomplete else
+                            f"Diferencia justificada pendiente de revisión: {missing} día(s)"
+                            if observed_difference else (r.observation if r else "")
                         ),
                         "document_id": r.document_id if r else None,
                         "reviewed_by": r.reviewed_by if r else None,
