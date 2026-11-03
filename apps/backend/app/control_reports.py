@@ -1,0 +1,199 @@
+"""Weighted management dashboard and CT/CI reports using verified manual records."""
+from __future__ import annotations
+
+from datetime import datetime
+from io import BytesIO
+from zoneinfo import ZoneInfo
+
+from fastapi import APIRouter, Depends, Response
+from openpyxl import Workbook
+from openpyxl.styles import Alignment, Font, PatternFill
+from sqlalchemy import func, select
+from sqlalchemy.orm import Session
+
+from .control_admin import list_alerts, list_contracts, list_tasks
+from .control_api import list_contributions, monthly_matrix, validated_period, today
+from .control_models import MonthlyActivity, OffboardingCase
+from .db import get_db
+from .models import User
+from .ops_api import site_for
+from .ops_models import Contractor, ContractorWorksite, Worksite, WorkerAssignment
+from .security import authorized_user
+
+router = APIRouter(prefix="/api/v1/control/reports", tags=["Informes operativos"])
+
+
+def site_rows(db: Session, user: User, site_id: str | None):
+    if site_id:
+        site_for(db, user.org_id, site_id)
+    query = select(Worksite).where(Worksite.org_id == user.org_id)
+    if site_id:
+        query = query.where(Worksite.id == site_id)
+    return db.scalars(query.order_by(Worksite.name)).all()
+
+
+@router.get("/overview")
+def overview(period: str, site_id: str | None = None,
+             user: User = Depends(authorized_user), db: Session = Depends(get_db)):
+    validated_period(period)
+    sites = site_rows(db, user, site_id)
+    summaries = []
+    unique_companies = set()
+    totals = {"ct": 0, "ci": 0, "sporadic": 0, "active": 0,
+              "workers": 0, "without_movements": 0, "offboarding_open": 0}
+    total_applicable = total_approved = total_reviewed = 0
+    for site in sites:
+        result = monthly_matrix(site.id, period, user, db)
+        ids = [row["association_id"] for row in result["contractors"]]
+        for item in result["contractors"]:
+            unique_companies.add(item["contractor_id"])
+            if item["code"] == "CT":
+                totals["ct"] += 1
+            if item["code"] == "CI":
+                totals["ci"] += 1
+            if item["frequency"] == "sporadic":
+                totals["sporadic"] += 1
+            if item["status"] == "active":
+                totals["active"] += 1
+        workers = 0
+        if ids:
+            workers = db.scalar(select(func.count(WorkerAssignment.id)).where(
+                WorkerAssignment.org_id == user.org_id,
+                WorkerAssignment.worksite_id == site.id,
+                WorkerAssignment.active.is_(True))) or 0
+            movements = db.scalar(select(func.count(MonthlyActivity.id)).where(
+                MonthlyActivity.org_id == user.org_id,
+                MonthlyActivity.association_id.in_(ids),
+                MonthlyActivity.period == period,
+                MonthlyActivity.status == "no_movements")) or 0
+            totals["without_movements"] += movements
+        totals["workers"] += workers
+        numbers = result["summary"]
+        total_applicable += numbers["applicable"]
+        total_approved += numbers["approved"]
+        total_reviewed += numbers["reviewed"]
+        summaries.append({"site_id": site.id, "site": site.name,
+                          "contractors": len(result["contractors"]),
+                          "workers": workers, **numbers})
+    totals["unique_companies"] = len(unique_companies)
+    totals["associations"] = sum(s["contractors"] for s in summaries)
+    contributions = list_contributions(period, site_id, user, db)
+    totals["unverified_payments"] = sum(not c["payment_confirmed"] for c in contributions)
+    totals["days_missing"] = sum(c["missing_days"] or 0 for c in contributions)
+    totals["retention_proposed"] = str(sum(
+        (float(c["retention_suggested"]) for c in contributions
+         if c["missing_days"] and c["retention_suggested"] is not None), 0.0))
+    active_contracts = list_contracts(site_id=site_id, user=user, db=db)
+    totals["expiring_contracts"] = sum(bool(c["expiry_alert"]) for c in active_contracts)
+    tasks = list_tasks(site_id=site_id, status="open", user=user, db=db)
+    totals["open_tasks"] = len(tasks)
+    query = select(func.count(OffboardingCase.id)).join(
+        ContractorWorksite, ContractorWorksite.id == OffboardingCase.association_id).where(
+        OffboardingCase.org_id == user.org_id, ContractorWorksite.org_id == user.org_id,
+        OffboardingCase.status == "open")
+    if site_id:
+        query = query.where(ContractorWorksite.worksite_id == site_id)
+    totals["offboarding_open"] = db.scalar(query) or 0
+    return {"period": period, "site_id": site_id, "sites": summaries,
+            "totals": totals, "applicable": total_applicable,
+            "approved": total_approved, "reviewed": total_reviewed,
+            "compliance": round(100 * total_approved / total_applicable, 1) if total_applicable else None,
+            "progress": round(100 * total_reviewed / total_applicable, 1) if total_applicable else None}
+
+
+def format_book(book: Workbook, filename: str):
+    for sheet in book.worksheets:
+        sheet.freeze_panes = "A2"
+        sheet.auto_filter.ref = sheet.dimensions
+        for cell in sheet[1]:
+            cell.fill = PatternFill("solid", fgColor="172D4E")
+            cell.font = Font(color="FFFFFF", bold=True)
+            cell.alignment = Alignment(wrap_text=True)
+        for column in sheet.columns:
+            cells = list(column)
+            max_size = min(42, max(12, max(len(str(c.value or "")) for c in cells) + 3))
+            sheet.column_dimensions[cells[0].column_letter].width = max_size
+    stream = BytesIO()
+    book.save(stream)
+    return Response(content=stream.getvalue(),
+        media_type="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+        headers={"Content-Disposition": f'attachment; filename="{filename}"',
+                 "Cache-Control": "no-store"})
+
+
+@router.get("/cotizaciones.xlsx")
+def cotizaciones_excel(period: str, site_id: str | None = None,
+                       user: User = Depends(authorized_user), db: Session = Depends(get_db)):
+    validated_period(period)
+    sites = site_rows(db, user, site_id)
+    entries = list_contributions(period, site_id, user, db)
+    by_association: dict[str, list[dict]] = {}
+    for entry in entries:
+        by_association.setdefault(entry["association_id"], []).append(entry)
+    wb = Workbook()
+    sh = wb.active
+    sh.title = "Cotizaciones CT y CI"
+    sh.append(["Obra", "Contratista", "RUT", "Código", "Período", "Trabajador",
+               "Asistencia", "Días exigibles", "Días pagados", "Días faltantes",
+               "Retención sugerida CLP", "Pago confirmado manualmente", "Estado de revisión",
+               "Retención", "Justificación", "Observaciones", "Responsable"])
+    total_missing = 0
+    total_retention = 0.0
+    for site in sites:
+        rows = db.execute(select(ContractorWorksite, Contractor).join(
+            Contractor, Contractor.id == ContractorWorksite.contractor_id).where(
+            ContractorWorksite.org_id == user.org_id,
+            Contractor.org_id == user.org_id,
+            ContractorWorksite.worksite_id == site.id,
+            ContractorWorksite.historical_code.in_(("CT", "CI")),
+        ).order_by(Contractor.name)).all()
+        for link, company in rows:
+            current = by_association.get(link.id, [])
+            if not current:
+                sh.append([site.name, company.name, company.rut, link.historical_code,
+                           period, "Sin registros", None, None, None, None, None,
+                           "Sin verificar", "Sin evaluar"])
+                continue
+            for row in current:
+                total_missing += row["missing_days"] or 0
+                proposal = (float(row["retention_suggested"])
+                            if row["retention_suggested"] is not None else None)
+                total_retention += proposal or 0.0
+                sh.append([site.name, company.name, company.rut, link.historical_code,
+                           period, row["worker"] or "Independiente",
+                           row["attendance_days"], row["required_days"], row["paid_days"],
+                           row["missing_days"], proposal,
+                           "Sí (registro manual)" if row["payment_confirmed"] else "Pendiente",
+                           row["review_status"], row["retention_status"],
+                           row["justification"], row["notes"], row["reviewer_id"]])
+    summary = wb.create_sheet("Resumen")
+    summary.append(["Métrica", "Valor"])
+    summary.append(["Período", period])
+    summary.append(["Total días faltantes CT (sin compensaciones)", total_missing])
+    summary.append(["Retenciones sugeridas totales CLP", total_retention])
+    summary.append(["Importante", "Propuestas administrativas; no se aplican automáticamente"])
+    return format_book(wb, f"GALANT_COTIZACIONES_CT_CI_{period}.xlsx")
+
+
+@router.get("/mensual.xlsx")
+def monthly_excel(period: str, site_id: str | None = None,
+                  user: User = Depends(authorized_user), db: Session = Depends(get_db)):
+    validated_period(period)
+    wb = Workbook()
+    sh = wb.active
+    sh.title = "Matriz mensual"
+    sh.append(["Obra", "Mes", "Contratista", "RUT", "Código", "Frecuencia",
+               "Requisito", "Aplicable", "Estado", "Origen", "Observaciones",
+               "Inicio de solicitud", "Vencimiento", "Revisor"])
+    sites = site_rows(db, user, site_id)
+    for site in sites:
+        matrix = monthly_matrix(site.id, period, user, db)
+        for contractor in matrix["contractors"]:
+            for item in contractor["requirements"]:
+                sh.append([site.name, period, contractor["name"], contractor["rut"],
+                           contractor["code"], contractor["frequency"], item["kind"],
+                           "Por confirmar" if item["applicable"] is None else
+                           "Sí" if item["applicable"] else "No",
+                           item["state"], item["source"], item["notes"],
+                           item["request_date"], item["due_date"], item["reviewed_by"]])
+    return format_book(wb, f"GALANT_MATRIZ_MENSUAL_{period}.xlsx")
