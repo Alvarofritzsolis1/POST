@@ -371,7 +371,7 @@ export default function ControlCenter({readOnly}:{readOnly:boolean}){
             <td>{c.contract_type}</td><td>{c.start_date}</td><td>{c.end_date||"Indefinido / sin fecha"}</td>
             <td>{c.expiry_alert||c.status}</td></tr>)}
         </tbody></table></div>
-      </section>}
+      </section>
       {siteId&&tab==="contracts"&&!readOnly&&<ContractImporter siteId={siteId} onImported={()=>{void reload().catch(e=>setError(errText(e)))}}/>}
       </>}
       {tab==="calendar"&&<section className="control-card"><h2>Calendario de exigibilidad</h2>
