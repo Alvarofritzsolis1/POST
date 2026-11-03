@@ -21,6 +21,12 @@ La matriz muestra siete requisitos: cotizaciones, F30-1, liquidaciones firmadas,
 
 Para crear las tablas aditivas, usa `python -m app.cli init-db` únicamente después de respaldar y verificar el entorno. `scripts/backup-preview.sh` crea copias de PostgreSQL y de documentos privados con comprobaciones de integridad; `scripts/verify-restore-preview.sh` comprueba un ensayo de restauración aislado y SHA256 de cada documento registrado. El procedimiento de actualización exige ambos controles antes de recrear contenedores; `scripts/soak_24h.py` prepara una prueba sintética de consistencia entre dos usuarios durante 24 horas, sin ejecutarse automáticamente. **El autodespliegue desde CI requiere ahora `VPS_AUTODEPLOY=true` explícito.**
 
+### Ensayo de la versión candidata sin afectar la instalación activa
+
+Incluye `docker-compose.qa.yml` y `scripts/start-qa-preview.sh` para crear una copia de **código** (no de datos laborales) en `/opt/galant-post-qa` con PostgreSQL propio, documentos sintéticos y puerto privado `127.0.0.1:18612`. El CI comprueba que las rutas y puertos sean distintos de los de preview. El script `scripts/soak_24h.py` permite probar dos cuentas de esa instancia durante 86.400 segundos de lectura y comparación, **pero la prueba continua aún debe ejecutarse en Contabo**.
+
+Consulta [Actualización segura y 24 horas en QA](docs/ACTUALIZACION_SEGURA_VPS.md). No fusionar este PR ni publicar producción hasta completar las comprobaciones reales y conservar un respaldo verificado de sus PDFs.
+
 ## Usuarios compartidos y documentación mensual
 
 **Por qué se separaban los usuarios:** el comando `create-admin` crea una organización nueva. Si las cuentas pertenecen a organizaciones distintas, sus contratistas y sus PDF quedan correctamente aislados. No se deben eliminar los filtros por organización.
