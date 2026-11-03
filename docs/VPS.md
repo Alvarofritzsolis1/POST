@@ -20,11 +20,10 @@ El job `Deploy VPS` actualiza `/opt/galant-post` después de que la CI termine c
 
 Configura estos secretos del repositorio en GitHub para que el despliegue pueda conectarse al servidor:
 
-- `VPS_HOST`: IP o nombre del VPS.
-- `VPS_USER`: usuario con el que se instaló POST; en la instalación documentada es `root`.
-- `VPS_PORT`: puerto SSH, normalmente `22`.
 - `VPS_SSH_KEY`: clave privada exclusiva para este despliegue.
 - `VPS_KNOWN_HOSTS`: línea de clave de host SSH verificada para el VPS.
+
+La configuración usa por defecto `89.117.144.140`, el usuario `root` y el puerto `22`. Si cambian, define `VPS_HOST`, `VPS_USER` o `VPS_PORT` como variables o secretos del repositorio.
 
 El VPS debe conservar acceso de solo lectura al repositorio para que `git fetch origin` pueda obtener el commit. El flujo valida los servicios y la versión de la API; si falla, vuelve al commit anterior sin borrar volúmenes ni `preview-storage`.
 

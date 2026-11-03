@@ -89,9 +89,9 @@ jobs:
       group: galant-post-vps-preview
       cancel-in-progress: false
     env:
-      VPS_HOST: ${{ secrets.VPS_HOST }}
-      VPS_USER: ${{ secrets.VPS_USER }}
-      VPS_PORT: ${{ secrets.VPS_PORT }}
+      VPS_HOST: ${{ secrets.VPS_HOST || vars.VPS_HOST || '89.117.144.140' }}
+      VPS_USER: ${{ secrets.VPS_USER || vars.VPS_USER || 'root' }}
+      VPS_PORT: ${{ secrets.VPS_PORT || vars.VPS_PORT || '22' }}
       VPS_SSH_KEY: ${{ secrets.VPS_SSH_KEY }}
       VPS_KNOWN_HOSTS: ${{ secrets.VPS_KNOWN_HOSTS }}
       DEPLOY_SHA: ${{ github.sha }}
@@ -100,12 +100,14 @@ jobs:
         shell: bash
         run: |
           set -Eeuo pipefail
-          for key in VPS_HOST VPS_USER VPS_SSH_KEY VPS_KNOWN_HOSTS; do
+          missing=0
+          for key in VPS_SSH_KEY VPS_KNOWN_HOSTS; do
             if [[ -z "${!key}" ]]; then
-              echo "Falta el secreto ${key}." >&2
-              exit 1
+              echo "::error title=Configuración VPS incompleta::Falta el secreto ${key}."
+              missing=1
             fi
           done
+          exit "$missing"
       - name: Configure verified SSH access
         shell: bash
         run: |
