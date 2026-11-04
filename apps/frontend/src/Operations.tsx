@@ -19,9 +19,7 @@ const frequencyOptions=[
 ]
 const statusOptions=[
   {value:"active",label:"Activo"},
-  {value:"suspended",label:"Suspendido"},
-  {value:"offboarding",label:"En proceso de baja"},
-  {value:"inactive",label:"Dado de baja"}
+  {value:"inactive",label:"Inactivo"}
 ]
 const historyOptions=[
   {value:"historical_approved",label:"Aprobado histórico (sin PDF verificado)"},
@@ -48,7 +46,7 @@ function describeChange(changes:Record<string,unknown>){
     return `${changeLabels[field]||field}: ${String(value)}`
   }).join(" · ")
 }
-const blankContractor=(siteId:string):ContractorInput=>({site_id:siteId,name:"",rut:null,historical_code:null,nature:"unclassified",frequency:"unclassified",contract_status:"active"})
+const blankContractor=(siteId:string):ContractorInput=>({site_id:siteId,name:"",rut:null,historical_code:"CT",nature:"with_workers",frequency:"fixed",contract_status:"active"})
 const blankWorker=(siteId:string,contractorId:string):WorkerInput=>({site_id:siteId,contractor_id:contractorId,name:"",rut:null})
 type LaborRow={assignment_id:string;worker_name:string;worker_rut:string;contract_type:string|null;start_date:string|null;end_date:string|null;labor_state:string;finiquito_state:string}
 const laborStates:Record<string,string>={active:"Vigente",ended:"Terminado",ending_soon:"Próximo a vencer",expired_needs_review:"Vencido",observed:"Observado",missing:"Pendiente",approved:"Aprobado",delivered:"Entregado",not_applicable:"No aplica"}
@@ -172,14 +170,18 @@ export default function Operations({readOnly,externalSiteId,mode,onImport,onSite
     setError("");setNotice("")
     setContractorDraft(item?{
       site_id:siteId,name:item.name,rut:item.rut,historical_code:item.historical_code,
-      nature:item.nature,frequency:item.frequency,contract_status:item.contract_status
+      nature:item.nature,frequency:item.frequency,contract_status:item.contract_status==="active"?"active":"inactive"
     }:blankContractor(siteId))
     setContractorForm(mode)
   }
   async function saveContractor(event:FormEvent){
     event.preventDefault();if(readOnly||!siteId)return
     setBusy(true);setError("");setNotice("")
-    const payload={...contractorDraft,name:contractorDraft.name.trim(),rut:contractorDraft.rut?.trim()||null,historical_code:contractorDraft.historical_code?.trim().toUpperCase()||null}
+    const code=contractorDraft.historical_code?.trim().toUpperCase()||"CT"
+    const payload={...contractorDraft,name:contractorDraft.name.trim(),rut:contractorDraft.rut?.trim()||null,
+      historical_code:code,
+      nature:contractorForm==="new"?(code==="CI"?"independent":"with_workers"):contractorDraft.nature,
+      frequency:code==="CE"?"sporadic":code==="CT"?"fixed":contractorDraft.frequency}
     try{
       const item=contractorForm==="edit"&&selected?await opsApi.updateContractor(selected.id,{
         name:payload.name,rut:payload.rut,historical_code:payload.historical_code,
@@ -299,9 +301,7 @@ export default function Operations({readOnly,externalSiteId,mode,onImport,onSite
       {contractorForm&&<form className="ops-form" onSubmit={event=>void saveContractor(event)}><h3>{contractorForm==="new"?"Nuevo contratista":"Editar contratista"}</h3><div className="ops-form-grid">
         <label>Nombre o razón social<input required maxLength={180} value={contractorDraft.name} onChange={event=>setContractorDraft(current=>({...current,name:event.target.value}))}/></label>
         <label>RUT<input placeholder="12.345.678-5" value={contractorDraft.rut||""} onChange={event=>setContractorDraft(current=>({...current,rut:event.target.value}))}/></label>
-        <label>Código histórico<input maxLength={20} placeholder="CT, CE o CI" value={contractorDraft.historical_code||""} onChange={event=>setContractorDraft(current=>({...current,historical_code:event.target.value}))}/></label>
-        <label>Naturaleza<select value={contractorDraft.nature} onChange={event=>setContractorDraft(current=>({...current,nature:event.target.value}))}>{natureOptions.map(option=><option key={option.value} value={option.value}>{option.label}</option>)}</select></label>
-        <label>Frecuencia<select value={contractorDraft.frequency} onChange={event=>setContractorDraft(current=>({...current,frequency:event.target.value}))}>{frequencyOptions.map(option=><option key={option.value} value={option.value}>{option.label}</option>)}</select></label>
+        <label>Clasificación (COD)<select value={contractorDraft.historical_code||"CT"} onChange={event=>setContractorDraft(current=>({...current,historical_code:event.target.value}))}><option value="CT">CT · Fijo</option><option value="CE">CE · Esporádico</option><option value="CI">CI · Independiente</option></select></label>
         <label>Estado contractual<select value={contractorDraft.contract_status} onChange={event=>setContractorDraft(current=>({...current,contract_status:event.target.value}))}>{statusOptions.map(option=><option key={option.value} value={option.value}>{option.label}</option>)}</select></label>
       </div><div className="ops-form-actions"><button className="secondary" type="button" onClick={()=>setContractorForm(null)}>Cancelar</button><button className="primary" disabled={busy} type="submit">{busy?<LoaderCircle className="spin" size={16}/>:null} Guardar contratista</button></div></form>}
       <div className="ops-filters"><label className="ops-search"><Search size={16}/><input placeholder="Buscar por nombre o RUT" value={search} onChange={event=>setSearch(event.target.value)}/></label><div className="ops-status-filters" role="group" aria-label="Filtrar contratistas por estado">{(["active","inactive","all"] as const).map(status=><button type="button" key={status} aria-pressed={statusFilter===status} className={statusFilter===status?"selected":""} onClick={()=>{setStatusFilter(status);setSelectedId(null)}}>{status==="active"?"Activos":status==="inactive"?"Inactivos":"Todos"}</button>)}</div><select aria-label="Filtrar por clasificación" value={codeFilter} onChange={event=>setCodeFilter(event.target.value)}><option value="all">Todas las clasificaciones</option><option value="CT">CT · Fijo</option><option value="CE">CE · Esporádico</option><option value="CI">CI · Independiente</option><option value="other">Sin clasificación válida</option></select><span>{filtered.length} de {visibleContractors.length}</span></div>
