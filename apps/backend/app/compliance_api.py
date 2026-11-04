@@ -838,8 +838,11 @@ def overview(
     cards = []
     for link, company in links:
         records = docs[link.id]
-        applicable = [r for r in records if r["state"] != "not_applicable"]
+        applicable = [r for r in records if r["state"] not in {"not_applicable", "inactive"}]
+        current_month = date.today().strftime("%Y-%m")
+        inactive_now = link.contract_status != "active" and period >= current_month
         state = (
+            "inactivo" if inactive_now else
             "con observaciones"
             if any(
                 r["state"] == "observed" or r["state"] == "rejected" for r in applicable
@@ -879,7 +882,7 @@ def overview(
             kind: len(
                 {c["contractor_id"] for c in cards if c["classification"] == kind}
             )
-            for kind in ("CT", "CI", "SIN CLASIFICAR")
+            for kind in ("CT", "CE", "CI", "SIN CLASIFICAR")
         },
         "active_workers": len({r.worker_id for r in db.scalars(active_query)}),
         "observed_workers": len(
