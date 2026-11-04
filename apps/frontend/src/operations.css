@@ -84,3 +84,25 @@
 @media(max-width:1160px){.ops-summary{grid-template-columns:repeat(2,minmax(0,1fr))}.ops-form-grid,.ops-column-map>div{grid-template-columns:repeat(2,minmax(0,1fr))}}
 @media(max-width:780px){.ops-toolbar{padding:15px}.ops-toolbar>label{flex:1;min-width:180px}.ops-toolbar select{width:100%}.ops-toolbar-note{margin-left:0}.ops-toolbar .icon-button{margin-left:0}.ops-card-heading{align-items:start;flex-direction:column}.ops-actions{justify-content:flex-start}.ops-filters{padding:14px 17px}.ops-form,.ops-import-panel{margin:0 17px 18px;padding:16px}.ops-form-grid,.ops-column-map>div{grid-template-columns:1fr}.ops-summary{gap:9px}.ops-summary>div{padding:14px}.ops-summary strong{font-size:24px}.ops-summary span{font-size:10px}.ops-history{padding:0 17px 16px}.ops-history li{grid-template-columns:1fr;gap:5px}}
 @media(max-width:450px){.ops-actions{width:100%}.ops-actions .primary,.ops-actions .secondary{width:100%}.ops-summary>div{min-height:83px}.ops-template-links{gap:10px}.ops-mapping label{flex-wrap:wrap}.ops-import-controls .primary{width:100%}}
+
+.ops-status-filters,.ops-detail-tabs{display:inline-flex;align-items:center;gap:4px;padding:4px;background:#eef2f7;border:1px solid #e1e8f0;border-radius:11px;flex-wrap:wrap}
+.ops-status-filters button,.ops-detail-tabs button{border:0;border-radius:8px;padding:8px 13px;background:transparent;color:#516781;font-size:12px;font-weight:750;cursor:pointer;min-height:36px}
+.ops-status-filters button.selected,.ops-detail-tabs button.selected{background:#fff;color:#213a5b;box-shadow:0 1px 5px rgba(24,48,77,.12)}
+.ops-lifecycle{display:inline-flex;align-items:center;gap:7px;padding:5px 10px;border-radius:999px;font-size:11px;font-weight:800}
+.ops-lifecycle:before{content:"";width:7px;height:7px;border-radius:50%;background:currentColor}
+.ops-lifecycle.active{color:#146a40;background:#e7f5ed}
+.ops-lifecycle.inactive{color:#a72b36;background:#fdebef}
+.ops-contractor-table td{overflow-wrap:anywhere}
+.ops-detail-panel{margin-top:16px;min-width:0}
+.ops-detail-panel .ops-card-heading{padding:21px 26px}
+.ops-detail-tabs{margin:0 26px 16px}
+.ops-detail-content{padding:0 26px 22px;min-width:0}
+.ops-detail-content h3{font-size:13px;color:#304763}
+.ops-detail-overview{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:11px;margin:0 0 18px}
+.ops-detail-overview>div{background:#f7f9fc;border:1px solid #e2e9f1;padding:12px;border-radius:9px;display:flex;flex-direction:column;gap:6px}
+.ops-detail-overview b{font-size:11px;color:#75869b}
+.ops-detail-overview span{font-size:15px;font-weight:800;color:#2a4669}
+.ops-detail-toolbar{display:flex;flex-wrap:wrap;align-items:center;gap:13px;margin-bottom:14px}
+.ops-detail-toolbar input{flex:1;min-width:180px}
+.ops-inactive-banner{margin:15px 0;padding:12px 15px;border:1px solid #e6bfd0;border-radius:9px;background:#fff5f6;color:#852f43;font-size:12px;line-height:1.5}
+@media(max-width:720px){.ops-detail-overview{grid-template-columns:1fr}.ops-detail-tabs{margin:0 14px 14px}.ops-detail-content{padding:0 14px 18px}.ops-status-filters{width:100%}}
