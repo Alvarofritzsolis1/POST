@@ -38,8 +38,11 @@ export default function MonthlyDocuments({contractor,readOnly}:{contractor:Contr
   const [error,setError]=useState("")
   const [notice,setNotice]=useState("")
   const [notes,setNotes]=useState<Record<string,string>>({})
-  const independent=contractor.nature==="independent"
-  const withWorkers=contractor.nature==="with_workers"
+  const independent=contractor.classification==="CI"
+  const unknownType=!["CT","CE","CI"].includes(contractor.classification)
+  const currentMonth=new Intl.DateTimeFormat("sv-SE",{timeZone:"America/Santiago",year:"numeric",month:"2-digit"}).format(new Date())
+  const inactive=contractor.contract_status!=="active"
+  const protectedPeriod=inactive&&period>=currentMonth
   const required=types.filter(t=>t.value!=="otros").map(t=>t.value)
 
   const reload=useCallback(async()=>{
@@ -71,7 +74,7 @@ export default function MonthlyDocuments({contractor,readOnly}:{contractor:Contr
 
   async function uploadAndLink(event:FormEvent){
     event.preventDefault()
-    if(readOnly||!file)return
+    if(readOnly||protectedPeriod||!file)return
     setBusy(true);setError("");setNotice("")
     try{
       const category=kind==="cotizaciones"?"cotizaciones":kind==="f30_1"?"f30_1":"auto"
@@ -91,7 +94,7 @@ export default function MonthlyDocuments({contractor,readOnly}:{contractor:Contr
     finally{setBusy(false)}
   }
   async function linkExisting(){
-    if(readOnly||!existingId)return
+    if(readOnly||protectedPeriod||!existingId)return
     setBusy(true);setError("");setNotice("")
     try{
       await opsApi.linkMonthly({association_id:contractor.id,period,kind,document_id:existingId})
@@ -100,7 +103,7 @@ export default function MonthlyDocuments({contractor,readOnly}:{contractor:Contr
     finally{setBusy(false)}
   }
   async function markNotApplicable(kindValue:string){
-    if(readOnly)return
+    if(readOnly||protectedPeriod)return
     setBusy(true);setError("");setNotice("")
     try{
       await opsApi.linkMonthly({association_id:contractor.id,period,kind:kindValue,not_applicable:true,notes:"Excepción registrada manualmente"})
@@ -109,7 +112,7 @@ export default function MonthlyDocuments({contractor,readOnly}:{contractor:Contr
     finally{setBusy(false)}
   }
   async function review(row:MonthlyRecord,status:MonthlyRecord["review_status"]){
-    if(readOnly)return
+    if(readOnly||protectedPeriod)return
     setBusy(true);setError("");setNotice("")
     try{
       await opsApi.reviewMonthly(row.id,status,notes[row.id]??row.notes)
@@ -118,7 +121,7 @@ export default function MonthlyDocuments({contractor,readOnly}:{contractor:Contr
     finally{setBusy(false)}
   }
   async function manualReview(documentKind:string,status:"approved"|"observed"|"pending"|"not_applicable"){
-    if(readOnly)return
+    if(readOnly||protectedPeriod)return
     let message=""
     if(status==="observed"||status==="not_applicable"){
       const entered=window.prompt("Justifica la revisión de "+nameOf(documentKind)+":")
@@ -145,7 +148,10 @@ export default function MonthlyDocuments({contractor,readOnly}:{contractor:Contr
         <button type="button" className="secondary" disabled={loading||busy} onClick={()=>void reload().catch(err=>setError(errText(err)))} title="Actualizar documentos"><RefreshCcw size={16}/> Actualizar</button></div>
     </div>
     <div className="monthly-summary"><strong>{eligible.length?approved+" de "+eligible.length:"Sin evaluar"}</strong><span>requisitos exigibles aprobados en {period}; no aplica y no exigible no cuentan como incumplimiento</span></div>
-    {!independent&&!withWorkers&&<p className="ops-help">Contratista sin clasificación documental completa: confirma su naturaleza y obligaciones antes de aprobar el período.</p>}
+    {unknownType&&<p className="ops-help">Contratista con clasificación documental sin verificar: confirma su código antes de aprobar el período.</p>}
+    {inactive&&<p className="ops-inactive-note" role="status">{protectedPeriod?
+      "Contratista inactivo: no se generan ni solicitan nuevos documentos para este mes. El historial permanece disponible.":
+      "Mes histórico de un contratista actualmente inactivo. Solo se pueden regularizar obligaciones con evidencia o exigibilidad histórica justificada; no se presume una fecha anterior de baja."}</p>}
     {error&&<p className="form-error" role="alert">{error}</p>}
     {notice&&<p className="alert success" role="status"><CheckCircle2 size={16}/>{notice}</p>}
     {loading?<p><LoaderCircle size={16} className="spin"/> Cargando documentación mensual…</p>:<>
@@ -154,7 +160,7 @@ export default function MonthlyDocuments({contractor,readOnly}:{contractor:Contr
           <td><strong>{nameOf(item)}</strong><small style={{display:"block"}}>{req?.applicable===null?"Confirmar exigibilidad":req?.applicable===false?"No aplicable":"Requisito aplicable"}</small></td>
           <td><span className={"status "+(state==="approved"?"success":state==="observed"||state==="rejected"||state==="overdue"?"error":"waiting")}>{statuses[state]||state}</span></td>
           <td>{row?.document_id?<a href={api.pdf(row.document_id)} target="_blank" rel="noreferrer">{row.original_name||"Abrir archivo"}</a>:row?"Revisión manual sin archivo":"—"}</td>
-          <td>{!readOnly&&req?.applicable===true?<div className="control-cell-actions">
+          <td>{!readOnly&&!protectedPeriod&&req?.applicable===true?<div className="control-cell-actions">
             <button type="button" disabled={busy} onClick={()=>void manualReview(item,"approved")}>Aprobar</button>
             <button type="button" disabled={busy} onClick={()=>void manualReview(item,"observed")}>Observar</button>
             <button type="button" disabled={busy} onClick={()=>void manualReview(item,"pending")}>Pendiente</button>
@@ -162,7 +168,7 @@ export default function MonthlyDocuments({contractor,readOnly}:{contractor:Contr
           </div>:req?.applicable===null?"Configura la exigibilidad en Centro de control":"—"}</td>
         </tr>})}
       </tbody></table></div>
-      {!readOnly&&<div className="monthly-forms">
+      {!readOnly&&!protectedPeriod&&<div className="monthly-forms">
         <form onSubmit={event=>void uploadAndLink(event)}>
           <h4><UploadCloud size={17}/> Subir documentación mensual</h4>
           <label>Tipo de documento<select value={kind} onChange={e=>setKind(e.target.value)}>{types.map(t=><option key={t.value} value={t.value}>{t.label}</option>)}</select></label>
@@ -190,7 +196,7 @@ export default function MonthlyDocuments({contractor,readOnly}:{contractor:Contr
             <option value="pending">Pendiente</option><option value="approved">Aprobado</option><option value="observed">Observado</option><option value="rejected">Rechazado</option>
           </select>}</td>
           <td>{readOnly?row.notes:<input aria-label={"Observación "+row.id} maxLength={2000} placeholder="Motivo u observación" value={notes[row.id]??row.notes} onChange={e=>setNotes(current=>({...current,[row.id]:e.target.value}))}/>}
-            {!readOnly&&<button type="button" className="secondary ops-small-button" disabled={busy} onClick={()=>void review(row,row.review_status)}>Guardar nota</button>}</td>
+            {!readOnly&&!protectedPeriod&&<button type="button" className="secondary ops-small-button" disabled={busy} onClick={()=>void review(row,row.review_status)}>Guardar nota</button>}</td>
         </tr>)}
       </tbody></table></div>}
     </>}
