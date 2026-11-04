@@ -402,7 +402,9 @@ def generate_duties(body: DutyGeneration, user: User = Depends(administrator),
             continue
         for number, (_, last) in enumerate(ranges, 1):
             days = dates_of_week(body.period, number)
-            if not any(_worker_eligible(a, contracts, terms, days) for a, _ in assignments[company.id]):
+            expected_ids = [a.id for a, _ in assignments[company.id]
+                            if _worker_eligible(a, contracts, terms, days)]
+            if not expected_ids:
                 continue
             existing = db.scalar(select(CalendarDuty.id).where(
                 CalendarDuty.org_id == user.org_id, CalendarDuty.association_id == association.id,
@@ -411,7 +413,7 @@ def generate_duties(body: DutyGeneration, user: User = Depends(administrator),
                 continue
             db.add(CalendarDuty(org_id=user.org_id, association_id=association.id,
                 worksite_id=body.site_id, period=body.period, week_number=number,
-                assigned_to=body.user_id, created_by=user.id,
+                assigned_to=body.user_id, created_by=user.id, expected_workers=expected_ids,
                 deadline_at=_deadline(db, user.org_id, last, body.site_id)))
             created += 1
     audit_change(db, user, "attendance_duties", body.site_id,
@@ -462,10 +464,18 @@ def _assessment(db, org_id, period, person_id):
         CalendarWeek.org_id == org_id, CalendarWeek.period == period,
         CalendarWeek.association_id.in_([k[0] for k in keys]))).all() if keys else []
     indexed = {(w.association_id, w.week_number): w for w in weeks}
+    collected = db.scalars(select(CalendarEntry).where(
+        CalendarEntry.org_id == org_id,
+        CalendarEntry.week_id.in_([w.id for w in weeks]))).all() if weeks else []
+    present = defaultdict(set)
+    for record in collected:
+        present[record.week_id].add(record.worker_assignment_id)
     required = [d for d in duties if not d.exempt]
-    completed = [d for d in required
-                 if (indexed.get((d.association_id, d.week_number)) is not None and
-                     indexed[(d.association_id, d.week_number)].state == "completed")]
+    def done(duty):
+        week = indexed.get((duty.association_id, duty.week_number))
+        return bool(week and week.state == "completed" and week.completed_at is not None
+                    and set(duty.expected_workers or []).issubset(present[week.id]))
+    completed = [d for d in required if done(d)]
     punctual = [d for d in completed if _instant(
         indexed[(d.association_id, d.week_number)].completed_at) <= _instant(d.deadline_at)]
     weight = Decimal(str(_settings(db, org_id).get("attendance_grade_completion_weight", "0.70")))
