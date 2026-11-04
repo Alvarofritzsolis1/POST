@@ -176,11 +176,17 @@ def _context(db, org_id, site_id, period, association_id=None):
             ContributionControl.org_id == org_id,
             ContributionControl.period == period,
             ContributionControl.association_id.in_([link.id for link, _ in links])))}
-    from .network_service import actor_name
-    users = {}
-    for u in db.scalars(select(User).where(User.org_id == org_id)):
-        name = actor_name(db, u.id)
-        users[u.id] = "Usuario sin nombre registrado" if "@" in name else name
+    # Bulk-load names instead of querying member and preferences for every actor.
+    from .network_models import NetworkMember
+    from .platform_models import UserPreferences
+    actors = db.scalars(select(User).where(User.org_id == org_id)).all()
+    actor_ids = [u.id for u in actors]
+    named = {row.user_id: row.name for row in db.scalars(
+        select(NetworkMember).where(NetworkMember.user_id.in_(actor_ids)))}
+    preferences = {row.user_id: row.values or {} for row in db.scalars(
+        select(UserPreferences).where(UserPreferences.user_id.in_(actor_ids)))}
+    users = {u.id: (named.get(u.id) or preferences.get(u.id, {}).get("name")
+                    or "Usuario sin nombre registrado") for u in actors}
     return links, assignments, contracts, terms, rosters, weeks, entries, controls, users
 
 
