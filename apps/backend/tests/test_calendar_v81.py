@@ -19,8 +19,11 @@ def test_real_calendar_months_four_five_six():
         ("2026-10-01", "2026-10-04"), ("2026-10-05", "2026-10-11"),
         ("2026-10-12", "2026-10-18"), ("2026-10-19", "2026-10-25"),
         ("2026-10-26", "2026-10-31")]
-    assert len(dates_of_week("2026-11", 6)) == 1
-    assert len({day for week in range(1, 6) for day in dates_of_week("2026-10", week)}) == 31
+    assert dates_of_week("2026-11", 1) == []  # El primer día es domingo.
+    assert len(dates_of_week("2026-11", 6)) == 1  # Lunes 30.
+    assert len({day for week in range(1, 6) for day in dates_of_week("2026-10", week)}) == 22
+    assert all(day.weekday() < 5 for n in range(1, 7)
+               for day in dates_of_week("2026-11", n))
 
 
 def test_grade_not_confusing_completion_with_punctuality():
