@@ -69,7 +69,10 @@ def authorized_user(request: Request, db: Session = Depends(get_db)) -> User:
         path = request.url.path
         allowed = (path.startswith("/api/v1/attendance/") or
                    path in {"/api/v1/ops/sites", "/api/v1/network/profile",
-                            "/api/v1/auth/me", "/api/v1/auth/logout"})
+                            "/api/v1/auth/me", "/api/v1/auth/logout"} or
+                   (request.method == "POST" and path in {
+                       "/api/v1/labor/workers", "/api/v1/labor/contracts",
+                   }))
         if not allowed:
             raise HTTPException(403, "El administrativo solo tiene acceso a Control de Asistencia")
     if request.method not in {"GET", "HEAD", "OPTIONS"}:
@@ -96,6 +99,12 @@ def document_reviewer(user: User = Depends(authorized_user)) -> User:
 def attendance_editor(user: User = Depends(authorized_user)) -> User:
     if user.role not in {"admin", "administrative"}:
         raise HTTPException(403, "Sin permiso para registrar asistencia")
+    return user
+
+
+def contract_entry_editor(user: User = Depends(authorized_user)) -> User:
+    if user.role not in {"admin", "administrative"}:
+        raise HTTPException(403, "Sin permiso para registrar contratos laborales")
     return user
 
 
