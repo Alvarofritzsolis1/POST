@@ -3,14 +3,16 @@ import { request } from "./api";
 import "./administrative.css";
 
 type Person = { assignment_id: string; name: string; rut: string | null };
-type Company = { association_id: string; contractor_id: string; contractor: string; administrative_status: string; roster_status: string; workers: Person[] };
-type Roster = { contractors: Company[] };
+type Company = { association_id: string; contractor_id: string; contractor: string; active: boolean };
+type Roster = { contractors: { workers: Person[] }[] };
 type ContractType = "indefinite" | "fixed_term" | "project";
 const errorText = (value: unknown) => value instanceof Error ? value.message : String(value);
 
 export default function ContractEntry({ siteId, period }: { siteId: string; period: string }) {
   const [companies, setCompanies] = useState<Company[]>([]);
+  const [companySearch, setCompanySearch] = useState("");
   const [companyId, setCompanyId] = useState("");
+  const [workers, setWorkers] = useState<Person[]>([]);
   const [mode, setMode] = useState<"new" | "existing">("new");
   const [assignmentId, setAssignmentId] = useState("");
   const [name, setName] = useState("");
@@ -24,13 +26,26 @@ export default function ContractEntry({ siteId, period }: { siteId: string; peri
   const [notice, setNotice] = useState("");
   const [revision, setRevision] = useState(0);
   useEffect(() => {
+    setCompanies([]); setCompanyId(""); setCompanySearch(""); setAssignmentId(""); setWorkers([]);
+  }, [siteId, period]);
+  useEffect(() => {
+    if (!companySearch.trim() || !siteId) { setCompanies([]); return; }
     let active = true;
-    setCompanies([]); setCompanyId(""); setAssignmentId("");
-    void request<Roster>(`/attendance/roster?site_id=${encodeURIComponent(siteId)}&period=${encodeURIComponent(period)}`)
-      .then((data) => { if (active) { setCompanies(data.contractors); setError(""); } })
+    const timer = window.setTimeout(() => {
+      void request<{ items: Company[] }>(`/attendance-v81/contractors?site_id=${encodeURIComponent(siteId)}&q=${encodeURIComponent(companySearch.trim())}`)
+        .then((data) => { if (active) { setCompanies(data.items); setError(""); } })
+        .catch((cause) => { if (active) setError(errorText(cause)); });
+    }, 180);
+    return () => { active = false; window.clearTimeout(timer); };
+  }, [siteId, companySearch, revision]);
+  useEffect(() => {
+    if (!companyId || !siteId) { setWorkers([]); return; }
+    let active = true;
+    void request<Roster>(`/attendance-v81/roster?site_id=${encodeURIComponent(siteId)}&period=${encodeURIComponent(period)}&association_id=${encodeURIComponent(companyId)}`)
+      .then((data) => { if (active) setWorkers(data.contractors[0]?.workers || []); })
       .catch((cause) => { if (active) setError(errorText(cause)); });
     return () => { active = false; };
-  }, [siteId, period, revision]);
+  }, [siteId, period, companyId, revision]);
   const company = companies.find((row) => row.association_id === companyId);
   async function save(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
@@ -60,9 +75,13 @@ export default function ContractEntry({ siteId, period }: { siteId: string; peri
   return <section className="panel administrative-contracts">
     <div><h2>Nuevo contrato de trabajo</h2><p>Registra los datos del contrato sin adjuntar documentos.</p></div>
     <form onSubmit={(event) => void save(event)}>
+      <label>Buscar contratista por nombre o RUT
+        <input value={companySearch} onChange={(event) => setCompanySearch(event.target.value)}
+          placeholder="Escribe el nombre o RUT" autoComplete="off" />
+      </label>
       <label>Contratista <select required value={companyId} onChange={(event) => { setCompanyId(event.target.value); setAssignmentId(""); }}>
         <option value="">Seleccionar contratista</option>
-        {companies.filter((row) => row.administrative_status === "active").map((row) =>
+        {companies.filter((row) => row.active).map((row) =>
           <option key={row.association_id} value={row.association_id}>{row.contractor}</option>)}
       </select></label>
       <fieldset><legend>Trabajador</legend>
@@ -75,7 +94,7 @@ export default function ContractEntry({ siteId, period }: { siteId: string; peri
           <label>RUT <input required value={rut} onChange={(event) => setRut(event.target.value)} placeholder="12.345.678-9" /></label>
         </div> : <label>Trabajador <select required value={assignmentId} onChange={(event) => setAssignmentId(event.target.value)}>
           <option value="">Seleccionar trabajador</option>
-          {(company?.workers || []).map((person) => <option key={person.assignment_id} value={person.assignment_id}>{person.name} · {person.rut || "Sin RUT"}</option>)}
+          {workers.map((person) => <option key={person.assignment_id} value={person.assignment_id}>{person.name} · {person.rut || "Sin RUT"}</option>)}
         </select></label>}
       </fieldset>
       <div className="administrative-form-grid">
