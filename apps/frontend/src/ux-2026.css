@@ -720,3 +720,107 @@
 [data-theme="dark"] .platform .worker-kpi.metric-warning {
   background: #172f3a;
 }
+
+/* Mobile card view for contractors. Data remains shared with the desktop table. */
+.platform .ops-mobile-list { display: none; }
+@media (max-width: 900px) {
+  .platform .ops-desktop-list { display: none; }
+  .platform .ops-mobile-list {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(min(100%, 300px), 1fr));
+    gap: 12px;
+    padding: 14px clamp(12px, 2vw, 20px) 20px;
+    background: #f7fafc;
+  }
+  .platform .ops-mobile-contractor {
+    min-width: 0;
+    position: relative;
+    display: flex;
+    flex-direction: column;
+    gap: 10px;
+    padding: 15px;
+    background: #fff;
+    border: 1px solid #dce5ee;
+    border-radius: 12px;
+    box-shadow: 0 2px 9px #183c4f08;
+  }
+  .platform .ops-mobile-contractor-head {
+    display: flex;
+    align-items: flex-start;
+    justify-content: space-between;
+    gap: 12px;
+    min-width: 0;
+  }
+  .platform .ops-mobile-contractor-head > strong {
+    min-width: 0;
+    color: #18324a;
+    overflow-wrap: anywhere;
+    font-size: 13px;
+    line-height: 1.45;
+  }
+  .platform .ops-mobile-contractor .ops-lifecycle {
+    flex: 0 0 auto;
+    white-space: nowrap;
+    font-size: 10px;
+    line-height: 1.3;
+  }
+  .platform .ops-mobile-contractor-rut {
+    margin: 0;
+    color: #53677f;
+    font-size: 12px;
+    overflow-wrap: anywhere;
+  }
+  .platform .ops-mobile-contractor-rut span {
+    font-weight: 750;
+    color: #31445b;
+    margin-right: 6px;
+  }
+  .platform .ops-mobile-contractor-meta {
+    display: flex;
+    align-items: center;
+    gap: 8px 14px;
+    flex-wrap: wrap;
+    color: #4d637b;
+    font-size: 11px;
+    line-height: 1.5;
+  }
+  .platform .ops-mobile-contractor-meta > span {
+    padding: 5px 8px;
+    background: #f1f6fb;
+    border-radius: 7px;
+  }
+  .platform .ops-mobile-contractor-action {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    align-self: flex-start;
+    gap: 5px;
+    min-height: 38px;
+    padding: 8px 13px;
+    background: #eaf1ff;
+    color: #244ca7;
+    border: 1px solid #d5e2f8;
+    border-radius: 9px;
+    font-size: 12px;
+    font-weight: 750;
+  }
+  .platform .ops-mobile-contractor-action:hover {
+    background: #dce8ff;
+    border-color: #a9bee4;
+  }
+  [data-theme="dark"] .platform .ops-mobile-list { background: #122935; }
+  [data-theme="dark"] .platform .ops-mobile-contractor {
+    background: #172f3a;
+    border-color: #38515b;
+  }
+  [data-theme="dark"] .platform .ops-mobile-contractor-head > strong { color: #e0edf2; }
+  [data-theme="dark"] .platform .ops-mobile-contractor-rut,
+  [data-theme="dark"] .platform .ops-mobile-contractor-meta { color: #bed0d8; }
+  [data-theme="dark"] .platform .ops-mobile-contractor-rut span { color: #d5e3e9; }
+  [data-theme="dark"] .platform .ops-mobile-contractor-meta > span { background: #294653; }
+  [data-theme="dark"] .platform .ops-mobile-contractor-action {
+    background: #223e65;
+    border-color: #395b82;
+    color: #c8ddff;
+  }
+}
