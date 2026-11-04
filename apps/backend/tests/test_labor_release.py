@@ -42,7 +42,7 @@ def test_explicit_classification_legacy_preservation_and_ci_obligations(env):
     assert commit(client, head, review(client, head, "contractors", [independent])).status_code == 200
     ci = next(c for c in client.get("/api/v1/ops/contractors", params={"site_id": site["id"]}).json()
               if c["historical_code"] == "CI")
-    assert ci["nature"] == "independent" and ci["frequency"] == "sporadic"
+    assert ci["nature"] == "independent" and ci["frequency"] == "unclassified"  # CI no define frecuencia
     ci_alerts = client.get("/api/v1/labor/alerts", params={"site_id": site["id"]}).json()
     assert not any(a["severity"] == "red" and a["kind"] == "document_overdue" and
                    a["target_id"] == ci["id"] for a in ci_alerts["alerts"])
