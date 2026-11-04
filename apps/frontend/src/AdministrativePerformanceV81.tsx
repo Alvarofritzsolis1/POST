@@ -110,7 +110,7 @@ export default function AdministrativePerformance({ sites, period }: { sites: Si
             "Configuración guardada.", "PUT")}>Guardar configuración</button>
       </div>
     </section>}
-    {error && <p role="alert" className="alert danger">{error}</p>
+    {error && <p role="alert" className="alert danger">{error}</p>}
     {notice && <p role="status" className="alert success">{notice}</p>}
     <div className="performance-list">{rows.map((row) => <section className="panel" key={row.user_id}>
       <div className="performance-card-head"><div><h3>{row.name}</h3><p>{row.required} entregas exigibles · {row.exempt} justificadas</p></div>
