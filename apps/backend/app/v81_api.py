@@ -209,6 +209,8 @@ def roster(site_id: str, period: str, association_id: str | None = None,
             complete = bool(week and week.state == "completed" and missing == 0)
             if not included:
                 status = "excluded"
+            elif not expected:
+                status = "not_required"
             elif duty and duty.exempt:
                 status = "not_required"
             elif complete:
