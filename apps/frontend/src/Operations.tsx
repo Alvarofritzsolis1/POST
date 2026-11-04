@@ -309,9 +309,29 @@ export default function Operations({readOnly,externalSiteId,mode,onImport,onSite
       </div><div className="ops-form-actions"><button className="secondary" type="button" onClick={()=>setContractorForm(null)}>Cancelar</button><button className="primary" disabled={busy} type="submit">{busy?<LoaderCircle className="spin" size={16}/>:null} Guardar contratista</button></div></form>}
       <div className="ops-filters"><label className="ops-search"><Search size={16}/><input placeholder="Buscar por nombre o RUT" value={search} onChange={event=>setSearch(event.target.value)}/></label><div className="ops-status-filters" role="group" aria-label="Filtrar contratistas por estado">{(["active","inactive","all"] as const).map(status=><button type="button" key={status} aria-pressed={statusFilter===status} className={statusFilter===status?"selected":""} onClick={()=>{setStatusFilter(status);setSelectedId(null)}}>{status==="active"?"Activos":status==="inactive"?"Inactivos":"Todos"}</button>)}</div><select aria-label="Filtrar por clasificación" value={codeFilter} onChange={event=>setCodeFilter(event.target.value)}><option value="all">Todas las clasificaciones</option><option value="CT">CT · Fijo</option><option value="CE">CE · Esporádico</option><option value="CI">CI · Independiente</option><option value="other">Sin clasificación válida</option></select><span>{filtered.length} de {visibleContractors.length}</span></div>
       {loading?<div className="ops-empty"><LoaderCircle size={20} className="spin"/> Cargando contratistas…</div>:filtered.length===0?<div className="ops-empty"><Users size={22}/>{visibleContractors.length?"No hay coincidencias":"Aún no hay contratistas en esta obra"}</div>:
-      <div className="table-wrap"><table className="ops-list-table ops-contractor-table"><thead><tr><th>CONTRATISTA</th><th>RUT</th><th>CLASIFICACIÓN</th><th>ESTADO</th><th>TRABAJADORES</th><th>DETALLE</th></tr></thead><tbody>{filtered.map(item=><tr key={item.id} className={selectedId===item.id?"selected-row":""}>
+      <><div className="table-wrap ops-desktop-list"><table className="ops-list-table ops-contractor-table"><thead><tr><th>CONTRATISTA</th><th>RUT</th><th>CLASIFICACIÓN</th><th>ESTADO</th><th>TRABAJADORES</th><th>DETALLE</th></tr></thead><tbody>{filtered.map(item=><tr key={item.id} className={selectedId===item.id?"selected-row":""}>
         <td><strong>{item.name}</strong></td><td>{item.rut||"—"}</td><td>{item.classification==="CT"?"CT · Fijo":item.classification==="CE"?"CE · Esporádico":item.classification==="CI"?"CI · Independiente":"Por regularizar"}</td><td><span className={"ops-lifecycle "+(item.contract_status==="active"?"active":"inactive")}>{item.contract_status==="active"?"Activo":"Inactivo"}</span></td><td>{item.worker_count}</td>
-        <td><button className="row-open" aria-label={`Abrir ficha de ${item.name}`} onClick={()=>{setSelectedId(item.id);setContractorForm(null);setWorkerForm(null)}}><ChevronRight size={18}/></button></td></tr>)}</tbody></table></div>}
+        <td><button className="row-open" aria-label={`Abrir ficha de ${item.name}`} onClick={()=>{setSelectedId(item.id);setContractorForm(null);setWorkerForm(null)}}><ChevronRight size={18}/></button></td></tr>)}</tbody></table></div>
+      <div className="ops-mobile-list" role="list" aria-label="Contratistas de la obra">
+        {filtered.map(item => (
+          <article className="ops-mobile-contractor" role="listitem" key={item.id}>
+            <div className="ops-mobile-contractor-head">
+              <strong>{item.name}</strong>
+              <span className={"ops-lifecycle " + (item.contract_status === "active" ? "active" : "inactive")}>
+                {item.contract_status === "active" ? "Activo" : "Inactivo"}
+              </span>
+            </div>
+            <p className="ops-mobile-contractor-rut"><span>RUT</span> {item.rut || "Sin registrar"}</p>
+            <div className="ops-mobile-contractor-meta">
+              <span>{item.classification==="CT"?"CT · Fijo":item.classification==="CE"?"CE · Esporádico":item.classification==="CI"?"CI · Independiente":"Clasificación pendiente"}</span>
+              <span>{item.worker_count} {item.worker_count === 1 ? "trabajador" : "trabajadores"}</span>
+            </div>
+            <button type="button" className="ops-mobile-contractor-action" aria-label={`Abrir ficha de ${item.name}`} onClick={() => {setSelectedId(item.id);setContractorForm(null);setWorkerForm(null)}}>
+              Ver ficha <ChevronRight size={17}/>
+            </button>
+          </article>
+        ))}
+      </div></>}
     </section>
     {selected&&<section className="results-card ops-card ops-detail-panel" aria-label="Ficha del contratista">
       <div className="card-heading ops-card-heading">
