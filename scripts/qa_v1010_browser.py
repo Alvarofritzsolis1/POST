@@ -128,11 +128,24 @@ def main():
         page.reload()
         expect(page.get_by_role("button", name="Menú de usuario")).to_be_visible()
         assert page.locator("#root").inner_text().strip(), "Pantalla blanca después de recargar"
+        # Auditoría horizontal: ningún módulo debe derribar el shell al abrir o cerrar.
+        modules = (
+            "Inicio", "Trabajadores", "Control de asistencia",
+            "Evaluación administrativa", "Control documental",
+            "Cotizaciones y pagos", "Importación masiva",
+            "Gestión administrativa", "Informes", "Configuración",
+            "Red de Obras", "Contratistas",
+        )
+        for module in modules:
+            page.get_by_role("button", name=module, exact=True).first.click()
+            page.wait_for_timeout(200)
+            assert page.locator("#root").inner_text().strip(), f"Pantalla blanca en {module}"
+            assert page.locator(".galant-error-boundary").count() == 0, f"Error React al abrir {module}"
         assert not errors, errors
         (output / "report.json").write_text(json.dumps(
             {"status": "PASS", "screens": ["contratista-inactivo.png",
                                           "contratistas-filtros.png"],
-             "checks": "filtro, datos anidados, pestañas, 5 ciclos de abrir/cerrar, recarga"},
+             "checks": "filtro, datos anidados, pestañas, 5 ciclos de abrir/cerrar, recarga y 12 módulos"},
             indent=2, ensure_ascii=False))
         print("PASS: navegación, filtros y renderizados de contratistas sin pantalla blanca")
         browser.close()
