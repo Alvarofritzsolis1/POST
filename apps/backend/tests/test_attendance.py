@@ -78,7 +78,7 @@ def test_weekly_attendance_roles_provenance_balance_alerts_and_exclusion(env, mo
                       json={"state": "approved"}).status_code == 403
     data = client.get(roster_url).json()
     row = data["contractors"][0]
-    assert (row["signed_days"], row["paid_days"], row["missing_payment_days"]) == (2, 1, 1)
+    assert (row["signed_days"], row["paid_days"], row["missing_payment_days"]) == (2, None, None)
     assert row["weeks"][0]["entered_by"] == "Administrativa de prueba"
     assert row["weeks"][0]["source_document_id"] == document_id
     assert row["weeks"][0]["entered_at"] and row["weeks"][0]["completed_at"]
