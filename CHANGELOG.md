@@ -1,5 +1,13 @@
 # Historial de cambios
 
+## 12.0.0-rc1 — Auditoría de fallos ocultos (candidata)
+
+- Corrige bypass de COD=CI en altas laborales y contratos nuevos; rechaza reclasificación incompatible con trabajadores activos.
+- El endpoint mensual ya no admite nuevas vinculaciones exigibles para inactivos en período actual/futuro, preservando históricos.
+- Elimina falsas alertas de clasificación de CI y corrige la clasificación por obra en opciones laborales.
+- Añade pruebas dirigidas y auditorías estáticas de seguridad/dependencias, con resultados verificables en GitHub Actions.
+- No se incorporan nuevas funcionalidades ni modificaciones estéticas.
+
 ## 10.10.0-rc1 — Activos e inactivos y resiliencia de fichas (candidata)
 
 - Filtros y semáforos de estado; ficha de contratistas con trabajadores, documentación e historial.
