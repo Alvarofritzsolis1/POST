@@ -288,7 +288,9 @@ def roster(site_id: str, period: str, user: User = Depends(authorized_user),
             "summary": {"contractors": sum(c["roster_status"] == "included" for c in result), "overdue_weeks": overdue_count,
                         "completed_weeks": completed_count,
                         "signed_days": sum(c["signed_days"] for c in result if c["roster_status"] == "included"),
-                        "missing_payment_days": sum(c["missing_payment_days"] for c in result if c["roster_status"] == "included")}}
+                        "missing_payment_days": (
+                            None if user.role == "administrative" else
+                            sum(c["missing_payment_days"] for c in result if c["roster_status"] == "included"))}}
 
 
 @router.put("/roster")
