@@ -384,8 +384,8 @@ function App() {
           </button>
           <strong>GALANT POST</strong>
           {section !== "network" && <div className="global-filters">
-            <label>
-              Obra
+            <label className="global-filter">
+              <span>Obra</span>
               <select
                 aria-label="Obra seleccionada"
                 value={site}
@@ -404,8 +404,8 @@ function App() {
                 ))}
               </select>
             </label>
-            <label>
-              Período
+            <label className="global-filter">
+              <span>Período</span>
               <input
                 aria-label="Período auditado"
                 type="month"
@@ -443,11 +443,7 @@ function App() {
                 Información compartida de tu organización · Período {period}
               </p>
             </div>
-            {section === "contractors" && !readonly && (
-              <button className="primary" onClick={() => go("imports")}>
-                Importar desde Excel
-              </button>
-            )}
+
           </div>}
           {section === "network" && <RedDeObras user={user} />}
           {error && (
