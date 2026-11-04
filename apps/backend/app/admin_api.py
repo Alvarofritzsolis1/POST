@@ -21,7 +21,7 @@ router = APIRouter(prefix="/api/v1/admin", tags=["Administración"])
 class AccountCreate(BaseModel):
     email: str = Field(min_length=3, max_length=255)
     password: str = Field(min_length=12, max_length=256)
-    role: Literal["admin", "administrative", "resident"] = "admin"
+    role: Literal["admin", "administrative", "resident"] = "administrative"
     name: str = Field(default="", max_length=180)
     site_ids: list[str] = Field(default_factory=list, max_length=100)
 
