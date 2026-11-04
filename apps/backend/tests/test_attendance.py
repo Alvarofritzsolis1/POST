@@ -38,15 +38,9 @@ def test_weekly_attendance_roles_provenance_balance_alerts_and_exclusion(env, mo
     assert paid.status_code == 200, paid.text
     account = client.post("/api/v1/admin/users", headers=admin, json={
         "email": "administrativa@example.cl", "password": "password-valid-2026",
-        "role": "administrative"})
+        "role": "administrative", "name": "Administrativa de prueba",
+        "site_ids": [site["id"]]})
     assert account.status_code == 201, account.text
-    from app.models import User
-    from app.network_models import NetworkMembership, NetworkMember
-    with sessions.begin() as db:
-        administrator = db.scalar(select(User).where(User.email == "a@example.cl"))
-        person = db.scalar(select(User).where(User.email == "administrativa@example.cl"))
-        db.add(NetworkMembership(user_id=person.id, site_id=site["id"], assigned_by=administrator.id))
-        db.add(NetworkMember(user_id=person.id, name="Administrativa de prueba"))
     roster_url = f"/api/v1/attendance/roster?site_id={site['id']}&period={period}"
     before = client.get(roster_url).json()
     assert len(before["contractors"][0]["weeks"]) == 5
