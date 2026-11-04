@@ -14,6 +14,7 @@ from sqlalchemy.orm import Session
 from .control_models import (ContributionControl, MonthlyActivity, ProcessCalendar,
                              RequirementApplicability, WorkTask)
 from .db import get_db
+from .contractor_policy import inactive_for_period
 from .models import User, utcnow
 from .monthly_api import valid_period
 from .ops_api import association_for, audit_change, site_for, contractor_classification
@@ -43,8 +44,7 @@ def inactive_for_current_period(association: ContractorWorksite, period: str) ->
     Existing records do not reliably store the effective offboarding date, so
     suppressing older months would invent history. Those require dated review.
     """
-    current_month = today().strftime("%Y-%m")
-    return association.contract_status != "active" and period >= current_month
+    return inactive_for_period(association, period, today())
 
 
 def nature_defaults(company: Contractor, association: ContractorWorksite) -> dict[str, bool | None]:
