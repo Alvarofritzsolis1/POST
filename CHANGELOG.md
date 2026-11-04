@@ -1,5 +1,16 @@
 # Historial de cambios
 
+## 8.0.0 — Red de Obras: vista global y experiencia de trazabilidad (candidata)
+
+- Vista inicial de requerimientos y métricas compartida entre todas las obras de la misma organización; filtro «Solo mis obras» opcional, desactivado al ingresar.
+- Origen de obra obtenido de los datos de la publicación; bloqueo de cambios de obra en requerimientos existentes.
+- Edición de publicaciones limitada a su autor para residentes, incluso si otro residente pertenece a la misma obra.
+- Historial de auditoría presentado como eventos en español, con campos permitidos y nombres reales de obra y contratista; se conserva el JSON original solo en el registro interno.
+- Diseño de Red de Obras más compacto: cinco indicadores principales, requerimientos antes de gráficos, línea de tiempo visual y formularios de obra bloqueada cuando corresponde.
+- Pruebas nuevas de visibilidad entre obras, integridad del origen, autorización de edición e historial seguro.
+- No introduce migraciones destructivas ni modifica las reglas documentales, OCR o de pago.
+- **Estado:** cambios en rama de revisión. Requiere CI, prueba QA, respaldo y aprobación antes de fusionar o desplegar.
+
 ## 0.7.0 — Red de Obras, preparada para revisión
 
 - Portal integrado con requerimientos, partidas dinámicas, borradores y capacidad compartida. Tarjetas, lista, Kanban, calendario mensual/semanal, filtros e indicadores calculados con datos persistentes.

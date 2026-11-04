@@ -26,6 +26,7 @@ from .network_models import (
     NetworkPendingItem,
     NetworkRequirement,
 )
+from .network_history import history_view
 from .network_schemas import (
     AmendmentInput,
     AwardEdit,
@@ -319,14 +320,9 @@ def update_requirement(
         .join(NetworkItem, NetworkItem.id == NetworkAward.item_id)
         .where(NetworkItem.requirement_id == row.id)
     ).all()
-    if row.site_id != body.site_id and (
-        awards
-        or db.scalar(
-            select(NetworkMatch.id).where(NetworkMatch.requirement_id == row.id)
-        )
-    ):
+    if row.site_id != body.site_id:
         raise HTTPException(
-            409, "La obra de un requerimiento vinculado no se puede cambiar"
+            409, "La obra de origen es permanente; crea otro requerimiento para otra obra"
         )
     if body.state != "published" and any(a.state != "revoked" for a in awards):
         raise HTTPException(
@@ -1375,19 +1371,12 @@ def history(
     rows, total = pagination(
         query.order_by(OpsChange.created_at.desc(), OpsChange.id), db, limit, offset
     )
-    return {
-        "rows": [
-            {
-                "id": r.id,
-                "kind": r.entity_type,
-                "actor": actor_name(db, r.user_id),
-                "at": r.created_at,
-                "changes": r.changes,
-            }
-            for r in rows
-        ],
-        "total": total,
-    }
+    rendered = []
+    for r in rows:
+        entry = history_view(db, user, r)
+        entry["actor"] = actor_name(db, r.user_id)
+        rendered.append(entry)
+    return {"rows": rendered, "total": total}
 
 
 @router.get("/notifications")
@@ -1496,11 +1485,12 @@ def sync(user: User = Depends(authorized_user), db: Session = Depends(get_db)):
 def overview(
     site_id: str | None = None,
     specialty: str = "",
+    mine: bool = False,
     user: User = Depends(authorized_user),
     db: Session = Depends(get_db),
 ):
     query = scoped_requirements(db, user)
-    if user.role == "resident":
+    if mine and user.role == "resident":
         query = query.where(NetworkRequirement.site_id.in_(assigned_sites(db, user)))
     if site_id:
         require_site(db, user, site_id)

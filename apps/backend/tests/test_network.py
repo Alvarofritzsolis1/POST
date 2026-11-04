@@ -820,3 +820,90 @@ def test_legacy_admin_route_cannot_remove_both_administrators_concurrently(netwo
             )
             == 1
         )
+
+
+def test_v8_global_feed_retains_origin_and_overview_scope(network):
+    """A resident sees all published worksites, never a viewer-dependent site name."""
+    n = network
+    first = requirement(n, items=1)
+    second_body = request_body(n, items=1)
+    second_body["site_id"] = n["sites"][1]
+    second_body["title"] = "Pintura en Lomas Verdes"
+    second = n["send"](n["b"], "/requirements", second_body)
+    assert second.status_code == 201, second.text
+    second = second.json()
+
+    for client in (n["a"], n["b"], n["c"]):
+        rows = client.get(ROOT + "/requirements").json()["rows"]
+        sites = {r["id"]: (r["site_id"], r["site"]) for r in rows}
+        assert sites[first["id"]] == (n["sites"][0], "Brisas de Junquillar")
+        assert sites[second["id"]] == (n["sites"][1], "Lomas Verdes")
+        assert client.get(ROOT + "/overview").json()["requirements"] == 2
+    assert n["c"].get(ROOT + "/overview?mine=true").json()["requirements"] == 0
+    assert n["a"].get(ROOT + "/overview?mine=true").json()["requirements"] == 1
+
+    move = request_body(n, items=1)
+    move["site_id"] = n["sites"][1]
+    move["version"] = first["version"]
+    move["reason"] = "Cambiar arbitrariamente de obra"
+    changed = n["send"](
+        n["admin"], "/requirements/" + first["id"], move, "PUT"
+    )
+    assert changed.status_code == 409
+    original = n["c"].get(ROOT + "/requirements/" + first["id"]).json()
+    assert original["site_id"] == n["sites"][0]
+    assert original["site"] == "Brisas de Junquillar"
+
+
+def test_v8_readable_history_excludes_raw_audit_payload(network):
+    n = network
+    req = requirement(n, items=2)
+    visible = n["a"].get(ROOT + "/history/" + req["id"])
+    assert visible.status_code == 200
+    entry = visible.json()["rows"][0]
+    assert entry["title"] == "Requerimiento creado"
+    assert entry["actor"] == "Residente A"
+    assert "changes" not in entry and "kind" not in entry
+    assert any(
+        d["label"] == "Obra" and d["after"] == "Brisas de Junquillar"
+        for d in entry["details"]
+    )
+    assert "client_key" not in str(entry) and "site_id" not in str(entry)
+
+    # El evento técnico sigue persistido, aunque la respuesta operativa sea legible.
+    with n["Session"]() as db:
+        raw = db.scalar(
+            select(OpsChange).where(
+                OpsChange.entity_type == "network_requirement",
+                OpsChange.entity_id == req["id"],
+            )
+        )
+        assert "client_key" in raw.changes["to"]
+    assert n["b"].get(ROOT + "/history/" + req["id"]).status_code == 403
+
+
+def test_v8_same_site_resident_cannot_edit_another_authors_publication(network):
+    n = network
+    req = requirement(n, items=1)
+    person = n["b_user"]
+    change_user = {
+        k: person[k]
+        for k in ["name", "title", "role", "enabled", "site_ids", "can_award"]
+    }
+    change_user["site_ids"] = [n["sites"][0]]
+    update = n["send"](
+        n["admin"], "/users/" + person["id"], change_user, "PATCH"
+    )
+    assert update.status_code == 200, update.text
+    neighbor = n["login"](person["email"])
+    shared = neighbor.get(ROOT + "/requirements/" + req["id"]).json()
+    assert shared["site_id"] == n["sites"][0]
+    assert shared["editable"] is False
+
+    edit = request_body(n, items=1)
+    edit["version"] = req["version"]
+    edit["reason"] = "Intento de edición ajena"
+    response = n["send"](
+        neighbor, "/requirements/" + req["id"], edit, "PUT"
+    )
+    assert response.status_code == 403

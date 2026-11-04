@@ -15,7 +15,6 @@ import {
   CircleHelp,
   Clock3,
   FileCheck2,
-  Handshake,
   LayoutDashboard,
   LayoutGrid,
   List,
@@ -93,7 +92,9 @@ type History = Page<{
   kind: string;
   actor: string;
   at: string;
-  changes: { reason: string; from: unknown; to: unknown };
+  title: string;
+  reason: string;
+  details: { label: string; before: string | null; after: string }[];
 }>;
 const emptyCatalog: Catalog = { sites: [], contractors: [], specialties: [] };
 
@@ -147,7 +148,7 @@ export default function RedDeObras({ user }: { user: Profile }) {
     [priority, setPriority] = useState("");
   const [mode, setMode] = useState("cards"),
     [page, setPage] = useState(0),
-    [mine, setMine] = useState(user.role === "resident");
+    [mine, setMine] = useState(false);
   const [error, setError] = useState(""),
     [notice, setNotice] = useState(""),
     [loading, setLoading] = useState(true);
@@ -175,7 +176,7 @@ export default function RedDeObras({ user }: { user: Profile }) {
     try {
       const data = await Promise.all([
         net<Catalog>("/catalog"),
-        net<Overview>("/overview?" + query),
+        net<Overview>("/overview?" + query + (mine ? "&mine=true" : "")),
         ["home", "requirements"].includes(tab)
           ? net<Page<Requirement>>(
               "/requirements" +
@@ -681,9 +682,22 @@ export default function RedDeObras({ user }: { user: Profile }) {
                   setPage(0);
                 }}
               />
-              Mis obras
+              Solo mis obras
             </label>
           </>
+        )}
+        {tab === "home" && user.role === "resident" && (
+          <label className="nw-check">
+            <input
+              type="checkbox"
+              checked={mine}
+              onChange={(e) => {
+                setMine(e.target.checked);
+                setPage(0);
+              }}
+            />
+            Solo mis obras
+          </label>
         )}
         {["requirements", "capacities"].includes(tab) && (
           <div className="nw-view-toggle">
@@ -737,7 +751,7 @@ export default function RedDeObras({ user }: { user: Profile }) {
               [
                 [
                   "requirements",
-                  user.role === "resident" ? "Mis requerimientos activos" : "Requerimientos activos",
+                  "Requerimientos abiertos",
                   overview.requirements,
                   Building2,
                 ],
@@ -746,12 +760,6 @@ export default function RedDeObras({ user }: { user: Profile }) {
                   "Partidas pendientes",
                   overview.pending_items,
                   Workflow,
-                ],
-                [
-                  "awards",
-                  "Partidas adjudicadas",
-                  overview.awarded_items,
-                  FileCheck2,
                 ],
                 [
                   "urgent",
@@ -764,18 +772,6 @@ export default function RedDeObras({ user }: { user: Profile }) {
                   "Contratistas con capacidad",
                   overview.capacities,
                   Users,
-                ],
-                [
-                  "matches",
-                  "Coincidencias detectadas",
-                  overview.matches,
-                  Sparkles,
-                ],
-                [
-                  "matches",
-                  "Coordinaciones activas",
-                  overview.active_coordinations,
-                  Handshake,
                 ],
                 [
                   "messages",
@@ -806,34 +802,6 @@ export default function RedDeObras({ user }: { user: Profile }) {
               </button>
             ))}
           </div>
-          <div className="nw-dashboard-grid">
-            <div className="nw-surface">
-              <h3>Necesidades por especialidad</h3>
-              <Bars values={overview.by_specialty} />
-            </div>
-            <div className="nw-surface">
-              <h3>Actividad por obra</h3>
-              <Bars values={overview.by_site} />
-            </div>
-          </div>
-          <div className="nw-operational-strip">
-            <span>
-              <b>{overview.partial_items}</b> partidas parciales
-            </span>
-            <span>
-              <b>{overview.awards}</b> adjudicaciones confirmadas
-            </span>
-            <span>
-              <b>{overview.pending_clearance}</b> habilitaciones pendientes
-            </span>
-            <span>
-              <b>{overview.enabled_awards}</b> adjudicaciones habilitadas
-            </span>
-            <span>
-              <b>{overview.average_award_days ?? "—"}</b> días promedio para
-              adjudicar
-            </span>
-          </div>
           <div className="nw-section-title">
             <h2>Necesidades que conectan obras</h2>
             <button
@@ -851,6 +819,41 @@ export default function RedDeObras({ user }: { user: Profile }) {
               contratista registrado.
             </Empty>
           )}
+          <div className="nw-dashboard-grid">
+            <div className="nw-surface">
+              <h3>Necesidades por especialidad</h3>
+              <Bars values={overview.by_specialty} />
+            </div>
+            <div className="nw-surface">
+              <h3>Actividad por obra</h3>
+              <Bars values={overview.by_site} />
+            </div>
+          </div>
+          <div className="nw-operational-strip">
+            <button className="nw-text-button" onClick={() => go("awards")}>
+              <b>{overview.awarded_items}</b> partidas adjudicadas
+            </button>
+            <button className="nw-text-button" onClick={() => go("matches")}>
+              <b>{overview.matches}</b> coincidencias posibles
+            </button>
+            <span><b>{overview.active_coordinations}</b> coordinaciones activas</span>
+            <span>
+              <b>{overview.partial_items}</b> partidas parciales
+            </span>
+            <span>
+              <b>{overview.awards}</b> adjudicaciones confirmadas
+            </span>
+            <span>
+              <b>{overview.pending_clearance}</b> habilitaciones pendientes
+            </span>
+            <span>
+              <b>{overview.enabled_awards}</b> adjudicaciones habilitadas
+            </span>
+            <span>
+              <b>{overview.average_award_days ?? "—"}</b> días promedio para
+              adjudicar
+            </span>
+          </div>
           {!!matches.rows.length && (
             <>
               <div className="nw-section-title">
@@ -1357,17 +1360,43 @@ export default function RedDeObras({ user }: { user: Profile }) {
                       ).then(setFiles)
                     }
                   />
-                  <h3>Historial y trazabilidad</h3>
-                  {history.rows.map((h) => (
-                    <details className="nw-history" key={h.id}>
-                      <summary>
-                        {h.kind.replace("network_", "")} · {h.actor}
-                        <small>{dateTime(h.at)}</small>
-                      </summary>
-                      {h.changes.reason && <p>{h.changes.reason}</p>}
-                      <pre>{JSON.stringify(h.changes, null, 2)}</pre>
-                    </details>
-                  ))}
+                  <div className="nw-history-heading">
+                    <h3>Historial y trazabilidad</h3>
+                    <span>{history.total} movimientos</span>
+                  </div>
+                  <div className="nw-timeline" aria-label="Historial del requerimiento">
+                    {history.rows.map((h) => (
+                      <details className="nw-history" key={h.id}>
+                        <summary>
+                          <span className="nw-history-marker" aria-hidden="true">
+                            <Clock3 size={14} />
+                          </span>
+                          <span className="nw-history-summary">
+                            <strong>{h.title}</strong>
+                            <span>{h.actor} · {dateTime(h.at)}</span>
+                          </span>
+                        </summary>
+                        <div className="nw-history-content">
+                          {h.reason && <p><b>Motivo:</b> {h.reason}</p>}
+                          {h.details.map((detail, i) => (
+                            <div className="nw-history-change" key={detail.label + i}>
+                              <b>{detail.label}</b>
+                              {detail.before !== null && (
+                                <span>Antes: {detail.before}</span>
+                              )}
+                              <span>{detail.before === null ? "Valor: " : "Ahora: "}{detail.after}</span>
+                            </div>
+                          ))}
+                          {!h.details.length && !h.reason && (
+                            <p>Actividad registrada correctamente.</p>
+                          )}
+                        </div>
+                      </details>
+                    ))}
+                    {!history.rows.length && (
+                      <p className="nw-muted">Todavía no hay movimientos registrados.</p>
+                    )}
+                  </div>
                 </>
               )}
             </div>

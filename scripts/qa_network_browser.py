@@ -216,6 +216,8 @@ def main():
             "button", name="Necesito contratista", exact=True
         ).click()
         drawer = a.get_by_role("dialog")
+        # Una sola obra asignada: no debe existir un selector editable de destino.
+        assert drawer.locator('input[name="site_id"][type="hidden"]').input_value() == destination["id"]
         drawer.get_by_label("Especialidad", exact=True).fill("Carpintería")
         drawer.get_by_label("Título del requerimiento", exact=True).fill(title)
         drawer.get_by_label("Trabajadores estimados", exact=True).fill("3")
@@ -237,10 +239,23 @@ def main():
             part.get_by_label("Unidad", exact=True).fill(unit)
         drawer.get_by_role("button", name="Publicar requerimiento", exact=True).click()
         expect(drawer.get_by_role("heading", name=title, exact=True)).to_be_visible()
+        expect(drawer.get_by_text("Requerimiento creado", exact=True)).to_be_visible()
+        assert drawer.locator(".nw-history pre").count() == 0
         drawer.get_by_role("button", name="Cerrar panel").click()
         req = next(
             r for r in api(a_ctx, "/requirements")["rows"] if r["title"] == title
         )
+        # Otro residente ve el requerimiento de Junquillar con su origen intacto.
+        external = api(b_ctx, "/requirements/" + req["id"])
+        assert external["site_id"] == destination["id"]
+        assert external["site"] == destination["name"]
+        assert api(b_ctx, "/overview")["requirements"] >= 1
+        b.get_by_role("navigation", name="Red de Obras", exact=True).get_by_role(
+            "button", name="Necesito contratista", exact=True
+        ).click()
+        foreign_card = b.locator(".nw-card").filter(has_text=title)
+        expect(foreign_card).to_be_visible()
+        expect(foreign_card).to_contain_text(destination["name"])
         b.locator(".nw-heading").get_by_role(
             "button", name="Tengo contratista con capacidad", exact=True
         ).click()

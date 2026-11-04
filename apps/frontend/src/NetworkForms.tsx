@@ -143,17 +143,23 @@ export function RequirementForm({
         <legend>Información general</legend>
         <label>
           Obra
-          <select
-            name="site_id"
-            defaultValue={current?.site_id || ownSites[0]?.id}
-            required
-          >
-            {ownSites.map((s) => (
-              <option value={s.id} key={s.id}>
-                {s.name}
-              </option>
-            ))}
-          </select>
+          {ownSites.length === 1 ? (
+            <>
+              <input type="hidden" name="site_id" value={ownSites[0].id} />
+              <span className="nw-site-locked">{ownSites[0].name}</span>
+              <small className="nw-field-help">Tu publicación pertenece a esta obra. Los demás residentes podrán verla.</small>
+            </>
+          ) : (
+            <select
+              name="site_id"
+              defaultValue={current?.site_id || ownSites[0]?.id}
+              required
+            >
+              {ownSites.map((s) => (
+                <option value={s.id} key={s.id}>{s.name}</option>
+              ))}
+            </select>
+          )}
         </label>
         <label>
           Especialidad
@@ -503,7 +509,7 @@ export function CapacityForm({
           Obra
           <select
             value={site}
-            disabled={!!current}
+            disabled={!!current || ownSites.length === 1}
             onChange={(e) => {
               setSite(e.target.value);
               setCompany("");
