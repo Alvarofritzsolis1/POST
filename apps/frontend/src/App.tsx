@@ -432,6 +432,7 @@ function App() {
           <NetworkAccountMenu user={user} logout={() => void logout()} openNetwork={() => go("network")} openSettings={() => go("settings")} />
         </header>
         <div className="page">
+          <ErrorBoundary label="este módulo de GALANT" resetKey={section+":"+site} onClose={()=>go("home")}>
           {section !== "network" && <div className="intro">
             <div>
               <span className="eyebrow">
@@ -1231,6 +1232,7 @@ function App() {
               </section>
             </div>
           )}
+          </ErrorBoundary>
           <footer className="footer">
             GALANT POST v{version} · {profile?.organization}
             <span>
