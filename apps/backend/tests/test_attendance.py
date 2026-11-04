@@ -85,6 +85,11 @@ def test_weekly_attendance_roles_provenance_balance_alerts_and_exclusion(env, mo
     assert row["weeks"][0]["completed_on_time"] is False
     assert row["weeks"][0]["state"] == "completed"
     assert data["summary"]["overdue_weeks"] == before["summary"]["overdue_weeks"] - 1
+    assert client.get("/api/v1/labor/alerts", params={"period": period, "site_id": site["id"]}).status_code == 403
+    assert client.get("/api/v1/attendance/export", params={"site_id": site["id"], "period": period}).status_code == 403
+    admin = login(client, "a@example.cl")
+    financial = client.get(roster_url).json()["contractors"][0]
+    assert (financial["paid_days"], financial["missing_payment_days"]) == (1, 1)
     assert client.get("/api/v1/labor/alerts", params={"period": period, "site_id": site["id"]}).json()["summary"]["attendance_overdue"] == data["summary"]["overdue_weeks"]
     exported = client.get("/api/v1/attendance/export", params={"site_id": site["id"], "period": period})
     assert exported.status_code == 200
