@@ -58,6 +58,8 @@ function describeChange(changes:Record<string,unknown>){
   }).join(" · ")
 }
 const blankContractor=(siteId:string):ContractorInput=>({site_id:siteId,name:"",rut:null,historical_code:null,nature:"unclassified",frequency:"unclassified",contract_status:"active"})
+const readSession=(key:string)=>{try{return window.sessionStorage.getItem(key)}catch{return null}}
+const writeSession=(key:string,value:string|null)=>{try{if(value===null)window.sessionStorage.removeItem(key);else window.sessionStorage.setItem(key,value)}catch{/* optional browser storage */}}
 const blankWorker=(siteId:string,contractorId:string):WorkerInput=>({site_id:siteId,contractor_id:contractorId,name:"",rut:null})
 const errorText=(err:unknown)=>err instanceof Error?err.message:"No fue posible completar la operación"
 const templateUrl=(kind:string)=>"/api/v1/ops/imports/templates/"+encodeURIComponent(kind)+"?format=xlsx"
@@ -67,14 +69,20 @@ export default function Operations({readOnly,externalSiteId,mode,onImport,onSite
   const [siteId,setSiteId]=useState(externalSiteId||"")
   useEffect(()=>{if(externalSiteId)setSiteId(externalSiteId)},[externalSiteId])
   const [contractors,setContractors]=useState<Contractor[]>([])
-  const [selectedId,setSelectedId]=useState<string|null>(null)
+  const [selectedId,setSelectedId]=useState<string|null>(()=>readSession("galant:contractor:"+ (externalSiteId||"") +":selected"))
   const [workers,setWorkers]=useState<Worker[]>([])
   const [history,setHistory]=useState<OpsChange[]|null>(null)
   const [historyOpen,setHistoryOpen]=useState(false)
-  const [search,setSearch]=useState("")
-  const [codeFilter,setCodeFilter]=useState("all")
-  const [statusFilter,setStatusFilter]=useState<"active"|"inactive"|"all">("active")
-  const [sortBy,setSortBy]=useState<"name"|"workers"|"status">("name")
+  const [search,setSearch]=useState(()=>readSession("galant:contractors:search")||"")
+  const [codeFilter,setCodeFilter]=useState(()=>readSession("galant:contractors:code")||"all")
+  const [statusFilter,setStatusFilter]=useState<"active"|"inactive"|"all">(()=>{
+    const value=readSession("galant:contractors:status")
+    return value==="inactive"||value==="all"?value:"active"
+  })
+  const [sortBy,setSortBy]=useState<"name"|"workers"|"status">(()=>{
+    const value=readSession("galant:contractors:sort")
+    return value==="workers"||value==="status"?value:"name"
+  })
   const [selectedTab,setSelectedTab]=useState<"summary"|"workers"|"contracts"|"documents"|"history">("summary")
   const [workerSearch,setWorkerSearch]=useState("")
   const [laborRows,setLaborRows]=useState<WorkerLaborRow[]>([])
@@ -133,12 +141,17 @@ export default function Operations({readOnly,externalSiteId,mode,onImport,onSite
   },[])
   useEffect(()=>{
     ++contractorRequest.current;++workerRequest.current
-    setSelectedId(null);setSelectedTab("summary");setLaborRows([]);setLaborPage(1);setContractors([]);setWorkers([]);setLoading(false);setHistory(null);setHistoryOpen(false);setContractorForm(null);setWorkerForm(null);setPreview(null);setImportResult(null)
+    setSelectedId(readSession("galant:contractor:"+siteId+":selected"));setSelectedTab((readSession("galant:contractor:"+siteId+":tab") as "summary"|"workers"|"contracts"|"documents"|"history")||"summary");setLaborRows([]);setLaborPage(1);setContractors([]);setWorkers([]);setLoading(false);setHistory(null);setHistoryOpen(false);setContractorForm(null);setWorkerForm(null);setPreview(null);setImportResult(null)
     if(siteId)void loadContractors(siteId)
   },[siteId,loadContractors])
   const visibleContractors=contractors.filter(item=>item.site_id===siteId)
   const selected=visibleContractors.find(item=>item.id===selectedId)||null
-  useEffect(()=>{setHistory(null);setHistoryOpen(false);setSelectedTab("summary");setWorkerSearch("");setLaborPage(1);setLaborRows([])},[selectedId])
+  useEffect(()=>{setHistory(null);setHistoryOpen(false);setWorkerSearch("");setLaborPage(1);setLaborRows([])},[selectedId])
+  useEffect(()=>{writeSession("galant:contractors:search",search)},[search])
+  useEffect(()=>{writeSession("galant:contractors:status",statusFilter)},[statusFilter])
+  useEffect(()=>{writeSession("galant:contractors:code",codeFilter)},[codeFilter])
+  useEffect(()=>{writeSession("galant:contractors:sort",sortBy)},[sortBy])
+  useEffect(()=>{if(siteId&&selectedId)writeSession("galant:contractor:"+siteId+":tab",selectedTab)},[siteId,selectedId,selectedTab])
   useEffect(()=>{
     let active=true
     if(!selected){setLaborRows([]);setLaborError("");return}
@@ -184,6 +197,16 @@ export default function Operations({readOnly,externalSiteId,mode,onImport,onSite
   },[preview])
   const mappingComplete=statusSymbols.every(symbol=>Boolean(mapping[symbol]))
 
+  function openContractor(id:string){
+    writeSession("galant:contractor:"+siteId+":selected",id)
+    writeSession("galant:contractor:"+siteId+":tab","summary")
+    setSelectedTab("summary");setSelectedId(id)
+  }
+  function closeContractor(){
+    writeSession("galant:contractor:"+siteId+":selected",null)
+    writeSession("galant:contractor:"+siteId+":tab",null)
+    setSelectedId(null)
+  }
   function startContractor(mode:"new"|"edit",item?:Contractor){
     setError("");setNotice("")
     setContractorDraft(item?{
@@ -203,7 +226,7 @@ export default function Operations({readOnly,externalSiteId,mode,onImport,onSite
       }):await opsApi.createContractor(payload)
       if(activeSite.current!==siteId)return
       await loadContractors(siteId)
-      setSelectedId(item.id)
+      openContractor(item.id)
       setContractorForm(null)
       setNotice("Contratista guardado.")
     }catch(err){if(activeSite.current===siteId)setError(errorText(err))}
@@ -341,10 +364,10 @@ export default function Operations({readOnly,externalSiteId,mode,onImport,onSite
         <tbody>{filtered.map(item=><tr key={item.id} className={selectedId===item.id?"selected-row":""}>
           <td><strong>{item.name}</strong></td><td>{item.rut||"—"}</td><td>{item.classification}</td>
           <td>{stateBadge(item.contract_status)}</td><td>{item.worker_count}</td>
-          <td><button className="row-open" aria-label={`Abrir ficha de ${item.name}`} onClick={()=>{setSelectedId(item.id);setContractorForm(null);setWorkerForm(null)}}><ChevronRight size={18}/></button></td>
+          <td><button className="row-open" aria-label={`Abrir ficha de ${item.name}`} onClick={()=>{openContractor(item.id);setContractorForm(null);setWorkerForm(null)}}><ChevronRight size={18}/></button></td>
         </tr>)}</tbody></table></div>}
     </section>
-    {selected&&<ErrorBoundary key={selected.id} label="la ficha del contratista" onClose={()=>setSelectedId(null)}>
+    {selected&&<ErrorBoundary key={selected.id} label="la ficha del contratista" onClose={closeContractor}>
       <section className="results-card ops-card ops-contractor-detail" aria-label="Ficha de contratista">
         <div className="card-heading ops-card-heading"><div>
           <span className="eyebrow">CONTRATISTA SELECCIONADO</span>
@@ -352,7 +375,7 @@ export default function Operations({readOnly,externalSiteId,mode,onImport,onSite
           <p>{selected.rut||"Sin RUT"} · {selected.classification} · {sites.find(site=>site.id===siteId)?.name||"Obra seleccionada"} · {stateBadge(selected.contract_status)}</p>
         </div><div className="ops-actions">
           {!readOnly&&<button className="secondary" onClick={()=>startContractor("edit",selected)}>Editar</button>}
-          <button type="button" className="secondary" onClick={()=>setSelectedId(null)}>Cerrar ficha</button>
+          <button type="button" className="secondary" onClick={closeContractor}>Cerrar ficha</button>
         </div></div>
         <nav className="ops-detail-tabs" aria-label="Apartados del contratista">
           {([
