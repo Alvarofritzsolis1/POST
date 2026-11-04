@@ -762,3 +762,21 @@ def operational_overview(site_id: str, period: str, as_of: date | None = None,
                                        for w in applicable_weeks),
         },
     }
+
+
+@router.get("/my-evaluation")
+def my_monthly_evaluation(period: str, user: User = Depends(authorized_user),
+                          db: Session = Depends(get_db)):
+    """La administrativa ve solo su evaluación; aprobación/cierre sigue siendo de admin."""
+    try:
+        calendar_weeks(period)
+    except ValueError as exc:
+        raise HTTPException(422, str(exc)) from None
+    if user.role != "administrative":
+        raise HTTPException(403, "La evaluación personal es exclusiva del perfil Administrativo")
+    values = _assessment(db, user.org_id, period, user.id)
+    # Solo obligaciones propias; el detalle de acceso no forma parte de la nota.
+    return {key: values[key] for key in (
+        "required", "completed", "punctual", "overdue",
+        "delivered_late", "exempt", "grade", "duties"
+    )}
