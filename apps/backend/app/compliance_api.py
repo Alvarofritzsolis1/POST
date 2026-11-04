@@ -94,7 +94,7 @@ def save_contribution(
 ):
     link, company = association_for(db, user.org_id, body.association_id)
     if body.subject == "independent":
-        if company.nature != "independent":
+        if classification(link, company) != "CI":
             raise HTTPException(
                 422, "El control individual CI requiere contratista independiente"
             )
@@ -199,7 +199,7 @@ def contribution_rows(
             continue
         subjects = (
             [("independent", company.name, company.rut, None)]
-            if company.nature == "independent"
+            if kind == "CI"
             else [
                 (a.id, w.name, w.rut, a) for a, w in by_company[(site.id, company.id)]
             ]
@@ -489,6 +489,7 @@ REQUIREMENTS = {
     "CT": ["Cotizaciones", "F30-1", "Liquidaciones", "Libro de asistencia"],
     "CI": ["Cotizaciones", "Declaración jurada"],
     "ESP": [],
+    "CE": [],
     "SIN CLASIFICAR": [],
 }
 
@@ -497,6 +498,7 @@ WORKER_REQUIREMENTS = {
     "CT": ["Contrato", "Cotizaciones", "Liquidaciones", "Libro de asistencia"],
     "CI": [],
     "ESP": [],
+    "CE": [],
     "SIN CLASIFICAR": [],
 }
 
@@ -582,7 +584,7 @@ def save_review(
                 raise HTTPException(
                     422, "Cotizaciones incompletas: primero regulariza o justifica los días faltantes"
                 )
-    if company.nature == "independent" and body.requirement == "Listado de anticipos":
+    if classification(link, company) == "CI" and body.requirement == "Listado de anticipos":
         raise HTTPException(422, "Anticipos no aplican a CI")
     if body.state in {"observed", "rejected", "not_applicable"} and not body.observation.strip():
         raise HTTPException(422, "Se requiere una observación o justificación")
@@ -745,7 +747,7 @@ def document_matrix(
                 link.id,
                 subject,
                 "Listado de anticipos",
-            ) in controls and company.nature != "independent":
+            ) in controls and classification(link, company) != "CI":
                 keys.append("Listado de anticipos")
             for requirement in keys:
                 r = controls.get((link.id, subject, requirement))
@@ -856,7 +858,7 @@ def overview(
                 "warnings": [
                     "Independiente con trabajadores activos: revisar naturaleza o finalizar las asignaciones que corresponda, conservando su historial"
                 ]
-                if company.nature == "independent"
+                if classification(link, company) == "CI"
                 and active_counts[(link.worksite_id, company.id)]
                 else [],
                 "approved": sum(r["state"] == "approved" for r in applicable),

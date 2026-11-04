@@ -34,7 +34,7 @@ def today():
 
 
 def is_independent(company: Contractor, association: ContractorWorksite) -> bool:
-    return company.nature == "independent"
+    return contractor_classification(association, company) == "CI"
 
 
 def nature_defaults(company: Contractor, association: ContractorWorksite) -> dict[str, bool | None]:
@@ -48,7 +48,7 @@ def nature_defaults(company: Contractor, association: ContractorWorksite) -> dic
     if association.frequency == "sporadic":
         # Otros esporádicos requieren exigibilidad explícita por mes.
         return dict.fromkeys(REQUIREMENTS)
-    if company.nature == "with_workers":
+    if contractor_classification(association, company) == "CT":
         return dict.fromkeys(REQUIREMENTS) | {
             "cotizaciones": True, "f30_1": True, "liquidaciones": True,
             "asistencia": True, "declaracion_jurada": False,
@@ -203,7 +203,7 @@ def set_applicability(payload: ApplicabilityInput, user: User = Depends(editor),
     association, company = association_for(db, user.org_id, payload.association_id)
     if is_independent(company, association) and payload.kind == "anticipos" and payload.applicable:
         raise HTTPException(422, "Los independientes no pueden tener listado de anticipos exigible")
-    if company.nature == "with_workers" and payload.kind == "declaracion_jurada" and payload.applicable:
+    if contractor_classification(association, company) == "CT" and payload.kind == "declaracion_jurada" and payload.applicable:
         raise HTTPException(422, "La declaración exclusiva de independientes no aplica")
     row = db.scalar(select(RequirementApplicability).where(
         RequirementApplicability.org_id == user.org_id,
