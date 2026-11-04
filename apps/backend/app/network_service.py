@@ -128,6 +128,8 @@ def requirement_for(db, user, record_id, detail=False, write=False):
             403,
             "La vista colaborativa no permite acceder a detalles privados de otra obra",
         )
+    if write and user.role == "resident" and row.created_by != user.id:
+        raise HTTPException(403, "Solo puedes modificar tus propias publicaciones")
     return row
 
 
@@ -137,6 +139,8 @@ def capacity_for(db, user, record_id, write=False):
         raise HTTPException(404, "Publicación no encontrada")
     if write:
         require_site(db, user, row.site_id, write=True)
+        if user.role == "resident" and row.created_by != user.id:
+            raise HTTPException(403, "Solo puedes modificar tus propias publicaciones")
     return row
 
 
@@ -330,6 +334,7 @@ def award_view(db, user, award, with_clearance=True):
 
 def requirement_view(db, user, req, detailed=False):
     own = manages(db, user, req.site_id)
+    editable = own and (user.role != "resident" or req.created_by == user.id)
     items = list(
         db.scalars(
             select(NetworkItem)
@@ -394,7 +399,7 @@ def requirement_view(db, user, req, detailed=False):
         "created_by": req.created_by,
         "created_at": req.created_at,
         "updated_at": req.updated_at,
-        "editable": own,
+        "editable": editable,
         "can_award": own
         and (
             user.role == "admin"
@@ -438,7 +443,8 @@ def capacity_view(db, user, cap):
         "expired": cap.expires_on < today(),
         "stale": stale,
         "updated_at": cap.updated_at,
-        "editable": manages(db, user, cap.site_id),
+        "editable": manages(db, user, cap.site_id)
+        and (user.role != "resident" or cap.created_by == user.id),
         "version": cap.version,
         "pending_items": [
             {
