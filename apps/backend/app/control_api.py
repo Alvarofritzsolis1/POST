@@ -321,9 +321,16 @@ def monthly_matrix(site_id: str, period: str, user: User = Depends(authorized_us
 
 
 def contribution_view(row: ContributionControl, association: ContractorWorksite,
-                      company: Contractor, worker_name: str | None) -> dict:
+                      company: Contractor, worker_name: str | None,
+                      auto_attendance: int | None = None,
+                      calendar_available: bool = False) -> dict:
     independent = row.subject_key == "independent"
-    required = row.attendance_days if row.attendance_days is not None else row.required_days
+    # Canonical weekly evidence is authoritative only when the new calendar has
+    # been initialized. A missing week is unknown, NEVER zero attendance.
+    attendance = auto_attendance if calendar_available and not independent else row.attendance_days
+    required = (row.required_days if row.required_days is not None else attendance)
+    if calendar_available and attendance is None and not independent:
+        required = None
     missing = (max(0, required - row.paid_days)
                if required is not None and row.paid_days is not None else None)
     proposal = (Decimal(missing) * row.daily_rate if missing is not None else None)
@@ -337,7 +344,7 @@ def contribution_view(row: ContributionControl, association: ContractorWorksite,
         "contractor": company.name, "contractor_rut": company.rut, "code": contractor_classification(association, company), "historical_code": association.historical_code,
         "period": row.period, "subject_key": row.subject_key,
         "worker_assignment_id": row.worker_assignment_id,
-        "worker": worker_name, "attendance_days": row.attendance_days,
+        "worker": worker_name, "attendance_days": attendance,
         "required_days": row.required_days, "paid_days": row.paid_days,
         "payment_confirmed": row.payment_confirmed,
         "daily_rate": str(row.daily_rate), "missing_days": missing,
@@ -498,6 +505,8 @@ def list_contributions(period: str, site_id: str | None = None,
     )
     if site_id:
         query = query.where(ContractorWorksite.worksite_id == site_id)
+    from .v81_service import site_calendar_totals
+    per_site = {}
     result = []
     for record, association, company in db.execute(query).all():
         name = None
@@ -507,7 +516,13 @@ def list_contributions(period: str, site_id: str | None = None,
             ).where(WorkerAssignment.id == record.worker_assignment_id,
                     WorkerAssignment.org_id == user.org_id,
                     Worker.org_id == user.org_id))
-        result.append(contribution_view(record, association, company, name))
+        if association.worksite_id not in per_site:
+            per_site[association.worksite_id] = site_calendar_totals(
+                db, user.org_id, association.worksite_id, period)
+        calendar_available, totals = per_site[association.worksite_id]
+        result.append(contribution_view(record, association, company, name,
+            auto_attendance=totals.get(record.worker_assignment_id),
+            calendar_available=calendar_available and bool(record.worker_assignment_id)))
     return result
 
 
