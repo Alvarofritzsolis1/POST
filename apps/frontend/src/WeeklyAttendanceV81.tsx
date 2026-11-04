@@ -19,8 +19,9 @@ const status: Record<string, string> = {
   overdue: "Pendiente atrasado", draft: "Borrador", pending: "Pendiente",
 };
 
-export default function WeeklyAttendanceV81({ siteId, sites, period, canEdit, canReview }: {
+export default function WeeklyAttendanceV81({ siteId, sites, period, canEdit, canReview, selectedAssociationId, preferredWeekNumber, onSaved }: {
   siteId: string; sites: Site[]; period: string; canEdit: boolean; canReview: boolean;
+  selectedAssociationId?: string; preferredWeekNumber?: number | null; onSaved?: () => void;
 }) {
   const [localSite, setLocalSite] = useState("");
   const [data, setData] = useState<Roster | null>(null);
@@ -54,7 +55,7 @@ export default function WeeklyAttendanceV81({ siteId, sites, period, canEdit, ca
     }, 180);
     return () => { active = false; window.clearTimeout(timer); };
   }, [activeSite, search]);
-  useEffect(() => { setContractorId(""); setWeekNumber(1); setSearch(""); }, [activeSite, period]);
+  useEffect(() => { setContractorId(selectedAssociationId || ""); setWeekNumber(preferredWeekNumber || 1); setSearch(""); }, [activeSite, period, selectedAssociationId, preferredWeekNumber]);
   const contractor = data?.contractors.find((row) => row.association_id === contractorId);
   // Keep backend week numbers stable for saved evidence; show only weeks with workdays.
   const visibleWeeks = (contractor?.weeks || []).filter((item) => item.dates.length > 0);
@@ -98,6 +99,7 @@ export default function WeeklyAttendanceV81({ siteId, sites, period, canEdit, ca
       });
       setNotice(complete ? "Semana completada y registrada con trazabilidad." : "Borrador guardado.");
       setRevision((current) => current + 1);
+      onSaved?.();
     } catch (reason) { setError(errorText(reason)); }
     finally { setBusy(false); }
   }
@@ -109,7 +111,7 @@ export default function WeeklyAttendanceV81({ siteId, sites, period, canEdit, ca
     </header>
     {error && <p className="alert danger" role="alert">{error}</p>}
     {notice && <p className="alert success" role="status">{notice}</p>}
-    <section className="panel">
+    {!selectedAssociationId && <section className="panel">
       <label className="weekly-v81-search">Buscar contratista por nombre o RUT
         <input autoComplete="off" placeholder="Escribe para buscar…" value={search} onChange={(e) => setSearch(e.target.value)} />
       </label>
@@ -122,7 +124,7 @@ export default function WeeklyAttendanceV81({ siteId, sites, period, canEdit, ca
       </div>}
       {!!search && !matches.length && <p className="muted">No hay resultados coincidentes.</p>}
       {!search && <p className="muted">Busca un contratista para comenzar.</p>}
-    </section>
+    </section>}
     {contractor && <div className="weekly-v81-detail">
       <section className="panel">
         <div className="weekly-v81-head"><h3>{contractor.contractor}</h3><span>{contractor.included ? "En base mensual" : "No considerado este mes"}</span></div>
