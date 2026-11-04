@@ -1,5 +1,15 @@
 # Historial de cambios
 
+## 10.10.0-rc1 — Estados y ficha del contratista, prevención de pantalla blanca (candidata)
+
+- Filtro de estados Activos/Inactivos/Todos predeterminado en Activos, distintivos verde/rojo y vista compacta.
+- Ficha por pestañas con trabajadores y datos laborales reales del contratista/obra.
+- Renderizado seguro de detalles y Error Boundaries para abrir/cerrar paneles sin perder navegación.
+- Matriz documental y reportes sin obligaciones automáticas nuevas para inactivos, preservación y regularización auditable de períodos históricos.
+- Pruebas unitarias, integración de Playwright real y auditoría de HTTPS documentada.
+- **Pendiente:** ejecutar CI y validar en ambiente de prueba antes de aprobar o instalar en VPS.
+
+
 ## 10.9.0-rc1 — Importación especializada de contratistas por obra (candidata)
 
 - Plantilla estricta de 11 columnas, sin NATURALEZA ni FRECUENCIA.

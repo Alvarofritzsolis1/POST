@@ -52,7 +52,7 @@ jobs:
     steps:
       - uses: actions/checkout@v4
       - run: bash -n scripts/install-preview.sh scripts/diagnose.sh scripts/backup-preview.sh scripts/verify-restore-preview.sh scripts/update-preview.sh scripts/start-qa-preview.sh
-      - run: python3 -m py_compile scripts/soak_24h.py scripts/qa_stack_smoke.py scripts/qa_operational_smoke.py scripts/qa_network_browser.py
+      - run: python3 -m py_compile scripts/soak_24h.py scripts/qa_stack_smoke.py scripts/qa_operational_smoke.py scripts/qa_network_browser.py scripts/qa_v1010_browser.py
       - name: Validate isolated Docker preview config
         env:
           APP_SECRET: ci_test_secret
@@ -233,10 +233,20 @@ jobs:
             sleep 2
           done
           python3 scripts/qa_network_browser.py --url http://127.0.0.1:18612 --output "$RUNNER_TEMP/red-de-obras-browser" --verify-only
+      - name: Auditor de navegación y pantalla blanca 10.10
+        env:
+          GALANT_NETWORK_QA_EMAIL: qa-admin@example.test
+        run: |
+          set -Eeuo pipefail
+          python3 -m pip install openpyxl
+          export GALANT_NETWORK_QA_PASSWORD="$QA_SMOKE_PASSWORD"
+          python3 scripts/qa_v1010_browser.py --url http://127.0.0.1:18612 --output "$RUNNER_TEMP/contratistas-browser"
       - uses: actions/upload-artifact@v4
         with:
           name: red-de-obras-browser
-          path: ${{ runner.temp }}/red-de-obras-browser
+          path: |
+            ${{ runner.temp }}/red-de-obras-browser
+            ${{ runner.temp }}/contratistas-browser
       - name: Collect QA diagnostics on failure
         if: failure()
         run: |

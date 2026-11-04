@@ -242,6 +242,24 @@ def sites(user: User = Depends(authorized_user), db: Session = Depends(get_db)):
     return [{"id": row.id, "name": row.name, "initial_period": INITIAL_PERIOD} for row in rows]
 
 
+def site_details(values: dict | None, site_id: str) -> dict[str, str]:
+    """Materializa solo detalles escalares del contratista y la obra indicada.
+
+    El JSON de carga masiva contiene `worksites` anidados: nunca se envía
+    directamente a un JSX de texto que provoque React error #31.
+    """
+    if not isinstance(values, dict):
+        return {}
+    flat = {key: str(value) for key, value in values.items()
+            if key != "worksites" and value is not None and isinstance(value, (str, int, float, bool))}
+    scopes = values.get("worksites")
+    site_values = scopes.get(site_id) if isinstance(scopes, dict) else None
+    if isinstance(site_values, dict):
+        flat.update({key: str(value) for key, value in site_values.items()
+                     if value is not None and isinstance(value, (str, int, float, bool))})
+    return flat
+
+
 @router.get("/contractors")
 def contractors(site_id: str, user: User = Depends(authorized_user), db: Session = Depends(get_db)):
     site_for(db, user.org_id, site_id)
@@ -256,7 +274,9 @@ def contractors(site_id: str, user: User = Depends(authorized_user), db: Session
         WorkerAssignment.active.is_(True),
     ).group_by(WorkerAssignment.contractor_id)).all())
     extras = {r.contractor_id: r.values for r in db.scalars(select(ContractorDetails).where(ContractorDetails.contractor_id.in_([c.id for _, c in rows])))}
-    return [{**contractor_view(link, contractor, counts.get(contractor.id, 0)), "details": extras.get(contractor.id, {})} for link, contractor in rows]
+    return [{**contractor_view(link, contractor, counts.get(contractor.id, 0)),
+             "details": site_details(extras.get(contractor.id), link.worksite_id)}
+            for link, contractor in rows]
 
 
 @router.post("/contractors", status_code=201)

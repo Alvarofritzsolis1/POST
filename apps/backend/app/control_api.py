@@ -16,6 +16,7 @@ from .control_models import (ContributionControl, MonthlyActivity, ProcessCalend
 from .db import get_db
 from .models import User, utcnow
 from .monthly_api import valid_period
+from .document_policy import current_period, is_historical, is_operationally_active, historical_review_allowed
 from .ops_api import association_for, audit_change, site_for, contractor_classification
 from .ops_models import (Contractor, ContractorWorksite, MonthlyDocument,
                          Worker, WorkerAssignment)
@@ -141,6 +142,17 @@ def change_review(db: Session, user: User, payload: ManualReviewInput) -> Monthl
         RequirementApplicability.period == payload.period,
         RequirementApplicability.kind == payload.kind,
     ))
+    if not is_operationally_active(association):
+        has_evidence = db.scalar(select(MonthlyDocument.id).where(
+            MonthlyDocument.org_id == user.org_id,
+            MonthlyDocument.association_id == association.id,
+            MonthlyDocument.period == payload.period,
+            MonthlyDocument.kind == payload.kind).limit(1)) is not None
+        explicit = bool(override and override.applicable)
+        if not historical_review_allowed(association, payload.period,
+                                         has_evidence=has_evidence,
+                                         explicit_applicability=explicit):
+            raise HTTPException(422, "Contratista inactivo: no se crean nuevas exigencias; para revisar un mes histórico configura su exigibilidad con justificación")
     if payload.kind == "anticipos" and is_independent(company, association) and payload.status != "not_applicable":
         raise HTTPException(422, "Un independiente no puede requerir listado de anticipos")
     applicable = override.applicable if override is not None else default_applicability
@@ -201,6 +213,11 @@ def save_bulk(payload: BulkReviewInput, user: User = Depends(document_reviewer),
 @router.put("/applicability")
 def set_applicability(payload: ApplicabilityInput, user: User = Depends(editor), db: Session = Depends(get_db)):
     association, company = association_for(db, user.org_id, payload.association_id)
+    if not is_operationally_active(association) and payload.applicable:
+        if not is_historical(payload.period):
+            raise HTTPException(422, "Contratista inactivo: no se permite exigir documentos de meses actuales o futuros")
+        if not payload.justification.strip():
+            raise HTTPException(422, "Justifica expresamente la exigibilidad histórica antes de regularizarla")
     if is_independent(company, association) and payload.kind == "anticipos" and payload.applicable:
         raise HTTPException(422, "Los independientes no pueden tener listado de anticipos exigible")
     if contractor_classification(association, company) == "CT" and payload.kind == "declaracion_jurada" and payload.applicable:
@@ -263,11 +280,19 @@ def monthly_matrix(site_id: str, period: str, user: User = Depends(authorized_us
     now = today()
     for link, company in contractor_rows:
         defaults = nature_defaults(company, link)
+        inactive = not is_operationally_active(link)
+        historical_period = is_historical(period)
         requirements = []
         for kind in REQUIREMENTS:
             override = by_override.get((link.id, kind))
             applicable = override.applicable if override is not None else defaults[kind]
             row = by_doc.get((link.id, kind))
+            # Sin fecha efectiva confiable no se presume que una empresa
+            # estuvo activa en meses anteriores. Solo se conservan obligaciones
+            # documentadas o regularizadas explícitamente por mes.
+            if inactive and (not historical_period or
+                             (row is None and not (override and override.applicable))):
+                applicable = False
             if row is not None and row.review_status == "not_applicable":
                 applicable = False
             schedule = calendar.get(kind)
@@ -311,6 +336,7 @@ def monthly_matrix(site_id: str, period: str, user: User = Depends(authorized_us
             "name": company.name, "rut": company.rut,
             "code": contractor_classification(link, company), "historical_code": link.historical_code, "nature": company.nature,
             "frequency": link.frequency, "status": link.contract_status,
+            "historical_status_unverified": inactive and historical_period,
             "requirements": requirements,
         })
     return {"period": period, "site_id": site_id, "contractors": contractors,

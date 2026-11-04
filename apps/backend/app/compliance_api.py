@@ -40,6 +40,7 @@ from .control_api import (
 )
 from .security import authorized_user, editor, document_reviewer
 from .bulk_import import safe_cell, workbook_response
+from .document_policy import current_period
 
 router = APIRouter(prefix="/api/v1/ops", tags=["Cumplimiento y cotizaciones"])
 Period = str
@@ -194,6 +195,8 @@ def contribution_rows(
     rate = rate_for(db, user.org_id, period)
     rows = []
     for link, company, site in associations:
+        if link.contract_status != "active" and period >= current_period():
+            continue
         kind = classification(link, company)
         if kind not in {"CT", "CI"} and not include_sporadic:
             continue
@@ -206,6 +209,8 @@ def contribution_rows(
         )
         for subject, name, rut, assignment in subjects:
             record = records.get((link.id, subject))
+            if link.contract_status != "active" and record is None:
+                continue
             history = episodes.get(subject, [])
             relevant = [
                 e
@@ -737,6 +742,8 @@ def document_matrix(
                     }
                 )
     for link, company in db.execute(query):
+        if link.contract_status != "active" and period >= current_period():
+            continue
         requirements = WORKER_REQUIREMENTS[classification(link, company)]
         subjects = []
         for a, w in worker_groups[(link.worksite_id, company.id)]:
@@ -755,6 +762,8 @@ def document_matrix(
                     contributions_by_subject.get((link.id, subject))
                     if requirement == "Cotizaciones" else None
                 )
+                if link.contract_status != "active" and r is None and contribution is None:
+                    continue
                 missing = None
                 if contribution and contribution.paid_days is not None:
                     required = (
@@ -840,7 +849,9 @@ def overview(
         records = docs[link.id]
         applicable = [r for r in records if r["state"] != "not_applicable"]
         state = (
-            "con observaciones"
+            "inactivo" if link.contract_status != "active" and period >= current_period()
+            else "histórico sin exigibilidad verificada" if link.contract_status != "active" and not applicable
+            else "con observaciones"
             if any(
                 r["state"] == "observed" or r["state"] == "rejected" for r in applicable
             )
@@ -879,7 +890,7 @@ def overview(
             kind: len(
                 {c["contractor_id"] for c in cards if c["classification"] == kind}
             )
-            for kind in ("CT", "CI", "SIN CLASIFICAR")
+            for kind in ("CT", "CE", "CI", "SIN CLASIFICAR")
         },
         "active_workers": len({r.worker_id for r in db.scalars(active_query)}),
         "observed_workers": len(
