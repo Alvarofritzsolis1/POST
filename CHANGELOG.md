@@ -1,5 +1,17 @@
 # Historial de cambios
 
+## 9.2.0-rc1 — Centro laboral administrativo (candidata de revisión)
+
+- Nuevo panel por obra con todos los contratistas activos sin buscar previamente, filtros, semáforos semanales y acceso directo a los trabajadores.
+- Pestañas: asistencia semanal, contratos de trabajo, finiquitos, dotación vigente y rendimiento administrativo personal.
+- Endpoint de lectura `/attendance-v81/overview` con seguridad por obra, estados laborales vigentes/históricos por fecha, contratos próximos a vencer, finiquitos y semanas de asistencia; no expone los días pagados a la administrativa.
+- Reutiliza el registro de asistencia v8.1/v9.1: sin renumerar semanas, modificar firmas antiguas ni generar obligaciones sábado/domingo.
+- Vista personal de evaluación mensual sin acceso a la evaluación de otras cuentas.
+- Reutiliza tablas y relaciones existentes; **sin migraciones destructivas ni cambios de esquema**.
+- El registro de contratos mantiene las rutas autorizadas; la validación y recepción de finiquitos permanecen en el flujo de permisos documentales vigente.
+- **Estado:** versión propuesta en rama/PR. Requiere CI, revisión, respaldo verificado y despliegue aprobado. No está desplegada por crear este cambio.
+
+
 ## 8.0.0 — Red de Obras: vista global y experiencia de trazabilidad (candidata)
 
 - Vista inicial de requerimientos y métricas compartida entre todas las obras de la misma organización; filtro «Solo mis obras» opcional, desactivado al ingresar.

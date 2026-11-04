@@ -505,11 +505,14 @@ def edit_duty(duty_id: str, body: DutyEdit,
     return {"id": row.id, "assigned_to": target, "exempt": row.exempt}
 
 
-def _assessment(db, org_id, period, person_id):
-    duties = [d for d in db.scalars(select(CalendarDuty).where(
+def _assessment(db, org_id, period, person_id, site_ids=None):
+    duty_query = select(CalendarDuty).where(
         CalendarDuty.org_id == org_id, CalendarDuty.period == period,
-        CalendarDuty.assigned_to == person_id).order_by(CalendarDuty.id)).all()
-        if dates_of_week(period, d.week_number)]
+        CalendarDuty.assigned_to == person_id)
+    if site_ids is not None:
+        duty_query = duty_query.where(CalendarDuty.worksite_id.in_(site_ids))
+    duties = [d for d in db.scalars(duty_query.order_by(CalendarDuty.id)).all()
+              if dates_of_week(period, d.week_number)]
     keys = {(row.association_id, row.week_number) for row in duties}
     weeks = db.scalars(select(CalendarWeek).where(
         CalendarWeek.org_id == org_id, CalendarWeek.period == period,
@@ -624,3 +627,162 @@ def finalize(body: FinalizeInput, user: User = Depends(administrator),
          "revision": assessment.revision, "grade": values["grade"]})
     db.commit()
     return {"id": assessment.id, "revision": assessment.revision, "grade": values["grade"]}
+
+
+# V9.2: Vista administrativa unificada, de solo lectura, sin tablas paralelas.
+# Conserva la lógica semanal v8.1/v9.1 y su evidencia histórica.
+@router.get("/overview")
+def operational_overview(site_id: str, period: str, as_of: date | None = None,
+                         user: User = Depends(authorized_user),
+                         db: Session = Depends(get_db)):
+    """Contratistas, cumplimiento semanal y estado contractual/finiquitos por obra.
+
+    'as_of' permite consultar la vigencia documental a una fecha histórica. Un
+    contrato vencido no equivale a término: requiere confirmación humana.
+    """
+    from .control_models import ContractRegister
+    from .ops_models import Worker
+    from .platform_models import WorkerTermination
+
+    _scope(db, user, site_id)
+    # El roster valida el período y calcula plazos/obligaciones sin reescribir firmas.
+    attendance = roster(site_id=site_id, period=period, association_id=None,
+                        user=user, db=db)
+    snapshot = as_of or today()
+    links = {row.contractor_id: row for row in db.scalars(
+        select(ContractorWorksite).where(
+            ContractorWorksite.org_id == user.org_id,
+            ContractorWorksite.worksite_id == site_id)).all()}
+    assignments = db.execute(select(WorkerAssignment, Worker).join(
+        Worker, Worker.id == WorkerAssignment.worker_id).where(
+            WorkerAssignment.org_id == user.org_id,
+            Worker.org_id == user.org_id,
+            WorkerAssignment.worksite_id == site_id)).all()
+    assignment_ids = [a.id for a, _ in assignments]
+    histories = defaultdict(list)
+    if assignment_ids:
+        for contract in db.scalars(select(ContractRegister).where(
+                ContractRegister.org_id == user.org_id,
+                ContractRegister.worker_assignment_id.in_(assignment_ids))).all():
+            histories[contract.worker_assignment_id].append(contract)
+    contract_ids = [c.id for rows in histories.values() for c in rows]
+    terms = {}
+    if contract_ids:
+        terms = {t.contract_id: t for t in db.scalars(
+            select(WorkerTermination).where(
+                WorkerTermination.org_id == user.org_id,
+                WorkerTermination.contract_id.in_(contract_ids))).all()}
+    options = catalogs_for(db, user.org_id)
+    alert_days = options.get("expiry_alert_days") or [30]
+    notice_days = max(int(value) for value in alert_days)
+    termination_days = options.get("termination_due_days")
+    people_by_contractor = defaultdict(list)
+    for assignment, worker in assignments:
+        available = [c for c in histories[assignment.id] if c.start_date <= snapshot]
+        contract = max(available, key=lambda c: (c.start_date, c.created_at, c.id)) if available else None
+        term = terms.get(contract.id) if contract else None
+        ended = bool(term and term.effective_date <= snapshot)
+        if not contract:
+            labor_state = "por_verificar"
+        elif ended:
+            labor_state = "terminado"
+        elif (contract.status not in ("active", "ended")
+              or (contract.status == "ended" and not (term and snapshot < term.effective_date))
+              or (snapshot >= today() and not assignment.active)):
+            labor_state = "por_verificar"
+        elif contract.end_date and contract.end_date < snapshot:
+            labor_state = "vencido"
+        elif contract.end_date and contract.end_date <= snapshot + timedelta(days=notice_days):
+            labor_state = "por_vencer"
+        else:
+            labor_state = "vigente"
+        finiquito_state = (term.review_state or "missing") if ended else "not_applicable"
+        finiquito_overdue = bool(
+            ended and finiquito_state == "missing"
+            and termination_days is not None
+            and snapshot > term.effective_date + timedelta(days=int(termination_days))
+        )
+        people_by_contractor[assignment.contractor_id].append({
+            "assignment_id": assignment.id,
+            "name": worker.name, "rut": worker.rut,
+            "contract_id": contract.id if contract else None,
+            "contract_type": contract.contract_type if contract else None,
+            "start_date": contract.start_date.isoformat() if contract else None,
+            "end_date": contract.end_date.isoformat() if contract and contract.end_date else None,
+            "labor_state": labor_state,
+            "termination_date": term.effective_date.isoformat() if ended else None,
+            "finiquito_state": finiquito_state,
+            "finiquito_overdue": finiquito_overdue,
+        })
+    rows = []
+    for item in attendance["contractors"]:
+        association = next(
+            (a for a in links.values() if a.id == item["association_id"]), None)
+        # El contratista puede estar activo aun sin trabajadores vigentes.
+        if association is None:
+            continue
+        current_people = sorted(people_by_contractor[association.contractor_id],
+                                key=lambda worker: worker["name"].casefold())
+        status_counts = {key: sum(p["labor_state"] == key for p in current_people)
+                         for key in ("vigente", "por_vencer", "vencido",
+                                     "terminado", "por_verificar")}
+        pending_finiquitos = sum(
+            p["labor_state"] == "terminado"
+            and p["finiquito_state"] != "approved" for p in current_people)
+        rows.append({
+            "association_id": association.id,
+            "contractor": item["contractor"], "rut": item["rut"],
+            "contractor_active": association.contract_status == "active",
+            "contractor_status": association.contract_status,
+            "attendance_applicable": item["included"],
+            "weeks": [{key: value for key, value in w.items()
+                       if key not in {"entries"}}
+                      for w in item["weeks"]],
+            "staff": current_people,
+            "staff_counts": status_counts,
+            "pending_finiquitos": pending_finiquitos,
+            "overdue_finiquitos": sum(p["finiquito_overdue"] for p in current_people),
+        })
+    rows.sort(key=lambda item: item["contractor"].casefold())
+    active = [r for r in rows if r["contractor_active"]]
+    applicable_weeks = [w for r in active if r["attendance_applicable"]
+                        for w in r["weeks"] if w["state"] not in ("excluded", "not_required")]
+    return {
+        "site_id": site_id, "period": period, "as_of": snapshot.isoformat(),
+        "week_count": attendance["week_count"], "contractors": rows,
+        "summary": {
+            "active_contractors": len(active),
+            "workers_vigente": sum(r["staff_counts"]["vigente"] +
+                                   r["staff_counts"]["por_vencer"] for r in active),
+            "workers_por_verificar": sum(r["staff_counts"]["por_verificar"] for r in active),
+            "contracts_ending": sum(r["staff_counts"]["por_vencer"] for r in active),
+            "contracts_expired": sum(r["staff_counts"]["vencido"] for r in active),
+            "pending_finiquitos": sum(r["pending_finiquitos"] for r in active),
+            "overdue_finiquitos": sum(r["overdue_finiquitos"] for r in active),
+            "attendance_done": sum(w["state"] in ("completed_on_time", "completed_late")
+                                    for w in applicable_weeks),
+            "attendance_late": sum(w["state"] == "completed_late" for w in applicable_weeks),
+            "attendance_overdue": sum(w["state"] == "overdue" for w in applicable_weeks),
+            "attendance_pending": sum(w["state"] in ("pending", "draft", "needs_legacy_review")
+                                       for w in applicable_weeks),
+        },
+    }
+
+
+@router.get("/my-evaluation")
+def my_monthly_evaluation(period: str, user: User = Depends(authorized_user),
+                          db: Session = Depends(get_db)):
+    """La administrativa ve solo su evaluación; aprobación/cierre sigue siendo de admin."""
+    try:
+        calendar_weeks(period)
+    except ValueError as exc:
+        raise HTTPException(422, str(exc)) from None
+    if user.role != "administrative":
+        raise HTTPException(403, "La evaluación personal es exclusiva del perfil Administrativo")
+    values = _assessment(db, user.org_id, period, user.id,
+                         site_ids=assigned_sites(db, user))
+    # Solo obligaciones propias y obras actualmente autorizadas; el detalle de acceso no forma parte de la nota.
+    return {key: values[key] for key in (
+        "required", "completed", "punctual", "overdue",
+        "delivered_late", "exempt", "grade", "duties"
+    )}
