@@ -332,6 +332,9 @@ def update_roster(body: RosterInput, user: User = Depends(attendance_editor),
 @router.put("/weeks")
 def save_week(body: WeekInput, user: User = Depends(attendance_editor),
               db: Session = Depends(get_db)):
+    from .platform_models import SchemaVersion
+    if db.get(SchemaVersion, "8.1.0"):
+        raise HTTPException(409, "El registro semanal antiguo es de solo lectura desde v8.1")
     association, company = association_for(db, user.org_id, body.association_id)
     if user.role == "administrative":
         from .network_service import assigned_sites
@@ -417,6 +420,9 @@ def save_week(body: WeekInput, user: User = Depends(attendance_editor),
 @router.put("/weeks/{week_id}/review")
 def review_week(week_id: str, body: WeekReview,
                 user: User = Depends(attendance_reviewer), db: Session = Depends(get_db)):
+    from .platform_models import SchemaVersion
+    if db.get(SchemaVersion, "8.1.0"):
+        raise HTTPException(409, "La revisión de semanas antiguas quedó en modo histórico")
     week = db.scalar(select(AttendanceWeek).where(
         AttendanceWeek.id == week_id, AttendanceWeek.org_id == user.org_id).with_for_update())
     if not week:
