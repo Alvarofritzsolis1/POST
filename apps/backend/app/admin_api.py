@@ -195,6 +195,8 @@ def create_user(
     lock_org(db, user)
     if body.role != "admin" and not body.site_ids:
         raise HTTPException(422, "Debes asignar al menos una obra al Administrativo o Residente")
+    if body.role != "admin" and len(body.name.strip()) < 2:
+        raise HTTPException(422, "Registra el nombre y apellido del usuario para la trazabilidad")
     if len(set(body.site_ids)) != len(body.site_ids):
         raise HTTPException(422, "No se pueden repetir las obras asignadas")
     for site_id in body.site_ids:
