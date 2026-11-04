@@ -33,6 +33,12 @@ services:
       SECURE_COOKIES: ${SECURE_COOKIES:-false}
       MAX_UPLOAD_MB: ${MAX_UPLOAD_MB:-20}
       MAX_PDF_PAGES: ${MAX_PDF_PAGES:-50}
+      PUBLIC_URL: ${PUBLIC_URL:-}
+      SMTP_HOST: ${SMTP_HOST:-}
+      SMTP_PORT: ${SMTP_PORT:-587}
+      SMTP_USER: ${SMTP_USER:-}
+      SMTP_PASSWORD: ${SMTP_PASSWORD:-}
+      SMTP_FROM: ${SMTP_FROM:-}
     volumes: ["./preview-storage:/data/private"]
     depends_on: {db: {condition: service_healthy}}
     networks: [internal]

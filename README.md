@@ -1,4 +1,13 @@
-# GALANT POST — v0.6.0-rc1 (borrador local)
+# GALANT POST — v0.7.0 · Red de Obras
+
+Red de Obras incorpora requerimientos, capacidad compartida, coincidencias, coordinación, mensajes y adjudicaciones parciales dentro de la aplicación existente. Reutiliza usuarios, obras, contratistas y control documental. El residente ingresa directamente al portal, con permisos validados por el servidor y por obra.
+
+- [Funcionamiento y actualización de Red de Obras](docs/RED_DE_OBRAS_0.7.0.md)
+- [Entrega y verificaciones 0.7.0](docs/ENTREGA_0.7.0.md)
+
+Versión preparada para revisión. La actualización de instalaciones existentes utiliza el procedimiento de respaldo, restauración y migración del repositorio.
+
+## Antecedentes de la versión 0.6
 
 Administración compartida de contratistas, trabajadores, contratos, finiquitos, documentación, cotizaciones y asistencia semanal. Esta candidata agrega clasificación explícita, reconciliación histórica, una pantalla de trabajadores centrada en las personas y una base mensual editable con cinco semanas de firmas y balance frente a días pagados. La versión desplegada debe comprobarse en `/api/v1/health` junto con el SHA del commit.
 

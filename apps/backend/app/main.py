@@ -36,6 +36,9 @@ from .labor_api import router as labor_router
 from .attendance_api import router as attendance_router
 from .compliance_api import router as compliance_router
 from . import platform_models
+from .network_accounts import router as network_accounts_router
+from .network_api import router as network_router
+from .network_files import router as network_files_router
 
 app = FastAPI(title="GALANT POST — Document Intelligence", version=VERSION, docs_url=None, redoc_url=None)
 app.include_router(compliance_router)
@@ -50,6 +53,9 @@ app.include_router(control_reports_router)
 app.include_router(contract_import_router)
 app.include_router(monthly_router)
 app.include_router(ops_import_router)
+app.include_router(network_accounts_router)
+app.include_router(network_router)
+app.include_router(network_files_router)
 @app.middleware("http")
 async def private_cache_policy(request, call_next):
     response = await call_next(request)
@@ -106,7 +112,7 @@ def login(data: Login, request: Request, response: Response, db: Session = Depen
         tries.append(t)
         raise HTTPException(401, "Credenciales incorrectas")
     tries.clear()
-    token, csrf = new_session(user)
+    token, csrf = new_session(user, db)
     secure = settings().secure_cookies
     ttl = settings().session_hours * 3600
     response.set_cookie(SESSION, token, httponly=True, secure=secure, samesite="strict", path="/", max_age=ttl)
@@ -123,6 +129,8 @@ def me(user: User = Depends(authorized_user)):
 
 @app.post(API + "/auth/logout")
 def logout(response: Response, user: User = Depends(authorized_user), db: Session = Depends(get_db)):
+    from .network_accounts import revoke_sessions
+    revoke_sessions(db, user)
     audit(db, user, "logout")
     db.commit()
     response.delete_cookie(SESSION, path="/")

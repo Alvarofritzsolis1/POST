@@ -28,13 +28,16 @@ def verify_password(value: str, digest: str) -> bool:
         return False
 
 
-def new_session(user: User) -> tuple[str, str]:
+def new_session(user: User, db: Session | None = None) -> tuple[str, str]:
     secret = settings().app_secret
     if len(secret) < 48 or secret == "INSECURE_LOCAL_ONLY":
         raise RuntimeError("Configurar APP_SECRET fuerte antes de iniciar sesión")
     jti = secrets.token_hex(24)
     now = datetime.now(timezone.utc)
+    from .network_models import NetworkMember
+    member = db.get(NetworkMember, user.id) if db is not None else None
     data = {"sub": user.id, "org": user.org_id, "jti": jti,
+            "ver": member.session_version if member else 0,
             "iat": now, "exp": now + timedelta(hours=settings().session_hours)}
     token = jwt.encode(data, secret, algorithm="HS256")
     csrf = hmac.new(secret.encode(), jti.encode(), hashlib.sha256).hexdigest()
@@ -52,6 +55,14 @@ def authorized_user(request: Request, db: Session = Depends(get_db)) -> User:
         raise HTTPException(401, "Sesión inválida") from None
     if not user or not user.enabled or payload.get("org") != user.org_id:
         raise HTTPException(401, "Sesión no autorizada")
+    from .network_models import NetworkMember
+    member = db.get(NetworkMember, user.id)
+    if payload.get("ver", 0) != (member.session_version if member else 0):
+        raise HTTPException(401, "La sesión fue revocada. Inicia sesión nuevamente")
+    db.info["network_auth"] = (user.id, payload.get("ver", 0))
+    if user.role == "resident" and not (request.url.path.startswith("/api/v1/network/") or
+            request.url.path in {"/api/v1/auth/me", "/api/v1/auth/logout"}):
+        raise HTTPException(403, "El residente solo tiene acceso a Red de Obras")
     if request.method not in {"GET", "HEAD", "OPTIONS"}:
         expected = hmac.new(settings().app_secret.encode(), payload["jti"].encode(), hashlib.sha256).hexdigest()
         header = request.headers.get("X-CSRF-Token", "")
