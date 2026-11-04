@@ -66,6 +66,8 @@ class CalendarDuty(Base):
     week_number: Mapped[int] = mapped_column(Integer, nullable=False)
     assigned_to: Mapped[str] = mapped_column(ForeignKey("users.id"), nullable=False, index=True)
     deadline_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
+    # Immutable snapshot of worker assignments expected when this duty was created.
+    expected_workers: Mapped[list] = mapped_column(JSON, default=list, nullable=False)
     exempt: Mapped[bool] = mapped_column(Boolean, default=False, nullable=False)
     exemption_reason: Mapped[str] = mapped_column(Text, default="", nullable=False)
     created_by: Mapped[str] = mapped_column(ForeignKey("users.id"), nullable=False)
