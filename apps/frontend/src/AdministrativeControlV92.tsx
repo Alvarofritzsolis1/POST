@@ -4,6 +4,7 @@ import type { Site } from "./opsApi";
 import WeeklyAttendanceV81 from "./WeeklyAttendanceV81";
 import ContractEntry from "./ContractEntry";
 import "./administrative-v92.css";
+import "./administrative-v93.css";
 
 type LaborState = "vigente" | "por_vencer" | "vencido" | "terminado" | "por_verificar";
 type Staff = {
@@ -15,6 +16,7 @@ type Staff = {
 type Week = {
   week_number: number; dates: string[]; state: string; due_at: string;
   missing_workers: number; completed_by: string | null; completed_at: string | null;
+  assigned_to_name: string | null; entered_by: string | null;
   completed_on_time: boolean | null;
 };
 type Contractor = {
@@ -29,7 +31,8 @@ type Overview = {
   contractors: Contractor[];
   summary: Record<string, number>;
 };
-type Tab = "attendance" | "contracts" | "severance" | "staff" | "performance";
+export type AdministrativeTab = "attendance" | "contracts" | "severance" | "staff" | "performance";
+type Tab = AdministrativeTab;
 type Assessment = {
   required: number; completed: number; punctual: number; overdue: number;
   delivered_late: number; exempt: number; grade: number;
@@ -67,15 +70,21 @@ function tone(state: string): "ok" | "warn" | "bad" | "muted" {
   return "warn";
 }
 function WeekBadge({ week }: { week?: Week }) {
+  const started = !!week?.dates?.length && week.dates[0] <= chileDate();
   const hours = week ? (new Date(week.due_at).getTime() - Date.now()) / 3_600_000 : Infinity;
-  const nearing = !!week && ["pending", "draft"].includes(week.state) && hours >= 0 && hours <= 48;
-  return <span className={`av92-badge ${tone(week?.state || "not_required")}`}>
-    {nearing ? "Próximo a vencer" : week ? (weekText[week.state] || "Por verificar") : "No aplica"}
-  </span>;
+  const nearing = !!week && started && ["pending", "draft"].includes(week.state) && hours >= 0 && hours <= 48;
+  const scheduled = !!week && !started && ["pending", "draft"].includes(week.state);
+  const state = scheduled ? "muted" : tone(week?.state || "not_required");
+  const label = scheduled ? "Programada" : nearing ? "Próximo a vencer"
+    : week ? (weekText[week.state] || "Por verificar") : "No aplica";
+  return <span className={`av92-badge ${state}`}>{label}</span>;
 }
 export default function AdministrativeControlV92({
-  siteId, sites, period, tab,
-}: { siteId: string; sites: Site[]; period: string; tab: Tab }) {
+  siteId, sites, period, tab, role = "administrative", onChangeTab,
+}: {
+  siteId: string; sites: Site[]; period: string; tab: Tab;
+  role?: "admin" | "administrative"; onChangeTab?: (tab: Tab) => void;
+}) {
   const [overview, setOverview] = useState<Overview | null>(null);
   const [weekNumber, setWeekNumber] = useState<number | null>(null);
   const [selectedId, setSelectedId] = useState("");
@@ -102,13 +111,21 @@ export default function AdministrativeControlV92({
   }, [siteId, period, asOf, revision]);
 
   useEffect(() => {
-    if (tab !== "performance") return;
+    const update = () => setRevision((count) => count + 1);
+    const timer = window.setInterval(update, 30000);
+    window.addEventListener("focus", update);
+    window.addEventListener("galant-changed", update);
+    return () => { window.clearInterval(timer); window.removeEventListener("focus", update); window.removeEventListener("galant-changed", update); };
+  }, []);
+
+  useEffect(() => {
+    if (tab !== "performance" || role !== "administrative") return;
     let active = true;
     void request<Assessment>(`/attendance-v81/my-evaluation?period=${encodeURIComponent(period)}`)
       .then((data) => { if (active) { setEvaluation(data); setEvaluationError(""); } })
       .catch((cause) => { if (active) setEvaluationError(errorText(cause)); });
     return () => { active = false; };
-  }, [tab, period, revision]);
+  }, [tab, role, period, revision]);
 
   const weekOptions = useMemo(() => overview?.contractors.find((row) => row.weeks.length)?.weeks || [], [overview]);
   const effectiveWeek = useMemo(() => {
@@ -122,16 +139,29 @@ export default function AdministrativeControlV92({
   const activeContractors = useMemo(() => (overview?.contractors || [])
     .filter((row) => showInactive || row.contractor_active), [overview, showInactive]);
   const weekRows = activeContractors.filter((row) => row.contractor_active && row.attendance_applicable
-    && weekOf(row)?.state !== "not_required");
+    && weekOf(row)?.state !== "not_required" && (weekOf(row)?.dates[0] || "") <= chileDate());
   const complete = weekRows.filter((row) => ["completed_on_time", "completed_late"].includes(weekOf(row)?.state || "")).length;
   const pending = weekRows.filter((row) => ["pending", "draft", "needs_legacy_review"].includes(weekOf(row)?.state || "")).length;
   const overdue = weekRows.filter((row) => weekOf(row)?.state === "overdue").length;
   const compliance = weekRows.length ? Math.round(100 * complete / weekRows.length) : null;
+  const monthObligations = activeContractors.flatMap((row) => row.contractor_active && row.attendance_applicable
+    ? row.weeks.filter((w) => w.dates.length && w.dates[0] <= chileDate() &&
+        !["excluded", "not_required"].includes(w.state)) : []);
+  const monthlyDone = monthObligations.filter((w) => ["completed_on_time", "completed_late"].includes(w.state)).length;
+  const monthlyCompliance = monthObligations.length
+    ? Math.round(100 * monthlyDone / monthObligations.length) : null;
+  const contractorProgress = (row: Contractor) => {
+    const due = row.attendance_applicable ? row.weeks.filter((w) =>
+      w.dates.length && w.dates[0] <= chileDate() && !["excluded", "not_required"].includes(w.state)) : [];
+    if (!due.length) return "No exigible";
+    const done = due.filter((w) => ["completed_on_time", "completed_late"].includes(w.state)).length;
+    return `${Math.round(done * 100 / due.length)}%`;
+  };
   const visibleContractors = activeContractors.filter((row) => {
     if (search && !(`${row.contractor} ${row.rut || ""}`).toLocaleLowerCase("es-CL").includes(search.toLocaleLowerCase("es-CL"))) return false;
     const week = weekOf(row);
     if (filter === "done") return !!week && ["completed_on_time", "completed_late"].includes(week.state);
-    if (filter === "pending") return !!week && ["pending", "draft", "needs_legacy_review"].includes(week.state);
+    if (filter === "pending") return !!week && week.dates[0] <= chileDate() && ["pending", "draft", "needs_legacy_review"].includes(week.state);
     if (filter === "overdue") return week?.state === "overdue";
     if (filter === "contracts") return row.staff_counts.por_vencer + row.staff_counts.vencido > 0;
     if (filter === "finiquitos") return row.pending_finiquitos > 0;
@@ -159,7 +189,7 @@ export default function AdministrativeControlV92({
 
   return <section className="av92">
     <div className="av92-title">
-      <div><h2>{viewTitle[tab]}</h2><p>Información compartida · {period} · Obra asignada</p></div>
+      <div><h2>{viewTitle[tab]}</h2><p>Información compartida · {period} · {role === "admin" ? "Supervisión de obra" : "Obra asignada"}</p></div>
       <button type="button" className="av92-refresh" onClick={refresh} disabled={loading}>Actualizar datos</button>
     </div>
     {error && <p role="alert" className="alert danger">{error}</p>}
@@ -169,7 +199,8 @@ export default function AdministrativeControlV92({
         {[
           { key: "all", value: overview.summary.active_contractors, label: "Contratistas activos", title: "Todos los contratistas" },
           { key: "done", value: complete, label: "Semana revisada", title: "Revisados en la semana" },
-          { key: "done", value: compliance === null ? "—" : compliance + "%", label: "Cumplimiento", title: "Revisión completa sobre obligaciones de la semana" },
+          { key: "done", value: compliance === null ? "—" : compliance + "%", label: "Avance semanal", title: "Revisiones exigibles ya iniciadas" },
+          { key: "all", value: monthlyCompliance === null ? "—" : monthlyCompliance + "%", label: "Avance mensual", title: "Obligaciones iniciadas, sin penalizar semanas futuras" },
           { key: "pending", value: pending, label: "Pendientes", title: "Pendientes de esta semana" },
           { key: "overdue", value: overdue, label: "Fuera de plazo", title: "Incumplimientos de asistencia" },
           { key: "staff", value: overview.summary.workers_vigente, label: "Trabajadores vigentes", title: "Dotación vigente a la fecha" },
@@ -177,9 +208,8 @@ export default function AdministrativeControlV92({
           { key: "finiquitos", value: overview.summary.pending_finiquitos, label: "Finiquitos pendientes", title: "Documentos pendientes" },
         ].map((metric) => <button type="button" key={metric.label} className={`av92-metric ${filter === metric.key ? "current" : ""}`}
           title={metric.title}
-          onClick={() => metric.key === "staff"
-            ? document.getElementById("av92-dotacion")?.scrollIntoView({ behavior: "smooth", block: "start" })
-            : setFilter(metric.key)}>
+          onClick={() => metric.key === "staff" && onChangeTab
+            ? onChangeTab("staff") : setFilter(metric.key)}>
           <span>{metric.label}</span><strong>{metric.value ?? "—"}</strong>
         </button>)}
       </div>
@@ -209,14 +239,30 @@ export default function AdministrativeControlV92({
           <label className="av92-check"><input type="checkbox" checked={showInactive} onChange={(e) => setShowInactive(e.target.checked)} /> Incluir históricos</label>
         </div>
         <div className="av92-tablewrap">
-          <table className="av92-table">
-            <thead><tr><th>Contratista</th><th>Dotación vigente</th><th>Asistencia</th><th>Contratos</th><th>Finiquitos</th><th>Revisar</th></tr></thead>
+          <table className="av92-table av93-month-matrix">
+            <thead><tr><th>Contratista</th><th>Dotación vigente</th>
+              {weekOptions.map((w, index) => <th key={w.week_number} scope="col" className="av93-week-cell">S{index + 1}<small>{date(w.dates[0]).slice(0,5)}</small></th>)}
+              <th>Avance</th><th>Contratos</th><th>Finiquitos</th><th>Revisar</th>
+            </tr></thead>
             <tbody>{visibleContractors.map((row) => {
               const week = weekOf(row);
               return <tr key={row.association_id} className={selectedId === row.association_id ? "selected" : ""}>
                 <td><strong>{row.contractor}</strong><small>{row.rut || "RUT sin registrar"}{!row.contractor_active ? " · Histórico" : ""}</small></td>
                 <td>{row.staff_counts.vigente + row.staff_counts.por_vencer}<small>{row.staff_counts.por_verificar ? `${row.staff_counts.por_verificar} por verificar` : "Vigentes y por vencer"}</small></td>
-                <td><WeekBadge week={row.attendance_applicable ? week : undefined} />{week?.completed_by && <small>Por {week.completed_by}</small>}</td>
+                {weekOptions.map((w) => {
+                  const item = row.weeks.find((entry) => entry.week_number === w.week_number);
+                  const description = item?.completed_by ? `Revisada por ${item.completed_by}` :
+                    item?.assigned_to_name ? `Asignada a ${item.assigned_to_name}` : "Sin responsable asignado";
+                  return <td key={w.week_number} className="av93-week-cell">
+                    <button type="button" className="av93-cell-action" aria-label={`${row.contractor}, semana ${weekOptions.indexOf(w)+1}: ${weekText[item?.state || "not_required"] || "No exigible"}. ${description}`}
+                      title={description} aria-pressed={selectedId === row.association_id && effectiveWeek === w.week_number}
+                      onClick={() => { setWeekNumber(w.week_number); setSelectedId(row.association_id); }}>
+                      <WeekBadge week={row.attendance_applicable ? item : undefined} />
+                    </button>
+                  </td>;
+                })}
+                <td><strong>{contractorProgress(row)}</strong><small>{week?.assigned_to_name
+                  ? `Asignada: ${week.assigned_to_name}` : "Sin asignación formal"}{week?.completed_by ? ` · Revisó: ${week.completed_by}` : ""}</small></td>
                 <td>{row.staff_counts.vencido > 0 ? <span className="av92-badge bad">{row.staff_counts.vencido} vencidos</span>
                   : row.staff_counts.por_vencer > 0 ? <span className="av92-badge warn">{row.staff_counts.por_vencer} por vencer</span>
                   : <span className="av92-badge ok">Sin alertas</span>}</td>
@@ -236,7 +282,7 @@ export default function AdministrativeControlV92({
             <button type="button" onClick={() => setSelectedId("")}>Cerrar detalle</button>
           </div>
           <WeeklyAttendanceV81 siteId={siteId} sites={sites} period={period}
-            canEdit={true} canReview={false} selectedAssociationId={selectedId}
+            canEdit={true} canReview={role === "admin"} selectedAssociationId={selectedId}
             preferredWeekNumber={effectiveWeek} onSaved={refresh} />
         </div>}
       </>}
@@ -269,7 +315,7 @@ export default function AdministrativeControlV92({
           <summary>Registrar nuevo contrato de trabajo</summary>
           <ContractEntry siteId={siteId} period={period} />
         </details>}
-        {tab === "severance" && <p className="av92-notice">Los finiquitos recibidos y sus validaciones se gestionan con permisos de revisión documental. Esta vista permite a la administrativa detectar pendientes sin aprobar documentos indebidamente.</p>}
+        {tab === "severance" && <p className="av92-notice">La recepción y validación de finiquitos siguen los permisos documentales vigentes. Esta vista permite detectar pendientes; las aprobaciones se realizan desde el módulo laboral autorizado.</p>}
         {tab === "staff" && <p className="av92-notice">Un contrato vencido no significa automáticamente que el trabajador haya terminado su relación laboral. Los registros sin respaldo se muestran como «Por verificar». Los estados de revisión documental de finiquitos representan su estado actual, no necesariamente el que tenían en la fecha histórica consultada.</p>}
         {tab === "performance" && <>
           {evaluationError && <p role="alert" className="alert danger">{evaluationError}</p>}

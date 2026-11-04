@@ -18,7 +18,7 @@ import { Login } from "./DocumentAnalysis";
 import DocumentAnalysis from "./DocumentAnalysis";
 import Operations from "./Operations";
 import Workers from "./Workers";
-import Attendance from "./WeeklyAttendanceV81";
+import AdminAttendanceV93 from "./AdminAttendanceV93";
 import AdministrativePerformanceV81 from "./AdministrativePerformanceV81";
 import AdministrativeWorkspace from "./AdministrativeWorkspace";
 import ControlCenter from "./ControlCenter";
@@ -715,8 +715,8 @@ function App() {
             initialPending={filter === "finiquito_pending"}
             initialAssignment={targetWorker}
             initialState={filter === "expired_needs_review" || filter === "ending_soon" ? filter : ""} />}
-          {section === "attendance" && <Attendance siteId={site} sites={sites} period={period}
-            canEdit={!!canAttend} canReview={!!canEdit} />}
+          {section === "attendance" && <AdminAttendanceV93 siteId={site} sites={sites} period={period}
+            onSiteSelect={setSite} onEvaluate={() => go("evaluations")} />}
           {section === "evaluations" && <AdministrativePerformanceV81 sites={sites} period={period} />}
           {section === "imports" && (
             <BulkImport readOnly={readonly} siteId={site} />
