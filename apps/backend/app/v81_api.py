@@ -17,6 +17,8 @@ from .admin_api import catalogs_for
 from .attendance_api import _context, _worker_eligible
 from .calendar_v81 import calendar_weeks, dates_of_week, deadline_utc, grade, CL_TZ
 from .control_api import today
+from .control_models import ContributionControl
+from .platform_models import PaymentFinding
 from .db import get_db
 from .models import AuditEvent, Organization, User, utcnow
 from .platform_models import OrganizationSettings
@@ -363,6 +365,32 @@ def save_week(body: SaveWeek, user: User = Depends(attendance_editor), db: Sessi
         week.completed_by, week.completed_at = user.id, now
         week.completed_on_time = now <= deadline
     week.revision += 1
+    if changes or before["state"] != week.state:
+        # A newly completed/corrected attendance week can change the legal
+        # payment comparison. Preserve paid days, but require admin re-review.
+        controls = db.scalars(select(ContributionControl).where(
+            ContributionControl.org_id == user.org_id,
+            ContributionControl.association_id == association.id,
+            ContributionControl.period == body.period,
+            ContributionControl.worker_assignment_id.in_(expected)
+        ).with_for_update()).all() if expected else []
+        for control in controls:
+            prior = {"review": control.review_status,
+                     "retention": control.retention_status}
+            control.review_status = "pending"
+            control.retention_status = "none"
+            control.reviewer_id = None
+            control.updated_at = now
+            for finding in db.scalars(select(PaymentFinding).where(
+                PaymentFinding.org_id == user.org_id,
+                PaymentFinding.control_id == control.id)).all():
+                finding.state = "unverified"
+                finding.reviewed_at = now
+                finding.reviewed_by = user.id
+            audit_change(db, user, "contribution_control", control.id, {
+                "invalidated_by_attendance_week": week.id, "from": prior,
+                "to": {"review": "pending", "retention": "none"},
+            })
     audit_change(db, user, "attendance_calendar_week", week.id,
         {"from": before, "to": {"state": week.state, "revision": week.revision},
          "changes": changes, "late": bool(body.complete and not week.completed_on_time),
