@@ -37,6 +37,16 @@ def is_independent(company: Contractor, association: ContractorWorksite) -> bool
     return contractor_classification(association, company) == "CI"
 
 
+def inactive_for_current_period(association: ContractorWorksite, period: str) -> bool:
+    """Stop new obligations from the current month; do not rewrite historical months.
+
+    Existing records do not reliably store the effective offboarding date, so
+    suppressing older months would invent history. Those require dated review.
+    """
+    current_month = today().strftime("%Y-%m")
+    return association.contract_status != "active" and period >= current_month
+
+
 def nature_defaults(company: Contractor, association: ContractorWorksite) -> dict[str, bool | None]:
     # Los independientes nunca tienen requisito de anticipos, aunque su
     # frecuencia administrativa esté marcada como esporádica.
@@ -135,6 +145,8 @@ def change_review(db: Session, user: User, payload: ManualReviewInput) -> Monthl
     association, company = association_for(db, user.org_id, payload.association_id)
     defaults = nature_defaults(company, association)
     default_applicability = defaults.get(payload.kind)
+    if inactive_for_current_period(association, payload.period) and payload.status != "not_applicable":
+        raise HTTPException(422, "Contratista inactivo: no existen nuevas obligaciones del período; consulta el historial")
     override = db.scalar(select(RequirementApplicability).where(
         RequirementApplicability.org_id == user.org_id,
         RequirementApplicability.association_id == association.id,
@@ -203,6 +215,8 @@ def set_applicability(payload: ApplicabilityInput, user: User = Depends(editor),
     association, company = association_for(db, user.org_id, payload.association_id)
     if is_independent(company, association) and payload.kind == "anticipos" and payload.applicable:
         raise HTTPException(422, "Los independientes no pueden tener listado de anticipos exigible")
+    if inactive_for_current_period(association, payload.period) and payload.applicable:
+        raise HTTPException(422, "No se puede exigir documentación nueva a un contratista inactivo")
     if contractor_classification(association, company) == "CT" and payload.kind == "declaracion_jurada" and payload.applicable:
         raise HTTPException(422, "La declaración exclusiva de independientes no aplica")
     row = db.scalar(select(RequirementApplicability).where(
@@ -262,6 +276,7 @@ def monthly_matrix(site_id: str, period: str, user: User = Depends(authorized_us
     contractors = []
     now = today()
     for link, company in contractor_rows:
+        inactive = inactive_for_current_period(link, period)
         defaults = nature_defaults(company, link)
         requirements = []
         for kind in REQUIREMENTS:
@@ -271,7 +286,10 @@ def monthly_matrix(site_id: str, period: str, user: User = Depends(authorized_us
             if row is not None and row.review_status == "not_applicable":
                 applicable = False
             schedule = calendar.get(kind)
-            if applicable is False:
+            if inactive:
+                applicable = False
+                state = "inactive"
+            elif applicable is False:
                 state = "not_applicable"
             elif applicable is None:
                 state = "needs_classification"
@@ -311,6 +329,7 @@ def monthly_matrix(site_id: str, period: str, user: User = Depends(authorized_us
             "name": company.name, "rut": company.rut,
             "code": contractor_classification(link, company), "historical_code": link.historical_code, "nature": company.nature,
             "frequency": link.frequency, "status": link.contract_status,
+            "inactive_for_period": inactive,
             "requirements": requirements,
         })
     return {"period": period, "site_id": site_id, "contractors": contractors,
