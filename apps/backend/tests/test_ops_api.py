@@ -121,7 +121,7 @@ def test_seed_site_isolation_and_manual_crud(context):
         assert db.scalar(select(OpsChange).where(OpsChange.org_id == org1)) is not None
 
 
-def test_independent_cannot_have_active_workers_but_ci_code_is_historical(context):
+def test_independent_cannot_have_active_workers_by_cod_and_nature(context):
     client, _, _ = context
     headers = login(client, "ops-a@example.cl")
     site_a, site_b = [row["id"] for row in client.get("/api/v1/ops/sites").json()[:2]]
@@ -135,19 +135,19 @@ def test_independent_cannot_have_active_workers_but_ci_code_is_historical(contex
     })
     assert denied.status_code == 409
 
-    # CI is an imported classification code; the explicitly selected nature is
-    # what controls whether a worker can be assigned.
-    ci_with_workers = client.post("/api/v1/ops/contractors", headers=headers, json={
+    # CI identifica independientes y nunca admite trabajadores en la obra.
+    # El estado heredado de naturaleza mantiene sus protecciones.
+    with_workers = client.post("/api/v1/ops/contractors", headers=headers, json={
         "site_id": site_a, "name": "Empresa con personal", "rut": "22222222-2",
-        "historical_code": "CI", "nature": "with_workers",
+        "historical_code": "CT", "nature": "with_workers",
     }).json()
     assignment = client.post("/api/v1/ops/workers", headers=headers, json={
-        "site_id": site_a, "contractor_id": ci_with_workers["contractor_id"],
+        "site_id": site_a, "contractor_id": with_workers["contractor_id"],
         "name": "Ayudante", "rut": "11111111-1",
     })
     assert assignment.status_code == 201, assignment.text
     worker_link = assignment.json()["id"]
-    assert client.patch(f"/api/v1/ops/contractors/{ci_with_workers['id']}",
+    assert client.patch(f"/api/v1/ops/contractors/{with_workers['id']}",
                         headers=headers, json={"nature": "independent"}).status_code == 409
 
     # The same company can be in another site; the nature remains global, so
@@ -170,7 +170,7 @@ def test_independent_cannot_have_active_workers_but_ci_code_is_historical(contex
     }).status_code == 409
     assert client.patch(f"/api/v1/ops/workers/{worker_link}",
                         headers=headers, json={"active": False}).status_code == 200
-    assert client.patch(f"/api/v1/ops/contractors/{ci_with_workers['id']}",
+    assert client.patch(f"/api/v1/ops/contractors/{with_workers['id']}",
                         headers=headers, json={"nature": "independent"}).status_code == 200
     assert client.patch(f"/api/v1/ops/workers/{worker_link}",
                         headers=headers, json={"active": True}).status_code == 409
