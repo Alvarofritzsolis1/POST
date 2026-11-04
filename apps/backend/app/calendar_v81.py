@@ -39,11 +39,17 @@ def dates_of_week(period: str, number: int) -> list[date]:
     return [first + timedelta(days=n) for n in range((last-first).days + 1)]
 
 
-def deadline_utc(last_day: date, grace_days: int) -> datetime:
-    """End-of-day local deadline converted to an aware UTC timestamp."""
+def deadline_utc(last_day: date, grace_days: int, cutoff: str = "23:59") -> datetime:
+    """Worksite deadline in Chile, converted to UTC with DST rules."""
     if not 0 <= grace_days <= 31:
         raise ValueError("Plazo semanal fuera de rango")
-    local = datetime.combine(last_day + timedelta(days=grace_days), time(23, 59, 59), CL_TZ)
+    try:
+        hour, minute = map(int, cutoff.split(":"))
+        if len(cutoff) != 5 or not (0 <= hour <= 23 and 0 <= minute <= 59):
+            raise ValueError
+    except ValueError as exc:
+        raise ValueError("Hora de cierre debe estar en formato HH:MM") from exc
+    local = datetime.combine(last_day + timedelta(days=grace_days), time(hour, minute, 59), CL_TZ)
     return local.astimezone(timezone.utc)
 
 
