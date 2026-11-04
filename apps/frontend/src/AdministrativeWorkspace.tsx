@@ -2,8 +2,7 @@ import { useEffect, useState } from "react";
 import type { Profile } from "./api";
 import { request } from "./api";
 import { opsApi, type Site } from "./opsApi";
-import Attendance from "./WeeklyAttendanceV81";
-import ContractEntry from "./ContractEntry";
+import AdministrativeControlV92 from "./AdministrativeControlV92";
 import "./administrative.css";
 
 type AdministrativeProfile = { name: string; site_ids: string[] };
@@ -18,7 +17,7 @@ export default function AdministrativeWorkspace({ user, version, logout }: {
   const [siteId, setSiteId] = useState("");
   const [period, setPeriod] = useState(currentPeriod);
   const [name, setName] = useState("");
-  const [tab, setTab] = useState<"attendance" | "contracts">("attendance");
+  const [tab, setTab] = useState<"attendance" | "contracts" | "severance" | "staff" | "performance">("attendance");
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState("");
 
@@ -46,7 +45,7 @@ export default function AdministrativeWorkspace({ user, version, logout }: {
     </header>
     <div className="administrative-content">
       <div className="administrative-heading">
-        <div><h1>Control de Asistencia</h1><p>Registra las semanas de tus contratistas y consulta contratos de trabajo.</p></div>
+        <div><h1>Control laboral de la obra</h1><p>Contratistas activos, asistencia semanal, dotación, contratos y finiquitos en un solo lugar.</p></div>
         <div className="administrative-filters">
           <label>Obra <select value={siteId} onChange={(event) => setSiteId(event.target.value)}
             disabled={!sites.length}>{sites.map((site) => <option key={site.id} value={site.id}>{site.name}</option>)}</select></label>
@@ -60,10 +59,11 @@ export default function AdministrativeWorkspace({ user, version, logout }: {
           <nav aria-label="Opciones administrativas" className="administrative-tabs">
             <button type="button" aria-current={tab === "attendance" ? "page" : undefined} onClick={() => setTab("attendance")}>Asistencia semanal</button>
             <button type="button" aria-current={tab === "contracts" ? "page" : undefined} onClick={() => setTab("contracts")}>Contratos de trabajo</button>
+            <button type="button" aria-current={tab === "severance" ? "page" : undefined} onClick={() => setTab("severance")}>Finiquitos</button>
+            <button type="button" aria-current={tab === "staff" ? "page" : undefined} onClick={() => setTab("staff")}>Dotación vigente</button>
+            <button type="button" aria-current={tab === "performance" ? "page" : undefined} onClick={() => setTab("performance")}>Mi rendimiento</button>
           </nav>
-          {tab === "attendance"
-            ? <Attendance siteId={siteId} sites={sites} period={period} canEdit={true} canReview={false} />
-            : <ContractEntry siteId={siteId} period={period} />}
+          <AdministrativeControlV92 siteId={siteId} sites={sites} period={period} tab={tab} />
         </>}
     </div>
   </main>;
