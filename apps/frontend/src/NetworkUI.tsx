@@ -60,11 +60,7 @@ export const labels: Record<string, string> = {
   revoked: "Revocado",
   resident: "Residente",
   admin: "Administrador",
-  supervisor: "Supervisor",
-  analyst: "Analista",
-  viewer: "Visualizador",
-  reviewer: "Revisor documental",
-  administrative: "Administrativa",
+  administrative: "Administrativo",
 };
 export function Badge({ value }: { value: string }) {
   return (
