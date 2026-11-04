@@ -6,7 +6,7 @@ from app.network_schemas import AccountEdit, AccountInput
 @pytest.mark.parametrize("role", ["admin", "administrative", "resident"])
 def test_role_can_be_created(role):
     sites = [] if role == "admin" else ["site-qa"]
-    data = AccountInput(name="Persona de prueba", email="prueba@example.test",
+    data = AccountInput(name="Persona de prueba", email="prueba@example.cl",
                         role=role, site_ids=sites)
     assert data.role == role
 
