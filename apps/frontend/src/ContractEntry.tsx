@@ -3,7 +3,7 @@ import { request } from "./api";
 import "./administrative.css";
 
 type Person = { assignment_id: string; name: string; rut: string | null };
-type Company = { association_id: string; contractor_id: string; contractor: string; roster_status: string; workers: Person[] };
+type Company = { association_id: string; contractor_id: string; contractor: string; administrative_status: string; roster_status: string; workers: Person[] };
 type Roster = { contractors: Company[] };
 type ContractType = "indefinite" | "fixed_term" | "project";
 const errorText = (value: unknown) => value instanceof Error ? value.message : String(value);
@@ -62,7 +62,7 @@ export default function ContractEntry({ siteId, period }: { siteId: string; peri
     <form onSubmit={(event) => void save(event)}>
       <label>Contratista <select required value={companyId} onChange={(event) => { setCompanyId(event.target.value); setAssignmentId(""); }}>
         <option value="">Seleccionar contratista</option>
-        {companies.filter((row) => row.roster_status === "included").map((row) =>
+        {companies.filter((row) => row.administrative_status === "active").map((row) =>
           <option key={row.association_id} value={row.association_id}>{row.contractor}</option>)}
       </select></label>
       <fieldset><legend>Trabajador</legend>
