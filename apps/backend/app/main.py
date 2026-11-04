@@ -34,6 +34,7 @@ from .admin_api import router as admin_router
 from .reconciliation import router as reconciliation_router
 from .labor_api import router as labor_router
 from .attendance_api import router as attendance_router
+from .v81_api import router as attendance_v81_router
 from .compliance_api import router as compliance_router
 from . import platform_models
 from .network_accounts import router as network_accounts_router
@@ -46,6 +47,7 @@ app.include_router(admin_router)
 app.include_router(reconciliation_router)
 app.include_router(labor_router)
 app.include_router(attendance_router)
+app.include_router(attendance_v81_router)
 app.include_router(ops_router)
 app.include_router(control_router)
 app.include_router(control_admin_router)
