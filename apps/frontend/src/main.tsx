@@ -6,6 +6,7 @@ import "./premium.css"
 import "./operations.css"
 import "./platform.css"
 import "./v91.css"
+import "./ux-2026.css"
 
 createRoot(document.getElementById("root")!).render(
   <React.StrictMode><App/></React.StrictMode>
