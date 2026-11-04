@@ -325,3 +325,295 @@
   .platform .results-card tbody tr { transition: none; }
   .platform .ops-actions button:hover { transform: none; }
 }
+
+/* Second pass: consistent app navigation and accessible dashboard. */
+.platform .sidebar nav {
+  gap: 8px;
+  padding-bottom: 24px;
+}
+.platform .nav-group {
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+  min-width: 0;
+}
+.platform .nav-group-title {
+  margin: 12px 22px 5px;
+  font-size: 10px;
+  letter-spacing: .12em;
+  color: #92b1bc;
+  font-weight: 750;
+  line-height: 1.4;
+}
+.platform .sidebar .nav-item {
+  min-height: 43px;
+  margin-block: 0;
+}
+.platform .sidebar .nav-item svg {
+  flex: 0 0 18px;
+}
+.platform .sidebar .nav-item .v91-nav-label {
+  line-height: 1.35;
+  text-align: left;
+  min-width: 0;
+}
+.platform.sidebar-collapsed .sidebar .nav-group-title {
+  display: none;
+}
+.platform.sidebar-collapsed .sidebar nav {
+  gap: 18px;
+}
+.platform.sidebar-collapsed .sidebar .nav-group {
+  gap: 5px;
+}
+.platform .dashboard-alerts {
+  background: #fff;
+  border: 1px solid #dfe7ee;
+  border-radius: 15px;
+  padding: clamp(18px, 2.2vw, 28px);
+  box-shadow: 0 4px 18px #142a3f08;
+}
+.platform .dashboard-section-title {
+  display: flex;
+  gap: 12px;
+  flex-wrap: wrap;
+  align-items: end;
+  justify-content: space-between;
+  margin-bottom: 18px;
+}
+.platform .dashboard-section-title .eyebrow {
+  color: #087f8c;
+  font-size: 10px;
+}
+.platform .dashboard-section-title h2 {
+  margin: 7px 0 0;
+  font-size: clamp(19px, 2vw, 24px);
+  letter-spacing: -.035em;
+}
+.platform .dashboard-source-label {
+  display: inline-flex;
+  font-size: 11px;
+  font-weight: 650;
+  color: #536d7d;
+}
+.platform .alert-kpi-grid {
+  display: grid;
+  gap: 11px;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  margin: 0;
+}
+.platform .kpi {
+  min-width: 0;
+  border: 1px solid #dce5ee;
+  border-radius: 13px;
+  padding: 16px 17px;
+  background: #fff;
+  box-shadow: 0 3px 12px #142a3f09;
+  transition: transform .19s ease, box-shadow .19s ease, border-color .19s ease;
+}
+.platform button.kpi:hover:not(:disabled) {
+  transform: translateY(-2px);
+  box-shadow: 0 8px 22px #142a3f14;
+}
+.platform .kpi strong {
+  line-height: 1.12;
+  font-variant-numeric: tabular-nums;
+}
+.platform .alert-metric {
+  position: relative;
+  overflow: hidden;
+  gap: 7px;
+  border-left: 4px solid #8192a4;
+  align-items: flex-start;
+}
+.platform .alert-metric.metric-danger {
+  border-left-color: #b42318;
+  background: linear-gradient(125deg, #fff 60%, #fff8f7 100%);
+}
+.platform .alert-metric.metric-warning {
+  border-left-color: #b45309;
+  background: linear-gradient(125deg, #fff 60%, #fffaf0 100%);
+}
+.platform .alert-metric.metric-clear { border-left-color: #15803d; }
+.platform .alert-metric small {
+  color: #53657a;
+  min-height: 2.6em;
+  font-size: 11px;
+  font-weight: 730;
+  line-height: 1.3;
+}
+.platform .alert-metric strong {
+  font-size: clamp(24px, 2.4vw, 32px);
+  color: #172b43;
+  line-height: 1;
+}
+.platform .alert-metric.metric-danger strong { color: #b42318; }
+.platform .alert-metric.metric-warning strong { color: #92400e; }
+.platform .alert-metric.metric-clear strong { color: #166534; }
+.platform .alert-metric-state {
+  display: inline-flex;
+  align-items: center;
+  font-weight: 760;
+  line-height: 1.4;
+  font-size: 10px;
+  color: #5a7080;
+}
+.platform .metric-danger .alert-metric-state { color: #a91e14; }
+.platform .metric-warning .alert-metric-state { color: #925100; }
+.platform .metric-clear .alert-metric-state { color: #166534; }
+.platform .alert-metric-action {
+  color: #3157b7;
+  font-size: 10px;
+  font-weight: 730;
+}
+.platform .dashboard-list-heading {
+  margin: 26px 0 12px;
+  font-size: 15px;
+}
+.platform .dashboard-alerts .worker-alert-link {
+  min-height: 44px;
+  max-width: 100%;
+  white-space: normal;
+  text-align: left;
+  overflow-wrap: anywhere;
+}
+.platform .dashboard-alerts .worker-alert-link.critical,
+.platform .dashboard-alerts .worker-alert-link.danger {
+  border-left: 4px solid #b42318;
+}
+.platform .dashboard-alerts .worker-alert-link.warning {
+  border-left: 4px solid #b45309;
+}
+.platform .dashboard-metric.metric-danger {
+  border-top: 3px solid #b42318;
+}
+.platform .dashboard-metric.metric-warning {
+  border-top: 3px solid #b45309;
+}
+.platform .dashboard-metric {
+  gap: 8px;
+  border-top: 3px solid #91a6b7;
+}
+.platform .dashboard-metric span { color: #3157b7; }
+.platform .contractor-card {
+  border: 1px solid #dfe7ee;
+  border-radius: 13px;
+  transition: border-color .19s ease, transform .19s ease, box-shadow .19s ease;
+}
+.platform .contractor-card:hover {
+  border-color: #b7c6da;
+  transform: translateY(-2px);
+  box-shadow: 0 8px 22px #142a3f12;
+}
+.platform .contractor-card .state { line-height: 1.45; }
+.platform .contractor-card h3 { overflow-wrap: anywhere; }
+/* Shared module surfaces and actions, without overriding domain-specific status rules. */
+.platform .workers-page .panel,
+.platform .control-workspace .control-card,
+.platform .monthly-panel,
+.platform .weekly-v81 .panel,
+.platform .performance-v81 .panel {
+  border-radius: 14px;
+  border-color: #dfe7ee;
+}
+.platform .workers-heading,
+.platform .control-heading,
+.platform .monthly-header,
+.platform .performance-heading {
+  gap: 14px;
+  flex-wrap: wrap;
+}
+.platform .workers-page input,
+.platform .workers-page select,
+.platform .weekly-v81 input,
+.platform .weekly-v81 select,
+.platform .monthly-panel input,
+.platform .monthly-panel select,
+.platform .performance-v81 input,
+.platform .performance-v81 select {
+  min-width: 0;
+  max-width: 100%;
+}
+.platform .workers-page .table-wrap,
+.platform .control-workspace .table-wrap,
+.platform .monthly-panel .table-wrap,
+.platform .weekly-v81 .table-wrap,
+.platform .av92-tablewrap { overflow-x: auto; max-width: 100%; }
+.platform .worker-kpi,
+.platform .control-metric,
+.platform .av92-metric,
+.platform .performance-metrics > * { font-variant-numeric: tabular-nums; }
+.platform .nw-card {
+  transition: transform .18s ease, box-shadow .18s ease, border-color .18s ease;
+}
+.platform .nw-card:hover { transform: translateY(-1px); }
+.platform .ops-filters {
+  gap: 11px;
+  padding-block: 15px;
+}
+.platform .ops-filters .ops-search { flex: 1 1 240px; min-width: min(240px, 100%); }
+.platform .ops-filters .ops-search input { width: 100%; }
+.platform .ops-filters select { min-height: 40px; width: min(260px, 100%); }
+.platform .ops-list-table th {
+  background: #f5f8fb;
+  color: #52657a;
+  letter-spacing: .04em;
+}
+.platform .ops-list-table td { line-height: 1.5; }
+.platform .ops-list-table .row-open {
+  min-width: 38px;
+  min-height: 38px;
+  border-radius: 8px;
+}
+.platform .ops-card-heading,
+.platform .ops-filters { min-width: 0; }
+.platform .alert {
+  border-radius: 10px;
+  line-height: 1.5;
+  overflow-wrap: anywhere;
+}
+.platform .alert.danger { border-left: 4px solid #b42318; }
+.platform .alert.success { border-left: 4px solid #15803d; }
+.platform .empty,
+.platform .ops-empty {
+  color: #586a7d;
+  line-height: 1.6;
+}
+[data-theme="dark"] .platform .dashboard-alerts,
+[data-theme="dark"] .platform .alert-metric,
+[data-theme="dark"] .platform .dashboard-metric,
+[data-theme="dark"] .platform .contractor-card {
+  background: #172f3a;
+  border-color: #38515b;
+}
+[data-theme="dark"] .platform .dashboard-section-title h2,
+[data-theme="dark"] .platform .alert-metric strong,
+[data-theme="dark"] .platform .contractor-card h3,
+[data-theme="dark"] .platform .dashboard-metric strong {
+  color: #e0edf2;
+}
+[data-theme="dark"] .platform .alert-metric small,
+[data-theme="dark"] .platform .dashboard-source-label { color: #bed0d8; }
+@media (max-width: 1200px) {
+  .platform .alert-kpi-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+}
+@media (max-width: 760px) {
+  .platform .sidebar .nav-group-title { margin: 14px 22px 7px; }
+  .platform.sidebar-collapsed .sidebar .nav-group-title { display: block; }
+  .platform .alert-kpi-grid { gap: 9px; }
+  .platform .alert-metric small { min-height: 0; }
+  .platform .dashboard-alerts { padding: 15px; }
+}
+@media (max-width: 420px) {
+  .platform .alert-kpi-grid { grid-template-columns: 1fr; }
+  .platform .ops-filters .ops-search { flex-basis: 100%; }
+  .platform .dashboard-source-label { width: 100%; }
+}
+@media (prefers-reduced-motion: reduce) {
+  .platform .kpi,
+  .platform .contractor-card,
+  .platform .nw-card { transition: none; }
+  .platform .kpi:hover,
+  .platform .contractor-card:hover,
+  .platform .nw-card:hover { transform: none; }
+}
