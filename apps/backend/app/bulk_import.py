@@ -15,7 +15,7 @@ from sqlalchemy.orm import Session
 from .config import settings
 from .db import get_db
 from .models import Organization, User
-from .ops_api import audit_change, has_active_workers, normalize_rut
+from .ops_api import audit_change, contractor_classification, normalize_rut
 from .ops_import import MAX_IMPORT_BYTES, _key, _read_sheets
 from .ops_import_api import router
 from .ops_models import (
@@ -312,8 +312,9 @@ def prepare(body, user, db):
             )
             # Keep a legacy nature hint only where a single site makes it unambiguous.
             if code in {"CT", "CE", "CI"} and (
-                not existing or not associated_sites or
-                (len(associated_sites) == 1 and site and associated_sites[0].worksite_id == site.id)
+                (not existing and row["rut"] not in identities)
+                or (existing and (not associated_sites or
+                    (len(associated_sites) == 1 and site and associated_sites[0].worksite_id == site.id)))
             ):
                 target["nature"] = expected_nature
             extra = {
@@ -398,7 +399,7 @@ def prepare(body, user, db):
                 errors.append(
                     "Contratista no identificado o ambiguo; indica su RUT o corrige nombre y obra"
                 )
-            elif contractor.nature == "independent":
+            elif contractor_classification(links[(site.id, contractor.id)], contractor) == "CI":
                 errors.append("Un independiente no admite trabajadores dependientes")
             existing = workers.get(row["rut"])
             link = (
