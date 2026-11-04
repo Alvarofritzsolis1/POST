@@ -185,8 +185,8 @@ jobs:
               pw = hash_password(os.environ["QA_SMOKE_PASSWORD"])
               db.add_all([
                   User(org_id=org_id, email="qa-admin@example.test", role="admin", password_hash=pw),
-                  User(org_id=org_id, email="qa-reviewer@example.test", role="analyst", password_hash=pw),
-                  User(org_id=org_id, email="qa-viewer@example.test", role="viewer", password_hash=pw),
+                  User(org_id=org_id, email="qa-reviewer@example.test", role="admin", password_hash=pw),
+                  User(org_id=org_id, email="qa-viewer@example.test", role="resident", password_hash=pw),
                   User(org_id=other_org.id, email="qa-outside@example.test", role="admin", password_hash=pw),
               ])
           with SessionLocal() as db:
