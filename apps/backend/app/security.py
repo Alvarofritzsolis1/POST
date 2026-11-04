@@ -60,9 +60,18 @@ def authorized_user(request: Request, db: Session = Depends(get_db)) -> User:
     if payload.get("ver", 0) != (member.session_version if member else 0):
         raise HTTPException(401, "La sesión fue revocada. Inicia sesión nuevamente")
     db.info["network_auth"] = (user.id, payload.get("ver", 0))
+    if user.role not in {"admin", "administrative", "resident"}:
+        raise HTTPException(403, "Perfil anterior: un administrador debe asignarte uno de los tres perfiles vigentes")
     if user.role == "resident" and not (request.url.path.startswith("/api/v1/network/") or
             request.url.path in {"/api/v1/auth/me", "/api/v1/auth/logout"}):
         raise HTTPException(403, "El residente solo tiene acceso a Red de Obras")
+    if user.role == "administrative":
+        path = request.url.path
+        allowed = (path.startswith("/api/v1/attendance/") or
+                   path in {"/api/v1/ops/sites", "/api/v1/network/profile",
+                            "/api/v1/auth/me", "/api/v1/auth/logout"})
+        if not allowed:
+            raise HTTPException(403, "El administrativo solo tiene acceso a Control de Asistencia")
     if request.method not in {"GET", "HEAD", "OPTIONS"}:
         expected = hmac.new(settings().app_secret.encode(), payload["jti"].encode(), hashlib.sha256).hexdigest()
         header = request.headers.get("X-CSRF-Token", "")
@@ -73,31 +82,31 @@ def authorized_user(request: Request, db: Session = Depends(get_db)) -> User:
 
 
 def editor(user: User = Depends(authorized_user)) -> User:
-    if user.role not in {"admin", "analyst", "supervisor"}:
+    if user.role not in {"admin"}:
         raise HTTPException(403, "Sin permiso de escritura")
     return user
 
 
 def document_reviewer(user: User = Depends(authorized_user)) -> User:
-    if user.role not in {"admin", "analyst", "supervisor", "reviewer"}:
+    if user.role not in {"admin"}:
         raise HTTPException(403, "Sin permiso de revisión documental")
     return user
 
 
 def attendance_editor(user: User = Depends(authorized_user)) -> User:
-    if user.role not in {"admin", "supervisor", "analyst", "administrative"}:
+    if user.role not in {"admin", "administrative"}:
         raise HTTPException(403, "Sin permiso para registrar asistencia")
     return user
 
 
 def attendance_reviewer(user: User = Depends(authorized_user)) -> User:
-    if user.role not in {"admin", "supervisor", "analyst"}:
+    if user.role not in {"admin"}:
         raise HTTPException(403, "Sin permiso para revisar asistencia")
     return user
 
 
 def document_uploader(user: User = Depends(authorized_user)) -> User:
-    if user.role not in {"admin", "supervisor", "analyst", "reviewer", "administrative"}:
+    if user.role not in {"admin"}:
         raise HTTPException(403, "Sin permiso para cargar documentos")
     return user
 
