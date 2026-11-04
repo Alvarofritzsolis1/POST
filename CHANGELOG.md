@@ -1,5 +1,20 @@
 # Historial de cambios
 
+## 12.1.0 — Renovación UX/UI premium (rama de validación)
+
+- Corrige el recorte de controles de obra/período en el encabezado, con alineación y dimensiones accesibles.
+- Elimina selector de obra y botón de importación redundantes en Contratistas.
+- Organiza la navegación por módulos y conserva el comportamiento retráctil y móvil.
+- Presenta indicadores de alerta y prioridad desde datos reales de backend, sin equiparar Activo/Inactivo con cumplimiento.
+- Rediseña el tratamiento visual de estados documentales: aprobado, observado/rechazado/vencido, pendiente de revisión, pendiente de configuración y no aplicable/no exigible.
+- Refuerza los avisos de contratos vencidos y finiquitos pendientes con cantidades reales.
+- Añade tokens de diseño, responsive, modo oscuro, foco accesible, movimiento reducido y microinteracciones discretas en los módulos.
+- Incorpora pruebas Playwright en entorno QA aislado para seis resoluciones, siete secciones, controles únicos, navegación y capturas de pantalla.
+- No altera esquemas PostgreSQL, API, reglas de negocio, retenciones, OCR ni permisos.
+- Requiere comprobar los resultados finales de CI y revisión visual antes de integrar o publicar. Consultar docs/GALANT_UX_12_1.md.
+
+
+
 ## 12.0.0-rc1 — Auditoría de fallos ocultos (candidata)
 
 - Corrige bypass de COD=CI en altas laborales y contratos nuevos; rechaza reclasificación incompatible con trabajadores activos.
