@@ -19,3 +19,11 @@
 .administrative-mode input { min-height: auto; }
 .administrative-form-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(230px, 1fr)); gap: .75rem; }
 @media (max-width: 600px) { .administrative-topbar { align-items: start; } .administrative-user { flex-direction: column; align-items: flex-end; gap: .25rem; } }
+
+/* V9.2: cinco pestañas navegables y más espacio útil sin barra horizontal global. */
+.administrative-tabs{flex-wrap:wrap;overflow:visible;gap:.15rem .5rem}
+.administrative-tabs button{white-space:normal;padding:.65rem .85rem;font-size:.88rem}
+.administrative-content{max-width:1450px}
+.administrative-heading{align-items:center}
+.administrative-heading h1{font-size:clamp(1.5rem,2.6vw,2rem);letter-spacing:-.04em}
+@media(max-width:700px){.administrative-content{padding:1rem}.administrative-tabs button{font-size:.8rem;padding:.5rem}}
