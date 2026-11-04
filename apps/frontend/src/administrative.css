@@ -1,0 +1,21 @@
+.administrative-app { min-height: 100vh; background: #f6f8fb; color: #15304c; }
+.administrative-topbar { background: #fff; border-bottom: 1px solid #dfe7f0; padding: 1rem clamp(1rem, 3vw, 3rem); display: flex; align-items: center; justify-content: space-between; gap: 1rem; }
+.administrative-topbar > div:first-child { display: flex; flex-direction: column; gap: .15rem; }
+.administrative-topbar span, .administrative-heading p { color: #64748b; font-size: .875rem; }
+.administrative-user { display: flex; gap: 1rem; align-items: center; }
+.administrative-content { max-width: 1260px; margin: 0 auto; padding: 1.5rem clamp(1rem, 3vw, 2.5rem); }
+.administrative-heading { display: flex; flex-wrap: wrap; align-items: end; justify-content: space-between; gap: 1rem; margin-bottom: 1.2rem; }
+.administrative-heading h1 { margin: 0; }
+.administrative-filters { display: flex; flex-wrap: wrap; gap: .8rem; }
+.administrative-filters label, .administrative-contracts label { display: grid; gap: .35rem; font-size: .9rem; font-weight: 600; }
+.administrative-filters input, .administrative-filters select, .administrative-contracts input, .administrative-contracts select, .administrative-contracts textarea { min-height: 2.5rem; border: 1px solid #cbd7e4; border-radius: .5rem; padding: .45rem .7rem; font: inherit; background: #fff; color: inherit; max-width: 100%; }
+.administrative-tabs { display: flex; gap: .5rem; border-bottom: 1px solid #dfe7f0; margin-bottom: 1.2rem; }
+.administrative-tabs button { padding: .75rem 1rem; background: none; border: 0; border-bottom: 3px solid transparent; cursor: pointer; color: #51647a; font-weight: 600; }
+.administrative-tabs button[aria-current="page"] { color: #155e94; border-bottom-color: #155e94; }
+.administrative-contracts form { display: grid; gap: 1rem; max-width: 880px; margin-top: 1rem; }
+.administrative-contracts fieldset { border: 1px solid #dfe7f0; border-radius: .6rem; padding: 1rem; }
+.administrative-mode { display: flex; gap: 1rem; margin: .5rem 0; flex-wrap: wrap; }
+.administrative-mode label { display: flex; align-items: center; gap: .4rem; }
+.administrative-mode input { min-height: auto; }
+.administrative-form-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(230px, 1fr)); gap: .75rem; }
+@media (max-width: 600px) { .administrative-topbar { align-items: start; } .administrative-user { flex-direction: column; align-items: flex-end; gap: .25rem; } }
