@@ -40,6 +40,13 @@ def test_weekly_attendance_roles_provenance_balance_alerts_and_exclusion(env, mo
         "email": "administrativa@example.cl", "password": "password-valid-2026",
         "role": "administrative"})
     assert account.status_code == 201, account.text
+    from app.models import User
+    from app.network_models import NetworkMembership, NetworkMember
+    with sessions.begin() as db:
+        administrator = db.scalar(select(User).where(User.email == "a@example.cl"))
+        person = db.scalar(select(User).where(User.email == "administrativa@example.cl"))
+        db.add(NetworkMembership(user_id=person.id, site_id=site["id"], assigned_by=administrator.id))
+        db.add(NetworkMember(user_id=person.id, name="Administrativa de prueba"))
     roster_url = f"/api/v1/attendance/roster?site_id={site['id']}&period={period}"
     before = client.get(roster_url).json()
     assert len(before["contractors"][0]["weeks"]) == 5
@@ -47,7 +54,8 @@ def test_weekly_attendance_roles_provenance_balance_alerts_and_exclusion(env, mo
     assert before["contractors"][0]["weeks"][0]["state"] == "overdue"
     assert client.get("/api/v1/labor/alerts", params={"period": period, "site_id": site["id"]}).json()["summary"]["attendance_overdue"] >= 4
     administrative = login(client, "administrativa@example.cl")
-    assert client.post("/api/v1/labor/workers", headers=administrative, json={}).status_code == 403
+    # Only contract registration is allowed; an empty form still fails validation.
+    assert client.post("/api/v1/labor/workers", headers=administrative, json={}).status_code == 422
     monkeypatch.setenv("DOCUMENT_DIR", str(tmp_path))
     settings.cache_clear()
     pdf = fitz.open()
@@ -56,8 +64,8 @@ def test_weekly_attendance_roles_provenance_balance_alerts_and_exclusion(env, mo
     pdf.close()
     evidence = client.post("/api/v1/documents", headers=administrative,
                            files={"file": ("firmas.pdf", pdf_content, "application/pdf")})
-    assert evidence.status_code == 202, evidence.text
-    document_id = evidence.json()["id"]
+    assert evidence.status_code == 403, "Administrativo no puede cargar archivos"
+    document_id = None
     first_day = str(first)
     second_day = str(first + timedelta(days=1))
     payload = {"association_id": company["id"], "period": period, "week_number": 1,
@@ -77,7 +85,7 @@ def test_weekly_attendance_roles_provenance_balance_alerts_and_exclusion(env, mo
     data = client.get(roster_url).json()
     row = data["contractors"][0]
     assert (row["signed_days"], row["paid_days"], row["missing_payment_days"]) == (2, 1, 1)
-    assert row["weeks"][0]["entered_by"] == "administrativa@example.cl"
+    assert row["weeks"][0]["entered_by"] == "Administrativa de prueba"
     assert row["weeks"][0]["source_document_id"] == document_id
     assert row["weeks"][0]["entered_at"] and row["weeks"][0]["completed_at"]
     assert row["weeks"][0]["completed_on_time"] is False
