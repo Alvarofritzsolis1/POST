@@ -359,7 +359,17 @@ def save_week(body: SaveWeek, user: User = Depends(attendance_editor), db: Sessi
             row = CalendarEntry(org_id=user.org_id, week_id=week.id,
                 worker_assignment_id=item.worker_assignment_id, updated_by=user.id)
             db.add(row)
-        row.signed_dates = sorted(day.isoformat() for day in item.signed_dates)
+        # Historical weekend signatures remain available as evidence, even when
+        # the new Monday-Friday editor cannot display or edit those dates.
+        # This preserves original data; compliance totals use weekdays only.
+        historical_nonworkdays = [
+            stored for stored in (row.signed_dates or [])
+            if date.fromisoformat(stored).weekday() >= 5
+            and first <= date.fromisoformat(stored) <= last
+        ]
+        row.signed_dates = sorted(set(
+            [day.isoformat() for day in item.signed_dates] + historical_nonworkdays
+        ))
         row.excluded, row.reason = item.excluded, item.reason.strip()
         row.updated_at, row.updated_by = now, user.id
         after = {"dates": row.signed_dates, "excluded": row.excluded, "reason": row.reason}
