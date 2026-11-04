@@ -399,7 +399,7 @@ def create_worker(payload: WorkerCreate,
         Contractor.id == payload.contractor_id, Contractor.org_id == user.org_id))
     if contractor is None:
         raise HTTPException(404, "Contratista no encontrado")
-    if contractor_classification(association, contractor) == "CI":
+    if contractor.nature == "independent" or contractor_classification(association, contractor) == "CI":
         raise HTTPException(409, "Un independiente no puede tener trabajadores dependientes")
     worker = db.scalar(select(Worker).where(
         Worker.org_id == user.org_id, Worker.rut == payload.rut)) if payload.rut else None
@@ -463,7 +463,7 @@ def update_worker(assignment_id: str, payload: WorkerPatch,
                     ContractorWorksite.worksite_id == link.worksite_id,
                     ContractorWorksite.contractor_id == link.contractor_id,
                 ))
-                if contractor is None or association is None or contractor_classification(association, contractor) == "CI":
+                if contractor is None or association is None or contractor.nature == "independent" or contractor_classification(association, contractor) == "CI":
                     raise HTTPException(409, "Un independiente no puede tener trabajadores dependientes")
             link_changes["active"] = {"from": link.active, "to": fields["active"]}
             link.active = fields["active"]
