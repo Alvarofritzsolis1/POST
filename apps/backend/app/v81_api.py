@@ -190,6 +190,9 @@ def roster(site_id: str, period: str, association_id: str | None = None,
         signed = defaultdict(set)
         for number, (first, last) in enumerate(ranges, 1):
             days = dates_of_week(period, number)
+            if not days:
+                # Calendar slot contains only Saturday/Sunday: no weekly duty.
+                continue
             expected = [(a, w) for a, w in people if _worker_eligible(
                 a, contracts, terms, days)]
             week = week_map.get((link.id, number))
@@ -199,7 +202,8 @@ def roster(site_id: str, period: str, association_id: str | None = None,
             for assignment, worker in expected:
                 entry = entry_map.get((week.id, assignment.id)) if week else None
                 if entry and week.state == "completed" and not entry.excluded:
-                    signed[assignment.id].update(entry.signed_dates or [])
+                    signed[assignment.id].update(day for day in (entry.signed_dates or [])
+                                                 if day in {d.isoformat() for d in days})
                 week_entries.append({
                     "worker_assignment_id": assignment.id, "worker": worker.name,
                     "rut": worker.rut, "signed_dates": entry.signed_dates if entry else [],
@@ -262,7 +266,8 @@ def roster(site_id: str, period: str, association_id: str | None = None,
             "workers": people_rows, "weeks": spans,
         })
     return {"site_id": site_id, "period": period, "contractors": result,
-            "week_count": len(ranges)}
+            "week_count": sum(bool(dates_of_week(period, i))
+                               for i in range(1, len(ranges) + 1))}
 
 
 class EntryInput(BaseModel):
@@ -292,6 +297,8 @@ class SaveWeek(BaseModel):
     @model_validator(mode="after")
     def valid(self):
         days = set(dates_of_week(self.period, self.week_number))
+        if not days:
+            raise ValueError("Semana sin días laborales: sábados y domingos no generan asistencia")
         if len({r.worker_assignment_id for r in self.entries}) != len(self.entries):
             raise ValueError("Trabajador repetido")
         if any(day not in days for row in self.entries for day in row.signed_dates):
@@ -432,6 +439,8 @@ def generate_duties(body: DutyGeneration, user: User = Depends(administrator),
             continue
         for number, (_, last) in enumerate(ranges, 1):
             days = dates_of_week(body.period, number)
+            if not days:
+                continue
             expected_ids = [a.id for a, _ in assignments[company.id]
                             if _worker_eligible(a, contracts, terms, days)]
             if not expected_ids:
@@ -486,9 +495,10 @@ def edit_duty(duty_id: str, body: DutyEdit,
 
 
 def _assessment(db, org_id, period, person_id):
-    duties = db.scalars(select(CalendarDuty).where(
+    duties = [d for d in db.scalars(select(CalendarDuty).where(
         CalendarDuty.org_id == org_id, CalendarDuty.period == period,
         CalendarDuty.assigned_to == person_id).order_by(CalendarDuty.id)).all()
+        if dates_of_week(period, d.week_number)]
     keys = {(row.association_id, row.week_number) for row in duties}
     weeks = db.scalars(select(CalendarWeek).where(
         CalendarWeek.org_id == org_id, CalendarWeek.period == period,
