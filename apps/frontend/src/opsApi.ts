@@ -5,6 +5,13 @@ export type Contractor = {
   id:string;site_id:string;contractor_id:string;name:string;rut:string|null;historical_code:string|null;
   nature:string;frequency:string;contract_status:string;classification:string;worker_count:number;details?:Record<string,string>
 }
+export type WorkerLaborRow = {
+  assignment_id:string;worker_id:string;worker_name:string;worker_rut:string|null;
+  contractor_id:string;site_id:string;contract_type:string|null;
+  start_date:string|null;end_date:string|null;labor_state:string;
+  finiquito_state:string;alert:string|null;
+}
+export type WorkerRoster = {rows:WorkerLaborRow[];page:number;page_size:number;summary:Record<string,number>}
 export type Worker = {
   id:string;site_id:string;worker_id:string;contractor_id:string;name:string;rut:string|null;active:boolean
 }
@@ -47,6 +54,7 @@ export const opsApi = {
   contractors:(siteId:string)=>request<Contractor[]>("/ops/contractors?site_id="+encodeURIComponent(siteId)),
   createContractor:(data:ContractorInput)=>request<Contractor>("/ops/contractors",{method:"POST",body:JSON.stringify(data)}),
   updateContractor:(id:string,data:Partial<Omit<ContractorInput,"site_id">>)=>request<Contractor>("/ops/contractors/"+encodeURIComponent(id),{method:"PATCH",body:JSON.stringify(data)}),
+  workerRoster:(siteId:string,contractorId:string,page=1)=>request<WorkerRoster>("/labor/workers?site_id="+encodeURIComponent(siteId)+"&contractor_id="+encodeURIComponent(contractorId)+"&page_size=100&page="+page),
   workers:(siteId:string,contractorId:string)=>request<Worker[]>("/ops/workers?site_id="+encodeURIComponent(siteId)+"&contractor_id="+encodeURIComponent(contractorId)),
   createWorker:(data:WorkerInput)=>request<Worker>("/ops/workers",{method:"POST",body:JSON.stringify(data)}),
   updateWorker:(id:string,data:Partial<Omit<WorkerInput,"site_id"|"contractor_id">>&{active?:boolean})=>request<Worker>("/ops/workers/"+encodeURIComponent(id),{method:"PATCH",body:JSON.stringify(data)}),
