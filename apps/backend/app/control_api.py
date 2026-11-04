@@ -336,7 +336,8 @@ def contribution_view(row: ContributionControl, association: ContractorWorksite,
     missing = (max(0, required - row.paid_days)
                if required is not None and row.paid_days is not None else None)
     proposal = (Decimal(missing) * row.daily_rate if missing is not None else None)
-    compliance = ("conforme" if independent and row.payment_confirmed else
+    compliance = ("pendiente" if calendar_available and not independent and attendance is None else
+                  "conforme" if independent and row.payment_confirmed else
                   "no_entregado" if row.paid_days is None else
                   "pendiente" if not row.payment_confirmed else
                   "observado" if missing and row.justification.strip() else
