@@ -7,7 +7,7 @@ from collections import defaultdict
 from sqlalchemy import select
 from .attendance_api import _context, _worker_eligible
 from .calendar_v81 import calendar_weeks, dates_of_week
-from .v81_models import CalendarWeek, CalendarEntry
+from .v81_models import CalendarWeek, CalendarEntry, CalendarDuty
 from .ops_models import ContractorWorksite
 
 
@@ -28,7 +28,13 @@ def site_calendar_totals(db, org_id: str, site_id: str, period: str):
         CalendarWeek.period == period,
         CalendarWeek.association_id.in_(list(links)))).all()
     if not weeks:
-        return False, {}
+        # An initialized monthly obligation with no submissions is incomplete,
+        # not a reason to fall back to manually entered attendance.
+        duty_exists = db.scalar(select(CalendarDuty.id).where(
+            CalendarDuty.org_id == org_id, CalendarDuty.period == period,
+            CalendarDuty.association_id.in_(list(links))).limit(1)) is not None
+        if not duty_exists:
+            return False, {}
     by_key = {(w.association_id, w.week_number): w for w in weeks}
     rows = db.scalars(select(CalendarEntry).where(
         CalendarEntry.org_id == org_id,
