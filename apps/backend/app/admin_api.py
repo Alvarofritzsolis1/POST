@@ -21,7 +21,7 @@ router = APIRouter(prefix="/api/v1/admin", tags=["Administración"])
 class AccountCreate(BaseModel):
     email: str = Field(min_length=3, max_length=255)
     password: str = Field(min_length=12, max_length=256)
-    role: Literal["admin", "supervisor", "reviewer", "administrative", "viewer", "analyst"] = "supervisor"
+    role: Literal["admin", "administrative", "resident"] = "administrative"
 
     @field_validator("email")
     @classmethod
@@ -33,7 +33,7 @@ class AccountCreate(BaseModel):
 
 
 class AccountPatch(BaseModel):
-    role: Literal["admin", "supervisor", "reviewer", "administrative", "viewer", "analyst"]
+    role: Literal["admin", "administrative", "resident"]
     enabled: bool
 
 
