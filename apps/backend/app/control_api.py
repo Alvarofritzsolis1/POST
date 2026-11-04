@@ -383,6 +383,11 @@ def save_contributions(payload: ContributionInput, user: User = Depends(editor),
     if payload.worker_assignment_id:
         worker = validate_worker(db, user, link, payload.worker_assignment_id)
     subject_key = "independent" if independent else worker.id
+    from .v81_service import site_calendar_totals
+    weekly_available, weekly_totals = (
+        site_calendar_totals(db, user.org_id, link.worksite_id, payload.period)
+        if not independent else (False, {})
+    )
     row = db.scalar(select(ContributionControl).where(
         ContributionControl.org_id == user.org_id,
         ContributionControl.association_id == link.id,
@@ -411,6 +416,9 @@ def save_contributions(payload: ContributionInput, user: User = Depends(editor),
         "daily_rate", "justification", "notes", "review_status", "retention_status",
     ):
         setattr(row, field, getattr(payload, field))
+    if weekly_available and worker:
+        # Weekly evidence is the source of truth, even when incomplete (None).
+        row.attendance_days = weekly_totals.get(worker.id)
     row.updated_by = user.id
     row.updated_at = utcnow()
     evidence_changed = bool(old and (
@@ -486,7 +494,10 @@ def save_contributions(payload: ContributionInput, user: User = Depends(editor),
     if worker:
         name = db.scalar(select(Worker.name).where(
             Worker.id == worker.worker_id, Worker.org_id == user.org_id))
-    return contribution_view(row, link, company, name)
+    return contribution_view(
+        row, link, company, name,
+        auto_attendance=weekly_totals.get(worker.id) if worker else None,
+        calendar_available=weekly_available and worker is not None)
 
 
 @router.get("/contributions")
