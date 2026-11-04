@@ -63,7 +63,7 @@ export default function AdministrativeWorkspace({ user, version, logout }: {
             <button type="button" aria-current={tab === "staff" ? "page" : undefined} onClick={() => setTab("staff")}>Dotación vigente</button>
             <button type="button" aria-current={tab === "performance" ? "page" : undefined} onClick={() => setTab("performance")}>Mi rendimiento</button>
           </nav>
-          <AdministrativeControlV92 siteId={siteId} sites={sites} period={period} tab={tab} />
+          <AdministrativeControlV92 siteId={siteId} sites={sites} period={period} tab={tab} role="administrative" onChangeTab={setTab} />
         </>}
     </div>
   </main>;
