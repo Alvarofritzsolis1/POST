@@ -806,9 +806,8 @@ function App() {
                     <tr>
                       <th>Obra / contratista</th>
                       <th>Trabajador / CI</th>
-                      <th>Requeridos</th>
-                      <th>Pagados</th>
                       <th>Asistencia</th>
+                      <th>Pagados</th>
                       <th>Faltantes</th>
                       <th>Estimación CLP</th>
                       <th>Diferencia monetaria CLP</th>
@@ -830,9 +829,8 @@ function App() {
                           <br />
                           <small>{r.worker_rut}</small>
                         </td>
-                        <td>{number(r.required_days)}</td>
-                        <td>{number(r.paid_days)}</td>
                         <td>{number(r.attendance_days)}</td>
+                        <td>{number(r.paid_days)}</td>
                         <td>{number(r.missing_days)}</td>
                         <td>{number(r.estimated_retention)}</td>
                         <td>{number(r.monetary_difference)}</td>
@@ -845,8 +843,10 @@ function App() {
                         <td>
                           <span
                             className={
-                              "state " +
-                              (r.state === "confirmado" ? "good" : "pending")
+                              "status " +
+                              (r.state === "conforme" ? "success" :
+                               r.state === "incompleto" ? "review" :
+                               r.state === "observado" ? "review" : "waiting")
                             }
                           >
                             {r.state}
@@ -913,6 +913,7 @@ function App() {
                 >
                   <option value="all">Todos los estados</option>
                   <option value="pending">Pendiente</option>
+                  <option value="incomplete">Incompleto</option>
                   <option value="approved">Aprobado</option>
                   <option value="observed">Observado</option>
                   <option value="not_applicable">No aplica</option>
@@ -937,10 +938,17 @@ function App() {
                         <td>{r.name}</td>
                         <td>{r.requirement}</td>
                         <td>
+                          <span className={
+                            "status " +
+                            (r.state === "approved" ? "success" :
+                             r.state === "incomplete" || r.state === "observed" ? "review" :
+                             r.state === "overdue" || r.state === "rejected" ? "error" : "waiting")
+                          }>
                           {
                             (
                               {
                                 pending: "△ Pendiente",
+                                incomplete: "⚠ Incompleto",
                                 approved: "✓ Aprobado",
                                 observed: "! Observado",
                                 not_applicable: "— No aplica",
@@ -951,16 +959,22 @@ function App() {
                                 needs_classification: "Confirmar exigibilidad",
                                 rejected: "! Rechazado",
                               } as Record<string, string>
-                            )[r.delivery_state === "not_delivered" ? "not_delivered" :
+                            )[["incomplete", "observed"].includes(r.state) ? r.state :
+                              r.delivery_state === "not_delivered" ? "not_delivered" :
                               r.delivery_state === "pending_review" ? "pending_review" : r.state] ||
                               (r.delivery_state === "not_delivered" ? "No entregado" :
                                r.delivery_state === "pending_review" ? "Entregado — pendiente de revisión" : r.state)
                           }
+                          </span>
                         </td>
                         <td>{r.observation}</td>
                         <td>
                           {canReview && (
-                            <button onClick={() => setReviewing({ ...r })}>
+                            <button onClick={() => setReviewing({
+                              ...r,
+                              state: (["pending", "approved", "observed", "not_applicable"].includes(r.state)
+                                ? r.state : "pending"),
+                            })}>
                               Revisar
                             </button>
                           )}
@@ -1025,19 +1039,25 @@ function App() {
                 <form
                   onSubmit={(e) => {
                     e.preventDefault();
-                    void save("/ops/contributions", editing);
+                    void save("/ops/contributions", {
+                      association_id: editing.association_id,
+                      subject: editing.subject,
+                      period: editing.period,
+                      attendance_days: editing.attendance_days,
+                      paid_days: editing.paid_days,
+                      confirmed: editing.confirmed,
+                      justification: editing.justification,
+                    });
                   }}
                 >
                   {(
-                    ["required_days", "paid_days", "attendance_days"] as const
+                    ["attendance_days", "paid_days"] as const
                   ).map((key) => (
                     <label key={key}>
                       {
                         {
-                          required_days:
-                            "Días requeridos (confirmación manual)",
-                          paid_days: "Días pagados registrados",
-                          attendance_days: "Días asistencia",
+                          paid_days: "Días pagados acreditados",
+                          attendance_days: "Días de asistencia",
                         }[key]
                       }
                       <input
@@ -1064,7 +1084,7 @@ function App() {
                     </p>
                   )}
                   <label>
-                    Justificación
+                    Justificación de diferencias (requiere revisión)
                     <textarea
                       value={editing.justification}
                       onChange={(e) =>
@@ -1085,6 +1105,28 @@ function App() {
                     />
                     Pago confirmado manualmente
                   </label>
+                  {editing.subject !== "independent" &&
+                    editing.attendance_days !== null &&
+                    editing.paid_days !== null && (
+                      <div className="contribution-preview" aria-live="polite">
+                        <strong>Resultado del cuadre</strong>
+                        <p>Días faltantes: <b>{Math.max(0, editing.attendance_days - editing.paid_days)}</b></p>
+                        <p>Retención administrativa propuesta: <b>{number(
+                          Math.max(0, editing.attendance_days - editing.paid_days) *
+                            editing.daily_clp,
+                        )} CLP</b></p>
+                        <span className={
+                          "status " +
+                          (!editing.confirmed ? "waiting" :
+                            editing.attendance_days > editing.paid_days ? "review" : "success")
+                        }>
+                          {!editing.confirmed ? "Pendiente de verificar el pago" :
+                            editing.attendance_days > editing.paid_days ?
+                              "INCOMPLETO — requiere revisión" : "Sin diferencias de días"}
+                        </span>
+                        <small>La propuesta no constituye una retención aprobada.</small>
+                      </div>
+                    )}
                   <div className="toolbar">
                     <button className="primary">Guardar control</button>
                     <button type="button" onClick={() => setEditing(null)}>

@@ -39,6 +39,7 @@ export type Contribution = {
   missing_days: number | null;
   difference: number | null;
   estimated_retention: number | null;
+  daily_clp: number;
   confirmed: boolean;
   state: string;
   document_state: string;
