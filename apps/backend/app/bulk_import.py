@@ -41,8 +41,6 @@ HEADERS = {
         "NOMBRECONTRATISTA",
         "RUT",
         "COD",
-        "NATURALEZA",
-        "FRECUENCIA",
         "ESTADO",
         "TELEFONO",
         "CORREO",
@@ -135,10 +133,38 @@ def parse_date(value, required=False):
     raise ValueError(f"Fecha inválida: {text}; utiliza dd/mm/aaaa")
 
 
-def source_rows(content, filename, mapping):
+def source_rows(content, filename, mapping, kind="workers"):
     result = []
     for sheet, grid in _read_sheets(content, filename):
         if not grid:
+            continue
+        if kind == "contractors":
+            # v10.9: the contractor spreadsheet has exactly eleven source columns.
+            expected = [_key(label) for label in HEADERS["contractors"]]
+            header_index = next(
+                (i for i, row in enumerate(grid[:25])
+                 if [_key(cell) for cell in row if _key(cell)] == expected),
+                None,
+            )
+            if header_index is None:
+                raise ValueError(
+                    f"{sheet}: encabezados incorrectos; utiliza exclusivamente las 11 columnas "
+                    + ", ".join(HEADERS["contractors"])
+                )
+            fields = (
+                "external_id", "site", "specialty", "name", "rut",
+                "historical_code", "status", "phone", "email",
+                "legal_representative", "legal_representative_rut",
+            )
+            for i, raw in enumerate(grid[header_index + 1:], header_index + 2):
+                if any(raw):
+                    if any(str(value).strip() for value in raw[len(fields):]):
+                        raise ValueError(f"{sheet}:{i}: datos fuera de las 11 columnas")
+                    result.append({
+                        "row_id": f"{sheet}:{i}",
+                        **{field: raw[pos] if pos < len(raw) else ""
+                           for pos, field in enumerate(fields)},
+                    })
             continue
         header_index = next(
             (i for i, row in enumerate(grid[:25]) if "rut" in [_key(v) for v in row]),
@@ -255,74 +281,62 @@ def prepare(body, user, db):
         if body.kind == "contractors":
             existing = by_rut.get(row["rut"])
             link = links.get((site.id, existing.id)) if site and existing else None
-            status = row.get("status", "")
-            code = _key(row.get("historical_code"))
-            if code and code not in {"ct", "ci"} and code not in class_map:
-                errors.append("COD desconocido; configurar catálogo antes de importar")
-            if status and _key(status) not in status_map:
-                errors.append("Estado sin mapeo; configurar catálogo o corregir")
-            classification = row.get("classification", "") or class_map.get(
-                _key(row.get("historical_code")), ""
-            )
-            if classification and classification not in {"CT", "CI", "ESP"}:
-                errors.append("Clasificación explícita debe ser CT, CI o ESP")
-            nature = classified_value(row.get("nature", ""), NATURE_VALUES, "Naturaleza", errors)
-            frequency = classified_value(row.get("frequency", ""), FREQUENCY_VALUES, "Frecuencia", errors)
-            legacy_nature = {"CT": "with_workers", "CI": "independent"}.get(classification)
-            if nature and legacy_nature and nature != legacy_nature:
-                errors.append("Naturaleza contradice la clasificación explícita")
-            nature = nature or legacy_nature
-            if classification == "ESP":
-                if frequency and frequency != "sporadic":
-                    errors.append("Frecuencia contradice la clasificación ESP explícita")
-                frequency = frequency or "sporadic"
-            # CI denotes independent by definition; CT alone does not establish
-            # whether people are employed, and neither code defines frequency.
-            if code == "ci":
-                if nature and nature != "independent":
-                    errors.append("COD CI contradice la naturaleza indicada")
-                nature = nature or "independent"
-            if not nature and (not existing or existing.nature == "unclassified"):
-                warnings.append("Naturaleza sin determinar; indicar NATURALEZA")
-            if not frequency and (not link or link.frequency == "unclassified"):
-                warnings.append("Frecuencia sin determinar; indicar FRECUENCIA")
+            code = row.get("historical_code", "").strip().upper()
+            status = row.get("status", "").strip().upper()
+            row["historical_code"], row["status"] = code, status
+            if code not in {"CT", "CE", "CI"}:
+                errors.append("COD inválido: solo se permite CT, CE o CI")
+            if status not in {"ACTIVO", "INACTIVO"}:
+                errors.append("ESTADO inválido: solo se permite ACTIVO o INACTIVO")
             if row["name"].isdigit():
                 errors.append("Nombre sospechoso: contiene únicamente números")
-            if (
-                existing
-                and nature == "independent"
-                and has_active_workers(db, user.org_id, existing.id)
-            ):
-                errors.append(
-                    "Independiente con trabajadores activos; corregir primero las asignaciones"
+            if code == "CI" and site and existing:
+                active_here = db.scalar(
+                    select(WorkerAssignment.id).where(
+                        WorkerAssignment.org_id == user.org_id,
+                        WorkerAssignment.contractor_id == existing.id,
+                        WorkerAssignment.worksite_id == site.id,
+                        WorkerAssignment.active.is_(True),
+                    ).limit(1)
                 )
+                if active_here:
+                    errors.append(
+                        "CI tiene trabajadores activos en esta obra; revisar sus asignaciones antes de cambiar COD"
+                    )
+            # Contractor identity is global by RUT. Classification is per obra.
             target = {"name": row["name"]}
-            if nature:
-                target["nature"] = nature
+            expected_nature = "independent" if code == "CI" else "with_workers"
+            associated_sites = (
+                [entry for entry in links.values() if existing and entry.contractor_id == existing.id]
+                if existing else []
+            )
+            # Keep a legacy nature hint only where a single site makes it unambiguous.
+            if code in {"CT", "CE", "CI"} and (
+                not existing or not associated_sites or
+                (len(associated_sites) == 1 and site and associated_sites[0].worksite_id == site.id)
+            ):
+                target["nature"] = expected_nature
             extra = {
                 k: row[k]
                 for k in (
-                    "external_id",
-                    "specialty",
-                    "contact",
-                    "phone",
-                    "email",
-                    "legal_representative",
+                    "phone", "email", "legal_representative",
                     "legal_representative_rut",
                 )
                 if row.get(k)
             }
-            link_target = (
-                {"historical_code": row["historical_code"]}
-                if row.get("historical_code")
-                else {}
-            )
-            if len(row.get("historical_code", "")) > 20:
-                errors.append("COD supera 20 caracteres")
-            if status and _key(status) in status_map:
-                link_target["contract_status"] = status_map[_key(status)]
-            if frequency:
-                link_target["frequency"] = frequency
+            scoped_extra = {
+                k: row[k]
+                for k in ("external_id", "specialty")
+                if row.get(k)
+            }
+            link_target = {}
+            if code in {"CT", "CE", "CI"}:
+                link_target["historical_code"] = code
+                link_target["frequency"] = "sporadic" if code == "CE" else "fixed"
+            if status in {"ACTIVO", "INACTIVO"}:
+                link_target["contract_status"] = (
+                    "active" if status == "ACTIVO" else "inactive"
+                )
             if extra.get("legal_representative_rut"):
                 try:
                     extra["legal_representative_rut"] = normalize_rut(
@@ -334,22 +348,33 @@ def prepare(body, user, db):
                 for field, val in target.items():
                     if getattr(existing, field) != val:
                         changes[field] = {"from": getattr(existing, field), "to": val}
+                old_details = details.get(existing.id, {}) or {}
                 for field, val in extra.items():
-                    old = details.get(existing.id, {}).get(field)
+                    if old_details.get(field) != val:
+                        changes[field] = {"from": old_details.get(field), "to": val}
+                old_site_extra = (
+                    (old_details.get("worksites") or {}).get(site.id, {})
+                    if site else {}
+                )
+                for field, val in scoped_extra.items():
+                    old = old_site_extra.get(field)
                     if old != val:
-                        changes[field] = {"from": old, "to": val}
+                        changes[f"obra.{field}"] = {"from": old, "to": val}
                 if link:
                     for field, val in link_target.items():
                         if getattr(link, field) != val:
                             changes[field] = {"from": getattr(link, field), "to": val}
             identity = (row["rut"], site.id if site else row.get("site"))
-            general = {**target, **extra}
+            general = {"name": row["name"], **extra}
             if row["rut"] in identities and identities[row["rut"]] != general:
                 errors.append(
                     "Mismo RUT con información general contradictoria en el archivo"
                 )
             identities[row["rut"]] = general
-            resolved = {"target": target, "extra": extra, "link_target": link_target}
+            resolved = {
+                "target": target, "extra": extra,
+                "scoped_extra": scoped_extra, "link_target": link_target,
+            }
         else:
             matches = [
                 c
@@ -583,7 +608,9 @@ async def preview(
             k not in ALIASES or not isinstance(v, str) for k, v in mapping.items()
         ):
             raise ValueError("Mapeo de columnas inválido")
-        rows = source_rows(data, file.filename or "", mapping)
+        if kind == "contractors" and mapping:
+            raise ValueError("La carga de contratistas usa 11 encabezados fijos; no requiere mapeo")
+        rows = source_rows(data, file.filename or "", mapping, kind)
         if default_site:
             from .ops_api import site_for
 
@@ -695,7 +722,14 @@ def commit(
                 if extra is None:
                     extra = ContractorDetails(contractor_id=obj.id, values={})
                     db.add(extra)
-                extra.values = {**(extra.values or {}), **item["extra"]}
+                values = {**(extra.values or {}), **item["extra"]}
+                if item["scoped_extra"]:
+                    scopes = dict(values.get("worksites") or {})
+                    scope = dict(scopes.get(item["site_id"]) or {})
+                    scope.update(item["scoped_extra"])
+                    scopes[item["site_id"]] = scope
+                    values["worksites"] = scopes
+                extra.values = values
                 link = db.scalar(
                     select(ContractorWorksite).where(
                         ContractorWorksite.org_id == user.org_id,
