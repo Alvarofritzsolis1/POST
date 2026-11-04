@@ -21,7 +21,9 @@ router = APIRouter(prefix="/api/v1/admin", tags=["Administración"])
 class AccountCreate(BaseModel):
     email: str = Field(min_length=3, max_length=255)
     password: str = Field(min_length=12, max_length=256)
-    role: Literal["admin", "administrative", "resident"] = "administrative"
+    role: Literal["admin", "administrative", "resident"] = "admin"
+    name: str = Field(default="", max_length=180)
+    site_ids: list[str] = Field(default_factory=list, max_length=100)
 
     @field_validator("email")
     @classmethod
@@ -35,6 +37,7 @@ class AccountCreate(BaseModel):
 class AccountPatch(BaseModel):
     role: Literal["admin", "administrative", "resident"]
     enabled: bool
+    site_ids: list[str] | None = None
 
 
 class Preferences(BaseModel):
@@ -185,9 +188,17 @@ def create_user(
     user: User = Depends(administrator),
     db: Session = Depends(get_db),
 ):
-    # Lock the organization to serialize administration and prevent removal of its last admin.
+    # This legacy endpoint must observe the same role/site authorization
+    # constraints as the main Red de Obras account editor.
     from .network_service import lock_org
+    from .network_models import NetworkMember, NetworkMembership
     lock_org(db, user)
+    if body.role != "admin" and not body.site_ids:
+        raise HTTPException(422, "Debes asignar al menos una obra al Administrativo o Residente")
+    if len(set(body.site_ids)) != len(body.site_ids):
+        raise HTTPException(422, "No se pueden repetir las obras asignadas")
+    for site_id in body.site_ids:
+        site_for(db, user.org_id, site_id)
     if db.scalar(select(User.id).where(User.email == body.email)):
         raise HTTPException(
             409,
@@ -202,6 +213,10 @@ def create_user(
     db.add(row)
     try:
         db.flush()
+        if body.role != "admin":
+            db.add(NetworkMember(user_id=row.id, name=body.name.strip()))
+            for site_id in body.site_ids:
+                db.add(NetworkMembership(user_id=row.id, site_id=site_id, assigned_by=user.id))
         audit_change(
             db,
             user,
@@ -223,7 +238,9 @@ def update_user(
     user: User = Depends(administrator),
     db: Session = Depends(get_db),
 ):
-    from .network_service import lock_org
+    from .network_service import lock_org, assigned_sites
+    from .network_models import NetworkMembership
+    from sqlalchemy import delete
     lock_org(db, user)
     row = db.scalar(select(User).where(User.id == user_id, User.org_id == user.org_id))
     if row is None:
@@ -231,8 +248,20 @@ def update_user(
     if row.id == user.id and (not body.enabled or body.role != "admin"):
         raise HTTPException(409, "No puedes deshabilitar o degradar tu propia cuenta")
     before = account_view(row)
+    existing_sites = assigned_sites(db, row)
+    site_ids = existing_sites if body.site_ids is None else set(body.site_ids)
+    if body.site_ids is not None and len(site_ids) != len(body.site_ids):
+        raise HTTPException(422, "No se pueden repetir las obras asignadas")
+    if body.role != "admin" and not site_ids:
+        raise HTTPException(422, "Debes asignar al menos una obra al Administrativo o Residente")
+    if body.site_ids is not None:
+        for site_id in site_ids:
+            site_for(db, user.org_id, site_id)
+        db.execute(delete(NetworkMembership).where(NetworkMembership.user_id == row.id))
+        for site_id in site_ids:
+            db.add(NetworkMembership(user_id=row.id, site_id=site_id, assigned_by=user.id))
     row.role, row.enabled = body.role, body.enabled
-    if before["role"] != row.role or before["enabled"] != row.enabled:
+    if before["role"] != row.role or before["enabled"] != row.enabled or site_ids != existing_sites:
         from .network_accounts import revoke_sessions
         revoke_sessions(db, row)
     audit_change(db, user, "user", row.id, {"from": before, "to": account_view(row)})
