@@ -18,7 +18,7 @@ from .models import Document, Organization, User, utcnow
 from .ops_api import association_for, assignment_for, audit_change, clean_name, normalize_rut, site_for
 from .ops_models import Contractor, ContractorWorksite, OpsChange, Worker, WorkerAssignment, Worksite
 from .platform_models import ContractAttachment, PaymentFinding, WorkerTermination
-from .security import authorized_user, document_reviewer, editor
+from .security import authorized_user, contract_entry_editor, document_reviewer, editor
 
 router = APIRouter(prefix="/api/v1/labor", tags=["Trabajadores y finiquitos"])
 
@@ -334,7 +334,13 @@ def contractor_options(site_id: str | None = None, user: User = Depends(authoriz
 
 
 @router.post("/workers", status_code=201)
-def create_worker(body: WorkerIntake, user: User = Depends(editor), db: Session = Depends(get_db)):
+def create_worker(body: WorkerIntake, user: User = Depends(contract_entry_editor), db: Session = Depends(get_db)):
+    if user.role == "administrative":
+        from .network_service import assigned_sites
+        if body.site_id not in assigned_sites(db, user):
+            raise HTTPException(403, "No tienes permiso para registrar trabajadores en esta obra")
+        if body.contract.document_id:
+            raise HTTPException(422, "El registro de contratos no admite archivos adjuntos")
     association, company = association_for(db, user.org_id, db.scalar(select(ContractorWorksite.id).where(
         ContractorWorksite.org_id == user.org_id,
         ContractorWorksite.contractor_id == body.contractor_id,
@@ -371,8 +377,14 @@ def create_worker(body: WorkerIntake, user: User = Depends(editor), db: Session 
 
 
 @router.post("/contracts", status_code=201)
-def create_contract(body: ContractCreate, user: User = Depends(editor), db: Session = Depends(get_db)):
+def create_contract(body: ContractCreate, user: User = Depends(contract_entry_editor), db: Session = Depends(get_db)):
     assignment, _ = assignment_for(db, user.org_id, body.assignment_id)
+    if user.role == "administrative":
+        from .network_service import assigned_sites
+        if assignment.worksite_id not in assigned_sites(db, user):
+            raise HTTPException(403, "No tienes permiso para registrar contratos en esta obra")
+        if body.document_id:
+            raise HTTPException(422, "El registro de contratos no admite archivos adjuntos")
     association = db.scalar(select(ContractorWorksite).where(
         ContractorWorksite.org_id == user.org_id,
         ContractorWorksite.contractor_id == assignment.contractor_id,
