@@ -25,8 +25,8 @@ def test_shared_monthly_record_across_users(monkeypatch):
         db.flush()
         db.add_all([
             User(org_id=org.id, email="admin1@example.cl", role="admin", password_hash=hash_password("password-seguro-2026")),
-            User(org_id=org.id, email="admin2@example.cl", role="analyst", password_hash=hash_password("password-seguro-2026")),
-            User(org_id=org.id, email="viewer@example.cl", role="viewer", password_hash=hash_password("password-seguro-2026")),
+            User(org_id=org.id, email="admin2@example.cl", role="admin", password_hash=hash_password("password-seguro-2026")),
+            User(org_id=org.id, email="viewer@example.cl", role="resident", password_hash=hash_password("password-seguro-2026")),
             User(org_id=separate.id, email="outsider@example.cl", role="admin", password_hash=hash_password("password-seguro-2026"))
         ])
         org_id = org.id
@@ -77,7 +77,7 @@ def test_shared_monthly_record_across_users(monkeypatch):
             assert records[0]["review_status"]=="approved"
             login(client,"viewer@example.cl")
             assert client.get("/api/v1/ops/monthly-documents",
-                params={"association_id":association_id,"period":"2026-10"}).json()[0]["review_status"]=="approved"
+                params={"association_id":association_id,"period":"2026-10"}).status_code==403
             cannot_review=client.patch("/api/v1/ops/monthly-documents/"+monthly_id,
                 json={"review_status":"rejected","notes":"Sin autorización"},
                 headers={"X-CSRF-Token":client.cookies["galant_post_csrf"]})
