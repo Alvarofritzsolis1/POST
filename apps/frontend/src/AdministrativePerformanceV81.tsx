@@ -9,6 +9,7 @@ type Result = {
   user_id: string; name: string; required: number; completed: number; punctual: number;
   completion: number | null; punctuality: number | null; grade: number | null;
   overdue: number; delivered_late: number; exempt: number; duties: Duty[];
+  login_count: number; last_login_at: string | null;
   approved: { revision: number; grade: number | null; approved_at: string; observations: string } | null;
 };
 const message = (e: unknown) => e instanceof Error ? e.message : String(e);
@@ -100,7 +101,12 @@ export default function AdministrativePerformance({ sites, period }: { sites: Si
         <div><small>Puntualidad</small><b>{row.punctuality === null ? "—" : row.punctuality.toFixed(1) + "%"}</b></div>
         <div><small>Entregas atrasadas</small><b>{row.delivered_late}</b></div>
         <div><small>Vencidas pendientes</small><b>{row.overdue}</b></div>
+        <div><small>Ingresos a la plataforma</small><b>{row.login_count}</b>
+          <small>{row.last_login_at ? new Date(row.last_login_at).toLocaleString("es-CL",
+            { timeZone: "America/Santiago", dateStyle: "short", timeStyle: "short" })
+            : "Sin ingresos durante este mes"}</small></div>
       </div>
+      <p className="muted">Los ingresos a la plataforma son informativos y no afectan la nota.</p>
       {row.approved && <p className="performance-approved">Última evaluación aprobada: versión {row.approved.revision} · nota {row.approved.grade?.toFixed(1) ?? "—"}</p>}
       <div className="performance-actions">
         <button disabled={busy || row.required === 0} onClick={() => void execute(
