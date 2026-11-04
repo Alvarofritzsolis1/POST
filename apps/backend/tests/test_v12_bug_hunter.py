@@ -38,6 +38,17 @@ def test_v12_ci_site_blocks_labor_intake_even_when_shared_company_is_ct_elsewher
     independent = next(x for x in options.json() if x["contractor_id"] == ct.json()["contractor_id"])
     assert independent["classification"] == "CI"
     assert independent["nature"] == "independent"
+    roster=client.get("/api/v1/attendance/roster",params={
+        "site_id":sites[1]["id"],"period":today().strftime("%Y-%m"),
+    })
+    assert roster.status_code == 200,roster.text
+    ci_roster=next(row for row in roster.json()["contractors"] if row["association_id"]==ci.json()["id"])
+    assert ci_roster["roster_status"]=="excluded"
+    assert all(w["state"] in {"excluded","not_applicable"} for w in ci_roster["weeks"])
+    forced=client.put("/api/v1/attendance/roster",headers=head,json={
+        "association_id":ci.json()["id"],"period":today().strftime("%Y-%m"),"status":"included",
+    })
+    assert forced.status_code == 422,forced.text
     created = client.post("/api/v1/labor/workers", headers=head, json={
         "site_id": sites[1]["id"],
         "contractor_id": ci.json()["contractor_id"],
