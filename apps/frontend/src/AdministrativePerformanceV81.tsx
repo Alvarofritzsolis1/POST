@@ -22,6 +22,9 @@ export default function AdministrativePerformance({ sites, period }: { sites: Si
   const [error, setError] = useState("");
   const [notice, setNotice] = useState("");
   const [revision, setRevision] = useState(0);
+  const [graceDays, setGraceDays] = useState(1);
+  const [cutoff, setCutoff] = useState("23:59");
+  const [weight, setWeight] = useState("0.70");
   useEffect(() => {
     let active = true;
     void request<Account[]>("/network/users")
@@ -36,10 +39,20 @@ export default function AdministrativePerformance({ sites, period }: { sites: Si
       .catch((e) => { if (active) setError(message(e)); });
     return () => { active = false; };
   }, [period, revision]);
-  async function execute(url: string, body: object, success: string) {
+  useEffect(() => {
+    if (!siteId) return;
+    let active = true;
+    void request<{grace_days: number; cutoff: string; completion_weight: number}>(`/attendance-v81/settings?site_id=${encodeURIComponent(siteId)}`)
+      .then((result) => { if (active) {
+        setGraceDays(result.grace_days); setCutoff(result.cutoff);
+        setWeight(result.completion_weight.toString());
+      } }).catch((e) => { if (active) setError(message(e)); });
+    return () => { active = false; };
+  }, [siteId]);
+  async function execute(url: string, body: object, success: string, method: "POST" | "PUT" = "POST") {
     setError(""); setNotice(""); setBusy(true);
     try {
-      await request(url, { method: "POST", body: JSON.stringify(body) });
+      await request(url, { method, body: JSON.stringify(body) });
       setNotice(success); setRevision((v) => v + 1);
     } catch (e) { setError(message(e)); } finally { setBusy(false); }
   }
@@ -61,7 +74,23 @@ export default function AdministrativePerformance({ sites, period }: { sites: Si
           Generar obligaciones</button>
       </div>
     </section>
-    {error && <p role="alert" className="alert danger">{error}</p>}
+    {siteId && <section className="panel performance-assign">
+      <h3>Configuración de plazos y calificación</h3>
+      <p>Los plazos se aplican a las nuevas obligaciones. Las entregas ya asignadas conservan su fecha límite original.</p>
+      <div className="performance-fields">
+        <label>Días después del cierre semanal <input type="number" min={0} max={31} value={graceDays}
+          onChange={(e) => setGraceDays(Number(e.target.value))} /></label>
+        <label>Hora límite (Chile) <input type="time" value={cutoff}
+          onChange={(e) => setCutoff(e.target.value)} /></label>
+        <label>Peso del cumplimiento (0 a 1) <input type="number" step="0.05" min={0} max={1}
+          value={weight} onChange={(e) => setWeight(e.target.value)} /></label>
+        <button disabled={busy || graceDays < 0 || graceDays > 31 || Number(weight) < 0 || Number(weight) > 1}
+          onClick={() => void execute("/attendance-v81/settings",
+            { site_id: siteId, grace_days: graceDays, cutoff, completion_weight: Number(weight) },
+            "Configuración guardada.", "PUT")}>Guardar configuración</button>
+      </div>
+    </section>}
+    {error && <p role="alert" className="alert danger">{error}</p>
     {notice && <p role="status" className="alert success">{notice}</p>}
     <div className="performance-list">{rows.map((row) => <section className="panel" key={row.user_id}>
       <div className="performance-card-head"><div><h3>{row.name}</h3><p>{row.required} entregas exigibles · {row.exempt} justificadas</p></div>
