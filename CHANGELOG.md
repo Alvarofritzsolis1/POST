@@ -1,5 +1,12 @@
 # Historial de cambios
 
+## 10.10.0-rc1 — Activos e inactivos y resiliencia de fichas (candidata)
+
+- Filtros y semáforos de estado; ficha de contratistas con trabajadores, documentación e historial.
+- Corrección de detalles anidados que podían provocar pantalla blanca; aislamiento de errores React.
+- Inactivos sin nuevas obligaciones documentales ni de asistencia en período vigente/futuro; históricos preservados.
+- Pruebas de datos multiobra y no exigibilidad. Estado: pendiente de CI y QA de navegación.
+
 ## 10.9.0-rc1 — Importación especializada de contratistas por obra (candidata)
 
 - Plantilla estricta de 11 columnas, sin NATURALEZA ni FRECUENCIA.

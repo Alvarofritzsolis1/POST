@@ -17,6 +17,7 @@ import { opsApi, type Site } from "./opsApi";
 import { Login } from "./DocumentAnalysis";
 import DocumentAnalysis from "./DocumentAnalysis";
 import Operations from "./Operations";
+import ErrorBoundary from "./ErrorBoundary";
 import Workers from "./Workers";
 import AdminAttendanceV93 from "./AdminAttendanceV93";
 import AdministrativePerformanceV81 from "./AdministrativePerformanceV81";
@@ -695,6 +696,7 @@ function App() {
           )}
           {section === "contractors" &&
             (site ? (
+              <ErrorBoundary key={"contractors-"+site} name="la ficha de contratistas">
               <Operations
                 readOnly={readonly}
                 externalSiteId={site}
@@ -704,22 +706,23 @@ function App() {
                 classificationFilter={classification}
                 onSiteChange={setSite}
               />
+              </ErrorBoundary>
             ) : (
               <div className="panel empty">
                 Selecciona una obra en la barra superior para administrar sus
                 contratistas y trabajadores.
               </div>
             ))}
-          {section === "workers" && <Workers siteId={site} sites={sites} period={period}
+          {section === "workers" && <ErrorBoundary key={"workers-"+site} name="el módulo de trabajadores"><Workers siteId={site} sites={sites} period={period}
             canEdit={!!canEdit} canReview={!!canReview}
             initialPending={filter === "finiquito_pending"}
             initialAssignment={targetWorker}
-            initialState={filter === "expired_needs_review" || filter === "ending_soon" ? filter : ""} />}
+            initialState={filter === "expired_needs_review" || filter === "ending_soon" ? filter : ""} /></ErrorBoundary>}
           {section === "attendance" && <AdminAttendanceV93 siteId={site} sites={sites} period={period}
             onSiteSelect={setSite} onEvaluate={() => go("evaluations")} />}
           {section === "evaluations" && <AdministrativePerformanceV81 sites={sites} period={period} />}
           {section === "imports" && (
-            <BulkImport readOnly={readonly} siteId={site} />
+            <ErrorBoundary key={"imports-"+site} name="carga masiva"><BulkImport readOnly={readonly} siteId={site} /></ErrorBoundary>
           )}
           {(section === "contributions" || section === "reports") && (
             <section className="panel">

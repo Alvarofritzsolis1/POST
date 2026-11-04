@@ -19,7 +19,7 @@ const statuses:Record<string,string>={
   pending:"Pendiente de revisión",approved:"Aprobado",observed:"Observado",
   rejected:"Rechazado",not_applicable:"No aplica",needs_classification:"Definir exigibilidad",
   not_yet_required:"No exigible todavía",overdue:"Vencido",
-  schedule_not_configured:"Sin calendario configurado"
+  schedule_not_configured:"Sin calendario configurado",inactive:"No exigible: contratista inactivo"
 }
 const nameOf=(kind:string)=>types.find(item=>item.value===kind)?.label||kind
 const todayMonth=()=>{const now=new Date();return now.getFullYear()+"-"+String(now.getMonth()+1).padStart(2,"0")}
@@ -38,8 +38,9 @@ export default function MonthlyDocuments({contractor,readOnly}:{contractor:Contr
   const [error,setError]=useState("")
   const [notice,setNotice]=useState("")
   const [notes,setNotes]=useState<Record<string,string>>({})
-  const independent=contractor.nature==="independent"
-  const withWorkers=contractor.nature==="with_workers"
+  const independent=contractor.classification==="CI"
+  const withWorkers=contractor.classification==="CT"
+  const inactivePeriod=contractor.contract_status!=="active" && period>=todayMonth()
   const required=types.filter(t=>t.value!=="otros").map(t=>t.value)
 
   const reload=useCallback(async()=>{
@@ -144,7 +145,8 @@ export default function MonthlyDocuments({contractor,readOnly}:{contractor:Contr
         <input id="monthly-period" type="month" min="2000-01" max="2099-12" value={period} onChange={e=>setPeriod(e.target.value)}/>
         <button type="button" className="secondary" disabled={loading||busy} onClick={()=>void reload().catch(err=>setError(errText(err)))} title="Actualizar documentos"><RefreshCcw size={16}/> Actualizar</button></div>
     </div>
-    <div className="monthly-summary"><strong>{eligible.length?approved+" de "+eligible.length:"Sin evaluar"}</strong><span>requisitos exigibles aprobados en {period}; no aplica y no exigible no cuentan como incumplimiento</span></div>
+    {inactivePeriod&&<p className="ops-inactive-banner" role="status">Contratista inactivo: no se generan nuevas obligaciones documentales para este período. La documentación histórica permanece disponible para consulta.</p>}
+    <div className="monthly-summary"><strong>{inactivePeriod?"No exigible":eligible.length?approved+" de "+eligible.length:"Sin evaluar"}</strong><span>requisitos exigibles aprobados en {period}; no aplica y no exigible no cuentan como incumplimiento</span></div>
     {!independent&&!withWorkers&&<p className="ops-help">Contratista sin clasificación documental completa: confirma su naturaleza y obligaciones antes de aprobar el período.</p>}
     {error&&<p className="form-error" role="alert">{error}</p>}
     {notice&&<p className="alert success" role="status"><CheckCircle2 size={16}/>{notice}</p>}
@@ -162,7 +164,7 @@ export default function MonthlyDocuments({contractor,readOnly}:{contractor:Contr
           </div>:req?.applicable===null?"Configura la exigibilidad en Centro de control":"—"}</td>
         </tr>})}
       </tbody></table></div>
-      {!readOnly&&<div className="monthly-forms">
+      {!readOnly&&!inactivePeriod&&<div className="monthly-forms">
         <form onSubmit={event=>void uploadAndLink(event)}>
           <h4><UploadCloud size={17}/> Subir documentación mensual</h4>
           <label>Tipo de documento<select value={kind} onChange={e=>setKind(e.target.value)}>{types.map(t=><option key={t.value} value={t.value}>{t.label}</option>)}</select></label>
