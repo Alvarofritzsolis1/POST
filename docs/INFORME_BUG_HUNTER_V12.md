@@ -14,6 +14,7 @@
 | BH12-04 | P2 | `labor_api.py:GET /labor/alerts` | CI válido con frecuencia legada 'unclassified' generaba una alerta falsa | Solo COD explícito CT/CE/CI define la clasificación |
 | BH12-05 | P1 (preventivo) | `labor_api.py:POST /labor/contracts` | Una asignación heredada con COD=CI permitía registrar otro contrato laboral | Impide nuevos contratos dependientes bajo CI |
 | BH12-06 | P2 | `labor_api.py:GET /labor/contractors` | Las opciones del selector mostraban naturaleza global, equivocada para CI en una de dos obras | Respuesta por obra y clasificación efectiva |
+| BH12-07 | P1 | `attendance_api.py:roster / PUT roster / PUT weeks` | CI en obra B con naturaleza global 'with_workers' podía figurar incluido y recibir nuevas semanas/alertas | Excluye CI en mes vigente/futuro según COD real de la obra, bloquea inclusión manual y conserva meses históricos |
 
 **Nota:** la severidad refleja impacto potencial; pasar una prueba de regresión confirma que la conducta está corregida en el código probado, no demuestra que la plataforma completa está libre de defectos.
 
@@ -26,6 +27,7 @@
 3. Denegación de contratos nuevos bajo CI con asignaciones históricas inconsistentes.
 4. Rechazo de nuevos vínculos documentales de inactivos en mes actual; consulta y revisión de evidencia anterior sin pérdida.
 5. Ausencia de falsas alertas de clasificación en CI legítimo con frecuencia heredada sin completar.
+6. CI no debe generar nuevas obligaciones de asistencia de trabajadores, aun si la naturaleza global de la empresa indica trabajadores en otra obra.
 
 La suite existente continúa siendo requerida: `python -m pytest -q` y `npm run build`.
 
