@@ -255,8 +255,21 @@ def contractors(site_id: str, user: User = Depends(authorized_user), db: Session
         WorkerAssignment.worksite_id == site_id,
         WorkerAssignment.active.is_(True),
     ).group_by(WorkerAssignment.contractor_id)).all())
-    extras = {r.contractor_id: r.values for r in db.scalars(select(ContractorDetails).where(ContractorDetails.contractor_id.in_([c.id for _, c in rows])))}
-    return [{**contractor_view(link, contractor, counts.get(contractor.id, 0)), "details": extras.get(contractor.id, {})} for link, contractor in rows]
+    # ContractorDetails also stores a nested 'worksites' map; expose only scalar
+    # fields relevant to the selected worksite so React never renders raw objects.
+    extras = {r.contractor_id: (r.values or {}) for r in db.scalars(
+        select(ContractorDetails).where(ContractorDetails.contractor_id.in_([c.id for _, c in rows]))
+    )}
+    def visible_details(contractor_id: str, worksite_id: str) -> dict:
+        raw = extras.get(contractor_id, {})
+        scoped = (raw.get("worksites") or {}).get(worksite_id, {})
+        return {
+            key: value for key, value in {**raw, **scoped}.items()
+            if key != "worksites" and isinstance(value, (str, int, float, bool))
+        }
+    return [{**contractor_view(link, contractor, counts.get(contractor.id, 0)),
+             "details": visible_details(contractor.id, link.worksite_id)}
+            for link, contractor in rows]
 
 
 @router.post("/contractors", status_code=201)
