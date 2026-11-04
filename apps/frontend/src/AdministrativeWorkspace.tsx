@@ -2,7 +2,7 @@ import { useEffect, useState } from "react";
 import type { Profile } from "./api";
 import { request } from "./api";
 import { opsApi, type Site } from "./opsApi";
-import Attendance from "./Attendance";
+import Attendance from "./WeeklyAttendanceV81";
 import ContractEntry from "./ContractEntry";
 import "./administrative.css";
 
