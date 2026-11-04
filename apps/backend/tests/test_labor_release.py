@@ -143,16 +143,25 @@ def test_worker_first_contract_expiry_termination_pdf_review_and_history(env, mo
     delivered = client.post(f"/api/v1/labor/terminations/{term_id}/document", headers=head,
                             json={"document_id": document_id, "ratification_mode": "electronic"})
     assert delivered.status_code == 200 and delivered.json()["review_state"] == "delivered"
+    # V8.1 has exactly three roles. An administrative without this site's
+    # assignment cannot create a worker or review document evidence.
     new_user = client.post("/api/v1/admin/users", headers=head, json={
-        "email": "reviewer@example.cl", "password": "password-valid-2026", "role": "reviewer"})
+        "email": "administrativo.qa@example.cl", "password": "password-valid-2026",
+        "role": "administrative", "name": "Administrativo sin acceso",
+        "site_ids": [next(x["id"] for x in client.get("/api/v1/ops/sites").json()
+                     if x["id"] != site["id"])]})
     assert new_user.status_code == 201
-    reviewer = login(client, "reviewer@example.cl")
-    assert client.post("/api/v1/labor/workers", headers=reviewer, json={
+    administrative = login(client, "administrativo.qa@example.cl")
+    assert client.post("/api/v1/labor/workers", headers=administrative, json={
         "site_id": site["id"], "contractor_id": company["contractor_id"],
         "name": "Prohibida", "rut": rut(11000124),
         "contract": {"contract_type": "indefinite", "start_date": str(today())},
     }).status_code == 403
-    approved = client.post(f"/api/v1/labor/terminations/{term_id}/review", headers=reviewer,
+    assert client.post(f"/api/v1/labor/terminations/{term_id}/review",
+                       headers=administrative,
+                       json={"state": "approved", "observation": "Sin autorización"}).status_code == 403
+    head = login(client, "a@example.cl")
+    approved = client.post(f"/api/v1/labor/terminations/{term_id}/review", headers=head,
                            json={"state": "approved", "observation": "PDF conforme"})
     assert approved.status_code == 200, approved.text
     detail = client.get("/api/v1/labor/workers/" + assignment_id).json()
@@ -258,5 +267,5 @@ def test_additive_migration_idempotent_and_persistent_after_reopen(tmp_path):
     reopened = create_engine("sqlite+pysqlite:///" + str(path))
     with Session(reopened) as db:
         assert db.get(Organization, "legacy-org").name == "Organización histórica"
-        assert set(db.scalars(select(SchemaVersion.version))) == {"0.6.0-rc1", "0.7.0"}
+        assert set(db.scalars(select(SchemaVersion.version))) == {"0.6.0-rc1", "0.7.0", "8.1.0"}
     reopened.dispose()

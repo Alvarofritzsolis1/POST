@@ -1,0 +1,33 @@
+.performance-v81 { display:grid; gap:1rem; min-width:0 }
+.performance-heading h2,.performance-card-head h3{margin:0}
+.performance-heading p,.performance-card-head p,.performance-assign p{font-size:.9rem;color:#697d90}
+.performance-fields{display:flex;align-items:end;flex-wrap:wrap;gap:.8rem}
+.performance-fields label{display:grid;gap:.35rem;min-width:210px;flex:1}
+.performance-fields select{width:100%;padding:.65rem;border:1px solid #cddbe8;border-radius:.45rem;background:#fff;color:#19334c}
+.performance-fields button,.performance-actions button{padding:.7rem 1rem;border:1px solid #9fbcd1;border-radius:.5rem;background:#eaf5fc;color:#15557d;cursor:pointer;font-weight:600}
+.performance-fields button:disabled,.performance-actions button:disabled{opacity:.55;cursor:not-allowed}
+.performance-list{display:grid;grid-template-columns:repeat(auto-fit,minmax(350px,1fr));gap:1rem}
+.performance-card-head{display:flex;justify-content:space-between;align-items:start;gap:1rem;flex-wrap:wrap}
+.performance-grade{font-size:1.5rem}
+.performance-metrics{display:grid;grid-template-columns:repeat(2,1fr);gap:.5rem;margin:1rem 0}
+.performance-metrics>div{padding:.85rem;background:#f4f8fc;border-radius:.5rem;display:grid;gap:.3rem}
+.performance-metrics small{color:#66798c}
+.performance-metrics b{font-size:1.3rem}
+.performance-approved{color:#286744;font-size:.85rem}
+.performance-actions{display:flex;justify-content:flex-end}
+@media(max-width:620px){.performance-list{grid-template-columns:minmax(0,1fr)}}
+
+
+.performance-duties{margin:1rem 0;padding:.75rem;border:1px solid #d8e4ef;border-radius:.65rem}
+.performance-duties summary{cursor:pointer;font-weight:600;padding:.4rem 0}
+.performance-duties>label{display:grid;gap:.35rem;margin:.8rem 0;font-size:.87rem;font-weight:600}
+.performance-duties input{min-height:2.35rem;border:1px solid #d2dce5;border-radius:.4rem;padding:.45rem .65rem;min-width:0;width:100%}
+.performance-duty-list{max-height:390px;overflow-y:auto}
+.performance-duty{display:flex;align-items:center;flex-wrap:wrap;justify-content:space-between;gap:.65rem;border-top:1px solid #e5edf4;padding:.75rem 0}
+.performance-duty>div:first-child{display:grid;gap:.2rem}
+.performance-duty small{color:#63768a;font-size:.77rem}
+.performance-justify{display:flex;flex-wrap:wrap;gap:.5rem;align-items:center;flex:1;justify-content:flex-end}
+.performance-justify input{max-width:330px;flex:1;min-width:180px}
+.performance-duty button{padding:.55rem .8rem;border:1px solid #91b2cc;border-radius:.4rem;background:#eaf5fc;color:#175778;cursor:pointer}
+.performance-duty button:disabled{opacity:.5;cursor:not-allowed}
+.performance-fields input{min-height:2.4rem;padding:.45rem .65rem;border:1px solid #cbd6e2;border-radius:.4rem}

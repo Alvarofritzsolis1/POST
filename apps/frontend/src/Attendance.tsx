@@ -1,5 +1,4 @@
 import { useEffect, useState } from "react";
-import { api } from "./api";
 import { read, send } from "./platformApi";
 import type { Site } from "./opsApi";
 import "./attendance.css";
@@ -23,7 +22,7 @@ export default function Attendance({ siteId, sites, period, canEdit, canReview }
   const [weekNumber, setWeekNumber] = useState(1);
   const [entries, setEntries] = useState<Entry[]>([]);
   const [notes, setNotes] = useState("");
-  const [file, setFile] = useState<File | null>(null);
+  const [contractorSearch, setContractorSearch] = useState("");
   const [rosterReason, setRosterReason] = useState("");
   const [reviewNote, setReviewNote] = useState("");
   const [revision, setRevision] = useState(0);
@@ -45,7 +44,7 @@ export default function Attendance({ siteId, sites, period, canEdit, canReview }
   useEffect(() => {
     setEntries(week?.entries.map((item) => ({ ...item, signed_dates: [...item.signed_dates] })) || []);
     setNotes(week?.notes || "");
-    setFile(null);
+
     setReviewNote(week?.review_note || "");
     setRosterReason(contractor?.roster_reason || "");
   }, [selectedId, weekNumber, revision, data]);
@@ -60,11 +59,9 @@ export default function Attendance({ siteId, sites, period, canEdit, canReview }
   async function saveWeek(complete: boolean) {
     if (!contractor || !week) return;
     await run(async () => {
-      let source = week.source_document_id || null;
-      if (file) source = (await api.upload(file, "auto")).id;
       await send("/attendance/weeks", {
         association_id: contractor.association_id, period, week_number: week.week_number,
-        complete, source_document_id: source, notes,
+        complete, source_document_id: null, notes,
         entries: entries.map((row) => ({ worker_assignment_id: row.worker_assignment_id,
           signed_dates: row.signed_dates, excluded: row.excluded, reason: row.reason })),
       }, "PUT");
@@ -87,7 +84,7 @@ export default function Attendance({ siteId, sites, period, canEdit, canReview }
   return <div className="attendance-page">
     <header className="workers-heading"><div><h2>Control de asistencia · {period}</h2>
       <p>La administrativa ingresa las firmas por semana. El balance mensual compara días firmados con días pagados registrados en cotizaciones.</p></div>
-      {activeSite && <a className="secondary" href={`/api/v1/attendance/export?site_id=${encodeURIComponent(activeSite)}&period=${encodeURIComponent(period)}`}>Descargar planilla de 5 semanas</a>}
+      {activeSite && canReview && <a className="secondary" href={`/api/v1/attendance/export?site_id=${encodeURIComponent(activeSite)}&period=${encodeURIComponent(period)}`}>Exportar asistencia a Excel</a>}
     </header>
     {!siteId && <label>Obra <select value={activeSite} onChange={(e) => setLocalSite(e.target.value)}>{sites.map((site) => <option key={site.id} value={site.id}>{site.name}</option>)}</select></label>}
     {error && <p role="alert" className="alert danger">{error}</p>}{notice && <p role="status" className="alert success">{notice}</p>}
@@ -96,16 +93,28 @@ export default function Attendance({ siteId, sites, period, canEdit, canReview }
       <div className="kpi"><small>Semanas atrasadas</small><strong>{data.summary.overdue_weeks}</strong></div>
       <div className="kpi"><small>Semanas ingresadas</small><strong>{data.summary.completed_weeks}</strong></div>
       <div className="kpi"><small>Ingresos a obra con firma</small><strong>{data.summary.signed_days}</strong></div>
-      <div className="kpi"><small>Días firmados sobre días pagados</small><strong>{data.summary.missing_payment_days}</strong></div>
+      {canReview && <div className="kpi"><small>Días firmados sobre días pagados</small><strong>{data.summary.missing_payment_days}</strong></div>}
     </div>}
-    {data && <div className="attendance-layout"><section className="panel"><h3>Contratistas de la obra</h3>
-      {data.contractors.map((item) => <button type="button" key={item.association_id}
-        className={`attendance-company ${item.association_id === selectedId ? "selected" : ""}`}
-        onClick={() => { setSelectedId(item.association_id); setWeekNumber(1); }}>
-        <strong>{item.contractor}</strong><span>{item.workers.length} trabajadores · {item.roster_status === "included" ? "En base" : "No considerado"}</span>
-        <span className={"worker-signal " + (item.weeks.some((w) => w.state === "overdue") ? "red" : "gray")}>{item.weeks.filter((w) => w.state === "overdue").length} semanas atrasadas</span>
-      </button>)}
-      {data.contractors.length === 0 && <p>No hay contratistas asociados a esta obra.</p>}
+    {data && <div className="attendance-layout"><section className="panel attendance-picker"><h3>Buscar contratista</h3>
+      <label htmlFor="attendance-contractor-search">Nombre o RUT del contratista</label>
+      <input id="attendance-contractor-search" autoComplete="off"
+        placeholder="Escribe el nombre o RUT para buscar…" value={contractorSearch}
+        onChange={(event) => setContractorSearch(event.target.value)} />
+      {contractorSearch.trim() ? <div className="attendance-results">
+        {data.contractors.filter((item) => (item.contractor + " " + (item.rut || ""))
+          .toLocaleLowerCase("es-CL").includes(contractorSearch.trim().toLocaleLowerCase("es-CL")))
+          .slice(0, 30).map((item) => <button type="button" key={item.association_id}
+            className={`attendance-company ${item.association_id === selectedId ? "selected" : ""}`}
+            onClick={() => { setSelectedId(item.association_id); setWeekNumber(1); }}>
+            <strong>{item.contractor}</strong>
+            <span>{item.rut || "RUT pendiente"} · {item.workers.length} trabajadores</span>
+            <span className={"worker-signal " + (item.weeks.some((w) => w.state === "overdue") ? "red" : "gray")}>
+              {item.weeks.filter((w) => w.state === "overdue").length} semanas atrasadas</span>
+          </button>)}
+        {!data.contractors.some((item) => (item.contractor + " " + (item.rut || ""))
+          .toLocaleLowerCase("es-CL").includes(contractorSearch.trim().toLocaleLowerCase("es-CL"))) &&
+          <p>No se encontraron contratistas. Prueba con otro nombre o RUT.</p>}
+      </div> : <p className="attendance-hint">Busca un contratista para registrar su asistencia semanal.</p>}
     </section>
     <div className="attendance-detail">{contractor ? <>
       <section className="panel"><div className="workers-heading"><div><h3>{contractor.contractor}</h3>
@@ -118,11 +127,11 @@ export default function Attendance({ siteId, sites, period, canEdit, canReview }
           {contractor.roster_status === "included" ? <button type="button" disabled={busy || !rosterReason.trim()} onClick={() => void updateRoster("excluded")}>No considerar este mes</button>
             : contractor.administrative_status === "active" && <button type="button" disabled={busy} onClick={() => void updateRoster("included")}>Agregar a la base</button>}</div>}
       </section>
-      <section className="panel"><h3>Balance mensual por trabajador</h3><div className="table-wrap"><table><thead><tr><th>Trabajador</th><th>RUT</th><th>Ingresos con firma</th><th>Días pagados</th><th>Balance</th></tr></thead><tbody>
+      {canReview && <section className="panel"><h3>Balance mensual por trabajador</h3><div className="table-wrap"><table><thead><tr><th>Trabajador</th><th>RUT</th><th>Ingresos con firma</th><th>Días pagados</th><th>Balance</th></tr></thead><tbody>
         {contractor.workers.map((row) => <tr key={row.assignment_id}><td>{row.name}</td><td>{row.rut || "—"}</td><td>{row.signed_days}</td><td>{row.paid_days ?? "Sin información"}</td><td className={row.difference != null && row.difference > 0 ? "attendance-difference" : ""}>{row.difference == null ? "Pendiente de pago registrado" : row.difference > 0 ? `${row.difference} días firmados sobre lo pagado` : row.difference < 0 ? `${Math.abs(row.difference)} días pagados sobre lo firmado` : "Conciliado"}</td></tr>)}
         {!contractor.workers.length && <tr><td colSpan={5}>Sin trabajadores vinculados. Puede registrar semana sin firmas si corresponde.</td></tr>}
-      </tbody></table></div><small>Se cuentan firmas de semanas completadas. Un balance requiere días pagados registrados; no constituye por sí solo una conclusión de deuda.</small></section>
-      <section className="panel"><h3>Cinco semanas del mes</h3><div className="attendance-weeks">
+      </tbody></table></div><small>Se cuentan firmas de semanas completadas. Un balance requiere días pagados registrados; no constituye por sí solo una conclusión de deuda.</small></section>}
+      <section className="panel"><h3>Semanas del mes</h3><div className="attendance-weeks">
         {contractor.weeks.map((item) => <button type="button" key={item.week_number} disabled={item.state === "not_applicable"}
           className={`attendance-week ${item.week_number === weekNumber ? "selected" : ""}`} onClick={() => setWeekNumber(item.week_number)}>
           <strong>Semana {item.week_number}</strong><small>{item.dates.length ? `${dayLabel(item.dates[0])}–${dayLabel(item.dates[item.dates.length - 1])}` : "Sin días este mes"}</small>
@@ -137,7 +146,7 @@ export default function Attendance({ siteId, sites, period, canEdit, canReview }
           <span>Completada por: {week.completed_by || "Pendiente"} · {timeLabel(week.completed_at)} · {week.completed_on_time === null || week.completed_on_time === undefined ? "Plazo pendiente" : week.completed_on_time ? "Cumplió el plazo" : "Fuera de plazo"}</span>
           <span>Revisión: {week.reviewed_by || "Pendiente"} · {timeLabel(week.reviewed_at)}</span></div>
         {week.review_note && <p>Observación: {week.review_note}</p>}
-        {week.source_document_id && <a href={api.pdf(week.source_document_id)} target="_blank" rel="noreferrer">Ver respaldo de firmas</a>}
+        
         <div className="table-wrap"><table className="attendance-grid"><thead><tr><th>Trabajador</th>{week.dates.map((day) => <th key={day}>{dayLabel(day).slice(0, 5)}</th>)}<th>No considerar</th><th>Motivo</th></tr></thead><tbody>
           {entries.map((entry) => <tr key={entry.worker_assignment_id}><th scope="row">{entry.worker}<small>{entry.rut}</small></th>
             {week.dates.map((day) => <td key={day}><input type="checkbox" aria-label={`${entry.worker} firmó ${dayLabel(day)}`} disabled={!canEdit || contractor.roster_status !== "included" || day > new Intl.DateTimeFormat("sv-SE", { timeZone: "America/Santiago", year: "numeric", month: "2-digit", day: "2-digit" }).format(new Date()) || entry.excluded}
@@ -146,18 +155,18 @@ export default function Attendance({ siteId, sites, period, canEdit, canReview }
             <td><input aria-label={`Motivo para ${entry.worker}`} value={entry.reason} disabled={!canEdit || contractor.roster_status !== "included" || !entry.excluded} onChange={(e) => changeEntry(entry.worker_assignment_id, (row) => ({ ...row, reason: e.target.value }))} placeholder={entry.excluded ? "Motivo obligatorio" : "—"} /></td></tr>)}
           {!entries.length && <tr><td colSpan={week.dates.length + 3}>Sin trabajadores para esta semana.</td></tr>}
         </tbody></table></div>
-        {canEdit && contractor.roster_status === "included" && <div className="attendance-actions"><label>Respaldo de firmas (PDF o imagen)
-            <input type="file" accept=".pdf,.png,.jpg,.jpeg,.tif,.tiff" onChange={(e) => setFile(e.target.files?.[0] || null)} /></label>
-          <label>Nota de ingreso o motivo cuando no hay archivo
-            <textarea value={notes} onChange={(e) => setNotes(e.target.value)} rows={2} placeholder="Origen de las firmas o motivo detallado" /></label>
+        {canEdit && contractor.roster_status === "included" && <div className="attendance-actions">
+          <label>Observación o motivo del atraso (obligatorio si registra fuera de plazo)
+            <textarea value={notes} onChange={(e) => setNotes(e.target.value)} rows={2}
+              placeholder="Observación o motivo si la semana se registra atrasada" /></label>
           <div><button type="button" disabled={busy} onClick={() => void saveWeek(false)}>Guardar borrador</button>
             <button type="button" className="primary" disabled={busy || week.dates[week.dates.length - 1] > new Intl.DateTimeFormat("sv-SE", { timeZone: "America/Santiago", year: "numeric", month: "2-digit", day: "2-digit" }).format(new Date())} onClick={() => void saveWeek(true)}>Completar semana</button></div>
-          <small>Completar registra cero firmas para las personas sin casillas marcadas. Requiere respaldo o nota detallada. Puede corregirse con trazabilidad.</small></div>}
+          <small>Completar registra cero firmas para las personas sin casillas marcadas. Se permite corregir con trazabilidad; los atrasos requieren motivo.</small></div>}
         {canReview && week.id && week.saved_state === "completed" && <div className="attendance-actions"><label>Observación de revisión
           <input value={reviewNote} onChange={(e) => setReviewNote(e.target.value)} placeholder="Si observa, indique el motivo" /></label>
           <div><button type="button" disabled={busy} onClick={() => void review("approved")}>Marcar conforme</button>
             <button type="button" disabled={busy || !reviewNote.trim()} onClick={() => void review("observed")}>Observar</button></div></div>}
       </section>}
-    </> : <section className="panel empty">Elige un contratista para revisar sus cinco semanas y el balance de trabajadores.</section>}</div></div>}
+    </> : <section className="panel empty">Busca un contratista para comenzar el registro de asistencia semanal.</section>}</div></div>}
   </div>;
 }

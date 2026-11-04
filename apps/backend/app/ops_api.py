@@ -231,6 +231,10 @@ def worker_view(link: WorkerAssignment, worker: Worker) -> dict:
 @router.get("/sites")
 def sites(user: User = Depends(authorized_user), db: Session = Depends(get_db)):
     rows = ensure_sites(db, user.org_id)
+    if user.role == "administrative":
+        from .network_service import assigned_sites
+        allowed = assigned_sites(db, user)
+        rows = [row for row in rows if row.id in allowed]
     return [{"id": row.id, "name": row.name, "initial_period": INITIAL_PERIOD} for row in rows]
 
 

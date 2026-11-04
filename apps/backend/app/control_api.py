@@ -321,13 +321,23 @@ def monthly_matrix(site_id: str, period: str, user: User = Depends(authorized_us
 
 
 def contribution_view(row: ContributionControl, association: ContractorWorksite,
-                      company: Contractor, worker_name: str | None) -> dict:
+                      company: Contractor, worker_name: str | None,
+                      auto_attendance: int | None = None,
+                      calendar_available: bool = False) -> dict:
     independent = row.subject_key == "independent"
-    required = row.attendance_days if row.attendance_days is not None else row.required_days
+    # Canonical weekly evidence is authoritative only when the new calendar has
+    # been initialized. A missing week is unknown, NEVER zero attendance.
+    attendance = auto_attendance if calendar_available and not independent else row.attendance_days
+    # When the new weekly calendar is active, the required attendance for
+    # reconciliation comes from completed weekly records, not the legacy
+    # manually entered required-day field.
+    required = (attendance if calendar_available and not independent
+                else (row.required_days if row.required_days is not None else attendance))
     missing = (max(0, required - row.paid_days)
                if required is not None and row.paid_days is not None else None)
     proposal = (Decimal(missing) * row.daily_rate if missing is not None else None)
-    compliance = ("conforme" if independent and row.payment_confirmed else
+    compliance = ("pendiente" if calendar_available and not independent and attendance is None else
+                  "conforme" if independent and row.payment_confirmed else
                   "no_entregado" if row.paid_days is None else
                   "pendiente" if not row.payment_confirmed else
                   "observado" if missing and row.justification.strip() else
@@ -337,8 +347,8 @@ def contribution_view(row: ContributionControl, association: ContractorWorksite,
         "contractor": company.name, "contractor_rut": company.rut, "code": contractor_classification(association, company), "historical_code": association.historical_code,
         "period": row.period, "subject_key": row.subject_key,
         "worker_assignment_id": row.worker_assignment_id,
-        "worker": worker_name, "attendance_days": row.attendance_days,
-        "required_days": row.required_days, "paid_days": row.paid_days,
+        "worker": worker_name, "attendance_days": attendance,
+        "required_days": required, "paid_days": row.paid_days,
         "payment_confirmed": row.payment_confirmed,
         "daily_rate": str(row.daily_rate), "missing_days": missing,
         "retention_suggested": str(proposal) if proposal is not None else None,
@@ -376,6 +386,11 @@ def save_contributions(payload: ContributionInput, user: User = Depends(editor),
     if payload.worker_assignment_id:
         worker = validate_worker(db, user, link, payload.worker_assignment_id)
     subject_key = "independent" if independent else worker.id
+    from .v81_service import site_calendar_totals
+    weekly_available, weekly_totals = (
+        site_calendar_totals(db, user.org_id, link.worksite_id, payload.period)
+        if not independent else (False, {})
+    )
     row = db.scalar(select(ContributionControl).where(
         ContributionControl.org_id == user.org_id,
         ContributionControl.association_id == link.id,
@@ -404,6 +419,9 @@ def save_contributions(payload: ContributionInput, user: User = Depends(editor),
         "daily_rate", "justification", "notes", "review_status", "retention_status",
     ):
         setattr(row, field, getattr(payload, field))
+    if weekly_available and worker:
+        # Weekly evidence is the source of truth, even when incomplete (None).
+        row.attendance_days = weekly_totals.get(worker.id)
     row.updated_by = user.id
     row.updated_at = utcnow()
     evidence_changed = bool(old and (
@@ -479,7 +497,10 @@ def save_contributions(payload: ContributionInput, user: User = Depends(editor),
     if worker:
         name = db.scalar(select(Worker.name).where(
             Worker.id == worker.worker_id, Worker.org_id == user.org_id))
-    return contribution_view(row, link, company, name)
+    return contribution_view(
+        row, link, company, name,
+        auto_attendance=weekly_totals.get(worker.id) if worker else None,
+        calendar_available=weekly_available and worker is not None)
 
 
 @router.get("/contributions")
@@ -498,6 +519,8 @@ def list_contributions(period: str, site_id: str | None = None,
     )
     if site_id:
         query = query.where(ContractorWorksite.worksite_id == site_id)
+    from .v81_service import site_calendar_totals
+    per_site = {}
     result = []
     for record, association, company in db.execute(query).all():
         name = None
@@ -507,7 +530,13 @@ def list_contributions(period: str, site_id: str | None = None,
             ).where(WorkerAssignment.id == record.worker_assignment_id,
                     WorkerAssignment.org_id == user.org_id,
                     Worker.org_id == user.org_id))
-        result.append(contribution_view(record, association, company, name))
+        if association.worksite_id not in per_site:
+            per_site[association.worksite_id] = site_calendar_totals(
+                db, user.org_id, association.worksite_id, period)
+        calendar_available, totals = per_site[association.worksite_id]
+        result.append(contribution_view(record, association, company, name,
+            auto_attendance=totals.get(record.worker_assignment_id),
+            calendar_available=calendar_available and bool(record.worker_assignment_id)))
     return result
 
 

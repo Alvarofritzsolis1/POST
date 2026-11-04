@@ -123,8 +123,8 @@ def account_view(db, target):
 
 
 def assign(db, actor, target, body):
-    if body.role == "resident" and not body.site_ids:
-        raise HTTPException(422, "Asigna al menos una obra al residente")
+    if body.role in {"resident", "administrative"} and not body.site_ids:
+        raise HTTPException(422, "Asigna al menos una obra al residente o administrativo")
     if len(body.site_ids) != len(set(body.site_ids)):
         raise HTTPException(422, "Obras repetidas")
     for site_id in body.site_ids:
@@ -135,7 +135,9 @@ def assign(db, actor, target, body):
             NetworkMembership(user_id=target.id, site_id=site_id, assigned_by=actor.id)
         )
     member = member_for(db, target)
-    member.name, member.title, member.can_award = body.name, body.title, body.can_award
+    member.name, member.title, member.can_award = (
+        body.name, body.title, body.can_award if body.role == "resident" else False
+    )
     preferences = db.get(UserPreferences, target.id)
     if preferences is None:
         preferences = UserPreferences(user_id=target.id, values={})

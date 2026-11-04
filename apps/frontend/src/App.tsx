@@ -18,7 +18,9 @@ import { Login } from "./DocumentAnalysis";
 import DocumentAnalysis from "./DocumentAnalysis";
 import Operations from "./Operations";
 import Workers from "./Workers";
-import Attendance from "./Attendance";
+import Attendance from "./WeeklyAttendanceV81";
+import AdministrativePerformanceV81 from "./AdministrativePerformanceV81";
+import AdministrativeWorkspace from "./AdministrativeWorkspace";
 import ControlCenter from "./ControlCenter";
 import BulkImport from "./BulkImport";
 import Settings from "./Settings";
@@ -39,6 +41,7 @@ const nav = [
   ["contractors", "Contratistas", Building2],
   ["workers", "Trabajadores", Users],
   ["attendance", "Control de asistencia", CalendarDays],
+  ["evaluations", "Evaluación administrativa", BarChart3],
   ["documents", "Control documental", FileCheck2],
   ["contributions", "Cotizaciones y pagos", CalendarDays],
   ["imports", "Importación masiva", FileSpreadsheet],
@@ -132,10 +135,10 @@ function App() {
     window.addEventListener("galant-session-ended", expired);
     return () => window.removeEventListener("galant-session-ended", expired);
   }, []);
-  const readonly = user?.role === "viewer" || user?.role === "reviewer" || user?.role === "administrative";
-  const canEdit = user?.role === "admin" || user?.role === "supervisor" || user?.role === "analyst";
-  const canReview = canEdit || user?.role === "reviewer";
-  const canAttend = canEdit || user?.role === "administrative";
+  const readonly = false;
+  const canEdit = user?.role === "admin";
+  const canReview = canEdit;
+  const canAttend = canEdit;
   const params =
     "period=" +
     encodeURIComponent(period) +
@@ -157,7 +160,7 @@ function App() {
       .catch(() => {});
   }, []);
   useEffect(() => {
-    if (!user || user.role === "resident") return;
+    if (!user || user.role !== "admin") return;
     void Promise.all([opsApi.sites(), read<OrgProfile>("/admin/profile")])
       .then(([s, p]) => {
         setSites(s);
@@ -168,7 +171,7 @@ function App() {
       .catch((e) => setError(errorText(e)));
   }, [user, applyPreferences]);
   const refresh = useCallback(async () => {
-    if (!user || user.role === "resident" || section === "network") return;
+    if (!user || user.role !== "admin" || section === "network") return;
     const generation = ++refreshGeneration.current;
     try {
       const [o, c, m, a] = await Promise.all([
@@ -221,7 +224,7 @@ function App() {
     section,
   ]);
   useEffect(() => {
-    if (!user || user.role === "resident" || section === "network") return;
+    if (!user || user.role !== "admin" || section === "network") return;
     let active = true;
     const update = () => {
       if (active) void refresh();
@@ -292,6 +295,7 @@ function App() {
   if (!ready) return <div className="app-loading">Cargando GALANT…</div>;
   if (!user) return <Login onLogin={setUser} version={version} />;
   if (user.role === "resident") return <ResidentNetwork user={user} version={version} logout={() => void logout()} />;
+  if (user.role === "administrative") return <AdministrativeWorkspace user={user} version={version} logout={() => void logout()} />;
   const rows = (contributions?.rows || []).filter(
     (r) =>
       (!search ||
@@ -354,11 +358,7 @@ function App() {
           <p>{profile?.organization}</p>
           <small>
             v{version} · {revision && revision !== "unbuilt" ? revision.slice(0, 8) + " · " : ""}{" "}
-            {user.role === "admin"
-              ? "Administrador"
-              : user.role === "viewer"
-                ? "Visualizador"
-                : user.role === "reviewer" ? "Revisor documental" : user.role === "administrative" ? "Administrativa" : user.role === "supervisor" ? "Supervisor" : "Analista"}
+            Administrador
           </small>
         </div>
       </aside>
@@ -707,6 +707,7 @@ function App() {
             initialState={filter === "expired_needs_review" || filter === "ending_soon" ? filter : ""} />}
           {section === "attendance" && <Attendance siteId={site} sites={sites} period={period}
             canEdit={!!canAttend} canReview={!!canEdit} />}
+          {section === "evaluations" && <AdministrativePerformanceV81 sites={sites} period={period} />}
           {section === "imports" && (
             <BulkImport readOnly={readonly} siteId={site} />
           )}

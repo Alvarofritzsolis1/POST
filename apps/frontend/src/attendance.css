@@ -1,14 +1,14 @@
 .attendance-page { display: grid; gap: 1rem; }
-.attendance-layout { display: grid; grid-template-columns: minmax(220px, 280px) minmax(0, 1fr); gap: 1rem; align-items: start; }
+.attendance-layout { display: grid; grid-template-columns: minmax(0, 1fr); gap: 1rem; align-items: start; }
 .attendance-detail { display: grid; gap: 1rem; min-width: 0; }
-.attendance-company { display: grid; justify-items: start; gap: .4rem; width: 100%; margin: .45rem 0; padding: .75rem; text-align: left; border: 1px solid #d8e2ee; border-radius: .5rem; background: transparent; cursor: pointer; }
+.attendance-company { display: flex; align-items: center; justify-content: space-between; flex-wrap: wrap; gap: .5rem; width: 100%; margin: .3rem 0; padding: .65rem .9rem; text-align: left; border: 1px solid #d8e2ee; border-radius: .5rem; background: #fff; cursor: pointer; }
 .attendance-company.selected, .attendance-week.selected { border: 2px solid #2563a5; background: #eff6ff; }
 .attendance-company span { font-size: .85rem; }
 .attendance-roster-form, .attendance-actions { display: grid; gap: .75rem; margin-top: 1rem; }
 .attendance-roster-form label, .attendance-actions label { display: grid; gap: .25rem; }
 .attendance-roster-form input, .attendance-actions input, .attendance-actions textarea { width: 100%; }
 .attendance-actions > div { display: flex; flex-wrap: wrap; gap: .5rem; }
-.attendance-weeks { display: grid; grid-template-columns: repeat(5, minmax(105px, 1fr)); gap: .5rem; }
+.attendance-weeks { display: grid; grid-template-columns: repeat(auto-fit, minmax(145px, 1fr)); gap: .5rem; }
 .attendance-week { display: grid; justify-items: start; gap: .5rem; min-height: 105px; padding: .6rem; border: 1px solid #d8e2ee; border-radius: .5rem; background: transparent; text-align: left; cursor: pointer; }
 .attendance-week:disabled { opacity: .65; cursor: default; }
 .attendance-provenance { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: .4rem; font-size: .85rem; margin: .7rem 0; }
@@ -18,4 +18,10 @@
 .attendance-grid input[type="checkbox"] { width: 1.2rem; height: 1.2rem; }
 .attendance-grid input:not([type="checkbox"]) { min-width: 130px; }
 .attendance-difference { color: #9b1c1c; font-weight: 700; }
+.attendance-picker { max-width: 100%; }
+.attendance-picker > label { display: block; margin: .5rem 0 .3rem; font-weight: 600; }
+.attendance-picker > input { width: min(100%, 750px); min-height: 2.75rem; border: 1px solid #cbd7e4; border-radius: .5rem; padding: .6rem .85rem; }
+.attendance-results { max-height: 300px; overflow-y: auto; margin-top: .5rem; }
+.attendance-hint { color: #64748b; font-size: .9rem; }
+.attendance-page .table-wrap { max-width: 100%; overflow-x: auto; }
 @media(max-width: 900px) { .attendance-layout { grid-template-columns: 1fr; } .attendance-weeks { grid-template-columns: repeat(auto-fit, minmax(125px, 1fr)); } .attendance-provenance { grid-template-columns: 1fr; } }

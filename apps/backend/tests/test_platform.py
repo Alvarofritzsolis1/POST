@@ -60,7 +60,7 @@ def test_two_independent_sessions_share_records_without_relogin(env):
         json={
             "email": "ximena@example.cl",
             "password": "password-valid-2026",
-            "role": "analyst",
+            "role": "admin",
         },
     )
     assert created.status_code == 201, created.text
@@ -151,7 +151,7 @@ def test_roles_isolation_and_preferences_persist(env):
         c.post(
             "/api/v1/admin/users",
             headers=h,
-            json={"email": "new@example.cl", "password": "password-valid-2026"},
+            json={"email": "new@example.cl", "password": "password-valid-2026", "role": "admin"},
         ).status_code
         == 403
     )
@@ -531,8 +531,8 @@ def env(monkeypatch):
         db.flush()
         for email, org, role in [
             ("a@example.cl", a, "admin"),
-            ("b@example.cl", a, "analyst"),
-            ("c@example.cl", a, "viewer"),
+            ("b@example.cl", a, "admin"),
+            ("c@example.cl", a, "resident"),
             ("outside@example.cl", b, "admin"),
         ]:
             db.add(

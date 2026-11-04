@@ -243,8 +243,8 @@ def main():
     xlsx2 = reviewer.request("/control/reports/mensual.xlsx?period=" + period)
     assert xlsx2[:2] == b"PK" and len(xlsx2) > 350
 
-    # Reviewer can read; viewer cannot modify, outsider cannot read an internal worksite.
-    assert viewer.request("/control/matrix?site_id=" + site_id + "&period=" + period)["contractors"]
+    # Second QA admin verifies shared operational state; Resident has only Red de Obras.
+    expect_denied(viewer, "/control/matrix?site_id=" + site_id + "&period=" + period, 403)
     expect_denied(viewer, "/control/reviews", 403, {
         "association_id": assignment, "period": period,
         "kind": "f30_1", "status": "approved", "notes": ""
