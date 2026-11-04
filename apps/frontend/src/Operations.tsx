@@ -135,9 +135,9 @@ export default function Operations({readOnly,externalSiteId,mode,onImport,onSite
   const filtered=useMemo(()=>visibleContractors.filter(item=>{
     const term=search.trim().toLocaleLowerCase("es-CL")
     const matches=!term||item.name.toLocaleLowerCase("es-CL").includes(term)||(item.rut||"").toLocaleLowerCase("es-CL").includes(term)
-    const kind=item.nature==='independent'?'CI':item.nature==='with_workers'?'CT':'SIN CLASIFICAR'
+    const kind=item.classification
     return matches&&(classificationFilter==='all'||kind===classificationFilter)&&(codeFilter==="all"||
-      (codeFilter==="ESP" ? item.frequency==="sporadic" : codeFilter==="other" ? !["CT","CI"].includes((item.historical_code||"").toUpperCase()) : kind===codeFilter))
+      (codeFilter==="other" ? !["CT","CE","CI"].includes(kind) : kind===codeFilter))
   }),[visibleContractors,search,codeFilter,classificationFilter])
   const statusSymbols=useMemo(()=>{
     const values=new Set<string>()
@@ -241,8 +241,9 @@ export default function Operations({readOnly,externalSiteId,mode,onImport,onSite
     {notice&&<div role="status" className="alert success"><CheckCircle2 size={18}/>{notice}<button onClick={()=>setNotice("")}>Cerrar</button></div>}
     <div className="ops-summary" aria-label="Resumen de la obra">
       <div><strong>{visibleContractors.length}</strong><span>Contratistas en la obra</span></div>
-      <div><strong>{visibleContractors.filter(x=>x.historical_code==="CT").length}</strong><span>Código CT</span></div>
-      <div><strong>{visibleContractors.filter(x=>x.historical_code==="CI").length}</strong><span>Código CI</span></div>
+      <div><strong>{visibleContractors.filter(x=>x.classification==="CT").length}</strong><span>Código CT</span></div>
+       <div><strong>{visibleContractors.filter(x=>x.classification==="CE").length}</strong><span>Código CE</span></div>
+      <div><strong>{visibleContractors.filter(x=>x.classification==="CI").length}</strong><span>Código CI</span></div>
       <div><strong>{visibleContractors.reduce((sum,item)=>sum+item.worker_count,0)}</strong><span>Asignaciones activas</span></div>
     </div>
     <section className="results-card ops-card">
@@ -277,12 +278,12 @@ export default function Operations({readOnly,externalSiteId,mode,onImport,onSite
       {contractorForm&&<form className="ops-form" onSubmit={event=>void saveContractor(event)}><h3>{contractorForm==="new"?"Nuevo contratista":"Editar contratista"}</h3><div className="ops-form-grid">
         <label>Nombre o razón social<input required maxLength={180} value={contractorDraft.name} onChange={event=>setContractorDraft(current=>({...current,name:event.target.value}))}/></label>
         <label>RUT<input placeholder="12.345.678-5" value={contractorDraft.rut||""} onChange={event=>setContractorDraft(current=>({...current,rut:event.target.value}))}/></label>
-        <label>Código histórico<input maxLength={20} placeholder="CT, CI u otro" value={contractorDraft.historical_code||""} onChange={event=>setContractorDraft(current=>({...current,historical_code:event.target.value}))}/></label>
+        <label>Código histórico<input maxLength={20} placeholder="CT, CE o CI" value={contractorDraft.historical_code||""} onChange={event=>setContractorDraft(current=>({...current,historical_code:event.target.value}))}/></label>
         <label>Naturaleza<select value={contractorDraft.nature} onChange={event=>setContractorDraft(current=>({...current,nature:event.target.value}))}>{natureOptions.map(option=><option key={option.value} value={option.value}>{option.label}</option>)}</select></label>
         <label>Frecuencia<select value={contractorDraft.frequency} onChange={event=>setContractorDraft(current=>({...current,frequency:event.target.value}))}>{frequencyOptions.map(option=><option key={option.value} value={option.value}>{option.label}</option>)}</select></label>
         <label>Estado contractual<select value={contractorDraft.contract_status} onChange={event=>setContractorDraft(current=>({...current,contract_status:event.target.value}))}>{statusOptions.map(option=><option key={option.value} value={option.value}>{option.label}</option>)}</select></label>
       </div><div className="ops-form-actions"><button className="secondary" type="button" onClick={()=>setContractorForm(null)}>Cancelar</button><button className="primary" disabled={busy} type="submit">{busy?<LoaderCircle className="spin" size={16}/>:null} Guardar contratista</button></div></form>}
-      <div className="ops-filters"><label className="ops-search"><Search size={16}/><input placeholder="Buscar por nombre o RUT" value={search} onChange={event=>setSearch(event.target.value)}/></label><select aria-label="Filtrar por clasificación" value={codeFilter} onChange={event=>setCodeFilter(event.target.value)}><option value="all">Todas las clasificaciones</option><option value="CT">CT</option><option value="CI">CI</option><option value="other">Esporádicos y sin clasificar</option></select><span>{filtered.length} de {visibleContractors.length}</span></div>
+      <div className="ops-filters"><label className="ops-search"><Search size={16}/><input placeholder="Buscar por nombre o RUT" value={search} onChange={event=>setSearch(event.target.value)}/></label><select aria-label="Filtrar por clasificación" value={codeFilter} onChange={event=>setCodeFilter(event.target.value)}><option value="all">Todas las clasificaciones</option><option value="CT">CT · Fijo</option><option value="CE">CE · Esporádico</option><option value="CI">CI · Independiente</option><option value="other">Sin clasificación válida</option></select><span>{filtered.length} de {visibleContractors.length}</span></div>
       {loading?<div className="ops-empty"><LoaderCircle size={20} className="spin"/> Cargando contratistas…</div>:filtered.length===0?<div className="ops-empty"><Users size={22}/>{visibleContractors.length?"No hay coincidencias":"Aún no hay contratistas en esta obra"}</div>:
       <div className="table-wrap"><table className="ops-list-table"><thead><tr><th>CONTRATISTA</th><th>RUT</th><th>CÓDIGO</th><th>NATURALEZA</th><th>FRECUENCIA</th><th>ESTADO</th><th>TRABAJADORES</th><th></th></tr></thead><tbody>{filtered.map(item=><tr key={item.id} className={selectedId===item.id?"selected-row":""}>
         <td><strong>{item.name}</strong></td><td>{item.rut||"—"}</td><td>{item.historical_code||"—"}</td><td>{label(natureOptions,item.nature)}</td><td>{label(frequencyOptions,item.frequency)}</td><td>{label(statusOptions,item.contract_status)}</td><td>{item.worker_count}</td>

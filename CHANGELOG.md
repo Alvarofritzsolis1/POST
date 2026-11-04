@@ -1,5 +1,14 @@
 # Historial de cambios
 
+## 10.9.0-rc1 — Importación especializada de contratistas por obra (candidata)
+
+- Plantilla estricta de 11 columnas, sin NATURALEZA ni FRECUENCIA.
+- Clasificación CT / CE / CI y estado ACTIVO / INACTIVO independientes por obra, sin asignación mediante catálogos ambiguos.
+- Vista previa y actualización segura de registros previamente importados; conserva relaciones y auditoría.
+- Corrección de listados, filtros, controles documentales y reglas de independientes usando COD por obra.
+- Validaciones y pruebas de importación repetida, encabezados, estados y registros multiobra.
+- **Estado:** rama y PR; sujeto a CI, QA y aprobación antes del VPS.
+
 ## 9.3.0-rc1 — Control de Asistencia compartido y supervisión de todas las obras (candidata)
 
 - El administrador utiliza el mismo panel de asistencia, contratos, finiquitos y dotación que la administrativa: desaparece la obligación de buscar cada contratista por separado.

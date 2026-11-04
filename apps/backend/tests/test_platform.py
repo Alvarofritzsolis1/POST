@@ -243,13 +243,11 @@ def test_hundreds_of_companies_multiple_sites_repeat_and_external_ids(env):
     with sessions() as db:
         assert db.scalar(select(func.count()).select_from(Contractor)) == 300
         assert db.scalar(select(func.count()).select_from(ImportBatch)) == 1
-        assert (
-            db.scalar(select(Contractor)).nature == "unclassified"
-        )  # COD alone never assigns CT.
+        assert db.scalar(select(Contractor)).nature == "with_workers"
     template = load_workbook(
         BytesIO(c.get("/api/v1/ops/imports/bulk/templates/contractors").content)
     )
-    assert list(next(template.active.values)) == headers[:6] + ["NATURALEZA", "FRECUENCIA"] + headers[6:]
+    assert list(next(template.active.values)) == headers
 
 
 def test_hundreds_workers_blank_columns_dates_types_and_history(env):
@@ -337,6 +335,8 @@ def test_invalid_rows_observations_updates_and_stale_previews(env):
         "name": "Empresa",
         "rut": rut(20000001),
         "external_id": "EXT-1",
+        "historical_code": "CT",
+        "status": "ACTIVO",
     }
     p = review(
         c, h, "contractors", [base, {**base, "rut": "12345678-9", "site": "NO EXISTE"}]
@@ -622,3 +622,110 @@ def test_ambiguous_worker_match_overlapping_dates_and_unknown_type(env):
     # Overlaps must be detected before a single row is committed.
     p = review(c, h, "workers", [row, {**row, "start_date": "02/10/2026"}])
     assert "superpuestas" in str(p["rows"][1]["errors"])
+
+
+def test_v109_codes_states_per_site_and_reimport_without_duplicates(env):
+    c, sessions = env
+    headers = login(c, "a@example.cl")
+    sites = c.get("/api/v1/ops/sites").json()[:2]
+    assert len(sites) == 2
+    company_rut = rut(21343121)
+    common = {
+        "rut": company_rut, "name": "Empresa multiobra 109",
+        "phone": "912345678",
+    }
+    first = [
+        {**common, "site": sites[0]["name"], "historical_code": "CT", "status": "ACTIVO"},
+        {**common, "site": sites[1]["name"], "historical_code": "CI", "status": "INACTIVO"},
+    ]
+    p = review(c, headers, "contractors", first)
+    assert p["summary"]["new"] == 2, p
+    assert commit(c, headers, p).status_code == 200
+    items = [
+        next(row for row in c.get("/api/v1/ops/contractors",
+            params={"site_id": site["id"]}).json() if row["rut"] == company_rut)
+        for site in sites
+    ]
+    assert items[0]["contractor_id"] == items[1]["contractor_id"]
+    assert [(r["classification"], r["contract_status"]) for r in items] == [
+        ("CT", "active"), ("CI", "inactive")
+    ]
+    corrected = [
+        {**first[0], "historical_code": "CE", "status": "INACTIVO"},
+        {**first[1], "historical_code": "CI", "status": "ACTIVO"},
+    ]
+    p = review(c, headers, "contractors", corrected)
+    assert p["summary"]["updatable"] == 2, p
+    assert commit(c, headers, p, approve=False).status_code == 422
+    assert commit(c, headers, p).status_code == 200
+    refreshed = [
+        next(row for row in c.get("/api/v1/ops/contractors",
+            params={"site_id": site["id"]}).json() if row["rut"] == company_rut)
+        for site in sites
+    ]
+    assert [(r["classification"], r["contract_status"]) for r in refreshed] == [
+        ("CE", "inactive"), ("CI", "active")
+    ]
+    assert [r["id"] for r in refreshed] == [r["id"] for r in items]
+    again = review(c, headers, "contractors", corrected)
+    assert again["summary"]["existing"] == 2, again
+    with sessions() as db:
+        assert db.scalar(select(func.count()).select_from(Contractor)) == 1
+
+
+def test_v109_strict_headers_and_cod_estado_validations(env):
+    c, _ = env
+    headers = login(c, "a@example.cl")
+    site = c.get("/api/v1/ops/sites").json()[0]
+    valid_headers = [
+        "ID", "OBRA", "ESPECIALIDAD", "NOMBRECONTRATISTA", "RUT",
+        "COD", "ESTADO", "TELEFONO", "CORREO",
+        "REPRESENTANTE LEGAL", "RUTR.LEGAL",
+    ]
+    payload = ["1", site["name"], "Pintura", "Prueba v109", rut(23456789),
+               "CE", "ACTIVO", "", "", "", ""]
+    assert c.post("/api/v1/ops/imports/bulk/preview", headers=headers,
+        files={"file": ("okay.xlsx", excel(valid_headers, [payload]))},
+        data={"kind": "contractors"}).json()["summary"]["new"] == 1
+    for invalid in [payload[:5] + ["ESP"] + payload[6:],
+                    payload[:6] + ["SUSPENDIDO"] + payload[7:]]:
+        response = c.post("/api/v1/ops/imports/bulk/preview", headers=headers,
+            files={"file": ("invalid.xlsx", excel(valid_headers, [invalid]))},
+            data={"kind": "contractors"})
+        assert response.status_code == 200, response.text
+        assert response.json()["summary"]["error"] == 1
+    for labels in [valid_headers + ["NATURALEZA"],
+                   valid_headers[:6] + ["FRECUENCIA"] + valid_headers[6:]]:
+        response = c.post("/api/v1/ops/imports/bulk/preview", headers=headers,
+            files={"file": ("bad.xlsx", excel(labels, [payload]))},
+            data={"kind": "contractors"})
+        assert response.status_code == 422, response.text
+
+
+def test_v109_reimport_preserves_worker_assignments(env):
+    c, sessions = env
+    headers = login(c, "a@example.cl")
+    site = c.get("/api/v1/ops/sites").json()[0]
+    company_rut = rut(21343020)
+    base = {
+        "name": "Empresa con trabajadores",
+        "site": site["name"], "rut": company_rut,
+        "historical_code": "CT", "status": "ACTIVO",
+    }
+    assert commit(c, headers, review(c, headers, "contractors", [base])).status_code == 200
+    company = next(row for row in c.get("/api/v1/ops/contractors",
+        params={"site_id": site["id"]}).json() if row["rut"] == company_rut)
+    worker = c.post("/api/v1/ops/workers", headers=headers, json={
+        "site_id": site["id"], "contractor_id": company["contractor_id"],
+        "name": "Trabajador 109", "rut": rut(13456789),
+    })
+    assert worker.status_code == 201, worker.text
+    p = review(c, headers, "contractors", [{**base, "status": "INACTIVO"}])
+    assert p["summary"]["updatable"] == 1
+    assert commit(c, headers, p).status_code == 200
+    after = next(row for row in c.get("/api/v1/ops/contractors",
+        params={"site_id": site["id"]}).json() if row["rut"] == company_rut)
+    assert after["id"] == company["id"]
+    assert after["contract_status"] == "inactive"
+    workers = c.get("/api/v1/ops/workers", params={"site_id": site["id"]}).json()
+    assert worker.json()["id"] in {w["id"] for w in workers}

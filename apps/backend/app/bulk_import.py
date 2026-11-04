@@ -333,7 +333,8 @@ def prepare(body, user, db):
             link_target = {}
             if code in {"CT", "CE", "CI"}:
                 link_target["historical_code"] = code
-                link_target["frequency"] = "sporadic" if code == "CE" else "fixed"
+                if code in {"CT", "CE"}:
+                    link_target["frequency"] = "fixed" if code == "CT" else "sporadic"
             if status in {"ACTIVO", "INACTIVO"}:
                 link_target["contract_status"] = (
                     "active" if status == "ACTIVO" else "inactive"

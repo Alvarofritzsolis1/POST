@@ -96,6 +96,7 @@ export default function BulkImport({
             value={kind}
             onChange={(e) => {
               setKind(e.target.value);
+              setMapping("{}");
               setPreview(null);
               setDraft(null);
             }}
@@ -112,11 +113,12 @@ export default function BulkImport({
         </a>
       </div>
       <p className="muted">
-        La plantilla de contratistas incluye NATURALEZA y FRECUENCIA; las planillas
-        antiguas siguen admitidas. Una celda vacía conserva el valor existente.
-        Trabajadores: selecciona la obra en
-        la barra superior. La fecha de término puede quedar vacía para contratos
-        indefinidos o por obra.
+        Contratistas: solo 11 columnas (ID, OBRA, ESPECIALIDAD, NOMBRECONTRATISTA,
+        RUT, COD, ESTADO, TELEFONO, CORREO, REPRESENTANTE LEGAL y RUTR.LEGAL).
+        COD: CT fijo, CE esporádico, CI independiente. ESTADO: ACTIVO o INACTIVO.
+        Reimporta para corregir registros existentes sin duplicarlos; los cambios
+        necesitan confirmación. Trabajadores: selecciona la obra arriba y usa
+        su plantilla independiente.
       </p>
       {!readOnly && (
         <>
@@ -142,7 +144,7 @@ export default function BulkImport({
             </label>
             <strong>{file?.name}</strong>
           </div>
-          <details>
+          {kind === "workers" && <details>
             <summary>Mapeo opcional de encabezados</summary>
             <p>
               Ejemplo:{" "}
@@ -153,7 +155,7 @@ export default function BulkImport({
               value={mapping}
               onChange={(e) => setMapping(e.target.value)}
             />
-          </details>
+          </details>}
           <button
             className="primary"
             disabled={!file || busy}
@@ -189,11 +191,11 @@ export default function BulkImport({
               <thead>
                 <tr>
                   <th>Fila</th>
-                  <th>Estado</th>
+                  <th>Resultado</th>
                   <th>Obra</th>
                   <th>Nombre</th>
                   <th>RUT</th>
-                  {kind === "contractors" && <><th>COD</th><th>Naturaleza</th><th>Frecuencia</th><th>Estado</th></>}
+                  {kind === "contractors" && <><th>COD</th><th>Estado</th></>}
                   {kind === "workers" && (
                     <>
                       <th>Contratista / RUT</th>
@@ -251,11 +253,23 @@ export default function BulkImport({
                           )}
                         </td>
                       ))}
-                      {kind === "contractors" && ["historical_code", "nature", "frequency", "status"].map((key) => <td key={key}>
-                        <input aria-label={key + " fila " + (n + 1)} value={draft.rows[n][key] || ""}
-                          list={key === "nature" ? "nature-values" : key === "frequency" ? "frequency-values" : undefined}
-                          onChange={(e) => setDraft({ ...draft, rows: draft.rows.map((v, j) => j === n ? { ...v, [key]: e.target.value } : v) })} />
-                      </td>)}
+                      {kind === "contractors" && (["historical_code", "status"] as const).map((key) => (
+                        <td key={key}>
+                          <select
+                            aria-label={(key === "historical_code" ? "COD" : "Estado") + " fila " + (n + 1)}
+                            value={draft.rows[n][key] || ""}
+                            onChange={(e) => setDraft({
+                              ...draft,
+                              rows: draft.rows.map((v, j) => j === n ? { ...v, [key]: e.target.value } : v),
+                            })}
+                          >
+                            <option value="">Seleccionar</option>
+                            {(key === "historical_code" ? ["CT", "CE", "CI"] : ["ACTIVO", "INACTIVO"]).map((value) => (
+                              <option value={value} key={value}>{value}</option>
+                            ))}
+                          </select>
+                        </td>
+                      ))}
                       <td>
                         {r.errors.map((v) => (
                           <p className="form-error" key={v}>
@@ -347,8 +361,6 @@ export default function BulkImport({
           </button>
         </>
       )}
-      <datalist id="nature-values"><option value="Contratista con trabajadores" /><option value="Independiente" /></datalist>
-      <datalist id="frequency-values"><option value="Fijo" /><option value="Esporádico" /></datalist>
       <details><summary>Historial de importaciones</summary>
         {history.map((batch) => <p key={batch.id}>{new Date(batch.created_at).toLocaleString("es-CL")} · {batch.filename} · {batch.kind} · {JSON.stringify(batch.result)}</p>)}
         {!history.length && <p>Sin importaciones confirmadas.</p>}
