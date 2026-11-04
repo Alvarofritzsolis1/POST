@@ -4,6 +4,7 @@ import type { Site } from "./opsApi";
 import WeeklyAttendanceV81 from "./WeeklyAttendanceV81";
 import ContractEntry from "./ContractEntry";
 import "./administrative-v92.css";
+import "./administrative-v93.css";
 
 type LaborState = "vigente" | "por_vencer" | "vencido" | "terminado" | "por_verificar";
 type Staff = {
@@ -108,6 +109,14 @@ export default function AdministrativeControlV92({
       .finally(() => { if (active) setLoading(false); });
     return () => { active = false; };
   }, [siteId, period, asOf, revision]);
+
+  useEffect(() => {
+    const update = () => setRevision((count) => count + 1);
+    const timer = window.setInterval(update, 30000);
+    window.addEventListener("focus", update);
+    window.addEventListener("galant-changed", update);
+    return () => { window.clearInterval(timer); window.removeEventListener("focus", update); window.removeEventListener("galant-changed", update); };
+  }, []);
 
   useEffect(() => {
     if (tab !== "performance" || role !== "administrative") return;
