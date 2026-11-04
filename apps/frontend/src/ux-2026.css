@@ -824,3 +824,90 @@
     color: #c8ddff;
   }
 }
+
+/* Focus hierarchy: secondary dashboard metrics collapse instead of overwhelming the screen. */
+.platform .dashboard-summary-heading {
+  display: flex;
+  justify-content: space-between;
+  align-items: baseline;
+  flex-wrap: wrap;
+  gap: 8px 16px;
+  margin: 24px 0 11px;
+}
+.platform .dashboard-summary-heading h2 {
+  margin: 0;
+  color: #17334c;
+  font-size: 18px;
+  letter-spacing: -.025em;
+}
+.platform .dashboard-summary-heading p {
+  margin: 0;
+  font-size: 12px;
+  color: #64758b;
+  line-height: 1.5;
+}
+.platform .dashboard-more {
+  background: #fff;
+  border: 1px solid #dce6ef;
+  border-radius: 13px;
+  margin: 10px 0 19px;
+  overflow: hidden;
+}
+.platform .dashboard-more > summary {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 11px;
+  flex-wrap: wrap;
+  cursor: pointer;
+  padding: 16px 18px;
+  min-height: 52px;
+  color: #244469;
+  font-size: 12px;
+  list-style: none;
+  border-bottom: 0;
+}
+.platform .dashboard-more > summary::-webkit-details-marker { display: none; }
+.platform .dashboard-more > summary strong { color: #244469; font-size: 13px; }
+.platform .dashboard-more > summary span {
+  color: #62768d;
+  font-size: 11px;
+  flex: 1 1 auto;
+  text-align: right;
+}
+.platform .dashboard-more > summary::after {
+  content: "⌄";
+  font-size: 20px;
+  color: #56718e;
+  line-height: 1;
+  transition: transform .2s ease;
+}
+.platform .dashboard-more[open] > summary::after { transform: rotate(180deg); }
+.platform .dashboard-more[open] > summary {
+  border-bottom: 1px solid #e2e9f1;
+  background: #f8fbfd;
+}
+.platform .dashboard-more .kpi-grid {
+  padding: 18px;
+  margin: 0;
+}
+.platform .dashboard-more > summary:focus-visible {
+  outline: 3px solid #1595c36b;
+  outline-offset: -3px;
+}
+[data-theme="dark"] .platform .dashboard-more {
+  background: #172f3a;
+  border-color: #38515b;
+}
+[data-theme="dark"] .platform .dashboard-more[open] > summary { background: #213e49; border-color: #38515b; }
+[data-theme="dark"] .platform .dashboard-more > summary strong,
+[data-theme="dark"] .platform .dashboard-summary-heading h2 { color: #e0edf2; }
+[data-theme="dark"] .platform .dashboard-more > summary span,
+[data-theme="dark"] .platform .dashboard-summary-heading p { color: #c4d3dd; }
+@media (max-width: 760px) {
+  .platform .dashboard-more > summary span { flex-basis: 100%; text-align: left; }
+  .platform .dashboard-more .kpi-grid { padding: 10px; }
+}
+@media (prefers-reduced-motion: reduce) {
+  .platform .dashboard-more > summary::after { transition: none; }
+}
