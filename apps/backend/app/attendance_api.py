@@ -20,7 +20,7 @@ from .control_models import ContractRegister, ContributionControl
 from .db import get_db
 from .models import Document, User, utcnow
 from .monthly_api import valid_period
-from .ops_api import association_for, audit_change, site_for
+from .ops_api import association_for, audit_change, site_for, contractor_classification
 from .ops_models import Contractor, ContractorWorksite, Worker, WorkerAssignment
 from .platform_models import (AttendanceRoster, AttendanceWeek, AttendanceWorkerWeek,
                               WorkerTermination)
@@ -205,9 +205,14 @@ def roster(site_id: str, period: str, user: User = Depends(authorized_user),
     result, overdue_count, completed_count = [], 0, 0
     for link, company in sorted(links, key=lambda pair: pair[1].name.casefold()):
         saved_roster = rosters.get(link.id)
-        status = ("excluded" if link.contract_status != "active" and period >= today().strftime("%Y-%m")
+        current_or_future = period >= today().strftime("%Y-%m")
+        excluded_by_policy = current_or_future and (
+            link.contract_status != "active" or contractor_classification(link, company) == "CI"
+        )
+        status = ("excluded" if excluded_by_policy
                   else saved_roster.status if saved_roster else (
-            "included" if link.contract_status == "active" and company.nature == "with_workers"
+            "included" if link.contract_status == "active" and
+            company.nature == "with_workers" and contractor_classification(link, company) != "CI"
             else "excluded"))
         people = assignments[company.id]
         signed_by_worker = defaultdict(set)
@@ -310,13 +315,16 @@ def roster(site_id: str, period: str, user: User = Depends(authorized_user),
 @router.put("/roster")
 def update_roster(body: RosterInput, user: User = Depends(attendance_editor),
                   db: Session = Depends(get_db)):
-    association, _ = association_for(db, user.org_id, body.association_id)
+    association, contractor = association_for(db, user.org_id, body.association_id)
     if user.role == "administrative":
         from .network_service import assigned_sites
         if association.worksite_id not in assigned_sites(db, user):
             raise HTTPException(403, "No tienes permiso para modificar esta obra")
     if body.status == "included" and association.contract_status != "active":
         raise HTTPException(422, "Solo se puede incluir un contratista administrativamente activo")
+    if (body.status == "included" and body.period >= today().strftime("%Y-%m")
+            and contractor_classification(association, contractor) == "CI"):
+        raise HTTPException(422, "CI independiente: no requiere asistencia de trabajadores en el período vigente")
     db.scalar(select(ContractorWorksite).where(ContractorWorksite.id == association.id).with_for_update())
     row = db.scalar(select(AttendanceRoster).where(
         AttendanceRoster.org_id == user.org_id, AttendanceRoster.association_id == association.id,
@@ -353,6 +361,8 @@ def save_week(body: WeekInput, user: User = Depends(attendance_editor),
         AttendanceRoster.org_id == user.org_id, AttendanceRoster.association_id == association.id,
         AttendanceRoster.period == body.period))
     if (roster_row and roster_row.status == "excluded") or association.contract_status != "active" or (
+            body.period >= today().strftime("%Y-%m") and
+            contractor_classification(association, company) == "CI") or (
             roster_row is None and company.nature != "with_workers"):
         raise HTTPException(422, "Incluye un contratista activo antes de registrar asistencia")
     if user.role == "administrative" and body.source_document_id:
