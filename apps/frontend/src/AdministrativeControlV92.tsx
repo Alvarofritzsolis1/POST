@@ -67,8 +67,10 @@ function tone(state: string): "ok" | "warn" | "bad" | "muted" {
   return "warn";
 }
 function WeekBadge({ week }: { week?: Week }) {
+  const hours = week ? (new Date(week.due_at).getTime() - Date.now()) / 3_600_000 : Infinity;
+  const nearing = !!week && ["pending", "draft"].includes(week.state) && hours >= 0 && hours <= 48;
   return <span className={`av92-badge ${tone(week?.state || "not_required")}`}>
-    {week ? (weekText[week.state] || "Por verificar") : "No aplica"}
+    {nearing ? "Próximo a vencer" : week ? (weekText[week.state] || "Por verificar") : "No aplica"}
   </span>;
 }
 export default function AdministrativeControlV92({
@@ -124,6 +126,7 @@ export default function AdministrativeControlV92({
   const complete = weekRows.filter((row) => ["completed_on_time", "completed_late"].includes(weekOf(row)?.state || "")).length;
   const pending = weekRows.filter((row) => ["pending", "draft", "needs_legacy_review"].includes(weekOf(row)?.state || "")).length;
   const overdue = weekRows.filter((row) => weekOf(row)?.state === "overdue").length;
+  const compliance = weekRows.length ? Math.round(100 * complete / weekRows.length) : null;
   const visibleContractors = activeContractors.filter((row) => {
     if (search && !(`${row.contractor} ${row.rut || ""}`).toLocaleLowerCase("es-CL").includes(search.toLocaleLowerCase("es-CL"))) return false;
     const week = weekOf(row);
@@ -166,6 +169,7 @@ export default function AdministrativeControlV92({
         {[
           { key: "all", value: overview.summary.active_contractors, label: "Contratistas activos", title: "Todos los contratistas" },
           { key: "done", value: complete, label: "Semana revisada", title: "Revisados en la semana" },
+          { key: "done", value: compliance === null ? "—" : compliance + "%", label: "Cumplimiento", title: "Revisión completa sobre obligaciones de la semana" },
           { key: "pending", value: pending, label: "Pendientes", title: "Pendientes de esta semana" },
           { key: "overdue", value: overdue, label: "Fuera de plazo", title: "Incumplimientos de asistencia" },
           { key: "staff", value: overview.summary.workers_vigente, label: "Trabajadores vigentes", title: "Dotación vigente a la fecha" },
@@ -266,7 +270,7 @@ export default function AdministrativeControlV92({
           <ContractEntry siteId={siteId} period={period} />
         </details>}
         {tab === "severance" && <p className="av92-notice">Los finiquitos recibidos y sus validaciones se gestionan con permisos de revisión documental. Esta vista permite a la administrativa detectar pendientes sin aprobar documentos indebidamente.</p>}
-        {tab === "staff" && <p className="av92-notice">Un contrato vencido no significa automáticamente que el trabajador haya terminado su relación laboral. Los registros sin respaldo se muestran como «Por verificar».</p>}
+        {tab === "staff" && <p className="av92-notice">Un contrato vencido no significa automáticamente que el trabajador haya terminado su relación laboral. Los registros sin respaldo se muestran como «Por verificar». Los estados de revisión documental de finiquitos representan su estado actual, no necesariamente el que tenían en la fecha histórica consultada.</p>}
         {tab === "performance" && <>
           {evaluationError && <p role="alert" className="alert danger">{evaluationError}</p>}
           {evaluation && <div className="av92-evaluation">
