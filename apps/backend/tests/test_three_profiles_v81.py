@@ -13,7 +13,7 @@ def test_role_can_be_created(role):
 @pytest.mark.parametrize("legacy", ["analyst", "supervisor", "viewer", "reviewer"])
 def test_legacy_role_cannot_be_created(legacy):
     with pytest.raises(ValidationError):
-        AccountInput(name="Persona de prueba", email="prueba@example.test",
+        AccountInput(name="Persona de prueba", email="prueba@example.cl",
                      role=legacy, site_ids=["site-qa"])
 
 @pytest.mark.parametrize("role", ["administrative", "resident"])
