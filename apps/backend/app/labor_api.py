@@ -15,7 +15,7 @@ from .control_api import monthly_matrix, today
 from .control_models import ContractAmendment, ContractRegister, ContributionControl
 from .db import get_db
 from .models import Document, Organization, User, utcnow
-from .ops_api import association_for, assignment_for, audit_change, clean_name, normalize_rut, site_for
+from .ops_api import association_for, assignment_for, audit_change, clean_name, normalize_rut, site_for, contractor_classification
 from .ops_models import Contractor, ContractorWorksite, OpsChange, Worker, WorkerAssignment, Worksite
 from .platform_models import ContractAttachment, PaymentFinding, WorkerTermination
 from .security import authorized_user, contract_entry_editor, document_reviewer, editor
@@ -329,7 +329,9 @@ def contractor_options(site_id: str | None = None, user: User = Depends(authoriz
     if site_id:
         query = query.where(ContractorWorksite.worksite_id == site_id)
     return [{"id": link.id, "site_id": link.worksite_id, "contractor_id": company.id,
-             "name": company.name, "nature": company.nature}
+             "name": company.name,
+             "classification": contractor_classification(link, company),
+             "nature": "independent" if contractor_classification(link, company) == "CI" else company.nature}
             for link, company in db.execute(query.order_by(Contractor.name)).all()]
 
 
@@ -346,7 +348,7 @@ def create_worker(body: WorkerIntake, user: User = Depends(contract_entry_editor
         ContractorWorksite.contractor_id == body.contractor_id,
         ContractorWorksite.worksite_id == body.site_id,
     )) or "")
-    if company.nature == "independent":
+    if company.nature == "independent" or contractor_classification(association, company) == "CI":
         raise HTTPException(422, "Un independiente no admite trabajadores dependientes")
     db.scalar(select(Organization).where(Organization.id == user.org_id).with_for_update())
     worker = db.scalar(select(Worker).where(Worker.org_id == user.org_id, Worker.rut == body.rut))
@@ -391,6 +393,9 @@ def create_contract(body: ContractCreate, user: User = Depends(contract_entry_ed
         ContractorWorksite.worksite_id == assignment.worksite_id))
     if not association:
         raise HTTPException(409, "Asignación sin relación con contratista y obra")
+    contractor = db.get(Contractor, assignment.contractor_id)
+    if contractor is None or contractor.nature == "independent" or contractor_classification(association, contractor) == "CI":
+        raise HTTPException(422, "Un independiente no admite nuevos contratos de trabajadores dependientes")
     db.scalar(select(Organization).where(Organization.id == user.org_id).with_for_update())
     row = _create_contract(db, user, assignment, association, body)
     db.commit()
@@ -713,7 +718,7 @@ def alerts(period: str | None = None, site_id: str | None = None,
     )).all()
     unclassified = set()
     for link, company, site in links:
-        if company.nature == "unclassified" or link.frequency == "unclassified":
+        if (link.historical_code or "").strip().upper() not in {"CT", "CE", "CI"}:
             unclassified.add(company.id)
             add("classification", "orange", company.name, site.name, None, link.id, "contractors")
     critical_docs = set()
