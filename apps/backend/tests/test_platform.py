@@ -151,7 +151,7 @@ def test_roles_isolation_and_preferences_persist(env):
         c.post(
             "/api/v1/admin/users",
             headers=h,
-            json={"email": "new@example.cl", "password": "password-valid-2026"},
+            json={"email": "new@example.cl", "password": "password-valid-2026", "role": "admin"},
         ).status_code
         == 403
     )
