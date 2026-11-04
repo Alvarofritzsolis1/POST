@@ -683,7 +683,9 @@ def operational_overview(site_id: str, period: str, as_of: date | None = None,
             labor_state = "por_verificar"
         elif ended:
             labor_state = "terminado"
-        elif contract.status != "active" or (snapshot >= today() and not assignment.active):
+        elif (contract.status not in ("active", "ended")
+              or (contract.status == "ended" and not (term and snapshot < term.effective_date))
+              or (snapshot >= today() and not assignment.active)):
             labor_state = "por_verificar"
         elif contract.end_date and contract.end_date < snapshot:
             labor_state = "vencido"
