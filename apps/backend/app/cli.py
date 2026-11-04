@@ -14,7 +14,8 @@ from .ops_api import DEFAULT_SITES, INITIAL_PERIOD, ensure_sites
 from .security import hash_password
 from .platform_models import BackupCheckpoint, SchemaVersion
 from .version import VERSION
-from .migrations import v0_6_0, v0_7_0
+from .migrations import v0_6_0, v0_7_0, v8_1_0
+from . import v81_models  # register additive tables
 
 
 def record_verified_backup(db, sha256: str):
@@ -34,6 +35,9 @@ def migrate(db):
     if not db.get(SchemaVersion, v0_7_0.MIGRATION_ID):
         v0_7_0.upgrade(db.connection())
         db.add(SchemaVersion(version=v0_7_0.MIGRATION_ID))
+    if not db.get(SchemaVersion, v8_1_0.MIGRATION_ID):
+        v8_1_0.upgrade(db)
+        db.add(SchemaVersion(version=v8_1_0.MIGRATION_ID))
 
 
 def find_admin(db, email: str) -> User:
@@ -75,7 +79,7 @@ def main():
         cmd = cmds.add_parser(command, help="Crear o vincular usuario a empresa EXISTENTE")
         cmd.add_argument("--email", required=True)
         cmd.add_argument("--admin-email", required=True, help="Administrador de la empresa que compartirá sus contratistas")
-        cmd.add_argument("--role", choices=("admin", "supervisor", "reviewer", "administrative", "viewer", "analyst"), default="supervisor")
+        cmd.add_argument("--role", choices=("admin", "administrative", "resident"), default="administrative")
         if command == "link-user":
             cmd.add_argument("--apply", action="store_true")
             cmd.add_argument("--backup", help="pg_dump custom validado con pg_restore --list")
