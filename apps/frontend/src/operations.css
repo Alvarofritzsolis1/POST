@@ -106,3 +106,5 @@
 .ops-detail-toolbar input{flex:1;min-width:180px}
 .ops-inactive-banner{margin:15px 0;padding:12px 15px;border:1px solid #e6bfd0;border-radius:9px;background:#fff5f6;color:#852f43;font-size:12px;line-height:1.5}
 @media(max-width:720px){.ops-detail-overview{grid-template-columns:1fr}.ops-detail-tabs{margin:0 14px 14px}.ops-detail-content{padding:0 14px 18px}.ops-status-filters{width:100%}}
+
+.ops-recovery{padding:26px;background:#fff8f9;border:1px solid #efcbd2;border-radius:12px;margin:18px 0;color:#6f3540}.ops-recovery h2{font-size:16px}.ops-recovery p{font-size:13px;line-height:1.6}.ops-recovery .ops-actions{justify-content:flex-start}
