@@ -1,5 +1,6 @@
 import {useCallback,useEffect,useMemo,useRef,useState,type FormEvent} from "react"
 import MonthlyDocuments from "./MonthlyDocuments"
+import {read} from "./platformApi"
 import {ArrowDownToLine,CheckCircle2,ChevronRight,FileSpreadsheet,LoaderCircle,Plus,RefreshCcw,Search,Users,XCircle} from "lucide-react"
 import {
   opsApi,type Contractor,type ContractorInput,type ImportPreview,type ImportResult,
@@ -49,6 +50,9 @@ function describeChange(changes:Record<string,unknown>){
 }
 const blankContractor=(siteId:string):ContractorInput=>({site_id:siteId,name:"",rut:null,historical_code:null,nature:"unclassified",frequency:"unclassified",contract_status:"active"})
 const blankWorker=(siteId:string,contractorId:string):WorkerInput=>({site_id:siteId,contractor_id:contractorId,name:"",rut:null})
+type LaborRow={assignment_id:string;worker_name:string;worker_rut:string;contract_type:string|null;start_date:string|null;end_date:string|null;labor_state:string;finiquito_state:string}
+const laborStates:Record<string,string>={active:"Vigente",ended:"Terminado",ending_soon:"Próximo a vencer",expired_needs_review:"Vencido",observed:"Observado",missing:"Pendiente",approved:"Aprobado",delivered:"Entregado",not_applicable:"No aplica"}
+const laborDate=(value:string|null)=>value?value.slice(0,10).split("-").reverse().join("/"):"—"
 const errorText=(err:unknown)=>err instanceof Error?err.message:"No fue posible completar la operación"
 const templateUrl=(kind:string)=>"/api/v1/ops/imports/templates/"+encodeURIComponent(kind)+"?format=xlsx"
 
@@ -59,6 +63,9 @@ export default function Operations({readOnly,externalSiteId,mode,onImport,onSite
   const [contractors,setContractors]=useState<Contractor[]>([])
   const [selectedId,setSelectedId]=useState<string|null>(null)
   const [workers,setWorkers]=useState<Worker[]>([])
+  const [laborRows,setLaborRows]=useState<LaborRow[]>([])
+  const [laborError,setLaborError]=useState("")
+  const [laborTotal,setLaborTotal]=useState(0)
   const [history,setHistory]=useState<OpsChange[]|null>(null)
   const [historyOpen,setHistoryOpen]=useState(false)
   const [search,setSearch]=useState("")
@@ -124,6 +131,16 @@ export default function Operations({readOnly,externalSiteId,mode,onImport,onSite
   const visibleContractors=contractors.filter(item=>item.site_id===siteId)
   const selected=visibleContractors.find(item=>item.id===selectedId)||null
   useEffect(()=>{setHistory(null);setHistoryOpen(false);setDetailTab("summary");setWorkerSearch("")},[selectedId])
+  useEffect(()=>{
+    let valid=true
+    setLaborRows([]);setLaborError("");setLaborTotal(0)
+    if(!selected||!siteId)return()=>{valid=false}
+    const params=new URLSearchParams({site_id:siteId,contractor_id:selected.contractor_id,page_size:"100"})
+    void read<{rows:LaborRow[];summary:Record<string,number>}>("/labor/workers?"+params.toString())
+      .then(result=>{if(valid){setLaborRows(result.rows);setLaborTotal(result.summary.total||result.rows.length)}})
+      .catch(error=>{if(valid)setLaborError(errorText(error))})
+    return()=>{valid=false}
+  },[siteId,selected?.id,selected?.contractor_id])
   useEffect(()=>{
     ++workerRequest.current;setWorkers([])
     if(siteId&&selected)void loadWorkers(siteId,selected.contractor_id,selected.id)
@@ -311,8 +328,11 @@ export default function Operations({readOnly,externalSiteId,mode,onImport,onSite
         <button className="secondary" onClick={()=>setDetailTab("workers")}>Ver trabajadores de esta empresa</button>
       </div>}
       {detailTab==="workers"&&<div className="ops-detail-content">
-        <div className="ops-detail-toolbar"><h3>Trabajadores asociados a esta obra</h3><input aria-label="Buscar trabajador" placeholder="Buscar trabajador por nombre o RUT" value={workerSearch} onChange={e=>setWorkerSearch(e.target.value)}/><button className="secondary" onClick={()=>onWorkers?.()}>Abrir gestión laboral</button></div>
-        {workers.length===0?<div className="ops-empty">No hay trabajadores asociados a este contratista en la obra.</div>:<div className="table-wrap"><table className="ops-list-table"><thead><tr><th>NOMBRE</th><th>RUT</th><th>ASIGNACIÓN</th><th>FICHA LABORAL</th></tr></thead><tbody>{workers.filter(w=>w.name.toLowerCase().includes(workerSearch.toLowerCase())||(w.rut||"").includes(workerSearch)).map(worker=><tr key={worker.id}><td><strong>{worker.name}</strong></td><td>{worker.rut||"—"}</td><td><span className={worker.active?"status success":"status waiting"}>{worker.active?"Vigente":"Inactiva"}</span></td><td><button className="secondary ops-small-button" onClick={()=>onWorkers?.(worker.id)}>Contratos y finiquitos</button></td></tr>)}</tbody></table></div>}
+        <div className="ops-detail-toolbar"><h3>Trabajadores y situación laboral</h3><input aria-label="Buscar trabajador" placeholder="Buscar nombre o RUT" value={workerSearch} onChange={e=>setWorkerSearch(e.target.value)}/><button className="secondary" onClick={()=>onWorkers?.()}>Abrir gestión laboral</button></div>
+        {laborError&&<p className="ops-help" role="status">No fue posible cargar el estado laboral: {laborError}. Puedes abrir el módulo Trabajadores.</p>}
+        {laborTotal>laborRows.length&&<p className="ops-help">Se muestran los primeros {laborRows.length} trabajadores. Consulta el módulo Trabajadores para ver el listado completo.</p>}
+        {laborRows.length>0?<div className="table-wrap"><table className="ops-list-table"><thead><tr><th>TRABAJADOR</th><th>RUT</th><th>CONTRATO</th><th>INGRESO</th><th>TÉRMINO</th><th>ESTADO</th><th>FINIQUITO</th><th>FICHA</th></tr></thead><tbody>{laborRows.filter(w=>w.worker_name.toLowerCase().includes(workerSearch.toLowerCase())||(w.worker_rut||"").includes(workerSearch)).map(worker=><tr key={worker.assignment_id}><td><strong>{worker.worker_name}</strong></td><td>{worker.worker_rut}</td><td>{worker.contract_type||"Sin contrato"}</td><td>{laborDate(worker.start_date)}</td><td>{laborDate(worker.end_date)}</td><td>{laborStates[worker.labor_state]||worker.labor_state}</td><td>{laborStates[worker.finiquito_state]||worker.finiquito_state}</td><td><button className="secondary ops-small-button" onClick={()=>onWorkers?.(worker.assignment_id)}>Ver ficha</button></td></tr>)}</tbody></table></div>:
+        workers.length===0?<div className="ops-empty">No hay trabajadores asociados a esta empresa en la obra.</div>:<div className="table-wrap"><table className="ops-list-table"><thead><tr><th>TRABAJADOR</th><th>RUT</th><th>ASIGNACIÓN</th><th>FICHA</th></tr></thead><tbody>{workers.filter(w=>w.name.toLowerCase().includes(workerSearch.toLowerCase())||(w.rut||"").includes(workerSearch)).map(worker=><tr key={worker.id}><td><strong>{worker.name}</strong></td><td>{worker.rut||"—"}</td><td>{worker.active?"Vigente":"Inactiva"}</td><td><button className="secondary ops-small-button" onClick={()=>onWorkers?.(worker.id)}>Ver ficha</button></td></tr>)}</tbody></table></div>}
       </div>}
       {detailTab==="documents"&&<MonthlyDocuments key={selected.id} contractor={selected} readOnly={readOnly}/>}
       {detailTab==="history"&&<div className="ops-history"><h3>Historial de cambios</h3>{history===null?<p>Cargando historial…</p>:history.length===0?<p>Sin cambios registrados.</p>:<ul>{history.map(change=><li key={change.id}><time>{new Date(change.created_at).toLocaleString("es-CL")}</time><span>{describeChange(change.changes)}</span><small>Registro auditable</small></li>)}</ul>}</div>}
