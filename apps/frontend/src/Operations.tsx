@@ -256,11 +256,14 @@ export default function Operations({readOnly,externalSiteId,mode,onImport,onSite
 
   return <div className="ops-workspace">
     <p>Ficha compartida de contratistas y sus asignaciones por obra.</p>
-    <div className="ops-toolbar">
-      <label>Obra<select value={siteId} onChange={event=>{setPreview(null);setImportResult(null);setContractors([]);setWorkers([]);setSelectedId(null);setSiteId(event.target.value);onSiteChange?.(event.target.value)}}>{sites.map(site=><option key={site.id} value={site.id}>{site.name}</option>)}</select></label>
+    {externalSiteId ? <div className="ops-context-bar" aria-label="Contexto de la obra seleccionada">
+      <span>Obra seleccionada: <strong>{sites.find(site=>site.id===siteId)?.name || "Obra actual"}</strong></span>
+      <button type="button" className="secondary" aria-label="Actualizar lista de contratistas" onClick={()=>siteId&&void loadContractors(siteId)}><RefreshCcw size={15}/> Actualizar</button>
+    </div> : <div className="ops-toolbar">
+      <label>Obra<select aria-label="Seleccionar obra de contratistas" value={siteId} onChange={event=>{setPreview(null);setImportResult(null);setContractors([]);setWorkers([]);setSelectedId(null);setSiteId(event.target.value);onSiteChange?.(event.target.value)}}>{sites.map(site=><option key={site.id} value={site.id}>{site.name}</option>)}</select></label>
       <span className="ops-toolbar-note">Los registros de esta vista pertenecen a la obra seleccionada.</span>
-      <button className="icon-button" title="Actualizar contratistas" onClick={()=>siteId&&void loadContractors(siteId)}><RefreshCcw size={17}/></button>
-    </div>
+      <button type="button" className="icon-button" aria-label="Actualizar contratistas" title="Actualizar contratistas" onClick={()=>siteId&&void loadContractors(siteId)}><RefreshCcw size={17}/></button>
+    </div>}
     {error&&<div role="alert" className="alert danger"><XCircle size={18}/>{error}<button onClick={()=>setError("")}>Cerrar</button></div>}
     {notice&&<div role="status" className="alert success"><CheckCircle2 size={18}/>{notice}<button onClick={()=>setNotice("")}>Cerrar</button></div>}
     <div className="ops-summary" aria-label="Resumen de contratistas y trabajadores">

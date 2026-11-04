@@ -1,0 +1,327 @@
+/* GALANT POST · 2026 UX design foundation
+   Scoped, incremental overhaul. Avoids changing business logic or APIs.
+   Inspired by consistent app shells, meaningful status states, and accessible motion. */
+:root {
+  --ux-navy: #102a36;
+  --ux-blue: #3157b7;
+  --ux-teal: #087f8c;
+  --ux-green: #15803d;
+  --ux-amber: #b45309;
+  --ux-red: #b42318;
+  --ux-canvas: #f5f7fb;
+  --ux-ink: #172332;
+  --ux-line: #dfe7ee;
+  --ux-focus: #1595c3;
+}
+.platform {
+  --canvas: var(--ux-canvas);
+  --ink: var(--ux-ink);
+  --line: var(--ux-line);
+  --accent: var(--ux-teal);
+  background: var(--canvas);
+  color: var(--ink);
+}
+.platform .sidebar {
+  background: #102a36;
+  border-right: 1px solid #29434d;
+}
+.platform .brand {
+  padding-block: 22px;
+}
+.platform .nav-item {
+  border-radius: 10px;
+  line-height: 1.3;
+  transition: background-color .18s ease, color .18s ease, transform .18s ease;
+}
+.platform .nav-item:hover {
+  background: #254b56;
+  color: #fff;
+}
+.platform .nav-item.active {
+  background: #225760;
+  box-shadow: inset 3px 0 #e8bd73;
+  color: #fff;
+}
+.platform .topbar {
+  box-sizing: border-box;
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  min-height: 74px;
+  height: auto;
+  gap: 12px;
+  padding: 12px clamp(16px, 2.4vw, 32px);
+  border-bottom: 1px solid var(--ux-line);
+  overflow: visible;
+  background: #fff;
+}
+.platform .topbar > strong {
+  flex: 0 0 auto;
+  color: #18354b;
+  white-space: nowrap;
+  font-size: 14px;
+  letter-spacing: -.01em;
+}
+.platform .global-filters {
+  flex: 1 1 auto;
+  min-width: 0;
+  max-width: 100%;
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: flex-end;
+  gap: 12px;
+  margin-left: auto;
+}
+.platform .global-filters .global-filter {
+  min-width: 0;
+  display: inline-flex;
+  flex-direction: row;
+  align-items: center;
+  gap: 9px;
+  margin: 0;
+  font-size: 11px;
+  font-weight: 700;
+  letter-spacing: 0;
+  line-height: 1.35;
+  white-space: nowrap;
+  color: #516279;
+}
+.platform .global-filter > span { flex: 0 0 auto; }
+.platform .global-filter select,
+.platform .global-filter input[type="month"] {
+  display: block;
+  box-sizing: border-box;
+  width: 190px;
+  min-width: 0;
+  max-width: none;
+  min-height: 42px;
+  height: 42px;
+  margin: 0;
+  padding: 0 13px;
+  border: 1px solid #d7e1eb;
+  border-radius: 9px;
+  background: #fff;
+  color: #172b43;
+  font-family: inherit;
+  font-size: 13px;
+  font-weight: 600;
+  line-height: normal;
+  text-align: left;
+  vertical-align: middle;
+}
+.platform .global-filter select {
+  padding-right: 32px;
+}
+.platform .global-filter input[type="month"] { width: 198px; }
+.platform .global-filter select:hover,
+.platform .global-filter input[type="month"]:hover { border-color: #91a7c7; }
+.platform .global-filter select:focus-visible,
+.platform .global-filter input[type="month"]:focus-visible {
+  outline: 3px solid #1595c36b;
+  outline-offset: 2px;
+  border-color: #087f8c;
+}
+.platform .page {
+  padding: clamp(18px, 2.35vw, 32px);
+  width: 100%;
+}
+.platform .intro {
+  gap: 16px;
+  margin-bottom: 20px;
+}
+.platform .intro h1 {
+  margin-block: 7px 6px;
+  font-size: clamp(25px, 2.2vw, 31px);
+  line-height: 1.2;
+  letter-spacing: -.045em;
+}
+.platform .intro p { line-height: 1.45; }
+.platform .ops-workspace > p {
+  margin-bottom: 13px;
+  color: #50647e;
+  font-size: 13px;
+}
+.platform .ops-context-bar {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+  min-height: 46px;
+  margin: 0 0 14px;
+  color: #516279;
+  font-size: 12px;
+}
+.platform .ops-context-bar strong { color: #173d50; }
+.platform .ops-context-bar .secondary {
+  display: inline-flex;
+  align-items: center;
+  gap: 7px;
+  min-height: 36px;
+  border-radius: 9px;
+}
+.platform .ops-summary {
+  gap: 12px;
+  margin-bottom: 18px;
+}
+.platform .ops-summary > div {
+  position: relative;
+  overflow: hidden;
+  min-width: 0;
+  border: 1px solid #dfe7ee;
+  border-radius: 13px;
+  padding: 17px 19px;
+  background: #fff;
+  box-shadow: 0 3px 12px #14304a08;
+}
+.platform .ops-summary > div::before {
+  content: "";
+  position: absolute;
+  inset: 0 0 auto;
+  height: 3px;
+  background: #3157b7;
+}
+.platform .ops-summary > div:nth-child(1)::before { background: #15803d; }
+.platform .ops-summary > div:nth-child(2)::before { background: #94a3b8; }
+.platform .ops-summary > div:nth-child(4)::before { background: #087f8c; }
+.platform .ops-summary strong {
+  color: #172b43;
+  font-size: 28px;
+  font-variant-numeric: tabular-nums;
+}
+.platform .ops-summary span { line-height: 1.45; }
+.platform .ops-card {
+  border-radius: 15px;
+  border-color: #dce5ee;
+  box-shadow: 0 3px 14px #102e3710;
+}
+.platform .ops-card-heading {
+  gap: 15px;
+}
+.platform .ops-card-heading h2 {
+  font-size: 19px;
+  letter-spacing: -.03em;
+}
+.platform .ops-card-heading p { line-height: 1.5; }
+.platform .ops-actions button {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  min-height: 42px;
+  border-radius: 10px;
+  transition: box-shadow .18s ease, transform .18s ease, background-color .18s ease;
+}
+.platform .ops-actions button:hover:not(:disabled) { transform: translateY(-1px); }
+.platform .ops-actions .primary { background: #3157b7; }
+.platform .ops-actions .primary:hover:not(:disabled) { background: #27499d; }
+.platform .ops-lifecycle.inactive {
+  color: #64748b;
+  background: #edf2f7;
+}
+.platform .ops-lifecycle.active {
+  color: #166534;
+  background: #e6f5ec;
+}
+/* Semantic status colors describe actual review state, not contractor activity. */
+.platform .state.good,
+.platform .status.good { background: #e8f7ed; color: #166534; }
+.platform .state.pending,
+.platform .status.pending { background: #fff3db; color: #92400e; }
+.platform .state.bad,
+.platform .status.bad { background: #fef0ef; color: #b42318; }
+.platform .state.info { background: #eaf2ff; color: #1d4ed8; }
+.platform .state.neutral { background: #edf2f7; color: #52657d; }
+.platform .state.good,
+.platform .state.pending,
+.platform .state.bad,
+.platform .state.info,
+.platform .state.neutral {
+  gap: 6px;
+  align-items: center;
+  font-weight: 750;
+}
+.platform .state.good::before,
+.platform .state.pending::before,
+.platform .state.bad::before,
+.platform .state.info::before,
+.platform .state.neutral::before {
+  content: "";
+  display: inline-block;
+  width: 7px;
+  height: 7px;
+  flex: 0 0 7px;
+  border-radius: 50%;
+  background: currentColor;
+}
+.platform .table-wrap { max-width: 100%; overflow-x: auto; }
+.platform .results-card tbody tr { transition: background-color .16s ease; }
+.platform .results-card tbody tr:hover { background: #f5f9fd; }
+.platform button:focus-visible,
+.platform select:focus-visible,
+.platform input:focus-visible,
+.platform a:focus-visible {
+  outline: 3px solid #1595c36b;
+  outline-offset: 2px;
+}
+[data-theme="dark"] .platform {
+  --ux-canvas: #0d2029;
+  --ux-ink: #e0edf2;
+  --ux-line: #38515b;
+}
+[data-theme="dark"] .platform .topbar { background: #172f3a; border-color: #38515b; }
+[data-theme="dark"] .platform .topbar > strong { color: #e0edf2; }
+[data-theme="dark"] .platform .global-filters .global-filter { color: #d5e3e9; }
+[data-theme="dark"] .platform .global-filter select,
+[data-theme="dark"] .platform .global-filter input[type="month"] {
+  background: #213e49;
+  color: #e0edf2;
+  border-color: #45606b;
+}
+[data-theme="dark"] .platform .ops-summary > div,
+[data-theme="dark"] .platform .ops-card {
+  background: #172f3a;
+  border-color: #38515b;
+}
+[data-theme="dark"] .platform .ops-summary strong,
+[data-theme="dark"] .platform .ops-context-bar strong { color: #e0edf2; }
+[data-theme="dark"] .platform .ops-workspace > p,
+[data-theme="dark"] .platform .ops-context-bar,
+[data-theme="dark"] .platform .ops-summary span { color: #bed0d8; }
+@media (max-width: 1220px) {
+  .platform .global-filters { justify-content: flex-start; order: 5; flex-basis: 100%; }
+  .platform .topbar { gap: 10px; }
+}
+@media (max-width: 760px) {
+  .platform .topbar { padding: 12px 14px; gap: 10px; }
+  .platform .global-filters { order: 5; width: 100%; gap: 9px; }
+  .platform .global-filters .global-filter {
+    flex: 1 1 155px;
+    min-width: 0;
+    display: flex;
+    flex-direction: column;
+    align-items: stretch;
+    gap: 5px;
+  }
+  .platform .global-filter select,
+  .platform .global-filter input[type="month"] {
+    width: 100%;
+    max-width: 100%;
+  }
+  .platform .ops-context-bar { gap: 8px; }
+  .platform .ops-summary { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+  .platform .ops-summary > div { padding: 14px 13px; }
+  .platform .ops-summary strong { font-size: 25px; }
+  .platform .ops-actions { width: 100%; justify-content: flex-start; }
+}
+@media (max-width: 420px) {
+  .platform .ops-summary { gap: 8px; }
+  .platform .ops-summary span { font-size: 10px; }
+  .platform .global-filters .global-filter { flex-basis: 132px; }
+}
+@media (prefers-reduced-motion: reduce) {
+  .platform .nav-item,
+  .platform .ops-actions button,
+  .platform .results-card tbody tr { transition: none; }
+  .platform .ops-actions button:hover { transform: none; }
+}
