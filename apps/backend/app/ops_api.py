@@ -363,6 +363,15 @@ def update_contractor(association_id: str, payload: ContractorPatch,
                 raise HTTPException(422, f"{field} no puede estar vacío")
             previous = getattr(link, field)
             if previous != value:
+                if field == "historical_code" and value == "CI":
+                    active_assignment = db.scalar(select(WorkerAssignment.id).where(
+                        WorkerAssignment.org_id == user.org_id,
+                        WorkerAssignment.contractor_id == contractor.id,
+                        WorkerAssignment.worksite_id == link.worksite_id,
+                        WorkerAssignment.active.is_(True),
+                    ).limit(1))
+                    if active_assignment:
+                        raise HTTPException(409, "No se puede cambiar a CI con trabajadores activos en esta obra")
                 setattr(link, field, value)
                 link_changes[field] = {"from": previous, "to": value}
     if changes:
