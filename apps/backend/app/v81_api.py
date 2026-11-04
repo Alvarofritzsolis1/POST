@@ -206,7 +206,8 @@ def roster(site_id: str, period: str, association_id: str | None = None,
                                                  if day in {d.isoformat() for d in days})
                 week_entries.append({
                     "worker_assignment_id": assignment.id, "worker": worker.name,
-                    "rut": worker.rut, "signed_dates": entry.signed_dates if entry else [],
+                    "rut": worker.rut, "signed_dates": [day for day in (entry.signed_dates or [])
+                        if day in {d.isoformat() for d in days}] if entry else [],
                     "excluded": entry.excluded if entry else False,
                     "reason": entry.reason if entry else "",
                     "recorded": entry is not None,
