@@ -18,7 +18,7 @@ import { Login } from "./DocumentAnalysis";
 import DocumentAnalysis from "./DocumentAnalysis";
 import Operations from "./Operations";
 import Workers from "./Workers";
-import Attendance from "./Attendance";
+import Attendance from "./WeeklyAttendanceV81";
 import AdministrativeWorkspace from "./AdministrativeWorkspace";
 import ControlCenter from "./ControlCenter";
 import BulkImport from "./BulkImport";
