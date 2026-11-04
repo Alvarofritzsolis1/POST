@@ -94,9 +94,12 @@ def main():
             data={**draft["input"], "token": draft["token"], "approve_updates": True},
         )
         assert commit.ok, (commit.status, commit.text())
+        # El módulo requiere seleccionar la obra desde el filtro GLOBAL.
+        # Sin esto App presenta "Selecciona una obra" y no monta Operations.
+        page.get_by_label("Obra seleccionada", exact=True).select_option(site["id"])
         page.get_by_role("button", name="Contratistas", exact=True).click()
         expect(page.get_by_role("heading", name="Contratistas", exact=True)).to_be_visible()
-        page.locator(".ops-toolbar select").select_option(site["id"])
+        expect(page.locator(".ops-toolbar select")).to_be_visible()
         page.get_by_role("button", name="Activos", exact=True).click()
         expect(page.get_by_role("button", name="Abrir ficha de " + company)).to_be_visible()
         assert page.get_by_role("button", name="Abrir ficha de " + other).count() == 0
