@@ -497,8 +497,17 @@ def _assessment(db, org_id, period, person_id):
         d not in completed and utcnow() > _instant(d.deadline_at) for d in required)
     values["delivered_late"] = len(completed) - len(punctual)
     values["exempt"] = len(duties) - len(required)
+    companies = dict(db.execute(
+        select(ContractorWorksite.id, Contractor.name)
+        .join(Contractor, Contractor.id == ContractorWorksite.contractor_id)
+        .where(ContractorWorksite.org_id == org_id,
+               Contractor.org_id == org_id,
+               ContractorWorksite.id.in_([d.association_id for d in duties]))
+    ).all()) if duties else {}
     values["duties"] = [{
-        "id": d.id, "association_id": d.association_id, "week_number": d.week_number,
+        "id": d.id, "association_id": d.association_id,
+        "contractor": companies.get(d.association_id, "Contratista sin nombre"),
+        "week_number": d.week_number,
         "deadline_at": d.deadline_at.isoformat(), "exempt": d.exempt,
         "completed_at": indexed[(d.association_id, d.week_number)].completed_at.isoformat()
                         if d in completed else None
