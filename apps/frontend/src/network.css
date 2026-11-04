@@ -1802,3 +1802,69 @@
     transform: none;
   }
 }
+
+
+/* GALANT POST v8 — diseño operativo: priorizar publicaciones y evitar tarjetas gigantes. */
+.nw-heading { margin-bottom: 21px; }
+.nw-heading h1 { font-size: clamp(28px, 3vw, 35px); letter-spacing: -1.2px; }
+.nw-tabs { gap: 3px; margin-bottom: 16px; }
+.nw-tabs > button { flex: 0 0 auto; min-width: 105px; padding: 13px 14px; }
+.nw-tabs > button.active { background: var(--nw-light); border-radius: 7px 7px 0 0; }
+.nw-filters { margin-bottom: 16px; }
+.nw-kpis { grid-template-columns: repeat(5, minmax(0, 1fr)); gap: 10px; margin-bottom: 17px; }
+.nw-kpi {
+  display: flex;
+  flex-direction: column;
+  gap: 5px;
+  min-height: 102px;
+  padding: 13px 15px;
+  border-radius: 9px;
+  box-shadow: none;
+}
+.nw-kpi > span { font-size: 11px; align-items: flex-start; line-height: 1.35; }
+.nw-kpi > span > svg { width: 15px; height: 15px; flex-shrink: 0; }
+.nw-kpi > strong { font-size: 26px; line-height: 1.1; margin: 4px 0 0; font-weight: 700; }
+.nw-kpi > small { font-size: 10px; margin-top: auto; }
+.nw-section-title { margin: 18px 0 11px; }
+.nw-section-title h2 { font-size: 17px; }
+.nw-dashboard-grid { margin-top: 21px; gap: 12px; }
+.nw-surface { padding: 17px; border-radius: 9px; }
+.nw-surface > h3 { font-size: 14px; margin-bottom: 13px; }
+.nw-cards { gap: 12px; }
+.nw-card { border-radius: 9px; padding: 17px; gap: 10px; }
+.nw-card h3 { font-size: 15px; }
+.nw-site { font-size: 11px; font-weight: 650; color: var(--nw-ink); }
+.nw-operational-strip { padding: 12px 0; margin: 7px 0 21px; border-bottom: 1px solid var(--nw-border); }
+.nw-operational-strip > .nw-text-button { font-size: 11px; color: var(--nw-muted); font-weight: 400; }
+.nw-operational-strip > .nw-text-button b { color: var(--nw-ink); }
+.nw-site-locked {
+  display: block;
+  width: 100%;
+  border: 1px solid var(--nw-border);
+  border-radius: 8px;
+  background: var(--nw-light);
+  padding: 11px 12px;
+  color: var(--nw-ink);
+  font-weight: 700;
+}
+.nw-field-help { font-size: 11px; font-weight: 400; color: var(--nw-muted); }
+.nw-history-heading { display: flex; justify-content: space-between; align-items: center; gap: 12px; }
+.nw-history-heading span { color: var(--nw-muted); font-size: 11px; }
+.nw-timeline { border-left: 2px solid var(--nw-border); margin: 0 0 0 13px; padding-left: 20px; display: grid; gap: 9px; }
+.nw-history { position: relative; border: 1px solid var(--nw-border); border-radius: 9px; padding: 0; background: var(--nw-paper); }
+.nw-history:hover { border-color: #9dc4b9; }
+.nw-history summary { position: relative; padding: 13px 16px; display: flex; gap: 10px; align-items: center; list-style: none; cursor: pointer; }
+.nw-history summary::-webkit-details-marker { display: none; }
+.nw-history-marker { position: absolute; left: -38px; top: 12px; width: 25px; height: 25px; display: grid; place-items: center; border: 2px solid var(--nw-border); border-radius: 50%; background: var(--nw-paper); color: var(--nw-accent); }
+.nw-history-summary { display: flex; flex-direction: column; gap: 3px; }
+.nw-history-summary strong { font-size: 12px; color: var(--nw-ink); }
+.nw-history-summary > span { font-size: 11px; color: var(--nw-muted); }
+.nw-history-content { padding: 0 16px 14px; display: grid; gap: 10px; }
+.nw-history-content > p { font-size: 12px; color: var(--nw-muted); }
+.nw-history-change { display: flex; flex-wrap: wrap; align-items: baseline; gap: 4px 12px; border-top: 1px solid var(--nw-border); padding-top: 8px; font-size: 11px; }
+.nw-history-change b { width: 100%; font-size: 11px; color: var(--nw-ink); }
+.nw-history-change span { color: var(--nw-muted); overflow-wrap: anywhere; }
+.nw-history-change span:last-child { color: var(--nw-ink); }
+@media (max-width: 1200px) { .nw-kpis { grid-template-columns: repeat(3, minmax(0, 1fr)); } }
+@media (max-width: 850px) { .nw-kpis { grid-template-columns: repeat(2, minmax(0, 1fr)); } .nw-tabs > button { min-width: 112px; } }
+@media (max-width: 550px) { .nw-kpis { grid-template-columns: repeat(2, minmax(0, 1fr)); } .nw-kpi { padding: 12px; } .nw-kpi > strong { font-size: 24px; } .nw-history-content { padding-right: 11px; } }
