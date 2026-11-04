@@ -15,7 +15,6 @@ import {
   CircleHelp,
   Clock3,
   FileCheck2,
-  Handshake,
   LayoutDashboard,
   LayoutGrid,
   List,
