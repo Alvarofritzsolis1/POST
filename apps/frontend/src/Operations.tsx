@@ -63,6 +63,9 @@ export default function Operations({readOnly,externalSiteId,mode,onImport,onSite
   const [historyOpen,setHistoryOpen]=useState(false)
   const [search,setSearch]=useState("")
   const [codeFilter,setCodeFilter]=useState("all")
+  const [statusFilter,setStatusFilter]=useState<"active"|"inactive"|"all">("active")
+  const [detailTab,setDetailTab]=useState<"summary"|"workers"|"documents"|"history">("summary")
+  const [workerSearch,setWorkerSearch]=useState("")
   const [contractorForm,setContractorForm]=useState<"new"|"edit"|null>(null)
   const [contractorDraft,setContractorDraft]=useState<ContractorInput>(blankContractor(""))
   const [workerForm,setWorkerForm]=useState<"new"|string|null>(null)
@@ -120,7 +123,7 @@ export default function Operations({readOnly,externalSiteId,mode,onImport,onSite
   },[siteId,loadContractors])
   const visibleContractors=contractors.filter(item=>item.site_id===siteId)
   const selected=visibleContractors.find(item=>item.id===selectedId)||null
-  useEffect(()=>{setHistory(null);setHistoryOpen(false)},[selectedId])
+  useEffect(()=>{setHistory(null);setHistoryOpen(false);setDetailTab("summary");setWorkerSearch("")},[selectedId])
   useEffect(()=>{
     ++workerRequest.current;setWorkers([])
     if(siteId&&selected)void loadWorkers(siteId,selected.contractor_id,selected.id)
@@ -136,9 +139,11 @@ export default function Operations({readOnly,externalSiteId,mode,onImport,onSite
     const term=search.trim().toLocaleLowerCase("es-CL")
     const matches=!term||item.name.toLocaleLowerCase("es-CL").includes(term)||(item.rut||"").toLocaleLowerCase("es-CL").includes(term)
     const kind=item.classification
-    return matches&&(classificationFilter==='all'||kind===classificationFilter)&&(codeFilter==="all"||
+    const active=item.contract_status==="active"
+    return matches&&(statusFilter==="all"||(statusFilter==="active"&&active)||(statusFilter==="inactive"&&!active))&&
+      (classificationFilter==='all'||kind===classificationFilter)&&(codeFilter==="all"||
       (codeFilter==="other" ? !["CT","CE","CI"].includes(kind) : kind===codeFilter))
-  }),[visibleContractors,search,codeFilter,classificationFilter])
+  }),[visibleContractors,search,codeFilter,classificationFilter,statusFilter])
   const statusSymbols=useMemo(()=>{
     const values=new Set<string>()
     for(const row of preview?.rows||[])for(const raw of Object.values(row.historical_statuses||{}))if(raw)values.add(raw.toUpperCase())
@@ -239,12 +244,11 @@ export default function Operations({readOnly,externalSiteId,mode,onImport,onSite
     </div>
     {error&&<div role="alert" className="alert danger"><XCircle size={18}/>{error}<button onClick={()=>setError("")}>Cerrar</button></div>}
     {notice&&<div role="status" className="alert success"><CheckCircle2 size={18}/>{notice}<button onClick={()=>setNotice("")}>Cerrar</button></div>}
-    <div className="ops-summary" aria-label="Resumen de la obra">
-      <div><strong>{visibleContractors.length}</strong><span>Contratistas en la obra</span></div>
-      <div><strong>{visibleContractors.filter(x=>x.classification==="CT").length}</strong><span>Código CT</span></div>
-       <div><strong>{visibleContractors.filter(x=>x.classification==="CE").length}</strong><span>Código CE</span></div>
-      <div><strong>{visibleContractors.filter(x=>x.classification==="CI").length}</strong><span>Código CI</span></div>
-      <div><strong>{visibleContractors.reduce((sum,item)=>sum+item.worker_count,0)}</strong><span>Asignaciones activas</span></div>
+    <div className="ops-summary" aria-label="Resumen de contratistas y trabajadores">
+      <div><strong>{visibleContractors.filter(c=>c.contract_status==="active").length}</strong><span>Contratistas activos</span></div>
+      <div><strong>{visibleContractors.filter(c=>c.contract_status!=="active").length}</strong><span>Contratistas inactivos</span></div>
+      <div><strong>{visibleContractors.length}</strong><span>Total en la obra</span></div>
+      <div><strong>{visibleContractors.filter(c=>c.contract_status==="active").reduce((sum,c)=>sum+c.worker_count,0)}</strong><span>Asignaciones vigentes (activos)</span></div>
     </div>
     <section className="results-card ops-card">
       <div className="card-heading ops-card-heading"><div><h2>Contratistas</h2><p>Busca por nombre o RUT y selecciona una empresa para ver sus trabajadores.</p></div><div className="ops-actions">
@@ -283,21 +287,35 @@ export default function Operations({readOnly,externalSiteId,mode,onImport,onSite
         <label>Frecuencia<select value={contractorDraft.frequency} onChange={event=>setContractorDraft(current=>({...current,frequency:event.target.value}))}>{frequencyOptions.map(option=><option key={option.value} value={option.value}>{option.label}</option>)}</select></label>
         <label>Estado contractual<select value={contractorDraft.contract_status} onChange={event=>setContractorDraft(current=>({...current,contract_status:event.target.value}))}>{statusOptions.map(option=><option key={option.value} value={option.value}>{option.label}</option>)}</select></label>
       </div><div className="ops-form-actions"><button className="secondary" type="button" onClick={()=>setContractorForm(null)}>Cancelar</button><button className="primary" disabled={busy} type="submit">{busy?<LoaderCircle className="spin" size={16}/>:null} Guardar contratista</button></div></form>}
-      <div className="ops-filters"><label className="ops-search"><Search size={16}/><input placeholder="Buscar por nombre o RUT" value={search} onChange={event=>setSearch(event.target.value)}/></label><select aria-label="Filtrar por clasificación" value={codeFilter} onChange={event=>setCodeFilter(event.target.value)}><option value="all">Todas las clasificaciones</option><option value="CT">CT · Fijo</option><option value="CE">CE · Esporádico</option><option value="CI">CI · Independiente</option><option value="other">Sin clasificación válida</option></select><span>{filtered.length} de {visibleContractors.length}</span></div>
+      <div className="ops-filters"><label className="ops-search"><Search size={16}/><input placeholder="Buscar por nombre o RUT" value={search} onChange={event=>setSearch(event.target.value)}/></label><div className="ops-status-filters" role="group" aria-label="Filtrar contratistas por estado">{(["active","inactive","all"] as const).map(status=><button type="button" key={status} aria-pressed={statusFilter===status} className={statusFilter===status?"selected":""} onClick={()=>{setStatusFilter(status);setSelectedId(null)}}>{status==="active"?"Activos":status==="inactive"?"Inactivos":"Todos"}</button>)}</div><select aria-label="Filtrar por clasificación" value={codeFilter} onChange={event=>setCodeFilter(event.target.value)}><option value="all">Todas las clasificaciones</option><option value="CT">CT · Fijo</option><option value="CE">CE · Esporádico</option><option value="CI">CI · Independiente</option><option value="other">Sin clasificación válida</option></select><span>{filtered.length} de {visibleContractors.length}</span></div>
       {loading?<div className="ops-empty"><LoaderCircle size={20} className="spin"/> Cargando contratistas…</div>:filtered.length===0?<div className="ops-empty"><Users size={22}/>{visibleContractors.length?"No hay coincidencias":"Aún no hay contratistas en esta obra"}</div>:
-      <div className="table-wrap"><table className="ops-list-table"><thead><tr><th>CONTRATISTA</th><th>RUT</th><th>CÓDIGO</th><th>NATURALEZA</th><th>FRECUENCIA</th><th>ESTADO</th><th>TRABAJADORES</th><th></th></tr></thead><tbody>{filtered.map(item=><tr key={item.id} className={selectedId===item.id?"selected-row":""}>
-        <td><strong>{item.name}</strong></td><td>{item.rut||"—"}</td><td>{item.historical_code||"—"}</td><td>{label(natureOptions,item.nature)}</td><td>{label(frequencyOptions,item.frequency)}</td><td>{label(statusOptions,item.contract_status)}</td><td>{item.worker_count}</td>
-        <td><button className="row-open" aria-label={`Ver trabajadores de ${item.name}`} onClick={()=>{setSelectedId(item.id);setContractorForm(null);setWorkerForm(null)}}><ChevronRight size={18}/></button></td></tr>)}</tbody></table></div>}
+      <div className="table-wrap"><table className="ops-list-table ops-contractor-table"><thead><tr><th>CONTRATISTA</th><th>RUT</th><th>CLASIFICACIÓN</th><th>ESTADO</th><th>TRABAJADORES</th><th>DETALLE</th></tr></thead><tbody>{filtered.map(item=><tr key={item.id} className={selectedId===item.id?"selected-row":""}>
+        <td><strong>{item.name}</strong></td><td>{item.rut||"—"}</td><td>{item.classification==="CT"?"CT · Fijo":item.classification==="CE"?"CE · Esporádico":item.classification==="CI"?"CI · Independiente":"Por regularizar"}</td><td><span className={"ops-lifecycle "+(item.contract_status==="active"?"active":"inactive")}>{item.contract_status==="active"?"Activo":"Inactivo"}</span></td><td>{item.worker_count}</td>
+        <td><button className="row-open" aria-label={`Abrir ficha de ${item.name}`} onClick={()=>{setSelectedId(item.id);setContractorForm(null);setWorkerForm(null)}}><ChevronRight size={18}/></button></td></tr>)}</tbody></table></div>}
     </section>
-    {selected&&<section className="results-card ops-card"><div className="card-heading ops-card-heading"><div><span className="eyebrow">CONTRATISTA SELECCIONADO</span><h2>{selected.name}</h2><p>{selected.rut||"Sin RUT"} · {selected.historical_code||"Sin código histórico"} · {label(natureOptions,selected.nature)}</p></div><div className="ops-actions">
-      <button className="secondary" onClick={()=>void toggleHistory()}>{historyOpen?"Ocultar historial":"Ver historial"}</button>
-      {!readOnly&&<button className="secondary" onClick={()=>startContractor("edit",selected)}>Editar empresa</button>}
-      <button className="primary" onClick={()=>onWorkers?.()}>Gestionar trabajadores</button>
-    </div></div>
-      <MonthlyDocuments key={selected.id} contractor={selected} readOnly={readOnly}/>
-      {selected.details&&<dl className="contractor-details">{Object.entries(selected.details).map(([key,value])=><div key={key}><dt>{({external_id:'ID externo',specialty:'Especialidad',phone:'Teléfono',email:'Correo',legal_representative:'Representante legal',legal_representative_rut:'RUT representante legal',contact:'Contacto'} as Record<string,string>)[key]||key}</dt><dd>{value}</dd></div>)}</dl>}
-      {historyOpen&&<div className="ops-history"><h3>Historial de cambios</h3>{history===null?<p>Cargando historial…</p>:history.length===0?<p>Aún no hay cambios registrados.</p>:<ul>{history.map(change=><li key={change.id}><time>{new Date(change.created_at).toLocaleString("es-CL")}</time><span>{describeChange(change.changes)}</span><small>Usuario {change.user_id}</small></li>)}</ul>}</div>}
-      {workers.length===0?<div className="ops-empty">No hay trabajadores asignados a este contratista en la obra.</div>:<div className="table-wrap"><table className="ops-list-table"><thead><tr><th>NOMBRE</th><th>RUT</th><th>ASIGNACIÓN</th><th></th></tr></thead><tbody>{workers.map(worker=><tr key={worker.id}><td><strong>{worker.name}</strong></td><td>{worker.rut||"—"}</td><td><span className={worker.active?"status success":"status waiting"}>{worker.active?"Activa":"Inactiva"}</span></td><td><button className="secondary ops-small-button" onClick={()=>onWorkers?.(worker.id)}>Ver en Trabajadores</button></td></tr>)}</tbody></table></div>}
+    {selected&&<section className="results-card ops-card ops-detail-panel" aria-label="Ficha del contratista">
+      <div className="card-heading ops-card-heading">
+        <div><span className="eyebrow">FICHA DE CONTRATISTA</span><h2>{selected.name}</h2><p>{selected.rut||"Sin RUT"} · {selected.classification} · <span className={"ops-lifecycle "+(selected.contract_status==="active"?"active":"inactive")}>{selected.contract_status==="active"?"Activo":"Inactivo"}</span></p></div>
+        <div className="ops-actions">
+          {!readOnly&&<button className="secondary" onClick={()=>startContractor("edit",selected)}>Editar empresa</button>}
+          <button className="secondary" onClick={()=>{setSelectedId(null);setDetailTab("summary")}}>Cerrar ficha</button>
+        </div>
+      </div>
+      <div className="ops-detail-tabs" role="group" aria-label="Secciones de la ficha">
+        {(["summary","workers","documents","history"] as const).map(tab=><button type="button" key={tab} aria-pressed={detailTab===tab} className={detailTab===tab?"selected":""} onClick={()=>{setDetailTab(tab);if(tab==="history"&&!historyOpen)void toggleHistory()}}>{({summary:"Resumen",workers:"Trabajadores",documents:"Documentación",history:"Historial"} as const)[tab]}</button>)}
+      </div>
+      {detailTab==="summary"&&<div className="ops-detail-content">
+        <div className="ops-detail-overview"><div><b>Clasificación</b><span>{selected.classification}</span></div><div><b>Estado</b><span>{selected.contract_status==="active"?"Activo":"Inactivo"}</span></div><div><b>Trabajadores vigentes</b><span>{selected.worker_count}</span></div></div>
+        <h3>Información de la empresa y obra</h3>
+        {selected.details&&Object.keys(selected.details).length>0?<dl className="contractor-details">{Object.entries(selected.details).filter(([,value])=>value!==null&&value!==undefined&&typeof value!=="object").map(([key,value])=><div key={key}><dt>{({external_id:"ID externo",specialty:"Especialidad",phone:"Teléfono",email:"Correo",legal_representative:"Representante legal",legal_representative_rut:"RUT representante legal",contact:"Contacto"} as Record<string,string>)[key]||key}</dt><dd>{String(value)}</dd></div>)}</dl>:<p className="ops-help">Sin antecedentes adicionales registrados.</p>}
+        <button className="secondary" onClick={()=>setDetailTab("workers")}>Ver trabajadores de esta empresa</button>
+      </div>}
+      {detailTab==="workers"&&<div className="ops-detail-content">
+        <div className="ops-detail-toolbar"><h3>Trabajadores asociados a esta obra</h3><input aria-label="Buscar trabajador" placeholder="Buscar trabajador por nombre o RUT" value={workerSearch} onChange={e=>setWorkerSearch(e.target.value)}/><button className="secondary" onClick={()=>onWorkers?.()}>Abrir gestión laboral</button></div>
+        {workers.length===0?<div className="ops-empty">No hay trabajadores asociados a este contratista en la obra.</div>:<div className="table-wrap"><table className="ops-list-table"><thead><tr><th>NOMBRE</th><th>RUT</th><th>ASIGNACIÓN</th><th>FICHA LABORAL</th></tr></thead><tbody>{workers.filter(w=>w.name.toLowerCase().includes(workerSearch.toLowerCase())||(w.rut||"").includes(workerSearch)).map(worker=><tr key={worker.id}><td><strong>{worker.name}</strong></td><td>{worker.rut||"—"}</td><td><span className={worker.active?"status success":"status waiting"}>{worker.active?"Vigente":"Inactiva"}</span></td><td><button className="secondary ops-small-button" onClick={()=>onWorkers?.(worker.id)}>Contratos y finiquitos</button></td></tr>)}</tbody></table></div>}
+      </div>}
+      {detailTab==="documents"&&<MonthlyDocuments key={selected.id} contractor={selected} readOnly={readOnly}/>}
+      {detailTab==="history"&&<div className="ops-history"><h3>Historial de cambios</h3>{history===null?<p>Cargando historial…</p>:history.length===0?<p>Sin cambios registrados.</p>:<ul>{history.map(change=><li key={change.id}><time>{new Date(change.created_at).toLocaleString("es-CL")}</time><span>{describeChange(change.changes)}</span><small>Registro auditable</small></li>)}</ul>}</div>}
     </section>}
   </div>
 }
