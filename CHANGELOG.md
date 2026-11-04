@@ -1,5 +1,18 @@
 # Historial de cambios
 
+## 9.3.0-rc1 — Control de Asistencia compartido y supervisión de todas las obras (candidata)
+
+- El administrador utiliza el mismo panel de asistencia, contratos, finiquitos y dotación que la administrativa: desaparece la obligación de buscar cada contratista por separado.
+- Vista global «Todas las obras» con contratistas activos, revisiones exigibles iniciadas, completadas, pendientes y vencidas; acceso a cada obra con un clic.
+- Matriz mensual interactiva (4/5 semanas laborales reales), con semáforos, semanas futuras no penalizadas y distinción de completado fuera de plazo.
+- Nombre de la persona responsable asignada y de quien realizó cada revisión, sin confundir asignación con ejecución.
+- Acceso directo a la asistencia y trabajadores desde cada casilla semanal del contratista; el administrador conserva su vista de balance de días.
+- Datos compartidos y refresco del panel ante actividad de otras sesiones; reutiliza los endpoints y tablas existentes.
+- `GET /api/v1/attendance-v81/portfolio` reservado al perfil administrador; la administrativa solo consulta sus obras.
+- Pruebas de consolidado, límites de permisos y trazabilidad. Sin migraciones ni alteración de las firmas históricas de fin de semana.
+- **Estado:** cambio en rama/PR, pendiente de CI y QA real antes de integración o despliegue.
+
+
 ## 9.2.0-rc1 — Centro laboral administrativo (candidata de revisión)
 
 - Nuevo panel por obra con todos los contratistas activos sin buscar previamente, filtros, semáforos semanales y acceso directo a los trabajadores.
