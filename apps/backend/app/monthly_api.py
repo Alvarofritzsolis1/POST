@@ -11,9 +11,10 @@ from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
 
 from .db import get_db
+from .contractor_policy import inactive_for_period
 from .models import Document, User, utcnow
 from .ops_api import association_for, audit_change
-from .ops_models import MonthlyDocument
+from .ops_models import MonthlyDocument, ContractorWorksite
 from .security import authorized_user, editor, document_reviewer
 
 router = APIRouter(prefix="/api/v1/ops/monthly-documents", tags=["Documentación mensual"])
@@ -99,6 +100,13 @@ def link_monthly_document(
     user: User = Depends(document_reviewer), db: Session = Depends(get_db),
 ):
     association, contractor = association_for(db, user.org_id, payload.association_id)
+    # Serialize against a concurrent offboarding on the same association.
+    association = db.scalar(select(ContractorWorksite).where(
+        ContractorWorksite.org_id == user.org_id,
+        ContractorWorksite.id == association.id,
+    ).execution_options(populate_existing=True).with_for_update())
+    if inactive_for_period(association, payload.period) and not payload.not_applicable:
+        raise HTTPException(422, "Contratista inactivo: no se admite documentación nueva para este período")
     if payload.not_applicable and payload.document_id:
         raise HTTPException(422, "No aplica no puede tener archivo adjunto")
     if not payload.not_applicable and not payload.document_id:
