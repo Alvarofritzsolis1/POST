@@ -19,6 +19,7 @@ import DocumentAnalysis from "./DocumentAnalysis";
 import Operations from "./Operations";
 import Workers from "./Workers";
 import Attendance from "./WeeklyAttendanceV81";
+import AdministrativePerformanceV81 from "./AdministrativePerformanceV81";
 import AdministrativeWorkspace from "./AdministrativeWorkspace";
 import ControlCenter from "./ControlCenter";
 import BulkImport from "./BulkImport";
@@ -40,6 +41,7 @@ const nav = [
   ["contractors", "Contratistas", Building2],
   ["workers", "Trabajadores", Users],
   ["attendance", "Control de asistencia", CalendarDays],
+  ["evaluations", "Evaluación administrativa", BarChart3],
   ["documents", "Control documental", FileCheck2],
   ["contributions", "Cotizaciones y pagos", CalendarDays],
   ["imports", "Importación masiva", FileSpreadsheet],
@@ -705,6 +707,7 @@ function App() {
             initialState={filter === "expired_needs_review" || filter === "ending_soon" ? filter : ""} />}
           {section === "attendance" && <Attendance siteId={site} sites={sites} period={period}
             canEdit={!!canAttend} canReview={!!canEdit} />}
+          {section === "evaluations" && <AdministrativePerformanceV81 sites={sites} period={period} />}
           {section === "imports" && (
             <BulkImport readOnly={readonly} siteId={site} />
           )}
