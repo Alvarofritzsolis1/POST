@@ -94,6 +94,13 @@ with sync_playwright() as p:
         page.get_by_role("button", name="Contratistas", exact=True).click()
         expect(page.get_by_label("Obra seleccionada", exact=True)).to_be_visible()
         assert_no_horizontal_page_scroll(page, f"{width}x{height}")
+        if width <= 900:
+            expect(page.locator(".ops-mobile-list")).to_be_visible()
+            expect(page.locator(".ops-desktop-list")).to_be_hidden()
+            expect(page.locator(".ops-mobile-contractor").first.get_by_role("button", name=re.compile("Abrir ficha de"))).to_be_visible()
+        else:
+            expect(page.locator(".ops-desktop-list")).to_be_visible()
+            expect(page.locator(".ops-mobile-list")).to_be_hidden()
         sel = page.get_by_label("Obra seleccionada", exact=True).bounding_box()
         assert sel and sel["height"] >= 39, (width, sel)
         assert sel["x"] >= -1 and sel["x"] + sel["width"] <= width + 2, (width, sel)
