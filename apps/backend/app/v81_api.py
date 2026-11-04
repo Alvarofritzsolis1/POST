@@ -164,7 +164,7 @@ def roster(site_id: str, period: str, association_id: str | None = None,
         association, _ = association_for(db, user.org_id, association_id)
         if association.worksite_id != site_id:
             raise HTTPException(404, "Contratista no encontrado en esta obra")
-    links, assignments, contracts, terms, rosters, _, _, controls, _ = _context(
+    links, assignments, contracts, terms, rosters, _, _, controls, users = _context(
         db, user.org_id, site_id, period, association_id=association_id)
     ids = [a.id for a, _ in links]
     weeks = db.scalars(select(CalendarWeek).where(
@@ -238,14 +238,15 @@ def roster(site_id: str, period: str, association_id: str | None = None,
                 "due_at": deadline.isoformat(),
                 "completed_at": week.completed_at if week else None,
                 "completed_on_time": week.completed_on_time if week else None,
-                "entered_by": _name(db, week.entered_by) if week else None,
-                "updated_by": _name(db, week.updated_by) if week else None,
-                "completed_by": _name(db, week.completed_by) if week and week.completed_by else None,
+                "entered_by": users.get(week.entered_by) if week else None,
+                "updated_by": users.get(week.updated_by) if week else None,
+                "completed_by": users.get(week.completed_by) if week and week.completed_by else None,
                 "notes": week.notes if week else "",
                 "revision": week.revision if week else 0,
                 "migrated": week.migrated if week else False,
                 "missing_workers": missing,
                 "assigned_to": duty.assigned_to if duty else None,
+                "assigned_to_name": users.get(duty.assigned_to) if duty and duty.assigned_to else None,
                 "entries": week_entries,
             })
         people_rows = []
@@ -786,3 +787,64 @@ def my_monthly_evaluation(period: str, user: User = Depends(authorized_user),
         "required", "completed", "punctual", "overdue",
         "delivered_late", "exempt", "grade", "duties"
     )}
+
+
+# V9.3: consolidado global de obras, sin mezclar datos ni cambiar la evidencia.
+@router.get("/portfolio")
+def attendance_portfolio(period: str, user: User = Depends(administrator),
+                         db: Session = Depends(get_db)):
+    """Supervisión global exclusiva del administrador.
+
+    Solo se cuentan obligaciones iniciadas, nunca semanas futuras como mora.
+    """
+    try:
+        calendar_weeks(period)
+    except ValueError as exc:
+        raise HTTPException(422, str(exc)) from None
+    from .ops_models import Worksite
+    sites = db.scalars(select(Worksite).where(
+        Worksite.org_id == user.org_id).order_by(Worksite.name)).all()
+    today_chile = today()
+    output = []
+    for site in sites:
+        work = roster(site_id=site.id, period=period,
+                      user=user, db=db)
+        # La relación de obra — no solo el status de una fila mensual —
+        # determina si un contratista sigue activo.
+        active_ids = set(db.scalars(select(ContractorWorksite.id).where(
+            ContractorWorksite.org_id == user.org_id,
+            ContractorWorksite.worksite_id == site.id,
+            ContractorWorksite.contract_status == "active")).all())
+        relevant = [r for r in work["contractors"]
+                    if r["association_id"] in active_ids]
+        eligible = [week for contractor in relevant if contractor["included"]
+                    for week in contractor["weeks"]
+                    if week["dates"] and week["state"] not in ("excluded", "not_required")
+                    and week["dates"][0] <= today_chile.isoformat()]
+        completed = sum(w["state"] in ("completed_on_time", "completed_late")
+                        for w in eligible)
+        overdue = sum(w["state"] == "overdue" for w in eligible)
+        pending = sum(w["state"] in ("pending", "draft", "needs_legacy_review")
+                      for w in eligible)
+        punctual = sum(w["state"] == "completed_on_time" for w in eligible)
+        output.append({
+            "site_id": site.id, "site_name": site.name,
+            "active_contractors": len(active_ids),
+            "required_revisions": len(eligible),
+            "completed_revisions": completed,
+            "punctual_revisions": punctual,
+            "late_completions": completed - punctual,
+            "pending_revisions": pending,
+            "overdue_revisions": overdue,
+            "completion_percent": round(100 * completed / len(eligible), 1)
+                                  if eligible else None,
+        })
+    totals = {key: sum(row[key] for row in output) for key in (
+        "active_contractors", "required_revisions", "completed_revisions",
+        "punctual_revisions", "late_completions",
+        "pending_revisions", "overdue_revisions")}
+    totals["completion_percent"] = (
+        round(100 * totals["completed_revisions"] / totals["required_revisions"], 1)
+        if totals["required_revisions"] else None
+    )
+    return {"period": period, "sites": output, "totals": totals}
