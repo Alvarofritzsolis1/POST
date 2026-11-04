@@ -479,7 +479,7 @@ function AccountForm({
           name: d.get("name"),
           title: d.get("title"),
           role,
-          site_ids: role === "resident" ? sites : [],
+          site_ids: role === "admin" ? [] : sites,
           enabled: d.get("enabled") === "on",
           can_award: d.get("can_award") === "on",
           ...(!target ? { email: d.get("email") } : {}),
@@ -522,7 +522,7 @@ function AccountForm({
           Cuenta activa
         </label>
         <div className="nw-role-options">
-          {["resident", "admin"].map((r) => (
+          {["admin", "administrative", "resident"].map((r) => (
             <button
               type="button"
               className={"nw-role-card " + (role === r ? "selected" : "")}
@@ -530,22 +530,23 @@ function AccountForm({
               key={r}
               onClick={() => setRole(r)}
             >
-              {r === "resident" ? <Network /> : <Settings />}
+              {r === "resident" ? <Network /> : r === "administrative" ? <Users /> : <Settings />}
               <b>{labels[r]}</b>
               <small>
-                {r === "resident"
-                  ? "Red de Obras y obras asignadas"
-                  : "Módulos administrativos autorizados"}
+                {r === "resident" ? "Solo Red de Obras"
+                  : r === "administrative" ? "Asistencia semanal y contratos de trabajo"
+                  : "Acceso completo de Administrador"}
               </small>
             </button>
           ))}
         </div>
-        {target && !["admin", "resident"].includes(role) && (
-          <p>
-            Se conserva el perfil existente: <Badge value={role} />
+        {target && !["admin", "administrative", "resident"].includes(target.role) && (
+          <p className="nw-callout">
+            Esta cuenta tiene un perfil antiguo. Selecciona uno de los tres perfiles vigentes
+            para habilitar nuevamente su acceso.
           </p>
         )}
-        {role === "resident" ? (
+        {role !== "admin" ? (
           <>
             <b>Obras asignadas</b>
             {catalog.sites.map((s) => (
@@ -567,14 +568,11 @@ function AccountForm({
             {!sites.length && (
               <p className="nw-muted">Selecciona al menos una obra.</p>
             )}
-            <label className="nw-check">
-              <input
-                type="checkbox"
-                name="can_award"
-                defaultChecked={target?.can_award ?? false}
-              />
+            {role === "resident" && <label className="nw-check">
+              <input type="checkbox" name="can_award"
+                defaultChecked={target?.can_award ?? false} />
               Autorización específica para confirmar adjudicaciones en sus obras
-            </label>
+            </label>}
           </>
         ) : (
           <p className="nw-callout">
@@ -584,7 +582,7 @@ function AccountForm({
         )}
         <button
           className="nw-btn nw-primary"
-          disabled={busy || (role === "resident" && !sites.length)}
+          disabled={busy || (role !== "admin" && !sites.length)}
         >
           {busy
             ? "Guardando…"
