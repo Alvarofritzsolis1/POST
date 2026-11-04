@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useState } from "react";
 import type { Site } from "./opsApi";
 import { request } from "./api";
 import "./weekly-v81.css";
@@ -7,6 +7,7 @@ type Entry = { worker_assignment_id: string; worker: string; rut: string | null;
 type Week = { id: string | null; week_number: number; start_date: string; end_date: string; dates: string[]; state: string; saved_state: string; due_at: string; revision: number; migrated: boolean; notes: string; missing_workers: number; entered_by: string | null; completed_by: string | null; completed_at: string | null; completed_on_time: boolean | null; entries: Entry[] };
 type Contractor = { association_id: string; contractor: string; rut: string | null; included: boolean; workers: { assignment_id: string; name: string; rut: string | null; signed_days: number; paid_days?: number | null; difference?: number | null }[]; weeks: Week[] };
 type Roster = { site_id: string; period: string; contractors: Contractor[]; week_count: number };
+type SearchItem = { association_id: string; contractor: string; rut: string | null; workers: number; active: boolean };
 
 const copy = <T,>(value: T): T => JSON.parse(JSON.stringify(value)) as T;
 const errorText = (v: unknown) => v instanceof Error ? v.message : String(v);
@@ -23,6 +24,7 @@ export default function WeeklyAttendanceV81({ siteId, sites, period, canEdit, ca
 }) {
   const [localSite, setLocalSite] = useState("");
   const [data, setData] = useState<Roster | null>(null);
+  const [matches, setMatches] = useState<SearchItem[]>([]);
   const [search, setSearch] = useState("");
   const [contractorId, setContractorId] = useState("");
   const [weekNumber, setWeekNumber] = useState(1);
@@ -35,13 +37,23 @@ export default function WeeklyAttendanceV81({ siteId, sites, period, canEdit, ca
   const activeSite = siteId || localSite || sites[0]?.id || "";
 
   useEffect(() => {
-    if (!activeSite) return;
+    if (!activeSite || !contractorId) { setData(null); return; }
     let active = true;
-    void request<Roster>(`/attendance-v81/roster?site_id=${encodeURIComponent(activeSite)}&period=${encodeURIComponent(period)}`)
+    void request<Roster>(`/attendance-v81/roster?site_id=${encodeURIComponent(activeSite)}&period=${encodeURIComponent(period)}&association_id=${encodeURIComponent(contractorId)}`)
       .then((result) => { if (active) { setData(result); setError(""); } })
       .catch((reason) => { if (active) { setError(errorText(reason)); setData(null); } });
     return () => { active = false; };
-  }, [activeSite, period, revision]);
+  }, [activeSite, period, contractorId, revision]);
+  useEffect(() => {
+    if (!activeSite || !search.trim()) { setMatches([]); return; }
+    let active = true;
+    const timer = window.setTimeout(() => {
+      void request<{items: SearchItem[]}>(`/attendance-v81/contractors?site_id=${encodeURIComponent(activeSite)}&q=${encodeURIComponent(search.trim())}`)
+        .then((result) => { if (active) setMatches(result.items); })
+        .catch((reason) => { if (active) setError(errorText(reason)); });
+    }, 180);
+    return () => { active = false; window.clearTimeout(timer); };
+  }, [activeSite, search]);
   useEffect(() => { setContractorId(""); setWeekNumber(1); setSearch(""); }, [activeSite, period]);
   const contractor = data?.contractors.find((row) => row.association_id === contractorId);
   const week = contractor?.weeks.find((row) => row.week_number === weekNumber);
@@ -50,13 +62,7 @@ export default function WeeklyAttendanceV81({ siteId, sites, period, canEdit, ca
     setNotes(week?.notes?.startsWith("Migrado desde calendario antiguo") ? "" : week?.notes || "");
   }, [contractorId, weekNumber, week?.revision, revision]);
 
-  const matches = useMemo(() => {
-    const query = search.trim().toLocaleLowerCase("es-CL");
-    if (query.length < 1) return [];
-    return (data?.contractors || []).filter((row) =>
-      (row.contractor + " " + (row.rut || "")).toLocaleLowerCase("es-CL").includes(query)).slice(0, 30);
-  }, [data, search]);
-  const missing = entries.filter((row) => !row.recorded).length;
+   const missing = entries.filter((row) => !row.recorded).length;
   const deadlineExpired = week ? Date.now() > new Date(week.due_at).getTime() : false;
   const canSubmit = !!contractor?.included && canEdit && !busy;
   function mark(id: string, action: (row: Entry) => Entry) {
@@ -104,7 +110,7 @@ export default function WeeklyAttendanceV81({ siteId, sites, period, canEdit, ca
           className={row.association_id === contractorId ? "selected" : ""}
           onClick={() => { setContractorId(row.association_id); setWeekNumber(1); setSearch(row.contractor); }}>
           <strong>{row.contractor}</strong>
-          <span>{row.rut || "RUT pendiente"} · {row.workers.length} trabajadores</span></button>)}
+          <span>{row.rut || "RUT pendiente"} · {row.workers} trabajadores</span></button>)}
       </div>}
       {!!search && !matches.length && <p className="muted">No hay resultados coincidentes.</p>}
       {!search && <p className="muted">Busca un contratista para comenzar.</p>}
