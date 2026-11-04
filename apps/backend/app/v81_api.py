@@ -22,7 +22,7 @@ from .models import User, utcnow
 from .network_models import NetworkMembership
 from .network_service import actor_name, assigned_sites
 from .ops_api import association_for, audit_change, site_for
-from .ops_models import ContractorWorksite, WorkerAssignment
+from .ops_models import Contractor, ContractorWorksite, WorkerAssignment
 from .security import authorized_user, attendance_editor, administrator
 from .v81_models import CalendarWeek, CalendarEntry, CalendarDuty, MonthlyAssessment
 
@@ -64,16 +64,55 @@ def _eligible(db, user, association, period, number):
             if _worker_eligible(a, contracts, terminations, dates)]
 
 
+@router.get("/contractors")
+def search_contractors(site_id: str, q: str = "", limit: int = 30,
+                       user: User = Depends(authorized_user), db: Session = Depends(get_db)):
+    _scope(db, user, site_id)
+    if not 1 <= limit <= 50:
+        raise HTTPException(422, "Límite de resultados no válido")
+    text = q.strip()
+    if not text:
+        return {"items": [], "has_more": False}
+    search = "%" + text.replace("%", "\\%").replace("_", "\\_") + "%"
+    query = (select(ContractorWorksite, Contractor)
+        .join(Contractor, Contractor.id == ContractorWorksite.contractor_id)
+        .where(ContractorWorksite.org_id == user.org_id,
+               Contractor.org_id == user.org_id,
+               ContractorWorksite.worksite_id == site_id,
+               (Contractor.name.ilike(search, escape="\\") |
+                Contractor.rut.ilike(search, escape="\\")))
+        .order_by(Contractor.name).limit(limit + 1))
+    found = db.execute(query).all()
+    matches = found[:limit]
+    company_ids = [company.id for _, company in matches]
+    counts = dict(db.execute(select(
+        WorkerAssignment.contractor_id, func.count(WorkerAssignment.id))
+        .where(WorkerAssignment.org_id == user.org_id,
+               WorkerAssignment.worksite_id == site_id,
+               WorkerAssignment.contractor_id.in_(company_ids),
+               WorkerAssignment.active.is_(True))
+        .group_by(WorkerAssignment.contractor_id)).all()) if company_ids else {}
+    return {"items": [{
+        "association_id": association.id, "contractor": company.name, "rut": company.rut,
+        "workers": counts.get(company.id, 0), "active": association.contract_status == "active",
+    } for association, company in matches], "has_more": len(found) > limit}
+
+
 @router.get("/roster")
-def roster(site_id: str, period: str, user: User = Depends(authorized_user),
+def roster(site_id: str, period: str, association_id: str | None = None,
+           user: User = Depends(authorized_user),
            db: Session = Depends(get_db)):
     _scope(db, user, site_id)
     try:
         ranges = calendar_weeks(period)
     except ValueError as exc:
         raise HTTPException(422, str(exc)) from None
+    if association_id:
+        association, _ = association_for(db, user.org_id, association_id)
+        if association.worksite_id != site_id:
+            raise HTTPException(404, "Contratista no encontrado en esta obra")
     links, assignments, contracts, terms, rosters, _, _, controls, _ = _context(
-        db, user.org_id, site_id, period)
+        db, user.org_id, site_id, period, association_id=association_id)
     ids = [a.id for a, _ in links]
     weeks = db.scalars(select(CalendarWeek).where(
         CalendarWeek.org_id == user.org_id, CalendarWeek.period == period,
