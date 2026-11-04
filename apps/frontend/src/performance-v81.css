@@ -1,0 +1,18 @@
+.performance-v81 { display:grid; gap:1rem; min-width:0 }
+.performance-heading h2,.performance-card-head h3{margin:0}
+.performance-heading p,.performance-card-head p,.performance-assign p{font-size:.9rem;color:#697d90}
+.performance-fields{display:flex;align-items:end;flex-wrap:wrap;gap:.8rem}
+.performance-fields label{display:grid;gap:.35rem;min-width:210px;flex:1}
+.performance-fields select{width:100%;padding:.65rem;border:1px solid #cddbe8;border-radius:.45rem;background:#fff;color:#19334c}
+.performance-fields button,.performance-actions button{padding:.7rem 1rem;border:1px solid #9fbcd1;border-radius:.5rem;background:#eaf5fc;color:#15557d;cursor:pointer;font-weight:600}
+.performance-fields button:disabled,.performance-actions button:disabled{opacity:.55;cursor:not-allowed}
+.performance-list{display:grid;grid-template-columns:repeat(auto-fit,minmax(350px,1fr));gap:1rem}
+.performance-card-head{display:flex;justify-content:space-between;align-items:start;gap:1rem;flex-wrap:wrap}
+.performance-grade{font-size:1.5rem}
+.performance-metrics{display:grid;grid-template-columns:repeat(2,1fr);gap:.5rem;margin:1rem 0}
+.performance-metrics>div{padding:.85rem;background:#f4f8fc;border-radius:.5rem;display:grid;gap:.3rem}
+.performance-metrics small{color:#66798c}
+.performance-metrics b{font-size:1.3rem}
+.performance-approved{color:#286744;font-size:.85rem}
+.performance-actions{display:flex;justify-content:flex-end}
+@media(max-width:620px){.performance-list{grid-template-columns:minmax(0,1fr)}}
