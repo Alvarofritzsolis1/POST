@@ -508,6 +508,10 @@ function App() {
                 }}>{item.label} · {item.site} {item.date ? "· " + item.date : ""}</button>)}
                 {!laborAlerts.alerts.length && <p>Sin alertas verificadas para el período y obra seleccionados.</p>}
               </section>}
+              <div className="dashboard-summary-heading">
+                <h2>Resumen de contratistas</h2>
+                <p>Distribución por clasificación para la obra y período seleccionados.</p>
+              </div>
               <div className="kpi-grid">
                 {Object.entries(overview.classifications).map(
                   ([key, value]) => (
@@ -525,6 +529,10 @@ function App() {
                     </button>
                   ),
                 )}
+              </div>
+              <details className="dashboard-more">
+                <summary><strong>Más indicadores del período</strong><span>Trabajadores, documentos, pagos y retenciones</span></summary>
+                <div className="kpi-grid">
                 {[
                   [
                     "Trabajadores activos",
@@ -609,7 +617,8 @@ function App() {
                     <span>Ver detalle →</span>
                   </button>
                 ))}
-              </div>
+                </div>
+              </details>
               <p className="muted">
                 Promedio: {overview.contributions.denominator} registros
                 individuales con días informados. La falta de información
