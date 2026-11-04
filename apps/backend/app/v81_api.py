@@ -93,7 +93,7 @@ def search_contractors(site_id: str, q: str = "", limit: int = 30,
                WorkerAssignment.active.is_(True))
         .group_by(WorkerAssignment.contractor_id)).all()) if company_ids else {}
     return {"items": [{
-        "association_id": association.id, "contractor": company.name, "rut": company.rut,
+        "association_id": association.id, "contractor_id": company.id, "contractor": company.name, "rut": company.rut,
         "workers": counts.get(company.id, 0), "active": association.contract_status == "active",
     } for association, company in matches], "has_more": len(found) > limit}
 
