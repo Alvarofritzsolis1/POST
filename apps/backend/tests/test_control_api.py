@@ -366,3 +366,60 @@ def test_pago_parcial_es_incompleto_y_sincroniza_control_documental(env):
     doc = next(row for row in docs if
         row["subject"] == worker["id"] and row["requirement"] == "Cotizaciones")
     assert doc["state"] == "incomplete"
+
+
+def test_v1010_inactive_company_has_no_new_document_requirements_but_keeps_history(env, monkeypatch):
+    """Closing a worksite relation never destroys old document obligations."""
+    import app.control_api as control_module
+    client, sessions = env
+    headers = login(client, "a@example.cl")
+    site = client.get("/api/v1/ops/sites").json()[0]["id"]
+    company = create_company(client, headers, site, "CT", "Empresa histórica v10.10")
+    old_period = "2026-09"
+    current_period = "2026-11"
+    assert client.post("/api/v1/control/reviews", headers=headers, json={
+        "association_id": company["id"], "period": old_period,
+        "kind": "cotizaciones", "status": "approved", "notes": "Revisado",
+    }).status_code == 200
+    assert client.patch("/api/v1/ops/contractors/"+company["id"], headers=headers,
+                        json={"contract_status": "inactive"}).status_code == 200
+    monkeypatch.setattr(control_module, "today", lambda: date(2026, 11, 4))
+    now = client.get("/api/v1/control/matrix", params={"site_id":site,"period":current_period}).json()
+    record = next(x for x in now["contractors"] if x["association_id"] == company["id"])
+    assert record["inactive_for_period"] is True
+    assert all(x["applicable"] is False and x["state"] == "inactive" for x in record["requirements"])
+    assert now["summary"]["applicable"] == 0
+    assert client.post("/api/v1/control/reviews", headers=headers, json={
+        "association_id":company["id"],"period":current_period,
+        "kind":"cotizaciones","status":"approved","notes":"",
+    }).status_code == 422
+    past = client.get("/api/v1/control/matrix", params={"site_id":site,"period":old_period}).json()
+    historical = next(x for x in past["contractors"] if x["association_id"] == company["id"])
+    assert next(x for x in historical["requirements"] if x["kind"] == "cotizaciones")["state"] == "approved"
+    assert client.get("/api/v1/ops/contractors",params={"site_id":site}).json()[0]["contract_status"] == "inactive"
+
+
+def test_v1010_company_details_are_flat_and_scoped_per_worksite(env):
+    from app.platform_models import ContractorDetails
+    client, sessions = env
+    headers = login(client, "a@example.cl")
+    sites = client.get("/api/v1/ops/sites").json()[:2]
+    first = create_company(client, headers, sites[0]["id"], "CT", "Empresa multiobra v10.10")
+    second = client.post("/api/v1/ops/contractors", headers=headers, json={
+        "site_id":sites[1]["id"],"name":"Empresa multiobra v10.10",
+        "historical_code":"CT","nature":"with_workers",
+    })
+    assert second.status_code == 201,second.text
+    with sessions.begin() as db:
+        db.add(ContractorDetails(contractor_id=first["contractor_id"], values={
+            "phone":"12345", "worksites":{
+                sites[0]["id"]:{"specialty":"Carpintería", "external_id":"A"},
+                sites[1]["id"]:{"specialty":"Electricidad", "external_id":"B"},
+            }
+        }))
+    for site, expected in zip(sites, ["Carpintería", "Electricidad"]):
+        records = client.get("/api/v1/ops/contractors",params={"site_id":site["id"]}).json()
+        record = next(x for x in records if x["contractor_id"]==first["contractor_id"])
+        assert record["details"]["specialty"]==expected
+        assert "worksites" not in record["details"]
+        assert all(not isinstance(v, dict) for v in record["details"].values())
