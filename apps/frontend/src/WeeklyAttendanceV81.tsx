@@ -56,13 +56,21 @@ export default function WeeklyAttendanceV81({ siteId, sites, period, canEdit, ca
   }, [activeSite, search]);
   useEffect(() => { setContractorId(""); setWeekNumber(1); setSearch(""); }, [activeSite, period]);
   const contractor = data?.contractors.find((row) => row.association_id === contractorId);
-  const week = contractor?.weeks.find((row) => row.week_number === weekNumber);
+  // Keep backend week numbers stable for saved evidence; show only weeks with workdays.
+  const visibleWeeks = (contractor?.weeks || []).filter((item) => item.dates.length > 0);
+  const week = visibleWeeks.find((row) => row.week_number === weekNumber) || visibleWeeks[0];
+  const displayWeekNumber = visibleWeeks.findIndex((item) => item.week_number === week?.week_number) + 1;
+  const todayChile = new Intl.DateTimeFormat("sv-SE", {
+    timeZone: "America/Santiago", year: "numeric", month: "2-digit", day: "2-digit",
+  }).format(new Date());
   useEffect(() => {
     setEntries(copy(week?.entries || []));
     setNotes(week?.notes?.startsWith("Migrado desde calendario antiguo") ? "" : week?.notes || "");
   }, [contractorId, weekNumber, week?.revision, revision]);
 
-   const missing = entries.filter((row) => !row.recorded).length;
+  const missing = entries.filter((row) => !row.recorded).length;
+  const recorded = entries.length - missing;
+  const presentDays = entries.reduce((sum, row) => sum + (!row.excluded ? row.signed_dates.length : 0), 0);
   const deadlineExpired = week ? Date.now() > new Date(week.due_at).getTime() : false;
   const canSubmit = !!contractor?.included && canEdit && !busy;
   function mark(id: string, action: (row: Entry) => Entry) {
@@ -95,7 +103,7 @@ export default function WeeklyAttendanceV81({ siteId, sites, period, canEdit, ca
   }
   return <div className="weekly-v81">
     <header className="weekly-v81-head">
-      <div><h2>Asistencia semanal</h2><p>{period} · Las semanas se calculan de lunes a domingo, con cortes de mes.</p></div>
+      <div><h2>Asistencia semanal</h2><p>{period} · Solo lunes a viernes. Sábados y domingos no generan obligaciones de asistencia.</p></div>
       {!siteId && <label>Obra <select value={activeSite} onChange={(e) => setLocalSite(e.target.value)}>
         {sites.map((row) => <option key={row.id} value={row.id}>{row.name}</option>)}</select></label>}
     </header>
@@ -108,7 +116,7 @@ export default function WeeklyAttendanceV81({ siteId, sites, period, canEdit, ca
       {matches.length > 0 && <div className="weekly-v81-results">
         {matches.map((row) => <button type="button" key={row.association_id}
           className={row.association_id === contractorId ? "selected" : ""}
-          onClick={() => { setContractorId(row.association_id); setWeekNumber(1); setSearch(row.contractor); }}>
+          onClick={() => { setContractorId(row.association_id); setWeekNumber(1); setSearch(""); setMatches([]); }}>
           <strong>{row.contractor}</strong>
           <span>{row.rut || "RUT pendiente"} · {row.workers} trabajadores</span></button>)}
       </div>}
@@ -118,49 +126,73 @@ export default function WeeklyAttendanceV81({ siteId, sites, period, canEdit, ca
     {contractor && <div className="weekly-v81-detail">
       <section className="panel">
         <div className="weekly-v81-head"><h3>{contractor.contractor}</h3><span>{contractor.included ? "En base mensual" : "No considerado este mes"}</span></div>
+        <p className="weekly-v91-month-summary">{visibleWeeks.length} semanas con días laborales · {visibleWeeks.filter((item) => item.state === "completed_on_time" || item.state === "completed_late").length} completadas · {visibleWeeks.filter((item) => item.state === "overdue").length} atrasadas</p>
         <div className="weekly-v81-tabs">
-          {contractor.weeks.map((w) => <button type="button" key={w.week_number}
-            className={weekNumber === w.week_number ? "current" : ""}
+          {visibleWeeks.map((w, index) => <button type="button" key={w.week_number}
+            aria-pressed={week?.week_number === w.week_number}
+            className={week?.week_number === w.week_number ? "current" : ""}
             onClick={() => setWeekNumber(w.week_number)}>
-            <b>Semana {w.week_number}</b><small>{fmtDate(w.start_date)} – {fmtDate(w.end_date)}</small>
+            <b>Semana {index + 1}</b><small>{fmtDate(w.start_date)} – {fmtDate(w.end_date)}</small>
             <small>{status[w.state] || w.state}</small>
           </button>)}
         </div>
       </section>
       {week && <section className="panel">
-        <div className="weekly-v81-head"><h3>Semana {week.week_number}</h3><strong>{status[week.state] || week.state}</strong></div>
+        <div className="weekly-v81-head"><h3>Semana {displayWeekNumber}</h3><strong>{status[week.state] || week.state}</strong></div>
         <p>Fecha límite: {fmtTime(week.due_at)}. {week.completed_by && `Completado por ${week.completed_by}.`}</p>
         {week.migrated && week.saved_state !== "completed" && <p className="alert warning" role="status">Registros históricos migrados: verifica los días antes de completar esta semana.</p>}
         {deadlineExpired && !week.completed_at && <p className="alert warning" role="status">Plazo vencido. Puedes ingresar igualmente; se guardará como fuera de plazo y deberás indicar el motivo.</p>}
-        <div className="weekly-v81-scroll"><table className="weekly-v81-grid"><thead><tr><th>Trabajador</th>
-          {week.dates.map((day) => <th key={day}>{fmtDate(day).slice(0, 5)}</th>)}
-          <th>Registrar cero</th><th>Excluir</th><th>Motivo</th></tr></thead>
-          <tbody>{entries.map((row) => <tr key={row.worker_assignment_id}>
-            <th scope="row">{row.worker}<small>{row.rut || "Sin RUT"}</small></th>
-            {week.dates.map((day) => <td key={day}><input type="checkbox"
-              aria-label={`${row.worker} asistió el ${fmtDate(day)}`}
-              checked={row.signed_dates.includes(day)} disabled={!canSubmit || row.excluded || day > new Intl.DateTimeFormat("sv-SE", {
-                timeZone: "America/Santiago", year: "numeric", month: "2-digit", day: "2-digit"
-              }).format(new Date())}
-              onChange={(e) => mark(row.worker_assignment_id, (current) => ({
-                ...current, recorded: true, signed_dates: e.target.checked
-                  ? [...current.signed_dates, day] : current.signed_dates.filter((value) => value !== day),
-              }))} /></td>)}
-            <td><button type="button" disabled={!canSubmit} aria-label={`Registrar cero días para ${row.worker}`}
-              onClick={() => mark(row.worker_assignment_id, (current) => ({
-                ...current, recorded: true, excluded: false, signed_dates: [], reason: "",
-              }))}>0 días</button></td>
-            <td><input type="checkbox" aria-label={`Excluir a ${row.worker}`} disabled={!canSubmit}
-              checked={row.excluded} onChange={(e) => mark(row.worker_assignment_id, (current) => ({
-                ...current, recorded: e.target.checked || current.recorded,
-                excluded: e.target.checked, signed_dates: e.target.checked ? [] : current.signed_dates,
-              }))} /></td>
-            <td><input aria-label={`Motivo de exclusión de ${row.worker}`} value={row.reason}
-              disabled={!canSubmit || !row.excluded} placeholder={row.excluded ? "Obligatorio" : "—"}
-              onChange={(e) => mark(row.worker_assignment_id, (current) => ({
-                ...current, reason: e.target.value,
-              }))} /></td>
-          </tr>)}</tbody></table></div>
+        <div className="weekly-v91-progress" role="status" aria-live="polite">
+          <strong>{recorded} de {entries.length} trabajadores registrados</strong>
+          <span>{presentDays} días marcados · {missing} pendientes</span>
+          <div className="weekly-v91-meter" aria-hidden="true"><span style={{ width: entries.length ? (recorded / entries.length * 100) + "%" : "100%" }} /></div>
+        </div>
+        <div className="weekly-v91-workers">
+          {entries.map((row) => {
+            const availableDays = week.dates.filter((day) => day <= todayChile);
+            return <article className={"weekly-v91-worker " + (row.recorded ? "is-recorded" : "is-pending")} key={row.worker_assignment_id}>
+              <div className="weekly-v91-worker-head">
+                <div><strong>{row.worker}</strong><small>{row.rut || "Sin RUT"}</small></div>
+                <span className={"weekly-v91-state " + (row.recorded ? "ok" : "pending")}>
+                  {row.excluded ? "Excluido" : !row.recorded ? "Sin registrar" : row.signed_dates.length ? row.signed_dates.length + " días" : "0 días"}
+                </span>
+              </div>
+              <fieldset className="weekly-v91-days" disabled={!canSubmit || row.excluded}>
+                <legend>Días de asistencia</legend>
+                {week.dates.map((day) => <label key={day} className={"weekly-v91-day " + (row.signed_dates.includes(day) ? "checked" : "")}>
+                  <span>{new Intl.DateTimeFormat("es-CL", { weekday: "short", timeZone: "UTC" }).format(new Date(day + "T12:00:00Z"))} <b>{fmtDate(day).slice(0, 5)}</b></span>
+                  <input type="checkbox" checked={row.signed_dates.includes(day)}
+                    aria-label={row.worker + " asistió el " + fmtDate(day)}
+                    disabled={day > todayChile}
+                    onChange={(e) => mark(row.worker_assignment_id, (current) => ({
+                      ...current, recorded: true, excluded: false,
+                      signed_dates: e.target.checked ? [...current.signed_dates, day] : current.signed_dates.filter((d) => d !== day),
+                    }))} />
+                </label>)}
+              </fieldset>
+              <div className="weekly-v91-worker-actions">
+                <button type="button" disabled={!canSubmit || !availableDays.length}
+                  onClick={() => mark(row.worker_assignment_id, (current) => ({
+                    ...current, recorded: true, excluded: false, signed_dates: availableDays, reason: "",
+                  }))}>Marcar días disponibles</button>
+                <button type="button" disabled={!canSubmit}
+                  onClick={() => mark(row.worker_assignment_id, (current) => ({
+                    ...current, recorded: true, excluded: false, signed_dates: [], reason: "",
+                  }))}>Registrar 0 días</button>
+                <label className="weekly-v91-exclusion"><input type="checkbox" disabled={!canSubmit}
+                  checked={row.excluded} onChange={(e) => mark(row.worker_assignment_id, (current) => ({
+                    ...current, recorded: e.target.checked || current.recorded, excluded: e.target.checked,
+                    signed_dates: e.target.checked ? [] : current.signed_dates,
+                    reason: e.target.checked ? current.reason : "",
+                  }))} /> Excluir trabajador</label>
+              </div>
+              {row.excluded && <label className="weekly-v91-reason">Motivo de exclusión (obligatorio)
+                <input value={row.reason} disabled={!canSubmit} placeholder="Describe el motivo de exclusión"
+                  onChange={(e) => mark(row.worker_assignment_id, (current) => ({ ...current, reason: e.target.value }))} />
+              </label>}
+            </article>;
+          })}
+        </div>
         <p className="muted">{missing} trabajadores aún sin registrar. Pendiente no equivale a cero.</p>
         {canEdit && contractor.included && <div className="weekly-v81-save">
           <label>Observación o motivo del atraso

@@ -1,6 +1,7 @@
-"""Pure calendar and grading rules for weekly attendance v8.1.
+"""Pure calendar and grading rules for weekly attendance v9.1.
 
-Weeks begin Monday, end Sunday and are clipped at calendar-month boundaries.
+Calendar slots remain Monday-Sunday for persistent ordinal compatibility, but
+only Monday-Friday dates are eligible for attendance.
 Persist dates, not only ordinals. All times in Chile use zoneinfo (DST-aware).
 """
 from __future__ import annotations
@@ -36,7 +37,10 @@ def dates_of_week(period: str, number: int) -> list[date]:
     if number < 1 or number > len(weeks):
         raise ValueError("Esta semana no existe en el mes seleccionado")
     first, last = weeks[number-1]
-    return [first + timedelta(days=n) for n in range((last-first).days + 1)]
+    # Keep week numbers stable for saved 8.1 rows; never silently renumber history.
+    # A Sunday-only slot (e.g. 01/11/2026) yields no attendance obligation.
+    return [day for n in range((last-first).days + 1)
+            if (day := first + timedelta(days=n)).weekday() < 5]
 
 
 def deadline_utc(last_day: date, grace_days: int, cutoff: str = "23:59") -> datetime:

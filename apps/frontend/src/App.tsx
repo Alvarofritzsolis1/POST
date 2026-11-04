@@ -105,6 +105,7 @@ function App() {
     [notice, setNotice] = useState(""),
     [hash, setHash] = useState(window.location.hash),
     [mobileOpen, setMobileOpen] = useState(false),
+    [sidebarCollapsed, setSidebarCollapsed] = useState(() => window.localStorage.getItem("galant-sidebar-collapsed") === "true"),
     [loading, setLoading] = useState(false),
     [search, setSearch] = useState(""),
     [filter, setFilter] = useState("all"),
@@ -114,6 +115,7 @@ function App() {
     [evidence, setEvidence] = useState(false),
     [sporadic, setSporadic] = useState(false),
     [page, setPage] = useState(0);
+  useEffect(() => { window.localStorage.setItem("galant-sidebar-collapsed", String(sidebarCollapsed)); }, [sidebarCollapsed]);
   const refreshGeneration = useRef(0);
   const lastActivity = useRef<string | null>(null);
   useEffect(() => {
@@ -331,7 +333,7 @@ function App() {
         .includes(search.toLowerCase()),
   );
   return (
-    <div className={"shell platform " + (mobileOpen ? "menu-open" : "")}>
+    <div className={"shell platform " + (mobileOpen ? "menu-open" : "") + (sidebarCollapsed ? " sidebar-collapsed" : "")}>
       <aside className="sidebar">
         <div className="brand">
           <Building2 />
@@ -347,10 +349,12 @@ function App() {
               key={id}
               className={"nav-item " + (section === id ? "active" : "")}
               aria-current={section === id ? "page" : undefined}
+              aria-label={label}
+              title={sidebarCollapsed ? label : undefined}
               onClick={() => go(id)}
             >
-              <Icon size={18} />
-              {label}
+              <Icon size={18} aria-hidden="true" />
+              <span className="v91-nav-label">{label}</span>
             </button>
           ))}
         </nav>
@@ -362,12 +366,18 @@ function App() {
           </small>
         </div>
       </aside>
+      {mobileOpen && <button type="button" className="v91-menu-backdrop" aria-label="Cerrar menú de navegación" onClick={() => setMobileOpen(false)} />}
       <main className="main">
         <header className="topbar">
           <button
             className="icon-button menu-toggle"
-            aria-label="Abrir menú"
-            onClick={() => setMobileOpen(!mobileOpen)}
+            aria-label={mobileOpen ? "Cerrar menú" : sidebarCollapsed ? "Expandir menú" : "Contraer menú"}
+            title={sidebarCollapsed ? "Expandir menú" : "Contraer menú"}
+            aria-expanded={!sidebarCollapsed || mobileOpen}
+            onClick={() => {
+              if (window.matchMedia("(max-width: 760px)").matches) setMobileOpen((value) => !value);
+              else setSidebarCollapsed((value) => !value);
+            }}
           >
             <Menu />
           </button>

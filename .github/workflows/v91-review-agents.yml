@@ -1,0 +1,52 @@
+name: GALANT V9.1 - validadores independientes
+on:
+  pull_request:
+    paths:
+      - "apps/**"
+      - "scripts/qa_v91_agents.py"
+      - ".github/workflows/v91-review-agents.yml"
+  workflow_dispatch:
+permissions:
+  contents: read
+jobs:
+  calendar-guard:
+    name: Auditor calendario
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with: {python-version: "3.12"}
+      - run: python3 scripts/qa_v91_agents.py calendar
+  ux-guard:
+    name: Auditor UX
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with: {python-version: "3.12"}
+      - run: python3 scripts/qa_v91_agents.py ux
+  access-guard:
+    name: Auditor permisos
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with: {python-version: "3.12"}
+      - run: python3 scripts/qa_v91_agents.py security
+  supervisor:
+    name: Supervisor independiente
+    needs: [calendar-guard, ux-guard, access-guard]
+    if: always()
+    runs-on: ubuntu-latest
+    steps:
+      - name: Rechazar cuando algún auditor falle o sea omitido
+        env:
+          CALENDAR: ${{ needs.calendar-guard.result }}
+          UX: ${{ needs.ux-guard.result }}
+          SECURITY: ${{ needs.access-guard.result }}
+        run: |
+          set -eu
+          echo "Calendario=$CALENDAR / UX=$UX / Permisos=$SECURITY"
+          test "$CALENDAR" = success
+          test "$UX" = success
+          test "$SECURITY" = success

@@ -4,7 +4,7 @@ from sqlalchemy import select
 from app.models import User
 from app.network_models import NetworkMember, NetworkMembership
 from app.security import hash_password
-from app.calendar_v81 import calendar_weeks
+from app.calendar_v81 import calendar_weeks, dates_of_week
 from test_control_api import env, login, create_company
 from test_platform import rut
 
@@ -23,6 +23,10 @@ def test_administrative_v81_permissions_weekly_and_monthly_score(env):
     other = sites[1]["id"]
     company = create_company(client, admin_auth, site, "CT", "Obra con firmas v8.1")
     period, first = previous_month()
+    eligible_weeks = [number for number in range(1, len(calendar_weeks(period)) + 1)
+                      if dates_of_week(period, number)]
+    first_week = eligible_weeks[0]
+    first_workday = dates_of_week(period, first_week)[0]
     worker = client.post("/api/v1/labor/workers", headers=admin_auth, json={
         "site_id": site, "contractor_id": company["contractor_id"],
         "name": "Persona de control", "rut": rut(99000331),
@@ -42,10 +46,10 @@ def test_administrative_v81_permissions_weekly_and_monthly_score(env):
     assigned = client.post("/api/v1/attendance-v81/duties/generate",
         headers=admin_auth, json={"site_id": site, "period": period, "user_id": user_id})
     assert assigned.status_code == 200, assigned.text
-    assert assigned.json()["created"] == len(calendar_weeks(period))
+    assert assigned.json()["created"] == len(eligible_weeks)
     summary = client.get("/api/v1/attendance-v81/evaluations", params={"period": period}).json()
     record = next(row for row in summary["rows"] if row["user_id"] == user_id)
-    assert record["required"] == len(calendar_weeks(period))
+    assert record["required"] == len(eligible_weeks)
     assert record["completed"] == 0 and record["grade"] == 1.0
 
     auth = login(client, "semana@example.cl")
@@ -57,14 +61,14 @@ def test_administrative_v81_permissions_weekly_and_monthly_score(env):
         params={"site_id": site, "period": period})
     assert data.status_code == 200, data.text
     row = next(r for r in data.json()["contractors"] if r["association_id"] == company["id"])
-    assert len(row["weeks"]) == len(calendar_weeks(period))
+    assert len(row["weeks"]) == len(eligible_weeks)
     assert row["weeks"][0]["entries"][0]["recorded"] is False
     assert "paid_days" not in row["workers"][0]
-    payload = {"association_id": company["id"], "period": period, "week_number": 1,
+    payload = {"association_id": company["id"], "period": period, "week_number": first_week,
                "revision": 0, "complete": True,
                "notes": "Registro ingresado fuera de plazo por revisión de libros",
                "entries": [{"worker_assignment_id": worker_id,
-                            "signed_dates": [first.isoformat()]}]}
+                            "signed_dates": [first_workday.isoformat()]}]}
     saved = client.put("/api/v1/attendance-v81/weeks", headers=auth, json=payload)
     assert saved.status_code == 200, saved.text
     assert saved.json()["completed_on_time"] is False

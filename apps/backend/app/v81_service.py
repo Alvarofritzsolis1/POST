@@ -62,6 +62,7 @@ def site_calendar_totals(db, org_id: str, site_id: str, period: str):
                     valid = False
                     break
                 if not entry.excluded:
-                    dates.update(entry.signed_dates or [])
+                    valid_days = {day.isoformat() for day in dates_of_week(period, i)}
+                    dates.update(day for day in (entry.signed_dates or []) if day in valid_days)
             totals[assignment.id] = len(dates) if valid else None
     return True, totals
