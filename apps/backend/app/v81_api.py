@@ -4,7 +4,7 @@ Separate tables preserve v8 legacy evidence without destructive calendar rewrite
 """
 from __future__ import annotations
 from collections import defaultdict
-from datetime import date, datetime, timezone
+from datetime import date, datetime, timedelta, timezone
 from decimal import Decimal
 from typing import Literal
 from fastapi import APIRouter, Depends, HTTPException
@@ -483,7 +483,7 @@ def _assessment(db, org_id, period, person_id):
     values["completion_weight"] = float(weight)
     # Access is visible to the admin but never contributes to the grade.
     month_start = calendar_weeks(period)[0][0]
-    next_month = (month_start.replace(day=28) + __import__("datetime").timedelta(days=4)).replace(day=1)
+    next_month = (month_start.replace(day=28) + timedelta(days=4)).replace(day=1)
     first_utc = datetime.combine(month_start, datetime.min.time(), CL_TZ).astimezone(timezone.utc)
     last_utc = datetime.combine(next_month, datetime.min.time(), CL_TZ).astimezone(timezone.utc)
     login_count, last_login = db.execute(select(
