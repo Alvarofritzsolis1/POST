@@ -256,7 +256,7 @@ export default function Operations({readOnly,externalSiteId,mode,onImport,onSite
 
   return <div className="ops-workspace">
     <p>Ficha compartida de contratistas y sus asignaciones por obra.</p>
-    {externalSiteId ? <div className="ops-context-bar" aria-label="Contexto de la obra seleccionada">
+    {externalSiteId ? <div className="ops-context-bar" aria-label="Contexto de obra actual">
       <span>Obra seleccionada: <strong>{sites.find(site=>site.id===siteId)?.name || "Obra actual"}</strong></span>
       <button type="button" className="secondary" aria-label="Actualizar lista de contratistas" onClick={()=>siteId&&void loadContractors(siteId)}><RefreshCcw size={15}/> Actualizar</button>
     </div> : <div className="ops-toolbar">
