@@ -684,3 +684,39 @@
   .platform .control-workspace button,
   .platform .workers-page button { transition: none; }
 }
+
+/* Labor status cards: urgent only if the backend reports actual cases. */
+.platform .worker-kpi {
+  position: relative;
+  border-top: 3px solid #89a0b7;
+}
+.platform .worker-kpi.metric-danger {
+  border-top-color: #b42318;
+  background: #fffbfa;
+}
+.platform .worker-kpi.metric-warning {
+  border-top-color: #b45309;
+  background: #fffdf8;
+}
+.platform .worker-kpi.metric-danger strong { color: #b42318; }
+.platform .worker-kpi.metric-warning strong { color: #92400e; }
+.platform .workers-page .worker-signal {
+  display: inline-flex;
+  gap: 7px;
+  align-items: center;
+  line-height: 1.45;
+  border-radius: 999px;
+  font-size: 11px;
+  font-weight: 750;
+}
+.platform .workers-page .worker-signal::before {
+  content: "";
+  width: 7px;
+  height: 7px;
+  background: currentColor;
+  border-radius: 50%;
+}
+[data-theme="dark"] .platform .worker-kpi.metric-danger,
+[data-theme="dark"] .platform .worker-kpi.metric-warning {
+  background: #172f3a;
+}
