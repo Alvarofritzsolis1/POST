@@ -1,4 +1,6 @@
-# GALANT POST — v0.7.0 · Red de Obras
+# GALANT POST — v8.0.0 · Red de Obras
+
+La candidata v8.0.0 corrige la vista compartida de todas las obras, preserva el origen de cada publicación, limita la edición de residentes a sus propios registros y reemplaza el historial JSON por una línea de tiempo legible. **No está desplegada: requiere validación y revisión del pull request.** Véase [entrega v8](docs/ENTREGA_8.0.0.md).
 
 Red de Obras incorpora requerimientos, capacidad compartida, coincidencias, coordinación, mensajes y adjudicaciones parciales dentro de la aplicación existente. Reutiliza usuarios, obras, contratistas y control documental. El residente ingresa directamente al portal, con permisos validados por el servidor y por obra.
 
