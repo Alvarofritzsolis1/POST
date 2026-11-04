@@ -130,16 +130,23 @@ def _worker_eligible(assignment, contracts, terminations, days):
                for c in history)
 
 
-def _context(db, org_id, site_id, period):
-    links = db.execute(select(ContractorWorksite, Contractor).join(
+def _context(db, org_id, site_id, period, association_id=None):
+    # Detail requests load only one contractor instead of the entire worksite.
+    link_query = select(ContractorWorksite, Contractor).join(
         Contractor, and_(Contractor.id == ContractorWorksite.contractor_id,
                          Contractor.org_id == org_id)).where(
         ContractorWorksite.org_id == org_id,
-        ContractorWorksite.worksite_id == site_id)).all()
-    workers = db.execute(select(WorkerAssignment, Worker).join(
+        ContractorWorksite.worksite_id == site_id)
+    if association_id:
+        link_query = link_query.where(ContractorWorksite.id == association_id)
+    links = db.execute(link_query).all()
+    worker_query = select(WorkerAssignment, Worker).join(
         Worker, and_(Worker.id == WorkerAssignment.worker_id, Worker.org_id == org_id)).where(
-        WorkerAssignment.org_id == org_id,
-        WorkerAssignment.worksite_id == site_id)).all()
+        WorkerAssignment.org_id == org_id, WorkerAssignment.worksite_id == site_id)
+    if association_id:
+        worker_query = worker_query.where(
+            WorkerAssignment.contractor_id.in_([company.id for _, company in links]))
+    workers = db.execute(worker_query).all()
     assignments = defaultdict(list)
     for assignment, worker in workers:
         assignments[assignment.contractor_id].append((assignment, worker))
