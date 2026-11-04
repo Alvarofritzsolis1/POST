@@ -18,7 +18,8 @@ from .attendance_api import _context, _worker_eligible
 from .calendar_v81 import calendar_weeks, dates_of_week, deadline_utc, grade, CL_TZ
 from .control_api import today
 from .db import get_db
-from .models import User, utcnow
+from .models import Organization, User, utcnow
+from .platform_models import OrganizationSettings
 from .network_models import NetworkMembership
 from .network_service import actor_name, assigned_sites
 from .ops_api import association_for, audit_change, site_for
@@ -40,8 +41,16 @@ def _name(db, user_id):
     return name if name and "@" not in name else "Nombre pendiente de registro"
 
 
-def _deadline(db, org_id, last):
-    return deadline_utc(last, catalogs_for(db, org_id)["attendance_due_days"])
+def _settings(db, org_id):
+    row = db.get(OrganizationSettings, org_id)
+    return dict(row.values or {}) if row else {}
+
+
+def _deadline(db, org_id, last, site_id):
+    values = _settings(db, org_id)
+    policy = (values.get("attendance_policies") or {}).get(site_id, {})
+    grace = policy.get("grace_days", catalogs_for(db, org_id)["attendance_due_days"])
+    return deadline_utc(last, grace, policy.get("cutoff", "23:59"))
 
 
 def _instant(value):
@@ -62,6 +71,48 @@ def _eligible(db, user, association, period, number):
         db, user.org_id, association.worksite_id, period)
     return [(a, w) for a, w in assignments[association.contractor_id]
             if _worker_eligible(a, contracts, terminations, dates)]
+
+
+class PolicyInput(BaseModel):
+    site_id: str
+    grace_days: int = Field(ge=0, le=31)
+    cutoff: str = Field(pattern=r"^([01][0-9]|2[0-3]):[0-5][0-9]$")
+    completion_weight: Decimal = Field(ge=0, le=1)
+
+
+@router.get("/settings")
+def settings(site_id: str, user: User = Depends(administrator), db: Session = Depends(get_db)):
+    _scope(db, user, site_id)
+    values = _settings(db, user.org_id)
+    policy = (values.get("attendance_policies") or {}).get(site_id, {})
+    return {"site_id": site_id,
+            "grace_days": policy.get("grace_days", catalogs_for(db, user.org_id)["attendance_due_days"]),
+            "cutoff": policy.get("cutoff", "23:59"),
+            "completion_weight": float(Decimal(str(values.get("attendance_grade_completion_weight", "0.70"))))}
+
+
+@router.put("/settings")
+def save_settings(body: PolicyInput, user: User = Depends(administrator),
+                  db: Session = Depends(get_db)):
+    _scope(db, user, body.site_id)
+    db.scalar(select(Organization).where(Organization.id == user.org_id).with_for_update())
+    current = db.get(OrganizationSettings, user.org_id)
+    if current is None:
+        current = OrganizationSettings(org_id=user.org_id, values={})
+        db.add(current)
+    values = dict(current.values or {})
+    policies = dict(values.get("attendance_policies") or {})
+    old = {"site": policies.get(body.site_id),
+           "completion_weight": values.get("attendance_grade_completion_weight")}
+    policies[body.site_id] = {"grace_days": body.grace_days, "cutoff": body.cutoff}
+    values["attendance_policies"] = policies
+    values["attendance_grade_completion_weight"] = str(body.completion_weight)
+    current.values = values
+    audit_change(db, user, "attendance_policy", body.site_id, {"from": old,
+        "to": {"site": policies[body.site_id],
+               "completion_weight": str(body.completion_weight)}})
+    db.commit()
+    return {"ok": True, "site_id": body.site_id}
 
 
 @router.get("/contractors")
@@ -141,7 +192,7 @@ def roster(site_id: str, period: str, association_id: str | None = None,
                 a, contracts, terms, days)]
             week = week_map.get((link.id, number))
             duty = duty_map.get((link.id, number))
-            deadline = _instant(duty.deadline_at) if duty else _deadline(db, user.org_id, last)
+            deadline = _instant(duty.deadline_at) if duty else _deadline(db, user.org_id, last, site_id)
             week_entries = []
             for assignment, worker in expected:
                 entry = entry_map.get((week.id, assignment.id)) if week else None
@@ -269,7 +320,7 @@ def save_week(body: SaveWeek, user: User = Depends(attendance_editor), db: Sessi
         raise HTTPException(422, "Faltan trabajadores exigibles o hay asignaciones ajenas")
     first, last = calendar_weeks(body.period)[body.week_number - 1]
     now = utcnow()
-    deadline = _instant(duty.deadline_at) if duty else _deadline(db, user.org_id, last)
+    deadline = _instant(duty.deadline_at) if duty else _deadline(db, user.org_id, last, association.worksite_id)
     week = db.scalar(select(CalendarWeek).where(
         CalendarWeek.org_id == user.org_id, CalendarWeek.association_id == association.id,
         CalendarWeek.period == body.period, CalendarWeek.week_number == body.week_number
@@ -361,7 +412,7 @@ def generate_duties(body: DutyGeneration, user: User = Depends(administrator),
             db.add(CalendarDuty(org_id=user.org_id, association_id=association.id,
                 worksite_id=body.site_id, period=body.period, week_number=number,
                 assigned_to=body.user_id, created_by=user.id,
-                deadline_at=_deadline(db, user.org_id, last)))
+                deadline_at=_deadline(db, user.org_id, last, body.site_id)))
             created += 1
     audit_change(db, user, "attendance_duties", body.site_id,
                  {"period": body.period, "assigned_to": body.user_id, "created": created})
@@ -417,7 +468,9 @@ def _assessment(db, org_id, period, person_id):
                      indexed[(d.association_id, d.week_number)].state == "completed")]
     punctual = [d for d in completed if _instant(
         indexed[(d.association_id, d.week_number)].completed_at) <= _instant(d.deadline_at)]
-    values = grade(len(completed), len(punctual), len(required))
+    weight = Decimal(str(_settings(db, org_id).get("attendance_grade_completion_weight", "0.70")))
+    values = grade(len(completed), len(punctual), len(required), completion_weight=weight)
+    values["completion_weight"] = float(weight)
     values["overdue"] = sum(
         d not in completed and utcnow() > _instant(d.deadline_at) for d in required)
     values["delivered_late"] = len(completed) - len(punctual)
