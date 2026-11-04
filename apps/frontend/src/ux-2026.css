@@ -617,3 +617,70 @@
   .platform .contractor-card:hover,
   .platform .nw-card:hover { transform: none; }
 }
+
+/* Monthly evidence states: review is not approved and NA is not a violation. */
+.platform .monthly-table .status {
+  display: inline-flex;
+  align-items: center;
+  min-height: 27px;
+  gap: 7px;
+  border: 1px solid transparent;
+  border-radius: 99px;
+  padding: 5px 10px;
+  font-size: 11px;
+  line-height: 1.45;
+  font-weight: 750;
+  white-space: normal;
+}
+.platform .monthly-table .status::before {
+  content: "";
+  width: 7px;
+  height: 7px;
+  flex: 0 0 7px;
+  border-radius: 50%;
+  background: currentColor;
+}
+.platform .monthly-table .status.success {
+  background: #e6f5eb;
+  color: #166534;
+  border-color: #c8ecd3;
+}
+.platform .monthly-table .status.error {
+  background: #fff0ef;
+  color: #b42318;
+  border-color: #f7d6d4;
+}
+.platform .monthly-table .status.review {
+  background: #eaf2ff;
+  color: #1d4ed8;
+  border-color: #d5e5ff;
+}
+.platform .monthly-table .status.waiting {
+  background: #fff5e2;
+  color: #975200;
+  border-color: #f5e5c7;
+}
+.platform .monthly-table .status.neutral {
+  background: #f0f4f8;
+  color: #556579;
+  border-color: #dce3ed;
+}
+/* Preserve contrast for documents in dark mode. */
+[data-theme="dark"] .platform .monthly-table .status.success { background: #123e32; color: #9cedc2; border-color: #2b6653; }
+[data-theme="dark"] .platform .monthly-table .status.error { background: #50262c; color: #ffb4a9; border-color: #77414b; }
+[data-theme="dark"] .platform .monthly-table .status.review { background: #1d365e; color: #b4ceff; border-color: #3b5987; }
+[data-theme="dark"] .platform .monthly-table .status.waiting { background: #4c3619; color: #f5d293; border-color: #735528; }
+[data-theme="dark"] .platform .monthly-table .status.neutral { background: #2d4451; color: #d0dfeb; border-color: #476273; }
+/* Document/action buttons use reliable focus and states, no decorative animation. */
+.platform .monthly-panel button,
+.platform .weekly-v81 button,
+.platform .control-workspace button,
+.platform .workers-page button {
+  transition: background-color .18s ease, border-color .18s ease, box-shadow .18s ease;
+}
+@media (prefers-reduced-motion: reduce) {
+  .platform .monthly-panel button,
+  .platform .weekly-v81 button,
+  .platform .control-workspace button,
+  .platform .workers-page button { transition: none; }
+}
