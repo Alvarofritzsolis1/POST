@@ -53,8 +53,6 @@ class ContractInput(BaseModel):
     def validate(self):
         if self.end_date and self.end_date < self.start_date:
             raise ValueError("Fecha de término anterior al inicio")
-        if self.contract_type == "indefinite" and self.end_date is not None:
-            raise ValueError("No indicar término para contrato indefinido; registra su baja expresamente")
         if self.contract_type == "fixed_term" and self.end_date is None:
             raise ValueError("El contrato a plazo fijo debe indicar su fecha de término")
         return self
@@ -165,6 +163,8 @@ def list_calendar(period: str, site_id: str | None = None, user: User = Depends(
 @router.post("/contracts")
 def create_contract(payload: ContractInput, user: User = Depends(editor),
                     db: Session = Depends(get_db)):
+    if payload.worker_assignment_id and payload.status == "ended":
+        raise HTTPException(422, "Registra la desvinculación efectiva en el finiquito")
     link, _ = association_for(db, user.org_id, payload.association_id)
     if payload.worker_assignment_id:
         validate_worker(db, user, link, payload.worker_assignment_id)
@@ -187,6 +187,8 @@ def update_contract(contract_id: str, payload: ContractInput,
         ContractRegister.id == contract_id, ContractRegister.org_id == user.org_id))
     if not row:
         raise HTTPException(404, "Contrato no encontrado")
+    if row.worker_assignment_id and payload.status == "ended":
+        raise HTTPException(422, "Registra la desvinculación efectiva en el finiquito")
     if row.association_id != payload.association_id:
         raise HTTPException(422, "No se puede trasladar el contrato a otra obra o empresa")
     link, _ = association_for(db, user.org_id, payload.association_id)
@@ -361,7 +363,8 @@ def list_alerts(site_id: str | None = None, user: User = Depends(authorized_user
             alerts.append({"kind": "unconfirmed_payment", "priority": "high",
                 "association_id": link.id, "date": None,
                 "message": "Pago de cotizaciones pendiente de confirmar", "reference_id": row.id})
-        if (row.subject_key != "independent" and row.required_days is not None
+        if (row.subject_key != "independent" and row.payment_confirmed
+                and row.review_status == "approved" and row.required_days is not None
                 and row.paid_days is not None and row.paid_days < row.required_days):
             alerts.append({"kind": "contribution_difference", "priority": "critical",
                 "association_id": link.id, "date": None,

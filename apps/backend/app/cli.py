@@ -12,6 +12,25 @@ from .ops_models import AuditPeriod, Contractor, ContractorWorksite, MonthlyDocu
 from .control_models import ContributionControl, MonthlyActivity, ContractRegister, ContractAmendment, ProcessCalendar, WorkTask, OffboardingCase, RequirementApplicability
 from .ops_api import DEFAULT_SITES, INITIAL_PERIOD, ensure_sites
 from .security import hash_password
+from .platform_models import BackupCheckpoint, SchemaVersion
+from .version import VERSION
+from .migrations import v0_6_0
+
+
+def record_verified_backup(db, sha256: str):
+    import re
+    if not re.fullmatch(r"[0-9a-f]{64}", sha256):
+        raise SystemExit("Se requiere SHA256 del respaldo tras verificar su restauración aislada")
+    for org_id in db.scalars(select(Organization.id)).all():
+        db.add(BackupCheckpoint(org_id=org_id, sha256=sha256))
+
+
+def migrate(db):
+    """Versioned, additive 0.6 migration; leaves all historical tables intact."""
+    SchemaVersion.__table__.create(bind=db.connection(), checkfirst=True)
+    if not db.get(SchemaVersion, v0_6_0.MIGRATION_ID):
+        v0_6_0.upgrade(db.connection())
+        db.add(SchemaVersion(version=v0_6_0.MIGRATION_ID))
 
 
 def find_admin(db, email: str) -> User:
@@ -42,6 +61,10 @@ def main():
     parser = argparse.ArgumentParser(description="Herramientas administrativas GALANT POST")
     cmds = parser.add_subparsers(dest="action", required=True)
     cmds.add_parser("init-db")
+    upgrade = cmds.add_parser("migrate-db", help="Migración aditiva tras restauración de prueba")
+    upgrade.add_argument("--verified-backup-sha256", required=True)
+    verified = cmds.add_parser("register-verified-backup", help="Habilitar reconciliación tras verificar restauración")
+    verified.add_argument("--verified-backup-sha256", required=True)
     admin = cmds.add_parser("create-admin", help="Crear empresa NUEVA y su administrador inicial")
     admin.add_argument("--email", required=True)
     admin.add_argument("--organization", default="Mi organización")
@@ -49,13 +72,29 @@ def main():
         cmd = cmds.add_parser(command, help="Crear o vincular usuario a empresa EXISTENTE")
         cmd.add_argument("--email", required=True)
         cmd.add_argument("--admin-email", required=True, help="Administrador de la empresa que compartirá sus contratistas")
-        cmd.add_argument("--role", choices=("admin", "analyst", "viewer"), default="analyst")
+        cmd.add_argument("--role", choices=("admin", "supervisor", "reviewer", "administrative", "viewer", "analyst"), default="supervisor")
         if command == "link-user":
             cmd.add_argument("--apply", action="store_true")
             cmd.add_argument("--backup", help="pg_dump custom validado con pg_restore --list")
     diag = cmds.add_parser("diagnose-user")
     diag.add_argument("--email", required=True)
     args = parser.parse_args()
+    if args.action == "register-verified-backup":
+        with SessionLocal.begin() as db:
+            record_verified_backup(db, args.verified_backup_sha256)
+        print("Respaldo verificado registrado para las organizaciones")
+        return
+    if args.action == "migrate-db":
+        with SessionLocal.begin() as db:
+            migrate(db)
+            record_verified_backup(db, args.verified_backup_sha256)
+        with SessionLocal() as db:
+            org_ids = db.scalars(select(Organization.id)).all()
+        for org_id in org_ids:
+            with SessionLocal() as db:
+                ensure_sites(db, org_id)
+        print(f"Esquema {VERSION} migrado sin eliminar datos")
+        return
     if args.action == "diagnose-user":
         import json
         with SessionLocal() as db:

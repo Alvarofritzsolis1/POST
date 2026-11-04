@@ -19,7 +19,7 @@ from .monthly_api import valid_period
 from .ops_api import association_for, audit_change, site_for, contractor_classification
 from .ops_models import (Contractor, ContractorWorksite, MonthlyDocument,
                          Worker, WorkerAssignment)
-from .security import authorized_user, editor
+from .security import authorized_user, editor, document_reviewer
 
 router = APIRouter(prefix="/api/v1/control", tags=["GALANT control operativo"])
 REQUIREMENTS = ("cotizaciones", "f30_1", "liquidaciones", "asistencia",
@@ -37,13 +37,14 @@ def is_independent(company: Contractor, association: ContractorWorksite) -> bool
 
 
 def nature_defaults(company: Contractor, association: ContractorWorksite) -> dict[str, bool | None]:
-    if association.frequency == "sporadic":
-        return dict.fromkeys(REQUIREMENTS)
     if is_independent(company, association):
         # Anticipos nunca se piden a un independiente.
         return dict.fromkeys(REQUIREMENTS) | {
             "cotizaciones": True, "declaracion_jurada": True, "anticipos": False,
         }
+    if association.frequency == "sporadic":
+        # For other sporadic contractors, require explicit applicability per month.
+        return dict.fromkeys(REQUIREMENTS)
     if company.nature == "with_workers":
         return dict.fromkeys(REQUIREMENTS) | {
             "cotizaciones": True, "f30_1": True, "liquidaciones": True,
@@ -177,7 +178,7 @@ def change_review(db: Session, user: User, payload: ManualReviewInput) -> Monthl
 
 
 @router.post("/reviews")
-def save_review(payload: ManualReviewInput, user: User = Depends(editor), db: Session = Depends(get_db)):
+def save_review(payload: ManualReviewInput, user: User = Depends(document_reviewer), db: Session = Depends(get_db)):
     row = change_review(db, user, payload)
     db.commit()
     return {"id": row.id, "status": row.review_status, "source": "manual_without_pdf",
@@ -185,7 +186,7 @@ def save_review(payload: ManualReviewInput, user: User = Depends(editor), db: Se
 
 
 @router.post("/reviews/bulk")
-def save_bulk(payload: BulkReviewInput, user: User = Depends(editor), db: Session = Depends(get_db)):
+def save_bulk(payload: BulkReviewInput, user: User = Depends(document_reviewer), db: Session = Depends(get_db)):
     keys = [(r.association_id, r.period, r.kind) for r in payload.reviews]
     if len(keys) != len(set(keys)):
         raise HTTPException(422, "La operación masiva contiene requisitos repetidos")
@@ -271,6 +272,9 @@ def monthly_matrix(site_id: str, period: str, user: User = Depends(authorized_us
                 state = "not_applicable"
             elif applicable is None:
                 state = "needs_classification"
+            elif (row and row.review_status == "pending" and row.document_id is None
+                  and schedule is not None and now > schedule.due_date):
+                state = "overdue"
             elif row and row.review_status in STATUS:
                 state = row.review_status
             elif schedule is not None and now < schedule.request_date:
@@ -398,6 +402,15 @@ def save_contributions(payload: ContributionInput, user: User = Depends(editor),
         )) or Decimal(old["daily_rate"]) != row.daily_rate
     ))
     if evidence_changed:
+        from .platform_models import PaymentFinding
+        finding = db.scalar(select(PaymentFinding).where(
+            PaymentFinding.org_id == user.org_id,
+            PaymentFinding.control_id == row.id).with_for_update())
+        if finding and finding.state != "unverified":
+            previous_state = finding.state
+            finding.state, finding.reviewed_by, finding.reviewed_at = "unverified", user.id, utcnow()
+            audit_change(db, user, "payment_finding", finding.id, {
+                "invalidated_by_contribution_change": {"from": previous_state, "to": "unverified"}})
         # Una aprobación previa y cualquier retención confirmada deben
         # reexaminarse cuando cambian los días, el pago o la tarifa.
         if old["review_status"] == "approved":

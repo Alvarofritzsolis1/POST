@@ -39,11 +39,12 @@ previous_ref="$(git rev-parse HEAD)"
 switched=0
 
 wait_for_health() {
-    local expected_version health attempt
+    local expected_version health attempt expected_revision
+    expected_revision="${1:-}"
     expected_version="$("${compose[@]}" exec -T api python -c 'from app.version import VERSION; print(VERSION)')"
     for attempt in {1..40}; do
         health="$(curl -fsS --max-time 4 "http://127.0.0.1:${port}/api/v1/health" 2>/dev/null || true)"
-        if [[ "$health" == *'"status":"ok"'* && "$health" == *"\"version\":\"${expected_version}\""* ]]; then
+        if [[ "$health" == *'"status":"ok"'* && "$health" == *"\"version\":\"${expected_version}\""* && ( -z "$expected_revision" || "$health" == *"\"commit\":\"${expected_revision}\""* ) ]]; then
             return 0
         fi
         sleep 3
@@ -57,6 +58,7 @@ rollback() {
     trap - EXIT ERR
     if (( status != 0 && switched )); then
         echo "La actualización falló; restaurando ${previous_ref}." >&2
+        export SOURCE_COMMIT="$previous_ref"
         if git checkout --detach "$previous_ref" \
             && "${compose[@]}" config --quiet \
             && COMPOSE_PARALLEL_LIMIT=1 "${compose[@]}" up -d --build db api worker frontend proxy \
@@ -87,9 +89,12 @@ if [[ -z "$backup_path" || ! -d "$backup_path" ]]; then
     exit 1
 fi
 bash scripts/verify-restore-preview.sh "$backup_path"
-COMPOSE_PARALLEL_LIMIT=1 "${compose[@]}" up -d --build db api worker frontend proxy
-"${compose[@]}" exec -T api python -m app.cli init-db
-wait_for_health
+backup_sha256="$(sha256sum "$backup_path/postgres.dump" | cut -d' ' -f1)"
+export SOURCE_COMMIT="$target_ref"
+COMPOSE_PARALLEL_LIMIT=1 "${compose[@]}" build api worker frontend
+"${compose[@]}" run --rm --no-deps api python -m app.cli migrate-db --verified-backup-sha256 "$backup_sha256"
+COMPOSE_PARALLEL_LIMIT=1 "${compose[@]}" up -d --no-build db api worker frontend proxy
+wait_for_health "$target_ref"
 switched=0
 trap - EXIT
 echo "GALANT actualizado a ${target_ref}."

@@ -242,14 +242,14 @@ def test_hundreds_of_companies_multiple_sites_repeat_and_external_ids(env):
     assert commit(c, h, p2).status_code == 200
     with sessions() as db:
         assert db.scalar(select(func.count()).select_from(Contractor)) == 300
-        assert db.scalar(select(func.count()).select_from(ImportBatch)) == 2
+        assert db.scalar(select(func.count()).select_from(ImportBatch)) == 1
         assert (
             db.scalar(select(Contractor)).nature == "unclassified"
         )  # COD alone never assigns CT.
     template = load_workbook(
         BytesIO(c.get("/api/v1/ops/imports/bulk/templates/contractors").content)
     )
-    assert list(next(template.active.values)) == headers
+    assert list(next(template.active.values)) == headers[:6] + ["NATURALEZA", "FRECUENCIA"] + headers[6:]
 
 
 def test_hundreds_workers_blank_columns_dates_types_and_history(env):
@@ -324,6 +324,8 @@ def test_hundreds_workers_blank_columns_dates_types_and_history(env):
             )
             == 1
         )
+        assert db.scalar(select(ContractRegister).where(
+            ContractRegister.end_date == date(2026, 9, 30))).status == "active"
 
 
 def test_invalid_rows_observations_updates_and_stale_previews(env):

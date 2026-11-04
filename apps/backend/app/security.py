@@ -62,8 +62,32 @@ def authorized_user(request: Request, db: Session = Depends(get_db)) -> User:
 
 
 def editor(user: User = Depends(authorized_user)) -> User:
-    if user.role not in {"admin", "analyst"}:
+    if user.role not in {"admin", "analyst", "supervisor"}:
         raise HTTPException(403, "Sin permiso de escritura")
+    return user
+
+
+def document_reviewer(user: User = Depends(authorized_user)) -> User:
+    if user.role not in {"admin", "analyst", "supervisor", "reviewer"}:
+        raise HTTPException(403, "Sin permiso de revisión documental")
+    return user
+
+
+def attendance_editor(user: User = Depends(authorized_user)) -> User:
+    if user.role not in {"admin", "supervisor", "analyst", "administrative"}:
+        raise HTTPException(403, "Sin permiso para registrar asistencia")
+    return user
+
+
+def attendance_reviewer(user: User = Depends(authorized_user)) -> User:
+    if user.role not in {"admin", "supervisor", "analyst"}:
+        raise HTTPException(403, "Sin permiso para revisar asistencia")
+    return user
+
+
+def document_uploader(user: User = Depends(authorized_user)) -> User:
+    if user.role not in {"admin", "supervisor", "analyst", "reviewer", "administrative"}:
+        raise HTTPException(403, "Sin permiso para cargar documentos")
     return user
 
 

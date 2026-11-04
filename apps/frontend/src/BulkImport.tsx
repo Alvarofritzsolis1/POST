@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { request } from "./api";
 import { send, download } from "./platformApi";
 type Input = {
@@ -19,6 +19,7 @@ type Preview = {
     changes: Record<string, { from: unknown; to: unknown }>;
   }[];
 };
+type Batch = { id: string; filename: string; kind: string; created_at: string; result: Record<string, number> };
 const names: Record<string, string> = {
   new: "Nuevos / nuevas relaciones",
   existing: "Existentes",
@@ -42,6 +43,8 @@ export default function BulkImport({
     [error, setError] = useState(""),
     [notice, setNotice] = useState(""),
     [page, setPage] = useState(0);
+  const [history, setHistory] = useState<Batch[]>([]);
+  useEffect(() => { void request<Batch[]>("/ops/imports/bulk/history").then(setHistory).catch(() => {}); }, []);
   async function run(fn: () => Promise<void>) {
     setBusy(true);
     setError("");
@@ -109,8 +112,9 @@ export default function BulkImport({
         </a>
       </div>
       <p className="muted">
-        Plantillas con los encabezados originales. Las columnas sin encabezado
-        se ignoran conservando su posición. Trabajadores: selecciona la obra en
+        La plantilla de contratistas incluye NATURALEZA y FRECUENCIA; las planillas
+        antiguas siguen admitidas. Una celda vacía conserva el valor existente.
+        Trabajadores: selecciona la obra en
         la barra superior. La fecha de término puede quedar vacía para contratos
         indefinidos o por obra.
       </p>
@@ -189,6 +193,7 @@ export default function BulkImport({
                   <th>Obra</th>
                   <th>Nombre</th>
                   <th>RUT</th>
+                  {kind === "contractors" && <><th>COD</th><th>Naturaleza</th><th>Frecuencia</th><th>Estado</th></>}
                   {kind === "workers" && (
                     <>
                       <th>Contratista / RUT</th>
@@ -246,6 +251,11 @@ export default function BulkImport({
                           )}
                         </td>
                       ))}
+                      {kind === "contractors" && ["historical_code", "nature", "frequency", "status"].map((key) => <td key={key}>
+                        <input aria-label={key + " fila " + (n + 1)} value={draft.rows[n][key] || ""}
+                          list={key === "nature" ? "nature-values" : key === "frequency" ? "frequency-values" : undefined}
+                          onChange={(e) => setDraft({ ...draft, rows: draft.rows.map((v, j) => j === n ? { ...v, [key]: e.target.value } : v) })} />
+                      </td>)}
                       <td>
                         {r.errors.map((v) => (
                           <p className="form-error" key={v}>
@@ -326,6 +336,7 @@ export default function BulkImport({
                   },
                 );
                 setNotice("Importación guardada: " + JSON.stringify(result));
+                setHistory(await request<Batch[]>("/ops/imports/bulk/history"));
                 setPreview(null);
                 setDraft(null);
                 window.dispatchEvent(new Event("galant-changed"));
@@ -336,6 +347,12 @@ export default function BulkImport({
           </button>
         </>
       )}
+      <datalist id="nature-values"><option value="Contratista con trabajadores" /><option value="Independiente" /></datalist>
+      <datalist id="frequency-values"><option value="Fijo" /><option value="Esporádico" /></datalist>
+      <details><summary>Historial de importaciones</summary>
+        {history.map((batch) => <p key={batch.id}>{new Date(batch.created_at).toLocaleString("es-CL")} · {batch.filename} · {batch.kind} · {JSON.stringify(batch.result)}</p>)}
+        {!history.length && <p>Sin importaciones confirmadas.</p>}
+      </details>
     </section>
   );
 }

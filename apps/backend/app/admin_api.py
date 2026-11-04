@@ -21,7 +21,7 @@ router = APIRouter(prefix="/api/v1/admin", tags=["Administración"])
 class AccountCreate(BaseModel):
     email: str = Field(min_length=3, max_length=255)
     password: str = Field(min_length=12, max_length=256)
-    role: Literal["admin", "analyst", "viewer"] = "analyst"
+    role: Literal["admin", "supervisor", "reviewer", "administrative", "viewer", "analyst"] = "supervisor"
 
     @field_validator("email")
     @classmethod
@@ -33,7 +33,7 @@ class AccountCreate(BaseModel):
 
 
 class AccountPatch(BaseModel):
-    role: Literal["admin", "analyst", "viewer"]
+    role: Literal["admin", "supervisor", "reviewer", "administrative", "viewer", "analyst"]
     enabled: bool
 
 
@@ -57,9 +57,10 @@ class SiteCreate(BaseModel):
 
 
 class Catalogs(BaseModel):
-    status_mapping: dict[str, Literal["active", "offboarding", "inactive"]] = Field(
+    status_mapping: dict[str, Literal["active", "suspended", "offboarding", "inactive"]] = Field(
         default_factory=lambda: {
             "ACTIVO": "active",
+            "SUSPENDIDO": "suspended",
             "INACTIVO": "inactive",
             "BAJA": "inactive",
         }
@@ -67,6 +68,27 @@ class Catalogs(BaseModel):
     classification_mapping: dict[str, Literal["CT", "CI", "ESP"]] = Field(
         default_factory=dict
     )
+    expiry_alert_days: list[int] = Field(default_factory=lambda: [30, 15, 7])
+    termination_due_days: int | None = Field(default=None, ge=0, le=365)
+    attendance_due_days: int = Field(default=2, ge=0, le=14)
+    termination_causes: dict[str, str] = Field(default_factory=lambda: {
+        "mutual_agreement": "Mutuo acuerdo (art. 159 N°1)",
+        "resignation": "Renuncia voluntaria (art. 159 N°2)",
+        "fixed_term_expiry": "Vencimiento del plazo (art. 159 N°4)",
+        "work_completion": "Conclusión de obra o servicio (art. 159 N°5)",
+        "business_needs": "Necesidades de la empresa (art. 161)",
+        "notice": "Desahucio, cuando corresponda (art. 161)",
+        "disciplinary": "Causal disciplinaria aplicable (art. 160)",
+        "other_legal": "Otra causal legal",
+    })
+    extra_contract_types: dict[str, str] = Field(default_factory=dict)
+
+    @field_validator("expiry_alert_days")
+    @classmethod
+    def validate_alert_days(cls, value):
+        if not value or len(value) > 5 or len(value) != len(set(value)) or any(not 1 <= d <= 365 for d in value):
+            raise ValueError("Configura entre uno y cinco plazos únicos de 1 a 365 días")
+        return sorted(value, reverse=True)
 
 
 class RateCreate(BaseModel):
