@@ -50,6 +50,15 @@ const nav = [
   ["reports", "Informes", BarChart3],
   ["settings", "Configuración", SettingsIcon],
 ] as const;
+const navGroups = [
+  { title: "PRINCIPAL", ids: ["home", "network"] },
+  { title: "GESTIÓN OPERATIVA", ids: ["contractors", "workers", "attendance"] },
+  { title: "CUMPLIMIENTO", ids: ["documents", "contributions", "evaluations"] },
+  { title: "ADMINISTRACIÓN", ids: ["administration", "imports", "reports", "settings"] },
+] as const;
+const alertCriticalKeys = new Set<string>(["critical_contractors", "workers_expired", "incomplete_contributions", "declared_unpaid", "attendance_overdue"]);
+const dashboardUrgentTitles = new Set<string>(["Con observaciones", "Registros con diferencias", "Días faltantes acumulados"]);
+const dashboardWarningTitles = new Set<string>(["Documentación pendiente", "Pendientes de confirmación", "Registros sin información", "Trabajadores con observaciones"]);
 const number = (v: number | null | undefined) =>
   v == null
     ? "Sin información"
@@ -345,18 +354,28 @@ function App() {
         </div>
         <p className="sidebar-label">ORGANIZACIÓN COMPARTIDA</p>
         <nav aria-label="Navegación principal">
-          {nav.map(([id, label, Icon]) => (
-            <button
-              key={id}
-              className={"nav-item " + (section === id ? "active" : "")}
-              aria-current={section === id ? "page" : undefined}
-              aria-label={label}
-              title={sidebarCollapsed ? label : undefined}
-              onClick={() => go(id)}
-            >
-              <Icon size={18} aria-hidden="true" />
-              <span className="v91-nav-label">{label}</span>
-            </button>
+          {navGroups.map(group => (
+            <div className="nav-group" key={group.title}>
+              <p className="nav-group-title">{group.title}</p>
+              {group.ids.map(id => {
+                const entry = nav.find(([key]) => key === id);
+                if (!entry) return null;
+                const [, label, Icon] = entry;
+                return (
+                  <button
+                    key={id}
+                    className={"nav-item " + (section === id ? "active" : "")}
+                    aria-current={section === id ? "page" : undefined}
+                    aria-label={label}
+                    title={sidebarCollapsed ? label : undefined}
+                    onClick={() => go(id)}
+                  >
+                    <Icon size={18} aria-hidden="true" />
+                    <span className="v91-nav-label">{label}</span>
+                  </button>
+                );
+              })}
+            </div>
           ))}
         </nav>
         <div className="sidebar-bottom">
@@ -459,9 +478,12 @@ function App() {
           {loading && section !== "network" && <p role="status">Actualizando datos…</p>}
           {section === "home" && overview && (
             <>
-              {laborAlerts && <section className="panel">
-                <h2>Alertas laborales y documentales</h2>
-                <div className="kpi-grid">
+              {laborAlerts && <section className="panel dashboard-alerts" aria-labelledby="dashboard-alerts-title">
+                <div className="dashboard-section-title">
+                  <div><span className="eyebrow">PRIORIDADES DEL PERÍODO</span><h2 id="dashboard-alerts-title">Alertas laborales y documentales</h2></div>
+                  <span className="dashboard-source-label">Datos verificados de la obra seleccionada</span>
+                </div>
+                <div className="kpi-grid alert-kpi-grid">
                   {([
                     ["critical_contractors", "Contratistas con documentación crítica", "documents", "overdue"],
                     ["workers_expired", "Contratos vencidos", "workers", "expired_needs_review"],
@@ -471,12 +493,12 @@ function App() {
                     ["declared_unpaid", "Declaradas sin pago", "contributions", "declared_unpaid"],
                     ["attendance_overdue", "Semanas de asistencia atrasadas", "attendance", "overdue"],
                     ["unclassified_contractors", "Contratistas sin clasificación", "contractors", "SIN CLASIFICAR"],
-                  ] as const).map(([key, label, destination, state]) => <button className="kpi" key={key} onClick={() => {
+                  ] as const).map(([key, label, destination, state]) => <button className={"kpi alert-metric " + ((laborAlerts.summary[key] || 0) === 0 ? "metric-clear" : alertCriticalKeys.has(key) ? "metric-danger" : "metric-warning")} key={key} onClick={() => {
                     drill(destination, state); if (key === "finiquito_pending") setFilter("finiquito_pending");
                     if (key === "unclassified_contractors") setClassification("SIN CLASIFICAR");
-                  }}><small>{label}</small><strong>{laborAlerts.summary[key] || 0}</strong><span>Ver registros →</span></button>)}
+                  }}><small>{label}</small><strong>{laborAlerts.summary[key] || 0}</strong><span className="alert-metric-state">{(laborAlerts.summary[key] || 0) === 0 ? "Sin casos" : alertCriticalKeys.has(key) ? "Requiere acción" : "Revisar"}</span><span className="alert-metric-action">Ver registros →</span></button>)}
                 </div>
-                <h3>Centro de alertas</h3>
+                <h3 className="dashboard-list-heading">Centro de alertas</h3>
                 {laborAlerts.alerts.slice(0, 30).map((item, i) => <button className={"worker-alert-link worker-signal " + item.severity} key={i} onClick={() => {
                   if (item.target_section === "workers") { setTargetWorker(item.target_id); go("workers"); }
                   else if (item.target_section === "contributions") drill("contributions", item.kind === "declared_unpaid" ? "declared_unpaid" : "differences");
@@ -490,7 +512,7 @@ function App() {
                 {Object.entries(overview.classifications).map(
                   ([key, value]) => (
                     <button
-                      className="kpi"
+                      className="kpi dashboard-metric"
                       key={key}
                       onClick={() => {
                         drill("contractors");
@@ -578,7 +600,7 @@ function App() {
                   ],
                 ].map(([title, value, target, state]) => (
                   <button
-                    className="kpi"
+                    className={"kpi dashboard-metric " + (Number(value) > 0 && dashboardUrgentTitles.has(String(title)) ? "metric-danger" : Number(value) > 0 && dashboardWarningTitles.has(String(title)) ? "metric-warning" : "")}
                     key={title}
                     onClick={() => drill(String(target), String(state))}
                   >
@@ -633,11 +655,11 @@ function App() {
                         (c.state === "al día"
                           ? "good"
                           : c.state === "con observaciones"
-                            ? "bad"
-                            : "pending")
+                            ? "pending"
+                            : "neutral")
                       }
                     >
-                      {c.state === "al día" ? "✓" : "△"} {c.state}
+                      {c.state}
                     </span>
                     <p>
                       {c.approved} aprobados · {c.pending} pendientes /{" "}
