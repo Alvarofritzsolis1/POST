@@ -15,6 +15,7 @@
 | BH12-05 | P1 (preventivo) | `labor_api.py:POST /labor/contracts` | Una asignación heredada con COD=CI permitía registrar otro contrato laboral | Impide nuevos contratos dependientes bajo CI |
 | BH12-06 | P2 | `labor_api.py:GET /labor/contractors` | Las opciones del selector mostraban naturaleza global, equivocada para CI en una de dos obras | Respuesta por obra y clasificación efectiva |
 | BH12-07 | P1 | `attendance_api.py:roster / PUT roster / PUT weeks` | CI en obra B con naturaleza global 'with_workers' podía figurar incluido y recibir nuevas semanas/alertas | Excluye CI en mes vigente/futuro según COD real de la obra, bloquea inclusión manual y conserva meses históricos |
+| BH12-08 | P1 (seguridad) | `requirements.txt`, Pillow | La restricción `<13` mantenía instalada la versión `12.3.0`; pip-audit reportó 39 avisos | Permitir exclusivamente Pillow `>=13.0.0,<14` y repetir pruebas de OCR, imágenes y dependencias |
 
 **Nota:** la severidad refleja impacto potencial; pasar una prueba de regresión confirma que la conducta está corregida en el código probado, no demuestra que la plataforma completa está libre de defectos.
 
@@ -36,6 +37,14 @@ La suite existente continúa siendo requerida: `python -m pytest -q` y `npm run 
 `.github/workflows/bug-hunter-v12.yml` ejecuta análisis estático con Ruff y auditorías de dependencias npm y pip. Sus informes JSON quedan almacenados en los artefactos de GitHub Actions. Son análisis **informativos**: vulnerabilidades detectadas requieren validación y las herramientas no reemplazan un pentest ni certifican la ausencia de problemas.
 
 La suite principal incluye Docker Compose, restauración sintética de respaldo, pruebas de frontend, pruebas backend y navegador en QA aislada.
+
+### Resultados medidos de herramientas de auditoría
+
+- **Antes del cambio de dependencia:** `pip-audit` señaló 39 advisories en Pillow `12.3.0`, `npm audit` indicó 0.
+- **Después de actualizar la restricción a Pillow 13:** `pip-audit` indicó **0** paquetes vulnerables y `npm audit` indicó **0** en GitHub Actions (ejecución `41926945569`). La documentación oficial de Pillow identifica la versión 13.0.0 (2026-10-16) como versión con correcciones de seguridad: https://pillow.readthedocs.io/en/stable/releasenotes/13.0.0.html.
+- **Ruff:** 81 observaciones estáticas (principalmente imports sin usar y estilo), no equivalentes a 81 fallas funcionales demostradas; quedaron registradas como deuda técnica sin realizar un refactor masivo arriesgado.
+- **Compatibilidad funcional de Pillow 13:** comprobar el resultado de pytest/OCR y QA del último commit antes de aprobar la entrega.
+
 
 ## Limitaciones y riesgos no resueltos
 
