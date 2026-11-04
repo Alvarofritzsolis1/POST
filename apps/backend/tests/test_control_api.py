@@ -33,8 +33,8 @@ def env(monkeypatch):
         db.flush()
         for email, org, role in (
             ("a@example.cl",org1,"admin"),
-            ("b@example.cl",org1,"analyst"),
-            ("c@example.cl",org1,"viewer"),
+            ("b@example.cl",org1,"admin"),
+            ("c@example.cl",org1,"resident"),
             ("outside@example.cl",org2,"admin"),
         ):
             db.add(User(org_id=org.id,email=email,role=role,
@@ -110,7 +110,7 @@ def test_manual_approvals_no_pdf_tenant_security_and_weighted_dashboard(env):
     assert dashboard["totals"]["associations"]==4
     assert dashboard["approved"]>=3
     login(client,"c@example.cl")
-    assert client.get("/api/v1/control/matrix",params={"site_id":concepcion,"period":"2026-09"}).status_code==200
+    assert client.get("/api/v1/control/matrix",params={"site_id":concepcion,"period":"2026-09"}).status_code==403
     denied=client.post("/api/v1/control/reviews",headers={"X-CSRF-Token":client.cookies["galant_post_csrf"]},
         json={"association_id":ct["id"],"period":"2026-09","kind":"asistencia",
               "status":"approved","notes":""})
