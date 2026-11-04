@@ -205,7 +205,11 @@ def has_active_workers(db: Session, org_id: str, contractor_id: str) -> bool:
 
 
 def contractor_classification(link: ContractorWorksite, contractor: Contractor) -> str:
-    """Labor nature only; frequency and historical COD remain independent fields."""
+    """The explicit COD on the contractor-worksite relation is authoritative."""
+    code = (link.historical_code or "").strip().upper()
+    if code in {"CT", "CE", "CI"}:
+        return code
+    # Legacy associations without a valid COD remain readable.
     return {"with_workers": "CT", "independent": "CI"}.get(contractor.nature, "SIN CLASIFICAR")
 
 
@@ -395,7 +399,7 @@ def create_worker(payload: WorkerCreate,
         Contractor.id == payload.contractor_id, Contractor.org_id == user.org_id))
     if contractor is None:
         raise HTTPException(404, "Contratista no encontrado")
-    if contractor.nature == "independent":
+    if contractor_classification(association, contractor) == "CI":
         raise HTTPException(409, "Un independiente no puede tener trabajadores dependientes")
     worker = db.scalar(select(Worker).where(
         Worker.org_id == user.org_id, Worker.rut == payload.rut)) if payload.rut else None
@@ -454,7 +458,12 @@ def update_worker(assignment_id: str, payload: WorkerPatch,
             if fields["active"]:
                 contractor = db.scalar(select(Contractor).where(
                     Contractor.id == link.contractor_id, Contractor.org_id == user.org_id))
-                if contractor is None or contractor.nature == "independent":
+                association = db.scalar(select(ContractorWorksite).where(
+                    ContractorWorksite.org_id == user.org_id,
+                    ContractorWorksite.worksite_id == link.worksite_id,
+                    ContractorWorksite.contractor_id == link.contractor_id,
+                ))
+                if contractor is None or association is None or contractor_classification(association, contractor) == "CI":
                     raise HTTPException(409, "Un independiente no puede tener trabajadores dependientes")
             link_changes["active"] = {"from": link.active, "to": fields["active"]}
             link.active = fields["active"]
