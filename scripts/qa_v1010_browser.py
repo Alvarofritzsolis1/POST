@@ -98,7 +98,7 @@ def main():
         # Sin esto App presenta "Selecciona una obra" y no monta Operations.
         page.get_by_label("Obra seleccionada", exact=True).select_option(site["id"])
         page.get_by_role("button", name="Contratistas", exact=True).click()
-        expect(page.get_by_role("heading", name="Contratistas", exact=True)).to_be_visible()
+        expect(page.get_by_role("heading", name="Contratistas", exact=True).last).to_be_visible()
         expect(page.locator(".ops-toolbar select")).to_be_visible()
         page.get_by_role("button", name="Activos", exact=True).click()
         expect(page.get_by_role("button", name="Abrir ficha de " + company)).to_be_visible()
