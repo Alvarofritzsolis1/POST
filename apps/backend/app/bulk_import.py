@@ -41,6 +41,8 @@ HEADERS = {
         "NOMBRECONTRATISTA",
         "RUT",
         "COD",
+        "NATURALEZA",
+        "FRECUENCIA",
         "ESTADO",
         "TELEFONO",
         "CORREO",
@@ -65,6 +67,8 @@ ALIASES = {
     "contractor_rut": ["rut contratista"],
     "external_id": ["id"],
     "historical_code": ["cod", "codigo"],
+    "nature": ["naturaleza", "tipo contratista", "naturaleza contratista"],
+    "frequency": ["frecuencia", "periodicidad"],
     "status": ["estado"],
     "specialty": ["especialidad"],
     "contact": ["contacto"],
@@ -78,6 +82,27 @@ ALIASES = {
     "legal_representative_rut": ["rutr legal"],
     "contract_reference": ["contrato"],
 }
+
+NATURE_VALUES = {
+    "con trabajadores": "with_workers", "contratista con trabajadores": "with_workers",
+    "with workers": "with_workers", "dependiente": "with_workers",
+    "independiente": "independent", "contratista independiente": "independent",
+    "independiente sin trabajadores": "independent", "sin trabajadores": "independent",
+    "independent": "independent", "with workers": "with_workers",
+}
+FREQUENCY_VALUES = {
+    "fijo": "fixed", "fija": "fixed", "fixed": "fixed",
+    "esporadico": "sporadic", "esporadica": "sporadic", "sporadic": "sporadic",
+}
+
+
+def classified_value(raw: str, values: dict[str, str], label: str, errors: list[str]):
+    if not raw:
+        return None
+    resolved = values.get(_key(raw))
+    if resolved is None:
+        errors.append(f"{label} desconocida: {raw[:50]}")
+    return resolved
 
 
 class ReviewImport(BaseModel):
@@ -231,6 +256,9 @@ def prepare(body, user, db):
             existing = by_rut.get(row["rut"])
             link = links.get((site.id, existing.id)) if site and existing else None
             status = row.get("status", "")
+            code = _key(row.get("historical_code"))
+            if code and code not in {"ct", "ci"} and code not in class_map:
+                errors.append("COD desconocido; configurar catálogo antes de importar")
             if status and _key(status) not in status_map:
                 errors.append("Estado sin mapeo; configurar catálogo o corregir")
             classification = row.get("classification", "") or class_map.get(
@@ -238,18 +266,28 @@ def prepare(body, user, db):
             )
             if classification and classification not in {"CT", "CI", "ESP"}:
                 errors.append("Clasificación explícita debe ser CT, CI o ESP")
-            if not classification:
-                warnings.append(
-                    "Sin clasificación; COD, ESTADO e ID no determinan su naturaleza"
-                )
-            nature = {"CT": "with_workers", "CI": "independent"}.get(classification)
-            frequency = (
-                "sporadic"
-                if classification == "ESP"
-                else "fixed"
-                if classification in {"CT", "CI"}
-                else None
-            )
+            nature = classified_value(row.get("nature", ""), NATURE_VALUES, "Naturaleza", errors)
+            frequency = classified_value(row.get("frequency", ""), FREQUENCY_VALUES, "Frecuencia", errors)
+            legacy_nature = {"CT": "with_workers", "CI": "independent"}.get(classification)
+            if nature and legacy_nature and nature != legacy_nature:
+                errors.append("Naturaleza contradice la clasificación explícita")
+            nature = nature or legacy_nature
+            if classification == "ESP":
+                if frequency and frequency != "sporadic":
+                    errors.append("Frecuencia contradice la clasificación ESP explícita")
+                frequency = frequency or "sporadic"
+            # CI denotes independent by definition; CT alone does not establish
+            # whether people are employed, and neither code defines frequency.
+            if code == "ci":
+                if nature and nature != "independent":
+                    errors.append("COD CI contradice la naturaleza indicada")
+                nature = nature or "independent"
+            if not nature and (not existing or existing.nature == "unclassified"):
+                warnings.append("Naturaleza sin determinar; indicar NATURALEZA")
+            if not frequency and (not link or link.frequency == "unclassified"):
+                warnings.append("Frecuencia sin determinar; indicar FRECUENCIA")
+            if row["name"].isdigit():
+                errors.append("Nombre sospechoso: contiene únicamente números")
             if (
                 existing
                 and nature == "independent"
@@ -516,6 +554,19 @@ def template(kind: str, user: User = Depends(authorized_user)):
     return workbook_response(wb, f"galant-{kind}.xlsx")
 
 
+@router.get("/bulk/history")
+def import_history(page: int = 1, user: User = Depends(authorized_user),
+                   db: Session = Depends(get_db)):
+    if page < 1:
+        raise HTTPException(422, "Página inválida")
+    rows = db.scalars(select(ImportBatch).where(ImportBatch.org_id == user.org_id)
+                      .order_by(ImportBatch.created_at.desc(), ImportBatch.id.desc())
+                      .limit(50).offset((page - 1) * 50)).all()
+    return [{"id": r.id, "filename": r.filename, "sha256": r.sha256,
+             "kind": r.kind, "result": r.result, "created_at": r.created_at}
+            for r in rows]
+
+
 @router.post("/bulk/preview")
 async def preview(
     file: UploadFile = File(...),
@@ -615,6 +666,14 @@ def commit(
         raise HTTPException(
             422, "Debes aprobar explícitamente los campos que cambiarán"
         )
+    if body.file_sha256 and all(r["category"] == "existing" for r in prepared):
+        prior = db.scalar(select(ImportBatch).where(
+            ImportBatch.org_id == user.org_id, ImportBatch.kind == body.kind,
+            ImportBatch.sha256 == body.file_sha256,
+        ).order_by(ImportBatch.created_at.desc()).limit(1))
+        if prior:
+            return {"batch_id": prior.id, "new": 0, "existing": len(prepared),
+                    "updatable": 0, "duplicate": True}
     counters = {key: 0 for key in ("new", "existing", "updatable")}
     try:
         for item in prepared:
@@ -715,19 +774,17 @@ def commit(
                     )
                 if item["category"] != "existing":
                     episode.updated_by = user.id
-                    episode.status = (
-                        "ended" if end and end < chile_today() else "active"
-                    )
+                    # A planned end date is not proof of an effective termination.
+                    if episode.status != "ended":
+                        episode.status = "active"
                 db.flush()
                 all_episodes = db.scalars(
                     select(ContractRegister).where(
                         ContractRegister.worker_assignment_id == link.id
                     )
                 ).all()
-                today = chile_today()
                 link.active = any(
-                    e.start_date <= today
-                    and (e.end_date is None or e.end_date >= today)
+                    e.status == "active"
                     for e in all_episodes
                 )
             db.flush()

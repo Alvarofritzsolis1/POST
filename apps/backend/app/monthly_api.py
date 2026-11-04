@@ -14,7 +14,7 @@ from .db import get_db
 from .models import Document, User, utcnow
 from .ops_api import association_for, audit_change
 from .ops_models import MonthlyDocument
-from .security import authorized_user, editor
+from .security import authorized_user, editor, document_reviewer
 
 router = APIRouter(prefix="/api/v1/ops/monthly-documents", tags=["Documentación mensual"])
 
@@ -96,7 +96,7 @@ def list_monthly_documents(
 @router.post("", status_code=201)
 def link_monthly_document(
     payload: MonthlyLinkInput,
-    user: User = Depends(editor), db: Session = Depends(get_db),
+    user: User = Depends(document_reviewer), db: Session = Depends(get_db),
 ):
     association, contractor = association_for(db, user.org_id, payload.association_id)
     if payload.not_applicable and payload.document_id:
@@ -151,7 +151,7 @@ def link_monthly_document(
 @router.patch("/{record_id}")
 def review_monthly_document(
     record_id: str, payload: MonthlyReviewInput,
-    user: User = Depends(editor), db: Session = Depends(get_db),
+    user: User = Depends(document_reviewer), db: Session = Depends(get_db),
 ):
     record = db.scalar(select(MonthlyDocument).where(
         MonthlyDocument.id == record_id, MonthlyDocument.org_id == user.org_id))

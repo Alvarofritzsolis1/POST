@@ -36,7 +36,7 @@ export async function request<T>(url:string,options:RequestInit={}):Promise<T> {
   return response.json() as Promise<T>
 }
 export const api={
-  version:()=>request<{version:string}>("/version"),
+  version:()=>request<{version:string;commit:string}>("/version"),
   login:(email:string,password:string)=>request<Profile>("/auth/login",{method:"POST",body:JSON.stringify({email,password})}),
   me:()=>request<Profile>("/auth/me"),
   logout:()=>request<{ok:boolean}>("/auth/logout",{method:"POST"}),

@@ -22,7 +22,7 @@ services:
       driver: json-file
       options: {max-size: "10m", max-file: "3"}
   api:
-    build: {context: ., dockerfile: apps/backend/Dockerfile}
+    build: {context: ., dockerfile: apps/backend/Dockerfile, args: {SOURCE_COMMIT: "${SOURCE_COMMIT:-unknown}"}}
     restart: unless-stopped
     environment: &backend
       APP_SECRET: ${APP_SECRET:?Missing APP_SECRET}
@@ -48,7 +48,7 @@ services:
     mem_limit: 550m
     logging: *logs
   worker:
-    build: {context: ., dockerfile: apps/backend/Dockerfile}
+    build: {context: ., dockerfile: apps/backend/Dockerfile, args: {SOURCE_COMMIT: "${SOURCE_COMMIT:-unknown}"}}
     restart: unless-stopped
     command: ["python", "-m", "app.worker"]
     environment: *backend

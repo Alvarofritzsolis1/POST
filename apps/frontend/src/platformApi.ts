@@ -22,6 +22,7 @@ export async function download(path: string, body: unknown, name: string) {
   setTimeout(() => URL.revokeObjectURL(a.href), 1000);
 }
 export type Contribution = {
+  control_id: string | null;
   association_id: string;
   site_id: string;
   site: string;
@@ -41,6 +42,12 @@ export type Contribution = {
   daily_clp: number;
   confirmed: boolean;
   state: string;
+  document_state: string;
+  receipt_document_id: string | null;
+  payment_finding: string;
+  documented_amount: number | null;
+  expected_amount: number | null;
+  monetary_difference: number | null;
   justification: string;
 };
 export type Summary = {
@@ -64,6 +71,7 @@ export type MatrixRow = {
   period: string;
   requirement: string;
   state: string;
+  delivery_state: string;
   observation: string;
   document_id: string | null;
 };

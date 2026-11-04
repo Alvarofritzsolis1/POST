@@ -1,6 +1,7 @@
 import { useEffect, useState } from "react";
 import { read, send, type OrgProfile, type Preferences } from "./platformApi";
 import type { Site } from "./opsApi";
+import Reconciliation from "./Reconciliation";
 type Account = { id: string; email: string; role: string; enabled: boolean };
 export default function Settings({
   admin,
@@ -18,7 +19,7 @@ export default function Settings({
     >([]),
     [email, setEmail] = useState(""),
     [password, setPassword] = useState(""),
-    [role, setRole] = useState("analyst"),
+    [role, setRole] = useState("supervisor"),
     [oldPassword, setOldPassword] = useState(""),
     [newPassword, setNewPassword] = useState(""),
     [site, setSite] = useState(""),
@@ -260,7 +261,10 @@ export default function Settings({
             <label>
               Rol
               <select value={role} onChange={(e) => setRole(e.target.value)}>
-                <option value="analyst">Analista</option>
+                <option value="supervisor">Supervisor</option>
+                <option value="reviewer">Revisor documental</option>
+                <option value="administrative">Administrativa (asistencia)</option>
+                <option value="analyst">Analista (legado)</option>
                 <option value="viewer">Visualizador</option>
                 <option value="admin">Administrador</option>
               </select>
@@ -299,7 +303,10 @@ export default function Settings({
                         }
                       >
                         <option value="admin">Administrador</option>
-                        <option value="analyst">Analista</option>
+                        <option value="supervisor">Supervisor</option>
+                        <option value="reviewer">Revisor documental</option>
+                        <option value="administrative">Administrativa (asistencia)</option>
+                        <option value="analyst">Analista (legado)</option>
                         <option value="viewer">Visualizador</option>
                       </select>
                     </td>
@@ -406,8 +413,8 @@ export default function Settings({
           </form>
           <h3>Reglas de importación</h3>
           <p>
-            Mapeo explícito de estados y códigos a CT, CI o ESP; plazo
-            documental.
+            Mapeo explícito de estados y códigos históricos; plazos de alertas,
+            causales legales y tipos de contrato. COD no determina la frecuencia.
           </p>
           <form
             onSubmit={(e) => {
@@ -433,6 +440,7 @@ export default function Settings({
           </form>
         </section>
       )}
+      {admin && <Reconciliation />}
       {error && (
         <p role="alert" className="form-error">
           {error}

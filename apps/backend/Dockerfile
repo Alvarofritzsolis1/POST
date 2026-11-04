@@ -1,3 +1,4 @@
+# syntax=docker/dockerfile:1
 FROM python:3.12-slim
 ENV PYTHONDONTWRITEBYTECODE=1 PYTHONUNBUFFERED=1 OMP_THREAD_LIMIT=1
 RUN apt-get update && apt-get install -y --no-install-recommends \
@@ -5,8 +6,13 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
     postgresql-client libglib2.0-0 && rm -rf /var/lib/apt/lists/*
 WORKDIR /srv
 COPY apps/backend/requirements.txt ./requirements.txt
-RUN pip install --no-cache-dir -r requirements.txt
+RUN --mount=type=secret,id=proxy_ca,required=false \
+    if [ -s /run/secrets/proxy_ca ]; then \
+      PIP_CERT=/run/secrets/proxy_ca pip install --no-cache-dir -r requirements.txt; \
+    else pip install --no-cache-dir -r requirements.txt; fi
 COPY apps/backend/app ./app
+ARG SOURCE_COMMIT=unknown
+RUN printf 'SOURCE_COMMIT = "%s"\n' "$SOURCE_COMMIT" > /srv/app/build_revision.py
 # git checkout de despliegue utiliza umask 077: el contexto puede contener
 # archivos 0600 y directorios 0700. COPY preserva esos permisos.
 # Dejar el código legible (no escribible) para UID 10001 sin relajar permisos

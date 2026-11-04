@@ -28,15 +28,21 @@ from . import bulk_import
 from .pipeline import extraction_path
 from .reports import build_workbook
 from .schemas import Dashboard, DocumentSummary, DocumentView, Login, Profile
-from .security import CSRF, SESSION, authorized_user, editor, new_session, verify_password
-from .version import VERSION
+from .security import CSRF, SESSION, authorized_user, editor, document_uploader, new_session, verify_password
+from .version import VERSION, SOURCE_COMMIT
 from .admin_api import router as admin_router
+from .reconciliation import router as reconciliation_router
+from .labor_api import router as labor_router
+from .attendance_api import router as attendance_router
 from .compliance_api import router as compliance_router
 from . import platform_models
 
 app = FastAPI(title="GALANT POST — Document Intelligence", version=VERSION, docs_url=None, redoc_url=None)
 app.include_router(compliance_router)
 app.include_router(admin_router)
+app.include_router(reconciliation_router)
+app.include_router(labor_router)
+app.include_router(attendance_router)
 app.include_router(ops_router)
 app.include_router(control_router)
 app.include_router(control_admin_router)
@@ -76,12 +82,13 @@ def health(db: Session = Depends(get_db)):
         db.execute(text("SELECT 1"))
     except Exception:
         raise HTTPException(503, "Servicio temporalmente no disponible") from None
-    return {"status": "ok", "service": "galant-post-api", "version": VERSION}
+    return {"status": "ok", "service": "galant-post-api", "version": VERSION,
+            "commit": SOURCE_COMMIT}
 
 
 @app.get(API + "/version")
 def version():
-    return {"version": VERSION}
+    return {"version": VERSION, "commit": SOURCE_COMMIT}
 
 
 @app.post(API + "/auth/login", response_model=Profile)
@@ -151,7 +158,7 @@ def documents(category: str | None = None, user: User = Depends(authorized_user)
 
 @app.post(API + "/documents", response_model=DocumentView, status_code=202)
 async def upload(file: UploadFile = File(...), category: str = Form("auto"),
-                 user: User = Depends(editor), db: Session = Depends(get_db)):
+                 user: User = Depends(document_uploader), db: Session = Depends(get_db)):
     started = time.perf_counter()
     if category not in TYPES:
         raise HTTPException(422, "Módulo inválido")

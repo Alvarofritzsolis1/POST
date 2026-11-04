@@ -18,6 +18,8 @@ import { opsApi, type Site } from "./opsApi";
 import { Login } from "./DocumentAnalysis";
 import DocumentAnalysis from "./DocumentAnalysis";
 import Operations from "./Operations";
+import Workers from "./Workers";
+import Attendance from "./Attendance";
 import ControlCenter from "./ControlCenter";
 import BulkImport from "./BulkImport";
 import Settings from "./Settings";
@@ -34,8 +36,9 @@ const nav = [
   ["home", "Inicio", LayoutDashboard],
   ["contractors", "Contratistas", Building2],
   ["workers", "Trabajadores", Users],
+  ["attendance", "Control de asistencia", CalendarDays],
   ["documents", "Control documental", FileCheck2],
-  ["contributions", "Cotizaciones y asistencia", CalendarDays],
+  ["contributions", "Cotizaciones y pagos", CalendarDays],
   ["imports", "Importación masiva", FileSpreadsheet],
   ["administration", "Gestión administrativa", CalendarDays],
   ["reports", "Informes", BarChart3],
@@ -66,10 +69,12 @@ type Overview = {
     warnings: string[];
   }[];
 };
+type LaborAlerts = { summary: Record<string, number>; alerts: { kind: string; severity: string; label: string; site: string; date: string | null; target_id: string; target_section: string }[] };
 function App() {
   const [user, setUser] = useState<Profile | null>(null),
     [ready, setReady] = useState(false),
     [version, setVersion] = useState<string | null>(null),
+    [revision, setRevision] = useState<string | null>(null),
     [section, setSection] = useState("home"),
     [sites, setSites] = useState<Site[]>([]),
     [site, setSite] = useState(""),
@@ -82,6 +87,9 @@ function App() {
     ),
     [profile, setProfile] = useState<OrgProfile | null>(null),
     [overview, setOverview] = useState<Overview | null>(null),
+    [laborAlerts, setLaborAlerts] = useState<LaborAlerts | null>(null),
+    [targetWorker, setTargetWorker] = useState(""),
+    [findingDraft, setFindingDraft] = useState<{control_id:string;state:string;document_id:string;documented_amount:string;expected_amount:string;observation:string}|null>(null),
     [contributions, setContributions] = useState<{
       rows: Contribution[];
       total: number;
@@ -117,7 +125,10 @@ function App() {
     window.addEventListener("galant-session-ended", expired);
     return () => window.removeEventListener("galant-session-ended", expired);
   }, []);
-  const readonly = user?.role === "viewer";
+  const readonly = user?.role === "viewer" || user?.role === "reviewer" || user?.role === "administrative";
+  const canEdit = user?.role === "admin" || user?.role === "supervisor" || user?.role === "analyst";
+  const canReview = canEdit || user?.role === "reviewer";
+  const canAttend = canEdit || user?.role === "administrative";
   const params =
     "period=" +
     encodeURIComponent(period) +
@@ -135,7 +146,7 @@ function App() {
       .finally(() => setReady(true));
     void api
       .version()
-      .then((v) => setVersion(v.version))
+      .then((v) => { setVersion(v.version); setRevision(v.commit); })
       .catch(() => {});
   }, []);
   useEffect(() => {
@@ -153,7 +164,7 @@ function App() {
     if (!user) return;
     const generation = ++refreshGeneration.current;
     try {
-      const [o, c, m] = await Promise.all([
+      const [o, c, m, a] = await Promise.all([
         read<Overview>("/ops/overview?" + params),
         read<{ rows: Contribution[]; total: number; summary: Summary }>(
           "/ops/contributions?" +
@@ -170,6 +181,7 @@ function App() {
             encodeURIComponent(classification),
         ),
         read<MatrixRow[]>("/ops/document-reviews?" + params),
+        section === "home" ? read<LaborAlerts>("/labor/alerts?" + params) : Promise.resolve(null),
       ]);
       if (generation === refreshGeneration.current) {
         if (
@@ -184,6 +196,7 @@ function App() {
         setOverview(o);
         setContributions(c);
         setMatrix(m);
+        if (a) setLaborAlerts(a);
         setError("");
       }
     } catch (e) {
@@ -198,6 +211,7 @@ function App() {
     search,
     filter,
     classification,
+    section,
   ]);
   useEffect(() => {
     if (!user) return;
@@ -281,7 +295,8 @@ function App() {
         (filter === "payment_pending" &&
           r.paid_days !== null &&
           !r.confirmed) ||
-        (filter === "differences" && (r.missing_days || 0) > 0)) &&
+        (filter === "differences" && (r.missing_days || 0) > 0) ||
+        (filter === "declared_unpaid" && r.payment_finding === "declared_unpaid")) &&
       (classification === "all" || r.classification === classification),
   );
   const cards = (overview?.contractors || []).filter(
@@ -329,12 +344,12 @@ function App() {
         <div className="sidebar-bottom">
           <p>{profile?.organization}</p>
           <small>
-            v{version} ·{" "}
+            v{version} · {revision && revision !== "unbuilt" ? revision.slice(0, 8) + " · " : ""}{" "}
             {user.role === "admin"
               ? "Administrador"
               : user.role === "viewer"
                 ? "Visualizador"
-                : "Analista"}
+                : user.role === "reviewer" ? "Revisor documental" : user.role === "administrative" ? "Administrativa" : user.role === "supervisor" ? "Supervisor" : "Analista"}
           </small>
         </div>
       </aside>
@@ -453,6 +468,33 @@ function App() {
           {loading && <p role="status">Actualizando datos…</p>}
           {section === "home" && overview && (
             <>
+              {laborAlerts && <section className="panel">
+                <h2>Alertas laborales y documentales</h2>
+                <div className="kpi-grid">
+                  {([
+                    ["critical_contractors", "Contratistas con documentación crítica", "documents", "overdue"],
+                    ["workers_expired", "Contratos vencidos", "workers", "expired_needs_review"],
+                    ["workers_ending", "Contratos próximos", "workers", "ending_soon"],
+                    ["finiquito_pending", "Finiquitos pendientes", "workers", "finiquito_pending"],
+                    ["incomplete_contributions", "Cotizaciones incompletas", "contributions", "differences"],
+                    ["declared_unpaid", "Declaradas sin pago", "contributions", "declared_unpaid"],
+                    ["attendance_overdue", "Semanas de asistencia atrasadas", "attendance", "overdue"],
+                    ["unclassified_contractors", "Contratistas sin clasificación", "contractors", "SIN CLASIFICAR"],
+                  ] as const).map(([key, label, destination, state]) => <button className="kpi" key={key} onClick={() => {
+                    drill(destination, state); if (key === "finiquito_pending") setFilter("finiquito_pending");
+                    if (key === "unclassified_contractors") setClassification("SIN CLASIFICAR");
+                  }}><small>{label}</small><strong>{laborAlerts.summary[key] || 0}</strong><span>Ver registros →</span></button>)}
+                </div>
+                <h3>Centro de alertas</h3>
+                {laborAlerts.alerts.slice(0, 30).map((item, i) => <button className={"worker-alert-link worker-signal " + item.severity} key={i} onClick={() => {
+                  if (item.target_section === "workers") { setTargetWorker(item.target_id); go("workers"); }
+                  else if (item.target_section === "contributions") drill("contributions", item.kind === "declared_unpaid" ? "declared_unpaid" : "differences");
+                  else if (item.target_section === "documents") drill("documents", "overdue");
+                  else if (item.target_section === "attendance") go("attendance");
+                  else { drill("contractors"); setClassification("SIN CLASIFICAR"); }
+                }}>{item.label} · {item.site} {item.date ? "· " + item.date : ""}</button>)}
+                {!laborAlerts.alerts.length && <p>Sin alertas verificadas para el período y obra seleccionados.</p>}
+              </section>}
               <div className="kpi-grid">
                 {Object.entries(overview.classifications).map(
                   ([key, value]) => (
@@ -657,13 +699,14 @@ function App() {
               </section>
             </>
           )}
-          {(section === "contractors" || section === "workers") &&
+          {section === "contractors" &&
             (site ? (
               <Operations
                 readOnly={readonly}
                 externalSiteId={site}
                 mode={section}
                 onImport={() => go("imports")}
+                onWorkers={(assignmentId) => { go("workers"); setTargetWorker(assignmentId || ""); }}
                 classificationFilter={classification}
                 onSiteChange={setSite}
               />
@@ -673,6 +716,13 @@ function App() {
                 contratistas y trabajadores.
               </div>
             ))}
+          {section === "workers" && <Workers siteId={site} sites={sites} period={period}
+            canEdit={!!canEdit} canReview={!!canReview}
+            initialPending={filter === "finiquito_pending"}
+            initialAssignment={targetWorker}
+            initialState={filter === "expired_needs_review" || filter === "ending_soon" ? filter : ""} />}
+          {section === "attendance" && <Attendance siteId={site} sites={sites} period={period}
+            canEdit={!!canAttend} canReview={!!canEdit} />}
           {section === "imports" && (
             <BulkImport readOnly={readonly} siteId={site} />
           )}
@@ -691,7 +741,7 @@ function App() {
                   onChange={(e) => setClassification(e.target.value)}
                 >
                   <option value="all">Todas las clasificaciones</option>
-                  {["CT", "CI", "ESP"].map((v) => (
+                  {["CT", "CI"].map((v) => (
                     <option key={v}>{v}</option>
                   ))}
                 </select>
@@ -760,6 +810,8 @@ function App() {
                       <th>Pagados</th>
                       <th>Faltantes</th>
                       <th>Estimación CLP</th>
+                      <th>Diferencia monetaria CLP</th>
+                      <th>Comprobante</th>
                       <th>Estado</th>
                       <th>Control</th>
                     </tr>
@@ -781,6 +833,13 @@ function App() {
                         <td>{number(r.paid_days)}</td>
                         <td>{number(r.missing_days)}</td>
                         <td>{number(r.estimated_retention)}</td>
+                        <td>{number(r.monetary_difference)}</td>
+                        <td><span className={"worker-signal " + (r.payment_finding === "insufficient" || r.payment_finding === "declared_unpaid" ? "red" : r.document_state === "incomplete" ? "orange" : r.document_state === "approved" ? "green" : "gray")}>
+                          {r.document_state === "incomplete" ? "Incompleto — diferencia detectada" :
+                          r.document_state === "not_delivered" ? "No entregado" :
+                          r.document_state === "pending_review" ? "Entregado — pendiente de revisión" :
+                          r.document_state === "approved" ? "Aprobado" :
+                          r.document_state === "observed" ? "Observado" : r.document_state}</span></td>
                         <td>
                           <span
                             className={
@@ -794,11 +853,17 @@ function App() {
                           </span>
                         </td>
                         <td>
-                          {!readonly && (
+                          {canEdit && (
                             <button onClick={() => setEditing({ ...r })}>
-                              Revisar
+                              Revisar días
                             </button>
                           )}
+                          {canReview && r.control_id && <button onClick={() => setFindingDraft({
+                            control_id:r.control_id!, state:r.payment_finding || "unverified",
+                            document_id:r.receipt_document_id || "",
+                            documented_amount:r.documented_amount?.toString() || "",
+                            expected_amount:r.expected_amount?.toString() || "", observation:"",
+                          })}>Revisar pago</button>}
                         </td>
                       </tr>
                     ))}
@@ -894,13 +959,17 @@ function App() {
                                 needs_classification: "Confirmar exigibilidad",
                                 rejected: "! Rechazado",
                               } as Record<string, string>
-                            )[r.state] || r.state
+                            )[["incomplete", "observed"].includes(r.state) ? r.state :
+                              r.delivery_state === "not_delivered" ? "not_delivered" :
+                              r.delivery_state === "pending_review" ? "pending_review" : r.state] ||
+                              (r.delivery_state === "not_delivered" ? "No entregado" :
+                               r.delivery_state === "pending_review" ? "Entregado — pendiente de revisión" : r.state)
                           }
                           </span>
                         </td>
                         <td>{r.observation}</td>
                         <td>
-                          {!readonly && (
+                          {canReview && (
                             <button onClick={() => setReviewing({
                               ...r,
                               state: (["pending", "approved", "observed", "not_applicable"].includes(r.state)
@@ -1073,6 +1142,24 @@ function App() {
               </section>
             </div>
           )}
+          {findingDraft && <div className="modal-backdrop"><section className="panel" role="dialog" aria-modal="true" aria-label="Conclusión de pago"><h2>Revisión de pago</h2>
+            <p>Solo la revisión humana de un documento permite declarar pago insuficiente o declarado sin pago. Cambiar los días invalida la conclusión anterior.</p>
+            <form onSubmit={(e) => { e.preventDefault(); void (async () => { try {
+              await send("/labor/contributions/" + findingDraft.control_id + "/finding", {
+                state:findingDraft.state, document_id:findingDraft.document_id || null,
+                documented_amount:findingDraft.documented_amount ? Number(findingDraft.documented_amount) : null,
+                expected_amount:findingDraft.expected_amount ? Number(findingDraft.expected_amount) : null,
+                observation:findingDraft.observation,
+              }, "PUT"); setFindingDraft(null); await refresh(); setNotice("Revisión de pago registrada.");
+            } catch (ex) { setError(errorText(ex)); } })(); }}>
+              <label>Conclusión<select value={findingDraft.state} onChange={(e) => setFindingDraft({ ...findingDraft, state:e.target.value })}><option value="unverified">Sin verificar</option><option value="verified">Pago verificado</option><option value="insufficient">Pago inferior al requerido</option><option value="declared_unpaid">Declarado sin pago</option></select></label>
+              <label>ID del documento<input value={findingDraft.document_id} onChange={(e) => setFindingDraft({ ...findingDraft, document_id:e.target.value })} /></label>
+              <label>Monto documentado CLP<input type="number" min="0" value={findingDraft.documented_amount} onChange={(e) => setFindingDraft({ ...findingDraft, documented_amount:e.target.value })} /></label>
+              <label>Monto esperado CLP<input type="number" min="0" value={findingDraft.expected_amount} onChange={(e) => setFindingDraft({ ...findingDraft, expected_amount:e.target.value })} /></label>
+              <label>Motivo y evidencia<textarea value={findingDraft.observation} onChange={(e) => setFindingDraft({ ...findingDraft, observation:e.target.value })} /></label>
+              <div className="toolbar"><button className="primary">Guardar revisión</button><button type="button" onClick={() => setFindingDraft(null)}>Cancelar</button></div>
+            </form>{error && <p role="alert" className="form-error">{error}</p>}
+          </section></div>}
           {reviewing && (
             <div className="modal-backdrop">
               <section

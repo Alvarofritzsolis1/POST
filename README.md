@@ -1,12 +1,16 @@
-# GALANT POST — v0.5.0-rc1
+# GALANT POST — v0.6.0-rc1 (borrador local)
 
-Administración compartida de contratistas, trabajadores, documentación y cotizaciones. Esta versión incorpora administración de cuentas, importaciones Excel especializadas y un espacio de trabajo por obra/período. Reutiliza los controles y contratos de la versión 0.4.0-rc1.
+Administración compartida de contratistas, trabajadores, contratos, finiquitos, documentación, cotizaciones y asistencia semanal. Esta candidata agrega clasificación explícita, reconciliación histórica, una pantalla de trabajadores centrada en las personas y una base mensual editable con cinco semanas de firmas y balance frente a días pagados. La versión desplegada debe comprobarse en `/api/v1/health` junto con el SHA del commit.
+
+- [Cambios de la candidata](CHANGELOG.md)
+- [Implementación, evidencia y límites 0.6](docs/ENTREGA_0.6.0.md)
+- [Actualización futura del VPS 0.6](docs/VPS_0.6.0.md)
 
 - [Implementación, evidencia y límites](docs/ENTREGA_0.5.0.md)
 - [Matriz de auditoría](docs/AUDITORIA_0.5.0.md)
 - [Instrucciones de respaldo y actualización del VPS](docs/VPS_0.5.0.md)
 
-No se ha desplegado esta candidata ni validado la cuenta real de Ximena. Las pruebas usan datos sintéticos en entornos aislados. Los siguientes apartados conservan antecedentes de las etapas anteriores.
+No se ha desplegado esta candidata ni validado la base o las cuentas reales. Las pruebas usan datos sintéticos. Los siguientes apartados conservan antecedentes de las etapas anteriores.
 
 
 Plataforma GALANT para gestión manual de contratistas y trabajadores, con importación Excel/CSV y un módulo OCR Beta separado. Frontend React + TypeScript, backend FastAPI y PostgreSQL. **No usa Streamlit ni importa código anterior.**
@@ -96,6 +100,6 @@ En apps/backend, instalar requirements-dev.txt, Tesseract español/inglés y eje
 
 ## Pendiente
 
-La matriz operativa de siete requisitos, comparación manual, informes CT/CI, dashboard inicial y calendario se encuentran implementados en v0.4.0-rc1. Quedan por validar en el VPS y completar los apartados señalados en GALANT_OPERATIVO_QA.md. No se ha recibido la planilla Excel histórica para validar el reconocimiento de sus columnas; pruebe primero una copia autorizada en vista previa. El esquema actual permite agregar tablas con `init-db`, pero todavía no dispone de migraciones versionadas. El backup/restore fue probado con datos sintéticos en CI, pero falta ejecutarlo con el VPS real. Continúan pendientes antivirus documental, políticas de retención y configuración HTTPS para la publicación. Un caso privado de 14 páginas corrigió la orientación OCR, pero no demuestra precisión general de pagos.
+La matriz operativa y el calendario anteriores permanecen. Esta candidata incorpora una migración aditiva versionada, pero todavía falta verificar con la BD, los documentos y la planilla históricos reales del VPS. El backup/restore fue probado con datos sintéticos, no con el VPS real. Continúan pendientes antivirus documental, políticas de retención y configuración HTTPS para la publicación. Un caso privado de 14 páginas corrigió la orientación OCR, pero no demuestra precisión general de pagos.
 
 Consulta [especificación maestra](docs/ESPECIFICACION_MAESTRA_GALANT.md), [plan por etapas](docs/PLAN_GALANT_OPERATIVO.md), docs/ARQUITECTURA.md, docs/AUDITORIA_0.2.0.md, docs/OCR_EVALUACION.md y docs/VPS.md.

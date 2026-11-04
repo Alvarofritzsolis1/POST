@@ -23,12 +23,13 @@ from .ops_api import (
 from .ops_models import (
     Contractor,
     ContractorWorksite,
+    MonthlyDocument,
     Worker,
     WorkerAssignment,
     Worksite,
     OpsChange,
 )
-from .platform_models import DocumentReview, RetentionRate
+from .platform_models import DocumentReview, PaymentFinding, RetentionRate
 from .control_models import ContributionControl, ContractRegister
 from .control_api import (
     save_contributions,
@@ -37,7 +38,7 @@ from .control_api import (
     ManualReviewInput,
     monthly_matrix,
 )
-from .security import authorized_user, editor
+from .security import authorized_user, editor, document_reviewer
 from .bulk_import import safe_cell, workbook_response
 
 router = APIRouter(prefix="/api/v1/ops", tags=["Cumplimiento y cotizaciones"])
@@ -170,6 +171,26 @@ def contribution_rows(
             )
         )
     }
+    findings = {f.control_id: f for f in db.scalars(select(PaymentFinding).where(
+        PaymentFinding.org_id == user.org_id,
+        PaymentFinding.control_id.in_([c.id for c in records.values()]),
+    )).all()}
+    receipts = {}
+    for receipt in db.scalars(select(MonthlyDocument).where(
+        MonthlyDocument.org_id == user.org_id,
+        MonthlyDocument.period == period,
+        MonthlyDocument.kind == "cotizaciones",
+        MonthlyDocument.document_id.is_not(None),
+    ).order_by(MonthlyDocument.updated_at.desc())):
+        receipts.setdefault(receipt.association_id, receipt)
+    individual_receipts = {}
+    for receipt in db.scalars(select(DocumentReview).where(
+        DocumentReview.org_id == user.org_id,
+        DocumentReview.period == period,
+        DocumentReview.requirement == "Cotizaciones",
+        DocumentReview.document_id.is_not(None),
+    ).order_by(DocumentReview.reviewed_at.desc())):
+        individual_receipts.setdefault((receipt.association_id, receipt.subject), receipt)
     rate = rate_for(db, user.org_id, period)
     rows = []
     for link, company, site in associations:
@@ -222,6 +243,18 @@ def contribution_rows(
             )
             missing = max(0, difference) if difference is not None else None
             confirmed = bool(record and record.payment_confirmed)
+            finding = findings.get(record.id) if record else None
+            receipt = individual_receipts.get((link.id, subject)) or receipts.get(link.id)
+            receipt_id = receipt.document_id if receipt else finding.document_id if finding else None
+            receipt_review = (receipt.state if isinstance(receipt, DocumentReview)
+                              else receipt.review_status if receipt else None)
+            document_state = (
+                "not_delivered" if receipt_id is None else
+                "incomplete" if (confirmed and missing) or (finding and finding.state == "insufficient") else
+                "observed" if finding and finding.state == "declared_unpaid" else
+                "pending_review" if receipt_review == "pending" else
+                receipt_review or "pending_review"
+            )
             # Pago acreditado parcial != documento no entregado. Una
             # justificación escrita requiere revisión, no es aprobación automática.
             state = (
@@ -265,6 +298,13 @@ def contribution_rows(
                     else None,
                     "confirmed": confirmed,
                     "state": state,
+                    "document_state": document_state,
+                    "receipt_document_id": receipt_id,
+                    "control_id": record.id if record else None,
+                    "payment_finding": finding.state if finding else "unverified",
+                    "documented_amount": int(finding.documented_amount) if finding and finding.documented_amount is not None else None,
+                    "expected_amount": int(finding.expected_amount) if finding and finding.expected_amount is not None else None,
+                    "monetary_difference": max(0, int(finding.expected_amount - finding.documented_amount)) if finding and finding.expected_amount is not None and finding.documented_amount is not None else None,
                     "justification": record.justification if record else "",
                     "reviewed_at": record.updated_at.isoformat() if record else None,
                     "reviewed_by": record.updated_by if record else None,
@@ -334,6 +374,7 @@ def contributions(
                 and not r["confirmed"]
             )
             or (state == "differences" and (r["missing_days"] or 0) > 0)
+            or (state == "declared_unpaid" and r["payment_finding"] == "declared_unpaid")
         )
     ]
     sites, companies, types = defaultdict(list), defaultdict(list), defaultdict(list)
@@ -465,14 +506,14 @@ class ReviewInput(BaseModel):
     subject: str = "contractor"
     period: str
     requirement: str = Field(min_length=1, max_length=80)
-    state: Literal["pending", "approved", "observed", "not_applicable"]
+    state: Literal["pending", "approved", "observed", "rejected", "not_applicable"]
     observation: str = Field(default="", max_length=1000)
     document_id: str | None = None
 
 
 @router.put("/document-reviews")
 def save_review(
-    body: ReviewInput, user: User = Depends(editor), db: Session = Depends(get_db)
+    body: ReviewInput, user: User = Depends(document_reviewer), db: Session = Depends(get_db)
 ):
     period_dates(body.period)
     link, company = association_for(db, user.org_id, body.association_id)
@@ -543,7 +584,7 @@ def save_review(
                 )
     if company.nature == "independent" and body.requirement == "Listado de anticipos":
         raise HTTPException(422, "Anticipos no aplican a CI")
-    if body.state in {"observed", "not_applicable"} and not body.observation.strip():
+    if body.state in {"observed", "rejected", "not_applicable"} and not body.observation.strip():
         raise HTTPException(422, "Se requiere una observación o justificación")
     if body.document_id and not db.scalar(
         select(Document.id).where(
@@ -574,6 +615,10 @@ def save_review(
     if row is None:
         row = DocumentReview(org_id=user.org_id, **body.model_dump())
         db.add(row)
+    if body.document_id is None and row.document_id is not None and body.state != "not_applicable":
+        body.document_id = row.document_id
+    if body.document_id and body.state == "not_applicable":
+        raise HTTPException(422, "No aplica no puede conservar un documento entregado")
     for key, val in body.model_dump().items():
         setattr(row, key, val)
     row.reviewed_by, row.reviewed_at = user.id, utcnow()
@@ -677,6 +722,10 @@ def document_matrix(
                         "period": period,
                         "requirement": labels[req["kind"]],
                         "state": req["state"],
+                        "delivery_state": ("not_applicable" if req["state"] == "not_applicable" else
+                                           "pending_review" if req["document_id"] and req["state"] == "pending" else
+                                           req["state"] if req["state"] in {"approved", "observed", "rejected"} else
+                                           "not_delivered" if not req["document_id"] else req["state"]),
                         "observation": req["notes"],
                         "document_id": req["document_id"],
                         "reviewed_by": req["reviewed_by"],
@@ -738,6 +787,9 @@ def document_matrix(
                             "observed" if observed_difference else
                             (r.state if r else "pending")
                         ),
+                        "delivery_state": ("not_applicable" if r and r.state == "not_applicable" else
+                                           "not_delivered" if not r or not r.document_id else
+                                           "pending_review" if r.state == "pending" else r.state),
                         "observation": (
                             f"Pago incompleto: {missing} día(s) pendientes de revisar"
                             if incomplete else
@@ -825,7 +877,7 @@ def overview(
             kind: len(
                 {c["contractor_id"] for c in cards if c["classification"] == kind}
             )
-            for kind in ("CT", "CI", "ESP", "SIN CLASIFICAR")
+            for kind in ("CT", "CI", "SIN CLASIFICAR")
         },
         "active_workers": len({r.worker_id for r in db.scalars(active_query)}),
         "observed_workers": len(

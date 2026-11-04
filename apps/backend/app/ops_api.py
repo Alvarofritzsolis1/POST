@@ -25,7 +25,7 @@ INITIAL_PERIOD = "2026-09"
 DEFAULT_SITES = ("Lomas Verdes", "Brisas de Junquillar", "Concepción")
 Nature = Literal["independent", "with_workers", "unclassified"]
 Frequency = Literal["fixed", "sporadic", "unclassified"]
-ContractStatus = Literal["active", "offboarding", "inactive"]
+ContractStatus = Literal["active", "suspended", "offboarding", "inactive"]
 
 
 def normalize_rut(raw: str | None) -> str | None:
@@ -205,15 +205,8 @@ def has_active_workers(db: Session, org_id: str, contractor_id: str) -> bool:
 
 
 def contractor_classification(link: ContractorWorksite, contractor: Contractor) -> str:
-    """La naturaleza independiente es CI aun si la frecuencia es esporádica.
-
-    La frecuencia se mantiene como un indicador independiente de CT/CI/ESP.
-    """
-    if contractor.nature == "independent":
-        return "CI"
-    if link.frequency == "sporadic":
-        return "ESP"
-    return {"with_workers": "CT"}.get(contractor.nature, "SIN CLASIFICAR")
+    """Labor nature only; frequency and historical COD remain independent fields."""
+    return {"with_workers": "CT", "independent": "CI"}.get(contractor.nature, "SIN CLASIFICAR")
 
 
 def contractor_view(link: ContractorWorksite, contractor: Contractor, worker_count: int = 0) -> dict:
