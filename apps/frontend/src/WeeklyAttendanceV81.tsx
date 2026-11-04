@@ -116,7 +116,7 @@ export default function WeeklyAttendanceV81({ siteId, sites, period, canEdit, ca
       {matches.length > 0 && <div className="weekly-v81-results">
         {matches.map((row) => <button type="button" key={row.association_id}
           className={row.association_id === contractorId ? "selected" : ""}
-          onClick={() => { setContractorId(row.association_id); setWeekNumber(1); setSearch(row.contractor); setMatches([]); }}>
+          onClick={() => { setContractorId(row.association_id); setWeekNumber(1); setSearch(""); setMatches([]); }}>
           <strong>{row.contractor}</strong>
           <span>{row.rut || "RUT pendiente"} · {row.workers} trabajadores</span></button>)}
       </div>}
