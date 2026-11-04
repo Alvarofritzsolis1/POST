@@ -328,9 +328,11 @@ def contribution_view(row: ContributionControl, association: ContractorWorksite,
     # Canonical weekly evidence is authoritative only when the new calendar has
     # been initialized. A missing week is unknown, NEVER zero attendance.
     attendance = auto_attendance if calendar_available and not independent else row.attendance_days
-    required = (row.required_days if row.required_days is not None else attendance)
-    if calendar_available and attendance is None and not independent:
-        required = None
+    # When the new weekly calendar is active, the required attendance for
+    # reconciliation comes from completed weekly records, not the legacy
+    # manually entered required-day field.
+    required = (attendance if calendar_available and not independent
+                else (row.required_days if row.required_days is not None else attendance))
     missing = (max(0, required - row.paid_days)
                if required is not None and row.paid_days is not None else None)
     proposal = (Decimal(missing) * row.daily_rate if missing is not None else None)
@@ -345,7 +347,7 @@ def contribution_view(row: ContributionControl, association: ContractorWorksite,
         "period": row.period, "subject_key": row.subject_key,
         "worker_assignment_id": row.worker_assignment_id,
         "worker": worker_name, "attendance_days": attendance,
-        "required_days": row.required_days, "paid_days": row.paid_days,
+        "required_days": required, "paid_days": row.paid_days,
         "payment_confirmed": row.payment_confirmed,
         "daily_rate": str(row.daily_rate), "missing_days": missing,
         "retention_suggested": str(proposal) if proposal is not None else None,
