@@ -147,7 +147,9 @@ def test_worker_first_contract_expiry_termination_pdf_review_and_history(env, mo
     # assignment cannot create a worker or review document evidence.
     new_user = client.post("/api/v1/admin/users", headers=head, json={
         "email": "administrativo.qa@example.cl", "password": "password-valid-2026",
-        "role": "administrative"})
+        "role": "administrative", "name": "Administrativo sin acceso",
+        "site_ids": [next(x["id"] for x in client.get("/api/v1/ops/sites").json()
+                     if x["id"] != site["id"])]})
     assert new_user.status_code == 201
     administrative = login(client, "administrativo.qa@example.cl")
     assert client.post("/api/v1/labor/workers", headers=administrative, json={
