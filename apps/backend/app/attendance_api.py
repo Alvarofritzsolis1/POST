@@ -102,9 +102,8 @@ class WeekInput(BaseModel):
             raise ValueError("Firma fuera de los días de esta semana")
         if any(day > today() for row in self.entries for day in row.signed_dates):
             raise ValueError("No se pueden registrar firmas futuras")
-        if self.complete and (max(days) > today() or
-                              (not self.source_document_id and len(self.notes.strip()) < 10)):
-            raise ValueError("Cierra la semana después de su fin e indica PDF/foto de respaldo o un motivo detallado")
+        if self.complete and max(days) > today():
+            raise ValueError("Solo puedes completar una semana cuando haya finalizado")
         return self
 
 
@@ -170,7 +169,11 @@ def _context(db, org_id, site_id, period):
             ContributionControl.org_id == org_id,
             ContributionControl.period == period,
             ContributionControl.association_id.in_([link.id for link, _ in links])))}
-    users = {u.id: u.email for u in db.scalars(select(User).where(User.org_id == org_id))}
+    from .network_service import actor_name
+    users = {}
+    for u in db.scalars(select(User).where(User.org_id == org_id)):
+        name = actor_name(db, u.id)
+        users[u.id] = "Usuario sin nombre registrado" if "@" in name else name
     return links, assignments, contracts, terms, rosters, weeks, entries, controls, users
 
 
@@ -178,6 +181,10 @@ def _context(db, org_id, site_id, period):
 def roster(site_id: str, period: str, user: User = Depends(authorized_user),
            db: Session = Depends(get_db)):
     site_for(db, user.org_id, site_id)
+    if user.role == "administrative":
+        from .network_service import assigned_sites
+        if site_id not in assigned_sites(db, user):
+            raise HTTPException(403, "No tienes permiso para consultar asistencia de esta obra")
     period_value(period)
     links, assignments, contracts, terms, rosters, weeks, entries, controls, users = _context(
         db, user.org_id, site_id, period)
@@ -269,6 +276,14 @@ def roster(site_id: str, period: str, user: User = Depends(authorized_user),
                        "signed_days": sum(row["signed_days"] for row in worker_rows),
                        "paid_days": sum(row["paid_days"] or 0 for row in worker_rows if row["paid_days"] is not None),
                        "missing_payment_days": sum(max(0, row["difference"] or 0) for row in worker_rows)})
+    if user.role == "administrative":
+        # El registro de asistencia no incluye los días pagados ni el balance financiero.
+        for company in result:
+            company["paid_days"] = None
+            company["missing_payment_days"] = None
+            for worker in company["workers"]:
+                worker["paid_days"] = None
+                worker["difference"] = None
     return {"site_id": site_id, "period": period, "contractors": result,
             "summary": {"contractors": sum(c["roster_status"] == "included" for c in result), "overdue_weeks": overdue_count,
                         "completed_weeks": completed_count,
@@ -280,6 +295,10 @@ def roster(site_id: str, period: str, user: User = Depends(authorized_user),
 def update_roster(body: RosterInput, user: User = Depends(attendance_editor),
                   db: Session = Depends(get_db)):
     association, _ = association_for(db, user.org_id, body.association_id)
+    if user.role == "administrative":
+        from .network_service import assigned_sites
+        if association.worksite_id not in assigned_sites(db, user):
+            raise HTTPException(403, "No tienes permiso para modificar esta obra")
     if body.status == "included" and association.contract_status != "active":
         raise HTTPException(422, "Solo se puede incluir un contratista administrativamente activo")
     db.scalar(select(ContractorWorksite).where(ContractorWorksite.id == association.id).with_for_update())
@@ -305,6 +324,10 @@ def update_roster(body: RosterInput, user: User = Depends(attendance_editor),
 def save_week(body: WeekInput, user: User = Depends(attendance_editor),
               db: Session = Depends(get_db)):
     association, company = association_for(db, user.org_id, body.association_id)
+    if user.role == "administrative":
+        from .network_service import assigned_sites
+        if association.worksite_id not in assigned_sites(db, user):
+            raise HTTPException(403, "No tienes permiso para modificar esta obra")
     days = week_dates(body.period, body.week_number)
     db.scalar(select(ContractorWorksite).where(ContractorWorksite.id == association.id).with_for_update())
     roster_row = db.scalar(select(AttendanceRoster).where(
@@ -313,6 +336,11 @@ def save_week(body: WeekInput, user: User = Depends(attendance_editor),
     if (roster_row and roster_row.status == "excluded") or association.contract_status != "active" or (
             roster_row is None and company.nature != "with_workers"):
         raise HTTPException(422, "Incluye un contratista activo antes de registrar asistencia")
+    if user.role == "administrative" and body.source_document_id:
+        raise HTTPException(422, "En Control de Asistencia no se adjuntan documentos")
+    if body.complete and today() > days[-1] + timedelta(days=catalogs_for(db, user.org_id)["attendance_due_days"]):
+        if len(body.notes.strip()) < 10:
+            raise HTTPException(422, "Explica brevemente el motivo del registro fuera de plazo")
     if body.source_document_id and not db.scalar(select(Document.id).where(
             Document.id == body.source_document_id, Document.org_id == user.org_id)):
         raise HTTPException(404, "Documento de asistencia no encontrado")
@@ -358,10 +386,9 @@ def save_week(body: WeekInput, user: User = Depends(attendance_editor),
     week.state = "completed" if body.complete else "draft"
     week.source_document_id = body.source_document_id or week.source_document_id
     week.notes, week.updated_by, week.updated_at = body.notes.strip(), user.id, utcnow()
-    if body.complete:
+    if body.complete and week.completed_at is None:
+        # La primera entrega permanece registrada; una corrección no borra el atraso histórico.
         week.completed_by, week.completed_at = user.id, utcnow()
-    else:
-        week.completed_by, week.completed_at = None, None
     if changes or old != {"state": week.state, "review_state": week.review_state,
                           "source_document_id": week.source_document_id, "notes": week.notes}:
         week.review_state, week.review_note, week.reviewed_by, week.reviewed_at = "pending", "", None, None
@@ -400,7 +427,7 @@ def review_week(week_id: str, body: WeekReview,
 
 @router.get("/export")
 def export_attendance(site_id: str, period: str,
-                      user: User = Depends(authorized_user), db: Session = Depends(get_db)):
+                      user: User = Depends(attendance_reviewer), db: Session = Depends(get_db)):
     data = roster(site_id, period, user, db)
     workbook = Workbook()
     workbook.remove(workbook.active)
