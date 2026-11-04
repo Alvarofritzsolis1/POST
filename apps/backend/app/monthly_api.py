@@ -14,6 +14,8 @@ from .db import get_db
 from .models import Document, User, utcnow
 from .ops_api import association_for, audit_change
 from .ops_models import MonthlyDocument
+from .control_models import RequirementApplicability
+from .document_policy import historical_review_allowed, is_operationally_active
 from .security import authorized_user, editor, document_reviewer
 
 router = APIRouter(prefix="/api/v1/ops/monthly-documents", tags=["Documentación mensual"])
@@ -99,6 +101,22 @@ def link_monthly_document(
     user: User = Depends(document_reviewer), db: Session = Depends(get_db),
 ):
     association, contractor = association_for(db, user.org_id, payload.association_id)
+    if not is_operationally_active(association):
+        existing = db.scalar(select(MonthlyDocument.id).where(
+            MonthlyDocument.org_id == user.org_id,
+            MonthlyDocument.association_id == association.id,
+            MonthlyDocument.period == payload.period,
+            MonthlyDocument.kind == payload.kind).limit(1)) is not None
+        explicit = db.scalar(select(RequirementApplicability.id).where(
+            RequirementApplicability.org_id == user.org_id,
+            RequirementApplicability.association_id == association.id,
+            RequirementApplicability.period == payload.period,
+            RequirementApplicability.kind == payload.kind,
+            RequirementApplicability.applicable.is_(True)).limit(1)) is not None
+        if not historical_review_allowed(association, payload.period,
+                                         has_evidence=existing,
+                                         explicit_applicability=explicit):
+            raise HTTPException(422, "Contratista inactivo: no se exigen documentos nuevos; regulariza explícitamente un período histórico antes de adjuntar evidencia")
     if payload.not_applicable and payload.document_id:
         raise HTTPException(422, "No aplica no puede tener archivo adjunto")
     if not payload.not_applicable and not payload.document_id:
