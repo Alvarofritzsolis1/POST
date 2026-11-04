@@ -505,11 +505,14 @@ def edit_duty(duty_id: str, body: DutyEdit,
     return {"id": row.id, "assigned_to": target, "exempt": row.exempt}
 
 
-def _assessment(db, org_id, period, person_id):
-    duties = [d for d in db.scalars(select(CalendarDuty).where(
+def _assessment(db, org_id, period, person_id, site_ids=None):
+    duty_query = select(CalendarDuty).where(
         CalendarDuty.org_id == org_id, CalendarDuty.period == period,
-        CalendarDuty.assigned_to == person_id).order_by(CalendarDuty.id)).all()
-        if dates_of_week(period, d.week_number)]
+        CalendarDuty.assigned_to == person_id)
+    if site_ids is not None:
+        duty_query = duty_query.where(CalendarDuty.worksite_id.in_(site_ids))
+    duties = [d for d in db.scalars(duty_query.order_by(CalendarDuty.id)).all()
+              if dates_of_week(period, d.week_number)]
     keys = {(row.association_id, row.week_number) for row in duties}
     weeks = db.scalars(select(CalendarWeek).where(
         CalendarWeek.org_id == org_id, CalendarWeek.period == period,
@@ -776,8 +779,9 @@ def my_monthly_evaluation(period: str, user: User = Depends(authorized_user),
         raise HTTPException(422, str(exc)) from None
     if user.role != "administrative":
         raise HTTPException(403, "La evaluación personal es exclusiva del perfil Administrativo")
-    values = _assessment(db, user.org_id, period, user.id)
-    # Solo obligaciones propias; el detalle de acceso no forma parte de la nota.
+    values = _assessment(db, user.org_id, period, user.id,
+                         site_ids=assigned_sites(db, user))
+    # Solo obligaciones propias y obras actualmente autorizadas; el detalle de acceso no forma parte de la nota.
     return {key: values[key] for key in (
         "required", "completed", "punctual", "overdue",
         "delivered_late", "exempt", "grade", "duties"
