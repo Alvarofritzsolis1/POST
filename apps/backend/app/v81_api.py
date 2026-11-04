@@ -18,7 +18,7 @@ from .attendance_api import _context, _worker_eligible
 from .calendar_v81 import calendar_weeks, dates_of_week, deadline_utc, grade, CL_TZ
 from .control_api import today
 from .db import get_db
-from .models import Organization, User, utcnow
+from .models import AuditEvent, Organization, User, utcnow
 from .platform_models import OrganizationSettings
 from .network_models import NetworkMembership
 from .network_service import actor_name, assigned_sites
@@ -481,6 +481,18 @@ def _assessment(db, org_id, period, person_id):
     weight = Decimal(str(_settings(db, org_id).get("attendance_grade_completion_weight", "0.70")))
     values = grade(len(completed), len(punctual), len(required), completion_weight=weight)
     values["completion_weight"] = float(weight)
+    # Access is visible to the admin but never contributes to the grade.
+    month_start = calendar_weeks(period)[0][0]
+    next_month = (month_start.replace(day=28) + __import__("datetime").timedelta(days=4)).replace(day=1)
+    first_utc = datetime.combine(month_start, datetime.min.time(), CL_TZ).astimezone(timezone.utc)
+    last_utc = datetime.combine(next_month, datetime.min.time(), CL_TZ).astimezone(timezone.utc)
+    login_count, last_login = db.execute(select(
+        func.count(AuditEvent.id), func.max(AuditEvent.created_at)).where(
+        AuditEvent.org_id == org_id, AuditEvent.user_id == person_id,
+        AuditEvent.action == "login", AuditEvent.created_at >= first_utc,
+        AuditEvent.created_at < last_utc)).one()
+    values["login_count"] = int(login_count)
+    values["last_login_at"] = last_login.isoformat() if last_login else None
     values["overdue"] = sum(
         d not in completed and utcnow() > _instant(d.deadline_at) for d in required)
     values["delivered_late"] = len(completed) - len(punctual)
