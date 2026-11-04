@@ -243,7 +243,7 @@ def test_additive_migration_idempotent_and_persistent_after_reopen(tmp_path):
     engine = create_engine("sqlite+pysqlite:///" + str(path))
     new_tables = {"worker_terminations", "contract_attachments", "backup_checkpoints", "schema_versions", "payment_findings",
                   "attendance_rosters", "attendance_weeks", "attendance_worker_weeks"}
-    Base.metadata.create_all(engine, tables=[t for t in Base.metadata.sorted_tables if t.name not in new_tables])
+    Base.metadata.create_all(engine, tables=[t for t in Base.metadata.sorted_tables if t.name not in new_tables and not t.name.startswith("network_")])
     with Session(engine) as db:
         db.add(Organization(id="legacy-org", name="Organización histórica"))
         db.commit()
@@ -258,5 +258,5 @@ def test_additive_migration_idempotent_and_persistent_after_reopen(tmp_path):
     reopened = create_engine("sqlite+pysqlite:///" + str(path))
     with Session(reopened) as db:
         assert db.get(Organization, "legacy-org").name == "Organización histórica"
-        assert db.scalar(select(func.count()).select_from(SchemaVersion)) == 1
+        assert set(db.scalars(select(SchemaVersion.version))) == {"0.6.0-rc1", "0.7.0"}
     reopened.dispose()

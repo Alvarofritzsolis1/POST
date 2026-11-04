@@ -7,14 +7,14 @@ from sqlalchemy import func, select
 from .db import Base, SessionLocal, engine
 from .models import AuditEvent, Document, Organization, User
 from . import platform_models
-from . import ops_models, control_models  # registrar tablas antes de crear esquema
+from . import ops_models, control_models, network_models  # registrar tablas antes de crear esquema
 from .ops_models import AuditPeriod, Contractor, ContractorWorksite, MonthlyDocument, OpsChange, Worker, WorkerAssignment, Worksite
 from .control_models import ContributionControl, MonthlyActivity, ContractRegister, ContractAmendment, ProcessCalendar, WorkTask, OffboardingCase, RequirementApplicability
 from .ops_api import DEFAULT_SITES, INITIAL_PERIOD, ensure_sites
 from .security import hash_password
 from .platform_models import BackupCheckpoint, SchemaVersion
 from .version import VERSION
-from .migrations import v0_6_0
+from .migrations import v0_6_0, v0_7_0
 
 
 def record_verified_backup(db, sha256: str):
@@ -31,6 +31,9 @@ def migrate(db):
     if not db.get(SchemaVersion, v0_6_0.MIGRATION_ID):
         v0_6_0.upgrade(db.connection())
         db.add(SchemaVersion(version=v0_6_0.MIGRATION_ID))
+    if not db.get(SchemaVersion, v0_7_0.MIGRATION_ID):
+        v0_7_0.upgrade(db.connection())
+        db.add(SchemaVersion(version=v0_7_0.MIGRATION_ID))
 
 
 def find_admin(db, email: str) -> User:
@@ -128,6 +131,7 @@ def main():
                 raise SystemExit("La cuenta no existe. Usa create-user para crearla")
             if target.id == admin.id:
                 raise SystemExit("No puedes reasignar la cuenta del administrador de referencia")
+            old_access = (target.org_id, target.role)
             if target.org_id != admin.org_id:
                 db.scalar(select(Organization).where(Organization.id == target.org_id).with_for_update())
                 check_empty_organization(db, target.org_id, target.id)
@@ -152,6 +156,9 @@ def main():
                 from .ops_api import audit_change
                 audit_change(db, admin, "user", target.id, {"organization_link": {"from": old_org, "to": admin.org_id, "backup_sha256": backup_hash}})
             target.role = args.role
+            if old_access != (target.org_id, target.role):
+                from .network_accounts import revoke_sessions
+                revoke_sessions(db, target)
         print("Usuario vinculado a la misma organización. Debe cerrar sesión y volver a ingresar")
         return
 

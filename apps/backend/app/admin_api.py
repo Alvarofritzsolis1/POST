@@ -145,6 +145,10 @@ def preferences(
         row = UserPreferences(user_id=user.id)
         db.add(row)
     row.values = body.model_dump()
+    from .network_models import NetworkMember
+    network_member = db.get(NetworkMember, user.id)
+    if network_member is not None:
+        network_member.name = body.name
     db.commit()
     return row.values
 
@@ -158,6 +162,8 @@ def password(
     if not verify_password(body.current_password, user.password_hash):
         raise HTTPException(403, "Contraseña actual incorrecta")
     user.password_hash = hash_password(body.new_password)
+    from .network_accounts import revoke_sessions
+    revoke_sessions(db, user)
     audit_change(db, user, "user", user.id, {"password_changed": True})
     db.commit()
     return {"ok": True}
@@ -180,9 +186,8 @@ def create_user(
     db: Session = Depends(get_db),
 ):
     # Lock the organization to serialize administration and prevent removal of its last admin.
-    db.scalar(
-        select(Organization).where(Organization.id == user.org_id).with_for_update()
-    )
+    from .network_service import lock_org
+    lock_org(db, user)
     if db.scalar(select(User.id).where(User.email == body.email)):
         raise HTTPException(
             409,
@@ -218,9 +223,8 @@ def update_user(
     user: User = Depends(administrator),
     db: Session = Depends(get_db),
 ):
-    db.scalar(
-        select(Organization).where(Organization.id == user.org_id).with_for_update()
-    )
+    from .network_service import lock_org
+    lock_org(db, user)
     row = db.scalar(select(User).where(User.id == user_id, User.org_id == user.org_id))
     if row is None:
         raise HTTPException(404, "Usuario no encontrado")
@@ -228,6 +232,9 @@ def update_user(
         raise HTTPException(409, "No puedes deshabilitar o degradar tu propia cuenta")
     before = account_view(row)
     row.role, row.enabled = body.role, body.enabled
+    if before["role"] != row.role or before["enabled"] != row.enabled:
+        from .network_accounts import revoke_sessions
+        revoke_sessions(db, row)
     audit_change(db, user, "user", row.id, {"from": before, "to": account_view(row)})
     db.commit()
     return account_view(row)

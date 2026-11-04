@@ -1,5 +1,16 @@
 # Historial de cambios
 
+## 0.7.0 — Red de Obras, preparada para revisión
+
+- Portal integrado con requerimientos, partidas dinámicas, borradores y capacidad compartida. Tarjetas, lista, Kanban, calendario mensual/semanal, filtros e indicadores calculados con datos persistentes.
+- Rol residente con varias obras asignadas, bloqueo de módulos administrativos en el servidor y vistas colaborativas limitadas. Se conservan los perfiles anteriores.
+- Menú superior con creación de cuentas, invitaciones seguras, administración, perfil y notificaciones; suspensión y revocación de sesiones ante cambios críticos.
+- Coincidencias explicables por especialidad, fechas, partidas y capacidad libre; vigencia, renovación y distinción entre estimación y confirmación.
+- Coordinación formal, conversación única, participantes autorizados, adjuntos, lectura e historial. Actualización automática entre sesiones.
+- Adjudicación individual, parcial y a varios contratistas por partida. Saldo separado de ejecución, bloqueos PostgreSQL, idempotencia, ampliaciones, modificaciones, revocaciones y trazabilidad.
+- Habilitación documental en la obra de destino, exportación CSV por obra y migración exclusivamente aditiva `0.7.0`.
+- Pruebas de integración SQLite/PostgreSQL y recorrido reproducible de navegador con dos residentes.
+
 ## 0.6.0-rc1 — candidata local, pendiente de revisión y despliegue
 
 - Importación especializada de contratistas con `NATURALEZA` y `FRECUENCIA` independientes de `COD`; archivos anteriores siguen admitidos y sus celdas vacías no borran clasificaciones válidas. CI se interpreta como independiente; CT no presupone trabajadores ni frecuencia.

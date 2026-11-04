@@ -70,6 +70,7 @@ export function Login({onLogin,version}:{onLogin:(user:Profile)=>void;version:st
           {error&&<p className="form-error" role="alert">{error}</p>}
           <button type="submit" className="primary full" disabled={pending}>{pending?<LoaderCircle size={17} className="spin"/>:null} Ingresar a GALANT <ArrowRight size={17}/></button>
         </form>
+        <a href="#recuperar-clave">¿Olvidaste tu contraseña?</a>
         <div className="login-footer"><ShieldCheck size={17}/> Espacio de acceso restringido. Cada resultado requiere evaluación documental responsable.</div>
       </div>
     </div>

@@ -52,7 +52,7 @@ jobs:
     steps:
       - uses: actions/checkout@v4
       - run: bash -n scripts/install-preview.sh scripts/diagnose.sh scripts/backup-preview.sh scripts/verify-restore-preview.sh scripts/update-preview.sh scripts/start-qa-preview.sh
-      - run: python3 -m py_compile scripts/soak_24h.py scripts/qa_stack_smoke.py scripts/qa_operational_smoke.py
+      - run: python3 -m py_compile scripts/soak_24h.py scripts/qa_stack_smoke.py scripts/qa_operational_smoke.py scripts/qa_network_browser.py
       - name: Validate isolated Docker preview config
         env:
           APP_SECRET: ci_test_secret
@@ -214,6 +214,29 @@ jobs:
           PY
           docker compose -p galant-post-qa --env-file .env.qa -f docker-compose.preview.yml -f docker-compose.qa.yml restart api worker frontend proxy
           python3 scripts/qa_stack_smoke.py --verify-only
+      - uses: actions/setup-python@v5
+        with: {python-version: "3.12"}
+      - name: Install browser verification dependencies
+        run: |
+          python3 -m pip install 'playwright>=1.50,<2'
+          python3 -m playwright install --with-deps chromium
+      - name: Verify Red de Obras in browser and after restart
+        env:
+          GALANT_NETWORK_QA_EMAIL: qa-admin@example.test
+        run: |
+          set -Eeuo pipefail
+          export GALANT_NETWORK_QA_PASSWORD="$QA_SMOKE_PASSWORD"
+          python3 scripts/qa_network_browser.py --url http://127.0.0.1:18612 --output "$RUNNER_TEMP/red-de-obras-browser"
+          docker compose -p galant-post-qa --env-file .env.qa -f docker-compose.preview.yml -f docker-compose.qa.yml restart db api worker frontend proxy
+          for attempt in {1..30}; do
+            if curl --silent --fail http://127.0.0.1:18612/api/v1/health >/dev/null; then break; fi
+            sleep 2
+          done
+          python3 scripts/qa_network_browser.py --url http://127.0.0.1:18612 --output "$RUNNER_TEMP/red-de-obras-browser" --verify-only
+      - uses: actions/upload-artifact@v4
+        with:
+          name: red-de-obras-browser
+          path: ${{ runner.temp }}/red-de-obras-browser
       - name: Collect QA diagnostics on failure
         if: failure()
         run: |

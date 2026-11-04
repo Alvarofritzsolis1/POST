@@ -8,8 +8,7 @@ import {
   FileSpreadsheet,
   BarChart3,
   Settings as SettingsIcon,
-  UserCircle,
-  LogOut,
+  Network,
   RefreshCcw,
   Menu,
 } from "lucide-react";
@@ -23,6 +22,8 @@ import Attendance from "./Attendance";
 import ControlCenter from "./ControlCenter";
 import BulkImport from "./BulkImport";
 import Settings from "./Settings";
+import RedDeObras, { ResidentNetwork } from "./Network";
+import { NetworkAccountMenu, NetworkPasswordScreen } from "./NetworkAccounts";
 import {
   read,
   send,
@@ -34,6 +35,7 @@ import {
 } from "./platformApi";
 const nav = [
   ["home", "Inicio", LayoutDashboard],
+  ["network", "Red de Obras", Network],
   ["contractors", "Contratistas", Building2],
   ["workers", "Trabajadores", Users],
   ["attendance", "Control de asistencia", CalendarDays],
@@ -98,7 +100,7 @@ function App() {
     [matrix, setMatrix] = useState<MatrixRow[]>([]),
     [error, setError] = useState(""),
     [notice, setNotice] = useState(""),
-    [profileOpen, setProfileOpen] = useState(false),
+    [hash, setHash] = useState(window.location.hash),
     [mobileOpen, setMobileOpen] = useState(false),
     [loading, setLoading] = useState(false),
     [search, setSearch] = useState(""),
@@ -111,6 +113,11 @@ function App() {
     [page, setPage] = useState(0);
   const refreshGeneration = useRef(0);
   const lastActivity = useRef<string | null>(null);
+  useEffect(() => {
+    const update = () => setHash(window.location.hash);
+    window.addEventListener("hashchange", update);
+    return () => window.removeEventListener("hashchange", update);
+  }, []);
   useEffect(() => {
     const expired = () => {
       setUser(null);
@@ -150,7 +157,7 @@ function App() {
       .catch(() => {});
   }, []);
   useEffect(() => {
-    if (!user) return;
+    if (!user || user.role === "resident") return;
     void Promise.all([opsApi.sites(), read<OrgProfile>("/admin/profile")])
       .then(([s, p]) => {
         setSites(s);
@@ -161,7 +168,7 @@ function App() {
       .catch((e) => setError(errorText(e)));
   }, [user, applyPreferences]);
   const refresh = useCallback(async () => {
-    if (!user) return;
+    if (!user || user.role === "resident" || section === "network") return;
     const generation = ++refreshGeneration.current;
     try {
       const [o, c, m, a] = await Promise.all([
@@ -214,7 +221,7 @@ function App() {
     section,
   ]);
   useEffect(() => {
-    if (!user) return;
+    if (!user || user.role === "resident" || section === "network") return;
     let active = true;
     const update = () => {
       if (active) void refresh();
@@ -281,8 +288,10 @@ function App() {
     go(s);
     setFilter(value);
   }
+  if (hash.startsWith("#establecer-clave=") || hash === "#recuperar-clave") return <NetworkPasswordScreen hash={hash} done={() => { window.history.replaceState(null, "", window.location.pathname); setHash(""); setUser(null); }} />;
   if (!ready) return <div className="app-loading">Cargando GALANT…</div>;
   if (!user) return <Login onLogin={setUser} version={version} />;
+  if (user.role === "resident") return <ResidentNetwork user={user} version={version} logout={() => void logout()} />;
   const rows = (contributions?.rows || []).filter(
     (r) =>
       (!search ||
@@ -363,7 +372,7 @@ function App() {
             <Menu />
           </button>
           <strong>GALANT POST</strong>
-          <div className="global-filters">
+          {section !== "network" && <div className="global-filters">
             <label>
               Obra
               <select
@@ -400,45 +409,19 @@ function App() {
                 }}
               />
             </label>
-          </div>
+          </div>}
           <button
             className="icon-button"
             title="Actualizar datos"
             aria-label="Actualizar datos"
-            onClick={() => void refresh()}
+            onClick={() => section === "network" ? window.dispatchEvent(new Event("galant-network-changed")) : void refresh()}
           >
             <RefreshCcw size={18} />
           </button>
-          <div className="profile-menu">
-            <button
-              className="profile-trigger"
-              aria-label="Menú de perfil"
-              aria-expanded={profileOpen}
-              onClick={() => setProfileOpen(!profileOpen)}
-            >
-              <UserCircle />
-              <span>{profile?.preferences.name || user.email}</span>
-            </button>
-            {profileOpen && (
-              <div className="profile-popover">
-                <p>{user.email}</p>
-                <button
-                  onClick={() => {
-                    go("settings");
-                    setProfileOpen(false);
-                  }}
-                >
-                  Perfil y configuración
-                </button>
-                <button onClick={() => void logout()}>
-                  <LogOut size={16} /> Cerrar sesión
-                </button>
-              </div>
-            )}
-          </div>
+          <NetworkAccountMenu user={user} logout={() => void logout()} openNetwork={() => go("network")} openSettings={() => go("settings")} />
         </header>
         <div className="page">
-          <div className="intro">
+          {section !== "network" && <div className="intro">
             <div>
               <span className="eyebrow">
                 {profile?.organization} /{" "}
@@ -454,7 +437,8 @@ function App() {
                 Importar desde Excel
               </button>
             )}
-          </div>
+          </div>}
+          {section === "network" && <RedDeObras user={user} />}
           {error && (
             <div role="alert" className="alert danger">
               {error}
@@ -465,7 +449,7 @@ function App() {
               {notice}
             </div>
           )}
-          {loading && <p role="status">Actualizando datos…</p>}
+          {loading && section !== "network" && <p role="status">Actualizando datos…</p>}
           {section === "home" && overview && (
             <>
               {laborAlerts && <section className="panel">
@@ -1236,8 +1220,7 @@ function App() {
           <footer className="footer">
             GALANT POST v{version} · {profile?.organization}
             <span>
-              Datos de la organización · Actualización automática cada 10
-              segundos
+              {section === "network" ? "Información compartida · Red de Obras" : "Datos de la organización · Actualización automática cada 10 segundos"}
             </span>
           </footer>
         </div>

@@ -15,6 +15,12 @@ class Settings(BaseSettings):
     secure_cookies: bool = False
     session_hours: int = 8
     worker_poll_seconds: float = 2.0
+    public_url: str = ""
+    smtp_host: str = ""
+    smtp_port: int = 587
+    smtp_user: str = ""
+    smtp_password: str = ""
+    smtp_from: str = ""
 
 
 @lru_cache
