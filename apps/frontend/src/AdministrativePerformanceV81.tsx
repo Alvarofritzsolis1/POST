@@ -4,7 +4,7 @@ import type { Site } from "./opsApi";
 import "./performance-v81.css";
 
 type Account = { id: string; name: string; role: string; site_ids: string[]; enabled: boolean };
-type Duty = { id: string; association_id: string; week_number: number; deadline_at: string; exempt: boolean; completed_at: string | null };
+type Duty = { id: string; association_id: string; contractor: string; week_number: number; deadline_at: string; exempt: boolean; completed_at: string | null };
 type Result = {
   user_id: string; name: string; required: number; completed: number; punctual: number;
   completion: number | null; punctuality: number | null; grade: number | null;
@@ -26,6 +26,8 @@ export default function AdministrativePerformance({ sites, period }: { sites: Si
   const [graceDays, setGraceDays] = useState(1);
   const [cutoff, setCutoff] = useState("23:59");
   const [weight, setWeight] = useState("0.70");
+  const [dutySearch, setDutySearch] = useState("");
+  const [dutyReasons, setDutyReasons] = useState<Record<string, string>>({});
   useEffect(() => {
     let active = true;
     void request<Account[]>("/network/users")
@@ -56,6 +58,23 @@ export default function AdministrativePerformance({ sites, period }: { sites: Si
       await request(url, { method, body: JSON.stringify(body) });
       setNotice(success); setRevision((v) => v + 1);
     } catch (e) { setError(message(e)); } finally { setBusy(false); }
+  }
+  async function changeDuty(duty: Duty, makeExempt: boolean) {
+    const reason = dutyReasons[duty.id]?.trim() || "";
+    if (makeExempt && reason.length < 10) {
+      setError("Explica el motivo de la exención (mínimo 10 caracteres).");
+      return;
+    }
+    setBusy(true); setError(""); setNotice("");
+    try {
+      await request(`/attendance-v81/duties/${encodeURIComponent(duty.id)}`, {
+        method: "PATCH",
+        body: JSON.stringify({ exempt: makeExempt, exemption_reason: makeExempt ? reason : "" }),
+      });
+      setNotice(makeExempt ? "Obligación justificada; no se incluirá en la nota."
+                          : "Obligación nuevamente exigible.");
+      setRevision((value) => value + 1);
+    } catch (cause) { setError(message(cause)); } finally { setBusy(false); }
   }
   const people = accounts.filter((row) => row.enabled && (siteId ? row.site_ids.includes(siteId) : true));
   return <section className="performance-v81">
@@ -107,6 +126,34 @@ export default function AdministrativePerformance({ sites, period }: { sites: Si
             : "Sin ingresos durante este mes"}</small></div>
       </div>
       <p className="muted">Los ingresos a la plataforma son informativos y no afectan la nota.</p>
+      <details className="performance-duties"><summary>Revisar obligaciones ({row.duties.length}) y justificar semanas sin movimiento</summary>
+        <label>Buscar contratista
+          <input type="search" value={dutySearch} onChange={(event) => setDutySearch(event.target.value)}
+            placeholder="Nombre del contratista o número de semana" />
+        </label>
+        <div className="performance-duty-list">
+          {row.duties.filter((duty) => (
+            duty.contractor + " semana " + duty.week_number
+          ).toLocaleLowerCase("es-CL").includes(dutySearch.trim().toLocaleLowerCase("es-CL")))
+            .slice(0, 40).map((duty) => <div className="performance-duty" key={duty.id}>
+              <div><b>{duty.contractor}</b><small>Semana {duty.week_number} · {
+                duty.exempt ? "No exigible" : duty.completed_at ? "Registrado" : "Pendiente"
+              }</small></div>
+              {duty.exempt ? <button type="button" disabled={busy}
+                onClick={() => void changeDuty(duty, false)}>Volver a exigir</button>
+              : <div className="performance-justify">
+                <input aria-label={`Motivo de exención para ${duty.contractor} semana ${duty.week_number}`}
+                  placeholder="Motivo: sin movimientos u otra justificación" value={dutyReasons[duty.id] || ""}
+                  onChange={(event) => setDutyReasons((current) => ({
+                    ...current, [duty.id]: event.target.value,
+                  }))} />
+                <button type="button" disabled={busy || (dutyReasons[duty.id] || "").trim().length < 10}
+                  onClick={() => void changeDuty(duty, true)}>Justificar</button>
+              </div>}
+            </div>)}
+        </div>
+        {row.duties.length > 40 && <small>Se muestran hasta 40 coincidencias; utiliza el buscador para otras obligaciones.</small>}
+      </details>
       {row.approved && <p className="performance-approved">Última evaluación aprobada: versión {row.approved.revision} · nota {row.approved.grade?.toFixed(1) ?? "—"}</p>}
       <div className="performance-actions">
         <button disabled={busy || row.required === 0} onClick={() => void execute(
