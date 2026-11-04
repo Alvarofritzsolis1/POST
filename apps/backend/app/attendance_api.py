@@ -205,9 +205,10 @@ def roster(site_id: str, period: str, user: User = Depends(authorized_user),
     result, overdue_count, completed_count = [], 0, 0
     for link, company in sorted(links, key=lambda pair: pair[1].name.casefold()):
         saved_roster = rosters.get(link.id)
-        status = saved_roster.status if saved_roster else (
+        status = ("excluded" if link.contract_status != "active" and period >= today().strftime("%Y-%m")
+                  else saved_roster.status if saved_roster else (
             "included" if link.contract_status == "active" and company.nature == "with_workers"
-            else "excluded")
+            else "excluded"))
         people = assignments[company.id]
         signed_by_worker = defaultdict(set)
         week_rows = []
