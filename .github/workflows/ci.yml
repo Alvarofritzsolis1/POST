@@ -52,7 +52,7 @@ jobs:
     steps:
       - uses: actions/checkout@v4
       - run: bash -n scripts/install-preview.sh scripts/diagnose.sh scripts/backup-preview.sh scripts/verify-restore-preview.sh scripts/update-preview.sh scripts/start-qa-preview.sh
-      - run: python3 -m py_compile scripts/soak_24h.py scripts/qa_stack_smoke.py scripts/qa_operational_smoke.py scripts/qa_network_browser.py scripts/qa_v1010_browser.py
+      - run: python3 -m py_compile scripts/soak_24h.py scripts/qa_stack_smoke.py scripts/qa_operational_smoke.py scripts/qa_network_browser.py scripts/qa_v1010_browser.py scripts/qa_ux_2026_browser.py
       - name: Validate isolated Docker preview config
         env:
           APP_SECRET: ci_test_secret
@@ -239,10 +239,24 @@ jobs:
         run: |
           export GALANT_QA_PASSWORD="$QA_SMOKE_PASSWORD"
           python3 scripts/qa_v1010_browser.py
+      - name: QA UX 2026 — responsive, obra y capturas reales
+        env:
+          GALANT_QA_EMAIL: qa-admin@example.test
+        run: |
+          set -Eeuo pipefail
+          export GALANT_QA_PASSWORD="$QA_SMOKE_PASSWORD"
+          export GALANT_UX_OUTPUT="$RUNNER_TEMP/ux-2026-browser"
+          python3 scripts/qa_ux_2026_browser.py
       - uses: actions/upload-artifact@v4
         with:
           name: red-de-obras-browser
           path: ${{ runner.temp }}/red-de-obras-browser
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: galant-ux-2026-browser
+          path: ${{ runner.temp }}/ux-2026-browser
+          if-no-files-found: warn
       - name: Collect QA diagnostics on failure
         if: failure()
         run: |
