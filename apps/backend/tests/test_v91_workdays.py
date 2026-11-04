@@ -5,6 +5,7 @@ from pydantic import ValidationError
 
 from app.calendar_v81 import calendar_weeks, dates_of_week
 from app.v81_api import SaveWeek
+from test_control_api import env  # noqa: F401 - pytest fixture imported into module scope
 
 
 def test_noviembre_domingo_no_genera_semana_exigible():
