@@ -92,6 +92,9 @@ bash scripts/verify-restore-preview.sh "$backup_path"
 backup_sha256="$(sha256sum "$backup_path/postgres.dump" | cut -d' ' -f1)"
 export SOURCE_COMMIT="$target_ref"
 COMPOSE_PARALLEL_LIMIT=1 "${compose[@]}" build api worker frontend
+# Freeze writers before reprojecting legacy attendance. Old rows remain intact.
+# On failure the EXIT trap restores the previous containers; no volumes are removed.
+"${compose[@]}" stop api worker
 "${compose[@]}" run --rm --no-deps api python -m app.cli migrate-db --verified-backup-sha256 "$backup_sha256"
 COMPOSE_PARALLEL_LIMIT=1 "${compose[@]}" up -d --no-build db api worker frontend proxy
 wait_for_health "$target_ref"
