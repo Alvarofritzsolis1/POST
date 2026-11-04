@@ -58,7 +58,11 @@ jobs:
           import json
           report=json.load(open("pip-audit-v12.json",encoding="utf-8"))
           packages=report.get("dependencies",[]) if isinstance(report,dict) else report
-          print("Paquetes con avisos de seguridad:", sum(bool(p.get("vulns")) for p in packages))
+          vulnerable=[p for p in packages if p.get("vulns")]
+          print("Paquetes con avisos de seguridad:", len(vulnerable))
+          for item in vulnerable:
+              print("DEPENDENCIA AFECTADA:",item.get("name"),item.get("version"),"avisos",len(item.get("vulns",[])))
+              print("REFERENCIAS:",",".join(v.get("id","") for v in item.get("vulns",[])[:5]))
           PY
       - uses: actions/upload-artifact@v4
         with:
