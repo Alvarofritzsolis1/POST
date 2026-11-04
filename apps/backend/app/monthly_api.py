@@ -101,10 +101,10 @@ def link_monthly_document(
 ):
     association, contractor = association_for(db, user.org_id, payload.association_id)
     # Serialize against a concurrent offboarding on the same association.
-    db.scalar(select(ContractorWorksite).where(
+    association = db.scalar(select(ContractorWorksite).where(
         ContractorWorksite.org_id == user.org_id,
         ContractorWorksite.id == association.id,
-    ).with_for_update())
+    ).execution_options(populate_existing=True).with_for_update())
     if inactive_for_period(association, payload.period) and not payload.not_applicable:
         raise HTTPException(422, "Contratista inactivo: no se admite documentación nueva para este período")
     if payload.not_applicable and payload.document_id:
