@@ -330,7 +330,7 @@ export default function Operations({readOnly,externalSiteId,mode,onImport,onSite
         <label className="ops-filter-label">Clasificación<select aria-label="Filtrar por clasificación" value={codeFilter} onChange={event=>setCodeFilter(event.target.value)}>
           <option value="all">Todas</option><option value="CT">CT · Fijo</option><option value="CE">CE · Esporádico</option><option value="CI">CI · Independiente</option><option value="other">Sin clasificar</option>
         </select></label>
-        <label className="ops-filter-label">Ordenar<select aria-label="Ordenar contratistas" value={sortBy} onChange={event=>setSortBy(event.target.value)}>
+        <label className="ops-filter-label">Ordenar<select aria-label="Ordenar contratistas" value={sortBy} onChange={event=>setSortBy(event.target.value as "name"|"workers"|"status")}>
           <option value="name">Nombre</option><option value="status">Estado</option><option value="workers">Más trabajadores</option>
         </select></label>
         <span aria-live="polite">{filtered.length} de {visibleContractors.length}</span>
