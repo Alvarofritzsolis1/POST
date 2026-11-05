@@ -49,7 +49,7 @@ html:not([data-theme="dark"]) .platform .monthly-table tbody tr:hover {backgroun
 .platform button:focus-visible,.platform a:focus-visible,
 .gc-root button:focus-visible,.gc-root a:focus-visible,
 .platform input:focus-visible,.platform select:focus-visible,.gc-root input:focus-visible {
- outline:3px solid #48A9E0;outline-offset:2px;
+ outline:3px solid #075B91;outline-offset:2px;
 }
 /* Ficha exclusiva: solo dos indicadores principales, sin cabecera duplicada */
 .platform .ops-focus-summary-top {align-items:center}
@@ -216,7 +216,7 @@ html:not([data-theme="dark"]) .gc-root .gc-metric {border-color:var(--v15-border
 .platform .monthly-table td{overflow-wrap:anywhere}
 .platform .ops-list-table .ops-v15-list-compliance,
 .platform .ops-list-table .ops-v15-count-badge{font-variant-numeric:tabular-nums}
-.platform .ops-v15-priorities button:focus-visible{outline:3px solid #48a9e0;outline-offset:2px}
+.platform .ops-v15-priorities button:focus-visible{outline:3px solid #075B91;outline-offset:2px}
 .platform .monthly-v15-review-actions button:hover{background:#e4f4fe}
 .platform .ops-v15-labor-detail .table-wrap{overflow-x:auto}
 .platform .ops-v15-labor-detail .ops-list-table{min-width:740px}
@@ -336,3 +336,41 @@ body:has(.ops-isolated-detail) .platform .global-filters {display:none}
 [data-theme="dark"] .platform .v15-import-steps li.current{background:#1b597c;color:#fff}
 [data-theme="dark"] .platform .v15-import-steps li.done{background:#234d41;color:#d9f8e6}
 [data-theme="dark"] .platform .v15-import-history{border-color:#38515b}
+
+/* WCAG 2.2 AA: foco visible y tipografía operativa consistente */
+html:not([data-theme="dark"]) .platform .table-wrap th,
+html:not([data-theme="dark"]) .platform table th {font-size:12px;color:#354961;line-height:1.4}
+html:not([data-theme="dark"]) .platform .table-wrap td,
+html:not([data-theme="dark"]) .platform table td {font-size:14px;line-height:1.48}
+html:not([data-theme="dark"]) .platform .av92-table td small,
+html:not([data-theme="dark"]) .platform .av92-table th,
+html:not([data-theme="dark"]) .platform .ops-list-table td small {color:#526176}
+html:not([data-theme="dark"]) .platform .ops-v15-priorities button:focus-visible,
+html:not([data-theme="dark"]) .platform .ops-isolated-detail button:focus-visible,
+html:not([data-theme="dark"]) .platform .av13-detail button:focus-visible {
+ outline:3px solid #075B91;outline-offset:3px;
+}
+[data-theme="dark"] .platform button:focus-visible,
+[data-theme="dark"] .platform a:focus-visible,
+[data-theme="dark"] .platform input:focus-visible,
+[data-theme="dark"] .platform select:focus-visible,
+[data-theme="dark"] .gc-root button:focus-visible,
+[data-theme="dark"] .gc-root a:focus-visible{
+ outline:3px solid #8FD3FE;outline-offset:3px;
+}
+.platform .ops-v15-attendance-link{
+ display:flex;align-items:center;justify-content:space-between;flex-wrap:wrap;gap:20px;
+ border:1px solid #dfebf4;background:#f8fbfe;border-radius:12px;
+ padding:22px;margin:0 20px 20px;
+}
+.platform .ops-v15-attendance-link h3{margin:0 0 7px;font-size:21px}
+.platform .ops-v15-attendance-link p{margin:0 0 12px;color:#526176;font-size:14px;line-height:1.6}
+.platform .ops-v15-attendance-link strong{display:block;font-size:15px;color:#1a344a}
+.platform .ops-v15-attendance-link small{display:block;color:#54697e;font-size:13px;margin-top:3px}
+.platform .ops-v15-attendance-link button{display:flex;align-items:center;gap:6px;min-height:44px}
+@media(max-width:700px){.platform .ops-v15-attendance-link{margin:0 12px 16px;padding:16px}}
+[data-theme="dark"] .platform .ops-v15-attendance-link{background:#203946;border-color:#38515b}
+[data-theme="dark"] .platform .ops-v15-attendance-link h3,
+[data-theme="dark"] .platform .ops-v15-attendance-link strong {color:#e0edf2}
+[data-theme="dark"] .platform .ops-v15-attendance-link p,
+[data-theme="dark"] .platform .ops-v15-attendance-link small {color:#c2d4e0}
