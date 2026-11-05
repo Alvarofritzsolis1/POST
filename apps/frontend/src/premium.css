@@ -56,6 +56,12 @@ h1{letter-spacing:-.055em}
 .login-process span{font-size:11px;color:#c2cede;background:rgba(255,255,255,.045);border:1px solid rgba(226,232,243,.12);padding:10px 12px;border-radius:9px;white-space:nowrap}
 .login-process b{font-size:10px;color:#d8ba86;margin-right:9px;letter-spacing:.04em}
 .login-decoration-foot{margin-top:auto;padding-top:54px;width:100%;display:flex;align-items:center;justify-content:space-between;gap:20px;color:#879bb6;font-size:9px;font-weight:800;letter-spacing:.16em;border-top:1px solid rgba(235,241,250,.12)}
+/* Firma de autor: discreta, accesible y sin animación ni saltos de layout. */
+.login-author-credit{display:inline-flex;align-items:center;justify-content:flex-end;gap:5px;white-space:nowrap;min-width:0;color:#aabbd2;font-size:11px;font-weight:500;letter-spacing:.015em;line-height:1.5;text-transform:none}
+.login-author-credit::before{content:"";display:inline-block;width:18px;height:1px;margin-right:5px;flex:none;background:linear-gradient(90deg,rgba(217,189,141,0),#d9bd8d)}
+.login-author-credit strong{color:#ecd3a6;font-weight:750;letter-spacing:.005em}
+.login-author-credit--mobile{display:none}
+
 .login-panel{padding:52px 56px;background:radial-gradient(circle at 80% 5%,#f6f1e9 0%,transparent 34%),#fbfaf8}
 .login-box{width:min(100%,425px)}
 .login-panel-head{display:flex;align-items:center;justify-content:space-between;gap:15px}
@@ -222,6 +228,9 @@ tbody tr:hover,tbody tr.selected-row{background:#f6f8fc}
 @media(max-width:780px){
   .login-page{grid-template-columns:1fr}
   .login-decoration{display:none}
+  .login-author-credit--mobile{display:flex;justify-content:center;margin-top:24px;padding-top:17px;border-top:1px solid #e6e6e4;color:#718097}
+  .login-author-credit--mobile strong{color:#293e5a}
+
   .login-panel{min-height:100vh;padding:35px 24px;display:grid;place-items:center}
   .login-box{max-width:440px}
   .login-greeting{margin-top:65px}

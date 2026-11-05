@@ -54,7 +54,7 @@ jobs:
     steps:
       - uses: actions/checkout@v4
       - run: bash -n scripts/install-preview.sh scripts/diagnose.sh scripts/backup-preview.sh scripts/verify-restore-preview.sh scripts/update-preview.sh scripts/start-qa-preview.sh scripts/wait-for-final-postgres.sh
-      - run: python3 -m py_compile scripts/soak_24h.py scripts/qa_stack_smoke.py scripts/qa_operational_smoke.py scripts/qa_network_browser.py scripts/qa_v1010_browser.py scripts/qa_ux_2026_browser.py scripts/qa_v1501_focus_browser.py scripts/qa_v1502_scroll_browser.py
+      - run: python3 -m py_compile scripts/soak_24h.py scripts/qa_stack_smoke.py scripts/qa_operational_smoke.py scripts/qa_network_browser.py scripts/qa_v1010_browser.py scripts/qa_ux_2026_browser.py scripts/qa_v1501_focus_browser.py scripts/qa_v1502_scroll_browser.py scripts/qa_v1504_creator_browser.py
       - name: Validate manual-only VPS deployment security contract
         run: python3 scripts/qa_manual_deploy_contract.py
       - name: Reproduce temporary PostgreSQL startup race (deterministic)
@@ -228,6 +228,11 @@ jobs:
         run: |
           python3 -m pip install 'playwright>=1.50,<2'
           python3 -m playwright install --with-deps chromium
+      - name: QA GALANT 15.0.4 - firma elegante en portada y móviles
+        run: |
+          set -Eeuo pipefail
+          export GALANT_CREATOR_QA_OUTPUT="$RUNNER_TEMP/galant-creator-qa"
+          python3 scripts/qa_v1504_creator_browser.py
       - name: Verify Red de Obras in browser and after restart
         env:
           GALANT_NETWORK_QA_EMAIL: qa-admin@example.test
@@ -271,6 +276,12 @@ jobs:
           export GALANT_QA_PASSWORD="$QA_SMOKE_PASSWORD"
           export GALANT_SCROLL_QA_OUTPUT="$RUNNER_TEMP/galant-scroll-qa"
           python3 scripts/qa_v1502_scroll_browser.py
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: galant-v1504-creator-login
+          path: ${{ runner.temp }}/galant-creator-qa
+          if-no-files-found: warn
       - uses: actions/upload-artifact@v4
         if: always()
         with:

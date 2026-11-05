@@ -1,5 +1,14 @@
 # Historial de cambios
 
+## 15.0.4-rc1 — Firma de autor en portada (candidata)
+
+- La pantalla pública de acceso muestra «Creado por Álvaro Fritz» en su franja inferior, con un acento dorado discreto integrado al diseño premium existente.
+- En pantallas móviles, la autoría aparece bajo el aviso de acceso restringido, sin mostrar el panel decorativo oculto.
+- No se modifican autenticación, permisos, datos de contratistas ni esquema de base de datos.
+- Nueva prueba visual en Chromium para cuatro resoluciones y comprobación de desbordes horizontales.
+- API, frontend y lockfile sincronizados a GALANT 15.0.4-rc1. El VPS se actualiza únicamente desde GitHub Actions con el botón manual.
+
+
 ## 15.0.3-rc1 — Carga de trabajadores con COD y alertas (candidata)
 
 - Formato de Excel obligatorio de seis columnas: contratista, trabajador, RUT, ingreso, término y COD.
