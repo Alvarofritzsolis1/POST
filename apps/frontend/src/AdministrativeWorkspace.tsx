@@ -3,6 +3,7 @@ import type { Profile } from "./api";
 import { request } from "./api";
 import { opsApi, type Site } from "./opsApi";
 import AdministrativeControlV92 from "./AdministrativeControlV92";
+import ContractAlerts from "./ContractAlerts";
 import "./administrative.css";
 
 type AdministrativeProfile = { name: string; site_ids: string[] };
@@ -17,7 +18,7 @@ export default function AdministrativeWorkspace({ user, version, logout }: {
   const [siteId, setSiteId] = useState(() => new URLSearchParams(window.location.search).get("attendance_site") || "");
   const [period, setPeriod] = useState(() => new URLSearchParams(window.location.search).get("attendance_period") || currentPeriod());
   const [name, setName] = useState("");
-  const [tab, setTab] = useState<"attendance" | "contracts" | "severance" | "staff" | "performance">("attendance");
+  const [tab, setTab] = useState<"attendance" | "contracts" | "severance" | "staff" | "performance" | "alerts">("attendance");
   const [detailOpen, setDetailOpen] = useState(false);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState("");
@@ -60,11 +61,13 @@ export default function AdministrativeWorkspace({ user, version, logout }: {
           {!detailOpen && <nav aria-label="Opciones administrativas" className="administrative-tabs">
             <button type="button" aria-current={tab === "attendance" ? "page" : undefined} onClick={() => setTab("attendance")}>Asistencia semanal</button>
             <button type="button" aria-current={tab === "contracts" ? "page" : undefined} onClick={() => setTab("contracts")}>Contratos de trabajo</button>
+             <button type="button" aria-current={tab === "alerts" ? "page" : undefined} onClick={() => setTab("alerts")}>Alertas contractuales</button>
             <button type="button" aria-current={tab === "severance" ? "page" : undefined} onClick={() => setTab("severance")}>Finiquitos</button>
             <button type="button" aria-current={tab === "staff" ? "page" : undefined} onClick={() => setTab("staff")}>Dotación vigente</button>
             <button type="button" aria-current={tab === "performance" ? "page" : undefined} onClick={() => setTab("performance")}>Mi rendimiento</button>
           </nav>}
-          <AdministrativeControlV92 siteId={siteId} sites={sites} period={period} tab={tab} role="administrative" onChangeTab={setTab} onDetailChange={setDetailOpen} />
+          {tab === "alerts" ? <ContractAlerts siteId={siteId} /> :
+             <AdministrativeControlV92 siteId={siteId} sites={sites} period={period} tab={tab} role="administrative" onChangeTab={setTab} onDetailChange={setDetailOpen} />}
         </>}
     </div>
   </main>;
