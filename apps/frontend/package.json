@@ -6,6 +6,7 @@
   "scripts": {
     "dev": "vite --host 0.0.0.0",
     "build": "tsc -b && vite build",
+    "test:logic": "node --experimental-strip-types --test ../../scripts/qa_v15_document_states.mjs",
     "preview": "vite preview --host 0.0.0.0"
   },
   "dependencies": {
