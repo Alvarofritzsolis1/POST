@@ -386,3 +386,40 @@ html:not([data-theme="dark"]) .platform .av13-detail button:focus-visible {
 [data-theme="dark"] .platform .v15-worker-audit{background:#172f3a;border-color:#38515b}
 [data-theme="dark"] .platform .v15-worker-audit-head strong,
 [data-theme="dark"] .platform .v15-worker-audit>p{color:#e0edf2}
+
+
+/* GALANT 15.0.1-rc1 · barras estables y actualización sin salto de distribución. */
+html { scrollbar-gutter: stable; }
+.platform .sidebar {
+  scrollbar-gutter: stable;
+  scrollbar-width: thin;
+  scrollbar-color: #6b879d transparent;
+  overscroll-behavior-y: contain;
+}
+.platform .sidebar::-webkit-scrollbar { width: 7px; }
+.platform .sidebar::-webkit-scrollbar-track { background: transparent; }
+.platform .sidebar::-webkit-scrollbar-thumb {
+  background: #6b879d;
+  border-radius: 999px;
+  border: 2px solid transparent;
+  background-clip: padding-box;
+}
+.platform .v1501-refresh-status {
+  position: fixed;
+  right: 22px;
+  bottom: 18px;
+  z-index: 60;
+  margin: 0;
+  padding: 9px 14px;
+  border: 1px solid #557895;
+  border-radius: 10px;
+  background: #0b2540;
+  color: #fff;
+  font-size: 12px;
+  font-weight: 600;
+  box-shadow: 0 6px 24px rgba(11, 37, 64, .18);
+  pointer-events: none;
+}
+@media (max-width: 760px) {
+  .platform .v1501-refresh-status { right: 12px; bottom: 12px; }
+}

@@ -1,12 +1,12 @@
 {
   "name": "galant-post-frontend",
-  "version": "15.0.0-rc1",
+  "version": "15.0.1-rc1",
   "private": true,
   "type": "module",
   "scripts": {
     "dev": "vite --host 0.0.0.0",
     "build": "tsc -b && vite build",
-    "test:logic": "node --experimental-strip-types --test ../../scripts/qa_v15_document_states.mjs",
+    "test:logic": "node --experimental-strip-types --test ../../scripts/qa_v15_document_states.mjs ../../scripts/qa_v1501_focus_stability.mjs",
     "preview": "vite preview --host 0.0.0.0"
   },
   "dependencies": {

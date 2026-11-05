@@ -160,11 +160,11 @@ export default function AdministrativeControlV92({
   }, [siteId, period, asOf, revision]);
 
   useEffect(() => {
-    const update = () => setRevision((count) => count + 1);
+    // Sondeo silencioso cuando la pestaña está visible, sin recuperación forzada de foco.
+    const update = () => { if (!document.hidden) setRevision((count) => count + 1); };
     const timer = window.setInterval(update, 30000);
-    window.addEventListener("focus", update);
     window.addEventListener("galant-changed", update);
-    return () => { window.clearInterval(timer); window.removeEventListener("focus", update); window.removeEventListener("galant-changed", update); };
+    return () => { window.clearInterval(timer); window.removeEventListener("galant-changed", update); };
   }, []);
 
   useEffect(() => {
@@ -278,7 +278,7 @@ export default function AdministrativeControlV92({
       <button type="button" className="av92-refresh" onClick={refresh} disabled={loading}>Actualizar datos</button>
     </div>
     {error && <p role="alert" className="alert danger">{error}</p>}
-    {loading && <p role="status" className="av92-muted">Actualizando información de la obra…</p>}
+    {loading && !overview && <p role="status" className="av92-muted">Cargando información de la obra…</p>}
     {overview && <>
       <div className="av92-metrics" aria-label="Resumen operativo">
         {[

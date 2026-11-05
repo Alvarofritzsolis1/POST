@@ -1,3 +1,9 @@
+# GALANT POST — 15.0.1-rc1 · Parche de estabilidad visual
+
+Corrección de saltos de pantalla al cambiar de pestaña y volver. Mantiene actualización periódica de datos, control de asistencia, roles y documentos. Se estabilizan las barras de desplazamiento y los indicadores de carga sin ocupar espacio en el flujo de página. **No desplegada al VPS.**
+
+Consulta [detalle del parche y validación pendiente](docs/ENTREGA_15_0_1_ESTABILIDAD.md).
+
 # GALANT POST — 15.0.0-rc1 · Experiencia Premium
 
 Candidata de rediseño sobre 13.1.0-rc1. Mejora lectura, jerarquía visual, ficha documental, prioridades y navegación sin introducir nuevas obligaciones ni alterar permisos. **No desplegada al VPS.**
