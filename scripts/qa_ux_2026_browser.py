@@ -71,6 +71,9 @@ with sync_playwright() as p:
     # La fuente de verdad de obra es el selector global; no duplicar en el módulo.
     expect(page.get_by_label("Seleccionar obra de contratistas")).to_have_count(0)
     expect(page.get_by_role("button", name="Importar Excel o CSV", exact=True)).to_have_count(1)
+    expect(page.get_by_label("Filtrar por cumplimiento")).to_be_visible()
+    expect(page.get_by_label("Buscar módulo")).to_be_visible()
+    expect(page.locator(".ops-desktop-list th").filter(has_text="CUMPLIMIENTO")).to_be_visible()
     metrics = select.evaluate("""el => {
       const b = el.getBoundingClientRect();
       const s = window.getComputedStyle(el);
@@ -101,11 +104,20 @@ with sync_playwright() as p:
     assert_no_horizontal_page_scroll(page, "detalle contratista v13")
 
     # Capturas de las pantallas centrales a resolución de escritorio.
-    for label in ["Contratistas", "Trabajadores", "Control de asistencia", "Control documental", "Cotizaciones y pagos", "Evaluación administrativa", "Inicio"]:
+    for label in ["Contratistas", "Trabajadores", "Control de asistencia", "Control documental", "Cotizaciones y pagos", "Evaluación administrativa", "Gestión administrativa", "Importación masiva", "Informes", "Configuración", "Inicio"]:
         page.get_by_role("button", name=label, exact=True).click()
         expect(page.locator(".page")).to_be_visible()
         page.screenshot(path=str(OUT / ("desktop-" + label.lower().replace(" ", "-") + ".png")), full_page=True, animations="disabled")
         assert_no_horizontal_page_scroll(page, label)
+
+    # Búsqueda funcional de módulos; no afirma buscar registros documentales.
+    nav_search = page.get_by_label("Buscar módulo")
+    nav_search.fill("Trabajadores")
+    expect(page.get_by_role("group",name="Coincidencias de módulos")).to_be_visible()
+    page.get_by_role("group",name="Coincidencias de módulos").get_by_role("button",name="Trabajadores").click()
+    expect(page.locator(".workers-page")).to_be_visible()
+    page.get_by_role("button",name="Inicio",exact=True).click()
+    expect(page.locator(".v15-dashboard-metrics")).to_be_visible()
 
     for width, height in SCREENS:
         page.set_viewport_size({"width": width, "height": height})
@@ -125,6 +137,18 @@ with sync_playwright() as p:
         assert sel and sel["height"] >= 39, (width, sel)
         assert sel["x"] >= -1 and sel["x"] + sel["width"] <= width + 2, (width, sel)
         page.screenshot(path=str(OUT / f"contractors-{width}x{height}.png"), full_page=True, animations="disabled")
+        if width <= 900:
+            page.locator(".ops-mobile-contractor-action").first.click()
+        else:
+            page.locator(".ops-desktop-list .row-open").first.click()
+        expect(page.locator(".ops-isolated-detail")).to_be_visible()
+        expect(page.locator(".ops-v15-metrics > div")).to_have_count(2)
+        expect(page.locator(".ops-v15-document-layout")).to_be_visible()
+        expect(page.locator(".monthly-panel")).to_be_visible()
+        assert_no_horizontal_page_scroll(page, f"ficha documental {width}x{height}")
+        page.screenshot(path=str(OUT / f"contractor-detail-{width}x{height}.png"), full_page=True, animations="disabled")
+        page.get_by_role("button",name="Volver a contratistas",exact=True).click()
+        expect(page.locator(".ops-isolated-detail")).to_have_count(0)
 
     assert not errors, errors
     print("PASS UX GALANT 2026: obra, acciones únicas, 7 secciones, 6 resoluciones, capturas y errores JS/HTTP.")
