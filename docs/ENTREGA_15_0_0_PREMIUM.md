@@ -37,3 +37,21 @@ Además, QA con datos sintéticos y al menos 390, 768, 1024, 1280, 1440 y 1920 p
 
 ## VPS
 No desplegar ni ejecutar migraciones hasta confirmar CI, pruebas visuales, respaldo y simulación de restauración de PostgreSQL/documentos. No usar `docker compose down -v`. Para un despliegue posterior, utilizar el script de actualización segura del repositorio con SHA fijado y verificación de `/api/v1/health`.
+
+## Ronda de cierre del prompt maestro · 5 de noviembre de 2026
+
+La candidata se amplió después de la primera entrega:
+
+- `documentUX.ts`: evaluación semántica centralizada para presentación, separando obligaciones evaluables de exentos, inactivos, sin movimientos y pendientes de configuración.
+- `Operations.tsx`: tabla por contratista con porcentaje ponderado, obligaciones pendientes, estados, filtro, ordenamiento, paginación 25; detalle exclusivo con 7 pestañas (incluida asistencia vinculada), período global consistente y prioridades accionables.
+- `MonthlyDocuments.tsx`: búsqueda y filtro por estado, alertas enlazadas a requisitos, nombres de F30/Portería/mutualidad/contratos, observaciones y acciones manuales sin carga nueva en Configuración.
+- `App.tsx`: resumen operativo de cinco cifras reales y búsqueda rápida exclusivamente de módulos.
+- `BulkImport.tsx`: guía visual del flujo, eliminación de JSON técnico y resúmenes comprensibles.
+- `Workers.tsx`, `ops_api.py`, `labor_api.py`: historial legible por nombre de responsable, sin IDs ni JSON en la interfaz, manteniendo compatibilidad de API.
+- `v15-premium.css`: paleta corporativa, refuerzo de contraste y foco, tablas claras, móvil, historial y accesibilidad.
+- `qa_v15_document_states.mjs`: regresiones deterministas de estados documentales; `ci.yml` ejecuta estas pruebas.
+- `qa_v1010_browser.py` y `qa_ux_2026_browser.py`: cobertura ampliada a meses, filtros, pestañas, orden, 11 módulos, 6 tamaños y capturas del detalle.
+
+**Auditoría de 23 requisitos:** [AUDITORIA_15_0_0_23_PUNTOS.md](AUDITORIA_15_0_0_23_PUNTOS.md).
+
+Ninguna de estas modificaciones requiere actualización del esquema PostgreSQL ni autoriza desplegar al VPS. Para afirmar cumplimiento 10/10, siguen siendo imprescindibles la CI del commit final y validaciones manuales de usabilidad, accesibilidad y operación real.
