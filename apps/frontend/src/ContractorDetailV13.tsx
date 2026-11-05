@@ -63,7 +63,7 @@ export default function ContractorDetailV13({
         <div>
           <p className="av13-eyebrow">Control de asistencia · {sites.find((item) => item.id === siteId)?.name || "Obra asignada"} · {period}</p>
           <h2>{contractor.contractor}</h2>
-          <p>{contractor.rut || "RUT pendiente"} · {contractor.contractor_active ? "Activo" : "Histórico"}</p>
+          <p>{contractor.rut || "RUT pendiente"} · {contractor.classification ? "COD " + contractor.classification + " · " : ""}{contractor.contractor_active ? "Activo" : "Histórico"}</p>
         </div>
         <span className={"av92-badge " + (contractor.contractor_active ? "ok" : "muted")}>
           {contractor.contractor_active ? "Activo" : "Histórico"}
