@@ -90,11 +90,11 @@ function App() {
     [ready, setReady] = useState(false),
     [version, setVersion] = useState<string | null>(null),
     [revision, setRevision] = useState<string | null>(null),
-    [section, setSection] = useState(() => new URLSearchParams(window.location.search).has("attendance_contractor") ? "attendance" : "home"),
+    [section, setSection] = useState(() => window.location.pathname.startsWith("/contratistas") ? "contractors" : new URLSearchParams(window.location.search).has("attendance_contractor") ? "attendance" : "home"),
     [sites, setSites] = useState<Site[]>([]),
-    [site, setSite] = useState(() => new URLSearchParams(window.location.search).get("attendance_site") || ""),
+    [site, setSite] = useState(() => new URLSearchParams(window.location.search).get("obra") || new URLSearchParams(window.location.search).get("attendance_site") || ""),
     [period, setPeriod] = useState(() =>
-      new URLSearchParams(window.location.search).get("attendance_period") || new Intl.DateTimeFormat("sv-SE", {
+      new URLSearchParams(window.location.search).get("periodo") || new URLSearchParams(window.location.search).get("attendance_period") || new Intl.DateTimeFormat("sv-SE", {
         timeZone: "America/Santiago",
         year: "numeric",
         month: "2-digit",
@@ -178,7 +178,7 @@ function App() {
         setSites(s);
         setProfile(p);
         applyPreferences(p.preferences);
-        const requestedSite = new URLSearchParams(window.location.search).get("attendance_site");
+        const requestedSite = new URLSearchParams(window.location.search).get("obra") || new URLSearchParams(window.location.search).get("attendance_site");
         setSite(requestedSite && s.some((entry) => entry.id === requestedSite) ? requestedSite : p.preferences.default_site || "");
       })
       .catch((e) => setError(errorText(e)));
@@ -293,6 +293,14 @@ function App() {
     }
   }
   function go(s: string) {
+    if (window.location.pathname.startsWith("/contratistas")) {
+      const url = new URL(window.location.href);
+      url.pathname = s === "contractors" ? "/contratistas" : "/";
+      url.searchParams.delete("obra");
+      url.searchParams.delete("periodo");
+      window.history.replaceState({}, "", url);
+      if (s === "contractors") window.dispatchEvent(new PopStateEvent("popstate"));
+    }
     setSection(s);
     setFilter("all");
     setSearch("");
@@ -732,6 +740,7 @@ function App() {
                 onImport={() => go("imports")}
                 onWorkers={(assignmentId) => { go("workers"); setTargetWorker(assignmentId || ""); }}
                 classificationFilter={classification}
+                period={period}
                 onSiteChange={setSite}
               />
               </ErrorBoundary>
