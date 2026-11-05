@@ -70,7 +70,10 @@ def authorized_user(request: Request, db: Session = Depends(get_db)) -> User:
         allowed = (path.startswith("/api/v1/attendance/") or
                    path.startswith("/api/v1/attendance-v81/") or
                    path in {"/api/v1/ops/sites", "/api/v1/network/profile",
+                            "/api/v1/labor/contract-alerts",
                             "/api/v1/auth/me", "/api/v1/auth/logout"} or
+                   (request.method == "PATCH" and
+                    path.startswith("/api/v1/labor/workers/") and path.endswith("/code")) or
                    (request.method == "POST" and path in {
                        "/api/v1/labor/workers", "/api/v1/labor/contracts",
                    }))
