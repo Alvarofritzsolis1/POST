@@ -117,6 +117,7 @@ export default function BulkImport({
               setMapping("{}");
               setPreview(null);
               setDraft(null);
+              setNotice("");
             }}
           >
             <option value="contractors">Contratistas</option>
@@ -147,6 +148,7 @@ export default function BulkImport({
               e.preventDefault();
               setFile(e.dataTransfer.files[0] || null);
               setPreview(null);
+              setNotice("");
             }}
           >
             <label>
@@ -157,6 +159,7 @@ export default function BulkImport({
                 onChange={(e) => {
                   setFile(e.target.files?.[0] || null);
                   setPreview(null);
+                  setNotice("");
                 }}
               />
             </label>
