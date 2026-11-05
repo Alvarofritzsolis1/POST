@@ -7,6 +7,13 @@ import "./monthly.css"
 import {summarizeRequirements,statusTone,statusLabel} from "./documentUX"
 
 const types=[
+  {value:"f30",label:"Formulario F30"},
+  {value:"mutualidad",label:"Certificado de afiliación a mutualidad"},
+  {value:"accidentabilidad",label:"Certificado de accidentabilidad"},
+  {value:"siniestralidad",label:"Certificado de siniestralidad"},
+  {value:"contrato_trabajo",label:"Contrato de trabajo"},
+  {value:"anexos_contrato",label:"Anexos de contrato"},
+  {value:"finiquito",label:"Finiquito"},
   {value:"cotizaciones",label:"Pago de cotizaciones"},
   {value:"f30_1",label:"Formulario F30-1"},
   {value:"asistencia",label:"Registro de asistencia"},
