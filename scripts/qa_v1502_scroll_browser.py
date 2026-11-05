@@ -124,7 +124,8 @@ with sync_playwright() as playwright:
             page.screenshot(path=str(OUT / f"contratistas-antes-{width}.png"),animations="disabled")
 
             page.evaluate(START_PROBE)
-            page.get_by_label("Actualizar lista de contratistas").click()
+            # Click directo: Playwright no debe desplazar la página hacia el botón antes de medir.
+            page.evaluate("""() => document.querySelector('[aria-label="Actualizar lista de contratistas"]').click()""")
             page.wait_for_timeout(1500)
             end_probe(page,before,f"refresco-manual-{width}",tests)
 
