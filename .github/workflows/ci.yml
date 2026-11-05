@@ -53,10 +53,12 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
-      - run: bash -n scripts/install-preview.sh scripts/diagnose.sh scripts/backup-preview.sh scripts/verify-restore-preview.sh scripts/update-preview.sh scripts/start-qa-preview.sh
+      - run: bash -n scripts/install-preview.sh scripts/diagnose.sh scripts/backup-preview.sh scripts/verify-restore-preview.sh scripts/update-preview.sh scripts/start-qa-preview.sh scripts/wait-for-final-postgres.sh
       - run: python3 -m py_compile scripts/soak_24h.py scripts/qa_stack_smoke.py scripts/qa_operational_smoke.py scripts/qa_network_browser.py scripts/qa_v1010_browser.py scripts/qa_ux_2026_browser.py scripts/qa_v1501_focus_browser.py scripts/qa_v1502_scroll_browser.py
       - name: Validate manual-only VPS deployment security contract
         run: python3 scripts/qa_manual_deploy_contract.py
+      - name: Reproduce temporary PostgreSQL startup race (deterministic)
+        run: python3 scripts/test_wait_for_final_postgres.py
       - name: Validate isolated Docker preview config
         env:
           APP_SECRET: ci_test_secret
@@ -142,7 +144,9 @@ jobs:
           backup_path="$(sed -n 's/^BACKUP_PATH=//p' "$RUNNER_TEMP/galant-backup.log" | tail -1)"
           test -d "$backup_path"
           bash scripts/verify-restore-preview.sh "$backup_path"
-          echo "Isolated backup and restoration verified in CI"
+          # Repetir contra el mismo respaldo para detectar fallos intermitentes de initdb.
+          bash scripts/verify-restore-preview.sh "$backup_path"
+          echo "Isolated backup and repeated restoration verified in CI"
   qa-stack-smoke:
     name: QA isolated stack - two users and restart
     runs-on: ubuntu-latest
