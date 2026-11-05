@@ -152,8 +152,7 @@ def source_rows(content, filename, mapping, kind="workers"):
             expected = [_key(label) for label in HEADERS["contractors"]]
             header_index = next(
                 (i for i, row in enumerate(grid[:25])
-                 if [_key(cell) for cell in row[:6]] == expected
-             and not any(_key(cell) for cell in row[6:])),
+                 if [_key(cell) for cell in row if _key(cell)] == expected),
                 None,
             )
             if header_index is None:
@@ -180,7 +179,8 @@ def source_rows(content, filename, mapping, kind="workers"):
         expected = [_key(label) for label in HEADERS["workers"]]
         header_index = next(
             (i for i, row in enumerate(grid[:25])
-             if [_key(cell) for cell in row if _key(cell)] == expected),
+             if [_key(cell) for cell in row[:6]] == expected
+             and not any(_key(cell) for cell in row[6:])),
             None,
         )
         if header_index is None:
@@ -472,7 +472,7 @@ def prepare(body, user, db):
                 errors.append(
                     "Tipo de contrato desconocido: indicar indefinido, por obra, plazo fijo o servicios"
                 )
-            if kind == "fixed_term" and not row.get("end_date"):
+            if kind == "fixed_term" and row.get("end_date") in {"", "INDEFINIDO"}:
                 errors.append("Contrato a plazo fijo requiere fecha término")
             if kind == "indefinite" and row.get("end_date") != "INDEFINIDO" and row.get("end_date"):
                 errors.append(
