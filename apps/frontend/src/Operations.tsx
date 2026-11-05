@@ -56,7 +56,6 @@ const laborDate=(value:string|null)=>value?value.slice(0,10).split("-").reverse(
 const errorText=(err:unknown)=>err instanceof Error?err.message:"No fue posible completar la operación"
 const contractorFromUrl=()=>{const match=window.location.pathname.match(/^\/contratistas\/([^/]+)\/?$/);if(!match)return null;try{return decodeURIComponent(match[1])}catch{return null}}
 const documentNames:Record<string,string>={cotizaciones:"Pago de cotizaciones",f30_1:"F30-1",asistencia:"Registro de asistencia",liquidaciones:"Liquidaciones de sueldo",porteria:"Informe de portería",declaracion_jurada:"Declaración jurada",anticipos:"Listado de anticipos"}
-const documentStatus:Record<string,string>={approved:"Aprobado",overdue:"Vencido",observed:"Observado",rejected:"Rechazado",pending:"Pendiente",schedule_not_configured:"Sin plazo configurado",needs_classification:"Exigibilidad sin definir",not_yet_required:"Aún no exigible",submitted:"Entregado · pendiente de revisión",missing:"No entregado",incomplete:"Entregado incompleto",exempt:"Exento",no_movements:"Sin movimientos",not_applicable:"No aplica",inactive:"Inactivo",not_required:"No exigible"}
 const templateUrl=(kind:string)=>"/api/v1/ops/imports/templates/"+encodeURIComponent(kind)+"?format=xlsx"
 
 export default function Operations({readOnly,externalSiteId,mode,onImport,onSiteChange,onWorkers,classificationFilter="all",period=""}:{readOnly:boolean;externalSiteId?:string;mode?:string;onImport?:()=>void;onSiteChange?:(id:string)=>void;onWorkers?:(assignmentId?:string)=>void;classificationFilter?:string;period?:string}){
@@ -453,13 +452,17 @@ export default function Operations({readOnly,externalSiteId,mode,onImport,onSite
         {importResult&&<div className="ops-import-result"><h3>Informe de importación</h3><p>{importResult.created_contractors} empresas creadas · {importResult.linked_contractors} empresas vinculadas · {importResult.created_workers} trabajadores creados · {importResult.assigned_workers} trabajadores asignados · {importResult.skipped} omitidos · {importResult.historical_statuses_count} estados históricos conservados</p><details><summary>Ver detalle de {importResult.imported_rows.length} filas procesadas</summary><div className="table-wrap"><table><thead><tr><th>FILA</th><th>RESULTADO</th><th>ID DEL REGISTRO</th></tr></thead><tbody>{importResult.imported_rows.map((row,index)=><tr key={row.row_id+index}><td>{row.row_id}</td><td>{({created:"Creado",linked:"Vinculado",assigned:"Asignado",updated:"Actualizado",existing:"Sin cambios"} as Record<string,string>)[row.result]||row.result}</td><td>{row.entity_id}</td></tr>)}</tbody></table></div></details></div>}
       </div>}
       {contractorEditor}
-      <div className="ops-filters"><label className="ops-search"><Search size={16}/><input placeholder="Buscar por nombre o RUT" value={search} onChange={event=>setSearch(event.target.value)}/></label><div className="ops-status-filters" role="group" aria-label="Filtrar contratistas por estado">{(["active","inactive","all"] as const).map(status=><button type="button" key={status} aria-pressed={statusFilter===status} className={statusFilter===status?"selected":""} onClick={()=>{setStatusFilter(status);setSelectedId(null)}}>{status==="active"?"Activos":status==="inactive"?"Inactivos":"Todos"}</button>)}</div><select aria-label="Filtrar por clasificación" value={codeFilter} onChange={event=>setCodeFilter(event.target.value)}><option value="all">Todas las clasificaciones</option><option value="CT">CT · Fijo</option><option value="CE">CE · Esporádico</option><option value="CI">CI · Independiente</option><option value="other">Sin clasificación válida</option></select><span>{filtered.length} de {visibleContractors.length}</span></div>
+      <div className="ops-filters"><label className="ops-search"><Search size={16}/><input placeholder="Buscar por nombre o RUT" value={search} onChange={event=>setSearch(event.target.value)}/></label><div className="ops-status-filters" role="group" aria-label="Filtrar contratistas por estado">{(["active","inactive","all"] as const).map(status=><button type="button" key={status} aria-pressed={statusFilter===status} className={statusFilter===status?"selected":""} onClick={()=>{setStatusFilter(status);setSelectedId(null)}}>{status==="active"?"Activos":status==="inactive"?"Inactivos":"Todos"}</button>)}</div><select aria-label="Filtrar por clasificación" value={codeFilter} onChange={event=>setCodeFilter(event.target.value)}><option value="all">Todas las clasificaciones</option><option value="CT">CT · Fijo</option><option value="CE">CE · Esporádico</option><option value="CI">CI · Independiente</option><option value="other">Sin clasificación válida</option></select>
+      <select aria-label="Filtrar por cumplimiento" value={complianceFilter} onChange={event=>setComplianceFilter(event.target.value)} disabled={!listCompliance}><option value="all">Todo cumplimiento</option><option value="critical">Observados o críticos</option><option value="missing">Pendientes de revisión</option><option value="complete">Sin pendientes</option><option value="unevaluable">No evaluables</option></select>
+      <span aria-live="polite">{filtered.length} de {visibleContractors.length}</span></div>
       {loading?<div className="ops-empty"><LoaderCircle size={20} className="spin"/> Cargando contratistas…</div>:filtered.length===0?<div className="ops-empty"><Users size={22}/>{visibleContractors.length?"No hay coincidencias":"Aún no hay contratistas en esta obra"}</div>:
-      <><div className="table-wrap ops-desktop-list"><table className="ops-list-table ops-contractor-table"><thead><tr><th>CONTRATISTA</th><th>RUT</th><th>CLASIFICACIÓN</th><th>ESTADO</th><th>TRABAJADORES</th><th>DETALLE</th></tr></thead><tbody>{filtered.map(item=><tr key={item.id} className={selectedId===item.id?"selected-row":""}>
-        <td><strong>{item.name}</strong></td><td>{item.rut||"—"}</td><td>{item.classification==="CT"?"CT · Fijo":item.classification==="CE"?"CE · Esporádico":item.classification==="CI"?"CI · Independiente":"Por regularizar"}</td><td><span className={"ops-lifecycle "+(item.contract_status==="active"?"active":"inactive")}>{item.contract_status==="active"?"Activo":"Inactivo"}</span></td><td>{item.worker_count}</td>
+      <><div className="table-wrap ops-desktop-list"><table className="ops-list-table ops-contractor-table"><thead><tr><th>CONTRATISTA</th><th>RUT</th><th>COD</th><th>ESTADO</th><th>CUMPLIMIENTO</th><th>PENDIENTES</th><th>TRABAJADORES</th><th>DETALLE</th></tr></thead><tbody>{currentList.map(item=><tr key={item.id} className={selectedId===item.id?"selected-row":""}>
+        <td><strong>{item.name}</strong></td><td>{item.rut||"—"}</td><td>{item.classification==="CT"?"CT · Fijo":item.classification==="CE"?"CE · Esporádico":item.classification==="CI"?"CI · Independiente":"Por regularizar"}</td><td><span className={"ops-lifecycle "+(item.contract_status==="active"?"active":"inactive")}>{item.contract_status==="active"?"Activo":"Inactivo"}</span></td><td><span className="ops-v15-list-compliance">{listCompliance?.[item.id]?.percent==null?"No evaluable":listCompliance[item.id].percent+"%"}</span>{listCompliance?.[item.id]?.percent!=null&&<span className="ops-v15-list-track"><span style={{width:listCompliance[item.id].percent+"%"}} /></span>}</td>
+        <td><span className={"ops-v15-count-badge "+(listCompliance?.[item.id]?.urgent.length?"urgent":listCompliance?.[item.id]?.pending.length?"pending":"")}>{listCompliance?.[item.id]?listCompliance[item.id].pending.length:"—"}</span></td>
+        <td>{item.worker_count}</td>
         <td><button className="row-open" aria-label={`Abrir ficha de ${item.name}`} onClick={()=>openContractor(item.id)}><ChevronRight size={18}/></button></td></tr>)}</tbody></table></div>
       <div className="ops-mobile-list" role="list" aria-label="Contratistas de la obra">
-        {filtered.map(item => (
+        {currentList.map(item => (
           <article className="ops-mobile-contractor" role="listitem" key={item.id}>
             <div className="ops-mobile-contractor-head">
               <strong>{item.name}</strong>
@@ -471,13 +474,20 @@ export default function Operations({readOnly,externalSiteId,mode,onImport,onSite
             <div className="ops-mobile-contractor-meta">
               <span>{item.classification==="CT"?"CT · Fijo":item.classification==="CE"?"CE · Esporádico":item.classification==="CI"?"CI · Independiente":"Clasificación pendiente"}</span>
               <span>{item.worker_count} {item.worker_count === 1 ? "trabajador" : "trabajadores"}</span>
+              <span>Documentación: {listCompliance?.[item.id]?.percent==null?"No evaluable":listCompliance[item.id].percent+"%"}</span>
+              <span>Pendientes: {listCompliance?.[item.id]?.pending.length??"—"}</span>
             </div>
             <button type="button" className="ops-mobile-contractor-action" aria-label={`Abrir ficha de ${item.name}`} onClick={() => openContractor(item.id)}>
               Ver ficha <ChevronRight size={17}/>
             </button>
           </article>
         ))}
-      </div></>}
+      </div>
+      {totalPages>1&&<nav className="ops-v15-pager" aria-label="Páginas de contratistas">
+        <span>Página {safePage} de {totalPages} · {filtered.length} contratistas</span>
+        <button type="button" className="secondary" disabled={safePage<=1} onClick={()=>setListPage(p=>Math.max(1,p-1))}>Anterior</button>
+        <button type="button" className="secondary" disabled={safePage>=totalPages} onClick={()=>setListPage(p=>Math.min(totalPages,p+1))}>Siguiente</button>
+      </nav>}</>}
     </section>
     </>}
     {selected&&<section className="results-card ops-card ops-detail-panel" aria-label="Ficha del contratista">
