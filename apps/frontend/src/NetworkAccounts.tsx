@@ -38,11 +38,13 @@ export function NetworkAccountMenu({
   logout,
   openNetwork,
   openSettings,
+  openUsersSignal,
 }: {
   user: Profile;
   logout: () => void;
   openNetwork?: () => void;
   openSettings?: () => void;
+  openUsersSignal?: number;
 }) {
   const [profile, setProfile] = useState<Account | null>(null),
     [menu, setMenu] = useState(false),
@@ -122,6 +124,9 @@ export function NetworkAccountMenu({
       setError(errorText(err));
     }
   }
+  useEffect(() => {
+    if (openUsersSignal && user.role === "admin") void open("users");
+  }, [openUsersSignal, user.role]);
   async function reset(account: Account) {
     setError("");
     setBusy(true);

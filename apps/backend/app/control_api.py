@@ -84,9 +84,10 @@ class PeriodInput(BaseModel):
 
 class ManualReviewInput(PeriodInput):
     association_id: str
-    kind: Literal["cotizaciones", "f30_1", "liquidaciones", "asistencia",
-                  "porteria", "declaracion_jurada", "anticipos"]
-    status: Literal["pending", "approved", "observed", "rejected", "not_applicable"]
+    kind: str = Field(min_length=1, max_length=32)
+    subject: str = Field(default="contractor", max_length=36)
+    status: Literal["pending", "approved", "observed", "rejected", "not_applicable",
+                    "submitted", "missing", "incomplete", "overdue", "exempt", "no_movements"]
     notes: str = Field(default="", max_length=2000)
 
 
@@ -143,6 +144,23 @@ def validate_worker(db: Session, user: User, association: ContractorWorksite, wo
 
 def change_review(db: Session, user: User, payload: ManualReviewInput) -> MonthlyDocument:
     association, company = association_for(db, user.org_id, payload.association_id)
+    from .configuration_models import ConfigurationSettings, ConfigurationRule
+    configuration = db.get(ConfigurationSettings, user.org_id)
+    configured_period = configuration is not None and (
+        payload.period >= configuration.porteria_start_period or
+        db.scalar(select(ConfigurationRule.id).where(
+            ConfigurationRule.org_id == user.org_id,
+            ConfigurationRule.period_start <= payload.period,
+        ).limit(1)) is not None
+    )
+    if configured_period:
+        from .configuration_api import save_review_record
+        return save_review_record(db, user, association.id, payload.period,
+                                  payload.kind, payload.status, payload.notes, payload.subject)
+    if payload.kind not in REQUIREMENTS or payload.subject != "contractor":
+        raise HTTPException(422, "Configura el documento y período en Configuración General")
+    if payload.status not in STATUS:
+        raise HTTPException(422, "Este estado requiere Configuración General para el período")
     defaults = nature_defaults(company, association)
     default_applicability = defaults.get(payload.kind)
     if inactive_for_current_period(association, payload.period) and payload.status != "not_applicable":
@@ -196,13 +214,13 @@ def change_review(db: Session, user: User, payload: ManualReviewInput) -> Monthl
 def save_review(payload: ManualReviewInput, user: User = Depends(document_reviewer), db: Session = Depends(get_db)):
     row = change_review(db, user, payload)
     db.commit()
-    return {"id": row.id, "status": row.review_status, "source": "manual_without_pdf",
+    return {"id": row.id, "status": getattr(row, "review_status", getattr(row, "state", "pending")), "source": "manual_without_pdf",
             "reviewed_by": row.reviewed_by, "reviewed_at": row.reviewed_at}
 
 
 @router.post("/reviews/bulk")
 def save_bulk(payload: BulkReviewInput, user: User = Depends(document_reviewer), db: Session = Depends(get_db)):
-    keys = [(r.association_id, r.period, r.kind) for r in payload.reviews]
+    keys = [(r.association_id, r.period, r.kind, r.subject) for r in payload.reviews]
     if len(keys) != len(set(keys)):
         raise HTTPException(422, "La operación masiva contiene requisitos repetidos")
     results = [change_review(db, user, item) for item in payload.reviews]
@@ -213,6 +231,10 @@ def save_bulk(payload: BulkReviewInput, user: User = Depends(document_reviewer),
 @router.put("/applicability")
 def set_applicability(payload: ApplicabilityInput, user: User = Depends(editor), db: Session = Depends(get_db)):
     association, company = association_for(db, user.org_id, payload.association_id)
+    from .configuration_service import legacy_requirements
+    configured = legacy_requirements(db, user.org_id, association, company, payload.period).get(payload.kind)
+    if configured and (configured.get("rule_id") or payload.kind == "porteria"):
+        raise HTTPException(422, "Este requisito se administra en Configuración General; usa una regla o excepción temporal con vista previa")
     if is_independent(company, association) and payload.kind == "anticipos" and payload.applicable:
         raise HTTPException(422, "Los independientes no pueden tener listado de anticipos exigible")
     if inactive_for_current_period(association, payload.period) and payload.applicable:
@@ -247,6 +269,12 @@ def monthly_matrix(site_id: str, period: str, user: User = Depends(authorized_us
                    db: Session = Depends(get_db)):
     validated_period(period)
     site_for(db, user.org_id, site_id)
+    # The configuration center and the existing operational screens use one
+    # evaluator. Earlier periods keep their original rules and evidence.
+    from .configuration_service import legacy_matrix
+    configured = legacy_matrix(db, user.org_id, site_id, period)
+    if configured is not None:
+        return configured
     contractor_rows = db.execute(select(ContractorWorksite, Contractor).join(
         Contractor, Contractor.id == ContractorWorksite.contractor_id,
     ).where(ContractorWorksite.org_id == user.org_id,

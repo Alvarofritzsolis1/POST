@@ -55,7 +55,7 @@ const laborDate=(value:string|null)=>value?value.slice(0,10).split("-").reverse(
 const errorText=(err:unknown)=>err instanceof Error?err.message:"No fue posible completar la operación"
 const contractorFromUrl=()=>{const match=window.location.pathname.match(/^\/contratistas\/([^/]+)\/?$/);if(!match)return null;try{return decodeURIComponent(match[1])}catch{return null}}
 const documentNames:Record<string,string>={cotizaciones:"Pago de cotizaciones",f30_1:"F30-1",asistencia:"Registro de asistencia",liquidaciones:"Liquidaciones de sueldo",porteria:"Informe de portería",declaracion_jurada:"Declaración jurada",anticipos:"Listado de anticipos"}
-const documentStatus:Record<string,string>={approved:"Aprobado",overdue:"Vencido",observed:"Observado",rejected:"Rechazado",pending:"Pendiente",schedule_not_configured:"Sin plazo configurado",needs_classification:"Exigibilidad sin definir",not_yet_required:"Aún no exigible"}
+const documentStatus:Record<string,string>={approved:"Aprobado",overdue:"Vencido",observed:"Observado",rejected:"Rechazado",pending:"Pendiente",schedule_not_configured:"Sin plazo configurado",needs_classification:"Exigibilidad sin definir",not_yet_required:"Aún no exigible",submitted:"Entregado · pendiente de revisión",missing:"No entregado",incomplete:"Entregado incompleto",exempt:"Exento",no_movements:"Sin movimientos",not_applicable:"No aplica",inactive:"Inactivo",not_required:"No exigible"}
 const templateUrl=(kind:string)=>"/api/v1/ops/imports/templates/"+encodeURIComponent(kind)+"?format=xlsx"
 
 export default function Operations({readOnly,externalSiteId,mode,onImport,onSiteChange,onWorkers,classificationFilter="all",period=""}:{readOnly:boolean;externalSiteId?:string;mode?:string;onImport?:()=>void;onSiteChange?:(id:string)=>void;onWorkers?:(assignmentId?:string)=>void;classificationFilter?:string;period?:string}){
@@ -355,7 +355,7 @@ export default function Operations({readOnly,externalSiteId,mode,onImport,onSite
         </div>
         {!!pendingDocsPreview.length&&<div className="ops-focus-pending"><strong>Requisitos por resolver</strong><div>
           {pendingDocsPreview.map(item=><button type="button" key={item.kind} onClick={()=>setDetailTab("documents")} className={["overdue","observed","rejected"].includes(item.state)?"urgent":""}>
-            <span>{documentNames[item.kind]||item.kind}</span><small>{documentStatus[item.state]||item.state}</small><ChevronRight size={14}/></button>)}
+            <span>{item.name||documentNames[item.kind]||item.kind}</span><small>{documentStatus[item.state]||item.state}</small><ChevronRight size={14}/></button>)}
           {pendingDocs.length>5&&<button type="button" onClick={()=>setDetailTab("documents")}>Ver los {pendingDocs.length} requisitos pendientes</button>}
         </div></div>}
       </div>}

@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useState, useRef } from "react";
+import { lazy, Suspense, useCallback, useEffect, useState, useRef } from "react";
 import {
   Building2,
   LayoutDashboard,
@@ -25,6 +25,7 @@ import AdministrativeWorkspace from "./AdministrativeWorkspace";
 import ControlCenter from "./ControlCenter";
 import BulkImport from "./BulkImport";
 import Settings from "./Settings";
+const GeneralConfiguration = lazy(() => import("./GeneralConfiguration"));
 import RedDeObras, { ResidentNetwork } from "./Network";
 import { NetworkAccountMenu, NetworkPasswordScreen } from "./NetworkAccounts";
 import {
@@ -90,7 +91,7 @@ function App() {
     [ready, setReady] = useState(false),
     [version, setVersion] = useState<string | null>(null),
     [revision, setRevision] = useState<string | null>(null),
-    [section, setSection] = useState(() => window.location.pathname.startsWith("/contratistas") ? "contractors" : new URLSearchParams(window.location.search).has("attendance_contractor") ? "attendance" : "home"),
+    [section, setSection] = useState(() => window.location.pathname.startsWith("/admin/configuracion") ? "configuration" : window.location.pathname.startsWith("/contratistas") ? "contractors" : new URLSearchParams(window.location.search).has("attendance_contractor") ? "attendance" : "home"),
     [sites, setSites] = useState<Site[]>([]),
     [site, setSite] = useState(() => new URLSearchParams(window.location.search).get("obra") || new URLSearchParams(window.location.search).get("attendance_site") || ""),
     [period, setPeriod] = useState(() =>
@@ -126,6 +127,14 @@ function App() {
     [sporadic, setSporadic] = useState(false),
     [page, setPage] = useState(0);
   useEffect(() => { window.localStorage.setItem("galant-sidebar-collapsed", String(sidebarCollapsed)); }, [sidebarCollapsed]);
+  useEffect(() => {
+    const routeChanged = () => {
+      const path = window.location.pathname;
+      setSection(path.startsWith("/admin/configuracion") ? "configuration" : path.startsWith("/contratistas") ? "contractors" : window.history.state?.galantSection || (new URLSearchParams(window.location.search).has("attendance_contractor") ? "attendance" : "home"));
+    };
+    window.addEventListener("popstate", routeChanged);
+    return () => window.removeEventListener("popstate", routeChanged);
+  }, []);
   const refreshGeneration = useRef(0);
   const lastActivity = useRef<string | null>(null);
   useEffect(() => {
@@ -184,7 +193,7 @@ function App() {
       .catch((e) => setError(errorText(e)));
   }, [user, applyPreferences]);
   const refresh = useCallback(async () => {
-    if (!user || user.role !== "admin" || section === "network") return;
+    if (!user || user.role !== "admin" || section === "network" || section === "configuration") return;
     const generation = ++refreshGeneration.current;
     try {
       const [o, c, m, a] = await Promise.all([
@@ -237,7 +246,7 @@ function App() {
     section,
   ]);
   useEffect(() => {
-    if (!user || user.role !== "admin" || section === "network") return;
+    if (!user || user.role !== "admin" || section === "network" || section === "configuration") return;
     let active = true;
     const update = () => {
       if (active) void refresh();
@@ -293,7 +302,13 @@ function App() {
     }
   }
   function go(s: string) {
-    if (window.location.pathname.startsWith("/contratistas")) {
+    if (s === "configuration") {
+      window.history.replaceState({ ...window.history.state, galantSection: section }, "", window.location.href);
+      window.history.pushState({ galantSection: "configuration", galantConfiguration: true }, "", "/admin/configuracion");
+      setSection("configuration");
+      return;
+    }
+    if (window.location.pathname.startsWith("/contratistas") || window.location.pathname.startsWith("/admin/configuracion")) {
       const url = new URL(window.location.href);
       url.pathname = s === "contractors" ? "/contratistas" : "/";
       url.searchParams.delete("obra");
@@ -301,6 +316,7 @@ function App() {
       window.history.replaceState({}, "", url);
       if (s === "contractors") window.dispatchEvent(new PopStateEvent("popstate"));
     }
+    window.history.replaceState({ ...window.history.state, galantSection: s }, "", window.location.href);
     setSection(s);
     setFilter("all");
     setSearch("");
@@ -315,8 +331,10 @@ function App() {
   if (hash.startsWith("#establecer-clave=") || hash === "#recuperar-clave") return <NetworkPasswordScreen hash={hash} done={() => { window.history.replaceState(null, "", window.location.pathname); setHash(""); setUser(null); }} />;
   if (!ready) return <div className="app-loading">Cargando GALANT…</div>;
   if (!user) return <Login onLogin={setUser} version={version} />;
+  if (section === "configuration" && user.role !== "admin") return <main className="panel" style={{ margin: "40px auto", maxWidth: 620 }}><h1>Acceso restringido</h1><p>Configuración General está disponible exclusivamente para administradores.</p><button type="button" onClick={() => { window.history.replaceState({}, "", "/"); setSection("home"); }}>← Volver</button></main>;
   if (user.role === "resident") return <ResidentNetwork user={user} version={version} logout={() => void logout()} />;
   if (user.role === "administrative") return <AdministrativeWorkspace user={user} version={version} logout={() => void logout()} />;
+  if (section === "configuration" && user.role === "admin") return <ErrorBoundary name="Configuración General"><Suspense fallback={<div className="app-loading">Cargando Configuración General…</div>}><GeneralConfiguration user={user} version={version} logout={() => void logout()} onOpenSettings={() => go("settings")} onBack={() => { if (window.history.state?.galantConfiguration) window.history.back(); else go("settings"); }}/></Suspense></ErrorBoundary>;
   const rows = (contributions?.rows || []).filter(
     (r) =>
       (!search ||
@@ -1055,6 +1073,7 @@ function App() {
               admin={user.role === "admin"}
               sites={sites}
               onPreferences={applyPreferences}
+              onOpenConfiguration={() => go("configuration")}
             />
           )}
           {editing && (
