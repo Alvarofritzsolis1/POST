@@ -25,3 +25,5 @@
 .ca-footnote { font-size: .85rem; }
 @media (max-width: 830px) { .ca-metrics { grid-template-columns: repeat(2,minmax(0,1fr)); }
  .ca-heading { flex-direction: column; } }
+
+.ca-counter { margin-left: .25rem; padding: .1rem .35rem; border-radius: 999px; color: #fff; background: #b91c1c; font-size: .73rem; font-weight: 700; }
