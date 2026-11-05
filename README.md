@@ -1,10 +1,11 @@
-# Despliegue manual del VPS desde GitHub Actions
+# GALANT POST — 15.0.5-rc1 · Actualización automática del VPS
 
-GALANT ofrece un flujo exclusivo **GALANT - Desplegar VPS (un clic)**: se lanza desde [Actions](https://github.com/Alvarofritzsolis1/POST/actions) sobre `main`, ejecuta toda la CI y solo actualiza el VPS si las pruebas pasan. No hay despliegue automático al fusionar PR. Incluye respaldo y restauración verificada, migración controlada, comprobación de versión y reversión de contenedores si falla.
+**Ya no se necesita pulsar Run workflow para cada nueva versión:** si se fusiona en `main` un incremento coherente de las versiones backend/frontend/lockfile, GitHub Actions valida la nueva versión, ejecuta la CI completa y, únicamente si todo aprueba, despliega GALANT usando el SSH ya configurado. Una modificación sin cambio de versión no actualiza el VPS.
 
-[Configuración inicial de SSH, permisos y operación](docs/DESPLIEGUE_VPS_UN_CLIC.md). El flujo no verifica ni configura por sí solo los secretos privados ni los revisores del entorno `GALANT-VPS`.
+La publicación realiza respaldo de PostgreSQL y documentos, verifica restauración aislada, comprueba migración y salud de la API y revierte contenedores ante fallos. El botón **GALANT - Desplegar VPS (un clic)** permanece disponible para despliegues manuales.
 
----
+[Ver el proceso de actualización, límites y permisos](docs/DESPLIEGUE_VPS_UN_CLIC.md) · [Historial de ejecuciones](https://github.com/Alvarofritzsolis1/POST/actions)
+
 
 # GALANT POST — 15.0.3-rc1 · Importación de trabajadores con COD
 
