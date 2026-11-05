@@ -193,3 +193,48 @@ html:not([data-theme="dark"]) .gc-root .gc-metric {border-color:var(--v15-border
 @media(prefers-reduced-motion:reduce) {
  .platform .ops-v15-progress>span,.platform button,.platform a,.gc-root button,.gc-root a {transition:none!important}
 }
+
+/* V15.1: filtros, listados extensos y fichas laborales con el mismo lenguaje visual */
+.platform .ops-v15-list-compliance{display:block;font-size:14px;font-weight:760;color:var(--v15-ink)}
+.platform .ops-v15-list-track{display:block;width:85px;height:6px;border-radius:10px;background:#e5edf3;margin-top:6px;overflow:hidden}
+.platform .ops-v15-list-track>span{display:block;height:100%;background:#247da8;border-radius:10px}
+.platform .ops-v15-count-badge{display:inline-flex;align-items:center;justify-content:center;min-width:29px;min-height:26px;padding:2px 7px;border-radius:8px;background:#e8f4ee;color:#135a39;font-size:13px;font-weight:800}
+.platform .ops-v15-count-badge.pending{background:#fff1dc;color:#895a10}
+.platform .ops-v15-count-badge.urgent{background:#fce8e9;color:#9f2531}
+.platform .ops-v15-pager{display:flex;justify-content:flex-end;align-items:center;flex-wrap:wrap;gap:10px;padding:16px 20px;border-top:1px solid #e2e8f0}
+.platform .ops-v15-pager>span{font-size:13px;color:#516579;margin-right:auto}
+.platform .ops-v15-pager button{min-height:42px}
+.platform .ops-v15-labor-heading{display:flex;flex-wrap:wrap;align-items:start;justify-content:space-between;gap:16px;margin-bottom:18px}
+.platform .ops-v15-labor-heading h3{font-size:21px;margin:0 0 5px}
+.platform .ops-v15-labor-heading p{font-size:14px;color:#597087;margin:0;max-width:70ch;line-height:1.5}
+.platform .ops-v15-labor-heading button{min-height:42px}
+.platform .monthly-v15-filters{display:flex;align-items:end;gap:12px;flex-wrap:wrap;padding:10px 0 16px}
+.platform .monthly-v15-filters label{display:grid;gap:6px;min-width:155px;flex:1;font-size:13px;font-weight:700;color:#3b5268}
+.platform .monthly-v15-filters label:first-child{min-width:210px;flex:2}
+.platform .monthly-v15-filters input,.platform .monthly-v15-filters select{width:100%;min-height:42px;font-size:14px}
+.platform .monthly-v15-filters>span{font-size:13px;color:#597188;white-space:nowrap;padding-bottom:10px}
+.platform .monthly-table td{overflow-wrap:anywhere}
+.platform .ops-list-table .ops-v15-list-compliance,
+.platform .ops-list-table .ops-v15-count-badge{font-variant-numeric:tabular-nums}
+.platform .ops-v15-priorities button:focus-visible{outline:3px solid #48a9e0;outline-offset:2px}
+.platform .monthly-v15-review-actions button:hover{background:#e4f4fe}
+.platform .ops-v15-labor-detail .table-wrap{overflow-x:auto}
+.platform .ops-v15-labor-detail .ops-list-table{min-width:740px}
+@media(max-width:900px){
+ .platform .ops-v15-labor-heading{display:grid}
+ .platform .ops-v15-document-main .monthly-table{min-width:650px}
+ .platform .ops-v15-pager{justify-content:center}
+ .platform .ops-v15-pager>span{width:100%;text-align:center}
+}
+@media(max-width:520px){
+ .platform .monthly-v15-filters{display:grid}
+ .platform .monthly-v15-filters label{min-width:0}
+ .platform .monthly-v15-filters label:first-child{min-width:0}
+ .platform .ops-v15-document-main .monthly-header{gap:10px}
+ .platform .ops-v15-priority-head h3{font-size:16px}
+}
+[data-theme="dark"] .platform .ops-v15-list-compliance{color:#e0edf2}
+[data-theme="dark"] .platform .monthly-v15-filters label{color:#c2d4e3}
+[data-theme="dark"] .platform .ops-v15-pager{border-color:#38515b}
+[data-theme="dark"] .platform .ops-v15-pager>span{color:#bdcede}
+[data-theme="dark"] .platform .ops-v15-labor-heading p{color:#bdcede}
