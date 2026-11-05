@@ -58,7 +58,7 @@ const contractorFromUrl=()=>{const match=window.location.pathname.match(/^\/cont
 const documentNames:Record<string,string>={cotizaciones:"Pago de cotizaciones",f30_1:"F30-1",asistencia:"Registro de asistencia",liquidaciones:"Liquidaciones de sueldo",porteria:"Informe de portería",declaracion_jurada:"Declaración jurada",anticipos:"Listado de anticipos"}
 const templateUrl=(kind:string)=>"/api/v1/ops/imports/templates/"+encodeURIComponent(kind)+"?format=xlsx"
 
-export default function Operations({readOnly,externalSiteId,mode,onImport,onSiteChange,onWorkers,classificationFilter="all",period=""}:{readOnly:boolean;externalSiteId?:string;mode?:string;onImport?:()=>void;onSiteChange?:(id:string)=>void;onWorkers?:(assignmentId?:string)=>void;classificationFilter?:string;period?:string}){
+export default function Operations({readOnly,externalSiteId,mode,onImport,onSiteChange,onPeriodChange,onWorkers,classificationFilter="all",period=""}:{readOnly:boolean;externalSiteId?:string;mode?:string;onImport?:()=>void;onSiteChange?:(id:string)=>void;onPeriodChange?:(period:string)=>void;onWorkers?:(assignmentId?:string)=>void;classificationFilter?:string;period?:string}){
   const [sites,setSites]=useState<Site[]>([])
   const [siteId,setSiteId]=useState(externalSiteId||"")
   useEffect(()=>{if(externalSiteId)setSiteId(externalSiteId)},[externalSiteId])
@@ -211,6 +211,7 @@ export default function Operations({readOnly,externalSiteId,mode,onImport,onSite
   },[siteId,period,documentRevision])
   function changeDocumentPeriod(next:string){
     setDocumentPeriod(next)
+    onPeriodChange?.(next)
     if(!selectedId||!next)return
     const url=new URL(window.location.href)
     url.searchParams.set("periodo",next)
