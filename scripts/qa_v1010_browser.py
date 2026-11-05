@@ -36,6 +36,12 @@ with sync_playwright() as p:
         return name,response.json()
     active,active_row=company("active")
     inactive,inactive_row=company("inactive")
+    # Un evento debe indicar el responsable por nombre, sin exponer correo en la UI.
+    audit_response=context.request.get(URL+"/api/v1/ops/history",
+        params={"entity_type":"contractor","entity_id":active_row["contractor_id"]})
+    assert audit_response.status==200,(audit_response.status,audit_response.text())
+    audit=audit_response.json()
+    assert audit and all("actor_name" in item and "@" not in item["actor_name"] for item in audit),audit
     page.get_by_role("button",name="Contratistas",exact=True).click()
     page.get_by_label("Obra seleccionada").select_option(site["id"])
     expect(page.get_by_role("button",name="Activos",exact=True)).to_have_attribute("aria-pressed","true")
