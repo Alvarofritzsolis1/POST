@@ -152,7 +152,8 @@ def source_rows(content, filename, mapping, kind="workers"):
             expected = [_key(label) for label in HEADERS["contractors"]]
             header_index = next(
                 (i for i, row in enumerate(grid[:25])
-                 if [_key(cell) for cell in row if _key(cell)] == expected),
+                 if [_key(cell) for cell in row[:6]] == expected
+             and not any(_key(cell) for cell in row[6:])),
                 None,
             )
             if header_index is None:
@@ -435,6 +436,8 @@ def prepare(body, user, db):
                 # Excel contains no legal modality: keep an existing reviewed type.
                 # New rows use a provisional date-derived type, never an OCR approval.
                 row["contract_type"] = (employment.contract_type if employment else
+                                        CONTRACT_TYPES.get(_key(row.get("contract_type")),
+                                        row.get("contract_type")) if row.get("contract_type") else
                                         ("fixed_term" if end else "indefinite"))
                 if not employment and end:
                     warnings.append("Modalidad provisional por fecha; verifica el contrato firmado")
