@@ -131,7 +131,15 @@ export default function Operations({readOnly,externalSiteId,mode,onImport,onSite
   },[])
   useEffect(()=>{
     ++contractorRequest.current;++workerRequest.current
-    setSelectedId(contractorFromUrl() && (!new URLSearchParams(window.location.search).get("obra") || new URLSearchParams(window.location.search).get("obra")===siteId) ? contractorFromUrl() : null);setContractors([]);setWorkers([]);setLoading(false);setHistory(null);setHistoryOpen(false);setContractorForm(null);setWorkerForm(null);setPreview(null);setImportResult(null)
+    const routeId=contractorFromUrl()
+    const routeSite=new URLSearchParams(window.location.search).get("obra")
+    if(routeId&&routeSite&&siteId&&routeSite!==siteId){
+      const url=new URL(window.location.href)
+      url.pathname="/contratistas"
+      url.searchParams.set("obra",siteId)
+      window.history.replaceState({},"",url)
+    }
+    setSelectedId(routeId && (!routeSite || routeSite===siteId) ? routeId : null);setContractors([]);setWorkers([]);setLoading(false);setHistory(null);setHistoryOpen(false);setContractorForm(null);setWorkerForm(null);setPreview(null);setImportResult(null)
     if(siteId)void loadContractors(siteId)
   },[siteId,loadContractors])
   const visibleContractors=contractors.filter(item=>item.site_id===siteId)
@@ -203,6 +211,14 @@ export default function Operations({readOnly,externalSiteId,mode,onImport,onSite
     window.history.replaceState({},"",url)
     setSelectedId(null)
   }
+  useEffect(()=>{
+    if(!selectedId||contractorFromUrl()!==selectedId||!period)return
+    const url=new URL(window.location.href)
+    if(url.searchParams.get("periodo")!==period){
+      url.searchParams.set("periodo",period)
+      window.history.replaceState(window.history.state,"",url)
+    }
+  },[period,selectedId])
   const pendingDocs=(docOverview||[]).filter(row=>row.applicable===true&&row.state!=="approved"&&row.state!=="not_yet_required")
   const approvedDocs=(docOverview||[]).filter(row=>row.applicable===true&&row.state==="approved").length
   const criticalDocs=pendingDocs.filter(row=>["overdue","observed","rejected"].includes(row.state)).length
