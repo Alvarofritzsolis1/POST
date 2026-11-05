@@ -65,6 +65,9 @@ export default function Operations({readOnly,externalSiteId,mode,onImport,onSite
   const [contractors,setContractors]=useState<Contractor[]>([])
   const [selectedId,setSelectedId]=useState<string|null>(contractorFromUrl)
   const [docOverview,setDocOverview]=useState<Requirement[]|null>(null)
+  const [documentPeriod,setDocumentPeriod]=useState(period)
+  const [documentRevision,setDocumentRevision]=useState(0)
+  useEffect(()=>setDocumentPeriod(period),[period,selectedId])
   const [docIssue,setDocIssue]=useState("")
   const listScroll=useRef(0)
   const restoreListScroll=useRef(false)
@@ -77,7 +80,7 @@ export default function Operations({readOnly,externalSiteId,mode,onImport,onSite
   const [search,setSearch]=useState("")
   const [codeFilter,setCodeFilter]=useState("all")
   const [statusFilter,setStatusFilter]=useState<"active"|"inactive"|"all">("active")
-  const [detailTab,setDetailTab]=useState<"summary"|"workers"|"documents"|"history">("summary")
+  const [detailTab,setDetailTab]=useState<"summary"|"workers"|"documents"|"history">("documents")
   const [workerSearch,setWorkerSearch]=useState("")
   const [contractorForm,setContractorForm]=useState<"new"|"edit"|null>(null)
   const [contractorDraft,setContractorDraft]=useState<ContractorInput>(blankContractor(""))
@@ -144,7 +147,7 @@ export default function Operations({readOnly,externalSiteId,mode,onImport,onSite
   },[siteId,loadContractors])
   const visibleContractors=contractors.filter(item=>item.site_id===siteId)
   const selected=visibleContractors.find(item=>item.id===selectedId)||null
-  useEffect(()=>{setHistory(null);setHistoryOpen(false);setDetailTab("summary");setWorkerSearch("")},[selectedId])
+  useEffect(()=>{setHistory(null);setHistoryOpen(false);setDetailTab("documents");setWorkerSearch("")},[selectedId])
   useEffect(()=>{
     let valid=true
     setLaborRows([]);setLaborError("");setLaborTotal(0)
@@ -187,12 +190,12 @@ export default function Operations({readOnly,externalSiteId,mode,onImport,onSite
   useEffect(()=>{
     let active=true
     setDocOverview(null);setDocIssue("")
-    if(!selected||!period)return()=>{active=false}
-    void opsControlApi.matrix(siteId,period).then(matrix=>{
+    if(!selected||!documentPeriod)return()=>{active=false}
+    void opsControlApi.matrix(siteId,documentPeriod).then(matrix=>{
       if(active)setDocOverview(matrix.contractors.find(c=>c.association_id===selected.id)?.requirements||[])
     }).catch(err=>{if(active)setDocIssue(errorText(err))})
     return()=>{active=false}
-  },[siteId,period,selected?.id])
+  },[siteId,documentPeriod,selected?.id,documentRevision])
   function openContractor(id:string){
     listScroll.current=window.scrollY
     const url=new URL(window.location.href)
@@ -223,6 +226,11 @@ export default function Operations({readOnly,externalSiteId,mode,onImport,onSite
   const approvedDocs=(docOverview||[]).filter(row=>row.applicable===true&&row.state==="approved").length
   const criticalDocs=pendingDocs.filter(row=>["overdue","observed","rejected"].includes(row.state)).length
   const pendingDocsPreview=pendingDocs.slice(0,5)
+  // Obligaciones exigibles evaluables; no calcular porcentajes desde filas decorativas.
+  const exigibleDocs=(docOverview||[]).filter(r=>r.applicable===true&&!["not_yet_required","schedule_not_configured"].includes(r.state))
+  const requiredUnits=exigibleDocs.reduce((n,r)=>n+(r.required_count??1),0)
+  const approvedUnits=exigibleDocs.reduce((n,r)=>n+(r.approved_count??(r.state==="approved"?1:0)),0)
+  const compliance=docOverview&&requiredUnits>0?Math.round(100*approvedUnits/requiredUnits):null
   const filtered=useMemo(()=>visibleContractors.filter(item=>{
     const term=search.trim().toLocaleLowerCase("es-CL")
     const matches=!term||item.name.toLocaleLowerCase("es-CL").includes(term)||(item.rut||"").toLocaleLowerCase("es-CL").includes(term)
@@ -231,7 +239,7 @@ export default function Operations({readOnly,externalSiteId,mode,onImport,onSite
     return matches&&(statusFilter==="all"||(statusFilter==="active"&&active)||(statusFilter==="inactive"&&!active))&&
       (classificationFilter==='all'||kind===classificationFilter)&&(codeFilter==="all"||
       (codeFilter==="other" ? !["CT","CE","CI"].includes(kind) : kind===codeFilter))
-  }),[visibleContractors,search,codeFilter,classificationFilter,statusFilter])
+  }).sort((a,b)=>a.name.localeCompare(b.name,"es-CL")),[visibleContractors,search,codeFilter,classificationFilter,statusFilter])
   const statusSymbols=useMemo(()=>{
     const values=new Set<string>()
     for(const row of preview?.rows||[])for(const raw of Object.values(row.historical_statuses||{}))if(raw)values.add(raw.toUpperCase())
