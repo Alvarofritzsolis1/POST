@@ -53,8 +53,7 @@ HEADERS = {
         "RUT",
         "F.INGRESO",
         "F.TERMINO",
-        "CONTRATO",
-        "TIPO",
+        "COD",
     ],
 }
 ALIASES = {
@@ -79,6 +78,7 @@ ALIASES = {
     "classification": ["clasificacion explicita"],
     "legal_representative_rut": ["rutr legal"],
     "contract_reference": ["contrato"],
+    "worker_code": ["cod"],
 }
 
 NATURE_VALUES = {
@@ -133,6 +133,15 @@ def parse_date(value, required=False):
     raise ValueError(f"Fecha inválida: {text}; utiliza dd/mm/aaaa")
 
 
+def worker_end_date(value):
+    """INDEFINIDO is explicit; an empty end-date is not an indefinite contract."""
+    if _key(value) == "indefinido":
+        return None
+    if not str(value or "").strip():
+        raise ValueError("F.TERMINO obligatorio: usa INDEFINIDO o fecha DD-MM-AAAA")
+    return parse_date(value)
+
+
 def source_rows(content, filename, mapping, kind="workers"):
     result = []
     for sheet, grid in _read_sheets(content, filename):
@@ -166,38 +175,28 @@ def source_rows(content, filename, mapping, kind="workers"):
                            for pos, field in enumerate(fields)},
                     })
             continue
+        # Workers: one unambiguous six-column layout; the worksite is selected in UI.
+        expected = [_key(label) for label in HEADERS["workers"]]
         header_index = next(
-            (i for i, row in enumerate(grid[:25]) if "rut" in [_key(v) for v in row]),
+            (i for i, row in enumerate(grid[:25])
+             if [_key(cell) for cell in row if _key(cell)] == expected),
             None,
         )
         if header_index is None:
-            raise ValueError(f"{sheet}: no se encontró encabezado RUT")
-        headers = [_key(v) for v in grid[header_index]]
-        columns = {}
-        for field, aliases in ALIASES.items():
-            wanted = _key(mapping[field]) if field in mapping else None
-            matches = [
-                i
-                for i, heading in enumerate(headers)
-                if heading and (heading == wanted if wanted else heading in aliases)
-            ]
-            if len(matches) > 1:
-                raise ValueError(f"Encabezado ambiguo: {field}; indica el mapeo")
-            if wanted and not matches:
-                raise ValueError(f"Encabezado no encontrado: {mapping[field]}")
-            if matches:
-                columns[field] = matches[0]
-        for i, raw in enumerate(grid[header_index + 1 :], header_index + 2):
+            raise ValueError(
+                f"{sheet}: encabezados incorrectos; usa exactamente estas seis columnas: "
+                + ", ".join(HEADERS["workers"])
+            )
+        fields = ("contractor_name", "name", "rut", "start_date", "end_date", "worker_code")
+        for i, raw in enumerate(grid[header_index + 1:], header_index + 2):
             if any(raw):
-                result.append(
-                    {
-                        "row_id": f"{sheet}:{i}",
-                        **{
-                            field: raw[col] if col < len(raw) else ""
-                            for field, col in columns.items()
-                        },
-                    }
-                )
+                if any(str(value).strip() for value in raw[len(fields):]):
+                    raise ValueError(f"{sheet}:{i}: datos fuera de las seis columnas")
+                result.append({
+                    "row_id": f"{sheet}:{i}",
+                    **{field: raw[pos] if pos < len(raw) else ""
+                       for pos, field in enumerate(fields)},
+                })
     if not 1 <= len(result) <= 10000:
         raise ValueError("La carga debe contener entre 1 y 10000 filas")
     return result
@@ -378,6 +377,9 @@ def prepare(body, user, db):
                 "scoped_extra": scoped_extra, "link_target": link_target,
             }
         else:
+            row["worker_code"] = row.get("worker_code", "").strip().upper()
+            if row["worker_code"] not in {"TH", "TM", "F"}:
+                errors.append("COD de trabajador inválido: utiliza TH, TM o F")
             matches = [
                 c
                 for c in companies
@@ -411,11 +413,11 @@ def prepare(body, user, db):
             try:
                 start, end = (
                     parse_date(row.get("start_date"), True),
-                    parse_date(row.get("end_date")),
+                    worker_end_date(row.get("end_date")),
                 )
                 row["start_date"], row["end_date"] = (
                     start.isoformat(),
-                    end.isoformat() if end else "",
+                    end.isoformat() if end else "INDEFINIDO",
                 )
                 if end and end < start:
                     errors.append("Fecha término anterior al ingreso")
@@ -430,9 +432,12 @@ def prepare(body, user, db):
                             errors.append(
                                 "Período laboral superpuesto; revisar fechas históricas"
                             )
-                row["contract_type"] = CONTRACT_TYPES.get(
-                    _key(row.get("contract_type")), row.get("contract_type", "")
-                )
+                # Excel contains no legal modality: keep an existing reviewed type.
+                # New rows use a provisional date-derived type, never an OCR approval.
+                row["contract_type"] = (employment.contract_type if employment else
+                                        ("fixed_term" if end else "indefinite"))
+                if not employment and end:
+                    warnings.append("Modalidad provisional por fecha; verifica el contrato firmado")
                 episode_key = (
                     row["rut"],
                     site.id if site else "",
@@ -453,13 +458,12 @@ def prepare(body, user, db):
                     }.items():
                         old = getattr(employment, key)
                         old = old.isoformat() if isinstance(old, date) else old or ""
-                        if old != val:
+                        comparison = "" if key == "end_date" and val == "INDEFINIDO" else val
+                        if old != comparison:
                             changes[key] = {"from": old, "to": val}
             except ValueError as exc:
                 errors.append(str(exc))
-            kind = CONTRACT_TYPES.get(
-                _key(row.get("contract_type")), row.get("contract_type", "")
-            )
+            kind = row.get("contract_type", "")
             row["contract_type"] = kind
             if kind not in {"fixed_term", "indefinite", "project", "services"}:
                 errors.append(
@@ -467,12 +471,17 @@ def prepare(body, user, db):
                 )
             if kind == "fixed_term" and not row.get("end_date"):
                 errors.append("Contrato a plazo fijo requiere fecha término")
-            if kind == "indefinite" and row.get("end_date"):
+            if kind == "indefinite" and row.get("end_date") != "INDEFINIDO" and row.get("end_date"):
                 errors.append(
                     "Un contrato indefinido no lleva término automático; registrar su baja expresamente"
                 )
             if len(row.get("contract_type", "")) > 100:
                 errors.append("Tipo de contrato supera 100 caracteres")
+            old_code = (link.imported_statuses or {}).get("worker_code", "") if link else ""
+            if link and old_code != row["worker_code"]:
+                changes["worker_code"] = {"from": old_code, "to": row["worker_code"]}
+            if link and row["worker_code"] == "F" and link.active:
+                changes["active"] = {"from": True, "to": False}
             if existing and existing.name != row["name"]:
                 changes["name"] = {"from": existing.name, "to": row["name"]}
             identity = (
@@ -610,8 +619,10 @@ async def preview(
             k not in ALIASES or not isinstance(v, str) for k, v in mapping.items()
         ):
             raise ValueError("Mapeo de columnas inválido")
-        if kind == "contractors" and mapping:
-            raise ValueError("La carga de contratistas usa 11 encabezados fijos; no requiere mapeo")
+        if mapping:
+            raise ValueError("La carga masiva usa encabezados fijos; no requiere mapeo")
+        if kind == "workers" and not default_site:
+            raise ValueError("Selecciona una obra antes de importar trabajadores")
         rows = source_rows(data, file.filename or "", mapping, kind)
         if default_site:
             from .ops_api import site_for
@@ -776,7 +787,7 @@ def commit(
                     )
                     db.add(link)
                     db.flush()
-                start, end = parse_date(r["start_date"]), parse_date(r.get("end_date"))
+                start, end = parse_date(r["start_date"]), worker_end_date(r.get("end_date"))
                 episode = db.scalar(
                     select(ContractRegister).where(
                         ContractRegister.worker_assignment_id == link.id,
@@ -819,10 +830,13 @@ def commit(
                         ContractRegister.worker_assignment_id == link.id
                     )
                 ).all()
-                link.active = any(
-                    e.status == "active"
-                    for e in all_episodes
-                )
+                # COD F is an operational inactive flag, not proof of a signed finiquito.
+                statuses = dict(link.imported_statuses or {})
+                statuses["worker_code"] = r["worker_code"]
+                link.imported_statuses = statuses
+                link.active = (r["worker_code"] != "F" and any(
+                    e.status == "active" for e in all_episodes
+                ))
             db.flush()
             if item["category"] != "existing":
                 audit_change(
