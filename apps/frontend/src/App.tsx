@@ -57,6 +57,15 @@ const navGroups = [
   { title: "CUMPLIMIENTO", ids: ["documents", "contributions", "evaluations"] },
   { title: "ADMINISTRACIÓN", ids: ["administration", "imports", "reports", "settings"] },
 ] as const;
+// La URL y el estado del historial deben determinar la ruta desde el primer render.
+function sectionFromLocation(): string {
+  const pathname = window.location.pathname;
+  if (pathname.startsWith("/admin/configuracion")) return "configuration";
+  if (pathname.startsWith("/contratistas")) return "contractors";
+  const saved = window.history.state?.galantSection;
+  if (typeof saved === "string" && nav.some(([id]) => id === saved)) return saved;
+  return new URLSearchParams(window.location.search).has("attendance_contractor") ? "attendance" : "home";
+}
 const alertCriticalKeys = new Set<string>(["critical_contractors", "workers_expired", "incomplete_contributions", "declared_unpaid", "attendance_overdue"]);
 const dashboardUrgentTitles = new Set<string>(["Con observaciones", "Registros con diferencias", "Días faltantes acumulados"]);
 const dashboardWarningTitles = new Set<string>(["Documentación pendiente", "Pendientes de confirmación", "Registros sin información", "Trabajadores con observaciones"]);
@@ -91,9 +100,9 @@ function App() {
     [ready, setReady] = useState(false),
     [version, setVersion] = useState<string | null>(null),
     [revision, setRevision] = useState<string | null>(null),
-    [section, setSection] = useState(() => window.location.pathname.startsWith("/admin/configuracion") ? "configuration" : window.location.pathname.startsWith("/contratistas") ? "contractors" : new URLSearchParams(window.location.search).has("attendance_contractor") ? "attendance" : "home"),
+    [section, setSection] = useState(sectionFromLocation),
     [sites, setSites] = useState<Site[]>([]),
-    [site, setSite] = useState(() => new URLSearchParams(window.location.search).get("obra") || new URLSearchParams(window.location.search).get("attendance_site") || ""),
+    [site, setSite] = useState(() => new URLSearchParams(window.location.search).get("obra") || new URLSearchParams(window.location.search).get("attendance_site") || window.sessionStorage.getItem("galant-active-site") || ""),
     [period, setPeriod] = useState(() =>
       new URLSearchParams(window.location.search).get("periodo") || new URLSearchParams(window.location.search).get("attendance_period") || new Intl.DateTimeFormat("sv-SE", {
         timeZone: "America/Santiago",
@@ -127,11 +136,15 @@ function App() {
     [evidence, setEvidence] = useState(false),
     [sporadic, setSporadic] = useState(false),
     [page, setPage] = useState(0);
+  const sectionRef = useRef(section);
+  sectionRef.current = section;
   useEffect(() => { window.localStorage.setItem("galant-sidebar-collapsed", String(sidebarCollapsed)); }, [sidebarCollapsed]);
   useEffect(() => {
     const routeChanged = () => {
-      const path = window.location.pathname;
-      setSection(path.startsWith("/admin/configuracion") ? "configuration" : path.startsWith("/contratistas") ? "contractors" : window.history.state?.galantSection || (new URLSearchParams(window.location.search).has("attendance_contractor") ? "attendance" : "home"));
+      const next = sectionFromLocation();
+      // Un cambio real de módulo empieza arriba; la ficha interna conserva su restauración.
+      if (next !== sectionRef.current) window.scrollTo({top: 0, left: 0, behavior: "instant"});
+      setSection(next);
     };
     window.addEventListener("popstate", routeChanged);
     return () => window.removeEventListener("popstate", routeChanged);
@@ -165,6 +178,11 @@ function App() {
     "period=" +
     encodeURIComponent(period) +
     (site ? "&site_id=" + encodeURIComponent(site) : "");
+  // La obra es una selección por pestaña. No se pierde al refrescar o regresar.
+  const selectSite = useCallback((next: string) => {
+    window.sessionStorage.setItem("galant-active-site", next);
+    setSite(next);
+  }, []);
   const applyPreferences = useCallback((p: Preferences) => {
     document.documentElement.dataset.theme = p.appearance;
     document.documentElement.dataset.density = p.density;
@@ -188,8 +206,12 @@ function App() {
         setSites(s);
         setProfile(p);
         applyPreferences(p.preferences);
-        const requestedSite = new URLSearchParams(window.location.search).get("obra") || new URLSearchParams(window.location.search).get("attendance_site");
-        setSite(requestedSite && s.some((entry) => entry.id === requestedSite) ? requestedSite : p.preferences.default_site || "");
+        const requestedSite = new URLSearchParams(window.location.search).get("obra") ||
+          new URLSearchParams(window.location.search).get("attendance_site") ||
+          window.sessionStorage.getItem("galant-active-site");
+        setSite(requestedSite === "" ? "" :
+          requestedSite && s.some((entry) => entry.id === requestedSite)
+            ? requestedSite : p.preferences.default_site || "");
       })
       .catch((e) => setError(errorText(e)));
   }, [user, applyPreferences]);
@@ -302,6 +324,10 @@ function App() {
     }
   }
   function go(s: string) {
+    // Antes del cambio de componentes, evitar que el módulo nuevo herede el scroll viejo.
+    if (s !== section || (s === "contractors" && /^\/contratistas\/[^/]+/.test(window.location.pathname))) {
+      window.scrollTo({top: 0, left: 0, behavior: "instant"});
+    }
     if (s === "configuration") {
       window.history.replaceState({ ...window.history.state, galantSection: section }, "", window.location.href);
       window.history.pushState({ galantSection: "configuration", galantConfiguration: true }, "", "/admin/configuracion");
@@ -455,7 +481,7 @@ function App() {
                 aria-label="Obra seleccionada"
                 value={site}
                 onChange={(e) => {
-                  setSite(e.target.value);
+                  selectSite(e.target.value);
                   setOverview(null);
                   setContributions(null);
                   setMatrix([]);
@@ -792,9 +818,10 @@ function App() {
                 onWorkers={(assignmentId) => { go("workers"); setTargetWorker(assignmentId || ""); }}
                 classificationFilter={classification}
                 period={period}
-                onSiteChange={setSite}
+                onSiteChange={selectSite}
                 onPeriodChange={setPeriod}
                 onAttendance={(associationId,worksiteId,month)=>{
+                  window.scrollTo({top:0,left:0,behavior:"instant"})
                   const url=new URL(window.location.href)
                   url.pathname="/"
                   url.searchParams.delete("obra")
@@ -803,7 +830,7 @@ function App() {
                   url.searchParams.set("attendance_site",worksiteId)
                   url.searchParams.set("attendance_period",month)
                   window.history.pushState({galantSection:"attendance"},"",url)
-                  setSite(worksiteId)
+                  selectSite(worksiteId)
                   setPeriod(month)
                   setSection("attendance")
                 }}
@@ -821,7 +848,7 @@ function App() {
             initialAssignment={targetWorker}
             initialState={filter === "expired_needs_review" || filter === "ending_soon" ? filter : ""} /></ErrorBoundary>}
           {section === "attendance" && <AdminAttendanceV93 siteId={site} sites={sites} period={period}
-            onSiteSelect={setSite} onEvaluate={() => go("evaluations")} />}
+            onSiteSelect={selectSite} onEvaluate={() => go("evaluations")} />}
           {section === "evaluations" && <AdministrativePerformanceV81 sites={sites} period={period} />}
           {section === "imports" && (
             <ErrorBoundary key={"imports-"+site} name="carga masiva"><BulkImport readOnly={readonly} siteId={site} /></ErrorBoundary>
@@ -1110,7 +1137,7 @@ function App() {
               externalPeriod={period}
               initialTab="contracts"
               onContextChange={(s, p) => {
-                setSite(s);
+                selectSite(s);
                 setPeriod(p);
               }}
             />

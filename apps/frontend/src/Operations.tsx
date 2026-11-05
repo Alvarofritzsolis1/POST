@@ -177,10 +177,10 @@ export default function Operations({readOnly,externalSiteId,mode,onImport,onSite
   },[siteId,selected?.contractor_id,selected?.id,loadWorkers])
   useEffect(()=>{
     if(!siteId)return
-    const refresh=()=>{void loadContractors(siteId);if(selected)void loadWorkers(siteId,selected.contractor_id,selected.id)}
+    // Sondeo sin recargas duplicadas al volver a la pestaña ni cambios de altura en el listado.
+    const refresh=()=>{if(document.hidden)return;void loadContractors(siteId);if(selected)void loadWorkers(siteId,selected.contractor_id,selected.id)}
     const timer=window.setInterval(refresh,10000)
-    window.addEventListener('focus',refresh)
-    return()=>{window.clearInterval(timer);window.removeEventListener('focus',refresh)}
+    return()=>{window.clearInterval(timer)}
   },[siteId,selected?.id,selected?.contractor_id,loadContractors,loadWorkers])
   useEffect(()=>{
     const onPop=()=>{
@@ -478,7 +478,7 @@ export default function Operations({readOnly,externalSiteId,mode,onImport,onSite
         <option value="workers">Mayor dotación primero</option>
       </select>
       <span aria-live="polite">{filtered.length} de {visibleContractors.length}</span></div>
-      {loading?<div className="ops-empty"><LoaderCircle size={20} className="spin"/> Cargando contratistas…</div>:filtered.length===0?<div className="ops-empty"><Users size={22}/>{visibleContractors.length?"No hay coincidencias":"Aún no hay contratistas en esta obra"}</div>:
+      {loading&&visibleContractors.length===0?<div className="ops-empty"><LoaderCircle size={20} className="spin"/> Cargando contratistas…</div>:filtered.length===0?<div className="ops-empty"><Users size={22}/>{visibleContractors.length?"No hay coincidencias":"Aún no hay contratistas en esta obra"}</div>:
       <><div className="table-wrap ops-desktop-list"><table className="ops-list-table ops-contractor-table"><thead><tr><th>CONTRATISTA</th><th>RUT</th><th>COD</th><th>ESTADO</th><th>CUMPLIMIENTO</th><th>PENDIENTES</th><th>TRABAJADORES</th><th>DETALLE</th></tr></thead><tbody>{currentList.map(item=><tr key={item.id} className={selectedId===item.id?"selected-row":""}>
         <td><strong>{item.name}</strong></td><td>{item.rut||"—"}</td><td>{item.classification==="CT"?"CT · Fijo":item.classification==="CE"?"CE · Esporádico":item.classification==="CI"?"CI · Independiente":"Por regularizar"}</td><td><span className={"ops-lifecycle "+(item.contract_status==="active"?"active":"inactive")}>{item.contract_status==="active"?"Activo":"Inactivo"}</span></td><td><span className="ops-v15-list-compliance">{listCompliance?.[item.id]?.percent==null?"No evaluable":listCompliance[item.id].percent+"%"}</span>{listCompliance?.[item.id]?.percent!=null&&<span className="ops-v15-list-track"><span style={{width:listCompliance[item.id].percent+"%"}} /></span>}</td>
         <td><span className={"ops-v15-count-badge "+(listCompliance?.[item.id]?.urgent.length?"urgent":listCompliance?.[item.id]?.pending.length?"pending":"")}>{listCompliance?.[item.id]?listCompliance[item.id].pending.length:"—"}</span></td>
