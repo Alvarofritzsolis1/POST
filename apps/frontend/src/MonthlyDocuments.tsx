@@ -25,7 +25,7 @@ const nameOf=(kind:string)=>types.find(item=>item.value===kind)?.label||kind
 const todayMonth=()=>new Intl.DateTimeFormat("sv-SE",{timeZone:"America/Santiago",year:"numeric",month:"2-digit"}).format(new Date())
 const errText=(error:unknown)=>error instanceof Error?error.message:"No fue posible completar la operación"
 
-export default function MonthlyDocuments({contractor,readOnly,initialPeriod}:{contractor:Contractor;readOnly:boolean;initialPeriod?:string}){
+export default function MonthlyDocuments({contractor,readOnly,initialPeriod,onPeriodChange,onReviewed}:{contractor:Contractor;readOnly:boolean;initialPeriod?:string;onPeriodChange?:(period:string)=>void;onReviewed?:()=>void}){
   const [period,setPeriod]=useState(()=>initialPeriod||todayMonth())
   const [rows,setRows]=useState<MonthlyRecord[]>([])
   const [requirements,setRequirements]=useState<Requirement[]>([])
@@ -36,7 +36,7 @@ export default function MonthlyDocuments({contractor,readOnly,initialPeriod}:{co
   const independent=contractor.classification==="CI"
   const withWorkers=contractor.classification==="CT"
   const inactivePeriod=contractor.contract_status!=="active" && period>=todayMonth()
-  const required=requirements.length?requirements:types.filter(t=>t.value!=="otros").map(t=>({kind:t.value} as Requirement))
+  const required=requirements // Una matriz vacía no autoriza requisitos ficticios.
 
   const reload=useCallback(async()=>{
     const [monthly,matrix]=await Promise.all([
@@ -76,7 +76,7 @@ export default function MonthlyDocuments({contractor,readOnly,initialPeriod}:{co
     setBusy(true);setError("");setNotice("")
     try{
       await opsControlApi.reviews({association_id:contractor.id,period,kind:documentKind,subject,status,notes:message})
-      await reload();setNotice("Revisión guardada para todos los usuarios autorizados.")
+      await reload();onReviewed?.();setNotice("Revisión guardada para todos los usuarios autorizados.")
     }catch(err){setError(errText(err))}
     finally{setBusy(false)}
   }
@@ -89,7 +89,7 @@ export default function MonthlyDocuments({contractor,readOnly,initialPeriod}:{co
       <div><span className="eyebrow">CONTROL DOCUMENTAL COMPARTIDO</span><h3 id="monthly-title">Documentación mensual</h3>
         <p>Registros de {contractor.name} en esta obra. Las entregas informadas y revisiones se registran manualmente por mes de competencia.</p></div>
       <div className="monthly-selector"><label htmlFor="monthly-period">Mes de competencia</label>
-        <input id="monthly-period" type="month" min="2000-01" max="2099-12" value={period} onChange={e=>setPeriod(e.target.value)}/>
+        <input id="monthly-period" type="month" min="2000-01" max="2099-12" value={period} onChange={e=>{setPeriod(e.target.value);onPeriodChange?.(e.target.value)}}/>
         <button type="button" className="secondary" disabled={loading||busy} onClick={()=>void reload().catch(err=>setError(errText(err)))} title="Actualizar documentos"><RefreshCcw size={16}/> Actualizar</button></div>
     </div>
     {inactivePeriod&&<p className="ops-inactive-banner" role="status">Contratista inactivo: no se generan nuevas obligaciones documentales para este período. La documentación histórica permanece disponible para consulta.</p>}
@@ -98,19 +98,23 @@ export default function MonthlyDocuments({contractor,readOnly,initialPeriod}:{co
     {error&&<p className="form-error" role="alert">{error}</p>}
     {notice&&<p className="alert success" role="status"><CheckCircle2 size={16}/>{notice}</p>}
     {loading?<p><LoaderCircle size={16} className="spin"/> Cargando documentación mensual…</p>:<>
-      <div className="table-wrap"><table className="ops-list-table monthly-table"><thead><tr><th>REQUISITO</th><th>ESTADO</th><th>DOCUMENTO</th><th>ACCIÓN</th></tr></thead><tbody>
-        {required.map(req=>{const item=req.kind;const row=latest(item);const state=req?.state||row?.review_status||"needs_classification";return <tr key={item+"|"+(req.subject||"contractor")}>
+      <div className="table-wrap"><table className="ops-list-table monthly-table"><thead><tr><th>REQUISITO</th><th>ESTADO</th><th>OBSERVACIÓN / RESPALDO</th><th>ACCIÓN</th></tr></thead><tbody>
+        {required.map(req=>{const item=req.kind;const row=latest(item);const state=req?.state||row?.review_status||"needs_classification";return <tr key={item+"|"+(req.subject||"contractor")} id={"monthly-req-"+encodeURIComponent(item)+"-"+encodeURIComponent(req.subject||"contractor")}>
           <td><strong>{req.name||nameOf(item)}</strong><small style={{display:"block"}}>{req?.applicable===null?"Confirmar exigibilidad":req?.applicable===false?"No aplicable":"Requisito aplicable"}</small></td>
           <td><span className={"status "+(state==="approved"?"success":state==="observed"||state==="rejected"||state==="overdue"?"error":state==="pending"?"review":state==="not_yet_required"||state==="not_applicable"||state==="inactive"?"neutral":"waiting")}>{statuses[state]||state}</span></td>
-          <td>{row?.document_id?<a href={api.pdf(row.document_id)} target="_blank" rel="noreferrer">{row.original_name||"Abrir archivo"}</a>:req.source?"Revisión manual sin archivo":"—"}</td>
-          <td>{!readOnly&&req.worker_level?<a href={"/admin/configuracion/contratistas/"+encodeURIComponent(contractor.id)+"?tab=documentos"}>Revisar por trabajador</a>:!readOnly&&req?.applicable===true?<div className="control-cell-actions">
-            <button type="button" disabled={busy} onClick={()=>void manualReview(item,req.subject||"contractor","approved")}>Aprobar</button>
-            <button type="button" disabled={busy} onClick={()=>void manualReview(item,req.subject||"contractor","observed")}>Observar</button>
-            <button type="button" disabled={busy} onClick={()=>void manualReview(item,req.subject||"contractor","pending")}>Pendiente</button>
-            <button type="button" disabled={busy} onClick={()=>void manualReview(item,req.subject||"contractor","not_applicable")}>No aplica</button>
-          </div>:req?.applicable===null?"Configura la exigibilidad en Centro de control":"—"}</td>
+          <td><span className="monthly-v15-observation">{row?.notes||req.notes||"Sin observaciones registradas"}</span>{row?.document_id&&<a href={api.pdf(row.document_id)} target="_blank" rel="noreferrer">{row.original_name||"Abrir archivo existente"}</a>}{!row?.document_id&&req.source&&<small className="monthly-v15-source">Revisión manual, sin archivo asociado</small>}</td>
+          <td>{!readOnly&&req.worker_level?<a href={"/admin/configuracion/contratistas/"+encodeURIComponent(contractor.id)+"?tab=documentos"}>Revisar por trabajador</a>:!readOnly&&req?.applicable===true?<details className="monthly-v15-review">
+            <summary>Revisar</summary>
+            <div className="monthly-v15-review-actions" role="group" aria-label={"Revisión de "+(req.name||nameOf(item))}>
+              <button type="button" disabled={busy} onClick={()=>void manualReview(item,req.subject||"contractor","approved")}>Aprobar</button>
+              <button type="button" disabled={busy} onClick={()=>void manualReview(item,req.subject||"contractor","observed")}>Observar</button>
+              <button type="button" disabled={busy} onClick={()=>void manualReview(item,req.subject||"contractor","pending")}>Pendiente</button>
+              <button type="button" disabled={busy} onClick={()=>void manualReview(item,req.subject||"contractor","not_applicable")}>No aplica</button>
+            </div>
+          </details>:req?.applicable===null?"Configura la exigibilidad en Centro de control":"—"}</td>
         </tr>})}
       </tbody></table></div>
+      {!required.length&&<p className="monthly-v15-empty" role="status">No hay requisitos configurados para este contratista y período. Consulta Configuración General antes de registrar aprobaciones.</p>}
       <h4>Registros y respaldos existentes de {period}</h4>
       {rows.length===0?<p className="ops-help">Todavía no hay documentos vinculados a este mes. Los requisitos permanecen visibles para que puedas completarlos.</p>:
       <div className="table-wrap"><table className="ops-list-table monthly-table"><thead><tr><th>FECHA DE REGISTRO</th><th>TIPO</th><th>ARCHIVO</th><th>REVISIÓN MANUAL</th><th>OBSERVACIÓN</th></tr></thead><tbody>
