@@ -197,7 +197,17 @@ def legacy_requirements(db, org_id, association, company, period):
     documents = db.scalars(select(DocumentType).where(DocumentType.org_id == org_id)).all()
     rules = db.scalars(select(Rule).where(Rule.org_id == org_id)).all()
     overrides = {(r.association_id, r.period, r.kind): r for r in db.scalars(select(RequirementApplicability).where(RequirementApplicability.org_id == org_id, RequirementApplicability.association_id == association.id, RequirementApplicability.period == period))}
-    return {document.code: resolve(document, association, company, period, config, rules, overrides) for document in documents}
+    resolved = {document.code: resolve(document, association, company, period, config, rules, overrides) for document in documents}
+    if period < current_period():
+        snapshot = db.scalar(select(ConfigurationObligationSnapshot).where(
+            ConfigurationObligationSnapshot.org_id == org_id,
+            ConfigurationObligationSnapshot.association_id == association.id,
+            ConfigurationObligationSnapshot.period == period,
+        ))
+        if snapshot:
+            for code, entry in snapshot.payload.get("entries", {}).items():
+                resolved[code] = entry["effective"]
+    return resolved
 
 
 def empty_counts():

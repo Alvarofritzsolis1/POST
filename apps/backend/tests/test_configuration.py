@@ -776,6 +776,11 @@ def test_historical_obligations_survive_category_and_worker_changes(config_env, 
     assert historic["subject"] == worker["id"]
     assert historic["category"] == "CT"
     assert historic["state"] == "approved"
+    assert_ok(client.put(ROOT + "/reviews", headers=headers, json={
+        "association_id": ct["id"], "period": period, "subject": worker["id"],
+        "document_type_id": document["id"], "state": "incomplete", "notes": "Revisión explícita del período histórico",
+    }))
+    assert obligation(summary(client, period), ct["id"], document["code"], period)["state"] == "incomplete"
     proposed = rule(document["id"], period, scope="association", association_ids=[ct["id"]],
                     required=False, retroactive=True)
     apply_rule(client, headers, proposed)
