@@ -5,6 +5,7 @@ on:
   schedule:
     - cron: "0 9 * * 1"
   workflow_dispatch:
+  workflow_call:
 
 permissions:
   contents: read
@@ -298,69 +299,3 @@ jobs:
             docker compose -p galant-post-qa --env-file .env.qa -f docker-compose.preview.yml -f docker-compose.qa.yml down --volumes --remove-orphans || true
           fi
           rm -rf qa-storage .env.qa
-  deploy-vps:
-    name: Deploy VPS
-    needs: [backend, frontend, compose, restore-smoke, qa-stack-smoke]
-    if: >-
-      (github.event_name == 'workflow_dispatch' &&
-       github.ref == 'refs/heads/main' &&
-       vars.VPS_MANUAL_DEPLOY_ALLOWED == 'true' &&
-       vars.GALANT_POST_RELEASE_APPROVED == 'true') ||
-      (github.event_name == 'push' &&
-       github.ref == 'refs/heads/main' &&
-       vars.VPS_AUTODEPLOY == 'true' &&
-       vars.GALANT_POST_RELEASE_APPROVED == 'true')
-    runs-on: ubuntu-latest
-    timeout-minutes: 25
-    concurrency:
-      group: galant-post-vps-preview
-      cancel-in-progress: false
-    env:
-      VPS_HOST: ${{ secrets.VPS_HOST || vars.VPS_HOST || '89.117.144.140' }}
-      VPS_USER: ${{ secrets.VPS_USER || vars.VPS_USER || 'root' }}
-      VPS_PORT: ${{ secrets.VPS_PORT || vars.VPS_PORT || '22' }}
-      VPS_SSH_KEY: ${{ secrets.VPS_SSH_KEY }}
-      VPS_KNOWN_HOSTS: ${{ secrets.VPS_KNOWN_HOSTS }}
-      DEPLOY_SHA: ${{ github.sha }}
-    steps:
-      - name: Validate deployment configuration
-        shell: bash
-        run: |
-          set -Eeuo pipefail
-          missing=0
-          for key in VPS_SSH_KEY VPS_KNOWN_HOSTS; do
-            if [[ -z "${!key}" ]]; then
-              echo "::error title=Configuración VPS incompleta::Falta el secreto ${key}."
-              missing=1
-            fi
-          done
-          exit "$missing"
-      - name: Configure verified SSH access
-        shell: bash
-        run: |
-          set -Eeuo pipefail
-          umask 077
-          printf '%s\n' "$VPS_SSH_KEY" > "$RUNNER_TEMP/galant_vps_key"
-          printf '%s\n' "$VPS_KNOWN_HOSTS" > "$RUNNER_TEMP/galant_known_hosts"
-          chmod 600 "$RUNNER_TEMP/galant_vps_key"
-      - name: Update the isolated VPS stack
-        shell: bash
-        run: |
-          set -Eeuo pipefail
-          ssh_port="${VPS_PORT:-22}"
-          ssh -i "$RUNNER_TEMP/galant_vps_key" \
-            -o IdentitiesOnly=yes \
-            -o StrictHostKeyChecking=yes \
-            -o UserKnownHostsFile="$RUNNER_TEMP/galant_known_hosts" \
-            -p "$ssh_port" \
-            "$VPS_USER@$VPS_HOST" \
-            "bash -s -- '$DEPLOY_SHA'" <<'REMOTE'
-          set -Eeuo pipefail
-          target_ref="$1"
-          cd /opt/galant-post
-          git fetch --no-tags --depth=1 origin "$target_ref"
-          bootstrap_script="/tmp/galant-post-update-${target_ref}.sh"
-          trap 'rm -f "$bootstrap_script"' EXIT
-          git show "${target_ref}:scripts/update-preview.sh" > "$bootstrap_script"
-          GALANT_DEPLOY_DIR=/opt/galant-post bash "$bootstrap_script" "$target_ref"
-          REMOTE
