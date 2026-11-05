@@ -36,7 +36,8 @@ with sync_playwright() as playwright:
         hidden = desktop if width <= 780 else mobile
         expect(visible).to_be_visible()
         expect(hidden).to_be_hidden()
-        assert visible.inner_text() == "Creado por Álvaro Fritz"
+        rendered = " ".join((visible.text_content() or "").split())
+        assert rendered == "Creado por Álvaro Fritz", (width, rendered)
         box = visible.bounding_box()
         assert box is not None and box["width"] > 100, (width, box)
         assert box["x"] >= -1 and box["x"] + box["width"] <= width + 1, (width, box)
