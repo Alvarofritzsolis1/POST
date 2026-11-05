@@ -44,5 +44,5 @@ test("la versión API y la instalación frontend corresponden al parche", () => 
   assert.match(pkg.version, /^15\.0\.[0-9]+-rc1$/);
   assert.equal(lock.version, pkg.version);
   assert.equal(lock.packages[""].version, pkg.version);
-  assert.match(version, new RegExp(`VERSION = "${pkg.version.replace(/\\./g, "\\\\.")}"`));
+  assert.ok(version.includes(`VERSION = "${pkg.version}"`));
 });
