@@ -542,7 +542,7 @@ export default function Operations({readOnly,externalSiteId,mode,onImport,onSite
           {docOverview&&pendingDocs.length===0&&<p>No hay requisitos pendientes evaluables en este período.</p>}
           {pendingDocsPreview.map(item=><button type="button" key={item.kind+"|"+(item.subject||"contractor")}
             className={["overdue","observed","rejected"].includes(item.state)?"urgent":""}
-            onClick={()=>document.getElementById("monthly-req-"+encodeURIComponent(item.kind)+"-"+encodeURIComponent(item.subject||"contractor"))?.scrollIntoView({behavior:"smooth",block:"center"})}>
+            onClick={()=>window.dispatchEvent(new CustomEvent("galant-v15-document-focus",{detail:{kind:item.kind,subject:item.subject||"contractor"}}))}>
             <strong>{item.name||documentNames[item.kind]||item.kind}</strong>
             <small>{statusLabel(item.state)}</small>
             <span>Ver requisito <ChevronRight aria-hidden="true" size={14}/></span>
