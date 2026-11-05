@@ -25,7 +25,7 @@
 
 ## Precauciones y límites
 - Se conserva el flujo existente de `ContractEntry` para registrar contratos; no se inventan nuevos endpoints.
-- La clasificación CT/CE/CI no se imprime si el endpoint de vista no la proporciona: no se muestran datos supuestos.
+- La clasificación CT/CE/CI se obtiene del COD de la asociación contratista-obra (backend), no de una inferencia por tipo global de empresa; si no está disponible, se omite sin inventarla.
 - La regla de semanas y asistencia no se reescribe en el frontend: permanece la lógica del backend existente.
 - El control de acceso permanece en backend; una URL con un ID ajeno no debe revelar datos.
 - **No desplegar la rama en producción sin CI verde y revisión manual de roles/obras/datos reales.**
