@@ -9,7 +9,7 @@ const excludedStates = new Set([
   "no_movements", "inactive", "schedule_not_configured",
 ]);
 
-const urgentStates = new Set(["overdue", "observed", "rejected", "incomplete"]);
+const urgentStates = new Set(["overdue", "observed", "rejected", "incomplete", "missing"]);
 
 export function evaluableRequirement(row: Requirement): boolean {
   return row.applicable === true && !excludedStates.has(row.state);
@@ -22,6 +22,9 @@ export function requirementCounts(row: Requirement): { required: number; approve
 }
 
 export function requirementPending(row: Requirement): boolean {
+  // Exigibilidad desconocida y calendarios faltantes requieren configuración,
+  // pero no se suman al denominador de cumplimiento.
+  if (row.applicable === null || (row.applicable === true && row.state === "schedule_not_configured")) return true;
   if (!evaluableRequirement(row)) return false;
   const { required, approved } = requirementCounts(row);
   return required > approved;
@@ -35,8 +38,8 @@ export function summarizeRequirements(rows: Requirement[]) {
     acc.approved += count.approved;
     return acc;
   }, { required: 0, approved: 0 });
-  const pending = evaluable.filter(requirementPending);
-  const urgent = pending.filter(row => urgentStates.has(row.state));
+  const pending = rows.filter(requirementPending);
+  const urgent = pending.filter(row => urgentStates.has(row.state) || row.state === "needs_classification");
   return {
     ...totals,
     pending,
