@@ -47,12 +47,9 @@ docker run --rm -d --name "$container_name" \
   -e POSTGRES_PASSWORD="$pass" \
   postgres:16-alpine >/dev/null
 
-ready=0
-for attempt in $(seq 1 45); do
-  if docker exec "$container_name" pg_isready -q -U galant_restore -d galant_restore; then ready=1; break; fi
-  sleep 2
-done
-[[ "$ready" == 1 ]] || { echo "PostgreSQL temporal no inició" >&2; exit 3; }
+# No aceptar pg_isready del postmaster transitorio durante initdb: éste se apaga
+# antes de arrancar el proceso definitivo; la restauración fallaba intermitentemente.
+bash "$(dirname "$0")/wait-for-final-postgres.sh" "$container_name" galant_restore galant_restore
 
 docker exec -i "$container_name" pg_restore \
   --exit-on-error --single-transaction --no-owner --no-acl \
