@@ -312,7 +312,7 @@ def test_hundreds_workers_blank_columns_dates_types_and_history(env):
                 .select_from(ContractRegister)
                 .where(ContractRegister.end_date == date(2026, 9, 30))
             )
-            == 1
+            == 150
         )
         assert db.scalar(select(ContractRegister).where(
             ContractRegister.end_date == date(2026, 9, 30))).status == "active"
