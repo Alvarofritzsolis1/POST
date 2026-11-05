@@ -374,3 +374,15 @@ html:not([data-theme="dark"]) .platform .av13-detail button:focus-visible {
 [data-theme="dark"] .platform .ops-v15-attendance-link strong {color:#e0edf2}
 [data-theme="dark"] .platform .ops-v15-attendance-link p,
 [data-theme="dark"] .platform .ops-v15-attendance-link small {color:#c2d4e0}
+
+/* Trazabilidad laboral: fechas, responsable y cambio en lenguaje natural */
+.platform .v15-worker-history{display:grid;gap:12px}
+.platform .v15-worker-audit{display:grid;gap:8px;background:#fff;border:1px solid #e1eaf2;border-radius:12px;padding:16px 18px}
+.platform .v15-worker-audit-head{display:flex;gap:10px;align-items:center;justify-content:space-between;flex-wrap:wrap}
+.platform .v15-worker-audit-head strong{font-size:15px;color:#1d3952}
+.platform .v15-worker-audit-head time{color:#5a7186;font-size:12px}
+.platform .v15-worker-audit>span{font-size:13px;color:#3c5970;font-weight:700}
+.platform .v15-worker-audit>p{font-size:14px;color:#30495c;line-height:1.58;margin:0;overflow-wrap:anywhere}
+[data-theme="dark"] .platform .v15-worker-audit{background:#172f3a;border-color:#38515b}
+[data-theme="dark"] .platform .v15-worker-audit-head strong,
+[data-theme="dark"] .platform .v15-worker-audit>p{color:#e0edf2}
