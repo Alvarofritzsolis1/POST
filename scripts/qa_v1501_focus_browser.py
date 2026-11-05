@@ -48,6 +48,8 @@ def assert_stable(page, before, label):
     }""")
     assert len(samples) >= 5, (label, "Se registraron muy pocas muestras", len(samples))
     assert before["scrollY"] > 0, (label, "El ensayo no comprobó un desplazamiento vertical real", before)
+    assert 0 <= before["anchorTop"] < page.viewport_size["height"] - 30, (
+        label, "La tabla debe ser visible durante la prueba", before)
     for i, current in enumerate(samples):
         assert current["anchorTop"] is not None, (label, "Tabla desapareció durante la actualización", i, current)
         assert abs(current["scrollY"] - before["scrollY"]) <= 2, (
@@ -106,7 +108,11 @@ with sync_playwright() as playwright:
             page.evaluate("""() => {
               const sidebar = document.querySelector(".platform .sidebar");
               if (sidebar) sidebar.scrollTop = Math.min(85, sidebar.scrollHeight-sidebar.clientHeight);
-              window.scrollTo(0, Math.min(250, document.documentElement.scrollHeight-innerHeight));
+              const table = document.querySelector(".av93-month-matrix");
+              if (table) {
+                table.scrollIntoView({block: "start", behavior: "instant"});
+                window.scrollBy({top: -145, behavior: "instant"});
+              }
             }""")
             page.wait_for_timeout(120)
             before = page.evaluate(PROBE)
