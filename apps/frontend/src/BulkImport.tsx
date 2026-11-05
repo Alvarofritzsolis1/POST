@@ -20,6 +20,14 @@ type Preview = {
   }[];
 };
 type Batch = { id: string; filename: string; kind: string; created_at: string; result: Record<string, number> };
+const resultNames: Record<string,string> = {
+  created:"Creados", updated:"Actualizados", skipped:"Omitidos",unchanged:"Sin cambios",
+  contractors:"Contratistas", workers:"Trabajadores", associations:"Asignaciones",
+  errors:"Errores", warnings:"Advertencias", imported:"Importados", linked:"Vinculados",
+};
+const resultSummary=(result:Record<string,unknown>)=>
+  Object.entries(result).filter(([,value])=>typeof value==="number"||typeof value==="string"&&value.length<80)
+    .map(([key,value])=>(resultNames[key]||key.replaceAll("_"," "))+": "+String(value)).join(" · ");
 const names: Record<string, string> = {
   new: "Nuevos / nuevas relaciones",
   existing: "Existentes",
@@ -82,9 +90,16 @@ export default function BulkImport({
   }
   const dirty =
     !!preview && JSON.stringify(preview.input) !== JSON.stringify(draft);
+  const currentStep=notice.startsWith("Importación guardada")?7:preview?(dirty?3:5):file?1:0;
+  const stages=["Archivo","Encabezados","Validación","Duplicados","Resumen","Confirmación","Resultado"];
   return (
     <section className="panel">
       <h2>Importación masiva</h2>
+      <ol className="v15-import-steps" aria-label="Etapas de importación">
+        {stages.map((name,index)=><li key={name} className={currentStep>index+1?"done":currentStep===index+1?"current":""} aria-current={currentStep===index+1?"step":undefined}>
+          <span>{index+1}</span>{name}
+        </li>)}
+      </ol>
       <p>
         Carga varias obras en un archivo. Revisa las observaciones y los cambios
         antes de confirmar.
@@ -349,7 +364,7 @@ export default function BulkImport({
                     approve_updates: approve,
                   },
                 );
-                setNotice("Importación guardada: " + JSON.stringify(result));
+                setNotice("Importación guardada correctamente."+ (resultSummary(result) ? " "+resultSummary(result) : ""));
                 setHistory(await request<Batch[]>("/ops/imports/bulk/history"));
                 setPreview(null);
                 setDraft(null);
@@ -362,7 +377,11 @@ export default function BulkImport({
         </>
       )}
       <details><summary>Historial de importaciones</summary>
-        {history.map((batch) => <p key={batch.id}>{new Date(batch.created_at).toLocaleString("es-CL")} · {batch.filename} · {batch.kind} · {JSON.stringify(batch.result)}</p>)}
+        {history.map((batch) => <p key={batch.id} className="v15-import-history">
+          <strong>{batch.filename}</strong> · {batch.kind==="contractors"?"Contratistas":batch.kind==="workers"?"Trabajadores":"Tipo no reconocido"}
+          <small>{new Date(batch.created_at).toLocaleString("es-CL")}</small>
+          <span>{resultSummary(batch.result)||"Sin resumen adicional"}</span>
+        </p>)}
         {!history.length && <p>Sin importaciones confirmadas.</p>}
       </details>
     </section>
