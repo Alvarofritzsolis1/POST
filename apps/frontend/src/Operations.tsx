@@ -492,7 +492,7 @@ export default function Operations({readOnly,externalSiteId,mode,onImport,onSite
     </>}
     {selected&&<section className="results-card ops-card ops-detail-panel" aria-label="Ficha del contratista">
       <div className="ops-detail-tabs" role="group" aria-label="Secciones de la ficha">
-        {(["summary","workers","documents","history"] as const).map(tab=><button type="button" key={tab} aria-pressed={detailTab===tab} className={detailTab===tab?"selected":""} onClick={()=>{setDetailTab(tab);if(tab==="history"&&!historyOpen)void toggleHistory()}}>{({summary:"Resumen",workers:"Trabajadores",documents:"Documentación",history:"Historial"} as const)[tab]}</button>)}
+        {(["documents","summary","workers","contracts","severance","history"] as const).map(tab=><button type="button" key={tab} aria-pressed={detailTab===tab} className={detailTab===tab?"selected":""} onClick={()=>{setDetailTab(tab);if(tab==="history"&&!historyOpen)void toggleHistory()}}>{({documents:"Documentación",summary:"Resumen",workers:"Trabajadores",contracts:"Contratos",severance:"Finiquitos",history:"Historial"} as const)[tab]}</button>)}
       </div>
       {detailTab==="summary"&&<div className="ops-detail-content">
         <div className="ops-detail-overview"><div><b>Clasificación</b><span>{selected.classification}</span></div><div><b>Estado</b><span>{selected.contract_status==="active"?"Activo":"Inactivo"}</span></div><div><b>Trabajadores vigentes</b><span>{selected.worker_count}</span></div></div>
@@ -506,6 +506,26 @@ export default function Operations({readOnly,externalSiteId,mode,onImport,onSite
         {laborTotal>laborRows.length&&<p className="ops-help">Se muestran los primeros {laborRows.length} trabajadores. Consulta el módulo Trabajadores para ver el listado completo.</p>}
         {laborRows.length>0?<div className="table-wrap"><table className="ops-list-table"><thead><tr><th>TRABAJADOR</th><th>RUT</th><th>CONTRATO</th><th>INGRESO</th><th>TÉRMINO</th><th>ESTADO</th><th>FINIQUITO</th><th>FICHA</th></tr></thead><tbody>{laborRows.filter(w=>w.worker_name.toLowerCase().includes(workerSearch.toLowerCase())||(w.worker_rut||"").includes(workerSearch)).map(worker=><tr key={worker.assignment_id}><td><strong>{worker.worker_name}</strong></td><td>{worker.worker_rut}</td><td>{worker.contract_type||"Sin contrato"}</td><td>{laborDate(worker.start_date)}</td><td>{laborDate(worker.end_date)}</td><td>{laborStates[worker.labor_state]||worker.labor_state}</td><td>{laborStates[worker.finiquito_state]||worker.finiquito_state}</td><td><button className="secondary ops-small-button" onClick={()=>onWorkers?.(worker.assignment_id)}>Ver ficha</button></td></tr>)}</tbody></table></div>:
         workers.length===0?<div className="ops-empty">No hay trabajadores asociados a esta empresa en la obra.</div>:<div className="table-wrap"><table className="ops-list-table"><thead><tr><th>TRABAJADOR</th><th>RUT</th><th>ASIGNACIÓN</th><th>FICHA</th></tr></thead><tbody>{workers.filter(w=>w.name.toLowerCase().includes(workerSearch.toLowerCase())||(w.rut||"").includes(workerSearch)).map(worker=><tr key={worker.id}><td><strong>{worker.name}</strong></td><td>{worker.rut||"—"}</td><td>{worker.active?"Vigente":"Inactiva"}</td><td><button className="secondary ops-small-button" onClick={()=>onWorkers?.(worker.id)}>Ver ficha</button></td></tr>)}</tbody></table></div>}
+      </div>}
+      {(detailTab==="contracts"||detailTab==="severance")&&<div className="ops-detail-content ops-v15-labor-detail">
+        <div className="ops-v15-labor-heading">
+          <div><h3>{detailTab==="contracts"?"Contratos laborales":"Finiquitos y términos de contrato"}</h3>
+          <p>Información laboral registrada del contratista. Las modificaciones se realizan en la ficha del trabajador para conservar trazabilidad.</p></div>
+          <button type="button" className="secondary" onClick={()=>onWorkers?.()}>Abrir gestión laboral</button>
+        </div>
+        {laborError&&<p className="ops-help" role="alert">No fue posible consultar la información laboral: {laborError}</p>}
+        {laborTotal>laborRows.length&&<p className="ops-help">Listado parcial: se muestran {laborRows.length} de {laborTotal} registros. Abre Gestión Laboral para consultar todos.</p>}
+        <div className="table-wrap"><table className="ops-list-table">
+          <thead><tr><th>TRABAJADOR</th><th>RUT</th><th>{detailTab==="contracts"?"TIPO DE CONTRATO":"ESTADO LABORAL"}</th><th>INICIO</th><th>TÉRMINO</th><th>FINIQUITO</th><th>FICHA</th></tr></thead>
+          <tbody>{laborRows.filter(row=>detailTab==="contracts"||row.labor_state==="ended"||row.finiquito_state!=="not_applicable").map(row=><tr key={row.assignment_id}>
+            <td><strong>{row.worker_name}</strong></td><td>{row.worker_rut||"—"}</td>
+            <td>{detailTab==="contracts"?row.contract_type||"Por verificar":laborStates[row.labor_state]||row.labor_state}</td>
+            <td>{laborDate(row.start_date)}</td><td>{laborDate(row.end_date)}</td>
+            <td>{laborStates[row.finiquito_state]||row.finiquito_state||"Por verificar"}</td>
+            <td><button type="button" className="secondary ops-small-button" onClick={()=>onWorkers?.(row.assignment_id)}>Ver ficha</button></td>
+          </tr>)}</tbody>
+        </table></div>
+        {!laborRows.length&&<p className="ops-empty">No hay información laboral registrada para este contratista.</p>}
       </div>}
       {detailTab==="documents"&&<div className="ops-v15-document-layout">
         <div className="ops-v15-document-main"><MonthlyDocuments
