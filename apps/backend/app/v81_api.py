@@ -24,7 +24,7 @@ from .models import AuditEvent, Organization, User, utcnow
 from .platform_models import OrganizationSettings
 from .network_models import NetworkMembership
 from .network_service import actor_name, assigned_sites
-from .ops_api import association_for, audit_change, site_for
+from .ops_api import association_for, audit_change, site_for, contractor_classification
 from .ops_models import Contractor, ContractorWorksite, WorkerAssignment
 from .security import authorized_user, attendance_editor, administrator
 from .v81_models import CalendarWeek, CalendarEntry, CalendarDuty, MonthlyAssessment
@@ -654,6 +654,11 @@ def operational_overview(site_id: str, period: str, as_of: date | None = None,
         select(ContractorWorksite).where(
             ContractorWorksite.org_id == user.org_id,
             ContractorWorksite.worksite_id == site_id)).all()}
+    # Bulk-load contractor metadata for the association-specific CT / CE / CI code.
+    # Never infer the code from global company nature when the worksite COD exists.
+    companies = {company.id: company for company in db.scalars(
+        select(Contractor).where(Contractor.org_id == user.org_id,
+                                 Contractor.id.in_([link.contractor_id for link in links.values()]))).all()} if links else {}
     assignments = db.execute(select(WorkerAssignment, Worker).join(
         Worker, Worker.id == WorkerAssignment.worker_id).where(
             WorkerAssignment.org_id == user.org_id,
@@ -733,6 +738,8 @@ def operational_overview(site_id: str, period: str, as_of: date | None = None,
         rows.append({
             "association_id": association.id,
             "contractor": item["contractor"], "rut": item["rut"],
+            "classification": (contractor_classification(association, companies[association.contractor_id])
+                               if association.contractor_id in companies else None),
             "contractor_active": association.contract_status == "active",
             "contractor_status": association.contract_status,
             "attendance_applicable": item["included"],
