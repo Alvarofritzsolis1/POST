@@ -87,8 +87,7 @@ def test_six_columns_are_strict_and_code_must_be_valid(env):
     assert wrong.status_code == 422
     no_site = _preview(client, headers, "", [row])
     assert no_site.status_code == 422
-    invalid = _preview(client, headers, site["id"], [{*{}}]) if False else _preview(
-        client, headers, site["id"], [row[:5] + ["XX"]])
+    invalid = _preview(client, headers, site["id"], [row[:5] + ["XX"]])
     assert invalid.status_code == 200, invalid.text
     assert "COD de trabajador inválido" in str(invalid.json()["rows"][0]["errors"])
     empty_end = _preview(client, headers, site["id"], [row[:4] + ["", "TH"]])
