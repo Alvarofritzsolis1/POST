@@ -37,12 +37,12 @@ const stateLabel: Record<string, string> = {
 const typeLabel: Record<string, string> = { indefinite: "Indefinido", fixed_term: "Plazo fijo", project: "Obra o faena", services: "Servicios" };
 
 const auditEntityLabel:Record<string,string>={
-  worker:"Trabajador",worker_assignment:"Asignación laboral",contract:"Contrato",
+  worker:"Trabajador",worker_assignment:"Asignación laboral",worker_code:"Código del trabajador",contract:"Contrato",
   labor_contract:"Contrato laboral",contract_amendment:"Anexo de contrato",
   worker_termination:"Término laboral",termination:"Finiquito",contractor:"Contratista",
 };
 const auditFieldLabel:Record<string,string>={
-  name:"Nombre",rut:"RUT",active:"Estado de asignación",status:"Estado",start_date:"Fecha de ingreso",
+  name:"Nombre",rut:"RUT",worker_code:"COD trabajador",active:"Estado de asignación",status:"Estado",start_date:"Fecha de ingreso",
   end_date:"Fecha de término",termination_date:"Fecha efectiva de término",contract_type:"Tipo de contrato",
   labor_state:"Situación laboral",review_state:"Revisión",notes:"Observación",
   historical_code:"Clasificación",created:"Creación",imported:"Importación",created_at:"Fecha de registro",
