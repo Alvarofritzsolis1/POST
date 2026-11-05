@@ -311,7 +311,7 @@ export default function Operations({readOnly,externalSiteId,mode,onImport,onSite
     finally{setBusy(false)}
   }
 
-  const contractorEditor={contractorForm&&<form className="ops-form" onSubmit={event=>void saveContractor(event)}><h3>{contractorForm==="new"?"Nuevo contratista":"Editar contratista"}</h3><div className="ops-form-grid">
+  const contractorEditor=contractorForm&&<form className="ops-form" onSubmit={event=>void saveContractor(event)}><h3>{contractorForm==="new"?"Nuevo contratista":"Editar contratista"}</h3><div className="ops-form-grid">
         <label>Nombre o razón social<input required maxLength={180} value={contractorDraft.name} onChange={event=>setContractorDraft(current=>({...current,name:event.target.value}))}/></label>
         <label>RUT<input placeholder="12.345.678-5" value={contractorDraft.rut||""} onChange={event=>setContractorDraft(current=>({...current,rut:event.target.value}))}/></label>
         <label>Clasificación (COD)<select value={contractorDraft.historical_code||"CT"} onChange={event=>setContractorDraft(current=>({...current,historical_code:event.target.value}))}><option value="CT">CT · Fijo</option><option value="CE">CE · Esporádico</option><option value="CI">CI · Independiente</option></select></label>
