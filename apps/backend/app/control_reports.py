@@ -201,7 +201,7 @@ def monthly_excel(period: str, site_id: str | None = None,
                            "Por confirmar" if item["applicable"] is None else
                            "Sí" if item["applicable"] else "No",
                            item["state"], item["source"], item["notes"],
-                           item["request_date"], item["due_date"], item["reviewed_by"]])
+                           item["request_date"], item["due_date"], item.get("reviewed_name") or item["reviewed_by"]])
     return format_book(wb, f"GALANT_MATRIZ_MENSUAL_{period}.xlsx")
 
 
@@ -272,7 +272,8 @@ def analytics(
     distribution = {"ct": 0, "ci": 0, "other": 0, "sporadic": 0}
     states = {status: 0 for status in (
         "approved", "pending", "observed", "rejected", "overdue",
-        "not_yet_required", "needs_classification", "schedule_not_configured", "not_applicable"
+        "not_yet_required", "needs_classification", "schedule_not_configured", "not_applicable",
+        "submitted", "missing", "incomplete", "exempt", "no_movements", "inactive"
     )}
     expiry = {key: 0 for key in ("expired", "7_days", "15_days", "30_days", "not_due", "no_end_date")}
     for site in worksites:
@@ -300,7 +301,7 @@ def analytics(
         for key, value in site_dist.items():
             distribution[key] += value
         for key, value in site_states.items():
-            states[key] += value
+            states[key] = states.get(key, 0) + value
         for key, value in site_expiry.items():
             expiry[key] += value
         summaries.append({

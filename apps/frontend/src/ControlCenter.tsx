@@ -27,7 +27,9 @@ const states:Record<string,string>={
  pending:"Pendiente de revisión",approved:"Aprobado",observed:"Observado",
  rejected:"Rechazado",not_applicable:"No aplica",needs_classification:"Confirmar exigibilidad",
  not_yet_required:"No exigible todavía",overdue:"Vencido",
- schedule_not_configured:"Sin fecha configurada"
+ schedule_not_configured:"Sin fecha configurada",not_required:"No exigible",
+ submitted:"Entregado · pendiente de revisión",missing:"No entregado",incomplete:"Entregado incompleto",
+ exempt:"Exento",no_movements:"Sin movimientos",inactive:"Inactivo"
 }
 const number=(n:number|null|undefined)=>n==null?"Sin evaluar":n.toLocaleString("es-CL")
 const money=(n:string|number|null|undefined)=>n==null?"Sin evaluar":
@@ -273,11 +275,11 @@ export default function ControlCenter({readOnly,externalSiteId,externalPeriod,in
         {matrix?.contractors.map(c=><details className="control-company" key={c.association_id}>
           <summary><strong>{c.name}</strong><span>{c.code||"Sin código"} · {c.nature} · {c.rut||"Sin RUT"}</span></summary>
           <div className="table-wrap"><table className="control-table"><thead><tr><th>Seleccionar</th><th>Requisito</th><th>Exigibilidad</th><th>Estado</th><th>Gestión</th></tr></thead><tbody>
-          {c.requirements.map(r=><tr key={r.kind}><td><input type="checkbox"
-            aria-label={"Seleccionar "+c.name+" "+r.kind} disabled={readOnly||busy||r.applicable!==true}
+          {c.requirements.map(r=><tr key={r.kind+"|"+(r.subject||"contractor")}><td><input type="checkbox"
+            aria-label={"Seleccionar "+c.name+" "+r.kind} disabled={readOnly||busy||r.applicable!==true||r.worker_level}
             checked={selection.has(c.association_id+"|"+r.kind)}
             onChange={e=>toggleSelected(c.association_id+"|"+r.kind,e.target.checked)}/></td>
-            <td><strong>{kinds.find(k=>k.id===r.kind)?.name||r.kind}</strong>
+            <td><strong>{r.name||kinds.find(k=>k.id===r.kind)?.name||r.kind}</strong>
               <small>{r.source==="manual_without_pdf"?"Revisión manual sin PDF":r.source==="document"?"Con respaldo digital":""}</small></td>
             <td>{r.applicable===null?"Por confirmar":r.applicable?"Sí":"No"}
               {!readOnly&&r.applicable===null&&<div className="control-cell-actions">
@@ -286,7 +288,7 @@ export default function ControlCenter({readOnly,externalSiteId,externalPeriod,in
               </div>}</td>
             <td><span className={"control-state "+r.state}>{states[r.state]||r.state}</span>
               {r.notes&&<small>{r.notes}</small>}{r.due_date&&<small>Vence: {r.due_date}</small>}</td>
-            <td>{!readOnly&&r.applicable===true?<div className="control-cell-actions">
+            <td>{!readOnly&&r.worker_level?<a href={"/admin/configuracion/contratistas/"+encodeURIComponent(c.association_id)+"?tab=documentos"}>Revisar por trabajador</a>:!readOnly&&r.applicable===true?<div className="control-cell-actions">
               <button type="button" disabled={busy} onClick={()=>review(c.association_id,r.kind,"approved")}>Aprobar</button>
               <button type="button" disabled={busy} onClick={()=>review(c.association_id,r.kind,"observed")}>Observar</button>
               <button type="button" disabled={busy} onClick={()=>review(c.association_id,r.kind,"pending")}>Pendiente</button>

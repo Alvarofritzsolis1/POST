@@ -494,6 +494,9 @@ REQUIREMENTS = {
 }
 
 
+WORKER_LABELS = {"contrato_trabajo": "Contrato", "anexos_contrato": "Anexo", "finiquito": "Finiquito", "cotizaciones": "Cotizaciones", "liquidaciones": "Liquidaciones", "asistencia": "Libro de asistencia"}
+
+
 WORKER_REQUIREMENTS = {
     "CT": ["Contrato", "Cotizaciones", "Liquidaciones", "Libro de asistencia"],
     "CI": [],
@@ -507,7 +510,7 @@ class ReviewInput(BaseModel):
     association_id: str
     subject: str = "contractor"
     period: str
-    requirement: str = Field(min_length=1, max_length=80)
+    requirement: str = Field(min_length=1, max_length=180)
     state: Literal["pending", "approved", "observed", "rejected", "not_applicable"]
     observation: str = Field(default="", max_length=1000)
     document_id: str | None = None
@@ -530,7 +533,14 @@ def save_review(
             "Informe de portería": "porteria",
         }
         if body.requirement not in kinds:
-            raise HTTPException(422, "Requisito no reconocido")
+            from .configuration_models import ConfigurationDocumentType
+            custom = db.scalar(select(ConfigurationDocumentType).where(
+                ConfigurationDocumentType.org_id == user.org_id,
+                ConfigurationDocumentType.name == body.requirement,
+            ))
+            if custom is None:
+                raise HTTPException(422, "Requisito no reconocido")
+            kinds[body.requirement] = custom.code
         row = change_review(
             db,
             user,
@@ -601,7 +611,7 @@ def save_review(
             DocumentReview.association_id == link.id,
             DocumentReview.subject == body.subject,
             DocumentReview.period == body.period,
-            DocumentReview.requirement == body.requirement,
+            DocumentReview.requirement.in_([body.requirement] + [code for code, label in WORKER_LABELS.items() if label == body.requirement]),
         )
         .with_for_update()
     )
@@ -656,7 +666,7 @@ def document_matrix(
     if site_id:
         query = query.where(ContractorWorksite.worksite_id == site_id)
     controls = {
-        (r.association_id, r.subject, r.requirement): r
+        (r.association_id, r.subject, WORKER_LABELS.get(r.requirement, r.requirement)): r
         for r in db.scalars(
             select(DocumentReview).where(
                 DocumentReview.org_id == user.org_id, DocumentReview.period == period
@@ -722,15 +732,16 @@ def document_matrix(
                         "subject": "contractor",
                         "name": company["name"],
                         "period": period,
-                        "requirement": labels[req["kind"]],
+                        "requirement": req.get("name") or labels.get(req["kind"], req["kind"]),
                         "state": req["state"],
-                        "delivery_state": ("not_applicable" if req["state"] == "not_applicable" else
+                        "delivery_state": (req["state"] if req["state"] in {"incomplete", "submitted", "exempt", "no_movements"} else
+                                           "not_applicable" if req["state"] == "not_applicable" else
                                            "pending_review" if req["document_id"] and req["state"] == "pending" else
                                            req["state"] if req["state"] in {"approved", "observed", "rejected"} else
                                            "not_delivered" if not req["document_id"] else req["state"]),
                         "observation": req["notes"],
                         "document_id": req["document_id"],
-                        "reviewed_by": req["reviewed_by"],
+                        "reviewed_by": req.get("reviewed_name") or req["reviewed_by"],
                         "reviewed_at": str(req["reviewed_at"])
                         if req["reviewed_at"]
                         else None,
@@ -789,7 +800,9 @@ def document_matrix(
                             "observed" if observed_difference else
                             (r.state if r else "pending")
                         ),
-                        "delivery_state": ("not_applicable" if r and r.state == "not_applicable" else
+                        "delivery_state": ("incomplete" if incomplete else
+                                           r.state if r and r.state in {"submitted", "incomplete", "exempt", "no_movements", "approved", "rejected", "observed"} else
+                                           "not_applicable" if r and r.state == "not_applicable" else
                                            "not_delivered" if not r or not r.document_id else
                                            "pending_review" if r.state == "pending" else r.state),
                         "observation": (

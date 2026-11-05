@@ -7,10 +7,12 @@ export default function Settings({
   admin,
   sites,
   onPreferences,
+  onOpenConfiguration,
 }: {
   admin: boolean;
   sites: Site[];
   onPreferences: (p: Preferences) => void;
+  onOpenConfiguration?: () => void;
 }) {
   const [profile, setProfile] = useState<OrgProfile | null>(null),
     [users, setUsers] = useState<Account[]>([]),
@@ -73,6 +75,11 @@ export default function Settings({
   const prefs = profile?.preferences;
   return (
     <div className="settings-grid">
+      {admin && onOpenConfiguration && <section className="panel" style={{ gridColumn: "1 / -1" }}>
+        <h2>Configuración General</h2>
+        <p>Administra exigencias documentales por contratista, categoría, obra y período. Consulta el cumplimiento histórico y la trazabilidad.</p>
+        <button type="button" className="primary" onClick={onOpenConfiguration}>Configuración General</button>
+      </section>}
       <section className="panel">
         <h2>Perfil y preferencias</h2>
         <p>

@@ -40,8 +40,10 @@ from . import platform_models
 from .network_accounts import router as network_accounts_router
 from .network_api import router as network_router
 from .network_files import router as network_files_router
+from .configuration_api import router as configuration_router
 
 app = FastAPI(title="GALANT POST — Document Intelligence", version=VERSION, docs_url=None, redoc_url=None)
+app.include_router(configuration_router)
 app.include_router(compliance_router)
 app.include_router(admin_router)
 app.include_router(reconciliation_router)

@@ -3,7 +3,10 @@ import {request} from "./api"
 export type Requirement = {
   kind:string;applicable:boolean|null;state:string;source:string|null;
   document_id:string|null;reviewed_by:string|null;reviewed_at:string|null;
-  notes:string;request_date:string|null;due_date:string|null
+  notes:string;request_date:string|null;due_date:string|null;
+  name?:string;rule_source?:string;rule_id?:string|null;subject?:string;
+  required?:boolean;reviewed_name?:string|null;subjects?:number;worker_level?:boolean;
+  required_count?:number;approved_count?:number
 }
 export type MatrixCompany = {
   association_id:string;contractor_id:string;name:string;rut:string|null;
@@ -96,9 +99,9 @@ export const opsControlApi={
  contractTemplate:()=>"/api/v1"+ROOT+"/import/contracts/template",
  overview:(period:string,site_id:string|null)=>request<Overview>(ROOT+"/reports/overview"+q({period,site_id})),
  matrix:(site_id:string,period:string)=>request<Matrix>(ROOT+"/matrix"+q({site_id,period})),
- reviews:(data:{association_id:string;period:string;kind:string;status:string;notes:string})=>
+ reviews:(data:{association_id:string;period:string;kind:string;status:string;notes:string;subject?:string})=>
    request<{id:string;status:string;source:string}>(ROOT+"/reviews",{method:"POST",body:JSON.stringify(data)}),
- bulk:(reviews:Array<{association_id:string;period:string;kind:string;status:string;notes:string}>)=>
+ bulk:(reviews:Array<{association_id:string;period:string;kind:string;status:string;notes:string;subject?:string}>)=>
    request<{updated:number}>(ROOT+"/reviews/bulk",{method:"POST",body:JSON.stringify({reviews})}),
  applicability:(data:{association_id:string;period:string;kind:string;applicable:boolean;justification:string})=>
    request<{id:string}>(ROOT+"/applicability",{method:"PUT",body:JSON.stringify(data)}),
