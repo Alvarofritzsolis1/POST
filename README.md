@@ -1,4 +1,8 @@
-# GALANT POST — 15.0.3-rc1 · Importación de trabajadores con COD\n\nExcel de trabajadores en seis columnas, clasificación TH/TM/F editable, alertas por vencimiento para ADMIN y ADMINISTRATIVA, con alcance por obra. COD F marca inactividad operativa sin certificar finiquito. **Candidata en GitHub; pendiente de pruebas y despliegue al VPS.**\n\n# GALANT POST — 15.0.2-rc1 · Corrección de parpadeo y desplazamiento
+# GALANT POST — 15.0.3-rc1 · Importación de trabajadores con COD
+
+Excel de trabajadores en seis columnas, clasificación TH/TM/F editable, alertas por vencimiento para ADMIN y ADMINISTRATIVA, con alcance por obra. COD F marca inactividad operativa sin certificar finiquito. **Candidata en GitHub; pendiente de pruebas y despliegue al VPS.**
+
+# GALANT POST — 15.0.2-rc1 · Corrección de parpadeo y desplazamiento
 
 Corrige el salto al inicio y el parpadeo de la tabla de Contratistas al actualizar. El sondeo mantiene la tabla montada, la apertura y navegación de módulos reinicia el scroll de manera predecible, y el regreso desde una ficha conserva la posición original. Sin migraciones ni cambios documentales. **Pendiente de validación QA y despliegue en VPS.**
 
