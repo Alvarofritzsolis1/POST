@@ -53,7 +53,7 @@ jobs:
     steps:
       - uses: actions/checkout@v4
       - run: bash -n scripts/install-preview.sh scripts/diagnose.sh scripts/backup-preview.sh scripts/verify-restore-preview.sh scripts/update-preview.sh scripts/start-qa-preview.sh
-      - run: python3 -m py_compile scripts/soak_24h.py scripts/qa_stack_smoke.py scripts/qa_operational_smoke.py scripts/qa_network_browser.py scripts/qa_v1010_browser.py scripts/qa_ux_2026_browser.py
+      - run: python3 -m py_compile scripts/soak_24h.py scripts/qa_stack_smoke.py scripts/qa_operational_smoke.py scripts/qa_network_browser.py scripts/qa_v1010_browser.py scripts/qa_ux_2026_browser.py scripts/qa_v1501_focus_browser.py
       - name: Validate isolated Docker preview config
         env:
           APP_SECRET: ci_test_secret
@@ -248,6 +248,20 @@ jobs:
           export GALANT_QA_PASSWORD="$QA_SMOKE_PASSWORD"
           export GALANT_UX_OUTPUT="$RUNNER_TEMP/ux-2026-browser"
           python3 scripts/qa_ux_2026_browser.py
+      - name: QA GALANT 15.0.1 - cambio de pestaña, scroll y carga con Chromium
+        env:
+          GALANT_QA_EMAIL: qa-admin@example.test
+        run: |
+          set -Eeuo pipefail
+          export GALANT_QA_PASSWORD="$QA_SMOKE_PASSWORD"
+          export GALANT_FOCUS_QA_OUTPUT="$RUNNER_TEMP/galant-focus-qa"
+          python3 scripts/qa_v1501_focus_browser.py
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: galant-v1501-focus-browser
+          path: ${{ runner.temp }}/galant-focus-qa
+          if-no-files-found: warn
       - uses: actions/upload-artifact@v4
         with:
           name: red-de-obras-browser
