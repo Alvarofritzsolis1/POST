@@ -46,7 +46,7 @@ export function Login({onLogin,version}:{onLogin:(user:Profile)=>void;version:st
           <span><b>02</b> Importa datos</span>
           <span><b>03</b> Revisa registros</span>
         </div>
-        <div className="login-decoration-foot"><span>GALANT POST</span><span>DOCUMENT INTELLIGENCE</span></div>
+        <div className="login-decoration-foot"><span>GALANT POST</span><span className="login-author-credit">Creado por <strong>Álvaro Fritz</strong></span></div>
       </div>
     </div>
     <div className="login-panel">
@@ -72,6 +72,7 @@ export function Login({onLogin,version}:{onLogin:(user:Profile)=>void;version:st
         </form>
         <a href="#recuperar-clave">¿Olvidaste tu contraseña?</a>
         <div className="login-footer"><ShieldCheck size={17}/> Espacio de acceso restringido. Cada resultado requiere evaluación documental responsable.</div>
+        <div className="login-author-credit login-author-credit--mobile">Creado por <strong>Álvaro Fritz</strong></div>
       </div>
     </div>
   </div>
