@@ -1,4 +1,10 @@
-# GALANT POST — v8.0.0 · Red de Obras
+# GALANT POST — 13.1.0-rc1 · Configuración General
+
+Centro exclusivo para ADMIN con catálogo y reglas documentales por contratista, obra, categoría y período, consulta multiperíodo ponderada, Portería mensual, revisiones manuales y auditoría. **Sin nuevas cargas de documentación y sin despliegue al VPS.** Conserva los originales históricos y los espacios existentes de administrativas y residentes.
+
+Consulta [entrega, migración, pruebas e instrucciones de actualización](docs/ENTREGA_13_1_0_CONFIGURACION.md) y el [prompt ajustado sin carga documental](docs/PROMPT_CONFIGURACION_GENERAL_SIN_CARGAS.md).
+
+## Antecedentes de Red de Obras
 
 La candidata v8.0.0 corrige la vista compartida de todas las obras, preserva el origen de cada publicación, limita la edición de residentes a sus propios registros y reemplaza el historial JSON por una línea de tiempo legible. **No está desplegada: requiere validación y revisión del pull request.** Véase [entrega v8](docs/ENTREGA_8.0.0.md).
 
