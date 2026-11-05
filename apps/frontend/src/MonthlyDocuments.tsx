@@ -4,6 +4,7 @@ import {api} from "./api"
 import {opsApi,type Contractor,type MonthlyRecord} from "./opsApi"
 import {opsControlApi,type Requirement} from "./opsControlApi"
 import "./monthly.css"
+import {summarizeRequirements,statusTone,statusLabel} from "./documentUX"
 
 const types=[
   {value:"cotizaciones",label:"Pago de cotizaciones"},
@@ -33,10 +34,23 @@ export default function MonthlyDocuments({contractor,readOnly,initialPeriod,onPe
   const [loading,setLoading]=useState(true)
   const [error,setError]=useState("")
   const [notice,setNotice]=useState("")
+  const [docSearch,setDocSearch]=useState("")
+  const [docState,setDocState]=useState("all")
   const independent=contractor.classification==="CI"
   const withWorkers=contractor.classification==="CT"
   const inactivePeriod=contractor.contract_status!=="active" && period>=todayMonth()
-  const required=requirements // Una matriz vacía no autoriza requisitos ficticios.
+  const required=requirements // Las obligaciones provienen del evaluador documental.
+  const displayRows=required.filter(req=>{
+    const name=(req.name||nameOf(req.kind)).toLocaleLowerCase("es-CL")
+    const matches=!docSearch.trim()||name.includes(docSearch.trim().toLocaleLowerCase("es-CL"))
+    const state=req.state||"pending"
+    const allowed=docState==="all"||
+      (docState==="approved"&&state==="approved")||
+      (docState==="critical"&&["observed","rejected","overdue","incomplete","missing"].includes(state))||
+      (docState==="review"&&["pending","submitted"].includes(state))||
+      (docState==="excluded"&&["not_applicable","exempt","no_movements","not_required","not_yet_required","inactive"].includes(state))
+    return matches&&allowed
+  })
 
   const reload=useCallback(async()=>{
     const [monthly,matrix]=await Promise.all([
@@ -81,9 +95,9 @@ export default function MonthlyDocuments({contractor,readOnly,initialPeriod,onPe
     finally{setBusy(false)}
   }
   const latest=(documentKind:string)=>rows.find(row=>row.kind===documentKind)
-  const eligible=requirements.filter(r=>r.applicable===true&&!['not_yet_required','schedule_not_configured'].includes(r.state))
-  const total=eligible.reduce((n,r)=>n+(r.required_count??1),0)
-  const approved=eligible.reduce((n,r)=>n+(r.approved_count??(r.state==="approved"?1:0)),0)
+  const summary=summarizeRequirements(requirements)
+  const total=summary.required
+  const approved=summary.approved
   return <section className="monthly-panel" aria-labelledby="monthly-title">
     <div className="monthly-header">
       <div><span className="eyebrow">CONTROL DOCUMENTAL COMPARTIDO</span><h3 id="monthly-title">Documentación mensual</h3>
@@ -97,11 +111,19 @@ export default function MonthlyDocuments({contractor,readOnly,initialPeriod,onPe
     {!independent&&!withWorkers&&contractor.classification!=="CE"&&<p className="ops-help">Contratista sin clasificación documental completa: confirma su naturaleza y obligaciones antes de aprobar el período.</p>}
     {error&&<p className="form-error" role="alert">{error}</p>}
     {notice&&<p className="alert success" role="status"><CheckCircle2 size={16}/>{notice}</p>}
+    <div className="monthly-v15-filters" role="search" aria-label="Filtrar documentación mensual">
+      <label>Buscar documento<input type="search" value={docSearch} placeholder="F30, portería, liquidaciones…" onChange={event=>setDocSearch(event.target.value)}/></label>
+      <label>Estado documental<select aria-label="Filtrar por estado documental" value={docState} onChange={event=>setDocState(event.target.value)}>
+        <option value="all">Todos los estados</option><option value="critical">Incumplimientos</option><option value="review">En revisión</option>
+        <option value="approved">Aprobados</option><option value="excluded">No exigibles o exentos</option>
+      </select></label>
+      <span aria-live="polite">{displayRows.length} de {required.length} requisitos</span>
+    </div>
     {loading?<p><LoaderCircle size={16} className="spin"/> Cargando documentación mensual…</p>:<>
       <div className="table-wrap"><table className="ops-list-table monthly-table"><thead><tr><th>REQUISITO</th><th>ESTADO</th><th>OBSERVACIÓN / RESPALDO</th><th>ACCIÓN</th></tr></thead><tbody>
-        {required.map(req=>{const item=req.kind;const row=latest(item);const state=req?.state||row?.review_status||"needs_classification";return <tr key={item+"|"+(req.subject||"contractor")} id={"monthly-req-"+encodeURIComponent(item)+"-"+encodeURIComponent(req.subject||"contractor")}>
+        {displayRows.map(req=>{const item=req.kind;const row=req.worker_level?undefined:latest(item);const state=req?.state||row?.review_status||"needs_classification";return <tr key={item+"|"+(req.subject||"contractor")} id={"monthly-req-"+encodeURIComponent(item)+"-"+encodeURIComponent(req.subject||"contractor")}>
           <td><strong>{req.name||nameOf(item)}</strong><small style={{display:"block"}}>{req?.applicable===null?"Confirmar exigibilidad":req?.applicable===false?"No aplicable":"Requisito aplicable"}</small></td>
-          <td><span className={"status "+(state==="approved"?"success":state==="observed"||state==="rejected"||state==="overdue"?"error":state==="pending"?"review":state==="not_yet_required"||state==="not_applicable"||state==="inactive"?"neutral":"waiting")}>{statuses[state]||state}</span></td>
+          <td><span className={"status "+({ok:"success",warn:"review",bad:"error",muted:"neutral"} as const)[statusTone(state)]}>{statusLabel(state)}</span></td>
           <td><span className="monthly-v15-observation">{row?.notes||req.notes||"Sin observaciones registradas"}</span>{row?.document_id&&<a href={api.pdf(row.document_id)} target="_blank" rel="noreferrer">{row.original_name||"Abrir archivo existente"}</a>}{!row?.document_id&&req.source&&<small className="monthly-v15-source">Revisión manual, sin archivo asociado</small>}</td>
           <td>{!readOnly&&req.worker_level?<a href={"/admin/configuracion/contratistas/"+encodeURIComponent(contractor.id)+"?tab=documentos"}>Revisar por trabajador</a>:!readOnly&&req?.applicable===true?<details className="monthly-v15-review">
             <summary>Revisar</summary>
@@ -115,6 +137,7 @@ export default function MonthlyDocuments({contractor,readOnly,initialPeriod,onPe
         </tr>})}
       </tbody></table></div>
       {!required.length&&<p className="monthly-v15-empty" role="status">No hay requisitos configurados para este contratista y período. Consulta Configuración General antes de registrar aprobaciones.</p>}
+      {!!required.length&&!displayRows.length&&<p className="monthly-v15-empty" role="status">No hay documentos que coincidan con estos filtros.</p>}
       <h4>Registros y respaldos existentes de {period}</h4>
       {rows.length===0?<p className="ops-help">Todavía no hay documentos vinculados a este mes. Los requisitos permanecen visibles para que puedas completarlos.</p>:
       <div className="table-wrap"><table className="ops-list-table monthly-table"><thead><tr><th>FECHA DE REGISTRO</th><th>TIPO</th><th>ARCHIVO</th><th>REVISIÓN MANUAL</th><th>OBSERVACIÓN</th></tr></thead><tbody>
