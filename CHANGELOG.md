@@ -1,5 +1,17 @@
 # Historial de cambios
 
+## 15.0.5-rc1 — Despliegue automático seguro tras aprobación de versión
+
+- Se activa el flujo automático en GitHub Actions solo para commits integrados en `main` que aumenten la versión de backend, frontend y lockfile de forma coherente.
+- Un cambio de documentación o código que no incremente versión no dispara despliegue.
+- Cada versión nueva vuelve a superar backend, frontend, pruebas Docker, restauración aislada y QA visual antes de desplegar.
+- Se reutilizan las credenciales SSH ya comprobadas `VPS_SSH_KEY` y `VPS_KNOWN_HOSTS` en el entorno `GALANT-VPS`.
+- El despliegue comprueba el commit exacto y la punta de `main`; crea respaldo de PostgreSQL y documentos, prueba restauración, migra y comprueba estado y commit. Rollback de contenedores si falla.
+- El botón manual permanece disponible; se excluyen PR, ramas, tareas programadas y eventos de CI como disparadores automáticos.
+- Se añaden pruebas con commits Git sintéticos para impedir versiones incompletas, descendentes o no aprobadas.
+- **Activación:** al fusionar esta versión en `main`, GitHub Actions inicia la primera publicación automática solo si las pruebas terminan correctamente.
+
+
 ## 15.0.4-rc1 — Firma de autor en portada (candidata)
 
 - La pantalla pública de acceso muestra «Creado por Álvaro Fritz» en su franja inferior, con un acento dorado discreto integrado al diseño premium existente.
