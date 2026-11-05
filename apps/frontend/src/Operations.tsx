@@ -58,7 +58,7 @@ const contractorFromUrl=()=>{const match=window.location.pathname.match(/^\/cont
 const documentNames:Record<string,string>={cotizaciones:"Pago de cotizaciones",f30_1:"F30-1",asistencia:"Registro de asistencia",liquidaciones:"Liquidaciones de sueldo",porteria:"Informe de portería",declaracion_jurada:"Declaración jurada",anticipos:"Listado de anticipos"}
 const templateUrl=(kind:string)=>"/api/v1/ops/imports/templates/"+encodeURIComponent(kind)+"?format=xlsx"
 
-export default function Operations({readOnly,externalSiteId,mode,onImport,onSiteChange,onPeriodChange,onWorkers,classificationFilter="all",period=""}:{readOnly:boolean;externalSiteId?:string;mode?:string;onImport?:()=>void;onSiteChange?:(id:string)=>void;onPeriodChange?:(period:string)=>void;onWorkers?:(assignmentId?:string)=>void;classificationFilter?:string;period?:string}){
+export default function Operations({readOnly,externalSiteId,mode,onImport,onSiteChange,onPeriodChange,onAttendance,onWorkers,classificationFilter="all",period=""}:{readOnly:boolean;externalSiteId?:string;mode?:string;onImport?:()=>void;onSiteChange?:(id:string)=>void;onPeriodChange?:(period:string)=>void;onAttendance?:(associationId:string,siteId:string,period:string)=>void;onWorkers?:(assignmentId?:string)=>void;classificationFilter?:string;period?:string}){
   const [sites,setSites]=useState<Site[]>([])
   const [siteId,setSiteId]=useState(externalSiteId||"")
   useEffect(()=>{if(externalSiteId)setSiteId(externalSiteId)},[externalSiteId])
@@ -83,7 +83,7 @@ export default function Operations({readOnly,externalSiteId,mode,onImport,onSite
   const [search,setSearch]=useState("")
   const [codeFilter,setCodeFilter]=useState("all")
   const [statusFilter,setStatusFilter]=useState<"active"|"inactive"|"all">("active")
-  const [detailTab,setDetailTab]=useState<"summary"|"workers"|"documents"|"contracts"|"severance"|"history">("documents")
+  const [detailTab,setDetailTab]=useState<"summary"|"workers"|"documents"|"attendance"|"contracts"|"severance"|"history">("documents")
   const [workerSearch,setWorkerSearch]=useState("")
   const [contractorForm,setContractorForm]=useState<"new"|"edit"|null>(null)
   const [contractorDraft,setContractorDraft]=useState<ContractorInput>(blankContractor(""))
@@ -493,7 +493,7 @@ export default function Operations({readOnly,externalSiteId,mode,onImport,onSite
     </>}
     {selected&&<section className="results-card ops-card ops-detail-panel" aria-label="Ficha del contratista">
       <div className="ops-detail-tabs" role="group" aria-label="Secciones de la ficha">
-        {(["documents","summary","workers","contracts","severance","history"] as const).map(tab=><button type="button" key={tab} aria-pressed={detailTab===tab} className={detailTab===tab?"selected":""} onClick={()=>{setDetailTab(tab);if(tab==="history"&&!historyOpen)void toggleHistory()}}>{({documents:"Documentación",summary:"Resumen",workers:"Trabajadores",contracts:"Contratos",severance:"Finiquitos",history:"Historial"} as const)[tab]}</button>)}
+        {(["documents","summary","workers","attendance","contracts","severance","history"] as const).map(tab=><button type="button" key={tab} aria-pressed={detailTab===tab} className={detailTab===tab?"selected":""} onClick={()=>{setDetailTab(tab);if(tab==="history"&&!historyOpen)void toggleHistory()}}>{({documents:"Documentación",summary:"Resumen",workers:"Trabajadores",attendance:"Asistencia",contracts:"Contratos",severance:"Finiquitos",history:"Historial"} as const)[tab]}</button>)}
       </div>
       {detailTab==="summary"&&<div className="ops-detail-content">
         <div className="ops-detail-overview"><div><b>Clasificación</b><span>{selected.classification}</span></div><div><b>Estado</b><span>{selected.contract_status==="active"?"Activo":"Inactivo"}</span></div><div><b>Trabajadores vigentes</b><span>{selected.worker_count}</span></div></div>
@@ -508,6 +508,13 @@ export default function Operations({readOnly,externalSiteId,mode,onImport,onSite
         {laborRows.length>0?<div className="table-wrap"><table className="ops-list-table"><thead><tr><th>TRABAJADOR</th><th>RUT</th><th>CONTRATO</th><th>INGRESO</th><th>TÉRMINO</th><th>ESTADO</th><th>FINIQUITO</th><th>FICHA</th></tr></thead><tbody>{laborRows.filter(w=>w.worker_name.toLowerCase().includes(workerSearch.toLowerCase())||(w.worker_rut||"").includes(workerSearch)).map(worker=><tr key={worker.assignment_id}><td><strong>{worker.worker_name}</strong></td><td>{worker.worker_rut}</td><td>{worker.contract_type||"Sin contrato"}</td><td>{laborDate(worker.start_date)}</td><td>{laborDate(worker.end_date)}</td><td>{laborStates[worker.labor_state]||worker.labor_state}</td><td>{laborStates[worker.finiquito_state]||worker.finiquito_state}</td><td><button className="secondary ops-small-button" onClick={()=>onWorkers?.(worker.assignment_id)}>Ver ficha</button></td></tr>)}</tbody></table></div>:
         workers.length===0?<div className="ops-empty">No hay trabajadores asociados a esta empresa en la obra.</div>:<div className="table-wrap"><table className="ops-list-table"><thead><tr><th>TRABAJADOR</th><th>RUT</th><th>ASIGNACIÓN</th><th>FICHA</th></tr></thead><tbody>{workers.filter(w=>w.name.toLowerCase().includes(workerSearch.toLowerCase())||(w.rut||"").includes(workerSearch)).map(worker=><tr key={worker.id}><td><strong>{worker.name}</strong></td><td>{worker.rut||"—"}</td><td>{worker.active?"Vigente":"Inactiva"}</td><td><button className="secondary ops-small-button" onClick={()=>onWorkers?.(worker.id)}>Ver ficha</button></td></tr>)}</tbody></table></div>}
       </div>}
+      {detailTab==="attendance"&&<section className="ops-detail-content ops-v15-attendance-link" aria-label="Asistencia de este contratista">
+        <div><h3>Asistencia semanal del contratista</h3>
+          <p>Consulta los trabajadores, semanas exigibles y revisiones del período desde el módulo de asistencia ya existente. No se duplican registros.</p>
+          <strong>{selected.name}</strong><small>{sites.find(item=>item.id===siteId)?.name||"Obra actual"} · {documentPeriod||period}</small>
+        </div>
+        <button type="button" className="primary" onClick={()=>onAttendance?.(selected.id,siteId,documentPeriod||period)}>Abrir asistencia semanal <ChevronRight size={16} aria-hidden="true"/></button>
+      </section>}
       {(detailTab==="contracts"||detailTab==="severance")&&<div className="ops-detail-content ops-v15-labor-detail">
         <div className="ops-v15-labor-heading">
           <div><h3>{detailTab==="contracts"?"Contratos laborales":"Finiquitos y términos de contrato"}</h3>
