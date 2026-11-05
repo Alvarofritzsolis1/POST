@@ -55,8 +55,12 @@ jobs:
       - uses: actions/checkout@v4
       - run: bash -n scripts/install-preview.sh scripts/diagnose.sh scripts/backup-preview.sh scripts/verify-restore-preview.sh scripts/update-preview.sh scripts/start-qa-preview.sh scripts/wait-for-final-postgres.sh
       - run: python3 -m py_compile scripts/soak_24h.py scripts/qa_stack_smoke.py scripts/qa_operational_smoke.py scripts/qa_network_browser.py scripts/qa_v1010_browser.py scripts/qa_ux_2026_browser.py scripts/qa_v1501_focus_browser.py scripts/qa_v1502_scroll_browser.py scripts/qa_v1504_creator_browser.py
-      - name: Validate manual-only VPS deployment security contract
+      - name: Validate manual/automatic VPS deployment security contracts
         run: python3 scripts/qa_manual_deploy_contract.py
+      - name: Validate automatic release gate with synthetic Git commits
+        run: python3 scripts/test_auto_release.py
+      - name: Compile auto-release scripts
+        run: python3 -m py_compile scripts/check_auto_release.py scripts/test_auto_release.py
       - name: Reproduce temporary PostgreSQL startup race (deterministic)
         run: python3 scripts/test_wait_for_final_postgres.py
       - name: Validate isolated Docker preview config

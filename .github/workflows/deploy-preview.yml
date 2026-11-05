@@ -1,69 +1,142 @@
-name: POST - despliegue automatico privado
+name: GALANT - Despliegue automatico seguro
 
+# Solo integraciones en main; jamás despliega desde PR, otras ramas ni cron.
+# Un commit sin incremento explícito y sincronizado de versión se omite.
 on:
-  workflow_run:
-    workflows: ["GALANT POST - CI"]
-    types: [completed]
+  push:
     branches: [main]
-  workflow_dispatch:
 
 permissions:
   contents: read
 
+# Serializar con el botón de despliegue manual del mismo VPS.
 concurrency:
-  group: post-preview-vps
+  group: galant-post-vps-preview
   cancel-in-progress: false
 
 jobs:
-  deploy-preview:
-    if: ${{ vars.POST_AUTODEPLOY_ENABLED == 'true' && vars.GALANT_POST_RELEASE_APPROVED == 'true' && (github.event_name == 'workflow_dispatch' || github.event.workflow_run.conclusion == 'success') }}
+  comprobar_version:
+    name: Validar nueva versión aprobada en main
+    if: ${{ github.repository == 'Alvarofritzsolis1/POST' && github.event_name == 'push' && github.ref == 'refs/heads/main' }}
     runs-on: ubuntu-latest
-    timeout-minutes: 25
-    environment: post-preview
+    outputs:
+      deploy: ${{ steps.version.outputs.deploy }}
+      detail: ${{ steps.version.outputs.detail }}
     steps:
-      - name: Comprobar configuracion SSH
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 2
+          persist-credentials: false
+      - name: Comprobar versiones y commit exacto antes de usar secretos
+        id: version
         env:
-          DEPLOY_HOST: ${{ secrets.POST_DEPLOY_HOST }}
-          DEPLOY_USER: ${{ secrets.POST_DEPLOY_USER }}
-          DEPLOY_KEY: ${{ secrets.POST_DEPLOY_SSH_KEY }}
-          DEPLOY_KNOWN_HOSTS: ${{ secrets.POST_DEPLOY_KNOWN_HOSTS }}
+          BEFORE_SHA: ${{ github.event.before }}
+          TARGET_SHA: ${{ github.sha }}
         shell: bash
         run: |
-          set -euo pipefail
-          for value in "$DEPLOY_HOST" "$DEPLOY_USER" "$DEPLOY_KEY" "$DEPLOY_KNOWN_HOSTS"; do
-            if [[ -z "$value" ]]; then
-              echo "Faltan Secrets POST_DEPLOY_* en el environment post-preview"
-              exit 1
+          set -Eeuo pipefail
+          python3 scripts/check_auto_release.py \
+            --base "$BEFORE_SHA" --head "$TARGET_SHA" \
+            --github-output "$GITHUB_OUTPUT"
+
+  pruebas:
+    name: Ejecutar TODA la CI antes de desplegar
+    needs: comprobar_version
+    if: ${{ needs.comprobar_version.outputs.deploy == 'true' }}
+    uses: ./.github/workflows/ci.yml
+    permissions:
+      contents: read
+
+  desplegar:
+    name: Desplegar GALANT con respaldo y rollback
+    needs: [comprobar_version, pruebas]
+    if: ${{ github.event_name == 'push' && github.ref == 'refs/heads/main' && needs.comprobar_version.outputs.deploy == 'true' && needs.pruebas.result == 'success' }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+
+    # Configure aquí los revisores obligatorios si el plan de GitHub lo permite.
+    environment:
+      name: GALANT-VPS
+
+    env:
+      VPS_HOST: ${{ secrets.VPS_HOST || vars.VPS_HOST || '89.117.144.140' }}
+      VPS_USER: ${{ secrets.VPS_USER || vars.VPS_USER || 'root' }}
+      VPS_PORT: ${{ secrets.VPS_PORT || vars.VPS_PORT || '22' }}
+      VPS_SSH_KEY: ${{ secrets.VPS_SSH_KEY }}
+      VPS_KNOWN_HOSTS: ${{ secrets.VPS_KNOWN_HOSTS }}
+      DEPLOY_SHA: ${{ github.sha }}
+
+    steps:
+      - name: Comprobar autorización y configuración SSH
+        shell: bash
+        run: |
+          set -Eeuo pipefail
+          if [[ "$GITHUB_REF" != "refs/heads/main" ]]; then
+            echo "::error::Solo se despliega la rama main."
+            exit 1
+          fi
+          if [[ ! "$DEPLOY_SHA" =~ ^[0-9a-f]{40}$ ]]; then
+            echo "::error::Referencia de versión no válida."
+            exit 1
+          fi
+          missing=0
+          for key in VPS_SSH_KEY VPS_KNOWN_HOSTS; do
+            if [[ -z "${!key}" ]]; then
+              echo "::error title=Falta credencial de despliegue::Configura el secreto $key en GitHub Actions."
+              missing=1
             fi
           done
-          install -d -m 700 "$HOME/.ssh"
-          printf '%s\n' "$DEPLOY_KEY" > "$HOME/.ssh/id_ed25519"
-          printf '%s\n' "$DEPLOY_KNOWN_HOSTS" > "$HOME/.ssh/known_hosts"
-          chmod 600 "$HOME/.ssh/id_ed25519" "$HOME/.ssh/known_hosts"
-      - name: Actualizar solo POST, nunca GALANT antiguo
-        env:
-          DEPLOY_HOST: ${{ secrets.POST_DEPLOY_HOST }}
-          DEPLOY_USER: ${{ secrets.POST_DEPLOY_USER }}
+          [[ -n "$VPS_HOST" && -n "$VPS_USER" ]] || {
+            echo "::error::Debes configurar host y usuario del VPS."
+            exit 1
+          }
+          exit "$missing"
+
+      - name: Preparar clave SSH y host conocido
         shell: bash
         run: |
-          set -euo pipefail
-          ssh -o BatchMode=yes -o StrictHostKeyChecking=yes -o ServerAliveInterval=30 \
-            -i "$HOME/.ssh/id_ed25519" "$DEPLOY_USER@$DEPLOY_HOST" 'bash -se' <<'REMOTE'
-          set -euo pipefail
+          set -Eeuo pipefail
+          umask 077
+          printf '%s\n' "$VPS_SSH_KEY" > "$RUNNER_TEMP/galant_vps_key"
+          printf '%s\n' "$VPS_KNOWN_HOSTS" > "$RUNNER_TEMP/galant_known_hosts"
+          chmod 600 "$RUNNER_TEMP/galant_vps_key" "$RUNNER_TEMP/galant_known_hosts"
+          ssh-keygen -y -f "$RUNNER_TEMP/galant_vps_key" > /dev/null
+
+      - name: Actualizar VPS usando commit exacto y respaldo verificado
+        shell: bash
+        run: |
+          set -Eeuo pipefail
+          ssh_port="${VPS_PORT:-22}"
+          ssh -i "$RUNNER_TEMP/galant_vps_key" \
+            -o BatchMode=yes \
+            -o IdentitiesOnly=yes \
+            -o StrictHostKeyChecking=yes \
+            -o UserKnownHostsFile="$RUNNER_TEMP/galant_known_hosts" \
+            -o ConnectTimeout=15 \
+            -p "$ssh_port" \
+            "$VPS_USER@$VPS_HOST" \
+            "bash -s -- '$DEPLOY_SHA'" <<'REMOTE'
+          set -Eeuo pipefail
+          target_ref="$1"
+          [[ "$target_ref" =~ ^[0-9a-f]{40}$ ]] || exit 64
           cd /opt/galant-post
-          actual_remote="$(git remote get-url origin)"
-          case "$actual_remote" in
-            "https://github.com/Alvarofritzsolis1/POST.git"|"git@github.com:Alvarofritzsolis1/POST.git") ;;
-            *) echo "El directorio NO apunta a POST; abortado"; exit 1;;
-          esac
-          test -f .env.preview || { echo "Falta .env.preview; ejecutar instalador de POST primero"; exit 1; }
-          # Siempre usar el mecanismo seguro y versionado; nunca hacer
-          # pull / up directamente sin respaldo, restauración y rollback.
-          git fetch --no-tags origin main
-          target_sha="$(git rev-parse origin/main)"
-          safe_script="/tmp/galant-post-safe-${target_sha}.sh"
-          trap 'rm -f "$safe_script"' EXIT
-          git show "${target_sha}:scripts/update-preview.sh" > "$safe_script"
-          GALANT_DEPLOY_DIR=/opt/galant-post bash "$safe_script" "$target_sha"
-          git log -1 --pretty='POST desplegado de forma segura: %h %s'
+          # Si main cambió después del clic, detener antes de modificar el VPS.
+          main_ref="$(git ls-remote origin refs/heads/main | awk 'NR == 1 {print $1}')"
+          [[ "$main_ref" == "$target_ref" ]] || {
+            echo "La rama main cambió. Se omite este commit; main avanzó. La siguiente publicación probará la última versión." >&2
+            exit 1
+          }
+          git fetch --no-tags --depth=1 origin "$target_ref"
+          bootstrap_script="/tmp/galant-post-update-${target_ref}.sh"
+          trap 'rm -f "$bootstrap_script"' EXIT
+          git show "${target_ref}:scripts/update-preview.sh" > "$bootstrap_script"
+          # Incluye respaldo PostgreSQL + PDF, restauración aislada, migraciones,
+          # reconstrucción de contenedores, health check y rollback de código.
+          GALANT_DEPLOY_DIR=/opt/galant-post bash "$bootstrap_script" "$target_ref"
           REMOTE
+
+      - name: Limpiar archivos de credenciales temporales
+        if: always()
+        shell: bash
+        run: |
+          rm -f "$RUNNER_TEMP/galant_vps_key" "$RUNNER_TEMP/galant_known_hosts"
