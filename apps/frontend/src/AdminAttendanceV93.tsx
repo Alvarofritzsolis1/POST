@@ -43,16 +43,18 @@ export default function AdminAttendanceV93({
 
   useEffect(() => { setTab("attendance"); setDetailOpen(false); }, [siteId]);
   useEffect(() => {
-    const update = () => setRefresh((v) => v + 1);
+    // La vista de obra ya tiene su propio sondeo en AdministrativeControlV92.
+    if (siteId) return;
+    const update = () => {
+      if (!document.hidden) setRefresh((v) => v + 1);
+    };
     const timer = window.setInterval(update, 30000);
-    window.addEventListener("focus", update);
     window.addEventListener("galant-changed", update);
     return () => {
       window.clearInterval(timer);
-      window.removeEventListener("focus", update);
       window.removeEventListener("galant-changed", update);
     };
-  }, []);
+  }, [siteId]);
 
   return <div className="av93-admin">
     {!detailOpen && <div className="av92-title">
@@ -82,7 +84,7 @@ export default function AdminAttendanceV93({
         period={period} tab={tab} role="admin" onChangeTab={setTab} onDetailChange={setDetailOpen} />
     </> : <>
       {error && <p className="alert danger" role="alert">{error}</p>}
-      {loading && <p className="av92-muted" role="status">Actualizando el consolidado de obras…</p>}
+      {loading && !portfolio && <p className="av92-muted" role="status">Cargando el consolidado de obras…</p>}
       {portfolio && <>
         <div className="av92-metrics">
           {([
