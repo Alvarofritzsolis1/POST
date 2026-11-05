@@ -250,14 +250,14 @@ function App() {
     if (!user || user.role !== "admin" || section === "network" || section === "configuration") return;
     let active = true;
     const update = () => {
-      if (active) void refresh();
+      // Al volver a una pestaña no forzamos una nueva carga: el sondeo visible conserva los datos.
+      if (active && !document.hidden) void refresh();
     };
     setLoading(true);
     void refresh().finally(() => {
       if (active) setLoading(false);
     });
     const timer = setInterval(update, 10000);
-    window.addEventListener("focus", update);
     window.addEventListener("galant-changed", update);
     const sitesUpdate = () => {
       void opsApi
@@ -269,7 +269,6 @@ function App() {
     return () => {
       active = false;
       clearInterval(timer);
-      window.removeEventListener("focus", update);
       window.removeEventListener("galant-changed", update);
       window.removeEventListener("galant-changed", sitesUpdate);
     };
@@ -522,7 +521,7 @@ function App() {
               {notice}
             </div>
           )}
-          {loading && section !== "network" && <p role="status">Actualizando datos…</p>}
+          {loading && section !== "network" && <p className="v1501-refresh-status" role="status">Actualizando datos…</p>}
           {section === "home" && overview && (
             <>
               <section className="v15-dashboard-hero" aria-label="Indicadores principales del período">
