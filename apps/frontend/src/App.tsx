@@ -102,7 +102,7 @@ function App() {
     [revision, setRevision] = useState<string | null>(null),
     [section, setSection] = useState(sectionFromLocation),
     [sites, setSites] = useState<Site[]>([]),
-    [site, setSite] = useState(() => new URLSearchParams(window.location.search).get("obra") || new URLSearchParams(window.location.search).get("attendance_site") || ""),
+    [site, setSite] = useState(() => new URLSearchParams(window.location.search).get("obra") || new URLSearchParams(window.location.search).get("attendance_site") || window.sessionStorage.getItem("galant-active-site") || ""),
     [period, setPeriod] = useState(() =>
       new URLSearchParams(window.location.search).get("periodo") || new URLSearchParams(window.location.search).get("attendance_period") || new Intl.DateTimeFormat("sv-SE", {
         timeZone: "America/Santiago",
@@ -178,6 +178,11 @@ function App() {
     "period=" +
     encodeURIComponent(period) +
     (site ? "&site_id=" + encodeURIComponent(site) : "");
+  // La obra es una selección por pestaña. No se pierde al refrescar o regresar.
+  const selectSite = useCallback((next: string) => {
+    window.sessionStorage.setItem("galant-active-site", next);
+    setSite(next);
+  }, []);
   const applyPreferences = useCallback((p: Preferences) => {
     document.documentElement.dataset.theme = p.appearance;
     document.documentElement.dataset.density = p.density;
@@ -201,8 +206,12 @@ function App() {
         setSites(s);
         setProfile(p);
         applyPreferences(p.preferences);
-        const requestedSite = new URLSearchParams(window.location.search).get("obra") || new URLSearchParams(window.location.search).get("attendance_site");
-        setSite(requestedSite && s.some((entry) => entry.id === requestedSite) ? requestedSite : p.preferences.default_site || "");
+        const requestedSite = new URLSearchParams(window.location.search).get("obra") ||
+          new URLSearchParams(window.location.search).get("attendance_site") ||
+          window.sessionStorage.getItem("galant-active-site");
+        setSite(requestedSite === "" ? "" :
+          requestedSite && s.some((entry) => entry.id === requestedSite)
+            ? requestedSite : p.preferences.default_site || "");
       })
       .catch((e) => setError(errorText(e)));
   }, [user, applyPreferences]);
@@ -472,7 +481,7 @@ function App() {
                 aria-label="Obra seleccionada"
                 value={site}
                 onChange={(e) => {
-                  setSite(e.target.value);
+                  selectSite(e.target.value);
                   setOverview(null);
                   setContributions(null);
                   setMatrix([]);
@@ -809,7 +818,7 @@ function App() {
                 onWorkers={(assignmentId) => { go("workers"); setTargetWorker(assignmentId || ""); }}
                 classificationFilter={classification}
                 period={period}
-                onSiteChange={setSite}
+                onSiteChange={selectSite}
                 onPeriodChange={setPeriod}
                 onAttendance={(associationId,worksiteId,month)=>{
                   window.scrollTo({top:0,left:0,behavior:"instant"})
@@ -821,7 +830,7 @@ function App() {
                   url.searchParams.set("attendance_site",worksiteId)
                   url.searchParams.set("attendance_period",month)
                   window.history.pushState({galantSection:"attendance"},"",url)
-                  setSite(worksiteId)
+                  selectSite(worksiteId)
                   setPeriod(month)
                   setSection("attendance")
                 }}
@@ -839,7 +848,7 @@ function App() {
             initialAssignment={targetWorker}
             initialState={filter === "expired_needs_review" || filter === "ending_soon" ? filter : ""} /></ErrorBoundary>}
           {section === "attendance" && <AdminAttendanceV93 siteId={site} sites={sites} period={period}
-            onSiteSelect={setSite} onEvaluate={() => go("evaluations")} />}
+            onSiteSelect={selectSite} onEvaluate={() => go("evaluations")} />}
           {section === "evaluations" && <AdministrativePerformanceV81 sites={sites} period={period} />}
           {section === "imports" && (
             <ErrorBoundary key={"imports-"+site} name="carga masiva"><BulkImport readOnly={readonly} siteId={site} /></ErrorBoundary>
@@ -1128,7 +1137,7 @@ function App() {
               externalPeriod={period}
               initialTab="contracts"
               onContextChange={(s, p) => {
-                setSite(s);
+                selectSite(s);
                 setPeriod(p);
               }}
             />

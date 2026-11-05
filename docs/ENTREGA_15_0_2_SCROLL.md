@@ -7,7 +7,7 @@ En la vista de Contratistas, `Operations.tsx` activaba `loading` en cada actuali
 ## Cambios
 
 - `Operations.tsx`: mantener la tabla existente durante actualizaciones; mostrar la carga principal solo cuando aún no hay contratistas visibles. Se conserva el sondeo de 10 segundos y el refresco manual. Se retira la actualización redundante al recuperar el foco; se evita sondear pestañas ocultas.
-- `App.tsx`: resolver el módulo inicial desde la ruta y el historial del navegador, para evitar mostrar brevemente Inicio si se estaba en otro módulo. Cambiar de módulo pone el scroll arriba de forma síncrona, antes de cambiar el contenido. Mantener la restauración especial al salir de la ficha individual de un contratista.
+- `App.tsx`: resolver el módulo inicial desde la ruta y el historial del navegador, para evitar mostrar brevemente Inicio si se estaba en otro módulo. Cambiar de módulo pone el scroll arriba de forma síncrona, antes de cambiar el contenido. Mantener la restauración especial al salir de la ficha individual de un contratista. La obra seleccionada se conserva en `sessionStorage` (incluso la opción «Todas las obras») para que al recargar no desaparezca la tabla por cambio a otra obra.
 - `index.html` y `main.tsx`: desactivar la restauración automática global del scroll del navegador y fijar el inicio de una nueva carga en la cabecera. No altera el desplazamiento del menú lateral.
 - Versiones de API, frontend y package-lock sincronizadas en `15.0.2-rc1`.
 
