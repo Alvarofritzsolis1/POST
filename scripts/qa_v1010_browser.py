@@ -63,6 +63,19 @@ with sync_playwright() as p:
         page.get_by_role("button",name="Documentación",exact=True).last.click()
         expect(page.get_by_role("button",name="Finiquitos",exact=True)).to_be_visible()
         selected_month = page.locator("#monthly-period").input_value()
+        if i == 0:
+            priority = page.locator(".ops-v15-priorities > button").first
+            if priority.count():
+                page.get_by_label("Filtrar por estado documental").select_option("approved")
+                priority.click()
+                expect(page.get_by_label("Filtrar por estado documental")).to_have_value("all")
+            page.locator("#monthly-period").fill("2026-10")
+            expect(page.locator(".ops-v15-identity")).to_contain_text("2026-10")
+            page.get_by_role("button",name="Resumen",exact=True).click()
+            page.get_by_role("button",name="Documentación",exact=True).last.click()
+            expect(page.locator("#monthly-period")).to_have_value("2026-10")
+            page.locator("#monthly-period").fill(selected_month)
+            expect(page.locator("#monthly-period")).to_have_value(selected_month)
         page.get_by_role("button",name="Contratos",exact=True).click()
         expect(page.get_by_text("Contratos laborales",exact=True)).to_be_visible()
         page.get_by_role("button",name="Finiquitos",exact=True).click()
