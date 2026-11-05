@@ -1,0 +1,115 @@
+name: GALANT - Desplegar VPS (un clic)
+
+# ÚNICO disparador del despliegue: acción manual sobre main.
+# No habilitar push, pull_request ni schedule en este archivo.
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+# Nunca permitir dos actualizaciones simultáneas en el mismo VPS.
+concurrency:
+  group: galant-post-vps-preview
+  cancel-in-progress: false
+
+jobs:
+  pruebas:
+    name: Verificar backend, frontend, respaldos y QA aislada
+    uses: ./.github/workflows/ci.yml
+    permissions:
+      contents: read
+
+  desplegar:
+    name: Desplegar GALANT con respaldo y rollback
+    needs: pruebas
+    if: ${{ github.event_name == 'workflow_dispatch' && github.ref == 'refs/heads/main' }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+
+    # Configure aquí los revisores obligatorios si el plan de GitHub lo permite.
+    environment:
+      name: GALANT-VPS
+
+    env:
+      VPS_HOST: ${{ secrets.VPS_HOST || vars.VPS_HOST || '89.117.144.140' }}
+      VPS_USER: ${{ secrets.VPS_USER || vars.VPS_USER || 'root' }}
+      VPS_PORT: ${{ secrets.VPS_PORT || vars.VPS_PORT || '22' }}
+      VPS_SSH_KEY: ${{ secrets.VPS_SSH_KEY }}
+      VPS_KNOWN_HOSTS: ${{ secrets.VPS_KNOWN_HOSTS }}
+      DEPLOY_SHA: ${{ github.sha }}
+
+    steps:
+      - name: Comprobar autorización y configuración SSH
+        shell: bash
+        run: |
+          set -Eeuo pipefail
+          if [[ "$GITHUB_REF" != "refs/heads/main" ]]; then
+            echo "::error::Solo se despliega la rama main."
+            exit 1
+          fi
+          if [[ ! "$DEPLOY_SHA" =~ ^[0-9a-f]{40}$ ]]; then
+            echo "::error::Referencia de versión no válida."
+            exit 1
+          fi
+          missing=0
+          for key in VPS_SSH_KEY VPS_KNOWN_HOSTS; do
+            if [[ -z "${!key}" ]]; then
+              echo "::error title=Falta credencial de despliegue::Configura el secreto $key en GitHub Actions."
+              missing=1
+            fi
+          done
+          [[ -n "$VPS_HOST" && -n "$VPS_USER" ]] || {
+            echo "::error::Debes configurar host y usuario del VPS."
+            exit 1
+          }
+          exit "$missing"
+
+      - name: Preparar clave SSH y host conocido
+        shell: bash
+        run: |
+          set -Eeuo pipefail
+          umask 077
+          printf '%s\n' "$VPS_SSH_KEY" > "$RUNNER_TEMP/galant_vps_key"
+          printf '%s\n' "$VPS_KNOWN_HOSTS" > "$RUNNER_TEMP/galant_known_hosts"
+          chmod 600 "$RUNNER_TEMP/galant_vps_key" "$RUNNER_TEMP/galant_known_hosts"
+          ssh-keygen -y -f "$RUNNER_TEMP/galant_vps_key" > /dev/null
+
+      - name: Actualizar VPS usando commit exacto y respaldo verificado
+        shell: bash
+        run: |
+          set -Eeuo pipefail
+          ssh_port="${VPS_PORT:-22}"
+          ssh -i "$RUNNER_TEMP/galant_vps_key" \
+            -o BatchMode=yes \
+            -o IdentitiesOnly=yes \
+            -o StrictHostKeyChecking=yes \
+            -o UserKnownHostsFile="$RUNNER_TEMP/galant_known_hosts" \
+            -o ConnectTimeout=15 \
+            -p "$ssh_port" \
+            "$VPS_USER@$VPS_HOST" \
+            "bash -s -- '$DEPLOY_SHA'" <<'REMOTE'
+          set -Eeuo pipefail
+          target_ref="$1"
+          [[ "$target_ref" =~ ^[0-9a-f]{40}$ ]] || exit 64
+          cd /opt/galant-post
+          # Si main cambió después del clic, detener antes de modificar el VPS.
+          main_ref="$(git ls-remote origin refs/heads/main | awk 'NR == 1 {print $1}')"
+          [[ "$main_ref" == "$target_ref" ]] || {
+            echo "La rama main cambió. Vuelve a ejecutar el despliegue manual para la última versión." >&2
+            exit 1
+          }
+          git fetch --no-tags --depth=1 origin "$target_ref"
+          bootstrap_script="/tmp/galant-post-update-${target_ref}.sh"
+          trap 'rm -f "$bootstrap_script"' EXIT
+          git show "${target_ref}:scripts/update-preview.sh" > "$bootstrap_script"
+          # Incluye respaldo PostgreSQL + PDF, restauración aislada, migraciones,
+          # reconstrucción de contenedores, health check y rollback de código.
+          GALANT_DEPLOY_DIR=/opt/galant-post bash "$bootstrap_script" "$target_ref"
+          REMOTE
+
+      - name: Limpiar archivos de credenciales temporales
+        if: always()
+        shell: bash
+        run: |
+          rm -f "$RUNNER_TEMP/galant_vps_key" "$RUNNER_TEMP/galant_known_hosts"
