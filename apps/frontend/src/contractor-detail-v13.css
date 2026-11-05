@@ -1,0 +1,27 @@
+/* GALANT POST 13.0.0 — área de trabajo exclusiva del contratista. */
+.av13-detail{display:grid;gap:1rem;min-width:0;max-width:100%;animation:av13-enter .18s ease-out}
+.av13-detail-header{position:sticky;top:0;z-index:10;display:grid;gap:.7rem;background:#f5f8fc;padding:.85rem .1rem 1rem;border-bottom:1px solid #d8e4ee}
+.av13-back{display:inline-flex;align-items:center;justify-content:flex-start;gap:.55rem;width:max-content;max-width:100%;background:#fff;border:1px solid #b5cbdc;color:#125c83;padding:.55rem .85rem;border-radius:.7rem;font-weight:750;cursor:pointer}
+.av13-back:hover{background:#e6f5fd;border-color:#3894bc}
+.av13-identification{display:flex;align-items:center;justify-content:space-between;gap:1rem;flex-wrap:wrap}
+.av13-identification h2{font-size:clamp(1.2rem,2vw,1.7rem);line-height:1.25;margin:.15rem 0 .2rem;overflow-wrap:anywhere}
+.av13-identification p{font-size:.85rem;color:#5c7287;margin:0}
+.av13-eyebrow{font-size:.75rem!important;font-weight:750;color:#4d748a!important;letter-spacing:.02em}
+.av13-metrics{display:grid;grid-template-columns:repeat(auto-fit,minmax(min(100%,145px),1fr));gap:.65rem}
+.av13-metric{background:#fff;border:1px solid #dde7ef;border-radius:.85rem;padding:.8rem;display:grid;gap:.4rem;min-width:0;box-shadow:0 3px 12px rgba(15,50,80,.035)}
+.av13-metric span{font-size:.74rem;font-weight:650;color:#5c7184}
+.av13-metric strong{font-size:1.27rem;line-height:1.2;color:#153b57}
+.av13-metric.warn{border-left:3px solid #e2ab40}.av13-metric.bad{border-left:3px solid #c44b52}.av13-metric.ok{border-left:3px solid #329870}
+.av13-tabs{display:flex;gap:.4rem;align-items:center;flex-wrap:wrap;border-bottom:1px solid #d8e4ee;padding-bottom:.5rem}
+.av13-tabs button{background:#fff;border:1px solid #d4e0ea;border-radius:.65rem;padding:.65rem .9rem;color:#4e677d;font-weight:750;cursor:pointer}
+.av13-tabs button.current{background:#155e89;border-color:#155e89;color:#fff}
+.av13-tabs button:hover:not(.current){background:#edf6fc}
+.av13-workers{display:grid;gap:1rem;min-width:0}
+.av13-table-container{max-width:100%;overflow-x:auto;border:1px solid #dce6f0;border-radius:.85rem;background:#fff}
+.av13-detail button:focus-visible{outline:3px solid #33a5db;outline-offset:2px}
+.av13-company-link{background:none;border:0;padding:0;margin:0;text-align:left;cursor:pointer;color:#135a86}
+.av13-company-link strong{color:#135a86!important;text-decoration:underline;text-decoration-color:transparent;text-underline-offset:3px}
+.av13-company-link:hover strong,.av13-company-link:focus-visible strong{text-decoration-color:currentColor}
+@keyframes av13-enter{from{opacity:.3;transform:translateY(5px)}to{opacity:1;transform:translateY(0)}}
+@media(max-width:700px){.av13-detail-header{top:0;padding:.65rem 0}.av13-metrics{grid-template-columns:repeat(2,minmax(0,1fr))}.av13-tabs button{flex:1 1 42%}}
+@media(prefers-reduced-motion:reduce){.av13-detail{animation:none}}
