@@ -468,7 +468,29 @@ export default function Operations({readOnly,externalSiteId,mode,onImport,onSite
         {laborRows.length>0?<div className="table-wrap"><table className="ops-list-table"><thead><tr><th>TRABAJADOR</th><th>RUT</th><th>CONTRATO</th><th>INGRESO</th><th>TÉRMINO</th><th>ESTADO</th><th>FINIQUITO</th><th>FICHA</th></tr></thead><tbody>{laborRows.filter(w=>w.worker_name.toLowerCase().includes(workerSearch.toLowerCase())||(w.worker_rut||"").includes(workerSearch)).map(worker=><tr key={worker.assignment_id}><td><strong>{worker.worker_name}</strong></td><td>{worker.worker_rut}</td><td>{worker.contract_type||"Sin contrato"}</td><td>{laborDate(worker.start_date)}</td><td>{laborDate(worker.end_date)}</td><td>{laborStates[worker.labor_state]||worker.labor_state}</td><td>{laborStates[worker.finiquito_state]||worker.finiquito_state}</td><td><button className="secondary ops-small-button" onClick={()=>onWorkers?.(worker.assignment_id)}>Ver ficha</button></td></tr>)}</tbody></table></div>:
         workers.length===0?<div className="ops-empty">No hay trabajadores asociados a esta empresa en la obra.</div>:<div className="table-wrap"><table className="ops-list-table"><thead><tr><th>TRABAJADOR</th><th>RUT</th><th>ASIGNACIÓN</th><th>FICHA</th></tr></thead><tbody>{workers.filter(w=>w.name.toLowerCase().includes(workerSearch.toLowerCase())||(w.rut||"").includes(workerSearch)).map(worker=><tr key={worker.id}><td><strong>{worker.name}</strong></td><td>{worker.rut||"—"}</td><td>{worker.active?"Vigente":"Inactiva"}</td><td><button className="secondary ops-small-button" onClick={()=>onWorkers?.(worker.id)}>Ver ficha</button></td></tr>)}</tbody></table></div>}
       </div>}
-      {detailTab==="documents"&&<MonthlyDocuments key={selected.id+"-"+period} contractor={selected} readOnly={readOnly} initialPeriod={period||undefined}/>}
+      {detailTab==="documents"&&<div className="ops-v15-document-layout">
+        <div className="ops-v15-document-main"><MonthlyDocuments
+          key={selected.id+"-"+period}
+          contractor={selected}
+          readOnly={readOnly}
+          initialPeriod={period||undefined}
+          onPeriodChange={setDocumentPeriod}
+          onReviewed={()=>setDocumentRevision(n=>n+1)}
+        /></div>
+        <aside className="ops-v15-priorities" aria-label="Prioridades documentales">
+          <div className="ops-v15-priority-head"><h3>Requieren atención</h3><span>{docOverview?pendingDocs.length:"—"}</span></div>
+          {!docOverview&&<p role="status">Consultando prioridades del período…</p>}
+          {docOverview&&pendingDocs.length===0&&<p>No hay requisitos pendientes evaluables en este período.</p>}
+          {pendingDocsPreview.map(item=><button type="button" key={item.kind+"|"+(item.subject||"contractor")}
+            className={["overdue","observed","rejected"].includes(item.state)?"urgent":""}
+            onClick={()=>document.getElementById("monthly-req-"+encodeURIComponent(item.kind)+"-"+encodeURIComponent(item.subject||"contractor"))?.scrollIntoView({behavior:"smooth",block:"center"})}>
+            <strong>{item.name||documentNames[item.kind]||item.kind}</strong>
+            <small>{documentStatus[item.state]||item.state}</small>
+            <span>Ver requisito <ChevronRight aria-hidden="true" size={14}/></span>
+          </button>)}
+          {pendingDocs.length>5&&<p className="ops-v15-priority-more">Y {pendingDocs.length-5} requisito(s) adicional(es) en la tabla.</p>}
+        </aside>
+      </div>}
       {detailTab==="history"&&<div className="ops-history"><h3>Historial de cambios</h3>{history===null?<p>Cargando historial…</p>:history.length===0?<p>Sin cambios registrados.</p>:<ul>{history.map(change=><li key={change.id}><time>{new Date(change.created_at).toLocaleString("es-CL")}</time><span>{describeChange(change.changes)}</span><small>Registro auditable</small></li>)}</ul>}</div>}
     </section>}
   </div>
