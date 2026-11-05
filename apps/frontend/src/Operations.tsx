@@ -348,24 +348,33 @@ export default function Operations({readOnly,externalSiteId,mode,onImport,onSite
       {notice&&<div className="alert success" role="status">{notice}</div>}
       {contractorEditor}
       {!selected&&<div className="results-card ops-card ops-focus-loading">{loading?"Cargando ficha del contratista…":"Contratista no disponible en esta obra o sin autorización."}</div>}
-      {selected&&<div className="ops-focus-summary" aria-label="Resumen documental del contratista">
+      {selected&&<div className="ops-focus-summary ops-v15-summary" aria-label="Resumen documental del contratista">
         <div className="ops-focus-summary-top">
-          <div><span className="eyebrow">FICHA EXCLUSIVA · {period||"Período actual"}</span>
-            <h2>{selected.name}</h2><p>{sites.find(site=>site.id===siteId)?.name||"Obra actual"} · {selected.rut||"RUT pendiente"} · {selected.classification} · {selected.contract_status==="active"?"Activo":"Inactivo"}</p></div>
-          <button className="secondary" type="button" onClick={()=>setDetailTab("documents")}>Ver documentación</button>
+          <div className="ops-v15-identity">
+            <span className="eyebrow">FICHA DE CONTRATISTA · {documentPeriod||"Período actual"}</span>
+            <h2>{selected.name}</h2>
+            <p>{sites.find(site=>site.id===siteId)?.name||"Obra actual"} · {selected.rut||"RUT pendiente"} · {selected.classification} · {String(selected.details?.specialty||"Especialidad sin registrar")}</p>
+            <span className={"ops-lifecycle "+(selected.contract_status==="active"?"active":"inactive")}>{selected.contract_status==="active"?"Activo":"Inactivo"}</span>
+          </div>
+          <div className="ops-v15-head-actions">
+            {!readOnly&&<button className="secondary" type="button" onClick={()=>startContractor("edit",selected)}>Editar empresa</button>}
+            {detailTab!=="documents"&&<button className="primary" type="button" onClick={()=>setDetailTab("documents")}>Ver documentación <ChevronRight aria-hidden="true" size={16}/></button>}
+          </div>
         </div>
-        {docIssue&&<p role="status" className="ops-help">No se pudo consultar el resumen documental: {docIssue}</p>}
-        <div className="ops-focus-metrics">
-          <div><span>Trabajadores</span><strong>{selected.worker_count}</strong></div>
-          <div className={criticalDocs?"critical":""}><span>Documentos con observaciones</span><strong>{docOverview?criticalDocs:"—"}</strong></div>
-          <div className={pendingDocs.length?"warning":""}><span>Documentación pendiente</span><strong>{docOverview?pendingDocs.length:"—"}</strong></div>
-          <div><span>Documentos aprobados</span><strong>{docOverview?approvedDocs:"—"}</strong></div>
+        {docIssue&&<p role="alert" className="ops-help">No se pudo consultar el cumplimiento: {docIssue}</p>}
+        <div className="ops-focus-metrics ops-v15-metrics" aria-label="Indicadores documentales">
+          <div className="ops-v15-compliance">
+            <span>Cumplimiento documental</span>
+            <strong>{compliance===null?"No evaluable":compliance+"%"}</strong>
+            <small>{docOverview?(requiredUnits?approvedUnits+" de "+requiredUnits+" obligaciones aprobadas":"No hay obligaciones evaluables"):"Consultando requisitos…"}</small>
+            {compliance!==null&&<div className="ops-v15-progress" role="progressbar" aria-label="Cumplimiento documental" aria-valuenow={compliance} aria-valuemin={0} aria-valuemax={100}><span style={{width:compliance+"%"}}/></div>}
+          </div>
+          <div className={pendingDocs.length?"warning":"ops-v15-count"}>
+            <span>Requisitos por resolver</span>
+            <strong>{docOverview?pendingDocs.length:"—"}</strong>
+            <small>{docOverview?(criticalDocs?criticalDocs+" con observaciones o vencimientos":"Sin alertas críticas confirmadas"):"Consultando prioridades…"}</small>
+          </div>
         </div>
-        {!!pendingDocsPreview.length&&<div className="ops-focus-pending"><strong>Requisitos por resolver</strong><div>
-          {pendingDocsPreview.map(item=><button type="button" key={item.kind} onClick={()=>setDetailTab("documents")} className={["overdue","observed","rejected"].includes(item.state)?"urgent":""}>
-            <span>{item.name||documentNames[item.kind]||item.kind}</span><small>{documentStatus[item.state]||item.state}</small><ChevronRight size={14}/></button>)}
-          {pendingDocs.length>5&&<button type="button" onClick={()=>setDetailTab("documents")}>Ver los {pendingDocs.length} requisitos pendientes</button>}
-        </div></div>}
       </div>}
     </div> : <>
     <p>Ficha compartida de contratistas y sus asignaciones por obra.</p>
@@ -443,13 +452,6 @@ export default function Operations({readOnly,externalSiteId,mode,onImport,onSite
     </section>
     </>}
     {selected&&<section className="results-card ops-card ops-detail-panel" aria-label="Ficha del contratista">
-      <div className="card-heading ops-card-heading">
-        <div><span className="eyebrow">FICHA DE CONTRATISTA</span><h2>{selected.name}</h2><p>{selected.rut||"Sin RUT"} · {selected.classification} · <span className={"ops-lifecycle "+(selected.contract_status==="active"?"active":"inactive")}>{selected.contract_status==="active"?"Activo":"Inactivo"}</span></p></div>
-        <div className="ops-actions">
-          {!readOnly&&<button className="secondary" onClick={()=>startContractor("edit",selected)}>Editar empresa</button>}
-          <button className="secondary" onClick={closeContractor}>Cerrar ficha</button>
-        </div>
-      </div>
       <div className="ops-detail-tabs" role="group" aria-label="Secciones de la ficha">
         {(["summary","workers","documents","history"] as const).map(tab=><button type="button" key={tab} aria-pressed={detailTab===tab} className={detailTab===tab?"selected":""} onClick={()=>{setDetailTab(tab);if(tab==="history"&&!historyOpen)void toggleHistory()}}>{({summary:"Resumen",workers:"Trabajadores",documents:"Documentación",history:"Historial"} as const)[tab]}</button>)}
       </div>
