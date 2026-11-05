@@ -1,4 +1,6 @@
 /* GALANT POST 13.0.0 — área de trabajo exclusiva del contratista. */
+/* La obra y el período ya figuran en la ficha: ocultar filtros globales durante su edición. */
+body:has(.av13-detail) .global-filters{display:none}
 .av13-detail{display:grid;gap:1rem;min-width:0;max-width:100%;animation:av13-enter .18s ease-out}
 .av13-detail-header{position:sticky;top:0;z-index:10;display:grid;gap:.7rem;background:#f5f8fc;padding:.85rem .1rem 1rem;border-bottom:1px solid #d8e4ee}
 .av13-back{display:inline-flex;align-items:center;justify-content:flex-start;gap:.55rem;width:max-content;max-width:100%;background:#fff;border:1px solid #b5cbdc;color:#125c83;padding:.55rem .85rem;border-radius:.7rem;font-weight:750;cursor:pointer}
