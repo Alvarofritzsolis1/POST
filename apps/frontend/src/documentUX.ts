@@ -6,7 +6,7 @@ import type { Requirement } from "./opsControlApi";
  */
 const excludedStates = new Set([
   "not_required", "not_yet_required", "not_applicable", "exempt",
-  "no_movements", "inactive", "schedule_not_configured",
+  "no_movements", "inactive", "schedule_not_configured", "needs_classification",
 ]);
 
 const urgentStates = new Set(["overdue", "observed", "rejected", "incomplete", "missing"]);
@@ -24,7 +24,7 @@ export function requirementCounts(row: Requirement): { required: number; approve
 export function requirementPending(row: Requirement): boolean {
   // Exigibilidad desconocida y calendarios faltantes requieren configuración,
   // pero no se suman al denominador de cumplimiento.
-  if (row.applicable === null || (row.applicable === true && row.state === "schedule_not_configured")) return true;
+  if (row.applicable === null || (row.applicable === true && ["schedule_not_configured", "needs_classification"].includes(row.state))) return true;
   if (!evaluableRequirement(row)) return false;
   const { required, approved } = requirementCounts(row);
   return required > approved;
