@@ -256,25 +256,17 @@ def test_hundreds_workers_blank_columns_dates_types_and_history(env):
     site = c.get("/api/v1/ops/sites").json()[0]
     company = create_company(c, h, site["id"], "CT", "Constructora sintética")
     headers = [
-        "NOMBRE CONTRATISTA",
-        None,
-        "NOMBRE TRABAJADOR",
-        "RUT",
-        "F.INGRESO",
-        "F.TERMINO",
-        "CONTRATO",
-        "TIPO",
+        "NOMBRE CONTRATISTA", "NOMBRE TRABAJADOR", "RUT",
+        "F.INGRESO", "F.TERMINO", "COD",
     ]
     rows = [
         [
             "Constructora sintetica",
-            "ignorar",
             f"Persona {n}",
             rut(10000000 + n),
             "01/09/2026",
-            "",
-            f"EXT-{n}",
-            "INDEFINIDO" if n % 2 else "POR OBRA",
+            "INDEFINIDO" if n % 2 else "30/09/2026",
+            "TH" if n % 2 else "TM",
         ]
         for n in range(300)
     ]
@@ -307,7 +299,7 @@ def test_hundreds_workers_blank_columns_dates_types_and_history(env):
     new = {
         **first,
         "start_date": "01/11/2026",
-        "end_date": "",
+        "end_date": "INDEFINIDO",
         "contract_type": "POR OBRA",
     }
     r = commit(c, h, review(c, h, "workers", [new]))
@@ -613,6 +605,8 @@ def test_ambiguous_worker_match_overlapping_dates_and_unknown_type(env):
         "name": "Persona Sintética",
         "rut": rut(12340000),
         "start_date": "01/10/2026",
+        "end_date": "INDEFINIDO",
+        "worker_code": "TH",
         "contract_type": "indefinido",
     }
     p = review(c, h, "workers", [row])
