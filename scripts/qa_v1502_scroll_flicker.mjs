@@ -41,8 +41,8 @@ test("la restauración del scroll sigue disponible dentro de la ficha", () => {
 });
 
 test("la versión API y la instalación frontend corresponden al parche", () => {
-  assert.equal(pkg.version, "15.0.2-rc1");
+  assert.equal(pkg.version, "15.0.3-rc1");
   assert.equal(lock.version, pkg.version);
   assert.equal(lock.packages[""].version, pkg.version);
-  assert.match(version, /VERSION = "15\.0\.2-rc1"/);
+  assert.match(version, /VERSION = "15\.0\.3-rc1"/);
 });
