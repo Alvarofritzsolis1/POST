@@ -90,11 +90,11 @@ function App() {
     [ready, setReady] = useState(false),
     [version, setVersion] = useState<string | null>(null),
     [revision, setRevision] = useState<string | null>(null),
-    [section, setSection] = useState("home"),
+    [section, setSection] = useState(() => new URLSearchParams(window.location.search).has("attendance_contractor") ? "attendance" : "home"),
     [sites, setSites] = useState<Site[]>([]),
-    [site, setSite] = useState(""),
+    [site, setSite] = useState(() => new URLSearchParams(window.location.search).get("attendance_site") || ""),
     [period, setPeriod] = useState(() =>
-      new Intl.DateTimeFormat("sv-SE", {
+      new URLSearchParams(window.location.search).get("attendance_period") || new Intl.DateTimeFormat("sv-SE", {
         timeZone: "America/Santiago",
         year: "numeric",
         month: "2-digit",
@@ -178,7 +178,8 @@ function App() {
         setSites(s);
         setProfile(p);
         applyPreferences(p.preferences);
-        setSite(p.preferences.default_site || "");
+        const requestedSite = new URLSearchParams(window.location.search).get("attendance_site");
+        setSite(requestedSite && s.some((entry) => entry.id === requestedSite) ? requestedSite : p.preferences.default_site || "");
       })
       .catch((e) => setError(errorText(e)));
   }, [user, applyPreferences]);
