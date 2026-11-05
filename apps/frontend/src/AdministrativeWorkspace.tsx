@@ -14,8 +14,8 @@ export default function AdministrativeWorkspace({ user, version, logout }: {
   user: Profile; version: string | null; logout: () => void;
 }) {
   const [sites, setSites] = useState<Site[]>([]);
-  const [siteId, setSiteId] = useState("");
-  const [period, setPeriod] = useState(currentPeriod);
+  const [siteId, setSiteId] = useState(() => new URLSearchParams(window.location.search).get("attendance_site") || "");
+  const [period, setPeriod] = useState(() => new URLSearchParams(window.location.search).get("attendance_period") || currentPeriod());
   const [name, setName] = useState("");
   const [tab, setTab] = useState<"attendance" | "contracts" | "severance" | "staff" | "performance">("attendance");
   const [detailOpen, setDetailOpen] = useState(false);
