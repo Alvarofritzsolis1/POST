@@ -24,10 +24,13 @@ const resultNames: Record<string,string> = {
   created:"Creados", updated:"Actualizados", skipped:"Omitidos",unchanged:"Sin cambios",
   contractors:"Contratistas", workers:"Trabajadores", associations:"Asignaciones",
   errors:"Errores", warnings:"Advertencias", imported:"Importados", linked:"Vinculados",
+  created_contractors:"Contratistas creados", linked_contractors:"Contratistas vinculados",
+  created_workers:"Trabajadores creados", assigned_workers:"Trabajadores asignados",
+  historical_statuses_count:"Estados históricos conservados",
 };
 const resultSummary=(result:Record<string,unknown>)=>
-  Object.entries(result).filter(([,value])=>typeof value==="number"||typeof value==="string"&&value.length<80)
-    .map(([key,value])=>(resultNames[key]||key.replaceAll("_"," "))+": "+String(value)).join(" · ");
+  Object.entries(result).filter(([,value])=>typeof value==="number")
+    .map(([key,value])=>(resultNames[key]||"Registros de "+key.replaceAll("_"," "))+": "+String(value)).join(" · ");
 const names: Record<string, string> = {
   new: "Nuevos / nuevas relaciones",
   existing: "Existentes",
