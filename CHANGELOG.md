@@ -1,5 +1,18 @@
 # Historial de cambios
 
+## 15.0.0-rc1 — GALANT Premium UX (candidata)
+
+- Nueva capa visual compartida: navegación azul marino, tarjetas y tablas más legibles.
+- Ficha administrativa de contratista inicia en Documentación y elimina su cabecera duplicada.
+- Indicador ponderado de obligaciones aprobadas/exigibles y panel de prioridades del período.
+- Cambiar período en Documentación actualiza indicadores; revisar actualiza el resumen superior.
+- Acciones documentales agrupadas y observaciones visibles, sin eliminar los respaldos históricos.
+- Sin requisitos ficticios cuando la matriz documental está vacía.
+- Contratistas ordenados alfabéticamente.
+- Se conservan los permisos y flujos de Asistencia, Red de Obras y Configuración General 13.1.
+- No requiere migraciones ni nuevos endpoints. **Pendiente verificación CI y QA real.**
+
+
 ## 12.1.0 — Renovación UX/UI premium (rama de validación)
 
 - Corrige el recorte de controles de obra/período en el encabezado, con alineación y dimensiones accesibles.
