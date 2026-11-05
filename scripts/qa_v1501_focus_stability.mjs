@@ -38,6 +38,6 @@ test("las barras de desplazamiento conservan su espacio", () => {
 });
 
 test("las versiones frontend y API del parche coinciden", () => {
-  assert.equal(packageJson.version, "15.0.1-rc1");
-  assert.match(apiVersion, /VERSION = "15\.0\.1-rc1"/);
+  assert.match(packageJson.version, /^15\.0\.[1-9][0-9]*-rc1$/);
+  assert.match(apiVersion, new RegExp(`VERSION = "${packageJson.version.replace(/\./g, "\\.")}"`));
 });
