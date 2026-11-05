@@ -119,6 +119,7 @@ function App() {
     [sidebarCollapsed, setSidebarCollapsed] = useState(() => window.localStorage.getItem("galant-sidebar-collapsed") === "true"),
     [loading, setLoading] = useState(false),
     [search, setSearch] = useState(""),
+    [quickNav, setQuickNav] = useState(""),
     [filter, setFilter] = useState("all"),
     [classification, setClassification] = useState("all"),
     [editing, setEditing] = useState<Contribution | null>(null),
@@ -429,6 +430,25 @@ function App() {
             <Menu />
           </button>
           <strong>GALANT POST</strong>
+          <div className="v15-quicknav" role="search">
+            <input
+              type="search"
+              aria-label="Buscar módulo"
+              placeholder="Ir a un módulo…"
+              value={quickNav}
+              onChange={(event)=>setQuickNav(event.target.value)}
+              onKeyDown={(event)=>{
+                if(event.key!=="Enter"||!quickNav.trim())return
+                const target=nav.find(([,label])=>label.toLocaleLowerCase("es-CL").includes(quickNav.trim().toLocaleLowerCase("es-CL")))
+                if(target){go(target[0]);setQuickNav("")}
+              }}
+            />
+            {quickNav.trim()&&<div className="v15-quicknav-results" role="group" aria-label="Coincidencias de módulos">
+              {nav.filter(([,label])=>label.toLocaleLowerCase("es-CL").includes(quickNav.trim().toLocaleLowerCase("es-CL"))).slice(0,6).map(([id,label,Icon])=>
+                <button type="button" key={id} onClick={()=>{go(id);setQuickNav("")}}><Icon size={16} aria-hidden="true"/>{label}</button>)}
+              {!nav.some(([,label])=>label.toLocaleLowerCase("es-CL").includes(quickNav.trim().toLocaleLowerCase("es-CL")))&&<p>Sin módulos coincidentes</p>}
+            </div>}
+          </div>
           {section !== "network" && <div className="global-filters">
             <label className="global-filter">
               <span>Obra</span>
@@ -505,12 +525,26 @@ function App() {
           {loading && section !== "network" && <p role="status">Actualizando datos…</p>}
           {section === "home" && overview && (
             <>
+              <section className="v15-dashboard-hero" aria-label="Indicadores principales del período">
+                <div className="v15-dashboard-heading"><div><span className="eyebrow">VISIÓN OPERATIVA</span><h2>Resumen del período</h2><p>Situación real de las obras y documentación bajo revisión</p></div><span>{period}</span></div>
+                <div className="v15-dashboard-metrics">
+                  {([
+                    ["Contratistas del período", overview.contractors.length, "contractors", "all"],
+                    ["Contratistas al día", overview.up_to_date, "contractors", "all"],
+                    ["Documentos pendientes", overview.pending_documents, "documents", "pending"],
+                    ["Contratos por vencer", laborAlerts?.summary.workers_ending ?? "—", "workers", "ending_soon"],
+                    ["Asistencia atrasada", laborAlerts?.summary.attendance_overdue ?? "—", "attendance", "overdue"]
+                  ] as const).map(([label,value,target,state])=><button type="button" className={"v15-dashboard-kpi "+((Number(value)>0&&["Documentos pendientes","Asistencia atrasada"].includes(label))?"attention":"")} key={label} onClick={()=>drill(target,state)}>
+                    <span>{label}</span><strong>{value}</strong><small>Ver detalle →</small>
+                  </button>)}
+                </div>
+              </section>
               {laborAlerts && <section className="panel dashboard-alerts" aria-labelledby="dashboard-alerts-title">
                 <div className="dashboard-section-title">
                   <div><span className="eyebrow">PRIORIDADES DEL PERÍODO</span><h2 id="dashboard-alerts-title">Alertas laborales y documentales</h2></div>
                   <span className="dashboard-source-label">Datos verificados de la obra seleccionada</span>
                 </div>
-                <div className="kpi-grid alert-kpi-grid">
+                <details className="v15-dashboard-more"><summary>Indicadores de riesgo por categoría</summary><div className="kpi-grid alert-kpi-grid">
                   {([
                     ["critical_contractors", "Contratistas con documentación crítica", "documents", "overdue"],
                     ["workers_expired", "Contratos vencidos", "workers", "expired_needs_review"],
@@ -525,7 +559,7 @@ function App() {
                     if (key === "unclassified_contractors") setClassification("SIN CLASIFICAR");
                   }}><small>{label}</small><strong>{laborAlerts.summary[key] || 0}</strong><span className="alert-metric-state">{(laborAlerts.summary[key] || 0) === 0 ? "Sin casos" : alertCriticalKeys.has(key) ? "Requiere acción" : "Revisar"}</span><span className="alert-metric-action">Ver registros →</span></button>)}
                 </div>
-                <h3 className="dashboard-list-heading">Centro de alertas</h3>
+                </details><h3 className="dashboard-list-heading">Centro de alertas</h3>
                 {laborAlerts.alerts.slice(0, 30).map((item, i) => <button className={"worker-alert-link worker-signal " + item.severity} key={i} onClick={() => {
                   if (item.target_section === "workers") { setTargetWorker(item.target_id); go("workers"); }
                   else if (item.target_section === "contributions") drill("contributions", item.kind === "declared_unpaid" ? "declared_unpaid" : "differences");
@@ -760,6 +794,20 @@ function App() {
                 classificationFilter={classification}
                 period={period}
                 onSiteChange={setSite}
+                onPeriodChange={setPeriod}
+                onAttendance={(associationId,worksiteId,month)=>{
+                  const url=new URL(window.location.href)
+                  url.pathname="/"
+                  url.searchParams.delete("obra")
+                  url.searchParams.delete("periodo")
+                  url.searchParams.set("attendance_contractor",associationId)
+                  url.searchParams.set("attendance_site",worksiteId)
+                  url.searchParams.set("attendance_period",month)
+                  window.history.pushState({galantSection:"attendance"},"",url)
+                  setSite(worksiteId)
+                  setPeriod(month)
+                  setSection("attendance")
+                }}
               />
               </ErrorBoundary>
             ) : (

@@ -47,6 +47,7 @@ jobs:
         with: {node-version: "22"}
       - run: npm ci --no-audit --no-fund
       - run: npm run build
+      - run: npm run test:logic
   compose:
     runs-on: ubuntu-latest
     steps:

@@ -1,3 +1,9 @@
+# GALANT POST — 15.0.0-rc1 · Experiencia Premium
+
+Candidata de rediseño sobre 13.1.0-rc1. Mejora lectura, jerarquía visual, ficha documental, prioridades y navegación sin introducir nuevas obligaciones ni alterar permisos. **No desplegada al VPS.**
+
+Consulta [la entrega técnica y verificaciones pendientes](docs/ENTREGA_15_0_0_PREMIUM.md). Las reglas documentales manuales de 13.1.0 permanecen vigentes.
+
 # GALANT POST — 13.1.0-rc1 · Configuración General
 
 Centro exclusivo para ADMIN con catálogo y reglas documentales por contratista, obra, categoría y período, consulta multiperíodo ponderada, Portería mensual, revisiones manuales y auditoría. **Sin nuevas cargas de documentación y sin despliegue al VPS.** Conserva los originales históricos y los espacios existentes de administrativas y residentes.

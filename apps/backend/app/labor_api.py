@@ -634,6 +634,10 @@ def worker_detail(assignment_id: str, user: User = Depends(authorized_user),
     history = db.scalars(select(OpsChange).where(
         OpsChange.org_id == user.org_id, OpsChange.entity_id.in_(audit_ids),
     ).order_by(OpsChange.created_at.desc()).limit(100)).all()
+    # Identificar responsables usando nombre de perfil de la organización.
+    # No exponer identificadores ni correos en el historial visual.
+    from .configuration_service import display_names
+    audit_names = display_names(db, user.org_id)
     summary = _registry(db, user, site_id=site.id, contractor_id=company.id,
                         search=worker.rut or worker.name, page_size=100)
     current = next((r for r in summary["rows"] if r["assignment_id"] == assignment_id), None)
@@ -672,7 +676,9 @@ def worker_detail(assignment_id: str, user: User = Depends(authorized_user),
                           for c in contracts],
             "history": [{"id": h.id, "entity_type": h.entity_type,
                          "changes": h.changes, "created_at": h.created_at,
-                         "user_id": h.user_id} for h in history]}
+                         "actor_name": audit_names.get(h.user_id, "Responsable sin nombre registrado"),
+                         "user_id": h.user_id}
+                        for h in history]}
 
 
 @router.get("/alerts")

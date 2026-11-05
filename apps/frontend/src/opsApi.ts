@@ -28,7 +28,7 @@ export type ImportResult = {
   assigned_workers:number;skipped:number;historical_statuses_count:number;
   imported_rows:Array<{row_id:string;result:string;entity_id:string}>
 }
-export type OpsChange = {id:string;entity_type:string;entity_id:string;user_id:string;changes:Record<string,unknown>;created_at:string}
+export type OpsChange = {id:string;entity_type:string;entity_id:string;user_id:string;actor_name?:string;changes:Record<string,unknown>;created_at:string}
 
 export type MonthlyRecord = {
   id:string;association_id:string;contractor_id:string;period:string;kind:string;

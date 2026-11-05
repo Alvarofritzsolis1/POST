@@ -23,7 +23,7 @@ type Contract = { id: string; contract_type: string; start_date: string; end_dat
 type Detail = { id: string; worker_id: string; association_id: string; name: string; rut: string;
   contractor_id: string; contractor: string; site_id: string; site: string;
   current: WorkerRow | null; contracts: Contract[];
-  history: { id: string; entity_type: string; changes: Record<string, unknown>; created_at: string; user_id: string }[] };
+  history: { id: string; entity_type: string; changes: Record<string, unknown>; created_at: string; actor_name?: string }[] };
 type WorkerDocument = { association_id: string; subject: string; requirement: string; period: string;
   state: string; delivery_state: string; observation: string; document_id: string | null };
 type CompanyOption = { id: string; site_id: string; contractor_id: string; name: string; nature: string };
@@ -35,6 +35,42 @@ const stateLabel: Record<string, string> = {
   not_delivered: "No entregado", incomplete: "Incompleto", suspended: "Suspendido",
 };
 const typeLabel: Record<string, string> = { indefinite: "Indefinido", fixed_term: "Plazo fijo", project: "Obra o faena", services: "Servicios" };
+
+const auditEntityLabel:Record<string,string>={
+  worker:"Trabajador",worker_assignment:"Asignación laboral",contract:"Contrato",
+  labor_contract:"Contrato laboral",contract_amendment:"Anexo de contrato",
+  worker_termination:"Término laboral",termination:"Finiquito",contractor:"Contratista",
+};
+const auditFieldLabel:Record<string,string>={
+  name:"Nombre",rut:"RUT",active:"Estado de asignación",status:"Estado",start_date:"Fecha de ingreso",
+  end_date:"Fecha de término",termination_date:"Fecha efectiva de término",contract_type:"Tipo de contrato",
+  labor_state:"Situación laboral",review_state:"Revisión",notes:"Observación",
+  historical_code:"Clasificación",created:"Creación",imported:"Importación",created_at:"Fecha de registro",
+};
+const readableAuditValue=(value:unknown):string=>{
+  if(value===null||value===undefined||value==="")return "Sin registrar";
+  if(typeof value==="boolean")return value?"Sí":"No";
+  if(typeof value==="number")return String(value);
+  if(typeof value==="string"){
+    if(/^[0-9a-f]{8}-[0-9a-f-]{27,}$/i.test(value))return "Referencia interna";
+    return stateLabel[value]||typeLabel[value]||value;
+  }
+  return "Dato actualizado";
+};
+const readableAudit=(changes:Record<string,unknown>):string=>{
+  const results=Object.entries(changes||{}).map(([field,value])=>{
+    if(field==="created"||field==="imported")return field==="created"?"Registro creado":"Registro incorporado";
+    if(field.endsWith("_id")||field==="id")return "Vinculación del registro actualizada";
+    const label=auditFieldLabel[field]||"Campo del registro";
+    if(value&&typeof value==="object"&&"from" in value&&"to" in value){
+      const diff=value as {from:unknown;to:unknown};
+      return label+": "+readableAuditValue(diff.from)+" → "+readableAuditValue(diff.to);
+    }
+    return label+": "+readableAuditValue(value);
+  });
+  return results.length?results.join(" · "):"Cambio registrado";
+};
+
 const today = () => new Intl.DateTimeFormat("sv-SE", { timeZone: "America/Santiago", year: "numeric", month: "2-digit", day: "2-digit" }).format(new Date());
 const date = (value: string | null | undefined) => value ? value.slice(0, 10).split("-").reverse().join("/") : "—";
 const err = (e: unknown) => e instanceof Error ? e.message : "No fue posible completar la operación";
@@ -292,7 +328,15 @@ export default function Workers({ siteId, sites, period, canEdit, canReview, ini
             <button disabled={busy || !docNote.trim()} onClick={() => void act(() => reviewDocument(r, "observed"))}>Observar</button></div>}</div>)}
         {!docRows.length && <p className="empty">Sin requisitos individuales exigibles para esta clasificación y período.</p>}
       </div>}
-      {tab === "history" && <div>{detail.history.map((h) => <div className="worker-record" key={h.id}><b>{h.entity_type}</b> · {date(h.created_at)} · Usuario {h.user_id}<pre>{JSON.stringify(h.changes, null, 2)}</pre></div>)}{!detail.history.length && <p className="empty">Sin cambios registrados.</p>}</div>}
+      {tab === "history" && <div className="v15-worker-history" aria-label="Historial de movimientos laborales">
+        {detail.history.map(h=><article className="worker-record v15-worker-audit" key={h.id}>
+          <div className="v15-worker-audit-head"><strong>{auditEntityLabel[h.entity_type]||"Movimiento laboral"}</strong>
+            <time>{new Date(h.created_at).toLocaleString("es-CL",{timeZone:"America/Santiago"})}</time></div>
+          <span>Responsable: {h.actor_name||"Sin nombre registrado"}</span>
+          <p>{readableAudit(h.changes)}</p>
+        </article>)}
+        {!detail.history.length&&<p className="empty">Sin cambios registrados.</p>}
+      </div>}
     </section>}
   </div>;
 }
