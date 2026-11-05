@@ -794,6 +794,7 @@ function App() {
                 classificationFilter={classification}
                 period={period}
                 onSiteChange={setSite}
+                onPeriodChange={setPeriod}
               />
               </ErrorBoundary>
             ) : (
