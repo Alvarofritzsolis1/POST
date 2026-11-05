@@ -47,6 +47,8 @@ def test_overview_shows_every_active_contractor_without_search(env):
     assert data["summary"]["active_contractors"] >= 2
     listed = {row["association_id"]: row for row in data["contractors"]}
     assert first["id"] in listed and second["id"] in listed
+    assert listed[first["id"]]["classification"] == "CT"
+    assert listed[second["id"]]["classification"] == "CT"
     assert listed[second["id"]]["contractor_active"] is True
     assert listed[second["id"]]["staff"] == []
     assert listed[first["id"]]["staff"][0]["labor_state"] == "vigente"
