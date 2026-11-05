@@ -1,11 +1,11 @@
 # GALANT POST — PROMPT MAESTRO DEFINITIVO · REVISIÓN MANUAL SIN CARGA DE ARCHIVOS
 ## CENTRO DE CONFIGURACIÓN GENERAL, GESTIÓN DOCUMENTAL Y CONTROL HISTÓRICO DE CONTRATISTAS
 
-**Proyecto:** GALANT POST  
-**Tipo de implementación:** Nueva versión integral  
-**Prioridad:** Alta  
-**Arquitectura:** React + FastAPI + PostgreSQL + Docker Compose  
-**Acceso:** Exclusivo para administradores  
+**Proyecto:** GALANT POST <br>
+**Tipo de implementación:** Nueva versión integral <br>
+**Prioridad:** Alta <br>
+**Arquitectura:** React + FastAPI + PostgreSQL + Docker Compose <br>
+**Acceso:** Exclusivo para administradores <br>
 **Objetivo principal:** crear un centro de configuración general que permita administrar las exigencias documentales de todos los contratistas, controlar su cumplimiento y consultar múltiples períodos sin depender del selector mensual actual.
 
 ---
@@ -299,8 +299,8 @@ Necesito seleccionar cualquier contratista y decidir exactamente qué documentos
 
 Ejemplo:
 
-**Contratista:** CONSTRUCTORA EJEMPLO SPA  
-**Obra:** Brisas de Junquillar  
+**Contratista:** CONSTRUCTORA EJEMPLO SPA <br>
+**Obra:** Brisas de Junquillar <br>
 **Categoría:** CT
 
 | Documento | Obligatorio | Frecuencia |
