@@ -36,6 +36,19 @@ export default function MonthlyDocuments({contractor,readOnly,initialPeriod,onPe
   const [notice,setNotice]=useState("")
   const [docSearch,setDocSearch]=useState("")
   const [docState,setDocState]=useState("all")
+  useEffect(()=>{
+    const reveal=(event:Event)=>{
+      const {kind,subject}=(event as CustomEvent<{kind:string;subject:string}>).detail||{}
+      if(!kind)return
+      setDocSearch("")
+      setDocState("all")
+      window.requestAnimationFrame(()=>window.requestAnimationFrame(()=>{
+        document.getElementById("monthly-req-"+encodeURIComponent(kind)+"-"+encodeURIComponent(subject||"contractor"))?.scrollIntoView({behavior:"smooth",block:"center"})
+      }))
+    }
+    window.addEventListener("galant-v15-document-focus",reveal)
+    return()=>window.removeEventListener("galant-v15-document-focus",reveal)
+  },[])
   const independent=contractor.classification==="CI"
   const withWorkers=contractor.classification==="CT"
   const inactivePeriod=contractor.contract_status!=="active" && period>=todayMonth()
