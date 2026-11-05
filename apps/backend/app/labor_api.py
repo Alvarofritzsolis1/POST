@@ -676,7 +676,8 @@ def worker_detail(assignment_id: str, user: User = Depends(authorized_user),
                           for c in contracts],
             "history": [{"id": h.id, "entity_type": h.entity_type,
                          "changes": h.changes, "created_at": h.created_at,
-                         "actor_name": audit_names.get(h.user_id, "Responsable sin nombre registrado")}
+                         "actor_name": audit_names.get(h.user_id, "Responsable sin nombre registrado"),
+                         "user_id": h.user_id}
                         for h in history]}
 
 
