@@ -57,6 +57,15 @@ const navGroups = [
   { title: "CUMPLIMIENTO", ids: ["documents", "contributions", "evaluations"] },
   { title: "ADMINISTRACIÓN", ids: ["administration", "imports", "reports", "settings"] },
 ] as const;
+// La URL y el estado del historial deben determinar la ruta desde el primer render.
+function sectionFromLocation(): string {
+  const pathname = window.location.pathname;
+  if (pathname.startsWith("/admin/configuracion")) return "configuration";
+  if (pathname.startsWith("/contratistas")) return "contractors";
+  const saved = window.history.state?.galantSection;
+  if (typeof saved === "string" && nav.some(([id]) => id === saved)) return saved;
+  return new URLSearchParams(window.location.search).has("attendance_contractor") ? "attendance" : "home";
+}
 const alertCriticalKeys = new Set<string>(["critical_contractors", "workers_expired", "incomplete_contributions", "declared_unpaid", "attendance_overdue"]);
 const dashboardUrgentTitles = new Set<string>(["Con observaciones", "Registros con diferencias", "Días faltantes acumulados"]);
 const dashboardWarningTitles = new Set<string>(["Documentación pendiente", "Pendientes de confirmación", "Registros sin información", "Trabajadores con observaciones"]);
@@ -91,7 +100,7 @@ function App() {
     [ready, setReady] = useState(false),
     [version, setVersion] = useState<string | null>(null),
     [revision, setRevision] = useState<string | null>(null),
-    [section, setSection] = useState(() => window.location.pathname.startsWith("/admin/configuracion") ? "configuration" : window.location.pathname.startsWith("/contratistas") ? "contractors" : new URLSearchParams(window.location.search).has("attendance_contractor") ? "attendance" : "home"),
+    [section, setSection] = useState(sectionFromLocation),
     [sites, setSites] = useState<Site[]>([]),
     [site, setSite] = useState(() => new URLSearchParams(window.location.search).get("obra") || new URLSearchParams(window.location.search).get("attendance_site") || ""),
     [period, setPeriod] = useState(() =>
@@ -127,11 +136,15 @@ function App() {
     [evidence, setEvidence] = useState(false),
     [sporadic, setSporadic] = useState(false),
     [page, setPage] = useState(0);
+  const sectionRef = useRef(section);
+  sectionRef.current = section;
   useEffect(() => { window.localStorage.setItem("galant-sidebar-collapsed", String(sidebarCollapsed)); }, [sidebarCollapsed]);
   useEffect(() => {
     const routeChanged = () => {
-      const path = window.location.pathname;
-      setSection(path.startsWith("/admin/configuracion") ? "configuration" : path.startsWith("/contratistas") ? "contractors" : window.history.state?.galantSection || (new URLSearchParams(window.location.search).has("attendance_contractor") ? "attendance" : "home"));
+      const next = sectionFromLocation();
+      // Un cambio real de módulo empieza arriba; la ficha interna conserva su restauración.
+      if (next !== sectionRef.current) window.scrollTo({top: 0, left: 0, behavior: "instant"});
+      setSection(next);
     };
     window.addEventListener("popstate", routeChanged);
     return () => window.removeEventListener("popstate", routeChanged);
@@ -302,6 +315,10 @@ function App() {
     }
   }
   function go(s: string) {
+    // Antes del cambio de componentes, evitar que el módulo nuevo herede el scroll viejo.
+    if (s !== section || (s === "contractors" && /^\/contratistas\/[^/]+/.test(window.location.pathname))) {
+      window.scrollTo({top: 0, left: 0, behavior: "instant"});
+    }
     if (s === "configuration") {
       window.history.replaceState({ ...window.history.state, galantSection: section }, "", window.location.href);
       window.history.pushState({ galantSection: "configuration", galantConfiguration: true }, "", "/admin/configuracion");
@@ -795,6 +812,7 @@ function App() {
                 onSiteChange={setSite}
                 onPeriodChange={setPeriod}
                 onAttendance={(associationId,worksiteId,month)=>{
+                  window.scrollTo({top:0,left:0,behavior:"instant"})
                   const url=new URL(window.location.href)
                   url.pathname="/"
                   url.searchParams.delete("obra")

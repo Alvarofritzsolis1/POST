@@ -1,3 +1,9 @@
+# GALANT POST — 15.0.2-rc1 · Corrección de parpadeo y desplazamiento
+
+Corrige el salto al inicio y el parpadeo de la tabla de Contratistas al actualizar. El sondeo mantiene la tabla montada, la apertura y navegación de módulos reinicia el scroll de manera predecible, y el regreso desde una ficha conserva la posición original. Sin migraciones ni cambios documentales. **Pendiente de validación QA y despliegue en VPS.**
+
+[Informe y pruebas del parche](docs/ENTREGA_15_0_2_SCROLL.md).
+
 # GALANT POST — 15.0.1-rc1 · Parche de estabilidad visual
 
 Corrección de saltos de pantalla al cambiar de pestaña y volver. Mantiene actualización periódica de datos, control de asistencia, roles y documentos. Se estabilizan las barras de desplazamiento y los indicadores de carga sin ocupar espacio en el flujo de página. **No desplegada al VPS.**
