@@ -558,7 +558,7 @@ export default function Operations({readOnly,externalSiteId,mode,onImport,onSite
           {pendingDocs.length>5&&<p className="ops-v15-priority-more">Y {pendingDocs.length-5} requisito(s) adicional(es) en la tabla.</p>}
         </aside>
       </div>}
-      {detailTab==="history"&&<div className="ops-history"><h3>Historial de cambios</h3>{history===null?<p>Cargando historial…</p>:history.length===0?<p>Sin cambios registrados.</p>:<ul>{history.map(change=><li key={change.id}><time>{new Date(change.created_at).toLocaleString("es-CL")}</time><span>{describeChange(change.changes)}</span><small>Registro auditable</small></li>)}</ul>}</div>}
+      {detailTab==="history"&&<div className="ops-history"><h3>Historial de cambios</h3>{history===null?<p>Cargando historial…</p>:history.length===0?<p>Sin cambios registrados.</p>:<ul>{history.map(change=><li key={change.id}><time>{new Date(change.created_at).toLocaleString("es-CL")}</time><span>{describeChange(change.changes)}</span><small>Responsable: {change.actor_name||"Sin nombre registrado"}</small></li>)}</ul>}</div>}
     </section>}
   </div>
 }
