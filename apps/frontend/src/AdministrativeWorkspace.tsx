@@ -14,10 +14,11 @@ export default function AdministrativeWorkspace({ user, version, logout }: {
   user: Profile; version: string | null; logout: () => void;
 }) {
   const [sites, setSites] = useState<Site[]>([]);
-  const [siteId, setSiteId] = useState("");
-  const [period, setPeriod] = useState(currentPeriod);
+  const [siteId, setSiteId] = useState(() => new URLSearchParams(window.location.search).get("attendance_site") || "");
+  const [period, setPeriod] = useState(() => new URLSearchParams(window.location.search).get("attendance_period") || currentPeriod());
   const [name, setName] = useState("");
   const [tab, setTab] = useState<"attendance" | "contracts" | "severance" | "staff" | "performance">("attendance");
+  const [detailOpen, setDetailOpen] = useState(false);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState("");
 
@@ -44,26 +45,26 @@ export default function AdministrativeWorkspace({ user, version, logout }: {
       <div className="administrative-user"><span>{name || user.email}</span><button type="button" onClick={logout}>Cerrar sesión</button></div>
     </header>
     <div className="administrative-content">
-      <div className="administrative-heading">
+      {!detailOpen && <div className="administrative-heading">
         <div><h1>Control laboral de la obra</h1><p>Contratistas activos, asistencia semanal, dotación, contratos y finiquitos en un solo lugar.</p></div>
         <div className="administrative-filters">
           <label>Obra <select value={siteId} onChange={(event) => setSiteId(event.target.value)}
             disabled={!sites.length}>{sites.map((site) => <option key={site.id} value={site.id}>{site.name}</option>)}</select></label>
           <label>Mes <input type="month" value={period} onChange={(event) => setPeriod(event.target.value || currentPeriod())} /></label>
         </div>
-      </div>
+      </div>}
       {error && <p className="alert danger" role="alert">{error}</p>}
       {loading ? <p>Cargando tus obras…</p> : !sites.length
         ? <section className="panel"><h2>Sin obras asignadas</h2><p>Un Administrador debe asignarte una obra antes de registrar asistencia.</p></section>
         : <>
-          <nav aria-label="Opciones administrativas" className="administrative-tabs">
+          {!detailOpen && <nav aria-label="Opciones administrativas" className="administrative-tabs">
             <button type="button" aria-current={tab === "attendance" ? "page" : undefined} onClick={() => setTab("attendance")}>Asistencia semanal</button>
             <button type="button" aria-current={tab === "contracts" ? "page" : undefined} onClick={() => setTab("contracts")}>Contratos de trabajo</button>
             <button type="button" aria-current={tab === "severance" ? "page" : undefined} onClick={() => setTab("severance")}>Finiquitos</button>
             <button type="button" aria-current={tab === "staff" ? "page" : undefined} onClick={() => setTab("staff")}>Dotación vigente</button>
             <button type="button" aria-current={tab === "performance" ? "page" : undefined} onClick={() => setTab("performance")}>Mi rendimiento</button>
-          </nav>
-          <AdministrativeControlV92 siteId={siteId} sites={sites} period={period} tab={tab} role="administrative" onChangeTab={setTab} />
+          </nav>}
+          <AdministrativeControlV92 siteId={siteId} sites={sites} period={period} tab={tab} role="administrative" onChangeTab={setTab} onDetailChange={setDetailOpen} />
         </>}
     </div>
   </main>;

@@ -8,7 +8,9 @@ type Roster = { contractors: { workers: Person[] }[] };
 type ContractType = "indefinite" | "fixed_term" | "project";
 const errorText = (value: unknown) => value instanceof Error ? value.message : String(value);
 
-export default function ContractEntry({ siteId, period }: { siteId: string; period: string }) {
+export default function ContractEntry({ siteId, period, associationId, contractorName, onSaved }: {
+  siteId: string; period: string; associationId?: string; contractorName?: string; onSaved?: () => void;
+}) {
   const [companies, setCompanies] = useState<Company[]>([]);
   const [companySearch, setCompanySearch] = useState("");
   const [companyId, setCompanyId] = useState("");
@@ -26,18 +28,24 @@ export default function ContractEntry({ siteId, period }: { siteId: string; peri
   const [notice, setNotice] = useState("");
   const [revision, setRevision] = useState(0);
   useEffect(() => {
-    setCompanies([]); setCompanyId(""); setCompanySearch(""); setAssignmentId(""); setWorkers([]);
-  }, [siteId, period]);
+    setCompanies([]); setCompanyId(""); setCompanySearch(associationId ? contractorName || "" : ""); setAssignmentId(""); setWorkers([]);
+  }, [siteId, period, associationId, contractorName]);
   useEffect(() => {
     if (!companySearch.trim() || !siteId) { setCompanies([]); return; }
     let active = true;
     const timer = window.setTimeout(() => {
       void request<{ items: Company[] }>(`/attendance-v81/contractors?site_id=${encodeURIComponent(siteId)}&q=${encodeURIComponent(companySearch.trim())}`)
-        .then((data) => { if (active) { setCompanies(data.items); setError(""); } })
+        .then((data) => {
+          if (!active) return;
+          const scoped = associationId ? data.items.filter((row) => row.association_id === associationId) : data.items;
+          setCompanies(scoped);
+          if (associationId) setCompanyId(scoped[0]?.association_id || "");
+          setError(associationId && !scoped.length ? "El contratista seleccionado no está disponible para registrar contratos." : "");
+        })
         .catch((cause) => { if (active) setError(errorText(cause)); });
     }, 180);
     return () => { active = false; window.clearTimeout(timer); };
-  }, [siteId, companySearch, revision]);
+  }, [siteId, companySearch, revision, associationId]);
   useEffect(() => {
     if (!companyId || !siteId) { setWorkers([]); return; }
     let active = true;
@@ -67,6 +75,7 @@ export default function ContractEntry({ siteId, period }: { siteId: string; peri
           body: JSON.stringify({ ...contract, assignment_id: assignmentId }) });
       }
       setNotice("Contrato registrado correctamente. Se conservó la trazabilidad de la operación.");
+      onSaved?.();
       setName(""); setRut(""); setAssignmentId(""); setStartDate(""); setEndDate(""); setNotes("");
       setRevision((value) => value + 1);
     } catch (cause) { setError(errorText(cause)); }
@@ -75,15 +84,17 @@ export default function ContractEntry({ siteId, period }: { siteId: string; peri
   return <section className="panel administrative-contracts">
     <div><h2>Nuevo contrato de trabajo</h2><p>Registra los datos del contrato sin adjuntar documentos.</p></div>
     <form onSubmit={(event) => void save(event)}>
-      <label>Buscar contratista por nombre o RUT
-        <input value={companySearch} onChange={(event) => setCompanySearch(event.target.value)}
-          placeholder="Escribe el nombre o RUT" autoComplete="off" />
-      </label>
-      <label>Contratista <select required value={companyId} onChange={(event) => { setCompanyId(event.target.value); setAssignmentId(""); }}>
+      {associationId ? <p className="av92-notice">Contratista seleccionado: <strong>{contractorName}</strong>. Este formulario no permite cambiar de contratista.</p>
+        : <label>Buscar contratista por nombre o RUT
+            <input value={companySearch} onChange={(event) => setCompanySearch(event.target.value)}
+              placeholder="Escribe el nombre o RUT" autoComplete="off" />
+          </label>}
+      {!associationId && <label>Contratista <select required value={companyId}
+        onChange={(event) => { setCompanyId(event.target.value); setAssignmentId(""); }}>
         <option value="">Seleccionar contratista</option>
         {companies.filter((row) => row.active).map((row) =>
           <option key={row.association_id} value={row.association_id}>{row.contractor}</option>)}
-      </select></label>
+      </select></label>}
       <fieldset><legend>Trabajador</legend>
         <div className="administrative-mode">
           <label><input type="radio" name="worker-mode" checked={mode === "new"} onChange={() => setMode("new")} /> Nuevo trabajador</label>

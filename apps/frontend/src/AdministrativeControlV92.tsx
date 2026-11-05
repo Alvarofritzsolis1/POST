@@ -1,4 +1,5 @@
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
+import ContractorDetailV13 from "./ContractorDetailV13";
 import { request } from "./api";
 import type { Site } from "./opsApi";
 import WeeklyAttendanceV81 from "./WeeklyAttendanceV81";
@@ -19,8 +20,8 @@ type Week = {
   assigned_to_name: string | null; entered_by: string | null;
   completed_on_time: boolean | null;
 };
-type Contractor = {
-  association_id: string; contractor: string; rut: string | null;
+export type Contractor = {
+  association_id: string; contractor: string; rut: string | null; classification?: string | null;
   contractor_active: boolean; contractor_status: string; attendance_applicable: boolean;
   weeks: Week[]; staff: Staff[];
   staff_counts: Record<LaborState, number>;
@@ -80,14 +81,18 @@ function WeekBadge({ week }: { week?: Week }) {
   return <span className={`av92-badge ${state}`}>{label}</span>;
 }
 export default function AdministrativeControlV92({
-  siteId, sites, period, tab, role = "administrative", onChangeTab,
+  siteId, sites, period, tab, role = "administrative", onChangeTab, onDetailChange,
 }: {
   siteId: string; sites: Site[]; period: string; tab: Tab;
   role?: "admin" | "administrative"; onChangeTab?: (tab: Tab) => void;
+  onDetailChange?: (open: boolean) => void;
 }) {
   const [overview, setOverview] = useState<Overview | null>(null);
   const [weekNumber, setWeekNumber] = useState<number | null>(null);
   const [selectedId, setSelectedId] = useState("");
+  const [attendanceDirty, setAttendanceDirty] = useState(false);
+  const scrollBeforeDetail = useRef(0);
+  const hadDetail = useRef(false);
   const [search, setSearch] = useState("");
   const [filter, setFilter] = useState("all");
   const [showInactive, setShowInactive] = useState(false);
@@ -98,7 +103,51 @@ export default function AdministrativeControlV92({
   const [evaluation, setEvaluation] = useState<Assessment | null>(null);
   const [evaluationError, setEvaluationError] = useState("");
 
-  useEffect(() => { setWeekNumber(null); setSelectedId(""); setFilter("all"); setSearch(""); }, [siteId, period]);
+
+  useEffect(() => {
+    const params = new URLSearchParams(window.location.search);
+    const isSameContext = params.get("attendance_site") === siteId &&
+      params.get("attendance_period") === period;
+    setSelectedId(isSameContext ? params.get("attendance_contractor") || "" : "");
+    const w = Number(params.get("attendance_week"));
+    setWeekNumber(isSameContext && Number.isInteger(w) && w > 0 ? w : null);
+    setAttendanceDirty(false);
+    setFilter("all"); setSearch("");
+  }, [siteId, period]);
+  useEffect(() => {
+    onDetailChange?.(!!selectedId);
+    if (selectedId) {
+      hadDetail.current = true;
+      window.scrollTo(0, 0);
+    } else if (hadDetail.current) {
+      hadDetail.current = false;
+      window.requestAnimationFrame(() => window.scrollTo(0, scrollBeforeDetail.current));
+    }
+    return () => onDetailChange?.(false);
+  }, [selectedId, onDetailChange]);
+  useEffect(() => {
+    const onPop = () => {
+      const params = new URLSearchParams(window.location.search);
+      const next = params.get("attendance_site") === siteId &&
+        params.get("attendance_period") === period ? params.get("attendance_contractor") || "" : "";
+      if (attendanceDirty && next !== selectedId &&
+        !window.confirm("Hay cambios de asistencia sin guardar. ¿Salir y descartarlos?")) {
+        const restore = new URL(window.location.href);
+        restore.searchParams.set("attendance_site", siteId);
+        restore.searchParams.set("attendance_period", period);
+        restore.searchParams.set("attendance_contractor", selectedId);
+        window.history.pushState({galantAttendanceDetailV13:true}, "", restore);
+        return;
+      }
+      setAttendanceDirty(false);
+      setSelectedId(next);
+      const w = Number(params.get("attendance_week"));
+      setWeekNumber(Number.isInteger(w) && w > 0 ? w : null);
+    };
+    window.addEventListener("popstate", onPop);
+    return () => window.removeEventListener("popstate", onPop);
+  }, [siteId, period, selectedId, attendanceDirty]);
+
   useEffect(() => {
     let active = true;
     setLoading(true); setError("");
@@ -186,6 +235,42 @@ export default function AdministrativeControlV92({
   const currentTab = tab === "performance" ? [] : (tab === "severance" ? finiquitos
     : tab === "contracts" ? contractPeople : allPeople);
   const refresh = () => setRevision((n) => n + 1);
+  const openContractor = (id: string, week: number | null) => {
+    scrollBeforeDetail.current = window.scrollY;
+    const url = new URL(window.location.href);
+    url.searchParams.set("attendance_contractor", id);
+    url.searchParams.set("attendance_site", siteId);
+    url.searchParams.set("attendance_period", period);
+    if (week) url.searchParams.set("attendance_week", String(week));
+    else url.searchParams.delete("attendance_week");
+    window.history.pushState({galantAttendanceDetailV13:true}, "", url);
+    setWeekNumber(week);
+    setSelectedId(id);
+    setAttendanceDirty(false);
+  };
+  const closeContractor = () => {
+    if (attendanceDirty && !window.confirm("Hay cambios de asistencia sin guardar. ¿Volver al listado sin guardarlos?")) return;
+    setAttendanceDirty(false);
+    if (window.history.state?.galantAttendanceDetailV13) {
+      window.history.back();
+    } else {
+      const url = new URL(window.location.href);
+      ["attendance_contractor","attendance_site","attendance_period","attendance_week"].forEach((key) => url.searchParams.delete(key));
+      window.history.replaceState({}, "", url);
+      setSelectedId("");
+    }
+  };
+  if (selectedId) return <section className="av92 av13-isolated">
+    {error && <p className="alert danger" role="alert">{error}</p>}
+    {contractor ? <ContractorDetailV13
+      contractor={contractor} siteId={siteId} sites={sites} period={period}
+      initialWeek={effectiveWeek} role={role} onBack={closeContractor}
+      onSaved={refresh} onDirtyChange={setAttendanceDirty} loading={loading} />
+    : <div className="panel">
+        <button type="button" className="av92-refresh" onClick={closeContractor}>← Volver a contratistas</button>
+        <p>{loading || !overview ? "Cargando contratista…" : "Contratista no disponible en esta obra o sin autorización."}</p>
+      </div>}
+  </section>;
 
   return <section className="av92">
     <div className="av92-title">
@@ -247,7 +332,8 @@ export default function AdministrativeControlV92({
             <tbody>{visibleContractors.map((row) => {
               const week = weekOf(row);
               return <tr key={row.association_id} className={selectedId === row.association_id ? "selected" : ""}>
-                <td><strong>{row.contractor}</strong><small>{row.rut || "RUT sin registrar"}{!row.contractor_active ? " · Histórico" : ""}</small></td>
+                <td><button type="button" className="av13-company-link" onClick={() => openContractor(row.association_id, effectiveWeek)}>
+                  <strong>{row.contractor}</strong></button><small>{row.rut || "RUT sin registrar"}{!row.contractor_active ? " · Histórico" : ""}</small></td>
                 <td>{row.staff_counts.vigente + row.staff_counts.por_vencer}<small>{row.staff_counts.por_verificar ? `${row.staff_counts.por_verificar} por verificar` : "Vigentes y por vencer"}</small></td>
                 {weekOptions.map((w) => {
                   const item = row.weeks.find((entry) => entry.week_number === w.week_number);
@@ -256,7 +342,7 @@ export default function AdministrativeControlV92({
                   return <td key={w.week_number} className="av93-week-cell">
                     <button type="button" className="av93-cell-action" aria-label={`${row.contractor}, semana ${weekOptions.indexOf(w)+1}: ${weekText[item?.state || "not_required"] || "No exigible"}. ${description}`}
                       title={description} aria-pressed={selectedId === row.association_id && effectiveWeek === w.week_number}
-                      onClick={() => { setWeekNumber(w.week_number); setSelectedId(row.association_id); }}>
+                      onClick={() => openContractor(row.association_id, w.week_number)}>
                       <WeekBadge week={row.attendance_applicable ? item : undefined} />
                     </button>
                   </td>;
@@ -268,23 +354,14 @@ export default function AdministrativeControlV92({
                   : <span className="av92-badge ok">Sin alertas</span>}</td>
                 <td>{row.pending_finiquitos ? <span className={`av92-badge ${row.overdue_finiquitos ? "bad" : "warn"}`}>{row.pending_finiquitos} pendientes</span>
                   : <span className="av92-muted">Sin pendientes</span>}</td>
-                <td><button type="button" className="av92-action" aria-expanded={selectedId === row.association_id}
-                  onClick={() => setSelectedId((previous) => previous === row.association_id ? "" : row.association_id)}>
-                  {selectedId === row.association_id ? "Cerrar" : "Ver asistencia"}</button></td>
+                <td><button type="button" className="av92-action"
+                  onClick={() => openContractor(row.association_id, effectiveWeek)}>Abrir contratista</button></td>
               </tr>;
             })}</tbody>
           </table>
           {!visibleContractors.length && <p className="av92-empty">No hay contratistas para estos filtros.</p>}
         </div>
-        {contractor && <div className="av92-selected">
-          <div className="av92-section-head"><div><h3>{contractor.contractor}</h3>
-            <p>Trabajadores a revisar según la semana elegida. Contratos y finiquitos se muestran por separado.</p></div>
-            <button type="button" onClick={() => setSelectedId("")}>Cerrar detalle</button>
-          </div>
-          <WeeklyAttendanceV81 siteId={siteId} sites={sites} period={period}
-            canEdit={true} canReview={role === "admin"} selectedAssociationId={selectedId}
-            preferredWeekNumber={effectiveWeek} onSaved={refresh} />
-        </div>}
+
       </>}
       {tab !== "attendance" && <>
         <div className="av92-section-head" id="av92-dotacion">

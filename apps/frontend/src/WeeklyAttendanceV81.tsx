@@ -19,9 +19,10 @@ const status: Record<string, string> = {
   overdue: "Pendiente atrasado", draft: "Borrador", pending: "Pendiente",
 };
 
-export default function WeeklyAttendanceV81({ siteId, sites, period, canEdit, canReview, selectedAssociationId, preferredWeekNumber, onSaved }: {
+export default function WeeklyAttendanceV81({ siteId, sites, period, canEdit, canReview, selectedAssociationId, preferredWeekNumber, onSaved, onDirtyChange }: {
   siteId: string; sites: Site[]; period: string; canEdit: boolean; canReview: boolean;
   selectedAssociationId?: string; preferredWeekNumber?: number | null; onSaved?: () => void;
+  onDirtyChange?: (dirty: boolean) => void;
 }) {
   const [localSite, setLocalSite] = useState("");
   const [data, setData] = useState<Roster | null>(null);
@@ -35,6 +36,8 @@ export default function WeeklyAttendanceV81({ siteId, sites, period, canEdit, ca
   const [revision, setRevision] = useState(0);
   const [error, setError] = useState("");
   const [notice, setNotice] = useState("");
+  const [dirty, setDirty] = useState(false);
+  const markDirty = (value: boolean) => { setDirty(value); onDirtyChange?.(value); };
   const activeSite = siteId || localSite || sites[0]?.id || "";
 
   useEffect(() => {
@@ -67,7 +70,17 @@ export default function WeeklyAttendanceV81({ siteId, sites, period, canEdit, ca
   useEffect(() => {
     setEntries(copy(week?.entries || []));
     setNotes(week?.notes?.startsWith("Migrado desde calendario antiguo") ? "" : week?.notes || "");
+    markDirty(false);
   }, [contractorId, weekNumber, week?.revision, revision]);
+  useEffect(() => {
+    const warnOnLeave = (event: BeforeUnloadEvent) => {
+      if (!dirty) return;
+      event.preventDefault();
+      event.returnValue = "";
+    };
+    window.addEventListener("beforeunload", warnOnLeave);
+    return () => window.removeEventListener("beforeunload", warnOnLeave);
+  }, [dirty]);
 
   const missing = entries.filter((row) => !row.recorded).length;
   const recorded = entries.length - missing;
@@ -77,6 +90,7 @@ export default function WeeklyAttendanceV81({ siteId, sites, period, canEdit, ca
   function mark(id: string, action: (row: Entry) => Entry) {
     setEntries((current) => current.map((row) =>
       row.worker_assignment_id === id ? action(row) : row));
+    markDirty(true);
   }
   async function save(complete: boolean) {
     if (!week || !contractor) return;
@@ -98,6 +112,7 @@ export default function WeeklyAttendanceV81({ siteId, sites, period, canEdit, ca
         }),
       });
       setNotice(complete ? "Semana completada y registrada con trazabilidad." : "Borrador guardado.");
+      markDirty(false);
       setRevision((current) => current + 1);
       onSaved?.();
     } catch (reason) { setError(errorText(reason)); }
@@ -133,7 +148,12 @@ export default function WeeklyAttendanceV81({ siteId, sites, period, canEdit, ca
           {visibleWeeks.map((w, index) => <button type="button" key={w.week_number}
             aria-pressed={week?.week_number === w.week_number}
             className={week?.week_number === w.week_number ? "current" : ""}
-            onClick={() => setWeekNumber(w.week_number)}>
+            onClick={() => {
+              if (dirty && week?.week_number !== w.week_number &&
+                !window.confirm("Hay cambios en esta semana sin guardar. ¿Cambiar de semana?")) return;
+              markDirty(false);
+              setWeekNumber(w.week_number);
+            }}>
             <b>Semana {index + 1}</b><small>{fmtDate(w.start_date)} – {fmtDate(w.end_date)}</small>
             <small>{status[w.state] || w.state}</small>
           </button>)}
@@ -198,7 +218,7 @@ export default function WeeklyAttendanceV81({ siteId, sites, period, canEdit, ca
         <p className="muted">{missing} trabajadores aún sin registrar. Pendiente no equivale a cero.</p>
         {canEdit && contractor.included && <div className="weekly-v81-save">
           <label>Observación o motivo del atraso
-            <textarea rows={2} value={notes} onChange={(e) => setNotes(e.target.value)}
+            <textarea rows={2} value={notes} onChange={(e) => { setNotes(e.target.value); markDirty(true); }}
               placeholder="Obligatorio si se entrega fuera de plazo" /></label>
           <div><button disabled={!canSubmit} onClick={() => void save(false)}>Guardar borrador</button>
             <button className="primary" disabled={!canSubmit || missing > 0}

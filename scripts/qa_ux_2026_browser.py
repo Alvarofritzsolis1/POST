@@ -80,6 +80,26 @@ with sync_playwright() as p:
     assert metrics["width"] >= 180, f"Selector demasiado estrecho: {metrics}"
     assert site["name"] == metrics["text"], f"No seleccionó la obra esperada: {metrics}"
 
+    # GALANT v13: la ficha debe sustituir completamente el listado y permitir regresar.
+    page.get_by_role("button", name="Control de asistencia", exact=True).click()
+    expect(page.locator(".av93-month-matrix tbody tr").first).to_be_visible(timeout=15000)
+    contractor_name = page.locator(".av13-company-link").first.inner_text()
+    page.locator(".av13-company-link").first.click()
+    expect(page.locator(".av13-detail")).to_be_visible()
+    expect(page.locator(".av93-month-matrix")).to_have_count(0)
+    expect(page.locator(".av13-back")).to_be_visible()
+    expect(page.locator(".global-filters")).to_be_hidden()
+    assert contractor_name in page.locator(".av13-identification h2").inner_text()
+    page.locator(".av13-tabs").get_by_role("button", name="Trabajadores").click()
+    expect(page.locator(".av13-workers")).to_be_visible()
+    page.locator(".av13-tabs").get_by_role("button", name="Asistencia").click()
+    expect(page.locator(".weekly-v81")).to_be_visible()
+    page.locator(".av13-back").click()
+    expect(page.locator(".av93-month-matrix tbody tr").first).to_be_visible()
+    expect(page.locator(".global-filters")).to_be_visible()
+    assert "attendance_contractor=" not in page.url
+    assert_no_horizontal_page_scroll(page, "detalle contratista v13")
+
     # Capturas de las pantallas centrales a resolución de escritorio.
     for label in ["Contratistas", "Trabajadores", "Control de asistencia", "Control documental", "Cotizaciones y pagos", "Evaluación administrativa", "Inicio"]:
         page.get_by_role("button", name=label, exact=True).click()
