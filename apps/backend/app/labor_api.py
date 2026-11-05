@@ -232,6 +232,7 @@ def _registry_query(org_id, site_id=None, contractor_id=None, search=None,
         ContractRegister.id.label("contract_id"), ContractRegister.contract_type,
         ContractRegister.start_date, ContractRegister.end_date,
         WorkerAssignment.imported_statuses.label("assignment_imported_statuses"),
+        WorkerAssignment.active.label("assignment_active"),
         ContractRegister.status.label("contract_status"),
         WorkerTermination.id.label("termination_id"), WorkerTermination.effective_date,
         WorkerTermination.document_id.label("finiquito_document_id"),
@@ -641,7 +642,8 @@ def edit_worker_code(assignment_id: str, body: WorkerCodeInput,
             WorkerTermination.org_id == user.org_id,
             WorkerTermination.contract_id == latest.id,
         )) if latest else None
-        if not latest or latest.status != "active" or termination:
+        if (not latest or latest.status != "active" or termination or
+                (latest.end_date is not None and latest.end_date < today())):
             raise HTTPException(409, "No se puede reactivar: registra y valida primero un contrato vigente")
     after = dict(before)
     after["worker_code"] = body.worker_code
@@ -678,6 +680,10 @@ def contract_alerts(site_id: str | None = None,
     if selected is not None:
         query = query.where(WorkerAssignment.worksite_id.in_(selected))
     rows = db.execute(query).mappings().all()
+    days_config = sorted(catalogs_for(db, user.org_id)["expiry_alert_days"])
+    urgent_limit = days_config[0]
+    attention_limit = days_config[1] if len(days_config) > 1 else urgent_limit
+    soon_limit = days_config[-1]
     order = {"expired": 0, "urgent": 1, "attention": 2, "soon": 3,
              "active": 4, "indefinite": 5, "inactive": 6, "unverified": 7}
     result = []
@@ -685,7 +691,9 @@ def contract_alerts(site_id: str | None = None,
     for entry in rows:
         code = (entry["assignment_imported_statuses"] or {}).get("worker_code", "")
         days = (entry["end_date"] - today_value).days if entry["end_date"] else None
-        if code == "F" or entry["labor_state"] == "ended" or entry["labor_state"] == "observed" and entry["contract_status"] == "ended":
+        if (code == "F" or not entry["assignment_active"] or
+                entry["labor_state"] == "ended" or
+                (entry["labor_state"] == "observed" and entry["contract_status"] == "ended")):
             state = "inactive"
         elif entry["contract_id"] is None:
             state = "unverified"
@@ -693,11 +701,11 @@ def contract_alerts(site_id: str | None = None,
             state = "indefinite"
         elif days < 0:
             state = "expired"
-        elif days <= 7:
+        elif days <= urgent_limit:
             state = "urgent"
-        elif days <= 15:
+        elif days <= attention_limit:
             state = "attention"
-        elif days <= 30:
+        elif days <= soon_limit:
             state = "soon"
         else:
             state = "active"
@@ -715,6 +723,8 @@ def contract_alerts(site_id: str | None = None,
                row["site"], row["worker"]))
     summary = {name: sum(row["state"] == name for row in result) for name in order}
     return {"as_of": today_value, "total": len(result),
+            "thresholds": {"urgent": urgent_limit,
+                           "attention": attention_limit, "soon": soon_limit},
             "summary": summary, "rows": result}
 
 
