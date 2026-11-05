@@ -72,6 +72,11 @@ with sync_playwright() as p:
     expect(page.get_by_label("Seleccionar obra de contratistas")).to_have_count(0)
     expect(page.get_by_role("button", name="Importar Excel o CSV", exact=True)).to_have_count(1)
     expect(page.get_by_label("Filtrar por cumplimiento")).to_be_visible()
+    sort_control=page.get_by_label("Ordenar contratistas")
+    expect(sort_control).to_be_visible()
+    for criterion in ("pending","compliance","workers","name"):
+        sort_control.select_option(criterion)
+        expect(sort_control).to_have_value(criterion)
     expect(page.get_by_label("Buscar módulo")).to_be_visible()
     expect(page.locator(".ops-desktop-list th").filter(has_text="CUMPLIMIENTO")).to_be_visible()
     metrics = select.evaluate("""el => {
