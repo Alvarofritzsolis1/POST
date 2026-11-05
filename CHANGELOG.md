@@ -1,5 +1,15 @@
 # Historial de cambios
 
+## 15.0.3-rc1 — Carga de trabajadores con COD y alertas (candidata)
+
+- Formato de Excel obligatorio de seis columnas: contratista, trabajador, RUT, ingreso, término y COD.
+- Selección de obra, fechas «INDEFINIDO» o DD-MM-AAAA, códigos TH/TM/F con validación estricta.
+- Actualización de COD desde Trabajadores y Alertas contractuales; F queda inactivo operativamente sin generar un finiquito firmado.
+- Alertas de vencimiento con umbrales 30/15/7 días visibles por obra para ADMIN y ADMINISTRATIVA.
+- Contratos y documentos históricos permanecen intactos; importación de empresas continúa con once columnas.
+- Nueva cobertura de pruebas y código de versión sincronizado; el VPS no se modifica automáticamente.
+
+
 ## 15.0.0-rc1 — GALANT Premium UX (candidata)
 
 - Nueva capa visual compartida: navegación azul marino, tarjetas y tablas más legibles.

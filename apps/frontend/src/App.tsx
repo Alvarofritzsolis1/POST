@@ -11,6 +11,7 @@ import {
   Network,
   RefreshCcw,
   Menu,
+  Bell,
 } from "lucide-react";
 import { api, type Profile } from "./api";
 import { opsApi, type Site } from "./opsApi";
@@ -24,6 +25,7 @@ import AdministrativePerformanceV81 from "./AdministrativePerformanceV81";
 import AdministrativeWorkspace from "./AdministrativeWorkspace";
 import ControlCenter from "./ControlCenter";
 import BulkImport from "./BulkImport";
+import ContractAlerts from "./ContractAlerts";
 import Settings from "./Settings";
 const GeneralConfiguration = lazy(() => import("./GeneralConfiguration"));
 import RedDeObras, { ResidentNetwork } from "./Network";
@@ -42,6 +44,7 @@ const nav = [
   ["network", "Red de Obras", Network],
   ["contractors", "Contratistas", Building2],
   ["workers", "Trabajadores", Users],
+  ["contract_alerts", "Alertas contractuales", Bell],
   ["attendance", "Control de asistencia", CalendarDays],
   ["evaluations", "Evaluación administrativa", BarChart3],
   ["documents", "Control documental", FileCheck2],
@@ -53,7 +56,7 @@ const nav = [
 ] as const;
 const navGroups = [
   { title: "PRINCIPAL", ids: ["home", "network"] },
-  { title: "GESTIÓN OPERATIVA", ids: ["contractors", "workers", "attendance"] },
+  { title: "GESTIÓN OPERATIVA", ids: ["contractors", "workers", "contract_alerts", "attendance"] },
   { title: "CUMPLIMIENTO", ids: ["documents", "contributions", "evaluations"] },
   { title: "ADMINISTRACIÓN", ids: ["administration", "imports", "reports", "settings"] },
 ] as const;
@@ -113,6 +116,7 @@ function App() {
     [profile, setProfile] = useState<OrgProfile | null>(null),
     [overview, setOverview] = useState<Overview | null>(null),
     [laborAlerts, setLaborAlerts] = useState<LaborAlerts | null>(null),
+    [contractCount, setContractCount] = useState(0),
     [targetWorker, setTargetWorker] = useState(""),
     [findingDraft, setFindingDraft] = useState<{control_id:string;state:string;document_id:string;documented_amount:string;expected_amount:string;observation:string}|null>(null),
     [contributions, setContributions] = useState<{
@@ -170,6 +174,24 @@ function App() {
     window.addEventListener("galant-session-ended", expired);
     return () => window.removeEventListener("galant-session-ended", expired);
   }, []);
+  useEffect(() => {
+    if (!user || user.role !== "admin") return;
+    let active = true;
+    const update = () => {
+      if (document.hidden) return;
+      void read<{summary: Record<string, number>}>("/labor/contract-alerts" +
+        (site ? "?site_id=" + encodeURIComponent(site) : "")).then(result => {
+          if (active) setContractCount((result.summary.expired || 0) +
+            (result.summary.urgent || 0) + (result.summary.attention || 0) +
+            (result.summary.soon || 0));
+        }).catch(() => {});
+    };
+    update();
+    const timer = window.setInterval(update, 60000);
+    window.addEventListener("galant-changed", update);
+    return () => { active = false; window.clearInterval(timer);
+      window.removeEventListener("galant-changed", update); };
+  }, [user, site]);
   const readonly = false;
   const canEdit = user?.role === "admin";
   const canReview = canEdit;
@@ -512,6 +534,12 @@ function App() {
               />
             </label>
           </div>}
+          <button type="button" className="icon-button" title="Alertas contractuales"
+            aria-label={"Alertas contractuales: " + contractCount + " por vencer o vencidos"}
+            onClick={() => go("contract_alerts")}>
+            <Bell size={18} aria-hidden="true" />
+            {contractCount > 0 && <span className="ca-counter">{contractCount}</span>}
+          </button>
           <button
             className="icon-button"
             title="Actualizar datos"
@@ -842,6 +870,11 @@ function App() {
                 contratistas y trabajadores.
               </div>
             ))}
+          {section === "contract_alerts" && <ErrorBoundary name="alertas contractuales">
+            <ContractAlerts siteId={site} onOpenWorker={assignment => {
+              setTargetWorker(assignment); go("workers");
+            }} />
+          </ErrorBoundary>}
           {section === "workers" && <ErrorBoundary key={"workers-"+site} name="el módulo de trabajadores"><Workers siteId={site} sites={sites} period={period}
             canEdit={!!canEdit} canReview={!!canReview}
             initialPending={filter === "finiquito_pending"}

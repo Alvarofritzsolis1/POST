@@ -36,7 +36,7 @@ const importFieldNames:Record<string,string>={
  worksite:"Obra",site:"Obra",site_id:"Obra",specialty:"Especialidad",
  historical_code:"Código",contract_status:"Estado",nature:"Naturaleza",
  frequency:"Frecuencia",phone:"Teléfono",email:"Correo",start_date:"Ingreso",
- end_date:"Término",legal_representative:"Representante legal",
+ end_date:"Término",worker_code:"COD trabajador",legal_representative:"Representante legal",
 };
 const readableImportValue=(value:unknown)=>{
  if(value===null||value===undefined||value==="")return "Sin registrar";
@@ -117,8 +117,8 @@ export default function BulkImport({
         </li>)}
       </ol>
       <p>
-        Carga varias obras en un archivo. Revisa las observaciones y los cambios
-        antes de confirmar.
+        Revisa las observaciones y los cambios antes de confirmar.
+        Para trabajadores, selecciona una obra y utiliza exclusivamente seis columnas.
       </p>
       <div className="toolbar">
         <label>
@@ -150,7 +150,10 @@ export default function BulkImport({
         COD: CT fijo, CE esporádico, CI independiente. ESTADO: ACTIVO o INACTIVO.
         Reimporta para corregir registros existentes sin duplicarlos; los cambios
         necesitan confirmación. Trabajadores: selecciona la obra arriba y usa
-        su plantilla independiente.
+        su plantilla independiente con seis columnas: NOMBRE CONTRATISTA,
+        NOMBRE TRABAJADOR, RUT, F.INGRESO, F.TERMINO y COD.
+        COD: TH trabajador hombre, TM trabajadora mujer, F finiquitado inactivo.
+        F.TERMINO debe contener una fecha o INDEFINIDO.
       </p>
       {!readOnly && (
         <>
@@ -168,7 +171,7 @@ export default function BulkImport({
               Arrastra tu Excel o selecciona un archivo
               <input
                 type="file"
-                accept=".xlsx,.csv"
+                accept={kind === "workers" ? ".xlsx" : ".xlsx,.csv"}
                 onChange={(e) => {
                   setFile(e.target.files?.[0] || null);
                   setPreview(null);
@@ -178,21 +181,12 @@ export default function BulkImport({
             </label>
             <strong>{file?.name}</strong>
           </div>
-          {kind === "workers" && <details>
-            <summary>Mapeo opcional de encabezados</summary>
-            <p>
-              Ejemplo:{" "}
-              {'{"name":"Razón social","contractor_rut":"RUT empresa"}'}
-            </p>
-            <textarea
-              aria-label="Mapeo de columnas"
-              value={mapping}
-              onChange={(e) => setMapping(e.target.value)}
-            />
-          </details>}
+          {kind === "workers" && !siteId && <p className="form-error" role="alert">
+            Selecciona primero una obra en la barra superior.
+          </p>}
           <button
             className="primary"
-            disabled={!file || busy}
+            disabled={!file || busy || (kind === "workers" && !siteId)}
             onClick={() => void run(load)}
           >
             Previsualizar archivo
@@ -235,6 +229,7 @@ export default function BulkImport({
                       <th>Contratista / RUT</th>
                       <th>Ingreso</th>
                       <th>Término</th>
+                      <th>COD trabajador</th>
                     </>
                   )}
                   <th>Observaciones y cambios</th>
@@ -287,6 +282,17 @@ export default function BulkImport({
                           )}
                         </td>
                       ))}
+                      {kind === "workers" && <td>
+                        <select aria-label={"COD trabajador fila " + (n + 1)}
+                          value={draft.rows[n].worker_code || ""}
+                          onChange={e => setDraft({ ...draft, rows: draft.rows.map((v,j) =>
+                            j === n ? { ...v, worker_code: e.target.value } : v) })}>
+                          <option value="">Seleccionar COD</option>
+                          <option value="TH">TH · Trabajador hombre</option>
+                          <option value="TM">TM · Trabajadora mujer</option>
+                          <option value="F">F · Finiquitado inactivo</option>
+                        </select>
+                      </td>}
                       {kind === "contractors" && (["historical_code", "status"] as const).map((key) => (
                         <td key={key}>
                           <select

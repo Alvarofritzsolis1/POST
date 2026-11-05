@@ -121,6 +121,9 @@ class WeekReview(BaseModel):
 def _worker_eligible(assignment, contracts, terminations, days):
     if not days:
         return False
+    # COD F excludes current/future staffing, preserving historical attendance.
+    if (assignment.imported_statuses or {}).get("worker_code") == "F" and days[-1] >= today():
+        return False
     history = contracts.get(assignment.id, [])
     if not history:
         return assignment.active

@@ -1,0 +1,29 @@
+.ca-root { display: grid; gap: 1rem; }
+.ca-heading { display: flex; align-items: flex-start; justify-content: space-between; gap: 1rem; }
+.ca-heading h2 { margin: 0 0 .35rem; }
+.ca-heading p, .ca-footnote { color: var(--text-muted, #64748b); margin: 0; line-height: 1.5; }
+.ca-metrics { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: .8rem; }
+.ca-metrics button { display: flex; text-align: left; flex-direction: column; gap: .35rem; border-radius: 12px;
+ border: 1px solid var(--border-color, #d8e1ea); background: var(--surface, transparent); padding: 1rem; }
+.ca-metrics button span { font-size: .85rem; }
+.ca-metrics button strong { font-size: 1.55rem; }
+.ca-filters { display: flex; gap: .75rem; flex-wrap: wrap; }
+.ca-filters label { display: flex; flex: 1 1 190px; gap: .35rem; flex-direction: column; }
+.ca-filters input, .ca-filters select, .ca-table select { min-height: 36px; max-width: 100%; }
+.ca-table-scroll { overflow-x: auto; max-width: 100%; }
+.ca-table { width: 100%; border-collapse: collapse; text-align: left; font-size: .92rem; }
+.ca-table td, .ca-table th { border-bottom: 1px solid var(--border-color, #d8e1ea); padding: .75rem .65rem; vertical-align: middle; }
+.ca-table small { display: block; opacity: .7; margin-top: .25rem; }
+.ca-state { display: inline-block; white-space: nowrap; padding: .3rem .55rem; border-radius: 6px;
+ background: #e2e8f0; color: #334155; font-size: .82rem; font-weight: 650; }
+.ca-expired, .ca-urgent { background: #fee2e2; color: #991b1b; }
+.ca-attention { background: #ffedd5; color: #9a3412; }
+.ca-soon { background: #fef9c3; color: #854d0e; }
+.ca-active { background: #dcfce7; color: #166534; }
+.ca-indefinite { background: #dbeafe; color: #1d4ed8; }
+.ca-empty { padding: 1rem; text-align: center; opacity: .8; }
+.ca-footnote { font-size: .85rem; }
+@media (max-width: 830px) { .ca-metrics { grid-template-columns: repeat(2,minmax(0,1fr)); }
+ .ca-heading { flex-direction: column; } }
+
+.ca-counter { margin-left: .25rem; padding: .1rem .35rem; border-radius: 999px; color: #fff; background: #b91c1c; font-size: .73rem; font-weight: 700; }
