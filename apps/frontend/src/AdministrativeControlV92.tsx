@@ -21,7 +21,7 @@ type Week = {
   completed_on_time: boolean | null;
 };
 export type Contractor = {
-  association_id: string; contractor: string; rut: string | null;
+  association_id: string; contractor: string; rut: string | null; classification?: string | null;
   contractor_active: boolean; contractor_status: string; attendance_applicable: boolean;
   weeks: Week[]; staff: Staff[];
   staff_counts: Record<LaborState, number>;
