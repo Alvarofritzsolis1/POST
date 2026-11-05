@@ -513,6 +513,11 @@ def history(entity_type: str | None = None, entity_id: str | None = None,
     if entity_id:
         query = query.where(OpsChange.entity_id == entity_id)
     rows = db.scalars(query.order_by(OpsChange.created_at.desc()).limit(limit)).all()
+    # El nombre del responsable se consulta dentro de la organización. Nunca
+    # exponer correos ni IDs de usuarios como etiquetas de auditoría.
+    from .configuration_service import display_names
+    names = display_names(db, user.org_id)
     return [{"id": row.id, "entity_type": row.entity_type,
              "entity_id": row.entity_id, "user_id": row.user_id,
+             "actor_name": names.get(row.user_id, "Responsable sin nombre registrado"),
              "changes": row.changes, "created_at": row.created_at} for row in rows]
