@@ -105,7 +105,8 @@ export default function ContractorDetailV13({
       </table>{!people.length && <p className="av92-empty">No existen registros para esta sección del contratista.</p>}</div>
       {tab === "contracts" && <details className="av92-register">
         <summary>Registrar nuevo contrato de trabajo</summary>
-        <ContractEntry siteId={siteId} period={period} />
+        <ContractEntry siteId={siteId} period={period} associationId={contractor.association_id}
+          contractorName={contractor.contractor} onSaved={onSaved} />
       </details>}
       {tab === "severance" && <p className="av92-notice">
         Los finiquitos se validan en el módulo documental autorizado. Esta pantalla muestra su estado actual.
