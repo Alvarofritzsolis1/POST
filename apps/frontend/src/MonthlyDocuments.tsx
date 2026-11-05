@@ -25,8 +25,8 @@ const nameOf=(kind:string)=>types.find(item=>item.value===kind)?.label||kind
 const todayMonth=()=>{const now=new Date();return now.getFullYear()+"-"+String(now.getMonth()+1).padStart(2,"0")}
 const errText=(error:unknown)=>error instanceof Error?error.message:"No fue posible completar la operación"
 
-export default function MonthlyDocuments({contractor,readOnly}:{contractor:Contractor;readOnly:boolean}){
-  const [period,setPeriod]=useState(todayMonth)
+export default function MonthlyDocuments({contractor,readOnly,initialPeriod}:{contractor:Contractor;readOnly:boolean;initialPeriod?:string}){
+  const [period,setPeriod]=useState(()=>initialPeriod||todayMonth())
   const [rows,setRows]=useState<MonthlyRecord[]>([])
   const [requirements,setRequirements]=useState<Requirement[]>([])
   const [existing,setExisting]=useState<DocumentSummary[]>([])
