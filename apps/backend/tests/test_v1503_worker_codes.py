@@ -7,6 +7,9 @@ from sqlalchemy import select
 
 from app.control_api import today
 from app.ops_models import WorkerAssignment
+from app.models import User
+from app.network_models import NetworkMember, NetworkMembership
+from app.security import hash_password
 from test_control_api import env, login, create_company
 from test_platform import rut, excel
 
@@ -93,3 +96,54 @@ def test_six_columns_are_strict_and_code_must_be_valid(env):
     empty_end = _preview(client, headers, site["id"], [row[:4] + ["", "TH"]])
     assert empty_end.status_code == 200
     assert "F.TERMINO obligatorio" in str(empty_end.json()["rows"][0]["errors"])
+
+
+def test_administrative_only_sees_and_edits_assigned_worksite(env):
+    client, sessions = env
+    admin = login(client, "a@example.cl")
+    sites = client.get("/api/v1/ops/sites").json()[:2]
+    owned, other = sites[0], sites[1]
+    create_company(client, admin, owned["id"], "CT", "Empresa Obra Propia")
+    create_company(client, admin, other["id"], "CT", "Empresa Obra Ajena")
+    references = {}
+    for site, contractor, number in [
+        (owned, "Empresa Obra Propia", 18300001),
+        (other, "Empresa Obra Ajena", 18300002),
+    ]:
+        row = [contractor, f"Persona {number}", rut(number),
+               (today() - timedelta(days=20)).strftime("%d-%m-%Y"),
+               "INDEFINIDO", "TH"]
+        preview = _preview(client, admin, site["id"], [row]).json()
+        assert preview["summary"]["error"] == 0, preview
+        imported = client.post("/api/v1/ops/imports/bulk/commit", headers=admin,
+                               json={**preview["input"], "token": preview["token"]})
+        assert imported.status_code == 200, imported.text
+        references[site["id"]] = client.get("/api/v1/labor/contract-alerts",
+                                            params={"site_id": site["id"]}).json()["rows"][0]["assignment_id"]
+
+    with sessions.begin() as db:
+        owner = db.scalar(select(User).where(User.email == "a@example.cl"))
+        person = User(org_id=owner.org_id, email="cod-administrativa@example.cl",
+                      role="administrative",
+                      password_hash=hash_password("password-valid-2026"))
+        db.add(person)
+        db.flush()
+        db.add(NetworkMember(user_id=person.id, name="Administrativa COD"))
+        db.add(NetworkMembership(user_id=person.id, site_id=owned["id"],
+                                 assigned_by=owner.id))
+    auth = login(client, "cod-administrativa@example.cl")
+    permitted = client.get("/api/v1/labor/contract-alerts",
+                           params={"site_id": owned["id"]})
+    assert permitted.status_code == 200, permitted.text
+    assert {row["site_id"] for row in permitted.json()["rows"]} == {owned["id"]}
+    assert client.get("/api/v1/labor/contract-alerts",
+                      params={"site_id": other["id"]}).status_code == 403
+    unrestricted = client.get("/api/v1/labor/contract-alerts")
+    assert unrestricted.status_code == 200, unrestricted.text
+    assert {row["site_id"] for row in unrestricted.json()["rows"]} == {owned["id"]}
+    assert client.patch(f"/api/v1/labor/workers/{references[other['id']]}/code",
+                        headers=auth, json={"worker_code": "F"}).status_code == 403
+    own_edit = client.patch(f"/api/v1/labor/workers/{references[owned['id']]}/code",
+                            headers=auth, json={"worker_code": "F"})
+    assert own_edit.status_code == 200, own_edit.text
+    assert own_edit.json()["active"] is False
