@@ -23,6 +23,7 @@ export default function AdminAttendanceV93({
   onSiteSelect: (id: string) => void; onEvaluate: () => void;
 }) {
   const [tab, setTab] = useState<AdministrativeTab>("attendance");
+  const [detailOpen, setDetailOpen] = useState(false);
   const [portfolio, setPortfolio] = useState<Portfolio | null>(null);
   const [refresh, setRefresh] = useState(0);
   const [loading, setLoading] = useState(false);
@@ -40,7 +41,7 @@ export default function AdminAttendanceV93({
     return () => { active = false; };
   }, [siteId, period, refresh]);
 
-  useEffect(() => { setTab("attendance"); }, [siteId]);
+  useEffect(() => { setTab("attendance"); setDetailOpen(false); }, [siteId]);
   useEffect(() => {
     const update = () => setRefresh((v) => v + 1);
     const timer = window.setInterval(update, 30000);
@@ -54,7 +55,7 @@ export default function AdminAttendanceV93({
   }, []);
 
   return <div className="av93-admin">
-    <div className="av92-title">
+    {!detailOpen && <div className="av92-title">
       <div>
         <h2>{siteId ? "Control integral de asistencia" : "Control de asistencia · todas las obras"}</h2>
         <p>{siteId ? "La misma matriz utilizada por las administrativas, con supervisión global." :
@@ -65,9 +66,9 @@ export default function AdminAttendanceV93({
         <button type="button" className="av92-refresh" onClick={onEvaluate}>Evaluar administrativas</button>
         <button type="button" className="av92-refresh" onClick={() => setRefresh((v) => v + 1)}>Actualizar</button>
       </div>
-    </div>
+    </div>}
     {siteId ? <>
-      <nav aria-label="Control laboral del administrador" className="administrative-tabs">
+      {!detailOpen && <nav aria-label="Control laboral del administrador" className="administrative-tabs">
         {([
           ["attendance", "Asistencia semanal"],
           ["contracts", "Contratos de trabajo"],
@@ -76,9 +77,9 @@ export default function AdminAttendanceV93({
         ] as const).map(([id, label]) =>
           <button key={id} type="button" aria-current={tab === id ? "page" : undefined}
             onClick={() => setTab(id)}>{label}</button>)}
-      </nav>
+      </nav>}
       <AdministrativeControlV92 key={siteId} siteId={siteId} sites={sites}
-        period={period} tab={tab} role="admin" onChangeTab={setTab} />
+        period={period} tab={tab} role="admin" onChangeTab={setTab} onDetailChange={setDetailOpen} />
     </> : <>
       {error && <p className="alert danger" role="alert">{error}</p>}
       {loading && <p className="av92-muted" role="status">Actualizando el consolidado de obras…</p>}
