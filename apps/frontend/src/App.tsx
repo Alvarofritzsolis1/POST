@@ -795,6 +795,19 @@ function App() {
                 period={period}
                 onSiteChange={setSite}
                 onPeriodChange={setPeriod}
+                onAttendance={(associationId,worksiteId,month)=>{
+                  const url=new URL(window.location.href)
+                  url.pathname="/"
+                  url.searchParams.delete("obra")
+                  url.searchParams.delete("periodo")
+                  url.searchParams.set("attendance_contractor",associationId)
+                  url.searchParams.set("attendance_site",worksiteId)
+                  url.searchParams.set("attendance_period",month)
+                  window.history.pushState({galantSection:"attendance"},"",url)
+                  setSite(worksiteId)
+                  setPeriod(month)
+                  setSection("attendance")
+                }}
               />
               </ErrorBoundary>
             ) : (
