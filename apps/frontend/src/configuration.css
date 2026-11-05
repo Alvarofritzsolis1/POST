@@ -1173,3 +1173,15 @@
   padding-left: 20px;
   color: var(--gc-muted);
 }
+
+@media (max-width: 640px) {
+  .gc-root .gc-period-table, .gc-root .gc-period-table tbody,
+  .gc-root .gc-period-table tr { display: block; width: 100%; }
+  .gc-root .gc-period-table thead { display: none; }
+  .gc-root .gc-period-table tr { padding: 12px; border-bottom: 1px solid #e7edf1; }
+  .gc-root .gc-period-table tr:last-child { border-bottom: 0; }
+  .gc-root .gc-period-table tbody th { display: block; padding: 4px 0 12px; font-weight: 700; border: 0; overflow-wrap: normal; }
+  .gc-root .gc-period-table td { display: flex; justify-content: space-between; gap: 16px; padding: 5px 0; border: 0; overflow-wrap: normal; }
+  .gc-root .gc-period-table td::before { content: attr(data-label); color: #758995; }
+  .gc-root .gc-period-table td strong { text-align: right; max-width: 60%; }
+}

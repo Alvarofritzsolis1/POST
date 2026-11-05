@@ -196,7 +196,7 @@ function Metrics({ counts }: { counts: Counts }) {
 function PeriodTable({ rows }: { rows: ConfigurationSummary["by_period"] }) {
   return rows.length ? (
     <div className="gc-table-wrap">
-      <table>
+      <table className="gc-period-table">
         <caption className="gc-sr-only">
           Evolución del cumplimiento por período
         </caption>
@@ -214,11 +214,11 @@ function PeriodTable({ rows }: { rows: ConfigurationSummary["by_period"] }) {
           {rows.map((row) => (
             <tr key={row.period}>
               <th scope="row">{periodName(row.period)}</th>
-              <td>{row.required}</td>
-              <td>{row.approved}</td>
-              <td>{row.missing}</td>
-              <td>{row.submitted}</td>
-              <td>
+              <td data-label="Exigibles">{row.required}</td>
+              <td data-label="Aprobados">{row.approved}</td>
+              <td data-label="Sin entregar">{row.missing}</td>
+              <td data-label="Por revisar">{row.submitted}</td>
+              <td data-label="Cumplimiento">
                 <strong>{percent(row.compliance)}</strong>
               </td>
             </tr>
@@ -405,6 +405,7 @@ export default function GeneralConfiguration({
     [revision, setRevision] = useState(0),
     [refreshTick, setRefreshTick] = useState(0),
     [page, setPage] = useState(0),
+    [alertPage, setAlertPage] = useState(0),
     [usersSignal, setUsersSignal] = useState(0);
   const [mode, setMode] = useState(
       selectedPeriods.length > 1 ? "manual" : "single",
@@ -617,6 +618,7 @@ export default function GeneralConfiguration({
     revision,
     refreshTick,
   ]);
+  useEffect(() => { setAlertPage(0); }, [requestQuery, associationId]);
   function consultPeriods() {
     let values = [month];
     if (mode === "manual") values = manualMonths;
@@ -1229,7 +1231,7 @@ export default function GeneralConfiguration({
       </div>
       {data?.alerts.length ? (
         <div className="gc-alert-list">
-          {data.alerts.slice(0, 100).map((alert) => (
+          {data.alerts.slice(alertPage * 25, (alertPage + 1) * 25).map((alert) => (
             <article key={alert.key} className="gc-alert">
               <span aria-hidden="true">!</span>
               <div>
@@ -1247,7 +1249,7 @@ export default function GeneralConfiguration({
                 onClick={() => {
                   const next = new URLSearchParams(query);
                   next.set("tab", "documentos");
-                  next.set("periods", alert.period);
+                  next.set("periods", alert.period.replace(/\s+/g, ""));
                   next.delete("state");
                   next.delete("q");
                   navigate("contratistas/" + alert.association_id, next);
@@ -1261,6 +1263,7 @@ export default function GeneralConfiguration({
       ) : (
         <Empty>No se detectaron alertas con la información disponible.</Empty>
       )}
+      <Pagination page={alertPage} total={data?.alerts.length || 0} onPage={setAlertPage} />
     </section>
   );
   return (
