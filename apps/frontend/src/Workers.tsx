@@ -194,7 +194,7 @@ export default function Workers({ siteId, sites, period, canEdit, canReview, ini
       <div className="kpi-grid">
         {([ ["total", "Trabajadores"], ["active", "Vigentes"], ["ending_soon", "Próximos"],
           ["expired", "Vencidos sin regularizar"], ["ended", "Terminados"], ["finiquito_pending", "Finiquitos pendientes"] ] as const).map(([key, label]) =>
-          <button key={key} className="kpi worker-kpi" onClick={() => { setLabor(key === "expired" ? "expired_needs_review" : key === "active" || key === "ended" || key === "ending_soon" ? key : ""); setPending(key === "finiquito_pending"); }}>
+          <button key={key} className={"kpi worker-kpi " + ((registry?.summary[key] ?? 0) > 0 && (key === "expired" || key === "finiquito_pending") ? "metric-danger" : (registry?.summary[key] ?? 0) > 0 && key === "ending_soon" ? "metric-warning" : "")} onClick={() => { setLabor(key === "expired" ? "expired_needs_review" : key === "active" || key === "ended" || key === "ending_soon" ? key : ""); setPending(key === "finiquito_pending"); }}>
             <small>{label}</small><strong>{registry?.summary[key] ?? 0}</strong>
           </button>)}
       </div>

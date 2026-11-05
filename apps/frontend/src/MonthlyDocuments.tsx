@@ -154,7 +154,7 @@ export default function MonthlyDocuments({contractor,readOnly}:{contractor:Contr
       <div className="table-wrap"><table className="ops-list-table monthly-table"><thead><tr><th>REQUISITO</th><th>ESTADO</th><th>DOCUMENTO</th><th>ACCIÓN</th></tr></thead><tbody>
         {required.map(item=>{const row=latest(item);const req=requirements.find(r=>r.kind===item);const state=req?.state||row?.review_status||"needs_classification";return <tr key={item}>
           <td><strong>{nameOf(item)}</strong><small style={{display:"block"}}>{req?.applicable===null?"Confirmar exigibilidad":req?.applicable===false?"No aplicable":"Requisito aplicable"}</small></td>
-          <td><span className={"status "+(state==="approved"?"success":state==="observed"||state==="rejected"||state==="overdue"?"error":"waiting")}>{statuses[state]||state}</span></td>
+          <td><span className={"status "+(state==="approved"?"success":state==="observed"||state==="rejected"||state==="overdue"?"error":state==="pending"?"review":state==="not_yet_required"||state==="not_applicable"||state==="inactive"?"neutral":"waiting")}>{statuses[state]||state}</span></td>
           <td>{row?.document_id?<a href={api.pdf(row.document_id)} target="_blank" rel="noreferrer">{row.original_name||"Abrir archivo"}</a>:row?"Revisión manual sin archivo":"—"}</td>
           <td>{!readOnly&&req?.applicable===true?<div className="control-cell-actions">
             <button type="button" disabled={busy} onClick={()=>void manualReview(item,"approved")}>Aprobar</button>
