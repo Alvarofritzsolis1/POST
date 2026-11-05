@@ -212,6 +212,7 @@ def _registry_query(org_id, site_id=None, contractor_id=None, search=None,
     ended = and_(WorkerTermination.id.is_not(None), WorkerTermination.effective_date <= now)
     state = case(
         (ended, "ended"),
+        (WorkerAssignment.active.is_(False), "observed"),
         (ContractRegister.id.is_(None), "observed"),
         (ContractRegister.status == "ended", "observed"),
         (ContractRegister.status == "suspended", "observed"),
@@ -230,6 +231,7 @@ def _registry_query(org_id, site_id=None, contractor_id=None, search=None,
         Worksite.id.label("site_id"), Worksite.name.label("site_name"),
         ContractRegister.id.label("contract_id"), ContractRegister.contract_type,
         ContractRegister.start_date, ContractRegister.end_date,
+        WorkerAssignment.imported_statuses.label("assignment_imported_statuses"),
         ContractRegister.status.label("contract_status"),
         WorkerTermination.id.label("termination_id"), WorkerTermination.effective_date,
         WorkerTermination.document_id.label("finiquito_document_id"),
@@ -283,7 +285,10 @@ def _registry(db, user, site_id=None, contractor_id=None, search=None, labor_sta
     result = []
     for row in rows:
         data = dict(row)
-        if data["labor_state"] == "expired_needs_review":
+        data["worker_code"] = (data.pop("assignment_imported_statuses") or {}).get("worker_code", "")
+        if data["worker_code"] == "F" and data["labor_state"] != "ended":
+            data["severity"], data["alert"] = "gray", "COD F: inactivo; verificar respaldo del finiquito"
+        elif data["labor_state"] == "expired_needs_review":
             data["severity"] = "red"
             data["alert"] = "Contrato vencido sin regularización; confirmar continuidad o término"
         elif data["labor_state"] == "ending_soon":
@@ -603,6 +608,114 @@ def payment_finding(control_id: str, body: PaymentFindingInput,
                                           "observation": row.observation}, "control_id": control.id})
     db.commit()
     return {"id": row.id, "state": row.state, "reviewed_by": row.reviewed_by}
+
+
+
+class WorkerCodeInput(BaseModel):
+    worker_code: Literal["TH", "TM", "F"]
+
+
+@router.patch("/workers/{assignment_id}/code")
+def edit_worker_code(assignment_id: str, body: WorkerCodeInput,
+                     user: User = Depends(contract_entry_editor),
+                     db: Session = Depends(get_db)):
+    """Update the user's original TH/TM/F classification without fabricating legal evidence."""
+    assignment, worker = assignment_for(db, user.org_id, assignment_id)
+    if user.role == "administrative":
+        from .network_service import assigned_sites
+        if assignment.worksite_id not in assigned_sites(db, user):
+            raise HTTPException(403, "No tienes autorización para modificar esta obra")
+    db.scalar(select(Organization).where(Organization.id == user.org_id).with_for_update())
+    assignment = db.scalar(select(WorkerAssignment).where(
+        WorkerAssignment.id == assignment_id,
+        WorkerAssignment.org_id == user.org_id,
+    ).with_for_update())
+    before = dict(assignment.imported_statuses or {})
+    previous = before.get("worker_code", "")
+    if body.worker_code != "F" and not assignment.active:
+        latest = db.scalar(select(ContractRegister).where(
+            ContractRegister.org_id == user.org_id,
+            ContractRegister.worker_assignment_id == assignment.id,
+        ).order_by(ContractRegister.start_date.desc(), ContractRegister.created_at.desc()).limit(1))
+        termination = db.scalar(select(WorkerTermination.id).where(
+            WorkerTermination.org_id == user.org_id,
+            WorkerTermination.contract_id == latest.id,
+        )) if latest else None
+        if not latest or latest.status != "active" or termination:
+            raise HTTPException(409, "No se puede reactivar: registra y valida primero un contrato vigente")
+    after = dict(before)
+    after["worker_code"] = body.worker_code
+    was_active = assignment.active
+    assignment.imported_statuses = after
+    assignment.active = body.worker_code != "F"
+    if previous != body.worker_code or was_active != assignment.active:
+        audit_change(db, user, "worker_code", assignment.id, {
+            "worker_name": worker.name,
+            "worker_code": {"from": previous, "to": body.worker_code},
+            "active": {"from": was_active, "to": assignment.active},
+        })
+    db.commit()
+    return {"assignment_id": assignment.id, "worker_code": body.worker_code,
+            "active": assignment.active}
+
+
+@router.get("/contract-alerts")
+def contract_alerts(site_id: str | None = None,
+                    user: User = Depends(authorized_user),
+                    db: Session = Depends(get_db)):
+    """Live, worksite-scoped contract alerts. No background job or stored duplicates."""
+    if user.role not in {"admin", "administrative"}:
+        raise HTTPException(403, "Acceso restringido")
+    if site_id:
+        site_for(db, user.org_id, site_id)
+    selected = None
+    if user.role == "administrative":
+        from .network_service import assigned_sites
+        selected = assigned_sites(db, user)
+        if site_id and site_id not in selected:
+            raise HTTPException(403, "No tienes autorización en esta obra")
+    query = _registry_query(user.org_id, site_id=site_id)
+    if selected is not None:
+        query = query.where(WorkerAssignment.worksite_id.in_(selected))
+    rows = db.execute(query).mappings().all()
+    order = {"expired": 0, "urgent": 1, "attention": 2, "soon": 3,
+             "active": 4, "indefinite": 5, "inactive": 6, "unverified": 7}
+    result = []
+    today_value = today()
+    for entry in rows:
+        code = (entry["assignment_imported_statuses"] or {}).get("worker_code", "")
+        days = (entry["end_date"] - today_value).days if entry["end_date"] else None
+        if code == "F" or entry["labor_state"] == "ended" or entry["labor_state"] == "observed" and entry["contract_status"] == "ended":
+            state = "inactive"
+        elif entry["contract_id"] is None:
+            state = "unverified"
+        elif days is None:
+            state = "indefinite"
+        elif days < 0:
+            state = "expired"
+        elif days <= 7:
+            state = "urgent"
+        elif days <= 15:
+            state = "attention"
+        elif days <= 30:
+            state = "soon"
+        else:
+            state = "active"
+        result.append({
+            "assignment_id": entry["assignment_id"],
+            "site_id": entry["site_id"], "site": entry["site_name"],
+            "contractor": entry["contractor_name"],
+            "worker": entry["worker_name"], "rut": entry["worker_rut"],
+            "worker_code": code, "contract_type": entry["contract_type"],
+            "start_date": entry["start_date"], "end_date": entry["end_date"],
+            "days_remaining": days, "state": state,
+        })
+    result.sort(key=lambda row: (order[row["state"]],
+               row["days_remaining"] if row["days_remaining"] is not None else 999999,
+               row["site"], row["worker"]))
+    summary = {name: sum(row["state"] == name for row in result) for name in order}
+    return {"as_of": today_value, "total": len(result),
+            "summary": summary, "rows": result}
 
 
 @router.get("/workers/{assignment_id}")
