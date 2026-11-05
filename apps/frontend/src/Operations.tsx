@@ -1,5 +1,6 @@
 import {useCallback,useEffect,useMemo,useRef,useState,type FormEvent} from "react"
 import MonthlyDocuments from "./MonthlyDocuments"
+import {summarizeRequirements,statusLabel} from "./documentUX"
 import {opsControlApi,type Requirement} from "./opsControlApi"
 import {read} from "./platformApi"
 import {ArrowDownToLine,ArrowLeft,CheckCircle2,ChevronRight,FileSpreadsheet,LoaderCircle,Plus,RefreshCcw,Search,Users,XCircle} from "lucide-react"
@@ -69,6 +70,9 @@ export default function Operations({readOnly,externalSiteId,mode,onImport,onSite
   const [documentRevision,setDocumentRevision]=useState(0)
   useEffect(()=>setDocumentPeriod(period),[period,selectedId])
   const [docIssue,setDocIssue]=useState("")
+  const [listCompliance,setListCompliance]=useState<Record<string,ReturnType<typeof summarizeRequirements>>|null>(null)
+  const [complianceFilter,setComplianceFilter]=useState("all")
+  const [listPage,setListPage]=useState(1)
   const listScroll=useRef(0)
   const restoreListScroll=useRef(false)
   const [workers,setWorkers]=useState<Worker[]>([])
@@ -80,7 +84,7 @@ export default function Operations({readOnly,externalSiteId,mode,onImport,onSite
   const [search,setSearch]=useState("")
   const [codeFilter,setCodeFilter]=useState("all")
   const [statusFilter,setStatusFilter]=useState<"active"|"inactive"|"all">("active")
-  const [detailTab,setDetailTab]=useState<"summary"|"workers"|"documents"|"history">("documents")
+  const [detailTab,setDetailTab]=useState<"summary"|"workers"|"documents"|"contracts"|"severance"|"history">("documents")
   const [workerSearch,setWorkerSearch]=useState("")
   const [contractorForm,setContractorForm]=useState<"new"|"edit"|null>(null)
   const [contractorDraft,setContractorDraft]=useState<ContractorInput>(blankContractor(""))
@@ -196,6 +200,23 @@ export default function Operations({readOnly,externalSiteId,mode,onImport,onSite
     }).catch(err=>{if(active)setDocIssue(errorText(err))})
     return()=>{active=false}
   },[siteId,documentPeriod,selected?.id,documentRevision])
+  // Una matriz de cumplimiento por obra/período para el listado, sin peticiones por fila.
+  useEffect(()=>{
+    let active=true
+    setListCompliance(null)
+    if(!siteId||!period)return()=>{active=false}
+    void opsControlApi.matrix(siteId,period).then(matrix=>{
+      if(active)setListCompliance(Object.fromEntries(matrix.contractors.map(row=>[row.association_id,summarizeRequirements(row.requirements||[])])))
+    }).catch(()=>{if(active)setListCompliance(null)})
+    return()=>{active=false}
+  },[siteId,period,documentRevision])
+  function changeDocumentPeriod(next:string){
+    setDocumentPeriod(next)
+    if(!selectedId||!next)return
+    const url=new URL(window.location.href)
+    url.searchParams.set("periodo",next)
+    window.history.replaceState(window.history.state,"",url)
+  }
   function openContractor(id:string){
     listScroll.current=window.scrollY
     const url=new URL(window.location.href)
@@ -222,24 +243,32 @@ export default function Operations({readOnly,externalSiteId,mode,onImport,onSite
       window.history.replaceState(window.history.state,"",url)
     }
   },[period,selectedId])
-  const pendingDocs=(docOverview||[]).filter(row=>row.applicable===true&&row.state!=="approved"&&row.state!=="not_yet_required")
-  const approvedDocs=(docOverview||[]).filter(row=>row.applicable===true&&row.state==="approved").length
-  const criticalDocs=pendingDocs.filter(row=>["overdue","observed","rejected"].includes(row.state)).length
+  const docSummary=summarizeRequirements(docOverview||[])
+  const pendingDocs=docSummary.pending
+  const criticalDocs=docSummary.urgent.length
   const pendingDocsPreview=pendingDocs.slice(0,5)
-  // Obligaciones exigibles evaluables; no calcular porcentajes desde filas decorativas.
-  const exigibleDocs=(docOverview||[]).filter(r=>r.applicable===true&&!["not_yet_required","schedule_not_configured"].includes(r.state))
-  const requiredUnits=exigibleDocs.reduce((n,r)=>n+(r.required_count??1),0)
-  const approvedUnits=exigibleDocs.reduce((n,r)=>n+(r.approved_count??(r.state==="approved"?1:0)),0)
-  const compliance=docOverview&&requiredUnits>0?Math.round(100*approvedUnits/requiredUnits):null
+  const requiredUnits=docSummary.required
+  const approvedUnits=docSummary.approved
+  const compliance=docSummary.percent
   const filtered=useMemo(()=>visibleContractors.filter(item=>{
     const term=search.trim().toLocaleLowerCase("es-CL")
     const matches=!term||item.name.toLocaleLowerCase("es-CL").includes(term)||(item.rut||"").toLocaleLowerCase("es-CL").includes(term)
     const kind=item.classification
     const active=item.contract_status==="active"
-    return matches&&(statusFilter==="all"||(statusFilter==="active"&&active)||(statusFilter==="inactive"&&!active))&&
+    const summary=listCompliance?.[item.id]
+    const statusMatches=complianceFilter==="all" ||
+      (complianceFilter==="missing"&&summary!==undefined&&summary.pending.length>0) ||
+      (complianceFilter==="critical"&&summary!==undefined&&summary.urgent.length>0) ||
+      (complianceFilter==="complete"&&summary!==undefined&&summary.required>0&&summary.pending.length===0) ||
+      (complianceFilter==="unevaluable"&&listCompliance!==null&&(summary===undefined||summary.percent===null))
+    return matches&&statusMatches&&(statusFilter==="all"||(statusFilter==="active"&&active)||(statusFilter==="inactive"&&!active))&&
       (classificationFilter==='all'||kind===classificationFilter)&&(codeFilter==="all"||
       (codeFilter==="other" ? !["CT","CE","CI"].includes(kind) : kind===codeFilter))
-  }).sort((a,b)=>a.name.localeCompare(b.name,"es-CL")),[visibleContractors,search,codeFilter,classificationFilter,statusFilter])
+  }).sort((a,b)=>a.name.localeCompare(b.name,"es-CL")),[visibleContractors,search,codeFilter,classificationFilter,statusFilter,complianceFilter,listCompliance])
+  useEffect(()=>setListPage(1),[siteId,search,codeFilter,classificationFilter,statusFilter,complianceFilter])
+  const totalPages=Math.max(1,Math.ceil(filtered.length/25))
+  const safePage=Math.min(listPage,totalPages)
+  const currentList=filtered.slice((safePage-1)*25,safePage*25)
   const statusSymbols=useMemo(()=>{
     const values=new Set<string>()
     for(const row of preview?.rows||[])for(const raw of Object.values(row.historical_statuses||{}))if(raw)values.add(raw.toUpperCase())
@@ -473,8 +502,8 @@ export default function Operations({readOnly,externalSiteId,mode,onImport,onSite
           key={selected.id+"-"+period}
           contractor={selected}
           readOnly={readOnly}
-          initialPeriod={period||undefined}
-          onPeriodChange={setDocumentPeriod}
+          initialPeriod={documentPeriod||period||undefined}
+          onPeriodChange={changeDocumentPeriod}
           onReviewed={()=>setDocumentRevision(n=>n+1)}
         /></div>
         <aside className="ops-v15-priorities" aria-label="Prioridades documentales">
@@ -485,7 +514,7 @@ export default function Operations({readOnly,externalSiteId,mode,onImport,onSite
             className={["overdue","observed","rejected"].includes(item.state)?"urgent":""}
             onClick={()=>document.getElementById("monthly-req-"+encodeURIComponent(item.kind)+"-"+encodeURIComponent(item.subject||"contractor"))?.scrollIntoView({behavior:"smooth",block:"center"})}>
             <strong>{item.name||documentNames[item.kind]||item.kind}</strong>
-            <small>{documentStatus[item.state]||item.state}</small>
+            <small>{statusLabel(item.state)}</small>
             <span>Ver requisito <ChevronRight aria-hidden="true" size={14}/></span>
           </button>)}
           {pendingDocs.length>5&&<p className="ops-v15-priority-more">Y {pendingDocs.length-5} requisito(s) adicional(es) en la tabla.</p>}
