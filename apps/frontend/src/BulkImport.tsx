@@ -31,6 +31,19 @@ const resultNames: Record<string,string> = {
 const resultSummary=(result:Record<string,unknown>)=>
   Object.entries(result).filter(([,value])=>typeof value==="number")
     .map(([key,value])=>(resultNames[key]||"Registros de "+key.replaceAll("_"," "))+": "+String(value)).join(" · ");
+const importFieldNames:Record<string,string>={
+ name:"Nombre",rut:"RUT",contractor_name:"Contratista",contractor_rut:"RUT contratista",
+ worksite:"Obra",site:"Obra",site_id:"Obra",specialty:"Especialidad",
+ historical_code:"Código",contract_status:"Estado",nature:"Naturaleza",
+ frequency:"Frecuencia",phone:"Teléfono",email:"Correo",start_date:"Ingreso",
+ end_date:"Término",legal_representative:"Representante legal",
+};
+const readableImportValue=(value:unknown)=>{
+ if(value===null||value===undefined||value==="")return "Sin registrar";
+ if(typeof value==="boolean")return value?"Sí":"No";
+ if(typeof value==="string"&&/^[0-9a-f]{8}-[0-9a-f-]{27,}$/i.test(value))return "Referencia interna";
+ return typeof value==="string"||typeof value==="number"?String(value):"Dato actualizado";
+};
 const names: Record<string, string> = {
   new: "Nuevos / nuevas relaciones",
   existing: "Existentes",
@@ -302,7 +315,7 @@ export default function BulkImport({
                         ))}
                         {Object.entries(r.changes).map(([key, v]) => (
                           <p key={key}>
-                            {key}: {String(v.from ?? "vacío")} → {String(v.to)}
+                            {importFieldNames[key]||"Dato de la importación"}: {readableImportValue(v.from)} → {readableImportValue(v.to)}
                           </p>
                         ))}
                       </td>
