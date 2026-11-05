@@ -80,6 +80,7 @@ export default function Operations({readOnly,externalSiteId,mode,onImport,onSite
   const [docIssue,setDocIssue]=useState("")
   const [listCompliance,setListCompliance]=useState<Record<string,ReturnType<typeof summarizeRequirements>>|null>(null)
   const [complianceFilter,setComplianceFilter]=useState("all")
+  const [listSort,setListSort]=useState("name")
   const [listPage,setListPage]=useState(1)
   const listScroll=useRef(0)
   const restoreListScroll=useRef(false)
@@ -273,8 +274,14 @@ export default function Operations({readOnly,externalSiteId,mode,onImport,onSite
     return matches&&statusMatches&&(statusFilter==="all"||(statusFilter==="active"&&active)||(statusFilter==="inactive"&&!active))&&
       (classificationFilter==='all'||kind===classificationFilter)&&(codeFilter==="all"||
       (codeFilter==="other" ? !["CT","CE","CI"].includes(kind) : kind===codeFilter))
-  }).sort((a,b)=>a.name.localeCompare(b.name,"es-CL")),[visibleContractors,search,codeFilter,classificationFilter,statusFilter,complianceFilter,listCompliance])
-  useEffect(()=>setListPage(1),[siteId,search,codeFilter,classificationFilter,statusFilter,complianceFilter])
+  }).sort((a,b)=>{
+    const metric=(row:Contractor)=>listCompliance?.[row.id]
+    if(listSort==="pending")return (metric(b)?.pending.length??-1)-(metric(a)?.pending.length??-1)||a.name.localeCompare(b.name,"es-CL")
+    if(listSort==="compliance")return (metric(a)?.percent??101)-(metric(b)?.percent??101)||a.name.localeCompare(b.name,"es-CL")
+    if(listSort==="workers")return b.worker_count-a.worker_count||a.name.localeCompare(b.name,"es-CL")
+    return a.name.localeCompare(b.name,"es-CL")
+  }),[visibleContractors,search,codeFilter,classificationFilter,statusFilter,complianceFilter,listCompliance,listSort])
+  useEffect(()=>setListPage(1),[siteId,search,codeFilter,classificationFilter,statusFilter,complianceFilter,listSort])
   const totalPages=Math.max(1,Math.ceil(filtered.length/25))
   const safePage=Math.min(listPage,totalPages)
   const currentList=filtered.slice((safePage-1)*25,safePage*25)
@@ -464,6 +471,12 @@ export default function Operations({readOnly,externalSiteId,mode,onImport,onSite
       {contractorEditor}
       <div className="ops-filters"><label className="ops-search"><Search size={16}/><input placeholder="Buscar por nombre o RUT" value={search} onChange={event=>setSearch(event.target.value)}/></label><div className="ops-status-filters" role="group" aria-label="Filtrar contratistas por estado">{(["active","inactive","all"] as const).map(status=><button type="button" key={status} aria-pressed={statusFilter===status} className={statusFilter===status?"selected":""} onClick={()=>{setStatusFilter(status);setSelectedId(null)}}>{status==="active"?"Activos":status==="inactive"?"Inactivos":"Todos"}</button>)}</div><select aria-label="Filtrar por clasificación" value={codeFilter} onChange={event=>setCodeFilter(event.target.value)}><option value="all">Todas las clasificaciones</option><option value="CT">CT · Fijo</option><option value="CE">CE · Esporádico</option><option value="CI">CI · Independiente</option><option value="other">Sin clasificación válida</option></select>
       <select aria-label="Filtrar por cumplimiento" value={complianceFilter} onChange={event=>setComplianceFilter(event.target.value)} disabled={!listCompliance}><option value="all">Todo cumplimiento</option><option value="critical">Observados o críticos</option><option value="missing">Pendientes de revisión</option><option value="complete">Sin pendientes</option><option value="unevaluable">No evaluables</option></select>
+      <select aria-label="Ordenar contratistas" value={listSort} onChange={event=>setListSort(event.target.value)}>
+        <option value="name">Nombre A–Z</option>
+        <option value="pending">Más pendientes primero</option>
+        <option value="compliance">Menor cumplimiento primero</option>
+        <option value="workers">Mayor dotación primero</option>
+      </select>
       <span aria-live="polite">{filtered.length} de {visibleContractors.length}</span></div>
       {loading?<div className="ops-empty"><LoaderCircle size={20} className="spin"/> Cargando contratistas…</div>:filtered.length===0?<div className="ops-empty"><Users size={22}/>{visibleContractors.length?"No hay coincidencias":"Aún no hay contratistas en esta obra"}</div>:
       <><div className="table-wrap ops-desktop-list"><table className="ops-list-table ops-contractor-table"><thead><tr><th>CONTRATISTA</th><th>RUT</th><th>COD</th><th>ESTADO</th><th>CUMPLIMIENTO</th><th>PENDIENTES</th><th>TRABAJADORES</th><th>DETALLE</th></tr></thead><tbody>{currentList.map(item=><tr key={item.id} className={selectedId===item.id?"selected-row":""}>
