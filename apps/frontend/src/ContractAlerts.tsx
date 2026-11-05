@@ -17,7 +17,8 @@ type ContractRow = {
   days_remaining: number | null;
   state: string;
 };
-type Payload = { as_of: string; total: number; summary: Record<string, number>; rows: ContractRow[] };
+type Payload = { as_of: string; total: number; summary: Record<string, number>;
+  thresholds: {urgent: number; attention: number; soon: number}; rows: ContractRow[] };
 const stateNames: Record<string, string> = {
   expired: "Vencido · revisar", urgent: "Urgente (0–7 días)",
   attention: "Atención (8–15 días)", soon: "Próximo (16–30 días)",
@@ -91,6 +92,13 @@ export default function ContractAlerts({siteId = "", onOpenWorker}: {
     (row.worker + " " + row.rut + " " + row.contractor + " " + row.site)
       .toLocaleLowerCase("es-CL").includes(search.toLocaleLowerCase("es-CL")),
   );
+  const limits = data?.thresholds || {urgent: 7, attention: 15, soon: 30};
+  const dynamicStateNames = { ...stateNames,
+    urgent: `Urgente (0–${limits.urgent} días)`,
+    attention: `Atención (hasta ${limits.attention} días)`,
+    soon: `Próximo (hasta ${limits.soon} días)`,
+    active: `Vigente (+${limits.soon} días)`,
+  };
   const urgent = (data?.summary.expired || 0) + (data?.summary.urgent || 0);
   const nearing = (data?.summary.attention || 0) + (data?.summary.soon || 0);
 
@@ -107,7 +115,7 @@ export default function ContractAlerts({siteId = "", onOpenWorker}: {
       <button type="button" onClick={() => setFilter("pending")}>
         <span>Urgentes / vencidos</span><strong>{urgent}</strong></button>
       <button type="button" onClick={() => setFilter("pending")}>
-        <span>Por vencer (8–30 días)</span><strong>{nearing}</strong></button>
+        <span>Por vencer (hasta {limits.soon} días)</span><strong>{nearing}</strong></button>
       <button type="button" onClick={() => setFilter("indefinite")}>
         <span>Indefinidos</span><strong>{data?.summary.indefinite ?? "—"}</strong></button>
       <button type="button" onClick={() => setFilter("inactive")}>
@@ -149,7 +157,7 @@ export default function ContractAlerts({siteId = "", onOpenWorker}: {
             </select></td>
           <td>{row.end_date ? displayDate(row.end_date) : "INDEFINIDO"}</td>
           <td>{label(row)}</td>
-          <td><span className={"ca-state ca-" + row.state}>{stateNames[row.state] || "Por verificar"}</span></td>
+          <td><span className={"ca-state ca-" + row.state}>{dynamicStateNames[row.state as keyof typeof dynamicStateNames] || "Por verificar"}</span></td>
           <td>{onOpenWorker ? <button type="button" className="secondary"
             onClick={() => onOpenWorker(row.assignment_id)}>Ver ficha</button> : "—"}</td>
         </tr>)}</tbody>
