@@ -7,7 +7,7 @@ from sqlalchemy import select
 
 from app.control_api import today
 from app.ops_models import WorkerAssignment
-from test_control_api import login, create_company
+from test_control_api import env, login, create_company
 from test_platform import rut, excel
 
 
