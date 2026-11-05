@@ -35,18 +35,26 @@ const importColumns=[
   {key:"worker_rut",label:"RUT trabajador"}
 ]
 const label=(options:{value:string;label:string}[],value:string)=>options.find(x=>x.value===value)?.label||value
-const changeLabels:Record<string,string>={name:"Nombre",rut:"RUT",nature:"Naturaleza",frequency:"Frecuencia",historical_code:"Código histórico",contract_status:"Estado contractual",active:"Asignación",created:"Creación",imported_statuses:"Estados históricos"}
+const changeLabels:Record<string,string>={name:"Nombre",rut:"RUT",nature:"Naturaleza",frequency:"Frecuencia",historical_code:"Código",contract_status:"Estado contractual",active:"Asignación",created:"Creación",imported_statuses:"Estados históricos",worksite_id:"Obra",contractor_id:"Contratista",worker_id:"Trabajador",frequency_code:"Frecuencia"}
+function readableChangeValue(value:unknown):string{
+  if(value==null||value==="")return "Sin registrar"
+  if(typeof value==="boolean")return value?"Sí":"No"
+  if(typeof value==="number")return String(value)
+  if(typeof value==="string")return /^[0-9a-f]{8}-[0-9a-f-]{27,}$/i.test(value)?"Referencia interna":value
+  return "Información actualizada"
+}
 function describeChange(changes:Record<string,unknown>){
   return Object.entries(changes).map(([field,value])=>{
     if(field==="created")return "Registro creado"
     if(field==="imported")return "Registro importado"
     if(field==="imported_statuses")return "Estados históricos importados o actualizados"
+    if(field.endsWith("_id"))return "Vinculación del registro modificada"
     if(value&&typeof value==="object"&&"from" in value&&"to" in value){
       const transition=value as {from:unknown;to:unknown}
-      return `${changeLabels[field]||field}: ${String(transition.from??"vacío")} → ${String(transition.to??"vacío")}`
+      return (changeLabels[field]||"Dato del contratista")+": "+readableChangeValue(transition.from)+" → "+readableChangeValue(transition.to)
     }
-    return `${changeLabels[field]||field}: ${String(value)}`
-  }).join(" · ")
+    return (changeLabels[field]||"Dato del contratista")+": "+readableChangeValue(value)
+  }).join(" · ")||"Cambio registrado"
 }
 const blankContractor=(siteId:string):ContractorInput=>({site_id:siteId,name:"",rut:null,historical_code:"CT",nature:"with_workers",frequency:"fixed",contract_status:"active"})
 const blankWorker=(siteId:string,contractorId:string):WorkerInput=>({site_id:siteId,contractor_id:contractorId,name:"",rut:null})
