@@ -7,7 +7,7 @@ import "./workers.css";
 type WorkerRow = {
   assignment_id: string; worker_id: string; worker_name: string; worker_rut: string;
   contractor_id: string; contractor_name: string; site_id: string; site_name: string;
-  contract_id: string | null; contract_type: string | null; start_date: string | null;
+  worker_code: string; contract_id: string | null; contract_type: string | null; start_date: string | null;
   end_date: string | null; contract_status: string | null; termination_id: string | null;
   effective_date: string | null; finiquito_document_id: string | null;
   labor_state: string; finiquito_state: string; severity: string; alert: string;
@@ -243,9 +243,9 @@ export default function Workers({ siteId, sites, period, canEdit, canReview, ini
         <label><input type="checkbox" checked={pending} onChange={(e) => setPending(e.target.checked)} /> Finiquitos pendientes</label>
         <button onClick={refresh} disabled={busy}>Actualizar</button>
       </div>
-      <div className="table-wrap"><table><thead><tr><th>Trabajador</th><th>RUT</th><th>Contratista</th><th>Obra</th><th>Contrato</th><th>Ingreso</th><th>Término pactado</th><th>Estado laboral</th><th>Finiquito</th><th>Acciones</th></tr></thead>
+      <div className="table-wrap"><table><thead><tr><th>Trabajador</th><th>RUT</th><th>Contratista</th><th>Obra</th><th>COD</th><th>Contrato</th><th>Ingreso</th><th>Término pactado</th><th>Estado laboral</th><th>Finiquito</th><th>Acciones</th></tr></thead>
         <tbody>{registry?.rows.map((r) => <tr key={r.assignment_id}>
-          <td><strong>{r.worker_name}</strong></td><td>{r.worker_rut}</td><td>{r.contractor_name}</td><td>{r.site_name}</td>
+          <td><strong>{r.worker_name}</strong></td><td>{r.worker_rut}</td><td>{r.contractor_name}</td><td>{r.site_name}</td><td>{r.worker_code || "—"}</td>
           <td>{types[r.contract_type || ""] || "Sin contrato"}</td><td>{date(r.start_date)}</td><td>{date(r.end_date)}</td>
           <td><span className={"worker-signal " + r.severity} title={r.alert}>{stateLabel[r.labor_state] || r.labor_state}</span></td>
           <td>{stateLabel[r.finiquito_state] || r.finiquito_state}</td><td><button onClick={() => { setSelected(r.assignment_id); setTab("summary"); }}>Ver y gestionar</button></td>
@@ -268,10 +268,21 @@ export default function Workers({ siteId, sites, period, canEdit, canReview, ini
       <div className="workers-heading"><div><h2>{detail.name}</h2><p>{detail.rut} · {detail.contractor} · {detail.site}</p></div><button onClick={() => setSelected("")}>Cerrar ficha</button></div>
       <div className="worker-tabs" role="tablist">{[["summary", "Resumen"], ["contract", "Contrato"], ["finiquito", "Finiquito"], ["documents", "Control documental"], ["history", "Historial"]].map(([id, label]) => <button key={id} role="tab" aria-selected={tab === id} className={tab === id ? "active" : ""} onClick={() => setTab(id)}>{label}</button>)}</div>
       {tab === "summary" && <div className="worker-summary">
-        <p><b>Estado laboral:</b> {stateLabel[detail.current?.labor_state || "observed"]} · <b>Finiquito:</b> {stateLabel[detail.current?.finiquito_state || "not_applicable"]}</p>
+        <p><b>COD:</b> {detail.current?.worker_code || "Sin clasificar"} · <b>Estado laboral:</b> {stateLabel[detail.current?.labor_state || "observed"]} · <b>Finiquito:</b> {stateLabel[detail.current?.finiquito_state || "not_applicable"]}</p>
         {detail.current?.alert && <p className={"worker-signal " + detail.current.severity}>{detail.current.alert}</p>}
         <p><b>Contrato actual:</b> {types[current?.contract_type || ""] || "Sin contrato"} · Ingreso {date(current?.start_date)} · Término pactado {date(current?.end_date)}</p>
         {term && <p><b>Desvinculación efectiva:</b> {date(term.effective_date)} · Registrada por usuario · Revisión: {stateLabel[term.review_state]}</p>}
+        {canEdit && <label>Editar COD del trabajador <select aria-label="Editar COD del trabajador"
+          value={detail.current?.worker_code || ""} disabled={busy}
+          onChange={e => { const worker_code=e.target.value;
+            if (worker_code === "F" && !window.confirm("COD F lo dejará inactivo, sin aprobar automáticamente el finiquito. ¿Continuar?")) return;
+            void act(async () => { await input("/labor/workers/" + detail.id + "/code", { worker_code }, "PATCH"); });
+          }}>
+          <option value="" disabled>Sin clasificar</option>
+          <option value="TH">TH · Trabajador hombre</option>
+          <option value="TM">TM · Trabajadora mujer</option>
+          <option value="F">F · Finiquitado inactivo</option>
+        </select></label>}
         {canEdit && <button onClick={() => { setCreateOpen(true); setSiteDraft(""); setWorkerDraft({ name: detail.name, rut: detail.rut, contractor_id: "" }); }}>Nueva asignación en otra obra</button>}
         {canEdit && <form className="worker-form" onSubmit={(e) => { e.preventDefault(); void act(async () => {
           await input("/labor/workers/" + detail.id, editIdentity, "PATCH");
