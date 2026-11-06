@@ -763,12 +763,18 @@ def pdf_from_workbook(raw: bytes, code: str, data: dict, *,
     with fitz.open(stream=converted, filetype="pdf") as pdf:
         if code == "irl" and matrix:
             append_irl_continuation(pdf, matrix, data)
-        expected_worker = get_data(data, "worker.name").strip()
-        if expected_worker and code in {"labor_contract", "transfer_addendum", "pts_receipt",
-                                         "ppe_delivery", "internal_rules_receipt"}:
-            text = " ".join(p.get_text() for p in pdf)
-            if expected_worker.casefold() not in text.casefold():
-                raise LayoutError("El PDF no contiene al trabajador seleccionado; revisión obligatoria")
+        printed = " ".join(" ".join(p.get_text().split()) for p in pdf)
+        printed = " ".join(printed.casefold().split())
+        employer = " ".join(get_data(data, "employer.name").casefold().split())
+        worker = " ".join(get_data(data, "worker.name").casefold().split())
+        if employer and employer not in printed:
+            raise LayoutError("El PDF no contiene el nombre completo del empleador seleccionado")
+        if worker and code in {
+            "labor_contract", "transfer_addendum", "extension_addendum",
+            "induction", "irl", "pts_receipt", "ppe_delivery",
+            "internal_rules_receipt",
+        } and worker not in printed:
+            raise LayoutError("El PDF no contiene al trabajador seleccionado; revisión obligatoria")
         if preview:
             for page in pdf:
                 page.insert_text((32, 30), "VISTA PREVIA - NO VALIDO PARA FIRMA",
