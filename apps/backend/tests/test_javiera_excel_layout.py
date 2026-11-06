@@ -84,8 +84,9 @@ def test_no_loss_of_original_styles_merges_print_areas():
         assert patched.find(".//" + Q("c") + "[@r='A5']").find(Q("is")).find(Q("t")).text == "TEXTO CORREGIDO"
         assert old.read("xl/styles.xml") == new.read("xl/styles.xml")
         assert old.read("xl/workbook.xml") != new.read("xl/workbook.xml")
-        source = ET.fromstring(new.read(sheets["Datos Contrato"]))
-        assert source.find(".//" + Q("c") + "[@r='C17']").find(Q("is")).find(Q("t")).text == "PERSONA NUEVA DE PRUEBA"
+        from app.javiera_excel import shared_strings, cell_text
+        assert cell_text(patched.find(".//" + Q("c") + "[@r='B3']"), shared_strings(new)) == "PERSONA NUEVA DE PRUEBA"
+        assert len(ET.fromstring(new.read("xl/workbook.xml")).findall(".//" + Q("sheet"))) == 1
 
 
 def test_pts_17_approved_sections_replace_cached_excel():
