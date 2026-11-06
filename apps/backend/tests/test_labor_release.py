@@ -267,5 +267,5 @@ def test_additive_migration_idempotent_and_persistent_after_reopen(tmp_path):
     reopened = create_engine("sqlite+pysqlite:///" + str(path))
     with Session(reopened) as db:
         assert db.get(Organization, "legacy-org").name == "Organización histórica"
-        assert set(db.scalars(select(SchemaVersion.version))) == {"0.6.0-rc1", "0.7.0", "8.1.0", "13.1.0_documentary_configuration"}
+        assert set(db.scalars(select(SchemaVersion.version))) == {"0.6.0-rc1", "0.7.0", "8.1.0", "13.1.0_documentary_configuration", "16.0.0", "16.0.1_excel_pdf_reviews"}
     reopened.dispose()

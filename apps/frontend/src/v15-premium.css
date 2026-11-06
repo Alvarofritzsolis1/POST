@@ -423,3 +423,16 @@ html { scrollbar-gutter: stable; }
 @media (max-width: 760px) {
   .platform .v1501-refresh-status { right: 12px; bottom: 12px; }
 }
+
+/* GALANT v16: configuración de automatización visible sin invadir el encabezado */
+.platform .v16-automation-entry{display:inline-flex;gap:7px;align-items:center;justify-content:center;min-width:0;
+  border:1px solid #bfd1df;border-radius:10px;padding:8px 11px;color:#20456b;
+  background:#f1f6fa;font-weight:700;font-size:12px;white-space:nowrap}
+.platform .v16-automation-entry:hover{background:#e3eef8;border-color:#8da9bf}
+@media(max-width:1100px){.platform .v16-automation-entry span{display:none}}
+
+/* GALANT v16: la configuración permanece a la derecha del usuario, sin saltos internos */
+.platform .v16-account-cluster{display:flex;flex:0 1 auto;align-items:center;justify-content:flex-end;gap:8px;min-width:0;max-width:100%;margin-left:auto}
+.platform .v16-account-cluster>.v16-automation-entry{flex-shrink:0;white-space:nowrap}
+@media(max-width:760px){.platform .v16-account-cluster{flex:0 0 auto;gap:5px;margin-left:auto}
+.platform .v16-account-cluster>.v16-automation-entry{padding:8px 10px}}

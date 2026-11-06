@@ -28,6 +28,7 @@ import BulkImport from "./BulkImport";
 import ContractAlerts from "./ContractAlerts";
 import Settings from "./Settings";
 const GeneralConfiguration = lazy(() => import("./GeneralConfiguration"));
+const Javiera = lazy(() => import("./Javiera"));
 import RedDeObras, { ResidentNetwork } from "./Network";
 import { NetworkAccountMenu, NetworkPasswordScreen } from "./NetworkAccounts";
 import {
@@ -42,6 +43,7 @@ import {
 const nav = [
   ["home", "Inicio", LayoutDashboard],
   ["network", "Red de Obras", Network],
+  ["javiera", "Proyecto JAVIERA", FileCheck2],
   ["contractors", "Contratistas", Building2],
   ["workers", "Trabajadores", Users],
   ["contract_alerts", "Alertas contractuales", Bell],
@@ -55,7 +57,7 @@ const nav = [
   ["settings", "Configuración", SettingsIcon],
 ] as const;
 const navGroups = [
-  { title: "PRINCIPAL", ids: ["home", "network"] },
+  { title: "PRINCIPAL", ids: ["home", "network", "javiera"] },
   { title: "GESTIÓN OPERATIVA", ids: ["contractors", "workers", "contract_alerts", "attendance"] },
   { title: "CUMPLIMIENTO", ids: ["documents", "contributions", "evaluations"] },
   { title: "ADMINISTRACIÓN", ids: ["administration", "imports", "reports", "settings"] },
@@ -63,6 +65,8 @@ const navGroups = [
 // La URL y el estado del historial deben determinar la ruta desde el primer render.
 function sectionFromLocation(): string {
   const pathname = window.location.pathname;
+  if (pathname.startsWith("/configuracion/automatizacion")) return "javiera_config";
+  if (pathname.startsWith("/proyecto-javiera")) return "javiera";
   if (pathname.startsWith("/admin/configuracion")) return "configuration";
   if (pathname.startsWith("/contratistas")) return "contractors";
   const saved = window.history.state?.galantSection;
@@ -350,15 +354,21 @@ function App() {
     if (s !== section || (s === "contractors" && /^\/contratistas\/[^/]+/.test(window.location.pathname))) {
       window.scrollTo({top: 0, left: 0, behavior: "instant"});
     }
+    if (s === "javiera_config") {
+      window.history.pushState({ galantSection: "javiera_config" }, "", "/configuracion/automatizacion");
+      setSection("javiera_config");
+      return;
+    }
     if (s === "configuration") {
       window.history.replaceState({ ...window.history.state, galantSection: section }, "", window.location.href);
       window.history.pushState({ galantSection: "configuration", galantConfiguration: true }, "", "/admin/configuracion");
       setSection("configuration");
       return;
     }
-    if (window.location.pathname.startsWith("/contratistas") || window.location.pathname.startsWith("/admin/configuracion")) {
+    if (window.location.pathname.startsWith("/contratistas") || window.location.pathname.startsWith("/admin/configuracion") ||
+        window.location.pathname.startsWith("/proyecto-javiera") || window.location.pathname.startsWith("/configuracion/automatizacion")) {
       const url = new URL(window.location.href);
-      url.pathname = s === "contractors" ? "/contratistas" : "/";
+      url.pathname = s === "contractors" ? "/contratistas" : s === "javiera" ? "/proyecto-javiera" : "/";
       url.searchParams.delete("obra");
       url.searchParams.delete("periodo");
       window.history.replaceState({}, "", url);
@@ -379,9 +389,11 @@ function App() {
   if (hash.startsWith("#establecer-clave=") || hash === "#recuperar-clave") return <NetworkPasswordScreen hash={hash} done={() => { window.history.replaceState(null, "", window.location.pathname); setHash(""); setUser(null); }} />;
   if (!ready) return <div className="app-loading">Cargando GALANT…</div>;
   if (!user) return <Login onLogin={setUser} version={version} />;
+  if (section === "javiera_config" && user.role !== "admin") return <main className="panel"><h1>Acceso restringido</h1><button onClick={() => go("home")}>Volver</button></main>;
   if (section === "configuration" && user.role !== "admin") return <main className="panel" style={{ margin: "40px auto", maxWidth: 620 }}><h1>Acceso restringido</h1><p>Configuración General está disponible exclusivamente para administradores.</p><button type="button" onClick={() => { window.history.replaceState({}, "", "/"); setSection("home"); }}>← Volver</button></main>;
   if (user.role === "resident") return <ResidentNetwork user={user} version={version} logout={() => void logout()} />;
   if (user.role === "administrative") return <AdministrativeWorkspace user={user} version={version} logout={() => void logout()} />;
+  if (section === "javiera_config" && user.role === "admin") return <ErrorBoundary name="Configuración de automatización"><Suspense fallback={<div className="app-loading">Cargando JAVIERA…</div>}><Javiera configuration onBack={() => go("javiera")} /></Suspense></ErrorBoundary>;
   if (section === "configuration" && user.role === "admin") return <ErrorBoundary name="Configuración General"><Suspense fallback={<div className="app-loading">Cargando Configuración General…</div>}><GeneralConfiguration user={user} version={version} logout={() => void logout()} onOpenSettings={() => go("settings")} onBack={() => { if (window.history.state?.galantConfiguration) window.history.back(); else go("settings"); }}/></Suspense></ErrorBoundary>;
   const rows = (contributions?.rows || []).filter(
     (r) =>
@@ -548,10 +560,13 @@ function App() {
           >
             <RefreshCcw size={18} />
           </button>
-          <NetworkAccountMenu user={user} logout={() => void logout()} openNetwork={() => go("network")} openSettings={() => go("settings")} />
+          <div className="v16-account-cluster">
+            <NetworkAccountMenu user={user} logout={() => void logout()} openNetwork={() => go("network")} openSettings={() => go("settings")} />
+            {user.role === "admin" && <button type="button" className="v16-automation-entry" onClick={() => go("javiera_config")} title="Editar documentos, matrices y reglas de JAVIERA" aria-label="Configuración de automatización"><SettingsIcon size={16} /> <span>Configuración de automatización</span></button>}
+          </div>
         </header>
         <div className="page">
-          {section !== "network" && <div className="intro">
+          {section !== "network" && section !== "javiera" && <div className="intro">
             <div>
               <span className="eyebrow">
                 {profile?.organization} /{" "}
@@ -565,6 +580,7 @@ function App() {
 
           </div>}
           {section === "network" && <RedDeObras user={user} />}
+          {section === "javiera" && <ErrorBoundary name="Proyecto JAVIERA"><Suspense fallback={<div className="app-loading">Cargando JAVIERA…</div>}><Javiera onConfig={() => go("javiera_config")} /></Suspense></ErrorBoundary>}
           {error && (
             <div role="alert" className="alert danger">
               {error}
