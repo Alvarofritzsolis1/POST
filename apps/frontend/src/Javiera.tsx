@@ -1,6 +1,7 @@
 import {useEffect, useMemo, useRef, useState} from "react";
 import {ArrowLeft, CheckCircle2, ClipboardList, Download, FileText, FolderOpen, Settings2, ShieldCheck, Upload, AlertCircle} from "lucide-react";
 import {request} from "./api";
+import {opsApi} from "./opsApi";
 import "./javiera.css";
 
 type Source = {sites: {id:string;name:string}[];contractors:{id:string;site_id:string;name:string;rut:string|null;nature:string}[];workers:{id:string;name:string;rut:string|null;active:boolean}[]};
@@ -52,6 +53,24 @@ function Setup({onBack}:{onBack:()=>void}){
   const [sections,setSections]=useState<string[]>(Array(17).fill(""));
   const [notice,setNotice]=useState("");
   const [error,setError]=useState("");
+  const [importReport,setImportReport]=useState("");
+  const [importing,setImporting]=useState(false);
+  async function importWorkbook(file:File){
+    if(!file.name.toLowerCase().endsWith(".xlsx")){setError("Selecciona un archivo .xlsx");return;}
+    setImporting(true);setError("");setImportReport("");
+    const csrf=document.cookie.split("; ").find(c=>c.startsWith("galant_post_csrf="))?.split("=")[1]||"";
+    const form=new FormData();form.append("file",file);
+    try{
+      const response=await fetch("/api/v1/javiera/admin/import-workbook",{
+        method:"POST",body:form,credentials:"include",headers:{"X-CSRF-Token":csrf}});
+      if(!response.ok){const detail=await response.json().catch(()=>({detail:"Error de importación"}));throw new Error(typeof detail.detail==="string"?detail.detail:"El servidor rechazó las matrices");}
+      const result=await response.json() as {drafts:Record<string,number>;omissions:string[]};
+      setImportReport(Object.entries(result.drafts).map(([key,n])=>key+": "+n).join(" · ")+
+        (result.omissions.length?" · Observaciones: "+result.omissions.slice(0,4).join("; "):""));
+      setMatrices(await request<Matrix[]>("/javiera/admin/matrices"));
+      setNotice("Matrices importadas como borradores; requieren aprobación.");
+    }catch(e){setError(errorMessage(e));}finally{setImporting(false);}
+  }
   async function refresh(){
     const [t,m]=await Promise.all([request<Template[]>("/javiera/admin/templates"),
       request<Matrix[]>("/javiera/admin/matrices")]);
@@ -101,6 +120,18 @@ function Setup({onBack}:{onBack:()=>void}){
       {draft&&<section className="jv-editor">
         <h2>Editor de contenido</h2><p>Las modificaciones se guardan como revisiones nuevas. Nunca cambian PDFs emitidos.</p>
         <label>Título <input value={draft.title} onChange={e=>setDraft({...draft,title:e.target.value})}/></label>
+        <label>Eventos aplicables (selección múltiple; vacío = regla original)
+          <select multiple size={7} value={Array.isArray(draft.rule.events)?draft.rule.events as string[]:[]}
+            onChange={e=>setDraft({...draft,rule:{...draft.rule,events:Array.from(e.currentTarget.selectedOptions,x=>x.value)}})}>
+            {eventOptions.map(([v,l])=><option key={v} value={v}>{l}</option>)}
+          </select>
+        </label>
+        <label>Vínculos permitidos (vacío = regla original)
+          <select multiple size={2} value={Array.isArray(draft.rule.employment_types)?draft.rule.employment_types as string[]:[]}
+            onChange={e=>setDraft({...draft,rule:{...draft.rule,employment_types:Array.from(e.currentTarget.selectedOptions,x=>x.value)}})}>
+            <option value="dependiente">Dependiente</option><option value="independiente">Independiente</option>
+          </select>
+        </label>
         <label>Área documental <select value={draft.area} onChange={e=>setDraft({...draft,area:e.target.value})}>
           <option>Zona Subcontratos</option><option>Prevención de Riesgos</option></select></label>
         <label>Contenido completo del documento <textarea rows={17} spellCheck value={draft.body}
@@ -123,6 +154,15 @@ function Setup({onBack}:{onBack:()=>void}){
         {!templates.find(t=>t.code===selected)?.revisions.length&&<p>Sin revisiones registradas.</p>}
       </aside>
     </div>}
+    {tab==="matrices"&&<section className="jv-import">
+      <h2>Importar matrices del Excel JAVIERA</h2>
+      <p>Selecciona el Excel corregido desde tu computador. Se procesan las matrices y no se suben datos laborales al repositorio GitHub.</p>
+      <label className="jv-upload"><Upload size={16}/> {importing?"Importando…":"Seleccionar Excel .xlsx"}
+        <input disabled={importing} type="file" accept=".xlsx,application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
+          onChange={e=>{const file=e.target.files?.[0];if(file)void importWorkbook(file);e.target.value="";}}/>
+      </label>
+      {importReport&&<p className="jv-success" role="status">{importReport}</p>}
+    </section>}
     {tab==="matrices"&&<div className="jv-admin-layout">
       <nav className="jv-template-list" aria-label="Matrices existentes">
         {matrices.map(m=><button key={m.id} onClick={()=>{setMatrixKind(m.kind as "PTS"|"IRL");setCargo(m.cargo);setSections(m.sections);}}>
