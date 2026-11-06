@@ -8,6 +8,7 @@ from __future__ import annotations
 
 import hashlib
 import io
+from datetime import date
 import os
 import re
 import shutil
@@ -216,6 +217,83 @@ def set_text(root: ET.Element, coordinate: str, text: str, style_source: str | N
         t.set("{http://www.w3.org/XML/1998/namespace}space", "preserve")
 
 
+def set_numeric(root: ET.Element, coordinate: str, value: float):
+    cell = ensure_cell(root, coordinate)
+    for child in list(cell):
+        if child.tag in {Q("v"), Q("f"), Q("is")}:
+            cell.remove(child)
+    cell.set("t", "n")
+    ET.SubElement(cell, Q("v")).text = str(value)
+
+
+def spanish_amount(value: object) -> str:
+    """Conversión determinista de pesos chilenos hasta 999.999.999."""
+    try:
+        number = int(float(str(value).replace(".", "").replace(",", ".")))
+    except (TypeError, ValueError, OverflowError):
+        return ""
+    if not 0 <= number < 1_000_000_000:
+        return ""
+    small = ["cero", "uno", "dos", "tres", "cuatro", "cinco", "seis", "siete",
+             "ocho", "nueve", "diez", "once", "doce", "trece", "catorce",
+             "quince", "dieciséis", "diecisiete", "dieciocho", "diecinueve",
+             "veinte", "veintiuno", "veintidós", "veintitrés", "veinticuatro",
+             "veinticinco", "veintiséis", "veintisiete", "veintiocho", "veintinueve"]
+    tens = ["", "", "", "treinta", "cuarenta", "cincuenta", "sesenta",
+            "setenta", "ochenta", "noventa"]
+    hundreds = ["", "ciento", "doscientos", "trescientos", "cuatrocientos",
+                "quinientos", "seiscientos", "setecientos", "ochocientos", "novecientos"]
+    def under_thousand(n):
+        if n < 30:
+            return small[n]
+        if n < 100:
+            return tens[n // 10] + (" y " + small[n % 10] if n % 10 else "")
+        if n == 100:
+            return "cien"
+        rem = n % 100
+        return hundreds[n // 100] + (" " + under_thousand(rem) if rem else "")
+    if number == 0:
+        return "Cero pesos."
+    parts = []
+    million = number // 1_000_000
+    thousand = (number // 1_000) % 1000
+    rest = number % 1000
+    if million:
+        parts.append("un millón" if million == 1 else under_thousand(million) + " millones")
+    if thousand:
+        parts.append("mil" if thousand == 1 else under_thousand(thousand) + " mil")
+    if rest:
+        parts.append(under_thousand(rest))
+    phrase = " ".join(parts)
+    phrase = re.sub(r"\buno(?= (?:mil|millones|pesos))", "un", phrase)
+    phrase = re.sub(r"\bveintiuno(?= (?:mil|millones|pesos))", "veintiún", phrase)
+    return phrase[:1].upper() + phrase[1:] + " pesos."
+
+
+def typed_input(root: ET.Element, coordinate: str, key: str, data: dict):
+    value = get_data(data, key)
+    if coordinate == "C33" and not value:
+        value = spanish_amount(get_data(data, "contract.salary"))
+    if coordinate in {"C20", "C36", "C37", "C40"}:
+        if not value:
+            set_text(root, coordinate, "")
+            return
+        try:
+            day = date.fromisoformat(value[:10])
+            set_numeric(root, coordinate, float((day - date(1899, 12, 30)).days))
+            return
+        except ValueError:
+            set_text(root, coordinate, value)
+            return
+    if coordinate in {"C31", "C32"}:
+        try:
+            set_numeric(root, coordinate, float(value))
+            return
+        except ValueError:
+            pass
+    set_text(root, coordinate, value)
+
+
 def apply_changes(root: ET.Element, changes: dict):
     for coordinate, props in changes.items():
         if not isinstance(props, dict):
@@ -263,7 +341,7 @@ def excel_document(raw: bytes, code: str, data: dict, changes: dict | None = Non
         replacements = {}
         source = ET.fromstring(z.read(files["Datos Contrato"]))
         for coord, key in SOURCE_FIELDS.items():
-            set_text(source, coord, get_data(data, key))
+            typed_input(source, coord, key, data)
         replacements[files["Datos Contrato"]] = ET.tostring(source, encoding="UTF-8", xml_declaration=True)
         target = ET.fromstring(z.read(files[selected]))
         if changes:
