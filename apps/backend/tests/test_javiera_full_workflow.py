@@ -179,3 +179,82 @@ def test_javiera_batch_duplicate_or_unknown_code_is_rejected(env):
         response=client.post("/api/v1/javiera/issue/batch",
                              headers=admin,json={"dossier_id":record,"codes":codes})
         assert response.status_code==422,response.text
+
+
+
+def test_subcontractor_employer_identity_and_worker_assignment_are_isolated(env):
+    client,_ = env
+    admin = login(client, "a@example.cl")
+    site = client.get("/api/v1/ops/sites").json()[0]["id"]
+    principal = create_company(client, admin, site, "CT", "Mandante de Prueba")
+    subcontractor = create_company(client, admin, site, "CT", "Empleador Directo")
+    worker = client.post("/api/v1/ops/workers", headers=admin, json={
+        "site_id":site,
+        "contractor_id":subcontractor["contractor_id"],
+        "name":"Trabajador del Subcontrato",
+        "rut":rut(10000125),
+    })
+    assert worker.status_code==201,worker.text
+    user_data={
+        "role":"CARPINTERO", "employment_type":"dependiente",
+        "event_type":"ingreso",
+        "contract":{"start":"2026-11-06","hours":"42","salary":"750000"},
+        "event":{"date":"2026-11-06"},
+    }
+    good=client.post("/api/v1/javiera/dossiers",headers=admin,json={
+        "site_id":site,
+        "employer_id":subcontractor["contractor_id"],
+        "parent_id":principal["contractor_id"],
+        "worker_id":worker.json()["worker_id"],
+        "relationship":"subcontractor",
+        "data":user_data,
+    })
+    assert good.status_code==200,good.text
+    dossier=good.json()
+    assert dossier["data"]["employer"]["name"]=="Empleador Directo"
+    assert dossier["data"]["employer"]["name"]!="Mandante de Prueba"
+    assert dossier["parent_id"] if "parent_id" in dossier else True
+    stored=client.get("/api/v1/javiera/dossiers/"+dossier["id"])
+    assert stored.status_code==200,stored.text
+    assert stored.json()["parent_id"]==principal["contractor_id"]
+    assert stored.json()["employer_id"]==subcontractor["contractor_id"]
+    # La identidad y pertenencia del trabajador no puede intercambiarse
+    # silenciosamente con el contratista principal.
+    invalid=client.post("/api/v1/javiera/dossiers",headers=admin,json={
+        "site_id":site,"employer_id":principal["contractor_id"],
+        "worker_id":worker.json()["worker_id"],
+        "relationship":"contractor","data":user_data,
+    })
+    assert invalid.status_code==422,invalid.text
+    # Una empresa no puede figurar como su propio contratista principal.
+    self_parent=client.post("/api/v1/javiera/dossiers",headers=admin,json={
+        "site_id":site,"employer_id":subcontractor["contractor_id"],
+        "parent_id":subcontractor["contractor_id"],
+        "relationship":"subcontractor","data":user_data,
+    })
+    assert self_parent.status_code==422,self_parent.text
+
+
+def test_javiera_status_isolation_and_no_automatic_approval(env):
+    client,_ = env
+    admin = login(client, "a@example.cl")
+    records = client.get("/api/v1/javiera/catalog")
+    assert records.status_code==200
+    assert len(records.json())==10
+    assert all(x["published_version"]==0 for x in records.json())
+    # Borradores sin aprobación profesional no se consideran listos.
+    status=client.post("/api/v1/javiera/eligibility/evaluate",headers=admin,json={
+        "data":{
+            "employer":{"name":"Empresa ficticia","rut":rut(11000126)},
+            "worker":{"name":"Persona ficticia","rut":rut(12000126)},
+            "site":{"name":"Obra ficticia"},
+            "role":"CARPINTERO","employment_type":"dependiente",
+            "event_type":"ingreso",
+            "contract":{"start":"2026-11-06","end":"2026-12-20",
+                        "salary":"600000","hours":"42"},
+            "event":{"date":"2026-11-06"},
+        }
+    })
+    assert status.status_code==200,status.text
+    assert all(not d["can_issue"] for d in status.json()["documents"])
+    assert all(d["status"]!="EMITIDO" for d in status.json()["documents"])
