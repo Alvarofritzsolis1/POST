@@ -194,6 +194,7 @@ export default function Javiera({configuration=false,onBack,onConfig}:{configura
   const [parentId,setParentId]=useState("");
   const [workerId,setWorkerId]=useState("");
   const [role,setRole]=useState("");
+  const [extra,setExtra]=useState<Record<string,string>>({});
   const [employmentType,setEmploymentType]=useState("");
   const [eventType,setEventType]=useState("ingreso");
   const [contract,setContract]=useState(emptyContract);
@@ -228,8 +229,8 @@ export default function Javiera({configuration=false,onBack,onConfig}:{configura
   const site=source.sites.find(x=>x.id===siteId);
   const data=useMemo(()=>({
     employer:{name:employer?.name||"",rut:employer?.rut||""},worker:{name:worker?.name||"",rut:worker?.rut||""},
-    site:{name:site?.name||""},role,event_type:eventType,employment_type:employmentType,contract,event
-  }),[employer?.name,employer?.rut,worker?.name,worker?.rut,site?.name,role,eventType,employmentType,contract,event]);
+    site:{name:site?.name||""},role,event_type:eventType,employment_type:employmentType,contract,event,extra
+  }),[employer?.name,employer?.rut,worker?.name,worker?.rut,site?.name,role,eventType,employmentType,contract,event,extra]);
   const fingerprint=JSON.stringify(data);
   const unsaved=!dossierId||savedFingerprint!==fingerprint;
   useEffect(()=>{
@@ -271,7 +272,7 @@ export default function Javiera({configuration=false,onBack,onConfig}:{configura
       setSaved(row);setDossierId(row.id);setDossierRevision(row.revision);
       setSource(src);setSiteId(row.site_id);setCompanyId(row.employer_id);setWorkerId(row.worker_id||"");
       setParentId(row.parent_id||"");setMode(row.relationship==="subcontractor"?"subcontractor":"contractor");
-      setRole(String(obj.role||""));setEventType(String(obj.event_type||"ingreso"));
+      setRole(String(obj.role||""));setExtra(typeof obj.extra==="object"&&obj.extra?obj.extra as Record<string,string>:{});setEventType(String(obj.event_type||"ingreso"));
       setEmploymentType(String(obj.employment_type||""));
       setContract({...emptyContract,...(typeof obj.contract==="object"&&obj.contract?obj.contract as typeof emptyContract:{})});
       setEvent({...emptyEvent,...(typeof obj.event==="object"&&obj.event?obj.event as typeof emptyEvent:{})});
@@ -424,6 +425,12 @@ export default function Javiera({configuration=false,onBack,onConfig}:{configura
           {fieldInput("event.epp_items","EPP entregados realmente",event.epp_items,v=>setEvent({...event,epp_items:v}))}
           {fieldInput("event.pts_version","Versión del PTS entregado",event.pts_version,v=>setEvent({...event,pts_version:v}))}
         </div>
+        {catalog.some(c=>c.required_fields.some(f=>f.startsWith("extra.")))&&<div className="jv-section">
+          <h3>4. Campos personalizados</h3><p>Estos campos se administran desde Configuración de automatización.</p>
+          {Array.from(new Set(catalog.flatMap(c=>c.required_fields.filter(f=>f.startsWith("extra."))))).map(f=>
+            fieldInput(f,f.slice(6).replaceAll("_"," "),extra[f.slice(6)]||"",
+              value=>setExtra(old=>({...old,[f.slice(6)]:value}))))}
+        </div>}
         <div className="jv-actions"><button type="button" className="jv-primary" disabled={busy||!siteId||!companyId}
           onClick={()=>void saveDossier()}>{busy?"Procesando…":dossierId?"Guardar nueva revisión":"Guardar expediente"}</button>
           {dossierId&&<span>Expediente {dossierId.slice(0,8)} · revisión {dossierRevision}{unsaved?" · cambios sin guardar":""}</span>}
