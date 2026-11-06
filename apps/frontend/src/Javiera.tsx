@@ -231,6 +231,8 @@ export default function Javiera({configuration=false,onBack,onConfig}:{configura
   const [newWorker,setNewWorker]=useState({name:"",rut:""});
   const [showCreate,setShowCreate]=useState<"contractor"|"worker"|null>(null);
   const [reviewComments,setReviewComments]=useState<Record<string,string>>({});
+  const [reissueReasons,setReissueReasons]=useState<Record<string,string>>({});
+  const [batchReport,setBatchReport]=useState<{code:string;ok:boolean;id?:string;reason?:string}[]>([]);
   const revision=useRef(0);
   useEffect(()=>{
     if(configuration)return;
@@ -344,14 +346,29 @@ export default function Javiera({configuration=false,onBack,onConfig}:{configura
     try{previewBlob(await pdfRequest("/preview",{dossier_id:dossierId,code}));}
     catch(e){setError(errorMessage(e));}finally{setBusy(false);}
   }
-  async function issue(code:string){
+  async function issue(code:string,reissue_reason?:string){
     if(unsaved){setError("Guarda los cambios antes de emitir el PDF.");return;}
     setBusy(true);setError("");
     try{
       const result=await request<{id:string;reused:boolean}>("/javiera/issue",{
-        method:"POST",body:JSON.stringify({dossier_id:dossierId,code})});
+        method:"POST",body:JSON.stringify({dossier_id:dossierId,code,reissue_reason})});
       await refreshDossier(dossierId);setNotice(result.reused?"PDF existente recuperado.":"PDF emitido, aún sin firma ni constancia de entrega.");
       window.open("/api/v1/javiera/issued/"+encodeURIComponent(result.id)+"/pdf","_blank","noopener,noreferrer");
+    }catch(e){setError(errorMessage(e));}finally{setBusy(false);}
+  }
+  async function issueReady(){
+    if(unsaved||busy){setError("Guarda primero los cambios del expediente.");return;}
+    const codes=cards.filter(c=>c.can_issue).map(c=>c.code);
+    if(!codes.length){setError("No hay documentos aprobados listos para emisión.");return;}
+    setBusy(true);setError("");setNotice("");setBatchReport([]);
+    try{
+      const result=await request<{issued:number;failed:number;results:{code:string;ok:boolean;id?:string;reason?:string}[]}>
+        ("/javiera/issue/batch",{method:"POST",
+          body:JSON.stringify({dossier_id:dossierId,codes})});
+      setBatchReport(result.results);
+      await refreshDossier(dossierId);
+      setNotice("Lote terminado: "+result.issued+" emitidos o recuperados; "+result.failed+
+        " documentos con observaciones. La emisión no implica firma ni entrega.");
     }catch(e){setError(errorMessage(e));}finally{setBusy(false);}
   }
   async function reviewHistorical(id:string,verified:boolean){
@@ -470,6 +487,14 @@ export default function Javiera({configuration=false,onBack,onConfig}:{configura
         {unsaved&&<p className="jv-note" role="status">Guarda los cambios para habilitar la exportación de PDFs.</p>}
         <div className="jv-panel-head"><div><small>GENERACIÓN EN VIVO</small><h3>Documentos que puedes exportar a PDF</h3>
           <p>Actualización automática al completar datos</p></div><strong>{ready} listos</strong></div>
+        <button type="button" className="jv-primary jv-batch" disabled={unsaved||busy||ready===0}
+          onClick={()=>void issueReady()}>Generar documentos listos ({ready})</button>
+        {batchReport.length>0&&<div className="jv-batch-report" role="status">
+          {batchReport.map(item=><p key={item.code}>{item.ok?"✓":"!"} {catalog.find(c=>c.code===item.code)?.title||item.code}
+            {item.ok&&item.id?<a target="_blank" rel="noreferrer"
+              href={"/api/v1/javiera/issued/"+encodeURIComponent(item.id)+"/pdf"}>Abrir PDF</a>:
+              <span>{item.reason||"Pendiente de revisión"}</span>}</p>)}
+        </div> 
         <div className="jv-filters">{[["todos","Todos"],["listos","Listos"],["pendientes","Pendientes"],["historicos","Existentes"]].map(([v,l])=>
           <button key={v} className={filter===v?"active":""} onClick={()=>setFilter(v)}>{l}</button>)}</div>
         {groups.map(area=><div key={area} className="jv-doc-area">
@@ -485,6 +510,15 @@ export default function Javiera({configuration=false,onBack,onConfig}:{configura
             <div className="jv-card-actions">
               <button disabled={!c.can_preview||unsaved||busy} onClick={()=>void openPreview(c.code)}>Vista previa</button>
               <button disabled={!c.can_issue||unsaved||busy} onClick={()=>void issue(c.code)}><Download size={14}/> PDF</button>
+              {c.status==="EXISTENTE_POR_VERIFICAR"&&c.can_preview&&<div className="jv-reissue">
+                <label>Motivo de nueva emisión
+                  <textarea rows={2} placeholder="Describe qué cambió y por qué es necesario emitir otra versión"
+                    value={reissueReasons[c.code]||""}
+                    onChange={e=>setReissueReasons(old=>({...old,[c.code]:e.target.value}))}/>
+                </label>
+                <button type="button" disabled={unsaved||busy||(reissueReasons[c.code]||"").trim().length<20}
+                  onClick={()=>void issue(c.code,reissueReasons[c.code].trim())}>Emitir nueva versión justificada</button>
+              </div>}
               {dossierId&&<label className="jv-upload"><Upload size={14}/> Anterior<input type="file" accept=".pdf,application/pdf"
                 onChange={e=>{const f=e.target.files?.[0];if(f)void uploadHistorical(c.code,f);e.target.value="";}}/></label>}
               {saved?.historical.filter(x=>x.code===c.code).map(h=><div key={h.id} className="jv-history-review">
