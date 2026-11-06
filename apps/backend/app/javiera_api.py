@@ -26,8 +26,8 @@ from .db import get_db
 from .javiera_layout_api import latest_layout, make_pdf
 from .javiera_models import JavieraExcelLayout
 from .javiera_review import require_signoff, specialty_for_code
-from .javiera_logic import (DOCUMENTS, DOCUMENT_BY_CODE, check_template_fields,
-                            eligibility, normalize_cargo, render_tokens)
+from .javiera_logic import (DOCUMENTS, DOCUMENT_BY_CODE, LAYOUT_REQUIRED,
+                            check_template_fields, eligibility, normalize_cargo, render_tokens)
 from .javiera_models import (JavieraDossier, JavieraHistory, JavieraIssue,
                              JavieraMatrix, JavieraRevision, JavieraTemplate)
 from .models import AuditEvent, User, utcnow
@@ -122,7 +122,9 @@ def template_data(db, org):
             result[layout.code] = {
                 "title": current.get("title", entry[2]),
                 "area": current.get("area", entry[1]),
-                "fields": current.get("fields", entry[4]),
+                "fields": list(dict.fromkeys([
+                    *current.get("fields", entry[4]), *LAYOUT_REQUIRED.get(layout.code, [])
+                ])),
                 "published_version": layout.revision,
                 "has_body": True,
                 "rule": current.get("rule", {}),
