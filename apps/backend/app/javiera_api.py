@@ -165,40 +165,62 @@ def evaluated(db: Session, user: User, data: dict, dossier_id: str | None):
     return eligibility(data, templates, approved, existing, history)
 
 
-def pdf_for(title: str, body: str, draft: bool) -> bytes:
-    """Generación A4 sin ejecución HTML/JS ni escritura de campos por el cliente."""
+def pdf_for(title: str, body: str, draft: bool, layout: dict | None = None) -> bytes:
+    """Genera PDF A4 sin HTML, JS o plantillas ejecutables.
+
+    Opciones de composición válidas y acotadas; la vista previa nunca equivale
+    a firma, validación legal ni capacitación.
+    """
+    layout = layout or {}
+    def integer(key, default, low, high):
+        try:
+            n = int(layout.get(key, default))
+        except (TypeError, ValueError):
+            n = default
+        return max(low, min(high, n))
+
+    margin = integer("margin", 45, 30, 75)
+    font_size = integer("font_size", 10, 9, 12)
+    top = integer("top", 55, 35, 110)
+    heading = str(layout.get("header", "GALANT · PROYECTO JAVIERA"))[:120]
+    footer = str(layout.get("footer", "Documento generado por GALANT"))[:130]
+    max_width = 595 - 2 * margin
     doc = fitz.open()
-    page = doc.new_page(width=595, height=842)
-    y = 50
-    page.insert_text((45, y), "GALANT · PROYECTO JAVIERA", fontsize=10, fontname="helv")
-    y += 34
+
+    def new_page():
+        page = doc.new_page(width=595, height=842)
+        page.insert_text((margin, 28), heading, fontsize=9, fontname="helv",
+                         color=(0.15, 0.3, 0.5))
+        if footer:
+            page.insert_text((margin, 819), footer, fontsize=8, fontname="helv",
+                             color=(0.35, 0.39, 0.44))
+        return page, top
+
+    page, y = new_page()
     if draft:
-        page.insert_text((45, y), "VISTA PREVIA · NO VÁLIDO PARA FIRMA NI ENTREGA",
-                         fontsize=10, color=(0.75, 0.2, 0.2))
-        y += 35
-    for chunk in [title, "", *body.splitlines()]:
-        lines = []
-        # Fit in A4 with explicit word wrapping, avoiding text clipping.
-        for paragraph in (chunk or " ").split("\n"):
-            words = paragraph.split()
-            line = ""
-            for word in words:
-                candidate = (line + " " + word).strip()
-                if fitz.get_text_length(candidate, fontname="helv", fontsize=10) > 495 and line:
-                    lines.append(line)
-                    line = word
-                else:
-                    line = candidate
-            lines.append(line or " ")
-        for line in lines:
-            if y > 775:
-                page = doc.new_page(width=595, height=842)
-                y = 55
-            page.insert_text((48, y), line[:350], fontsize=10, fontname="helv")
-            y += 16
-    out = doc.tobytes(garbage=4, deflate=True)
+        page.insert_text((margin, y), "VISTA PREVIA - NO VALIDO PARA FIRMA NI ENTREGA",
+                         fontsize=9, color=(0.75, 0.2, 0.2))
+        y += 30
+    for paragraph in [title, "", *body.splitlines()]:
+        line = ""
+        parts = []
+        for word in paragraph.split():
+            candidate = (line + " " + word).strip()
+            if fitz.get_text_length(candidate, fontname="helv", fontsize=font_size) > max_width and line:
+                parts.append(line)
+                line = word
+            else:
+                line = candidate
+        parts.append(line or " ")
+        for part in parts:
+            if y > 788:
+                page, y = new_page()
+            page.insert_text((margin, y), part[:500], fontsize=font_size,
+                             fontname="helv")
+            y += font_size + 7
+    raw = doc.tobytes(garbage=4, deflate=True)
     doc.close()
-    return out
+    return raw
 
 
 @router.get("/catalog")
@@ -370,7 +392,7 @@ def prepared(db, user, ident: str, code: str, preview: bool):
 @router.post("/preview")
 def preview(data: Action, user: User = Depends(administrator), db: Session = Depends(get_db)):
     record, template, title, text = prepared(db, user, data.dossier_id, data.code, True)
-    return Response(content=pdf_for(title, text, True),
+    return Response(content=pdf_for(title, text, True, template.layout),
                     media_type="application/pdf", headers={"Cache-Control": "no-store"})
 
 
@@ -383,7 +405,7 @@ def issue(data: Action, user: User = Depends(administrator), db: Session = Depen
         JavieraIssue.dossier_revision == record.revision))
     if existing:
         return {"id": existing.id, "sha256": existing.sha256, "reused": True}
-    raw = pdf_for(title, text, False)
+    raw = pdf_for(title, text, False, template.layout)
     digest = hashlib.sha256(raw).hexdigest()
     ident = str(uuid4())
     directory = settings().document_dir / user.org_id / "javiera" / record.id
