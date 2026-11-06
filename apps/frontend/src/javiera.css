@@ -113,3 +113,9 @@
 .jv-reissue label{display:block;font-size:.76rem;color:#445b71;font-weight:650}
 .jv-reissue textarea{display:block;width:100%;min-height:65px;resize:vertical;box-sizing:border-box;margin:7px 0;padding:8px;border:1px solid #cbd6e4;border-radius:8px;font:inherit;font-weight:450}
 .jv-reissue button{font-size:.77rem;background:#24517c;color:white;border:1px solid #24517c;border-radius:8px;padding:9px 11px}
+
+/* Revisión visual Chromium v16: evitar colisión entre regreso y contexto */
+.jv-hero>.jv-back{display:flex;width:max-content;max-width:100%;margin-bottom:12px;flex-wrap:wrap}
+.jv-hero>small{display:block;line-height:1.45;letter-spacing:.09em;overflow-wrap:anywhere}
+.jv-hero>h2{clear:both}
+@media(max-width:700px){.jv-hero>.jv-back{margin-bottom:10px}.jv-hero>small{font-size:.67rem}}
