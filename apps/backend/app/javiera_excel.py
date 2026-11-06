@@ -63,6 +63,21 @@ PTS_CELLS = [
 ]
 MAX_FILE = 12 * 1024 * 1024
 MAX_UNZIPPED = 65 * 1024 * 1024
+# Los datos fácticos/medidas aprobadas no se editan como texto libre de plantilla:
+# EPP y prórroga desde expediente; riesgos y PTS desde matrices especializadas.
+PROTECTED_DOCUMENT_CELLS = {
+    "pts": set(PTS_CELLS) | {"A11"},
+    "irl": {
+        *(f"{column}{row}" for row in
+          (40, 42, 44, 46, 48, 50, 52, 54, 56, 63, 65, 67)
+          for column in "ABCD"),
+        "A18", "A23", "A25", "A28", "A31",
+    },
+    "ppe_delivery": {f"D{row}" for row in range(12, 20)},
+    "extension_addendum": {"A5", "M4"},
+    "sworn_declaration": {"A4", "A5"},
+}
+
 RESTRICTED_PARTS = ("vbaproject.bin", "externallinks/", "connections.xml", "oleobjects/", "activex/")
 # Referencias fijas de empresas mandantes del Excel de origen (no guardar
 # nombres reales ni direcciones dentro del código). Se cambia por mandante real.
@@ -574,6 +589,11 @@ def excel_document(raw: bytes, code: str, data: dict, changes: dict | None = Non
                 set_text(target, "D"+str(index), str(amount) if amount else "")
 
         if changes:
+            restricted = set(changes).intersection(PROTECTED_DOCUMENT_CELLS.get(code, set()))
+            if restricted:
+                raise LayoutError("Las celdas " + ", ".join(sorted(restricted)) +
+                                  " contienen datos del expediente o controles preventivos; "
+                                  "edítalos en el formulario o en la matriz aprobable")
             replacements_for_fields = {}
             for coordinate, props in changes.items():
                 if not isinstance(props, dict):
