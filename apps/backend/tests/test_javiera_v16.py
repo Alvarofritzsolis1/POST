@@ -112,3 +112,26 @@ def test_pdf_A4_preview_and_real_differ():
         assert round(doc[0].rect.width) == 595
     with fitz.open(stream=approved, filetype="pdf") as doc:
         assert "VISTA PREVIA" not in doc[0].get_text()
+
+
+
+@pytest.mark.parametrize("when,limit", [
+    ("2024-04-25", 45),
+    ("2024-04-26", 44),
+    ("2026-04-25", 44),
+    ("2026-04-26", 42),
+    ("2028-04-25", 42),
+    ("2028-04-26", 40),
+])
+def test_jornada_general_historica_aplica_en_fecha_del_documento(when, limit):
+    from app.javiera_logic import ordinary_weekly_hours_limit
+    assert ordinary_weekly_hours_limit(when) == limit
+    data = sample()
+    data["event"]["date"] = when
+    data["contract"]["hours"] = str(limit)
+    missing, errors = validate_requirements(data, ["event.date", "contract.hours"])
+    assert missing == []
+    assert not any("contract.hours" in e for e in errors)
+    data["contract"]["hours"] = str(limit + 1)
+    _, errors = validate_requirements(data, ["event.date", "contract.hours"])
+    assert any("contract.hours" in e for e in errors)
