@@ -102,3 +102,14 @@
 .jv-history-review strong{font-size:.73rem;color:#28415d;flex-basis:100%}
 .jv-history-review input{width:100%;padding:8px 10px;border:1px solid #cbdbea;border-radius:7px;background:white;font-size:.77rem}
 .jv-history-review button{padding:7px 9px;border:1px solid #c3d5e6;border-radius:7px;color:#26507b;background:white;font-weight:700;font-size:.73rem}
+
+/* Emisión múltiple y reemisiones auditadas */
+.jv-batch{width:100%;margin:14px 0 8px;text-align:center}
+.jv-batch-report{border:1px solid #c8dfed;background:#f3f9fe;border-radius:10px;padding:10px;margin:8px 0 16px;max-height:210px;overflow-y:auto}
+.jv-batch-report p{display:flex;align-items:center;justify-content:space-between;flex-wrap:wrap;gap:8px;margin:7px 0;font-size:.76rem;color:#2c4965}
+.jv-batch-report a{font-weight:750;color:#215b8e}
+.jv-batch-report span{color:#845a26}
+.jv-reissue{flex-basis:100%;width:100%;min-width:0;padding:12px;border:1px solid #d5e3ef;background:#f8fbfe;border-radius:9px}
+.jv-reissue label{display:block;font-size:.76rem;color:#445b71;font-weight:650}
+.jv-reissue textarea{display:block;width:100%;min-height:65px;resize:vertical;box-sizing:border-box;margin:7px 0;padding:8px;border:1px solid #cbd6e4;border-radius:8px;font:inherit;font-weight:450}
+.jv-reissue button{font-size:.77rem;background:#24517c;color:white;border:1px solid #24517c;border-radius:8px;padding:9px 11px}
