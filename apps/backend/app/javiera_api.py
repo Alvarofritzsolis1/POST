@@ -479,7 +479,14 @@ def preview(data: Action, user: User = Depends(administrator), db: Session = Dep
 def issue(data: Action, user: User = Depends(administrator), db: Session = Depends(get_db)):
     if data.code not in DOCUMENT_BY_CODE:
         raise HTTPException(404, "Documento desconocido")
-    record = dossier(db, user, data.dossier_id)
+    # Serializar emisiones concurrentes del mismo expediente en PostgreSQL:
+    # dos clics simultáneos no deben escribir dos PDF distintos.
+    record = db.scalar(select(JavieraDossier).where(
+        JavieraDossier.id == data.dossier_id,
+        JavieraDossier.org_id == user.org_id,
+    ).with_for_update())
+    if record is None:
+        raise HTTPException(404, "Expediente no encontrado")
     status = next(x for x in evaluated(db, user, record.data, record.id)
                   if x["code"] == data.code)
     layout = latest_layout(db, user.org_id, data.code)
