@@ -75,7 +75,7 @@ def main():
         page.screenshot(path=str(args.output/"javiera_prevencion.png"),full_page=True)
 
         # Empresa y trabajador nuevos: no se exige que ya existan en GALANT.
-        page.get_by_role("combobox",name="Obra").select_option(label="Brisas de Junquillar")
+        page.locator(".j65-editor .j65-section").first.locator("select").first.select_option(label="Brisas de Junquillar")
         page.get_by_label("Nombre o razón social del empleador").fill("EMPRESA SINTETICA JAVIERA QA")
         page.get_by_label("Nombre completo del trabajador").fill("TRABAJADOR SINTETICO JAVIERA QA")
         page.get_by_label("Labor / especialidad").fill("Pintura")
