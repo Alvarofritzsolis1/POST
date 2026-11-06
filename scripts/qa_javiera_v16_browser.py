@@ -60,7 +60,7 @@ def main():
         report["scenarios"]["ten_doc_cards_and_no_false_ready"]="PASS"
         page.screenshot(path=str(args.output/"javiera_documentos.png"),full_page=True)
 
-        page.get_by_role("button",name="Proyecto JAVIERA",exact=True).click()
+        page.locator(".jv-hero .jv-back").click()
         expect(page.locator(".jv-mode-cards button")).to_have_count(2)
         page.locator(".jv-mode-cards button").nth(1).click()
         expect(page.get_by_role("heading",name="Generación documental interactiva")).to_be_visible()
