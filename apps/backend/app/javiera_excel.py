@@ -653,6 +653,44 @@ def excel_document(raw: bytes, code: str, data: dict, changes: dict | None = Non
 
 
 
+def normalize_pdf_a4(raw: bytes) -> bytes:
+    """Imprimir sin cortes y entregar todas las páginas en A4.
+
+    La declaración jurada del Excel original tiene trazos 5 pt fuera del
+    MediaBox derecho; otros documentos usan Carta. Recupera esos trazos
+    expandiendo el área fuente antes de ajustar proporcionalmente al A4.
+    """
+    source = fitz.open(stream=raw, filetype="pdf")
+    output = fitz.open()
+    try:
+        for index in range(source.page_count):
+            page = source[index]
+            rect = page.rect
+            blocks = [b for b in page.get_text("blocks")
+                      if len(b) >= 5 and (b[4].strip() if isinstance(b[4], str) else True)]
+            xmin = min([0, *[b[0] for b in blocks]])
+            ymin = min([0, *[b[1] for b in blocks]])
+            xmax = max([rect.width, *[b[2] for b in blocks]])
+            ymax = max([rect.height, *[b[3] for b in blocks]])
+            if xmin < -1 or ymin < -1:
+                raise LayoutError("Texto fuera del margen superior o izquierdo del Excel; revisa la maquetación")
+            if xmax > rect.width + 1 or ymax > rect.height + 1:
+                page.set_mediabox(fitz.Rect(0, 0, xmax + 8, ymax + 8))
+            target = output.new_page(width=595, height=842)
+            target.show_pdf_page(fitz.Rect(12, 12, 583, 830), source, index,
+                                 keep_proportion=True, overlay=True)
+        for page in output:
+            for block in page.get_text("blocks"):
+                if (block[0] < -1 or block[1] < -1 or
+                    block[2] > page.rect.width + 1 or
+                    block[3] > page.rect.height + 1):
+                    raise LayoutError("El PDF A4 contiene texto fuera de la página: revisar maquetación")
+        return output.tobytes(garbage=4, deflate=True)
+    finally:
+        source.close()
+        output.close()
+
+
 def libreoffice_pdf(xlsx: bytes, timeout: int = 50) -> bytes:
     """Conversión aislada con límites de proceso y archivo temporal privado."""
     binary = shutil.which("libreoffice") or shutil.which("soffice")
@@ -689,7 +727,7 @@ def libreoffice_pdf(xlsx: bytes, timeout: int = 50) -> bytes:
                     raise LayoutError("Tamaño de página no permitido")
         except fitz.FileDataError:
             raise LayoutError("El motor de impresión devolvió un PDF inválido") from None
-        return pdf
+        return normalize_pdf_a4(pdf)
 
 
 def append_irl_continuation(pdf: fitz.Document, matrix: list[str], data: dict):
