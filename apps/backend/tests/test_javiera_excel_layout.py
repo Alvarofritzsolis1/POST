@@ -194,6 +194,7 @@ def test_juramento_uses_actual_principal_and_never_worker_case():
 def test_published_excel_requires_original_fields():
     from app.javiera_logic import DOCUMENT_BY_CODE, LAYOUT_REQUIRED, eligibility
     data = valid_data()
+    data["employment_type"] = "dependiente"
     base = DOCUMENT_BY_CODE["labor_contract"][4]
     required = list(dict.fromkeys([*base,*LAYOUT_REQUIRED["labor_contract"]]))
     doc = {d["code"]:d for d in eligibility(data, {"labor_contract":{
