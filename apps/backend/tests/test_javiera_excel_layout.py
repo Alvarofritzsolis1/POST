@@ -279,3 +279,43 @@ def test_irl_pdf_keeps_every_approved_risk_even_past_12_rows(risk_rows):
             assert f"REGISTRO {index}" in text
             assert f"Control obligatorio del riesgo {index}" in text
         assert "VISTA PREVIA" in text
+
+
+
+@pytest.mark.parametrize("code,coordinate", [
+    ("pts", "A54"),
+    ("pts", "A11"),
+    ("irl", "C40"),
+    ("irl", "A18"),
+    ("ppe_delivery", "D12"),
+    ("extension_addendum", "A5"),
+    ("sworn_declaration", "A4"),
+])
+def test_template_edits_cannot_override_verified_business_fields(code, coordinate):
+    from app.javiera_excel import PROTECTED_DOCUMENT_CELLS
+    assert coordinate in PROTECTED_DOCUMENT_CELLS[code]
+    data=valid_data()
+    data["extra"].update({
+        "representative_name":"REPRESENTANTE DE PRUEBA",
+        "representative_rut":"11.111.111-1",
+        "representative_nationality":"CHILENA",
+        "employer_address":"DOMICILIO SINTETICO",
+        "employer_city":"CONCEPCION",
+        "site_address":"OBRA DE PRUEBA",
+        "specialty":"CARPINTERIA",
+        "principal_company":"MANDANTE REAL",
+        "declaration_period":"2026-10",
+    })
+    data["event"]["epp_items"]="Casco de Seguridad"
+    data["contract"].update({
+        "new_end":"2027-01-31",
+        "declaration_reason":"Constancia presentada por representante",
+    })
+    if code=="sworn_declaration":
+        data["worker"]["name"]=""
+    matrix=["Medida aprobada"+str(i) for i in range(17)] if code=="pts" else (
+        ["Tarea: X\nPeligro: Y\nRiesgo: Z\nMedidas: Control"] if code=="irl" else None
+    )
+    with pytest.raises(LayoutError, match="matriz aprobable|celdas"):
+        excel_document(sample_xlsx(), code, data, changes={coordinate:{"text":"DATO FICTICIO"}},
+                       matrix=matrix)
