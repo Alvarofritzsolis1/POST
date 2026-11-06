@@ -541,6 +541,14 @@ export default function JavieraWorkspace({onConfig}:{onConfig?:()=>void}){
             {renderField("role")}
             <datalist id="j65-roles">{roles.roles.map(x=><option key={x} value={x}/>)}</datalist>
             <p className="j65-source-tag">Cargo reconocido: <strong>{canonical(pick(values,"role"),roles.aliases)||"Sin seleccionar"}</strong>. El mismo dato determina la labor y la matriz PTS/IRL.</p>
+            {!noContract&&<label className="j65-field">Vínculo laboral
+              <select value={pick(values,"employment_type")} onChange={e=>setField("employment_type",e.target.value)}>
+                <option value="">Selecciona según el vínculo real</option>
+                <option value="dependiente">Trabajador dependiente (contrato laboral)</option>
+                <option value="independiente">Prestador independiente (sin contrato laboral dependiente)</option>
+              </select>
+              <small>No se inventará un contrato dependiente para una persona independiente.</small>
+            </label>}
             {noContract&&<p className="j65-source-tag">Prevención de Riesgos: no se solicita sueldo, jornada ni vigencia del contrato.</p>}
             {workerExtra.length>0&&<details className="j65-details" open><summary>Antecedentes personales solicitados</summary>
               <div className="j65-paired">{workerExtra.map(renderField)}</div></details>}
