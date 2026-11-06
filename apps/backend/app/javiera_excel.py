@@ -665,17 +665,24 @@ def normalize_pdf_a4(raw: bytes) -> bytes:
     try:
         for index in range(source.page_count):
             page = source[index]
-            rect = page.rect
+            original = page.rect
+            # PyMuPDF no extrae glifos que queden fuera del MediaBox vigente.
+            # Ampliar provisionalmente para detectar el verdadero ancho/alto
+            # del texto (y restaurar luego el tamaño mínimo que lo contiene).
+            page.set_mediabox(fitz.Rect(0, 0, original.width + 250,
+                                       original.height + 200))
             blocks = [b for b in page.get_text("blocks")
                       if len(b) >= 5 and (b[4].strip() if isinstance(b[4], str) else True)]
             xmin = min([0, *[b[0] for b in blocks]])
             ymin = min([0, *[b[1] for b in blocks]])
-            xmax = max([rect.width, *[b[2] for b in blocks]])
-            ymax = max([rect.height, *[b[3] for b in blocks]])
+            xmax = max([original.width, *[b[2] for b in blocks]])
+            ymax = max([original.height, *[b[3] for b in blocks]])
             if xmin < -1 or ymin < -1:
                 raise LayoutError("Texto fuera del margen superior o izquierdo del Excel; revisa la maquetación")
-            if xmax > rect.width + 1 or ymax > rect.height + 1:
+            if xmax > original.width + 1 or ymax > original.height + 1:
                 page.set_mediabox(fitz.Rect(0, 0, xmax + 8, ymax + 8))
+            else:
+                page.set_mediabox(fitz.Rect(0, 0, original.width, original.height))
             target = output.new_page(width=595, height=842)
             target.show_pdf_page(fitz.Rect(12, 12, 583, 830), source, index,
                                  keep_proportion=True, overlay=True)
