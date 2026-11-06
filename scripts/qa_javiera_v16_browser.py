@@ -91,8 +91,11 @@ def main():
             expect(page.get_by_role("button",name=tab,exact=True)).to_be_visible()
         page.get_by_role("button",name="Diseños Excel originales").click()
         expect(page.get_by_role("heading",name="Diseñador de documentos Excel")).to_be_visible()
+        expect(page.get_by_role("button",name="Diseños Excel originales")).to_have_attribute("aria-pressed","true")
         page.get_by_role("button",name="Revisiones y aprobaciones").click()
         expect(page.get_by_role("heading",name="Mesa de revisión laboral y preventiva")).to_be_visible()
+        expect(page.get_by_role("button",name="Revisiones y aprobaciones")).to_have_attribute("aria-pressed","true")
+        expect(page.get_by_role("button",name="Diseños Excel originales")).to_have_attribute("aria-pressed","false")
         report["scenarios"]["admin_configuration_tabs"]="PASS"
         page.screenshot(path=str(args.output/"javiera_configuracion.png"),full_page=True)
         assert not js_errors,js_errors
