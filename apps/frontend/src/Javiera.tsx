@@ -206,6 +206,11 @@ export default function Javiera({configuration=false,onBack,onConfig}:{configura
   const [notice,setNotice]=useState("");
   const [busy,setBusy]=useState(false);
   const [filter,setFilter]=useState("todos");
+  const [savedFingerprint,setSavedFingerprint]=useState("");
+  const [existingDossiers,setExistingDossiers]=useState<{id:string;site_id:string;employer_id:string;worker_id:string|null;relationship:string;revision:number}[]>([]);
+  const [newContractor,setNewContractor]=useState({name:"",rut:""});
+  const [newWorker,setNewWorker]=useState({name:"",rut:""});
+  const [showCreate,setShowCreate]=useState<"contractor"|"worker"|null>(null);
   const revision=useRef(0);
   useEffect(()=>{
     if(configuration)return;
@@ -226,6 +231,7 @@ export default function Javiera({configuration=false,onBack,onConfig}:{configura
     site:{name:site?.name||""},role,event_type:eventType,employment_type:employmentType,contract,event
   }),[employer?.name,employer?.rut,worker?.name,worker?.rut,site?.name,role,eventType,employmentType,contract,event]);
   const fingerprint=JSON.stringify(data);
+  const unsaved=!dossierId||savedFingerprint!==fingerprint;
   useEffect(()=>{
     if(configuration)return;
     const controller=new AbortController();
@@ -233,12 +239,12 @@ export default function Javiera({configuration=false,onBack,onConfig}:{configura
     setResponse(null);
     const timer=window.setTimeout(()=>{
       request<{documents:Status[];data_revision:number}>("/javiera/eligibility/evaluate",{
-        method:"POST",body:JSON.stringify({data,dossier_id:null,data_revision:current}),signal:controller.signal
+        method:"POST",body:JSON.stringify({data,dossier_id:dossierId||null,data_revision:current}),signal:controller.signal
       }).then(result=>{if(current===revision.current)setResponse({key:fingerprint,documents:result.documents});})
         .catch(e=>{if(!controller.signal.aborted)setError(errorMessage(e));});
     },350);
     return ()=>{window.clearTimeout(timer);controller.abort();};
-  },[fingerprint,configuration]);
+  },[fingerprint,configuration,dossierId,saved?.issues.length,saved?.historical.length]);
   const cards:Status[]=response?.key===fingerprint?response.documents:catalog.map(x=>({
     code:x.code,area:x.area,title:x.title,status:"POR_DETERMINAR",reason:"Validando la información…",
     missing_fields:x.required_fields,blocking_errors:[],completion_percent:0,can_preview:false,can_issue:false,
@@ -259,19 +265,19 @@ export default function Javiera({configuration=false,onBack,onConfig}:{configura
           worker_id:workerId||null,parent_id:mode==="subcontractor"?parentId:null,
           relationship:mode,data:{...data,...(dossierId?{_dossier_id:dossierId}:{})},
           expected_revision:dossierId?dossierRevision:null})});
-      setDossierId(result.id);setDossierRevision(result.revision);
+      setDossierId(result.id);setDossierRevision(result.revision);setSavedFingerprint(fingerprint);
       await refreshDossier(result.id);
       setNotice("Ficha guardada. Los PDF se generan de forma individual tras validación.");
     }catch(e){setError(errorMessage(e));}finally{setBusy(false);}
   }
   async function openPreview(code:string){
-    if(!dossierId){setError("Guarda primero la ficha para generar la vista previa.");return;}
+    if(unsaved){setError("Guarda los cambios antes de generar una vista previa.");return;}
     setBusy(true);setError("");
     try{previewBlob(await pdfRequest("/preview",{dossier_id:dossierId,code}));}
     catch(e){setError(errorMessage(e));}finally{setBusy(false);}
   }
   async function issue(code:string){
-    if(!dossierId){setError("Guarda primero la ficha.");return;}
+    if(unsaved){setError("Guarda los cambios antes de emitir el PDF.");return;}
     setBusy(true);setError("");
     try{
       const result=await request<{id:string;reused:boolean}>("/javiera/issue",{
@@ -291,8 +297,8 @@ export default function Javiera({configuration=false,onBack,onConfig}:{configura
       await refreshDossier(dossierId);setNotice("Documento histórico cargado; pendiente de verificación.");
     }catch(e){setError(errorMessage(e));}finally{setBusy(false);}
   }
-  function chooseSite(v:string){setSiteId(v);setCompanyId("");setWorkerId("");setParentId("");setDossierId("");setSaved(null);}
-  function chooseCompany(v:string){setCompanyId(v);setWorkerId("");setDossierId("");setSaved(null);}
+  function chooseSite(v:string){setSiteId(v);setCompanyId("");setWorkerId("");setParentId("");setDossierId("");setSaved(null);setSavedFingerprint("");}
+  function chooseCompany(v:string){setCompanyId(v);setWorkerId("");setDossierId("");setSaved(null);setSavedFingerprint("");}
   if(configuration)return <Setup onBack={onBack||(()=>window.history.back())}/>;
   if(!mode)return <section className="jv-module">
     <div className="jv-hero"><small>AUTOMATIZACIÓN DOCUMENTAL · GALANT 16</small><h2>Proyecto JAVIERA</h2>
@@ -354,10 +360,11 @@ export default function Javiera({configuration=false,onBack,onConfig}:{configura
         </div>
         <div className="jv-actions"><button type="button" className="jv-primary" disabled={busy||!siteId||!companyId}
           onClick={()=>void saveDossier()}>{busy?"Procesando…":dossierId?"Guardar nueva revisión":"Guardar expediente"}</button>
-          {dossierId&&<span>Expediente {dossierId.slice(0,8)} · revisión {dossierRevision}</span>}
+          {dossierId&&<span>Expediente {dossierId.slice(0,8)} · revisión {dossierRevision}{unsaved?" · cambios sin guardar":""}</span>}
         </div>
       </div>
       <aside className="jv-document-panel" aria-label="Documentos que puedes exportar a PDF">
+        {unsaved&&<p className="jv-note" role="status">Guarda los cambios para habilitar la exportación de PDFs.</p>}
         <div className="jv-panel-head"><div><small>GENERACIÓN EN VIVO</small><h3>Documentos que puedes exportar a PDF</h3>
           <p>Actualización automática al completar datos</p></div><strong>{ready} listos</strong></div>
         <div className="jv-filters">{[["todos","Todos"],["listos","Listos"],["pendientes","Pendientes"],["historicos","Existentes"]].map(([v,l])=>
@@ -373,8 +380,8 @@ export default function Javiera({configuration=false,onBack,onConfig}:{configura
             {!!c.missing_fields.length&&<p>Faltan: {c.missing_fields.slice(0,3).join(", ")}{c.missing_fields.length>3?"…":""}</p>}
             {!!c.blocking_errors.length&&<p className="jv-text-danger">{c.blocking_errors.join("; ")}</p>}
             <div className="jv-card-actions">
-              <button disabled={!c.can_preview||!dossierId||busy} onClick={()=>void openPreview(c.code)}>Vista previa</button>
-              <button disabled={!c.can_issue||!dossierId||busy} onClick={()=>void issue(c.code)}><Download size={14}/> PDF</button>
+              <button disabled={!c.can_preview||unsaved||busy} onClick={()=>void openPreview(c.code)}>Vista previa</button>
+              <button disabled={!c.can_issue||unsaved||busy} onClick={()=>void issue(c.code)}><Download size={14}/> PDF</button>
               {dossierId&&<label className="jv-upload"><Upload size={14}/> Anterior<input type="file" accept=".pdf,application/pdf"
                 onChange={e=>{const f=e.target.files?.[0];if(f)void uploadHistorical(c.code,f);e.target.value="";}}/></label>}
               {saved?.issues.filter(x=>x.code===c.code).map(issue=><a key={issue.id} href={"/api/v1/javiera/issued/"+encodeURIComponent(issue.id)+"/pdf"}
