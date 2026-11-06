@@ -514,7 +514,7 @@ def admin_templates(user: User = Depends(administrator), db: Session = Depends(g
             "fields": row.fields if row else required,
             "rule": row.rule if row else {}, "layout": row.layout if row else {},
             "published_version": row.published_version if row else 0,
-            "revisions": [{"revision": v.revision, "state": v.state,
+            "revisions": [{"id": v.id, "revision": v.revision, "state": v.state,
                            "author_id": v.author_id, "reason": v.reason,
                            "contents": v.contents} for v in revisions]})
     return result
