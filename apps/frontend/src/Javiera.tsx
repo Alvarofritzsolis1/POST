@@ -410,7 +410,7 @@ export default function Javiera({configuration=false,onBack,onConfig}:{configura
   const ready=cards.filter(c=>c.can_issue).length;
   const groups=["Zona Subcontratos","Prevención de Riesgos"];
   return <section className="jv-module">
-    <div className="jv-hero"><button className="jv-back" onClick={()=>{setMode(null);setDossierId("");setSaved(null);}}><ArrowLeft size={18}/> Proyecto JAVIERA</button>
+    <div className="jv-hero"><div className="jv-hero-back-row"><button type="button" className="jv-back" onClick={()=>{setMode(null);setDossierId("");setSaved(null);}}><ArrowLeft size={18}/> Proyecto JAVIERA</button></div>
       <small>{mode==="contractor"?"CONTRATISTAS":"SUBCONTRATOS"} · EXPEDIENTE</small>
       <h2>Generación documental interactiva</h2><p>Selecciona registros existentes y completa solo los antecedentes del documento que necesitas.</p></div>
     {error&&<p role="alert" className="jv-error"><AlertCircle size={16}/>{error}</p>}
