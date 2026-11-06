@@ -23,7 +23,7 @@ def main():
     password = os.environ["GALANT_JAVIERA_QA_PASSWORD"]
     args.output.mkdir(parents=True, exist_ok=True)
     js_errors, server_errors = [], []
-    report = {"version":"16.0.1-rc1", "at":datetime.now(timezone.utc).isoformat(),
+    report = {"version":"16.0.2-rc1", "at":datetime.now(timezone.utc).isoformat(),
               "scenarios":{}, "console_errors":[],"server_errors":[]}
     with sync_playwright() as playwright:
         browser = playwright.chromium.launch(headless=True)
