@@ -153,6 +153,12 @@ def resolve_data(db: Session, user: User, record: DossierInput) -> dict:
         parent = by_org(db, Contractor, record.parent_id, user.org_id)
         if parent.id == employer.id:
             raise HTTPException(422, "El contratista principal debe ser diferente")
+        if not db.scalar(select(ContractorWorksite.id).where(
+            ContractorWorksite.org_id == user.org_id,
+            ContractorWorksite.worksite_id == site.id,
+            ContractorWorksite.contractor_id == parent.id
+        )):
+            raise HTTPException(422, "El contratista principal no está vinculado a esta obra")
         if record.relationship != "subcontractor":
             raise HTTPException(422, "Indica el tipo Subcontratos")
     elif record.relationship == "subcontractor":
