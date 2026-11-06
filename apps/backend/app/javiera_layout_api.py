@@ -116,12 +116,21 @@ def make_pdf(db: Session, user: User, item: JavieraExcelLayout,
     raw = private_workbook_path(user, item.workbook_path).read_bytes()
     if hashlib.sha256(raw).hexdigest() != item.workbook_sha256:
         raise HTTPException(409, "El Excel privado cambió; revisión y restauración obligatorias")
-    matrix = matrix_sections(db, user, "PTS", data.get("role", "")) if item.code == "pts" else None
-    if preview and item.code == "pts" and matrix is None:
-        matrix = ["PENDIENTE DE REVISIÓN DE PREVENCIÓN"] * 17
+    matrix = None
+    extra = {}
+    if item.code in {"pts", "irl"}:
+        matrix = matrix_sections(db, user, "PTS" if item.code == "pts" else "IRL",
+                                 data.get("role", ""))
+        if item.code == "irl":
+            extra = {kind:matrix_sections(db,user,kind,data.get("role","")) or []
+                     for kind in ("PERFILES","PUESTOS","SUSTANCIAS")}
+        if preview and matrix is None:
+            matrix = (["PENDIENTE DE REVISIÓN DE PREVENCIÓN"] * 17 if item.code == "pts"
+                      else ["Tarea: PENDIENTE DE MATRIZ\nPeligro: PENDIENTE\nRiesgo: PENDIENTE\nMedidas: PENDIENTE"])
     try:
         output = pdf_from_workbook(raw, item.code, data,
-                                   changes=item.overrides, matrix=matrix, preview=preview)
+                                   changes=item.overrides, matrix=matrix,
+                                   extra_matrices=extra, preview=preview)
     except LayoutError as exc:
         raise HTTPException(409, str(exc)) from None
     if not preview:
