@@ -118,9 +118,9 @@ def ordinary_weekly_hours_limit(effective_date: str | None) -> int:
     Regímenes especiales y excepciones quedan sujetos a revisión laboral.
     """
     try:
-        when = date.fromisoformat(str(effective_date or "2026-11-06")[:10])
+        when = date.fromisoformat(str(effective_date or date.today().isoformat())[:10])
     except (ValueError, TypeError):
-        when = date(2026, 11, 6)
+        when = date.today()
     if when >= date(2028, 4, 26):
         return 40
     if when >= date(2026, 4, 26):
