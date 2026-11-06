@@ -88,6 +88,13 @@ def validate_xlsx(raw: bytes):
                     raise LayoutError("Retira macros, enlaces externos y objetos incrustados")
             if "xl/workbook.xml" not in z.namelist():
                 raise LayoutError("El archivo no contiene un libro Excel válido")
+            # Las relaciones externas también pueden existir dentro de hojas o dibujos.
+            # No permitir que un convertidor de documentos contacte sitios externos.
+            for item in items:
+                if item.filename.lower().endswith(".rels"):
+                    rels = ET.fromstring(z.read(item.filename))
+                    if any(node.get("TargetMode") == "External" for node in rels):
+                        raise LayoutError("Retira hipervínculos, imágenes y recursos externos del XLSX")
             sheet_files(z)
     except (BadZipFile, ET.ParseError, KeyError):
         raise LayoutError("Estructura del Excel inválida") from None
