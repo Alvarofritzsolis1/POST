@@ -161,12 +161,16 @@ function LayoutStudio(){
       </section>
       <aside className="jvx-edit">
         <h3>Editor de celda</h3><p>Selecciona una celda a la izquierda. Puedes cambiar su texto y copiar el estilo de otra celda original.</p>
+        <label>Celda a modificar (puedes escribir una nueva coordenada)
+          <input aria-label="Coordenada de celda" placeholder="Ej. A40" value={cell}
+            onChange={e=>{setCell(e.target.value.toUpperCase());setContent("");}}/>
+        </label>
         {cell?<><strong>Celda {cell}</strong>
           <label>Contenido <textarea rows={10} value={content} onChange={e=>setContent(e.target.value)} /></label>
           <label>Copiar formato desde <input placeholder="Ej. A4" value={styleFrom} onChange={e=>setStyleFrom(e.target.value.toUpperCase())}/></label>
           <label>Alto de fila (10-120 pt) <input type="number" min="10" max="120" value={height} onChange={e=>setHeight(e.target.value)}/></label>
           <label>Motivo del ajuste <textarea rows={3} value={reason} onChange={e=>setReason(e.target.value)}/></label>
-          <button className="jv-primary" disabled={busy||reason.trim().length<10||!current} onClick={()=>void save()}>
+          <button className="jv-primary" disabled={busy||reason.trim().length<10||!current||!/^[A-Z]{1,3}[1-9][0-9]{0,5}$/.test(cell)} onClick={()=>void save()}>
             Guardar nueva revisión</button></>:<p>Selecciona cualquier celda para modificar su contenido.</p>}
         <div className="jvx-legal-note"><ShieldCheck size={18}/><p>Los documentos laborales y preventivos requieren acta de revisión por el responsable designado antes de aprobarse para emisión.</p></div>
       </aside>
