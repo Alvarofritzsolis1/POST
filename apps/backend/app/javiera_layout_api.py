@@ -138,6 +138,17 @@ def make_pdf(db: Session, user: User, item: JavieraExcelLayout,
         if leaks:
             raise HTTPException(409, "El PDF conserva datos del ejemplo de origen en celdas " +
                                 ", ".join(leaks) + "; corrige la plantilla y aprueba otra revisión")
+        with fitz.open(stream=output, filetype="pdf") as document:
+            printed = "\n".join(page.get_text() for page in document).upper()
+        unsafe = (
+            "NO EMITIR", "PENDIENTE DE REVISIÓN", "PENDIENTE DE MATRIZ",
+            "REVISAR CARGO EN MATRIZ", "CARGO SIN PTS", "PLANTILLA INCOMPLETA",
+            "{{", "}}",
+        )
+        active = [token for token in unsafe if token in printed]
+        if active:
+            raise HTTPException(409, "El documento contiene marcadores sin resolver: " +
+                                ", ".join(active) + ". Corrige la plantilla o matriz antes de emitir")
     return output
 
 
