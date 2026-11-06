@@ -18,7 +18,7 @@ from sqlalchemy.orm import Session
 from .config import settings
 from .db import get_db
 from .javiera_excel import (
-    DOC_SHEETS, LayoutError, MAX_FILE, cell_text, layout_summary,
+    DOC_SHEETS, PROTECTED_DOCUMENT_CELLS, LayoutError, MAX_FILE, cell_text, layout_summary,
     pdf_from_workbook, shared_strings, sheet_files, validate_xlsx,
     Q,
 )
@@ -243,6 +243,7 @@ def cells(layout_id: str, start_row: int = 1, max_rows: int = 40,
         return {"id":item.id, "sheet":item.source_sheet, "revision":item.revision,
                 "status":item.state, "start_row":start_row, "max_rows":max_rows,
                 "cells":result[:1600], "merged":merges[:160],
+                "protected_cells": sorted(PROTECTED_DOCUMENT_CELLS.get(item.code, set())),
                 "has_more":any(int(row.get("r",0)) >= start_row+max_rows
                                for row in root.findall(".//" + Q("sheetData") + "/" + Q("row")))}
 
@@ -257,6 +258,9 @@ def revise_layout(layout_id: str, payload: LayoutChange,
     if current.id != obj.id:
         raise HTTPException(409, "Debes editar la revisión más reciente")
     changes = {**obj.overrides}
+    forbidden = PROTECTED_DOCUMENT_CELLS.get(obj.code, set())
+    if any(edit.coordinate in forbidden for edit in payload.edits):
+        raise HTTPException(422, "No puedes modificar cantidades EPP, fechas de prórroga, declaración jurada ni matrices preventivas desde la plantilla. Utiliza los formularios o matrices especializados")
     for edit in payload.edits:
         data = edit.model_dump(exclude_none=True, exclude={"coordinate"})
         changes[edit.coordinate] = {**changes.get(edit.coordinate, {}), **data}
