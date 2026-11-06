@@ -368,9 +368,10 @@ def get_dossier(dossier_id: str, user: User = Depends(administrator), db: Sessio
 def evaluate(payload: Evaluation, user: User = Depends(administrator), db: Session = Depends(get_db)):
     if len(json.dumps(payload.data, ensure_ascii=False)) > 24000:
         raise HTTPException(413, "Ficha demasiado extensa")
-    if payload.dossier_id:
-        dossier(db, user, payload.dossier_id)
-    data = payload.data
+    stored = dossier(db, user, payload.dossier_id) if payload.dossier_id else None
+    # Si el cliente envía datos transitorios, se calculan los cambios en vivo.
+    # Si solo envía el ID, se evalúa la última versión efectivamente guardada.
+    data = payload.data if payload.data else (stored.data if stored else {})
     return {"data_revision": payload.data_revision,
             "documents": evaluated(db, user, data, payload.dossier_id)}
 
