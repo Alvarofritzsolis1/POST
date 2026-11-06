@@ -323,53 +323,150 @@ def update_sheet(z: ZipFile, path: str, changes: dict) -> bytes:
     return ET.tostring(root, encoding="UTF-8", xml_declaration=True)
 
 
-def excel_document(raw: bytes, code: str, data: dict, changes: dict | None = None,
-                   matrix: list[str] | None = None) -> bytes:
-    """Genera XLSX de trabajo en memoria, oculta otras hojas, mantiene objetos/media.
+def dynamic_cached(text: str, field_examples: list[tuple[str, str]], data: dict) -> str:
+    """Sustituye valores del ejemplo original por datos de la ficha sin ejecutar fórmulas."""
+    output = text
+    values = []
+    for source_value, field_key in field_examples:
+        if not source_value or len(source_value) < 5:
+            continue
+        value = get_data(data, field_key)
+        values.append((source_value, value))
+        if field_key == "contract.salary":
+            try:
+                values.append((f"{int(source_value):,}".replace(",", "."), f"{int(value):,}".replace(",", ".")))
+            except (ValueError, TypeError):
+                pass
+    for before, after in sorted(values, key=lambda x: len(x[0]), reverse=True):
+        output = re.sub(re.escape(before), lambda _match: after, output, flags=re.IGNORECASE)
+    output = re.sub(r"\{\{\s*([a-z][a-z0-9_.]{0,80})\s*\}\}",
+                    lambda m: get_data(data, m.group(1)), output)
+    return output
 
-    LO recalcula fórmulas de las hojas originales; se sobreescriben expresamente
-    celdas PTS de la matriz aprobada evitando el XLOOKUP incompatible.
+
+def cached_values(root: ET.Element, strings: list[str]) -> dict[str, str]:
+    return {c.get("r"): cell_text(c, strings) for c in root.iter(Q("c"))}
+
+
+def excel_document(raw: bytes, code: str, data: dict, changes: dict | None = None,
+                   matrix: list[str] | None = None,
+                   extra_matrices: dict[str, list[str]] | None = None) -> bytes:
+    """Libro de UNA SOLA hoja, preservando formato OOXML íntegro y reemplazando identidades.
+
+    Convertir todo el libro exporta incluso hojas ocultas en LibreOffice. Por eso
+    solo se referencia la hoja documental y se materializan sus fórmulas como
+    valores cacheados, sustituidos desde la ficha. Nunca se ejecutan macros.
     """
+    from copy import copy
     validate_xlsx(raw)
     if code not in DOC_SHEETS:
-        raise LayoutError("Tipo de documento no soportado")
+        raise LayoutError("Documento desconocido")
+    extra_matrices = extra_matrices or {}
     with ZipFile(io.BytesIO(raw)) as z:
         files = sheet_files(z)
         selected = DOC_SHEETS[code]
         if selected not in files or "Datos Contrato" not in files:
-            raise LayoutError("Faltan hojas obligatorias de la plantilla")
-        replacements = {}
+            raise LayoutError("Faltan hojas documentales o Datos Contrato")
+        strings = shared_strings(z)
         source = ET.fromstring(z.read(files["Datos Contrato"]))
-        for coord, key in SOURCE_FIELDS.items():
-            typed_input(source, coord, key, data)
-        replacements[files["Datos Contrato"]] = ET.tostring(source, encoding="UTF-8", xml_declaration=True)
+        examples = cached_values(source, strings)
+        field_examples = [(examples.get(coord, ""), key) for coord, key in SOURCE_FIELDS.items()]
         target = ET.fromstring(z.read(files[selected]))
-        if changes:
-            apply_changes(target, changes)
+        target_cells = list(target.iter(Q("c")))
+        for cell in target_cells:
+            coordinate = cell.get("r")
+            cached = cell_text(cell, strings)
+            formula_element = cell.find(Q("f"))
+            formula = (formula_element.text or "").strip() if formula_element is not None else ""
+            # Referencias simples de Datos Contrato se resuelven sin Calc.
+            direct = re.fullmatch(r"\+?'Datos Contrato'!\$?([A-Z]+)\$?(\d+)", formula)
+            if direct:
+                ref = direct.group(1) + direct.group(2)
+                field_key = SOURCE_FIELDS.get(ref)
+                if field_key:
+                    text = get_data(data, field_key)
+                    if ref == "C33" and not text:
+                        text = spanish_amount(get_data(data, "contract.salary"))
+                else:
+                    text = cached
+            else:
+                text = dynamic_cached(cached, field_examples, data)
+            if formula_element is not None or text != cached:
+                set_text(target, coordinate, text if text != "0" or not formula else "")
         if code == "pts":
             if matrix is None or len(matrix) != 17:
-                raise LayoutError("PTS requiere 17 secciones de matriz aprobadas")
-            for cell, body in zip(PTS_CELLS, matrix):
-                set_text(target, cell, str(body))
-        replacements[files[selected]] = ET.tostring(target, encoding="UTF-8", xml_declaration=True)
+                raise LayoutError("La impresión PTS exige 17 secciones de matriz aprobadas")
+            set_text(target, "A11", "PROCEDIMIENTO DE TRABAJO SEGURO DE " + get_data(data, "role").upper())
+            for cell, section in zip(PTS_CELLS, matrix):
+                set_text(target, cell, str(section))
+        if code == "irl":
+            if matrix is None or len(matrix) < 1:
+                raise LayoutError("IRL requiere matriz de riesgos aprobada")
+            rows = (40, 42, 44, 46, 48, 50, 52, 54, 56, 63, 65, 67)
+            for i, row in enumerate(rows):
+                text = matrix[i] if i < len(matrix) else ""
+                # Texto importado de MATRIZ IRL: cuatro columnas Tarea/Peligro/Riesgo/Medidas.
+                cols = ["", "", "", ""]
+                pieces = re.split(r"\n(?=(?:Tarea|Peligro|Riesgo|Medidas):)", str(text))
+                for part in pieces:
+                    for index, label in enumerate(("Tarea:", "Peligro:", "Riesgo:", "Medidas:")):
+                        if part.startswith(label):
+                            cols[index] = part[len(label):].strip()
+                if not any(cols):
+                    cols[0] = str(text)
+                for letter, value in zip("ABCD", cols):
+                    set_text(target, letter + str(row), value)
+            extra = extra_matrices.get("PERFILES", [])
+            set_text(target, "A18", "\n".join(extra[:5]))
+            extra = extra_matrices.get("PUESTOS", [])
+            for cell, value in zip(("A23","A25","A28","A31"), list(extra[:4])+[""]*4):
+                set_text(target, cell, value)
+            extra = extra_matrices.get("SUSTANCIAS", [])
+            for i in range(69, 81):
+                set_text(target, "C"+str(i), extra[i-69] if i-69 < len(extra) else "")
+        if changes:
+            apply_changes(target, changes)  # La edición aprobada gana sobre la base importada.
         book = ET.fromstring(z.read("xl/workbook.xml"))
-        for sheet in book.findall(".//" + Q("sheet")):
-            sheet.attrib["state"] = "visible" if sheet.get("name") == selected else "hidden"
+        sheets = book.find(Q("sheets"))
+        if sheets is None:
+            raise LayoutError("Libro Excel sin hojas")
+        target_sheet = next((x for x in sheets if x.get("name") == selected), None)
+        if target_sheet is None:
+            raise LayoutError("Hoja de salida no encontrada")
+        for node in list(sheets):
+            if node is not target_sheet:
+                sheets.remove(node)
+        target_sheet.attrib.pop("state", None)
         view = book.find(".//" + Q("workbookView"))
         if view is not None:
-            ix = list(files).index(selected)
-            view.set("activeTab", str(ix))
-            view.set("firstSheet", str(ix))
+            view.set("activeTab", "0")
+            view.set("firstSheet", "0")
+        original_index = list(files).index(selected)
+        names = book.find(Q("definedNames"))
+        if names is not None:
+            for item in list(names):
+                if (item.get("name") in ("_xlnm.Print_Area","_xlnm.Print_Titles") and
+                        item.get("localSheetId") == str(original_index)):
+                    item.set("localSheetId", "0")
+                else:
+                    names.remove(item)
         calc = book.find(Q("calcPr"))
         if calc is not None:
-            calc.set("fullCalcOnLoad", "1")
-            calc.set("forceFullCalc", "1")
-        replacements["xl/workbook.xml"] = ET.tostring(book, encoding="UTF-8", xml_declaration=True)
+            calc.set("fullCalcOnLoad", "0")
+            calc.set("forceFullCalc", "0")
+        replacement = {
+            files[selected]: ET.tostring(target, encoding="UTF-8", xml_declaration=True),
+            "xl/workbook.xml": ET.tostring(book, encoding="UTF-8", xml_declaration=True),
+        }
         buffer = io.BytesIO()
         with ZipFile(buffer, "w", compression=ZIP_DEFLATED, compresslevel=5) as out:
             for info in z.infolist():
-                out.writestr(info, replacements.get(info.filename, z.read(info.filename)))
+                if info.filename in replacement:
+                    out.writestr(copy(info), replacement[info.filename])
+                else:
+                    out.writestr(copy(info), z.read(info.filename))
         return buffer.getvalue()
+
 
 
 def libreoffice_pdf(xlsx: bytes, timeout: int = 50) -> bytes:
@@ -413,8 +510,9 @@ def libreoffice_pdf(xlsx: bytes, timeout: int = 50) -> bytes:
 
 def pdf_from_workbook(raw: bytes, code: str, data: dict, *,
                       changes: dict | None = None, matrix: list[str] | None = None,
+                      extra_matrices: dict[str, list[str]] | None = None,
                       preview: bool = False) -> bytes:
-    converted = libreoffice_pdf(excel_document(raw, code, data, changes, matrix))
+    converted = libreoffice_pdf(excel_document(raw, code, data, changes, matrix, extra_matrices))
     with fitz.open(stream=converted, filetype="pdf") as pdf:
         expected_worker = get_data(data, "worker.name").strip()
         if expected_worker and code in {"labor_contract", "transfer_addendum", "pts_receipt",
