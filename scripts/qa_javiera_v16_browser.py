@@ -69,6 +69,7 @@ def main():
         assert page.get_by_label("Sueldo base ($ CLP)").count()==0
         assert page.get_by_label("Jornada semanal (horas)").count()==0
         assert page.get_by_label("Fecha de término del contrato").count()==0
+        assert page.get_by_label("Vínculo laboral").count()==0
         expect(page.get_by_role("button",name="Imprimir PDF")).to_be_disabled()
         report["scenarios"]["preventive_without_contract_fields"]="PASS"
         page.screenshot(path=str(args.output/"javiera_prevencion.png"),full_page=True)
@@ -89,6 +90,7 @@ def main():
         page.get_by_role("button",name="Contrato de trabajo").click()
         expect(page.get_by_label("Sueldo base ($ CLP)")).to_be_visible()
         expect(page.get_by_label("Jornada semanal (horas)")).to_be_visible()
+        expect(page.get_by_label("Vínculo laboral")).to_be_visible()
         expect(page.get_by_label("AFP del trabajador")).to_be_visible()
         expect(page.get_by_label("Previsión de salud (Fonasa / Isapre)")).to_be_visible()
         assert page.get_by_label("representative name").count()==0
