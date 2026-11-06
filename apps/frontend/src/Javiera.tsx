@@ -3,6 +3,7 @@ import {ArrowLeft, CheckCircle2, ClipboardList, Download, FileText, FolderOpen, 
 import {request} from "./api";
 import {opsApi} from "./opsApi";
 import "./javiera.css";
+import JavieraExcelAdmin from "./JavieraExcelAdmin";
 
 type Source = {sites: {id:string;name:string}[];contractors:{id:string;site_id:string;name:string;rut:string|null;nature:string}[];workers:{id:string;name:string;rut:string|null;active:boolean}[]};
 type Catalog = {code:string;area:string;title:string;required_fields:string[];published_version:number};
@@ -46,7 +47,7 @@ function Setup({onBack}:{onBack:()=>void}){
   const [draft,setDraft]=useState<Template|null>(null);
   const [reason,setReason]=useState("");
   const [newField,setNewField]=useState("");
-  const [tab,setTab]=useState<"documentos"|"matrices">("documentos");
+  const [tab,setTab]=useState<"documentos"|"matrices"|"excel"|"reviews">("documentos");
   const [matrices,setMatrices]=useState<Matrix[]>([]);
   const [matrixKind,setMatrixKind]=useState<"PTS"|"IRL">("PTS");
   const [cargo,setCargo]=useState("");
@@ -110,7 +111,9 @@ function Setup({onBack}:{onBack:()=>void}){
         <p>Todo el contenido documental es editable; la aprobación y la auditoría no pueden desactivarse.</p></div>
       <span className="jv-mark">Proyecto JAVIERA · v16</span></header>
     <div className="jv-tabs"><button className={tab==="documentos"?"active":""} onClick={()=>setTab("documentos")}>Plantillas y cláusulas</button>
-      <button className={tab==="matrices"?"active":""} onClick={()=>setTab("matrices")}>Matrices PTS / IRL</button></div>
+      <button className={tab==="matrices"?"active":""} onClick={()=>setTab("matrices")}>Matrices PTS / IRL</button>
+      <button className={tab==="excel"?"active":""} onClick={()=>setTab("excel")}>Diseños Excel originales</button>
+      <button className={tab==="reviews"?"active":""} onClick={()=>setTab("reviews")}>Revisiones y aprobaciones</button></div>
     {error&&<p role="alert" className="jv-error">{error}</p>}{notice&&<p role="status" className="jv-success">{notice}</p>}
     {tab==="documentos"&&<div className="jv-admin-layout">
       <nav className="jv-template-list" aria-label="Plantillas documentales">{templates.map(t=>
@@ -168,6 +171,7 @@ function Setup({onBack}:{onBack:()=>void}){
         {!templates.find(t=>t.code===selected)?.revisions.length&&<p>Sin revisiones registradas.</p>}
       </aside>
     </div>}
+    {(tab==="excel"||tab==="reviews")&&<JavieraExcelAdmin tab={tab}/>}
     {tab==="matrices"&&<section className="jv-import">
       <h2>Importar matrices del Excel JAVIERA</h2>
       <p>Selecciona el Excel corregido desde tu computador. Se procesan las matrices y no se suben datos laborales al repositorio GitHub.</p>
