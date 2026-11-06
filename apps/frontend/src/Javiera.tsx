@@ -110,10 +110,10 @@ function Setup({onBack}:{onBack:()=>void}){
       <div><small>GALANT · CONTROL DE VERSIONES</small><h1>Configuración de automatización</h1>
         <p>Todo el contenido documental es editable; la aprobación y la auditoría no pueden desactivarse.</p></div>
       <span className="jv-mark">Proyecto JAVIERA · v16</span></header>
-    <div className="jv-tabs"><button className={tab==="documentos"?"active":""} onClick={()=>setTab("documentos")}>Plantillas y cláusulas</button>
-      <button className={tab==="matrices"?"active":""} onClick={()=>setTab("matrices")}>Matrices PTS / IRL</button>
-      <button className={tab==="excel"?"active":""} onClick={()=>setTab("excel")}>Diseños Excel originales</button>
-      <button className={tab==="reviews"?"active":""} onClick={()=>setTab("reviews")}>Revisiones y aprobaciones</button></div>
+    <div className="jv-tabs"><button className={tab==="documentos"?"active":""} aria-pressed={tab==="documentos"} onClick={()=>setTab("documentos")}>Plantillas y cláusulas</button>
+      <button className={tab==="matrices"?"active":""} aria-pressed={tab==="matrices"} onClick={()=>setTab("matrices")}>Matrices PTS / IRL</button>
+      <button className={tab==="excel"?"active":""} aria-pressed={tab==="excel"} onClick={()=>setTab("excel")}>Diseños Excel originales</button>
+      <button className={tab==="reviews"?"active":""} aria-pressed={tab==="reviews"} onClick={()=>setTab("reviews")}>Revisiones y aprobaciones</button></div>
     {error&&<p role="alert" className="jv-error">{error}</p>}{notice&&<p role="status" className="jv-success">{notice}</p>}
     {tab==="documentos"&&<div className="jv-admin-layout">
       <nav className="jv-template-list" aria-label="Plantillas documentales">{templates.map(t=>
