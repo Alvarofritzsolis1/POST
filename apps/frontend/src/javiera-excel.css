@@ -56,3 +56,9 @@
 .jvx-signoff p{margin:7px 0}
 @media(max-width:1150px){.jvx-layout{grid-template-columns:minmax(180px,220px) minmax(0,1fr)}.jvx-edit{grid-column:2}}
 @media(max-width:740px){.jvx-layout,.jvx-review-grid{grid-template-columns:1fr}.jvx-edit{grid-column:auto}.jvx-intro{align-items:flex-start;flex-direction:column}.jvx-bar{align-items:flex-start;flex-direction:column}}
+
+/* Campos calculados y matrices protegidas contra cambios accidentales */
+.jvx-cell.protected{border-left:3px solid #b17e35;background:#fffaf1}
+.jvx-cell.protected small{color:#865914;font-weight:700}
+.jvx-locked{border:1px solid #ead7ad;background:#fff8e9;color:#6d501f!important;padding:11px;border-radius:9px;line-height:1.45}
+.jvx-edit textarea:disabled{background:#f5f6f8;color:#718096;cursor:not-allowed}
