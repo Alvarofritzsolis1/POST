@@ -559,6 +559,13 @@ def excel_document(raw: bytes, code: str, data: dict, changes: dict | None = Non
                     content["text"] = dynamic_cached(content["text"], field_examples, data)
                 replacements_for_fields[coordinate] = content
             apply_changes(target, replacements_for_fields)
+        # Los valores fácticos de entregas y vigencia no se pueden alterar
+        # desde texto de plantilla; proceden exclusivamente del expediente.
+        if code == "ppe_delivery":
+            for index, amount in enumerate(quantities, start=12):
+                set_text(target, "D"+str(index), str(amount) if amount else "")
+        if code == "extension_addendum":
+            set_numeric(target, "M4", float((new_end-date(1899,12,30)).days))
         book = ET.fromstring(z.read("xl/workbook.xml"))
         sheets = book.find(Q("sheets"))
         if sheets is None:
