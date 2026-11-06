@@ -60,10 +60,24 @@ def main():
         choices.first.click()
         expect(page.get_by_role("heading",name="Generación documental interactiva")).to_be_visible()
         def verify_expediente_header():
-            back=page.locator(".jv-hero .jv-back").bounding_box()
-            context=page.locator(".jv-hero>small").bounding_box()
-            assert back and context
-            assert context["y"] >= back["y"] + back["height"] - 2, (back, context)
+            """El rótulo debe estar en otra fila, incluso durante la carga del CSS diferido."""
+            layout=page.evaluate("""() => {
+                const hero=document.querySelector(".jv-module .jv-hero");
+                const back=hero?.querySelector(".jv-hero-back-row .jv-back");
+                const context=hero?.querySelector(":scope > small");
+                if(!hero || !back || !context)return null;
+                const b=back.getBoundingClientRect();
+                const c=context.getBoundingClientRect();
+                return {
+                    display:getComputedStyle(hero).display,
+                    back:{x:b.x,y:b.y,width:b.width,height:b.height,bottom:b.bottom},
+                    context:{x:c.x,y:c.y,width:c.width,height:c.height},
+                    viewport:innerWidth
+                };
+            }""")
+            assert layout, "Encabezado del expediente no encontrado"
+            assert layout["display"]=="grid", layout
+            assert layout["context"]["y"] >= layout["back"]["bottom"]-1, layout
         verify_expediente_header()
         report["scenarios"]["hero_text_not_overlapping"]="PASS"
         expect(page.locator(".jv-doc-card")).to_have_count(10)
