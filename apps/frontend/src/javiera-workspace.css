@@ -37,6 +37,7 @@
 .j65-layout{display:grid;grid-template-columns:minmax(260px,.34fr) minmax(0,1fr);gap:18px;align-items:start}
 .j65-documents,.j65-editor{border:1px solid var(--jx-border);border-radius:14px;background:#fff;
   box-shadow:0 3px 16px #192d450c;min-width:0;overflow:hidden}
+.j65-editor{margin:0;padding:0;min-inline-size:0}
 .j65-documents{position:sticky;top:15px;display:flex;flex-direction:column;padding:11px;gap:5px}
 .j65-sidebar-head{padding:14px 12px 15px;display:flex;flex-direction:column;gap:6px}
 .j65-sidebar-head strong{font-size:.94rem}

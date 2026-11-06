@@ -7,8 +7,8 @@ import "./javiera-workspace.css";
 
 type Relation="contractor"|"subcontractor";
 type Group="Zona Subcontratos"|"Prevención de Riesgos";
-type Source={sites:{id:string;name:string}[];contractors:{id:string;site_id:string;name:string;rut:string|null;nature:string}[];
-  workers:{id:string;name:string;rut:string|null;active:boolean}[]};
+type Source={sites:{id:string;name:string}[];contractors:{id:string;association_id?:string;site_id:string;name:string;rut:string|null;nature:string}[];
+  workers:{id:string;association_id?:string;name:string;rut:string|null;active:boolean}[]};
 type Catalog={code:string;area:string;title:string;required_fields:string[];published_version:number};
 type RoleResult={roles:string[];aliases:Record<string,string>;matrix_roles:string[]};
 type State={code:string;title:string;status:string;reason:string;missing_fields:string[];blocking_errors:string[];
@@ -132,7 +132,8 @@ const isWorkerField=(key:string)=>key.startsWith("extra.worker")||key==="extra.a
 const workerDependent=(key:string)=>isWorkerField(key)||key==="worker.name"||key==="worker.rut"||
   key.startsWith("contract.")||key.startsWith("event.")||key==="role"||
   key==="employment_type"||key==="extra.salary_words";
-const errText=(e:unknown)=>e instanceof Error?e.message:String(e);
+const readableError=(message:string)=>Object.keys(F).reduce((text,key)=>text.replaceAll(key,label(key)),message);
+const errText=(e:unknown)=>readableError(e instanceof Error?e.message:String(e));
 const money=(s:string)=>s?new Intl.NumberFormat("es-CL",{maximumFractionDigits:0}).format(Number(s)||0):"";
 async function pdfPreview(dossierId:string,code:string){
   const token=document.cookie.split("; ").find(x=>x.startsWith("galant_post_csrf="))?.split("=")[1]||"";
@@ -143,10 +144,13 @@ async function pdfPreview(dossierId:string,code:string){
     throw new Error(typeof x.detail==="string"?x.detail:"La plantilla no está preparada para vista previa");}
   return response.blob();
 }
-function pdfTab(blob:Blob){
-  const link=URL.createObjectURL(blob);
-  window.open(link,"_blank","noopener,noreferrer");
-  window.setTimeout(()=>URL.revokeObjectURL(link),120000);
+function reservePdfTab(){
+  try{
+    const tab=window.open("about:blank","_blank");
+    if(tab){tab.opener=null;tab.document.title="Preparando PDF · JAVIERA";
+      tab.document.body.textContent="Preparando el documento…";}
+    return tab;
+  }catch{return null;}
 }
 function buildData(v:Record<string,string>,code:string,siteName:string,aliases:Record<string,string>,workerless:boolean){
   const extra:Record<string,string>={};
@@ -195,14 +199,27 @@ export default function JavieraWorkspace({onConfig}:{onConfig?:()=>void}){
   const [saved,setSaved]=useState<Dossier|null>(null);
   const [storedSignature,setStoredSignature]=useState("");
   const [status,setStatus]=useState<{signature:string;items:State[]}|null>(null);
+  const [reissueReason,setReissueReason]=useState("");
+  const [readyPdf,setReadyPdf]=useState<{url:string;label:string}|null>(null);
   const [lastDossiers,setLastDossiers]=useState<OldDossier[]>([]);
   const requestRevision=useRef(0);
   const contextRevision=useRef(0);
   const workerContextRevision=useRef(0);
+  const operation=useRef(false);
+
+  const invalidatePrefills=useCallback(()=>{contextRevision.current+=1;workerContextRevision.current+=1;},[]);
+  function beginOperation(){
+    if(operation.current)return false;
+    operation.current=true;setBusy(true);invalidatePrefills();setError("");setReadyPdf(null);
+    return true;
+  }
+  function finishOperation(){operation.current=false;setBusy(false);}
 
   const setField=(key:string,value:string)=>{setValues(prev=>({...prev,[key]:value}));
     setOrigins(prev=>({...prev,[key]:"Ingresado manualmente"}));};
   const currentSite=source.sites.find(s=>s.id===siteId);
+  const selectedCompany=source.contractors.find(c=>c.id===companyId&&c.site_id===siteId);
+  const selectedWorker=source.workers.find(w=>w.id===workerId);
   const groupDocs=catalog.filter(c=>origin(c.code)===area).sort((a,b)=>ORDER.indexOf(a.code)-ORDER.indexOf(b.code));
   const workerless=relationshipOnly(selectedDoc);
   const currentData=useMemo(()=>buildData(values,selectedDoc,currentSite?.name||"",roles.aliases,workerless),
@@ -220,7 +237,9 @@ export default function JavieraWorkspace({onConfig}:{onConfig?:()=>void}){
     return [...new Set(selected)].filter(k=>!["employer.name","employer.rut","worker.name",
       "worker.rut","site.name","role","extra.specialty","contract.regulation_version"].includes(k));
   },[selectedDoc,currentCatalog?.required_fields]);
-  const docs=status?.signature===JSON.stringify(currentData)?status.items:[];
+  const evaluationSignature=JSON.stringify({data:currentData,dossier:saved?{
+    id:saved.id,revision:saved.revision,issues:saved.issues,historical:saved.historical}:null});
+  const docs=status?.signature===evaluationSignature?status.items:[];
   const chosenStatus=docs.find(c=>c.code===selectedDoc);
   // Una sola pasada sobre los campos locales actualiza las diez tarjetas sin
   // consultas duplicadas. Para emitir siempre se usa la elegibilidad del servidor.
@@ -239,6 +258,11 @@ export default function JavieraWorkspace({onConfig}:{onConfig?:()=>void}){
   const missing=chosenStatus?.missing_fields||[];
   const errors=chosenStatus?.blocking_errors||[];
   const complete=chosenStatus?.completion_percent||0;
+  const needsReissue=chosenStatus?.status==="EXISTENTE_POR_VERIFICAR"||!!(changed&&
+    saved?.issues.some(item=>item.code===selectedDoc));
+  const canIssue=!!chosenStatus&&(chosenStatus.can_issue||chosenStatus.status==="EMITIDO"||
+    chosenStatus.status==="EXISTENTE_POR_VERIFICAR")&&
+    !missing.length&&!errors.length&&(!needsReissue||reissueReason.trim().length>=20);
 
   useEffect(()=>{
     void Promise.all([
@@ -268,15 +292,15 @@ export default function JavieraWorkspace({onConfig}:{onConfig?:()=>void}){
           data:currentData,dossier_id:saved?.id||null,data_revision:stamp,
         }),
       }).then(r=>{if(stamp===requestRevision.current)setStatus({
-        signature:JSON.stringify(currentData),items:r.documents,
+        signature:evaluationSignature,items:r.documents,
       });}).catch(e=>{if(!controller.signal.aborted)setError(errText(e));});
     },240);
     return()=>{controller.abort();window.clearTimeout(pending);};
-  },[relation,selectedDoc,currentData,saved?.id,saved?.revision]);
+  },[relation,selectedDoc,evaluationSignature]);
 
   async function prefillCompany(id:string,site:string){
     if(!id||!site)return;
-    const currentContext=++contextRevision.current;
+    const currentContext=contextRevision.current;
     try{
       const all=await request<OldDossier[]>("/javiera/dossiers?site_id="+encodeURIComponent(site)+
         "&employer_id="+encodeURIComponent(id));
@@ -291,24 +315,27 @@ export default function JavieraWorkspace({onConfig}:{onConfig?:()=>void}){
       setValues(previous=>({...supplement,...Object.fromEntries(Object.entries(previous).filter(([,v])=>v))}));
       setOrigins(previous=>({...previous,...Object.fromEntries(Object.keys(supplement).map(k=>[k,"Recuperado de una ficha anterior en esta obra"]))}));
       if(Object.keys(supplement).length)setNotice("Datos de la empresa recuperados de su última ficha. Revisa que sigan vigentes.");
-    }catch(e){setError(errText(e));}
+    }catch(e){if(currentContext===contextRevision.current)setError(errText(e));}
   }
   function chooseSite(next:string){
-    contextRevision.current+=1;
+    invalidatePrefills();
     setSiteId(next);setCompanyId("");setWorkerId("");setParentId("");setSaved(null);setStoredSignature("");
-    setValues({});setOrigins({});setLastDossiers([]);setNotice("");
+    setValues({});setOrigins({});setLastDossiers([]);setNotice("");setReadyPdf(null);setReissueReason("");
   }
   function chooseCompany(next:string){
-    contextRevision.current+=1;
+    invalidatePrefills();
     setCompanyId(next);setWorkerId("");setSaved(null);setStoredSignature("");
+    setWorkerKind("new");setLastDossiers([]);setNotice("");setReadyPdf(null);setReissueReason("");
+    setParentId(previous=>previous===next?"":previous);
     const sourceCompany=source.contractors.find(c=>c.id===next);
     setValues({"employer.name":sourceCompany?.name||"","employer.rut":sourceCompany?.rut||""});
     setOrigins({"employer.name":"GALANT","employer.rut":"GALANT"});
     void prefillCompany(next,siteId);
   }
   function chooseWorker(next:string){
-    workerContextRevision.current+=1;
+    invalidatePrefills();
     setWorkerId(next);setSaved(null);setStoredSignature("");
+    setReadyPdf(null);setReissueReason("");setNotice("");
     const w=source.workers.find(x=>x.id===next);
     setValues(prev=>({...Object.fromEntries(Object.entries(prev).filter(([key])=>!workerDependent(key))),
       "worker.name":w?.name||"","worker.rut":w?.rut||""}));
@@ -322,6 +349,7 @@ export default function JavieraWorkspace({onConfig}:{onConfig?:()=>void}){
       const list=lastDossiers.length?lastDossiers:
         await request<OldDossier[]>("/javiera/dossiers?site_id="+encodeURIComponent(siteId)+
         "&employer_id="+encodeURIComponent(companyId));
+      if(cycle!==workerContextRevision.current)return;
       const match=list.find(x=>x.worker_id===id);
       if(!match)return;
       const row=await request<Dossier>("/javiera/dossiers/"+encodeURIComponent(match.id));
@@ -330,10 +358,10 @@ export default function JavieraWorkspace({onConfig}:{onConfig?:()=>void}){
       for(const k of WORKER_KEYS)if(fields[k])person[k]=fields[k];
       setValues(v=>({...v,...Object.fromEntries(Object.entries(person).filter(([key])=>!v[key]))}));
       setOrigins(v=>({...v,...Object.fromEntries(Object.keys(person).map(k=>[k,"Ficha de este trabajador en la misma obra"]))}));
-    }catch(e){setError(errText(e));}
+    }catch(e){if(cycle===workerContextRevision.current)setError(errText(e));}
   }
   async function loadDossier(id:string){
-    setBusy(true);setError("");
+    if(!beginOperation())return;
     try{
       const doc=await request<Dossier>("/javiera/dossiers/"+encodeURIComponent(id));
       const all=flattenData(doc.data);
@@ -345,27 +373,30 @@ export default function JavieraWorkspace({onConfig}:{onConfig?:()=>void}){
       setValues(all);setOrigins(Object.fromEntries(Object.keys(all).map(key=>[key,"Ficha guardada de GALANT"])));
       const effective=Object.keys(EVENT).find(code=>EVENT[code]===String(doc.data.event_type||"ingreso")&&
         code!=="labor_contract"&&code!=="pts"&&code!=="irl")||"";
-      const documentCode=selectedDoc||effective||(doc.data.employment_type==="dependiente"?"labor_contract":"pts");
+      const documentCode=selectedDoc&&relationshipOnly(selectedDoc)===!doc.worker_id?selectedDoc:
+        !doc.worker_id?"sworn_declaration":effective||(doc.data.employment_type==="dependiente"?"labor_contract":"pts");
       setSelectedDoc(documentCode);setArea(origin(documentCode));
       setSaved(doc);
       const built=buildData(all,documentCode,source.sites.find(s=>s.id===doc.site_id)?.name||"",
         roles.aliases,relationshipOnly(documentCode));
       setStoredSignature(JSON.stringify({siteId:doc.site_id,relation:doc.relationship,parentId:doc.parent_id||"",
         company:doc.employer_id,worker:relationshipOnly(documentCode)?"none":doc.worker_id||"new",
-        selectedDoc:documentCode,data:built}));
+        selectedDoc:documentCode,data:{...built,event_type:String(doc.data.event_type||"ingreso")}}));
+      setReissueReason("");
       setNotice("Expediente recuperado. Puedes continuar con sus datos y generar otros documentos.");
-    }catch(e){setError(errText(e));}finally{setBusy(false);}
+    }catch(e){setError(errText(e));}finally{finishOperation();}
   }
 
-  async function saveDossier():Promise<string>{
-    if(!relation||!siteId||!selectedDoc)throw new Error("Selecciona la obra, el tipo de expediente y el documento.");
-    if(!pick(values,"employer.name").trim())throw new Error("Escribe o selecciona el empleador.");
-    if(companyKind==="existing"&&!companyId)throw new Error("Selecciona una empresa existente antes de guardar.");
-    if(relation==="subcontractor"&&!parentId)throw new Error("Selecciona la empresa contratista principal.");
-    if(!workerless&&workerKind==="existing"&&!workerId)throw new Error("Selecciona un trabajador registrado.");
-    if(!workerless&&!pick(values,"worker.name").trim())throw new Error("Indica el nombre del trabajador.");
-    if(busy)throw new Error("Ya existe una operación en curso.");
-    setBusy(true);setError("");setNotice("");
+  async function saveDossier(withinOperation=false):Promise<string>{
+    const reject=(message:string):never=>{setError(message);throw new Error(message);};
+    if(!relation||!siteId||!selectedDoc)reject("Selecciona la obra, el tipo de expediente y el documento.");
+    if(!pick(values,"employer.name").trim())reject("Escribe o selecciona el empleador.");
+    if(companyKind==="existing"&&!companyId)reject("Selecciona una empresa existente antes de guardar.");
+    if(relation==="subcontractor"&&!parentId)reject("Selecciona la empresa contratista principal.");
+    if(!workerless&&workerKind==="existing"&&!workerId)reject("Selecciona un trabajador registrado.");
+    if(!workerless&&!pick(values,"worker.name").trim())reject("Indica el nombre del trabajador.");
+    if(!withinOperation&&!beginOperation())throw new Error("Ya existe una operación en curso.");
+    setError("");setNotice("");
     let employer=companyId,worker=workerId;
     try{
       if(companyKind==="new"){
@@ -373,11 +404,35 @@ export default function JavieraWorkspace({onConfig}:{onConfig?:()=>void}){
           name:pick(values,"employer.name").trim(),rut:pick(values,"employer.rut").trim()||null,
           historical_code:"",nature:"unclassified",frequency:"unclassified",contract_status:"active"});
         employer=created.contractor_id;setCompanyId(employer);setCompanyKind("existing");
+      }else if(pick(values,"employer.rut").trim()){
+        let company=selectedCompany;
+        if(!company?.association_id){
+          const fresh=await request<Source>("/javiera/sources?site_id="+encodeURIComponent(siteId)+
+            "&contractor_id="+encodeURIComponent(employer));
+          company=fresh.contractors.find(c=>c.id===employer&&c.site_id===siteId);
+        }
+        if(!company)throw new Error("Recarga la empresa antes de completar su RUT en GALANT.");
+        if(!company.rut){
+          if(!company.association_id)throw new Error("Recarga la empresa para completar su RUT en GALANT.");
+          await opsApi.updateContractor(company.association_id,{rut:pick(values,"employer.rut").trim()});
+        }
       }
       if(!workerless&&workerKind==="new"){
         const created=await opsApi.createWorker({site_id:siteId,contractor_id:employer,
           name:pick(values,"worker.name").trim(),rut:pick(values,"worker.rut").trim()||null});
         worker=created.worker_id;setWorkerId(worker);setWorkerKind("existing");
+      }else if(!workerless&&pick(values,"worker.rut").trim()){
+        let person=selectedWorker;
+        if(!person?.association_id){
+          const fresh=await request<Source>("/javiera/sources?site_id="+encodeURIComponent(siteId)+
+            "&contractor_id="+encodeURIComponent(employer));
+          person=fresh.workers.find(w=>w.id===worker);
+        }
+        if(!person)throw new Error("Recarga el trabajador antes de completar su RUT en GALANT.");
+        if(!person.rut){
+          if(!person.association_id)throw new Error("Recarga el trabajador para completar su RUT en GALANT.");
+          await opsApi.updateWorker(person.association_id,{rut:pick(values,"worker.rut").trim()});
+        }
       }
       const savedData=buildData(values,selectedDoc,currentSite?.name||"",roles.aliases,workerless);
       const result=await request<{id:string;revision:number}>("/javiera/dossiers",{
@@ -388,47 +443,58 @@ export default function JavieraWorkspace({onConfig}:{onConfig?:()=>void}){
       });
       const loaded=await request<Dossier>("/javiera/dossiers/"+encodeURIComponent(result.id));
       setSaved(loaded);
+      setLastDossiers(previous=>[{id:loaded.id,site_id:loaded.site_id,employer_id:loaded.employer_id,
+        worker_id:loaded.worker_id,relationship:loaded.relationship,revision:loaded.revision},
+        ...previous.filter(item=>item.id!==loaded.id)]);
       setStoredSignature(JSON.stringify({siteId,relation,parentId,
         company:employer,worker:workerless?"none":worker||"new",selectedDoc,data:savedData}));
       const fresh=await request<Source>("/javiera/sources?site_id="+encodeURIComponent(siteId)+
         "&contractor_id="+encodeURIComponent(employer));
       setSource(fresh);setNotice("Ficha guardada. Puedes preparar el PDF seleccionado.");
       return result.id;
-    }catch(e){setError(errText(e));throw e;}finally{setBusy(false);}
+    }catch(e){setError(errText(e));throw e;}finally{if(!withinOperation)finishOperation();}
   }
   async function openPreview(){
-    if(!selectedDoc)return;
+    if(!selectedDoc||!beginOperation())return;
+    const tab=reservePdfTab();
     try{
-      const id=!changed&&saved?.id?saved.id:await saveDossier();
+      const id=!changed&&saved?.id?saved.id:await saveDossier(true);
+      let blob:Blob;
       if(chosenStatus?.can_preview){
-        pdfTab(await pdfPreview(id,selectedDoc));
+        blob=await pdfPreview(id,selectedDoc);
       }else if(draftLayout){
         const response=await fetch("/api/v1/javiera/admin/excel/layouts/"+
           encodeURIComponent(draftLayout.id)+"/preview?dossier_id="+encodeURIComponent(id),
           {credentials:"include",cache:"no-store"});
         if(!response.ok)throw new Error("El modelo Excel todavía tiene errores que impiden mostrarlo.");
-        pdfTab(await response.blob());
+        blob=await response.blob();
         setNotice("Vista previa BORRADOR: no es un documento aprobado ni apto para entregar.");
       }else{
         throw new Error("No hay plantilla importada o publicada. Abre Configuración de automatización.");
       }
-    }catch(e){setError(errText(e));}
+      const url=URL.createObjectURL(blob);
+      setReadyPdf({url,label:"Abrir vista previa del PDF"});
+      if(tab)tab.location.replace(url);
+      window.setTimeout(()=>URL.revokeObjectURL(url),120000);
+    }catch(e){tab?.close();setError(errText(e));}finally{finishOperation();}
   }
   async function issuePdf(action:"print"|"download"){
     if(!selectedDoc)return;
-    if(chosenStatus?.status!=="LISTO_PARA_EMITIR"&&chosenStatus?.status!=="EMITIDO"){
+    if(!canIssue){
       setError("El documento aún no puede emitirse. Revisa los campos y la aprobación de su plantilla.");return;
     }
-    let tab:Window|null=null;
-    if(action==="print")tab=window.open("about:blank","_blank");
+    if(!beginOperation())return;
+    const tab=action==="print"?reservePdfTab():null;
     try{
-      const id=!changed&&saved?.id?saved.id:await saveDossier();
+      const id=!changed&&saved?.id?saved.id:await saveDossier(true);
       const result=await request<{id:string;reused:boolean}>("/javiera/issue",{
-        method:"POST",body:JSON.stringify({dossier_id:id,code:selectedDoc}),
+        method:"POST",body:JSON.stringify({dossier_id:id,code:selectedDoc,
+          ...(needsReissue?{reissue_reason:reissueReason.trim()}:{})}),
       });
       const endpoint="/api/v1/javiera/issued/"+encodeURIComponent(result.id)+"/pdf";
       if(action==="print"){
-        if(tab)tab.location.href=endpoint;else window.open(endpoint,"_blank","noopener,noreferrer");
+        setReadyPdf({url:endpoint,label:"Abrir PDF para imprimir"});
+        if(tab)tab.location.replace(endpoint);
       }else{
         const response=await fetch(endpoint,{credentials:"include",cache:"no-store"});
         if(!response.ok)throw new Error("No se pudo descargar el PDF.");
@@ -437,14 +503,16 @@ export default function JavieraWorkspace({onConfig}:{onConfig?:()=>void}){
         window.setTimeout(()=>URL.revokeObjectURL(url),60000);
       }
       setSaved(await request<Dossier>("/javiera/dossiers/"+encodeURIComponent(id)));
-      setNotice(result.reused?"PDF emitido anteriormente recuperado.":"PDF generado. No equivale a firma, entrega ni capacitación.");
-    }catch(e){tab?.close();setError(errText(e));}
+      setReissueReason("");
+      setNotice(action==="print"?"PDF listo. Usa Imprimir en el visor; si no se abrió, utiliza el enlace de abajo.":
+        result.reused?"PDF emitido anteriormente recuperado.":"PDF generado. No equivale a firma, entrega ni capacitación.");
+    }catch(e){tab?.close();setError(errText(e));}finally{finishOperation();}
   }
 
   function changeDoc(code:string){
+    invalidatePrefills();setReadyPdf(null);setReissueReason("");
+    if(saved&&relationshipOnly(code)!==!saved.worker_id){setSaved(null);setStoredSignature("");}
     setSelectedDoc(code);setError("");setNotice("");setStatus(null);
-    if(relationshipOnly(code)){setWorkerKind("new");setWorkerId("");}
-    if(!relationshipOnly(code)&&workerKind==="new"&&!values["worker.name"])setWorkerId("");
   }
   function renderField(key:string){
     const meta=F[key]||{label:label(key)};
@@ -452,14 +520,17 @@ export default function JavieraWorkspace({onConfig}:{onConfig?:()=>void}){
     const isRequired=missing.includes(key);
     const valid=!!value.trim();
     const src=origins[key];
-    return <label className={"j65-field "+(isRequired?"j65-required":"")} key={key} htmlFor={"jf-"+key.replaceAll(".","-")}>
-      <span>{meta.label}{isRequired&&<em> · pendiente</em>}</span>
-      {meta.options?<select id={"jf-"+key.replaceAll(".","-")} value={value} onChange={e=>setField(key,e.target.value)}>
+    const id="jf-"+key.replaceAll(".","-");
+    const description=src||meta.hint?id+"-hint":undefined;
+    return <label className={"j65-field "+(isRequired?"j65-required":"")} key={key} htmlFor={id}>
+      <span>{meta.label}{isRequired&&<em aria-hidden="true"> · pendiente</em>}</span>
+      {meta.options?<select id={id} aria-label={meta.label} aria-describedby={description}
+        value={value} onChange={e=>setField(key,e.target.value)}>
         <option value="">Selecciona</option>{meta.options.map(x=><option key={x} value={x}>{x}</option>)}
-      </select>:<input id={"jf-"+key.replaceAll(".","-")} type={meta.type||"text"} value={value}
+      </select>:<input id={id} aria-label={meta.label} aria-describedby={description} type={meta.type||"text"} value={value}
         min={meta.type==="number"?"0":undefined} list={key==="role"?"j65-roles":undefined} autoComplete="off"
         onChange={e=>setField(key,e.target.value)} placeholder={meta.type==="date"?"":meta.label}/>}
-      {(src||meta.hint)&&<small>{src&&valid?"Dato: "+src+". ":""}{meta.hint||""}</small>}
+      {(src||meta.hint)&&<small id={description}>{src&&valid?"Dato: "+src+". ":""}{meta.hint||""}</small>}
     </label>;
   }
 
@@ -467,9 +538,9 @@ export default function JavieraWorkspace({onConfig}:{onConfig?:()=>void}){
     <div className="j65-intro"><small>GALANT · 16.5 · PROYECTO JAVIERA</small><h2>¿Para quién prepararás los documentos?</h2>
       <p>Elige el tipo de empresa. Después seleccionarás el documento; solo pediremos los datos necesarios.</p></div>
     <div className="j65-entry">
-      <button onClick={()=>setRelation("contractor")}><FolderPlus size={27}/><strong>Contratistas</strong>
+      <button disabled={busy} onClick={()=>setRelation("contractor")}><FolderPlus size={27}/><strong>Contratistas</strong>
         <span>Empresa nueva o existente. Contratos, anexos, PTS, IRL y prevención.</span><span className="j65-link">Comenzar <ChevronRight size={16}/></span></button>
-      <button onClick={()=>setRelation("subcontractor")}><ShieldCheck size={27}/><strong>Subcontratos</strong>
+      <button disabled={busy} onClick={()=>setRelation("subcontractor")}><ShieldCheck size={27}/><strong>Subcontratos</strong>
         <span>Empleador directo diferente de la empresa contratista principal.</span><span className="j65-link">Comenzar <ChevronRight size={16}/></span></button>
     </div>
     <p className="j65-footnote"><Info size={15}/> El sistema no copiará nombres, RUT ni sueldos de ejemplo del Excel a empresas nuevas.</p>
@@ -486,19 +557,20 @@ export default function JavieraWorkspace({onConfig}:{onConfig?:()=>void}){
   const fieldCount=keys.length+(!workerless?2:0)+2;
   return <section className="j65">
     <div className="j65-intro">
-      <button className="j65-back" onClick={()=>{setRelation(null);setSelectedDoc("");}}><ArrowLeft size={16}/> Volver a Proyecto JAVIERA</button>
+      <button disabled={busy} className="j65-back" onClick={()=>{invalidatePrefills();setRelation(null);setSelectedDoc("");
+        setSaved(null);setStoredSignature("");setParentId("");setReissueReason("");setReadyPdf(null);}}><ArrowLeft size={16}/> Volver a Proyecto JAVIERA</button>
       <small>PROYECTO JAVIERA · {relation==="contractor"?"CONTRATISTAS":"SUBCONTRATOS"}</small>
       <div className="j65-heading"><div><h2>Preparar e imprimir documentos</h2>
         <p>Primero elige un documento. La ficha se adapta a lo que necesita y recupera datos ya registrados.</p></div>
-        {onConfig&&<button className="j65-settings" onClick={onConfig}><Settings2 size={16}/> Configurar documentos</button>}
+        {onConfig&&<button disabled={busy} className="j65-settings" onClick={onConfig}><Settings2 size={16}/> Configurar documentos</button>}
       </div>
     </div>
     {error&&<p className="j65-alert" role="alert"><AlertCircle size={18}/>{error}</p>}
     {notice&&<p className="j65-confirm" role="status"><CheckCircle2 size={18}/>{notice}</p>}
     <div className="j65-tabs" role="group" aria-label="Área documental">
       {(["Prevención de Riesgos","Zona Subcontratos"] as Group[]).map(group=>
-        <button key={group} aria-pressed={group===area} className={group===area?"selected":""}
-          onClick={()=>{setArea(group);setSelectedDoc("");setStatus(null);}}>
+        <button disabled={busy} key={group} aria-pressed={group===area} className={group===area?"selected":""}
+          onClick={()=>{invalidatePrefills();setArea(group);setSelectedDoc("");setStatus(null);setReadyPdf(null);setReissueReason("");}}>
           {group==="Prevención de Riesgos"?<ShieldCheck size={17}/>:<FileText size={17}/>}
           {group}</button>)}
     </div>
@@ -513,7 +585,7 @@ export default function JavieraWorkspace({onConfig}:{onConfig?:()=>void}){
             pending?.needed===0?"Datos base completos · comprobar":
             (pending?.prepared&&pending.needed<pending.prepared?
               "Faltan "+pending.needed+" datos":"Seleccionar y preparar");
-          return <button key={c.code} className={"j65-doc-choice "+(selected?"selected":"")}
+          return <button disabled={busy} key={c.code} className={"j65-doc-choice "+(selected?"selected":"")}
             aria-pressed={selected} onClick={()=>changeDoc(c.code)}>
             <FileText size={18}/><span><b>{TITLES[c.code]||c.title}</b>
               <small>{summary}</small></span>
@@ -521,7 +593,7 @@ export default function JavieraWorkspace({onConfig}:{onConfig?:()=>void}){
         })}
         <div className="j65-sidebar-note"><ClipboardCheck size={17}/> La emisión de un PDF no implica que el documento esté firmado ni entregado.</div>
       </aside>
-      <div className="j65-editor">
+      <fieldset className="j65-editor" disabled={busy} aria-busy={busy}>
         {!selectedDoc?<div className="j65-empty"><FileCheck2 size={38}/><h3>Selecciona un documento a la izquierda</h3>
           <p>Si necesitas un PTS, por ejemplo, solo pediré empresa, obra, trabajador, labor y datos preventivos. No sueldo ni contrato.</p></div>:<>
           <header className="j65-editor-head"><div><small>DOCUMENTO SELECCIONADO</small>
@@ -532,30 +604,34 @@ export default function JavieraWorkspace({onConfig}:{onConfig?:()=>void}){
           </header>
           <div className="j65-progress-line"><span style={{width:complete+"%"}}/></div>
           <section className="j65-section"><h4>2. Obra y empresa empleadora</h4>
-            <label className="j65-field">Obra<select value={siteId} onChange={e=>chooseSite(e.target.value)}>
+            <label className="j65-field">Obra<select id="jf-site-name" aria-label="Obra" value={siteId} onChange={e=>chooseSite(e.target.value)}>
               <option value="">Selecciona una obra</option>{source.sites.map(s=><option key={s.id} value={s.id}>{s.name}</option>)}
             </select></label>
             <div className="j65-switch" role="group" aria-label="Estado de la empresa">
               <button className={companyKind==="new"?"active":""} aria-pressed={companyKind==="new"} onClick={()=>{
                 setCompanyKind("new");setCompanyId("");setWorkerId("");setWorkerKind("new");setSaved(null);
-                contextRevision.current+=1;setLastDossiers([]);setOrigins({});
-                setValues({});}}>
+                invalidatePrefills();setLastDossiers([]);setOrigins({});setStoredSignature("");
+                setNotice("");setReadyPdf(null);setReissueReason("");setValues({});}}>
                 <FolderPlus size={16}/> Empresa nueva</button>
               <button className={companyKind==="existing"?"active":""} aria-pressed={companyKind==="existing"} onClick={()=>{
-                contextRevision.current+=1;setCompanyKind("existing");setCompanyId("");setWorkerId("");setSaved(null);
-                setValues({});setOrigins({});setLastDossiers([]);
+                invalidatePrefills();setCompanyKind("existing");setCompanyId("");setWorkerId("");setWorkerKind("new");setSaved(null);
+                setStoredSignature("");setValues({});setOrigins({});setLastDossiers([]);setNotice("");setReadyPdf(null);setReissueReason("");
               }}>Ya existe en GALANT</button>
             </div>
             {companyKind==="existing"?<label className="j65-field">Buscar empresa
-              <select disabled={!siteId} value={companyId} onChange={e=>chooseCompany(e.target.value)}>
+              <select id="jf-employer-name" aria-label="Buscar empresa" disabled={!siteId} value={companyId} onChange={e=>chooseCompany(e.target.value)}>
                 <option value="">Selecciona un contratista</option>
                 {source.contractors.filter(c=>c.site_id===siteId).map(c=><option key={c.id} value={c.id}>{c.name}</option>)}
               </select></label>:<div className="j65-paired">
               {renderField("employer.name")}{renderField("employer.rut")}
             </div>}
             {companyKind==="existing"&&companyId&&<p className="j65-source-tag">Nombre y RUT recuperados de GALANT. Solo se reutilizarán antecedentes previos de la misma empresa y obra.</p>}
+            {companyKind==="existing"&&companyId&&!selectedCompany?.rut&&<>
+              {renderField("employer.rut")}<p className="j65-source-tag">El RUT falta en GALANT. Se completará en la empresa al guardar esta ficha.</p>
+            </>}
             {relation==="subcontractor"&&<label className="j65-field">Contratista principal (no es el empleador directo)
-              <select value={parentId} onChange={e=>setParentId(e.target.value)} disabled={!siteId}>
+              <select value={parentId} onChange={e=>{invalidatePrefills();setParentId(e.target.value);
+                setSaved(null);setStoredSignature("");setReissueReason("");setReadyPdf(null);}} disabled={!siteId}>
                 <option value="">Selecciona el contratista principal</option>
                 {source.contractors.filter(c=>c.site_id===siteId&&c.id!==companyId).map(c=>
                   <option key={c.id} value={c.id}>{c.name}</option>)}
@@ -566,18 +642,23 @@ export default function JavieraWorkspace({onConfig}:{onConfig?:()=>void}){
             <div className="j65-switch" role="group" aria-label="Estado del trabajador">
               <button className={workerKind==="new"?"active":""} aria-pressed={workerKind==="new"}
                 onClick={()=>{setWorkerKind("new");setWorkerId("");setSaved(null);
-                  workerContextRevision.current+=1;
+                  invalidatePrefills();setStoredSignature("");setReadyPdf(null);setReissueReason("");setNotice("");
+                  setOrigins(prev=>Object.fromEntries(Object.entries(prev).filter(([key])=>!workerDependent(key))));
                   setValues(prev=>Object.fromEntries(Object.entries(prev).filter(([key])=>!workerDependent(key))));}}><UserPlus size={15}/> Trabajador nuevo</button>
               <button className={workerKind==="existing"?"active":""} aria-pressed={workerKind==="existing"}
                 onClick={()=>{setWorkerKind("existing");setWorkerId("");setSaved(null);
-                  workerContextRevision.current+=1;
+                  invalidatePrefills();setStoredSignature("");setReadyPdf(null);setReissueReason("");setNotice("");
+                  setOrigins(prev=>Object.fromEntries(Object.entries(prev).filter(([key])=>!workerDependent(key))));
                   setValues(prev=>Object.fromEntries(Object.entries(prev).filter(([key])=>!workerDependent(key))));}}>Ya registrado</button>
             </div>
             {workerKind==="existing"?<label className="j65-field">Buscar trabajador
-              <select disabled={!companyId} value={workerId} onChange={e=>chooseWorker(e.target.value)}>
+              <select id="jf-worker-name" aria-label="Buscar trabajador" disabled={!companyId} value={workerId} onChange={e=>chooseWorker(e.target.value)}>
                 <option value="">Selecciona un trabajador de esta empresa</option>{source.workers.map(w=>
                   <option key={w.id} value={w.id}>{w.name}</option>)}</select></label>:
               <div className="j65-paired">{renderField("worker.name")}{renderField("worker.rut")}</div>}
+            {workerKind==="existing"&&workerId&&!selectedWorker?.rut&&<>
+              {renderField("worker.rut")}<p className="j65-source-tag">El RUT falta en GALANT. Se completará en el trabajador al guardar esta ficha.</p>
+            </>}
             {renderField("role")}
             <datalist id="j65-roles">{roles.roles.map(x=><option key={x} value={x}/>)}</datalist>
             <p className="j65-source-tag">Cargo reconocido: <strong>{canonical(pick(values,"role"),roles.aliases)||"Sin seleccionar"}</strong>. El mismo dato determina la labor y la matriz PTS/IRL.</p>
@@ -606,7 +687,7 @@ export default function JavieraWorkspace({onConfig}:{onConfig?:()=>void}){
           </section>}
           {lastDossiers.length>0&&companyKind==="existing"&&<section className="j65-section j65-previous">
             <h4>Continuar una ficha anterior</h4><label className="j65-field">Expedientes guardados
-              <select value={saved?.id||""} onChange={e=>{if(e.target.value)void loadDossier(e.target.value);}}>
+              <select aria-label="Expedientes guardados" value={saved?.id||""} onChange={e=>{if(e.target.value)void loadDossier(e.target.value);}}>
                 <option value="">Selecciona solo si deseas recuperar sus datos</option>
                 {lastDossiers.filter(d=>d.relationship===relation).map(d=><option key={d.id} value={d.id}>Ficha {d.id.slice(0,8)} · revisión {d.revision}</option>)}
               </select></label>
@@ -618,15 +699,22 @@ export default function JavieraWorkspace({onConfig}:{onConfig?:()=>void}){
               <button disabled={busy||!siteId} className="j65-save" onClick={()=>{void saveDossier().catch(()=>{});}}>
                 <ClipboardCheck size={16}/> {saved?"Guardar cambios":"Guardar ficha"}</button>
               <button disabled={busy||!(chosenStatus?.can_preview||draftLayout)} onClick={()=>void openPreview()}><Eye size={17}/> {draftLayout&&!chosenStatus?.can_preview?"Ver borrador Excel":"Vista previa"}</button>
-              <button className="j65-print" disabled={busy||!(chosenStatus?.can_issue||chosenStatus?.status==="EMITIDO")}
+              <button className="j65-print" disabled={busy||!canIssue}
                 onClick={()=>void issuePdf("print")}><Printer size={17}/> Imprimir PDF</button>
-              <button disabled={busy||!(chosenStatus?.can_issue||chosenStatus?.status==="EMITIDO")}
+              <button disabled={busy||!canIssue}
                 onClick={()=>void issuePdf("download")}><Download size={17}/> Descargar PDF</button>
             </div>
+            {needsReissue&&<label className="j65-field">Motivo de reemisión
+              <textarea aria-label="Motivo de reemisión" aria-describedby="j65-reissue-hint" rows={3} minLength={20} maxLength={600} value={reissueReason}
+                onChange={e=>setReissueReason(e.target.value)} placeholder="Explica la corrección o actualización (mínimo 20 caracteres)"/>
+              <small id="j65-reissue-hint">Se generará otro PDF y se conservará el anterior. La plantilla y las matrices deben seguir aprobadas.</small>
+            </label>}
+            {readyPdf&&<a className="j65-issued" href={readyPdf.url} target="_blank" rel="noopener noreferrer"><Eye size={15}/>{readyPdf.label}</a>}
+            {chosenStatus?.reason&&<p className="j65-source-tag">{readableError(chosenStatus.reason)}</p>}
             {missing.length>0&&<div className="j65-missing"><b>Para preparar este documento falta:</b>
               <div>{missing.slice(0,12).map(f=><button key={f} onClick={()=>document.getElementById("jf-"+f.replaceAll(".","-"))?.focus()}>
                 {label(f)}</button>)}</div></div>}
-            {errors.map((m,i)=><p key={i} className="j65-inline-error">{m}</p>)}
+            {errors.map((m,i)=><p key={i} className="j65-inline-error">{readableError(m)}</p>)}
             {chosenStatus?.status==="PENDIENTE_REVISION"&&<p className="j65-inline-error">
               Para emitir, la plantilla del Excel y las matrices pertinentes deben estar publicadas por los revisores responsables.
               {onConfig&&<button onClick={onConfig}> Ir a Configuración de automatización</button>}
@@ -636,7 +724,7 @@ export default function JavieraWorkspace({onConfig}:{onConfig?:()=>void}){
               <FileCheck2 size={15}/> PDF generado anteriormente · Abrir</a>)}
           </div>
         </>}
-      </div>
+      </fieldset>
     </div>
   </section>;
 }

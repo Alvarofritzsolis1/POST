@@ -25,6 +25,26 @@ Se revisó `JAVIERA_ETAPA_1_PTS_CORREGIDOS.xlsx` en el entorno privado. Su hoja 
 7. El asistente muestra solo campos relevantes del documento. IRL/PTS no muestra sueldo, jornada, cuenta bancaria ni fechas de término. Los contratos sí muestran el vínculo laboral dependiente/independiente.
 8. La lista de documentos muestra avance de antecedentes sin duplicar llamadas; el documento seleccionado muestra validación real, faltantes con acciones para enfocar el campo y botones **Guardar ficha · Vista previa · Imprimir PDF · Descargar PDF**.
 9. Si la plantilla Excel es un borrador, un administrador puede **Ver borrador Excel** con marca de agua; emitir requiere documento y matrices aprobadas.
+10. Una ficha guardada sin RUT permite completarlo en el mismo asistente y actualizar el registro de GALANT. Los RUT ya informados se recuperan sin sustituirlos.
+11. Para corregir un PDF emitido, se indica **Motivo de reemisión**. Se genera otro PDF y el original sigue disponible. **Imprimir PDF** abre el visor de PDF con un enlace alternativo si el navegador bloquea la pestaña.
+
+## Correcciones al retomar la candidata
+
+- Las matrices aprobadas con labores antiguas como `PINTURA` se reconocen al elegir `PINTOR`, sin alterar los registros históricos. La evaluación y los generadores estructurado/Excel usan la misma selección de matriz aprobada y organización.
+- Las cargas de antecedentes pendientes se invalidan al cambiar empresa, trabajador u obra. El formulario queda bloqueado mientras guarda o prepara un PDF.
+- El servidor impide convertir una ficha de un trabajador en una declaración de empresa o reasignarla a otra obra/empresa. Se crea una ficha nueva y se conserva el historial.
+- El estado documental se vuelve a evaluar después de emitir; los originales permanecen accesibles durante la reemisión.
+- El sueldo en palabras se calcula antes de sustituir el contenido almacenado del Excel. Un monto legítimo coincidente con el ejemplo no se interpreta como filtración; el texto salarial ajeno sigue bloqueado.
+
+## Pruebas reproducibles
+
+- Backend: `cd apps/backend && ../../.venv/bin/python -m pytest -q`. Las pruebas `test_javiera_v165.py` y `test_javiera_excel_layout.py` incluyen matrices históricas, aislamiento por organización, RUT pendientes, identidad del expediente y sueldo en palabras.
+- Frontend: `cd apps/frontend && npm run build && npm run test:logic`.
+- Navegador: `scripts/qa_javiera_v16_browser.py` ejecuta también `qa_javiera_v165_workflow_browser.py` con dos cuentas sintéticas locales. Comprueba alta sin RUT, completar RUT, vista previa, descarga, apertura para imprimir, corrección con motivo, PDF original intacto, declaración separada y respuesta tardía de otro contexto.
+- El informe `browser-report.json`, capturas a 1440/390 px y PDFs sintéticos se guardan en el artefacto `galant-javiera-v16-browser` de CI. Puede usarse un Chromium del sistema mediante `GALANT_QA_BROWSER_EXECUTABLE` en QA local.
+- El archivo XLSX privado original no está adjunto a esta continuación. La equivalencia gráfica de las diez hojas reales sigue requiriendo su comparación en el entorno privado.
+
+Verificación local de esta continuación: **14 escenarios Chromium aprobados**, sin errores de JavaScript ni respuestas 5xx; compilación TypeScript/Vite y las **17 pruebas de lógica de frontend** aprobadas. Las pruebas de PDF Calc y PostgreSQL se ejecutan en CI con esos servicios instalados; sus omisiones locales no se contabilizan como aprobaciones.
 
 ## Revisión por cinco perspectivas (revisión interna, no herramientas Claude)
 | Perspectiva | Defecto de v16 identificado | Corrección / verificación en v16.5 |

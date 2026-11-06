@@ -374,6 +374,8 @@ def dynamic_cached(text: str, field_examples: list[tuple[str, str]], data: dict)
         if not source_value or len(source_value) < 5:
             continue
         value = get_data(data, field_key)
+        if field_key == "extra.salary_words" and not value:
+            value = spanish_amount(get_data(data, "contract.salary"))
         values.append((source_value, value))
         if field_key == "contract.salary":
             try:

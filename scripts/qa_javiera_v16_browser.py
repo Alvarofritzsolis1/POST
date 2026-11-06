@@ -1,4 +1,4 @@
-"""Prueba de navegador real GALANT JAVIERA v16.0.1, sin producción ni PII.
+"""Prueba de navegador real GALANT JAVIERA v16.5, sin producción ni PII.
 
 Ejecutar solamente contra stack QA local descartable en GitHub Actions.
 """
@@ -8,8 +8,10 @@ import os
 from datetime import datetime, timezone
 from pathlib import Path
 from urllib.parse import urlparse
+from uuid import uuid4
 
 from playwright.sync_api import expect, sync_playwright
+from qa_javiera_v165_workflow_browser import verify_guided_workflow
 
 
 def main():
@@ -26,7 +28,8 @@ def main():
     report = {"version":"16.5.0-rc1", "at":datetime.now(timezone.utc).isoformat(),
               "scenarios":{}, "console_errors":[],"server_errors":[]}
     with sync_playwright() as playwright:
-        browser = playwright.chromium.launch(headless=True)
+        browser = playwright.chromium.launch(headless=True,
+            executable_path=os.environ.get("GALANT_QA_BROWSER_EXECUTABLE") or None)
         context = browser.new_context(viewport={"width":1440,"height":1000},
                                       reduced_motion="reduce")
         page = context.new_page()
@@ -76,8 +79,9 @@ def main():
 
         # Empresa y trabajador nuevos: no se exige que ya existan en GALANT.
         page.locator(".j65-editor .j65-section").first.locator("select").first.select_option(label="Brisas de Junquillar")
-        page.get_by_label("Nombre o razón social del empleador").fill("EMPRESA SINTETICA JAVIERA QA")
-        page.get_by_label("Nombre completo del trabajador").fill("TRABAJADOR SINTETICO JAVIERA QA")
+        suffix=uuid4().hex[:8]
+        page.get_by_label("Nombre o razón social del empleador").fill("EMPRESA SINTETICA JAVIERA QA "+suffix)
+        page.get_by_label("Nombre completo del trabajador").fill("TRABAJADOR SINTETICO JAVIERA QA "+suffix)
         page.get_by_label("Labor / especialidad").fill("Pintura")
         expect(page.get_by_text("Cargo reconocido:")).to_contain_text("PINTOR")
         page.get_by_role("button",name="Guardar ficha").click()
@@ -129,13 +133,20 @@ def main():
         expect(page.get_by_role("button",name="Diseños Excel originales")).to_have_attribute("aria-pressed","false")
         report["scenarios"]["admin_configuration_tabs"]="PASS"
         page.screenshot(path=str(args.output/"javiera_configuracion.png"),full_page=True)
+        try:
+            verify_guided_workflow(page, context, browser, args.url, args.output, report)
+        except Exception as error:
+            report.update(status="FAIL", error=str(error), console_errors=js_errors, server_errors=server_errors)
+            page.screenshot(path=str(args.output/"javiera_fallo.png"),full_page=True)
+            (args.output/"browser-report.json").write_text(json.dumps(report,ensure_ascii=False,indent=2))
+            raise
         assert not js_errors,js_errors
         assert not server_errors,server_errors
         report["console_errors"]=js_errors
         report["server_errors"]=server_errors
         report["status"]="PASS"
         (args.output/"browser-report.json").write_text(json.dumps(report,ensure_ascii=False,indent=2))
-        print("PASS: JAVIERA 16.5 documentos primero, prevención sin contrato, alta de empresa nueva, móvil y configuración")
+        print("PASS: JAVIERA 16.5 · 14 escenarios: ficha, RUT, PDF, reemisión, aislamiento, móvil y configuración")
         browser.close()
 
 

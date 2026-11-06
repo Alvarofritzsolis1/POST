@@ -1,5 +1,15 @@
 # Historial de cambios
 
+## 16.5.0-rc1 — JAVIERA documental simplificado desde Excel (candidata)
+
+- Asistente centrado en elegir uno de los diez documentos; campos rotulados según el Excel y separados entre documentación laboral y prevención.
+- Alta de empleador y trabajador desde la misma ficha; se pueden completar RUT pendientes sin salir del asistente.
+- Equivalencias explícitas de labores y cargos compatibles con matrices históricas aprobadas, manteniendo sus revisiones.
+- Vista previa, apertura para imprimir y descarga diferenciadas. El PDF se abre en el visor; reemitir una corrección requiere motivo y conserva el PDF anterior.
+- Aislamiento ante respuestas tardías al cambiar empresa, obra o trabajador; expediente de empresa separado del individual y bloqueo de cambios de contexto en el servidor.
+- Corrección de sueldo en palabras y de un rechazo erróneo al coincidir el sueldo vigente con el ejemplo de la plantilla.
+- Regresiones de backend y Chromium con ficha incompleta, emisión, impresión, descarga, reemisión, inmutabilidad y cambio de contexto. Sin migraciones ni cambios en datos de producción.
+
 ## 15.0.5-rc1 — Despliegue automático seguro tras aprobación de versión
 
 - Se activa el flujo automático en GitHub Actions solo para commits integrados en `main` que aumenten la versión de backend, frontend y lockfile de forma coherente.
