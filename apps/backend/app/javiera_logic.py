@@ -14,7 +14,8 @@ DOCUMENTS = [
     ("transfer_addendum", "Zona Subcontratos", "Anexo de traslado", "traslado",
      ["employer.name", "worker.name", "worker.rut", "site.name", "contract.transfer_date"]),
     ("sworn_declaration", "Zona Subcontratos", "Declaración jurada", "declaracion",
-     ["employer.name", "worker.name", "worker.rut", "contract.declaration_reason"]),
+     ["employer.name", "employer.rut", "extra.representative_name",
+      "extra.representative_rut", "contract.declaration_reason", "event.date"]),
     ("extension_addendum", "Zona Subcontratos", "Anexo extensión de contrato", "prorroga",
      ["employer.name", "worker.name", "worker.rut", "contract.end", "contract.new_end"]),
     ("internal_rules_receipt", "Prevención de Riesgos", "Recepción de Reglamento Interno", "reglamento",
@@ -83,8 +84,8 @@ def validate_requirements(data: dict, required: list[str]) -> tuple[list[str], l
         errors.append("contract.salary: monto inválido")
     if contract.get("hours"):
         try:
-            if not 0 < float(contract["hours"]) <= 45:
-                errors.append("contract.hours: jornada inválida")
+            if not 0 < float(contract["hours"]) <= 42:
+                errors.append("contract.hours: excede el máximo ordinario general de 42 horas vigente en Chile desde abril de 2026; requiere revisión de régimen aplicable")
         except (TypeError, ValueError):
             errors.append("contract.hours: jornada inválida")
     return missing, errors
