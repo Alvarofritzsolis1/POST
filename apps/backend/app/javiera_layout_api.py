@@ -305,12 +305,22 @@ def layout_preview(layout_id: str, dossier_id: str = "",
             "worker":{"name":"TRABAJADOR SINTETICO","rut":"11.111.111-1"},
             "site":{"name":"OBRA DE PRUEBA"}, "role":"CARPINTERO",
             "contract":{"start":"2026-11-01","end":"2026-12-01",
+                        "new_end":"2027-01-31",
+                        "declaration_reason":"La empresa confirma esta declaración respecto de su dotación",
                         "salary":"600000","hours":"42"},
-            "event":{"date":"2026-11-06"},
+            "event":{"date":"2026-11-06","epp_items":"Casco de Seguridad; Lentes de Seguridad",
+                     "pts_version":"1"},
             "extra":{"representative_name":"REPRESENTANTE SINTETICO",
-                "representative_rut":"11.111.111-1","employer_city":"CONCEPCION",
-                "worker_nationality":"CHILENA","salary_words":"Seiscientos mil pesos"}
+                "representative_rut":"11.111.111-1",
+                "representative_nationality":"CHILENA",
+                "employer_city":"CONCEPCION","employer_address":"DIRECCION DE PRUEBA",
+                "site_address":"UBICACION DE PRUEBA","specialty":"CARPINTERIA",
+                "principal_company":"MANDANTE SINTETICA DE PRUEBA",
+                "declaration_period":"2026-10","worker_nationality":"CHILENA",
+                "salary_words":"Seiscientos mil pesos"}
         }
+        if obj.code == "sworn_declaration":
+            data["worker"] = {"name":"", "rut":""}
     output = make_pdf(db, user, obj, data, preview=True)
     return Response(content=output, media_type="application/pdf",
         headers={"Cache-Control":"no-store", "Content-Disposition":"inline; filename=JAVIERA_PREVIEW.pdf"})
