@@ -463,7 +463,15 @@ def excel_document(raw: bytes, code: str, data: dict, changes: dict | None = Non
             for i in range(69, 81):
                 set_text(target, "C"+str(i), extra[i-69] if i-69 < len(extra) else "")
         if changes:
-            apply_changes(target, changes)  # La edición aprobada gana sobre la base importada.
+            replacements_for_fields = {}
+            for coordinate, props in changes.items():
+                if not isinstance(props, dict):
+                    raise LayoutError("Edición de celda inválida")
+                content = dict(props)
+                if "text" in content:
+                    content["text"] = dynamic_cached(content["text"], field_examples, data)
+                replacements_for_fields[coordinate] = content
+            apply_changes(target, replacements_for_fields)
         book = ET.fromstring(z.read("xl/workbook.xml"))
         sheets = book.find(Q("sheets"))
         if sheets is None:
