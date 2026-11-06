@@ -134,6 +134,20 @@ function Setup({onBack}:{onBack:()=>void}){
         </label>
         <label>Área documental <select value={draft.area} onChange={e=>setDraft({...draft,area:e.target.value})}>
           <option>Zona Subcontratos</option><option>Prevención de Riesgos</option></select></label>
+        <details className="jv-layout-editor"><summary>Diseño del PDF · A4</summary>
+          <label>Encabezado <input value={String(draft.layout.header??"GALANT · PROYECTO JAVIERA")}
+            onChange={e=>setDraft({...draft,layout:{...draft.layout,header:e.target.value}})}/></label>
+          <label>Pie de página <input value={String(draft.layout.footer??"Documento generado por GALANT")}
+            onChange={e=>setDraft({...draft,layout:{...draft.layout,footer:e.target.value}})}/></label>
+          <div className="jv-paired">
+            <label>Tamaño de letra (9 a 12) <input type="number" min="9" max="12"
+              value={String(draft.layout.font_size??10)}
+              onChange={e=>setDraft({...draft,layout:{...draft.layout,font_size:Number(e.target.value)}})}/></label>
+            <label>Margen lateral (30 a 75 pt) <input type="number" min="30" max="75"
+              value={String(draft.layout.margin??45)}
+              onChange={e=>setDraft({...draft,layout:{...draft.layout,margin:Number(e.target.value)}})}/></label>
+          </div>
+        </details>
         <label>Contenido completo del documento <textarea rows={17} spellCheck value={draft.body}
           placeholder="Redacte aquí el contenido aprobado; inserte variables como {{worker.name}}"
           onChange={e=>setDraft({...draft,body:e.target.value})}/></label>
