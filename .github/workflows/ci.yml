@@ -280,6 +280,19 @@ jobs:
           export GALANT_QA_PASSWORD="$QA_SMOKE_PASSWORD"
           export GALANT_SCROLL_QA_OUTPUT="$RUNNER_TEMP/galant-scroll-qa"
           python3 scripts/qa_v1502_scroll_browser.py
+      - name: QA JAVIERA v16 - documentos y configuración (Chromium)
+        env:
+          GALANT_JAVIERA_QA_EMAIL: qa-admin@example.test
+        run: |
+          set -Eeuo pipefail
+          export GALANT_JAVIERA_QA_PASSWORD="$QA_SMOKE_PASSWORD"
+          python3 scripts/qa_javiera_v16_browser.py --url http://127.0.0.1:18612 --output "$RUNNER_TEMP/javiera-v16-browser"
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: galant-javiera-v16-browser
+          path: ${{ runner.temp }}/javiera-v16-browser
+          if-no-files-found: warn
       - uses: actions/upload-artifact@v4
         if: always()
         with:
