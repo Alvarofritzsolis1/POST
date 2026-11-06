@@ -30,6 +30,7 @@ from .javiera_logic import (DOCUMENTS, DOCUMENT_BY_CODE, LAYOUT_REQUIRED,
                             check_template_fields, eligibility, normalize_cargo, render_tokens)
 from .javiera_models import (JavieraDossier, JavieraHistory, JavieraIssue,
                              JavieraMatrix, JavieraRevision, JavieraTemplate)
+from .javiera_matrices import latest_approved_matrix, next_matrix_revision
 from .models import AuditEvent, User, utcnow
 from .ops_models import Contractor, ContractorWorksite, Worker, WorkerAssignment, Worksite
 from .security import administrator
@@ -153,6 +154,12 @@ def resolve_data(db: Session, user: User, record: DossierInput) -> dict:
         parent = by_org(db, Contractor, record.parent_id, user.org_id)
         if parent.id == employer.id:
             raise HTTPException(422, "El contratista principal debe ser diferente")
+        if not db.scalar(select(ContractorWorksite.id).where(
+            ContractorWorksite.org_id == user.org_id,
+            ContractorWorksite.worksite_id == site.id,
+            ContractorWorksite.contractor_id == parent.id
+        )):
+            raise HTTPException(422, "El contratista principal no está vinculado a esta obra")
         if record.relationship != "subcontractor":
             raise HTTPException(422, "Indica el tipo Subcontratos")
     elif record.relationship == "subcontractor":
@@ -180,7 +187,7 @@ def evaluated(db: Session, user: User, data: dict, dossier_id: str | None,
     cargo = normalize_cargo(data.get("role"))
     matrix_rows = db.execute(select(JavieraMatrix.kind, JavieraMatrix.cargo).where(
         JavieraMatrix.org_id == user.org_id, JavieraMatrix.status == "approved")).all()
-    approved = {kind + ":" + matrix_cargo for kind, matrix_cargo in matrix_rows}
+    approved = {kind + ":" + normalize_cargo(matrix_cargo) for kind, matrix_cargo in matrix_rows}
     existing, history = set(), set()
     if dossier_id and not ignore_history:
         record = dossier(db, user, dossier_id)
@@ -292,9 +299,23 @@ def catalog(user: User = Depends(administrator), db: Session = Depends(get_db)):
     configured = template_data(db, user.org_id)
     return [{"code": code, "area": configured.get(code, {}).get("area", area),
              "title": configured.get(code, {}).get("title", title),
-             "required_fields": configured.get(code, {}).get("fields", fields),
+             "required_fields": list(dict.fromkeys([*configured.get(code, {}).get("fields", fields), *LAYOUT_REQUIRED.get(code, [])])),
              "published_version": configured.get(code, {}).get("published_version", 0)}
             for code, area, title, _, fields in DOCUMENTS]
+
+
+@router.get("/roles")
+def available_roles(user: User = Depends(administrator), db: Session = Depends(get_db)):
+    """Cargos del Excel/matrices, con normalización explícita y sin coincidencia difusa."""
+    from .javiera_logic import CARGO_ALIASES
+    rows = db.execute(select(JavieraMatrix.cargo).where(
+        JavieraMatrix.org_id == user.org_id,
+        JavieraMatrix.kind.in_(["PTS", "IRL"])
+    ).limit(450)).all()
+    canonical = {normalize_cargo(row[0]) for row in rows if row[0]}
+    canonical.update(CARGO_ALIASES.values())
+    return {"roles": sorted(canonical), "aliases": CARGO_ALIASES,
+            "matrix_roles": sorted({normalize_cargo(row[0]) for row in rows if row[0]})}
 
 
 @router.get("/sources")
@@ -316,10 +337,10 @@ def sources(site_id: str = "", contractor_id: str = "",
             Worker, WorkerAssignment.worker_id == Worker.id).where(
             WorkerAssignment.org_id == user.org_id, WorkerAssignment.worksite_id == site_id,
             WorkerAssignment.contractor_id == contractor_id).limit(500)).all()
-        workers = [{"id": w.id, "name": w.name, "rut": w.rut,
+        workers = [{"id": w.id, "association_id": a.id, "name": w.name, "rut": w.rut,
                     "active": a.active} for a, w in assignments]
     return {"sites": [{"id": s.id, "name": s.name} for s in sites],
-            "contractors": [{"id": c.id, "site_id": a.worksite_id,
+            "contractors": [{"id": c.id, "association_id": a.id, "site_id": a.worksite_id,
                              "name": c.name, "rut": c.rut, "nature": c.nature}
                             for a, c in companies],
             "workers": workers}
@@ -335,6 +356,10 @@ def save_dossier(payload: DossierInput,
         record = dossier(db, user, dossier_id)
         if payload.expected_revision != record.revision:
             raise HTTPException(409, "Otro usuario modificó la ficha. Recarga antes de guardar")
+        if (record.site_id, record.employer_id, record.worker_id, record.parent_id,
+                record.relationship) != (payload.site_id, payload.employer_id,
+                    payload.worker_id, payload.parent_id, payload.relationship):
+            raise HTTPException(409, "El expediente pertenece a otra empresa, obra o trabajador. Guarda una ficha nueva para conservar su historial")
     if record is None:
         record = JavieraDossier(org_id=user.org_id, updated_by=user.id)
         db.add(record)
@@ -434,10 +459,7 @@ def prepared(db, user, ident: str, code: str, preview: bool,
     if code in {"pts", "irl", "pts_receipt"}:
         kind = "IRL" if code == "irl" else "PTS"
         cargo = normalize_cargo(record.data.get("role"))
-        matrix = db.scalar(select(JavieraMatrix).where(
-            JavieraMatrix.org_id == user.org_id, JavieraMatrix.kind == kind,
-            JavieraMatrix.cargo == cargo, JavieraMatrix.status == "approved"
-        ).order_by(JavieraMatrix.revision.desc()))
+        matrix = latest_approved_matrix(db, user.org_id, kind, cargo)
         if not matrix:
             raise HTTPException(409, "Matriz preventiva pendiente de aprobación")
         if code != "pts_receipt":
@@ -446,10 +468,7 @@ def prepared(db, user, ident: str, code: str, preview: bool,
                 output += "\n\n" + str(number) + ". " + str(section)
         if code == "irl":
             for extra_kind in ("PERFILES", "PUESTOS", "SUSTANCIAS"):
-                extra = db.scalar(select(JavieraMatrix).where(
-                    JavieraMatrix.org_id == user.org_id, JavieraMatrix.kind == extra_kind,
-                    JavieraMatrix.cargo == cargo, JavieraMatrix.status == "approved"
-                ).order_by(JavieraMatrix.revision.desc()))
+                extra = latest_approved_matrix(db, user.org_id, extra_kind, cargo)
                 if extra:
                     output += "\n\n" + extra_kind + " · " + extra.cargo
                     for section in extra.sections:
@@ -616,7 +635,9 @@ def issued_pdf(issue_id: str, user: User = Depends(administrator), db: Session =
     if not path.resolve().is_relative_to(allowed) or not path.is_file():
         raise HTTPException(404, "PDF no disponible")
     return FileResponse(path, media_type="application/pdf",
-                        filename="GALANT-JAVIERA-" + item.code + ".pdf")
+                        filename="GALANT-JAVIERA-" + item.code + ".pdf",
+                        content_disposition_type="inline",
+                        headers={"Cache-Control": "no-store"})
 
 
 @router.get("/admin/templates")
@@ -719,11 +740,9 @@ def change_matrix(item: MatrixChange, user: User = Depends(administrator),
         raise HTTPException(422, "PTS requiere 17 secciones con contenido")
     if len(json.dumps(item.sections, ensure_ascii=False)) > 50000:
         raise HTTPException(413, "Matriz excesivamente grande")
-    version = db.scalar(select(func.max(JavieraMatrix.revision)).where(
-        JavieraMatrix.org_id == user.org_id, JavieraMatrix.kind == item.kind,
-        JavieraMatrix.cargo == cargo)) or 0
+    version = next_matrix_revision(db, user.org_id, item.kind, cargo)
     row = JavieraMatrix(org_id=user.org_id, kind=item.kind, cargo=cargo,
-        revision=version + 1, sections=item.sections, source=item.source,
+        revision=version, sections=item.sections, source=item.source,
         author_id=user.id)
     db.add(row)
     db.flush()
@@ -865,11 +884,9 @@ async def import_workbook(file: UploadFile = File(...),
         if len(sections) > 35 or len(json.dumps(sections, ensure_ascii=False)) > 50000:
             omissions.append(kind + ": " + cargo + " excede límite de contenido")
             continue
-        previous = db.scalar(select(func.max(JavieraMatrix.revision)).where(
-            JavieraMatrix.org_id == user.org_id, JavieraMatrix.kind == kind,
-            JavieraMatrix.cargo == cargo)) or 0
+        revision = next_matrix_revision(db, user.org_id, kind, cargo)
         db.add(JavieraMatrix(org_id=user.org_id, kind=kind, cargo=cargo,
-            revision=previous + 1, sections=sections, status="draft",
+            revision=revision, sections=sections, status="draft",
             source="Excel JAVIERA (carga privada)", author_id=user.id))
         counts[kind] = counts.get(kind, 0) + 1
     audit(db, user, "javiera.workbook_import", str(uuid4()))

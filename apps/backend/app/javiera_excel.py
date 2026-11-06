@@ -56,6 +56,7 @@ SOURCE_FIELDS = {
     "C37":"contract.end", "C38":"extra.afp",
     "C39":"extra.health_provider", "C40":"event.date",
     "C43":"extra.destinations", "C44":"extra.transport_allowance",
+    "C45":"extra.declaration_period",
 }
 PTS_CELLS = [
     "A54", "A56", "A58", "A60", "A75", "A82", "A93", "A101",
@@ -308,6 +309,14 @@ def typed_input(root: ET.Element, coordinate: str, key: str, data: dict):
     value = get_data(data, key)
     if coordinate == "C33" and not value:
         value = spanish_amount(get_data(data, "contract.salary"))
+    if coordinate == "C45":
+        try:
+            month = date.fromisoformat(value + "-01")
+            set_numeric(root, coordinate, float((month-date(1899, 12, 30)).days))
+            return
+        except ValueError:
+            set_text(root, coordinate, "")
+            return
     if coordinate in {"C20", "C36", "C37", "C40"}:
         if not value:
             set_text(root, coordinate, "")
@@ -365,6 +374,8 @@ def dynamic_cached(text: str, field_examples: list[tuple[str, str]], data: dict)
         if not source_value or len(source_value) < 5:
             continue
         value = get_data(data, field_key)
+        if field_key == "extra.salary_words" and not value:
+            value = spanish_amount(get_data(data, "contract.salary"))
         values.append((source_value, value))
         if field_key == "contract.salary":
             try:

@@ -54,7 +54,7 @@ jobs:
     steps:
       - uses: actions/checkout@v4
       - run: bash -n scripts/install-preview.sh scripts/diagnose.sh scripts/backup-preview.sh scripts/verify-restore-preview.sh scripts/update-preview.sh scripts/start-qa-preview.sh scripts/wait-for-final-postgres.sh
-      - run: python3 -m py_compile scripts/soak_24h.py scripts/qa_stack_smoke.py scripts/qa_operational_smoke.py scripts/qa_network_browser.py scripts/qa_v1010_browser.py scripts/qa_ux_2026_browser.py scripts/qa_v1501_focus_browser.py scripts/qa_v1502_scroll_browser.py scripts/qa_v1504_creator_browser.py
+      - run: python3 -m py_compile scripts/soak_24h.py scripts/qa_stack_smoke.py scripts/qa_operational_smoke.py scripts/qa_network_browser.py scripts/qa_v1010_browser.py scripts/qa_ux_2026_browser.py scripts/qa_v1501_focus_browser.py scripts/qa_v1502_scroll_browser.py scripts/qa_v1504_creator_browser.py scripts/qa_javiera_v16_browser.py scripts/qa_javiera_v165_workflow_browser.py
       - name: Validate manual/automatic VPS deployment security contracts
         run: python3 scripts/qa_manual_deploy_contract.py
       - name: Validate automatic release gate with synthetic Git commits
@@ -280,9 +280,10 @@ jobs:
           export GALANT_QA_PASSWORD="$QA_SMOKE_PASSWORD"
           export GALANT_SCROLL_QA_OUTPUT="$RUNNER_TEMP/galant-scroll-qa"
           python3 scripts/qa_v1502_scroll_browser.py
-      - name: QA JAVIERA v16 - documentos y configuración (Chromium)
+      - name: QA JAVIERA v16.5 - ficha, PDF, reemisión y aislamiento (Chromium)
         env:
           GALANT_JAVIERA_QA_EMAIL: qa-admin@example.test
+          GALANT_JAVIERA_QA_REVIEWER_EMAIL: qa-reviewer@example.test
         run: |
           set -Eeuo pipefail
           export GALANT_JAVIERA_QA_PASSWORD="$QA_SMOKE_PASSWORD"

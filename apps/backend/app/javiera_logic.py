@@ -20,7 +20,7 @@ DOCUMENTS = [
     ("extension_addendum", "Zona Subcontratos", "Anexo extensión de contrato", "prorroga",
      ["employer.name", "worker.name", "worker.rut", "contract.end", "contract.new_end"]),
     ("internal_rules_receipt", "Prevención de Riesgos", "Recepción de Reglamento Interno", "reglamento",
-     ["employer.name", "worker.name", "worker.rut", "contract.regulation_version", "event.date"]),
+     ["employer.name", "worker.name", "worker.rut", "extra.regulation_version", "event.date"]),
     ("ppe_delivery", "Prevención de Riesgos", "Entrega de EPP", "entrega_epp",
      ["worker.name", "worker.rut", "role", "event.date", "event.epp_items"]),
     ("irl", "Prevención de Riesgos", "IRL de acuerdo con el cargo", "preventivo",
@@ -106,9 +106,26 @@ def rut_valid(value: str | None) -> bool:
     return ("0" if check == 11 else "K" if check == 10 else str(check)) == dv
 
 
+CARGO_ALIASES = {
+    "PINTURA":"PINTOR", "PINTURAS":"PINTOR", "MAESTRO PINTOR":"PINTOR",
+    "CARPINTERIA":"CARPINTERO", "CARPINTERIA OBRA GRUESA":"CARPINTERO",
+    "GASFITERIA":"GASFITER", "GASFINTERIA":"GASFITER",
+    "TECHUMBRE":"TECHADOR", "TECHUMBRES":"TECHADOR",
+    "ALUMINIO":"ALUMINERO", "ALUMINERIA":"ALUMINERO",
+    "CERAMICA":"CERAMISTA", "CERAMICAS":"CERAMISTA",
+    "IMPERMEABILIZACION":"IMPERMEABILIZADOR",
+    "ENFIERRADURA":"ENFIERRADOR", "ENFIERRADO":"ENFIERRADOR",
+    "MOLDAJE":"MOLDAJERO", "MOLDAJES":"MOLDAJERO",
+    "HORMIGONADO":"OPERARIO DE HORMIGON", "HORMIGON":"OPERARIO DE HORMIGON",
+    "URBANIZACION":"OPERARIO DE URBANIZACION",
+    "ESTRUCTURAS METALICAS":"ESTRUCTURERO METALICO",
+}
+
+
 def normalize_cargo(value: str | None) -> str:
     text = unicodedata.normalize("NFD", (value or "").strip().upper())
-    return re.sub(r"\s+", " ", "".join(c for c in text if unicodedata.category(c) != "Mn"))
+    raw = re.sub(r"\s+", " ", "".join(c for c in text if unicodedata.category(c) != "Mn"))
+    return CARGO_ALIASES.get(raw, raw)
 
 
 def ordinary_weekly_hours_limit(effective_date: str | None) -> int:
@@ -138,6 +155,8 @@ def validate_requirements(data: dict, required: list[str]) -> tuple[list[str], l
             errors.append(key + ": RUT inválido")
     for key in ("event.date", "contract.start", "contract.end", "contract.new_end",
                 "extra.worker_birthdate"):
+        if key not in required:
+            continue
         value = field(data, key)
         if value in (None, ""):
             continue
@@ -148,17 +167,17 @@ def validate_requirements(data: dict, required: list[str]) -> tuple[list[str], l
         except (ValueError, TypeError):
             errors.append(key + ": fecha inválida (AAAA-MM-DD)")
     period = field(data, "extra.declaration_period")
-    if period and (not re.fullmatch(r"20\d\d-(0[1-9]|1[0-2])", str(period))):
+    if "extra.declaration_period" in required and period and (not re.fullmatch(r"20\d\d-(0[1-9]|1[0-2])", str(period))):
         errors.append("extra.declaration_period: usa AAAA-MM")
     contract = data.get("contract") or {}
-    if contract.get("start") and contract.get("end") and contract["end"] < contract["start"]:
+    if "contract.end" in required and contract.get("start") and contract.get("end") and contract["end"] < contract["start"]:
         errors.append("contract.end: término anterior al ingreso")
-    if contract.get("end") and contract.get("new_end") and contract["new_end"] <= contract["end"]:
+    if "contract.new_end" in required and contract.get("end") and contract.get("new_end") and contract["new_end"] <= contract["end"]:
         errors.append("contract.new_end: extensión debe ser posterior al término actual")
-    if contract.get("salary") and (not str(contract["salary"]).replace(".", "").isdigit() or
+    if "contract.salary" in required and contract.get("salary") and (not str(contract["salary"]).replace(".", "").isdigit() or
                                    float(str(contract["salary"]).replace(".", "")) <= 0):
         errors.append("contract.salary: monto inválido")
-    if contract.get("hours"):
+    if "contract.hours" in required and contract.get("hours"):
         try:
             documented_date = (data.get("event") or {}).get("date") or contract.get("start")
             limit = ordinary_weekly_hours_limit(documented_date)

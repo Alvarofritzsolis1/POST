@@ -115,6 +115,31 @@ def test_amount_words_and_reviewer_specialties():
     assert len(CHECKLISTS["prevencion"]) >= 5
 
 
+def test_salary_words_in_cached_excel_are_derived_from_current_salary():
+    from app.javiera_excel import dynamic_cached
+    sample = [("Seiscientos mil pesos.", "extra.salary_words")]
+    actual = {"contract": {"salary": "800000"}, "extra": {}}
+    assert dynamic_cached("Sueldo: Seiscientos mil pesos.", sample, actual) == "Sueldo: Ochocientos mil pesos."
+    actual["extra"]["salary_words"] = "Ochocientos mil pesos líquidos"
+    assert dynamic_cached("Sueldo: Seiscientos mil pesos.", sample, actual) == "Sueldo: Ochocientos mil pesos líquidos"
+
+
+def test_salary_words_matching_current_amount_are_not_false_example_leaks():
+    from openpyxl import load_workbook
+    wb = load_workbook(io.BytesIO(sample_xlsx()))
+    wb["Datos Contrato"]["C33"] = "Seiscientos mil pesos."
+    source = io.BytesIO()
+    wb.save(source)
+    with fitz.open() as pdf:
+        page = pdf.new_page()
+        page.insert_text((40, 40), "Sueldo: Seiscientos mil pesos.")
+        output = pdf.tobytes()
+    data = valid_data()
+    assert source_leaks(source.getvalue(), output, data) == []
+    data["contract"]["salary"] = "800000"
+    assert "C33" in source_leaks(source.getvalue(), output, data)
+
+
 def test_reject_bad_excel_data():
     with pytest.raises(LayoutError):
         validate_xlsx(b"no xlsx")
