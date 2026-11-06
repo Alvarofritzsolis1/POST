@@ -111,6 +111,25 @@ def normalize_cargo(value: str | None) -> str:
     return re.sub(r"\s+", " ", "".join(c for c in text if unicodedata.category(c) != "Mn"))
 
 
+def ordinary_weekly_hours_limit(effective_date: str | None) -> int:
+    """Jornada ordinaria general de Chile, según transición Ley 21.561.
+
+    Se usa la fecha del evento documentado (no la fecha actual del servidor).
+    Regímenes especiales y excepciones quedan sujetos a revisión laboral.
+    """
+    try:
+        when = date.fromisoformat(str(effective_date or "2026-11-06")[:10])
+    except (ValueError, TypeError):
+        when = date(2026, 11, 6)
+    if when >= date(2028, 4, 26):
+        return 40
+    if when >= date(2026, 4, 26):
+        return 42
+    if when >= date(2024, 4, 26):
+        return 44
+    return 45
+
+
 def validate_requirements(data: dict, required: list[str]) -> tuple[list[str], list[str]]:
     missing = [key for key in required if field(data, key) in (None, "", [], {})]
     errors = []
@@ -141,8 +160,12 @@ def validate_requirements(data: dict, required: list[str]) -> tuple[list[str], l
         errors.append("contract.salary: monto inválido")
     if contract.get("hours"):
         try:
-            if not 0 < float(contract["hours"]) <= 42:
-                errors.append("contract.hours: excede el máximo ordinario general de 42 horas vigente en Chile desde abril de 2026; requiere revisión de régimen aplicable")
+            documented_date = (data.get("event") or {}).get("date") or contract.get("start")
+            limit = ordinary_weekly_hours_limit(documented_date)
+            if not 0 < float(contract["hours"]) <= limit:
+                errors.append(
+                    f"contract.hours: supera {limit} horas semanales del régimen ordinario general "
+                    f"aplicable a la fecha del documento; revisar posibles excepciones con responsable laboral")
         except (TypeError, ValueError):
             errors.append("contract.hours: jornada inválida")
     return missing, errors
