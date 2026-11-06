@@ -252,6 +252,13 @@ def test_ten_original_document_pdfs_with_synthetic_person_only(code):
     pdf = pdf_from_workbook(sample_xlsx(),code,data,matrix=matrix,preview=True)
     with fitz.open(stream=pdf,filetype="pdf") as document:
         assert document.page_count>=1
+        for page in document:
+            assert round(page.rect.width)==595
+            assert round(page.rect.height)==842
+            for block in page.get_text("blocks"):
+                assert block[0]>=-1 and block[1]>=-1
+                assert block[2]<=page.rect.width+1
+                assert block[3]<=page.rect.height+1
         pages=" ".join(p.get_text() for p in document)
         assert "DOCUMENTO DE PRUEBA" in pages
         assert "PERSONA ANTIGUA" not in pages
@@ -320,3 +327,26 @@ def test_template_edits_cannot_override_verified_business_fields(code, coordinat
     with pytest.raises(LayoutError, match="matriz aprobable|celdas"):
         excel_document(sample_xlsx(), code, data, changes={coordinate:{"text":"DATO FICTICIO"}},
                        matrix=matrix)
+
+
+
+def test_original_carta_and_juramento_overflow_are_normalized_to_a4():
+    from app.javiera_excel import normalize_pdf_a4
+    source=fitz.open()
+    letter=source.new_page(width=612,height=792)
+    letter.insert_text((45,120),"CONTRATO SINTETICO EN CARTA",fontsize=12)
+    declaration=source.new_page(width=595,height=842)
+    declaration.insert_text((550,120),"TEXTO LARGO FUERA DEL MARGEN",fontsize=11)
+    raw=source.tobytes()
+    source.close()
+    normalized=normalize_pdf_a4(raw)
+    with fitz.open(stream=normalized,filetype="pdf") as doc:
+        assert doc.page_count==2
+        for page in doc:
+            assert round(page.rect.width)==595
+            assert round(page.rect.height)==842
+            for block in page.get_text("blocks"):
+                assert block[0]>=-1
+                assert block[2]<=page.rect.width+1
+        assert "CONTRATO SINTETICO EN CARTA" in doc[0].get_text()
+        assert "TEXTO LARGO FUERA DEL MARGEN" in doc[1].get_text()
