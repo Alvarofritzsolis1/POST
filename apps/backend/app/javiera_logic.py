@@ -31,6 +31,47 @@ DOCUMENTS = [
     ("induction", "Prevención de Riesgos", "Inducción de Prevención para contratistas", "induccion",
      ["employer.name", "worker.name", "worker.rut", "site.name", "event.date"]),
 ]
+# Requisitos específicos derivados de las referencias reales del XLSX.
+# Las plantillas Excel se publican solo si las variables necesarias existen.
+LAYOUT_REQUIRED = {
+    "labor_contract": [
+        "extra.representative_name", "extra.representative_rut",
+        "extra.employer_address", "extra.employer_commune",
+        "extra.employer_city", "extra.worker_nationality",
+        "extra.worker_birthdate", "extra.worker_marital_status",
+        "extra.worker_address", "extra.worker_commune",
+        "extra.payment_frequency", "extra.bank_account",
+        "extra.afp", "extra.health_provider", "event.date",
+        "contract.end",
+    ],
+    "transfer_addendum": [
+        "event.date", "extra.employer_city", "extra.site_address",
+        "role",
+    ],
+    "extension_addendum": [
+        "extra.representative_name", "extra.representative_rut",
+        "event.date", "contract.start", "contract.end", "contract.new_end",
+    ],
+    "sworn_declaration": [
+        "extra.representative_name", "extra.representative_rut",
+        "extra.representative_nationality",
+        "extra.employer_address", "extra.employer_city",
+        "extra.specialty", "extra.site_address",
+        "extra.principal_company", "extra.declaration_period",
+        "event.date",
+    ],
+    "internal_rules_receipt": ["extra.employer_city", "event.date"],
+    "ppe_delivery": ["event.date", "event.epp_items"],
+    "irl": ["event.date", "role"],
+    "pts": ["event.date", "extra.representative_name", "extra.representative_rut"],
+    "pts_receipt": ["event.date", "extra.representative_name", "extra.representative_rut"],
+    "induction": [
+        "extra.representative_name", "extra.representative_rut",
+        "extra.employer_phone", "extra.employer_address",
+        "extra.specialty", "extra.site_address", "event.date", "role",
+    ],
+}
+
 DOCUMENT_BY_CODE = {row[0]: row for row in DOCUMENTS}
 ROLES = {"laboral", "traslado", "prorroga", "declaracion", "reglamento",
          "entrega_epp", "preventivo", "recepcion_pts", "induccion"}
@@ -111,6 +152,8 @@ def eligibility(data: dict, templates: dict, matrix_approved: set[str] | None = 
         applies = "aplica"
         if not has_context:
             applies, reason = "por_determinar", "Selecciona empresa, obra o trabajador"
+        elif code == "sworn_declaration" and field(data, "worker.name"):
+            applies, reason = "no_aplica", "Esta declaración es de la empresa sin trabajadores; no corresponde a un expediente individual con trabajador asignado"
         elif mode == "laboral" and kind == "independiente":
             applies, reason = "no_aplica", "No consta vínculo laboral dependiente"
         elif mode == "laboral" and kind != "dependiente":
