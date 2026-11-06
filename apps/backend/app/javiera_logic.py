@@ -6,6 +6,7 @@ Las reglas configurables son declarativas (sin eval ni ejecución de código).
 from __future__ import annotations
 import re
 import unicodedata
+from datetime import date
 
 DOCUMENTS = [
     ("labor_contract", "Zona Subcontratos", "Contrato de trabajo", "laboral",
@@ -112,9 +113,23 @@ def normalize_cargo(value: str | None) -> str:
 def validate_requirements(data: dict, required: list[str]) -> tuple[list[str], list[str]]:
     missing = [key for key in required if field(data, key) in (None, "", [], {})]
     errors = []
-    for key in ("worker.rut", "employer.rut"):
+    for key in ("worker.rut", "employer.rut", "extra.representative_rut"):
         if key not in missing and key in required and not rut_valid(field(data, key)):
             errors.append(key + ": RUT inválido")
+    for key in ("event.date", "contract.start", "contract.end", "contract.new_end",
+                "extra.worker_birthdate"):
+        value = field(data, key)
+        if value in (None, ""):
+            continue
+        try:
+            date.fromisoformat(str(value)[:10])
+            if not re.fullmatch(r"\d{4}-\d{2}-\d{2}", str(value)):
+                raise ValueError
+        except (ValueError, TypeError):
+            errors.append(key + ": fecha inválida (AAAA-MM-DD)")
+    period = field(data, "extra.declaration_period")
+    if period and (not re.fullmatch(r"20\d\d-(0[1-9]|1[0-2])", str(period))):
+        errors.append("extra.declaration_period: usa AAAA-MM")
     contract = data.get("contract") or {}
     if contract.get("start") and contract.get("end") and contract["end"] < contract["start"]:
         errors.append("contract.end: término anterior al ingreso")
