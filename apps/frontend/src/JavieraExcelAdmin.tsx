@@ -10,7 +10,7 @@ type Layout={
 };
 type SourceCell={cell:string;row:number;value:string;formula:string|null;style:string|null;modified:boolean};
 type CellPage={id:string;sheet:string;revision:number;status:string;start_row:number;max_rows:number;
-  cells:SourceCell[];merged:string[];has_more:boolean};
+  cells:SourceCell[];merged:string[];protected_cells:string[];has_more:boolean};
 type Reviewer={user_id:string;name:string;specialties:{specialty:string;active:boolean;designation:string}[]};
 type Checklist={specialty:string;requirements:string[];legal_reference:string};
 type Template={code:string;title:string;revisions:{revision:number;state:string;author_id:string;id:string}[]};
@@ -65,6 +65,7 @@ function LayoutStudio(){
   const [engine,setEngine]=useState<{available:boolean;engine:string}|null>(null);
   const [uploadReport,setUploadReport]=useState("");
   const current=layouts.find(x=>x.id===selected)||null;
+  const locked=!!cell&&!!source?.protected_cells?.includes(cell);
   async function refresh(){
     const list=await request<Layout[]>("/javiera/admin/excel/layouts");
     setLayouts(list);
@@ -94,6 +95,7 @@ function LayoutStudio(){
   }
   async function save(){
     if(!current||!cell)return;
+    if(locked){setError("Esta celda pertenece a una matriz o un dato del expediente. Utiliza el editor especializado.");return;}
     if(reason.trim().length<10){setError("Explica por qué cambias la celda (mínimo 10 caracteres).");return;}
     setBusy(true);setError("");setNotice("");
     try{
@@ -153,9 +155,9 @@ function LayoutStudio(){
           <button disabled={!source?.has_more} onClick={()=>setStart(x=>x+45)}>Siguiente</button>
         </div>
         <div className="jvx-cells">
-          {(source?.cells||[]).map(x=><button key={x.cell} className={"jvx-cell "+(cell===x.cell?"active ":"")+(x.modified?"changed":"")} onClick={()=>choose(x)}>
+          {(source?.cells||[]).map(x=><button key={x.cell} className={"jvx-cell "+(cell===x.cell?"active ":"")+(x.modified?"changed":"")+(source?.protected_cells?.includes(x.cell)?" protected":"")} onClick={()=>choose(x)}>
             <span>{x.cell}</span><span>{x.value.slice(0,180)||"Fórmula o campo vacío"}</span>
-            {x.formula&&<small>Fórmula del Excel</small>}</button>)}
+            {source?.protected_cells?.includes(x.cell)?<small>Dato protegido</small>:x.formula?<small>Fórmula del Excel</small>:null}</button>)}
           {!source?.cells.length&&<p>Sin contenido en este bloque de filas.</p>}
         </div>
       </section>
@@ -166,11 +168,12 @@ function LayoutStudio(){
             onChange={e=>{setCell(e.target.value.toUpperCase());setContent("");}}/>
         </label>
         {cell?<><strong>Celda {cell}</strong>
-          <label>Contenido <textarea rows={10} value={content} onChange={e=>setContent(e.target.value)} /></label>
+          {locked&&<p className="jvx-locked" role="status">Esta celda representa fechas, entregas o medidas preventivas. Se modifica en el formulario del expediente o en la matriz PTS/IRL, no en el diseño.</p>}
+          <label>Contenido <textarea rows={10} value={content} disabled={locked} onChange={e=>setContent(e.target.value)} /></label>
           <label>Copiar formato desde <input placeholder="Ej. A4" value={styleFrom} onChange={e=>setStyleFrom(e.target.value.toUpperCase())}/></label>
           <label>Alto de fila (10-120 pt) <input type="number" min="10" max="120" value={height} onChange={e=>setHeight(e.target.value)}/></label>
           <label>Motivo del ajuste <textarea rows={3} value={reason} onChange={e=>setReason(e.target.value)}/></label>
-          <button className="jv-primary" disabled={busy||reason.trim().length<10||!current||!/^[A-Z]{1,3}[1-9][0-9]{0,5}$/.test(cell)} onClick={()=>void save()}>
+          <button className="jv-primary" disabled={locked||busy||reason.trim().length<10||!current||!/^[A-Z]{1,3}[1-9][0-9]{0,5}$/.test(cell)} onClick={()=>void save()}>
             Guardar nueva revisión</button></>:<p>Selecciona cualquier celda para modificar su contenido.</p>}
         <div className="jvx-legal-note"><ShieldCheck size={18}/><p>Los documentos laborales y preventivos requieren acta de revisión por el responsable designado antes de aprobarse para emisión.</p></div>
       </aside>
