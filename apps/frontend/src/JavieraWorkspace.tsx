@@ -17,6 +17,7 @@ type Dossier={id:string;revision:number;site_id:string;employer_id:string;worker
   relationship:Relation;data:Record<string,unknown>;issues:{id:string;code:string;at:string}[];
   historical:{id:string;code:string;state:string}[]};
 type OldDossier={id:string;site_id:string;employer_id:string;worker_id:string|null;relationship:string;revision:number};
+type LayoutDraft={id:string;code:string;revision:number;status:string};
 type FieldMeta={label:string;type?:string;hint?:string;options?:string[]};
 
 const DOC_AREA:Record<string,Group>={
@@ -178,6 +179,7 @@ export default function JavieraWorkspace({onConfig}:{onConfig?:()=>void}){
   const [selectedDoc,setSelectedDoc]=useState("");
   const [source,setSource]=useState<Source>({sites:[],contractors:[],workers:[]});
   const [catalog,setCatalog]=useState<Catalog[]>([]);
+  const [layouts,setLayouts]=useState<LayoutDraft[]>([]);
   const [roles,setRoles]=useState<RoleResult>({roles:[],aliases:{},matrix_roles:[]});
   const [siteId,setSiteId]=useState("");
   const [companyKind,setCompanyKind]=useState<"new"|"existing">("new");
@@ -211,6 +213,7 @@ export default function JavieraWorkspace({onConfig}:{onConfig?:()=>void}){
     selectedDoc,data:currentData});
   const changed=!saved||signature!==storedSignature;
   const currentCatalog=catalog.find(c=>c.code===selectedDoc);
+  const draftLayout=layouts.find(x=>x.code===selectedDoc&&x.status==="draft");
   const keys=useMemo(()=>{
     if(!selectedDoc)return [];
     const selected=(currentCatalog?.required_fields||[]).concat(EXCEL_FIELDS[selectedDoc]||[]);
@@ -228,7 +231,8 @@ export default function JavieraWorkspace({onConfig}:{onConfig?:()=>void}){
       request<Catalog[]>("/javiera/catalog"),
       request<RoleResult>("/javiera/roles"),
       request<Source>("/javiera/sources"),
-    ]).then(([c,r,s])=>{setCatalog(c);setRoles(r);setSource(s);})
+      request<LayoutDraft[]>("/javiera/admin/excel/layouts"),
+    ]).then(([c,r,s,l])=>{setCatalog(c);setRoles(r);setSource(s);setLayouts(l);})
       .catch(e=>setError(errText(e)));
   },[]);
   useEffect(()=>{
@@ -382,7 +386,18 @@ export default function JavieraWorkspace({onConfig}:{onConfig?:()=>void}){
     if(!selectedDoc)return;
     try{
       const id=!changed&&saved?.id?saved.id:await saveDossier();
-      pdfTab(await pdfPreview(id,selectedDoc));
+      if(chosenStatus?.can_preview){
+        pdfTab(await pdfPreview(id,selectedDoc));
+      }else if(draftLayout){
+        const response=await fetch("/api/v1/javiera/admin/excel/layouts/"+
+          encodeURIComponent(draftLayout.id)+"/preview?dossier_id="+encodeURIComponent(id),
+          {credentials:"include",cache:"no-store"});
+        if(!response.ok)throw new Error("El modelo Excel todavía tiene errores que impiden mostrarlo.");
+        pdfTab(await response.blob());
+        setNotice("Vista previa BORRADOR: no es un documento aprobado ni apto para entregar.");
+      }else{
+        throw new Error("No hay plantilla importada o publicada. Abre Configuración de automatización.");
+      }
     }catch(e){setError(errText(e));}
   }
   async function issuePdf(action:"print"|"download"){
@@ -583,7 +598,7 @@ export default function JavieraWorkspace({onConfig}:{onConfig?:()=>void}){
             <div className="j65-action-buttons">
               <button disabled={busy||!siteId} className="j65-save" onClick={()=>{void saveDossier().catch(()=>{});}}>
                 <ClipboardCheck size={16}/> {saved?"Guardar cambios":"Guardar ficha"}</button>
-              <button disabled={busy||!chosenStatus?.can_preview} onClick={()=>void openPreview()}><Eye size={17}/> Vista previa</button>
+              <button disabled={busy||!(chosenStatus?.can_preview||draftLayout)} onClick={()=>void openPreview()}><Eye size={17}/> {draftLayout&&!chosenStatus?.can_preview?"Ver borrador Excel":"Vista previa"}</button>
               <button className="j65-print" disabled={busy||!(chosenStatus?.can_issue||chosenStatus?.status==="EMITIDO")}
                 onClick={()=>void issuePdf("print")}><Printer size={17}/> Imprimir PDF</button>
               <button disabled={busy||!(chosenStatus?.can_issue||chosenStatus?.status==="EMITIDO")}
