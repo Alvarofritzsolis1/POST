@@ -292,9 +292,23 @@ def catalog(user: User = Depends(administrator), db: Session = Depends(get_db)):
     configured = template_data(db, user.org_id)
     return [{"code": code, "area": configured.get(code, {}).get("area", area),
              "title": configured.get(code, {}).get("title", title),
-             "required_fields": configured.get(code, {}).get("fields", fields),
+             "required_fields": list(dict.fromkeys([*configured.get(code, {}).get("fields", fields), *LAYOUT_REQUIRED.get(code, [])])),
              "published_version": configured.get(code, {}).get("published_version", 0)}
             for code, area, title, _, fields in DOCUMENTS]
+
+
+@router.get("/roles")
+def available_roles(user: User = Depends(administrator), db: Session = Depends(get_db)):
+    """Cargos del Excel/matrices, con normalización explícita y sin coincidencia difusa."""
+    from .javiera_logic import CARGO_ALIASES
+    rows = db.execute(select(JavieraMatrix.cargo).where(
+        JavieraMatrix.org_id == user.org_id,
+        JavieraMatrix.kind.in_(["PTS", "IRL"])
+    ).limit(450)).all()
+    canonical = {normalize_cargo(row[0]) for row in rows if row[0]}
+    canonical.update(CARGO_ALIASES.values())
+    return {"roles": sorted(canonical), "aliases": CARGO_ALIASES,
+            "matrix_roles": sorted({normalize_cargo(row[0]) for row in rows if row[0]})}
 
 
 @router.get("/sources")
