@@ -6,6 +6,7 @@ Toda salida definitiva requiere plantilla y matriz aprobadas por otro admin.
 from __future__ import annotations
 
 import hashlib
+import io
 import json
 import re
 from datetime import datetime
@@ -13,6 +14,7 @@ from pathlib import Path
 from uuid import uuid4
 
 import fitz
+from openpyxl import load_workbook
 from fastapi import APIRouter, Depends, File, HTTPException, UploadFile
 from fastapi.responses import FileResponse, Response
 from pydantic import BaseModel, ConfigDict, Field
@@ -97,8 +99,15 @@ def dossier(db, user, ident):
 
 def template_data(db, org):
     rows = db.scalars(select(JavieraTemplate).where(JavieraTemplate.org_id == org)).all()
-    return {row.code: {"area": row.area, "title": row.title,
-            "fields": row.fields, "published_version": row.published_version} for row in rows}
+    result = {}
+    for row in rows:
+        draft = db.scalar(select(JavieraRevision).where(
+            JavieraRevision.org_id == org, JavieraRevision.template_id == row.id,
+            JavieraRevision.state == "draft").order_by(JavieraRevision.revision.desc()))
+        result[row.code] = {"area": row.area, "title": row.title, "fields": row.fields,
+            "rule": row.rule, "published_version": row.published_version,
+            "has_body": bool(row.body or (draft and draft.contents.get("body")))}
+    return result
 
 
 def resolve_data(db: Session, user: User, record: DossierInput) -> dict:
@@ -139,18 +148,21 @@ def resolve_data(db: Session, user: User, record: DossierInput) -> dict:
 def evaluated(db: Session, user: User, data: dict, dossier_id: str | None):
     templates = template_data(db, user.org_id)
     cargo = normalize_cargo(data.get("role"))
-    matrix_cargos = set(db.scalars(select(JavieraMatrix.cargo).where(
-        JavieraMatrix.org_id == user.org_id,
-        JavieraMatrix.status == "approved")).all())
-    approved = {cargo} if cargo and cargo in matrix_cargos else set()
-    history = set()
+    matrix_rows = db.execute(select(JavieraMatrix.kind, JavieraMatrix.cargo).where(
+        JavieraMatrix.org_id == user.org_id, JavieraMatrix.status == "approved")).all()
+    approved = {kind + ":" + matrix_cargo for kind, matrix_cargo in matrix_rows}
+    existing, history = set(), set()
     if dossier_id:
+        record = dossier(db, user, dossier_id)
+        existing = set(db.scalars(select(JavieraIssue.code).where(
+            JavieraIssue.org_id == user.org_id, JavieraIssue.dossier_id == dossier_id,
+            JavieraIssue.dossier_revision == record.revision)).all())
         history = set(db.scalars(select(JavieraIssue.code).where(
-            JavieraIssue.org_id == user.org_id, JavieraIssue.dossier_id == dossier_id)).all())
+            JavieraIssue.org_id == user.org_id, JavieraIssue.dossier_id == dossier_id,
+            JavieraIssue.dossier_revision != record.revision)).all())
         history.update(db.scalars(select(JavieraHistory.code).where(
-            JavieraHistory.org_id == user.org_id,
-            JavieraHistory.dossier_id == dossier_id)).all())
-    return eligibility(data, templates, approved, history)
+            JavieraHistory.org_id == user.org_id, JavieraHistory.dossier_id == dossier_id)).all())
+    return eligibility(data, templates, approved, existing, history)
 
 
 def pdf_for(title: str, body: str, draft: bool) -> bytes:
@@ -256,6 +268,22 @@ def save_dossier(payload: DossierInput,
     return {"id": record.id, "revision": record.revision, "data": data}
 
 
+@router.get("/dossiers")
+def list_dossiers(site_id: str = "", employer_id: str = "", user: User = Depends(administrator),
+                  db: Session = Depends(get_db)):
+    query = select(JavieraDossier).where(JavieraDossier.org_id == user.org_id)
+    if site_id:
+        by_org(db, Worksite, site_id, user.org_id)
+        query = query.where(JavieraDossier.site_id == site_id)
+    if employer_id:
+        by_org(db, Contractor, employer_id, user.org_id)
+        query = query.where(JavieraDossier.employer_id == employer_id)
+    rows = db.scalars(query.order_by(JavieraDossier.updated_at.desc()).limit(120)).all()
+    return [{"id": r.id, "site_id": r.site_id, "employer_id": r.employer_id,
+             "worker_id": r.worker_id, "relationship": r.relationship,
+             "revision": r.revision, "updated_at": r.updated_at.isoformat()} for r in rows]
+
+
 @router.get("/dossiers/{dossier_id}")
 def get_dossier(dossier_id: str, user: User = Depends(administrator), db: Session = Depends(get_db)):
     row = dossier(db, user, dossier_id)
@@ -277,11 +305,11 @@ def get_dossier(dossier_id: str, user: User = Depends(administrator), db: Sessio
 
 @router.post("/eligibility/evaluate")
 def evaluate(payload: Evaluation, user: User = Depends(administrator), db: Session = Depends(get_db)):
+    if len(json.dumps(payload.data, ensure_ascii=False)) > 24000:
+        raise HTTPException(413, "Ficha demasiado extensa")
     if payload.dossier_id:
-        row = dossier(db, user, payload.dossier_id)
-        data = row.data
-    else:
-        data = payload.data
+        dossier(db, user, payload.dossier_id)
+    data = payload.data
     return {"data_revision": payload.data_revision,
             "documents": evaluated(db, user, data, payload.dossier_id)}
 
@@ -301,29 +329,55 @@ def prepared(db, user, ident: str, code: str, preview: bool):
         raise HTTPException(409, "Plantilla pendiente de configuración")
     if not preview and template.published_version == 0:
         raise HTTPException(409, "Plantilla no aprobada")
-    body = render_tokens(template.body, record.data) if template.body else ""
+    body = template.body
+    title = template.title
+    if preview and not body:
+        draft = db.scalar(select(JavieraRevision).where(
+            JavieraRevision.org_id == user.org_id, JavieraRevision.template_id == template.id,
+            JavieraRevision.state == "draft").order_by(JavieraRevision.revision.desc()))
+        if draft:
+            body = draft.contents.get("body", "")
+            title = draft.contents.get("title", title)
     if not body:
-        raise HTTPException(409, "El contenido del documento está vacío")
-    return record, template, body
+        raise HTTPException(409, "Plantilla sin contenido previsualizable")
+    output = render_tokens(body, record.data)
+    if code in {"pts", "irl", "pts_receipt"}:
+        kind = "IRL" if code == "irl" else "PTS"
+        cargo = normalize_cargo(record.data.get("role"))
+        matrix = db.scalar(select(JavieraMatrix).where(
+            JavieraMatrix.org_id == user.org_id,
+            JavieraMatrix.kind == kind, JavieraMatrix.cargo == cargo,
+            JavieraMatrix.status == "approved").order_by(JavieraMatrix.revision.desc()))
+        if not matrix:
+            raise HTTPException(409, "Matriz preventiva pendiente de aprobación")
+        if code != "pts_receipt":
+            output += "
+
+" + kind + " · " + matrix.cargo + " · Revisión " + str(matrix.revision)
+            for number, section in enumerate(matrix.sections, 1):
+                output += "
+
+" + str(number) + ". " + str(section)
+    return record, template, title, output
 
 
 @router.post("/preview")
 def preview(data: Action, user: User = Depends(administrator), db: Session = Depends(get_db)):
-    record, template, text = prepared(db, user, data.dossier_id, data.code, True)
-    return Response(content=pdf_for(template.title, text, True),
+    record, template, title, text = prepared(db, user, data.dossier_id, data.code, True)
+    return Response(content=pdf_for(title, text, True),
                     media_type="application/pdf", headers={"Cache-Control": "no-store"})
 
 
 @router.post("/issue")
 def issue(data: Action, user: User = Depends(administrator), db: Session = Depends(get_db)):
-    record, template, text = prepared(db, user, data.dossier_id, data.code, False)
+    record, template, title, text = prepared(db, user, data.dossier_id, data.code, False)
     existing = db.scalar(select(JavieraIssue).where(
         JavieraIssue.org_id == user.org_id, JavieraIssue.dossier_id == record.id,
         JavieraIssue.code == data.code, JavieraIssue.template_revision == template.published_version,
         JavieraIssue.dossier_revision == record.revision))
     if existing:
         return {"id": existing.id, "sha256": existing.sha256, "reused": True}
-    raw = pdf_for(template.title, text, False)
+    raw = pdf_for(title, text, False)
     digest = hashlib.sha256(raw).hexdigest()
     ident = str(uuid4())
     directory = settings().document_dir / user.org_id / "javiera" / record.id
@@ -337,7 +391,7 @@ def issue(data: Action, user: User = Depends(administrator), db: Session = Depen
             code=data.code, template_revision=template.published_version,
             dossier_revision=record.revision, snapshot={"data": record.data,
                 "title": template.title, "body": template.body, "fields": template.fields,
-                "layout": template.layout},
+                "layout": template.layout, "rendered": text},
             sha256=digest, storage_path=str(location), issued_by=user.id)
         db.add(obj)
         audit(db, user, "javiera.pdf_issued", obj.id)
