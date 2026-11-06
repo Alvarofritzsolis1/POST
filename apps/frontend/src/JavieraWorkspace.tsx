@@ -192,6 +192,7 @@ export default function JavieraWorkspace({onConfig}:{onConfig?:()=>void}){
   const [status,setStatus]=useState<{signature:string;items:State[]}|null>(null);
   const [lastDossiers,setLastDossiers]=useState<OldDossier[]>([]);
   const requestRevision=useRef(0);
+  const contextRevision=useRef(0);
 
   const setField=(key:string,value:string)=>{setValues(prev=>({...prev,[key]:value}));
     setOrigins(prev=>({...prev,[key]:"Ingresado manualmente"}));};
@@ -253,12 +254,15 @@ export default function JavieraWorkspace({onConfig}:{onConfig?:()=>void}){
 
   async function prefillCompany(id:string,site:string){
     if(!id||!site)return;
+    const currentContext=++contextRevision.current;
     try{
       const all=await request<OldDossier[]>("/javiera/dossiers?site_id="+encodeURIComponent(site)+
         "&employer_id="+encodeURIComponent(id));
+      if(currentContext!==contextRevision.current)return;
       setLastDossiers(all);
       if(!all.length)return;
       const record=await request<Dossier>("/javiera/dossiers/"+encodeURIComponent(all[0].id));
+      if(currentContext!==contextRevision.current)return;
       const historical=flattenData(record.data);
       const supplement:Record<string,string>={};
       for(const key of EMPLOYER_KEYS)if(historical[key])supplement[key]=historical[key];
@@ -268,10 +272,12 @@ export default function JavieraWorkspace({onConfig}:{onConfig?:()=>void}){
     }catch(e){setError(errText(e));}
   }
   function chooseSite(next:string){
+    contextRevision.current+=1;
     setSiteId(next);setCompanyId("");setWorkerId("");setParentId("");setSaved(null);setStoredSignature("");
     setValues({});setOrigins({});setLastDossiers([]);setNotice("");
   }
   function chooseCompany(next:string){
+    contextRevision.current+=1;
     setCompanyId(next);setWorkerId("");setSaved(null);setStoredSignature("");
     const sourceCompany=source.contractors.find(c=>c.id===next);
     setValues({"employer.name":sourceCompany?.name||"","employer.rut":sourceCompany?.rut||""});
@@ -281,8 +287,26 @@ export default function JavieraWorkspace({onConfig}:{onConfig?:()=>void}){
   function chooseWorker(next:string){
     setWorkerId(next);setSaved(null);setStoredSignature("");
     const w=source.workers.find(x=>x.id===next);
-    setValues(prev=>({...prev,"worker.name":w?.name||"","worker.rut":w?.rut||""}));
-    setOrigins(prev=>({...prev,"worker.name":"GALANT","worker.rut":"GALANT"}));
+    setValues(prev=>({...Object.fromEntries(Object.entries(prev).filter(([key])=>!isWorkerField(key))),
+      "worker.name":w?.name||"","worker.rut":w?.rut||""}));
+    setOrigins(prev=>({...Object.fromEntries(Object.entries(prev).filter(([key])=>!isWorkerField(key))),
+      "worker.name":"GALANT","worker.rut":"GALANT"}));
+    if(next)void prefillWorker(next);
+  }
+  async function prefillWorker(id:string){
+    try{
+      const list=lastDossiers.length?lastDossiers:
+        await request<OldDossier[]>("/javiera/dossiers?site_id="+encodeURIComponent(siteId)+
+        "&employer_id="+encodeURIComponent(companyId));
+      const match=list.find(x=>x.worker_id===id);
+      if(!match)return;
+      const row=await request<Dossier>("/javiera/dossiers/"+encodeURIComponent(match.id));
+      if(row.worker_id!==id||row.employer_id!==companyId||row.site_id!==siteId)return;
+      const fields=flattenData(row.data),person:Record<string,string>={};
+      for(const k of WORKER_KEYS)if(fields[k])person[k]=fields[k];
+      setValues(v=>({...v,...Object.fromEntries(Object.entries(person).filter(([key])=>!v[key]))}));
+      setOrigins(v=>({...v,...Object.fromEntries(Object.keys(person).map(k=>[k,"Ficha de este trabajador en la misma obra"]))}));
+    }catch(e){setError(errText(e));}
   }
   async function loadDossier(id:string){
     setBusy(true);setError("");
@@ -312,7 +336,9 @@ export default function JavieraWorkspace({onConfig}:{onConfig?:()=>void}){
   async function saveDossier():Promise<string>{
     if(!relation||!siteId||!selectedDoc)throw new Error("Selecciona la obra, el tipo de expediente y el documento.");
     if(!pick(values,"employer.name").trim())throw new Error("Escribe o selecciona el empleador.");
+    if(companyKind==="existing"&&!companyId)throw new Error("Selecciona una empresa existente antes de guardar.");
     if(relation==="subcontractor"&&!parentId)throw new Error("Selecciona la empresa contratista principal.");
+    if(!workerless&&workerKind==="existing"&&!workerId)throw new Error("Selecciona un trabajador registrado.");
     if(!workerless&&!pick(values,"worker.name").trim())throw new Error("Indica el nombre del trabajador.");
     if(busy)throw new Error("Ya existe una operación en curso.");
     setBusy(true);setError("");setNotice("");
@@ -472,10 +498,12 @@ export default function JavieraWorkspace({onConfig}:{onConfig?:()=>void}){
             <div className="j65-switch" role="group" aria-label="Estado de la empresa">
               <button className={companyKind==="new"?"active":""} aria-pressed={companyKind==="new"} onClick={()=>{
                 setCompanyKind("new");setCompanyId("");setWorkerId("");setWorkerKind("new");setSaved(null);
-                setValues(prev=>({...prev,"employer.name":"","employer.rut":"","worker.name":"","worker.rut":""}));}}>
+                contextRevision.current+=1;setLastDossiers([]);setOrigins({});
+                setValues({});}}>
                 <FolderPlus size={16}/> Empresa nueva</button>
               <button className={companyKind==="existing"?"active":""} aria-pressed={companyKind==="existing"} onClick={()=>{
-                setCompanyKind("existing");setCompanyId("");setWorkerId("");setSaved(null);
+                contextRevision.current+=1;setCompanyKind("existing");setCompanyId("");setWorkerId("");setSaved(null);
+                setValues({});setOrigins({});setLastDossiers([]);
               }}>Ya existe en GALANT</button>
             </div>
             {companyKind==="existing"?<label className="j65-field">Buscar empresa
@@ -498,9 +526,12 @@ export default function JavieraWorkspace({onConfig}:{onConfig?:()=>void}){
             <div className="j65-switch" role="group" aria-label="Estado del trabajador">
               <button className={workerKind==="new"?"active":""} aria-pressed={workerKind==="new"}
                 onClick={()=>{setWorkerKind("new");setWorkerId("");setSaved(null);
-                  setValues(prev=>({...prev,"worker.name":"","worker.rut":""}));}}><UserPlus size={15}/> Trabajador nuevo</button>
+                  setValues(prev=>Object.fromEntries(Object.entries(prev).filter(([key])=>
+                    !isWorkerField(key)&&key!=="worker.name"&&key!=="worker.rut")));}}><UserPlus size={15}/> Trabajador nuevo</button>
               <button className={workerKind==="existing"?"active":""} aria-pressed={workerKind==="existing"}
-                onClick={()=>{setWorkerKind("existing");setWorkerId("");setSaved(null);}}>Ya registrado</button>
+                onClick={()=>{setWorkerKind("existing");setWorkerId("");setSaved(null);
+                  setValues(prev=>Object.fromEntries(Object.entries(prev).filter(([key])=>
+                    !isWorkerField(key)&&key!=="worker.name"&&key!=="worker.rut")));}}>Ya registrado</button>
             </div>
             {workerKind==="existing"?<label className="j65-field">Buscar trabajador
               <select disabled={!companyId} value={workerId} onChange={e=>chooseWorker(e.target.value)}>
