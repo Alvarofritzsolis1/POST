@@ -73,6 +73,16 @@ def test_javiera_review_publication_batch_and_immutable_reissue(env):
     client,sessions=env
     admin_a=login(client,"a@example.cl")
     dossier_id=_dossier(client,admin_a)
+    # Aunque el documento no haya sido publicado, la declaración contradictoria
+    # debe aparecer como NO APLICA mientras exista dotación activa en obra.
+    checked=client.post("/api/v1/javiera/eligibility/evaluate",
+        headers=admin_a,json={"dossier_id":dossier_id})
+    assert checked.status_code==200,checked.text
+    declaration=next(x for x in checked.json()["documents"]
+                     if x["code"]=="sworn_declaration")
+    assert declaration["status"]=="NO_APLICA"
+    assert not declaration["can_issue"]
+    assert "trabajadores activos" in declaration["reason"]
     revision1,id1=_draft(client,admin_a,"Contenido versión inicial","Creación de plantilla sintética")
     assert revision1==1
     assert client.post("/api/v1/javiera/admin/templates/labor_contract/approve/1",
