@@ -119,3 +119,9 @@
 .jv-hero>small{display:block;line-height:1.45;letter-spacing:.09em;overflow-wrap:anywhere}
 .jv-hero>h2{clear:both}
 @media(max-width:700px){.jv-hero>.jv-back{margin-bottom:10px}.jv-hero>small{font-size:.67rem}}
+
+/* El botón Regresar tiene fila propia: no comparte línea base con el contexto */
+.jv-module .jv-hero-back-row{display:block;width:100%;clear:both;margin:0 0 12px}
+.jv-module .jv-hero-back-row>.jv-back{display:inline-flex;float:none;position:static;margin:0;max-width:100%;align-items:center}
+.jv-module .jv-hero-back-row+small{display:block;position:static;float:none;clear:both}
+@media(max-width:700px){.jv-module .jv-hero-back-row{margin-bottom:10px}}
