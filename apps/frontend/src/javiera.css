@@ -125,3 +125,11 @@
 .jv-module .jv-hero-back-row>.jv-back{display:inline-flex;float:none;position:static;margin:0;max-width:100%;align-items:center}
 .jv-module .jv-hero-back-row+small{display:block;position:static;float:none;clear:both}
 @media(max-width:700px){.jv-module .jv-hero-back-row{margin-bottom:10px}}
+
+/* Corrección estructural del solapamiento detectado en Playwright */
+.platform .jv-module .jv-hero{display:grid;grid-template-columns:minmax(0,1fr);grid-auto-flow:row;justify-items:start;align-content:start;row-gap:9px}
+.platform .jv-module .jv-hero>.jv-hero-back-row{display:block;position:static;float:none;width:100%;min-height:31px;margin:0}
+.platform .jv-module .jv-hero>.jv-hero-back-row>.jv-back{position:static;float:none;display:inline-flex;margin:0}
+.platform .jv-module .jv-hero>small{display:block;position:static;float:none;min-width:0;margin:0;line-height:1.45}
+.platform .jv-module .jv-hero>h2{margin:0;min-width:0}
+.platform .jv-module .jv-hero>p{margin:0;min-width:0}
