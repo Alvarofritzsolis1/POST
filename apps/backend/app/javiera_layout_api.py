@@ -86,29 +86,73 @@ def matrix_sections(db: Session, user: User, kind: str, cargo: str) -> list[str]
 
 
 def source_leaks(raw: bytes, pdf: bytes, data: dict) -> list[str]:
-    """Impide emitir ejemplos identificatorios de la planilla como datos del trabajador real."""
+    """Detecta restos de la ficha de ejemplo en el PDF final de otra persona.
+
+    Revisa todos los campos variables del origen; compara texto normalizado,
+    RUT y teléfono normalizados y fechas imprimibles. Falla cerrado: si una
+    cadena inequívoca de otro trabajador/empleador persiste, no se emite.
+    """
+    import io
+    import unicodedata
+    from datetime import date, timedelta
     from .javiera_excel import SOURCE_FIELDS, cell_text, shared_strings, sheet_files, Q
-    with ZipFile(__import__("io").BytesIO(raw)) as z:
+
+    def normalized(value: str) -> str:
+        raw = unicodedata.normalize("NFKD", str(value).casefold())
+        without_marks = "".join(ch for ch in raw if not unicodedata.combining(ch))
+        return " ".join(without_marks.split())
+
+    def digits(value: str) -> str:
+        return "".join(ch for ch in str(value) if ch.isdigit())
+
+    with ZipFile(io.BytesIO(raw)) as z:
         files = sheet_files(z)
         original = ET.fromstring(z.read(files["Datos Contrato"]))
         strings = shared_strings(z)
-        candidates = []
-        for coord in ("C5", "C6", "C7", "C8", "C10", "C13", "C17", "C18", "C22", "C25"):
-            row = original.find(".//" + Q("c") + "[@r='" + coord + "']")
-            if row is None:
-                continue
-            value = cell_text(row, strings).strip()
-            if len(value) < 6:
-                continue
-            node = data
-            for part in SOURCE_FIELDS[coord].split("."):
-                node = node.get(part) if isinstance(node, dict) else None
-            actual = str(node or "").strip()
-            if actual.casefold() != value.casefold():
-                candidates.append((coord, value))
+        sample_cells = {c.get("r"): cell_text(c, strings).strip()
+                        for c in original.iter(Q("c"))}
     with fitz.open(stream=pdf, filetype="pdf") as output:
-        full_text = " ".join(page.get_text() for page in output).casefold()
-    return [coord for coord, value in candidates if value.casefold() in full_text]
+        full_text = normalized(" ".join(page.get_text() for page in output))
+    full_digits = digits(full_text)
+    issues = []
+    skip_generic = {"CHILENA", "CHILENO", "CASADO", "SOLTERO", "SOLTERA"}
+    date_coordinates = {"C20", "C36", "C37", "C40"}
+    numeric_coordinates = {"C9", "C26", "C31", "C32"}
+    for coord, field_key in SOURCE_FIELDS.items():
+        original_value = sample_cells.get(coord, "")
+        if not original_value:
+            continue
+        new_value = data
+        for section in field_key.split("."):
+            new_value = new_value.get(section) if isinstance(new_value, dict) else None
+        new_value = "" if new_value is None else str(new_value).strip()
+        if normalized(original_value) == normalized(new_value):
+            continue
+        if coord in date_coordinates:
+            try:
+                old_date = date(1899, 12, 30) + timedelta(days=int(float(original_value)))
+                new_date = date.fromisoformat(new_value[:10])
+            except (TypeError, ValueError, OverflowError):
+                continue
+            if old_date != new_date and (
+                old_date.strftime("%d/%m/%Y") in full_text or
+                str(old_date.day) + "/" + str(old_date.month) + "/" + str(old_date.year) in full_text
+            ):
+                issues.append(coord)
+            continue
+        if normalized(original_value).upper() in skip_generic:
+            continue
+        if coord in numeric_coordinates or field_key.endswith(".rut"):
+            old_digits = digits(original_value)
+            new_digits = digits(new_value)
+            if len(old_digits) >= 7 and old_digits != new_digits and old_digits in full_digits:
+                issues.append(coord)
+            continue
+        old_norm = normalized(original_value)
+        if len(old_norm) >= 6 and old_norm in full_text:
+            issues.append(coord)
+    return sorted(set(issues))
+
 
 
 def make_pdf(db: Session, user: User, item: JavieraExcelLayout,
