@@ -201,7 +201,32 @@ def evaluated(db: Session, user: User, data: dict, dossier_id: str | None,
         history.update(db.scalars(select(JavieraHistory.code).where(
             JavieraHistory.org_id == user.org_id,
             JavieraHistory.dossier_id == dossier_id)).all())
-    return eligibility(data, templates, approved, existing, history)
+    results = eligibility(data, templates, approved, existing, history)
+    # Una declaración de ausencia de trabajadores no puede inferirse de una
+    # ficha individual vacía: revisar también las asignaciones de la empresa.
+    # La presencia de trabajadores activos es bloqueo conservador; para
+    # períodos históricos se debe aportar evidencia y revisión especializada.
+    if dossier_id:
+        record = dossier(db, user, dossier_id)
+        if record.employer_id and record.site_id:
+            associated = db.scalar(select(WorkerAssignment.id).where(
+                WorkerAssignment.org_id == user.org_id,
+                WorkerAssignment.contractor_id == record.employer_id,
+                WorkerAssignment.worksite_id == record.site_id,
+                WorkerAssignment.active.is_(True)
+            ).limit(1))
+            if associated:
+                for row in results:
+                    if row["code"] == "sworn_declaration":
+                        row["status"] = "NO_APLICA"
+                        row["applicability"] = "no_aplica"
+                        row["reason"] = (
+                            "La empresa tiene trabajadores activos asignados a esta obra. "
+                            "No se emitirá una declaración de ausencia de trabajadores "
+                            "sin verificación documentada del período")
+                        row["can_issue"] = False
+                        row["can_preview"] = False
+    return results
 
 
 def pdf_for(title: str, body: str, draft: bool, layout: dict | None = None) -> bytes:
