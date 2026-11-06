@@ -351,13 +351,9 @@ def prepared(db, user, ident: str, code: str, preview: bool):
         if not matrix:
             raise HTTPException(409, "Matriz preventiva pendiente de aprobación")
         if code != "pts_receipt":
-            output += "
-
-" + kind + " · " + matrix.cargo + " · Revisión " + str(matrix.revision)
+            output += "\n\n" + kind + " · " + matrix.cargo + " · Revisión " + str(matrix.revision)
             for number, section in enumerate(matrix.sections, 1):
-                output += "
-
-" + str(number) + ". " + str(section)
+                output += "\n\n" + str(number) + ". " + str(section)
     return record, template, title, output
 
 
