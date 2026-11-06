@@ -672,12 +672,77 @@ def libreoffice_pdf(xlsx: bytes, timeout: int = 50) -> bytes:
         return pdf
 
 
+def append_irl_continuation(pdf: fitz.Document, matrix: list[str], data: dict):
+    """Incluye todos los riesgos que exceden las 12 filas de la hoja IRL.
+
+    La plantilla original tiene 12 renglones. Nunca se descartan los siguientes.
+    El anexo se agrega al mismo archivo PDF y comparte el contexto del expediente.
+    """
+    additional = matrix[12:]
+    if not additional:
+        return
+    margin = 44
+    width = 595 - 2 * margin
+    page = None
+    y = 0
+
+    def start_page():
+        current = pdf.new_page(width=595, height=842)
+        current.insert_text((margin, 32), "GALANT / JAVIERA - IRL", fontsize=10, fontname="helv")
+        current.insert_text((margin, 55), "ANEXO INTEGRANTE - CONTINUACION DE MATRIZ IRL",
+                            fontsize=10, fontname="helv")
+        current.insert_text((margin, 74),
+                            ("Cargo: " + get_data(data, "role"))[:85],
+                            fontsize=9, fontname="helv")
+        current.insert_text((margin, 91),
+                            ("Obra: " + get_data(data, "site.name"))[:85],
+                            fontsize=9, fontname="helv")
+        current.insert_text((margin, 814),
+                            "Riesgos y medidas preventivas del cargo - documento sin firma",
+                            fontsize=8, fontname="helv")
+        return current, 113
+
+    page, y = start_page()
+    for position, section in enumerate(additional, 13):
+        if not str(section).strip():
+            raise LayoutError("La matriz IRL contiene riesgos sin descripción")
+        paragraphs = [f"REGISTRO {position}", *str(section).splitlines()]
+        needed = 18 + max(1, len(paragraphs) - 1) * 13
+        if y + needed > 782:
+            page, y = start_page()
+        for content in paragraphs:
+            # En PDF no se inserta HTML ni se ejecutan comandos de la plantilla.
+            remaining = " ".join(content.split())
+            while remaining:
+                line = ""
+                for word in remaining.split(" "):
+                    candidate = (line + " " + word).strip()
+                    if fitz.get_text_length(candidate, fontname="helv", fontsize=9) <= width:
+                        line = candidate
+                    else:
+                        break
+                if not line:
+                    # Evita un bucle por un token único excesivamente largo.
+                    line, remaining = remaining[:65], remaining[65:].lstrip()
+                else:
+                    remaining = remaining[len(line):].lstrip()
+                if y + 13 > 782:
+                    page, y = start_page()
+                page.insert_text((margin, y), line, fontsize=9, fontname="helv")
+                y += 13
+        y += 8
+    if pdf.page_count > 120:
+        raise LayoutError("El IRL excede el máximo de páginas; revisa la matriz")
+
+
 def pdf_from_workbook(raw: bytes, code: str, data: dict, *,
                       changes: dict | None = None, matrix: list[str] | None = None,
                       extra_matrices: dict[str, list[str]] | None = None,
                       preview: bool = False) -> bytes:
     converted = libreoffice_pdf(excel_document(raw, code, data, changes, matrix, extra_matrices))
     with fitz.open(stream=converted, filetype="pdf") as pdf:
+        if code == "irl" and matrix:
+            append_irl_continuation(pdf, matrix, data)
         expected_worker = get_data(data, "worker.name").strip()
         if expected_worker and code in {"labor_contract", "transfer_addendum", "pts_receipt",
                                          "ppe_delivery", "internal_rules_receipt"}:
