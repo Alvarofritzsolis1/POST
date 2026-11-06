@@ -1,48 +1,113 @@
-# GALANT 16.0.0-rc1 · Proyecto JAVIERA
+# GALANT 16.0.1-rc1 — JAVIERA: conservación de documentos y validación por especialistas
 
-**Estado:** candidato de integración; PR #40 en borrador; **NO desplegado** ni aprobado para producción.
+**Estado: implementación en rama de desarrollo, PR #40 en borrador. NO desplegada ni aprobada para producción.**
 
-## Origen y alcance
-- Repositorio operativo: `Alvarofritzsolis1/POST` (no el repositorio Streamlit anterior).
-- Base: GALANT 15.0.5-rc1 React/FastAPI/PostgreSQL.
-- Especificación: Proyecto JAVIERA V3, contratistas y subcontratos, actuales y antiguos.
-- Las áreas son `Zona Subcontratos` y `Prevención de Riesgos`. Se modelan diez piezas: contrato, traslado, declaración, prórroga, reglamento, EPP, IRL, PTS, recepción PTS e inducción.
-- Navegación `/proyecto-javiera`; botón global administrador `Configuración de automatización` en `/configuracion/automatizacion`.
+## 1. Origen
 
-## Funcionalidad incluida en esta rama
-- Selección de obra, empresa, empleador directo, trabajador y cargo desde datos GALANT; creación de empresas/trabajadores por los endpoints existentes; vínculo opcional con empresa contratista principal.
-- Formularios reactivos y elegibilidad del servidor con faltantes, RUT chileno, eventos, tipo de vínculo, contratos y matrices preventivas.
-- Configuración por plantilla: texto integral, variables `{{worker.name}}`, campos personalizados `extra.*`, reglas de eventos y vínculos, encabezado/pie, letra y margen del PDF. Edición de matrices en versiones.
-- Aprobación de plantillas y matrices por un segundo administrador (autor no se aprueba a sí mismo), registro de auditoría.
-- PDF individual A4 privado; vista previa con advertencia; cada emisión conserva hash SHA-256, instantánea de datos y versión de plantilla, sin inventar firmas, entregas ni inducciones.
-- Carga de documentos históricos para revisión posterior; estado histórico nunca se infiere automáticamente como vigente.
-- Subida **privada** del Excel corregido desde Configuración: extrae matrices PTS, IRL, perfiles, condiciones y sustancias como borradores sujetos a revisión.
-- Migración aditiva v16 para seis tablas nuevas, sin borrar ni modificar tablas de GALANT.
+- Repositorio real GALANT React/FastAPI/PostgreSQL: \`Alvarofritzsolis1/POST\`.
+- Rama: \`feat/galant-v16-proyecto-javiera-20261106\`.
+- Base instalada antes de v16: \`15.0.5-rc1\`.
+- Especificación funcional: Proyecto JAVIERA V3.
+- Entradas: Contratistas y Subcontratos; áreas documentales: Zona Subcontratos y Prevención de Riesgos.
+- Ruta del módulo: \`/proyecto-javiera\`. Ruta del panel: \`/configuracion/automatizacion\`.
 
-## Cómo iniciar en entorno privado de pruebas
-1. Revisar **PR #40** y esperar CI verde: `https://github.com/Alvarofritzsolis1/POST/pull/40`.
-2. Crear respaldo consistente de la base + almacenamiento `/data/private`, y comprobar la restauración en un entorno aislado.
-3. En una **copia aislada** de GALANT, ejecutar el comando existente `python -m app.cli init-db` / migración verificada según `docs/INSTALACION_VPS_CADA_VERSION.md`. Esto registra nuevas tablas; no migrar antes de probar el backup.
-4. Acceder como administrador, abrir Configuración de automatización, cargar `JAVIERA_ETAPA_1_PTS_CORREGIDOS.xlsx` desde el computador **sin subirlo al repositorio público**.
-5. Revisar cada matriz importada; otro administrador la aprobará tras validar los riesgos reales por obra.
-6. Redactar/revisar/publicar las plantillas exactas de documentos, sus condiciones y variables. No se publican textos legales genéricos de forma automática.
-7. Seleccionar empresa, trabajador, obra, evento y datos. Ver las tarjetas documentales y generar PDF cuando los requisitos y aprobaciones estén superados.
+## 2. Documentos originales
 
-## Pruebas y limitaciones
-- Pruebas unitarias nuevas: `apps/backend/tests/test_javiera_v16.py` (cargos, RUT, 10 documentos, independencia/contrato, IRL vs PTS, PDF vista previa, tokens seguros e histórico).
-- Los flujos API integrados y navegador/impresión requieren pruebas contra PostgreSQL y datos **sintéticos**, así como validación legal y preventiva antes del despliegue.
-- La importación identifica contenido de matriz; **no reproduce automáticamente la maquetación original** de las 17 hojas Excel ni genera de inmediato todos sus documentos.
-- Los PDF actuales son composición A4 basada en texto y controles de presentación simples; quedan pendientes formatos ricos (tablas anidadas, membretes complejos, firmas digitales reales) para alcanzar fidelidad al Excel.
-- Todos los perfiles de acceso de JAVIERA son **solo administrador** en esta versión candidata. El responsable de prevención y el revisor jurídico deben realizar una aprobación competente por procedimiento.
-- No existe acreditación automática de firma, recepción, entrega EPP, inducción ni verificación de pagos.
-- El editor aún no es WYSIWYG; se configura mediante campos y texto/variables. Una futura iteración puede mejorar formato visual, siempre conservando controles de publicación.
-- No fusionar ni desplegar sin CI completo, respaldo verificado, pruebas visuales PDF y validación de los procedimientos.
+El módulo reconoce los **10 documentos individuales** del Excel corregido:
 
-## Código VPS
+| Documento GALANT | Hoja original XLSX | Revisión |
+|---|---|---|
+| Contrato de trabajo | Contrato Imprimible | Laboral |
+| Anexo de traslado | Anexo Traslado | Laboral |
+| Declaración jurada | DECLARACION JURADA | Laboral |
+| Prórroga contrato | Anexo extension contrato | Laboral |
+| Recepción reglamento interno | REGLAMENTO INTERNO | Prevención |
+| Entrega EPP | Registros Entrega EPP | Prevención |
+| IRL | IRL | Prevención |
+| PTS | PTS. | Prevención |
+| Recepción PTS | ENTREGA PTS | Prevención |
+| Inducción | INDUCCION PREVENCION | Prevención |
 
-**No ejecutar actualización en producción todavía.** La rama está en PR borrador, `main` permanece en la versión actual. El procedimiento seguro de despliegue sigue en:
-- `docs/INSTALACION_VPS_CADA_VERSION.md`
-- `docs/DESPLIEGUE_VPS_UN_CLIC.md`
-- `docs/ACTUALIZACION_SEGURA_VPS.md`
+Las matrices técnicas PTS, IRL, perfiles y sustancias se importan de las hojas correspondientes, como **borradores privados** que deben revisarse.
 
-Los comandos finales de PowerShell/SSH para producción solo deben utilizarse tras completar y aprobar estas comprobaciones, manteniendo respaldo y rollback.
+### Fidelidad de diseño (no equivalencia píxel por píxel garantizada)
+
+- \`javiera_excel.py\` preserva el OOXML original de la hoja: estilos, imágenes/media, rellenos, bordes, celdas combinadas y rangos/ajustes de impresión.
+- Se genera **un libro temporal con una sola hoja imprimible** para evitar que LibreOffice exporte accidentalmente todas las demás hojas.
+- Se eliminan fórmulas dinámicas de la hoja final de impresión, sustituyéndolas por valores del expediente. Las variables de texto personal, cargo y fecha se procesan antes del PDF. El libro original permanece privado e intacto.
+- \`libreoffice-calc\` convierte a PDF en carpeta temporal; \`PyMuPDF\` valida el resultado, páginas y vista previa.
+- El contenido final no debe contener valores personales del ejemplo del XLSX: \`source_leaks\` bloquea la emisión al encontrar coincidencias detectables con el origen.
+- Conservación no significa perfección universal. Fuentes del sistema, imágenes WMF/VML y ajustes propios de Excel pueden renderizar distinto en LibreOffice. Se requiere comparación visual de las 10 piezas.
+
+### Correcciones específicas sobre el Excel base
+
+1. Anexo de extensión: la nueva fecha se obtiene del expediente, debe ser posterior al término previo, y se inserta en el bloque y en la celda de control de la prórroga.
+2. Declaración jurada: no permite un trabajador asignado; exige período, representante, domicilio, empresa mandante **real** y declaración explícita del responsable. Evita el nombre de empresa mandante fijo en el ejemplo original.
+3. EPP: las cantidades pre-llenadas en las ocho filas se limpian; solo se imprimen elementos cuya entrega se registró expresamente. Elementos ambiguos no se aceptan.
+4. PTS: se inyectan las 17 secciones de la matriz aprobada correspondiente al cargo; no copia un procedimiento de otro cargo.
+5. IRL: utiliza matriz de riesgo del cargo y contenido aprobado de puestos/perfiles/sustancias cuando exista.
+6. RUT y fechas: las fechas de ingreso/emisión/prórroga y datos del empleador y trabajador se obtienen del expediente; se bloquean RUT inválidos y fechas contradictorias.
+7. Jornada: se incluye control del máximo semanal ordinario general vigente a noviembre de 2026, sin sustituir el juicio sobre regímenes y excepciones aplicables.
+
+## 3. Configuración de automatización
+
+Desde el encabezado de GALANT, perfil administrador:
+
+- **Plantillas y cláusulas:** editar texto completo, variables, campos, condicionales declarativos, encabezado, pie, márgenes, tipografía básica.
+- **Matrices PTS/IRL:** importar el Excel, revisar cada sección y registrar versiones. No se publica automáticamente.
+- **Diseños Excel originales:** subir XLSX corregido privado, elegir documento, revisar las celdas por página, corregir textos y copiar un estilo preexistente, ajustar altura de fila, visualizar PDF y guardar como nueva versión.
+- **Revisiones y aprobaciones:** seleccionar documento y especialidad, completar lista de verificación y acta, publicar solo si existe designación vigente y revisor diferente del autor.
+
+Una corrección posterior crea versión nueva; PDF emitidos anteriormente no se sobrescriben.
+
+## 4. Validación humana laboral y preventiva
+
+\`javiera_review.py\` añade:
+
+- Designación de revisor por organización y especialidad (laboral o prevención), registrada por **otro administrador**.
+- Evaluación con lista de verificación (identidad/empleador, cláusulas, remuneraciones, jornada, períodos, etc. en laboral; riesgos/controles, puesto, sustancias, EPP, información y procedimientos en prevención).
+- Acta con resultado aprobado/observado, datos del revisor, comentarios sustantivos y referencia normativa.
+- La aprobación requiere que **todos** los controles estén marcados conformes y un comentario fundamentado; una persona no puede revisar su propio borrador.
+- Publicación de revisiones de plantillas estructuradas, PTS/IRL y maquetaciones XLSX bloqueada por API sin acta aprobatoria de la especialidad correspondiente.
+- La aplicación registra la revisión; **no certifica** que los documentos cumplan realmente la ley. Esa determinación corresponde al responsable jurídico/laboral o de prevención acreditado que revise los originales y el trabajo real.
+
+Referencias que deberá revisar el profesional: Código del Trabajo chileno, arts. 9 y 10; D.S. 44 sobre gestión preventiva y obligaciones de información.
+
+## 5. Flujo correcto para probar (sin tocar producción)
+
+1. Verificar en PR #40 todas las pruebas de GitHub Actions: backend, frontend, compilación, Docker, backup/restore aislado y smoke QA.
+2. En copia aislada del VPS, hacer respaldo consistente de PostgreSQL y directorio privado \`/data/private\`, y verificar restauración.
+3. Aplicar migraciones aditivas \`16.0.0\` y \`16.0.1_excel_pdf_reviews\` mediante CLI ya existente.
+4. Entrar con administrador a **Configuración de automatización → Diseños Excel originales** y cargar \`JAVIERA_ETAPA_1_PTS_CORREGIDOS.xlsx\` desde el ordenador (NO adjuntarlo a GitHub).
+5. Importar también las matrices PTS e IRL desde **Matrices PTS / IRL**. Los responsables deben revisar calidad técnica/cargo y aprobar las versiones.
+6. Revisar una a una las diez hojas y generar sus diez **vistas previas** con datos sintéticos; comprobar texto, saltos de página, logos, tablas, campos variables, ausencia de datos de ejemplo y firma en blanco. Corregir desde editor si es necesario.
+7. Designar formalmente revisores laboral y prevención; esos revisores deberán comprobar sustantivamente contenido y riesgos reales, registrar actas e indicar cambios. Solo entonces publicar.
+8. Crear expedientes con datos **sintéticos** de empresa/trabajador y comprobar los cuatro escenarios (nuevo/existente), 10 PDFs, históricos, restricciones y no emisión con faltantes.
+9. Recién después de todo ello, considerar la aprobación de PR, un respaldo/restauración completo de producción y el despliegue seguro por workflow.
+
+## 6. Pruebas automatizadas
+
+- \`apps/backend/tests/test_javiera_v16.py\`: 10 tipos, elegibilidad, RUT, cargo, PTS/IRL y vista previa PDF, no confundir generación con entrega o firma.
+- \`apps/backend/tests/test_javiera_excel_layout.py\`: generación de un Excel sintético con 10 hojas, estilos/bordes, combinación y área de impresión, sustitución de identidades, 17 secciones PTS, impresión PDF Calc real, fecha de prórroga, declaración jurada, EPP sin marcación ficticia.
+- \`.github/workflows/ci.yml\`: instala LibreOffice en CI para no omitir silenciosamente prueba real de conversión.
+- Nuevas migraciones aditivas y pruebas históricas de PostgreSQL para garantizar que no se destruye información previa.
+
+**No equivale aún a la ejecución de los 70 criterios de aceptación del prompt V3**, ni constituye revisión técnica/legal humana de las plantillas reales. La validación de la maquetación real requiere ensayar **las diez vistas previas del Excel proporcionado** en entorno privado.
+
+## 7. Límites importantes
+
+- El editor visual permite editar celdas y copiar formatos existentes, pero no es Excel ni un editor de imágenes/celdas combinadas de amplitud ilimitada. Para cambiar logotipo, dibujos o estructura compleja, el administrador puede modificar su XLSX de origen e importarlo como nueva versión.
+- El documento **no se firma** automáticamente. Firmas, recepción de PTS, EPP y asistencia real a inducción deben tener evidencias verificables. Un PDF emitido es un documento sin firma hasta que ésta exista.
+- Las plantillas originales dependen de la funcionalidad de impresión de LibreOffice; debe verificarse la equivalencia razonable con el Excel en cada documento.
+- Datos personales se mantienen en servidor privado; no se suben al repositorio público.
+- La versión de JAVIERA es actualmente **solo para administradores**, preservando el acceso restringido de los residentes y administrativos de GALANT.
+
+## 8. VPS y liberación
+
+**NO ejecutar los comandos de despliegue en producción en esta etapa.** Este PR permanece en borrador y \`main\` conserva la versión productiva anterior. El procedimiento de actualización y rollback está documentado en:
+
+- \`docs/INSTALACION_VPS_CADA_VERSION.md\`
+- \`docs/DESPLIEGUE_VPS_UN_CLIC.md\`
+- \`docs/ACTUALIZACION_SEGURA_VPS.md\`
+
+Cuando las pruebas y revisiones estén completas, publicar una versión estable y seguir el flujo de despliegue seguro con comprobación de salud y respaldo.
