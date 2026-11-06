@@ -494,7 +494,7 @@ export default function Javiera({configuration=false,onBack,onConfig}:{configura
             {item.ok&&item.id?<a target="_blank" rel="noreferrer"
               href={"/api/v1/javiera/issued/"+encodeURIComponent(item.id)+"/pdf"}>Abrir PDF</a>:
               <span>{item.reason||"Pendiente de revisión"}</span>}</p>)}
-        </div> 
+        </div>}
         <div className="jv-filters">{[["todos","Todos"],["listos","Listos"],["pendientes","Pendientes"],["historicos","Existentes"]].map(([v,l])=>
           <button key={v} className={filter===v?"active":""} onClick={()=>setFilter(v)}>{l}</button>)}</div>
         {groups.map(area=><div key={area} className="jv-doc-area">
