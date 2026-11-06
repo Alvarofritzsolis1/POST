@@ -23,6 +23,9 @@ from sqlalchemy.orm import Session
 
 from .config import settings
 from .db import get_db
+from .javiera_layout_api import latest_layout, make_pdf
+from .javiera_models import JavieraExcelLayout
+from .javiera_review import require_signoff, specialty_for_code
 from .javiera_logic import (DOCUMENTS, DOCUMENT_BY_CODE, check_template_fields,
                             eligibility, normalize_cargo, render_tokens)
 from .javiera_models import (JavieraDossier, JavieraHistory, JavieraIssue,
@@ -107,6 +110,24 @@ def template_data(db, org):
         result[row.code] = {"area": row.area, "title": row.title, "fields": row.fields,
             "rule": row.rule, "published_version": row.published_version,
             "has_body": bool(row.body or (draft and draft.contents.get("body")))}
+    from .javiera_logic import DOCUMENT_BY_CODE
+    layout_rows = db.scalars(select(JavieraExcelLayout).where(
+        JavieraExcelLayout.org_id == org,
+        JavieraExcelLayout.state == "approved"
+    ).order_by(JavieraExcelLayout.revision.asc())).all()
+    for layout in layout_rows:
+        entry = DOCUMENT_BY_CODE.get(layout.code)
+        if entry:
+            current = result.get(layout.code, {})
+            result[layout.code] = {
+                "title": current.get("title", entry[2]),
+                "area": current.get("area", entry[1]),
+                "fields": current.get("fields", entry[4]),
+                "published_version": layout.revision,
+                "has_body": True,
+                "rule": current.get("rule", {}),
+                "excel_source": True,
+            }
     return result
 
 
@@ -391,6 +412,17 @@ def prepared(db, user, ident: str, code: str, preview: bool):
 
 @router.post("/preview")
 def preview(data: Action, user: User = Depends(administrator), db: Session = Depends(get_db)):
+    if data.code not in DOCUMENT_BY_CODE:
+        raise HTTPException(404, "Documento desconocido")
+    layout = latest_layout(db, user.org_id, data.code)
+    if layout:
+        record = dossier(db, user, data.dossier_id)
+        item = next(x for x in evaluated(db, user, record.data, record.id) if x["code"] == data.code)
+        if not item["can_preview"]:
+            raise HTTPException(409, {"status": item["status"], "missing": item["missing_fields"]})
+        raw = make_pdf(db, user, layout, record.data, preview=True)
+        return Response(content=raw, media_type="application/pdf",
+                        headers={"Cache-Control":"no-store"})
     record, template, title, text = prepared(db, user, data.dossier_id, data.code, True)
     return Response(content=pdf_for(title, text, True, template.layout),
                     media_type="application/pdf", headers={"Cache-Control": "no-store"})
@@ -398,14 +430,40 @@ def preview(data: Action, user: User = Depends(administrator), db: Session = Dep
 
 @router.post("/issue")
 def issue(data: Action, user: User = Depends(administrator), db: Session = Depends(get_db)):
-    record, template, title, text = prepared(db, user, data.dossier_id, data.code, False)
-    existing = db.scalar(select(JavieraIssue).where(
+    if data.code not in DOCUMENT_BY_CODE:
+        raise HTTPException(404, "Documento desconocido")
+    record = dossier(db, user, data.dossier_id)
+    status = next(x for x in evaluated(db, user, record.data, record.id)
+                  if x["code"] == data.code)
+    if not status["can_issue"]:
+        raise HTTPException(409, {"error": "Documento bloqueado",
+            "status": status["status"], "missing_fields": status["missing_fields"],
+            "errors": status["blocking_errors"], "reason": status["reason"]})
+    layout = latest_layout(db, user.org_id, data.code)
+    if layout:
+        template_revision = layout.revision
+        source = "excel"
+        raw = make_pdf(db, user, layout, record.data, preview=False)
+        snapshot = {"data": record.data, "source": source,
+                    "layout_id": layout.id, "layout_revision": layout.revision,
+                    "workbook_sha256": layout.workbook_sha256, "overrides": layout.overrides}
+    else:
+        record, template, title, body = prepared(db, user, record.id, data.code, False)
+        template_revision = template.published_version
+        source = "structured"
+        raw = pdf_for(title, body, False, template.layout)
+        snapshot = {"data": record.data, "source": source,
+                    "title": template.title, "body": template.body,
+                    "fields": template.fields, "layout": template.layout,
+                    "rendered": body}
+    previous = db.scalars(select(JavieraIssue).where(
         JavieraIssue.org_id == user.org_id, JavieraIssue.dossier_id == record.id,
-        JavieraIssue.code == data.code, JavieraIssue.template_revision == template.published_version,
-        JavieraIssue.dossier_revision == record.revision))
-    if existing:
-        return {"id": existing.id, "sha256": existing.sha256, "reused": True}
-    raw = pdf_for(title, text, False, template.layout)
+        JavieraIssue.code == data.code,
+        JavieraIssue.template_revision == template_revision,
+        JavieraIssue.dossier_revision == record.revision)).all()
+    for existing in previous:
+        if existing.snapshot.get("source", "structured") == source:
+            return {"id": existing.id, "sha256": existing.sha256, "reused": True}
     digest = hashlib.sha256(raw).hexdigest()
     ident = str(uuid4())
     directory = settings().document_dir / user.org_id / "javiera" / record.id
@@ -415,12 +473,11 @@ def issue(data: Action, user: User = Depends(administrator), db: Session = Depen
         with location.open("xb") as handle:
             handle.write(raw)
         location.chmod(0o600)
-        obj = JavieraIssue(id=ident, org_id=user.org_id, dossier_id=record.id,
-            code=data.code, template_revision=template.published_version,
-            dossier_revision=record.revision, snapshot={"data": record.data,
-                "title": template.title, "body": template.body, "fields": template.fields,
-                "layout": template.layout, "rendered": text},
-            sha256=digest, storage_path=str(location), issued_by=user.id)
+        obj = JavieraIssue(id=ident, org_id=user.org_id,
+            dossier_id=record.id, code=data.code,
+            template_revision=template_revision, dossier_revision=record.revision,
+            snapshot=snapshot, sha256=digest,
+            storage_path=str(location), issued_by=user.id)
         db.add(obj)
         audit(db, user, "javiera.pdf_issued", obj.id)
         db.commit()
@@ -508,6 +565,7 @@ def approve_template(code: str, revision: int,
         raise HTTPException(409, "Versión no disponible para aprobación")
     if item.author_id == user.id:
         raise HTTPException(403, "La aprobación requiere un segundo administrador")
+    require_signoff(db, user, "template", item.id, specialty_for_code(code))
     if revision <= row.published_version:
         raise HTTPException(409, "No se puede reemplazar con una revisión anterior")
     obj = item.contents
@@ -561,6 +619,7 @@ def approve_matrix(matrix_id: str, user: User = Depends(administrator), db: Sess
         raise HTTPException(409, "Matriz no está en borrador")
     if row.author_id == user.id:
         raise HTTPException(403, "Requiere validación independiente de prevención")
+    require_signoff(db, user, "matrix", row.id, "prevencion")
     row.status, row.reviewer_id = "approved", user.id
     audit(db, user, "javiera.matrix_approved", row.id)
     db.commit()
