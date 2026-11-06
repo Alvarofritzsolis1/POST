@@ -537,6 +537,44 @@ def issue(data: Action, user: User = Depends(administrator), db: Session = Depen
     return {"id": ident, "sha256": digest, "reused": False}
 
 
+@router.post("/issue/batch")
+def issue_batch(payload: BatchIssue, user: User = Depends(administrator),
+                db: Session = Depends(get_db)):
+    """Emite solo los elegibles; cada PDF es una transacción independiente.
+
+    Un error no anula los PDFs válidos ya emitidos, ni declara éxito falso.
+    Dos clics recuperan la emisión vigente sin duplicar el archivo.
+    La reemisión histórica se solicita individualmente con motivo.
+    """
+    dossier(db, user, payload.dossier_id)
+    codes = list(dict.fromkeys(payload.codes))
+    if len(codes) != len(payload.codes):
+        raise HTTPException(422, "No se permiten documentos repetidos en un lote")
+    if any(code not in DOCUMENT_BY_CODE for code in codes):
+        raise HTTPException(422, "El lote contiene documentos desconocidos")
+    report = []
+    for code in codes:
+        try:
+            result = issue(Action(dossier_id=payload.dossier_id, code=code),
+                           user=user, db=db)
+            report.append({"code":code, "ok":True,
+                           "id":result["id"], "reused":result["reused"]})
+        except HTTPException as exc:
+            db.rollback()
+            detail = exc.detail
+            explanation = detail.get("reason") or detail.get("status") or detail.get("error") if isinstance(detail, dict) else str(detail)
+            report.append({"code":code, "ok":False, "reason":str(explanation)[:240]})
+        except Exception:
+            db.rollback()
+            # Evitar registrar RUT, nombres, sueldo o contenido de PDF en la respuesta.
+            report.append({"code":code, "ok":False,
+                           "reason":"Fallo técnico del documento; revisa el sistema antes de reintentar"})
+    return {"dossier_id":payload.dossier_id,
+            "total":len(report), "issued":sum(1 for x in report if x["ok"]),
+            "failed":sum(1 for x in report if not x["ok"]),
+            "results":report}
+
+
 @router.get("/issued/{issue_id}/pdf")
 def issued_pdf(issue_id: str, user: User = Depends(administrator), db: Session = Depends(get_db)):
     item = by_org(db, JavieraIssue, issue_id, user.org_id)
