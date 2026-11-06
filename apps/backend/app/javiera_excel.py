@@ -64,6 +64,10 @@ PTS_CELLS = [
 MAX_FILE = 12 * 1024 * 1024
 MAX_UNZIPPED = 65 * 1024 * 1024
 RESTRICTED_PARTS = ("vbaproject.bin", "externallinks/", "connections.xml", "oleobjects/", "activex/")
+# Referencias fijas de empresas mandantes del Excel de origen (no guardar
+# nombres reales ni direcciones dentro del código). Se cambia por mandante real.
+MANDANTE_PATTERN = re.compile(r"CONSTRUCTORA\\s+[A-ZÁÉÍÓÚÑ][A-ZÁÉÍÓÚÑ\\s]{2,38}\\s+(?:LIMITADA|LTDA\\.?)\\b", re.I)
+
 
 
 class LayoutError(ValueError):
@@ -441,6 +445,11 @@ def excel_document(raw: bytes, code: str, data: dict, changes: dict | None = Non
                     text = cached
             else:
                 text = dynamic_cached(cached, field_examples, data)
+            if code in {"induction","sworn_declaration"} and text:
+                principal = get_data(data, "extra.principal_company").strip()
+                if not principal:
+                    raise LayoutError("La empresa mandante debe identificarse antes de imprimir")
+                text = MANDANTE_PATTERN.sub(lambda _match: principal, text)
             if formula_element is not None or text != cached:
                 set_text(target, coordinate, text if text != "0" or not formula else "")
         if code == "extension_addendum":
