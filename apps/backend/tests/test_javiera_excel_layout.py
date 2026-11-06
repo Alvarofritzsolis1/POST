@@ -141,8 +141,9 @@ def test_epp_quantities_never_inherited_from_excel():
     raw = sample_xlsx()
     data = valid_data()
     data["event"]["epp_items"] = "Casco; Lentes de Seguridad; 2 x Arnés de seguridad"
-    converted = excel_document(raw, "ppe_delivery", data,
-                               changes={"D13": {"text": "9"}})
+    with pytest.raises(LayoutError, match="celdas"):
+        excel_document(raw, "ppe_delivery", data, changes={"D13": {"text": "9"}})
+    converted = excel_document(raw, "ppe_delivery", data)
     with ZipFile(io.BytesIO(converted)) as z:
         root = ET.fromstring(z.read(sheet_files(z)["Registros Entrega EPP"]))
         def val(coord):
