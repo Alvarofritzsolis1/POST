@@ -396,9 +396,9 @@ export default function JavieraWorkspace({onConfig}:{onConfig?:()=>void}){
       {meta.options?<select id={"jf-"+key.replaceAll(".","-")} value={value} onChange={e=>setField(key,e.target.value)}>
         <option value="">Selecciona</option>{meta.options.map(x=><option key={x} value={x}>{x}</option>)}
       </select>:<input id={"jf-"+key.replaceAll(".","-")} type={meta.type||"text"} value={value}
-        min={meta.type==="number"?"0":undefined} autoComplete="off"
+        min={meta.type==="number"?"0":undefined} list={key==="role"?"j65-roles":undefined} autoComplete="off"
         onChange={e=>setField(key,e.target.value)} placeholder={meta.type==="date"?"":meta.label}/>}
-      {(src||meta.hint)&&<small>{src&&valid?"<span>":"":src&&valid?"Recuperado de "+src+". ":""}{meta.hint||""}</small>}
+      {(src||meta.hint)&&<small>{src&&valid?"Dato: "+src+". ":""}{meta.hint||""}</small>}
     </label>;
   }
 
