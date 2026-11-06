@@ -60,6 +60,12 @@ class Evaluation(Strict):
 class Action(Strict):
     dossier_id: str
     code: str
+    reissue_reason: str | None = Field(default=None, max_length=600)
+
+
+class BatchIssue(Strict):
+    dossier_id: str
+    codes: list[str] = Field(min_length=1, max_length=10)
 
 
 class TemplateChange(Strict):
@@ -168,23 +174,33 @@ def resolve_data(db: Session, user: User, record: DossierInput) -> dict:
     return data
 
 
-def evaluated(db: Session, user: User, data: dict, dossier_id: str | None):
+def evaluated(db: Session, user: User, data: dict, dossier_id: str | None,
+              ignore_history: bool = False):
     templates = template_data(db, user.org_id)
     cargo = normalize_cargo(data.get("role"))
     matrix_rows = db.execute(select(JavieraMatrix.kind, JavieraMatrix.cargo).where(
         JavieraMatrix.org_id == user.org_id, JavieraMatrix.status == "approved")).all()
     approved = {kind + ":" + matrix_cargo for kind, matrix_cargo in matrix_rows}
     existing, history = set(), set()
-    if dossier_id:
+    if dossier_id and not ignore_history:
         record = dossier(db, user, dossier_id)
-        existing = set(db.scalars(select(JavieraIssue.code).where(
-            JavieraIssue.org_id == user.org_id, JavieraIssue.dossier_id == dossier_id,
-            JavieraIssue.dossier_revision == record.revision)).all())
-        history = set(db.scalars(select(JavieraIssue.code).where(
-            JavieraIssue.org_id == user.org_id, JavieraIssue.dossier_id == dossier_id,
-            JavieraIssue.dossier_revision != record.revision)).all())
+        issues = db.scalars(select(JavieraIssue).where(
+            JavieraIssue.org_id == user.org_id,
+            JavieraIssue.dossier_id == dossier_id)).all()
+        for item in issues:
+            current = templates.get(item.code) or {}
+            current_version = current.get("published_version", 0)
+            current_source = "excel" if current.get("excel_source") else "structured"
+            saved_source = item.snapshot.get("source", "structured")
+            if (item.dossier_revision == record.revision and
+                item.template_revision == current_version and
+                saved_source == current_source):
+                existing.add(item.code)
+            else:
+                history.add(item.code)
         history.update(db.scalars(select(JavieraHistory.code).where(
-            JavieraHistory.org_id == user.org_id, JavieraHistory.dossier_id == dossier_id)).all())
+            JavieraHistory.org_id == user.org_id,
+            JavieraHistory.dossier_id == dossier_id)).all())
     return eligibility(data, templates, approved, existing, history)
 
 
@@ -359,11 +375,14 @@ def evaluate(payload: Evaluation, user: User = Depends(administrator), db: Sessi
             "documents": evaluated(db, user, data, payload.dossier_id)}
 
 
-def prepared(db, user, ident: str, code: str, preview: bool):
+def prepared(db, user, ident: str, code: str, preview: bool,
+             allow_reissue: bool = False):
     if code not in DOCUMENT_BY_CODE:
         raise HTTPException(404, "Documento desconocido")
     record = dossier(db, user, ident)
-    result = next(d for d in evaluated(db, user, record.data, ident) if d["code"] == code)
+    result = next(d for d in evaluated(db, user, record.data, ident,
+                                        ignore_history=allow_reissue and not preview)
+                  if d["code"] == code)
     if (preview and not result["can_preview"]) or (not preview and not result["can_issue"]):
         raise HTTPException(409, {"error": "Documento bloqueado", "status": result["status"],
                                   "missing_fields": result["missing_fields"],
@@ -437,24 +456,52 @@ def issue(data: Action, user: User = Depends(administrator), db: Session = Depen
     record = dossier(db, user, data.dossier_id)
     status = next(x for x in evaluated(db, user, record.data, record.id)
                   if x["code"] == data.code)
-    if not status["can_issue"]:
-        raise HTTPException(409, {"error": "Documento bloqueado",
-            "status": status["status"], "missing_fields": status["missing_fields"],
-            "errors": status["blocking_errors"], "reason": status["reason"]})
     layout = latest_layout(db, user.org_id, data.code)
+    desired_source = "excel" if layout else "structured"
+    if status["status"] == "EMITIDO":
+        current = db.scalars(select(JavieraIssue).where(
+            JavieraIssue.org_id == user.org_id, JavieraIssue.dossier_id == record.id,
+            JavieraIssue.code == data.code,
+            JavieraIssue.dossier_revision == record.revision,
+            JavieraIssue.template_revision == status["template_version"])).all()
+        for previous in current:
+            if previous.snapshot.get("source", "structured") == desired_source:
+                return {"id":previous.id, "sha256":previous.sha256, "reused":True}
+    is_reissue = status["status"] == "EXISTENTE_POR_VERIFICAR"
+    justification = (data.reissue_reason or "").strip()
+    if is_reissue and len(justification) >= 20:
+        new_check = next(x for x in evaluated(db, user, record.data, record.id,
+                                             ignore_history=True)
+                         if x["code"] == data.code)
+        if not new_check["can_issue"]:
+            status = new_check
+    elif not status["can_issue"]:
+        raise HTTPException(409, {"error":"Documento bloqueado",
+            "status":status["status"],"missing_fields":status["missing_fields"],
+            "errors":status["blocking_errors"],"reason":status["reason"],
+            "requires_reissue_reason":is_reissue})
+    if not status["can_issue"] and not (
+        is_reissue and len(justification) >= 20 and new_check["can_issue"]
+    ):
+        raise HTTPException(409, {"error":"Documento bloqueado",
+            "status":status["status"],"missing_fields":status["missing_fields"],
+            "errors":status["blocking_errors"],"reason":status["reason"]})
     if layout:
         template_revision = layout.revision
         source = "excel"
         raw = make_pdf(db, user, layout, record.data, preview=False)
         snapshot = {"data": record.data, "source": source,
+                    "reissue_reason": justification if is_reissue else None,
                     "layout_id": layout.id, "layout_revision": layout.revision,
                     "workbook_sha256": layout.workbook_sha256, "overrides": layout.overrides}
     else:
-        record, template, title, body = prepared(db, user, record.id, data.code, False)
+        record, template, title, body = prepared(db, user, record.id, data.code, False,
+                                                  allow_reissue=is_reissue)
         template_revision = template.published_version
         source = "structured"
         raw = pdf_for(title, body, False, template.layout)
         snapshot = {"data": record.data, "source": source,
+                    "reissue_reason": justification if is_reissue else None,
                     "title": template.title, "body": template.body,
                     "fields": template.fields, "layout": template.layout,
                     "rendered": body}
