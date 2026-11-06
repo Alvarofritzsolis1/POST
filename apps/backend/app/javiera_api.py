@@ -70,7 +70,7 @@ class TemplateChange(Strict):
 
 
 class MatrixChange(Strict):
-    kind: str = Field(pattern="^(PTS|IRL)$")
+    kind: str = Field(pattern="^(PTS|IRL|PUESTOS|PERFILES|SUSTANCIAS)$")
     cargo: str = Field(min_length=2, max_length=160)
     sections: list[str] = Field(min_length=1, max_length=35)
     source: str = Field(default="", max_length=180)
@@ -345,15 +345,25 @@ def prepared(db, user, ident: str, code: str, preview: bool):
         kind = "IRL" if code == "irl" else "PTS"
         cargo = normalize_cargo(record.data.get("role"))
         matrix = db.scalar(select(JavieraMatrix).where(
-            JavieraMatrix.org_id == user.org_id,
-            JavieraMatrix.kind == kind, JavieraMatrix.cargo == cargo,
-            JavieraMatrix.status == "approved").order_by(JavieraMatrix.revision.desc()))
+            JavieraMatrix.org_id == user.org_id, JavieraMatrix.kind == kind,
+            JavieraMatrix.cargo == cargo, JavieraMatrix.status == "approved"
+        ).order_by(JavieraMatrix.revision.desc()))
         if not matrix:
             raise HTTPException(409, "Matriz preventiva pendiente de aprobación")
         if code != "pts_receipt":
             output += "\n\n" + kind + " · " + matrix.cargo + " · Revisión " + str(matrix.revision)
             for number, section in enumerate(matrix.sections, 1):
                 output += "\n\n" + str(number) + ". " + str(section)
+        if code == "irl":
+            for extra_kind in ("PERFILES", "PUESTOS", "SUSTANCIAS"):
+                extra = db.scalar(select(JavieraMatrix).where(
+                    JavieraMatrix.org_id == user.org_id, JavieraMatrix.kind == extra_kind,
+                    JavieraMatrix.cargo == cargo, JavieraMatrix.status == "approved"
+                ).order_by(JavieraMatrix.revision.desc()))
+                if extra:
+                    output += "\n\n" + extra_kind + " · " + extra.cargo
+                    for section in extra.sections:
+                        output += "\n" + str(section)
     return record, template, title, output
 
 
@@ -492,7 +502,7 @@ def approve_template(code: str, revision: int,
 def matrices(kind: str = "", user: User = Depends(administrator), db: Session = Depends(get_db)):
     query = select(JavieraMatrix).where(JavieraMatrix.org_id == user.org_id)
     if kind:
-        if kind not in {"PTS", "IRL"}:
+        if kind not in {"PTS", "IRL", "PUESTOS", "PERFILES", "SUSTANCIAS"}:
             raise HTTPException(422, "Matriz inválida")
         query = query.where(JavieraMatrix.kind == kind)
     rows = db.scalars(query.order_by(JavieraMatrix.cargo, JavieraMatrix.revision.desc()).limit(800)).all()
@@ -581,3 +591,87 @@ def verify_history(history_id: str, data: HistoryReview,
     audit(db, user, "javiera.history_verified", row.id)
     db.commit()
     return {"id": row.id, "state": row.evidence_state}
+
+
+@router.post("/admin/import-workbook")
+async def import_workbook(file: UploadFile = File(...),
+                          user: User = Depends(administrator), db: Session = Depends(get_db)):
+    """Importación privada de matrices del Excel JAVIERA (no publica automáticamente).
+
+    Se extraen únicamente datos técnicos de matrices; no se importa la hoja de
+    ejemplo Datos Contrato, ni se guardan RUT/remuneraciones del archivo.
+    """
+    raw = await file.read(8 * 1024 * 1024 + 1)
+    if len(raw) > 8 * 1024 * 1024:
+        raise HTTPException(413, "Carga un XLSX optimizado de máximo 8 MB")
+    if not raw.startswith(b"PK"):
+        raise HTTPException(415, "Archivo XLSX inválido")
+    try:
+        book = load_workbook(io.BytesIO(raw), read_only=True, data_only=True, keep_links=False)
+    except Exception:
+        raise HTTPException(422, "No se pudo abrir el XLSX") from None
+    staged = {}
+    omissions = []
+    def collect(kind: str, cargo, sections):
+        cargo = normalize_cargo(str(cargo or ""))
+        values = [str(v).strip() for v in sections if v is not None and str(v).strip()]
+        if not cargo or len(cargo) > 160:
+            return
+        if kind == "PTS" and len(values) != 17:
+            omissions.append(kind + ": " + cargo + " incompleto")
+            return
+        if not values:
+            return
+        key = (kind, cargo)
+        if key not in staged:
+            staged[key] = values
+        elif kind == "IRL":
+            staged[key].extend(values)
+    try:
+        if "MATRIZ PTS" in book.sheetnames:
+            ws = book["MATRIZ PTS"]
+            for row in ws.iter_rows(min_row=2, max_row=min(ws.max_row, 200), max_col=20, values_only=True):
+                if row[0]:
+                    collect("PTS", row[0], row[3:20])
+        if "MATRIZ IRL" in book.sheetnames:
+            ws = book["MATRIZ IRL"]
+            for row in ws.iter_rows(min_row=2, max_row=min(ws.max_row, 1500), max_col=6, values_only=True):
+                if row[1]:
+                    task, hazard, risk, prevention = row[2:6]
+                    text = "Tarea: " + str(task or "") + "\nPeligro: " + str(hazard or "")
+                    text += "\nRiesgo: " + str(risk or "") + "\nMedidas: " + str(prevention or "")
+                    collect("IRL", row[1], [text])
+        for sheet_name, kind, cargo_col, start_col, max_col in (
+            ("Matriz IRL Optimizada", "PUESTOS", 0, 1, 5),
+            ("MATRIZ DESCRIPCION DE CARGO IRL", "PERFILES", 1, 2, 3),
+            ("Base_Datos_Sustancias", "SUSTANCIAS", 0, 1, 12),
+        ):
+            if sheet_name not in book.sheetnames:
+                continue
+            ws = book[sheet_name]
+            for row in ws.iter_rows(min_row=2, max_row=min(ws.max_row, 500),
+                                    max_col=max_col, values_only=True):
+                if row[cargo_col]:
+                    collect(kind, row[cargo_col], row[start_col:max_col])
+    finally:
+        book.close()
+    if not staged:
+        raise HTTPException(422, "No se encontraron matrices compatibles. Revisa los nombres de hojas.")
+    if len(staged) > 250:
+        raise HTTPException(413, "Demasiadas matrices para una importación")
+    counts = {}
+    for (kind, cargo), sections in staged.items():
+        if len(sections) > 35 or len(json.dumps(sections, ensure_ascii=False)) > 50000:
+            omissions.append(kind + ": " + cargo + " excede límite de contenido")
+            continue
+        previous = db.scalar(select(func.max(JavieraMatrix.revision)).where(
+            JavieraMatrix.org_id == user.org_id, JavieraMatrix.kind == kind,
+            JavieraMatrix.cargo == cargo)) or 0
+        db.add(JavieraMatrix(org_id=user.org_id, kind=kind, cargo=cargo,
+            revision=previous + 1, sections=sections, status="draft",
+            source="Excel JAVIERA (carga privada)", author_id=user.id))
+        counts[kind] = counts.get(kind, 0) + 1
+    audit(db, user, "javiera.workbook_import", str(uuid4()))
+    db.commit()
+    return {"drafts": counts, "omissions": omissions[:80],
+            "message": "Importación privada, borradores pendientes de aprobación independiente"}
