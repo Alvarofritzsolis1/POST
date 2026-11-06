@@ -87,3 +87,11 @@
 @media(max-width:900px){.jv-workspace{grid-template-columns:1fr}.jv-document-panel{position:static;max-height:none}}
 @media(max-width:700px){.jv-paired,.jv-mode-cards,.jv-admin-layout{grid-template-columns:1fr}.jv-admin{padding:14px}.jv-heading{align-items:flex-start;flex-direction:column}.jv-versions{grid-column:auto}.jv-hero{padding:20px}.jv-document-panel{padding:13px}}
 @media(prefers-reduced-motion:reduce){.jv-mode-cards button,.jv-progress span{transition:none}}
+
+.jv-import{background:#fff;border:1px solid #d9e2ec;border-radius:13px;margin:15px 0;padding:18px 20px}
+.jv-import h2{font-size:1rem;margin:0 0 5px}
+.jv-import p{color:#536b80;font-size:.84rem;line-height:1.5}
+.jv-import .jv-upload{cursor:pointer;display:inline-flex;align-items:center;gap:8px;padding:10px 12px;background:#204b79;color:#fff;border-radius:8px;font-size:.82rem;font-weight:700}
+.jv-inline-action{font-size:.79rem!important;display:inline-flex;background:transparent!important;border:0!important;color:#225583!important;font-weight:750;padding:6px 1px!important;margin:3px 0 10px}
+.jv-new-form{border:1px solid #dce7f1;border-radius:10px;background:#f5f9fd;padding:13px;margin-bottom:13px}
+.jv-new-form button{background:#234b79;color:#fff;border:0;border-radius:7px;padding:8px 13px;font-weight:700}
