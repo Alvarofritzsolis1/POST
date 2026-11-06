@@ -428,6 +428,61 @@ def excel_document(raw: bytes, code: str, data: dict, changes: dict | None = Non
                 text = dynamic_cached(cached, field_examples, data)
             if formula_element is not None or text != cached:
                 set_text(target, coordinate, text if text != "0" or not formula else "")
+        if code == "extension_addendum":
+            try:
+                new_end = date.fromisoformat(get_data(data, "contract.new_end"))
+                old_end = date.fromisoformat(get_data(data, "contract.end"))
+                start = date.fromisoformat(get_data(data, "contract.start"))
+            except (ValueError, TypeError):
+                raise LayoutError("El anexo requiere fechas válidas de ingreso, término y prórroga") from None
+            if new_end <= old_end:
+                raise LayoutError("La prórroga debe superar la fecha actual de término")
+            set_numeric(target, "M4", float((new_end - date(1899, 12, 30)).days))
+            set_text(target, "A5",
+                     "PRIMERO: Las partes dejan constancia de que el contrato de trabajo "
+                     "iniciado el " + start.strftime("%d/%m/%Y") +
+                     " y cuyo vencimiento estaba fijado para el " + old_end.strftime("%d/%m/%Y") +
+                     " se prorroga, de mutuo acuerdo, hasta el " + new_end.strftime("%d/%m/%Y") +
+                     ". Las restantes condiciones del contrato se mantienen vigentes, "
+                     "salvo modificaciones escritas expresamente acordadas.")
+        if code == "sworn_declaration":
+            if get_data(data, "worker.name").strip():
+                raise LayoutError("La declaración jurada de ausencia de trabajadores no puede incluir un trabajador asignado")
+            period = get_data(data, "extra.declaration_period").strip()
+            if not re.fullmatch(r"20\d\d-(0[1-9]|1[0-2])", period):
+                raise LayoutError("Indica periodo de declaración como YYYY-MM")
+            principal = get_data(data, "extra.principal_company").strip()
+            if not principal:
+                raise LayoutError("Indica el nombre real de la empresa mandante; no se hereda del Excel")
+            representative = get_data(data, "extra.representative_name")
+            rep_rut = get_data(data, "extra.representative_rut")
+            nationality = get_data(data, "extra.representative_nationality")
+            employer = get_data(data, "employer.name")
+            employer_rut = get_data(data, "employer.rut")
+            address = get_data(data, "extra.employer_address")
+            city = get_data(data, "extra.employer_city")
+            set_text(target, "A4",
+                     f"YO, {representative}, RUT N° {rep_rut}, REPRESENTANTE DE {employer}, "
+                     f"RUT {employer_rut}, DE NACIONALIDAD {nationality}, "
+                     f"DOMICILIADO EN {address}, CIUDAD DE {city}, "
+                     "DECLARO BAJO FE DE JURAMENTO:")
+            fromcalendar = (
+                "QUE DURANTE EL MES DE " +
+                ("ENERO","FEBRERO","MARZO","ABRIL","MAYO","JUNIO","JULIO",
+                 "AGOSTO","SEPTIEMBRE","OCTUBRE","NOVIEMBRE","DICIEMBRE")[int(period[5:])-1]
+                + " DEL AÑO " + period[:4]
+            )
+            set_text(target, "A5",
+                     fromcalendar +
+                     ", NO HE TENIDO TRABAJADORES A MI CARGO BAJO RÉGIMEN DE "
+                     "SUBORDINACIÓN O DEPENDENCIA EN LA OBRA " +
+                     get_data(data, "site.name") + ", UBICADA EN " +
+                     get_data(data, "extra.site_address") +
+                     ", DESARROLLANDO LAS LABORES DE " + get_data(data, "extra.specialty") +
+                     ", EN VIRTUD DE LA RELACIÓN DE SERVICIOS CON " + principal +
+                     ". DECLARACIÓN ESPECÍFICA: " +
+                     get_data(data, "contract.declaration_reason") + ".")
+
         if code == "pts_receipt":
             set_text(target,"A24","Nacionalidad: "+get_data(data,"extra.worker_nationality"))
             set_text(target,"F24","Estado civil: "+get_data(data,"extra.worker_marital_status"))
@@ -462,6 +517,38 @@ def excel_document(raw: bytes, code: str, data: dict, changes: dict | None = Non
             extra = extra_matrices.get("SUSTANCIAS", [])
             for i in range(69, 81):
                 set_text(target, "C"+str(i), extra[i-69] if i-69 < len(extra) else "")
+        if code == "ppe_delivery":
+            # La plantilla original pre-marca cantidad=1 para ocho EPP, lo que puede
+            # generar falsas entregas. Limpiar SIEMPRE cantidades no declaradas.
+            names = [
+                "Casco de Seguridad", "Calzado de Seguridad", "Lentes de Seguridad",
+                "Guantes de Cabritilla", "Protección Auditiva/Mascarilla",
+                "Arnés de seguridad", "Delantal de cuero", "Guantes de soldador",
+            ]
+            imports = __import__("unicodedata")
+            def basic(text):
+                normalized = imports.normalize("NFD", text.strip().lower())
+                return " ".join("".join(x for x in normalized if imports.category(x)!="Mn").split())
+            declared = re.split(r"[,;\n]", get_data(data, "event.epp_items"))
+            quantities = [0]*len(names)
+            for item in declared:
+                item = basic(item)
+                if not item:
+                    continue
+                match = re.fullmatch(r"(\d{1,2})\s*[xX]?\s+(.+)", item)
+                amount, description = (int(match.group(1)), match.group(2)) if match else (1, item)
+                if amount < 1 or amount > 30:
+                    raise LayoutError("Cantidad EPP fuera de rango")
+                matches = [i for i, name in enumerate(names)
+                           if (description in basic(name) or basic(name) in description)]
+                if len(matches) != 1:
+                    raise LayoutError("EPP ambiguo o no contemplado en matriz original: " + item)
+                quantities[matches[0]] += amount
+            if not sum(quantities):
+                raise LayoutError("Debes identificar el EPP efectivamente entregado")
+            for index, amount in enumerate(quantities, start=12):
+                set_text(target, "D"+str(index), str(amount) if amount else "")
+
         if changes:
             replacements_for_fields = {}
             for coordinate, props in changes.items():
