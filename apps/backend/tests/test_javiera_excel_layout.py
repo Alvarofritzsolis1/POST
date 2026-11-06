@@ -255,3 +255,27 @@ def test_ten_original_document_pdfs_with_synthetic_person_only(code):
         assert "DOCUMENTO DE PRUEBA" in pages
         assert "PERSONA ANTIGUA" not in pages
         assert "VISTA PREVIA" in pages
+
+
+
+@pytest.mark.skipif(shutil.which("libreoffice") is None, reason="Requiere LibreOffice para exportar IRL")
+@pytest.mark.parametrize("risk_rows", [13, 26])
+def test_irl_pdf_keeps_every_approved_risk_even_past_12_rows(risk_rows):
+    """El IRL original tiene capacidad para 12 filas, pero una matriz puede tener 26."""
+    from app.javiera_excel import pdf_from_workbook
+    data = valid_data()
+    rows = [
+        "Tarea: Registro de riesgo numero " + str(i) +
+        "\nPeligro: Peligro sintético "+str(i)+
+        "\nRiesgo: Lesión en actividad "+str(i)+
+        "\nMedidas: Control obligatorio del riesgo "+str(i)
+        for i in range(1, risk_rows+1)
+    ]
+    raw = pdf_from_workbook(sample_xlsx(), "irl", data, matrix=rows, preview=True)
+    with fitz.open(stream=raw, filetype="pdf") as document:
+        text = "\n".join(page.get_text() for page in document)
+        assert "ANEXO INTEGRANTE" in text
+        for index in range(13, risk_rows+1):
+            assert f"REGISTRO {index}" in text
+            assert f"Control obligatorio del riesgo {index}" in text
+        assert "VISTA PREVIA" in text
