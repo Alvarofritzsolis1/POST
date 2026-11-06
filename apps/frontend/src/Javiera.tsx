@@ -410,8 +410,9 @@ export default function Javiera({configuration=false,onBack,onConfig}:{configura
   const ready=cards.filter(c=>c.can_issue).length;
   const groups=["Zona Subcontratos","Prevención de Riesgos"];
   return <section className="jv-module">
-    <div className="jv-hero"><div className="jv-hero-back-row"><button type="button" className="jv-back" onClick={()=>{setMode(null);setDossierId("");setSaved(null);}}><ArrowLeft size={18}/> Proyecto JAVIERA</button></div>
-      <small>{mode==="contractor"?"CONTRATISTAS":"SUBCONTRATOS"} · EXPEDIENTE</small>
+    <div className="jv-hero" style={{display:"grid",gridTemplateColumns:"minmax(0, 1fr)",gridAutoFlow:"row",justifyItems:"start",alignContent:"start",rowGap:9}}>
+      <div className="jv-hero-back-row" style={{display:"block",width:"100%",minHeight:31,margin:0}}><button type="button" className="jv-back" onClick={()=>{setMode(null);setDossierId("");setSaved(null);}}><ArrowLeft size={18}/> Proyecto JAVIERA</button></div>
+      <small style={{display:"block",gridColumn:1}}>{mode==="contractor"?"CONTRATISTAS":"SUBCONTRATOS"} · EXPEDIENTE</small>
       <h2>Generación documental interactiva</h2><p>Selecciona registros existentes y completa solo los antecedentes del documento que necesitas.</p></div>
     {error&&<p role="alert" className="jv-error"><AlertCircle size={16}/>{error}</p>}
     {notice&&<p role="status" className="jv-success"><CheckCircle2 size={16}/>{notice}</p>}
