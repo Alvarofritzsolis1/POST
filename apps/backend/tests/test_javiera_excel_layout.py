@@ -128,3 +128,76 @@ def test_real_pdf_recalculation_no_example_identity():
         assert "PERSONA NUEVA DE PRUEBA" in text
         assert "PERSONA ANTIGUA" not in text
         assert source_leaks(raw, pdf, valid_data()) == []
+
+
+
+def test_epp_quantities_never_inherited_from_excel():
+    import copy
+    from app.javiera_excel import shared_strings, cell_text
+    raw = sample_xlsx()
+    data = valid_data()
+    data["event"]["epp_items"] = "Casco; Lentes de Seguridad; 2 x Arnés de seguridad"
+    converted = excel_document(raw, "ppe_delivery", data,
+                               changes={"D13": {"text": "9"}})
+    with ZipFile(io.BytesIO(converted)) as z:
+        root = ET.fromstring(z.read(sheet_files(z)["Registros Entrega EPP"]))
+        def val(coord):
+            cell = root.find(".//"+Q("c")+"[@r='"+coord+"']")
+            return cell_text(cell, shared_strings(z)) if cell is not None else ""
+        assert val("D12") == "1"
+        assert val("D13") == ""  # no se entregó calzado; anula override peligroso
+        assert val("D14") == "1"
+        assert val("D17") == "2"
+        assert val("D19") == ""
+    data["event"]["epp_items"] = "Guantes"  # sin tipo concreto
+    with pytest.raises(LayoutError, match="ambiguo"):
+        excel_document(raw, "ppe_delivery", data)
+
+
+def test_extension_requires_new_end_after_previous_end():
+    data = valid_data()
+    with pytest.raises(LayoutError, match="prórroga"):
+        excel_document(sample_xlsx(), "extension_addendum", data)
+    data["contract"]["new_end"] = "2027-01-31"
+    raw = excel_document(sample_xlsx(), "extension_addendum", data)
+    with ZipFile(io.BytesIO(raw)) as z:
+        root = ET.fromstring(z.read(sheet_files(z)["Anexo extension contrato"]))
+        cell = root.find(".//"+Q("c")+"[@r='A5']")
+        assert "31/01/2027" in cell.find(Q("is")).find(Q("t")).text
+
+
+def test_juramento_uses_actual_principal_and_never_worker_case():
+    data = valid_data()
+    data["extra"].update({
+        "representative_name":"REPRESENTANTE DE PRUEBA",
+        "representative_rut":"11.111.111-1",
+        "representative_nationality":"CHILENA",
+        "employer_address":"DIRECCIÓN DE PRUEBA",
+        "employer_city":"CONCEPCIÓN",
+        "site_address":"DIRECCIÓN OBRA DE PRUEBA",
+        "specialty":"CARPINTERÍA",
+        "principal_company":"EMPRESA MANDANTE DE PRUEBA",
+        "declaration_period":"2026-10",
+    })
+    data["contract"]["declaration_reason"] = "Declaración aportada por la empresa para este período"
+    with pytest.raises(LayoutError, match="trabajador asignado"):
+        excel_document(sample_xlsx(), "sworn_declaration", data)
+    data["worker"]["name"] = ""
+    raw = excel_document(sample_xlsx(), "sworn_declaration", data)
+    with ZipFile(io.BytesIO(raw)) as z:
+        root = ET.fromstring(z.read(sheet_files(z)["DECLARACION JURADA"]))
+        declaration = root.find(".//"+Q("c")+"[@r='A5']").find(Q("is")).find(Q("t")).text
+        assert "OCTUBRE DEL AÑO 2026" in declaration
+        assert "EMPRESA MANDANTE DE PRUEBA" in declaration
+
+
+def test_published_excel_requires_original_fields():
+    from app.javiera_logic import DOCUMENT_BY_CODE, LAYOUT_REQUIRED, eligibility
+    data = valid_data()
+    base = DOCUMENT_BY_CODE["labor_contract"][4]
+    required = list(dict.fromkeys([*base,*LAYOUT_REQUIRED["labor_contract"]]))
+    doc = {d["code"]:d for d in eligibility(data, {"labor_contract":{
+        "fields":required, "published_version":1, "has_body":True}})}["labor_contract"]
+    assert doc["status"] == "FALTAN_DATOS"
+    assert "extra.representative_name" in doc["missing_fields"]
+    assert not doc["can_issue"]
