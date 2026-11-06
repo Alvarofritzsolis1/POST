@@ -66,7 +66,7 @@ MAX_UNZIPPED = 65 * 1024 * 1024
 RESTRICTED_PARTS = ("vbaproject.bin", "externallinks/", "connections.xml", "oleobjects/", "activex/")
 # Referencias fijas de empresas mandantes del Excel de origen (no guardar
 # nombres reales ni direcciones dentro del código). Se cambia por mandante real.
-MANDANTE_PATTERN = re.compile(r"CONSTRUCTORA\\s+[A-ZÁÉÍÓÚÑ][A-ZÁÉÍÓÚÑ\\s]{2,38}\\s+(?:LIMITADA|LTDA\\.?)\\b", re.I)
+MANDANTE_PATTERN = re.compile(r"CONSTRUCTORA\s+[A-ZÁÉÍÓÚÑ][A-ZÁÉÍÓÚÑ\s]{2,38}\s+(?:LIMITADA|LTDA\.?)\b", re.I)
 
 
 
