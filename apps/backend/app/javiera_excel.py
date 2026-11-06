@@ -8,7 +8,7 @@ from __future__ import annotations
 
 import hashlib
 import io
-from datetime import date
+from datetime import date, timedelta
 import os
 import re
 import shutil
@@ -339,6 +339,41 @@ def dynamic_cached(text: str, field_examples: list[tuple[str, str]], data: dict)
                 pass
     for before, after in sorted(values, key=lambda x: len(x[0]), reverse=True):
         output = re.sub(re.escape(before), lambda _match: after, output, flags=re.IGNORECASE)
+    # La fecha del ejemplo histórico no debe arrastrarse a nuevas emisiones.
+    sample_dates = []
+    for old_value, field_key in field_examples:
+        if field_key not in {"contract.start", "contract.end", "event.date", "extra.worker_birthdate"}:
+            continue
+        try:
+            day = date(1899,12,30) + timedelta(days=int(float(old_value)))
+        except (ValueError,TypeError,OverflowError):
+            continue
+        new_value = get_data(data, field_key)
+        if not new_value:
+            continue
+        try:
+            target_date = date.fromisoformat(new_value[:10])
+        except ValueError:
+            continue
+        sample_dates.append((day,target_date))
+    months = ("enero","febrero","marzo","abril","mayo","junio","julio","agosto",
+              "septiembre","octubre","noviembre","diciembre")
+    # Si la firma y el inicio tenían igual día, prevalece la fecha de emisión.
+    sample_dates.sort(key=lambda item: 0 if item[0] and
+                       get_data(data,"event.date")==item[1].isoformat() else 1)
+    for old_date, new_date in sample_dates:
+        old_slash = old_date.strftime("%d/%m/%Y")
+        new_slash = new_date.strftime("%d/%m/%Y")
+        output = output.replace(old_slash,new_slash)
+        old_words = f"{old_date.day} de {months[old_date.month-1]} de {old_date.year}"
+        new_words = f"{new_date.day} de {months[new_date.month-1]} de {new_date.year}"
+        output = re.sub(re.escape(old_words), lambda _m:new_words, output, flags=re.IGNORECASE)
+    if not get_data(data,"extra.salary_words"):
+        old_words = next((value for value,key in field_examples if key=="extra.salary_words"), "")
+        if old_words:
+            output = re.sub(re.escape(old_words),
+                            lambda _m:spanish_amount(get_data(data,"contract.salary")),
+                            output,flags=re.IGNORECASE)
     output = re.sub(r"\{\{\s*([a-z][a-z0-9_.]{0,80})\s*\}\}",
                     lambda m: get_data(data, m.group(1)), output)
     return output
@@ -393,6 +428,9 @@ def excel_document(raw: bytes, code: str, data: dict, changes: dict | None = Non
                 text = dynamic_cached(cached, field_examples, data)
             if formula_element is not None or text != cached:
                 set_text(target, coordinate, text if text != "0" or not formula else "")
+        if code == "pts_receipt":
+            set_text(target,"A24","Nacionalidad: "+get_data(data,"extra.worker_nationality"))
+            set_text(target,"F24","Estado civil: "+get_data(data,"extra.worker_marital_status"))
         if code == "pts":
             if matrix is None or len(matrix) != 17:
                 raise LayoutError("La impresión PTS exige 17 secciones de matriz aprobadas")
