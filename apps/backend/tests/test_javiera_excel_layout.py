@@ -350,3 +350,28 @@ def test_original_carta_and_juramento_overflow_are_normalized_to_a4():
                 assert block[2]<=page.rect.width+1
         assert "CONTRATO SINTETICO EN CARTA" in doc[0].get_text()
         assert "TEXTO LARGO FUERA DEL MARGEN" in doc[1].get_text()
+
+
+
+def test_employer_and_worker_example_leaks_are_blocked_in_emitted_pdf():
+    """No se puede emitir a B un PDF con el nombre de A cacheado en una celda."""
+    from app.javiera_layout_api import source_leaks
+    workbook=sample_xlsx()
+    data=valid_data()
+    assert data["employer"]["name"]!="EMPRESA ANTIGUA"
+    assert data["worker"]["name"]!="PERSONA ANTIGUA"
+    draft=fitz.open()
+    page=draft.new_page(width=595,height=842)
+    page.insert_text((50,70),"EMPRESA ANTIGUA",fontsize=11)
+    page.insert_text((50,100),"PERSONA ANTIGUA",fontsize=11)
+    bad=draft.tobytes()
+    draft.close()
+    leaks=source_leaks(workbook,bad,data)
+    assert "C5" in leaks and "C17" in leaks
+    valid=fitz.open()
+    page=valid.new_page(width=595,height=842)
+    page.insert_text((50,70),"EMPRESA DE PRUEBA",fontsize=11)
+    page.insert_text((50,100),"PERSONA NUEVA DE PRUEBA",fontsize=11)
+    good=valid.tobytes()
+    valid.close()
+    assert source_leaks(workbook,good,data)==[]
