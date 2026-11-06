@@ -221,3 +221,37 @@ def test_mandante_references_are_replaced_in_induction_and_email_link_allowed():
         text = cell_text(root.find(".//" + Q("c") + "[@r='A119']"), shared_strings(z))
         assert "MANDANTE REAL DE PRUEBA" in text
         assert "CONSTRUCTORA EJEMPLO LIMITADA" not in text
+
+
+
+@pytest.mark.skipif(shutil.which("libreoffice") is None, reason="Requiere LibreOffice Calc en CI")
+@pytest.mark.parametrize("code",list(DOC_SHEETS))
+def test_ten_original_document_pdfs_with_synthetic_person_only(code):
+    """Una vista previa por cada tipo, evitando mostrar nombres del Excel origen."""
+    from app.javiera_excel import pdf_from_workbook
+    data = valid_data()
+    data["extra"].update({
+        "representative_name":"REPRESENTANTE SINTETICO",
+        "representative_rut":"11.111.111-1",
+        "representative_nationality":"CHILENA",
+        "employer_city":"CONCEPCION",
+        "employer_address":"DIRECCION SINTETICA",
+        "site_address":"OBRA DE PRUEBA",
+        "specialty":"CARPINTERIA",
+        "principal_company":"MANDANTE DE PRUEBA",
+        "declaration_period":"2026-10",
+    })
+    data["contract"]["new_end"] = "2027-01-31"
+    data["contract"]["declaration_reason"] = "Declaración presentada voluntariamente por el representante"
+    data["event"]["epp_items"] = "Casco de Seguridad; Lentes de Seguridad"
+    if code=="sworn_declaration":
+        data["worker"]["name"]=""
+    matrix = [f"Medida técnica {i}" for i in range(17)] if code=="pts" else (
+        ["Tarea: Trabajo\nPeligro: Caída\nRiesgo: Lesión\nMedidas: Barrera"] if code=="irl" else None)
+    pdf = pdf_from_workbook(sample_xlsx(),code,data,matrix=matrix,preview=True)
+    with fitz.open(stream=pdf,filetype="pdf") as document:
+        assert document.page_count>=1
+        pages=" ".join(p.get_text() for p in document)
+        assert "DOCUMENTO DE PRUEBA" in pages
+        assert "PERSONA ANTIGUA" not in pages
+        assert "VISTA PREVIA" in pages
