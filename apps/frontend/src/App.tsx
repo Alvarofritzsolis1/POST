@@ -560,8 +560,8 @@ function App() {
           >
             <RefreshCcw size={18} />
           </button>
-          <button type="button" className="v16-automation-entry" onClick={() => go("javiera_config")} title="Editar documentos, matrices y reglas de JAVIERA"><SettingsIcon size={16} /> <span>Configuración de automatización</span></button>
-           <NetworkAccountMenu user={user} logout={() => void logout()} openNetwork={() => go("network")} openSettings={() => go("settings")} />
+          <NetworkAccountMenu user={user} logout={() => void logout()} openNetwork={() => go("network")} openSettings={() => go("settings")} />
+          {user.role === "admin" && <button type="button" className="v16-automation-entry" onClick={() => go("javiera_config")} title="Editar documentos, matrices y reglas de JAVIERA" aria-label="Configuración de automatización"><SettingsIcon size={16} /> <span>Configuración de automatización</span></button>}
         </header>
         <div className="page">
           {section !== "network" && section !== "javiera" && <div className="intro">
