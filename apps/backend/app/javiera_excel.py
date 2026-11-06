@@ -93,8 +93,16 @@ def validate_xlsx(raw: bytes):
             for item in items:
                 if item.filename.lower().endswith(".rels"):
                     rels = ET.fromstring(z.read(item.filename))
-                    if any(node.get("TargetMode") == "External" for node in rels):
-                        raise LayoutError("Retira hipervínculos, imágenes y recursos externos del XLSX")
+                    for node in rels:
+                        if node.get("TargetMode") != "External":
+                            continue
+                        target = node.get("Target","")
+                        kind = node.get("Type","")
+                        if kind.endswith("/hyperlink") and target.lower().startswith("mailto:"):
+                            # El XLSX original contiene un enlace de correo en Datos Contrato.
+                            # Un mailto no se descarga en la conversión y no se ejecuta.
+                            continue
+                        raise LayoutError("Retira conexiones, imágenes y enlaces web externos del XLSX")
             sheet_files(z)
     except (BadZipFile, ET.ParseError, KeyError):
         raise LayoutError("Estructura del Excel inválida") from None
