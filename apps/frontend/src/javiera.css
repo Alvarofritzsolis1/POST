@@ -95,3 +95,10 @@
 .jv-inline-action{font-size:.79rem!important;display:inline-flex;background:transparent!important;border:0!important;color:#225583!important;font-weight:750;padding:6px 1px!important;margin:3px 0 10px}
 .jv-new-form{border:1px solid #dce7f1;border-radius:10px;background:#f5f9fd;padding:13px;margin-bottom:13px}
 .jv-new-form button{background:#234b79;color:#fff;border:0;border-radius:7px;padding:8px 13px;font-weight:700}
+
+.jv-layout-editor{border:1px solid #dbe4ed;border-radius:10px;padding:12px 14px;margin:15px 0;background:#fafcff}
+.jv-layout-editor summary{font-size:.86rem;font-weight:750;cursor:pointer}
+.jv-history-review{display:flex;flex-wrap:wrap;gap:7px;align-items:center;min-width:0;padding:9px;margin-top:10px;border:1px solid #dde8f3;border-radius:7px;background:#f7fbff}
+.jv-history-review strong{font-size:.73rem;color:#28415d;flex-basis:100%}
+.jv-history-review input{width:100%;padding:8px 10px;border:1px solid #cbdbea;border-radius:7px;background:white;font-size:.77rem}
+.jv-history-review button{padding:7px 9px;border:1px solid #c3d5e6;border-radius:7px;color:#26507b;background:white;font-weight:700;font-size:.73rem}
