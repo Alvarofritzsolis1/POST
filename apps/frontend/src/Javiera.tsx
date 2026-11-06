@@ -253,6 +253,54 @@ export default function Javiera({configuration=false,onBack,onConfig}:{configura
   const fieldInput=(field:string,label:string,value:string,change:(v:string)=>void,type="text")=>
     <label key={field} htmlFor={validField(field)}>{label}<input id={validField(field)} value={value}
       type={type} onChange={e=>change(e.target.value)}/></label>;
+  useEffect(()=>{
+    if(!mode||!companyId||!siteId)return;
+    let alive=true;
+    request<typeof existingDossiers>("/javiera/dossiers?site_id="+encodeURIComponent(siteId)+"&employer_id="+encodeURIComponent(companyId))
+      .then(rows=>{if(alive)setExistingDossiers(rows);}).catch(e=>{if(alive)setError(errorMessage(e));});
+    return()=>{alive=false;};
+  },[mode,siteId,companyId,saved?.issues.length]);
+  async function loadDossier(id:string){
+    try{
+      const row=await request<Dossier>("/javiera/dossiers/"+id);
+      const src=await request<Source>("/javiera/sources?site_id="+encodeURIComponent(row.site_id)+"&contractor_id="+encodeURIComponent(row.employer_id));
+      const obj=row.data;
+      const company=src.contractors.find(c=>c.id===row.employer_id);
+      const worker=src.workers.find(w=>w.id===row.worker_id);
+      const site=src.sites.find(z=>z.id===row.site_id);
+      setSaved(row);setDossierId(row.id);setDossierRevision(row.revision);
+      setSource(src);setSiteId(row.site_id);setCompanyId(row.employer_id);setWorkerId(row.worker_id||"");
+      setParentId(row.parent_id||"");setMode(row.relationship==="subcontractor"?"subcontractor":"contractor");
+      setRole(String(obj.role||""));setEventType(String(obj.event_type||"ingreso"));
+      setEmploymentType(String(obj.employment_type||""));
+      setContract({...emptyContract,...(typeof obj.contract==="object"&&obj.contract?obj.contract as typeof emptyContract:{})});
+      setEvent({...emptyEvent,...(typeof obj.event==="object"&&obj.event?obj.event as typeof emptyEvent:{})});
+      setSavedFingerprint(JSON.stringify({...obj,employer:{name:company?.name||"",rut:company?.rut||""},
+        worker:{name:worker?.name||"",rut:worker?.rut||""},site:{name:site?.name||""}}));
+      setNotice("Expediente histórico recuperado; revisa los datos antes de emitir.");
+    }catch(e){setError(errorMessage(e));}
+  }
+  async function createCompany(){
+    if(!siteId||!newContractor.name.trim()){setError("Selecciona una obra e indica la empresa");return;}
+    setBusy(true);setError("");
+    try{
+      const result=await opsApi.createContractor({site_id:siteId,name:newContractor.name,rut:newContractor.rut||null,
+        historical_code:"",nature:"unclassified",frequency:"unclassified",contract_status:"active"});
+      const src=await request<Source>("/javiera/sources?site_id="+encodeURIComponent(siteId));
+      setSource(src);setCompanyId(result.contractor_id);setShowCreate(null);setNewContractor({name:"",rut:""});
+      setNotice("Contratista registrado y vinculado a la obra.");
+    }catch(e){setError(errorMessage(e));}finally{setBusy(false);}
+  }
+  async function createWorker(){
+    if(!siteId||!companyId||!newWorker.name.trim()){setError("Selecciona empleador e indica el trabajador");return;}
+    setBusy(true);setError("");
+    try{
+      const result=await opsApi.createWorker({site_id:siteId,contractor_id:companyId,name:newWorker.name,rut:newWorker.rut||null});
+      const src=await request<Source>("/javiera/sources?site_id="+encodeURIComponent(siteId)+"&contractor_id="+encodeURIComponent(companyId));
+      setSource(src);setWorkerId(result.worker_id);setShowCreate(null);setNewWorker({name:"",rut:""});
+      setNotice("Trabajador vinculado al empleador.");
+    }catch(e){setError(errorMessage(e));}finally{setBusy(false);}
+  }
   async function refreshDossier(id:string){
     const result=await request<Dossier>("/javiera/dossiers/"+id);setSaved(result);
   }
@@ -326,13 +374,31 @@ export default function Javiera({configuration=false,onBack,onConfig}:{configura
             {source.sites.map(s=><option value={s.id} key={s.id}>{s.name}</option>)}</select></label>
           <label>Empleador directo <select value={companyId} onChange={e=>chooseCompany(e.target.value)}>
             <option value="">Selecciona la empresa</option>{source.contractors.filter(c=>c.site_id===siteId).map(c=><option key={c.id} value={c.id}>{c.name}</option>)}</select></label>
+          <button type="button" className="jv-inline-action" onClick={()=>setShowCreate(showCreate==="contractor"?null:"contractor")}>+ Registrar contratista nuevo</button>
+          {showCreate==="contractor"&&<div className="jv-new-form">
+            <label>Nombre de empresa<input value={newContractor.name} onChange={e=>setNewContractor({...newContractor,name:e.target.value})}/></label>
+            <label>RUT de empresa<input value={newContractor.rut} onChange={e=>setNewContractor({...newContractor,rut:e.target.value})}/></label>
+            <button disabled={busy||!siteId} type="button" onClick={()=>void createCompany()}>Guardar empresa</button>
+          </div>}
           {mode==="subcontractor"&&<label>Contratista principal <select value={parentId} onChange={e=>setParentId(e.target.value)}>
             <option value="">Selecciona el contratista principal</option>{source.contractors.filter(c=>c.id!==companyId&&c.site_id===siteId).map(c=>
               <option key={c.id} value={c.id}>{c.name}</option>)}</select></label>}
           <label>Trabajador <select value={workerId} onChange={e=>{setWorkerId(e.target.value);setDossierId("");setSaved(null);}}>
             <option value="">Selecciona trabajador asignado a esta obra</option>
             {source.workers.map(w=><option key={w.id} value={w.id}>{w.name}</option>)}</select></label>
-          <p className="jv-hint">{workerId?"Trabajador ya registrado en esta relación":"Puedes crear el nuevo trabajador en el módulo Trabajadores de GALANT."}</p>
+          <button type="button" className="jv-inline-action" onClick={()=>setShowCreate(showCreate==="worker"?null:"worker")}>+ Registrar trabajador nuevo</button>
+          {showCreate==="worker"&&<div className="jv-new-form">
+            <label>Nombre del trabajador<input value={newWorker.name} onChange={e=>setNewWorker({...newWorker,name:e.target.value})}/></label>
+            <label>RUT del trabajador<input value={newWorker.rut} onChange={e=>setNewWorker({...newWorker,rut:e.target.value})}/></label>
+            <button disabled={busy||!companyId} type="button" onClick={()=>void createWorker()}>Guardar trabajador</button>
+          </div>}
+          <p className="jv-hint">{workerId?"Trabajador asignado en GALANT":"Selecciona o registra el trabajador sin duplicar su RUT."}</p>
+          {existingDossiers.length>0&&<label>Expediente anterior
+            <select value={dossierId} onChange={e=>{if(e.target.value)void loadDossier(e.target.value);}}>
+              <option value="">Selecciona expediente para recuperar</option>
+              {existingDossiers.filter(d=>d.relationship===mode&&(!workerId||d.worker_id===workerId)).map(d=>
+                <option key={d.id} value={d.id}>Expediente {d.id.slice(0,8)} · revisión {d.revision}</option>)}
+            </select></label>}
           <label>Vínculo laboral <select value={employmentType} onChange={e=>setEmploymentType(e.target.value)}>
             <option value="">Por determinar</option><option value="dependiente">Contrato laboral dependiente</option>
             <option value="independiente">Independiente (sin vínculo dependiente acreditado)</option></select></label>
