@@ -708,19 +708,20 @@ def append_irl_continuation(pdf: fitz.Document, matrix: list[str], data: dict):
 
     def start_page():
         current = pdf.new_page(width=595, height=842)
-        current.insert_text((margin, 32), "GALANT / JAVIERA - IRL", fontsize=10, fontname="helv")
-        current.insert_text((margin, 55), "ANEXO INTEGRANTE - CONTINUACION DE MATRIZ IRL",
+        # Reservar la esquina superior para el sello de vista previa en rojo.
+        current.insert_text((margin, 52), "GALANT / JAVIERA - IRL", fontsize=10, fontname="helv")
+        current.insert_text((margin, 73), "ANEXO INTEGRANTE - CONTINUACION DE MATRIZ IRL",
                             fontsize=10, fontname="helv")
-        current.insert_text((margin, 74),
+        current.insert_text((margin, 92),
                             ("Cargo: " + get_data(data, "role"))[:85],
                             fontsize=9, fontname="helv")
-        current.insert_text((margin, 91),
+        current.insert_text((margin, 109),
                             ("Obra: " + get_data(data, "site.name"))[:85],
                             fontsize=9, fontname="helv")
         current.insert_text((margin, 814),
                             "Riesgos y medidas preventivas del cargo - documento sin firma",
                             fontsize=8, fontname="helv")
-        return current, 113
+        return current, 131
 
     page, y = start_page()
     for position, section in enumerate(additional, 13):
