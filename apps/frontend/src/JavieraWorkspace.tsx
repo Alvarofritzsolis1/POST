@@ -128,6 +128,9 @@ const relationshipOnly=(code:string)=>code==="sworn_declaration";
 const isEmployerField=(key:string)=>key.startsWith("extra.representative")||key.startsWith("extra.employer")||
   key==="extra.principal_company"||key==="extra.site_address";
 const isWorkerField=(key:string)=>key.startsWith("extra.worker")||key==="extra.afp"||key==="extra.health_provider";
+const workerDependent=(key:string)=>isWorkerField(key)||key==="worker.name"||key==="worker.rut"||
+  key.startsWith("contract.")||key.startsWith("event.")||key==="role"||
+  key==="employment_type"||key==="extra.salary_words";
 const errText=(e:unknown)=>e instanceof Error?e.message:String(e);
 const money=(s:string)=>s?new Intl.NumberFormat("es-CL",{maximumFractionDigits:0}).format(Number(s)||0):"";
 async function pdfPreview(dossierId:string,code:string){
@@ -193,6 +196,7 @@ export default function JavieraWorkspace({onConfig}:{onConfig?:()=>void}){
   const [lastDossiers,setLastDossiers]=useState<OldDossier[]>([]);
   const requestRevision=useRef(0);
   const contextRevision=useRef(0);
+  const workerContextRevision=useRef(0);
 
   const setField=(key:string,value:string)=>{setValues(prev=>({...prev,[key]:value}));
     setOrigins(prev=>({...prev,[key]:"Ingresado manualmente"}));};
@@ -285,15 +289,17 @@ export default function JavieraWorkspace({onConfig}:{onConfig?:()=>void}){
     void prefillCompany(next,siteId);
   }
   function chooseWorker(next:string){
+    workerContextRevision.current+=1;
     setWorkerId(next);setSaved(null);setStoredSignature("");
     const w=source.workers.find(x=>x.id===next);
-    setValues(prev=>({...Object.fromEntries(Object.entries(prev).filter(([key])=>!isWorkerField(key))),
+    setValues(prev=>({...Object.fromEntries(Object.entries(prev).filter(([key])=>!workerDependent(key))),
       "worker.name":w?.name||"","worker.rut":w?.rut||""}));
-    setOrigins(prev=>({...Object.fromEntries(Object.entries(prev).filter(([key])=>!isWorkerField(key))),
+    setOrigins(prev=>({...Object.fromEntries(Object.entries(prev).filter(([key])=>!workerDependent(key))),
       "worker.name":"GALANT","worker.rut":"GALANT"}));
     if(next)void prefillWorker(next);
   }
   async function prefillWorker(id:string){
+    const cycle=workerContextRevision.current;
     try{
       const list=lastDossiers.length?lastDossiers:
         await request<OldDossier[]>("/javiera/dossiers?site_id="+encodeURIComponent(siteId)+
@@ -301,7 +307,7 @@ export default function JavieraWorkspace({onConfig}:{onConfig?:()=>void}){
       const match=list.find(x=>x.worker_id===id);
       if(!match)return;
       const row=await request<Dossier>("/javiera/dossiers/"+encodeURIComponent(match.id));
-      if(row.worker_id!==id||row.employer_id!==companyId||row.site_id!==siteId)return;
+      if(cycle!==workerContextRevision.current||row.worker_id!==id||row.employer_id!==companyId||row.site_id!==siteId)return;
       const fields=flattenData(row.data),person:Record<string,string>={};
       for(const k of WORKER_KEYS)if(fields[k])person[k]=fields[k];
       setValues(v=>({...v,...Object.fromEntries(Object.entries(person).filter(([key])=>!v[key]))}));
@@ -526,12 +532,12 @@ export default function JavieraWorkspace({onConfig}:{onConfig?:()=>void}){
             <div className="j65-switch" role="group" aria-label="Estado del trabajador">
               <button className={workerKind==="new"?"active":""} aria-pressed={workerKind==="new"}
                 onClick={()=>{setWorkerKind("new");setWorkerId("");setSaved(null);
-                  setValues(prev=>Object.fromEntries(Object.entries(prev).filter(([key])=>
-                    !isWorkerField(key)&&key!=="worker.name"&&key!=="worker.rut")));}}><UserPlus size={15}/> Trabajador nuevo</button>
+                  workerContextRevision.current+=1;
+                  setValues(prev=>Object.fromEntries(Object.entries(prev).filter(([key])=>!workerDependent(key))));}}><UserPlus size={15}/> Trabajador nuevo</button>
               <button className={workerKind==="existing"?"active":""} aria-pressed={workerKind==="existing"}
                 onClick={()=>{setWorkerKind("existing");setWorkerId("");setSaved(null);
-                  setValues(prev=>Object.fromEntries(Object.entries(prev).filter(([key])=>
-                    !isWorkerField(key)&&key!=="worker.name"&&key!=="worker.rut")));}}>Ya registrado</button>
+                  workerContextRevision.current+=1;
+                  setValues(prev=>Object.fromEntries(Object.entries(prev).filter(([key])=>!workerDependent(key))));}}>Ya registrado</button>
             </div>
             {workerKind==="existing"?<label className="j65-field">Buscar trabajador
               <select disabled={!companyId} value={workerId} onChange={e=>chooseWorker(e.target.value)}>
