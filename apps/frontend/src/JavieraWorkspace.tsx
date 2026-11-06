@@ -222,6 +222,20 @@ export default function JavieraWorkspace({onConfig}:{onConfig?:()=>void}){
   },[selectedDoc,currentCatalog?.required_fields]);
   const docs=status?.signature===JSON.stringify(currentData)?status.items:[];
   const chosenStatus=docs.find(c=>c.code===selectedDoc);
+  // Una sola pasada sobre los campos locales actualiza las diez tarjetas sin
+  // consultas duplicadas. Para emitir siempre se usa la elegibilidad del servidor.
+  const overview=useMemo(()=>Object.fromEntries(catalog.map(item=>{
+    const candidate=buildData(values,item.code,currentSite?.name||"",roles.aliases,
+      relationshipOnly(item.code));
+    const fields=[...new Set([...(item.required_fields||[]),...(EXCEL_FIELDS[item.code]||[])])];
+    const get=(key:string)=>{
+      if(key==="role")return candidate.role;
+      return key.split(".").reduce<unknown>((node,k)=>node&&typeof node==="object"?
+        (node as Record<string,unknown>)[k]:"",candidate);
+    };
+    const needed=fields.filter(k=>!get(k));
+    return [item.code,{needed:needed.length,prepared:fields.length}];
+  })),[catalog,values,currentSite?.name,roles.aliases]);
   const missing=chosenStatus?.missing_fields||[];
   const errors=chosenStatus?.blocking_errors||[];
   const complete=chosenStatus?.completion_percent||0;
@@ -494,10 +508,15 @@ export default function JavieraWorkspace({onConfig}:{onConfig?:()=>void}){
         {groupDocs.map(c=>{
           const selected=c.code===selectedDoc;
           const st=selected?chosenStatus:null;
+          const pending=overview[c.code] as {needed:number;prepared:number}|undefined;
+          const summary=selected&&st?(LABELS[st.status]||st.status):
+            pending?.needed===0?"Datos base completos · comprobar":
+            (pending?.prepared&&pending.needed<pending.prepared?
+              "Faltan "+pending.needed+" datos":"Seleccionar y preparar");
           return <button key={c.code} className={"j65-doc-choice "+(selected?"selected":"")}
             aria-pressed={selected} onClick={()=>changeDoc(c.code)}>
             <FileText size={18}/><span><b>{TITLES[c.code]||c.title}</b>
-              <small>{selected&&st?(LABELS[st.status]||st.status):"Seleccionar y preparar"}</small></span>
+              <small>{summary}</small></span>
             <ChevronRight size={15}/></button>;
         })}
         <div className="j65-sidebar-note"><ClipboardCheck size={17}/> La emisión de un PDF no implica que el documento esté firmado ni entregado.</div>
