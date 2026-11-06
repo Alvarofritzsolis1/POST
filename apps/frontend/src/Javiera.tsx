@@ -226,6 +226,7 @@ export default function Javiera({configuration=false,onBack,onConfig}:{configura
   const [newContractor,setNewContractor]=useState({name:"",rut:""});
   const [newWorker,setNewWorker]=useState({name:"",rut:""});
   const [showCreate,setShowCreate]=useState<"contractor"|"worker"|null>(null);
+  const [reviewComments,setReviewComments]=useState<Record<string,string>>({});
   const revision=useRef(0);
   useEffect(()=>{
     if(configuration)return;
@@ -347,6 +348,17 @@ export default function Javiera({configuration=false,onBack,onConfig}:{configura
         method:"POST",body:JSON.stringify({dossier_id:dossierId,code})});
       await refreshDossier(dossierId);setNotice(result.reused?"PDF existente recuperado.":"PDF emitido, aún sin firma ni constancia de entrega.");
       window.open("/api/v1/javiera/issued/"+encodeURIComponent(result.id)+"/pdf","_blank","noopener,noreferrer");
+    }catch(e){setError(errorMessage(e));}finally{setBusy(false);}
+  }
+  async function reviewHistorical(id:string,verified:boolean){
+    const reason=reviewComments[id]?.trim()||"";
+    if(reason.length<6){setError("Indica el motivo y evidencia de la revisión del documento histórico.");return;}
+    setBusy(true);setError("");
+    try{
+      await request("/javiera/admin/history/"+encodeURIComponent(id)+"/verify",{
+        method:"POST",body:JSON.stringify({verified,reason})});
+      if(dossierId)await refreshDossier(dossierId);
+      setNotice(verified?"Documento histórico revisado; comprueba su aplicabilidad actual.":"Documento histórico observado.");
     }catch(e){setError(errorMessage(e));}finally{setBusy(false);}
   }
   async function uploadHistorical(code:string,file:File){
@@ -471,6 +483,15 @@ export default function Javiera({configuration=false,onBack,onConfig}:{configura
               <button disabled={!c.can_issue||unsaved||busy} onClick={()=>void issue(c.code)}><Download size={14}/> PDF</button>
               {dossierId&&<label className="jv-upload"><Upload size={14}/> Anterior<input type="file" accept=".pdf,application/pdf"
                 onChange={e=>{const f=e.target.files?.[0];if(f)void uploadHistorical(c.code,f);e.target.value="";}}/></label>}
+              {saved?.historical.filter(x=>x.code===c.code).map(h=><div key={h.id} className="jv-history-review">
+                <strong>PDF anterior: {h.state==="verified"?"verificado":h.state==="rejected"?"observado":"pendiente de revisar"}</strong>
+                {h.state==="pending"&&<>
+                  <input aria-label="Motivo de revisión" placeholder="Evidencia y motivo de revisión" value={reviewComments[h.id]||""}
+                    onChange={e=>setReviewComments({...reviewComments,[h.id]:e.target.value})}/>
+                  <button disabled={busy} onClick={()=>void reviewHistorical(h.id,true)}>Validar antecedente</button>
+                  <button disabled={busy} onClick={()=>void reviewHistorical(h.id,false)}>Observar</button>
+                </>}
+              </div>)}
               {saved?.issues.filter(x=>x.code===c.code).map(issue=><a key={issue.id} href={"/api/v1/javiera/issued/"+encodeURIComponent(issue.id)+"/pdf"}
                 target="_blank" rel="noreferrer">Emitido v{issue.version}</a>)}
             </div>
