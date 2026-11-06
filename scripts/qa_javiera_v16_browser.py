@@ -56,7 +56,6 @@ def main():
         assert any("Prevención de Riesgos" in x for x in areas),areas
         count=page.get_by_role("button",name="Generar documentos listos (0)")
         expect(count).to_be_disabled()
-        assert page.get_by_text("Emisión",exact=True).count()==0 or True
         expect(page.get_by_text("Guarda los cambios para habilitar la exportación de PDFs.")).to_be_visible()
         report["scenarios"]["ten_doc_cards_and_no_false_ready"]="PASS"
         page.screenshot(path=str(args.output/"javiera_documentos.png"),full_page=True)
