@@ -39,6 +39,15 @@ def main():
         page.get_by_label("Contraseña",exact=True).fill(password)
         page.get_by_role("button",name="Ingresar a GALANT").click()
         expect(page.get_by_role("button",name="Menú de usuario")).to_be_visible()
+        automation=page.get_by_role("button",name="Configuración de automatización")
+        expect(automation).to_be_visible()
+        account=page.get_by_role("button",name="Menú de usuario").bounding_box()
+        automation_box=automation.bounding_box()
+        assert account and automation_box
+        assert automation_box["x"] >= account["x"] + account["width"] - 5, (
+            "Configuración debe aparecer después del menú de usuario en el extremo derecho",
+            account, automation_box)
+        report["scenarios"]["automation_right_header"]="PASS"
         page.goto(args.url+"/proyecto-javiera",wait_until="domcontentloaded")
         expect(page.get_by_role("heading",name="Proyecto JAVIERA")).to_be_visible()
         choices=page.locator(".jv-mode-cards button")
