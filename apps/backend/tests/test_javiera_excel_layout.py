@@ -29,6 +29,8 @@ def sample_xlsx() -> bytes:
         "C29": "CARPINTERO", "C31": 42, "C32": 600000
     }.items():
         data[cell] = value
+    data["C13"] = "admin@example.test"
+    data["C13"].hyperlink = "mailto:admin@example.test"
     for code, title in DOC_SHEETS.items():
         doc = wb.create_sheet(title)
         doc["A1"] = "DOCUMENTO DE PRUEBA"  # No hay datos personales reales.
@@ -40,6 +42,8 @@ def sample_xlsx() -> bytes:
         doc["B4"] = "='Datos Contrato'!C5"
         doc["A5"] = "TABLA"
         doc["B5"] = "RUT"
+        if code == "induction":
+            doc["A119"] = "Recibí del contratista principal CONSTRUCTORA EJEMPLO LIMITADA."
         doc.print_area = "A1:D15"
         doc.sheet_properties.pageSetUpPr.fitToPage = True
         doc.page_setup.fitToWidth = 1
@@ -202,3 +206,18 @@ def test_published_excel_requires_original_fields():
     assert doc["status"] == "FALTAN_DATOS"
     assert "extra.representative_name" in doc["missing_fields"]
     assert not doc["can_issue"]
+
+
+
+def test_mandante_references_are_replaced_in_induction_and_email_link_allowed():
+    from app.javiera_excel import cell_text, shared_strings, sheet_files
+    raw = sample_xlsx()  # contiene mailto válido en la hoja fuente
+    validate_xlsx(raw)
+    data = valid_data()
+    data["extra"]["principal_company"] = "MANDANTE REAL DE PRUEBA"
+    updated = excel_document(raw, "induction", data)
+    with ZipFile(io.BytesIO(updated)) as z:
+        root = ET.fromstring(z.read(sheet_files(z)["INDUCCION PREVENCION"]))
+        text = cell_text(root.find(".//" + Q("c") + "[@r='A119']"), shared_strings(z))
+        assert "MANDANTE REAL DE PRUEBA" in text
+        assert "CONSTRUCTORA EJEMPLO LIMITADA" not in text
