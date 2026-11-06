@@ -70,6 +70,7 @@ LAYOUT_REQUIRED = {
         "extra.representative_name", "extra.representative_rut",
         "extra.employer_phone", "extra.employer_address",
         "extra.specialty", "extra.site_address", "event.date", "role",
+        "extra.principal_company",
     ],
 }
 
