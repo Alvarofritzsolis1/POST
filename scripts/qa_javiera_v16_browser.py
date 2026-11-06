@@ -50,6 +50,13 @@ def main():
 
         choices.first.click()
         expect(page.get_by_role("heading",name="Generación documental interactiva")).to_be_visible()
+        def verify_expediente_header():
+            back=page.locator(".jv-hero .jv-back").bounding_box()
+            context=page.locator(".jv-hero>small").bounding_box()
+            assert back and context
+            assert context["y"] >= back["y"] + back["height"] - 2, (back, context)
+        verify_expediente_header()
+        report["scenarios"]["hero_text_not_overlapping"]="PASS"
         expect(page.locator(".jv-doc-card")).to_have_count(10)
         areas=page.locator(".jv-doc-area h4").all_inner_texts()
         assert any("Zona Subcontratos" in x for x in areas),areas
@@ -69,6 +76,7 @@ def main():
         report["scenarios"]["subcontractor_mode"]="PASS"
 
         page.set_viewport_size({"width":390,"height":844})
+        verify_expediente_header()
         expect(page.locator(".jv-document-panel")).to_be_visible()
         page.screenshot(path=str(args.output/"javiera_movil.png"),full_page=True)
         width=page.evaluate("({document:document.documentElement.scrollWidth,viewport:window.innerWidth})")
