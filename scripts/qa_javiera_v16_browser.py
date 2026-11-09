@@ -58,6 +58,21 @@ def main():
             expect(page.get_by_role("heading", name="Editor de formatos HTML")).to_be_visible()
             expect(page.get_by_label("Texto y estructura HTML")).to_be_visible()
             report["scenarios"]["html_editor_in_main_workflow"] = "PASS"
+            page.get_by_label("Texto y estructura HTML").fill(
+                "<h2>FORMATO DOCUMENTAL DE PRUEBA</h2>"
+                "<p>Cláusula de prueba para {{worker.name}} y {{employer.name}}. "
+                "Solo verifica la edición HTML sin publicar un contrato real.</p>"
+            )
+            page.get_by_role("button", name="Guardar HTML").click()
+            expect(page.get_by_text("Borrador HTML guardado", exact=False)).to_be_visible(timeout=20000)
+            report["scenarios"]["native_html_saved_from_browser"] = "PASS"
+            page.get_by_label(
+                "Revisé que este texto corresponde al documento original y que no faltan cláusulas."
+            ).check()
+            page.get_by_role("button", name="Habilitar vista previa PDF A4").click()
+            expect(page.get_by_text("Diseño habilitado para vista previa", exact=False)).to_be_visible(timeout=20000)
+            report["scenarios"]["native_html_enabled_without_second_admin"] = "PASS"
+            page.screenshot(path=str(args.output / "javiera_editor_html.png"), full_page=True)
             page.get_by_role("button", name="Volver a documentos").click()
             expect(page.get_by_role("heading", name="¿La empresa es nueva o ya existe?")).to_be_visible()
             expect(page.get_by_role("heading", name="Generador de documentos PDF A4")).to_be_visible()
