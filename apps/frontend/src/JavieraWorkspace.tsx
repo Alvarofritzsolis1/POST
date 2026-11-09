@@ -81,7 +81,7 @@ const F:Record<string,FieldMeta>={
   "contract.salary":{label:"Sueldo base ($ CLP)",type:"number"},
   "contract.hours":{label:"Jornada semanal (horas)",type:"number"},
   "contract.declaration_reason":{label:"Motivo de declaración jurada"},
-  "event.date":{label:"Fecha que aparecerá en el documento",type:"date",hint:"Se imprime para firma en papel. Esta fecha no acredita recepción ni entrega."},
+  "event.date":{label:"Fecha efectiva del documento",type:"date",hint:"Esta es la fecha impresa. El PDF se genera antes de obtener la firma física y no acredita recepción ni entrega."},
   "event.epp_items":{label:"EPP que figurará en el formulario",hint:"Indica elementos y cantidades. Imprimir no acredita que hayan sido entregados."},
   "event.pts_version":{label:"Versión del PTS para imprimir y firmar"},
 };
