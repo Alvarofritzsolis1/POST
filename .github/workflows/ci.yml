@@ -7,6 +7,12 @@ on:
   workflow_dispatch:
   workflow_call:
 
+# Ejecutar solamente la revisión más reciente de cada rama o PR para evitar
+# docenas de verificaciones obsoletas al preparar una nueva versión.
+concurrency:
+  group: ${{ github.workflow }}-${{ github.head_ref || github.ref_name }}
+  cancel-in-progress: true
+
 permissions:
   contents: read
 jobs:
