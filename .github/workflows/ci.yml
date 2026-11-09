@@ -44,6 +44,16 @@ jobs:
       - run: python -m pip install -r requirements-dev.txt
       - run: python -m compileall -q app
       - run: python -m pytest -q
+      - name: QA de los diez PDF A4 nativos (sin datos reales)
+        if: always()
+        run: python ../../scripts/qa_javiera_v19_print_visual.py --output "$RUNNER_TEMP/javiera-v19-print"
+      - name: Evidencia visual de los diez formatos (PNG + PDF + informe)
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: galant-javiera-v19-print
+          path: ${{ runner.temp }}/javiera-v19-print
+          if-no-files-found: warn
   frontend:
     runs-on: ubuntu-latest
     timeout-minutes: 15
