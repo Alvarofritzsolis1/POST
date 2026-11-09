@@ -318,6 +318,102 @@ function ReviewDesk(){
   </section>;
 }
 
+
+function QuickPrintDesk(){
+  const [all,setAll]=useState<Layout[]>([]);
+  const [selected,setSelected]=useState("");
+  const [previewed,setPreviewed]=useState("");
+  const [confirmed,setConfirmed]=useState(false);
+  const [busy,setBusy]=useState(false);
+  const [error,setError]=useState("");
+  const [notice,setNotice]=useState("");
+  const current=useMemo(()=>{
+    const seen=new Set<string>();
+    return all.filter(x=>{if(seen.has(x.code))return false;seen.add(x.code);return true;});
+  },[all]);
+  const active=current.find(x=>x.id===selected)||null;
+  async function refresh(){
+    const result=await request<Layout[]>("/javiera/admin/excel/layouts");
+    setAll(result);
+    const seen=new Set<string>();
+    const latest=result.filter(x=>{if(seen.has(x.code))return false;seen.add(x.code);return true;});
+    setSelected(old=>latest.some(x=>x.id===old)?old:latest[0]?.id||"");
+  }
+  useEffect(()=>{void refresh().catch(e=>setError(errorText(e)));},[]);
+  async function preview(){
+    if(!active)return;
+    setBusy(true);setError("");setNotice("");
+    try{
+      await showPDF("/admin/excel/layouts/"+encodeURIComponent(active.id)+"/preview");
+      setPreviewed(active.id);
+      setNotice("Vista previa generada. Comprueba el texto, los datos variables y los espacios de firma.");
+    }catch(e){setPreviewed("");setError(errorText(e));}
+    finally{setBusy(false);}
+  }
+  async function enablePrint(){
+    if(!active||previewed!==active.id||!confirmed)return;
+    setBusy(true);setError("");setNotice("");
+    try{
+      await request("/javiera/admin/excel/layouts/"+encodeURIComponent(active.id)+"/enable-print",{
+        method:"POST",body:JSON.stringify({confirmed_preview:true})
+      });
+      await refresh();setConfirmed(false);setPreviewed("");
+      setNotice("Formato habilitado. Ve a «Preparar e imprimir documentos» para completar la ficha y sacar el PDF para firma física.");
+    }catch(e){setError(errorText(e));}
+    finally{setBusy(false);}
+  }
+  return <section className="jvx">
+    <header className="jvx-intro"><div><span className="jvx-kicker">PILOTO · ADMINISTRADOR ÚNICO</span>
+      <h2>Habilitar documentos para imprimir</h2>
+      <p>Solo se muestra la última versión de cada formato. No necesitas otra cuenta ni listas preventivas genéricas para preparar un PDF destinado a firma física.</p>
+    </div></header>
+    {error&&<p role="alert" className="jv-error">{error}</p>}
+    {notice&&<p role="status" className="jv-success">{notice}</p>}
+    <div className="jvx-review-grid">
+      <aside className="jvx-edit">
+        <h3>Formatos disponibles</h3>
+        <p>{current.length} documentos únicos · versiones antiguas conservadas en el historial del diseñador.</p>
+        {current.map(x=><button type="button" key={x.id}
+          className={selected===x.id?"jv-primary":""}
+          style={{display:"block",width:"100%",textAlign:"left",marginBottom:8}}
+          onClick={()=>{setSelected(x.id);setPreviewed("");setConfirmed(false);setError("");}}>
+          {codeLabels[x.code]||x.sheet} · {x.status==="approved"?"Habilitado":"Pendiente"}
+        </button>)}
+        {!current.length&&<p>Importa primero el Excel original desde el Diseñador.</p>}
+      </aside>
+      <section className="jvx-review-main">
+        {active?<div className="jvx-review-form">
+          <h3>{codeLabels[active.code]||active.sheet}</h3>
+          <p>Versión vigente {active.revision} · {active.status==="approved"?"Lista para PDF":"Pendiente de revisar el diseño de impresión"}.</p>
+          {active.status==="approved"?<div className="jv-success">
+            <CheckCircle2 size={18}/> Formato listo para generar PDF. No se registra aquí ninguna firma ni entrega.
+          </div>:<>
+            <p>1. Abre el PDF de prueba y comprueba el texto, las variables y los espacios para las firmas manuscritas.</p>
+            <button type="button" disabled={busy} onClick={()=>void preview()}>
+              <FileText size={16}/> {busy?"Preparando…":"Abrir vista previa PDF"}
+            </button>
+            <label className="jvx-check">
+              <input type="checkbox" checked={confirmed} disabled={previewed!==active.id||busy}
+                onChange={e=>setConfirmed(e.target.checked)}/>
+              <span>Revisé visualmente este formato. Sé que imprimirlo no acredita recepción ni firma.</span>
+            </label>
+            <button type="button" className="jv-primary"
+              disabled={busy||previewed!==active.id||!confirmed}
+              onClick={()=>void enablePrint()}>Habilitar impresión de este documento</button>
+          </>}
+          <p className="jvx-source">Completa los datos de la ficha, descarga o imprime el documento y obtén la firma en papel. Esto no crea trabajadores operativos ni registra entregas automáticamente.</p>
+        </div>:<p>Selecciona un formato para continuar.</p>}
+      </section>
+    </div>
+  </section>;
+}
+
 export default function JavieraExcelAdmin({tab,onChangeTab}:{tab:"excel"|"reviews";onChangeTab?:(tab:"excel"|"reviews")=>void}){
-  return tab==="excel"?<LayoutStudio onReviews={()=>onChangeTab?.("reviews")}/>:<ReviewDesk/>;
+  const [pilot,setPilot]=useState<boolean|null>(null);
+  useEffect(()=>{
+    void request<{solo_pilot:boolean}>("/javiera/admin/excel/status")
+      .then(x=>setPilot(x.solo_pilot)).catch(()=>setPilot(false));
+  },[]);
+  return tab==="excel"?<LayoutStudio onReviews={()=>onChangeTab?.("reviews")}/>:
+    pilot===null?<p>Consultando modo documental…</p>:pilot?<QuickPrintDesk/>:<ReviewDesk/>;
 }
