@@ -15,7 +15,7 @@ from sqlalchemy.orm import Session
 from .config import settings
 from .db import get_db
 from .javiera_layout_api import matrix_sections
-from .javiera_logic import render_tokens, check_template_fields
+from .javiera_logic import render_tokens, check_template_fields, rut_valid
 from .javiera_models import JavieraRevision, JavieraTemplate
 from .models import AuditEvent, utcnow
 from .javiera_native import DOCUMENT_TITLES, NativeDocumentError, render_native_pdf
@@ -146,6 +146,17 @@ def preview_native(payload: NativePreviewInput,
     if payload.code not in record.selected_codes:
         raise HTTPException(422, "Selecciona el documento dentro del expediente.")
     data = _document(record, payload.code, db, user)
+    # La vista previa A4 no debe eludir la validación de identidad documental.
+    identities = [
+        ("empresa", (data.get("employer") or {}).get("rut")),
+        ("persona", (data.get("worker") or {}).get("rut")),
+    ]
+    if payload.code == "sworn_declaration":
+        identities = [identities[0],
+                      ("representante", (data.get("extra") or {}).get("representative_rut"))]
+    for label, rut in identities:
+        if not rut_valid(rut):
+            raise HTTPException(422, "RUT inválido de " + label + "; corrígelo en la ficha.")
     matrix = None
     if payload.code in {"irl", "pts"}:
         kind = payload.code.upper()
