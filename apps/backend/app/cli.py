@@ -95,7 +95,7 @@ def main():
         cmd = cmds.add_parser(command, help="Crear o vincular usuario a empresa EXISTENTE")
         cmd.add_argument("--email", required=True)
         cmd.add_argument("--admin-email", required=True, help="Administrador de la empresa que compartirá sus contratistas")
-        cmd.add_argument("--role", choices=("admin", "administrative", "resident"), default="administrative")
+        cmd.add_argument("--role", choices=("admin", "administrative", "resident", "doc_reviewer"), default="administrative")
         if command == "link-user":
             cmd.add_argument("--apply", action="store_true")
             cmd.add_argument("--backup", help="pg_dump custom validado con pg_restore --list")
