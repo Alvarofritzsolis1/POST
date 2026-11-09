@@ -59,6 +59,9 @@ INDUCTION_FORM_START_ROWS = (9, 58, 116, 159, 206, 262, 304, 355, 404, 452)
 # A shape-based corporate header precedes each textual heading. Excel drawing
 # anchors are zero-indexed, hence the source form starts at these 1-based rows.
 INDUCTION_SECTION_FIRST_ROWS = (1, 48, 104, 149, 197, 253, 298, 345, 394, 442)
+# Header at row 298 is a drawing whose manual break creates a separate
+# header-only page in LibreOffice. The automatic break safely joins its text.
+INDUCTION_MANUAL_BREAK_STARTS = (48, 104, 149, 197, 253, 345, 394, 442)
 
 
 def set_document_print_profile(target: ET.Element, book: ET.Element, code: str, sheet_name: str):
@@ -162,11 +165,11 @@ def configure_induction_sections(target: ET.Element, book: ET.Element,
     previous = target.find(Q("rowBreaks"))
     if previous is not None:
         target.remove(previous)
-    count = len(INDUCTION_FORM_START_ROWS) - 1
+    count = len(INDUCTION_MANUAL_BREAK_STARTS)
     breaks = ET.Element(Q("rowBreaks"), {
         "count": str(count), "manualBreakCount": str(count),
     })
-    for start in INDUCTION_SECTION_FIRST_ROWS[1:]:
+    for start in INDUCTION_MANUAL_BREAK_STARTS:
         ET.SubElement(breaks, Q("brk"), {
             "id": str(start - 1), "min": "0", "max": "3", "man": "1",
         })
