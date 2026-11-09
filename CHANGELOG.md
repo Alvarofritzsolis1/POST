@@ -1,5 +1,14 @@
 # Historial de cambios
 
+## 16.6.1-rc1 — JAVIERA: vinculación y diagnóstico de plantillas Excel (candidata)
+
+- Corrección de las firmas en Entrega PTS: nombres y RUT de representante y trabajador desde la ficha documental, en vez de nacionalidad o estado civil.
+- Fecha efectiva `event.date` sustituye el valor histórico calculado por `TODAY()` en constancias del Excel.
+- Biblioteca diagnóstica: hoja reconocida, plantilla importada, aprobación, almacenamiento privado y motor LibreOffice; mensajes de bloqueo con acción de configuración.
+- Reglamento Interno: no exigir una versión que no se imprime en el diseño Excel original.
+- Pruebas sintéticas y auditoría estructural del archivo original, conservando identidades y XLSX fuera del repositorio.
+- No se considera una certificación de plantillas publicadas ni despliegue en VPS hasta CI y revisión profesional.
+
 ## 16.6.0-rc1 — JAVIERA independiente y generación múltiple (candidata)
 
 - Expedientes, empresas y personas documentales independientes; el asistente no da de alta ni modifica trabajadores y contratistas operativos.
