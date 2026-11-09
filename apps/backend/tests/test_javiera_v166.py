@@ -183,7 +183,7 @@ def test_issuance_partial_success_preserves_eligible_pdf(env):
     assert client.get(result["pdf_url"]).status_code == 200
 
 
-def test_delivery_requires_explicit_confirmation(env):
+def test_print_does_not_require_delivery_or_signature_to_have_occurred(env):
     client, _ = env
     admin = login(client, "a@example.cl")
     firm, person, record, payload = setup_dossier(client, admin)
@@ -199,7 +199,10 @@ def test_delivery_requires_explicit_confirmation(env):
     assert check.status_code == 200, check.text
     state = check.json()["documents"][0]
     assert not state["can_issue"]
-    assert "evento realmente ocurrió" in state["reason"]
+    # La elegibilidad puede seguir bloqueada por una plantilla no publicada,
+    # pero jamás por exigir una entrega o firma ANTES de imprimir.
+    assert "evento realmente ocurrió" not in state["reason"]
+    assert "entrega ocurrieron" not in state["reason"]
 
 
 def test_local_source_references_do_not_block_operational_lifecycle(env):
