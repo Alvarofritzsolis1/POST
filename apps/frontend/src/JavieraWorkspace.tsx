@@ -82,9 +82,10 @@ const F:Record<string,FieldMeta>={
   "contract.hours":{label:"Jornada semanal (horas)",type:"number"},
   "contract.declaration_reason":{label:"Motivo de declaración jurada"},
   "event.date":{label:"Fecha efectiva del documento",type:"date",hint:"Esta es la fecha impresa. El PDF se genera antes de obtener la firma física y no acredita recepción ni entrega."},
-  "event.epp_items":{label:"EPP que figurará en el formulario",hint:"Indica elementos y cantidades. Imprimir no acredita que hayan sido entregados."},
+  "event.epp_items":{label:"EPP que figurará en el formulario (uno por línea)",type:"textarea",hint:"Indica elementos y cantidades. Imprimir no acredita entrega ni firma."},
   "event.pts_version":{label:"Versión del PTS para imprimir y firmar"},
-  "event.induction_topics":{label:"Temario real de inducción (un tema por línea)",type:"textarea",hint:"Solo los contenidos efectivamente planificados; no se inventan capacitaciones."},
+  "event.induction_topics":{label:"Temario real de inducción (un tema por línea)",type:"textarea",hint:"Escribe solo temas efectivamente previstos. La firma se obtiene después, en papel."},
+  "event.print_notes":{label:"Observaciones adicionales (opcionales)",type:"textarea",hint:"Información verificable para la impresión; no sustituye cláusulas ni matrices."},
 };
 const EXTRA_CONTRACT=["extra.representative_name","extra.representative_rut","extra.employer_phone",
   "extra.employer_address","extra.employer_commune","extra.employer_city","extra.employer_email",
