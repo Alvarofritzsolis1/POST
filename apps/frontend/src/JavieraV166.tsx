@@ -169,6 +169,19 @@ export default function JavieraV166({onConfig}:{onConfig?:()=>void}){
     }
     setChecked(old=>old.includes(code)?old.filter(x=>x!==code):[...old.filter(x=>x!=="sworn_declaration"),code]);
   }
+  function resetPersonContext(){
+    // Keep employer-wide details, but never carry worker, contract or event fields across people.
+    setPersonId("");setPersonName("");setPersonRut("");setPersonChoice("");
+    setDossier(null);dossierRef.current=null;setBatch(null);setStates([]);
+    snapshotRef.current="";
+    identityRef.current={...identityRef.current,personId:"",personRut:"",personName:""};
+    setSpecific({});
+    setShared(old=>Object.fromEntries(Object.entries(old).filter(([key])=>
+      key.startsWith("extra.representative")||key.startsWith("extra.employer")||
+      key==="extra.site_address"||key==="extra.principal_company"||
+      key==="extra.specialty"
+    )));
+  }
   function resetIdentity(){
     setCompanyId("");setPersonId("");setDossier(null);dossierRef.current=null;
     setBatch(null);setStates([]);setChecked([]);setShared({});setSpecific({});
@@ -469,13 +482,13 @@ export default function JavieraV166({onConfig}:{onConfig?:()=>void}){
       {requiredPerson&&<section className="j166-sub">
         <h4>Persona documental</h4>
         <div className="j166-switch"><button className={personOrigin==="new"?"active":""}
-          onClick={()=>{setPersonOrigin("new");setPersonId("");}}>Nueva</button>
+          onClick={()=>{resetPersonContext();setPersonOrigin("new");}}>Nueva</button>
           <button className={personOrigin!=="new"?"active":""}
-          onClick={()=>{setPersonOrigin("documentary");setPersonId("");}}>Existente</button></div>
+          onClick={()=>{resetPersonContext();setPersonOrigin("documentary");}}>Existente</button></div>
         {personOrigin==="new"?<div className="j166-fields">
           <label className="j166-field"><span>Nombre completo</span><input value={personName} onChange={e=>setPersonName(e.target.value)}/></label>
           <label className="j166-field"><span>RUT</span><input value={personRut} onChange={e=>setPersonRut(e.target.value)}/></label></div>
-          :<label className="j166-field"><span>Seleccionar persona</span><select value={personChoice} onChange={e=>{setPersonChoice(e.target.value);setPersonId("");}}>
+          :<label className="j166-field"><span>Seleccionar persona</span><select value={personChoice} onChange={e=>{resetPersonContext();setPersonChoice(e.target.value);}}>
             <option value="">Seleccionar</option>{people.map(p=><option key={p.origin+":"+p.id} value={p.origin+":"+p.id}>{p.name} · {p.origin==="operational"?"GALANT":"Javiera"}</option>)}</select></label>}
         {personId&&<label className="j166-field"><span>RUT de persona (ficha Javiera)</span>
           <input value={personRut} onChange={e=>setPersonRut(e.target.value)}/></label>}
