@@ -322,6 +322,42 @@ def _dossier_dict(row, db, user):
             "selected_codes": row.selected_codes, "updated_at": row.updated_at.isoformat()}
 
 
+
+class LocalIdentityCorrection(Strict):
+    name: str | None = Field(default=None, min_length=2, max_length=240)
+    rut: str | None = Field(default=None, max_length=30)
+
+
+@router.patch("/companies/{ident}")
+def correct_company(ident: str, payload: LocalIdentityCorrection,
+                    user: User = Depends(administrator), db: Session = Depends(get_db)):
+    """Only changes the private documentary copy, never the operational Contractor."""
+    company = _company(db, user, ident)
+    if payload.name is not None:
+        company.name = payload.name.strip()
+    if payload.rut is not None:
+        company.rut = payload.rut.strip() or None
+    company.updated_at = utcnow()
+    audit(db, user, "javiera.local_company_corrected", company.id)
+    db.commit()
+    return _company_dict(company)
+
+
+@router.patch("/people/{ident}")
+def correct_person(ident: str, payload: LocalIdentityCorrection,
+                   user: User = Depends(administrator), db: Session = Depends(get_db)):
+    """Only changes the private documentary copy, never an operational Worker."""
+    person = _person(db, user, ident)
+    if payload.name is not None:
+        person.name = payload.name.strip()
+    if payload.rut is not None:
+        person.rut = payload.rut.strip() or None
+    person.updated_at = utcnow()
+    audit(db, user, "javiera.local_person_corrected", person.id)
+    db.commit()
+    return _person_dict(person)
+
+
 @router.post("/dossiers")
 def save_dossier(payload: DossierInput, user: User = Depends(administrator), db: Session = Depends(get_db)):
     _only_codes(payload.selected_codes)
@@ -518,7 +554,7 @@ def issue_batch(payload: BatchInput, user: User = Depends(administrator), db: Se
         output = fitz.open()
         for ident in success:
             _, path = _file(db, user, ident)
-            with fitz.open(path) as original:
+            with fitz.open(str(path)) as original:
                 output.insert_pdf(original)
         folder = settings().document_dir / user.org_id / "javiera-v166" / record.id
         filename = folder / ("paquete-" + batch.id + ".pdf")
