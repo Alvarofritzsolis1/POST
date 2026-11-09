@@ -62,3 +62,7 @@
 .j166-history-list button{border:1px solid #d9e2eb;background:#fff;text-align:left;padding:10px;border-radius:8px;color:#315572;cursor:pointer}
 @media(max-width:760px){.j166{padding:12px 10px 50px}.j166-head{padding:18px;display:block}.j166-head button{margin-top:12px}.j166-panel{padding:16px}.j166-two,.j166-fields,.j166-doc-grid{grid-template-columns:1fr}.j166-actions{justify-content:stretch}.j166-actions>button,.j166-actions>a{flex:1 1 auto}.j166-steps button{font-size:12px;padding:9px}.j166-status{display:block}.j166-status-actions{margin-top:10px}}
 @media(prefers-reduced-motion:reduce){.j166-meter>div{transition:none}}
+
+.j166-needed{display:flex;flex-wrap:wrap;gap:8px;margin-top:10px}
+.j166-needed>span{font-size:12px;background:#edf4fb;border:1px solid #c6d9ef;border-radius:7px;padding:6px 9px;color:#274e73}
+.j166-needed>small{align-self:center;color:#62788e}
