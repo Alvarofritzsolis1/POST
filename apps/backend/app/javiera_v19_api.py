@@ -20,7 +20,7 @@ from .javiera_layout_api import matrix_sections
 from .javiera_formula_equivalence import pesos_a_letras_excel, INVALID_AMOUNT
 from .javiera_logic import DOCUMENT_BY_CODE, render_tokens, check_template_fields, rut_valid
 from .javiera_models import JavieraRevision, JavieraTemplate
-from .javiera_native_edit import NativeHtmlError, bind_native_html, plain_text_to_html, validate_native_html
+from .javiera_native_edit import TOKEN, NativeHtmlError, bind_native_html, plain_text_to_html, validate_native_html
 from .models import AuditEvent, utcnow
 from .javiera_native import DOCUMENT_TITLES, NativeDocumentError, render_native_pdf
 from .javiera_v166_api import _document, _dossier
@@ -266,6 +266,24 @@ def enable_native_html(code: str, payload: EnablePilotText,
     return {"code": code, "revision": latest.revision, "preview_only": True}
 
 
+# Datos necesarios para PDF HTML, no la lista excesiva de celdas del Excel.
+NATIVE_BASE_FIELDS = {
+    "labor_contract": ["role", "employment_type", "contract.start",
+                       "contract.salary", "contract.hours", "event.date"],
+    "transfer_addendum": ["role", "contract.transfer_date", "event.date"],
+    "extension_addendum": ["contract.end", "contract.new_end", "event.date"],
+    "sworn_declaration": ["extra.representative_name", "extra.representative_rut",
+                          "contract.declaration_reason", "event.date"],
+    "internal_rules_receipt": ["event.date", "extra.regulation_version"],
+    "ppe_delivery": ["role", "event.epp_items", "event.date"],
+    "irl": ["role", "event.date"],
+    "pts": ["role", "event.date", "extra.representative_name",
+            "extra.representative_rut"],
+    "pts_receipt": ["role", "event.pts_version", "event.date"],
+    "induction": ["role", "event.date", "event.induction_topics"],
+}
+
+
 @router.get("/formats")
 def native_formats(user: User = Depends(administrator),
                    db: Session = Depends(get_db)):
@@ -295,6 +313,19 @@ def native_formats(user: User = Depends(administrator),
             latest_by_id.get(by_code[code].id) if code in by_code else None
         ) for code in DOCUMENT_TITLES
     }
+    def required_fields(code: str) -> list[str]:
+        row = by_code.get(code)
+        last = latest_by_id.get(row.id) if row else None
+        fragment = native_sources[code][0]
+        if not fragment and last:
+            fragment = (last.contents or {}).get("layout", {}).get("native_html")
+        if not fragment and code in ORIGINAL_TEXT_CODES:
+            fragment = (sources[code][0] or
+                        (last.contents or {}).get("body", "") if last else
+                        sources[code][0] or (row.body if row else ""))
+        tokens = TOKEN.findall(fragment or "")
+        return list(dict.fromkeys([*NATIVE_BASE_FIELDS[code], *tokens]))
+
     def status(code: str) -> str:
         native_markup, _, native_state = native_sources[code]
         if native_state == "requires_review":
@@ -316,6 +347,7 @@ def native_formats(user: User = Depends(administrator),
                  else sources[code][2] if code in ORIGINAL_TEXT_CODES
                  else "native_default"),
              "editable_in": "Editor HTML de Proyecto Javiera",
+             "required_fields": required_fields(code),
              "source_revision": (
                  native_sources[code][1] or
                  (sources[code][1] if code in ORIGINAL_TEXT_CODES else None)
