@@ -23,7 +23,7 @@ def main():
         raise SystemExit("Solo se permite QA local en 127.0.0.1")
     args.output.mkdir(parents=True, exist_ok=True)
     failures, responses = [], []
-    report = {"version": "18.0.1-rc1", "at": datetime.now(timezone.utc).isoformat(),
+    report = {"version": "19.0.0-rc1", "at": datetime.now(timezone.utc).isoformat(),
               "scenarios": {}, "console_errors": [], "server_errors": []}
     with sync_playwright() as playwright:
         browser = playwright.chromium.launch(
@@ -86,8 +86,10 @@ def main():
             assert page.get_by_label("Sueldo base ($ CLP)").count() == 0
             report["scenarios"]["no_labor_fields_for_pts"] = "PASS"
             page.get_by_role("button", name="Revisar documentos").click()
-            expect(page.get_by_role("heading", name="Revisión y generación")).to_be_visible(timeout=20000)
+            expect(page.get_by_role("heading", name="Revisión e impresión")).to_be_visible(timeout=20000)
             report["scenarios"]["dossier_saved_independent"] = "PASS"
+            expect(page.get_by_text("Vista previa A4", exact=True)).to_be_visible()
+            report["scenarios"]["native_preview_entrypoint_visible"] = "PASS"
             assert "Listo para emitir" in page.locator(".j166-status").inner_text(), (
                 "PTS no está listo con plantilla y matriz sintéticas aprobadas")
             report["scenarios"]["eligibility_document_specific"] = "PASS"
@@ -146,7 +148,7 @@ def main():
             assert not failures, failures
             assert not responses, responses
             report.update(status="PASS", console_errors=failures, server_errors=responses)
-            print("PASS: JAVIERA 18 · guided library, isolated identities, PTS, PDF, history and mobile")
+            print("PASS: JAVIERA 19 · wizard, native PDF entrypoint, isolated identities and mobile")
         except Exception as exc:
             report.update(status="FAIL", error=str(exc), console_errors=failures,
                           server_errors=responses)
