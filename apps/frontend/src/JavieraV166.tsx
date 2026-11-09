@@ -319,7 +319,9 @@ export default function JavieraV166({onConfig,onTextEditor}:{onConfig?:()=>void;
         }])), // Preparar el PDF no confirma que el evento ocurrió.
         ...(current?{dossier_id:current.id,expected_revision:current.revision}:{})};
       const signature=JSON.stringify(data);
-      if(!force&&current&&signature===snapshotRef.current){
+      // Volver a previsualizar sin cambios no debe incrementar la revisión,
+      // duplicar documentos, ni bloquear la interfaz por escrituras evitables.
+      if(current&&signature===snapshotRef.current){
         if(identityChanged){
           const check=await request<{documents:DocState[]}>(BASE+"/dossiers/"+current.id+"/eligibility");
           setStates(check.documents);
