@@ -49,7 +49,7 @@ async function showPDF(path:string){
   window.setTimeout(()=>URL.revokeObjectURL(url),60000);
 }
 
-function LayoutStudio(){
+function LayoutStudio({onReviews}:{onReviews:()=>void}){
   const [layouts,setLayouts]=useState<Layout[]>([]);
   const [selected,setSelected]=useState("");
   const [source,setSource]=useState<CellPage|null>(null);
@@ -110,14 +110,6 @@ function LayoutStudio(){
       setReason("");
     }catch(e){setError(errorText(e));}finally{setBusy(false);}
   }
-  async function approve(){
-    if(!current)return;
-    setBusy(true);setError("");
-    try{
-      await request("/javiera/admin/excel/layouts/"+current.id+"/approve",{method:"POST"});
-      await refresh();setNotice("Plantilla publicada. Las emisiones anteriores permanecen intactas.");
-    }catch(e){setError(errorText(e));}finally{setBusy(false);}
-  }
   return <section className="jvx">
     <header className="jvx-intro">
       <div><span className="jvx-kicker">IMPORTACIÓN CON FORMATO ORIGINAL</span><h2>Diseñador de documentos Excel</h2>
@@ -146,7 +138,7 @@ function LayoutStudio(){
             {current&&<small>{current.inventory.cells} celdas · {current.inventory.merged} combinadas · {current.inventory.formulas} fórmulas</small>}</div>
           <div className="jvx-buttons">
             <button disabled={!current||busy||!engine?.available} onClick={()=>{if(current)void showPDF("/admin/excel/layouts/"+current.id+"/preview").catch(e=>setError(errorText(e)));}}>Vista previa PDF</button>
-            {current?.status==="draft"&&<button disabled={busy} onClick={()=>void approve()}>Aprobar versión</button>}
+            {current?.status==="draft"&&<button disabled={busy} onClick={onReviews}>Solicitar revisión profesional</button>}
           </div>
         </div>
         <div className="jvx-row-nav">
@@ -261,15 +253,15 @@ function ReviewDesk(){
   }
   return <section className="jvx">
     <header className="jvx-intro"><div><span className="jvx-kicker">TRAZABILIDAD PROFESIONAL</span><h2>Mesa de revisión laboral y preventiva</h2>
-      <p>Dos responsables diferentes: quien redacta no puede aprobar. Solo una persona designada puede emitir actas de revisión de su especialidad.</p></div></header>
+      <p>Revisión en dos roles: quien redacta no puede aprobar. La persona revisora puede tener una cuenta limitada a este módulo.</p></div></header>
     {error&&<p role="alert" className="jv-error">{error}</p>}{notice&&<p role="status" className="jv-success">{notice}</p>}
     <div className="jvx-review-grid">
       <aside className="jvx-edit">
-        <h3>Responsables autorizados</h3><p>La designación requiere otro administrador y una descripción de su función o acreditación.</p>
+        <h3>Responsables autorizados</h3><p>La persona revisora puede usar el perfil «Revisor documental» sin acceso a los módulos operativos. Registra su especialidad y designación.</p>
         {reviewers.map(x=><div className="jvx-reviewer" key={x.user_id}>
           <b>{x.name}</b><small>{x.specialties.filter(s=>s.active).map(s=>s.specialty).join(" · ")||"Sin especialidad autorizada"}</small>
         </div>)}
-        <label>Designar a otro administrador
+        <label>Seleccionar responsable autorizado
           <select value={chosenReviewer} onChange={e=>setChosenReviewer(e.target.value)}>
             <option value="">Seleccionar responsable</option>{reviewers.map(x=><option value={x.user_id} key={x.user_id}>{x.name}</option>)}
           </select></label>
@@ -310,6 +302,6 @@ function ReviewDesk(){
   </section>;
 }
 
-export default function JavieraExcelAdmin({tab}:{tab:"excel"|"reviews"}){
-  return tab==="excel"?<LayoutStudio/>:<ReviewDesk/>;
+export default function JavieraExcelAdmin({tab,onChangeTab}:{tab:"excel"|"reviews";onChangeTab?:(tab:"excel"|"reviews")=>void}){
+  return tab==="excel"?<LayoutStudio onReviews={()=>onChangeTab?.("reviews")}/>:<ReviewDesk/>;
 }

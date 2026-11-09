@@ -29,6 +29,7 @@ import ContractAlerts from "./ContractAlerts";
 import Settings from "./Settings";
 const GeneralConfiguration = lazy(() => import("./GeneralConfiguration"));
 const Javiera = lazy(() => import("./Javiera"));
+const JavieraReviewerV17 = lazy(() => import("./JavieraReviewerV17"));
 import RedDeObras, { ResidentNetwork } from "./Network";
 import { NetworkAccountMenu, NetworkPasswordScreen } from "./NetworkAccounts";
 import {
@@ -389,6 +390,11 @@ function App() {
   if (hash.startsWith("#establecer-clave=") || hash === "#recuperar-clave") return <NetworkPasswordScreen hash={hash} done={() => { window.history.replaceState(null, "", window.location.pathname); setHash(""); setUser(null); }} />;
   if (!ready) return <div className="app-loading">Cargando GALANT…</div>;
   if (!user) return <Login onLogin={setUser} version={version} />;
+  if (user.role === "doc_reviewer") return <ErrorBoundary name="Revisión documental JAVIERA">
+    <Suspense fallback={<div className="app-loading">Cargando mesa documental…</div>}>
+      <JavieraReviewerV17 onLogout={() => void logout()} />
+    </Suspense>
+  </ErrorBoundary>;
   if (section === "javiera_config" && user.role !== "admin") return <main className="panel"><h1>Acceso restringido</h1><button onClick={() => go("home")}>Volver</button></main>;
   if (section === "configuration" && user.role !== "admin") return <main className="panel" style={{ margin: "40px auto", maxWidth: 620 }}><h1>Acceso restringido</h1><p>Configuración General está disponible exclusivamente para administradores.</p><button type="button" onClick={() => { window.history.replaceState({}, "", "/"); setSection("home"); }}>← Volver</button></main>;
   if (user.role === "resident") return <ResidentNetwork user={user} version={version} logout={() => void logout()} />;

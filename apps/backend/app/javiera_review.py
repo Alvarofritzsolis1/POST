@@ -103,7 +103,7 @@ def checklists(user: User = Depends(administrator)):
 @router.get("/reviewers")
 def reviewers(user: User = Depends(administrator), db: Session = Depends(get_db)):
     users = db.scalars(select(User).where(
-        User.org_id == user.org_id, User.role == "admin", User.enabled.is_(True))).all()
+        User.org_id == user.org_id, User.role.in_(("admin", "doc_reviewer")), User.enabled.is_(True))).all()
     grants = db.scalars(select(JavieraReviewerAuthorization).where(
         JavieraReviewerAuthorization.org_id == user.org_id)).all()
     allowed = {(g.user_id,g.specialty):g for g in grants}
@@ -119,8 +119,8 @@ def reviewers(user: User = Depends(administrator), db: Session = Depends(get_db)
 def assign_reviewer(payload: ReviewerAssignment, user: User = Depends(administrator),
                     db: Session = Depends(get_db)):
     target = db.get(User, payload.user_id)
-    if not target or target.org_id != user.org_id or target.role != "admin" or not target.enabled:
-        raise HTTPException(404, "El responsable debe tener cuenta de administrador en la misma organización")
+    if not target or target.org_id != user.org_id or target.role not in {"admin", "doc_reviewer"} or not target.enabled:
+        raise HTTPException(404, "El responsable debe tener cuenta de revisor documental o administrador de la misma organización")
     if target.id == user.id:
         raise HTTPException(403, "Otro administrador debe acreditar la designación de revisor")
     grant = db.scalar(select(JavieraReviewerAuthorization).where(
