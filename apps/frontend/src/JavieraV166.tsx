@@ -535,7 +535,7 @@ export default function JavieraV166({onConfig}:{onConfig?:()=>void}){
       {checked.map(code=><section key={code} className="j166-sub">
         <h4>{title(code)} — datos específicos</h4>
         {["ppe_delivery","pts_receipt","induction","internal_rules_receipt"].includes(code)&&
-          <p>Este formulario se prepara para imprimir y obtener firma en papel después. No es necesario indicar que la entrega o recepción ya ocurrió.</p>}}
+          <p>Este formulario se prepara para imprimir y obtener firma en papel después. No es necesario indicar que la entrega o recepción ya ocurrió.</p>}
         {code==="sworn_declaration"&&<label className="j166-confirm"><input type="checkbox"
           checked={specific[code]?.verified_no_workers==="true"}
           onChange={e=>changeField("verified_no_workers",e.target.checked?"true":"",code)}/>
