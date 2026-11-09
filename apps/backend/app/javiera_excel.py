@@ -558,6 +558,22 @@ def excel_document(raw: bytes, code: str, data: dict, changes: dict | None = Non
                      get_data(data, "contract.declaration_reason") + ".")
 
         if code == "pts_receipt":
+            # Cargo del trabajador, nunca rubro del empleador del Excel de ejemplo.
+            role = get_data(data, "role").strip()
+            if not role:
+                raise LayoutError("Indica el cargo real para la entrega del PTS")
+            set_text(target, "A1", "ENTREGA PTS DE " + role.upper())
+            introduction = ensure_cell(target, "A3")
+            original = cell_text(introduction, strings)
+            if "correspondiente al cargo de" in original.lower():
+                updated, count = re.subn(
+                    r"(correspondiente al cargo de\s+)[^.\n]+(\.)",
+                    lambda match: match.group(1) + role.upper() + match.group(2),
+                    original, count=1, flags=re.IGNORECASE,
+                )
+                if count != 1:
+                    raise LayoutError("No se pudo vincular el cargo dentro de Entrega PTS")
+                set_text(target, "A3", updated)
             # The supplied original has incorrect formulas in the signature
             # block (A23/F23 point to RUTs, A24/F24 to nationality/civil status).
             # Both name and RUT must come from the current dossier.
