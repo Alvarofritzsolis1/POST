@@ -96,7 +96,7 @@ function Setup({onBack}:{onBack:()=>void}){
   }
   async function saveMatrix(){
     try{await request("/javiera/admin/matrices",{method:"POST",body:JSON.stringify({
-      kind:matrixKind,cargo,sections:sections.map(s=>s.trim()),source:"Configuración JAVIERA v16"})});
+      kind:matrixKind,cargo,sections:sections.map(s=>s.trim()),source:"Configuración JAVIERA v17"})});
       const m=await request<Matrix[]>("/javiera/admin/matrices");setMatrices(m);
       setNotice("Matriz en borrador; requiere revisión independiente.");setError("");
     }catch(e){setError(errorMessage(e));}
@@ -110,7 +110,7 @@ function Setup({onBack}:{onBack:()=>void}){
     <header className="jv-heading"><button type="button" onClick={onBack} className="jv-back"><ArrowLeft size={18}/> Volver a GALANT</button>
       <div><small>GALANT · CONTROL DE VERSIONES</small><h1>Configuración de automatización</h1>
         <p>Todo el contenido documental es editable; la aprobación y la auditoría no pueden desactivarse.</p></div>
-      <span className="jv-mark">Proyecto JAVIERA · v16</span></header>
+      <span className="jv-mark">Proyecto JAVIERA · v17</span></header>
     <div className="jv-tabs"><button className={tab==="documentos"?"active":""} aria-pressed={tab==="documentos"} onClick={()=>setTab("documentos")}>Plantillas y cláusulas</button>
       <button className={tab==="matrices"?"active":""} aria-pressed={tab==="matrices"} onClick={()=>setTab("matrices")}>Matrices PTS / IRL</button>
       <button className={tab==="excel"?"active":""} aria-pressed={tab==="excel"} onClick={()=>setTab("excel")}>Diseños Excel originales</button>
@@ -163,7 +163,7 @@ function Setup({onBack}:{onBack:()=>void}){
         <label>Motivo de cambio <input value={reason} onChange={e=>setReason(e.target.value)} placeholder="Ej. Corrección de párrafo o matriz"/></label>
         <button className="jv-primary" disabled={reason.trim().length<6||draft.body.trim().length<20} onClick={()=>void save()}>Guardar borrador</button>
       </section>}
-      <aside className="jv-versions"><h3>Versiones y aprobaciones</h3><p>Para publicar se requiere un administrador distinto del autor.</p>
+      <aside className="jv-versions"><h3>Versiones y aprobaciones</h3><p>Para publicar se requiere una persona revisora autorizada distinta del autor.</p>
         {(templates.find(t=>t.code===selected)?.revisions||[]).map(v=><div className="jv-version" key={v.revision}>
           <b>Revisión {v.revision}</b><small>{v.state}</small><p>{v.reason}</p>
           {v.state==="draft"&&<button onClick={()=>void approve(selected,v.revision)}>Aprobar publicación</button>}
