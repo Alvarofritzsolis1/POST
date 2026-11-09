@@ -52,3 +52,5 @@ body h2 {margin:12pt 0 6pt;}
 .document-head {margin-bottom:7pt;}
 .identity td, .identity th {padding:5pt;}
 .signature-panel h2 {margin:8pt 0 6pt;}
+.ppe-source-label {margin:8pt 0 4pt; color:#243a4f; font-size:9.2pt;}
+.ppe-form .matrix td, .ppe-form .matrix th {padding:4pt 5pt;}
