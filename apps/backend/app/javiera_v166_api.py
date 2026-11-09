@@ -23,8 +23,9 @@ from .db import get_db
 from .javiera_api import audit, by_org, pdf_for, template_data
 from .javiera_layout_api import latest_layout, make_pdf
 from .javiera_logic import DOCUMENTS, DOCUMENT_BY_CODE, eligibility, normalize_cargo, render_tokens
+from .javiera_excel import DOC_SHEETS
 from .javiera_matrices import latest_approved_matrix
-from .javiera_models import JavieraMatrix, JavieraTemplate, JavieraIssue
+from .javiera_models import JavieraExcelLayout, JavieraMatrix, JavieraTemplate, JavieraIssue
 from .javiera_v166_models import (
     JavieraLocalCompany, JavieraLocalPerson, JavieraLocalDossier,
     JavieraLocalIssue, JavieraLocalBatch,
@@ -143,6 +144,14 @@ def _status(db, user, record, code):
     approved = {kind + ":" + normalize_cargo(cargo) for kind, cargo in matrices}
     data = _document(record, code, db, user)
     item = next(s for s in eligibility(data, templates, approved) if s["code"] == code)
+    # An imported Excel in draft status must never silently fall back to
+    # an unrelated text template merely because that text was published.
+    if latest_layout(db, user.org_id, code, approved=False) and not latest_layout(
+        db, user.org_id, code
+    ):
+        item.update(status="PENDIENTE_REVISION",
+                    reason="Plantilla Excel original importada, pendiente de aprobación profesional.",
+                    can_issue=False, can_preview=False)
     # A date alone does not prove delivery, receipt or an actual induction.
     evidence_codes = {"ppe_delivery", "pts_receipt", "induction", "internal_rules_receipt"}
     if code in evidence_codes and (
@@ -230,6 +239,53 @@ def sources(site_id: str = "", company_id: str = "",
                                        "site_id": a.worksite_id, "origin": "operational"}
                                       for a, c in operational],
             "people": [_person_dict(p) for p in people], "operational_people": op_people}
+
+
+
+@router.get("/templates/status")
+def documentary_template_status(user: User = Depends(administrator),
+                                db: Session = Depends(get_db)):
+    """Explicitly distinguish source mapping, private import and approved PDF layout."""
+    layouts = db.scalars(select(JavieraExcelLayout).where(
+        JavieraExcelLayout.org_id == user.org_id
+    ).order_by(JavieraExcelLayout.revision.desc()).limit(500)).all()
+    latest, published = {}, {}
+    for item in layouts:
+        latest.setdefault(item.code, item)
+        if item.state == "approved":
+            published.setdefault(item.code, item)
+    result = []
+    engine_available = bool(__import__("shutil").which("libreoffice") or
+                            __import__("shutil").which("soffice"))
+    for code, sheet in DOC_SHEETS.items():
+        current = latest.get(code)
+        approved = published.get(code)
+        source_exists = False
+        if approved:
+            safe_root = (settings().document_dir / user.org_id /
+                         "javiera" / "layout-sources").resolve()
+            candidate = Path(approved.workbook_path).resolve()
+            source_exists = candidate.is_relative_to(safe_root) and candidate.is_file()
+        if not current:
+            state, message = "not_imported", "La hoja está reconocida por GALANT, pero su Excel aún no se ha importado."
+        elif not approved:
+            state, message = "draft", "Excel importado; requiere revisión y aprobación profesional."
+        elif not source_exists:
+            state, message = "missing_storage", "El Excel aprobado no está disponible en el almacenamiento privado."
+        elif not engine_available:
+            state, message = "engine_unavailable", "Falta el motor de conversión PDF LibreOffice."
+        else:
+            state, message = "published", "Diseño Excel original aprobado y disponible para generar PDF."
+        result.append({
+            "code": code, "sheet": sheet, "linked": True,
+            "imported": bool(current), "latest_revision": current.revision if current else None,
+            "approved_revision": approved.revision if approved else None,
+            "state": state, "message": message,
+            "ready": state == "published",
+            "source_sha256": approved.workbook_sha256 if approved else None,
+            "fields_detected": len(DOCUMENT_BY_CODE[code][4]),
+        })
+    return {"engine_available": engine_available, "documents": result}
 
 
 @router.post("/companies")
