@@ -99,6 +99,7 @@ export default function JavieraV166({onConfig}:{onConfig?:()=>void}){
   const [saving,setSaving]=useState(false);
   const [lookup,setLookup]=useState("");
   const savingRef=useRef(false);
+  const identityGeneration=useRef(0);
   const snapshotRef=useRef("");
   const identityRef=useRef({companyId:"",companyRut:"",personId:"",personRut:"",personName:""});
   const dossierRef=useRef<Dossier|null>(null);
@@ -170,6 +171,7 @@ export default function JavieraV166({onConfig}:{onConfig?:()=>void}){
     setChecked(old=>old.includes(code)?old.filter(x=>x!==code):[...old.filter(x=>x!=="sworn_declaration"),code]);
   }
   function resetPersonContext(){
+    identityGeneration.current+=1;
     // Keep employer-wide details, but never carry worker, contract or event fields across people.
     setPersonId("");setPersonName("");setPersonRut("");setPersonChoice("");
     setDossier(null);dossierRef.current=null;setBatch(null);setStates([]);
@@ -183,6 +185,7 @@ export default function JavieraV166({onConfig}:{onConfig?:()=>void}){
     )));
   }
   function resetIdentity(){
+    identityGeneration.current+=1;
     setCompanyId("");setPersonId("");setDossier(null);dossierRef.current=null;
     setBatch(null);setStates([]);setChecked([]);setShared({});setSpecific({});
     setPersonChoice("");setCompanyChoice("");setCompanyName("");setCompanyRut("");
@@ -222,6 +225,7 @@ export default function JavieraV166({onConfig}:{onConfig?:()=>void}){
     if(!requiredPerson)return null;
     if(personId)return personId;
     let result:Person;
+    const generation=identityGeneration.current;
     if(personOrigin==="new"){
       if(personName.trim().length<2)throw new Error("Indica el nombre de la persona.");
       result=await request<Person>(BASE+"/people",{method:"POST",body:JSON.stringify({
@@ -232,6 +236,7 @@ export default function JavieraV166({onConfig}:{onConfig?:()=>void}){
       result=await request<Person>(BASE+"/people",{method:"POST",body:JSON.stringify({
         company_id:companyId,origin:option.origin,source_id:option.id})});
     }
+    if(generation!==identityGeneration.current)return null;
     setPersonId(result.id);setPersonName(result.name);setPersonRut(result.rut);
     identityRef.current={...identityRef.current,personId:result.id,personRut:result.rut,personName:result.name};
     return result.id;
@@ -241,7 +246,9 @@ export default function JavieraV166({onConfig}:{onConfig?:()=>void}){
     if(savingRef.current)return null;
     if(!companyId||!siteId||!checked.length)return null;
     savingRef.current=true;setSaving(true);setError("");
+    const generation=identityGeneration.current;
     try{
+      if(generation!==identityGeneration.current)return null;
       const current=dossierRef.current;
       const targetPerson=personOverride===undefined?(workerless?null:personId||null):personOverride;
       const last=identityRef.current;
@@ -280,9 +287,11 @@ export default function JavieraV166({onConfig}:{onConfig?:()=>void}){
         return current;
       }
       const result=await request<Dossier>(BASE+"/dossiers",{method:"POST",body:JSON.stringify(data)});
+      if(generation!==identityGeneration.current)return null;
       dossierRef.current=result;setDossier(result);snapshotRef.current=JSON.stringify({
         ...data,dossier_id:result.id,expected_revision:result.revision});
       const eligibility=await request<{documents:DocState[]}>(BASE+"/dossiers/"+result.id+"/eligibility");
+      if(generation!==identityGeneration.current)return null;
       setStates(eligibility.documents);
       if(force)setNotice("Expediente documental guardado correctamente.");
       return result;
@@ -291,7 +300,9 @@ export default function JavieraV166({onConfig}:{onConfig?:()=>void}){
   async function goReview(){
     if(!checked.length){setError("Selecciona al menos un documento.");return;}
     try{
+      const generation=identityGeneration.current;
       const resolved=await ensurePerson();
+      if(generation!==identityGeneration.current||(requiredPerson&&!resolved))return;
       const result=await saveDraft(true,requiredPerson?resolved:null);
       if(result){setStep(4);setError("");}
     }catch(e){showFailure(e);}
@@ -304,7 +315,9 @@ export default function JavieraV166({onConfig}:{onConfig?:()=>void}){
     const timeout=window.setTimeout(()=>{
       void (async()=>{
         try{
+          const generation=identityGeneration.current;
           const resolved=requiredPerson?await ensurePerson():null;
+          if(generation!==identityGeneration.current||(requiredPerson&&!resolved))return;
           await saveDraft(false,requiredPerson?resolved:null);
         }catch(e){showFailure(e);}
       })();
@@ -349,8 +362,10 @@ export default function JavieraV166({onConfig}:{onConfig?:()=>void}){
     }catch(e){showFailure(e);}
   }
   async function loadDossier(id:string){
+    const generation=++identityGeneration.current;
     try{
       const d=await request<Dossier>(BASE+"/dossiers/"+id);
+      if(generation!==identityGeneration.current)return;
       setSiteId(d.site_id);setCompanyId(d.company_id);setCompanyName(d.company_name);setCompanyRut(d.company_rut||"");
       setPersonId(d.person_id||"");setPersonName(d.person_name||"");setPersonRut(d.person_rut||"");
       setRelation(d.relationship);setParentName(d.parent_name||"");
