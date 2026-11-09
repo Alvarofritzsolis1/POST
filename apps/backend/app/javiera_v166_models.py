@@ -8,11 +8,12 @@ from .models import uid, utcnow
 
 
 class JavieraLocalCompany(Base):
+    """Documentary copy; operational source ID is informational and never a FK."""
     __tablename__ = "javiera_local_companies"
     id: Mapped[str] = mapped_column(String(36), primary_key=True, default=uid)
     org_id: Mapped[str] = mapped_column(ForeignKey("organizations.id"), nullable=False, index=True)
     site_id: Mapped[str] = mapped_column(ForeignKey("worksites.id"), nullable=False, index=True)
-    source_contractor_id: Mapped[str | None] = mapped_column(ForeignKey("contractors.id"), nullable=True)
+    source_contractor_id: Mapped[str | None] = mapped_column(String(36), nullable=True)
     name: Mapped[str] = mapped_column(String(240), nullable=False)
     rut: Mapped[str | None] = mapped_column(String(30), nullable=True)
     details: Mapped[dict] = mapped_column(JSON, default=dict, nullable=False)
@@ -21,11 +22,12 @@ class JavieraLocalCompany(Base):
 
 
 class JavieraLocalPerson(Base):
+    """Documentary person independent of the Worker lifecycle."""
     __tablename__ = "javiera_local_people"
     id: Mapped[str] = mapped_column(String(36), primary_key=True, default=uid)
     org_id: Mapped[str] = mapped_column(ForeignKey("organizations.id"), nullable=False, index=True)
     company_id: Mapped[str] = mapped_column(ForeignKey("javiera_local_companies.id"), nullable=False, index=True)
-    source_worker_id: Mapped[str | None] = mapped_column(ForeignKey("workers.id"), nullable=True)
+    source_worker_id: Mapped[str | None] = mapped_column(String(36), nullable=True)
     name: Mapped[str] = mapped_column(String(240), nullable=False)
     rut: Mapped[str | None] = mapped_column(String(30), nullable=True)
     details: Mapped[dict] = mapped_column(JSON, default=dict, nullable=False)
