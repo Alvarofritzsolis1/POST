@@ -1,5 +1,14 @@
 # Historial de cambios
 
+## 17.0.0-rc1 — Biblioteca inteligente JAVIERA y revisión documental delimitada
+
+- Nuevo inicio de Proyecto JAVIERA con diez documentos precatalogados, un único importador de Excel privado, detección de cargas repetidas, vistas previas y acciones claras.
+- Excel preparado por el usuario se importa sin copiar su información privada a GitHub. Todas las plantillas nacen como borradores para modificar y aprobar una sola vez.
+- Nuevo perfil `doc_reviewer` con acceso exclusivamente a revisión documental por especialidad; firma de acta y publicación en un paso validado, manteniendo la separación del autor.
+- Sin cambios operativos en módulos de Trabajadores, Contratistas, Asistencia o Leyes Sociales.
+- Pruebas de seguridad, aislamiento, idempotencia y UX; ver [guía de implantación](docs/JAVIERA_17_BIBLIOTECA_INTELIGENTE.md).
+- Es versión candidata: requiere revisión y CI en verde y cargar/aprobar el XLSX en el servidor privado antes de emitir sus PDF.
+
 ## 16.6.1-rc1 — JAVIERA: vinculación y diagnóstico de plantillas Excel (candidata)
 
 - Corrección de las firmas en Entrega PTS: nombres y RUT de representante y trabajador desde la ficha documental, en vez de nacionalidad o estado civil.
