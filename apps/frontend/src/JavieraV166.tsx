@@ -16,7 +16,8 @@ type TemplateLink={code:string;sheet:string;linked:boolean;imported:boolean;
   state:"not_imported"|"draft"|"missing_storage"|"engine_unavailable"|"published";
   message:string;ready:boolean;source_sha256:string|null};
 type LibraryStatus={engine_available:boolean;documents:TemplateLink[]};
-type NativeFormat={code:string;status:"ready"|"requires_review"|"requires_published_text";editable_in:string;source_revision:number|null};
+type NativeFormat={code:string;status:"ready"|"requires_review"|"requires_published_text";
+  editable_in:string;source_revision:number|null;required_fields:string[]};
 type NativeCatalog={mode:string;formats:NativeFormat[];message:string};
 type DocState={code:string;status:string;reason:string;missing_fields:string[];blocking_errors:string[];
   completion_percent:number;can_issue:boolean;has_history:boolean;requires_reissue_reason?:boolean;last_issue_id?:string};
@@ -176,9 +177,11 @@ export default function JavieraV166({onConfig,onTextEditor}:{onConfig?:()=>void;
   const people=useMemo(()=>[...source.people,...source.operational_people],[source]);
 
   const fieldsByCode=useMemo(()=>Object.fromEntries(checked.map(code=>{
-    const item=catalog.find(c=>c.code===code);
-    return [code,[...new Set([...(item?.required_fields||[]),...(JAVIERA_EXCEL_FIELDS[code]||[]),...(code==="labor_contract"?["employment_type"]:[])])]];
-  })) as Record<string,string[]>,[checked,catalog]);
+    const native=nativeFormats.find(f=>f.code===code);
+    // El nuevo motor solo pide los datos usados por HTML y sus variables.
+    const needed=native?.required_fields||JAVIERA_EXCEL_FIELDS[code]||[];
+    return [code,[...new Set([...needed,...(code==="labor_contract"?["employment_type"]:[])])]];
+  })) as Record<string,string[]>,[checked,nativeFormats]);
   const commonKeys=useMemo(()=>[...new Set(Object.values(fieldsByCode).flat())]
     .filter(k=>!AUTO.has(k)&&!DOC_ONLY.has(k)&&!k.startsWith("event.")),[fieldsByCode]);
   const uniqueKeys=useMemo<Record<string,string[]>>(()=>{
@@ -546,9 +549,7 @@ export default function JavieraV166({onConfig,onTextEditor}:{onConfig?:()=>void;
           <label key={c.code} className={"j166-doc "+(checked.includes(c.code)?"checked":"")}>
             <input type="checkbox" checked={checked.includes(c.code)} onChange={()=>chooseCode(c.code)}/>
             <FileText size={17}/><span><b>{title(c.code)}</b><small>{
-              library.length?libraryLabel(c.code):
-                c.published_version?"Plantilla publicada · revisión "+c.published_version:
-                "Comprobar biblioteca de plantillas"}</small></span>
+              libraryLabel(c.code)}</small></span>
           </label>)}</div>
       </div>)}
       {checked.length>0&&<div className="j166-sub" aria-live="polite">
@@ -632,13 +633,16 @@ export default function JavieraV166({onConfig,onTextEditor}:{onConfig?:()=>void;
         Puedes corregir los datos antes de imprimir; el PDF no registra firmas físicas.</p>
       <p>{checked.length} documentos seleccionados · {checked.filter(c=>nativeFormats.find(f=>f.code===c)?.status==="ready").length} con formato HTML habilitado</p>
       {states.map(s=><div className="j166-status" key={s.code}>
-        <div><strong>{title(s.code)}</strong><small>{s.can_issue?"Listo para emitir":
-          s.status+" · "+(s.reason||s.missing_fields.length+" datos pendientes")}</small>
+        <div><strong>{title(s.code)}</strong><small>{
+          nativeFormats.find(f=>f.code===s.code)?.status==="ready"?
+            "Diseño HTML disponible · comprobar los datos":
+          nativeFormats.find(f=>f.code===s.code)?.status==="requires_review"?
+            "Diseño HTML pendiente de revisión":"Requiere editar y habilitar HTML"
+        }</small>
           {s.missing_fields.length>0&&<small>Faltan: {s.missing_fields.map(x=>JAVIERA_FIELD_META[x]?.label||x).join(", ")}</small>}
           {s.blocking_errors.map(x=><small key={x}>{x}</small>)}
-          {!s.can_issue&&templateInfo(s.code)&&<small>
-            {templateInfo(s.code)?.message} · Hoja: {templateInfo(s.code)?.sheet}
-          </small>}
+          {nativeFormats.find(f=>f.code===s.code)?.status==="requires_review"&&
+            <small>Hay cambios HTML pendientes de habilitar.</small>}
         </div><div className="j166-status-actions">
           {s.can_issue&&<details className="j166-legacy-preview"><summary>Versión Excel histórica</summary>
             <button className="j166-light" onClick={()=>void openPreview(s.code)}><Eye size={16}/> Vista previa Excel</button>
