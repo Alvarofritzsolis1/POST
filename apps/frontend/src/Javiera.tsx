@@ -172,7 +172,7 @@ function Setup({onBack}:{onBack:()=>void}){
         {!templates.find(t=>t.code===selected)?.revisions.length&&<p>Sin revisiones registradas.</p>}
       </aside>
     </div>}
-    {(tab==="excel"||tab==="reviews")&&<JavieraExcelAdmin tab={tab}/>}
+    {(tab==="excel"||tab==="reviews")&&<JavieraExcelAdmin tab={tab} onChangeTab={setTab}/>}
     {tab==="matrices"&&<section className="jv-import">
       <h2>Importar matrices del Excel JAVIERA</h2>
       <p>Selecciona el Excel corregido desde tu computador. Se procesan las matrices y no se suben datos laborales al repositorio GitHub.</p>
