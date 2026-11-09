@@ -89,7 +89,7 @@ async function nativePreviewRequest(dossier_id:string,code:string){
 }
 function pdfTab(){try{return window.open("about:blank","_blank");}catch{return null;}}
 
-export default function JavieraV166({onConfig}:{onConfig?:()=>void}){
+export default function JavieraV166({onConfig,onTextEditor}:{onConfig?:()=>void;onTextEditor?:()=>void}){
   const [step,setStep]=useState(1);
   const [origin,setOrigin]=useState<Origin>("new");
   const [siteId,setSiteId]=useState("");
@@ -619,8 +619,8 @@ export default function JavieraV166({onConfig}:{onConfig?:()=>void}){
               <Eye size={16}/> Vista previa A4
             </button>}
           {nativeFormats.find(f=>f.code===s.code)?.status==="requires_published_text"&&
-            <button className="j166-light" disabled={!onConfig} onClick={onConfig}
-              title="El texto original debe revisarse y publicarse antes de utilizarlo">
+            <button className="j166-light" disabled={!onTextEditor} onClick={onTextEditor}
+              title="El texto original debe revisarse y habilitarse antes de utilizarlo">
               <FileText size={16}/> Editar formato original
             </button>}
           {s.last_issue_id&&<a href={API+"/issues/"+s.last_issue_id+"/pdf"} target="_blank" rel="noreferrer">PDF anterior</a>}
