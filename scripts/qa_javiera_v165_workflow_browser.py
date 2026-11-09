@@ -116,7 +116,10 @@ def verify_guided_workflow(page, context, browser, url, output, report):
     report["scenarios"]["complete_missing_rut_and_preview_without_contract"] = "PASS"
 
     with page.expect_download() as download:
-        page.get_by_role("button", name="Descargar PDF", exact=True).click()
+        with page.expect_response(lambda r:
+                r.url.endswith("/javiera/issue") and r.request.method == "POST") as issued:
+            page.get_by_role("button", name="Descargar PDF", exact=True).click()
+        assert issued.value.ok, f"Emisión de PDF: HTTP {issued.value.status}: {issued.value.text()[:600]}"
     first_path = output / "pts-sintetico-inicial.pdf"
     download.value.save_as(first_path)
     original = first_path.read_bytes()
@@ -141,7 +144,10 @@ def verify_guided_workflow(page, context, browser, url, output, report):
     expect(page.get_by_role("button", name="Descargar PDF", exact=True)).to_be_disabled()
     reason.fill("Corrección de la fecha efectiva en el documento sintético de QA.")
     with page.expect_download() as corrected:
-        page.get_by_role("button", name="Descargar PDF", exact=True).click()
+        with page.expect_response(lambda r:
+                r.url.endswith("/javiera/issue") and r.request.method == "POST") as reissued:
+            page.get_by_role("button", name="Descargar PDF", exact=True).click()
+        assert reissued.value.ok, f"Reemisión de PDF: HTTP {reissued.value.status}: {reissued.value.text()[:600]}"
     revised_path = output / "pts-sintetico-corregido.pdf"
     corrected.value.save_as(revised_path)
     assert revised_path.read_bytes().startswith(b"%PDF-")

@@ -168,7 +168,9 @@ jobs:
           PORT=18612
           SECURE_COOKIES=false
           ENV
-          mkdir -m 700 qa-storage
+          # El volumen privado pertenece al usuario galant del contenedor,
+          # igual que preview-storage en install-preview.sh.
+          sudo install -d -o 10001 -g 10001 -m 0700 qa-storage
           docker compose -p galant-post-qa --env-file .env.qa -f docker-compose.preview.yml -f docker-compose.qa.yml config --quiet
       - name: Build and start isolated QA services (restricted source file permissions)
         run: |
@@ -179,6 +181,25 @@ jobs:
           COMPOSE_PARALLEL_LIMIT=1 docker compose -p galant-post-qa --env-file .env.qa -f docker-compose.preview.yml -f docker-compose.qa.yml up -d --build db api worker frontend proxy
           docker compose -p galant-post-qa --env-file .env.qa -f docker-compose.preview.yml -f docker-compose.qa.yml exec -T api python -m app.cli init-db
           docker compose -p galant-post-qa --env-file .env.qa -f docker-compose.preview.yml -f docker-compose.qa.yml exec -T api sh -c 'test -r /srv/app/main.py && test -r /srv/app/cli.py'
+      - name: Verify private document storage as application user
+        run: |
+          set -Eeuo pipefail
+          docker compose -p galant-post-qa --env-file .env.qa -f docker-compose.preview.yml -f docker-compose.qa.yml exec -T api python - <<'PY'
+          import os, stat, tempfile
+          from pathlib import Path
+          from app.config import settings
+          root = settings().document_dir
+          assert root.stat().st_uid == os.geteuid() == 10001
+          assert stat.S_IMODE(root.stat().st_mode) == 0o700
+          with tempfile.TemporaryDirectory(dir=root, prefix=".qa-storage-") as folder:
+              path = Path(folder) / "probe.pdf"
+              with path.open("xb") as handle:
+                  handle.write(b"Synthetic private storage probe")
+              path.chmod(0o600)
+              assert path.read_bytes() == b"Synthetic private storage probe"
+              assert stat.S_IMODE(path.stat().st_mode) == 0o600
+          print("Private document storage verified for UID 10001, directory 0700 and file 0600")
+          PY
       - name: Seed two synthetic users in same org
         run: |
           set -Eeuo pipefail
@@ -333,4 +354,5 @@ jobs:
           if [ -f .env.qa ]; then
             docker compose -p galant-post-qa --env-file .env.qa -f docker-compose.preview.yml -f docker-compose.qa.yml down --volumes --remove-orphans || true
           fi
-          rm -rf qa-storage .env.qa
+          sudo rm -rf -- qa-storage
+          rm -f .env.qa

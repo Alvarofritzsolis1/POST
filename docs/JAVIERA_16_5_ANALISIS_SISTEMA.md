@@ -46,6 +46,12 @@ Se revisó `JAVIERA_ETAPA_1_PTS_CORREGIDOS.xlsx` en el entorno privado. Su hoja 
 
 Verificación local de esta continuación: **14 escenarios Chromium aprobados**, sin errores de JavaScript ni respuestas 5xx; compilación TypeScript/Vite y las **17 pruebas de lógica de frontend** aprobadas. Las pruebas de PDF Calc y PostgreSQL se ejecutan en CI con esos servicios instalados; sus omisiones locales no se contabilizan como aprobaciones.
 
+## Corrección de las comprobaciones de QA en GitHub
+
+Las ejecuciones de `push` y `pull_request` fallaron al emitir el primer PDF: `qa-storage` se creaba con modo 0700, pero pertenecía al usuario del runner. La API corre como UID 10001 y no podía escribir en el volumen privado; la espera de descarga ocultaba el HTTP 500 con un timeout.
+
+La preparación de CI ahora crea ese directorio para UID/GID 10001, conserva el modo 0700 y comprueba escritura, lectura y eliminación de un archivo privado desde el usuario real de la API antes de las pruebas de navegador. El arranque de QA manual aplica la misma propiedad que el instalador. La limpieza de CI elimina el volumen sintético con el permiso correspondiente. Las pruebas de descarga y reemisión verifican primero la respuesta HTTP de emisión, sin aumentar tiempos de espera ni omitir escenarios.
+
 ## Revisión por cinco perspectivas (revisión interna, no herramientas Claude)
 | Perspectiva | Defecto de v16 identificado | Corrección / verificación en v16.5 |
 |---|---|---|
