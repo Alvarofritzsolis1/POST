@@ -39,23 +39,30 @@ class EnablePilotText(BaseModel):
     confirmed_content: bool = False
 
 
-def _text_source(db: Session, user: User, code: str):
-    """Preview-only authoring; pilot does NOT publish a professional signoff."""
-    template = db.scalar(select(JavieraTemplate).where(
-        JavieraTemplate.org_id == user.org_id, JavieraTemplate.code == code))
+def _source_from_row(template: JavieraTemplate | None,
+                     latest: JavieraRevision | None):
     if template is None:
         return None, None, "missing"
-    latest = db.scalar(select(JavieraRevision).where(
-        JavieraRevision.org_id == user.org_id,
-        JavieraRevision.template_id == template.id
-    ).order_by(JavieraRevision.revision.desc()))
     if latest and latest.revision > template.published_version:
-        if latest.state == "pilot_print" and latest.contents.get("body"):
+        if latest.state == "pilot_print" and (latest.contents or {}).get("body"):
             return latest.contents["body"], latest.revision, "pilot_print"
         return None, None, "requires_review"
     if template.published_version > 0 and template.body:
         return template.body, template.published_version, "published"
     return None, None, "missing"
+
+
+def _text_source(db: Session, user: User, code: str):
+    """Preview-only authoring; pilot does NOT publish professional signoff."""
+    template = db.scalar(select(JavieraTemplate).where(
+        JavieraTemplate.org_id == user.org_id, JavieraTemplate.code == code))
+    if template is None:
+        return _source_from_row(None, None)
+    latest = db.scalar(select(JavieraRevision).where(
+        JavieraRevision.org_id == user.org_id,
+        JavieraRevision.template_id == template.id
+    ).order_by(JavieraRevision.revision.desc()))
+    return _source_from_row(template, latest)
 
 
 @router.post("/templates/{code}/enable-preview")
@@ -114,8 +121,21 @@ def native_formats(user: User = Depends(administrator),
         JavieraTemplate.org_id == user.org_id,
         JavieraTemplate.code.in_(ORIGINAL_TEXT_CODES),
     )).all()
-    sources = {code: _text_source(db, user, code)
-               for code in ORIGINAL_TEXT_CODES}
+    by_code = {row.code: row for row in rows}
+    latest_by_id = {}
+    if rows:
+        revisions = db.scalars(select(JavieraRevision).where(
+            JavieraRevision.org_id == user.org_id,
+            JavieraRevision.template_id.in_([row.id for row in rows]),
+        ).order_by(JavieraRevision.revision.desc())).all()
+        for revision in revisions:
+            latest_by_id.setdefault(revision.template_id, revision)
+    sources = {
+        code: _source_from_row(by_code.get(code),
+                               latest_by_id.get(by_code[code].id)
+                               if code in by_code else None)
+        for code in ORIGINAL_TEXT_CODES
+    }
     return {
         "mode": "preview_only",
         "source": "html_css",
