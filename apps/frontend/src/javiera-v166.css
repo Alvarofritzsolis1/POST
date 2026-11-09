@@ -68,3 +68,14 @@
 .j166-needed>small{align-self:center;color:#62788e}
 
 .j166-field textarea{resize:vertical;min-height:140px;line-height:1.5;white-space:pre-wrap}
+
+/* GALANT 19: documentos colapsables, espacio claro y controles accesibles. */
+.j166-doc-accordion > summary {
+  display:flex; flex-wrap:wrap; gap:8px 16px; justify-content:space-between;
+  align-items:center; cursor:pointer; padding:10px 0; list-style-position:inside;
+  line-height:1.4;
+}
+.j166-doc-accordion > summary:focus-visible { outline:2px solid #2563eb; outline-offset:3px; }
+.j166-doc-accordion > summary small {font-size:.8rem; font-weight:400; color:var(--text-muted,#64748b)}
+.j166-doc-accordion[open] > summary {border-bottom:1px solid rgba(100,116,139,.23);margin-bottom:12px}
+.j166-doc-accordion .j166-field textarea{min-height:92px}
