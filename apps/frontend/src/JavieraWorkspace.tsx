@@ -84,6 +84,7 @@ const F:Record<string,FieldMeta>={
   "event.date":{label:"Fecha efectiva del documento",type:"date",hint:"Esta es la fecha impresa. El PDF se genera antes de obtener la firma física y no acredita recepción ni entrega."},
   "event.epp_items":{label:"EPP que figurará en el formulario",hint:"Indica elementos y cantidades. Imprimir no acredita que hayan sido entregados."},
   "event.pts_version":{label:"Versión del PTS para imprimir y firmar"},
+  "event.induction_topics":{label:"Temario real de inducción (un tema por línea)",type:"textarea",hint:"Solo los contenidos efectivamente planificados; no se inventan capacitaciones."},
 };
 const EXTRA_CONTRACT=["extra.representative_name","extra.representative_rut","extra.employer_phone",
   "extra.employer_address","extra.employer_commune","extra.employer_city","extra.employer_email",
@@ -101,11 +102,11 @@ const EXCEL_FIELDS:Record<string,string[]>={
     "extra.representative_nationality","extra.employer_address","extra.employer_city",
     "extra.principal_company","extra.declaration_period","contract.declaration_reason",
     "role","extra.site_address","event.date"],
-  internal_rules_receipt:["extra.employer_city","event.date"],
+  internal_rules_receipt:["extra.employer_city","event.date","extra.regulation_version"],
   ppe_delivery:["role","event.epp_items","event.date"],
   irl:["role","event.date"],pts:["role","event.date","extra.representative_name","extra.representative_rut"],
   pts_receipt:["role","event.date","event.pts_version","extra.representative_name","extra.representative_rut"],
-  induction:["role","event.date","extra.representative_name","extra.representative_rut",
+  induction:["role","event.date","event.induction_topics","extra.representative_name","extra.representative_rut",
     "extra.employer_phone","extra.employer_address","extra.site_address","extra.principal_company"],
 };
 const EMPLOYER_KEYS=["extra.representative_name","extra.representative_rut","extra.representative_nationality",
