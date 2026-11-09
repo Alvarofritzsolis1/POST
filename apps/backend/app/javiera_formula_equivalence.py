@@ -61,6 +61,10 @@ def pesos_a_letras_excel(value) -> str:
     """Salida equivalente a S4 para 0..999.999.999 pesos enteros."""
     if isinstance(value, bool):
         return INVALID_AMOUNT
+    # El formulario web envía strings: aceptar solamente dígitos sin
+    # puntuación para no confundir 550.000 (separador de miles) con 550 CLP.
+    if isinstance(value, str) and not value.strip().isdecimal():
+        return INVALID_AMOUNT
     try:
         number = Decimal(str(value))
     except (InvalidOperation, ValueError):
