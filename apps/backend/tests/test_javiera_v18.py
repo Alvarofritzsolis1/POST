@@ -69,3 +69,41 @@ def test_preflight_reports_formula_count_and_pdf_bounds_without_approving(env, t
     login(client, "outside@example.cl")
     forbidden = client.post(ROOT + "/layouts/" + layout_id + "/check")
     assert forbidden.status_code == 403, forbidden.text
+
+
+def test_v182_induction_preflight_rejects_header_only_page(env, tmp_path, monkeypatch):
+    """A PDF with one orphaned corporate masthead must not pass print QA."""
+    client, _ = env
+    monkeypatch.setenv("DOCUMENT_DIR", str(tmp_path))
+    settings.cache_clear()
+    headers = login(client, "a@example.cl")
+    uploaded = client.post("/api/v1/javiera/v17/library/import", headers=headers, files={
+        "file": ("INDUCCION_SINTETICA.xlsx", sample_xlsx(),
+                 "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet")
+    })
+    assert uploaded.status_code == 200, uploaded.text
+    library = client.get("/api/v1/javiera/v17/library", headers=headers).json()
+    layout_id = next(x["layout_id"] for x in library["documents"]
+                     if x["code"] == "induction")
+    document = fitz.open()
+    for i in range(10):
+        page = document.new_page(width=595, height=842)
+        if i == 3:
+            page.insert_text((42, 70), "CONTROL DOCUMENTAL / CODIGO Y VERSION",
+                             fontsize=8)
+        else:
+            content = ("ENSAYO DE CALIDAD DE FORMULARIO COMPLETO Y ESPACIOS DE "
+                       "FIRMA MANUSCRITA. " * 9)
+            page.insert_textbox(fitz.Rect(40, 55, 550, 760), content,
+                                fontsize=10)
+    content = document.tobytes()
+    document.close()
+    import app.javiera_v18_api as api
+    monkeypatch.setattr(api, "layout_preview", lambda **kw: Response(
+        content=content, media_type="application/pdf"))
+    result = client.post(ROOT + "/layouts/" + layout_id + "/check", headers=headers)
+    assert result.status_code == 200, result.text
+    data = result.json()
+    assert data["passed"] is False
+    assert 4 in data["orphan_pages"]
+    assert "encabezado aislado" in data["message"]
