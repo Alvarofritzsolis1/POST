@@ -205,5 +205,5 @@ function Setup({onBack}:{onBack:()=>void}){
 }
 
 export default function Javiera({configuration=false,onBack,onConfig}:{configuration?:boolean;onBack?:()=>void;onConfig?:()=>void}){
-  return configuration?<Setup onBack={onBack||(()=>window.history.back())}/>:<JavieraV166 onConfig={onConfig}/>;
+  return configuration?<Setup onBack={onBack||(()=>window.history.back())}/>:<JavieraV17 onConfig={onConfig}/>;
 }
