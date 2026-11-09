@@ -97,6 +97,19 @@ def set_document_print_profile(target: ET.Element, book: ET.Element, code: str, 
             book.insert(list(book).index(calc), names)
         else:
             book.append(names)
+    # Source print areas were selected and approved with the template.
+    # Preserve them instead of overwriting them with the default range:
+    # the generic QA fixture uses A1:D15 and would lose its fourth column.
+    active = [item for item in names.findall(Q("definedName"))
+              if item.get("name") == "_xlnm.Print_Area"
+              and item.get("localSheetId") == "0"]
+    if active and active[0].text and re.search(
+        r"\$?[A-Z]+\$?[0-9]+:\$?[A-Z]+\$?[0-9]+", active[0].text
+    ):
+        # Duplicate historic declarations are not used for printing.
+        for redundant in active[1:]:
+            names.remove(redundant)
+        return
     for item in list(names):
         if item.get("name") == "_xlnm.Print_Area":
             names.remove(item)
