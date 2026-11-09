@@ -83,6 +83,9 @@ def main():
             page.get_by_label("Nombre del representante legal").fill("REPRESENTANTE SINTÉTICO")
             page.get_by_label("RUT del representante legal").fill(_rut(15000000 + seed))
             page.get_by_label("Fecha efectiva del documento").fill("2026-11-09")
+            assert page.locator("details.j166-doc-accordion").count() == 1
+            assert page.locator("details.j166-doc-accordion").first.get_attribute("open") is not None
+            report["scenarios"]["editable_accordion_document_fields"] = "PASS"
             assert page.get_by_label("Sueldo base ($ CLP)").count() == 0
             report["scenarios"]["no_labor_fields_for_pts"] = "PASS"
             page.get_by_role("button", name="Revisar documentos").click()
