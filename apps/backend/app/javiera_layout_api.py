@@ -22,7 +22,8 @@ from .javiera_excel import (
     pdf_from_workbook, shared_strings, sheet_files, validate_xlsx,
     Q,
 )
-from .javiera_models import JavieraDossier, JavieraExcelLayout, JavieraMatrix
+from .javiera_models import JavieraDossier, JavieraExcelLayout
+from .javiera_matrices import latest_approved_matrix
 from .javiera_review import require_signoff, specialty_for_code
 from .models import AuditEvent, User, utcnow
 from .security import administrator
@@ -75,13 +76,7 @@ def latest_layout(db: Session, org_id: str, code: str, approved: bool = True):
 
 
 def matrix_sections(db: Session, user: User, kind: str, cargo: str) -> list[str] | None:
-    from .javiera_logic import normalize_cargo
-    row = db.scalar(select(JavieraMatrix).where(
-        JavieraMatrix.org_id == user.org_id,
-        JavieraMatrix.kind == kind,
-        JavieraMatrix.cargo == normalize_cargo(cargo),
-        JavieraMatrix.status == "approved"
-    ).order_by(JavieraMatrix.revision.desc()))
+    row = latest_approved_matrix(db, user.org_id, kind, cargo)
     return row.sections if row else None
 
 
@@ -95,7 +90,7 @@ def source_leaks(raw: bytes, pdf: bytes, data: dict) -> list[str]:
     import io
     import unicodedata
     from datetime import date, timedelta
-    from .javiera_excel import SOURCE_FIELDS, cell_text, shared_strings, sheet_files, Q
+    from .javiera_excel import SOURCE_FIELDS, cell_text, shared_strings, sheet_files, spanish_amount, Q
 
     def normalized(value: str) -> str:
         raw = unicodedata.normalize("NFKD", str(value).casefold())
@@ -125,6 +120,8 @@ def source_leaks(raw: bytes, pdf: bytes, data: dict) -> list[str]:
         new_value = data
         for section in field_key.split("."):
             new_value = new_value.get(section) if isinstance(new_value, dict) else None
+        if field_key == "extra.salary_words" and not new_value:
+            new_value = spanish_amount((data.get("contract") or {}).get("salary", ""))
         new_value = "" if new_value is None else str(new_value).strip()
         if normalized(original_value) == normalized(new_value):
             continue

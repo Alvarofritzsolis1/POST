@@ -1,4 +1,10 @@
-# GALANT POST — 15.0.5-rc1 · Actualización automática del VPS
+# GALANT POST — 16.5.0-rc1 · JAVIERA documental desde Excel
+
+JAVIERA comienza por el documento y solicita sus antecedentes: empresa y trabajador nuevos o existentes, prevención sin sueldo ni datos bancarios, y acciones de vista previa, impresión y descarga. Las fichas incompletas permiten completar el RUT desde el asistente. Las correcciones de PDF se emiten con motivo y conservan el original.
+
+**Candidata en [PR #42](https://github.com/Alvarofritzsolis1/POST/pull/42), sin desplegar.** Consulta [recorrido, validaciones y límites de la entrega](docs/JAVIERA_16_5_ANALISIS_SISTEMA.md). Las plantillas y matrices requieren las aprobaciones documentales existentes.
+
+## Antecedentes de 15.0.5-rc1 · Actualización automática del VPS
 
 **Ya no se necesita pulsar Run workflow para cada nueva versión:** si se fusiona en `main` un incremento coherente de las versiones backend/frontend/lockfile, GitHub Actions valida la nueva versión, ejecuta la CI completa y, únicamente si todo aprueba, despliega GALANT usando el SSH ya configurado. Una modificación sin cambio de versión no actualiza el VPS.
 

@@ -34,6 +34,7 @@ target_sha="$(git rev-parse FETCH_HEAD)"
 git worktree add --detach "$qa_dir" "$target_sha"
 cd "$qa_dir"
 mkdir -m 700 qa-storage
+chown 10001:10001 qa-storage
 
 cat > .env.qa <<ENVIRONMENT
 APP_SECRET=$(openssl rand -hex 48)
