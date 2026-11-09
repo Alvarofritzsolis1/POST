@@ -1,7 +1,7 @@
 """Version 17: guided XLSX installation and strictly scoped, real human review."""
 from sqlalchemy import func, select
 from app.config import settings
-from app.javiera_models import JavieraExcelLayout, JavieraReviewerAuthorization, JavieraSignoff
+from app.javiera_models import JavieraExcelLayout, JavieraMatrix, JavieraReviewerAuthorization, JavieraSignoff
 from app.models import User
 from app.network_schemas import AccountInput
 from app.ops_models import Contractor, Worker, WorkerAssignment
@@ -220,4 +220,4 @@ def test_single_admin_can_enable_complete_pts_matrix_for_print(env, monkeypatch)
     assert result.json()["pilot_print_only"] is True
     with sessions() as db:
         assert db.scalar(select(func.count(JavieraSignoff.id))) == 0
-        assert db.get(JavieraExcelLayout, ident) is None
+        assert db.get(JavieraMatrix, ident).status == "approved"
