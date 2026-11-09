@@ -499,7 +499,8 @@ def test_v18_excel_document_emits_print_range_in_output_zip():
         entries = [entry for entry in print_names.findall(Q("definedName"))
                    if entry.get("name") == "_xlnm.Print_Area"]
         assert len(entries) == 1
-        assert "$A$1:$C$36" in entries[0].text
+        # The source fixture explicitly specifies A1:D15. Never override it.
+        assert "$A$1:$D$15" in entries[0].text
         page = ET.fromstring(archive.read(sheet_files(archive)["Contrato Imprimible"]))
         assert page.find(Q("pageSetup")).get("fitToHeight") == "0"
 
