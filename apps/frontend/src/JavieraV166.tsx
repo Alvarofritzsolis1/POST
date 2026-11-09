@@ -172,7 +172,9 @@ export default function JavieraV166({onConfig}:{onConfig?:()=>void}){
   function resetIdentity(){
     setCompanyId("");setPersonId("");setDossier(null);dossierRef.current=null;
     setBatch(null);setStates([]);setChecked([]);setShared({});setSpecific({});
-    setPersonChoice("");setCompanyChoice("");setPersonName("");setPersonRut("");setReasons({});
+    setPersonChoice("");setCompanyChoice("");setCompanyName("");setCompanyRut("");
+    setPersonName("");setPersonRut("");setLookup("");setReasons({});
+    snapshotRef.current="";
     identityRef.current={companyId:"",companyRut:"",personId:"",personRut:"",personName:""};
   }
   async function startCompany(){
