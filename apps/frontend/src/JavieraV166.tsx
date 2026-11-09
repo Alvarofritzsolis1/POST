@@ -11,6 +11,11 @@ type Person={id:string;name:string;rut:string;origin:Origin};
 type Source={sites:{id:string;name:string}[];companies:Company[];operational_companies:Company[];
   people:Person[];operational_people:Person[]};
 type Catalog={code:string;area:string;title:string;required_fields:string[];published_version:number};
+type TemplateLink={code:string;sheet:string;linked:boolean;imported:boolean;
+  latest_revision:number|null;approved_revision:number|null;
+  state:"not_imported"|"draft"|"missing_storage"|"engine_unavailable"|"published";
+  message:string;ready:boolean;source_sha256:string|null};
+type LibraryStatus={engine_available:boolean;documents:TemplateLink[]};
 type DocState={code:string;status:string;reason:string;missing_fields:string[];blocking_errors:string[];
   completion_percent:number;can_issue:boolean;has_history:boolean;requires_reissue_reason?:boolean;last_issue_id?:string};
 type Dossier={id:string;revision:number;company_id:string;person_id:string|null;site_id:string;
@@ -75,6 +80,7 @@ export default function JavieraV166({onConfig}:{onConfig?:()=>void}){
   const [siteId,setSiteId]=useState("");
   const [source,setSource]=useState<Source>(EMPTY);
   const [catalog,setCatalog]=useState<Catalog[]>([]);
+  const [library,setLibrary]=useState<TemplateLink[]>([]);
   const [companyChoice,setCompanyChoice]=useState("");
   const [companyName,setCompanyName]=useState("");
   const [companyRut,setCompanyRut]=useState("");
@@ -107,10 +113,24 @@ export default function JavieraV166({onConfig}:{onConfig?:()=>void}){
   const workerless=checked.length===1&&checked[0]==="sworn_declaration";
   const requiredPerson=checked.length>0&&!workerless;
   const title=(code:string)=>TITLES[code]||catalog.find(c=>c.code===code)?.title||code;
+  const templateInfo=(code:string)=>library.find(x=>x.code===code);
+  const libraryLabel=(code:string)=>{
+    const status=templateInfo(code);
+    if(!status)return "Verificando vinculación del Excel…";
+    if(status.state==="published")return "Excel aprobado · revisión "+status.approved_revision;
+    if(status.state==="draft")return "Excel importado · pendiente de aprobación";
+    if(status.state==="missing_storage")return "Excel aprobado · falta archivo privado";
+    if(status.state==="engine_unavailable")return "Excel aprobado · falta motor PDF";
+    return "Excel no importado · hoja reconocida";
+  };
 
   useEffect(()=>{void Promise.all([request<Source>(BASE+"/sources"),
     request<Catalog[]>("/javiera/catalog")]).then(([s,c])=>{setSource(s);setCatalog(c);})
-    .catch(e=>setError(errorText(e)));},[]);
+    .catch(e=>setError(errorText(e)));
+    void request<LibraryStatus>(BASE+"/templates/status")
+      .then(result=>setLibrary(result.documents))
+      .catch(()=>setLibrary([]));
+  },[]);
   const refreshSources=useCallback(async(company:string,site:string)=>{
     const r=await request<Source>(BASE+"/sources?site_id="+encodeURIComponent(site)+
       "&company_id="+encodeURIComponent(company));
@@ -463,8 +483,10 @@ export default function JavieraV166({onConfig}:{onConfig?:()=>void}){
         <div className="j166-doc-grid">{catalog.filter(c=>c.area===area).map(c=>
           <label key={c.code} className={"j166-doc "+(checked.includes(c.code)?"checked":"")}>
             <input type="checkbox" checked={checked.includes(c.code)} onChange={()=>chooseCode(c.code)}/>
-            <FileText size={17}/><span><b>{title(c.code)}</b><small>{c.published_version?
-              "Plantilla publicada · revisión "+c.published_version:"Plantilla por aprobar"}</small></span>
+            <FileText size={17}/><span><b>{title(c.code)}</b><small>{
+              library.length?libraryLabel(c.code):
+                c.published_version?"Plantilla publicada · revisión "+c.published_version:
+                "Comprobar biblioteca de plantillas"}</small></span>
           </label>)}</div>
       </div>)}
       {checked.length>0&&<div className="j166-sub" aria-live="polite">
@@ -540,7 +562,12 @@ export default function JavieraV166({onConfig}:{onConfig?:()=>void}){
           s.status+" · "+(s.reason||s.missing_fields.length+" datos pendientes")}</small>
           {s.missing_fields.length>0&&<small>Faltan: {s.missing_fields.map(x=>JAVIERA_FIELD_META[x]?.label||x).join(", ")}</small>}
           {s.blocking_errors.map(x=><small key={x}>{x}</small>)}
+          {!s.can_issue&&templateInfo(s.code)&&<small>
+            {templateInfo(s.code)?.message} · Hoja: {templateInfo(s.code)?.sheet}
+          </small>}
         </div><div className="j166-status-actions">
+          {!s.can_issue&&onConfig&&templateInfo(s.code)&&!templateInfo(s.code)?.ready&&
+            <button className="j166-light" onClick={onConfig}>Revisar biblioteca Excel</button>}
           {s.can_issue&&<button className="j166-light" onClick={()=>void openPreview(s.code)}><Eye size={16}/> Vista previa</button>}
           {s.last_issue_id&&<a href={API+"/issues/"+s.last_issue_id+"/pdf"} target="_blank" rel="noreferrer">PDF anterior</a>}
         </div>
