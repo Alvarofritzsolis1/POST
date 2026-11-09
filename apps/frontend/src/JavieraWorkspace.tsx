@@ -536,7 +536,7 @@ export default function JavieraWorkspace({onConfig}:{onConfig?:()=>void}){
   }
 
   if(!relation)return <section className="j65">
-    <div className="j65-intro"><small>GALANT · 16.5 · PROYECTO JAVIERA</small><h2>¿Para quién prepararás los documentos?</h2>
+    <div className="j65-intro"><small>GALANT · 18.0.1 · PROYECTO JAVIERA</small><h2>¿Para quién prepararás los documentos?</h2>
       <p>Elige el tipo de empresa. Después seleccionarás el documento; solo pediremos los datos necesarios.</p></div>
     <div className="j65-entry">
       <button disabled={busy} onClick={()=>setRelation("contractor")}><FolderPlus size={27}/><strong>Contratistas</strong>
