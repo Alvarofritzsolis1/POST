@@ -37,3 +37,16 @@
 @media(max-width:900px){.j17-upload,.j17-finish,.j17-board-head{flex-direction:column;align-items:stretch}.j17-final-actions{flex-direction:row}.j17-summary{grid-template-columns:repeat(2,minmax(0,1fr))}}
 @media(max-width:650px){.j17-shell{padding:12px 9px 60px}.j17-hero{padding:21px 18px}.j17-grid{grid-template-columns:1fr}.j17-board{padding:15px}.j17-summary{gap:7px}.j17-final-actions{flex-direction:column}.j17-file{width:100%}}
 @media(prefers-reduced-motion:reduce){.j17-shell *{scroll-behavior:auto}}
+
+
+/* Nueva portada HTML: Excel solo permanece como respaldo histórico. */
+.j17-html-home{display:flex;justify-content:space-between;align-items:center;gap:22px;
+  border:1px solid #cfdce8;background:#fff;padding:22px 24px;border-radius:16px;margin-bottom:18px;
+  box-shadow:0 5px 20px #18344a0b}
+.j17-html-home>div:first-child{max-width:680px}
+.j17-html-home span{font-size:.73rem;letter-spacing:.09em;color:#315c80;font-weight:800}
+.j17-html-home h2{font-size:clamp(1.4rem,2.5vw,1.9rem);margin:5px 0 8px;color:#193b5b}
+.j17-html-home p{font-size:.88rem;line-height:1.6;margin:0;color:#5b6c80}
+.j17-html-actions{display:flex;gap:10px;flex-wrap:wrap;justify-content:flex-end}
+.j17-html-actions button{white-space:normal;text-align:center}
+@media(max-width:950px){.j17-html-home{flex-direction:column;align-items:stretch}.j17-html-actions{justify-content:flex-start}}
