@@ -151,7 +151,8 @@ def _body(code: str, data: dict, matrix: list[str] | None,
 
 
 def render_native_pdf(code: str, data: dict, *, matrix: list[str] | None = None,
-                      approved_text: str | None = None) -> bytes:
+                      approved_text: str | None = None,
+                      _compact: bool = False) -> bytes:
     """Genera PDF A4 desde HTML/CSS versionado; solo vista previa no firmada.
 
     El motor NO consulta ni muta tablas operativas, historiales o hojas Excel.
@@ -202,6 +203,21 @@ def render_native_pdf(code: str, data: dict, *, matrix: list[str] | None = None,
             + _html(note) + '</p></section><div class="signature-panel">'
         )
     css = (TEMPLATE_PATH / "print.css").read_text(encoding="utf-8")
+    if _compact:
+        # Reintento automático SOLO ante firma aislada; márgenes de impresión
+        # >= 13 mm, sin reducir fuentes ni omitir texto del Excel.
+        css += """
+        body p {margin:2pt 0 4pt;}
+        body h2 {margin:7pt 0 4pt;}
+        .preview-ribbon, .document-head {margin-bottom:3pt;}
+        .identity td, .identity th {padding:3pt 4pt;}
+        .matrix td, .matrix th, .topics td, .topics th {padding:3pt 5pt;}
+        .legal-copy p {margin:0 0 7pt;}
+        .signature-panel {margin-top:4pt;}
+        .signature-panel h2 {margin:5pt 0 4pt;}
+        """
+    rect = (fitz.Rect(37, 34, A4.width - 37, A4.height - 43)
+            if _compact else BODY_RECT)
     if len(html) > 380_000:
         raise NativeDocumentError("Documento demasiado extenso para la impresión segura.")
     story = fitz.Story(html=html, user_css=css)
@@ -212,7 +228,7 @@ def render_native_pdf(code: str, data: dict, *, matrix: list[str] | None = None,
         try:
             for number in range(40):
                 device = writer.begin_page(A4)
-                more, _ = story.place(BODY_RECT)
+                more, _ = story.place(rect)
                 story.draw(device)
                 writer.end_page()
                 if not more:
@@ -234,8 +250,15 @@ def render_native_pdf(code: str, data: dict, *, matrix: list[str] | None = None,
                 if (pdf.page_count > 1 and index == pdf.page_count
                         and ("Firma trabajador" in last_text or "Firma declarante" in last_text)
                         and len(last_text.strip()) < 210):
+                    if not _compact:
+                        # Mantener todas las cláusulas y su tipografía; se
+                        # redistribuyen únicamente márgenes y espaciados.
+                        return render_native_pdf(
+                            code, data, matrix=matrix,
+                            approved_text=approved_text, _compact=True
+                        )
                     raise NativeDocumentError(
-                        "La firma quedó aislada en la última página; revisa el diseño."
+                        "La firma quedó aislada incluso tras optimizar los espacios."
                     )
                 blocks = [block for block in page.get_text("blocks")
                           if len(block) > 4 and isinstance(block[4], str)
