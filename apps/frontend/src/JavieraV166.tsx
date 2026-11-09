@@ -474,7 +474,7 @@ export default function JavieraV166({onConfig}:{onConfig?:()=>void}){
         <button className="j166-light" onClick={()=>void openHistory()}>Historial</button></div>
       {batch&&<div className="j166-sub"><h4>Resultado del paquete</h4>
         <p>{batch.issued} documentos disponibles · {batch.failed} no emitidos.</p>
-        {batch.package_error&&<p role="alert" className="j166-error">{batch.package_error}</p>
+        {batch.package_error&&<p role="alert" className="j166-error">{batch.package_error}</p>}
         {batch.results.map(x=><div key={x.code} className="j166-result">
           <span>{title(x.code)} — {x.ok?"Disponible":x.reason}</span>
           {x.ok&&<a href={API+"/issues/"+x.id+"/pdf"} target="_blank" rel="noreferrer">Abrir individual</a>}</div>)}
