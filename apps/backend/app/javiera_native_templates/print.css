@@ -42,3 +42,13 @@ th { font-weight: bold; text-align: left; background: #edf2f6; color: #243a4f; }
 .signature-panel {margin-top:7pt;}
 .signature-panel h2 {margin-top:8pt;margin-bottom:6pt;}
 .handwriting-space {height:30pt;}
+
+/* Compatibilidad de paginación PyMuPDF 1.26–1.28:
+   no comprimir tipografía, solo reducir espacios decorativos.
+   El contenido y 35pt útiles para firmas permanecen intactos. */
+body p {margin:4pt 0 6pt;}
+body h2 {margin:12pt 0 6pt;}
+.preview-ribbon {margin-bottom:7pt;}
+.document-head {margin-bottom:7pt;}
+.identity td, .identity th {padding:5pt;}
+.signature-panel h2 {margin:8pt 0 6pt;}
