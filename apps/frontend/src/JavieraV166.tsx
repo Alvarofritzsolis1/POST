@@ -569,8 +569,12 @@ export default function JavieraV166({onConfig,onTextEditor}:{onConfig?:()=>void;
       </section>}
       <section className="j166-sub"><h4>Datos compartidos</h4>
         <div className="j166-fields">{commonKeys.map(key=>field(key))}</div></section>
-      {checked.map(code=><section key={code} className="j166-sub">
-        <h4>{title(code)} — datos específicos</h4>
+      <p className="j166-native-help">Abre solo el documento que necesitas completar.
+        Los datos comunes se reutilizan automáticamente en los demás.</p>
+      {checked.map((code,index)=><details key={code} className="j166-sub j166-doc-accordion" open={index===0}>
+        <summary><strong>{title(code)}</strong>
+          <small>{(uniqueKeys[code]||[]).length} campos propios · se puede editar después</small>
+        </summary>
         {["ppe_delivery","pts_receipt","induction","internal_rules_receipt"].includes(code)&&
           <p>Este formulario se prepara para imprimir y obtener firma en papel después. No es necesario indicar que la entrega o recepción ya ocurrió.</p>}
         {code==="sworn_declaration"&&<label className="j166-confirm"><input type="checkbox"
@@ -586,7 +590,7 @@ export default function JavieraV166({onConfig,onTextEditor}:{onConfig?:()=>void;
             onChange={e=>changeField("event.print_notes",e.target.value,code)}/>
           <small>Se imprimen en un apartado separado. No reemplazan cláusulas ni certifican una firma.</small>
         </label>
-      </section>)}
+      </details>)}
       <div className="j166-actions"><span>{saving?"Guardando cambios…":dossier?"Borrador recuperable · revisión "+dossier.revision:"Pendiente de guardar"}</span>
         <button disabled={saving} className="j166-light" onClick={()=>void (async()=>{
           try{const resolved=await ensurePerson();await saveDraft(true,requiredPerson?resolved:null);}
