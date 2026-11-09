@@ -92,7 +92,6 @@ def set_document_print_profile(target: ET.Element, book: ET.Element, code: str, 
     names = book.find(Q("definedNames"))
     if names is None:
         names = ET.Element(Q("definedNames"))
-        set_document_print_profile(target, book, code, selected)
         calc = book.find(Q("calcPr"))
         if calc is not None:
             book.insert(list(book).index(calc), names)
@@ -768,6 +767,7 @@ def excel_document(raw: bytes, code: str, data: dict, changes: dict | None = Non
                     item.set("localSheetId", "0")
                 else:
                     names.remove(item)
+        set_document_print_profile(target, book, code, selected)
         calc = book.find(Q("calcPr"))
         if calc is not None:
             calc.set("fullCalcOnLoad", "0")
