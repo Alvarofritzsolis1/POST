@@ -51,6 +51,7 @@ app = FastAPI(title="GALANT POST — Document Intelligence", version=VERSION, do
 app.include_router(configuration_router)
 app.include_router(javiera_router)
 app.include_router(javiera_v166_router)
+app.include_router(javiera_v17_router)
 app.include_router(javiera_reviews_router)
 app.include_router(javiera_layouts_router)
 app.include_router(compliance_router)
