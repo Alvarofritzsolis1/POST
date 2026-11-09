@@ -23,7 +23,7 @@ def main():
         raise SystemExit("Solo se permite QA local en 127.0.0.1")
     args.output.mkdir(parents=True, exist_ok=True)
     failures, responses = [], []
-    report = {"version": "16.6.0-rc1", "at": datetime.now(timezone.utc).isoformat(),
+    report = {"version": "17.0.0-rc1", "at": datetime.now(timezone.utc).isoformat(),
               "scenarios": {}, "console_errors": [], "server_errors": []}
     with sync_playwright() as playwright:
         browser = playwright.chromium.launch(
@@ -51,6 +51,10 @@ def main():
             suffix = uuid4().hex[:8]
             seed = int(suffix, 16) % 999999
             page.goto(args.url + "/proyecto-javiera", wait_until="domcontentloaded")
+            expect(page.get_by_role("heading", name="Biblioteca documental inteligente")).to_be_visible()
+            expect(page.locator(".j17-document")).to_have_count(10)
+            report["scenarios"]["guided_library_ten_documents"] = "PASS"
+            page.get_by_role("button", name="Preparar documentos").click()
             expect(page.get_by_role("heading", name="¿La empresa es nueva o ya existe?")).to_be_visible()
             expect(page.get_by_role("heading", name="Generador documental independiente")).to_be_visible()
             report["scenarios"]["new_or_existing_first"] = "PASS"
@@ -124,7 +128,7 @@ def main():
 
             page.set_viewport_size({"width": 390, "height": 844})
             page.goto(args.url + "/proyecto-javiera", wait_until="domcontentloaded")
-            expect(page.get_by_role("heading", name="¿La empresa es nueva o ya existe?")).to_be_visible()
+            expect(page.get_by_role("heading", name="Biblioteca documental inteligente")).to_be_visible()
             widths = page.evaluate("({document:document.documentElement.scrollWidth,viewport:window.innerWidth})")
             assert widths["document"] <= widths["viewport"] + 2, widths
             report["scenarios"]["mobile_no_horizontal_scroll"] = "PASS"
@@ -138,7 +142,7 @@ def main():
             assert not failures, failures
             assert not responses, responses
             report.update(status="PASS", console_errors=failures, server_errors=responses)
-            print("PASS: JAVIERA 16.6 · isolated identities, wizard, PTS, PDF, history and mobile")
+            print("PASS: JAVIERA 17 · guided library, isolated identities, PTS, PDF, history and mobile")
         except Exception as exc:
             report.update(status="FAIL", error=str(exc), console_errors=failures,
                           server_errors=responses)
