@@ -23,7 +23,7 @@ def main():
         raise SystemExit("Solo se permite QA local en 127.0.0.1")
     args.output.mkdir(parents=True, exist_ok=True)
     failures, responses = [], []
-    report = {"version": "19.0.0-rc1", "at": datetime.now(timezone.utc).isoformat(),
+    report = {"version": "19.1.0-rc1", "at": datetime.now(timezone.utc).isoformat(),
               "scenarios": {}, "console_errors": [], "server_errors": []}
     with sync_playwright() as playwright:
         browser = playwright.chromium.launch(
@@ -51,12 +51,31 @@ def main():
             suffix = uuid4().hex[:8]
             seed = int(suffix, 16) % 999999
             page.goto(args.url + "/proyecto-javiera", wait_until="domcontentloaded")
-            expect(page.get_by_role("heading", name="Biblioteca documental inteligente")).to_be_visible()
-            expect(page.locator(".j17-document")).to_have_count(10)
-            report["scenarios"]["guided_library_ten_documents"] = "PASS"
-            page.get_by_role("button", name="Preparar documentos").click()
+            expect(page.get_by_role("heading", name="Documentos listos para preparar e imprimir")).to_be_visible()
             expect(page.get_by_role("heading", name="¿La empresa es nueva o ya existe?")).to_be_visible()
-            expect(page.get_by_role("heading", name="Generador documental independiente")).to_be_visible()
+            report["scenarios"]["html_primary_without_excel_import"] = "PASS"
+            page.get_by_role("button", name="Editar formatos HTML").click()
+            expect(page.get_by_role("heading", name="Editor de formatos HTML")).to_be_visible()
+            expect(page.get_by_label("Texto y estructura HTML")).to_be_visible()
+            report["scenarios"]["html_editor_in_main_workflow"] = "PASS"
+            page.get_by_label("Texto y estructura HTML").fill(
+                "<h2>FORMATO DOCUMENTAL DE PRUEBA</h2>"
+                "<p>Cláusula de prueba para {{worker.name}} y {{employer.name}}. "
+                "Solo verifica la edición HTML sin publicar un contrato real.</p>"
+            )
+            page.get_by_role("button", name="Guardar HTML").click()
+            expect(page.get_by_text("Borrador HTML guardado", exact=False)).to_be_visible(timeout=20000)
+            report["scenarios"]["native_html_saved_from_browser"] = "PASS"
+            page.get_by_label(
+                "Revisé que este texto corresponde al documento original y que no faltan cláusulas."
+            ).check()
+            page.get_by_role("button", name="Habilitar vista previa PDF A4").click()
+            expect(page.get_by_text("Diseño habilitado para vista previa", exact=False)).to_be_visible(timeout=20000)
+            report["scenarios"]["native_html_enabled_without_second_admin"] = "PASS"
+            page.screenshot(path=str(args.output / "javiera_editor_html.png"), full_page=True)
+            page.get_by_role("button", name="Volver a documentos").click()
+            expect(page.get_by_role("heading", name="¿La empresa es nueva o ya existe?")).to_be_visible()
+            expect(page.get_by_role("heading", name="Generador de documentos PDF A4")).to_be_visible()
             report["scenarios"]["new_or_existing_first"] = "PASS"
             page.screenshot(path=str(args.output / "javiera_inicio.png"), full_page=True)
 
@@ -95,18 +114,22 @@ def main():
             # por rol accesible evita la ambigüedad de texto en Playwright.
             expect(page.get_by_role("button", name="Vista previa A4", exact=True)).to_be_visible()
             report["scenarios"]["native_preview_entrypoint_visible"] = "PASS"
-            assert "Listo para emitir" in page.locator(".j166-status").inner_text(), (
-                "PTS no está listo con plantilla y matriz sintéticas aprobadas")
-            report["scenarios"]["eligibility_document_specific"] = "PASS"
-            page.get_by_role("button", name="Generar 1 documentos elegibles").click()
-            expect(page.get_by_text("Resultado del paquete")).to_be_visible(timeout=20000)
-            expect(page.get_by_role("link", name="Imprimir paquete PDF")).to_be_visible()
-            report["scenarios"]["batch_pdf_generated"] = "PASS"
-            href = page.get_by_role("link", name="Imprimir paquete PDF").get_attribute("href")
-            reply = context.request.get(args.url + href)
-            assert reply.status == 200 and reply.headers["content-type"].startswith("application/pdf")
-            assert reply.body()[:4] == b"%PDF"
-            report["scenarios"]["packet_print_url_serves_pdf"] = "PASS"
+            # Las vistas previas HTML no exigen ni publican documentos Excel.
+            # Comprobar la petición PDF real desde el botón principal.
+            assert "Diseño HTML disponible" in page.locator(".j166-status").inner_text()
+            report["scenarios"]["html_status_without_legacy_issue"] = "PASS"
+            expect(page.get_by_role("button", name="Preparar paquete PDF A4 (1)")).to_be_visible()
+            with page.expect_response(
+                lambda response: response.url.endswith("/api/v1/javiera/v19/preview/batch")
+                and response.request.method == "POST",
+                timeout=30000,
+            ) as response_info:
+                page.get_by_role("button", name="Preparar paquete PDF A4 (1)").click()
+            result = response_info.value
+            assert result.status == 200, "No se pudo generar el PDF HTML A4: " + str(result.status)
+            assert result.headers["content-type"].startswith("application/pdf")
+            assert result.body()[:4] == b"%PDF"
+            report["scenarios"]["html_a4_primary_batch_pdf"] = "PASS"
             page.screenshot(path=str(args.output / "javiera_paquete.png"), full_page=True)
 
             # The new workflow cannot have created active operational records.
@@ -119,8 +142,9 @@ def main():
             report["scenarios"]["no_operational_contractor"] = "PASS"
             page.get_by_role("button", name="Historial", exact=True).click()
             expect(page.get_by_role("heading", name="Documentos emitidos")).to_be_visible()
-            assert page.locator(".j166-result a").count() >= 2
-            report["scenarios"]["immutable_history"] = "PASS"
+            # Vista previa nativa NO debe crear emisiones, firmas ni paquetes históricos.
+            expect(page.get_by_text("No hay paquetes registrados para esta búsqueda.")).to_be_visible()
+            report["scenarios"]["native_preview_does_not_forge_history"] = "PASS"
             page.screenshot(path=str(args.output / "javiera_historial.png"), full_page=True)
 
             # Switching worker must clear old worker's private data and detach old dossier.
@@ -135,7 +159,7 @@ def main():
 
             page.set_viewport_size({"width": 390, "height": 844})
             page.goto(args.url + "/proyecto-javiera", wait_until="domcontentloaded")
-            expect(page.get_by_role("heading", name="Biblioteca documental inteligente")).to_be_visible()
+            expect(page.get_by_role("heading", name="Documentos listos para preparar e imprimir")).to_be_visible()
             widths = page.evaluate("({document:document.documentElement.scrollWidth,viewport:window.innerWidth})")
             assert widths["document"] <= widths["viewport"] + 2, widths
             report["scenarios"]["mobile_no_horizontal_scroll"] = "PASS"

@@ -61,7 +61,7 @@
 .jv-heading h1{font-size:clamp(1.5rem,2vw,2rem);margin:5px 0}
 .jv-heading p{color:#69788b;font-size:.86rem;margin:0}
 .jv-mark{white-space:nowrap;border:1px solid #bacbdc;border-radius:10px;padding:9px;font-size:.79rem}
-.jv-tabs{display:flex;gap:8px;margin:19px 0}
+.jv-tabs{display:flex;flex-wrap:wrap;gap:8px;margin:19px 0}
 .jv-tabs button{padding:10px 14px;font-size:.86rem}
 .jv-admin-layout{display:grid;grid-template-columns:minmax(180px,230px) minmax(0,1fr) minmax(200px,255px);gap:16px;align-items:start}
 .jv-template-list{display:flex;flex-direction:column;padding:10px;gap:5px}

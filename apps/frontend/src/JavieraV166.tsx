@@ -16,7 +16,8 @@ type TemplateLink={code:string;sheet:string;linked:boolean;imported:boolean;
   state:"not_imported"|"draft"|"missing_storage"|"engine_unavailable"|"published";
   message:string;ready:boolean;source_sha256:string|null};
 type LibraryStatus={engine_available:boolean;documents:TemplateLink[]};
-type NativeFormat={code:string;status:"ready"|"requires_published_text";editable_in:string;source_revision:number|null};
+type NativeFormat={code:string;status:"ready"|"requires_review"|"requires_published_text";
+  editable_in:string;source_revision:number|null;required_fields:string[]};
 type NativeCatalog={mode:string;formats:NativeFormat[];message:string};
 type DocState={code:string;status:string;reason:string;missing_fields:string[];blocking_errors:string[];
   completion_percent:number;can_issue:boolean;has_history:boolean;requires_reissue_reason?:boolean;last_issue_id?:string};
@@ -74,6 +75,19 @@ async function previewRequest(dossier_id:string,code:string){
   }
   return response.blob();
 }
+async function nativeBatchRequest(dossier_id:string,codes:string[]){
+  const csrf=document.cookie.split("; ").find(x=>x.startsWith("galant_post_csrf="))?.split("=")[1]||"";
+  const response=await fetch("/api/v1/javiera/v19/preview/batch",{
+    method:"POST",credentials:"include",cache:"no-store",
+    headers:{"Content-Type":"application/json","X-CSRF-Token":csrf},
+    body:JSON.stringify({dossier_id,codes})
+  });
+  if(!response.ok){
+    const body=await response.json().catch(()=>({detail:"No fue posible preparar el paquete HTML."}));
+    throw new Error(typeof body.detail==="string"?body.detail:"Faltan datos o formatos HTML habilitados.");
+  }
+  return response.blob();
+}
 async function nativePreviewRequest(dossier_id:string,code:string){
   const csrf=document.cookie.split("; ").find(x=>x.startsWith("galant_post_csrf="))?.split("=")[1]||"";
   const response=await fetch("/api/v1/javiera/v19/preview",{
@@ -89,7 +103,7 @@ async function nativePreviewRequest(dossier_id:string,code:string){
 }
 function pdfTab(){try{return window.open("about:blank","_blank");}catch{return null;}}
 
-export default function JavieraV166({onConfig,onTextEditor}:{onConfig?:()=>void;onTextEditor?:()=>void}){
+export default function JavieraV166({onConfig,onTextEditor}:{onConfig?:()=>void;onTextEditor?:(code:string)=>void}){
   const [step,setStep]=useState(1);
   const [origin,setOrigin]=useState<Origin>("new");
   const [siteId,setSiteId]=useState("");
@@ -132,13 +146,11 @@ export default function JavieraV166({onConfig,onTextEditor}:{onConfig?:()=>void;
   const title=(code:string)=>TITLES[code]||catalog.find(c=>c.code===code)?.title||code;
   const templateInfo=(code:string)=>library.find(x=>x.code===code);
   const libraryLabel=(code:string)=>{
-    const status=templateInfo(code);
-    if(!status)return "Verificando vinculación del Excel…";
-    if(status.state==="published")return "Excel aprobado · revisión "+status.approved_revision;
-    if(status.state==="draft")return "Excel importado · pendiente de aprobación";
-    if(status.state==="missing_storage")return "Excel aprobado · falta archivo privado";
-    if(status.state==="engine_unavailable")return "Excel aprobado · falta motor PDF";
-    return "Excel no importado · hoja reconocida";
+    const item=nativeFormats.find(f=>f.code===code);
+    if(!item)return "Consultando diseño HTML…";
+    if(item.status==="ready")return "Formato HTML disponible para vista previa";
+    if(item.status==="requires_review")return "HTML editado · pendiente de habilitación";
+    return "Falta revisar el contenido HTML";
   };
 
   useEffect(()=>{void Promise.all([request<Source>(BASE+"/sources"),
@@ -165,9 +177,11 @@ export default function JavieraV166({onConfig,onTextEditor}:{onConfig?:()=>void;
   const people=useMemo(()=>[...source.people,...source.operational_people],[source]);
 
   const fieldsByCode=useMemo(()=>Object.fromEntries(checked.map(code=>{
-    const item=catalog.find(c=>c.code===code);
-    return [code,[...new Set([...(item?.required_fields||[]),...(JAVIERA_EXCEL_FIELDS[code]||[]),...(code==="labor_contract"?["employment_type"]:[])])]];
-  })) as Record<string,string[]>,[checked,catalog]);
+    const native=nativeFormats.find(f=>f.code===code);
+    // El nuevo motor solo pide los datos usados por HTML y sus variables.
+    const needed=native?.required_fields||JAVIERA_EXCEL_FIELDS[code]||[];
+    return [code,[...new Set([...needed,...(code==="labor_contract"?["employment_type"]:[])])]];
+  })) as Record<string,string[]>,[checked,nativeFormats]);
   const commonKeys=useMemo(()=>[...new Set(Object.values(fieldsByCode).flat())]
     .filter(k=>!AUTO.has(k)&&!DOC_ONLY.has(k)&&!k.startsWith("event.")),[fieldsByCode]);
   const uniqueKeys=useMemo<Record<string,string[]>>(()=>{
@@ -384,6 +398,21 @@ export default function JavieraV166({onConfig,onTextEditor}:{onConfig?:()=>void;
       setNotice(result.issued+" PDF disponibles. "+(result.failed?result.failed+" no emitidos.":"Puedes imprimir el paquete."));
     }catch(e){showFailure(e);}finally{setSaving(false);}
   }
+  async function openNativeBatch(){
+    const tab=pdfTab();
+    try{
+      if(!checked.length){tab?.close();setError("Selecciona los documentos que quieres imprimir.");return;}
+      const record=await saveDraft(true);
+      if(!record){tab?.close();return;}
+      const blob=await nativeBatchRequest(record.id,checked);
+      const url=URL.createObjectURL(blob);
+      if(tab)tab.location.replace(url);
+      else setError("El navegador bloqueó el PDF. Permite las ventanas emergentes para imprimir.");
+      window.setTimeout(()=>URL.revokeObjectURL(url),120000);
+      setNotice(checked.length+" documentos preparados en PDF A4 sin convertir Excel. "+
+        "Deben firmarse físicamente después.");
+    }catch(e){tab?.close();showFailure(e);}
+  }
   async function openNativePreview(code:string){
     const tab=pdfTab();
     try{
@@ -466,7 +495,7 @@ export default function JavieraV166({onConfig,onTextEditor}:{onConfig?:()=>void;
 
   return <main className="j166">
     <header className="j166-head">
-      <div><small>GALANT 16.6 · PROYECTO JAVIERA</small><h2>Generador documental independiente</h2>
+      <div><small>PROYECTO JAVIERA · DOCUMENTOS HTML</small><h2>Generador de documentos PDF A4</h2>
         <p>Prepara documentos sin incorporar personas ni empresas a los módulos operativos de GALANT.</p></div>
       {onConfig&&<button className="j166-light" onClick={onConfig}>Configurar plantillas</button>}
     </header>
@@ -520,9 +549,7 @@ export default function JavieraV166({onConfig,onTextEditor}:{onConfig?:()=>void;
           <label key={c.code} className={"j166-doc "+(checked.includes(c.code)?"checked":"")}>
             <input type="checkbox" checked={checked.includes(c.code)} onChange={()=>chooseCode(c.code)}/>
             <FileText size={17}/><span><b>{title(c.code)}</b><small>{
-              library.length?libraryLabel(c.code):
-                c.published_version?"Plantilla publicada · revisión "+c.published_version:
-                "Comprobar biblioteca de plantillas"}</small></span>
+              libraryLabel(c.code)}</small></span>
           </label>)}</div>
       </div>)}
       {checked.length>0&&<div className="j166-sub" aria-live="polite">
@@ -600,23 +627,26 @@ export default function JavieraV166({onConfig,onTextEditor}:{onConfig?:()=>void;
     {step===4&&<section className="j166-panel">
       <button className="j166-back" onClick={()=>setStep(3)}><ArrowLeft size={16}/> Corregir antecedentes</button>
       <h3>Revisión e impresión</h3>
-      <p className="j166-native-help">Revisa cada documento con <strong>Vista previa A4</strong>.
-        Si aún falta el texto original publicado, utiliza <strong>Editar formato original</strong>.
-        La opción Excel permanece disponible para comparar. Puedes corregir los datos
-        antes de imprimir. Un PDF no registra firmas físicas.</p>
-      <p>Seleccionados: {checked.length} · Listos: {ready.length} · Pendientes: {invalid.length}</p>
+      <p className="j166-native-help">Elige <strong>Vista previa A4</strong> para revisar cada formato
+        o <strong>Preparar paquete PDF A4</strong> para imprimir todos los seleccionados.
+        Si falta contenido, abre <strong>Editar HTML</strong>. Ya no necesitas importar Excel.
+        Puedes corregir los datos antes de imprimir; el PDF no registra firmas físicas.</p>
+      <p>{checked.length} documentos seleccionados · {checked.filter(c=>nativeFormats.find(f=>f.code===c)?.status==="ready").length} con formato HTML habilitado</p>
       {states.map(s=><div className="j166-status" key={s.code}>
-        <div><strong>{title(s.code)}</strong><small>{s.can_issue?"Listo para emitir":
-          s.status+" · "+(s.reason||s.missing_fields.length+" datos pendientes")}</small>
+        <div><strong>{title(s.code)}</strong><small>{
+          nativeFormats.find(f=>f.code===s.code)?.status==="ready"?
+            "Diseño HTML disponible · comprobar los datos":
+          nativeFormats.find(f=>f.code===s.code)?.status==="requires_review"?
+            "Diseño HTML pendiente de revisión":"Requiere editar y habilitar HTML"
+        }</small>
           {s.missing_fields.length>0&&<small>Faltan: {s.missing_fields.map(x=>JAVIERA_FIELD_META[x]?.label||x).join(", ")}</small>}
           {s.blocking_errors.map(x=><small key={x}>{x}</small>)}
-          {!s.can_issue&&templateInfo(s.code)&&<small>
-            {templateInfo(s.code)?.message} · Hoja: {templateInfo(s.code)?.sheet}
-          </small>}
+          {nativeFormats.find(f=>f.code===s.code)?.status==="requires_review"&&
+            <small>Hay cambios HTML pendientes de habilitar.</small>}
         </div><div className="j166-status-actions">
-          {!s.can_issue&&onConfig&&templateInfo(s.code)&&!templateInfo(s.code)?.ready&&
-            <button className="j166-light" onClick={onConfig}>Revisar biblioteca Excel</button>}
-          {s.can_issue&&<button className="j166-light" onClick={()=>void openPreview(s.code)}><Eye size={16}/> Vista previa Excel</button>}
+          {s.can_issue&&<details className="j166-legacy-preview"><summary>Versión Excel histórica</summary>
+            <button className="j166-light" onClick={()=>void openPreview(s.code)}><Eye size={16}/> Vista previa Excel</button>
+          </details>}
           {nativeLoading&&<small>Consultando formatos A4…</small>}
           {nativeFormats.find(f=>f.code===s.code)?.status==="ready"&&
             <button className="j166-light" disabled={saving}
@@ -624,10 +654,11 @@ export default function JavieraV166({onConfig,onTextEditor}:{onConfig?:()=>void;
               title="PDF A4 para revisar e imprimir. No acredita firma ni recepción.">
               <Eye size={16}/> Vista previa A4
             </button>}
-          {nativeFormats.find(f=>f.code===s.code)?.status==="requires_published_text"&&
-            <button className="j166-light" disabled={!onTextEditor} onClick={onTextEditor}
-              title="El texto original debe revisarse y habilitarse antes de utilizarlo">
-              <FileText size={16}/> Editar formato original
+          {["requires_published_text","requires_review"].includes(
+              nativeFormats.find(f=>f.code===s.code)?.status||"")&&
+            <button className="j166-light" disabled={!onTextEditor} onClick={()=>onTextEditor?.(s.code)}
+              title="Editar la versión HTML, guardar y habilitar su vista previa">
+              <FileText size={16}/> Editar HTML
             </button>}
           {s.last_issue_id&&<a href={API+"/issues/"+s.last_issue_id+"/pdf"} target="_blank" rel="noreferrer">PDF anterior</a>}
         </div>
@@ -635,9 +666,19 @@ export default function JavieraV166({onConfig,onTextEditor}:{onConfig?:()=>void;
           <input value={reasons[s.code]||""} onChange={e=>setReasons(old=>({...old,[s.code]:e.target.value}))}/></label>}
       </div>)}
       <div className="j166-actions">
-        <button disabled={saving||!ready.length} className="j166-primary" onClick={()=>void generate()}>
-          <Printer size={18}/> Generar {ready.length} documentos elegibles</button>
-        <button className="j166-light" onClick={()=>void openHistory()}>Historial</button></div>
+        <button disabled={saving||!checked.length} className="j166-primary" onClick={()=>void openNativeBatch()}>
+          <Printer size={18}/> Preparar paquete PDF A4 ({checked.length})
+        </button>
+        <button className="j166-light" onClick={()=>void openHistory()}>Historial</button>
+      </div>
+      <details className="j166-excel-legacy">
+        <summary>Compatibilidad: emisión antigua desde Excel</summary>
+        <p>Disponible para revisar documentos históricos mientras completas la migración.
+           Este proceso puede requerir las plantillas Excel originales.</p>
+        <button disabled={saving||!ready.length} className="j166-light" onClick={()=>void generate()}>
+          <Printer size={18}/> Generar {ready.length} documentos elegibles (Excel)
+        </button>
+      </details>
       {batch&&<div className="j166-sub"><h4>Resultado del paquete</h4>
         <p>{batch.issued} documentos disponibles · {batch.failed} no emitidos.</p>
         {batch.package_error&&<p role="alert" className="j166-error">{batch.package_error}</p>}
