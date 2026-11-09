@@ -134,16 +134,29 @@ export default function JavieraV166({onConfig}:{onConfig?:()=>void}){
     }
     return result;
   },[checked,fieldsByCode,commonKeys]);
-  const missingLocal=useMemo(()=>checked.reduce((all,code)=>{
-    for(const key of fieldsByCode[code]||[]){
-      if(AUTO.has(key))continue;
-      const value=DOC_ONLY.has(key)||key.startsWith("event.")?
-        specific[code]?.[key]:shared[key];
-      if(!value?.trim())all.add(code+"|"+key);
-    }return all;
-  },new Set<string>()),[checked,fieldsByCode,shared,specific]);
-  const filled=Object.values(fieldsByCode).reduce((n,fields)=>n+fields.length,0)-missingLocal.size;
-  const total=Object.values(fieldsByCode).reduce((n,fields)=>n+fields.length,0);
+  // A shared field is counted once across all selected documents.
+  const requirements=useMemo(()=>{
+    const entries=new Map<string,{key:string;code:string}>();
+    for(const code of checked){
+      for(const key of fieldsByCode[code]||[]){
+        const privateField=DOC_ONLY.has(key)||key.startsWith("event.");
+        const identifier=privateField?code+"|"+key:key;
+        if(!entries.has(identifier))entries.set(identifier,{key,code});
+      }
+    }
+    return [...entries.values()];
+  },[checked,fieldsByCode]);
+  const missingLocal=useMemo(()=>requirements.filter(({key,code})=>{
+    if(key==="employer.name")return !companyName.trim();
+    if(key==="employer.rut")return !companyRut.trim();
+    if(key==="worker.name")return !personName.trim();
+    if(key==="worker.rut")return !personRut.trim();
+    if(key==="site.name")return !siteId;
+    const byDocument=DOC_ONLY.has(key)||key.startsWith("event.");
+    return !(byDocument?specific[code]?.[key]:shared[key])?.trim();
+  }),[requirements,companyName,companyRut,personName,personRut,siteId,specific,shared]);
+  const total=requirements.length;
+  const filled=total-missingLocal.length;
   const ready=states.filter(x=>x.can_issue);
   const invalid=states.filter(x=>!x.can_issue);
   const fingerprint=JSON.stringify({siteId,companyId,personId,checked,shared,specific,relation,parentName});
