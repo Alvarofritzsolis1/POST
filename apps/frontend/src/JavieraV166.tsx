@@ -19,7 +19,7 @@ type Dossier={id:string;revision:number;company_id:string;person_id:string|null;
   relationship:string;parent_name:string|null;updated_at:string};
 type Result={code:string;ok:boolean;id?:string;reused?:boolean;reason?:string;missing_fields?:string[]};
 type Batch={id:string;results:Result[];issued:number;failed:number;pdf_url:string|null};
-type History={issues:{id:string;dossier_id:string;code:string;issued_at:string;sha256:string;reissue_reason:string|null}[];
+type History={legacy_issues:{id:string;code:string;issued_at:string;sha256:string}[];issues:{id:string;dossier_id:string;code:string;issued_at:string;sha256:string;reissue_reason:string|null}[];
   batches:{id:string;dossier_id:string;created_at:string;has_pdf:boolean;results:Result[]}[]};
 const BASE="/javiera/v166";
 const API="/api/v1/javiera/v166";
@@ -92,7 +92,7 @@ export default function JavieraV166({onConfig}:{onConfig?:()=>void}){
   const [dossier,setDossier]=useState<Dossier|null>(null);
   const [states,setStates]=useState<DocState[]>([]);
   const [batch,setBatch]=useState<Batch|null>(null);
-  const [history,setHistory]=useState<History>({issues:[],batches:[]});
+  const [history,setHistory]=useState<History>({legacy_issues:[],issues:[],batches:[]});
   const [reasons,setReasons]=useState<Record<string,string>>({});
   const [error,setError]=useState("");
   const [notice,setNotice]=useState("");
@@ -487,6 +487,11 @@ export default function JavieraV166({onConfig}:{onConfig?:()=>void}){
       {history.issues.map(i=><div className="j166-result" key={i.id}>
         <span>{title(i.code)} · {formatTime(i.issued_at)} {i.reissue_reason?"· Reemisión":""}</span>
         <a href={API+"/issues/"+i.id+"/pdf"} target="_blank" rel="noreferrer">Abrir PDF</a></div>)}
+      <h4>Documentos históricos (versión 16.5)</h4>
+      {history.legacy_issues?.map(i=><div className="j166-result" key={i.id}>
+        <span>{title(i.code)} · {formatTime(i.issued_at)} · Archivo original</span>
+        <a href={"/api/v1/javiera/issued/"+i.id+"/pdf"} target="_blank" rel="noreferrer">Abrir PDF histórico</a>
+      </div>)}
       <h4>Continuar expediente documental</h4>
       <DossierPicker onPick={id=>void loadDossier(id)}/>
     </section>}
