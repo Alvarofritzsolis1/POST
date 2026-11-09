@@ -295,8 +295,7 @@ export default function JavieraV166({onConfig}:{onConfig?:()=>void}){
           ...nestedFromFields(specific[code]||{}),
           ...(code==="sworn_declaration"&&specific[code]?.["verified_no_workers"]==="true"?
             {verified_no_workers:true}:{}),
-          ...(["ppe_delivery","pts_receipt","induction","internal_rules_receipt"].includes(code)
-             &&specific[code]?.["event_confirmed"]==="true"?{event_confirmed:true}:{})}])),
+          // Preparar el PDF no confirma que el evento ocurrió.}])),
         ...(current?{dossier_id:current.id,expected_revision:current.revision}:{})};
       const signature=JSON.stringify(data);
       if(!force&&current&&signature===snapshotRef.current){
@@ -402,7 +401,7 @@ export default function JavieraV166({onConfig}:{onConfig?:()=>void}){
       }
       setShared(flatten(d.shared));
       setSpecific(Object.fromEntries(Object.entries(d.document_data).map(([code,obj])=>[
-        code,{...flatten(obj),...(obj.verified_no_workers?{verified_no_workers:"true"}:{}),...(obj.event_confirmed?{event_confirmed:"true"}:{})}])));
+        code,{...flatten(obj),...(obj.verified_no_workers?{verified_no_workers:"true"}:{})}])));
       identityRef.current={companyId:d.company_id,companyRut:d.company_rut||"",
         personId:d.person_id||"",personRut:d.person_rut||"",personName:d.person_name||""};
       setDossier(d);dossierRef.current=d;setBatch(null);setStep(3);setNotice("Expediente recuperado sin modificar módulos operativos.");
@@ -536,10 +535,7 @@ export default function JavieraV166({onConfig}:{onConfig?:()=>void}){
       {checked.map(code=><section key={code} className="j166-sub">
         <h4>{title(code)} — datos específicos</h4>
         {["ppe_delivery","pts_receipt","induction","internal_rules_receipt"].includes(code)&&
-          <label className="j166-confirm"><input type="checkbox"
-            checked={specific[code]?.event_confirmed==="true"}
-            onChange={e=>changeField("event_confirmed",e.target.checked?"true":"",code)}/>
-            Confirmo que el evento correspondiente ocurrió efectivamente; el PDF no equivale a una firma ni recepción.</label>}
+          <p>Este formulario se prepara para imprimir y obtener firma en papel después. No es necesario indicar que la entrega o recepción ya ocurrió.</p>}}
         {code==="sworn_declaration"&&<label className="j166-confirm"><input type="checkbox"
           checked={specific[code]?.verified_no_workers==="true"}
           onChange={e=>changeField("verified_no_workers",e.target.checked?"true":"",code)}/>
