@@ -6,6 +6,8 @@ altera registros operativos. El generador Excel v18 sigue disponible.
 """
 from __future__ import annotations
 
+import fitz
+
 from fastapi import APIRouter, Depends, HTTPException
 from fastapi.responses import Response
 from pydantic import BaseModel, ConfigDict, Field
@@ -324,6 +326,47 @@ def native_formats(user: User = Depends(administrator),
                     "Los documentos pendientes exigen revisar su texto antes de imprimir. "
                     "Excel queda disponible solo como referencia histórica."),
     }
+
+
+class NativeBatchInput(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+    dossier_id: str = Field(min_length=1, max_length=100)
+    codes: list[str] = Field(min_length=1, max_length=10)
+
+
+@router.post("/preview/batch")
+def preview_native_batch(payload: NativeBatchInput,
+                         user: User = Depends(administrator),
+                         db: Session = Depends(get_db)):
+    """Paquete A4 nativo, sin depender de Excel y sin crear emisiones ficticias."""
+    if len(set(payload.codes)) != len(payload.codes):
+        raise HTTPException(422, "Selecciona cada documento una sola vez.")
+    if any(code not in DOCUMENT_TITLES for code in payload.codes):
+        raise HTTPException(422, "Se encontró un documento no reconocido.")
+    # Comprueba integridad del expediente, permisos y contenido POR DOCUMENTO.
+    _dossier(db, user, payload.dossier_id)
+    merged = fitz.open()
+    try:
+        for code in payload.codes:
+            response = preview_native(
+                NativePreviewInput(dossier_id=payload.dossier_id, code=code),
+                user=user, db=db
+            )
+            with fitz.open(stream=response.body, filetype="pdf") as part:
+                merged.insert_pdf(part)
+        if merged.page_count > 80:
+            raise HTTPException(422, "El paquete supera 80 páginas A4.")
+        output = merged.tobytes(garbage=3, deflate=True)
+    finally:
+        merged.close()
+    return Response(
+        content=output, media_type="application/pdf",
+        headers={
+            "Cache-Control": "no-store, private",
+            "Content-Disposition": 'inline; filename="proyecto-javiera-paquete-a4.pdf"',
+            "X-Content-Type-Options": "nosniff",
+        },
+    )
 
 
 @router.post("/preview")
