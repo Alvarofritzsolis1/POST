@@ -158,6 +158,9 @@ def preview_native(payload: NativePreviewInput,
                     422, "Sueldo base inválido. Ingresa pesos enteros de 0 a 999.999.999."
                 )
             data["contract"] = {**contract, "salary_words": salary_words}
+            # El editor de plantillas ya emplea {{extra.salary_words}}.
+            # Mantener ambos nombres en la ruta documental, sin modificar Excel.
+            data["extra"] = {**(data.get("extra") or {}), "salary_words": salary_words}
     # La vista previa A4 no debe eludir la validación de identidad documental.
     identities = [
         ("empresa", (data.get("employer") or {}).get("rut")),
