@@ -147,3 +147,53 @@ def test_reviewer_account_has_no_site_assignment_requirement():
     data=AccountInput(name="Profesional documental",email="revisor17@example.cl",
                       role="doc_reviewer",site_ids=[],enabled=True)
     assert data.site_ids==[]
+
+def test_single_admin_pilot_enables_current_pdf_only_after_preview(env, tmp_path, monkeypatch):
+    """The format can be printed by one admin, without forged professional signoffs."""
+    from fastapi import Response
+    from app import javiera_layout_api
+
+    client, sessions = env
+    monkeypatch.setenv("DOCUMENT_DIR", str(tmp_path))
+    monkeypatch.setenv("JAVIERA_SOLO_PILOT", "true")
+    settings.cache_clear()
+    admin = login(client, "a@example.cl")
+    assert _import(client, admin).status_code == 200
+    with sessions() as db:
+        row = db.scalar(select(JavieraExcelLayout).where(
+            JavieraExcelLayout.code == "internal_rules_receipt"))
+        layout_id = row.id
+        assert row.state == "draft"
+    endpoint = "/api/v1/javiera/admin/excel/layouts/" + layout_id + "/enable-print"
+    no_confirmation = client.post(endpoint, headers=admin, json={"confirmed_preview": False})
+    assert no_confirmation.status_code == 422
+    # This test mocks only PDF conversion. The route still checks organization,
+    # current revision, admin authorization and explicit confirmation.
+    monkeypatch.setattr(javiera_layout_api, "layout_preview",
+                        lambda **kwargs: Response(content=b"%PDF-1.4", media_type="application/pdf"))
+    enabled = client.post(endpoint, headers=admin, json={"confirmed_preview": True})
+    assert enabled.status_code == 200, enabled.text
+    assert enabled.json()["pilot_print_only"] is True
+    with sessions() as db:
+        row = db.get(JavieraExcelLayout, layout_id)
+        assert row.state == "approved"
+        assert db.scalar(select(func.count(JavieraSignoff.id))) == 0
+    duplicate = client.post(endpoint, headers=admin, json={"confirmed_preview": True})
+    assert duplicate.status_code == 200
+
+
+def test_excel_admin_import_does_not_create_duplicate_revisions(env, tmp_path, monkeypatch):
+    client, sessions = env
+    monkeypatch.setenv("DOCUMENT_DIR", str(tmp_path))
+    settings.cache_clear()
+    admin = login(client, "a@example.cl")
+    payload = {"file": ("PLANTILLAS.xlsx", sample_xlsx(),
+                        "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet")}
+    endpoint = "/api/v1/javiera/admin/excel/import"
+    first = client.post(endpoint, headers=admin, files=payload)
+    assert first.status_code == 200, first.text
+    second = client.post(endpoint, headers=admin, files=payload)
+    assert second.status_code == 200, second.text
+    assert second.json()["status"] == "already_imported"
+    with sessions() as db:
+        assert db.scalar(select(func.count(JavieraExcelLayout.id))) == 10
