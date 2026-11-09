@@ -270,7 +270,7 @@ def native_formats(user: User = Depends(administrator),
     """All ten A4 layouts available; seven require approved source texts."""
     rows = db.scalars(select(JavieraTemplate).where(
         JavieraTemplate.org_id == user.org_id,
-        JavieraTemplate.code.in_(ORIGINAL_TEXT_CODES),
+        JavieraTemplate.code.in_(list(DOCUMENT_TITLES)),
     )).all()
     by_code = {row.code: row for row in rows}
     latest_by_id = {}
@@ -287,6 +287,21 @@ def native_formats(user: User = Depends(administrator),
                                if code in by_code else None)
         for code in ORIGINAL_TEXT_CODES
     }
+    native_sources = {
+        code: _native_source_from_row(
+            by_code.get(code),
+            latest_by_id.get(by_code[code].id) if code in by_code else None
+        ) for code in DOCUMENT_TITLES
+    }
+    def status(code: str) -> str:
+        native_markup, _, native_state = native_sources[code]
+        if native_state == "requires_review":
+            return "requires_review"
+        if native_markup:
+            return "ready"
+        if code not in ORIGINAL_TEXT_CODES:
+            return "ready"
+        return "ready" if sources[code][0] else "requires_published_text"
     return {
         "mode": "preview_only",
         "source": "html_css",
@@ -294,17 +309,20 @@ def native_formats(user: User = Depends(administrator),
         "requires_physical_signature": True,
         "formats": [
             {"code": code, "title": title,
-             "status": ("ready" if code not in ORIGINAL_TEXT_CODES or
-                        sources[code][0] else "requires_published_text"),
-             "source_kind": sources[code][2] if code in ORIGINAL_TEXT_CODES else "native",
-             "editable_in": "Configuración de plantillas documentales",
-             "source_revision": sources[code][1]
-                 if code in ORIGINAL_TEXT_CODES else None}
+             "status": status(code),
+             "source_kind": ("html_editable" if native_sources[code][0]
+                 else sources[code][2] if code in ORIGINAL_TEXT_CODES
+                 else "native_default"),
+             "editable_in": "Editor HTML de Proyecto Javiera",
+             "source_revision": (
+                 native_sources[code][1] or
+                 (sources[code][1] if code in ORIGINAL_TEXT_CODES else None)
+             )}
             for code, title in DOCUMENT_TITLES.items()
         ],
-        "message": ("Diez diseños nativos. Los siete documentos laborales y de entrega "
-                    "solo se generan tras publicar y verificar su texto original. "
-                    "La emisión definitiva permanece en Excel."),
+        "message": ("Diez formatos HTML editables, con vista previa PDF A4. "
+                    "Los documentos pendientes exigen revisar su texto antes de imprimir. "
+                    "Excel queda disponible solo como referencia histórica."),
     }
 
 
@@ -351,25 +369,48 @@ def preview_native(payload: NativePreviewInput,
             raise HTTPException(
                 409, f"Falta matriz {kind} aprobada para este cargo. No se inventará contenido."
             )
+    row = db.scalar(select(JavieraTemplate).where(
+        JavieraTemplate.org_id == user.org_id,
+        JavieraTemplate.code == payload.code,
+    ))
+    latest = _latest_native_revision(db, row)
+    native_fragment, _, native_state = _native_source_from_row(row, latest)
+    if native_state == "requires_review":
+        raise HTTPException(
+            409, "El HTML tiene cambios sin habilitar. Abre el editor y revisa la última versión."
+        )
     approved_text = None
-    if payload.code in ORIGINAL_TEXT_CODES:
+    approved_html = None
+    native_intro = None
+    if native_fragment:
+        try:
+            prepared = bind_native_html(native_fragment, data)
+        except NativeHtmlError as exc:
+            raise HTTPException(422, str(exc)) from None
+        if payload.code in ORIGINAL_TEXT_CODES:
+            approved_html = prepared
+        else:
+            native_intro = prepared
+    elif payload.code in ORIGINAL_TEXT_CODES:
         body, _, _ = _text_source(db, user, payload.code)
         if not body:
             raise HTTPException(
-                409, "Falta revisar y habilitar el texto original para vista previa. "
-                     "Abre Configuración → Plantillas y cláusulas."
+                409, "Falta el contenido HTML verificado. Abre Editor HTML y "
+                     "guarda las cláusulas originales del documento."
             )
         try:
             approved_text = render_tokens(body, data)
         except ValueError as exc:
             raise HTTPException(
-                422, "Falta completar un campo requerido por el texto aprobado: " + str(exc)
+                422, "Falta completar un campo requerido por el texto verificado: " + str(exc)
             ) from None
         if "{{" in approved_text or "}}" in approved_text:
             raise HTTPException(422, "El texto contiene variables sin resolver.")
     try:
         pdf = render_native_pdf(payload.code, data, matrix=matrix,
-                                approved_text=approved_text)
+                                approved_text=approved_text,
+                                approved_html=approved_html,
+                                native_intro=native_intro)
     except NativeDocumentError as exc:
         raise HTTPException(422, str(exc)) from None
     return Response(
