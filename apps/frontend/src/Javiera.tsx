@@ -5,6 +5,7 @@ import {opsApi} from "./opsApi";
 import "./javiera.css";
 import JavieraExcelAdmin from "./JavieraExcelAdmin";
 import JavieraV17 from "./JavieraV17";
+import JavieraNativeEditor from "./JavieraNativeEditor";
 
 type Source = {sites: {id:string;name:string}[];contractors:{id:string;site_id:string;name:string;rut:string|null;nature:string}[];workers:{id:string;name:string;rut:string|null;active:boolean}[]};
 type Catalog = {code:string;area:string;title:string;required_fields:string[];published_version:number};
@@ -58,7 +59,7 @@ function Setup({onBack}:{onBack:()=>void}){
   const [draft,setDraft]=useState<Template|null>(null);
   const [reason,setReason]=useState("");
   const [newField,setNewField]=useState("");
-  const [tab,setTab]=useState<"documentos"|"matrices"|"excel"|"reviews">("documentos");
+  const [tab,setTab]=useState<"documentos"|"matrices"|"excel"|"reviews"|"texto_legacy">("documentos");
   const [matrices,setMatrices]=useState<Matrix[]>([]);
   const [matrixKind,setMatrixKind]=useState<"PTS"|"IRL">("PTS");
   const [soloPilot,setSoloPilot]=useState(false);
@@ -152,13 +153,16 @@ function Setup({onBack}:{onBack:()=>void}){
     <header className="jv-heading"><button type="button" onClick={onBack} className="jv-back"><ArrowLeft size={18}/> Volver a GALANT</button>
       <div><small>GALANT · CONTROL DE VERSIONES</small><h1>Configuración de automatización</h1>
         <p>Plantillas de PDF para imprimir y obtener firmas en papel. Los cambios conservan historial y auditoría.</p></div>
-      <span className="jv-mark">Proyecto JAVIERA · v18</span></header>
+      <span className="jv-mark">Proyecto JAVIERA · HTML 19.1</span></header>
     <div className="jv-tabs"><button className={tab==="documentos"?"active":""} aria-pressed={tab==="documentos"} onClick={()=>setTab("documentos")}>Plantillas y cláusulas</button>
       <button className={tab==="matrices"?"active":""} aria-pressed={tab==="matrices"} onClick={()=>setTab("matrices")}>Matrices PTS / IRL</button>
       <button className={tab==="excel"?"active":""} aria-pressed={tab==="excel"} onClick={()=>setTab("excel")}>Diseños Excel originales</button>
-      <button className={tab==="reviews"?"active":""} aria-pressed={tab==="reviews"} onClick={()=>setTab("reviews")}>Habilitar PDF / revisiones</button></div>
+      <button className={tab==="reviews"?"active":""} aria-pressed={tab==="reviews"} onClick={()=>setTab("reviews")}>Habilitar PDF / revisiones</button>
+      <button className={tab==="texto_legacy"?"active":""} aria-pressed={tab==="texto_legacy"}
+        onClick={()=>setTab("texto_legacy")}>Texto tradicional (respaldo)</button></div>
     {error&&<p role="alert" className="jv-error">{error}</p>}{notice&&<p role="status" className="jv-success">{notice}</p>}
-    {tab==="documentos"&&<div className="jv-admin-layout">
+    {tab==="documentos"&&<JavieraNativeEditor onBack={onBack}/>}
+    {tab==="texto_legacy"&&<div className="jv-admin-layout">
       <nav className="jv-template-list" aria-label="Plantillas documentales">{templates.map(t=>
         <button key={t.code} className={selected===t.code?"chosen":""} onClick={()=>pick(t.code)}>
           <FileText size={16}/><span>{t.title}<small>{t.published_version?"Publicada v"+t.published_version:"Pendiente de aprobación"}</small></span>
