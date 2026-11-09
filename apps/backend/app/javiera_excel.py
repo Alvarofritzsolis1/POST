@@ -56,6 +56,9 @@ DOCUMENT_PRINT_AREAS = {
 # Exact starts of the ten original forms in the private induction sheet.
 # The original content, formulas and signatures stay in their source rows.
 INDUCTION_FORM_START_ROWS = (9, 58, 116, 159, 206, 262, 304, 355, 404, 452)
+# A shape-based corporate header precedes each textual heading. Excel drawing
+# anchors are zero-indexed, hence the source form starts at these 1-based rows.
+INDUCTION_SECTION_FIRST_ROWS = (1, 48, 104, 149, 197, 253, 298, 345, 394, 442)
 
 
 def set_document_print_profile(target: ET.Element, book: ET.Element, code: str, sheet_name: str):
@@ -163,7 +166,7 @@ def configure_induction_sections(target: ET.Element, book: ET.Element,
     breaks = ET.Element(Q("rowBreaks"), {
         "count": str(count), "manualBreakCount": str(count),
     })
-    for start in INDUCTION_FORM_START_ROWS[1:]:
+    for start in INDUCTION_SECTION_FIRST_ROWS[1:]:
         ET.SubElement(breaks, Q("brk"), {
             "id": str(start - 1), "min": "0", "max": "3", "man": "1",
         })
@@ -177,10 +180,11 @@ def configure_induction_sections(target: ET.Element, book: ET.Element,
                   if child.tag in tail), len(target))
     target.insert(index, breaks)
 
-    # The corrected 18.0.2 Excel has a genuine formatted header in rows 1:4.
-    # Repeating 1:8 puts that header ABOVE each form; never repeat blank rows
-    # as a pseudo-header in a legacy file.
-    if occupied.get(1):
+    # Original company headers are Excel drawing shapes anchored at each
+    # section start. Print titles would OVERLAY these genuine headers and
+    # manufacture pages containing only the duplicated masthead.
+    # Only allow repeated cell titles when no drawing exists (synthetic fixture).
+    if occupied.get(1) and target.find(Q("drawing")) is None:
         names = book.find(Q("definedNames"))
         if names is None:
             names = ET.SubElement(book, Q("definedNames"))
