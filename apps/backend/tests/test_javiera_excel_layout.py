@@ -13,6 +13,7 @@ from openpyxl.styles import Font, PatternFill
 from app.javiera_excel import (
     DOC_SHEETS, LayoutError, Q, excel_document, layout_summary,
     libreoffice_pdf, sheet_files, spanish_amount, validate_xlsx,
+    INDUCTION_FORM_START_ROWS,
 )
 from app.javiera_layout_api import source_leaks
 from app.javiera_review import CHECKLISTS, specialty_for_code
@@ -525,3 +526,69 @@ def test_v18_recover_mild_negative_top_and_left_without_cropping():
         assert all(b[0] >= 0 and b[1] >= 0 and
                    b[2] <= page.rect.width and b[3] <= page.rect.height
                    for b in page.get_text("blocks"))
+
+
+def test_v182_induction_ten_sections_get_print_breaks_and_repeated_header():
+    """Each of the original ten subforms begins on a fresh A4 page."""
+    from openpyxl import load_workbook
+
+    source = load_workbook(io.BytesIO(sample_xlsx()))
+    doc = source["INDUCCION PREVENCION"]
+    doc["A1"] = "DEPARTAMENTO DE PREVENCIÓN DE RIESGOS"
+    for index, start in enumerate(INDUCTION_FORM_START_ROWS, start=1):
+        doc[f"A{start}"] = f"FORMULARIO INDUCCIÓN {index}: TEXTO COMPLETO DE PRUEBA"
+    doc.print_area = "A1:D474"
+    memory = io.BytesIO()
+    source.save(memory)
+    data = valid_data()
+    data["extra"]["principal_company"] = "MANDANTE SINTÉTICA SPA"
+    generated = excel_document(memory.getvalue(), "induction", data)
+    with ZipFile(io.BytesIO(generated)) as archive:
+        target = ET.fromstring(archive.read(sheet_files(archive)["INDUCCION PREVENCION"]))
+        breaks = [int(item.get("id")) for item in target.findall(
+            ".//" + Q("rowBreaks") + "/" + Q("brk"))]
+        assert breaks == [row - 1 for row in INDUCTION_FORM_START_ROWS[1:]]
+        names = ET.fromstring(archive.read("xl/workbook.xml")).findall(
+            ".//" + Q("definedName"))
+        titles = [item.text for item in names
+                  if item.get("name") == "_xlnm.Print_Titles"]
+        assert titles == ["'INDUCCION PREVENCION'!$1:$8"]
+        assert target.find(Q("pageSetup")).get("fitToHeight") == "0"
+        assert target.find(Q("pageSetup")).get("paperSize") == "9"
+
+
+def test_v182_induction_small_fixture_has_no_phantom_print_pages():
+    """A generic form is not falsely divided into ten empty documents."""
+    data = valid_data()
+    data["extra"]["principal_company"] = "MANDANTE SINTÉTICA SPA"
+    generated = excel_document(sample_xlsx(), "induction", data)
+    with ZipFile(io.BytesIO(generated)) as archive:
+        target = ET.fromstring(archive.read(sheet_files(archive)["INDUCCION PREVENCION"]))
+        assert not target.findall(".//" + Q("rowBreaks") + "/" + Q("brk"))
+        names = ET.fromstring(archive.read("xl/workbook.xml")).findall(
+            ".//" + Q("definedName"))
+        assert all(item.get("name") != "_xlnm.Print_Titles" for item in names)
+
+
+@pytest.mark.skipif(shutil.which("libreoffice") is None and shutil.which("soffice") is None,
+                    reason="Requiere LibreOffice para validar la paginación real")
+def test_v182_induction_pdf_has_no_empty_sections():
+    from openpyxl import load_workbook
+
+    book = load_workbook(io.BytesIO(sample_xlsx()))
+    doc = book["INDUCCION PREVENCION"]
+    doc["A1"] = "DEPARTAMENTO DE PREVENCIÓN DE RIESGOS"
+    for index, start in enumerate(INDUCTION_FORM_START_ROWS, start=1):
+        doc[f"A{start}"] = f"FORMULARIO DOCUMENTAL {index} - DESCRIPCIÓN DE SEGURIDAD"
+    doc.print_area = "A1:D474"
+    memory = io.BytesIO()
+    book.save(memory)
+    data = valid_data()
+    data["extra"]["principal_company"] = "MANDANTE SINTÉTICA SPA"
+    pdf = libreoffice_pdf(excel_document(memory.getvalue(), "induction", data))
+    with fitz.open(stream=pdf, filetype="pdf") as document:
+        assert document.page_count >= 10
+        assert all(page.rect.width == 595 and page.rect.height == 842 for page in document)
+        all_text = " ".join(page.get_text() for page in document)
+        assert all(f"FORMULARIO DOCUMENTAL {index}" in all_text for index in range(1, 11))
+        assert all(len(page.get_text().strip()) >= 30 for page in document)
