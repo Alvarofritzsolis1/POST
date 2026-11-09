@@ -18,7 +18,7 @@ type Dossier={id:string;revision:number;company_id:string;person_id:string|null;
   shared:Record<string,unknown>;document_data:Record<string,Record<string,unknown>>;
   relationship:string;parent_name:string|null;updated_at:string};
 type Result={code:string;ok:boolean;id?:string;reused?:boolean;reason?:string;missing_fields?:string[]};
-type Batch={id:string;results:Result[];issued:number;failed:number;pdf_url:string|null};
+type Batch={id:string;results:Result[];issued:number;failed:number;pdf_url:string|null;package_error?:string|null};
 type History={legacy_issues:{id:string;code:string;issued_at:string;sha256:string}[];issues:{id:string;dossier_id:string;code:string;issued_at:string;sha256:string;reissue_reason:string|null}[];
   batches:{id:string;dossier_id:string;created_at:string;has_pdf:boolean;results:Result[]}[]};
 const BASE="/javiera/v166";
@@ -123,7 +123,7 @@ export default function JavieraV166({onConfig}:{onConfig?:()=>void}){
 
   const fieldsByCode=useMemo(()=>Object.fromEntries(checked.map(code=>{
     const item=catalog.find(c=>c.code===code);
-    return [code,[...new Set([...(item?.required_fields||[]),...(JAVIERA_EXCEL_FIELDS[code]||[])])]];
+    return [code,[...new Set([...(item?.required_fields||[]),...(JAVIERA_EXCEL_FIELDS[code]||[]),...(code==="labor_contract"?["employment_type"]:[])])]];
   })) as Record<string,string[]>,[checked,catalog]);
   const commonKeys=useMemo(()=>[...new Set(Object.values(fieldsByCode).flat())]
     .filter(k=>!AUTO.has(k)&&!DOC_ONLY.has(k)&&!k.startsWith("event.")),[fieldsByCode]);
@@ -226,7 +226,9 @@ export default function JavieraV166({onConfig}:{onConfig?:()=>void}){
         document_data:Object.fromEntries(checked.map(code=>[code,{
           ...nestedFromFields(specific[code]||{}),
           ...(code==="sworn_declaration"&&specific[code]?.["verified_no_workers"]==="true"?
-            {verified_no_workers:true}:{})}])),
+            {verified_no_workers:true}:{}),
+          ...(["ppe_delivery","pts_receipt","induction","internal_rules_receipt"].includes(code)
+             &&specific[code]?.["event_confirmed"]==="true"?{event_confirmed:true}:{})}])),
         ...(current?{dossier_id:current.id,expected_revision:current.revision}:{})};
       const signature=JSON.stringify(data);
       if(!force&&current&&signature===snapshotRef.current)return current;
@@ -314,13 +316,13 @@ export default function JavieraV166({onConfig}:{onConfig?:()=>void}){
       }
       setShared(flatten(d.shared));
       setSpecific(Object.fromEntries(Object.entries(d.document_data).map(([code,obj])=>[
-        code,{...flatten(obj),...(obj.verified_no_workers?{verified_no_workers:"true"}:{})}])));
+        code,{...flatten(obj),...(obj.verified_no_workers?{verified_no_workers:"true"}:{}),...(obj.event_confirmed?{event_confirmed:"true"}:{})}])));
       setDossier(d);dossierRef.current=d;setBatch(null);setStep(3);setNotice("Expediente recuperado sin modificar módulos operativos.");
     }catch(e){showFailure(e);}
   }
 
   const field=(key:string,code?:string)=>{
-    const meta:{label:string;type?:string;options?:string[];hint?:string}=JAVIERA_FIELD_META[key]||{label:key.replaceAll("."," · ").replaceAll("_"," ")};
+    const meta:{label:string;type?:string;options?:string[];hint?:string}=key==="employment_type"?{label:"Vínculo laboral",options:["dependiente","independiente"]}:JAVIERA_FIELD_META[key]||{label:key.replaceAll("."," · ").replaceAll("_"," ")};
     const value=code?specific[code]?.[key]||"":shared[key]||"";
     const label=meta.label;
     const type=meta.type||"text";
@@ -432,6 +434,11 @@ export default function JavieraV166({onConfig}:{onConfig?:()=>void}){
         <div className="j166-fields">{commonKeys.map(key=>field(key))}</div></section>
       {checked.map(code=><section key={code} className="j166-sub">
         <h4>{title(code)} — datos específicos</h4>
+        {["ppe_delivery","pts_receipt","induction","internal_rules_receipt"].includes(code)&&
+          <label className="j166-confirm"><input type="checkbox"
+            checked={specific[code]?.event_confirmed==="true"}
+            onChange={e=>changeField("event_confirmed",e.target.checked?"true":"",code)}/>
+            Confirmo que el evento correspondiente ocurrió efectivamente; el PDF no equivale a una firma ni recepción.</label>}
         {code==="sworn_declaration"&&<label className="j166-confirm"><input type="checkbox"
           checked={specific[code]?.verified_no_workers==="true"}
           onChange={e=>changeField("verified_no_workers",e.target.checked?"true":"",code)}/>
@@ -467,6 +474,7 @@ export default function JavieraV166({onConfig}:{onConfig?:()=>void}){
         <button className="j166-light" onClick={()=>void openHistory()}>Historial</button></div>
       {batch&&<div className="j166-sub"><h4>Resultado del paquete</h4>
         <p>{batch.issued} documentos disponibles · {batch.failed} no emitidos.</p>
+        {batch.package_error&&<p role="alert" className="j166-error">{batch.package_error}</p>
         {batch.results.map(x=><div key={x.code} className="j166-result">
           <span>{title(x.code)} — {x.ok?"Disponible":x.reason}</span>
           {x.ok&&<a href={API+"/issues/"+x.id+"/pdf"} target="_blank" rel="noreferrer">Abrir individual</a>}</div>)}
