@@ -54,7 +54,11 @@ def inspect_pdf(code, raw, output):
             failures.append("número de páginas fuera de rango")
         all_text = "\n".join(p.get_text() for p in doc)
         compact = " ".join(all_text.split())
-        for word in ("CONSTRUCTORA", "SINTÉTICA", "OBRA", "PRUEBA"):
+        # La declaración empresarial no contiene un trabajador de PRUEBA:
+        # comprobar los datos que realmente corresponden a cada documento.
+        expected = ["CONSTRUCTORA", "SINTÉTICA", "OBRA"]
+        expected.append("REPRESENTANTE" if code == "sworn_declaration" else "PRUEBA")
+        for word in expected:
             if word not in compact:
                 failures.append("falta texto obligatorio: " + word)
         if "GALANT" in compact:
