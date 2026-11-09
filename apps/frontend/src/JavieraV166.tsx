@@ -72,6 +72,19 @@ async function previewRequest(dossier_id:string,code:string){
   }
   return response.blob();
 }
+async function nativePreviewRequest(dossier_id:string,code:string){
+  const csrf=document.cookie.split("; ").find(x=>x.startsWith("galant_post_csrf="))?.split("=")[1]||"";
+  const response=await fetch("/api/v1/javiera/v19/preview",{
+    method:"POST",credentials:"include",cache:"no-store",
+    headers:{"Content-Type":"application/json","X-CSRF-Token":csrf},
+    body:JSON.stringify({dossier_id,code})
+  });
+  if(!response.ok){
+    const body=await response.json().catch(()=>({detail:"No fue posible preparar el PDF nativo."}));
+    throw new Error(typeof body.detail==="string"?body.detail:"Revisa los datos requeridos para este documento.");
+  }
+  return response.blob();
+}
 function pdfTab(){try{return window.open("about:blank","_blank");}catch{return null;}}
 
 export default function JavieraV166({onConfig}:{onConfig?:()=>void}){
@@ -361,6 +374,18 @@ export default function JavieraV166({onConfig}:{onConfig?:()=>void}){
       setNotice(result.issued+" PDF disponibles. "+(result.failed?result.failed+" no emitidos.":"Puedes imprimir el paquete."));
     }catch(e){showFailure(e);}finally{setSaving(false);}
   }
+  async function openNativePreview(code:string){
+    const tab=pdfTab();
+    try{
+      const record=await saveDraft(true);
+      if(!record){tab?.close();return;}
+      const blob=await nativePreviewRequest(record.id,code);
+      const url=URL.createObjectURL(blob);
+      if(tab)tab.location.replace(url);
+      else setNotice("El navegador bloqueó la pestaña del PDF. Permite ventanas emergentes para revisarlo.");
+      window.setTimeout(()=>URL.revokeObjectURL(url),120000);
+    }catch(e){tab?.close();showFailure(e);}
+  }
   async function openPreview(code:string){
     const tab=pdfTab();
     try{
@@ -417,7 +442,9 @@ export default function JavieraV166({onConfig}:{onConfig?:()=>void}){
       <span>{label}</span>
       {meta.options?<select value={value} onChange={e=>changeField(key,e.target.value,code)}>
         <option value="">Seleccionar</option>{meta.options.map(o=><option key={o}>{o}</option>)}
-      </select>:<input type={type} value={value} onChange={e=>changeField(key,e.target.value,code)}
+      </select>:type==="textarea"?<textarea rows={6} value={value}
+        onChange={e=>changeField(key,e.target.value,code)} placeholder={label}/>:
+        <input type={type} value={value} onChange={e=>changeField(key,e.target.value,code)}
         min={type==="number"?"0":undefined} placeholder={label}/>}
       {meta.hint&&<small>{meta.hint}</small>}
     </label>;
@@ -564,7 +591,12 @@ export default function JavieraV166({onConfig}:{onConfig?:()=>void}){
         </div><div className="j166-status-actions">
           {!s.can_issue&&onConfig&&templateInfo(s.code)&&!templateInfo(s.code)?.ready&&
             <button className="j166-light" onClick={onConfig}>Revisar biblioteca Excel</button>}
-          {s.can_issue&&<button className="j166-light" onClick={()=>void openPreview(s.code)}><Eye size={16}/> Vista previa</button>}
+          {s.can_issue&&<button className="j166-light" onClick={()=>void openPreview(s.code)}><Eye size={16}/> Vista previa Excel</button>}
+          {["internal_rules_receipt","irl","induction"].includes(s.code)&&
+            <button className="j166-light" onClick={()=>void openNativePreview(s.code)}
+              title="Piloto nativo A4: no registra firma ni reemplaza el documento histórico">
+              <Eye size={16}/> Probar nuevo PDF A4
+            </button>}
           {s.last_issue_id&&<a href={API+"/issues/"+s.last_issue_id+"/pdf"} target="_blank" rel="noreferrer">PDF anterior</a>}
         </div>
         {s.has_history&&<label className="j166-field"><span>Motivo de reemisión (mínimo 20 caracteres si cambian los datos)</span>
