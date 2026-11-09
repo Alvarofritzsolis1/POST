@@ -327,8 +327,9 @@ def _dossier_dict(row, db, user):
     person = _person(db, user, row.person_id) if row.person_id else None
     site = by_org(db, Worksite, row.site_id, user.org_id)
     return {"id": row.id, "revision": row.revision, "site_id": row.site_id,
-            "site_name": site.name, "company_id": row.company_id, "company_name": company.name,
+            "site_name": site.name, "company_id": row.company_id, "company_name": company.name, "company_rut": company.rut or "",
             "person_id": row.person_id, "person_name": person.name if person else None,
+            "person_rut": person.rut if person else "",
             "relationship": row.relationship, "parent_name": row.parent_name,
             "shared": row.shared, "document_data": row.document_data,
             "selected_codes": row.selected_codes, "updated_at": row.updated_at.isoformat()}
