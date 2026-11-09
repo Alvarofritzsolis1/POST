@@ -435,3 +435,27 @@ def test_pts_receipt_signatures_use_correct_people_and_ruts():
         assert value("F24") == "RUT: " + data["worker"]["rut"]
         assert "Nacionalidad" not in value("A24")
         assert "Estado civil" not in value("F24")
+
+
+def test_pts_receipt_cargo_is_worker_role_not_employer_specialty():
+    from openpyxl import load_workbook
+    from app.javiera_excel import cell_text, shared_strings
+    wb = load_workbook(io.BytesIO(sample_xlsx()))
+    wb["ENTREGA PTS"]["A3"] = (
+        "Declaro recepción del PTS correspondiente al cargo de CARPINTERIA. "
+        "Mantengo todas las obligaciones preventivas del documento."
+    )
+    data = valid_data()
+    data["role"] = "PINTOR"
+    data["extra"]["specialty"] = "CARPINTERIA"
+    wb_bytes = io.BytesIO()
+    wb.save(wb_bytes)
+    converted = excel_document(wb_bytes.getvalue(), "pts_receipt", data)
+    with ZipFile(io.BytesIO(converted)) as zipfile:
+        root = ET.fromstring(zipfile.read(sheet_files(zipfile)["ENTREGA PTS"]))
+        strings = shared_strings(zipfile)
+        def txt(coord):
+            return cell_text(root.find(".//" + Q("c") + "[@r='" + coord + "']"), strings)
+        assert txt("A1") == "ENTREGA PTS DE PINTOR"
+        assert "correspondiente al cargo de PINTOR." in txt("A3")
+        assert "correspondiente al cargo de CARPINTERIA." not in txt("A3")
