@@ -108,7 +108,8 @@ def _source_paragraphs(approved_text: str | None) -> str:
 
 
 def _body(code: str, data: dict, matrix: list[str] | None,
-          approved_text: str | None = None) -> str:
+          approved_text: str | None = None,
+          approved_html: str | None = None) -> str:
     if code == "internal_rules_receipt":
         version = _get(data, "extra.regulation_version", required=True)
         return _template(code).substitute(regulation_version=_html(version))
@@ -132,7 +133,9 @@ def _body(code: str, data: dict, matrix: list[str] | None,
         "labor_contract", "transfer_addendum", "extension_addendum",
         "sworn_declaration", "ppe_delivery", "pts", "pts_receipt",
     }:
-        safe_text = _source_paragraphs(approved_text)
+        # HTML editable proviene exclusivamente de la revisión administrativa
+        # normalizada y verificada en javiera_native_edit.
+        safe_text = approved_html if approved_html is not None else _source_paragraphs(approved_text)
         params = {"approved_text": safe_text}
         if code == "ppe_delivery":
             raw = _get(data, "event.epp_items", required=True)
@@ -152,6 +155,8 @@ def _body(code: str, data: dict, matrix: list[str] | None,
 
 def render_native_pdf(code: str, data: dict, *, matrix: list[str] | None = None,
                       approved_text: str | None = None,
+                      approved_html: str | None = None,
+                      native_intro: str | None = None,
                       _compact: bool = False) -> bytes:
     """Genera PDF A4 desde HTML/CSS versionado; solo vista previa no firmada.
 
@@ -165,7 +170,11 @@ def render_native_pdf(code: str, data: dict, *, matrix: list[str] | None = None,
     # El texto de origen es obligatorio para los siete formatos migrados.
     # Revisarlo primero permite informar la causa real en lugar de solicitar
     # datos de firma cuando el documento aún carece de cláusulas oficiales.
-    body = _body(code, data, matrix, approved_text)
+    body = _body(code, data, matrix, approved_text, approved_html)
+    if native_intro:
+        # IRL, inducción y Reglamento conservan sus tablas obligatorias.
+        # El HTML editable se añade sin reemplazar matrices o casillas.
+        body = '<section class="native-intro">' + native_intro + '</section>' + body
     is_declaration = code == "sworn_declaration"
     worker = _get(data, "worker.name", required=not is_declaration)
     signer = _get(data, "extra.representative_name", required=is_declaration) if is_declaration else worker
@@ -255,7 +264,9 @@ def render_native_pdf(code: str, data: dict, *, matrix: list[str] | None = None,
                         # redistribuyen únicamente márgenes y espaciados.
                         return render_native_pdf(
                             code, data, matrix=matrix,
-                            approved_text=approved_text, _compact=True
+                            approved_text=approved_text,
+                            approved_html=approved_html,
+                            native_intro=native_intro, _compact=True
                         )
                     raise NativeDocumentError(
                         "La firma quedó aislada incluso tras optimizar los espacios."
