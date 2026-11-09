@@ -209,3 +209,49 @@ def test_native_layout_escapes_approved_text_without_external_links():
     with fitz.open(stream=pdf_bytes, filetype="pdf") as pdf:
         assert not any(page.get_links() for page in pdf)
         assert "Solo texto" in " ".join(page.get_text() for page in pdf)
+
+
+def test_single_admin_can_enable_preview_without_publishing_legacy_approval(
+        env, monkeypatch):
+    from app.config import settings
+    from app.javiera_models import JavieraTemplate, JavieraRevision
+
+    client, sessions = env
+    monkeypatch.setenv("JAVIERA_SOLO_PILOT", "true")
+    settings.cache_clear()
+    admin = login(client, "a@example.cl")
+    code = "labor_contract"
+    created = client.put("/api/v1/javiera/admin/templates/" + code,
+                         headers=admin, json={
+                             "title": "Contrato de prueba controlado",
+                             "area": "Zona Subcontratos",
+                             "body": "Cláusula sintética para {{worker.name}} y "
+                                     "{{employer.name}}. Texto de comprobación.",
+                             "fields": ["worker.name", "employer.name"],
+                             "rule": {}, "layout": {},
+                             "reason": "Corregir edición del piloto A4"})
+    assert created.status_code == 200, created.text
+    revision = created.json()["revision"]
+    target = ROOT + "/templates/" + code + "/enable-preview"
+    denied = client.post(target, headers=admin,
+                         json={"revision": revision, "confirmed_content": False})
+    assert denied.status_code == 422
+    enabled = client.post(target, headers=admin,
+                          json={"revision": revision, "confirmed_content": True})
+    assert enabled.status_code == 200, enabled.text
+    assert enabled.json()["preview_only"] is True
+    status = client.get(ROOT + "/formats", headers=admin).json()["formats"]
+    assert next(row for row in status if row["code"] == code)["status"] == "ready"
+    with sessions() as db:
+        user = db.scalar(select(User).where(User.email == "a@example.cl"))
+        original = db.scalar(select(JavieraTemplate).where(
+            JavieraTemplate.org_id == user.org_id,
+            JavieraTemplate.code == code))
+        assert original.published_version == 0
+        assert original.body in ("", None)
+        revision_row = db.scalar(select(JavieraRevision).where(
+            JavieraRevision.template_id == original.id,
+            JavieraRevision.revision == revision))
+        assert revision_row.state == "pilot_print"
+        assert revision_row.reviewer_id is None
+    settings.cache_clear()
