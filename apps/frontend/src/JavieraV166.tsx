@@ -439,6 +439,17 @@ export default function JavieraV166({onConfig}:{onConfig?:()=>void}){
               "Plantilla publicada · revisión "+c.published_version:"Plantilla por aprobar"}</small></span>
           </label>)}</div>
       </div>)}
+      {checked.length>0&&<div className="j166-sub" aria-live="polite">
+        <h4>Datos que necesitarás completar</h4>
+        <p>{total} antecedentes distintos para los documentos marcados · {missingLocal.length} pendientes.</p>
+        <div className="j166-needed">{missingLocal.slice(0,6).map(({key,code},index)=>
+          <span key={code+":"+key+":"+index}>
+            {key==="employment_type"?"Vínculo laboral":JAVIERA_FIELD_META[key]?.label||key}
+            {DOC_ONLY.has(key)||key.startsWith("event.")?" · "+title(code):""}
+          </span>)}
+          {missingLocal.length>6&&<small>y {missingLocal.length-6} más, organizados en el siguiente paso</small>}
+        </div>
+      </div>}
       <div className="j166-actions"><strong>{checked.length} documentos seleccionados</strong>
         <button className="j166-light" onClick={()=>setChecked([])}>Quitar selección</button>
         <button disabled={!checked.length} className="j166-primary" onClick={()=>setStep(3)}>Continuar <ChevronRight size={17}/></button></div>
