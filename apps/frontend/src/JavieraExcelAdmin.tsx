@@ -41,12 +41,17 @@ async function upload(file:File,path:string){
   return response.json() as Promise<unknown>;
 }
 async function showPDF(path:string){
-  const response=await fetch("/api/v1/javiera"+path,{credentials:"include",cache:"no-store"});
-  if(!response.ok)throw new Error("No se pudo generar la vista previa del Excel");
-  const blob=await response.blob();
-  const url=URL.createObjectURL(blob);
-  window.open(url,"_blank","noopener,noreferrer");
-  window.setTimeout(()=>URL.revokeObjectURL(url),60000);
+  const tab=window.open("","_blank");
+  if(tab){tab.opener=null;tab.document.title="Vista previa JAVIERA";tab.document.body.textContent="Preparando PDF…";}
+  try{
+    const response=await fetch("/api/v1/javiera"+path,{credentials:"include",cache:"no-store"});
+    if(!response.ok)throw new Error("No se pudo generar la vista previa del Excel");
+    const blob=await response.blob();
+    const url=URL.createObjectURL(blob);
+    if(tab)tab.location.href=url;
+    else window.open(url,"_blank","noopener,noreferrer");
+    window.setTimeout(()=>URL.revokeObjectURL(url),60000);
+  }catch(error){tab?.close();throw error;}
 }
 
 function LayoutStudio({onReviews}:{onReviews:()=>void}){
@@ -65,6 +70,12 @@ function LayoutStudio({onReviews}:{onReviews:()=>void}){
   const [engine,setEngine]=useState<{available:boolean;engine:string}|null>(null);
   const [uploadReport,setUploadReport]=useState("");
   const current=layouts.find(x=>x.id===selected)||null;
+  const [showHistory,setShowHistory]=useState(false);
+  const latest=useMemo(()=>{
+    const seen=new Set<string>();
+    return layouts.filter(x=>{if(seen.has(x.code))return false;seen.add(x.code);return true;});
+  },[layouts]);
+  const older=useMemo(()=>layouts.filter(x=>!latest.some(y=>y.id===x.id)),[layouts,latest]);
   const locked=!!cell&&!!source?.protected_cells?.includes(cell);
   async function refresh(){
     const list=await request<Layout[]>("/javiera/admin/excel/layouts");
@@ -86,7 +97,7 @@ function LayoutStudio({onReviews}:{onReviews:()=>void}){
       const result=await upload(file,"/admin/excel/import") as {templates:{sheet:string;cells:number}[];missing:string[]};
       setUploadReport(result.templates.length+" hojas documentales importadas · "+result.templates.reduce((n,x)=>n+x.cells,0)+" celdas con contenido · "+
         (result.missing.length?result.missing.length+" hojas por revisar":"sin hojas pendientes"));
-      setNotice("Las plantillas conservan estilos, celdas combinadas, imágenes y áreas de impresión. Deben revisarse y aprobarse.");
+      setNotice("Excel recibido. Los diseños existentes no se duplican; revisa el PDF de muestra y habilita su impresión.");
       await refresh();
     }catch(e){setError(errorText(e));}finally{setBusy(false);}
   }
@@ -106,7 +117,7 @@ function LayoutStudio({onReviews}:{onReviews:()=>void}){
       if(height)edit.row_height=Number(height);
       const result=await request<{id:string;revision:number}>("/javiera/admin/excel/layouts/"+current.id+"/revise",{
         method:"POST",body:JSON.stringify({expected_revision:current.revision,edits:[edit],reason})});
-      await refresh();setSelected(result.id);setNotice("Nueva versión guardada. Requiere revisión profesional.");
+      await refresh();setSelected(result.id);setNotice("Cambio guardado. Revisa su PDF antes de habilitar la impresión.");
       setReason("");
     }catch(e){setError(errorText(e));}finally{setBusy(false);}
   }
@@ -126,11 +137,16 @@ function LayoutStudio({onReviews}:{onReviews:()=>void}){
     </div>
     {uploadReport&&<p className="jvx-report">{uploadReport}</p>}
     <div className="jvx-layout">
-      <nav className="jvx-list" aria-label="Versiones de documentos importados">
-        {layouts.map(x=><button key={x.id} className={selected===x.id?"active":""} onClick={()=>{setSelected(x.id);setStart(1);setCell("");}}>
+      <nav className="jvx-list" aria-label="Plantillas vigentes sin duplicados">
+        {latest.map(x=><button key={x.id} className={selected===x.id?"active":""} onClick={()=>{setSelected(x.id);setStart(1);setCell("");}}>
           <FileText size={16}/><span>{codeLabels[x.code]||x.sheet}
-          <small>{x.status==="approved"?"Publicado":x.status==="draft"?"Borrador":"Histórico"} · v{x.revision} · {x.cells_modified} correcciones</small></span></button>)}
+          <small>{x.status==="approved"?"Habilitado para PDF":"Pendiente"} · versión vigente {x.revision}</small></span></button>)}
         {!layouts.length&&<p>No hay diseños importados. Selecciona el Excel para comenzar.</p>}
+        {older.length>0&&<button type="button" onClick={()=>setShowHistory(v=>!v)}>
+          {showHistory?"Ocultar historial":"Ver historial ("+older.length+")"}</button>}
+        {showHistory&&older.map(x=><button key={x.id} className={selected===x.id?"active":""} onClick={()=>{setSelected(x.id);setStart(1);setCell("");}}>
+          <FileText size={16}/><span>{codeLabels[x.code]||x.sheet}
+          <small>Versión histórica {x.revision} · solo consulta</small></span></button>)}
       </nav>
       <section className="jvx-inspector">
         <div className="jvx-bar">
@@ -138,7 +154,7 @@ function LayoutStudio({onReviews}:{onReviews:()=>void}){
             {current&&<small>{current.inventory.cells} celdas · {current.inventory.merged} combinadas · {current.inventory.formulas} fórmulas</small>}</div>
           <div className="jvx-buttons">
             <button disabled={!current||busy||!engine?.available} onClick={()=>{if(current)void showPDF("/admin/excel/layouts/"+current.id+"/preview").catch(e=>setError(errorText(e)));}}>Vista previa PDF</button>
-            {current?.status==="draft"&&<button disabled={busy} onClick={onReviews}>Solicitar revisión profesional</button>}
+            {current?.status==="draft"&&<button disabled={busy} onClick={onReviews}>Habilitar formato para PDF</button>}
           </div>
         </div>
         <div className="jvx-row-nav">
@@ -167,7 +183,7 @@ function LayoutStudio({onReviews}:{onReviews:()=>void}){
           <label>Motivo del ajuste <textarea rows={3} value={reason} onChange={e=>setReason(e.target.value)}/></label>
           <button className="jv-primary" disabled={locked||busy||reason.trim().length<10||!current||!/^[A-Z]{1,3}[1-9][0-9]{0,5}$/.test(cell)} onClick={()=>void save()}>
             Guardar nueva revisión</button></>:<p>Selecciona cualquier celda para modificar su contenido.</p>}
-        <div className="jvx-legal-note"><ShieldCheck size={18}/><p>Los documentos laborales y preventivos requieren acta de revisión por el responsable designado antes de aprobarse para emisión.</p></div>
+        <div className="jvx-legal-note"><ShieldCheck size={18}/><p>Este módulo prepara PDF para obtener firmas en papel. Generarlo no equivale a firma, entrega ni recepción.</p></div>
       </aside>
     </div>
   </section>;
