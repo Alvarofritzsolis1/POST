@@ -187,7 +187,8 @@ def test_excel_admin_import_does_not_create_duplicate_revisions(env, tmp_path, m
     monkeypatch.setenv("DOCUMENT_DIR", str(tmp_path))
     settings.cache_clear()
     admin = login(client, "a@example.cl")
-    payload = {"file": ("PLANTILLAS.xlsx", sample_xlsx(),
+    workbook = sample_xlsx()
+    payload = {"file": ("PLANTILLAS.xlsx", workbook,
                         "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet")}
     endpoint = "/api/v1/javiera/admin/excel/import"
     first = client.post(endpoint, headers=admin, files=payload)
