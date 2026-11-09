@@ -51,10 +51,14 @@ def main():
             suffix = uuid4().hex[:8]
             seed = int(suffix, 16) % 999999
             page.goto(args.url + "/proyecto-javiera", wait_until="domcontentloaded")
-            expect(page.get_by_role("heading", name="Biblioteca documental inteligente")).to_be_visible()
-            expect(page.locator(".j17-document")).to_have_count(10)
-            report["scenarios"]["guided_library_ten_documents"] = "PASS"
-            page.get_by_role("button", name="Preparar documentos").click()
+            expect(page.get_by_role("heading", name="Documentos listos para preparar e imprimir")).to_be_visible()
+            expect(page.get_by_role("heading", name="¿La empresa es nueva o ya existe?")).to_be_visible()
+            report["scenarios"]["html_primary_without_excel_import"] = "PASS"
+            page.get_by_role("button", name="Editar formatos HTML").click()
+            expect(page.get_by_role("heading", name="Editor de formatos HTML")).to_be_visible()
+            expect(page.get_by_label("Texto y estructura HTML")).to_be_visible()
+            report["scenarios"]["html_editor_in_main_workflow"] = "PASS"
+            page.get_by_role("button", name="Volver a documentos").click()
             expect(page.get_by_role("heading", name="¿La empresa es nueva o ya existe?")).to_be_visible()
             expect(page.get_by_role("heading", name="Generador documental independiente")).to_be_visible()
             report["scenarios"]["new_or_existing_first"] = "PASS"
@@ -98,7 +102,10 @@ def main():
             assert "Listo para emitir" in page.locator(".j166-status").inner_text(), (
                 "PTS no está listo con plantilla y matriz sintéticas aprobadas")
             report["scenarios"]["eligibility_document_specific"] = "PASS"
-            page.get_by_role("button", name="Generar 1 documentos elegibles").click()
+            expect(page.get_by_role("button", name="Preparar paquete PDF A4 (1)")).to_be_visible()
+            report["scenarios"]["html_a4_primary_batch"] = "PASS"
+            page.locator("details.j166-excel-legacy summary").click()
+            page.get_by_role("button", name="Generar 1 documentos elegibles (Excel)").click()
             expect(page.get_by_text("Resultado del paquete")).to_be_visible(timeout=20000)
             expect(page.get_by_role("link", name="Imprimir paquete PDF")).to_be_visible()
             report["scenarios"]["batch_pdf_generated"] = "PASS"
@@ -135,7 +142,7 @@ def main():
 
             page.set_viewport_size({"width": 390, "height": 844})
             page.goto(args.url + "/proyecto-javiera", wait_until="domcontentloaded")
-            expect(page.get_by_role("heading", name="Biblioteca documental inteligente")).to_be_visible()
+            expect(page.get_by_role("heading", name="Documentos listos para preparar e imprimir")).to_be_visible()
             widths = page.evaluate("({document:document.documentElement.scrollWidth,viewport:window.innerWidth})")
             assert widths["document"] <= widths["viewport"] + 2, widths
             report["scenarios"]["mobile_no_horizontal_scroll"] = "PASS"
