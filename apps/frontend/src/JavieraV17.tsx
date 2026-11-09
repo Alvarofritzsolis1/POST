@@ -34,6 +34,7 @@ function tabLabel(specialty:Template["specialty"]){return specialty==="laboral"?
 
 export default function JavieraV17({onConfig}:{onConfig?:()=>void}){
   const [mode,setMode]=useState<"library"|"documents"|"editor">("documents");
+  const [editingCode,setEditingCode]=useState("internal_rules_receipt");
   const [data,setData]=useState<Library|null>(null);
   const [loading,setLoading]=useState(true);
   const [uploading,setUploading]=useState(false);
@@ -87,7 +88,7 @@ export default function JavieraV17({onConfig}:{onConfig?:()=>void}){
     finally{setChecking("");}
   }
   const entries=(data?.documents||[]).filter(x=>selectedArea==="all"||x.specialty===selectedArea);
-  if(mode==="editor")return <JavieraNativeEditor
+  if(mode==="editor")return <JavieraNativeEditor initialCode={editingCode}
     onBack={()=>setMode("documents")}/>;
   if(mode==="documents")return <div className="j17-shell">
     <section className="j17-html-home" aria-label="Generador HTML de Proyecto Javiera">
@@ -107,7 +108,7 @@ export default function JavieraV17({onConfig}:{onConfig?:()=>void}){
       </div>
     </section>
     <JavieraV166 onConfig={()=>setMode("editor")}
-      onTextEditor={()=>setMode("editor")}/>
+      onTextEditor={code=>{setEditingCode(code);setMode("editor");}}/>
   </div>;
   return <main className="j17-shell">
     <header className="j17-hero">
