@@ -424,6 +424,28 @@ def dynamic_cached(text: str, field_examples: list[tuple[str, str]], data: dict)
     return output
 
 
+def replace_frozen_today(text: str, data: dict, formula: str) -> str:
+    """Materialize TODAY() in a document's cached attestation line.
+
+    Cached XLSX values can contain the date when the author's example was last
+    calculated. Never use that cached date as the date of the new legal event.
+    This only changes the attestation date, not the legally reviewed paragraph.
+    """
+    if "TODAY()" not in formula.upper() or "con fecha" not in text.lower():
+        return text
+    raw_date = get_data(data, "event.date").strip()
+    try:
+        effective = date.fromisoformat(raw_date[:10])
+    except ValueError:
+        raise LayoutError("Indica la fecha efectiva del documento para reemplazar la fecha del ejemplo") from None
+    pattern = r"(\bcon fecha\s+)\d{1,2}/\d{1,2}/\d{4}\b"
+    replaced, count = re.subn(pattern, lambda match: match.group(1) + effective.strftime("%d/%m/%Y"),
+                              text, count=1, flags=re.IGNORECASE)
+    if count != 1:
+        raise LayoutError("La fecha calculada por TODAY() no pudo reemplazarse en la constancia; revisar su fórmula")
+    return replaced
+
+
 def cached_values(root: ET.Element, strings: list[str]) -> dict[str, str]:
     return {c.get("r"): cell_text(c, strings) for c in root.iter(Q("c"))}
 
@@ -471,6 +493,8 @@ def excel_document(raw: bytes, code: str, data: dict, changes: dict | None = Non
                     text = cached
             else:
                 text = dynamic_cached(cached, field_examples, data)
+            if formula and "TODAY()" in formula.upper():
+                text = replace_frozen_today(text, data, formula)
             if code in {"induction","sworn_declaration"} and text:
                 principal = get_data(data, "extra.principal_company").strip()
                 if not principal:
@@ -534,8 +558,29 @@ def excel_document(raw: bytes, code: str, data: dict, changes: dict | None = Non
                      get_data(data, "contract.declaration_reason") + ".")
 
         if code == "pts_receipt":
-            set_text(target,"A24","Nacionalidad: "+get_data(data,"extra.worker_nationality"))
-            set_text(target,"F24","Estado civil: "+get_data(data,"extra.worker_marital_status"))
+            # Cargo del trabajador, nunca rubro del empleador del Excel de ejemplo.
+            role = get_data(data, "role").strip()
+            if not role:
+                raise LayoutError("Indica el cargo real para la entrega del PTS")
+            set_text(target, "A1", "ENTREGA PTS DE " + role.upper())
+            introduction = ensure_cell(target, "A3")
+            original = cell_text(introduction, strings)
+            if "correspondiente al cargo de" in original.lower():
+                updated, count = re.subn(
+                    r"(correspondiente al cargo de\s+)[^.\n]+(\.)",
+                    lambda match: match.group(1) + role.upper() + match.group(2),
+                    original, count=1, flags=re.IGNORECASE,
+                )
+                if count != 1:
+                    raise LayoutError("No se pudo vincular el cargo dentro de Entrega PTS")
+                set_text(target, "A3", updated)
+            # The supplied original has incorrect formulas in the signature
+            # block (A23/F23 point to RUTs, A24/F24 to nationality/civil status).
+            # Both name and RUT must come from the current dossier.
+            set_text(target, "A23", get_data(data, "extra.representative_name"))
+            set_text(target, "F23", get_data(data, "worker.name"))
+            set_text(target, "A24", "RUT: " + get_data(data, "extra.representative_rut"))
+            set_text(target, "F24", "RUT: " + get_data(data, "worker.rut"))
         if code == "pts":
             if matrix is None or len(matrix) != 17:
                 raise LayoutError("La impresión PTS exige 17 secciones de matriz aprobadas")

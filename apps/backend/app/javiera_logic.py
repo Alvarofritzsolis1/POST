@@ -20,7 +20,7 @@ DOCUMENTS = [
     ("extension_addendum", "Zona Subcontratos", "Anexo extensión de contrato", "prorroga",
      ["employer.name", "worker.name", "worker.rut", "contract.end", "contract.new_end"]),
     ("internal_rules_receipt", "Prevención de Riesgos", "Recepción de Reglamento Interno", "reglamento",
-     ["employer.name", "worker.name", "worker.rut", "extra.regulation_version", "event.date"]),
+     ["employer.name", "worker.name", "worker.rut", "event.date"]),
     ("ppe_delivery", "Prevención de Riesgos", "Entrega de EPP", "entrega_epp",
      ["worker.name", "worker.rut", "role", "event.date", "event.epp_items"]),
     ("irl", "Prevención de Riesgos", "IRL de acuerdo con el cargo", "preventivo",

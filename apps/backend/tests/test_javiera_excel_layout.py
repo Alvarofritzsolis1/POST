@@ -285,7 +285,13 @@ def test_ten_original_document_pdfs_with_synthetic_person_only(code):
                 assert block[2]<=page.rect.width+1
                 assert block[3]<=page.rect.height+1
         pages=" ".join(p.get_text() for p in document)
-        assert "DOCUMENTO DE PRUEBA" in pages
+        if code == "pts_receipt":
+            # The original generic heading is intentionally replaced with the
+            # specific document type and actual worker role.
+            assert "ENTREGA PTS DE CARPINTERO" in pages
+            assert "DOCUMENTO DE PRUEBA" not in pages
+        else:
+            assert "DOCUMENTO DE PRUEBA" in pages
         assert "PERSONA ANTIGUA" not in pages
         assert "VISTA PREVIA" in pages
 
@@ -400,3 +406,62 @@ def test_employer_and_worker_example_leaks_are_blocked_in_emitted_pdf():
     good=valid.tobytes()
     valid.close()
     assert source_leaks(workbook,good,data)==[]
+
+
+def test_real_attestation_date_replaces_cached_today_only():
+    from app.javiera_excel import replace_frozen_today
+    original = "En Concepción, con fecha 23/10/2026, declaro haber recibido el reglamento."
+    data = {"event": {"date": "2026-11-09"}}
+    result = replace_frozen_today(original, data, '"con fecha "&TEXT(TODAY(),"dd/mm/yyyy")')
+    assert "con fecha 09/11/2026" in result
+    assert "23/10/2026" not in result
+    assert "declaro haber recibido el reglamento" in result
+    # A document without TODAY() is not silently rewritten.
+    assert replace_frozen_today(original, data, "='Datos Contrato'!C40") == original
+    with pytest.raises(LayoutError, match="fecha efectiva"):
+        replace_frozen_today(original, {"event": {"date": ""}}, "TODAY()")
+
+
+def test_pts_receipt_signatures_use_correct_people_and_ruts():
+    from app.javiera_excel import cell_text, shared_strings
+    data = valid_data()
+    data["extra"]["representative_name"] = "REPRESENTANTE DOCUMENTAL SINTÉTICO"
+    data["extra"]["representative_rut"] = "12.345.678-5"
+    result = excel_document(sample_xlsx(), "pts_receipt", data)
+    with ZipFile(io.BytesIO(result)) as archive:
+        sheet = ET.fromstring(archive.read(sheet_files(archive)["ENTREGA PTS"]))
+        strings = shared_strings(archive)
+        def value(address):
+            cell = sheet.find(".//" + Q("c") + "[@r='" + address + "']")
+            assert cell is not None, address
+            return cell_text(cell, strings)
+        assert value("A23") == "REPRESENTANTE DOCUMENTAL SINTÉTICO"
+        assert value("F23") == data["worker"]["name"]
+        assert value("A24") == "RUT: 12.345.678-5"
+        assert value("F24") == "RUT: " + data["worker"]["rut"]
+        assert "Nacionalidad" not in value("A24")
+        assert "Estado civil" not in value("F24")
+
+
+def test_pts_receipt_cargo_is_worker_role_not_employer_specialty():
+    from openpyxl import load_workbook
+    from app.javiera_excel import cell_text, shared_strings
+    wb = load_workbook(io.BytesIO(sample_xlsx()))
+    wb["ENTREGA PTS"]["A3"] = (
+        "Declaro recepción del PTS correspondiente al cargo de CARPINTERIA. "
+        "Mantengo todas las obligaciones preventivas del documento."
+    )
+    data = valid_data()
+    data["role"] = "PINTOR"
+    data["extra"]["specialty"] = "CARPINTERIA"
+    wb_bytes = io.BytesIO()
+    wb.save(wb_bytes)
+    converted = excel_document(wb_bytes.getvalue(), "pts_receipt", data)
+    with ZipFile(io.BytesIO(converted)) as zipfile:
+        root = ET.fromstring(zipfile.read(sheet_files(zipfile)["ENTREGA PTS"]))
+        strings = shared_strings(zipfile)
+        def txt(coord):
+            return cell_text(root.find(".//" + Q("c") + "[@r='" + coord + "']"), strings)
+        assert txt("A1") == "ENTREGA PTS DE PINTOR"
+        assert "correspondiente al cargo de PINTOR." in txt("A3")
+        assert "correspondiente al cargo de CARPINTERIA." not in txt("A3")

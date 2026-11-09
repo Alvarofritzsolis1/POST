@@ -101,7 +101,7 @@ const EXCEL_FIELDS:Record<string,string[]>={
     "extra.representative_nationality","extra.employer_address","extra.employer_city",
     "extra.principal_company","extra.declaration_period","contract.declaration_reason",
     "role","extra.site_address","event.date"],
-  internal_rules_receipt:["extra.regulation_version","extra.employer_city","event.date"],
+  internal_rules_receipt:["extra.employer_city","event.date"],
   ppe_delivery:["role","event.epp_items","event.date"],
   irl:["role","event.date"],pts:["role","event.date","extra.representative_name","extra.representative_rut"],
   pts_receipt:["role","event.date","event.pts_version","extra.representative_name","extra.representative_rut"],

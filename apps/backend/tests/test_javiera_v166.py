@@ -210,3 +210,18 @@ def test_local_source_references_do_not_block_operational_lifecycle(env):
         worker_refs = schema.get_foreign_keys("javiera_local_people")
         assert not any("contractors" == fk.get("referred_table") for fk in contractor_refs)
         assert not any("workers" == fk.get("referred_table") for fk in worker_refs)
+
+
+def test_library_reports_all_ten_links_and_requires_real_approval(env):
+    client, _ = env
+    admin = login(client, "a@example.cl")
+    response = client.get(BASE + "/templates/status", headers=admin)
+    assert response.status_code == 200, response.text
+    payload = response.json()
+    assert len(payload["documents"]) == 10
+    mapping = {entry["code"]: entry for entry in payload["documents"]}
+    assert mapping["internal_rules_receipt"]["sheet"] == "REGLAMENTO INTERNO"
+    assert mapping["pts_receipt"]["sheet"] == "ENTREGA PTS"
+    assert all(entry["linked"] for entry in payload["documents"])
+    assert all(entry["state"] == "not_imported" for entry in payload["documents"])
+    assert all(not entry["ready"] for entry in payload["documents"])

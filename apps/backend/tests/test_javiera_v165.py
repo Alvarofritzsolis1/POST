@@ -77,7 +77,9 @@ def test_reglamento_interno_no_solicita_datos_contractuales():
     reg=next(x for x in DOCUMENTS if x[0]=="internal_rules_receipt")
     assert not any(x in reg[4] for x in
         ["contract.start","contract.end","contract.salary","contract.hours"])
-    assert "extra.regulation_version" in reg[4]
+    assert "event.date" in reg[4]
+    # The verified original REGLAMENTO INTERNO sheet contains no version field.
+    assert "extra.regulation_version" not in reg[4]
 
 
 def test_aliases_solo_equivalencias_declaradas():
