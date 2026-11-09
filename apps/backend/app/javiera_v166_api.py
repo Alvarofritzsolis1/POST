@@ -146,20 +146,15 @@ def _status(db, user, record, code):
     item = next(s for s in eligibility(data, templates, approved) if s["code"] == code)
     # An imported Excel in draft status must never silently fall back to
     # an unrelated text template merely because that text was published.
-    if latest_layout(db, user.org_id, code, approved=False) and not latest_layout(
-        db, user.org_id, code
-    ):
+    newest = latest_layout(db, user.org_id, code, approved=False)
+    enabled = latest_layout(db, user.org_id, code)
+    if newest and (not enabled or newest.revision > enabled.revision):
         item.update(status="PENDIENTE_REVISION",
-                    reason="Plantilla Excel original importada, pendiente de aprobación profesional.",
+                    reason="El diseño vigente requiere una revisión visual antes de imprimir.",
                     can_issue=False, can_preview=False)
-    # A date alone does not prove delivery, receipt or an actual induction.
-    evidence_codes = {"ppe_delivery", "pts_receipt", "induction", "internal_rules_receipt"}
-    if code in evidence_codes and (
-        (record.document_data.get(code) or {}).get("event_confirmed") is not True
-    ):
-        item.update(status="POR_DETERMINAR",
-                    reason="Confirma que el evento realmente ocurrió; generar un PDF no acredita su ejecución.",
-                    can_issue=False, can_preview=False)
+    # JAVIERA prepara documentos en blanco para firma presencial.
+    # No exigir que la entrega, inducción o firma hayan ocurrido para imprimir.
+    # Emitir un PDF nunca cambia el estado de entrega/recepción del trabajador.
     if code == "sworn_declaration":
         if record.person_id:
             item.update(status="NO_APLICA", applicability="no_aplica",
@@ -268,8 +263,8 @@ def documentary_template_status(user: User = Depends(administrator),
             source_exists = candidate.is_relative_to(safe_root) and candidate.is_file()
         if not current:
             state, message = "not_imported", "La hoja está reconocida por GALANT, pero su Excel aún no se ha importado."
-        elif not approved:
-            state, message = "draft", "Excel importado; requiere revisión y aprobación profesional."
+        elif not approved or current.revision > approved.revision:
+            state, message = "draft", "Hay una versión vigente pendiente de habilitar para impresión."
         elif not source_exists:
             state, message = "missing_storage", "El Excel aprobado no está disponible en el almacenamiento privado."
         elif not engine_available:

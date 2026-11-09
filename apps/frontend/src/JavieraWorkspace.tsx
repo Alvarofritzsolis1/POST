@@ -81,9 +81,9 @@ const F:Record<string,FieldMeta>={
   "contract.salary":{label:"Sueldo base ($ CLP)",type:"number"},
   "contract.hours":{label:"Jornada semanal (horas)",type:"number"},
   "contract.declaration_reason":{label:"Motivo de declaración jurada"},
-  "event.date":{label:"Fecha efectiva del documento",type:"date",hint:"No acredita por sí sola una entrega, firma ni capacitación"},
-  "event.epp_items":{label:"EPP efectivamente entregados",hint:"Indica elementos y cantidades; no se marcará ninguno por defecto"},
-  "event.pts_version":{label:"Versión del PTS efectivamente entregado"},
+  "event.date":{label:"Fecha efectiva del documento",type:"date",hint:"Esta es la fecha impresa. El PDF se genera antes de obtener la firma física y no acredita recepción ni entrega."},
+  "event.epp_items":{label:"EPP que figurará en el formulario",hint:"Indica elementos y cantidades. Imprimir no acredita que hayan sido entregados."},
+  "event.pts_version":{label:"Versión del PTS para imprimir y firmar"},
 };
 const EXTRA_CONTRACT=["extra.representative_name","extra.representative_rut","extra.employer_phone",
   "extra.employer_address","extra.employer_commune","extra.employer_city","extra.employer_email",
@@ -230,7 +230,8 @@ export default function JavieraWorkspace({onConfig}:{onConfig?:()=>void}){
     selectedDoc,data:currentData});
   const changed=!saved||signature!==storedSignature;
   const currentCatalog=catalog.find(c=>c.code===selectedDoc);
-  const draftLayout=layouts.find(x=>x.code===selectedDoc&&x.status==="draft");
+  const newestLayout=layouts.find(x=>x.code===selectedDoc);
+  const draftLayout=newestLayout?.status==="draft"?newestLayout:undefined;
   const keys=useMemo(()=>{
     if(!selectedDoc)return [];
     const selected=(currentCatalog?.required_fields||[]).concat(EXCEL_FIELDS[selectedDoc]||[]);
@@ -535,7 +536,7 @@ export default function JavieraWorkspace({onConfig}:{onConfig?:()=>void}){
   }
 
   if(!relation)return <section className="j65">
-    <div className="j65-intro"><small>GALANT · 16.5 · PROYECTO JAVIERA</small><h2>¿Para quién prepararás los documentos?</h2>
+    <div className="j65-intro"><small>GALANT · 18.0.1 · PROYECTO JAVIERA</small><h2>¿Para quién prepararás los documentos?</h2>
       <p>Elige el tipo de empresa. Después seleccionarás el documento; solo pediremos los datos necesarios.</p></div>
     <div className="j65-entry">
       <button disabled={busy} onClick={()=>setRelation("contractor")}><FolderPlus size={27}/><strong>Contratistas</strong>
@@ -716,7 +717,7 @@ export default function JavieraWorkspace({onConfig}:{onConfig?:()=>void}){
                 {label(f)}</button>)}</div></div>}
             {errors.map((m,i)=><p key={i} className="j65-inline-error">{readableError(m)}</p>)}
             {chosenStatus?.status==="PENDIENTE_REVISION"&&<p className="j65-inline-error">
-              Para emitir, la plantilla del Excel y las matrices pertinentes deben estar publicadas por los revisores responsables.
+              Revisa y habilita el formato Excel vigente antes de imprimir. Las matrices pertinentes deben estar preparadas.
               {onConfig&&<button onClick={onConfig}> Ir a Configuración de automatización</button>}
             </p>}
             {saved&&<small>Ficha #{saved.id.slice(0,8)} · Revisión {saved.revision}{changed?" · con cambios sin guardar":""}</small>}

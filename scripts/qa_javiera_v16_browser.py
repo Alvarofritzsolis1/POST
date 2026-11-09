@@ -23,7 +23,7 @@ def main():
         raise SystemExit("Solo se permite QA local en 127.0.0.1")
     args.output.mkdir(parents=True, exist_ok=True)
     failures, responses = [], []
-    report = {"version": "18.0.0-rc1", "at": datetime.now(timezone.utc).isoformat(),
+    report = {"version": "18.0.1-rc1", "at": datetime.now(timezone.utc).isoformat(),
               "scenarios": {}, "console_errors": [], "server_errors": []}
     with sync_playwright() as playwright:
         browser = playwright.chromium.launch(
@@ -136,9 +136,13 @@ def main():
             page.goto(args.url + "/configuracion/automatizacion", wait_until="domcontentloaded")
             expect(page.get_by_role("heading", name="Configuración de automatización")).to_be_visible()
             for name in ["Plantillas y cláusulas", "Matrices PTS / IRL",
-                         "Diseños Excel originales", "Revisiones y aprobaciones"]:
+                         "Diseños Excel originales", "Habilitar PDF / revisiones"]:
                 expect(page.get_by_role("button", name=name)).to_be_visible()
             report["scenarios"]["config_legacy_compatible"] = "PASS"
+            page.get_by_role("button", name="Habilitar PDF / revisiones").click()
+            expect(page.get_by_role("heading", name="Habilitar documentos para imprimir")).to_be_visible()
+            report["scenarios"]["single_admin_pilot_print_validation_screen"] = "PASS"
+            page.screenshot(path=str(args.output / "javiera_admin_piloto.png"), full_page=True)
             assert not failures, failures
             assert not responses, responses
             report.update(status="PASS", console_errors=failures, server_errors=responses)

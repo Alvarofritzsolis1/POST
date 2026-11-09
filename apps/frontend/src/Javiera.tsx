@@ -51,6 +51,17 @@ function Setup({onBack}:{onBack:()=>void}){
   const [tab,setTab]=useState<"documentos"|"matrices"|"excel"|"reviews">("excel");
   const [matrices,setMatrices]=useState<Matrix[]>([]);
   const [matrixKind,setMatrixKind]=useState<"PTS"|"IRL">("PTS");
+  const [soloPilot,setSoloPilot]=useState(false);
+  const [selectedMatrixId,setSelectedMatrixId]=useState("");
+  const [matrixConfirmed,setMatrixConfirmed]=useState(false);
+  const latestMatrices=useMemo(()=>{
+    const seen=new Set<string>();
+    return matrices.filter(m=>{
+      const key=m.kind+":"+m.cargo;
+      if(seen.has(key))return false;
+      seen.add(key);return true;
+    });
+  },[matrices]);
   const [cargo,setCargo]=useState("");
   const [sections,setSections]=useState<string[]>(Array(17).fill(""));
   const [notice,setNotice]=useState("");
@@ -78,7 +89,11 @@ function Setup({onBack}:{onBack:()=>void}){
       request<Matrix[]>("/javiera/admin/matrices")]);
     setTemplates(t);setMatrices(m);setDraft(t.find(x=>x.code===selected)||t[0]||null);
   }
-  useEffect(()=>{void refresh().catch(e=>setError(errorMessage(e)));},[]);
+  useEffect(()=>{
+    void refresh().catch(e=>setError(errorMessage(e)));
+    void request<{solo_pilot:boolean}>("/javiera/admin/excel/status")
+      .then(r=>setSoloPilot(r.solo_pilot)).catch(()=>setSoloPilot(false));
+  },[]);
   function pick(code:string){setSelected(code);setDraft(templates.find(t=>t.code===code)||null);setReason("");}
   async function save(){
     if(!draft)return;
@@ -87,7 +102,7 @@ function Setup({onBack}:{onBack:()=>void}){
       await request("/javiera/admin/templates/"+draft.code,{method:"PUT",body:JSON.stringify({
         title:draft.title,area:draft.area,body:draft.body,fields:draft.fields,
         rule:draft.rule,layout:draft.layout,reason})});
-      await refresh();setNotice("Borrador registrado. Otro administrador debe revisar y aprobar.");
+      await refresh();setNotice(soloPilot?"Borrador guardado. Revisa el formato antes de habilitarlo para PDF.":"Borrador registrado; requiere revisión independiente.");
     }catch(e){setError(errorMessage(e));}
   }
   async function approve(code:string,revision:number){
@@ -98,23 +113,31 @@ function Setup({onBack}:{onBack:()=>void}){
     try{await request("/javiera/admin/matrices",{method:"POST",body:JSON.stringify({
       kind:matrixKind,cargo,sections:sections.map(s=>s.trim()),source:"Configuración JAVIERA v18"})});
       const m=await request<Matrix[]>("/javiera/admin/matrices");setMatrices(m);
-      setNotice("Matriz en borrador; requiere revisión independiente.");setError("");
+      setSelectedMatrixId(m.find(x=>x.kind===matrixKind&&x.cargo===cargo.trim().toUpperCase())?.id||"");
+      setMatrixConfirmed(false);
+      setNotice(soloPilot?"Matriz guardada. Comprueba sus secciones y habilita su impresión.":"Matriz en borrador; requiere revisión independiente.");setError("");
     }catch(e){setError(errorMessage(e));}
   }
   async function approveMatrix(id:string){
-    try{await request("/javiera/admin/matrices/"+id+"/approve",{method:"POST"});
-      setMatrices(await request<Matrix[]>("/javiera/admin/matrices"));setNotice("Matriz aprobada.");setError("");
+    try{
+      if(soloPilot){
+        if(!matrixConfirmed||selectedMatrixId!==id){setError("Selecciona la matriz y confirma que revisaste su contenido.");return;}
+        await request("/javiera/admin/matrices/"+id+"/enable-print",{
+          method:"POST",body:JSON.stringify({confirmed_content:true})});
+      }else await request("/javiera/admin/matrices/"+id+"/approve",{method:"POST"});
+      setMatrices(await request<Matrix[]>("/javiera/admin/matrices"));setMatrixConfirmed(false);
+      setNotice(soloPilot?"Matriz habilitada para PDF, sin registrar una firma física.":"Matriz aprobada.");setError("");
     }catch(e){setError(errorMessage(e));}
   }
   return <main className="jv-admin">
     <header className="jv-heading"><button type="button" onClick={onBack} className="jv-back"><ArrowLeft size={18}/> Volver a GALANT</button>
       <div><small>GALANT · CONTROL DE VERSIONES</small><h1>Configuración de automatización</h1>
-        <p>Todo el contenido documental es editable; la aprobación y la auditoría no pueden desactivarse.</p></div>
+        <p>Plantillas de PDF para imprimir y obtener firmas en papel. Los cambios conservan historial y auditoría.</p></div>
       <span className="jv-mark">Proyecto JAVIERA · v18</span></header>
     <div className="jv-tabs"><button className={tab==="documentos"?"active":""} aria-pressed={tab==="documentos"} onClick={()=>setTab("documentos")}>Plantillas y cláusulas</button>
       <button className={tab==="matrices"?"active":""} aria-pressed={tab==="matrices"} onClick={()=>setTab("matrices")}>Matrices PTS / IRL</button>
       <button className={tab==="excel"?"active":""} aria-pressed={tab==="excel"} onClick={()=>setTab("excel")}>Diseños Excel originales</button>
-      <button className={tab==="reviews"?"active":""} aria-pressed={tab==="reviews"} onClick={()=>setTab("reviews")}>Revisiones y aprobaciones</button></div>
+      <button className={tab==="reviews"?"active":""} aria-pressed={tab==="reviews"} onClick={()=>setTab("reviews")}>Habilitar PDF / revisiones</button></div>
     {error&&<p role="alert" className="jv-error">{error}</p>}{notice&&<p role="status" className="jv-success">{notice}</p>}
     {tab==="documentos"&&<div className="jv-admin-layout">
       <nav className="jv-template-list" aria-label="Plantillas documentales">{templates.map(t=>
@@ -184,7 +207,7 @@ function Setup({onBack}:{onBack:()=>void}){
     </section>}
     {tab==="matrices"&&<div className="jv-admin-layout">
       <nav className="jv-template-list" aria-label="Matrices existentes">
-        {matrices.map(m=><button key={m.id} onClick={()=>{setMatrixKind(m.kind as "PTS"|"IRL");setCargo(m.cargo);setSections(m.sections);}}>
+        {latestMatrices.map(m=><button key={m.id} onClick={()=>{setMatrixKind(m.kind as "PTS"|"IRL");setCargo(m.cargo);setSections(m.sections);setSelectedMatrixId(m.id);setMatrixConfirmed(false);}}>
           <ClipboardList size={16}/><span>{m.cargo}<small>{m.kind} · v{m.revision} · {m.status}</small></span></button>)}
       </nav>
       <section className="jv-editor"><h2>Editor de matrices</h2><p>PTS exige las 17 secciones del Excel. Cada cambio crea una nueva revisión.</p>
@@ -196,9 +219,15 @@ function Setup({onBack}:{onBack:()=>void}){
         <button className="jv-primary" disabled={!cargo.trim()} onClick={()=>void saveMatrix()}>Guardar revisión de matriz</button>
       </section>
       <aside className="jv-versions"><h3>Revisión preventiva</h3>
-        {matrices.filter(m=>m.status==="draft").map(m=><div key={m.id} className="jv-version"><b>{m.kind} · {m.cargo}</b>
-          <p>Versión {m.revision}, pendiente de validación.</p><button onClick={()=>void approveMatrix(m.id)}>Aprobar</button></div>)}
-        {!matrices.some(m=>m.status==="draft")&&<p>Sin matrices pendientes.</p>}
+        {latestMatrices.filter(m=>m.status==="draft").map(m=><div key={m.id} className="jv-version"><b>{m.kind} · {m.cargo}</b>
+          <p>Versión {m.revision} · pendiente de habilitar.</p>
+          {soloPilot&&selectedMatrixId===m.id&&<label>
+            <input type="checkbox" checked={matrixConfirmed} onChange={e=>setMatrixConfirmed(e.target.checked)}/>
+            He revisado todas las secciones de esta matriz para su impresión.
+          </label>}
+          <button disabled={soloPilot&&(selectedMatrixId!==m.id||!matrixConfirmed)}
+            onClick={()=>void approveMatrix(m.id)}>{soloPilot?"Habilitar para PDF":"Aprobar"}</button></div>)}
+        {!latestMatrices.some(m=>m.status==="draft")&&<p>Sin matrices pendientes.</p>}
       </aside>
     </div>}
   </main>;

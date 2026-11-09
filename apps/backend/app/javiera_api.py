@@ -64,6 +64,10 @@ class Action(Strict):
     reissue_reason: str | None = Field(default=None, max_length=600)
 
 
+class PilotMatrixPrint(Strict):
+    confirmed_content: bool = False
+
+
 class BatchIssue(Strict):
     dossier_id: str
     codes: list[str] = Field(min_length=1, max_length=10)
@@ -749,6 +753,37 @@ def change_matrix(item: MatrixChange, user: User = Depends(administrator),
     audit(db, user, "javiera.matrix_draft", row.id)
     db.commit()
     return {"id": row.id, "revision": row.revision, "status": row.status}
+
+
+@router.post("/admin/matrices/{matrix_id}/enable-print")
+def enable_matrix_for_pilot(matrix_id: str, payload: PilotMatrixPrint,
+                            user: User = Depends(administrator),
+                            db: Session = Depends(get_db)):
+    """Autoriza usar el contenido de una matriz en un PDF de firma física.
+
+    No crea actas profesionales ni acredita la entrega de ese documento.
+    """
+    if not settings().javiera_solo_pilot:
+        raise HTTPException(403, "Modo piloto administrativo desactivado")
+    if not payload.confirmed_content:
+        raise HTTPException(422, "Revisa el contenido completo de la matriz antes de habilitar su PDF")
+    row = by_org(db, JavieraMatrix, matrix_id, user.org_id)
+    newest_revision = next_matrix_revision(db, user.org_id, row.kind, row.cargo) - 1
+    if row.revision != newest_revision:
+        raise HTTPException(409, "Existe una versión más reciente de esta matriz")
+    if row.status == "approved":
+        return {"id": row.id, "status": row.status, "pilot_print_only": True}
+    if row.status != "draft":
+        raise HTTPException(409, "La matriz no está disponible para impresión")
+    if not row.sections or any(not str(section).strip() for section in row.sections):
+        raise HTTPException(422, "La matriz contiene secciones incompletas")
+    if row.kind == "PTS" and len(row.sections) != 17:
+        raise HTTPException(422, "La matriz PTS debe contener sus 17 secciones")
+    row.status, row.reviewer_id = "approved", user.id
+    audit(db, user, "javiera.pilot_matrix_enabled_for_print", row.id)
+    db.commit()
+    return {"id": row.id, "status": row.status, "pilot_print_only": True,
+            "message": "Matriz habilitada para usar en PDF imprimible; no implica validación profesional ni firma."}
 
 
 @router.post("/admin/matrices/{matrix_id}/approve")
