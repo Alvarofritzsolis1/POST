@@ -79,3 +79,12 @@
 .j166-doc-accordion > summary small {font-size:.8rem; font-weight:400; color:var(--text-muted,#64748b)}
 .j166-doc-accordion[open] > summary {border-bottom:1px solid rgba(100,116,139,.23);margin-bottom:12px}
 .j166-doc-accordion .j166-field textarea{min-height:92px}
+
+
+.j166-excel-legacy{border:1px solid #d4e0eb;border-radius:10px;padding:12px 14px;
+  margin-top:16px;background:#f9fbfd;color:#466078;font-size:.83rem}
+.j166-excel-legacy summary,.j166-legacy-preview summary{cursor:pointer;font-weight:650;color:#52708d}
+.j166-excel-legacy p{color:#607588;font-size:.78rem;line-height:1.55}
+.j166-excel-legacy button{margin-top:8px}
+.j166-legacy-preview{flex-basis:100%;margin:6px 0;font-size:.75rem}
+.j166-legacy-preview button{margin-top:7px}
