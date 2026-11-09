@@ -1,6 +1,6 @@
 """Regression: document preparation must never create operational personnel or companies."""
 import fitz
-from sqlalchemy import func, select
+from sqlalchemy import func, select, inspect
 from app.javiera_models import JavieraTemplate
 from app.javiera_v166_models import JavieraLocalCompany, JavieraLocalPerson, JavieraLocalIssue
 from app.models import User
@@ -200,3 +200,13 @@ def test_delivery_requires_explicit_confirmation(env):
     state = check.json()["documents"][0]
     assert not state["can_issue"]
     assert "evento realmente ocurrió" in state["reason"]
+
+
+def test_local_source_references_do_not_block_operational_lifecycle(env):
+    client, sessions = env
+    with sessions() as db:
+        schema = inspect(db.get_bind())
+        contractor_refs = schema.get_foreign_keys("javiera_local_companies")
+        worker_refs = schema.get_foreign_keys("javiera_local_people")
+        assert not any("contractors" == fk.get("referred_table") for fk in contractor_refs)
+        assert not any("workers" == fk.get("referred_table") for fk in worker_refs)
