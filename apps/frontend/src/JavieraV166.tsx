@@ -307,7 +307,7 @@ export default function JavieraV166({onConfig}:{onConfig?:()=>void}){
   }
 
   const field=(key:string,code?:string)=>{
-    const meta=JAVIERA_FIELD_META[key]||{label:key.replaceAll("."," · ").replaceAll("_"," ")};
+    const meta:{label:string;type?:string;options?:string[];hint?:string}=JAVIERA_FIELD_META[key]||{label:key.replaceAll("."," · ").replaceAll("_"," ")};
     const value=code?specific[code]?.[key]||"":shared[key]||"";
     const label=meta.label;
     const type=meta.type||"text";
