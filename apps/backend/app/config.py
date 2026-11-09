@@ -8,6 +8,8 @@ class Settings(BaseSettings):
     app_secret: str = "INSECURE_LOCAL_ONLY"
     database_url: str = "sqlite:///./galant-local.db"
     document_dir: Path = Path("/tmp/galant-post-documents")
+    # Solo para el piloto documental: permite habilitar plantillas para PDF sin inventar revisiones profesionales.
+    javiera_solo_pilot: bool = True
     max_upload_mb: int = 20
     max_pdf_pages: int = 50
     ocr_language: str = "spa+eng"
