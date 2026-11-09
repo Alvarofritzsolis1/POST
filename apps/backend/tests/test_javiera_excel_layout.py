@@ -400,3 +400,38 @@ def test_employer_and_worker_example_leaks_are_blocked_in_emitted_pdf():
     good=valid.tobytes()
     valid.close()
     assert source_leaks(workbook,good,data)==[]
+
+
+def test_real_attestation_date_replaces_cached_today_only():
+    from app.javiera_excel import replace_frozen_today
+    original = "En Concepción, con fecha 23/10/2026, declaro haber recibido el reglamento."
+    data = {"event": {"date": "2026-11-09"}}
+    result = replace_frozen_today(original, data, '"con fecha "&TEXT(TODAY(),"dd/mm/yyyy")')
+    assert "con fecha 09/11/2026" in result
+    assert "23/10/2026" not in result
+    assert "declaro haber recibido el reglamento" in result
+    # A document without TODAY() is not silently rewritten.
+    assert replace_frozen_today(original, data, "='Datos Contrato'!C40") == original
+    with pytest.raises(LayoutError, match="fecha efectiva"):
+        replace_frozen_today(original, {"event": {"date": ""}}, "TODAY()")
+
+
+def test_pts_receipt_signatures_use_correct_people_and_ruts():
+    from app.javiera_excel import cell_text, shared_strings
+    data = valid_data()
+    data["extra"]["representative_name"] = "REPRESENTANTE DOCUMENTAL SINTÉTICO"
+    data["extra"]["representative_rut"] = "12.345.678-5"
+    result = excel_document(sample_xlsx(), "pts_receipt", data)
+    with ZipFile(io.BytesIO(result)) as archive:
+        sheet = ET.fromstring(archive.read(sheet_files(archive)["ENTREGA PTS"]))
+        strings = shared_strings(archive)
+        def value(address):
+            cell = sheet.find(".//" + Q("c") + "[@r='" + address + "']")
+            assert cell is not None, address
+            return cell_text(cell, strings)
+        assert value("A23") == "REPRESENTANTE DOCUMENTAL SINTÉTICO"
+        assert value("F23") == data["worker"]["name"]
+        assert value("A24") == "RUT: 12.345.678-5"
+        assert value("F24") == "RUT: " + data["worker"]["rut"]
+        assert "Nacionalidad" not in value("A24")
+        assert "Estado civil" not in value("F24")
