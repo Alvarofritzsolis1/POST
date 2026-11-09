@@ -23,3 +23,14 @@ th { font-weight: bold; text-align: left; background: #edf2f6; color: #243a4f; }
 .signature-space { height: 35pt; }
 .signature-line { border-top: 0.6pt solid #334155; padding-top: 7pt; font-size: 9pt; text-align: center; }
 .handwriting-space { height: 35pt; border: 0.5pt solid #b6c1ca; }
+
+/* Estándar de impresión: legibilidad, tablas continuas y firmas manuscritas. */
+.legal-copy {font-size:10.5pt; line-height:1.48; text-align:justify; overflow-wrap:break-word;}
+.legal-copy p {margin:0 0 11pt; orphans:3; widows:3;}
+.legal-body {font-size:10.5pt;}
+.matrix thead, .topics thead {display:table-header-group;}
+.identity, .document-head {break-inside:avoid;}
+.matrix tr, .topics tr {break-inside:avoid;}
+.print-notes {break-inside:avoid; margin-top:10pt;}
+.print-notes p {white-space:normal; line-height:1.5;}
+.signature-panel, .signature-table, .signature-table tr {break-inside:avoid;}
