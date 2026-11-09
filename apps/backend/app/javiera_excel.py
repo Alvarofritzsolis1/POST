@@ -53,6 +53,10 @@ DOCUMENT_PRINT_AREAS = {
     "induction": "A1:D474",
 }
 
+# Exact starts of the ten original forms in the private induction sheet.
+# The original content, formulas and signatures stay in their source rows.
+INDUCTION_FORM_START_ROWS = (9, 58, 116, 159, 206, 262, 304, 355, 404, 452)
+
 
 def set_document_print_profile(target: ET.Element, book: ET.Element, code: str, sheet_name: str):
     """Apply a scoped A4 print setup only to this generated, one-sheet workbook.
@@ -126,6 +130,69 @@ def set_document_print_profile(target: ET.Element, book: ET.Element, code: str, 
             raise LayoutError("Área de impresión inválida")
         return f"\u0024{match.group(1)}\u0024{match.group(2)}"
     entry.text = f"'{escaped}'!{absolute(left)}:{absolute(right)}"
+
+
+def configure_induction_sections(target: ET.Element, book: ET.Element,
+                                 sheet_name: str, strings: list[str]) -> int:
+    """Put each of the ten original induction forms at a fresh page boundary.
+
+    This changes ONLY the disposable, one-sheet Excel generated for printing.
+    The imported XLSX, signed PDFs and historic versions remain immutable.
+    Do not create empty pages when an unrelated or synthetic induction sheet
+    lacks the actual form headings.
+    """
+    rows = target.find(Q("sheetData"))
+    if rows is None:
+        return 0
+    occupied = {}
+    for row in rows.findall(Q("row")):
+        number = int(row.get("r", "0"))
+        if number not in (*INDUCTION_FORM_START_ROWS, 1):
+            continue
+        first = next((c for c in row.findall(Q("c"))
+                      if c.get("r") == f"A{number}"), None)
+        occupied[number] = cell_text(first, strings).strip() if first is not None else ""
+    # Older user Excel files and minimal CI fixtures need no forced empty pages.
+    if sum(bool(occupied.get(n)) for n in INDUCTION_FORM_START_ROWS) < 8:
+        return 0
+
+    previous = target.find(Q("rowBreaks"))
+    if previous is not None:
+        target.remove(previous)
+    count = len(INDUCTION_FORM_START_ROWS) - 1
+    breaks = ET.Element(Q("rowBreaks"), {
+        "count": str(count), "manualBreakCount": str(count),
+    })
+    for start in INDUCTION_FORM_START_ROWS[1:]:
+        ET.SubElement(breaks, Q("brk"), {
+            "id": str(start - 1), "min": "0", "max": "3", "man": "1",
+        })
+    # Keep schema order: rowBreaks follow page setup, before drawing objects.
+    tail = {Q(name) for name in (
+        "colBreaks", "customProperties", "cellWatches", "ignoredErrors",
+        "smartTags", "drawing", "legacyDrawing", "legacyDrawingHF",
+        "picture", "oleObjects", "controls", "webPublishItems",
+        "tableParts", "extLst")}
+    index = next((i for i, child in enumerate(list(target))
+                  if child.tag in tail), len(target))
+    target.insert(index, breaks)
+
+    # The corrected 18.0.2 Excel has a genuine formatted header in rows 1:4.
+    # Repeating 1:8 puts that header ABOVE each form; never repeat blank rows
+    # as a pseudo-header in a legacy file.
+    if occupied.get(1):
+        names = book.find(Q("definedNames"))
+        if names is None:
+            names = ET.SubElement(book, Q("definedNames"))
+        for entry in list(names):
+            if entry.get("name") == "_xlnm.Print_Titles":
+                names.remove(entry)
+        entry = ET.SubElement(names, Q("definedName"), {
+            "name": "_xlnm.Print_Titles", "localSheetId": "0",
+        })
+        escaped = sheet_name.replace("'", "''")
+        entry.text = f"'{escaped}'!$1:$8"
+    return count
 
 
 SOURCE_FIELDS = {
@@ -781,6 +848,8 @@ def excel_document(raw: bytes, code: str, data: dict, changes: dict | None = Non
                 else:
                     names.remove(item)
         set_document_print_profile(target, book, code, selected)
+        if code == "induction":
+            configure_induction_sections(target, book, selected, strings)
         calc = book.find(Q("calcPr"))
         if calc is not None:
             calc.set("fullCalcOnLoad", "0")
