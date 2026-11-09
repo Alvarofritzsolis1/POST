@@ -1,8 +1,9 @@
 import {useCallback, useEffect, useState} from "react";
 import {ArrowLeft, CheckCircle2, FileCheck2, FileSpreadsheet, FileUp,
-  Loader2, Printer, ShieldCheck, AlertTriangle, Eye, SlidersHorizontal} from "lucide-react";
+  Loader2, Printer, ShieldCheck, AlertTriangle, Eye, SlidersHorizontal, FileCode2} from "lucide-react";
 import {request} from "./api";
 import JavieraV166 from "./JavieraV166";
+import JavieraNativeEditor from "./JavieraNativeEditor";
 import "./javiera-v17.css";
 
 type Template={
@@ -32,7 +33,7 @@ function label(state:Template["state"]){
 function tabLabel(specialty:Template["specialty"]){return specialty==="laboral"?"Subcontratos":"Prevención de riesgos";}
 
 export default function JavieraV17({onConfig}:{onConfig?:()=>void}){
-  const [mode,setMode]=useState<"library"|"documents">("library");
+  const [mode,setMode]=useState<"library"|"documents"|"editor">("documents");
   const [data,setData]=useState<Library|null>(null);
   const [loading,setLoading]=useState(true);
   const [uploading,setUploading]=useState(false);
@@ -86,17 +87,34 @@ export default function JavieraV17({onConfig}:{onConfig?:()=>void}){
     finally{setChecking("");}
   }
   const entries=(data?.documents||[]).filter(x=>selectedArea==="all"||x.specialty===selectedArea);
+  if(mode==="editor")return <JavieraNativeEditor
+    onBack={()=>setMode("documents")}/>;
   if(mode==="documents")return <div className="j17-shell">
-    <button className="j17-back" onClick={()=>{setMode("library");void load();}}>
-      <ArrowLeft size={16}/> Biblioteca de plantillas</button>
-    <JavieraV166 onConfig={()=>{setMode("library");void load();}} onTextEditor={onConfig}/>
+    <section className="j17-html-home" aria-label="Generador HTML de Proyecto Javiera">
+      <div>
+        <span>PROYECTO JAVIERA · FORMULARIOS HTML</span>
+        <h2>Documentos listos para preparar e imprimir</h2>
+        <p>Selecciona una empresa, marca los documentos y genera PDF A4.
+          Ahora puedes modificar sus formatos HTML sin corregir el Excel.</p>
+      </div>
+      <div className="j17-html-actions">
+        <button className="j17-primary" type="button" onClick={()=>setMode("editor")}>
+          <FileCode2 size={18}/> Editar formatos HTML
+        </button>
+        <button className="j17-outline" type="button" onClick={()=>{setMode("library");void load();}}>
+          <FileSpreadsheet size={17}/> Excel anterior · respaldo
+        </button>
+      </div>
+    </section>
+    <JavieraV166 onConfig={()=>setMode("editor")}
+      onTextEditor={()=>setMode("editor")}/>
   </div>;
   return <main className="j17-shell">
     <header className="j17-hero">
-      <div><span>GALANT 18 · PROYECTO JAVIERA</span>
-        <h2>Biblioteca documental inteligente</h2>
-        <p>Las diez plantillas de tu Excel en un único lugar. Se cargan una sola vez;
-          luego completas datos y generas PDF sin reescribir documentos.</p>
+      <div><span>PROYECTO JAVIERA · ARCHIVO HISTÓRICO EXCEL</span>
+        <h2>Respaldo de plantillas Excel</h2>
+        <p>Estos formatos se conservan por compatibilidad. El editor HTML es el sistema
+          principal para revisar los documentos antes de imprimir.</p>
       </div><FileSpreadsheet size={35} aria-hidden="true"/>
     </header>
     {error&&<p className="j17-error" role="alert"><AlertTriangle size={18}/>{error}</p>}
@@ -178,8 +196,8 @@ export default function JavieraV17({onConfig}:{onConfig?:()=>void}){
             firma, recepción, entrega de EPP o realización de una inducción.</p>
         </div>
         <div className="j17-final-actions">
-          {onConfig&&<button type="button" className="j17-outline" onClick={onConfig}>
-            <SlidersHorizontal size={16}/> Revisar o modificar plantillas</button>}
+          <button type="button" className="j17-outline" onClick={()=>setMode("editor")}>
+            <SlidersHorizontal size={16}/> Abrir editor HTML</button>
           <button type="button" className="j17-primary" onClick={()=>setMode("documents")}>
             <Printer size={16}/> Preparar documentos</button>
         </div>
