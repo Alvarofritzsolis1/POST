@@ -160,6 +160,15 @@ def render_native_pdf(code: str, data: dict, *, matrix: list[str] | None = None)
             if not 1 <= pdf.page_count <= 40:
                 raise NativeDocumentError("Cantidad de páginas inválida.")
             for index, page in enumerate(pdf, 1):
+                # Rechazar firmas que queden solas en la última página:
+                # un PDF técnicamente válido no siempre es imprimible.
+                last_text = page.get_text()
+                if (pdf.page_count > 1 and index == pdf.page_count
+                        and "Firma trabajador" in last_text
+                        and len(last_text.strip()) < 210):
+                    raise NativeDocumentError(
+                        "La firma quedó aislada en la última página; revisa el diseño."
+                    )
                 blocks = [block for block in page.get_text("blocks")
                           if len(block) > 4 and isinstance(block[4], str)
                           and block[4].strip()]
