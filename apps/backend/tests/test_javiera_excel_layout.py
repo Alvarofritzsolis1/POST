@@ -465,3 +465,62 @@ def test_pts_receipt_cargo_is_worker_role_not_employer_specialty():
         assert txt("A1") == "ENTREGA PTS DE PINTOR"
         assert "correspondiente al cargo de PINTOR." in txt("A3")
         assert "correspondiente al cargo de CARPINTERIA." not in txt("A3")
+
+
+
+def test_v18_print_profile_has_scoped_range_and_a4_without_forcing_one_page():
+    from app.javiera_excel import DOC_SHEETS, DOCUMENT_PRINT_AREAS, set_document_print_profile
+    assert len(DOCUMENT_PRINT_AREAS) == 10
+    for code, sheet_name in DOC_SHEETS.items():
+        root = ET.Element(Q("worksheet"))
+        book = ET.Element(Q("workbook"))
+        ET.SubElement(book, Q("sheets"))
+        set_document_print_profile(root, book, code, sheet_name)
+        setup = root.find(Q("pageSetup"))
+        assert setup is not None
+        assert setup.attrib["paperSize"] == "9"
+        assert setup.attrib["fitToWidth"] == "1"
+        assert setup.attrib["fitToHeight"] == "0"
+        assert root.find(Q("sheetPr")).find(Q("pageSetUpPr")).get("fitToPage") == "1"
+        print_area = book.find(Q("definedNames")).find(Q("definedName"))
+        assert print_area.attrib == {"name": "_xlnm.Print_Area", "localSheetId": "0"}
+        assert print_area.text.startswith("'" + sheet_name + "'!")
+        assert "$" in print_area.text
+        assert DOCUMENT_PRINT_AREAS[code].startswith("A1:")
+
+
+def test_v18_excel_document_emits_print_range_in_output_zip():
+    data = valid_data()
+    raw = excel_document(sample_xlsx(), "labor_contract", data)
+    with ZipFile(io.BytesIO(raw)) as archive:
+        root = ET.fromstring(archive.read("xl/workbook.xml"))
+        print_names = root.find(Q("definedNames"))
+        assert print_names is not None
+        entries = [entry for entry in print_names.findall(Q("definedName"))
+                   if entry.get("name") == "_xlnm.Print_Area"]
+        assert len(entries) == 1
+        assert "$A$1:$C$36" in entries[0].text
+        page = ET.fromstring(archive.read(sheet_files(archive)["Contrato Imprimible"]))
+        assert page.find(Q("pageSetup")).get("fitToHeight") == "0"
+
+
+def test_v18_recover_mild_negative_top_and_left_without_cropping():
+    from app.javiera_excel import normalize_pdf_a4
+    source = fitz.open()
+    page = source.new_page(width=400, height=400)
+    page.insert_text((-10, 4), "INICIO TEXTO SINTETICO", fontsize=10)
+    page.insert_text((30, 30), "NORMAL SINTETICO", fontsize=12)
+    content = source.tobytes()
+    source.close()
+    pdf = normalize_pdf_a4(content)
+    with fitz.open(stream=pdf, filetype="pdf") as document:
+        assert document.page_count == 1
+        page = document[0]
+        text = page.get_text()
+        assert "INICIO TEXTO SINTETICO" in text
+        assert "NORMAL SINTETICO" in text
+        assert round(page.rect.width) == 595
+        assert round(page.rect.height) == 842
+        assert all(b[0] >= 0 and b[1] >= 0 and
+                   b[2] <= page.rect.width and b[3] <= page.rect.height
+                   for b in page.get_text("blocks"))
