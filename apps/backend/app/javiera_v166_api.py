@@ -152,14 +152,9 @@ def _status(db, user, record, code):
         item.update(status="PENDIENTE_REVISION",
                     reason="Plantilla Excel original importada, pendiente de aprobación profesional.",
                     can_issue=False, can_preview=False)
-    # A date alone does not prove delivery, receipt or an actual induction.
-    evidence_codes = {"ppe_delivery", "pts_receipt", "induction", "internal_rules_receipt"}
-    if code in evidence_codes and (
-        (record.document_data.get(code) or {}).get("event_confirmed") is not True
-    ):
-        item.update(status="POR_DETERMINAR",
-                    reason="Confirma que el evento realmente ocurrió; generar un PDF no acredita su ejecución.",
-                    can_issue=False, can_preview=False)
+    # JAVIERA prepara documentos en blanco para firma presencial.
+    # No exigir que la entrega, inducción o firma hayan ocurrido para imprimir.
+    # Emitir un PDF nunca cambia el estado de entrega/recepción del trabajador.
     if code == "sworn_declaration":
         if record.person_id:
             item.update(status="NO_APLICA", applicability="no_aplica",
