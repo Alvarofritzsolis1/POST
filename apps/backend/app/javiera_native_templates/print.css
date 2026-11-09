@@ -34,3 +34,11 @@ th { font-weight: bold; text-align: left; background: #edf2f6; color: #243a4f; }
 .print-notes {break-inside:avoid; margin-top:10pt;}
 .print-notes p {white-space:normal; line-height:1.5;}
 .signature-panel, .signature-table, .signature-table tr {break-inside:avoid;}
+
+/* La inducción con cinco temas de prueba debe imprimirse en UNA hoja A4:
+   conservar el espacio de escritura y las firmas en esa misma página.
+   Las inducciones extensas pueden usar páginas adicionales sin letra pequeña. */
+.topics th, .topics td {padding:5pt 6pt;}
+.signature-panel {margin-top:7pt;}
+.signature-panel h2 {margin-top:8pt;margin-bottom:6pt;}
+.handwriting-space {height:30pt;}
