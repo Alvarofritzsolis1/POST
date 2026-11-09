@@ -219,14 +219,20 @@ async def import_excel(file: UploadFile = File(...),
     if len(found) < 8:
         raise HTTPException(422, "Se requiere la plantilla original con al menos 8 hojas documentales")
     digest = hashlib.sha256(raw).hexdigest()
-    # Una nueva carga del mismo XLSX no debe multiplicar las diez plantillas.
-    # Solo una fuente modificada produce revisiones nuevas, sin borrar historial.
-    newest = [latest_layout(db, user.org_id, entry["code"], approved=False)
-              for entry in found]
-    if found and all(row and row.workbook_sha256 == digest for row in newest):
+    # No duplicar una fuente que ya fue importada alguna vez, incluso si
+    # posteriormente se editaron sus diseños o se importó otra versión.
+    previous = db.scalars(select(JavieraExcelLayout).where(
+        JavieraExcelLayout.org_id == user.org_id,
+        JavieraExcelLayout.workbook_sha256 == digest)).all()
+    by_code = {item.code: item for item in previous}
+    if found and all(entry["code"] in by_code for entry in found):
+        # Nunca silenciar archivos faltantes: es un problema de almacenamiento,
+        # no una razón para crear duplicados y perder trazabilidad.
+        for entry in found:
+            private_workbook_path(user, by_code[entry["code"]].workbook_path)
         return {"templates": found, "missing": [x["code"] for x in items if not x["found"]],
                 "status": "already_imported", "sha256": digest,
-                "message": "El mismo Excel ya estaba importado. No se crearon versiones duplicadas."}
+                "message": "Este Excel ya existe en el historial. No se crearon versiones repetidas."}
     root = settings().document_dir / user.org_id / "javiera" / "layout-sources"
     root.mkdir(parents=True, exist_ok=True, mode=0o700)
     ident = str(uuid4())
