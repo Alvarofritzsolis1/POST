@@ -69,7 +69,7 @@ export default function JavieraV17({onConfig}:{onConfig?:()=>void}){
       }
       const outcome=await resp.json() as UploadResult;
       setData(outcome.library);
-      setNotice(outcome.message+" Abre la vista previa y solicita la revisión de un responsable.");
+      setNotice(outcome.message+" Abre la vista previa y habilita el formato para imprimir.");
     }catch(err){setError(problem(err));}
     finally{setUploading(false);}
   }
@@ -119,7 +119,7 @@ export default function JavieraV17({onConfig}:{onConfig?:()=>void}){
       <section className="j17-summary" aria-label="Estado de la biblioteca">
         <div><small>Hojas reconocidas</small><strong>{data.total}/10</strong></div>
         <div><small>Plantillas importadas</small><strong>{data.imported}/10</strong></div>
-        <div><small>Aprobadas para emisión</small><strong>{data.published}/10</strong></div>
+        <div><small>Habilitadas para PDF</small><strong>{data.published}/10</strong></div>
         <div><small>Pendientes de revisar</small><strong>{data.awaiting_review}</strong></div>
       </section>
       {!data.engine_available&&<p className="j17-error"><AlertTriangle size={17}/>
@@ -163,9 +163,9 @@ export default function JavieraV17({onConfig}:{onConfig?:()=>void}){
         </div>
       </section>
       <section className="j17-finish">
-        <div><h3>3. Revisar, aprobar y utilizar</h3>
-          <p>El responsable laboral o de prevención revisa la versión una vez y registra su aprobación.
-            Los documentos emitidos después utilizan automáticamente esa versión, sin volver a editarla.</p>
+        <div><h3>3. Habilitar PDF e imprimir</h3>
+          <p>Durante el piloto, el administrador comprueba el diseño y habilita su impresión.
+            Después completa la ficha e imprime el documento para obtener la firma presencial en papel.</p>
           <p className="j17-small">La carga no equivale a aprobación. Generar un PDF tampoco acredita
             firma, recepción, entrega de EPP o realización de una inducción.</p>
         </div>
