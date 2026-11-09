@@ -23,6 +23,13 @@ DOCUMENT_TITLES = {
     "internal_rules_receipt": "RECEPCIÓN DEL REGLAMENTO INTERNO",
     "irl": "INFORMACIÓN DE RIESGOS LABORALES (IRL)",
     "induction": "REGISTRO DE INDUCCIÓN DE PREVENCIÓN",
+    "labor_contract": "CONTRATO DE TRABAJO",
+    "transfer_addendum": "ANEXO DE TRASLADO",
+    "extension_addendum": "ANEXO DE PRÓRROGA CONTRACTUAL",
+    "sworn_declaration": "DECLARACIÓN JURADA",
+    "ppe_delivery": "REGISTRO DE ELEMENTOS DE PROTECCIÓN PERSONAL",
+    "pts": "PROCEDIMIENTO DE TRABAJO SEGURO",
+    "pts_receipt": "CONSTANCIA DE RECEPCIÓN DE PTS",
 }
 
 
@@ -77,11 +84,29 @@ def _rows(kind: str, values: list[str]) -> str:
         if len(value) > 5500:
             raise NativeDocumentError("Una sección supera el tamaño imprimible admitido.")
         mark = "☐" if kind == "topics" else str(index)
-        output.append("<tr><td>" + mark + "</td><td>" + _html(value) + "</td></tr>")
+        cells = "<tr><td>" + mark + "</td><td>" + _html(value) + "</td>"
+        if kind == "ppe":
+            cells += "<td>☐</td>"
+        output.append(cells + "</tr>")
     return "".join(output)
 
 
-def _body(code: str, data: dict, matrix: list[str] | None) -> str:
+def _source_paragraphs(approved_text: str | None) -> str:
+    """Preserve every approved clause/paragraph; escape untrusted HTML."""
+    if not approved_text or not approved_text.strip():
+        raise NativeDocumentError(
+            "Falta el texto original publicado de este documento. "
+            "Revisa y publica la plantilla textual antes de migrarla."
+        )
+    if len(approved_text) > 35000:
+        raise NativeDocumentError("El documento supera el límite del editor documental.")
+    parts = approved_text.replace("\r\n", "\n").split("\n\n")
+    return "".join("<p>" + _html(part.strip()) + "</p>"
+                   for part in parts if part.strip())
+
+
+def _body(code: str, data: dict, matrix: list[str] | None,
+          approved_text: str | None = None) -> str:
     if code == "internal_rules_receipt":
         version = _get(data, "extra.regulation_version", required=True)
         return _template(code).substitute(regulation_version=_html(version))
@@ -101,10 +126,30 @@ def _body(code: str, data: dict, matrix: list[str] | None) -> str:
                 "Indica los temas reales de la inducción, uno por línea. No se permite crear un temario ficticio."
             )
         return _template(code).substitute(topic_rows=_rows("topics", values))
+    if code in {
+        "labor_contract", "transfer_addendum", "extension_addendum",
+        "sworn_declaration", "ppe_delivery", "pts", "pts_receipt",
+    }:
+        safe_text = _source_paragraphs(approved_text)
+        params = {"approved_text": safe_text}
+        if code == "ppe_delivery":
+            raw = _get(data, "event.epp_items", required=True)
+            entries = [x.strip() for x in raw.splitlines() if x.strip()]
+            if not entries:
+                raise NativeDocumentError("Indica elementos EPP, uno por línea.")
+            params["ppe_rows"] = _rows("ppe", entries)
+        if code == "pts":
+            if not matrix:
+                raise NativeDocumentError("Falta una matriz PTS aprobada para el cargo.")
+            params["matrix_rows"] = _rows("risk", matrix)
+        if code == "pts_receipt":
+            params["pts_version"] = _html(_get(data, "event.pts_version", required=True))
+        return _template(code).substitute(**params)
     raise NativeDocumentError("Este tipo documental aún no fue migrado al motor nativo.")
 
 
-def render_native_pdf(code: str, data: dict, *, matrix: list[str] | None = None) -> bytes:
+def render_native_pdf(code: str, data: dict, *, matrix: list[str] | None = None,
+                      approved_text: str | None = None) -> bytes:
     """Genera PDF A4 desde HTML/CSS versionado; solo vista previa no firmada.
 
     El motor NO consulta ni muta tablas operativas, historiales o hojas Excel.
@@ -114,25 +159,43 @@ def render_native_pdf(code: str, data: dict, *, matrix: list[str] | None = None)
     if not isinstance(data, dict):
         raise NativeDocumentError("Datos del expediente no válidos.")
     company = _get(data, "employer.name", required=True)
-    worker = _get(data, "worker.name", required=True)
+    is_declaration = code == "sworn_declaration"
+    worker = _get(data, "worker.name", required=not is_declaration)
+    signer = _get(data, "extra.representative_name", required=is_declaration) if is_declaration else worker
     site = _get(data, "site.name", required=True)
-    body = _body(code, data, matrix)
-    version = (_get(data, "extra.regulation_version")
-               if code == "internal_rules_receipt" else
-               _get(data, "extra.irl_revision") if code == "irl" else
-               _get(data, "extra.induction_version"))
+    body = _body(code, data, matrix, approved_text)
+    version_key = {
+        "internal_rules_receipt": "extra.regulation_version",
+        "irl": "extra.irl_revision",
+        "induction": "extra.induction_version",
+        "pts": "event.pts_version",
+        "pts_receipt": "event.pts_version",
+    }.get(code)
+    version = _get(data, version_key) if version_key else ""
     html = _template("base").substitute(
         title=_html(DOCUMENT_TITLES[code]),
         company=_html(company),
         company_rut=_html(_get(data, "employer.rut", required=True)),
-        worker=_html(worker),
-        worker_rut=_html(_get(data, "worker.rut", required=True)),
+        worker=_html(worker if worker else "No aplica"),
+        worker_rut=_html(_get(data, "extra.representative_rut", required=True)
+                         if is_declaration else _get(data, "worker.rut", required=True)),
+        person_label="Representante legal" if is_declaration else "Trabajador/a",
+        person_rut_label="RUT representante" if is_declaration else "RUT trabajador/a",
+        signatory_label="Firma declarante" if is_declaration else "Firma trabajador/a",
+        signatory_name=_html(signer),
         site=_html(site),
         role=_html(_get(data, "role") or "Por indicar"),
         date=_html(_record_date(data)),
         document_ref=_html(version or "Por indicar"),
         content=body,
     )
+    if _get(data, "event.print_notes"):
+        note = _get(data, "event.print_notes")
+        html = html.replace(
+            '<div class="signature-panel">',
+            '<section class="print-notes"><h2>OBSERVACIONES PARA REVISIÓN</h2><p>'
+            + _html(note) + '</p></section><div class="signature-panel">'
+        )
     css = (TEMPLATE_PATH / "print.css").read_text(encoding="utf-8")
     if len(html) > 380_000:
         raise NativeDocumentError("Documento demasiado extenso para la impresión segura.")
@@ -164,7 +227,7 @@ def render_native_pdf(code: str, data: dict, *, matrix: list[str] | None = None)
                 # un PDF técnicamente válido no siempre es imprimible.
                 last_text = page.get_text()
                 if (pdf.page_count > 1 and index == pdf.page_count
-                        and "Firma trabajador" in last_text
+                        and ("Firma trabajador" in last_text or "Firma declarante" in last_text)
                         and len(last_text.strip()) < 210):
                     raise NativeDocumentError(
                         "La firma quedó aislada en la última página; revisa el diseño."
