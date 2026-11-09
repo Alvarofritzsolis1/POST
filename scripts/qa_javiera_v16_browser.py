@@ -139,6 +139,10 @@ def main():
                          "Diseños Excel originales", "Habilitar PDF / revisiones"]:
                 expect(page.get_by_role("button", name=name)).to_be_visible()
             report["scenarios"]["config_legacy_compatible"] = "PASS"
+            page.get_by_role("button", name="Habilitar PDF / revisiones").click()
+            expect(page.get_by_role("heading", name="Habilitar documentos para imprimir")).to_be_visible()
+            report["scenarios"]["single_admin_pilot_print_validation_screen"] = "PASS"
+            page.screenshot(path=str(args.output / "javiera_admin_piloto.png"), full_page=True)
             assert not failures, failures
             assert not responses, responses
             report.update(status="PASS", console_errors=failures, server_errors=responses)
