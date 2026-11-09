@@ -221,9 +221,8 @@ def eligibility(data: dict, templates: dict, matrix_approved: set[str] | None = 
             applies, reason = "no_aplica", "Este documento no corresponde al evento seleccionado"
         elif mode in {"traslado", "prorroga", "declaracion"} and event != mode:
             applies, reason = "no_aplica", "Se emite solo al registrar el evento correspondiente"
-        elif mode in {"reglamento", "entrega_epp", "recepcion_pts", "induccion"} and event == "ingreso":
-            # La emisión de un acuse exige un evento real o evidencia, nunca solo completar el formulario.
-            applies, reason = "por_determinar", "Confirma que el evento y la entrega ocurrieron"
+        # Preparar el PDF no implica firma física, entrega ni capacitación realizada.
+        # La recepción se acreditará después en el papel firmado.
         allowed_events = custom_rule.get("events")
         allowed_links = custom_rule.get("employment_types")
         if applies == "aplica" and isinstance(allowed_events, list) and allowed_events and event not in allowed_events:
