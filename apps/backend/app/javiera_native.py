@@ -18,7 +18,9 @@ import fitz
 
 TEMPLATE_PATH = Path(__file__).resolve().parent / "javiera_native_templates"
 A4 = fitz.paper_rect("a4")
-BODY_RECT = fitz.Rect(43, 47, A4.width - 43, A4.height - 65)
+# A4 con margen físico >= 14 mm. El área anterior (65 pt al pie)
+# dejaba firmas aisladas con PyMuPDF 1.28, pese a tener espacio imprimible.
+BODY_RECT = fitz.Rect(43, 40, A4.width - 43, A4.height - 46)
 DOCUMENT_TITLES = {
     "internal_rules_receipt": "RECEPCIÓN DEL REGLAMENTO INTERNO",
     "irl": "INFORMACIÓN DE RIESGOS LABORALES (IRL)",
