@@ -56,7 +56,7 @@ def main():
             report["scenarios"]["new_or_existing_first"] = "PASS"
             page.screenshot(path=str(args.output / "javiera_inicio.png"), full_page=True)
 
-            page.get_by_label("Obra", exact=True).select_option(site["id"])
+            page.locator(".j166-panel label.j166-field:has(span:text-is(\"Obra\")) select").select_option(site["id"])
             page.get_by_label("Razón social").fill("EMPRESA DOCUMENTAL QA " + suffix)
             page.get_by_label("RUT de empresa (si se conoce)").fill(_rut(76000000 + seed))
             page.get_by_role("button", name="Continuar a documentos").click()
