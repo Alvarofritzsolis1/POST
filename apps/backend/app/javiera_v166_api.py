@@ -517,7 +517,13 @@ def _store(db, user, record, code, reason=""):
                 "reason": "Documento anterior: indica motivo de reemisión (mínimo 20 caracteres)"}
     raw, revision, source = _build_pdf(db, user, record, code, data, preview=False)
     folder = settings().document_dir / user.org_id / "javiera-v166" / record.id
-    folder.mkdir(parents=True, exist_ok=True, mode=0o700)
+    try:
+        folder.mkdir(parents=True, exist_ok=True, mode=0o700)
+    except OSError:
+        raise HTTPException(
+            503, "No se puede preparar el almacenamiento privado de PDF. "
+                 "Revisar permisos o espacio disponible en el servidor."
+        ) from None
     ident = str(uuid4())
     path = folder / (ident + ".pdf")
     try:
@@ -534,9 +540,22 @@ def _store(db, user, record, code, reason=""):
         audit(db, user, "javiera.local_pdf_issued", ident)
         db.commit()
         return {"code": code, "ok": True, "id": ident, "reused": False}
+    except OSError:
+        db.rollback()
+        try:
+            path.unlink(missing_ok=True)
+        except OSError:
+            pass
+        raise HTTPException(
+            503, "No se pudo guardar el PDF en el almacenamiento privado. "
+                 "Revisar permisos o capacidad del servidor."
+        ) from None
     except Exception:
         db.rollback()
-        path.unlink(missing_ok=True)
+        try:
+            path.unlink(missing_ok=True)
+        except OSError:
+            pass
         raise
 
 
