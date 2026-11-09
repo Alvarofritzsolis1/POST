@@ -159,11 +159,14 @@ def render_native_pdf(code: str, data: dict, *, matrix: list[str] | None = None,
     if not isinstance(data, dict):
         raise NativeDocumentError("Datos del expediente no válidos.")
     company = _get(data, "employer.name", required=True)
+    # El texto de origen es obligatorio para los siete formatos migrados.
+    # Revisarlo primero permite informar la causa real en lugar de solicitar
+    # datos de firma cuando el documento aún carece de cláusulas oficiales.
+    body = _body(code, data, matrix, approved_text)
     is_declaration = code == "sworn_declaration"
     worker = _get(data, "worker.name", required=not is_declaration)
     signer = _get(data, "extra.representative_name", required=is_declaration) if is_declaration else worker
     site = _get(data, "site.name", required=True)
-    body = _body(code, data, matrix, approved_text)
     version_key = {
         "internal_rules_receipt": "extra.regulation_version",
         "irl": "extra.irl_revision",
