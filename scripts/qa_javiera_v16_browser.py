@@ -82,7 +82,7 @@ def main():
             page.get_by_label("Labor / especialidad").fill("Pintura")
             page.get_by_label("Nombre del representante legal").fill("REPRESENTANTE SINTÉTICO")
             page.get_by_label("RUT del representante legal").fill(_rut(15000000 + seed))
-            page.get_by_label("Fecha que aparecerá en el documento").fill("2026-11-09")
+            page.get_by_label("Fecha efectiva del documento").fill("2026-11-09")
             assert page.get_by_label("Sueldo base ($ CLP)").count() == 0
             report["scenarios"]["no_labor_fields_for_pts"] = "PASS"
             page.get_by_role("button", name="Revisar documentos").click()
