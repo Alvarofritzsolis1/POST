@@ -114,7 +114,7 @@ function Setup({onBack}:{onBack:()=>void}){
     <div className="jv-tabs"><button className={tab==="documentos"?"active":""} aria-pressed={tab==="documentos"} onClick={()=>setTab("documentos")}>Plantillas y cláusulas</button>
       <button className={tab==="matrices"?"active":""} aria-pressed={tab==="matrices"} onClick={()=>setTab("matrices")}>Matrices PTS / IRL</button>
       <button className={tab==="excel"?"active":""} aria-pressed={tab==="excel"} onClick={()=>setTab("excel")}>Diseños Excel originales</button>
-      <button className={tab==="reviews"?"active":""} aria-pressed={tab==="reviews"} onClick={()=>setTab("reviews")}>Revisiones y aprobaciones</button></div>
+      <button className={tab==="reviews"?"active":""} aria-pressed={tab==="reviews"} onClick={()=>setTab("reviews")}>Habilitar PDF / revisiones</button></div>
     {error&&<p role="alert" className="jv-error">{error}</p>}{notice&&<p role="status" className="jv-success">{notice}</p>}
     {tab==="documentos"&&<div className="jv-admin-layout">
       <nav className="jv-template-list" aria-label="Plantillas documentales">{templates.map(t=>
