@@ -43,6 +43,7 @@ from .network_files import router as network_files_router
 from .configuration_api import router as configuration_router
 from .javiera_api import router as javiera_router
 from .javiera_v166_api import router as javiera_v166_router
+from .javiera_v17_api import router as javiera_v17_router
 from .javiera_review import router as javiera_reviews_router
 from .javiera_layout_api import router as javiera_layouts_router
 
