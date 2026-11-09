@@ -19,7 +19,7 @@ se verificó:
 - Cero diferencias de los valores caché almacenados.
 - 33/33 hojas con nombres y orden idénticos.
 - Los formularios incluyen fórmulas compartidas; se comparan sus atributos y referencias OOXML.
-- Hash SHA256 del catálogo de fórmulas: b206c63d49142d9544441bc6e664e07ff77151a51637bc4f7ff0af35c3630a1a.
+- Hash SHA256 del catálogo de fórmulas: 5f66cf972e49f8b1a717194374adddc32aef27b2b9a3f3175299d5c156836751.
 
 **Límite crítico:** este resultado es una prueba de **conservación de fórmulas**, NO de que las 423 expresiones ya hayan sido traducidas y calculadas por el backend. Para aprobar equivalencia dinámica es necesario introducir datos de prueba equivalentes en Excel y backend, con múltiples escenarios, e inspeccionar las salidas. Nunca declarar que está terminada esa traducción sin evidencia.
 
