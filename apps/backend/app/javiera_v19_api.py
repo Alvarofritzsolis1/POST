@@ -15,6 +15,7 @@ from sqlalchemy.orm import Session
 from .config import settings
 from .db import get_db
 from .javiera_layout_api import matrix_sections
+from .javiera_formula_equivalence import pesos_a_letras_excel, INVALID_AMOUNT
 from .javiera_logic import render_tokens, check_template_fields, rut_valid
 from .javiera_models import JavieraRevision, JavieraTemplate
 from .models import AuditEvent, utcnow
@@ -146,6 +147,17 @@ def preview_native(payload: NativePreviewInput,
     if payload.code not in record.selected_codes:
         raise HTTPException(422, "Selecciona el documento dentro del expediente.")
     data = _document(record, payload.code, db, user)
+    # Paridad del campo original 'Datos Contrato' C32 -> 'NUMEROS A LETRAS' S4.
+    # Este cálculo se limita al contrato y jamás sustituye fórmulas del Excel.
+    if payload.code == "labor_contract":
+        contract = data.get("contract")
+        if isinstance(contract, dict) and contract.get("salary") not in (None, ""):
+            salary_words = pesos_a_letras_excel(contract["salary"])
+            if salary_words == INVALID_AMOUNT:
+                raise HTTPException(
+                    422, "Sueldo base inválido. Ingresa pesos enteros de 0 a 999.999.999."
+                )
+            data["contract"] = {**contract, "salary_words": salary_words}
     # La vista previa A4 no debe eludir la validación de identidad documental.
     identities = [
         ("empresa", (data.get("employer") or {}).get("rut")),
