@@ -9,6 +9,7 @@ import fitz
 import pytest
 
 from app.javiera_logic import rut_valid
+from app.javiera_formula_equivalence import pesos_a_letras_excel, INVALID_AMOUNT
 from app.javiera_native import render_native_pdf
 
 
@@ -74,3 +75,31 @@ def test_printed_identity_changes_with_each_input_not_a_cached_excel_value():
     second = render("PERSONA B")
     assert "PERSONA A" in first and "PERSONA B" not in first
     assert "PERSONA B" in second and "PERSONA A" not in second
+
+
+@pytest.mark.parametrize(("amount", "expected"), [
+    (0,"Cero pesos."),
+    (1,"Uno peso."),
+    (21,"Veintiuno pesos."),
+    (100,"Cien pesos."),
+    (101,"Ciento uno pesos."),
+    (110,"Ciento diez pesos."),
+    (1000,"Mil pesos."),
+    (21000,"Veintiún mil pesos."),
+    (1000000,"Un millón pesos."),
+    (21000000,"Veintiún millones pesos."),
+    (550000,"Quinientos cincuenta mil pesos."),
+    (999999999,"Novecientos noventa y nueve millones "
+               "novecientos noventa y nueve mil novecientos noventa y nueve pesos."),
+])
+def test_dynamic_salary_words_match_excel_original_clp_rules(amount, expected):
+    """La hoja NUMEROS A LETRAS S4 aporta el resultado 550000 y la sintaxis."""
+    assert pesos_a_letras_excel(amount) == expected
+    assert pesos_a_letras_excel(str(amount)) == expected
+
+
+@pytest.mark.parametrize("invalid", [
+    -1, 1.2, 1_000_000_000, "abc", "", "550.000", True, None,
+])
+def test_original_excel_salary_words_validation_is_preserved(invalid):
+    assert pesos_a_letras_excel(invalid) == INVALID_AMOUNT
