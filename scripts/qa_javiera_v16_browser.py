@@ -99,21 +99,22 @@ def main():
             # por rol accesible evita la ambigüedad de texto en Playwright.
             expect(page.get_by_role("button", name="Vista previa A4", exact=True)).to_be_visible()
             report["scenarios"]["native_preview_entrypoint_visible"] = "PASS"
-            assert "Listo para emitir" in page.locator(".j166-status").inner_text(), (
-                "PTS no está listo con plantilla y matriz sintéticas aprobadas")
-            report["scenarios"]["eligibility_document_specific"] = "PASS"
+            # Las vistas previas HTML no exigen ni publican documentos Excel.
+            # Comprobar la petición PDF real desde el botón principal.
+            assert "Diseño HTML disponible" in page.locator(".j166-status").inner_text()
+            report["scenarios"]["html_status_without_legacy_issue"] = "PASS"
             expect(page.get_by_role("button", name="Preparar paquete PDF A4 (1)")).to_be_visible()
-            report["scenarios"]["html_a4_primary_batch"] = "PASS"
-            page.locator("details.j166-excel-legacy summary").click()
-            page.get_by_role("button", name="Generar 1 documentos elegibles (Excel)").click()
-            expect(page.get_by_text("Resultado del paquete")).to_be_visible(timeout=20000)
-            expect(page.get_by_role("link", name="Imprimir paquete PDF")).to_be_visible()
-            report["scenarios"]["batch_pdf_generated"] = "PASS"
-            href = page.get_by_role("link", name="Imprimir paquete PDF").get_attribute("href")
-            reply = context.request.get(args.url + href)
-            assert reply.status == 200 and reply.headers["content-type"].startswith("application/pdf")
-            assert reply.body()[:4] == b"%PDF"
-            report["scenarios"]["packet_print_url_serves_pdf"] = "PASS"
+            with page.expect_response(
+                lambda response: response.url.endswith("/api/v1/javiera/v19/preview/batch")
+                and response.request.method == "POST",
+                timeout=30000,
+            ) as response_info:
+                page.get_by_role("button", name="Preparar paquete PDF A4 (1)").click()
+            result = response_info.value
+            assert result.status == 200, "No se pudo generar el PDF HTML A4: " + str(result.status)
+            assert result.headers["content-type"].startswith("application/pdf")
+            assert result.body()[:4] == b"%PDF"
+            report["scenarios"]["html_a4_primary_batch_pdf"] = "PASS"
             page.screenshot(path=str(args.output / "javiera_paquete.png"), full_page=True)
 
             # The new workflow cannot have created active operational records.
@@ -126,8 +127,9 @@ def main():
             report["scenarios"]["no_operational_contractor"] = "PASS"
             page.get_by_role("button", name="Historial", exact=True).click()
             expect(page.get_by_role("heading", name="Documentos emitidos")).to_be_visible()
-            assert page.locator(".j166-result a").count() >= 2
-            report["scenarios"]["immutable_history"] = "PASS"
+            # Vista previa nativa NO debe crear emisiones, firmas ni paquetes históricos.
+            expect(page.get_by_text("No hay paquetes registrados para esta búsqueda.")).to_be_visible()
+            report["scenarios"]["native_preview_does_not_forge_history"] = "PASS"
             page.screenshot(path=str(args.output / "javiera_historial.png"), full_page=True)
 
             # Switching worker must clear old worker's private data and detach old dossier.
