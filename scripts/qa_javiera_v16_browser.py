@@ -23,7 +23,7 @@ def main():
         raise SystemExit("Solo se permite QA local en 127.0.0.1")
     args.output.mkdir(parents=True, exist_ok=True)
     failures, responses = [], []
-    report = {"version": "18.0.0-rc1", "at": datetime.now(timezone.utc).isoformat(),
+    report = {"version": "18.0.1-rc1", "at": datetime.now(timezone.utc).isoformat(),
               "scenarios": {}, "console_errors": [], "server_errors": []}
     with sync_playwright() as playwright:
         browser = playwright.chromium.launch(
@@ -82,7 +82,7 @@ def main():
             page.get_by_label("Labor / especialidad").fill("Pintura")
             page.get_by_label("Nombre del representante legal").fill("REPRESENTANTE SINTÉTICO")
             page.get_by_label("RUT del representante legal").fill(_rut(15000000 + seed))
-            page.get_by_label("Fecha efectiva del documento").fill("2026-11-09")
+            page.get_by_label("Fecha que aparecerá en el documento").fill("2026-11-09")
             assert page.get_by_label("Sueldo base ($ CLP)").count() == 0
             report["scenarios"]["no_labor_fields_for_pts"] = "PASS"
             page.get_by_role("button", name="Revisar documentos").click()
@@ -136,7 +136,7 @@ def main():
             page.goto(args.url + "/configuracion/automatizacion", wait_until="domcontentloaded")
             expect(page.get_by_role("heading", name="Configuración de automatización")).to_be_visible()
             for name in ["Plantillas y cláusulas", "Matrices PTS / IRL",
-                         "Diseños Excel originales", "Revisiones y aprobaciones"]:
+                         "Diseños Excel originales", "Habilitar PDF / revisiones"]:
                 expect(page.get_by_role("button", name=name)).to_be_visible()
             report["scenarios"]["config_legacy_compatible"] = "PASS"
             assert not failures, failures
