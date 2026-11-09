@@ -13,7 +13,7 @@ from openpyxl.styles import Font, PatternFill
 from app.javiera_excel import (
     DOC_SHEETS, LayoutError, Q, excel_document, layout_summary,
     libreoffice_pdf, sheet_files, spanish_amount, validate_xlsx,
-    INDUCTION_FORM_START_ROWS,
+    INDUCTION_FORM_START_ROWS, INDUCTION_MANUAL_BREAK_STARTS,
 )
 from app.javiera_layout_api import source_leaks
 from app.javiera_review import CHECKLISTS, specialty_for_code
@@ -547,7 +547,7 @@ def test_v182_induction_ten_sections_get_print_breaks_and_repeated_header():
         target = ET.fromstring(archive.read(sheet_files(archive)["INDUCCION PREVENCION"]))
         breaks = [int(item.get("id")) for item in target.findall(
             ".//" + Q("rowBreaks") + "/" + Q("brk"))]
-        assert breaks == [row - 1 for row in INDUCTION_FORM_START_ROWS[1:]]
+        assert breaks == [row - 1 for row in INDUCTION_MANUAL_BREAK_STARTS]
         names = ET.fromstring(archive.read("xl/workbook.xml")).findall(
             ".//" + Q("definedName"))
         titles = [item.text for item in names
