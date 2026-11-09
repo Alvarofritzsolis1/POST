@@ -64,5 +64,8 @@ def test_preflight_reports_formula_count_and_pdf_bounds_without_approving(env, t
         layout = db.get(JavieraExcelLayout, layout_id)
         assert layout.state == "draft"
 
+    # This account lacks administrator privileges. The authorization gate
+    # rejects it before cross-organization layout lookup; 403 is intentional.
     login(client, "outside@example.cl")
-    assert client.post(ROOT + "/layouts/" + layout_id + "/check").status_code == 404
+    forbidden = client.post(ROOT + "/layouts/" + layout_id + "/check")
+    assert forbidden.status_code == 403, forbidden.text
