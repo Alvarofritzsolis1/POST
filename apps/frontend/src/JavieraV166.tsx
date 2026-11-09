@@ -14,7 +14,7 @@ type Catalog={code:string;area:string;title:string;required_fields:string[];publ
 type DocState={code:string;status:string;reason:string;missing_fields:string[];blocking_errors:string[];
   completion_percent:number;can_issue:boolean;has_history:boolean;requires_reissue_reason?:boolean;last_issue_id?:string};
 type Dossier={id:string;revision:number;company_id:string;person_id:string|null;site_id:string;
-  company_name:string;person_name:string|null;site_name:string;selected_codes:string[];
+  company_name:string;company_rut:string;person_name:string|null;person_rut:string;site_name:string;selected_codes:string[];
   shared:Record<string,unknown>;document_data:Record<string,Record<string,unknown>>;
   relationship:string;parent_name:string|null;updated_at:string};
 type Result={code:string;ok:boolean;id?:string;reused?:boolean;reason?:string;missing_fields?:string[]};
@@ -298,8 +298,8 @@ export default function JavieraV166({onConfig}:{onConfig?:()=>void}){
   async function loadDossier(id:string){
     try{
       const d=await request<Dossier>(BASE+"/dossiers/"+id);
-      setSiteId(d.site_id);setCompanyId(d.company_id);setCompanyName(d.company_name);
-      setPersonId(d.person_id||"");setPersonName(d.person_name||"");
+      setSiteId(d.site_id);setCompanyId(d.company_id);setCompanyName(d.company_name);setCompanyRut(d.company_rut||"");
+      setPersonId(d.person_id||"");setPersonName(d.person_name||"");setPersonRut(d.person_rut||"");
       setRelation(d.relationship);setParentName(d.parent_name||"");
       setChecked(d.selected_codes);
       function flatten(o:Record<string,unknown>){
