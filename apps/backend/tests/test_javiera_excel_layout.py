@@ -285,7 +285,13 @@ def test_ten_original_document_pdfs_with_synthetic_person_only(code):
                 assert block[2]<=page.rect.width+1
                 assert block[3]<=page.rect.height+1
         pages=" ".join(p.get_text() for p in document)
-        assert "DOCUMENTO DE PRUEBA" in pages
+        if code == "pts_receipt":
+            # The original generic heading is intentionally replaced with the
+            # specific document type and actual worker role.
+            assert "ENTREGA PTS DE CARPINTERO" in pages
+            assert "DOCUMENTO DE PRUEBA" not in pages
+        else:
+            assert "DOCUMENTO DE PRUEBA" in pages
         assert "PERSONA ANTIGUA" not in pages
         assert "VISTA PREVIA" in pages
 
