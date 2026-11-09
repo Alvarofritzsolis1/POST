@@ -753,7 +753,7 @@ def test_migration_from_existing_schema_is_additive_and_reopen_preserves_data(ne
             (u.id, u.email, u.password_hash, u.role) for u in db.scalars(select(User))
         } == original_users
         assert {(s.id, s.name) for s in db.scalars(select(Worksite))} == original_sites
-        assert set(db.scalars(select(SchemaVersion.version))) == {"0.6.0-rc1", "0.7.0", "8.1.0", "13.1.0_documentary_configuration", "16.0.0", "16.0.1_excel_pdf_reviews"}
+        assert set(db.scalars(select(SchemaVersion.version))) == {"0.6.0-rc1", "0.7.0", "8.1.0", "13.1.0_documentary_configuration", "16.0.0", "16.0.1_excel_pdf_reviews", "16.6.0_independent_documental"}
     assert n["admin"].get(ROOT + "/overview").status_code == 200
 
 
