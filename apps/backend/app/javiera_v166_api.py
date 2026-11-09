@@ -24,7 +24,7 @@ from .javiera_api import audit, by_org, pdf_for, template_data
 from .javiera_layout_api import latest_layout, make_pdf
 from .javiera_logic import DOCUMENTS, DOCUMENT_BY_CODE, eligibility, normalize_cargo, render_tokens
 from .javiera_matrices import latest_approved_matrix
-from .javiera_models import JavieraMatrix, JavieraTemplate
+from .javiera_models import JavieraMatrix, JavieraTemplate, JavieraIssue
 from .javiera_v166_models import (
     JavieraLocalCompany, JavieraLocalPerson, JavieraLocalDossier,
     JavieraLocalIssue, JavieraLocalBatch,
@@ -611,7 +611,8 @@ def history(dossier_id: str = "", user: User = Depends(administrator), db: Sessi
         batches = batches.where(JavieraLocalBatch.dossier_id == dossier_id)
     issues = db.scalars(query.order_by(JavieraLocalIssue.issued_at.desc()).limit(300)).all()
     groups = db.scalars(batches.order_by(JavieraLocalBatch.created_at.desc()).limit(120)).all()
-    return {"issues": [{"id": r.id, "dossier_id": r.dossier_id, "code": r.code,
+    legacy = db.scalars(select(JavieraIssue).where(JavieraIssue.org_id == user.org_id)
+        .order_by(JavieraIssue.issued_at.desc()).limit(200)).all()\n    return {"legacy_issues": [{"id": item.id, "code": item.code,\n               "issued_at": item.issued_at.isoformat(), "sha256": item.sha256}\n              for item in legacy],\n            "issues": [{"id": r.id, "dossier_id": r.dossier_id, "code": r.code,
                          "issued_at": r.issued_at.isoformat(), "sha256": r.sha256,
                          "template_revision": r.template_revision, "issued_by": r.issued_by,
                          "reissue_reason": r.reissue_reason} for r in issues],
