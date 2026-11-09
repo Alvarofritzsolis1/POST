@@ -47,9 +47,27 @@ def check_layout(layout_id: str, user: User = Depends(administrator),
         pages = pdf.page_count
         misplaced = []
         text_length = 0
+        legibility_warnings = []
+        orphan_pages = []
         for number, page in enumerate(pdf, 1):
             text = page.get_text()
             text_length += len(text.strip())
+            # In the original ten-form induction, a header-only page is a
+            # critical pagination defect even if technically inside the A4 box.
+            if layout.code == "induction" and pdf.page_count >= 8 and len(text.strip()) < 450:
+                orphan_pages.append(number)
+            small_chars = 0
+            for block in page.get_text("dict").get("blocks", []):
+                for line in block.get("lines", []):
+                    for span in line.get("spans", []):
+                        content = str(span.get("text", "")).strip()
+                        if content and span.get("size", 10) < 7.8:
+                            small_chars += len(content)
+            if small_chars >= 30:
+                legibility_warnings.append({
+                    "page": number, "tiny_characters": small_chars,
+                    "detail": "Se detectó letra menor a 8 pt; revisar el Excel original.",
+                })
             for block in page.get_text("blocks"):
                 if len(block) < 5 or not isinstance(block[4], str) or not block[4].strip():
                     continue
@@ -60,7 +78,7 @@ def check_layout(layout_id: str, user: User = Depends(administrator),
                         "page": number, "side": "out_of_bounds",
                         "bbox": [round(float(x), 1) for x in block[:4]],
                     })
-    ok = pages >= 1 and text_length > 20 and not misplaced
+    ok = pages >= 1 and text_length > 20 and not misplaced and not orphan_pages
     return {
         "layout_id": layout.id, "code": layout.code,
         "sheet": DOC_SHEETS[layout.code], "revision": layout.revision,
@@ -69,8 +87,15 @@ def check_layout(layout_id: str, user: User = Depends(administrator),
         "formula_count": entry["formulas"], "merged_ranges": entry["merged"],
         "configured_print_area": DOCUMENT_PRINT_AREAS[layout.code],
         "text_length": text_length, "out_of_bounds": misplaced,
+        "orphan_pages": orphan_pages, "legibility_warnings": legibility_warnings,
         "passed": ok, "requires_human_approval": layout.state != "approved",
-        "message": ("Vista previa PDF sintética sin texto fuera de página."
-                    if ok else
-                    "Vista previa con problemas de impresión o sin contenido legible."),
+        "message": ("Vista previa con páginas de encabezado aislado. "
+                    "Corrige los saltos de página del Excel antes de imprimir."
+                    if orphan_pages else
+                    "El PDF contiene contenido fuera de la página o no tiene texto suficiente."
+                    if not ok else
+                    "PDF técnicamente legible; revisar visualmente los tamaños "
+                    "y espacios de firma antes de imprimir."
+                    if legibility_warnings else
+                    "Vista previa PDF sintética sin texto fuera de página."),
     }

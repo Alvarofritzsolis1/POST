@@ -53,6 +53,16 @@ DOCUMENT_PRINT_AREAS = {
     "induction": "A1:D474",
 }
 
+# Exact starts of the ten original forms in the private induction sheet.
+# The original content, formulas and signatures stay in their source rows.
+INDUCTION_FORM_START_ROWS = (9, 58, 116, 159, 206, 262, 304, 355, 404, 452)
+# A shape-based corporate header precedes each textual heading. Excel drawing
+# anchors are zero-indexed, hence the source form starts at these 1-based rows.
+INDUCTION_SECTION_FIRST_ROWS = (1, 48, 104, 149, 197, 253, 298, 345, 394, 442)
+# Header at row 298 is a drawing whose manual break creates a separate
+# header-only page in LibreOffice. The automatic break safely joins its text.
+INDUCTION_MANUAL_BREAK_STARTS = (48, 104, 149, 197, 253, 345, 394, 442)
+
 
 def set_document_print_profile(target: ET.Element, book: ET.Element, code: str, sheet_name: str):
     """Apply a scoped A4 print setup only to this generated, one-sheet workbook.
@@ -126,6 +136,70 @@ def set_document_print_profile(target: ET.Element, book: ET.Element, code: str, 
             raise LayoutError("Área de impresión inválida")
         return f"\u0024{match.group(1)}\u0024{match.group(2)}"
     entry.text = f"'{escaped}'!{absolute(left)}:{absolute(right)}"
+
+
+def configure_induction_sections(target: ET.Element, book: ET.Element,
+                                 sheet_name: str, strings: list[str]) -> int:
+    """Put each of the ten original induction forms at a fresh page boundary.
+
+    This changes ONLY the disposable, one-sheet Excel generated for printing.
+    The imported XLSX, signed PDFs and historic versions remain immutable.
+    Do not create empty pages when an unrelated or synthetic induction sheet
+    lacks the actual form headings.
+    """
+    rows = target.find(Q("sheetData"))
+    if rows is None:
+        return 0
+    occupied = {}
+    for row in rows.findall(Q("row")):
+        number = int(row.get("r", "0"))
+        if number not in (*INDUCTION_FORM_START_ROWS, 1):
+            continue
+        first = next((c for c in row.findall(Q("c"))
+                      if c.get("r") == f"A{number}"), None)
+        occupied[number] = cell_text(first, strings).strip() if first is not None else ""
+    # Older user Excel files and minimal CI fixtures need no forced empty pages.
+    if sum(bool(occupied.get(n)) for n in INDUCTION_FORM_START_ROWS) < 8:
+        return 0
+
+    previous = target.find(Q("rowBreaks"))
+    if previous is not None:
+        target.remove(previous)
+    count = len(INDUCTION_MANUAL_BREAK_STARTS)
+    breaks = ET.Element(Q("rowBreaks"), {
+        "count": str(count), "manualBreakCount": str(count),
+    })
+    for start in INDUCTION_MANUAL_BREAK_STARTS:
+        ET.SubElement(breaks, Q("brk"), {
+            "id": str(start - 1), "min": "0", "max": "3", "man": "1",
+        })
+    # Keep schema order: rowBreaks follow page setup, before drawing objects.
+    tail = {Q(name) for name in (
+        "colBreaks", "customProperties", "cellWatches", "ignoredErrors",
+        "smartTags", "drawing", "legacyDrawing", "legacyDrawingHF",
+        "picture", "oleObjects", "controls", "webPublishItems",
+        "tableParts", "extLst")}
+    index = next((i for i, child in enumerate(list(target))
+                  if child.tag in tail), len(target))
+    target.insert(index, breaks)
+
+    # Original company headers are Excel drawing shapes anchored at each
+    # section start. Print titles would OVERLAY these genuine headers and
+    # manufacture pages containing only the duplicated masthead.
+    # Only allow repeated cell titles when no drawing exists (synthetic fixture).
+    if occupied.get(1) and target.find(Q("drawing")) is None:
+        names = book.find(Q("definedNames"))
+        if names is None:
+            names = ET.SubElement(book, Q("definedNames"))
+        for entry in list(names):
+            if entry.get("name") == "_xlnm.Print_Titles":
+                names.remove(entry)
+        entry = ET.SubElement(names, Q("definedName"), {
+            "name": "_xlnm.Print_Titles", "localSheetId": "0",
+        })
+        escaped = sheet_name.replace("'", "''")
+        entry.text = f"'{escaped}'!$1:$8"
+    return count
 
 
 SOURCE_FIELDS = {
@@ -781,6 +855,8 @@ def excel_document(raw: bytes, code: str, data: dict, changes: dict | None = Non
                 else:
                     names.remove(item)
         set_document_print_profile(target, book, code, selected)
+        if code == "induction":
+            configure_induction_sections(target, book, selected, strings)
         calc = book.find(Q("calcPr"))
         if calc is not None:
             calc.set("fullCalcOnLoad", "0")

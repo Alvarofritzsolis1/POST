@@ -17,7 +17,8 @@ type UploadResult={status:"already_imported"|"imported_as_draft";created:number;
   message:string;library:Library};
 type PdfAudit={layout_id:string;code:string;sheet:string;revision:number;pages:number;
   formula_count:number;merged_ranges:number;configured_print_area:string;
-  passed:boolean;message:string;requires_human_approval:boolean;out_of_bounds:{page:number;side:string}[]};
+  passed:boolean;message:string;requires_human_approval:boolean;out_of_bounds:{page:number;side:string}[];
+  orphan_pages:number[];legibility_warnings:{page:number;tiny_characters:number;detail:string}[]};
 const endpoint="/api/v1/javiera/v17";
 function problem(error:unknown){
   if(!(error instanceof Error))return String(error);
@@ -156,6 +157,13 @@ export default function JavieraV17({onConfig}:{onConfig?:()=>void}){
                 {audits[item.code].pages} página(s) ·
                 {audits[item.code].formula_count} fórmulas ·
                 área {audits[item.code].configured_print_area}
+                <span style={{display:"block"}}>{audits[item.code].message}</span>
+                {(audits[item.code].orphan_pages||[]).length>0&&<span style={{display:"block"}}>
+                  Páginas con encabezado aislado: {audits[item.code].orphan_pages.join(", ")}
+                </span>}
+                {(audits[item.code].legibility_warnings||[]).length>0&&<span style={{display:"block"}}>
+                  Revisar letra pequeña en páginas: {audits[item.code].legibility_warnings.map(x=>x.page).join(", ")}
+                </span>}
               </p>}
               {!item.imported&&<span className="j17-muted">Incluida al importar el Excel</span>}
             </div>
