@@ -198,3 +198,26 @@ def test_excel_admin_import_does_not_create_duplicate_revisions(env, tmp_path, m
     assert second.json()["status"] == "already_imported"
     with sessions() as db:
         assert db.scalar(select(func.count(JavieraExcelLayout.id))) == 10
+
+
+def test_single_admin_can_enable_complete_pts_matrix_for_print(env, monkeypatch):
+    client, sessions = env
+    monkeypatch.setenv("JAVIERA_SOLO_PILOT", "true")
+    settings.cache_clear()
+    admin = login(client, "a@example.cl")
+    posted = client.post("/api/v1/javiera/admin/matrices", headers=admin, json={
+        "kind": "PTS", "cargo": "CARPINTERO", "source": "Prueba de PDF físico",
+        "sections": [f"Sección preventiva completada {i}" for i in range(1, 18)]
+    })
+    assert posted.status_code == 200, posted.text
+    ident = posted.json()["id"]
+    endpoint = "/api/v1/javiera/admin/matrices/" + ident + "/enable-print"
+    assert client.post(endpoint, headers=admin,
+                       json={"confirmed_content": False}).status_code == 422
+    result = client.post(endpoint, headers=admin,
+                         json={"confirmed_content": True})
+    assert result.status_code == 200, result.text
+    assert result.json()["pilot_print_only"] is True
+    with sessions() as db:
+        assert db.scalar(select(func.count(JavieraSignoff.id))) == 0
+        assert db.get(JavieraExcelLayout, ident) is None
