@@ -127,9 +127,13 @@ export default function JavieraV166({onConfig}:{onConfig?:()=>void}){
   })) as Record<string,string[]>,[checked,catalog]);
   const commonKeys=useMemo(()=>[...new Set(Object.values(fieldsByCode).flat())]
     .filter(k=>!AUTO.has(k)&&!DOC_ONLY.has(k)&&!k.startsWith("event.")),[fieldsByCode]);
-  const uniqueKeys=useMemo(()=>Object.fromEntries(checked.map(code=>[code,
-    (fieldsByCode[code]||[]).filter(k=>!AUTO.has(k)&&!commonKeys.includes(k))]))
-    as Record<string,string[]>,[checked,fieldsByCode,commonKeys]);
+  const uniqueKeys=useMemo<Record<string,string[]>>(()=>{
+    const result:Record<string,string[]>={};
+    for(const code of checked){
+      result[code]=(fieldsByCode[code]||[]).filter(key=>!AUTO.has(key)&&!commonKeys.includes(key));
+    }
+    return result;
+  },[checked,fieldsByCode,commonKeys]);
   const missingLocal=useMemo(()=>checked.reduce((all,code)=>{
     for(const key of fieldsByCode[code]||[]){
       if(AUTO.has(key))continue;
