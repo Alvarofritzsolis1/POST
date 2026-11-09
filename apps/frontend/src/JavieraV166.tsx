@@ -102,7 +102,7 @@ async function nativePreviewRequest(dossier_id:string,code:string){
 }
 function pdfTab(){try{return window.open("about:blank","_blank");}catch{return null;}}
 
-export default function JavieraV166({onConfig,onTextEditor}:{onConfig?:()=>void;onTextEditor?:()=>void}){
+export default function JavieraV166({onConfig,onTextEditor}:{onConfig?:()=>void;onTextEditor?:(code:string)=>void}){
   const [step,setStep]=useState(1);
   const [origin,setOrigin]=useState<Origin>("new");
   const [siteId,setSiteId]=useState("");
@@ -652,7 +652,7 @@ export default function JavieraV166({onConfig,onTextEditor}:{onConfig?:()=>void;
             </button>}
           {["requires_published_text","requires_review"].includes(
               nativeFormats.find(f=>f.code===s.code)?.status||"")&&
-            <button className="j166-light" disabled={!onTextEditor} onClick={onTextEditor}
+            <button className="j166-light" disabled={!onTextEditor} onClick={()=>onTextEditor?.(s.code)}
               title="Editar la versión HTML, guardar y habilitar su vista previa">
               <FileText size={16}/> Editar HTML
             </button>}
