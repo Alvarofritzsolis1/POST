@@ -112,6 +112,16 @@ def main():
             report["scenarios"]["immutable_history"] = "PASS"
             page.screenshot(path=str(args.output / "javiera_historial.png"), full_page=True)
 
+            # Switching worker must clear old worker's private data and detach old dossier.
+            page.get_by_role("button", name="Volver", exact=True).click()
+            page.get_by_role("button", name="Corregir antecedentes").click()
+            page.get_by_role("button", name="Existente", exact=True).click()
+            page.get_by_role("button", name="Nueva", exact=True).click()
+            expect(page.get_by_label("Nombre completo", exact=True)).to_have_value("")
+            expect(page.get_by_label("RUT", exact=True)).to_have_value("")
+            expect(page.get_by_label("Labor / especialidad")).to_have_value("")
+            report["scenarios"]["person_switch_private_data_reset"] = "PASS"
+
             page.set_viewport_size({"width": 390, "height": 844})
             page.goto(args.url + "/proyecto-javiera", wait_until="domcontentloaded")
             expect(page.get_by_role("heading", name="¿La empresa es nueva o ya existe?")).to_be_visible()
