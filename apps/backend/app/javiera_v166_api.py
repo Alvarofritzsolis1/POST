@@ -143,6 +143,14 @@ def _status(db, user, record, code):
     approved = {kind + ":" + normalize_cargo(cargo) for kind, cargo in matrices}
     data = _document(record, code, db, user)
     item = next(s for s in eligibility(data, templates, approved) if s["code"] == code)
+    # A date alone does not prove delivery, receipt or an actual induction.
+    evidence_codes = {"ppe_delivery", "pts_receipt", "induction", "internal_rules_receipt"}
+    if code in evidence_codes and (
+        (record.document_data.get(code) or {}).get("event_confirmed") is not True
+    ):
+        item.update(status="POR_DETERMINAR",
+                    reason="Confirma que el evento realmente ocurrió; generar un PDF no acredita su ejecución.",
+                    can_issue=False, can_preview=False)
     if code == "sworn_declaration":
         if record.person_id:
             item.update(status="NO_APLICA", applicability="no_aplica",
@@ -563,24 +571,37 @@ def issue_batch(payload: BatchInput, user: User = Depends(administrator), db: Se
     db.add(batch)
     db.flush()
     success = [r["id"] for r in results if r["ok"]]
+    package_error = None
     if success:
-        output = fitz.open()
-        for ident in success:
-            _, path = _file(db, user, ident)
-            with fitz.open(str(path)) as original:
-                output.insert_pdf(original)
-        folder = settings().document_dir / user.org_id / "javiera-v166" / record.id
-        filename = folder / ("paquete-" + batch.id + ".pdf")
-        with filename.open("xb") as writer:
-            writer.write(output.tobytes(garbage=4, deflate=True))
-        filename.chmod(0o600)
-        output.close()
-        batch.storage_path = str(filename)
+        filename = None
+        try:
+            output = fitz.open()
+            try:
+                for ident in success:
+                    _, path = _file(db, user, ident)
+                    with fitz.open(str(path)) as original:
+                        output.insert_pdf(original)
+                folder = settings().document_dir / user.org_id / "javiera-v166" / record.id
+                folder.mkdir(parents=True, exist_ok=True, mode=0o700)
+                filename = folder / ("paquete-" + batch.id + ".pdf")
+                with filename.open("xb") as writer:
+                    writer.write(output.tobytes(garbage=4, deflate=True))
+                filename.chmod(0o600)
+                batch.storage_path = str(filename)
+            finally:
+                output.close()
+        except Exception:
+            if filename is not None:
+                filename.unlink(missing_ok=True)
+            package_error = ("Los documentos individuales quedaron guardados, pero no fue "
+                             "posible combinar el paquete PDF. Descárgalos por separado.")
     audit(db, user, "javiera.local_batch_created", batch.id)
     db.commit()
     return {"id": batch.id, "results": results, "total": len(results),
             "issued": len(success), "failed": len(results) - len(success),
-            "pdf_url": ("/api/v1/javiera/v166/batches/" + batch.id + "/pdf") if success else None}
+            "package_error": package_error,
+            "pdf_url": ("/api/v1/javiera/v166/batches/" + batch.id + "/pdf")
+                       if batch.storage_path else None}
 
 
 @router.get("/batches/{ident}/pdf")
