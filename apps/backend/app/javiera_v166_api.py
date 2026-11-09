@@ -152,6 +152,18 @@ def _status(db, user, record, code):
             item.update(status="POR_DETERMINAR",
                         reason="Confirmar y documentar la ausencia de trabajadores en el período.",
                         can_issue=False, can_preview=False)
+    if code == "sworn_declaration":
+        company = _company(db, user, record.company_id)
+        if company.source_contractor_id:
+            active = db.scalar(select(WorkerAssignment.id).where(
+                WorkerAssignment.org_id == user.org_id,
+                WorkerAssignment.worksite_id == record.site_id,
+                WorkerAssignment.contractor_id == company.source_contractor_id,
+                WorkerAssignment.active.is_(True)).limit(1))
+            if active:
+                item.update(status="NO_APLICA", applicability="no_aplica",
+                            reason="La empresa tiene personas activas registradas en esta obra.",
+                            can_issue=False, can_preview=False)
     previous = db.scalars(select(JavieraLocalIssue).where(
         JavieraLocalIssue.org_id == user.org_id,
         JavieraLocalIssue.dossier_id == record.id,
