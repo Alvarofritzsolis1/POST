@@ -91,7 +91,9 @@ def main():
             page.get_by_role("button", name="Revisar documentos").click()
             expect(page.get_by_role("heading", name="Revisión e impresión")).to_be_visible(timeout=20000)
             report["scenarios"]["dossier_saved_independent"] = "PASS"
-            expect(page.get_by_text("Vista previa A4", exact=True)).to_be_visible()
+            # La ayuda y el botón comparten la misma frase: seleccionar
+            # por rol accesible evita la ambigüedad de texto en Playwright.
+            expect(page.get_by_role("button", name="Vista previa A4", exact=True)).to_be_visible()
             report["scenarios"]["native_preview_entrypoint_visible"] = "PASS"
             assert "Listo para emitir" in page.locator(".j166-status").inner_text(), (
                 "PTS no está listo con plantilla y matriz sintéticas aprobadas")
