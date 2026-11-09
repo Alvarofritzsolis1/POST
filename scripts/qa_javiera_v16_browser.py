@@ -60,7 +60,7 @@ def main():
             report["scenarios"]["html_editor_in_main_workflow"] = "PASS"
             page.get_by_role("button", name="Volver a documentos").click()
             expect(page.get_by_role("heading", name="¿La empresa es nueva o ya existe?")).to_be_visible()
-            expect(page.get_by_role("heading", name="Generador documental independiente")).to_be_visible()
+            expect(page.get_by_role("heading", name="Generador de documentos PDF A4")).to_be_visible()
             report["scenarios"]["new_or_existing_first"] = "PASS"
             page.screenshot(path=str(args.output / "javiera_inicio.png"), full_page=True)
 
