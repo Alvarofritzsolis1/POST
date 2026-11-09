@@ -226,6 +226,11 @@ export default function JavieraV166({onConfig}:{onConfig?:()=>void}){
     if(!checked.length){setError("Selecciona al menos un documento.");return;}
     try{
       const resolved=await ensurePerson();
+      // Edits affect only the documentary copy, including imported GALANT identities.
+      await request(BASE+"/companies/"+companyId,{method:"PATCH",
+        body:JSON.stringify({rut:companyRut})});
+      if(personId&&resolved)await request(BASE+"/people/"+resolved,{method:"PATCH",
+        body:JSON.stringify({rut:personRut})});
       const result=await saveDraft(true,requiredPerson?resolved:null);
       if(result){setStep(4);setError("");}
     }catch(e){showFailure(e);}
@@ -384,6 +389,13 @@ export default function JavieraV166({onConfig}:{onConfig?:()=>void}){
       <h3>Completar antecedentes una sola vez</h3>
       <p>{checked.length} documentos · {filled} de {total} requisitos cubiertos. Los datos compartidos se reutilizan donde corresponden.</p>
       <div className="j166-meter"><div style={{width:(total?100*filled/total:0)+"%"}}/></div>
+      <section className="j166-sub"><h4>Datos documentales de la empresa</h4>
+        <div className="j166-fields">
+          <label className="j166-field"><span>Razón social</span><input value={companyName} readOnly/></label>
+          <label className="j166-field"><span>RUT de empresa (ficha Javiera)</span>
+            <input value={companyRut} onChange={e=>setCompanyRut(e.target.value)}/></label>
+        </div><small>Modificar este RUT no altera Contratistas de GALANT.</small>
+      </section>
       {requiredPerson&&<section className="j166-sub">
         <h4>Persona documental</h4>
         <div className="j166-switch"><button className={personOrigin==="new"?"active":""}
@@ -395,6 +407,8 @@ export default function JavieraV166({onConfig}:{onConfig?:()=>void}){
           <label className="j166-field"><span>RUT</span><input value={personRut} onChange={e=>setPersonRut(e.target.value)}/></label></div>
           :<label className="j166-field"><span>Seleccionar persona</span><select value={personChoice} onChange={e=>{setPersonChoice(e.target.value);setPersonId("");}}>
             <option value="">Seleccionar</option>{people.map(p=><option key={p.origin+":"+p.id} value={p.origin+":"+p.id}>{p.name} · {p.origin==="operational"?"GALANT":"Javiera"}</option>)}</select></label>}
+        {personId&&<label className="j166-field"><span>RUT de persona (ficha Javiera)</span>
+          <input value={personRut} onChange={e=>setPersonRut(e.target.value)}/></label>}
         <small>Este registro no modificará el módulo Trabajadores.</small>
       </section>}
       <section className="j166-sub"><h4>Datos compartidos</h4>
