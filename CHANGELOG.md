@@ -1,5 +1,15 @@
 # Historial de cambios
 
+## 18.0.0-rc1 — Proyecto JAVIERA: Excel corregido y PDF A4 con preflight
+
+- Copia de Excel 18 con 22 hojas, 381 fórmulas y 250 combinaciones preservadas y alturas/alineación de documentos extensos revisadas; fichero privado descargable desde el chat, no incrustado en GitHub.
+- Impresión A4 por cada una de las 10 hojas, áreas de impresión acotadas, márgenes seguros y varias páginas cuando corresponda.
+- Recuperación controlada de contenido ligeramente desplazado en PDF sin desactivar las validaciones de recortes.
+- Biblioteca con preflight técnico de fórmulas, cantidad de páginas, áreas y texto dentro de A4.
+- Pruebas automatizadas de las 10 configuraciones, contenido parcialmente fuera de margen, permisos y ausencia de aprobación automática.
+- Conserva sistema documental independiente y aprobación por responsables.
+- Ver `docs/GALANT_18_JAVIERA_PRINT_PREFLIGHT.md` para alcance, limitaciones y pasos posteriores.
+
 ## 17.0.0-rc1 — Biblioteca inteligente JAVIERA y revisión documental delimitada
 
 - Nuevo inicio de Proyecto JAVIERA con diez documentos precatalogados, un único importador de Excel privado, detección de cargas repetidas, vistas previas y acciones claras.

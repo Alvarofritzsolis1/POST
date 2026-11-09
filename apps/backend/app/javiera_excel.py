@@ -38,6 +38,96 @@ DOC_SHEETS = {
     "pts_receipt": "ENTREGA PTS",
     "induction": "INDUCCION PREVENCION",
 }
+# Bounded print regions. Source auxiliaries are excluded from the emitted PDF;
+# no clause or procedural matrix is removed from the private workbook itself.
+DOCUMENT_PRINT_AREAS = {
+    "labor_contract": "A1:C36",
+    "transfer_addendum": "A1:C19",
+    "extension_addendum": "A1:I9",
+    "sworn_declaration": "A1:A16",
+    "internal_rules_receipt": "A1:G12",
+    "ppe_delivery": "A1:E30",
+    "irl": "A1:D178",
+    "pts": "A1:G190",
+    "pts_receipt": "A1:I24",
+    "induction": "A1:D474",
+}
+
+
+def set_document_print_profile(target: ET.Element, book: ET.Element, code: str, sheet_name: str):
+    """Apply a scoped A4 print setup only to this generated, one-sheet workbook.
+
+    Source XLSX and reviewed content remain unchanged. Excel/LibreOffice may
+    otherwise use stale/absent print areas and clip merged paragraphs.
+    """
+    if code not in DOCUMENT_PRINT_AREAS:
+        raise LayoutError("Documento desconocido para configuración de impresión")
+    props = target.find(Q("sheetPr"))
+    if props is None:
+        props = ET.Element(Q("sheetPr"))
+        target.insert(0, props)
+    layout = props.find(Q("pageSetUpPr"))
+    if layout is None:
+        layout = ET.SubElement(props, Q("pageSetUpPr"))
+    layout.set("fitToPage", "1")
+    margins = target.find(Q("pageMargins"))
+    if margins is None:
+        margins = ET.SubElement(target, Q("pageMargins"))
+    for key, value in {
+        "left": "0.36", "right": "0.36",
+        "top": "0.46", "bottom": "0.46",
+        "header": "0.18", "footer": "0.18",
+    }.items():
+        margins.set(key, value)
+    setup = target.find(Q("pageSetup"))
+    if setup is None:
+        setup = ET.SubElement(target, Q("pageSetup"))
+    setup.attrib.update({
+        "paperSize": "9",  # ISO A4
+        "orientation": "portrait",
+        "fitToWidth": "1",
+        "fitToHeight": "0",  # keep all required pages; never shrink to one
+        "usePrinterDefaults": "0",
+    })
+    names = book.find(Q("definedNames"))
+    if names is None:
+        names = ET.Element(Q("definedNames"))
+        calc = book.find(Q("calcPr"))
+        if calc is not None:
+            book.insert(list(book).index(calc), names)
+        else:
+            book.append(names)
+    # Source print areas were selected and approved with the template.
+    # Preserve them instead of overwriting them with the default range:
+    # the generic QA fixture uses A1:D15 and would lose its fourth column.
+    active = [item for item in names.findall(Q("definedName"))
+              if item.get("name") == "_xlnm.Print_Area"
+              and item.get("localSheetId") == "0"]
+    if active and active[0].text and re.search(
+        r"\$?[A-Z]+\$?[0-9]+:\$?[A-Z]+\$?[0-9]+", active[0].text
+    ):
+        # Duplicate historic declarations are not used for printing.
+        for redundant in active[1:]:
+            names.remove(redundant)
+        return
+    for item in list(names):
+        if item.get("name") == "_xlnm.Print_Area":
+            names.remove(item)
+    entry = ET.SubElement(names, Q("definedName"), {
+        "name": "_xlnm.Print_Area", "localSheetId": "0"
+    })
+    escaped = sheet_name.replace("'", "''")
+    cell_range = DOCUMENT_PRINT_AREAS[code]
+    left, right = cell_range.split(":")
+    # Convert A1 to $A$1 for portability between Excel and LibreOffice.
+    def absolute(address):
+        match = re.fullmatch(r"([A-Z]+)([0-9]+)", address)
+        if not match:
+            raise LayoutError("Área de impresión inválida")
+        return f"\u0024{match.group(1)}\u0024{match.group(2)}"
+    entry.text = f"'{escaped}'!{absolute(left)}:{absolute(right)}"
+
+
 SOURCE_FIELDS = {
     "C5":"employer.name", "C6":"employer.rut",
     "C7":"extra.representative_name", "C8":"extra.representative_rut",
@@ -690,6 +780,7 @@ def excel_document(raw: bytes, code: str, data: dict, changes: dict | None = Non
                     item.set("localSheetId", "0")
                 else:
                     names.remove(item)
+        set_document_print_profile(target, book, code, selected)
         calc = book.find(Q("calcPr"))
         if calc is not None:
             calc.set("fullCalcOnLoad", "0")
@@ -710,11 +801,12 @@ def excel_document(raw: bytes, code: str, data: dict, changes: dict | None = Non
 
 
 def normalize_pdf_a4(raw: bytes) -> bytes:
-    """Imprimir sin cortes y entregar todas las páginas en A4.
+    """Normalize each PDF page to A4 without hiding content outside a source margin.
 
-    La declaración jurada del Excel original tiene trazos 5 pt fuera del
-    MediaBox derecho; otros documentos usan Carta. Recupera esos trazos
-    expandiendo el área fuente antes de ajustar proporcionalmente al A4.
+    LibreOffice may put a title a few points before the source page's zero
+    coordinate. Expanding the source MediaBox on every side and then fitting
+    all recovered content proportionally is safer than discarding the PDF or
+    disabling layout validation. Very large negative displacement still blocks.
     """
     source = fitz.open(stream=raw, filetype="pdf")
     output = fitz.open()
@@ -722,36 +814,56 @@ def normalize_pdf_a4(raw: bytes) -> bytes:
         for index in range(source.page_count):
             page = source[index]
             original = page.rect
-            # PyMuPDF no extrae glifos que queden fuera del MediaBox vigente.
-            # Ampliar provisionalmente para detectar el verdadero ancho/alto
-            # del texto (y restaurar luego el tamaño mínimo que lo contiene).
-            page.set_mediabox(fitz.Rect(0, 0, original.width + 250,
-                                       original.height + 200))
+            first = [b for b in page.get_text("blocks")
+                     if len(b) >= 5 and (b[4].strip() if isinstance(b[4], str) else True)]
+            left = min([0, *[b[0] for b in first]])
+            top = min([0, *[b[1] for b in first]])
+            if left < -180 or top < -180:
+                raise LayoutError(
+                    f"Página {index + 1}: contenido desplazado más de 180 pt "
+                    "fuera del margen; revisar celdas, escalado y área de impresión"
+                )
+            # 16pt bleed also recovers partially clipped first/last characters.
+            left_pad = max(16.0, -left + 14.0)
+            top_pad = max(16.0, -top + 14.0)
+            page.set_mediabox(fitz.Rect(
+                -left_pad, -top_pad, original.width + 250, original.height + 200
+            ))
+            recovered = [b for b in page.get_text("blocks")
+                         if len(b) >= 5 and (b[4].strip() if isinstance(b[4], str) else True)]
+            max_x = max([original.width, *[b[2] for b in recovered]])
+            max_y = max([original.height, *[b[3] for b in recovered]])
+            if any(b[0] < -180 or b[1] < -180 for b in recovered):
+                raise LayoutError(
+                    f"Página {index + 1}: el contenido excede el margen de "
+                    "recuperación. Identifica la celda y corrige su formato."
+                )
+            page.set_mediabox(fitz.Rect(
+                -left_pad, -top_pad,
+                max(original.width, max_x - left_pad + 14),
+                max(original.height, max_y + 14)
+            ))
+            target = output.new_page(width=595, height=842)
+            target.show_pdf_page(
+                fitz.Rect(18, 18, 577, 824), source, index,
+                keep_proportion=True, overlay=True
+            )
+        for number, page in enumerate(output, 1):
             blocks = [b for b in page.get_text("blocks")
                       if len(b) >= 5 and (b[4].strip() if isinstance(b[4], str) else True)]
-            xmin = min([0, *[b[0] for b in blocks]])
-            ymin = min([0, *[b[1] for b in blocks]])
-            xmax = max([original.width, *[b[2] for b in blocks]])
-            ymax = max([original.height, *[b[3] for b in blocks]])
-            if xmin < -1 or ymin < -1:
-                raise LayoutError("Texto fuera del margen superior o izquierdo del Excel; revisa la maquetación")
-            if xmax > original.width + 1 or ymax > original.height + 1:
-                page.set_mediabox(fitz.Rect(0, 0, xmax + 8, ymax + 8))
-            else:
-                page.set_mediabox(fitz.Rect(0, 0, original.width, original.height))
-            target = output.new_page(width=595, height=842)
-            target.show_pdf_page(fitz.Rect(12, 12, 583, 830), source, index,
-                                 keep_proportion=True, overlay=True)
-        for page in output:
-            for block in page.get_text("blocks"):
-                if (block[0] < -1 or block[1] < -1 or
-                    block[2] > page.rect.width + 1 or
-                    block[3] > page.rect.height + 1):
-                    raise LayoutError("El PDF A4 contiene texto fuera de la página: revisar maquetación")
+            for block in blocks:
+                if (block[0] < 0 or block[1] < 0
+                        or block[2] > page.rect.width
+                        or block[3] > page.rect.height):
+                    raise LayoutError(
+                        f"Página {number}: texto fuera de la página A4 después "
+                        "de la normalización; revisar diseño original"
+                    )
         return output.tobytes(garbage=4, deflate=True)
     finally:
         source.close()
         output.close()
+
 
 
 def libreoffice_pdf(xlsx: bytes, timeout: int = 50) -> bytes:

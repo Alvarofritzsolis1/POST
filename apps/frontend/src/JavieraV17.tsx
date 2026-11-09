@@ -15,6 +15,9 @@ type Library={documents:Template[];total:number;imported:number;published:number
   awaiting_review:number;engine_available:boolean;requires_human_approval:boolean};
 type UploadResult={status:"already_imported"|"imported_as_draft";created:number;matched:number;
   message:string;library:Library};
+type PdfAudit={layout_id:string;code:string;sheet:string;revision:number;pages:number;
+  formula_count:number;merged_ranges:number;configured_print_area:string;
+  passed:boolean;message:string;requires_human_approval:boolean;out_of_bounds:{page:number;side:string}[]};
 const endpoint="/api/v1/javiera/v17";
 function problem(error:unknown){
   if(!(error instanceof Error))return String(error);
@@ -34,6 +37,8 @@ export default function JavieraV17({onConfig}:{onConfig?:()=>void}){
   const [uploading,setUploading]=useState(false);
   const [error,setError]=useState("");
   const [notice,setNotice]=useState("");
+  const [audits,setAudits]=useState<Record<string,PdfAudit>>({});
+  const [checking,setChecking]=useState("");
   const [selectedArea,setSelectedArea]=useState<"all"|"laboral"|"prevencion">("all");
   const load=useCallback(async()=>{
     try{
@@ -68,6 +73,17 @@ export default function JavieraV17({onConfig}:{onConfig?:()=>void}){
     }catch(err){setError(problem(err));}
     finally{setUploading(false);}
   }
+  async function checkTemplate(item:Template){
+    if(!item.layout_id)return;
+    setChecking(item.code);setError("");
+    try{
+      const result=await request<PdfAudit>("/javiera/v18/layouts/"+item.layout_id+"/check",{
+        method:"POST",body:JSON.stringify({})
+      });
+      setAudits(old=>({...old,[item.code]:result}));
+    }catch(e){setError("Error al revisar "+item.title+": "+problem(e));}
+    finally{setChecking("");}
+  }
   const entries=(data?.documents||[]).filter(x=>selectedArea==="all"||x.specialty===selectedArea);
   if(mode==="documents")return <div className="j17-shell">
     <button className="j17-back" onClick={()=>{setMode("library");void load();}}>
@@ -76,7 +92,7 @@ export default function JavieraV17({onConfig}:{onConfig?:()=>void}){
   </div>;
   return <main className="j17-shell">
     <header className="j17-hero">
-      <div><span>GALANT 17 · PROYECTO JAVIERA</span>
+      <div><span>GALANT 18 · PROYECTO JAVIERA</span>
         <h2>Biblioteca documental inteligente</h2>
         <p>Las diez plantillas de tu Excel en un único lugar. Se cargan una sola vez;
           luego completas datos y generas PDF sin reescribir documentos.</p>
@@ -87,7 +103,7 @@ export default function JavieraV17({onConfig}:{onConfig?:()=>void}){
     {loading?<div className="j17-loading"><Loader2 size={20}/> Consultando biblioteca privada…</div>:
       <section className="j17-upload" aria-label="Importación de plantillas">
         <div><h3>1. Importar el Excel preparado</h3>
-          <p>Selecciona <b>GALANT_JAVIERA_10_PLANTILLAS_EDITABLES.xlsx</b> o una versión
+          <p>Selecciona <b>GALANT_JAVIERA_18_10_PLANTILLAS_CORREGIDAS.xlsx</b> o una versión
             corregida. GALANT reconocerá las diez hojas y preparará sus borradores automáticamente.</p>
           <small>Las plantillas se guardan exclusivamente en el servidor privado de tu organización.
             No se incorporan trabajadores ni contratistas a otros módulos.</small>
@@ -132,6 +148,15 @@ export default function JavieraV17({onConfig}:{onConfig?:()=>void}){
               {item.can_preview&&item.layout_id&&
                 <a href={"/api/v1/javiera/admin/excel/layouts/"+item.layout_id+"/preview"}
                   target="_blank" rel="noreferrer"><Eye size={15}/> Vista previa PDF</a>}
+              {item.layout_id&&item.imported&&<button className="j17-outline" type="button"
+                disabled={checking===item.code} onClick={()=>void checkTemplate(item)}>
+                {checking===item.code?"Comprobando PDF…":"Validar fórmulas y PDF"}</button>}
+              {audits[item.code]&&<p role="status" className={audits[item.code].passed?"j17-check-ok":"j17-check-error"}>
+                {audits[item.code].passed?"PDF de prueba correcto":"Revisión fallida"} ·
+                {audits[item.code].pages} página(s) ·
+                {audits[item.code].formula_count} fórmulas ·
+                área {audits[item.code].configured_print_area}
+              </p>}
               {!item.imported&&<span className="j17-muted">Incluida al importar el Excel</span>}
             </div>
           </article>)}
