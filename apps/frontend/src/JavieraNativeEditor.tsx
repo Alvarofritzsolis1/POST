@@ -33,9 +33,11 @@ const insertions=[
     "<tbody><tr><td>Escribe aquí</td><td>Dato correspondiente</td></tr></tbody></table>\n"},
 ] as const;
 
-export default function JavieraNativeEditor({onBack}:{onBack:()=>void}){
+export default function JavieraNativeEditor({onBack,initialCode="internal_rules_receipt"}:{
+  onBack:()=>void;initialCode?:string
+}){
   const [formats,setFormats]=useState<Format[]>([]);
-  const [selected,setSelected]=useState("internal_rules_receipt");
+  const [selected,setSelected]=useState(initialCode);
   const [document,setDocument]=useState<EditorDocument|null>(null);
   const [html,setHtml]=useState("");
   const [savedHtml,setSavedHtml]=useState("");
@@ -66,7 +68,7 @@ export default function JavieraNativeEditor({onBack}:{onBack:()=>void}){
     finally{setLoading(false);}
   },[]);
   useEffect(()=>{
-    void Promise.all([refreshFormats(),openDocument("internal_rules_receipt")])
+    void Promise.all([refreshFormats(),openDocument(initialCode)])
       .catch(e=>setError(e instanceof Error?e.message:String(e)));
   },[refreshFormats,openDocument]);
 
