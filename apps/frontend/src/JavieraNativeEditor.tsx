@@ -1,5 +1,5 @@
 import {useCallback, useEffect, useRef, useState} from "react";
-import {ArrowLeft, CheckCircle2, Code2, Eye, FileCode2, FileText, Save, ShieldCheck, Type} from "lucide-react";
+import {ArrowLeft, CheckCircle2, Code2, Eye, FileCode2, FileText, Save, ShieldCheck} from "lucide-react";
 import {request} from "./api";
 import "./javiera-native-editor.css";
 
@@ -11,13 +11,13 @@ type EditorDocument={code:string;title:string;html:string;revision:number|null;
 type EditorSave={code:string;revision:number;state:string;message:string};
 
 const sampleCsp="default-src 'none'; style-src 'unsafe-inline'; img-src 'none'; font-src 'none'; connect-src 'none';";
-const previewCss=String.raw\`
+const previewCss=`
 body{margin:0;font:11pt/1.5 Arial,sans-serif;color:#1d2939}
 h2,h3{font-size:12pt;color:#183b5b;border-bottom:1px solid #bccbd8;padding-bottom:6px}
 p{margin:8px 0}table{border-collapse:collapse;width:100%}
 td,th{border:1px solid #b7c6d4;padding:6px;font-size:10pt;vertical-align:top}
 th{background:#edf2f6}blockquote{border-left:3px solid #abbdd1;margin:10px 0;padding:6px 12px}
-\`;
+`;
 function designPreview(html:string){
   return '<!doctype html><html lang="es"><head><meta charset="utf-8">'+
     '<meta http-equiv="Content-Security-Policy" content="'+sampleCsp+'">'+
