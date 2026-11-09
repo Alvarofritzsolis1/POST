@@ -100,6 +100,7 @@ export default function JavieraV166({onConfig}:{onConfig?:()=>void}){
   const [lookup,setLookup]=useState("");
   const savingRef=useRef(false);
   const snapshotRef=useRef("");
+  const identityRef=useRef({companyId:"",companyRut:"",personId:"",personRut:"",personName:""});
   const dossierRef=useRef<Dossier|null>(null);
   const stepNames=["Empresa","Documentos","Antecedentes","Revisión e impresión","Historial"];
   const workerless=checked.length===1&&checked[0]==="sworn_declaration";
@@ -159,7 +160,7 @@ export default function JavieraV166({onConfig}:{onConfig?:()=>void}){
   const filled=total-missingLocal.length;
   const ready=states.filter(x=>x.can_issue);
   const invalid=states.filter(x=>!x.can_issue);
-  const fingerprint=JSON.stringify({siteId,companyId,personId,checked,shared,specific,relation,parentName});
+  const fingerprint=JSON.stringify({siteId,companyId,personId,companyRut,personName,personRut,personChoice,personOrigin,checked,shared,specific,relation,parentName});
   const showFailure=(e:unknown)=>{setError(errorText(e));setNotice("");};
 
   function chooseCode(code:string){
@@ -172,6 +173,7 @@ export default function JavieraV166({onConfig}:{onConfig?:()=>void}){
     setCompanyId("");setPersonId("");setDossier(null);dossierRef.current=null;
     setBatch(null);setStates([]);setChecked([]);setShared({});setSpecific({});
     setPersonChoice("");setCompanyChoice("");setPersonName("");setPersonRut("");setReasons({});
+    identityRef.current={companyId:"",companyRut:"",personId:"",personRut:"",personName:""};
   }
   async function startCompany(){
     setError("");setNotice("");
@@ -192,6 +194,7 @@ export default function JavieraV166({onConfig}:{onConfig?:()=>void}){
           site_id:siteId,origin:option.origin,source_id:option.id})});
       }
       setCompanyId(result.id);setCompanyName(result.name);setCompanyRut(result.rut);
+      identityRef.current={companyId:result.id,companyRut:result.rut,personId:"",personRut:"",personName:""};
       setStep(2);setNotice("Empresa preparada exclusivamente para Proyecto Javiera.");
     }catch(e){showFailure(e);}finally{setSaving(false);}
   }
@@ -210,6 +213,7 @@ export default function JavieraV166({onConfig}:{onConfig?:()=>void}){
         company_id:companyId,origin:option.origin,source_id:option.id})});
     }
     setPersonId(result.id);setPersonName(result.name);setPersonRut(result.rut);
+    identityRef.current={...identityRef.current,personId:result.id,personRut:result.rut,personName:result.name};
     return result.id;
   }
 
@@ -219,8 +223,22 @@ export default function JavieraV166({onConfig}:{onConfig?:()=>void}){
     savingRef.current=true;setSaving(true);setError("");
     try{
       const current=dossierRef.current;
+      const targetPerson=personOverride===undefined?(workerless?null:personId||null):personOverride;
+      const last=identityRef.current;
+      // Persist edits to local documentary identities only, never to operational GALANT.
+      if(last.companyId===companyId&&last.companyRut!==companyRut){
+        await request(BASE+"/companies/"+companyId,{method:"PATCH",
+          body:JSON.stringify({rut:companyRut})});
+        identityRef.current={...identityRef.current,companyRut};
+      }
+      if(targetPerson&&personId===targetPerson&&last.personId===targetPerson&&
+         (last.personRut!==personRut||last.personName!==personName)){
+        await request(BASE+"/people/"+targetPerson,{method:"PATCH",body:JSON.stringify({
+          rut:personRut,name:personName})});
+        identityRef.current={...identityRef.current,personRut,personName};
+      }
       const data={site_id:siteId,company_id:companyId,
-        person_id:personOverride===undefined?(workerless?null:personId||null):personOverride,
+        person_id:targetPerson,
         relationship:relation,parent_name:relation==="subcontractor"?parentName:null,
         selected_codes:checked,shared:nestedFromFields(shared),
         document_data:Object.fromEntries(checked.map(code=>[code,{
@@ -245,21 +263,25 @@ export default function JavieraV166({onConfig}:{onConfig?:()=>void}){
     if(!checked.length){setError("Selecciona al menos un documento.");return;}
     try{
       const resolved=await ensurePerson();
-      // Edits affect only the documentary copy, including imported GALANT identities.
-      await request(BASE+"/companies/"+companyId,{method:"PATCH",
-        body:JSON.stringify({rut:companyRut})});
-      if(personId&&resolved)await request(BASE+"/people/"+resolved,{method:"PATCH",
-        body:JSON.stringify({rut:personRut})});
       const result=await saveDraft(true,requiredPerson?resolved:null);
       if(result){setStep(4);setError("");}
     }catch(e){showFailure(e);}
   }
 
   useEffect(()=>{
-    if(!dossierRef.current||step!==3)return;
-    const timeout=window.setTimeout(()=>{void saveDraft();},1400);
+    if(step!==3||!companyId||!checked.length)return;
+    if(requiredPerson&&!personId&&(
+       personOrigin==="new"?personName.trim().length<2:!personChoice))return;
+    const timeout=window.setTimeout(()=>{
+      void (async()=>{
+        try{
+          const resolved=requiredPerson?await ensurePerson():null;
+          await saveDraft(false,requiredPerson?resolved:null);
+        }catch(e){showFailure(e);}
+      })();
+    },1600);
     return()=>window.clearTimeout(timeout);
-  // Explicitly debounce only input edits; dossier changes do not trigger loops.
+  // Debounced autosave starts as soon as there is a valid documentary identity.
   },[fingerprint,step]);
 
   async function generate(){
@@ -317,6 +339,8 @@ export default function JavieraV166({onConfig}:{onConfig?:()=>void}){
       setShared(flatten(d.shared));
       setSpecific(Object.fromEntries(Object.entries(d.document_data).map(([code,obj])=>[
         code,{...flatten(obj),...(obj.verified_no_workers?{verified_no_workers:"true"}:{}),...(obj.event_confirmed?{event_confirmed:"true"}:{})}])));
+      identityRef.current={companyId:d.company_id,companyRut:d.company_rut||"",
+        personId:d.person_id||"",personRut:d.person_rut||"",personName:d.person_name||""};
       setDossier(d);dossierRef.current=d;setBatch(null);setStep(3);setNotice("Expediente recuperado sin modificar módulos operativos.");
     }catch(e){showFailure(e);}
   }
