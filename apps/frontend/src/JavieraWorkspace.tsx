@@ -728,3 +728,6 @@ export default function JavieraWorkspace({onConfig}:{onConfig?:()=>void}){
     </div>
   </section>;
 }
+
+// Shared field catalogue for the independent v16.6 wizard (legacy UI remains read-only).
+export {F as JAVIERA_FIELD_META, EXCEL_FIELDS as JAVIERA_EXCEL_FIELDS};

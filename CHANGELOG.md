@@ -1,5 +1,14 @@
 # Historial de cambios
 
+## 16.6.0-rc1 — JAVIERA independiente y generación múltiple (candidata)
+
+- Expedientes, empresas y personas documentales independientes; el asistente no da de alta ni modifica trabajadores y contratistas operativos.
+- Asistente por pasos y selección múltiple de las diez plantillas, información compartida y documentos específicos.
+- API independiente, generación parcial por lotes, PDF combinado e historial de emisión con originales inmutables.
+- Migración aditiva; sin cambios ni bajas en documentos históricos.
+- Requiere CI, aprobación humana de plantillas y verificación de impresión en VPS antes de considerar producción lista.
+
+
 ## 16.5.0-rc1 — JAVIERA documental simplificado desde Excel (candidata)
 
 - Asistente centrado en elegir uno de los diez documentos; campos rotulados según el Excel y separados entre documentación laboral y prevención.
