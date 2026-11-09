@@ -48,6 +48,10 @@ class LayoutChange(Strict):
     reason: str = Field(min_length=10, max_length=800)
 
 
+class PilotPrintEnable(Strict):
+    confirmed_preview: bool = False
+
+
 def audit(db: Session, user: User, action: str, ident: str):
     db.add(AuditEvent(org_id=user.org_id, user_id=user.id, action=action, resource_id=ident))
 
@@ -196,7 +200,8 @@ def make_pdf(db: Session, user: User, item: JavieraExcelLayout,
 @router.get("/status")
 def status(user: User = Depends(administrator)):
     return {"engine": "LibreOffice Calc", "available": bool(shutil.which("libreoffice") or shutil.which("soffice")),
-            "private_storage": True, "document_types": len(DOC_SHEETS)}
+            "private_storage": True, "document_types": len(DOC_SHEETS),
+             "solo_pilot": settings().javiera_solo_pilot}
 
 
 @router.post("/import")
@@ -213,13 +218,21 @@ async def import_excel(file: UploadFile = File(...),
     found = [x for x in items if x["found"]]
     if len(found) < 8:
         raise HTTPException(422, "Se requiere la plantilla original con al menos 8 hojas documentales")
+    digest = hashlib.sha256(raw).hexdigest()
+    # Una nueva carga del mismo XLSX no debe multiplicar las diez plantillas.
+    # Solo una fuente modificada produce revisiones nuevas, sin borrar historial.
+    newest = [latest_layout(db, user.org_id, entry["code"], approved=False)
+              for entry in found]
+    if found and all(row and row.workbook_sha256 == digest for row in newest):
+        return {"templates": found, "missing": [x["code"] for x in items if not x["found"]],
+                "status": "already_imported", "sha256": digest,
+                "message": "El mismo Excel ya estaba importado. No se crearon versiones duplicadas."}
     root = settings().document_dir / user.org_id / "javiera" / "layout-sources"
     root.mkdir(parents=True, exist_ok=True, mode=0o700)
     ident = str(uuid4())
     path = root / (ident + ".xlsx")
     path.write_bytes(raw)
     path.chmod(0o600)
-    digest = hashlib.sha256(raw).hexdigest()
     try:
         for entry in found:
             code = entry["code"]
@@ -317,6 +330,38 @@ def revise_layout(layout_id: str, payload: LayoutChange,
     db.commit()
     return {"id":fresh.id, "revision":fresh.revision, "status":"draft",
             "reason":payload.reason, "changes":len(changes)}
+
+
+@router.post("/layouts/{layout_id}/enable-print")
+def enable_print_for_pilot(layout_id: str, payload: PilotPrintEnable,
+                           user: User = Depends(administrator), db: Session = Depends(get_db)):
+    """Habilitación administrativa del FORMATO para imprimir y firmar en papel.
+
+    No registra firma, recepción, cumplimiento legal ni una revisión independiente.
+    La vía de doble revisión existente permanece disponible fuera del piloto.
+    """
+    if not settings().javiera_solo_pilot:
+        raise HTTPException(403, "La habilitación directa está desactivada fuera del piloto")
+    if not payload.confirmed_preview:
+        raise HTTPException(422, "Abre primero la vista previa y confirma su revisión visual")
+    obj = layout_for(db, user, layout_id)
+    newest = latest_layout(db, user.org_id, obj.code, approved=False)
+    if not newest or newest.id != obj.id:
+        raise HTTPException(409, "Esta es una versión antigua; selecciona el diseño vigente")
+    if obj.state == "approved":
+        return {"id": obj.id, "code": obj.code, "status": obj.state,
+                "revision": obj.revision, "pilot_print_only": True}
+    if obj.state != "draft":
+        raise HTTPException(409, "La plantilla no puede habilitarse para impresión")
+    # Fallar de forma segura si falta el Excel original o el motor de PDF.
+    layout_preview(layout_id=layout_id, dossier_id="", user=user, db=db)
+    obj.state, obj.reviewer_id, obj.reviewed_at = "approved", user.id, utcnow()
+    db.flush()
+    audit(db, user, "javiera.pilot_format_enabled_for_print", obj.id)
+    db.commit()
+    return {"id": obj.id, "code": obj.code, "status": obj.state,
+            "revision": obj.revision, "pilot_print_only": True,
+            "message": "Formato habilitado para imprimir y obtener firmas en papel; no acredita entrega ni firma."}
 
 
 @router.post("/layouts/{layout_id}/approve")
