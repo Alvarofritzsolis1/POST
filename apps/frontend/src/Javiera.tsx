@@ -9,7 +9,7 @@ import JavieraV17 from "./JavieraV17";
 type Source = {sites: {id:string;name:string}[];contractors:{id:string;site_id:string;name:string;rut:string|null;nature:string}[];workers:{id:string;name:string;rut:string|null;active:boolean}[]};
 type Catalog = {code:string;area:string;title:string;required_fields:string[];published_version:number};
 type Status = {code:string;area:string;title:string;status:string;reason:string;missing_fields:string[];blocking_errors:string[];completion_percent:number;can_preview:boolean;can_issue:boolean;has_history:boolean;template_version:number};
-type Template = {code:string;title:string;area:string;body:string;fields:string[];rule:Record<string,unknown>;layout:Record<string,unknown>;published_version:number;revisions:{revision:number;state:string;author_id:string;reason:string;contents:{body:string;title:string;area:string;fields:string[]}}[]};
+type Template = {code:string;title:string;area:string;body:string;fields:string[];rule:Record<string,unknown>;layout:Record<string,unknown>;published_version:number;revisions:{revision:number;state:string;author_id:string;reason:string;contents:{body:string;title:string;area:string;fields:string[];rule?:Record<string,unknown>;layout?:Record<string,unknown>}}[]};
 type Matrix = {id:string;kind:string;cargo:string;sections:string[];revision:number;status:string;source:string;author_id:string};
 type Dossier = {id:string;revision:number;data:Record<string,unknown>;site_id:string;employer_id:string;worker_id:string|null;parent_id:string|null;relationship:string;issues:{id:string;code:string;at:string;sha256:string;version:number}[];historical:{id:string;code:string;state:string;comment:string}[]};
 const emptySource:Source={sites:[],contractors:[],workers:[]};
@@ -42,13 +42,23 @@ function previewBlob(blob:Blob){
   window.setTimeout(()=>URL.revokeObjectURL(url),60000);
 }
 
+function currentEditableTemplate(template:Template|null):Template|null{
+  if(!template)return null;
+  const latest=template.revisions.find(r=>
+    r.revision>template.published_version &&
+    ["draft","pilot_print"].includes(r.state));
+  if(!latest)return template;
+  return {...template,...latest.contents,
+    rule:latest.contents.rule||template.rule,
+    layout:latest.contents.layout||template.layout};
+}
 function Setup({onBack}:{onBack:()=>void}){
   const [templates,setTemplates]=useState<Template[]>([]);
   const [selected,setSelected]=useState("labor_contract");
   const [draft,setDraft]=useState<Template|null>(null);
   const [reason,setReason]=useState("");
   const [newField,setNewField]=useState("");
-  const [tab,setTab]=useState<"documentos"|"matrices"|"excel"|"reviews">("excel");
+  const [tab,setTab]=useState<"documentos"|"matrices"|"excel"|"reviews">("documentos");
   const [matrices,setMatrices]=useState<Matrix[]>([]);
   const [matrixKind,setMatrixKind]=useState<"PTS"|"IRL">("PTS");
   const [soloPilot,setSoloPilot]=useState(false);
@@ -87,14 +97,14 @@ function Setup({onBack}:{onBack:()=>void}){
   async function refresh(){
     const [t,m]=await Promise.all([request<Template[]>("/javiera/admin/templates"),
       request<Matrix[]>("/javiera/admin/matrices")]);
-    setTemplates(t);setMatrices(m);setDraft(t.find(x=>x.code===selected)||t[0]||null);
+    setTemplates(t);setMatrices(m);setDraft(currentEditableTemplate(t.find(x=>x.code===selected)||t[0]||null));
   }
   useEffect(()=>{
     void refresh().catch(e=>setError(errorMessage(e)));
     void request<{solo_pilot:boolean}>("/javiera/admin/excel/status")
       .then(r=>setSoloPilot(r.solo_pilot)).catch(()=>setSoloPilot(false));
   },[]);
-  function pick(code:string){setSelected(code);setDraft(templates.find(t=>t.code===code)||null);setReason("");}
+  function pick(code:string){setSelected(code);setDraft(currentEditableTemplate(templates.find(t=>t.code===code)||null));setReason("");}
   async function save(){
     if(!draft)return;
     setError("");setNotice("");
@@ -106,8 +116,17 @@ function Setup({onBack}:{onBack:()=>void}){
     }catch(e){setError(errorMessage(e));}
   }
   async function approve(code:string,revision:number){
-    try{await request("/javiera/admin/templates/"+code+"/approve/"+revision,{method:"POST"});
-      await refresh();setNotice("Versión aprobada y publicada.");}catch(e){setError(errorMessage(e));}
+    try{
+      if(soloPilot){
+        await request("/javiera/v19/templates/"+code+"/enable-preview",{
+          method:"POST",body:JSON.stringify({revision,confirmed_content:true})});
+        await refresh();
+        setNotice("Texto habilitado para vista previa A4; no equivale a aprobación profesional ni a firma física.");
+      }else{
+        await request("/javiera/admin/templates/"+code+"/approve/"+revision,{method:"POST"});
+        await refresh();setNotice("Versión aprobada y publicada.");
+      }
+    }catch(e){setError(errorMessage(e));}
   }
   async function saveMatrix(){
     try{await request("/javiera/admin/matrices",{method:"POST",body:JSON.stringify({
@@ -145,7 +164,10 @@ function Setup({onBack}:{onBack:()=>void}){
           <FileText size={16}/><span>{t.title}<small>{t.published_version?"Publicada v"+t.published_version:"Pendiente de aprobación"}</small></span>
         </button>)}</nav>
       {draft&&<section className="jv-editor">
-        <h2>Editor de contenido</h2><p>Las modificaciones se guardan como revisiones nuevas. Nunca cambian PDFs emitidos.</p>
+        <h2>Editar el texto del documento</h2>
+        <p>Selecciona el formato a la izquierda, modifica su texto original y guarda un borrador.
+           Puedes usar variables como <code>{"{{worker.name}}"}</code>.
+           Después habilita la vista previa. Ningún cambio reescribe PDFs históricos.</p>
         <label>Título <input value={draft.title} onChange={e=>setDraft({...draft,title:e.target.value})}/></label>
         <label>Eventos aplicables (selección múltiple; vacío = regla original)
           <select multiple size={7} value={Array.isArray(draft.rule.events)?draft.rule.events as string[]:[]}
@@ -162,9 +184,9 @@ function Setup({onBack}:{onBack:()=>void}){
         <label>Área documental <select value={draft.area} onChange={e=>setDraft({...draft,area:e.target.value})}>
           <option>Zona Subcontratos</option><option>Prevención de Riesgos</option></select></label>
         <details className="jv-layout-editor"><summary>Diseño del PDF · A4</summary>
-          <label>Encabezado <input value={String(draft.layout.header??"GALANT · PROYECTO JAVIERA")}
+          <label>Encabezado <input value={String(draft.layout.header??"DOCUMENTACIÓN LABORAL Y PREVENTIVA")}
             onChange={e=>setDraft({...draft,layout:{...draft.layout,header:e.target.value}})}/></label>
-          <label>Pie de página <input value={String(draft.layout.footer??"Documento generado por GALANT")}
+          <label>Pie de página <input value={String(draft.layout.footer??"Documento para firma manuscrita")}
             onChange={e=>setDraft({...draft,layout:{...draft.layout,footer:e.target.value}})}/></label>
           <div className="jv-paired">
             <label>Tamaño de letra (9 a 12) <input type="number" min="9" max="12"
@@ -186,10 +208,15 @@ function Setup({onBack}:{onBack:()=>void}){
         <label>Motivo de cambio <input value={reason} onChange={e=>setReason(e.target.value)} placeholder="Ej. Corrección de párrafo o matriz"/></label>
         <button className="jv-primary" disabled={reason.trim().length<6||draft.body.trim().length<20} onClick={()=>void save()}>Guardar borrador</button>
       </section>}
-      <aside className="jv-versions"><h3>Versiones y aprobaciones</h3><p>Para publicar se requiere una persona revisora autorizada distinta del autor.</p>
+      <aside className="jv-versions"><h3>Historial y habilitación</h3>
+        <p>{soloPilot?"En el piloto, el administrador habilita únicamente la vista previa A4 del texto que revisó. No hay firma ni aprobación profesional automática.":"La publicación formal requiere una persona revisora autorizada distinta del autor."}</p>
         {(templates.find(t=>t.code===selected)?.revisions||[]).map(v=><div className="jv-version" key={v.revision}>
-          <b>Revisión {v.revision}</b><small>{v.state}</small><p>{v.reason}</p>
-          {v.state==="draft"&&<button onClick={()=>void approve(selected,v.revision)}>Aprobar publicación</button>}
+          <b>Revisión {v.revision}</b>
+          <small>{v.state==="draft"?"Borrador sin habilitar":v.state==="pilot_print"?"Vista previa A4 habilitada":v.state==="published"?"Publicada profesionalmente":v.state}</small>
+          <p>{v.reason}</p>
+          {v.state==="draft"&&<button onClick={()=>void approve(selected,v.revision)}>
+            {soloPilot?"Habilitar vista previa A4":"Solicitar aprobación profesional"}
+          </button>}
           <details><summary>Comparar contenido</summary><pre>{v.contents.body}</pre></details>
         </div>)}
         {!templates.find(t=>t.code===selected)?.revisions.length&&<p>Sin revisiones registradas.</p>}

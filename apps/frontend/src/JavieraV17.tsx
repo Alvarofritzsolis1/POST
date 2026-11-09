@@ -89,7 +89,7 @@ export default function JavieraV17({onConfig}:{onConfig?:()=>void}){
   if(mode==="documents")return <div className="j17-shell">
     <button className="j17-back" onClick={()=>{setMode("library");void load();}}>
       <ArrowLeft size={16}/> Biblioteca de plantillas</button>
-    <JavieraV166 onConfig={()=>{setMode("library");void load();}}/>
+    <JavieraV166 onConfig={()=>{setMode("library");void load();}} onTextEditor={onConfig}/>
   </div>;
   return <main className="j17-shell">
     <header className="j17-hero">

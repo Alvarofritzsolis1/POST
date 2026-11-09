@@ -1,0 +1,56 @@
+body { font-family: sans-serif; font-size: 10.7pt; line-height: 1.35; color: #1d2939; margin: 0; }
+h1 { font-size: 16pt; color: #173550; margin: 7pt 0 3pt; text-align: center; }
+h2 { font-size: 10.5pt; font-weight: bold; color: #183b5b; background: #e8eef4;
+     border-left: 2pt solid #183b5b; padding: 7pt 8pt; margin: 17pt 0 9pt; }
+p { margin: 6pt 0 10pt; }
+.eyebrow { letter-spacing: 0.7pt; font-size: 8.6pt; font-weight: bold; text-align: center;
+            margin: 0; color: #3c5268; }
+.subtitle { color: #4b596a; text-align: center; font-size: 8.7pt; margin-top: 0; }
+.preview-ribbon { color: #8b3e24; background: #fff5e8; border: 0.5pt solid #e4c7a8;
+                  text-align: center; font-size: 7.5pt; padding: 5pt; margin-bottom: 12pt; }
+.document-head { border-bottom: 1.5pt solid #183b5b; margin-bottom: 12pt; }
+table { border-collapse: collapse; width: 100%; }
+td, th { vertical-align: top; padding: 6pt; border: 0.5pt solid #b6c1ca; font-size: 9.5pt; }
+th { font-weight: bold; text-align: left; background: #edf2f6; color: #243a4f; }
+.identity th { width: 15%; font-size: 8.5pt; }
+.identity td { width: 35%; }
+.matrix th, .topics th { font-size: 9.4pt; }
+.matrix tr, .topics tr { break-inside: avoid; }
+.matrix td, .topics td { padding: 7pt 8pt; }
+.signature-panel { break-inside: avoid; margin-top: 18pt; }
+.signature-panel p { font-size: 8.3pt; color: #4b596a; }
+.signature-table td { width: 50%; border: none; text-align: center; padding: 8pt 10pt; }
+.signature-space { height: 35pt; }
+.signature-line { border-top: 0.6pt solid #334155; padding-top: 7pt; font-size: 9pt; text-align: center; }
+.handwriting-space { height: 35pt; border: 0.5pt solid #b6c1ca; }
+
+/* Estándar de impresión: legibilidad, tablas continuas y firmas manuscritas. */
+.legal-copy {font-size:10.5pt; line-height:1.48; text-align:justify; overflow-wrap:break-word;}
+.legal-copy p {margin:0 0 11pt; orphans:3; widows:3;}
+.legal-body {font-size:10.5pt;}
+.matrix thead, .topics thead {display:table-header-group;}
+.identity, .document-head {break-inside:avoid;}
+.matrix tr, .topics tr {break-inside:avoid;}
+.print-notes {break-inside:avoid; margin-top:10pt;}
+.print-notes p {white-space:normal; line-height:1.5;}
+.signature-panel, .signature-table, .signature-table tr {break-inside:avoid;}
+
+/* La inducción con cinco temas de prueba debe imprimirse en UNA hoja A4:
+   conservar el espacio de escritura y las firmas en esa misma página.
+   Las inducciones extensas pueden usar páginas adicionales sin letra pequeña. */
+.topics th, .topics td {padding:5pt 6pt;}
+.signature-panel {margin-top:7pt;}
+.signature-panel h2 {margin-top:8pt;margin-bottom:6pt;}
+.handwriting-space {height:30pt;}
+
+/* Compatibilidad de paginación PyMuPDF 1.26–1.28:
+   no comprimir tipografía, solo reducir espacios decorativos.
+   El contenido y 35pt útiles para firmas permanecen intactos. */
+body p {margin:4pt 0 6pt;}
+body h2 {margin:12pt 0 6pt;}
+.preview-ribbon {margin-bottom:7pt;}
+.document-head {margin-bottom:7pt;}
+.identity td, .identity th {padding:5pt;}
+.signature-panel h2 {margin:8pt 0 6pt;}
+.ppe-source-label {margin:8pt 0 4pt; color:#243a4f; font-size:9.2pt;}
+.ppe-form .matrix td, .ppe-form .matrix th {padding:4pt 5pt;}

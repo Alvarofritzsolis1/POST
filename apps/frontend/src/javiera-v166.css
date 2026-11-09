@@ -21,8 +21,8 @@
 .j166-pick.selected{border-color:#3175be;background:#eaf4fe;box-shadow:0 0 0 2px rgba(49,117,190,.12)}
 .j166-field{display:flex;flex-direction:column;gap:6px;font-size:13px;color:#32445a;min-width:0}
 .j166-field span{font-weight:670}
-.j166-field input,.j166-field select{width:100%;min-width:0;min-height:42px;border:1px solid #cfdae5;border-radius:9px;background:#fff;padding:9px 11px;color:#1b3046;font:inherit}
-.j166-field input:focus,.j166-field select:focus{outline:2px solid #8fc3f6;outline-offset:1px}
+.j166-field input,.j166-field select,.j166-field textarea{width:100%;min-width:0;min-height:42px;border:1px solid #cfdae5;border-radius:9px;background:#fff;padding:9px 11px;color:#1b3046;font:inherit}
+.j166-field input:focus,.j166-field select:focus,.j166-field textarea:focus{outline:2px solid #8fc3f6;outline-offset:1px}
 .j166-field small{color:#688095;line-height:1.35}
 .j166-actions{display:flex;flex-wrap:wrap;align-items:center;justify-content:flex-end;gap:10px;margin-top:23px}
 .j166-primary,.j166-light,.j166-back{display:inline-flex;align-items:center;justify-content:center;gap:7px;border:1px solid #cbd9e8;border-radius:10px;padding:11px 16px;background:#fff;color:#21446c;text-decoration:none;font-size:13px;font-weight:700;cursor:pointer;line-height:1.3}
@@ -66,3 +66,16 @@
 .j166-needed{display:flex;flex-wrap:wrap;gap:8px;margin-top:10px}
 .j166-needed>span{font-size:12px;background:#edf4fb;border:1px solid #c6d9ef;border-radius:7px;padding:6px 9px;color:#274e73}
 .j166-needed>small{align-self:center;color:#62788e}
+
+.j166-field textarea{resize:vertical;min-height:140px;line-height:1.5;white-space:pre-wrap}
+
+/* GALANT 19: documentos colapsables, espacio claro y controles accesibles. */
+.j166-doc-accordion > summary {
+  display:flex; flex-wrap:wrap; gap:8px 16px; justify-content:space-between;
+  align-items:center; cursor:pointer; padding:10px 0; list-style-position:inside;
+  line-height:1.4;
+}
+.j166-doc-accordion > summary:focus-visible { outline:2px solid #2563eb; outline-offset:3px; }
+.j166-doc-accordion > summary small {font-size:.8rem; font-weight:400; color:var(--text-muted,#64748b)}
+.j166-doc-accordion[open] > summary {border-bottom:1px solid rgba(100,116,139,.23);margin-bottom:12px}
+.j166-doc-accordion .j166-field textarea{min-height:92px}

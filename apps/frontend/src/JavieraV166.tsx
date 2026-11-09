@@ -16,6 +16,8 @@ type TemplateLink={code:string;sheet:string;linked:boolean;imported:boolean;
   state:"not_imported"|"draft"|"missing_storage"|"engine_unavailable"|"published";
   message:string;ready:boolean;source_sha256:string|null};
 type LibraryStatus={engine_available:boolean;documents:TemplateLink[]};
+type NativeFormat={code:string;status:"ready"|"requires_published_text";editable_in:string;source_revision:number|null};
+type NativeCatalog={mode:string;formats:NativeFormat[];message:string};
 type DocState={code:string;status:string;reason:string;missing_fields:string[];blocking_errors:string[];
   completion_percent:number;can_issue:boolean;has_history:boolean;requires_reissue_reason?:boolean;last_issue_id?:string};
 type Dossier={id:string;revision:number;company_id:string;person_id:string|null;site_id:string;
@@ -37,7 +39,7 @@ const TITLES:Record<string,string>={
   pts_receipt:"Recepción de PTS",induction:"Inducción de prevención",
 };
 const ORDER=Object.keys(TITLES);
-const DOC_ONLY=new Set(["event.date","event.epp_items","event.pts_version",
+const DOC_ONLY=new Set(["event.date","event.epp_items","event.pts_version","event.induction_topics","event.print_notes",
   "extra.regulation_version","extra.declaration_period","contract.declaration_reason",
   "contract.transfer_date","contract.new_end","extra.destinations",
   "extra.transport_allowance"]);
@@ -72,15 +74,30 @@ async function previewRequest(dossier_id:string,code:string){
   }
   return response.blob();
 }
+async function nativePreviewRequest(dossier_id:string,code:string){
+  const csrf=document.cookie.split("; ").find(x=>x.startsWith("galant_post_csrf="))?.split("=")[1]||"";
+  const response=await fetch("/api/v1/javiera/v19/preview",{
+    method:"POST",credentials:"include",cache:"no-store",
+    headers:{"Content-Type":"application/json","X-CSRF-Token":csrf},
+    body:JSON.stringify({dossier_id,code})
+  });
+  if(!response.ok){
+    const body=await response.json().catch(()=>({detail:"No fue posible preparar el PDF nativo."}));
+    throw new Error(typeof body.detail==="string"?body.detail:"Revisa los datos requeridos para este documento.");
+  }
+  return response.blob();
+}
 function pdfTab(){try{return window.open("about:blank","_blank");}catch{return null;}}
 
-export default function JavieraV166({onConfig}:{onConfig?:()=>void}){
+export default function JavieraV166({onConfig,onTextEditor}:{onConfig?:()=>void;onTextEditor?:()=>void}){
   const [step,setStep]=useState(1);
   const [origin,setOrigin]=useState<Origin>("new");
   const [siteId,setSiteId]=useState("");
   const [source,setSource]=useState<Source>(EMPTY);
   const [catalog,setCatalog]=useState<Catalog[]>([]);
   const [library,setLibrary]=useState<TemplateLink[]>([]);
+  const [nativeFormats,setNativeFormats]=useState<NativeFormat[]>([]);
+  const [nativeLoading,setNativeLoading]=useState(true);
   const [companyChoice,setCompanyChoice]=useState("");
   const [companyName,setCompanyName]=useState("");
   const [companyRut,setCompanyRut]=useState("");
@@ -130,6 +147,10 @@ export default function JavieraV166({onConfig}:{onConfig?:()=>void}){
     void request<LibraryStatus>(BASE+"/templates/status")
       .then(result=>setLibrary(result.documents))
       .catch(()=>setLibrary([]));
+    void request<NativeCatalog>("/javiera/v19/formats")
+      .then(result=>setNativeFormats(result.formats))
+      .catch(()=>setNativeFormats([]))
+      .finally(()=>setNativeLoading(false));
   },[]);
   const refreshSources=useCallback(async(company:string,site:string)=>{
     const r=await request<Source>(BASE+"/sources?site_id="+encodeURIComponent(site)+
@@ -298,7 +319,9 @@ export default function JavieraV166({onConfig}:{onConfig?:()=>void}){
         }])), // Preparar el PDF no confirma que el evento ocurrió.
         ...(current?{dossier_id:current.id,expected_revision:current.revision}:{})};
       const signature=JSON.stringify(data);
-      if(!force&&current&&signature===snapshotRef.current){
+      // Volver a previsualizar sin cambios no debe incrementar la revisión,
+      // duplicar documentos, ni bloquear la interfaz por escrituras evitables.
+      if(current&&signature===snapshotRef.current){
         if(identityChanged){
           const check=await request<{documents:DocState[]}>(BASE+"/dossiers/"+current.id+"/eligibility");
           setStates(check.documents);
@@ -361,6 +384,18 @@ export default function JavieraV166({onConfig}:{onConfig?:()=>void}){
       setNotice(result.issued+" PDF disponibles. "+(result.failed?result.failed+" no emitidos.":"Puedes imprimir el paquete."));
     }catch(e){showFailure(e);}finally{setSaving(false);}
   }
+  async function openNativePreview(code:string){
+    const tab=pdfTab();
+    try{
+      const record=await saveDraft(true);
+      if(!record){tab?.close();return;}
+      const blob=await nativePreviewRequest(record.id,code);
+      const url=URL.createObjectURL(blob);
+      if(tab)tab.location.replace(url);
+      else setNotice("El navegador bloqueó la pestaña del PDF. Permite ventanas emergentes para revisarlo.");
+      window.setTimeout(()=>URL.revokeObjectURL(url),120000);
+    }catch(e){tab?.close();showFailure(e);}
+  }
   async function openPreview(code:string){
     const tab=pdfTab();
     try{
@@ -417,7 +452,9 @@ export default function JavieraV166({onConfig}:{onConfig?:()=>void}){
       <span>{label}</span>
       {meta.options?<select value={value} onChange={e=>changeField(key,e.target.value,code)}>
         <option value="">Seleccionar</option>{meta.options.map(o=><option key={o}>{o}</option>)}
-      </select>:<input type={type} value={value} onChange={e=>changeField(key,e.target.value,code)}
+      </select>:type==="textarea"?<textarea rows={6} value={value}
+        onChange={e=>changeField(key,e.target.value,code)} placeholder={label}/>:
+        <input type={type} value={value} onChange={e=>changeField(key,e.target.value,code)}
         min={type==="number"?"0":undefined} placeholder={label}/>}
       {meta.hint&&<small>{meta.hint}</small>}
     </label>;
@@ -532,8 +569,12 @@ export default function JavieraV166({onConfig}:{onConfig?:()=>void}){
       </section>}
       <section className="j166-sub"><h4>Datos compartidos</h4>
         <div className="j166-fields">{commonKeys.map(key=>field(key))}</div></section>
-      {checked.map(code=><section key={code} className="j166-sub">
-        <h4>{title(code)} — datos específicos</h4>
+      <p className="j166-native-help">Abre solo el documento que necesitas completar.
+        Los datos comunes se reutilizan automáticamente en los demás.</p>
+      {checked.map((code,index)=><details key={code} className="j166-sub j166-doc-accordion" open={index===0}>
+        <summary><strong>{title(code)}</strong>
+          <small>{(uniqueKeys[code]||[]).length} campos propios · se puede editar después</small>
+        </summary>
         {["ppe_delivery","pts_receipt","induction","internal_rules_receipt"].includes(code)&&
           <p>Este formulario se prepara para imprimir y obtener firma en papel después. No es necesario indicar que la entrega o recepción ya ocurrió.</p>}
         {code==="sworn_declaration"&&<label className="j166-confirm"><input type="checkbox"
@@ -542,7 +583,14 @@ export default function JavieraV166({onConfig}:{onConfig?:()=>void}){
           Confirmo que la ausencia de trabajadores se verificará para el período declarado, con respaldo documental.</label>}
         {uniqueKeys[code]?.length?<div className="j166-fields">{uniqueKeys[code].map(key=>field(key,code))}</div>:
           <p>Este documento utiliza únicamente los antecedentes compartidos.</p>}
-      </section>)}
+        <label className="j166-field">
+          <span>Observaciones opcionales para este documento</span>
+          <textarea rows={3} value={specific[code]?.["event.print_notes"]||""}
+            maxLength={2000} placeholder="Solo agrega información verificable; no modifica el texto aprobado."
+            onChange={e=>changeField("event.print_notes",e.target.value,code)}/>
+          <small>Se imprimen en un apartado separado. No reemplazan cláusulas ni certifican una firma.</small>
+        </label>
+      </details>)}
       <div className="j166-actions"><span>{saving?"Guardando cambios…":dossier?"Borrador recuperable · revisión "+dossier.revision:"Pendiente de guardar"}</span>
         <button disabled={saving} className="j166-light" onClick={()=>void (async()=>{
           try{const resolved=await ensurePerson();await saveDraft(true,requiredPerson?resolved:null);}
@@ -551,7 +599,11 @@ export default function JavieraV166({onConfig}:{onConfig?:()=>void}){
     </section>}
     {step===4&&<section className="j166-panel">
       <button className="j166-back" onClick={()=>setStep(3)}><ArrowLeft size={16}/> Corregir antecedentes</button>
-      <h3>Revisión y generación</h3>
+      <h3>Revisión e impresión</h3>
+      <p className="j166-native-help">Revisa cada documento con <strong>Vista previa A4</strong>.
+        Si aún falta el texto original publicado, utiliza <strong>Editar formato original</strong>.
+        La opción Excel permanece disponible para comparar. Puedes corregir los datos
+        antes de imprimir. Un PDF no registra firmas físicas.</p>
       <p>Seleccionados: {checked.length} · Listos: {ready.length} · Pendientes: {invalid.length}</p>
       {states.map(s=><div className="j166-status" key={s.code}>
         <div><strong>{title(s.code)}</strong><small>{s.can_issue?"Listo para emitir":
@@ -564,7 +616,19 @@ export default function JavieraV166({onConfig}:{onConfig?:()=>void}){
         </div><div className="j166-status-actions">
           {!s.can_issue&&onConfig&&templateInfo(s.code)&&!templateInfo(s.code)?.ready&&
             <button className="j166-light" onClick={onConfig}>Revisar biblioteca Excel</button>}
-          {s.can_issue&&<button className="j166-light" onClick={()=>void openPreview(s.code)}><Eye size={16}/> Vista previa</button>}
+          {s.can_issue&&<button className="j166-light" onClick={()=>void openPreview(s.code)}><Eye size={16}/> Vista previa Excel</button>}
+          {nativeLoading&&<small>Consultando formatos A4…</small>}
+          {nativeFormats.find(f=>f.code===s.code)?.status==="ready"&&
+            <button className="j166-light" disabled={saving}
+              onClick={()=>void openNativePreview(s.code)}
+              title="PDF A4 para revisar e imprimir. No acredita firma ni recepción.">
+              <Eye size={16}/> Vista previa A4
+            </button>}
+          {nativeFormats.find(f=>f.code===s.code)?.status==="requires_published_text"&&
+            <button className="j166-light" disabled={!onTextEditor} onClick={onTextEditor}
+              title="El texto original debe revisarse y habilitarse antes de utilizarlo">
+              <FileText size={16}/> Editar formato original
+            </button>}
           {s.last_issue_id&&<a href={API+"/issues/"+s.last_issue_id+"/pdf"} target="_blank" rel="noreferrer">PDF anterior</a>}
         </div>
         {s.has_history&&<label className="j166-field"><span>Motivo de reemisión (mínimo 20 caracteres si cambian los datos)</span>
