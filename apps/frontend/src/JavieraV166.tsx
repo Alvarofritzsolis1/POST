@@ -193,6 +193,11 @@ export default function JavieraV166({onConfig}:{onConfig?:()=>void}){
         result=await request<Company>(BASE+"/companies",{method:"POST",body:JSON.stringify({
           site_id:siteId,origin:option.origin,source_id:option.id})});
       }
+      if(dossierRef.current&&result.id!==companyId){
+        dossierRef.current=null;setDossier(null);setChecked([]);
+        setShared({});setSpecific({});setBatch(null);setStates([]);
+        snapshotRef.current="";
+      }
       setCompanyId(result.id);setCompanyName(result.name);setCompanyRut(result.rut);
       identityRef.current={companyId:result.id,companyRut:result.rut,personId:"",personRut:"",personName:""};
       setStep(2);setNotice("Empresa preparada exclusivamente para Proyecto Javiera.");
@@ -225,17 +230,20 @@ export default function JavieraV166({onConfig}:{onConfig?:()=>void}){
       const current=dossierRef.current;
       const targetPerson=personOverride===undefined?(workerless?null:personId||null):personOverride;
       const last=identityRef.current;
+      let identityChanged=false;
       // Persist edits to local documentary identities only, never to operational GALANT.
       if(last.companyId===companyId&&last.companyRut!==companyRut){
         await request(BASE+"/companies/"+companyId,{method:"PATCH",
           body:JSON.stringify({rut:companyRut})});
         identityRef.current={...identityRef.current,companyRut};
+        identityChanged=true;
       }
       if(targetPerson&&personId===targetPerson&&last.personId===targetPerson&&
          (last.personRut!==personRut||last.personName!==personName)){
         await request(BASE+"/people/"+targetPerson,{method:"PATCH",body:JSON.stringify({
           rut:personRut,name:personName})});
         identityRef.current={...identityRef.current,personRut,personName};
+        identityChanged=true;
       }
       const data={site_id:siteId,company_id:companyId,
         person_id:targetPerson,
@@ -249,7 +257,13 @@ export default function JavieraV166({onConfig}:{onConfig?:()=>void}){
              &&specific[code]?.["event_confirmed"]==="true"?{event_confirmed:true}:{})}])),
         ...(current?{dossier_id:current.id,expected_revision:current.revision}:{})};
       const signature=JSON.stringify(data);
-      if(!force&&current&&signature===snapshotRef.current)return current;
+      if(!force&&current&&signature===snapshotRef.current){
+        if(identityChanged){
+          const check=await request<{documents:DocState[]}>(BASE+"/dossiers/"+current.id+"/eligibility");
+          setStates(check.documents);
+        }
+        return current;
+      }
       const result=await request<Dossier>(BASE+"/dossiers",{method:"POST",body:JSON.stringify(data)});
       dossierRef.current=result;setDossier(result);snapshotRef.current=JSON.stringify({
         ...data,dossier_id:result.id,expected_revision:result.revision});
