@@ -295,7 +295,7 @@ export default function JavieraV166({onConfig}:{onConfig?:()=>void}){
           ...nestedFromFields(specific[code]||{}),
           ...(code==="sworn_declaration"&&specific[code]?.["verified_no_workers"]==="true"?
             {verified_no_workers:true}:{}),
-          // Preparar el PDF no confirma que el evento ocurrió.}])),
+        }])), // Preparar el PDF no confirma que el evento ocurrió.
         ...(current?{dossier_id:current.id,expected_revision:current.revision}:{})};
       const signature=JSON.stringify(data);
       if(!force&&current&&signature===snapshotRef.current){
