@@ -4,7 +4,7 @@ import {request} from "./api";
 import {opsApi} from "./opsApi";
 import "./javiera.css";
 import JavieraExcelAdmin from "./JavieraExcelAdmin";
-import JavieraWorkspace from "./JavieraWorkspace";
+import JavieraV166 from "./JavieraV166";
 
 type Source = {sites: {id:string;name:string}[];contractors:{id:string;site_id:string;name:string;rut:string|null;nature:string}[];workers:{id:string;name:string;rut:string|null;active:boolean}[]};
 type Catalog = {code:string;area:string;title:string;required_fields:string[];published_version:number};
@@ -205,5 +205,5 @@ function Setup({onBack}:{onBack:()=>void}){
 }
 
 export default function Javiera({configuration=false,onBack,onConfig}:{configuration?:boolean;onBack?:()=>void;onConfig?:()=>void}){
-  return configuration?<Setup onBack={onBack||(()=>window.history.back())}/>:<JavieraWorkspace onConfig={onConfig}/>;
+  return configuration?<Setup onBack={onBack||(()=>window.history.back())}/>:<JavieraV166 onConfig={onConfig}/>;
 }
