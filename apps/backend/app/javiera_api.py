@@ -86,7 +86,7 @@ class TemplateChange(Strict):
 class MatrixChange(Strict):
     kind: str = Field(pattern="^(PTS|IRL|PUESTOS|PERFILES|SUSTANCIAS)$")
     cargo: str = Field(min_length=2, max_length=160)
-    sections: list[str] = Field(min_length=1, max_length=35)
+    sections: list[str] = Field(min_length=1, max_length=1500)
     source: str = Field(default="", max_length=180)
 
 
@@ -742,8 +742,9 @@ def change_matrix(item: MatrixChange, user: User = Depends(administrator),
     cargo = normalize_cargo(item.cargo)
     if item.kind == "PTS" and (len(item.sections) != 17 or any(not str(s).strip() for s in item.sections)):
         raise HTTPException(422, "PTS requiere 17 secciones con contenido")
-    if len(json.dumps(item.sections, ensure_ascii=False)) > 50000:
-        raise HTTPException(413, "Matriz excesivamente grande")
+    max_sections = 1500 if item.kind == "IRL" else (17 if item.kind == "PTS" else 500)
+    if len(item.sections) > max_sections or len(json.dumps(item.sections, ensure_ascii=False).encode("utf-8")) > 220000:
+        raise HTTPException(413, "Matriz excesivamente grande o superior al máximo por tipo")
     version = next_matrix_revision(db, user.org_id, item.kind, cargo)
     row = JavieraMatrix(org_id=user.org_id, kind=item.kind, cargo=cargo,
         revision=version, sections=item.sections, source=item.source,
@@ -914,11 +915,18 @@ async def import_workbook(file: UploadFile = File(...),
         raise HTTPException(422, "No se encontraron matrices compatibles. Revisa los nombres de hojas.")
     if len(staged) > 250:
         raise HTTPException(413, "Demasiadas matrices para una importación")
-    counts = {}
+    # Importación LEGACY: abortar todo ante omisiones, sin crear revisiones parciales.
     for (kind, cargo), sections in staged.items():
         if len(sections) > 35 or len(json.dumps(sections, ensure_ascii=False)) > 50000:
-            omissions.append(kind + ": " + cargo + " excede límite de contenido")
-            continue
+            omissions.append(kind + ": " + cargo + " excede el límite del importador heredado")
+    if omissions:
+        raise HTTPException(422, {
+            "error": "El importador heredado no puede conservar todas las filas. "
+                     "Utiliza la importación verificada de GALANT 19.2.",
+            "omissions": omissions[:80],
+        })
+    counts = {}
+    for (kind, cargo), sections in staged.items():
         revision = next_matrix_revision(db, user.org_id, kind, cargo)
         db.add(JavieraMatrix(org_id=user.org_id, kind=kind, cargo=cargo,
             revision=revision, sections=sections, status="draft",
