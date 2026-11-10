@@ -136,6 +136,24 @@ def reference_detail(cargo: str = Query(..., min_length=1, max_length=160),
         candidates = related_for_role(kind, cargo)
         if not candidates:
             continue
+        if len(candidates) > 1:
+            # Las filas de un mismo cargo pueden representar variantes
+            # distintas. No elegir candidates[0] de manera silenciosa.
+            variants = [
+                {"row": item["source_row"], "cargo": item["cargo"]}
+                for item in candidates
+            ]
+            if kind == "PTS":
+                data["pts"]["source_variants"] = variants
+                data["pts"]["requires_disambiguation"] = True
+            else:
+                data["additional_matrices"][kind]["source_variants"] = variants
+                data["additional_matrices"][kind]["requires_disambiguation"] = True
+            data["warnings"].append(
+                f"{kind}: existen {len(candidates)} filas para {cargo}. "
+                "Selecciona y valida una variante antes de usarla."
+            )
+            continue
         if kind == "PTS":
             if not data["pts"]["approved"]:
                 data["pts"]["sections"] = list(candidates[0]["sections"])
@@ -154,11 +172,6 @@ def reference_detail(cargo: str = Query(..., min_length=1, max_length=160),
                         {"row": c["source_row"], "cargo": c["cargo"]} for c in candidates
                     ],
                 })
-        if len(candidates) > 1:
-            data["warnings"].append(
-                f"{kind}: existen {len(candidates)} filas fuente para {cargo}; "
-                "conservar ambas y resolver la equivalencia antes de aprobar."
-            )
     if not data["irl"]["approved"]:
         # El front puede estudiar la matriz original sin tener que importarla
         # a mano. Ningún documento imprimible usa este contenido hasta que
