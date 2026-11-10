@@ -255,8 +255,8 @@ def inspect_matrix_workbook(raw: bytes, db, org_id: str) -> tuple[dict, dict]:
                     omissions.append(f"{sheet}!{number}: fila técnica sin cargo.")
                     continue
                 counts[kind] += 1
-                collect(kind, row[cargo_col], [_text(v) for v in row[start_col:max_col]
-                                                if v is not None and _text(v)], sheet, number)
+                collect(kind, row[cargo_col], [_text(v) for v in row[start_col:max_col]],
+                        sheet, number)
     finally:
         book.close()
 
