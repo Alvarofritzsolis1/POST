@@ -45,7 +45,7 @@ def test_irl_pdf_is_generated_from_structured_preventive_matrix():
     pdf_bytes = render_native_pdf("irl", form, matrix=[SECTION])
     assert pdf_bytes.startswith(b"%PDF")
     with fitz.open(stream=pdf_bytes, filetype="pdf") as pdf:
-        text = " ".join(page.get_text() for page in pdf)
+        text = " ".join(" ".join(page.get_text().split()) for page in pdf)
         for expected in ("Labor o tarea", "Peligro", "Riesgo",
                          "Medidas preventivas", "Aplicar pintura",
                          "Solvente inflamable", "Ventilar"):
