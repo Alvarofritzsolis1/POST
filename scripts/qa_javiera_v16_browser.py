@@ -112,7 +112,7 @@ def main():
             report["scenarios"]["dossier_saved_independent"] = "PASS"
             # La ayuda y el botón comparten la misma frase: seleccionar
             # por rol accesible evita la ambigüedad de texto en Playwright.
-            expect(page.get_by_role("button", name="Vista previa A4", exact=True)).to_be_visible()
+            expect(page.get_by_role("button", name="Ver PDF A4 aquí", exact=True)).to_be_visible()
             report["scenarios"]["native_preview_entrypoint_visible"] = "PASS"
             # Las vistas previas HTML no exigen ni publican documentos Excel.
             # Comprobar la petición PDF real desde el botón principal.
