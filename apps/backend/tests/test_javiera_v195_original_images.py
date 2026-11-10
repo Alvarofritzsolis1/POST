@@ -66,8 +66,8 @@ def test_real_excel_pdf_keeps_five_embedded_images_and_worker_identity():
     sheet = workbook["IRL"]
     sheet["A4"] = "INFORMACIÓN DE RIESGOS LABORALES ORIGINAL"
     # El fixture histórico limita la impresión a A1:D15: ampliar a las
-    # 178 filas reales evita excluir las fotos ancladas en filas 87–153.
-    sheet.print_area = "A1:D178"
+    # 179 filas del rango original evita excluir las fotos ancladas en filas 87–153.
+    sheet.print_area = "A1:D179"
     for n, row in enumerate((87, 101, 120, 135, 153), 1):
         picture = PILImage.new("RGB", (240, 140), (220 + n, 227, 232))
         stream = BytesIO()
