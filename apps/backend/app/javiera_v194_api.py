@@ -49,11 +49,12 @@ def lookup_role(role: str) -> tuple[str, list[dict]] | None:
     return matches[0], [dict(row) for row in catalog()["rows"] if row["cargo"] == matches[0]]
 
 
-def _to_preview_record(row: dict) -> dict:
+def _to_preview_record(row: dict, ordinal: int) -> dict:
     fields = ("tarea", "peligro", "riesgo", "medidas")
     return {
         "id": "excel-irl-" + str(row["excel_row"]),
-        "ordinal": row["n"],
+        "ordinal": ordinal,
+        "source_number": row["n"],
         "excel_row": row["excel_row"],
         "labor": row["tarea"],
         "peligro": row["peligro"],
@@ -108,7 +109,7 @@ def reference_detail(cargo: str = Query(..., min_length=1, max_length=160),
                     reference_total=0, reference_unstructured=0)
         return data
     source_role, rows = source
-    references = [_to_preview_record(row) for row in rows]
+    references = [_to_preview_record(row, ordinal) for ordinal, row in enumerate(rows, 1)]
     invalid = [row["excel_row"] for row in references if not row["structured"]]
     data.update({
         "source_excel_available": True,
