@@ -56,3 +56,40 @@ def test_impact_requires_admin_and_valid_kind(env):
     no_cargo = client.get("/api/v1/javiera/v192/matrix-impact", headers=headers,
                           params={"kind":"PTS","cargo":" "})
     assert no_cargo.status_code == 422
+
+
+def test_workbook_preview_is_read_only_and_exposes_difference_inventory(env):
+    from io import BytesIO
+    from openpyxl import Workbook
+    client,sessions=env
+    admin=login(client,"a@example.cl")
+    workbook=Workbook()
+    irl=workbook.active
+    irl.title="MATRIZ IRL"
+    irl.append(["ID","Cargo","Tarea","Peligro","Riesgo","Medidas"])
+    irl.append([1,"PINTOR","Pintar","Altura","Caída","Arnés"])
+    pts=workbook.create_sheet("MATRIZ PTS")
+    pts.append(["Cargo","A","B"]+["Sección "+str(n) for n in range(1,18)])
+    pts.append(["PINTOR",None,None]+["Apartado real "+str(n) for n in range(1,18)])
+    for name in ("MATRIZ DESCRIPCION DE CARGO IRL","Matriz IRL Optimizada","Base_Datos_Sustancias"):
+        workbook.create_sheet(name)
+    calc=workbook.create_sheet("Calculos")
+    calc["A1"]="=1+1"
+    raw=BytesIO()
+    workbook.save(raw)
+    workbook.close()
+    with sessions() as db:
+        before=db.scalar(select(func.count(JavieraMatrix.id)))
+    response=client.post("/api/v1/javiera/v192/workbook-preview",headers=admin,
+                         files={"file":("matrices.xlsx",raw.getvalue(),
+                         "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet")})
+    assert response.status_code==200,response.text
+    body=response.json()
+    assert body["preview_only"] is True
+    assert body["irl_source_rows"]==1
+    assert body["pts_source_rows"]==1
+    assert body["formula_count"]==1
+    assert body["new"]>=2
+    assert body["can_import"] is True
+    with sessions() as db:
+        assert db.scalar(select(func.count(JavieraMatrix.id)))==before
