@@ -105,3 +105,23 @@ def test_role_includes_related_reference_contents_without_approval(env):
     if not detail["irl"]["approved"]:
         assert detail["irl"]["reference_only"] is True
         assert detail["can_preview_irl"] is False
+
+def test_v194_role_reports_integrity_and_does_not_pick_ambiguous_source(env):
+    client, sessions = env
+    headers = login(client, "a@example.cl")
+    response = client.get(ROOT + "/role", params={"cargo": "GASFITER"}, headers=headers)
+    assert response.status_code == 200, response.text
+    detail = response.json()
+    audit = detail["reference_audit"]
+    assert audit["risk_count"] == 26
+    assert audit["linked"]["PTS"]["ambiguous"] is True
+    assert audit["linked"]["PERFILES"]["ambiguous"] is True
+    assert audit["full_excel_parity_certified"] is False
+    assert len(audit["original_visual_blocks"]) == 5
+    if not detail["pts"]["approved"]:
+        assert detail["pts"]["requires_disambiguation"] is True
+        assert detail["pts"]["sections"] == []
+    if not detail["additional_matrices"]["PERFILES"]["revision"]:
+        perfil = detail["additional_matrices"]["PERFILES"]
+        assert perfil["requires_disambiguation"] is True
+        assert perfil["sections"] == []
