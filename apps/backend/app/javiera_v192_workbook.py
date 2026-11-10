@@ -10,6 +10,8 @@ import io
 import json
 import re
 from collections import Counter
+from posixpath import normpath, join
+from xml.etree import ElementTree as ET
 from zipfile import BadZipFile, ZipFile
 
 from fastapi import HTTPException
@@ -27,7 +29,7 @@ SHEETS = {
     "Base_Datos_Sustancias": "SUSTANCIAS",
 }
 MAX_FILE_BYTES = 8 * 1024 * 1024
-MAX_UNCOMPRESSED_BYTES = 40 * 1024 * 1024
+MAX_UNCOMPRESSED_BYTES = 200 * 1024 * 1024
 MAX_SOURCE_ROWS = 2500
 MAX_FORMULA_ROWS = 5000
 MAX_FORMULA_COLUMNS = 100
@@ -35,6 +37,9 @@ MAX_MATRICES = 500
 MAX_SECTION_BYTES = 220_000
 MAX_IRL_SECTIONS = 1500
 MAX_OTHER_SECTIONS = 500
+XML_M = "{http://schemas.openxmlformats.org/spreadsheetml/2006/main}"
+XML_R = "{http://schemas.openxmlformats.org/officeDocument/2006/relationships}"
+XML_P = "{http://schemas.openxmlformats.org/package/2006/relationships}"
 REFS = re.compile(r"(?<![A-Za-z0-9_])\$?[A-Za-z]{1,3}\$?[0-9]{1,7}(?![A-Za-z0-9_])")
 FUNCTION = re.compile(r"(?<![A-Za-z0-9_.])([A-Za-z_][A-Za-z_0-9.]*)\s*\(")
 
@@ -54,6 +59,51 @@ def _open(raw: bytes):
         raise
     except (BadZipFile, OSError, ValueError, KeyError, TypeError):
         raise HTTPException(422, "No fue posible analizar el archivo Excel.") from None
+
+
+def _real_content_after_limit(raw: bytes, sheet_name: str, limit: int) -> bool:
+    """Comprueba XML de filas reales, no la dimensión declarada por Excel.
+
+    Una plantilla puede declarar A1:AN1048576 con un millón de celdas
+    meramente formateadas; eso NO significa que tenga un millón de datos.
+    """
+    try:
+        with ZipFile(io.BytesIO(raw)) as zf:
+            workbook = ET.fromstring(zf.read("xl/workbook.xml"))
+            relationships = ET.fromstring(zf.read("xl/_rels/workbook.xml.rels"))
+            targets = {}
+            for rel in relationships.findall(XML_P + "Relationship"):
+                value = rel.get("Target", "")
+                targets[rel.get("Id", "")] = (
+                    value.lstrip("/") if value.startswith("/") else
+                    normpath(join("xl", value)))
+            target = None
+            for element in workbook.findall("./" + XML_M + "sheets/" + XML_M + "sheet"):
+                if element.get("name") == sheet_name:
+                    target = targets.get(element.get(XML_R + "id", ""))
+                    break
+            if not target:
+                raise ValueError("Hoja sin ruta OOXML")
+            with zf.open(target) as stream:
+                rows = ET.iterparse(stream, events=("start", "end"))
+                _, root = next(rows)
+                for event, element in rows:
+                    if event == "end" and element.tag == XML_M + "row":
+                        row_number = int(element.get("r") or "0")
+                        if row_number > limit:
+                            for cell in element.findall(XML_M + "c"):
+                                for child in cell:
+                                    if child.tag == XML_M + "f":
+                                        return True
+                                    if child.tag in {XML_M + "v", XML_M + "is"}:
+                                        if "".join(child.itertext()).strip():
+                                            return True
+                        element.clear()
+                        root.clear()
+        return False
+    except (KeyError, ValueError, ET.ParseError, OSError, BadZipFile):
+        # Si no podemos demostrar que el resto está vacío, fallar cerrado.
+        return True
 
 
 def _text(value) -> str:
@@ -101,6 +151,9 @@ def inspect_matrix_workbook(raw: bytes, db, org_id: str) -> tuple[dict, dict]:
     duplicate_conflicts: list[str] = []
     counts = Counter()
     warnings: list[str] = []
+    incomplete_pts: list[str] = []
+    incomplete_irl: list[str] = []
+    oversized_dimensions: list[str] = []
     missing = [name for name in SHEETS if name not in book.sheetnames]
 
     def collect(kind: str, cargo, content: list[str], sheet: str, row_number: int):
@@ -109,12 +162,16 @@ def inspect_matrix_workbook(raw: bytes, db, org_id: str) -> tuple[dict, dict]:
         if not role or len(role) > 160:
             omissions.append(f"{sheet}!{row_number}: cargo vacío o inválido.")
             return
-        if kind == "PTS" and (len(content) != 17 or any(not x for x in content)):
-            omissions.append(f"{sheet}!{row_number}: PTS de {role} sin sus 17 apartados.")
+        if kind == "PTS" and len(content) != 17:
+            omissions.append(f"{sheet}!{row_number}: se requieren 17 posiciones PTS.")
             return
+        if kind == "PTS" and any(not item for item in content):
+            incomplete_pts.append(f"{sheet}!{row_number}: {role} tiene secciones sin completar.")
         if not content or not any(content):
-            omissions.append(f"{sheet}!{row_number}: sección técnica vacía para {role}.")
-            return
+            # Conservar una fila histórica incompleta como borrador,
+            # no publicarla ni descartarla durante el ingreso.
+            incomplete_irl.append(f"{sheet}!{row_number}: {role} sin contenido técnico.")
+            content = ["" if kind != "PTS" else item for item in content] or [""]
         key = (kind, role)
         if key not in staged:
             staged[key] = list(content)
@@ -128,7 +185,9 @@ def inspect_matrix_workbook(raw: bytes, db, org_id: str) -> tuple[dict, dict]:
         if "MATRIZ IRL" in book.sheetnames:
             ws = book["MATRIZ IRL"]
             if ws.max_row > MAX_SOURCE_ROWS:
-                omissions.append("MATRIZ IRL supera 2.500 filas verificables.")
+                oversized_dimensions.append("MATRIZ IRL")
+                if _real_content_after_limit(raw, "MATRIZ IRL", MAX_SOURCE_ROWS):
+                    omissions.append("MATRIZ IRL contiene datos después de 2.500 filas y requiere migración ampliada.")
             for row_number, row in enumerate(ws.iter_rows(
                     min_row=2, max_row=min(ws.max_row, MAX_SOURCE_ROWS),
                     max_col=6, values_only=True), start=2):
@@ -142,7 +201,7 @@ def inspect_matrix_workbook(raw: bytes, db, org_id: str) -> tuple[dict, dict]:
                 counts["IRL"] += 1
                 parts = [_text(value) for value in row[2:6]]
                 if any(not part for part in parts):
-                    omissions.append(f"MATRIZ IRL!{row_number}: faltan campos Tarea/Peligro/Riesgo/Medidas.")
+                    incomplete_irl.append(f"MATRIZ IRL!{row_number}: faltan campos Tarea/Peligro/Riesgo/Medidas.")
                 section = "\n".join(f"{label}: {value}" for label, value in
                                     zip(("Tarea", "Peligro", "Riesgo", "Medidas"), parts))
                 collect("IRL", row[1], [section], "MATRIZ IRL", row_number)
@@ -150,7 +209,9 @@ def inspect_matrix_workbook(raw: bytes, db, org_id: str) -> tuple[dict, dict]:
         if "MATRIZ PTS" in book.sheetnames:
             ws = book["MATRIZ PTS"]
             if ws.max_row > MAX_SOURCE_ROWS:
-                omissions.append("MATRIZ PTS supera 2.500 filas verificables.")
+                oversized_dimensions.append("MATRIZ PTS")
+                if _real_content_after_limit(raw, "MATRIZ PTS", MAX_SOURCE_ROWS):
+                    omissions.append("MATRIZ PTS contiene datos después de 2.500 filas.")
             for row_number, row in enumerate(ws.iter_rows(
                     min_row=2, max_row=min(ws.max_row, MAX_SOURCE_ROWS),
                     max_col=20, values_only=True), start=2):
@@ -171,7 +232,9 @@ def inspect_matrix_workbook(raw: bytes, db, org_id: str) -> tuple[dict, dict]:
                 continue
             ws = book[sheet]
             if ws.max_row > MAX_SOURCE_ROWS:
-                omissions.append(f"{sheet} supera 2.500 filas verificables.")
+                oversized_dimensions.append(sheet)
+                if _real_content_after_limit(raw, sheet, MAX_SOURCE_ROWS):
+                    omissions.append(f"{sheet} contiene datos después de 2.500 filas.")
             for number, row in enumerate(ws.iter_rows(
                     min_row=2, max_row=min(ws.max_row, MAX_SOURCE_ROWS),
                     max_col=max_col, values_only=True), start=2):
@@ -209,9 +272,12 @@ def inspect_matrix_workbook(raw: bytes, db, org_id: str) -> tuple[dict, dict]:
     formula_distribution = Counter()
     try:
         for ws in formulas_book:
-            if ws.max_row > MAX_FORMULA_ROWS or ws.max_column > MAX_FORMULA_COLUMNS:
+            if ws.max_column > MAX_FORMULA_COLUMNS or (
+                ws.max_row > MAX_FORMULA_ROWS and
+                _real_content_after_limit(raw, ws.title, MAX_FORMULA_ROWS)
+            ):
                 partial = True
-                omissions.append(f"{ws.title}: dimensiones superiores a los límites del inventario de fórmulas.")
+                omissions.append(f"{ws.title}: fórmulas potencialmente fuera del rango inventariado.")
             for row in ws.iter_rows(min_row=1,
                                     max_row=min(ws.max_row, MAX_FORMULA_ROWS),
                                     max_col=min(ws.max_column, MAX_FORMULA_COLUMNS)):
@@ -231,10 +297,17 @@ def inspect_matrix_workbook(raw: bytes, db, org_id: str) -> tuple[dict, dict]:
     finally:
         formulas_book.close()
     if matrix_formula_cells:
-        omissions.append("Hay fórmulas en las matrices importadas: no se debe reutilizar un resultado almacenado sin validar.")
+        warnings.append("Hay fórmulas dentro de hojas técnicas: el contenido almacenado es provisional y requiere revisión antes de aprobar.")
 
     if missing:
         warnings.append("Faltan hojas requeridas: " + ", ".join(missing))
+    if oversized_dimensions:
+        warnings.append("Dimensiones Excel sobredimensionadas (se inspeccionaron filas reales): " +
+                        ", ".join(oversized_dimensions))
+    if incomplete_pts:
+        warnings.append(f"{len(incomplete_pts)} registros PTS están incompletos; se conservarán como borradores, no aprobados.")
+    if incomplete_irl:
+        warnings.append(f"{len(incomplete_irl)} registros IRL / auxiliares tienen campos vacíos; revisión preventiva requerida.")
     if counts["IRL"] != 338:
         warnings.append(f"Referencial IRL: 338 filas; en el Excel hay {counts['IRL']}.")
     if counts["PTS"] != 26:
@@ -260,10 +333,13 @@ def inspect_matrix_workbook(raw: bytes, db, org_id: str) -> tuple[dict, dict]:
             "different_sections": diff,
             "current_revision": previous.revision if previous else None,
         })
-    # Mínimos del archivo histórico: si falta alguno, no podemos afirmar integridad.
-    count_guard = counts["IRL"] >= 338 and counts["PTS"] >= 26 and len(formulas) >= 423
+    # Fórmulas: las auditorías históricas no coinciden (261 / 423). No
+    # usar este total para ocultar matrices ni fingir paridad funcional.
+    count_guard = counts["IRL"] >= 338 and counts["PTS"] >= 26
     if not count_guard:
-        warnings.append("Las cantidades son inferiores al archivo histórico de referencia. Importación bloqueada.")
+        warnings.append("Faltan filas respecto a las 338 IRL y 26 PTS de referencia; importación bloqueada.")
+    if len(formulas) != 423:
+        warnings.append("El recuento de fórmulas no acredita equivalencia: validar contra la versión real del Excel.")
     warnings.extend(omissions[:25])
     report = {
         "sha256": hashlib.sha256(raw).hexdigest(),
@@ -275,6 +351,9 @@ def inspect_matrix_workbook(raw: bytes, db, org_id: str) -> tuple[dict, dict]:
         "formulas_by_sheet": dict(formula_distribution),
         "formula_inventory": formulas[:2000],
         "formula_equivalence_verified": False,
+        "incomplete_pts": incomplete_pts[:150],
+        "incomplete_irl": incomplete_irl[:150],
+        "draft_only_for_incomplete": True,
         "matrices": updates, "new": sum(x["change"] == "new" for x in updates),
         "changed": sum(x["change"] == "changed" for x in updates),
         "unchanged": sum(x["change"] == "unchanged" for x in updates),
