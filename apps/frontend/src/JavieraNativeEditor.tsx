@@ -47,7 +47,7 @@ const insertions=[
 ] as const;
 
 export default function JavieraNativeEditor({onBack,onOpenMatrices,initialCode="internal_rules_receipt"}:{
-  onBack:()=>void;onOpenMatrices?:()=>void;initialCode?:string
+  onBack:()=>void;onOpenMatrices?:(code:string)=>void;initialCode?:string
 }){
   const [formats,setFormats]=useState<Format[]>([]);
   const [selected,setSelected]=useState(initialCode);
@@ -252,7 +252,7 @@ export default function JavieraNativeEditor({onBack,onOpenMatrices,initialCode="
                 {selected==="irl"?"Formato IRL y matriz":"Editar documento"}</h4>
                 {selected!=="irl"&&<small>{dirty?"Cambios sin guardar":"Sin cambios pendientes"}</small>}</div>
               {selected==="irl"&&<>
-                <JavieraIRLStructure onEditMatrices={onOpenMatrices}/>
+                <JavieraIRLStructure onEditMatrices={onOpenMatrices?()=>onOpenMatrices(selected):undefined}/>
                 <button type="button" className="jne-supplement-toggle"
                   aria-expanded={showIrlSupplement}
                   onClick={()=>setShowIrlSupplement(!showIrlSupplement)}>
