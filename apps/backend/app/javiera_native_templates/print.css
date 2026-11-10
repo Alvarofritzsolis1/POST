@@ -65,3 +65,51 @@ body h2 {margin:12pt 0 6pt;}
   padding:5pt 6pt;overflow-wrap:anywhere;word-break:normal;}
 .pts-matrix thead {display:table-header-group;}
 .pts-matrix tr {break-inside:avoid;}
+
+/* GALANT 19.4.2 — IRL original: cuatro columnas y cinco fotografías sin recorte */
+.irl-original-print{font-family:Arial,Helvetica,sans-serif;color:#111827;
+  font-size:9pt;line-height:1.38}
+.irl-original-print table{border-collapse:collapse;width:100%;table-layout:fixed}
+.irl-original-header th{border:.65pt solid #8194a5;padding:5pt 4pt;text-align:center;
+  background:#eaf0f5;color:#152b3c;font-size:8pt;vertical-align:middle}
+.irl-original-header th:first-child{width:31%}
+.irl-original-identity{margin:8pt 0 11pt}
+.irl-original-identity th,.irl-original-identity td{border:.55pt solid #9cb0c0;
+  padding:5pt 5pt;font-size:8.2pt;overflow-wrap:anywhere}
+.irl-original-identity th{width:16%;background:#f0f4f7}
+.irl-original-identity td{width:34%}
+.irl-original-content .irl-title{text-align:center;font-size:11pt;
+  border:1pt solid #9aabba;background:#e9eef2;padding:7pt}
+.irl-original-content h2{border:.6pt solid #a8b9c7;border-left:0;
+  background:#eaf0f5;color:#173348;padding:7pt 6pt;font-size:10pt;line-height:1.35;
+  margin:13pt 0 6pt}
+.irl-original-content h3{font-size:9pt;color:#233b4e;
+  border:.5pt solid #bac7d3;background:#f4f7fa;padding:5pt;
+  margin:8pt 0 3pt}
+.irl-original-content p{font-size:8.8pt;line-height:1.45;margin:6pt 0}
+.irl-static-intro,.irl-static-quote,.irl-legal-close,.irl-declaration{
+  font-size:8.7pt;line-height:1.43;overflow-wrap:break-word;white-space:pre-line}
+.irl-static-quote{border:.5pt solid #c6d1da;padding:6pt}
+.irl-condition p{font-size:8.8pt;padding:0 4pt 4pt;margin:4pt 0 7pt}
+.irl-matrix{table-layout:fixed;width:100%}
+.irl-matrix thead{display:table-header-group}
+.irl-matrix th,.irl-matrix td{width:25%;font-size:8pt;line-height:1.4;
+  border:.6pt solid #97abbb;padding:6pt 4pt;
+  word-break:normal;overflow-wrap:anywhere;vertical-align:top}
+.irl-matrix th{background:#e7eef4;color:#263f55}
+.irl-matrix tr{break-inside:avoid}
+.irl-substances th:first-child{width:6%;text-align:center}
+.irl-substances th:nth-child(2){width:34%;text-align:left}
+.irl-substances td{width:60%;white-space:pre-line}
+.irl-substances th,.irl-substances td{padding:4pt 5pt;font-size:8.2pt;
+  border:.5pt solid #a8b6c2}
+.irl-original-picture{margin:8pt 0 12pt;break-inside:avoid;max-width:100%;
+  padding:0;border:0}
+.irl-original-picture img{display:block;width:100%;height:auto;max-width:100%;
+  object-fit:contain}
+.irl-legal-close{margin-top:13pt}
+.irl-declaration{margin:8pt 0 16pt}
+.irl-signature{text-align:center;break-inside:avoid;margin:22pt auto 0;max-width:280pt}
+.irl-signature .signature-space{height:30pt}
+.irl-signature p{margin:2pt 0;font-size:8.3pt}
+.irl-signature strong{font-size:9pt}
