@@ -166,8 +166,17 @@ def _status(db, user, record, code):
         source = latest_approved_matrix(db, user.org_id, kind, role)
         issue = preventive_matrix_blocker(kind, source.sections if source else None)
         if issue:
-            item.update(status="PENDIENTE_REVISION", reason=issue,
-                        can_issue=False, can_preview=False)
+            # Mostrar primero la labor nueva aportada por el usuario. La
+            # matriz ausente/incompleta sigue listada como segundo bloqueo.
+            manual_priority = any(
+                "Labor manual" in warning
+                for warning in item.get("blocking_errors", [])
+            )
+            item.update(
+                status="PENDIENTE_REVISION",
+                reason=item["reason"] if manual_priority else issue,
+                can_issue=False, can_preview=False,
+            )
             item.setdefault("blocking_errors", []).append(issue)
     # An imported Excel in draft status must never silently fall back to
     # an unrelated text template merely because that text was published.
