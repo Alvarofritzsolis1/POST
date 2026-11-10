@@ -3,6 +3,7 @@
 Datos sintéticos; ninguna prueba escribe en trabajadores operativos.
 """
 import fitz
+import unicodedata
 from sqlalchemy import func, select
 
 from app.javiera_irl import parse_irl_section
@@ -45,7 +46,7 @@ def test_irl_pdf_is_generated_from_structured_preventive_matrix():
     pdf_bytes = render_native_pdf("irl", form, matrix=[SECTION])
     assert pdf_bytes.startswith(b"%PDF")
     with fitz.open(stream=pdf_bytes, filetype="pdf") as pdf:
-        text = " ".join(" ".join(page.get_text().split()) for page in pdf)
+        text = unicodedata.normalize("NFKC", " ".join(" ".join(page.get_text().split()) for page in pdf))
         for expected in ("Labor o tarea", "Peligro", "Riesgo",
                          "Medidas preventivas", "Aplicar pintura",
                          "Solvente", "inflamable", "Ventilar"):
@@ -167,7 +168,7 @@ def test_irl_pdf_binds_approved_matrix_revision_not_entered_text(env):
                       json={"dossier_id": dossier_id, "code": "irl"})
     assert pdf.status_code == 200, pdf.text[:500]
     with fitz.open(stream=pdf.content, filetype="pdf") as pages:
-        text = " ".join(" ".join(page.get_text().split()) for page in pages)
+        text = unicodedata.normalize("NFKC", " ".join(" ".join(page.get_text().split()) for page in pages))
         assert "IRL revisión 7" in text
         assert "Solvente" in text and "inflamable" in text
 
