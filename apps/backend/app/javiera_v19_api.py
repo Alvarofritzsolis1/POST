@@ -19,6 +19,7 @@ from .db import get_db
 from .javiera_layout_api import matrix_sections
 from .javiera_formula_equivalence import pesos_a_letras_excel, INVALID_AMOUNT
 from .javiera_logic import DOCUMENT_BY_CODE, render_tokens, check_template_fields, rut_valid
+from .javiera_irl import preventive_matrix_blocker
 from .javiera_models import JavieraRevision, JavieraTemplate
 from .javiera_native_edit import TOKEN, NativeHtmlError, bind_native_html, plain_text_to_html, validate_native_html
 from .models import AuditEvent, utcnow
@@ -483,6 +484,9 @@ def preview_native(payload: NativePreviewInput,
             raise HTTPException(
                 409, f"Falta matriz {kind} aprobada para este cargo. No se inventará contenido."
             )
+        issue = preventive_matrix_blocker(kind, matrix)
+        if issue:
+            raise HTTPException(409, issue)
     row = db.scalar(select(JavieraTemplate).where(
         JavieraTemplate.org_id == user.org_id,
         JavieraTemplate.code == payload.code,
