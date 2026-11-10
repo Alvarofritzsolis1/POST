@@ -238,7 +238,7 @@ def inspect_matrix_workbook(raw: bytes, db, org_id: str) -> tuple[dict, dict]:
         for sheet, kind, cargo_col, start_col, max_col in (
                 ("Matriz IRL Optimizada", "PUESTOS", 0, 1, 5),
                 ("MATRIZ DESCRIPCION DE CARGO IRL", "PERFILES", 1, 2, 3),
-                ("Base_Datos_Sustancias", "SUSTANCIAS", 0, 1, 12)):
+                ("Base_Datos_Sustancias", "SUSTANCIAS", 0, 1, 13)):
             if sheet not in book.sheetnames:
                 continue
             ws = book[sheet]
