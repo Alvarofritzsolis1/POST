@@ -26,7 +26,13 @@ def test_five_original_sheets_are_available_without_manual_upload():
     for kind, count in EXPECTED.items():
         rows = reference_matrices_for_kind(kind)
         assert len(rows) == count, kind
-        assert all(len(row["sections"]) == COLUMNS[kind] for row in rows), kind
+        if kind == "IRL":
+            # Cada entrada es un CARGO con 13/26 riesgos, cada uno de
+            # cuatro campos técnicos. No son cuatro riesgos por cargo.
+            assert all(len(row["sections"]) in (13, 26) for row in rows)
+            assert sum(len(row["sections"]) for row in rows) == 338
+        else:
+            assert all(len(row["sections"]) == COLUMNS[kind] for row in rows), kind
         assert all(row["status"] == "reference" for row in rows)
         assert all(row["revision"] == 0 for row in rows)
         assert all(row["source_approved"] is False for row in rows)
