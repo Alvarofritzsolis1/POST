@@ -327,8 +327,8 @@ def render_native_pdf(code: str, data: dict, *, matrix: list[str] | None = None,
                 blocks = [block for block in page.get_text("blocks")
                           if len(block) > 4 and isinstance(block[4], str)
                           and block[4].strip()]
-                if not blocks:
-                    raise NativeDocumentError("Se detectó una página sin contenido.")
+                if not blocks and not page.get_images(full=True):
+                    raise NativeDocumentError("Se detectó una página sin texto ni imágenes.")
                 for block in blocks:
                     if (block[0] < -0.5 or block[1] < -0.5 or
                             block[2] > A4.width + 0.5 or block[3] > A4.height + 0.5):
