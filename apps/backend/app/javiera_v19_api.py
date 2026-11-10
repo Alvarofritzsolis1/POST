@@ -16,7 +16,7 @@ from sqlalchemy.orm import Session
 
 from .config import settings
 from .db import get_db
-from .javiera_layout_api import matrix_sections
+from .javiera_matrices import latest_approved_matrix
 from .javiera_formula_equivalence import pesos_a_letras_excel, INVALID_AMOUNT
 from .javiera_logic import DOCUMENT_BY_CODE, render_tokens, check_template_fields, rut_valid
 from .javiera_irl import preventive_matrix_blocker
@@ -477,9 +477,10 @@ def preview_native(payload: NativePreviewInput,
         if not rut_valid(rut):
             raise HTTPException(422, "RUT inválido de " + label + "; corrígelo en la ficha.")
     matrix = None
-    if payload.code in {"irl", "pts"}:
-        kind = payload.code.upper()
-        matrix = matrix_sections(db, user, kind, data.get("role", ""))
+    if payload.code in {"irl", "pts", "pts_receipt"}:
+        kind = "IRL" if payload.code == "irl" else "PTS"
+        approved = latest_approved_matrix(db, user.org_id, kind, data.get("role", ""))
+        matrix = approved.sections if approved else None
         if not matrix:
             raise HTTPException(
                 409, f"Falta matriz {kind} aprobada para este cargo. No se inventará contenido."
@@ -487,6 +488,14 @@ def preview_native(payload: NativePreviewInput,
         issue = preventive_matrix_blocker(kind, matrix)
         if issue:
             raise HTTPException(409, issue)
+        # La versión impresa procede siempre de la matriz aprobada, nunca
+        # de una casilla editable del expediente o del usuario.
+        if kind == "IRL":
+            data["extra"] = {**(data.get("extra") or {}),
+                             "irl_revision": f"IRL revisión {approved.revision}"}
+        else:
+            data["event"] = {**(data.get("event") or {}),
+                             "pts_version": f"PTS revisión {approved.revision}"}
     row = db.scalar(select(JavieraTemplate).where(
         JavieraTemplate.org_id == user.org_id,
         JavieraTemplate.code == payload.code,
