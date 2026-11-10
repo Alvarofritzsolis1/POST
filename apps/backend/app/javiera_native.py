@@ -218,7 +218,7 @@ def render_native_pdf(code: str, data: dict, *, matrix: list[str] | None = None,
         css += """
         body p {margin:2pt 0 4pt;}
         body h2 {margin:7pt 0 4pt;}
-        .preview-ribbon, .document-head {margin-bottom:3pt;}
+        .document-head {margin-bottom:3pt;}
         .identity td, .identity th {padding:3pt 4pt;}
         .matrix td, .matrix th, .topics td, .topics th {padding:3pt 5pt;}
         .legal-copy p {margin:0 0 7pt;}
