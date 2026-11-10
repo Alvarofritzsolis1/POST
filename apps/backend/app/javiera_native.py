@@ -239,6 +239,7 @@ def render_native_pdf(code: str, data: dict, *, matrix: list[str] | None = None,
     html = _template("irl_document" if code == "irl" else "base").substitute(
         original_code=_html((original_source or {}).get("document_code") or "DPR-IRL-03"),
         original_version=_html((original_source or {}).get("source_version") or ""),
+        declaration=_html(((original_source or {}).get("static") or {}).get("A172", "")),
         title=_html(DOCUMENT_TITLES[code]),
         company=_html(company),
         company_rut=_html(_get(data, "employer.rut", required=True)),
