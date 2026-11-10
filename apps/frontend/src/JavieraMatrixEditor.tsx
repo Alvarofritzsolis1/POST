@@ -64,7 +64,7 @@ export default function JavieraMatrixEditor(){
   const approved=versions.find(r=>r.status==="approved");
   const changes=approved?Math.max(approved.sections.length,sections.length)===0?0:
     Array.from({length:Math.max(approved.sections.length,sections.length)},(_,i)=>
-      approved.sections[i]!==sections[i]?1:0).reduce((a,b)=>a+b,0):sections.length;
+      approved.sections[i]!==sections[i]?1:0).filter(Boolean).length:sections.length;
   async function reload(pick?:string){
     const data=await request<Matrix[]>("/javiera/admin/matrices");
     setRows(data);
