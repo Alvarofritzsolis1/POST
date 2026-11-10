@@ -84,12 +84,14 @@ def main():
                     "Matriz precargada automáticamente desde el Excel"
                 )).to_be_visible(timeout=20000)
                 if kind=="IRL":
-                    expect(page.locator(".jmx-table-scroll tbody tr")).to_have_count(fields)
+                    expect(page.locator(".jmx-irl-task-list button")).to_have_count(fields)
+                    expect(page.locator(".jmx-irl-fields textarea")).to_have_count(4)
+                    expect(page.get_by_role("heading", name="Editar labores y riesgos, paso a paso")).to_be_visible()
                     expect(page.get_by_role("textbox", name="Cargo / puesto")).to_have_value("GASFITER")
                     # Seleccionar la misma categoría otra vez no puede vaciar
                     # el cargo y sus 26 registros (regresión de PR #55).
                     page.locator("#jmx-kind").select_option("IRL")
-                    expect(page.locator(".jmx-table-scroll tbody tr")).to_have_count(26)
+                    expect(page.locator(".jmx-irl-task-list button")).to_have_count(26)
                     expect(page.get_by_role("textbox", name="Cargo / puesto")).to_have_value("GASFITER")
                 else:
                     expect(page.locator(".jmx-rows textarea")).to_have_count(fields)
