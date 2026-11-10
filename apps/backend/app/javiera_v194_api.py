@@ -22,6 +22,10 @@ from .security import administrator
 
 router = APIRouter(prefix="/api/v1/javiera/v194", tags=["Javiera 19.4 · 25 cargos IRL"])
 DATA_FILE = Path(__file__).resolve().parent / "data" / "irl_25_cargos_excel_reference.json"
+RELATED_FILE = Path(__file__).resolve().parent / "data" / "javiera_25_cargos_related_matrices.json"
+RELATED_KINDS = ("PTS", "PERFILES", "PUESTOS", "SUSTANCIAS")
+EXPECTED_COUNTS = {"PTS": 26, "PERFILES": 26, "PUESTOS": 27, "SUSTANCIAS": 27}
+EXPECTED_SECTIONS = {"PTS": 17, "PERFILES": 1, "PUESTOS": 4, "SUSTANCIAS": 12}
 
 
 @lru_cache(maxsize=1)
@@ -122,6 +126,35 @@ def reference_detail(cargo: str = Query(..., min_length=1, max_length=160),
         "reference_approved": False,
         "source_cannot_override_approved_matrix": True,
     })
+    # Cada tipo está precargado desde su pestaña original. Solo mostrar
+    # referencias cuando no exista una matriz autorizada; nunca reemplazarla.
+    for kind in RELATED_KINDS:
+        candidates = related_for_role(kind, cargo)
+        if not candidates:
+            continue
+        if kind == "PTS":
+            if not data["pts"]["approved"]:
+                data["pts"]["sections"] = list(candidates[0]["sections"])
+                data["pts"]["section_count"] = len(candidates[0]["sections"])
+                data["pts"]["reference_only"] = True
+                data["pts"]["source_variants"] = [
+                    {"row": c["source_row"], "cargo": c["cargo"]} for c in candidates
+                ]
+        else:
+            current = data["additional_matrices"][kind]
+            if not current["available"]:
+                current.update({
+                    "available": True, "reference_only": True,
+                    "sections": list(candidates[0]["sections"]),
+                    "source_variants": [
+                        {"row": c["source_row"], "cargo": c["cargo"]} for c in candidates
+                    ],
+                })
+        if len(candidates) > 1:
+            data["warnings"].append(
+                f"{kind}: existen {len(candidates)} filas fuente para {cargo}; "
+                "conservar ambas y resolver la equivalencia antes de aprobar."
+            )
     if not data["irl"]["approved"]:
         # El front puede estudiar la matriz original sin tener que importarla
         # a mano. Ningún documento imprimible usa este contenido hasta que
@@ -153,4 +186,89 @@ def reference_summary(user: User = Depends(administrator)):
         "total_records": len(data["rows"]),
         "incomplete_rows": data["incomplete_excel_rows"],
         "approval_status": "pending_preventive_review",
+    }
+
+
+
+@lru_cache(maxsize=1)
+def related_catalog() -> dict:
+    """Fuente técnica Excel: nunca altera la base de datos ni emite documentos."""
+    payload = json.loads(RELATED_FILE.read_text(encoding="utf-8"))
+    rows = payload.get("matrices", [])
+    for kind, expected in EXPECTED_COUNTS.items():
+        selected = [r for r in rows if r.get("kind") == kind]
+        if len(selected) != expected:
+            raise RuntimeError(f"Matriz de referencia {kind} incompleta: {len(selected)} != {expected}")
+        if (len({(r["source_sheet"], r["source_row"]) for r in selected}) != expected or
+                any(len(r.get("sections", [])) != EXPECTED_SECTIONS[kind] for r in selected)):
+            raise RuntimeError(f"Columnas o filas de {kind} incompletas.")
+    if any(row.get("kind") not in RELATED_KINDS for row in rows):
+        raise RuntimeError("Tipo de matriz inesperado en el archivo fuente.")
+    return payload
+
+
+def related_for_role(kind: str, cargo: str) -> list[dict]:
+    normalized = normalize_cargo(cargo)
+    if kind not in RELATED_KINDS:
+        return []
+    return [dict(row) for row in related_catalog()["matrices"]
+            if row["kind"] == kind and normalize_cargo(row["cargo"]) == normalized]
+
+
+def reference_matrices_for_kind(kind: str) -> list[dict]:
+    """Matriz completa para mostrar y editar como borrador, nunca aprobada."""
+    if kind == "IRL":
+        data = catalog()
+        result = []
+        for role in data["role_order"]:
+            rows = [r for r in data["rows"] if r["cargo"] == role]
+            sections = ["\n".join(f"{label}: {row[key]}" for key, label in (
+                ("tarea", "Tarea"), ("peligro", "Peligro"), ("riesgo", "Riesgo"),
+                ("medidas", "Medidas"))) for row in rows]
+            result.append({
+                "id": "excel-irl-" + str(rows[0]["excel_row"]),
+                "kind": "IRL", "cargo": role, "sections": sections,
+                "revision": 0, "status": "reference", "author_id": "",
+                "source": "MATRIZ IRL · Excel corregido · filas " +
+                          f"{rows[0]['excel_row']}–{rows[-1]['excel_row']}",
+                "source_row": rows[0]["excel_row"],
+                "source_approved": False, "source_revision": data["source_sha256"][:16],
+            })
+        return result
+    return [{
+        "id": "excel-" + kind.lower() + "-" + str(row["source_row"]),
+        "kind": kind, "cargo": row["cargo"], "sections": list(row["sections"]),
+        "revision": 0, "status": "reference", "author_id": "",
+        "source": row["source_sheet"] + " · Excel corregido · fila " +
+                  str(row["source_row"]),
+        "source_row": row["source_row"], "source_approved": False,
+        "source_revision": related_catalog()["source_sha256"][:16],
+    } for row in related_catalog()["matrices"] if row["kind"] == kind]
+
+
+@router.get("/reference-matrices")
+def reference_matrices(kind: str = Query(..., max_length=20),
+                       user: User = Depends(administrator)):
+    """Disponibles desde la primera visita; NO requiere importar el Excel."""
+    if kind not in (*RELATED_KINDS, "IRL"):
+        raise HTTPException(422, "Categoría de matriz desconocida.")
+    rows = reference_matrices_for_kind(kind)
+    variants: dict[str, list[int]] = {}
+    for row in rows:
+        variants.setdefault(normalize_cargo(row["cargo"]), []).append(row["source_row"])
+    return {
+        "kind": kind, "rows": rows,
+        "source_rows": len(rows),
+        "source_status": "reference_only_pending_preventive_review",
+        "columns": (
+            ["Tarea", "Peligro", "Riesgo", "Medidas"]
+            if kind == "IRL" else related_catalog()["columns"][kind]
+        ),
+        "variants": [
+            {"cargo": cargo, "source_rows": source_rows}
+            for cargo, source_rows in variants.items() if len(source_rows) > 1
+        ],
+        "historical_pdfs_unchanged": True,
+        "editable_as_new_draft": True,
+        "source_sha256": catalog()["source_sha256"] if kind == "IRL" else related_catalog()["source_sha256"],
     }
