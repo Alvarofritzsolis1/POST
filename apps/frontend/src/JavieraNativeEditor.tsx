@@ -12,6 +12,7 @@ type EditorDocument={code:string;title:string;html:string;revision:number|null;
 type EditorSave={code:string;revision:number;state:string;message:string};
 type EditorHistoryItem={revision:number;state:string;reason:string;created_at:string;html:string};
 type EditorHistory={code:string;revisions:EditorHistoryItem[];restoration_policy:string};
+type PreviewDossier={id:string;selected_codes:string[];company_name:string;person_name:string|null;site_name:string;revision:number};
 
 const sampleCsp="default-src 'none'; style-src 'unsafe-inline'; img-src 'none'; font-src 'none'; connect-src 'none';";
 const previewCss=`
@@ -63,15 +64,22 @@ export default function JavieraNativeEditor({onBack,initialCode="internal_rules_
   const [history,setHistory]=useState<EditorHistoryItem[]>([]);
   const [historyOpen,setHistoryOpen]=useState(false);
   const [canvasSeed,setCanvasSeed]=useState(0);
+  const [sampleDossiers,setSampleDossiers]=useState<PreviewDossier[]>([]);
+  const [sampleId,setSampleId]=useState("");
+  const [actualPdf,setActualPdf]=useState<string|null>(null);
+  const [pdfLoading,setPdfLoading]=useState(false);
   const input=useRef<HTMLTextAreaElement|null>(null);
   const dirty=html!==savedHtml;
+  const availableExamples=sampleDossiers.filter(d=>d.selected_codes.includes(selected));
+  useEffect(()=>()=>{if(actualPdf)URL.revokeObjectURL(actualPdf);},[actualPdf]);
+  useEffect(()=>{setActualPdf(null);},[html,selected]);
 
   const refreshFormats=useCallback(async()=>{
     const result=await request<FormatList>("/javiera/v19/formats");
     setFormats(result.formats);
   },[]);
   const openDocument=useCallback(async(code:string)=>{
-    setLoading(true);setError("");setNotice("");
+    setLoading(true);setError("");setNotice("");setActualPdf(null);setSampleId("");
     try{
       const [current,versions]=await Promise.all([
         request<EditorDocument>("/javiera/v19/editor/"+code),
@@ -91,6 +99,9 @@ export default function JavieraNativeEditor({onBack,initialCode="internal_rules_
   useEffect(()=>{
     void Promise.all([refreshFormats(),openDocument(initialCode)])
       .catch(e=>setError(e instanceof Error?e.message:String(e)));
+    void request<PreviewDossier[]>("/javiera/v166/dossiers")
+      .then(setSampleDossiers)
+      .catch(()=>setSampleDossiers([]));
   },[refreshFormats,openDocument]);
 
   function choose(code:string){
@@ -155,12 +166,37 @@ export default function JavieraNativeEditor({onBack,initialCode="internal_rules_
     finally{setBusy(false);}
   }
   const active=formats.find(f=>f.code===selected);
+  async function previewWithDossier(){
+    if(!sampleId){setError("Selecciona un expediente documental para mostrar su PDF A4.");return;}
+    if(dirty){setError("Guarda los cambios y habilita su revisión antes de comprobar el PDF definitivo.");return;}
+    if(active?.status!=="ready"){
+      setError("El formato todavía no está habilitado para impresión; revisa su contenido primero.");return;
+    }
+    setPdfLoading(true);setError("");
+    try{
+      const csrf=window.document.cookie.split("; ").find(x=>x.startsWith("galant_post_csrf="))?.split("=")[1]||"";
+      const response=await fetch("/api/v1/javiera/v19/preview",{
+        method:"POST",credentials:"include",cache:"no-store",
+        headers:{"Content-Type":"application/json","X-CSRF-Token":csrf},
+        body:JSON.stringify({dossier_id:sampleId,code:selected}),
+      });
+      if(!response.ok){
+        const body=await response.json().catch(()=>({detail:"Vista previa PDF no disponible."}));
+        throw new Error(typeof body.detail==="string"?body.detail:"El expediente aún no cumple los requisitos de impresión.");
+      }
+      const blob=await response.blob();
+      if(!blob.size||blob.type!=="application/pdf")throw new Error("El servicio no devolvió un PDF A4 válido.");
+      setActualPdf(URL.createObjectURL(blob));
+      setNotice("PDF A4 real del expediente seleccionado. Es el mismo archivo que se abrirá para imprimir.");
+    }catch(e){setActualPdf(null);setError(e instanceof Error?e.message:String(e));}
+    finally{setPdfLoading(false);}
+  }
   return <main className="jne-shell">
     <header className="jne-heading">
       <button type="button" className="jne-back" onClick={goBack}>
         <ArrowLeft size={17}/> Volver a documentos
       </button>
-      <div><small>PROYECTO JAVIERA · EDITOR VISUAL 19.2</small>
+      <div><small>PROYECTO JAVIERA · EDITOR VISUAL 19.3</small>
         <h2><FileText size={25}/> Editor visual de documentos</h2>
         <p>Haz clic en la hoja para escribir, insertar datos automáticos y preparar el PDF A4.</p>
       </div>
@@ -241,12 +277,39 @@ export default function JavieraNativeEditor({onBack,initialCode="internal_rules_
               <div className="jne-panel-heading"><h4><Eye size={17}/> Vista del diseño</h4>
                 <button type="button" onClick={()=>setSourceView(!sourceView)}>
                   {sourceView?"Ocultar ayuda":"Mostrar ayuda"}</button></div>
-              {sourceView&&<p className="jne-help">Esta es una maqueta del documento, no el PDF definitivo.
-                Comprueba el resultado con <strong>Vista previa A4</strong> después de completar un expediente.</p>}
-              <div className="jne-paper">
-                <iframe title={"Vista preliminar HTML "+document.title}
-                  sandbox="" referrerPolicy="no-referrer" srcDoc={designPreview(html)}/>
+              <p className="jne-help">Elige un expediente guardado para generar el <strong>PDF A4 auténtico</strong>,
+                con sus matrices, datos y distribución de impresión. Debes guardar y habilitar antes el formato.</p>
+              <div className="jne-pdf-controls">
+                <label htmlFor="jne-preview-dossier">Expediente para comprobar el diseño</label>
+                <select id="jne-preview-dossier" value={sampleId}
+                  onChange={e=>{setSampleId(e.target.value);setActualPdf(null);}}>
+                  <option value="">Seleccionar expediente documental</option>
+                  {availableExamples.map(d=><option key={d.id} value={d.id}>
+                    {d.company_name} · {d.person_name||"Empresa"} · {d.site_name} · rev. {d.revision}
+                  </option>)}
+                </select>
+                <button type="button" className="jne-primary"
+                  disabled={busy||pdfLoading||dirty||!sampleId||active?.status!=="ready"}
+                  onClick={()=>void previewWithDossier()}>
+                  <Eye size={16}/>{pdfLoading?"Generando PDF…":"Ver PDF A4 real"}
+                </button>
+                {!availableExamples.length&&<small>No hay expedientes recientes que incluyan este formato.
+                  Crea uno en «Rellenar documentos» y vuelve para comprobar el PDF.</small>}
               </div>
+              {actualPdf?<div className="jne-real-pdf">
+                <iframe title={"PDF A4 real "+document.title} src={actualPdf}/>
+                <a href={actualPdf} target="_blank" rel="noreferrer">
+                  Abrir exactamente este PDF para imprimir
+                </a>
+              </div>:<>
+                {sourceView&&<p className="jne-help">
+                  Esta es solo una <strong>maqueta de texto</strong>, no el documento imprimible.
+                  Las matrices y los datos definitivos están en el PDF real.</p>}
+                <div className="jne-paper">
+                  <iframe title={"Borrador HTML ilustrativo "+document.title}
+                    sandbox="" referrerPolicy="no-referrer" srcDoc={designPreview(html)}/>
+                </div>
+              </>}
               <div className="jne-enable">
                 <label><input type="checkbox" checked={confirmed}
                   onChange={e=>setConfirmed(e.target.checked)}/>

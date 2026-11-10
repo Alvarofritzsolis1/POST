@@ -75,3 +75,14 @@
 .jne-history-list small{display:block;font-size:.71rem;color:#536d83;font-weight:400;margin-top:4px}
 .jne-history-list button{border:1px solid #c2d3e2;background:#fff;border-radius:7px;padding:9px;color:#255278;cursor:pointer}
 @media(max-width:550px){.jne-history-list>div{flex-direction:column;align-items:flex-start}.jne-history-control{justify-items:start}}
+
+/* GALANT 19.3 — el visor de impresión carga el PDF binario del backend. */
+.jne-pdf-controls{display:grid;gap:8px;padding:13px;border:1px solid #d3e2ed;border-radius:9px;background:#f6fafe;margin:12px 0}
+.jne-pdf-controls label{font-weight:700;font-size:.8rem;color:#2b506d}
+.jne-pdf-controls select{width:100%;min-width:0;border:1px solid #c8d9e8;border-radius:7px;background:#fff;color:#28465f;padding:10px}
+.jne-pdf-controls button{justify-content:center}
+.jne-pdf-controls small{font-size:.76rem;color:#67798e}
+.jne-real-pdf{display:grid;gap:11px;padding:10px;background:#e6edf4;border:1px solid #c6d6e4;border-radius:9px}
+.jne-real-pdf iframe{width:100%;height:min(75vh,940px);min-height:570px;border:0;border-radius:5px;background:#fff}
+.jne-real-pdf a{display:inline-flex;justify-content:center;align-items:center;padding:10px 13px;border-radius:7px;background:#fff;border:1px solid #c0d6e6;color:#245273;font-weight:700;text-align:center;text-decoration:none;font-size:.82rem}
+@media(max-width:650px){.jne-real-pdf iframe{min-height:450px;height:65vh}}

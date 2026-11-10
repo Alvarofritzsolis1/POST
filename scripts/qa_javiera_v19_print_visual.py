@@ -128,7 +128,7 @@ def main():
         if code == "sworn_declaration":
             record["worker"] = {"name": "", "rut": ""}
         matrix = ([f"Sección aprobada {i:02d}: controles preventivos sintéticos de ensayo."
-                   for i in range(1, 19)] if code in {"irl","pts"} else None)
+                   for i in range(1, 19 if code == "irl" else 18)] if code in {"irl","pts"} else None)
         source = approved if code not in {"internal_rules_receipt","irl","induction"} else None
         try:
             raw = render_native_pdf(code, record, matrix=matrix, approved_text=source)

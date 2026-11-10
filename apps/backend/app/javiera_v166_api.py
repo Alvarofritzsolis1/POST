@@ -25,6 +25,7 @@ from .javiera_layout_api import latest_layout, make_pdf
 from .javiera_logic import DOCUMENTS, DOCUMENT_BY_CODE, eligibility, normalize_cargo, render_tokens
 from .javiera_excel import DOC_SHEETS
 from .javiera_matrices import latest_approved_matrix
+from .javiera_irl import preventive_matrix_blocker
 from .javiera_models import JavieraExcelLayout, JavieraMatrix, JavieraTemplate, JavieraIssue
 from .javiera_v166_models import (
     JavieraLocalCompany, JavieraLocalPerson, JavieraLocalDossier,
@@ -144,6 +145,39 @@ def _status(db, user, record, code):
     approved = {kind + ":" + normalize_cargo(cargo) for kind, cargo in matrices}
     data = _document(record, code, db, user)
     item = next(s for s in eligibility(data, templates, approved) if s["code"] == code)
+    # Una labor nueva pertenece al borrador documental y no puede emitirse
+    # mediante el motor antiguo ni el nuevo hasta su revisión preventiva.
+    if code in {"irl", "pts"}:
+        document_fields = record.document_data or {}
+        manual = []
+        for subtype, key in (("irl", "irl_manual_labor"), ("pts", "pts_manual_labor")):
+            section = document_fields.get(subtype) or {}
+            value = (section.get("event") or {}).get(key, "")
+            if isinstance(value, str) and value.strip():
+                manual.append(value)
+        if manual:
+            warning = ("Labor manual pendiente de vincular a la matriz preventiva. "
+                       "Solicita revisión antes de generar IRL o PTS.")
+            item.update(status="PENDIENTE_REVISION", reason=warning,
+                        can_issue=False, can_preview=False)
+            item.setdefault("blocking_errors", []).append(warning)
+    if code in {"irl", "pts", "pts_receipt"}:
+        kind = "IRL" if code == "irl" else "PTS"
+        source = latest_approved_matrix(db, user.org_id, kind, role)
+        issue = preventive_matrix_blocker(kind, source.sections if source else None)
+        if issue:
+            # Mostrar primero la labor nueva aportada por el usuario. La
+            # matriz ausente/incompleta sigue listada como segundo bloqueo.
+            manual_priority = any(
+                "Labor manual" in warning
+                for warning in item.get("blocking_errors", [])
+            )
+            item.update(
+                status="PENDIENTE_REVISION",
+                reason=item["reason"] if manual_priority else issue,
+                can_issue=False, can_preview=False,
+            )
+            item.setdefault("blocking_errors", []).append(issue)
     # An imported Excel in draft status must never silently fall back to
     # an unrelated text template merely because that text was published.
     newest = latest_layout(db, user.org_id, code, approved=False)
