@@ -93,7 +93,7 @@ def test_workbook_preview_is_read_only_and_exposes_difference_inventory(env):
     assert body["can_import"] is False
     assert body["formula_equivalence_verified"] is False
     assert body["formula_inventory"][0]["cell"] == "A1"
-    assert any("Importación bloqueada" in warning for warning in body["warnings"])
+    assert any("importación bloqueada" in warning.casefold() for warning in body["warnings"])
     with sessions() as db:
         assert db.scalar(select(func.count(JavieraMatrix.id)))==before
 
