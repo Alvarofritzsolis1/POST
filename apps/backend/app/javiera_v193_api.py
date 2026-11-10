@@ -87,6 +87,8 @@ def role_detail(cargo: str = Query(..., min_length=1, max_length=160),
             "sections_complete": bool(pts and len(pts.sections) == 17 and
                                       all(str(part).strip() for part in pts.sections)),
             "section_count": len(pts.sections) if pts else 0,
+            "sections": list(pts.sections) if pts else [],
+            "source_columns": [chr(68 + i) for i in range(len(pts.sections))] if pts else [],
         },
         "additional_matrices": {
             kind: {"revision": item.revision if item else None,
