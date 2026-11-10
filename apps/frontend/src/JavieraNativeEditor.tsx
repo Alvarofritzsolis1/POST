@@ -19,10 +19,18 @@ p{margin:8px 0}table{border-collapse:collapse;width:100%}
 td,th{border:1px solid #b7c6d4;padding:6px;font-size:10pt;vertical-align:top}
 th{background:#edf2f6}blockquote{border-left:3px solid #abbdd1;margin:10px 0;padding:6px 12px}
 `;
+const previewFields:Record<string,string>={
+  "worker.name":"Nombre del trabajador","worker.rut":"RUT del trabajador",
+  "employer.name":"Empresa","employer.rut":"RUT de la empresa",
+  "site.name":"Obra","role":"Cargo","event.date":"Fecha del documento",
+};
 function designPreview(html:string){
+  const text=html.replace(/\\{\\{\\s*([A-Za-z0-9_.]+)\\s*\\}\\}/g,
+    (_full:string,key:string)=>'<strong class="document-variable">'+
+      (previewFields[key]||"Dato automático")+'</strong>');
   return '<!doctype html><html lang="es"><head><meta charset="utf-8">'+
     '<meta http-equiv="Content-Security-Policy" content="'+sampleCsp+'">'+
-    '<style>'+previewCss+'</style></head><body>'+html+'</body></html>';
+    '<style>'+previewCss+'.document-variable{background:#e8f2fc;color:#215278;border-radius:3px;padding:2px 4px}'+'</style></head><body>'+text+'</body></html>';
 }
 const insertions=[
   {label:"Párrafo",source:"<p>Escribe aquí el texto oficial.</p>\n"},
