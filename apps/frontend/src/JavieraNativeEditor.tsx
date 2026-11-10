@@ -1,7 +1,8 @@
 import {useCallback, useEffect, useRef, useState} from "react";
-import {ArrowLeft, CheckCircle2, Code2, Eye, FileCode2, FileText, Save, ShieldCheck} from "lucide-react";
+import {ArrowLeft, CheckCircle2, Eye, FileText, Save, ShieldCheck} from "lucide-react";
 import {request} from "./api";
 import "./javiera-native-editor.css";
+import JavieraVisualCanvas from "./JavieraVisualCanvas";
 
 type Format={code:string;title:string;status:"ready"|"requires_review"|"requires_published_text";
   source_kind:string;source_revision:number|null};
@@ -48,6 +49,7 @@ export default function JavieraNativeEditor({onBack,initialCode="internal_rules_
   const [error,setError]=useState("");
   const [notice,setNotice]=useState("");
   const [sourceView,setSourceView]=useState(true);
+  const [expertHtml,setExpertHtml]=useState(false);
   const input=useRef<HTMLTextAreaElement|null>(null);
   const dirty=html!==savedHtml;
 
@@ -94,7 +96,7 @@ export default function JavieraNativeEditor({onBack,initialCode="internal_rules_
     });
   }
   async function save(){
-    if(!html.trim())return setError("Completa el documento en HTML antes de guardarlo.");
+    if(!html.trim())return setError("Completa el documento antes de guardarlo.");
     setBusy(true);setError("");setNotice("");
     try{
       const result=await request<EditorSave>("/javiera/v19/editor/"+selected,{
@@ -102,7 +104,7 @@ export default function JavieraNativeEditor({onBack,initialCode="internal_rules_
       });
       await openDocument(selected);
       await refreshFormats();
-      setNotice("Borrador HTML guardado · revisión "+result.revision+
+      setNotice("Borrador visual guardado · revisión "+result.revision+
         ". Comprueba la vista y habilita el PDF A4 cuando corresponda.");
     }catch(e){setError(e instanceof Error?e.message:String(e));}
     finally{setBusy(false);}
@@ -130,9 +132,9 @@ export default function JavieraNativeEditor({onBack,initialCode="internal_rules_
       <button type="button" className="jne-back" onClick={goBack}>
         <ArrowLeft size={17}/> Volver a documentos
       </button>
-      <div><small>PROYECTO JAVIERA · NUEVO GENERADOR</small>
-        <h2><FileCode2 size={25}/> Editor de formatos HTML</h2>
-        <p>Edita el documento aquí, revisa su aspecto y prepara el PDF A4 sin modificar Excel.</p>
+      <div><small>PROYECTO JAVIERA · EDITOR VISUAL 19.2</small>
+        <h2><FileText size={25}/> Editor visual de documentos</h2>
+        <p>Haz clic en la hoja para escribir, insertar datos automáticos y preparar el PDF A4.</p>
       </div>
     </header>
     {error&&<p role="alert" className="jne-alert">{error}</p>}
@@ -161,28 +163,33 @@ export default function JavieraNativeEditor({onBack,initialCode="internal_rules_
           </div>
           <div className="jne-panels">
             <section className="jne-editor-panel">
-              <div className="jne-panel-heading"><h4><Code2 size={17}/> Editar contenido</h4>
+              <div className="jne-panel-heading"><h4><FileText size={17}/> Editar documento</h4>
                 <small>{dirty?"Cambios sin guardar":"Sin cambios pendientes"}</small></div>
-              <div className="jne-toolbar" role="group" aria-label="Insertar elementos del documento">
-                {insertions.map(item=><button type="button" key={item.label}
-                  onClick={()=>insert(item.source)}>{item.label}</button>)}
+              <div className="jne-visual-mode">
+                <strong>Edición visual</strong>
+                <button type="button" onClick={()=>setExpertHtml(!expertHtml)}>
+                  {expertHtml?"Volver al editor visual":"Edición HTML avanzada (solo administradores)"}
+                </button>
               </div>
-              <label className="jne-label" htmlFor="native-html-source">
-                Texto y estructura HTML
-              </label>
-              <textarea id="native-html-source" ref={input} spellCheck={false}
-                value={html} rows={22}
-                placeholder={"<h2>Título original</h2>\n<p>Escribe o pega aquí el contenido real del documento.</p>"}
-                onChange={e=>setHtml(e.target.value)}/>
-              <p className="jne-help">Usa los botones para insertar títulos, párrafos, casillas y tablas.
-                Los campos automáticos mantienen la sintaxis {"{{worker.name}}"}.
-                No se permiten scripts, enlaces, imágenes externas ni estilos inseguros.</p>
+              {expertHtml?<div>
+                <div className="jne-toolbar" role="group" aria-label="Insertar elementos del documento">
+                  {insertions.map(item=><button type="button" key={item.label}
+                    onClick={()=>insert(item.source)}>{item.label}</button>)}
+                </div>
+                <label className="jne-label" htmlFor="native-html-source">Código HTML avanzado</label>
+                <textarea id="native-html-source" ref={input} spellCheck={false}
+                  value={html} rows={22}
+                  onChange={e=>setHtml(e.target.value)}/>
+                <p className="jne-help">Modo avanzado: se mantiene la validación de seguridad del servidor.
+                  El HTML nunca aparece en el documento impreso.</p>
+              </div>:<JavieraVisualCanvas html={html} onChange={setHtml}
+                resetKey={selected+":"+(document.revision||"base")}/>}
               <label className="jne-label" htmlFor="native-change-reason">Motivo del cambio</label>
               <input id="native-change-reason" value={reason} maxLength={500}
                 onChange={e=>setReason(e.target.value)}/>
               <div className="jne-actions">
                 <button type="button" className="jne-primary" disabled={busy||!dirty||reason.trim().length<6}
-                  onClick={()=>void save()}><Save size={17}/> {busy?"Procesando…":"Guardar HTML"}</button>
+                  onClick={()=>void save()}><Save size={17}/> {busy?"Procesando…""Guardar borrador"}</button>
               </div>
             </section>
             <section className="jne-preview-panel">
