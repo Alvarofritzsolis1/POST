@@ -12,7 +12,7 @@ type RoleDetail={
     records:RecordIRL[];has_unstructured:boolean};
   pts:{approved:boolean;revision:number|null;sections_complete:boolean;section_count:number;
     sections:string[];source_columns:string[];headings:string[]};
-  additional_matrices:Record<string,{revision:number|null;available:boolean;sections:string[]}>;
+  additional_matrices:Record<string,{revision:number|null;available:boolean;reference_only?:boolean;sections:string[]}>;
   can_preview_irl:boolean;warnings:string[];reference_total?:number;source_excel_available?:boolean;
 };
 type Props={cargo:string;documentKind:"irl"|"pts";onCargoChange:(cargo:string)=>void;
@@ -77,7 +77,7 @@ export default function JavieraIRLAssistant({
       {loading?<span>Cargando matriz…</span>:detail&&<>
         <div className="jia-tags">
           <span>{detail.irl.approved?"IRL aprobada · revisión "+detail.irl.revision:"IRL sin aprobación"}</span>
-          <span>{detail.pts.approved?"PTS aprobado · revisión "+detail.pts.revision:"PTS pendiente"}</span>
+          <span>{detail.pts.approved?"PTS aprobado · revisión "+detail.pts.revision:detail.pts.sections.length?"PTS del Excel · sin aprobar":"PTS pendiente"}</span>
           <span>{tasks.length} registros IRL del cargo</span>
         </div>
         {detail.warnings.map((warning,i)=><p className="jia-warning" key={i}>
@@ -114,7 +114,7 @@ export default function JavieraIRLAssistant({
         <details className="jia-related"><summary>Ver matrices relacionadas del cargo</summary>
           {Object.entries(detail.additional_matrices).map(([kind,data])=>
             <div key={kind}><strong>{kind}</strong>
-              <span>{data.available?"Revisión "+data.revision:"Sin revisión aprobada"}</span>
+              <span>{data.reference_only?"Excel original · sin aprobar":data.available?"Revisión "+data.revision:"Sin revisión aprobada"}</span>
               {data.available&&<ul>{data.sections.map((section,i)=><li key={i}>{section}</li>)}</ul>}
             </div>)}
         </details>
