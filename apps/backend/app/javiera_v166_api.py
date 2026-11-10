@@ -144,6 +144,17 @@ def _status(db, user, record, code):
     approved = {kind + ":" + normalize_cargo(cargo) for kind, cargo in matrices}
     data = _document(record, code, db, user)
     item = next(s for s in eligibility(data, templates, approved) if s["code"] == code)
+    # Una labor nueva pertenece al borrador documental y no puede emitirse
+    # mediante el motor antiguo ni el nuevo hasta su revisión preventiva.
+    if code in {"irl", "pts"}:
+        irl_fields = (record.document_data or {}).get("irl") or {}
+        manual = (irl_fields.get("event") or {}).get("irl_manual_labor", "")
+        if isinstance(manual, str) and manual.strip():
+            warning = ("Labor manual pendiente de vincular a la matriz preventiva. "
+                       "Solicita revisión antes de generar IRL o PTS.")
+            item.update(status="PENDIENTE_REVISION", reason=warning,
+                        can_issue=False, can_preview=False)
+            item.setdefault("blocking_errors", []).append(warning)
     # An imported Excel in draft status must never silently fall back to
     # an unrelated text template merely because that text was published.
     newest = latest_layout(db, user.org_id, code, approved=False)
