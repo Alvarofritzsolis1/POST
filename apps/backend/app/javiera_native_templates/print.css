@@ -117,3 +117,14 @@ body h2 {margin:12pt 0 6pt;}
 /* Firma original siempre acompañada de su declaración */
 .irl-ending{break-inside:avoid;margin-top:10pt}
 .irl-ending .irl-declaration{margin:3pt 0 11pt;line-height:1.4}
+
+/* A4: la declaración y firma son una sola fila no divisible. */
+.irl-original-header th span{display:block;white-space:normal;overflow-wrap:normal}
+.irl-original-header th:first-child{width:31%;font-size:7.4pt;line-height:1.32}
+.irl-original-header th{overflow-wrap:break-word}
+.irl-ending{width:100%;border-collapse:collapse;table-layout:fixed;margin-top:10pt}
+.irl-ending tr{break-inside:avoid;page-break-inside:avoid}
+.irl-ending td{border:0;background:#fff;padding:1pt 0;vertical-align:top}
+.irl-ending .irl-declaration{margin:3pt 0 8pt;line-height:1.4}
+.irl-ending .irl-signature{margin-top:8pt}
+.irl-ending .irl-signature .signature-space{height:22pt}
