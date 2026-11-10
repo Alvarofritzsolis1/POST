@@ -4,6 +4,7 @@ import {ArrowLeft, CheckCircle2, FileCheck2, FileSpreadsheet, FileUp,
 import {request} from "./api";
 import JavieraV166 from "./JavieraV166";
 import JavieraNativeEditor from "./JavieraNativeEditor";
+import JavieraMatrixEditor from "./JavieraMatrixEditor";
 import "./javiera-v17.css";
 
 type Template={
@@ -33,7 +34,7 @@ function label(state:Template["state"]){
 function tabLabel(specialty:Template["specialty"]){return specialty==="laboral"?"Subcontratos":"Prevención de riesgos";}
 
 export default function JavieraV17({onConfig}:{onConfig?:()=>void}){
-  const [mode,setMode]=useState<"library"|"documents"|"editor">("documents");
+  const [mode,setMode]=useState<"library"|"documents"|"editor"|"matrices">("documents");
   const [editingCode,setEditingCode]=useState("internal_rules_receipt");
   const [data,setData]=useState<Library|null>(null);
   const [loading,setLoading]=useState(true);
@@ -89,7 +90,14 @@ export default function JavieraV17({onConfig}:{onConfig?:()=>void}){
   }
   const entries=(data?.documents||[]).filter(x=>selectedArea==="all"||x.specialty===selectedArea);
   if(mode==="editor")return <JavieraNativeEditor initialCode={editingCode}
-    onBack={()=>setMode("documents")}/>;
+    onBack={()=>setMode("documents")}
+    onOpenMatrices={code=>{setEditingCode(code);setMode("matrices");}}/>;
+  if(mode==="matrices")return <main className="j17-shell">
+    <button className="j17-outline" type="button" onClick={()=>setMode("editor")}>
+      <ArrowLeft size={17}/> Volver al editor IRL
+    </button>
+    <JavieraMatrixEditor/>
+  </main>;
   if(mode==="documents")return <div className="j17-shell">
     <section className="j17-html-home" aria-label="Generador visual de Proyecto Javiera">
       <div>
