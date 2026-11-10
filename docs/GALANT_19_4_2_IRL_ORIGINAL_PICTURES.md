@@ -23,8 +23,12 @@ la descripción, condiciones ni sustancias en su orden documental.
 5. Al elaborar la **vista PDF nativa desde un expediente**, se vinculan empresa,
    obra, trabajador, RUT, fecha y cargo, con matrices **aprobadas** de la misma
    organización. No se copian datos de identidad de la hoja de ejemplo.
-6. La firma y el RUT se mantienen en un bloque no divisible con la declaración
-   para evitar páginas aisladas.
+6. Si el Excel original está importado, la ruta de PDF utiliza
+   **LibreOffice a partir del propio XLSX conservado**, no `fitz.Story`.
+   Esto respeta las imágenes, encabezados, bordes y saltos del documento fuente
+   y evita pérdidas de texto observadas en la conversión HTML → PDF.
+7. Las vistas HTML son editables y orientativas; la impresión conserva el
+   documento original. Los demás PDF mantienen sus motores actuales.
 
 ## Seguridad y criterios de revisión
 
@@ -45,7 +49,7 @@ la descripción, condiciones ni sustancias en su orden documental.
 
 - Extracción OOXML de cinco imágenes, orden y procedencia.
 - Ausencia de datos del trabajador de ejemplo en la API de imágenes.
-- PDF A4 con matrices y cinco imágenes PNG embebidas.
+- PDF A4 desde XLSX privado, con cinco PNG embebidos, contenido por cargo y ninguna identidad de ejemplo.
 - Declaración, nombre y RUT del trabajador en el **mismo folio**.
 - Pruebas de regresión de backend, frontend, 10 formatos, navegador y respaldo.
 - CI: ver ejecución y resultados del PR #57.
