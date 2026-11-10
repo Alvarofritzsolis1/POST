@@ -162,7 +162,7 @@ function Setup({onBack}:{onBack:()=>void}){
       <button className={tab==="texto_legacy"?"active":""} aria-pressed={tab==="texto_legacy"}
         onClick={()=>setTab("texto_legacy")}>Texto tradicional (respaldo)</button></div>
     {error&&<p role="alert" className="jv-error">{error}</p>}{notice&&<p role="status" className="jv-success">{notice}</p>}
-    {tab==="documentos"&&<JavieraNativeEditor onBack={onBack}/>}
+    {tab==="documentos"&&<JavieraNativeEditor onBack={onBack} onOpenMatrices={()=>setTab("matrices")}/>}
      {tab==="matrices"&&<JavieraMatrixEditor/>}
     {tab==="texto_legacy"&&<div className="jv-admin-layout">
       <nav className="jv-template-list" aria-label="Plantillas documentales">{templates.map(t=>
