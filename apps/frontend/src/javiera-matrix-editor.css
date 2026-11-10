@@ -1,0 +1,49 @@
+.jmx-root{background:#fff;color:#273c50;border:1px solid #d8e2ed;border-radius:14px;padding:17px;min-width:0}
+.jmx-root *{box-sizing:border-box}
+.jmx-top{display:flex;gap:18px;align-items:center;justify-content:space-between;margin-bottom:18px}
+.jmx-top small{font-size:.73rem;color:#506b86;font-weight:750;letter-spacing:.05em}
+.jmx-top h2{font-size:1.3rem;display:flex;align-items:center;gap:10px;margin:4px 0}
+.jmx-top p{color:#587187;font-size:.86rem;line-height:1.5;max-width:850px}
+.jmx-top>button,.jmx-add,.jmx-impact>button{display:flex;align-items:center;gap:7px;padding:10px 13px;background:#edf4fb;color:#1e4a70;border:1px solid #cadbea;border-radius:8px;cursor:pointer}
+.jmx-grid{display:grid;grid-template-columns:minmax(210px,260px) minmax(0,1fr);gap:17px}
+.jmx-aside{border:1px solid #dce5ef;padding:12px;border-radius:10px;background:#f9fbfd;align-self:start}
+.jmx-root label{font-weight:700;font-size:.78rem;color:#344b60}
+.jmx-aside label{display:flex;align-items:center;gap:7px;margin-bottom:5px}
+.jmx-aside input,.jmx-aside select,.jmx-controls input,.jmx-controls select{border:1px solid #cbd9e7;border-radius:7px;padding:9px 10px;width:100%;color:#26384b;background:#fff}
+.jmx-aside select,.jmx-aside input{margin-bottom:14px}
+.jmx-items{max-height:530px;overflow:auto;display:grid;gap:6px}
+.jmx-items>small{color:#64788a;font-size:.72rem}
+.jmx-items button{display:flex;gap:6px;justify-content:space-between;align-items:center;text-align:left;width:100%;border:0;background:#fff;border-radius:7px;padding:10px;cursor:pointer;color:#294b67}
+.jmx-items button.chosen,.jmx-items button:hover{background:#e6f0fa}
+.jmx-items button span{font-size:.8rem;font-weight:700;overflow-wrap:anywhere}
+.jmx-items button small{display:block;font-weight:400;color:#5f7891;margin-top:4px}
+.jmx-editor{min-width:0}
+.jmx-controls{display:grid;grid-template-columns:minmax(0,2fr) minmax(160px,1fr);gap:12px}
+.jmx-controls label{display:grid;gap:5px}
+.jmx-summary{display:flex;flex-wrap:wrap;gap:9px;margin:14px 0}
+.jmx-summary>span{display:inline-flex;gap:5px;align-items:center;border:1px solid #deebf4;background:#f2f7fc;border-radius:7px;padding:7px 9px;font-size:.75rem;color:#395977}
+.jmx-table-scroll{overflow-x:auto;border:1px solid #dbe5ed;border-radius:9px;max-width:100%}
+.jmx-table-scroll table{border-collapse:collapse;width:100%;min-width:720px;table-layout:fixed}
+.jmx-table-scroll th,.jmx-table-scroll td{border:1px solid #d8e4ef;padding:9px;vertical-align:top}
+.jmx-table-scroll thead th{background:#edf3f9;font-size:.77rem;text-align:left}
+.jmx-table-scroll thead th:first-child{width:45px}
+.jmx-table-scroll tbody th{font-size:.8rem;color:#59728a}
+.jmx-table-scroll textarea,.jmx-rows textarea{width:100%;min-height:88px;resize:vertical;border:1px solid #cddce8;border-radius:7px;padding:8px;color:#263b50;font:13px/1.45 Arial,sans-serif}
+.jmx-rows{display:grid;gap:11px}
+.jmx-rows label{display:grid;gap:6px}
+.jmx-add{margin-top:12px}
+.jmx-impact{border:1px solid #cfdde9;border-radius:10px;background:#f6f9fc;margin-top:18px;padding:14px}
+.jmx-impact h3{margin:0 0 8px;font-size:1rem}
+.jmx-impact p{font-size:.83rem;line-height:1.55;color:#445b71;margin:6px 0}
+.jmx-impact-detail{margin:12px 0;background:#fff;padding:12px;border:1px solid #d6e2ed;border-radius:9px}
+.jmx-impact-detail .jmx-confirm{display:flex;gap:9px;align-items:flex-start;margin-top:12px}
+.jmx-confirm input{accent-color:#244d73;width:17px;height:17px}
+.jmx-actions{display:flex;gap:10px;flex-wrap:wrap;margin-top:13px}
+.jmx-actions button{display:flex;align-items:center;gap:8px;border:1px solid #244765;background:#fff;border-radius:8px;padding:10px 12px;color:#244765;cursor:pointer}
+.jmx-actions .jmx-save{background:#244765;color:white}
+.jmx-root button:disabled{opacity:.45;cursor:not-allowed}
+.jmx-error,.jmx-success{padding:12px 14px;border-radius:8px;margin:10px 0;font-size:.85rem}
+.jmx-error{color:#982e34;background:#fff1ef;border:1px solid #ecc9c5}
+.jmx-success{color:#276143;background:#eef8f2;border:1px solid #c8e5d3;display:flex;gap:8px}
+@media(max-width:950px){.jmx-grid{grid-template-columns:1fr}.jmx-items{max-height:210px}}
+@media(max-width:550px){.jmx-top{flex-direction:column;align-items:flex-start}.jmx-controls{grid-template-columns:1fr}.jmx-root{padding:10px}}
