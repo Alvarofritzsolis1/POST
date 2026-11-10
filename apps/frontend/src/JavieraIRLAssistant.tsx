@@ -3,7 +3,7 @@ import {AlertTriangle,CheckCircle2,ClipboardList,Search,ShieldCheck} from "lucid
 import {request} from "./api";
 import "./javiera-irl-assistant.css";
 
-type Role={cargo:string;has_approved_irl:boolean;has_approved_pts:boolean;has_draft:boolean};
+type Role={cargo:string;has_approved_irl:boolean;has_approved_pts:boolean;has_draft:boolean;source_excel_available?:boolean;reference_count?:number};
 type RecordIRL={id:string;ordinal:number;labor:string;peligro:string;riesgo:string;
   medidas:string;original:string;structured:boolean};
 type RoleDetail={
@@ -13,7 +13,7 @@ type RoleDetail={
   pts:{approved:boolean;revision:number|null;sections_complete:boolean;section_count:number;
     sections:string[];source_columns:string[];headings:string[]};
   additional_matrices:Record<string,{revision:number|null;available:boolean;sections:string[]}>;
-  can_preview_irl:boolean;warnings:string[];
+  can_preview_irl:boolean;warnings:string[];reference_total?:number;source_excel_available?:boolean;
 };
 type Props={cargo:string;documentKind:"irl"|"pts";onCargoChange:(cargo:string)=>void;
   manualLabor:string;onManualLaborChange:(labor:string)=>void;
@@ -30,7 +30,7 @@ export default function JavieraIRLAssistant({
   useEffect(()=>{
     let active=true;
     const id=window.setTimeout(()=>{
-      void request<{roles:Role[]}>("/javiera/v193/roles?query="+encodeURIComponent(query))
+      void request<{roles:Role[]}>("/javiera/v194/roles?query="+encodeURIComponent(query))
         .then(result=>{if(active)setMatches(result.roles);})
         .catch(e=>{if(active)setError(e instanceof Error?e.message:String(e));});
     },250);
@@ -41,7 +41,7 @@ export default function JavieraIRLAssistant({
     let active=true;
     setLoading(true);
     const id=window.setTimeout(()=>{
-      void request<RoleDetail>("/javiera/v193/role?cargo="+encodeURIComponent(cargo.trim()))
+      void request<RoleDetail>("/javiera/v194/role?cargo="+encodeURIComponent(cargo.trim()))
         .then(result=>{if(active){setDetail(result);setError("");}})
         .catch(e=>{if(active){setDetail(null);setError(e instanceof Error?e.message:String(e));}})
         .finally(()=>{if(active)setLoading(false);});
@@ -68,7 +68,7 @@ export default function JavieraIRLAssistant({
         className={entry.cargo===cargo?"selected":""}
         onClick={()=>{onCargoChange(entry.cargo);setQuery("");onReviewedLaborIdsChange("");}}>
         {entry.cargo}
-        {entry.has_approved_irl?<small>IRL aprobada</small>:<small>Sin IRL aprobada</small>}
+        {entry.has_approved_irl?<small>IRL aprobada</small>:entry.source_excel_available?<small>Excel original · {entry.reference_count} riesgos</small>:<small>Sin IRL aprobada</small>}
       </button>)}
       {matches.length===0&&query&&<p>No hay coincidencias aprobadas. Puedes escribir el cargo manualmente en Datos compartidos.</p>}
     </div>
@@ -82,8 +82,8 @@ export default function JavieraIRLAssistant({
         </div>
         {detail.warnings.map((warning,i)=><p className="jia-warning" key={i}>
           <AlertTriangle size={15}/> {warning}</p>)}
-        {detail.irl.approved&&tasks.length>0&&<>
-          <p>Revisa y marca las labores que correspondan al trabajo real. El PDF conserva por
+        {tasks.length>0&&<>
+          <p>Revisa las labores del Excel original. Las matrices que aún no tienen aprobación de Prevención son solo referencias y no se imprimen. El PDF conserva por
             seguridad todos los riesgos de la matriz aprobada hasta que exista una
             selección preventiva validada; marcar una labor no modifica la matriz.</p>
           <div className="jia-table-wrap"><table>
