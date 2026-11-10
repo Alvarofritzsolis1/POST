@@ -16,6 +16,7 @@ from sqlalchemy.orm import Session
 
 from .db import get_db
 from .javiera_logic import normalize_cargo
+from .javiera_irl_integrity import audit_reference_role
 from .javiera_v193_api import roles as db_roles, role_detail as db_role_detail
 from .models import User
 from .security import administrator
@@ -115,6 +116,9 @@ def reference_detail(cargo: str = Query(..., min_length=1, max_length=160),
     source_role, rows = source
     references = [_to_preview_record(row, ordinal) for ordinal, row in enumerate(rows, 1)]
     invalid = [row["excel_row"] for row in references if not row["structured"]]
+    reference_audit = audit_reference_role(source_role, rows, related_catalog()["matrices"])
+    data["reference_audit"] = reference_audit
+    data["warnings"].extend(reference_audit["warnings"])
     data.update({
         "source_excel_available": True,
         "source_excel_role": source_role,
