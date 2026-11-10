@@ -68,6 +68,10 @@ def main():
             expect(page.locator(".jir-risk-table thead th")).to_have_count(5)
             expect(page.get_by_role("columnheader", name="Labor o tarea")).to_be_visible()
             expect(page.get_by_role("button", name="Abrir Matrices y cargos")).to_be_visible()
+            page.get_by_role("button", name="Abrir Matrices y cargos").click()
+            expect(page.get_by_role("heading", name="Matrices y cargos")).to_be_visible()
+            page.get_by_role("button", name="Volver al editor IRL").click()
+            expect(page.get_by_role("heading", name="Formato original, datos vinculados y matriz de riesgos")).to_be_visible()
             expect(page.get_by_role("button", name="Editar texto complementario del IRL (opcional)")).to_be_visible()
             assert page.get_by_role("textbox", name="Documento editable").count() == 0
             report["scenarios"]["irl_visual_format_not_blank"] = "PASS"
