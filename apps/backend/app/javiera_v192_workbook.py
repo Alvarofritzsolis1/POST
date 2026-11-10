@@ -210,7 +210,8 @@ def inspect_matrix_workbook(raw: bytes, db, org_id: str) -> tuple[dict, dict]:
         if "MATRIZ PTS" in book.sheetnames:
             ws = book["MATRIZ PTS"]
             header = next(ws.iter_rows(min_row=1, max_row=1, max_col=20, values_only=True))
-            canonical = lambda text: " ".join(str(text or "").upper().split())
+            def canonical(text):
+                return " ".join(str(text or "").upper().split())
             # La estructura técnica D:T debe corresponder al archivo real.
             # Sin estos encabezados no podemos mostrar las secciones correctamente.
             wrong = [chr(68 + i) for i, expected in enumerate(PTS_TECHNICAL_HEADINGS)
