@@ -297,3 +297,26 @@ def test_oversized_formatting_and_261_formulas_do_not_drop_valid_matrices(env):
     assert report["draft_only_for_incomplete"] is True
     assert report["can_import"] is True,report["omissions"]
     assert any("sobredimensionadas" in warning for warning in report["warnings"])
+
+
+
+def test_incomplete_preventive_matrices_cannot_be_approved():
+    from types import SimpleNamespace
+    from fastapi import HTTPException
+    from app.javiera_api import _check_preventive_matrix_before_approval
+
+    pts=SimpleNamespace(kind="PTS",source="GALANT 19.2 XLSX",sections=["Procedimiento"]*17)
+    _check_preventive_matrix_before_approval(pts)
+    pts.sections[4]=""
+    with pytest.raises(HTTPException) as exc:
+        _check_preventive_matrix_before_approval(pts)
+    assert exc.value.status_code==422
+
+    valid=("Tarea: Trabajo en altura\nPeligro: Desnivel\n"
+           "Riesgo: Caída\nMedidas: Protección colectiva")
+    irl=SimpleNamespace(kind="IRL",source="GALANT 19.2 XLSX",sections=[valid])
+    _check_preventive_matrix_before_approval(irl)
+    irl.sections=["Tarea: Trabajo en altura\nPeligro: \nRiesgo: Caída\nMedidas: Protección"]
+    with pytest.raises(HTTPException) as exc:
+        _check_preventive_matrix_before_approval(irl)
+    assert exc.value.status_code==422
