@@ -19,6 +19,7 @@ from openpyxl import load_workbook
 from sqlalchemy import select
 
 from .javiera_logic import normalize_cargo
+from .javiera_pts_headers import PTS_TECHNICAL_HEADINGS, PTS_REFERENCE_SHA256
 from .javiera_models import JavieraMatrix
 
 SHEETS = {
@@ -208,6 +209,15 @@ def inspect_matrix_workbook(raw: bytes, db, org_id: str) -> tuple[dict, dict]:
 
         if "MATRIZ PTS" in book.sheetnames:
             ws = book["MATRIZ PTS"]
+            header = next(ws.iter_rows(min_row=1, max_row=1, max_col=20, values_only=True))
+            canonical = lambda text: " ".join(str(text or "").upper().split())
+            # La estructura técnica D:T debe corresponder al archivo real.
+            # Sin estos encabezados no podemos mostrar las secciones correctamente.
+            wrong = [chr(68 + i) for i, expected in enumerate(PTS_TECHNICAL_HEADINGS)
+                     if canonical(header[i + 3]) != canonical(expected)]
+            if wrong:
+                omissions.append("MATRIZ PTS: encabezados D:T incompatibles en "
+                                 + ", ".join(wrong) + ". No se importan bajo etiquetas erróneas.")
             if ws.max_row > MAX_SOURCE_ROWS:
                 oversized_dimensions.append("MATRIZ PTS")
                 if _real_content_after_limit(raw, "MATRIZ PTS", MAX_SOURCE_ROWS):
@@ -312,8 +322,16 @@ def inspect_matrix_workbook(raw: bytes, db, org_id: str) -> tuple[dict, dict]:
         warnings.append(f"Referencial IRL: 338 filas; en el Excel hay {counts['IRL']}.")
     if counts["PTS"] != 26:
         warnings.append(f"Referencial PTS: 26 filas; en el Excel hay {counts['PTS']}.")
-    if len(formulas) != 423:
-        warnings.append(f"Referencial de fórmulas: 423; se inventariaron {len(formulas)}.")
+    source_sha = hashlib.sha256(raw).hexdigest()
+    if source_sha == PTS_REFERENCE_SHA256:
+        if len(formulas) != 324:
+            warnings.append("El Excel corregido reconocido no conserva las 324 fórmulas inventariadas.")
+        else:
+            warnings.append("Fuente corregida reconocida: 324 fórmulas inventariadas, "
+                            "sin equivalencia funcional certificada.")
+    elif len(formulas) not in (261, 324, 423):
+        warnings.append(f"El libro contiene {len(formulas)} fórmulas. Las referencias históricas "
+                        "261 / 324 / 423 corresponden a versiones distintas; validar el archivo fuente.")
     if partial:
         warnings.append("El inventario de fórmulas está incompleto.")
     warnings.extend(duplicate_conflicts)
