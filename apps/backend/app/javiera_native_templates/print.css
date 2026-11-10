@@ -128,3 +128,6 @@ body h2 {margin:12pt 0 6pt;}
 .irl-ending .irl-declaration{margin:3pt 0 8pt;line-height:1.4}
 .irl-ending .irl-signature{margin-top:8pt}
 .irl-ending .irl-signature .signature-space{height:22pt}
+
+/* Hojas con imágenes originales: folio de cierre indivisible para declaración/firma. */
+.irl-original-print.irl-images-ready .irl-ending{break-before:page;page-break-before:always}
