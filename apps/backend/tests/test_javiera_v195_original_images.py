@@ -31,7 +31,7 @@ def workbook_with_five_images() -> bytes:
     private = book.create_sheet("Datos Contrato")
     private["C17"] = "PERSONA FICTICIA DE LA PLANTILLA - NO DIVULGAR"
     for n, row in enumerate((87, 101, 120, 135, 153), 1):
-        image = PILImage.new("RGB", (240, 140), (235, 237, 240))
+        image = PILImage.new("RGB", (240, 140), (235 - n, 237, 240))
         stream = BytesIO()
         image.save(stream, format="PNG")
         stream.seek(0)
@@ -67,12 +67,23 @@ def test_irl_pdf_renders_exact_five_embedded_images_and_all_sections():
                                  irl_context=extra, original_source=original)
     assert document.startswith(b"%PDF")
     with fitz.open(stream=document, filetype="pdf") as pdf:
-        full = " ".join(page.get_text() for page in pdf)
+        pages = [page.get_text() for page in pdf]
+        # Las líneas de PDF pueden envolver una frase sin que se pierdan sus
+        # palabras. Normalizar solo saltos de línea, nunca suprimir vocablos.
+        full = " ".join(" ".join(page.split()) for page in pages)
         assert "Perfil técnico validado" in full
         assert "Máquinas usadas" in full
         assert "Sustancia real" in full
         assert "Obligaciones preventivas" in full
         assert "PERSONA FICTICIA" not in full
+        # El último folio NO puede contener solamente el RUT.
+        signature_pages = [i for i, page in enumerate(pages) if "Firma trabajador" in page]
+        assert len(signature_pages) == 1
+        signed_page = pages[signature_pages[0]]
+        assert "Declaración de recepción" in " ".join(signed_page.split())
+        assert "RUT: " + data()["worker"]["rut"] in " ".join(signed_page.split())
+        assert all("RUT: " + data()["worker"]["rut"] not in " ".join(page.split())
+                   for i, page in enumerate(pages) if i != signature_pages[0])
         pictures = [img for page in pdf for img in page.get_images(full=True)]
         assert len(pictures) >= 5
         assert 1 <= pdf.page_count <= 40
