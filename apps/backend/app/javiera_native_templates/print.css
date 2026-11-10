@@ -6,8 +6,6 @@ p { margin: 6pt 0 10pt; }
 .eyebrow { letter-spacing: 0.7pt; font-size: 8.6pt; font-weight: bold; text-align: center;
             margin: 0; color: #3c5268; }
 .subtitle { color: #4b596a; text-align: center; font-size: 8.7pt; margin-top: 0; }
-.preview-ribbon { color: #8b3e24; background: #fff5e8; border: 0.5pt solid #e4c7a8;
-                  text-align: center; font-size: 7.5pt; padding: 5pt; margin-bottom: 12pt; }
 .document-head { border-bottom: 1.5pt solid #183b5b; margin-bottom: 12pt; }
 table { border-collapse: collapse; width: 100%; }
 td, th { vertical-align: top; padding: 6pt; border: 0.5pt solid #b6c1ca; font-size: 9.5pt; }
@@ -48,7 +46,6 @@ th { font-weight: bold; text-align: left; background: #edf2f6; color: #243a4f; }
    El contenido y 35pt útiles para firmas permanecen intactos. */
 body p {margin:4pt 0 6pt;}
 body h2 {margin:12pt 0 6pt;}
-.preview-ribbon {margin-bottom:7pt;}
 .document-head {margin-bottom:7pt;}
 .identity td, .identity th {padding:5pt;}
 .signature-panel h2 {margin:8pt 0 6pt;}
