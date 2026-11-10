@@ -143,7 +143,8 @@ def _complete_synthetic_workbook():
         irl.append([idx+1,"PINTOR","Pintura "+str(idx+1),
                     "Trabajo en altura","Caída","Usar protección "+str(idx+1)])
     pts=wb.create_sheet("MATRIZ PTS")
-    pts.append(["Cargo","Col B","Col C"]+["Apartado "+str(i) for i in range(1,18)])
+    from app.javiera_pts_headers import PTS_TECHNICAL_HEADINGS
+    pts.append(["CARGO","CARGO EN PLURAL","TITULO"]+list(PTS_TECHNICAL_HEADINGS))
     for idx in range(26):
         pts.append(["CARGO "+str(idx+1),"",""]+
                    ["Texto técnico de prueba "+str(idx)+"-"+str(i) for i in range(17)])
@@ -320,3 +321,34 @@ def test_incomplete_preventive_matrices_cannot_be_approved():
     with pytest.raises(HTTPException) as exc:
         _check_preventive_matrix_before_approval(irl)
     assert exc.value.status_code==422
+
+
+
+def test_pts_original_headings_must_not_be_relabelled_during_import(env):
+    from io import BytesIO
+    from openpyxl import load_workbook
+    client, sessions = env
+    admin = login(client, "a@example.cl")
+    wb = load_workbook(BytesIO(_complete_synthetic_workbook()))
+    wb["MATRIZ PTS"]["D1"] = "ETAPA AJENA A LA FUENTE"
+    output = BytesIO()
+    wb.save(output)
+    wb.close()
+    raw = output.getvalue()
+    preview = client.post("/api/v1/javiera/v192/workbook-preview", headers=admin,
+        files={"file": ("changed.xlsx", raw,
+               "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet")})
+    assert preview.status_code == 200, preview.text
+    payload = preview.json()
+    assert payload["can_import"] is False
+    assert any("encabezados D:T incompatibles" in msg for msg in payload["omissions"])
+    with sessions() as db:
+        before = db.scalar(select(func.count(JavieraMatrix.id)))
+    blocked = client.post("/api/v1/javiera/v192/workbook-commit", headers=admin,
+        data={"sha256": payload["sha256"], "baseline_sha256": payload["baseline_sha256"],
+              "confirmed": "true"},
+        files={"file": ("changed.xlsx", raw,
+               "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet")})
+    assert blocked.status_code == 422
+    with sessions() as db:
+        assert db.scalar(select(func.count(JavieraMatrix.id))) == before
