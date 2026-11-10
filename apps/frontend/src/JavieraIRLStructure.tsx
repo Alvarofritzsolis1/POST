@@ -259,11 +259,10 @@ export default function JavieraIRLStructure({onEditMatrices}:Props){
         })}
       </div>
       <details className="jir-original-blocks">
-        <summary>Contenido del IRL original todavía no migrado: cinco bloques gráficos</summary>
+        <summary>Texto de las cinco imágenes: conservar las fotos, transcripción editable pendiente</summary>
         <ol>{current.reference_audit.original_visual_blocks.map(block=>
-          <li key={block.title}>{block.title} · pendiente de transcripción y validación HTML</li>)}</ol>
-        <p>No se puede certificar todavía que la vista estructural o el PDF reproduzcan
-          la totalidad de las páginas del Excel original.</p>
+          <li key={block.title}>{block.title} · foto preservada cuando la fuente está disponible; contenido textual por digitalizar</li>)}</ol>
+        <p>Las imágenes originales se conservan como fotos. Su contenido todavía no puede editarse como texto HTML. Se requiere validación preventiva y cotejo página por página.</p>
       </details>
       {current.reference_audit.warnings.length>0&&<details className="jir-audit-alerts">
         <summary>Observaciones de integridad ({current.reference_audit.warnings.length})</summary>
@@ -284,7 +283,7 @@ export default function JavieraIRLStructure({onEditMatrices}:Props){
           :"Esta estructura es informativa. Para imprimir necesitas una matriz IRL aprobada."}
       </p>}
       <p className="jir-explanation">El documento A4 definitivo y sus firmas se obtienen desde el expediente
-        guardado. Las celdas «Dato del expediente» son referencias visuales: no se imprimen de esta forma.
+        guardado. Los textos «desde el expediente» son indicadores de plantilla: el PDF del trabajador toma los datos efectivos de su ficha.
         Para cambiar un riesgo o una medida preventiva, usa «Matrices y cargos» y aprueba una revisión.</p>
     </div>
   </div>;
