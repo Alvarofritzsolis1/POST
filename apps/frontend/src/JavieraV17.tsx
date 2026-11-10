@@ -91,16 +91,16 @@ export default function JavieraV17({onConfig}:{onConfig?:()=>void}){
   if(mode==="editor")return <JavieraNativeEditor initialCode={editingCode}
     onBack={()=>setMode("documents")}/>;
   if(mode==="documents")return <div className="j17-shell">
-    <section className="j17-html-home" aria-label="Generador HTML de Proyecto Javiera">
+    <section className="j17-html-home" aria-label="Generador visual de Proyecto Javiera">
       <div>
-        <span>PROYECTO JAVIERA · FORMULARIOS HTML</span>
+        <span>PROYECTO JAVIERA · DOCUMENTOS VISUALES</span>
         <h2>Documentos listos para preparar e imprimir</h2>
         <p>Selecciona una empresa, marca los documentos y genera PDF A4.
-          Ahora puedes modificar sus formatos HTML sin corregir el Excel.</p>
+          Ahora puedes modificar los formatos directamente, sin programar ni abrir Excel.</p>
       </div>
       <div className="j17-html-actions">
         <button className="j17-primary" type="button" onClick={()=>setMode("editor")}>
-          <FileCode2 size={18}/> Editar formatos HTML
+          <FileCode2 size={18}/> Editar documentos visualmente
         </button>
         <button className="j17-outline" type="button" onClick={()=>{setMode("library");void load();}}>
           <FileSpreadsheet size={17}/> Excel anterior · respaldo
@@ -114,7 +114,7 @@ export default function JavieraV17({onConfig}:{onConfig?:()=>void}){
     <header className="j17-hero">
       <div><span>PROYECTO JAVIERA · ARCHIVO HISTÓRICO EXCEL</span>
         <h2>Respaldo de plantillas Excel</h2>
-        <p>Estos formatos se conservan por compatibilidad. El editor HTML es el sistema
+        <p>Estos formatos se conservan por compatibilidad. El editor visual es el sistema
           principal para revisar los documentos antes de imprimir.</p>
       </div><FileSpreadsheet size={35} aria-hidden="true"/>
     </header>
@@ -198,7 +198,7 @@ export default function JavieraV17({onConfig}:{onConfig?:()=>void}){
         </div>
         <div className="j17-final-actions">
           <button type="button" className="j17-outline" onClick={()=>setMode("editor")}>
-            <SlidersHorizontal size={16}/> Abrir editor HTML</button>
+            <SlidersHorizontal size={16}/> Abrir editor visual</button>
           <button type="button" className="j17-primary" onClick={()=>setMode("documents")}>
             <Printer size={16}/> Preparar documentos</button>
         </div>
