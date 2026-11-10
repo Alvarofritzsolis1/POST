@@ -174,7 +174,7 @@ export default function JavieraNativeEditor({onBack,initialCode="internal_rules_
     }
     setPdfLoading(true);setError("");
     try{
-      const csrf=document.cookie.split("; ").find(x=>x.startsWith("galant_post_csrf="))?.split("=")[1]||"";
+      const csrf=window.document.cookie.split("; ").find(x=>x.startsWith("galant_post_csrf="))?.split("=")[1]||"";
       const response=await fetch("/api/v1/javiera/v19/preview",{
         method:"POST",credentials:"include",cache:"no-store",
         headers:{"Content-Type":"application/json","X-CSRF-Token":csrf},
