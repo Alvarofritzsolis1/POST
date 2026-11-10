@@ -12,6 +12,7 @@ from .db import get_db
 from .javiera_logic import normalize_cargo
 from .javiera_matrices import latest_approved_matrix, next_matrix_revision
 from .javiera_models import JavieraDossier, JavieraMatrix
+from .javiera_v166_models import JavieraLocalDossier
 from .javiera_v192_workbook import inspect_matrix_workbook, MAX_FILE_BYTES
 from .models import AuditEvent, User
 from .security import administrator
@@ -40,18 +41,38 @@ def matrix_impact(kind: str, cargo: str, user: User = Depends(administrator),
         JavieraMatrix.cargo == role,
     ).order_by(JavieraMatrix.revision.desc()).limit(100)).all()
     approved = latest_approved_matrix(db, user.org_id, kind, role)
-    dossier_rows = db.scalars(select(JavieraDossier).where(
+    legacy = db.scalars(select(JavieraDossier).where(
         JavieraDossier.org_id == user.org_id
     ).limit(2001)).all()
-    affected = sum(
+    current = db.scalars(select(JavieraLocalDossier).where(
+        JavieraLocalDossier.org_id == user.org_id
+    ).limit(2001)).all()
+    affected_legacy = sum(
         normalize_cargo(str((row.data or {}).get("role") or "")) == role
-        for row in dossier_rows[:2000]
+        for row in legacy[:2000]
     )
+    affected_current = sum(
+        normalize_cargo(str((row.shared or {}).get("role") or "")) == role
+        for row in current[:2000]
+    )
+    irl = latest_approved_matrix(db, user.org_id, "IRL", role)
+    pts = latest_approved_matrix(db, user.org_id, "PTS", role)
+    related = (["pts", "pts_receipt"] if kind != "PTS" else ["irl"])
     return {
         "kind": kind, "cargo": role,
         "new_pdf_formats": FORMATS[kind],
-        "affected_dossiers": affected,
-        "count_is_partial": len(dossier_rows) > 2000,
+        "affected_dossiers": affected_legacy + affected_current,
+        "affected_by_origin": {
+            "historical_workflow": affected_legacy,
+            "current_documentary_workflow": affected_current,
+        },
+        "count_is_partial": len(legacy) > 2000 or len(current) > 2000,
+        "related_formats_for_review": related,
+        "related_matrix_versions": {
+            "irl": irl.revision if irl else None,
+            "pts": pts.revision if pts else None,
+        },
+        "related_formats_are_advisory": True,
         "current_approved_revision": approved.revision if approved else None,
         "latest_revision": versions[0].revision if versions else None,
         "pending_revisions": [row.revision for row in versions if row.status == "draft"],
