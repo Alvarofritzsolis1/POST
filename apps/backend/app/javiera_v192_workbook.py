@@ -10,7 +10,7 @@ import io
 import json
 import re
 from collections import Counter
-from posixpath import normpath, join
+from posixpath import basename, dirname, normpath, join
 from xml.etree import ElementTree as ET
 from zipfile import BadZipFile, ZipFile
 
@@ -105,6 +105,55 @@ def _real_content_after_limit(raw: bytes, sheet_name: str, limit: int) -> bool:
     except (KeyError, ValueError, ET.ParseError, OSError, BadZipFile):
         # Si no podemos demostrar que el resto está vacío, fallar cerrado.
         return True
+
+
+
+def _sheet_image_count(raw: bytes, sheet_name: str) -> int | None:
+    """Cuenta imágenes OOXML de una hoja; no presume haberlas convertido a HTML.
+
+    No basta contar xl/media, ya que el libro puede tener imágenes ajenas al IRL.
+    Se sigue el enlace hoja -> drawing -> xdr:pic. None = no verificable.
+    """
+    try:
+        with ZipFile(io.BytesIO(raw)) as zf:
+            workbook = ET.fromstring(zf.read("xl/workbook.xml"))
+            root_rels = ET.fromstring(zf.read("xl/_rels/workbook.xml.rels"))
+            targets = {item.get("Id"): item.get("Target", "")
+                       for item in root_rels.findall(XML_P + "Relationship")}
+            sheet_path = None
+            for sheet in workbook.findall("./" + XML_M + "sheets/" + XML_M + "sheet"):
+                if sheet.get("name") == sheet_name:
+                    target = targets.get(sheet.get(XML_R + "id"))
+                    if not target:
+                        return None
+                    sheet_path = (target.lstrip("/") if target.startswith("/")
+                                  else normpath(join("xl", target)))
+                    break
+            if sheet_path is None:
+                return None
+            sheet_xml = ET.fromstring(zf.read(sheet_path))
+            drawings = sheet_xml.findall(XML_M + "drawing")
+            if not drawings:
+                return 0
+            sheet_rels_path = join(dirname(sheet_path), "_rels",
+                                   basename(sheet_path) + ".rels")
+            relations = ET.fromstring(zf.read(sheet_rels_path))
+            drawing_targets = {item.get("Id"): item.get("Target", "")
+                               for item in relations.findall(XML_P + "Relationship")}
+            image_count = 0
+            xdr_picture = "{http://schemas.openxmlformats.org/drawingml/2006/spreadsheetDrawing}pic"
+            for drawing in drawings:
+                target = drawing_targets.get(drawing.get(XML_R + "id"))
+                if not target:
+                    return None
+                path = target.lstrip("/") if target.startswith("/") else normpath(
+                    join(dirname(sheet_path), target))
+                drawing_xml = ET.fromstring(zf.read(path))
+                image_count += sum(1 for element in drawing_xml.iter()
+                                   if element.tag == xdr_picture)
+            return image_count
+    except (OSError, KeyError, ValueError, ET.ParseError, BadZipFile):
+        return None
 
 
 def _text(value) -> str:
@@ -323,6 +372,14 @@ def inspect_matrix_workbook(raw: bytes, db, org_id: str) -> tuple[dict, dict]:
         warnings.append(f"Referencial IRL: 338 filas; en el Excel hay {counts['IRL']}.")
     if counts["PTS"] != 26:
         warnings.append(f"Referencial PTS: 26 filas; en el Excel hay {counts['PTS']}.")
+    irl_images = _sheet_image_count(raw, "IRL") if "IRL" in book.sheetnames else None
+    if irl_images is None:
+        warnings.append("No se pudo confirmar el contenido gráfico de la hoja IRL.")
+    elif irl_images:
+        warnings.append(
+            f"La hoja IRL contiene {irl_images} imágenes incrustadas. "
+            "Importar matrices no reconstruye ni valida su texto o casillas en HTML/PDF."
+        )
     source_sha = hashlib.sha256(raw).hexdigest()
     if source_sha == PTS_REFERENCE_SHA256:
         if len(formulas) != 324:
@@ -366,6 +423,8 @@ def inspect_matrix_workbook(raw: bytes, db, org_id: str) -> tuple[dict, dict]:
         "sheets_found": [s for s in SHEETS if s not in missing],
         "sheets_missing": missing,
         "irl_source_rows": counts["IRL"], "pts_source_rows": counts["PTS"],
+        "irl_embedded_images": irl_images,
+        "irl_formula_count": formula_distribution["IRL"],
         "formula_count": len(formulas), "formula_count_partial": partial,
         "formulas_by_sheet": dict(formula_distribution),
         "formula_inventory": formulas[:2000],
