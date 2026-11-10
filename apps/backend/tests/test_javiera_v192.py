@@ -217,7 +217,7 @@ def test_full_import_uses_preview_checksum_and_does_not_duplicate_unchanged(env)
         assert db.scalar(select(func.count(JavieraMatrix.id)))==after["JavieraMatrix"]
 
 
-def test_missing_required_source_content_blocks_transaction(env):
+def test_pts_incomplete_row_is_preserved_as_draft_without_false_approval(env):
     from io import BytesIO
     from openpyxl import load_workbook
     client,sessions=env
@@ -229,16 +229,23 @@ def test_missing_required_source_content_blocks_transaction(env):
     preview=client.post("/api/v1/javiera/v192/workbook-preview",headers=admin,
         files={"file":("missing.xlsx",raw,"application/vnd.openxmlformats-officedocument.spreadsheetml.sheet")})
     assert preview.status_code==200
-    assert preview.json()["can_import"] is False
+    assert preview.json()["can_import"] is True
+    assert preview.json()["incomplete_pts"]
     with sessions() as db:
         before=db.scalar(select(func.count(JavieraMatrix.id)))
     commit=client.post("/api/v1/javiera/v192/workbook-commit",headers=admin,
         data={"sha256":preview.json()["sha256"],
               "baseline_sha256":preview.json()["baseline_sha256"],"confirmed":"true"},
         files={"file":("missing.xlsx",raw,"application/vnd.openxmlformats-officedocument.spreadsheetml.sheet")})
-    assert commit.status_code==422
+    assert commit.status_code==200,commit.text
     with sessions() as db:
-        assert db.scalar(select(func.count(JavieraMatrix.id)))==before
+        assert db.scalar(select(func.count(JavieraMatrix.id)))==before+27
+        row=db.scalars(select(JavieraMatrix).where(
+            JavieraMatrix.kind=="PTS",JavieraMatrix.cargo=="CARGO 1",
+        ).order_by(JavieraMatrix.revision.desc())).first()
+        assert row.status=="draft"
+        assert len(row.sections)==17
+        assert row.sections[0]==""
 
 
 
@@ -258,3 +265,35 @@ def test_matrix_impact_counts_current_javiera_dossiers_and_cross_review(env):
     assert "pts" in result["related_formats_for_review"]
     assert result["related_formats_are_advisory"] is True
     assert result["historical_pdfs_unchanged"] is True
+
+
+
+def test_oversized_formatting_and_261_formulas_do_not_drop_valid_matrices(env):
+    """Reproduce los rasgos conocidos de una auditoría anterior, sin datos reales."""
+    from io import BytesIO
+    from openpyxl import load_workbook
+    from openpyxl.styles import Font
+    client,sessions=env
+    admin=login(client,"a@example.cl")
+    wb=load_workbook(BytesIO(_complete_synthetic_workbook()))
+    for row in range(2,25):
+        wb["MATRIZ PTS"].cell(row,4).value=None
+    for row in range(262,424):
+        wb["FORMULAS"].cell(row,1).value=None
+    # La dimensión declarada llega al último renglón, sin un dato real ahí.
+    wb["MATRIZ IRL"].cell(1048576,40).font=Font(bold=True)
+    binary=BytesIO();wb.save(binary);wb.close()
+    raw=binary.getvalue()
+    response=client.post("/api/v1/javiera/v192/workbook-preview",headers=admin,
+        files={"file":("auditoria_previa.xlsx",raw,
+             "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet")})
+    assert response.status_code==200,response.text
+    report=response.json()
+    assert report["irl_source_rows"]==338
+    assert report["pts_source_rows"]==26
+    assert report["formula_count"]==261
+    assert report["formula_count_partial"] is False
+    assert len(report["incomplete_pts"])==23
+    assert report["draft_only_for_incomplete"] is True
+    assert report["can_import"] is True,report["omissions"]
+    assert any("sobredimensionadas" in warning for warning in report["warnings"])
