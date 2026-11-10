@@ -1,0 +1,127 @@
+"""GALANT 19.3 — catálogo de labores IRL, PDF real y bloqueo preventivo.
+
+Datos sintéticos; ninguna prueba escribe en trabajadores operativos.
+"""
+import fitz
+from sqlalchemy import func, select
+
+from app.javiera_irl import parse_irl_section
+from app.javiera_models import JavieraMatrix
+from app.javiera_native import render_native_pdf
+from app.models import User
+from app.ops_models import Contractor, Worker, WorkerAssignment
+from test_control_api import env, login
+from test_javiera_v19 import _local_dossier, data
+
+ROOT = "/api/v1/javiera/v193"
+FORM = "/api/v1/javiera/v166"
+
+SECTION = ("Tarea: Aplicar pintura sobre muros\n"
+           "Peligro: Solvente inflamable\n"
+           "Riesgo: Exposición e incendio\n"
+           "Medidas: Ventilar y utilizar controles aprobados")
+
+
+def test_parser_preserves_all_irl_fields_and_legacy_medida():
+    section = parse_irl_section(SECTION, version=4, ordinal=1, cargo="PINTOR")
+    assert section["structured"] is True
+    assert section["labor"] == "Aplicar pintura sobre muros"
+    assert section["peligro"] == "Solvente inflamable"
+    assert section["riesgo"] == "Exposición e incendio"
+    assert section["medidas"] == "Ventilar y utilizar controles aprobados"
+    legacy = parse_irl_section("Tarea: inspeccionar\nPeligro: altura\nRiesgo: caída\n"
+                               "Medida: barandas", version=1, ordinal=2, cargo="PINTOR")
+    assert legacy["structured"] is True
+    assert legacy["medidas"] == "barandas"
+    malformed = parse_irl_section("Revisar puesto de trabajo", version=1,
+                                   ordinal=1, cargo="PINTOR")
+    assert malformed["structured"] is False
+    assert malformed["original"] == "Revisar puesto de trabajo"
+
+
+def test_irl_pdf_is_generated_from_structured_preventive_matrix():
+    form = data()
+    form["role"] = "PINTOR"
+    pdf_bytes = render_native_pdf("irl", form, matrix=[SECTION])
+    assert pdf_bytes.startswith(b"%PDF")
+    with fitz.open(stream=pdf_bytes, filetype="pdf") as pdf:
+        text = " ".join(page.get_text() for page in pdf)
+        for expected in ("Labor o tarea", "Peligro", "Riesgo",
+                         "Medidas preventivas", "Aplicar pintura",
+                         "Solvente inflamable", "Ventilar"):
+            assert expected in text, expected
+        assert not any(page.get_links() for page in pdf)
+        assert "GALANT" not in text
+
+
+def test_role_search_only_uses_organization_matrices_and_reports_approval(env):
+    client, sessions = env
+    headers = login(client, "a@example.cl")
+    with sessions.begin() as db:
+        user = db.scalar(select(User).where(User.email == "a@example.cl"))
+        db.add(JavieraMatrix(org_id=user.org_id, kind="IRL", cargo="PINTOR",
+                             revision=1, sections=[SECTION], status="approved",
+                             author_id=user.id, reviewer_id=user.id,
+                             source="Datos sintéticos de prueba"))
+        db.add(JavieraMatrix(org_id=user.org_id, kind="PTS", cargo="PINTOR",
+                             revision=1, sections=["PTS sintético"]*17,
+                             status="draft", author_id=user.id,
+                             source="Datos sintéticos de prueba"))
+    result = client.get(ROOT + "/roles?query=pint", headers=headers)
+    assert result.status_code == 200, result.text
+    items = result.json()["roles"]
+    assert len(items) == 1
+    assert items[0]["cargo"] == "PINTOR"
+    assert items[0]["has_approved_irl"] is True
+    assert items[0]["has_approved_pts"] is False
+    detail = client.get(ROOT + "/role?cargo=PINTOR", headers=headers)
+    assert detail.status_code == 200, detail.text
+    payload = detail.json()
+    assert payload["irl"]["approved"] is True
+    assert payload["irl"]["records"][0]["medidas"] == "Ventilar y utilizar controles aprobados"
+    assert payload["can_preview_irl"] is True
+    assert payload["pts"]["approved"] is False
+    assert payload["historical_pdfs_unchanged"] is True
+    missing = client.get(ROOT + "/role?cargo=CARGO NO CATALOGADO", headers=headers)
+    assert missing.status_code == 200
+    assert missing.json()["irl"]["records"] == []
+    assert missing.json()["can_preview_irl"] is False
+
+
+def test_manual_labor_is_saved_in_documentary_draft_but_blocks_printing(env):
+    client, sessions = env
+    headers = login(client, "a@example.cl")
+    before = {}
+    with sessions() as db:
+        before = {cls.__name__: db.scalar(select(func.count(cls.id)))
+                  for cls in (Worker, Contractor, WorkerAssignment)}
+    dossier_id = _local_dossier(client, headers)
+    dossier = client.get(FORM + "/dossiers/" + dossier_id, headers=headers).json()
+    body = {
+        "dossier_id": dossier_id, "expected_revision": dossier["revision"],
+        "site_id": dossier["site_id"], "company_id": dossier["company_id"],
+        "person_id": dossier["person_id"], "relationship": dossier["relationship"],
+        "selected_codes": dossier["selected_codes"], "shared": dossier["shared"],
+        "document_data": {**dossier["document_data"],
+                          "irl": {"event": {"date": "2026-11-09",
+                                            "irl_manual_labor": "Labores inexistentes en el catálogo"}}},
+    }
+    result = client.post(FORM + "/dossiers", headers=headers, json=body)
+    assert result.status_code == 200, result.text
+    saved = client.get(FORM + "/dossiers/" + dossier_id, headers=headers).json()
+    assert saved["document_data"]["irl"]["event"]["irl_manual_labor"]
+    # Guardar un borrador nunca equivale a aprobación preventiva.
+    preview = client.post("/api/v1/javiera/v19/preview", headers=headers,
+                          json={"dossier_id": dossier_id, "code": "irl"})
+    assert preview.status_code == 409
+    assert "labor manual" in preview.json()["detail"].lower()
+    eligibility = client.get(FORM + "/dossiers/" + dossier_id + "/eligibility",
+                             headers=headers)
+    assert eligibility.status_code == 200, eligibility.text
+    irl = next(item for item in eligibility.json()["documents"] if item["code"] == "irl")
+    assert irl["can_issue"] is False
+    assert "labor manual" in irl["reason"].lower()
+    with sessions() as db:
+        after = {cls.__name__: db.scalar(select(func.count(cls.id)))
+                 for cls in (Worker, Contractor, WorkerAssignment)}
+        assert before == after
