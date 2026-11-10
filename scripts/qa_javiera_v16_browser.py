@@ -85,6 +85,12 @@ def main():
                 )).to_be_visible(timeout=20000)
                 if kind=="IRL":
                     expect(page.locator(".jmx-table-scroll tbody tr")).to_have_count(fields)
+                    expect(page.get_by_role("textbox", name="Cargo / puesto")).to_have_value("GASFITER")
+                    # Seleccionar la misma categoría otra vez no puede vaciar
+                    # el cargo y sus 26 registros (regresión de PR #55).
+                    page.locator("#jmx-kind").select_option("IRL")
+                    expect(page.locator(".jmx-table-scroll tbody tr")).to_have_count(26)
+                    expect(page.get_by_role("textbox", name="Cargo / puesto")).to_have_value("GASFITER")
                 else:
                     expect(page.locator(".jmx-rows textarea")).to_have_count(fields)
             report["scenarios"]["five_matrices_preloaded_from_original_excel"] = "PASS"
