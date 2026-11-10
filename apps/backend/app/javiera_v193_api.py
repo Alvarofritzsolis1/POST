@@ -12,6 +12,7 @@ from sqlalchemy.orm import Session
 from .db import get_db
 from .javiera_logic import normalize_cargo
 from .javiera_irl import parse_irl_section
+from .javiera_pts_headers import PTS_TECHNICAL_HEADINGS
 from .javiera_matrices import latest_approved_matrix
 from .javiera_models import JavieraMatrix
 from .models import User
@@ -89,6 +90,7 @@ def role_detail(cargo: str = Query(..., min_length=1, max_length=160),
             "section_count": len(pts.sections) if pts else 0,
             "sections": list(pts.sections) if pts else [],
             "source_columns": [chr(68 + i) for i in range(len(pts.sections))] if pts else [],
+            "headings": list(PTS_TECHNICAL_HEADINGS),
         },
         "additional_matrices": {
             kind: {"revision": item.revision if item else None,
