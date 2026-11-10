@@ -3,6 +3,7 @@ import {ArrowLeft, CheckCircle2, Eye, FileText, Save, ShieldCheck} from "lucide-
 import {request} from "./api";
 import "./javiera-native-editor.css";
 import JavieraVisualCanvas from "./JavieraVisualCanvas";
+import JavieraIRLStructure from "./JavieraIRLStructure";
 
 type Format={code:string;title:string;status:"ready"|"requires_review"|"requires_published_text";
   source_kind:string;source_revision:number|null};
@@ -45,8 +46,8 @@ const insertions=[
     "<tbody><tr><td>Escribe aquí</td><td>Dato correspondiente</td></tr></tbody></table>\n"},
 ] as const;
 
-export default function JavieraNativeEditor({onBack,initialCode="internal_rules_receipt"}:{
-  onBack:()=>void;initialCode?:string
+export default function JavieraNativeEditor({onBack,onOpenMatrices,initialCode="internal_rules_receipt"}:{
+  onBack:()=>void;onOpenMatrices?:()=>void;initialCode?:string
 }){
   const [formats,setFormats]=useState<Format[]>([]);
   const [selected,setSelected]=useState(initialCode);
@@ -68,6 +69,7 @@ export default function JavieraNativeEditor({onBack,initialCode="internal_rules_
   const [sampleId,setSampleId]=useState("");
   const [actualPdf,setActualPdf]=useState<string|null>(null);
   const [pdfLoading,setPdfLoading]=useState(false);
+  const [showIrlSupplement,setShowIrlSupplement]=useState(false);
   const input=useRef<HTMLTextAreaElement|null>(null);
   const dirty=html!==savedHtml;
   const availableExamples=sampleDossiers.filter(d=>d.selected_codes.includes(selected));
@@ -79,7 +81,7 @@ export default function JavieraNativeEditor({onBack,initialCode="internal_rules_
     setFormats(result.formats);
   },[]);
   const openDocument=useCallback(async(code:string)=>{
-    setLoading(true);setError("");setNotice("");setActualPdf(null);setSampleId("");
+    setLoading(true);setError("");setNotice("");setActualPdf(null);setSampleId("");setShowIrlSupplement(false);
     try{
       const [current,versions]=await Promise.all([
         request<EditorDocument>("/javiera/v19/editor/"+code),
@@ -198,7 +200,7 @@ export default function JavieraNativeEditor({onBack,initialCode="internal_rules_
       </button>
       <div><small>PROYECTO JAVIERA · EDITOR VISUAL 19.3</small>
         <h2><FileText size={25}/> Editor visual de documentos</h2>
-        <p>Haz clic en la hoja para escribir, insertar datos automáticos y preparar el PDF A4.</p>
+        <p>Revisa la estructura del IRL y sus matrices. El texto complementario se edita por separado.</p>
       </div>
     </header>
     {error&&<p role="alert" className="jne-alert">{error}</p>}
@@ -219,7 +221,9 @@ export default function JavieraNativeEditor({onBack,initialCode="internal_rules_
         {loading?<p>Consultando la última revisión del documento…</p>:document&&<>
           <div className="jne-context">
             <div><h3>{document.title}</h3>
-              <p>{document.mode==="supplement"
+              <p>{selected==="irl"
+                ?"La matriz IRL y los apartados obligatorios se muestran abajo; selecciona el cargo para consultar sus riesgos reales."
+                :document.mode==="supplement"
                 ?"Este contenido se añade al formulario original. Las matrices y casillas obligatorias se conservan."
                 :"Este contenido reemplaza el texto del formato en el PDF. Copia las cláusulas originales sin modificar su significado."}</p>
             </div>
@@ -242,10 +246,20 @@ export default function JavieraNativeEditor({onBack,initialCode="internal_rules_
                   <button type="button" onClick={()=>recoverVersion(item)}>Recuperar en el editor</button>
                 </div>)}</div>}
           </section>}
-          <div className="jne-panels">
+          <div className={"jne-panels"+(selected==="irl"?" jne-panels-irl":"")}>
             <section className="jne-editor-panel">
-              <div className="jne-panel-heading"><h4><FileText size={17}/> Editar documento</h4>
-                <small>{dirty?"Cambios sin guardar":"Sin cambios pendientes"}</small></div>
+              <div className="jne-panel-heading"><h4><FileText size={17}/>
+                {selected==="irl"?"Formato IRL y matriz":"Editar documento"}</h4>
+                {selected!=="irl"&&<small>{dirty?"Cambios sin guardar":"Sin cambios pendientes"}</small>}</div>
+              {selected==="irl"&&<>
+                <JavieraIRLStructure onEditMatrices={onOpenMatrices}/>
+                <button type="button" className="jne-supplement-toggle"
+                  aria-expanded={showIrlSupplement}
+                  onClick={()=>setShowIrlSupplement(!showIrlSupplement)}>
+                  {showIrlSupplement?"Ocultar texto complementario":"Editar texto complementario del IRL (opcional)"}
+                </button>
+              </>}
+              {(selected!=="irl"||showIrlSupplement)&&<>
               <div className="jne-visual-mode">
                 <strong>Edición visual</strong>
                 <button type="button" onClick={()=>setExpertHtml(!expertHtml)}>
@@ -272,6 +286,7 @@ export default function JavieraNativeEditor({onBack,initialCode="internal_rules_
                 <button type="button" className="jne-primary" disabled={busy||!dirty||reason.trim().length<6}
                   onClick={()=>void save()}><Save size={17}/> {busy?"Procesando…":"Guardar borrador"}</button>
               </div>
+              </>}
             </section>
             <section className="jne-preview-panel">
               <div className="jne-panel-heading"><h4><Eye size={17}/> Vista del diseño</h4>
@@ -301,6 +316,14 @@ export default function JavieraNativeEditor({onBack,initialCode="internal_rules_
                 <a href={actualPdf} target="_blank" rel="noreferrer">
                   Abrir exactamente este PDF para imprimir
                 </a>
+              </div>:selected==="irl"?<div className="jne-irl-real-hint">
+                <FileText size={22}/>
+                <strong>El formato IRL y su matriz están visibles a la izquierda.</strong>
+                <p>Para obtener el PDF A4 idéntico al que imprimirás, elige un expediente
+                  guardado que incluya IRL. Sus datos sustituyen los campos visuales y
+                  el PDF utiliza la matriz aprobada del cargo del expediente.</p>
+                {!availableExamples.length&&<p>Si no tienes un expediente guardado,
+                  créalo en «Rellenar documentos» y selecciona IRL.</p>}
               </div>:<>
                 {sourceView&&<p className="jne-help">
                   Esta es solo una <strong>maqueta de texto</strong>, no el documento imprimible.
