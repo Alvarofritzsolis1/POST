@@ -5,6 +5,7 @@ Only against an isolated local QA stack with synthetic identities.
 import argparse
 import json
 import os
+import re
 from datetime import datetime, timezone
 from pathlib import Path
 from urllib.parse import urlparse
@@ -23,7 +24,7 @@ def main():
         raise SystemExit("Solo se permite QA local en 127.0.0.1")
     args.output.mkdir(parents=True, exist_ok=True)
     failures, responses = [], []
-    report = {"version": "19.2.0-rc1", "at": datetime.now(timezone.utc).isoformat(),
+    report = {"version": "19.3.1-rc1", "at": datetime.now(timezone.utc).isoformat(),
               "scenarios": {}, "console_errors": [], "server_errors": []}
     with sync_playwright() as playwright:
         browser = playwright.chromium.launch(
@@ -60,6 +61,23 @@ def main():
             expect(editor).to_be_visible()
             expect(page.get_by_role("combobox", name="Insertar dato automático")).to_be_visible()
             report["scenarios"]["visual_editor_without_html"] = "PASS"
+            # Regression GALANT 19.3.1: selecting IRL must render the native
+            # document structure and preventive matrix, not a blank HTML canvas.
+            page.get_by_role("button", name=re.compile("INFORMACIÓN DE RIESGOS LABORALES")).click()
+            expect(page.get_by_role("heading", name="Formato original, datos vinculados y matriz de riesgos")).to_be_visible()
+            expect(page.locator(".jir-risk-table thead th")).to_have_count(5)
+            expect(page.get_by_role("columnheader", name="Labor o tarea")).to_be_visible()
+            expect(page.get_by_role("button", name="Abrir Matrices y cargos")).to_be_visible()
+            page.get_by_role("button", name="Abrir Matrices y cargos").click()
+            expect(page.get_by_role("heading", name="Matrices y cargos")).to_be_visible()
+            page.get_by_role("button", name="Volver al editor IRL").click()
+            expect(page.get_by_role("heading", name="Formato original, datos vinculados y matriz de riesgos")).to_be_visible()
+            expect(page.get_by_role("button", name="Editar texto complementario del IRL (opcional)")).to_be_visible()
+            assert page.get_by_role("textbox", name="Documento editable").count() == 0
+            report["scenarios"]["irl_visual_format_not_blank"] = "PASS"
+            page.screenshot(path=str(args.output / "javiera_irl_formato_y_matriz.png"), full_page=True)
+            page.get_by_role("button", name=re.compile("RECEPCIÓN DEL REGLAMENTO INTERNO")).click()
+            expect(page.get_by_role("textbox", name="Documento editable")).to_be_visible()
             editor.fill("FORMATO DOCUMENTAL DE PRUEBA: constancia de recepción para el trabajador. ")
             page.get_by_role("combobox", name="Insertar dato automático").select_option("worker.name")
             page.get_by_role("combobox", name="Insertar dato automático").select_option("employer.name")
