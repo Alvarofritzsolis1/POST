@@ -31,6 +31,12 @@ El XLSX privado no se publica ni debe cargarse en el repositorio.
   perfil, condiciones laborales, sustancias/HDS y avisos comprensibles.
 - Tests de regresión sobre duplicados, bloque de 13, ausencia de sustancias
   y piezas originales no migradas.
+- Corrección del importador de sustancias: conserva las 12 posiciones B:M,
+  incluso si una celda intermedia está vacía; no desplaza columnas de HDS.
+- Inventario OOXML del número de imágenes realmente asociadas a la hoja IRL;
+  avisa expresamente que su contenido no queda convertido a HTML al importar.
+- En previsualización del XLSX se muestra el número de fórmulas de la hoja IRL
+  sin dar por certificada su equivalencia de cálculo.
 - No se modifica módulo de trabajadores, contratos, asistencia, acceso al
   VPS ni estado de aprobación histórica.
 
