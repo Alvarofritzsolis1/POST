@@ -23,7 +23,7 @@ def main():
         raise SystemExit("Solo se permite QA local en 127.0.0.1")
     args.output.mkdir(parents=True, exist_ok=True)
     failures, responses = [], []
-    report = {"version": "19.1.0-rc1", "at": datetime.now(timezone.utc).isoformat(),
+    report = {"version": "19.1.1-rc1", "at": datetime.now(timezone.utc).isoformat(),
               "scenarios": {}, "console_errors": [], "server_errors": []}
     with sync_playwright() as playwright:
         browser = playwright.chromium.launch(
