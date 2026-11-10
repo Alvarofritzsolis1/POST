@@ -352,3 +352,41 @@ def test_pts_original_headings_must_not_be_relabelled_during_import(env):
     assert blocked.status_code == 422
     with sessions() as db:
         assert db.scalar(select(func.count(JavieraMatrix.id))) == before
+
+
+
+def test_substance_matrix_preserves_all_twelve_columns_b_to_m(env):
+    """La columna M (información HDS) no puede descartarse al importar Excel."""
+    from io import BytesIO
+    from openpyxl import load_workbook
+    client, sessions = env
+    admin = login(client, "a@example.cl")
+    book = load_workbook(BytesIO(_complete_synthetic_workbook()))
+    source = book["Base_Datos_Sustancias"]
+    source.append(["Especialidad / Labor"] + [f"Encabezado {index}" for index in range(1, 13)])
+    source.append(["PINTOR"] + [f"Texto privado de prueba {index}" for index in range(1, 13)])
+    output = BytesIO()
+    book.save(output)
+    book.close()
+    raw = output.getvalue()
+    file_part = ("matrices.xlsx", raw,
+                 "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet")
+    preview = client.post("/api/v1/javiera/v192/workbook-preview", headers=admin,
+                          files={"file": file_part})
+    assert preview.status_code == 200, preview.text
+    report = preview.json()
+    assert report["can_import"] is True, report["omissions"]
+    committed = client.post("/api/v1/javiera/v192/workbook-commit", headers=admin,
+                            data={"sha256": report["sha256"],
+                                  "baseline_sha256": report["baseline_sha256"],
+                                  "confirmed": "true"},
+                            files={"file": file_part})
+    assert committed.status_code == 200, committed.text
+    with sessions() as db:
+        substance = db.scalar(select(JavieraMatrix).where(
+            JavieraMatrix.kind == "SUSTANCIAS", JavieraMatrix.cargo == "PINTOR"
+        ))
+        assert substance is not None
+        assert substance.status == "draft"
+        assert len(substance.sections) == 12
+        assert substance.sections[-1] == "Texto privado de prueba 12"
