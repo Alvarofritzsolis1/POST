@@ -764,7 +764,9 @@ def _check_preventive_matrix_before_approval(row: JavieraMatrix):
     if row.kind == "PTS" and len(sections) != 17:
         raise HTTPException(422, "PTS exige exactamente 17 apartados completos por cargo.")
     if row.kind == "IRL" and str(row.source or "").startswith((
-            "GALANT 19.2 XLSX", "Editor visual GALANT 19.2")):
+            "GALANT 19.2 XLSX", "Editor visual GALANT ")):
+        # Incluye nuevas revisiones 19.4 precargadas desde el Excel.
+        # Un campo faltante jamás se publica como medida preventiva válida.
         for number, section in enumerate(sections, 1):
             patterns = (
                 r"(?im)^Tarea:[ \t]*\S",

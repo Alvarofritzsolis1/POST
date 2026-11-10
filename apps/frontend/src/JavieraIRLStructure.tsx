@@ -3,10 +3,10 @@ import {AlertTriangle,ClipboardList,FileSpreadsheet,Search,ShieldCheck} from "lu
 import {request} from "./api";
 import "./javiera-irl-structure.css";
 
-type Role={cargo:string;has_approved_irl:boolean;has_approved_pts:boolean;has_draft:boolean};
+type Role={cargo:string;has_approved_irl:boolean;has_approved_pts:boolean;has_draft:boolean;source_excel_available?:boolean;reference_count?:number};
 type IRLRow={id:string;ordinal:number;labor:string;peligro:string;riesgo:string;medidas:string;original:string;structured:boolean};
-type Detail={cargo:string;irl:{approved:boolean;revision:number|null;records:IRLRow[];has_unstructured:boolean};
-  warnings:string[];can_preview_irl:boolean};
+type Detail={cargo:string;irl:{approved:boolean;revision:number|null;records:IRLRow[];has_unstructured:boolean;reference_only?:boolean};
+  warnings:string[];can_preview_irl:boolean;reference_total?:number;source_excel_available?:boolean;reference_incomplete_excel_rows?:number[]};
 type Props={onEditMatrices?:()=>void};
 
 export default function JavieraIRLStructure({onEditMatrices}:Props){
@@ -20,7 +20,7 @@ export default function JavieraIRLStructure({onEditMatrices}:Props){
 
   useEffect(()=>{
     let active=true;
-    void request<{roles:Role[];partial:boolean}>("/javiera/v193/roles")
+    void request<{roles:Role[];partial:boolean}>("/javiera/v194/roles")
       .then(payload=>{
         if(!active)return;
         setRoles(payload.roles);
@@ -37,7 +37,7 @@ export default function JavieraIRLStructure({onEditMatrices}:Props){
     let active=true;
     setRoleLoading(true);
     setDetail(null);
-    void request<Detail>("/javiera/v193/role?cargo="+encodeURIComponent(cargo))
+    void request<Detail>("/javiera/v194/role?cargo="+encodeURIComponent(cargo))
       .then(value=>{if(active){setDetail(value);setError("");}})
       .catch(reason=>{if(active){setDetail(null);setError(reason instanceof Error?reason.message:String(reason));}})
       .finally(()=>{if(active)setRoleLoading(false);});
@@ -51,7 +51,7 @@ export default function JavieraIRLStructure({onEditMatrices}:Props){
   const current=detail?.cargo===cargo&&!roleLoading?detail:null;
   return <div className="jir-root">
     <div className="jir-intro">
-      <div><div className="jir-kicker"><ClipboardList size={16}/> Estructura del IRL · GALANT 19.3.1</div>
+      <div><div className="jir-kicker"><ClipboardList size={16}/> Estructura del IRL · GALANT 19.4</div>
         <h4>Formato original, datos vinculados y matriz de riesgos</h4>
         <p>Esta hoja muestra la estructura fija del IRL y los riesgos de la matriz aprobada del cargo.
           No debes escribir HTML ni pegar la matriz en el documento.</p>
@@ -69,7 +69,7 @@ export default function JavieraIRLStructure({onEditMatrices}:Props){
       <select id="jir-role" value={cargo} onChange={event=>setCargo(event.target.value)}>
         <option value="">Seleccionar un cargo del catálogo</option>
         {filtered.map(item=><option value={item.cargo} key={item.cargo}>
-          {item.cargo}{item.has_approved_irl?" · IRL aprobada":" · sin IRL aprobada"}
+          {item.cargo}{item.has_approved_irl?" · IRL aprobada":item.source_excel_available?" · Excel original (pendiente de validación)":" · sin IRL"}
         </option>)}
         {cargo&&!filtered.some(item=>item.cargo===cargo)&&
           <option value={cargo}>{cargo} · seleccionado</option>}
@@ -92,7 +92,7 @@ export default function JavieraIRLStructure({onEditMatrices}:Props){
           <tr><th>Trabajador/a</th><td>Dato del expediente</td><th>RUT trabajador/a</th><td>Dato del expediente</td></tr>
           <tr><th>Obra</th><td>Dato del expediente</td><th>Cargo</th><td>{cargo||"Selecciona un cargo"}</td></tr>
           <tr><th>Fecha</th><td>Dato del expediente</td><th>Versión / referencia</th>
-            <td>{current?.irl.approved?"IRL revisión "+current.irl.revision:"Pendiente de aprobación"}</td></tr>
+            <td>{current?.irl.approved?"IRL revisión "+current.irl.revision:current?.source_excel_available?"Excel de referencia — no aprobado":"Pendiente de aprobación"}</td></tr>
         </tbody></table>
         <h4>INFORMACIÓN DE RIESGOS LABORALES DEL CARGO</h4>
         <p className="jir-doc-note">Tareas, peligros, riesgos y medidas de control registradas
@@ -100,7 +100,7 @@ export default function JavieraIRLStructure({onEditMatrices}:Props){
         <table className="jir-risk-table"><thead><tr>
           <th>N.º</th><th>Labor o tarea</th><th>Peligro</th><th>Riesgo</th><th>Medidas preventivas</th>
         </tr></thead><tbody>
-          {current?.irl.approved&&rows.length>0?rows.map(row=><tr key={row.id}>
+          {rows.length>0?rows.map(row=><tr key={row.id}>
             <td>{row.ordinal}</td>
             {row.structured?<><td>{row.labor}</td><td>{row.peligro}</td>
               <td>{row.riesgo}</td><td>{row.medidas}</td></>:
@@ -124,8 +124,12 @@ export default function JavieraIRLStructure({onEditMatrices}:Props){
         {unstructured?" Existen filas incompletas; requieren revisión preventiva antes del PDF.":
           " Matriz aprobada vinculada; el PDF final se genera desde un expediente."}
       </p>:<p className="jir-warning"><AlertTriangle size={16}/>
-        Esta es la estructura del formato, no un PDF emitible ni una aprobación preventiva.
-        Para impresión real debes seleccionar un expediente con matriz aprobada.</p>}
+        {current?.source_excel_available
+          ?"Se muestran "+rows.length+" registros del Excel para este cargo, sin aprobación preventiva. "+
+            (unstructured?"La referencia contiene campos incompletos que deben corregirse. ":"")+
+            "La consulta no equivale a habilitación para imprimir."
+          :"Esta estructura es informativa. Para imprimir necesitas una matriz IRL aprobada."}
+      </p>}
       <p className="jir-explanation">El documento A4 definitivo y sus firmas se obtienen desde el expediente
         guardado. Las celdas «Dato del expediente» son referencias visuales: no se imprimen de esta forma.
         Para cambiar un riesgo o una medida preventiva, usa «Matrices y cargos» y aprueba una revisión.</p>

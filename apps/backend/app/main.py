@@ -48,6 +48,7 @@ from .javiera_v18_api import router as javiera_v18_router
 from .javiera_v19_api import router as javiera_v19_router
 from .javiera_v192_api import router as javiera_v192_router
 from .javiera_v193_api import router as javiera_v193_router
+from .javiera_v194_api import router as javiera_v194_router
 from .javiera_review import router as javiera_reviews_router
 from .javiera_layout_api import router as javiera_layouts_router
 
@@ -60,6 +61,7 @@ app.include_router(javiera_v18_router)
 app.include_router(javiera_v19_router)
 app.include_router(javiera_v192_router)
 app.include_router(javiera_v193_router)
+app.include_router(javiera_v194_router)
 app.include_router(javiera_reviews_router)
 app.include_router(javiera_layouts_router)
 app.include_router(compliance_router)

@@ -70,6 +70,32 @@ def main():
             expect(page.get_by_role("button", name="Abrir Matrices y cargos")).to_be_visible()
             page.get_by_role("button", name="Abrir Matrices y cargos").click()
             expect(page.get_by_role("heading", name="Matrices y cargos")).to_be_visible()
+            # GALANT 19.4: los cinco tipos ya tienen contenido del Excel
+            # aunque la organización aún no importe ni apruebe las matrices.
+            for kind, expected, fields in (
+                ("IRL", 25, 26), ("PTS", 26, 17), ("PERFILES", 26, 1),
+                ("PUESTOS", 27, 4), ("SUSTANCIAS", 27, 12),
+            ):
+                page.locator("#jmx-kind").select_option(kind)
+                expect(page.locator(".jmx-items small").first).to_contain_text(
+                    f"{expected} filas de Excel", timeout=30000
+                )
+                expect(page.get_by_text(
+                    "Matriz precargada automáticamente desde el Excel"
+                )).to_be_visible(timeout=20000)
+                if kind=="IRL":
+                    expect(page.locator(".jmx-table-scroll tbody tr")).to_have_count(fields)
+                    expect(page.get_by_role("textbox", name="Cargo / puesto")).to_have_value("GASFITER")
+                    # Seleccionar la misma categoría otra vez no puede vaciar
+                    # el cargo y sus 26 registros (regresión de PR #55).
+                    page.locator("#jmx-kind").select_option("IRL")
+                    expect(page.locator(".jmx-table-scroll tbody tr")).to_have_count(26)
+                    expect(page.get_by_role("textbox", name="Cargo / puesto")).to_have_value("GASFITER")
+                else:
+                    expect(page.locator(".jmx-rows textarea")).to_have_count(fields)
+            report["scenarios"]["five_matrices_preloaded_from_original_excel"] = "PASS"
+            page.screenshot(path=str(args.output / "javiera_194_cinco_matrices.png"),
+                            full_page=True)
             page.get_by_role("button", name="Volver al editor IRL").click()
             expect(page.get_by_role("heading", name="Formato original, datos vinculados y matriz de riesgos")).to_be_visible()
             expect(page.get_by_role("button", name="Editar texto complementario del IRL (opcional)")).to_be_visible()

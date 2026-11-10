@@ -4,7 +4,8 @@ import {request} from "./api";
 import "./javiera-matrix-editor.css";
 
 type Kind="IRL"|"PTS"|"PUESTOS"|"PERFILES"|"SUSTANCIAS";
-type Matrix={id:string;kind:Kind;cargo:string;sections:string[];revision:number;status:string;source:string;author_id:string};
+type Matrix={id:string;kind:Kind;cargo:string;sections:string[];revision:number;status:string;source:string;author_id:string;source_row?:number};
+type ReferenceCatalog={kind:Kind;rows:Matrix[];source_rows:number;columns:string[];variants:{cargo:string;source_rows:number[]}[];source_status:string};
 type Impact={kind:Kind;cargo:string;new_pdf_formats:string[];affected_dossiers:number;
   count_is_partial:boolean;affected_by_origin:{historical_workflow:number;current_documentary_workflow:number};
   related_formats_for_review:string[];
@@ -41,6 +42,11 @@ function fingerprint(kind:Kind,cargo:string,sections:string[]){
 }
 export default function JavieraMatrixEditor(){
   const [rows,setRows]=useState<Matrix[]>([]);
+  const [referenceRows,setReferenceRows]=useState<Matrix[]>([]);
+  const [referenceColumns,setReferenceColumns]=useState<string[]>([]);
+  const [referenceTotal,setReferenceTotal]=useState(0);
+  const [referenceVariants,setReferenceVariants]=useState<{cargo:string;source_rows:number[]}[]>([]);
+  const [referenceLoading,setReferenceLoading]=useState(false);
   const [kind,setKind]=useState<Kind>("IRL");
   const [search,setSearch]=useState("");
   const [selectedId,setSelectedId]=useState("");
@@ -57,16 +63,19 @@ export default function JavieraMatrixEditor(){
   const [importConfirmed,setImportConfirmed]=useState(false);
   const [message,setMessage]=useState("");
   const [error,setError]=useState("");
-  const current=rows.find(x=>x.id===selectedId);
-  const versions=useMemo(()=>rows.filter(x=>x.kind===kind&&x.cargo===cargo)
-    .sort((a,b)=>b.revision-a.revision),[rows,kind,cargo]);
+  const allRows=useMemo(()=>[...rows,...referenceRows],[rows,referenceRows]);
+  const current=allRows.find(x=>x.id===selectedId);
+  const versions=useMemo(()=>allRows.filter(x=>x.kind===kind&&x.cargo===cargo)
+    .sort((a,b)=>b.revision-a.revision),[allRows,kind,cargo]);
   const latest=useMemo(()=>{
     const seen=new Set<string>();
-    return rows.filter(row=>row.kind===kind).filter(row=>{
-      if(seen.has(row.cargo))return false;
-      seen.add(row.cargo);return true;
+    return allRows.filter(row=>row.kind===kind).filter(row=>{
+      // En Excel hay duplicados técnicos reales: conservar cada fila.
+      const key=row.status==="reference"?"excel:"+row.id:"db:"+row.cargo;
+      if(seen.has(key))return false;
+      seen.add(key);return true;
     }).filter(row=>row.cargo.toLocaleLowerCase("es").includes(search.toLocaleLowerCase("es")));
-  },[rows,kind,search]);
+  },[allRows,kind,search]);
   const changed=!!current && (sections.length!==current.sections.length ||
     sections.some((s,i)=>s!==current.sections[i]));
   const approved=versions.find(r=>r.status==="approved");
@@ -84,6 +93,26 @@ export default function JavieraMatrixEditor(){
       .then(([result,status])=>{setRows(result);setSoloPilot(status.solo_pilot);})
       .catch(e=>setError(errorText(e))).finally(()=>setLoading(false));
   },[]);
+  useEffect(()=>{
+    let active=true;
+    setReferenceLoading(true);
+    setReferenceRows([]);
+    setReferenceColumns([]);
+    void request<ReferenceCatalog>("/javiera/v194/reference-matrices?kind="+kind)
+      .then(result=>{
+        if(!active)return;
+        setReferenceRows(result.rows);
+        setReferenceColumns(result.columns);
+        setReferenceTotal(result.source_rows);
+        setReferenceVariants(result.variants);
+        // Presentar contenido real del Excel automáticamente, sin
+        // cargar archivos ni crear matrices aprobadas por accidente.
+        if(result.rows.length>0&&!selectedId)selectRecord(result.rows[0]);
+      })
+      .catch(e=>{if(active)setError(errorText(e));})
+      .finally(()=>{if(active)setReferenceLoading(false);});
+    return()=>{active=false;};
+  },[kind]);
   function invalidate(){setImpact(null);setImpactFingerprint("");setConfirmed(false);}
   function selectRecord(row:Matrix){
     setKind(row.kind);setCargo(row.cargo);setSections([...row.sections]);setSelectedId(row.id);
@@ -96,6 +125,10 @@ export default function JavieraMatrixEditor(){
     setMessage("Cargo nuevo: el primer guardado será una revisión en borrador.");
   }
   function selectKind(value:Kind){
+    // Seleccionar de nuevo la misma categoría no debe borrar el cargo ni
+    // sus riesgos. React no repite el efecto dependiente de `kind` si
+    // su valor no cambia; antes esto dejaba una fila IRL vacía.
+    if(value===kind)return;
     setKind(value);setSelectedId("");setCargo("");
     setSections(value==="PTS"?Array(17).fill(""):value==="IRL"?
       ["Tarea: \nPeligro: \nRiesgo: \nMedidas: "]:[""]);invalidate();
@@ -124,7 +157,7 @@ export default function JavieraMatrixEditor(){
     setBusy(true);setError("");setMessage("");
     try{
       const result=await request<{id:string;revision:number;status:string}>("/javiera/admin/matrices",{
-        method:"POST",body:JSON.stringify({kind,cargo,sections,source:"Editor visual GALANT 19.2"})
+        method:"POST",body:JSON.stringify({kind,cargo,sections,source:"Editor visual GALANT 19.4"})
       });
       await reload(result.id);
       invalidate();
@@ -182,7 +215,7 @@ export default function JavieraMatrixEditor(){
       "Tarea: \nPeligro: \nRiesgo: \nMedidas: ":""]);invalidate();
   }
   return <section className="jmx-root">
-    <header className="jmx-top"><div><small>PROYECTO JAVIERA · 19.3.1</small>
+    <header className="jmx-top"><div><small>PROYECTO JAVIERA · 19.4</small>
       <h2><ClipboardList size={23}/> Matrices y cargos</h2>
       <p>Revisa riesgos, controles y procedimientos por cargo, sin editar Excel. Cada cambio crea una revisión separada.</p>
     </div><button type="button" onClick={newRecord}><Plus size={16}/> Nuevo cargo</button></header>
@@ -190,8 +223,9 @@ export default function JavieraMatrixEditor(){
     {message&&<p className="jmx-success" role="status"><CheckCircle2 size={17}/>{message}</p>}
     <section className="jmx-import" aria-label="Importar matrices desde Excel">
       <div><h3><Upload size={18}/> Importar Excel con comparación previa</h3>
-        <p>Se revisan las cinco hojas, riesgos, PTS y fórmulas antes de crear borradores.
-          No se reemplazan registros históricos ni se publica la matriz automáticamente.</p></div>
+        <p>Las cinco matrices se consultan precargadas desde el Excel original.
+          Sube otro archivo solo si necesitas comparar diferencias; nunca se modifica
+          automáticamente una matriz aprobada ni un documento histórico.</p></div>
       <label className="jmx-upload">Seleccionar archivo .xlsx
         <input type="file" accept=".xlsx,application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
           disabled={busy} onChange={e=>{
@@ -204,7 +238,7 @@ export default function JavieraMatrixEditor(){
           <span>Fórmulas localizadas: {importPreview.formula_count}
             {importPreview.formula_count_partial?" (parcial)":""}</span></div>
         <p className="jmx-help-note">El inventario confirma qué fórmulas existen en el Excel, pero
-          no acredita todavía que el backend reproduzca sus 423 resultados.</p>
+          no acredita todavía equivalencia de cálculo con Excel.</p>
         <details><summary>Inventario de fórmulas por hoja y celda</summary>
           <div className="jmx-changes">
             <p>{Object.entries(importPreview.formulas_by_sheet).map(([sheet,count])=>
@@ -249,12 +283,16 @@ export default function JavieraMatrixEditor(){
         <label htmlFor="jmx-search"><Search size={14}/> Buscar cargo</label>
         <input id="jmx-search" type="search" value={search} onChange={e=>setSearch(e.target.value)}
           placeholder="Ej. carpintero, pintor"/>
-        {loading?<p>Cargando matrices…</p>:<div className="jmx-items">
-          <small>{latest.length} cargos encontrados</small>
-          {latest.map(row=><button key={row.id} type="button" className={row.cargo===cargo?"chosen":""}
-            onClick={()=>selectRecord(row)}><span>{row.cargo}<small>{row.kind} · Revisión {row.revision}
-              {" · "+(row.status==="approved"?"Aprobada":"Borrador")}</small></span><ArrowRight size={14}/></button>)}
-          {!latest.length&&<p>Sin cargos en esta categoría. Puedes agregar uno sin afectar otras matrices.</p>}
+        {(loading||referenceLoading)?<p>Cargando registros originales del Excel…</p>:<div className="jmx-items">
+          <small>{latest.length} entradas y variantes · {referenceTotal} filas de Excel</small>
+          {latest.map(row=><button key={row.id} type="button" className={row.id===selectedId?"chosen":""}
+            onClick={()=>selectRecord(row)}><span>{row.cargo}<small>{
+              row.status==="reference"?
+                "Excel original · fila "+row.source_row+" · sin aprobar":
+                row.kind+" · revisión "+row.revision+" · "+
+                  (row.status==="approved"?"Aprobada":"Borrador")
+            }</small></span><ArrowRight size={14}/></button>)}
+          {!latest.length&&<p>No se encontraron registros en el Excel ni en GALANT.</p>}
         </div>}
       </aside>
       <div className="jmx-editor">
@@ -263,17 +301,31 @@ export default function JavieraMatrixEditor(){
             <input value={cargo} onChange={e=>{setCargo(e.target.value);setSelectedId("");invalidate();}}
               maxLength={160} placeholder="Cargo según matriz original"/>
           </label>
-          <label>Revisión
+          <label>Revisión o archivo original
             <select value={selectedId} onChange={e=>{
-              const row=rows.find(x=>x.id===e.target.value);if(row)selectRecord(row);
+              const row=allRows.find(x=>x.id===e.target.value);if(row)selectRecord(row);
             }} disabled={!versions.length}>
               {!versions.length&&<option value="">Nueva</option>}
               {versions.map(row=><option key={row.id} value={row.id}>
-                Revisión {row.revision} · {row.status==="approved"?"Aprobada":"Borrador"}
+                {row.status==="reference"?
+                  "Excel original · fila "+row.source_row+" (sin aprobar)":
+                  "Revisión "+row.revision+" · "+(row.status==="approved"?"Aprobada":"Borrador")}
               </option>)}
             </select>
           </label>
         </div>
+        {current?.status==="reference"&&<div className="jmx-warning">
+          <strong>Matriz precargada automáticamente desde el Excel</strong>
+          <p>{current.source}. Todos sus apartados se muestran para consulta y edición.
+          Es una referencia técnica, no una matriz aprobada. Para imprimirla,
+          crea una revisión en borrador y solicita validación preventiva.</p>
+        </div>}
+        {referenceVariants.some(item=>item.cargo===cargo)&&<div className="jmx-warning">
+          <strong>El Excel contiene registros duplicados para este cargo.</strong>
+          Conservamos las filas {referenceVariants.filter(item=>item.cargo===cargo)
+            .flatMap(item=>item.source_rows).join(", ")}.
+          Elige la variante correcta antes de solicitar aprobación.
+        </div>}
         <div className="jmx-summary">
           <span><FileSpreadsheet size={15}/> {sections.length} apartados / registros</span>
           <span>{approved?"Aprobada v"+approved.revision:"Sin revisión aprobada"}</span>
@@ -293,7 +345,7 @@ export default function JavieraMatrixEditor(){
               </tr>;
             })}</tbody></table></div>:<div className="jmx-rows">
           {sections.map((section,index)=><label key={index}>
-            <span>{kind==="PTS"?"Apartado técnico":"Campo"} {index+1}
+            <span>{referenceColumns[index]||((kind==="PTS"?"Apartado técnico ":"Campo ")+(index+1))}
               {approved && approved.sections[index]!==section?" · Modificado":""}</span>
             <textarea value={section} rows={3} onChange={e=>edit(index,e.target.value)}/>
           </label>)}</div>}
