@@ -395,7 +395,7 @@ def preview_native_batch(payload: NativeBatchInput,
         content=output, media_type="application/pdf",
         headers={
             "Cache-Control": "no-store, private",
-            "Content-Disposition": 'inline; filename="proyecto-javiera-paquete-a4.pdf"',
+            "Content-Disposition": 'inline; filename="documentos-para-firma-a4.pdf"',
             "X-Content-Type-Options": "nosniff",
         },
     )
@@ -492,7 +492,7 @@ def preview_native(payload: NativePreviewInput,
         content=pdf, media_type="application/pdf",
         headers={
             "Cache-Control": "no-store, private",
-            "Content-Disposition": 'inline; filename="proyecto-javiera-vista-previa.pdf"',
+            "Content-Disposition": 'inline; filename="documento-para-firma.pdf"',
             "X-Content-Type-Options": "nosniff",
         },
     )
