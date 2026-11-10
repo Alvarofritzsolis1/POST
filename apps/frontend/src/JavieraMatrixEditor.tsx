@@ -6,7 +6,11 @@ import "./javiera-matrix-editor.css";
 type Kind="IRL"|"PTS"|"PUESTOS"|"PERFILES"|"SUSTANCIAS";
 type Matrix={id:string;kind:Kind;cargo:string;sections:string[];revision:number;status:string;source:string;author_id:string};
 type Impact={kind:Kind;cargo:string;new_pdf_formats:string[];affected_dossiers:number;
-  count_is_partial:boolean;current_approved_revision:number|null;latest_revision:number|null;
+  count_is_partial:boolean;affected_by_origin:{historical_workflow:number;current_documentary_workflow:number};
+  related_formats_for_review:string[];
+  related_matrix_versions:{irl:number|null;pts:number|null};
+  related_formats_are_advisory:boolean;
+  current_approved_revision:number|null;latest_revision:number|null;
   pending_revisions:number[];historical_pdfs_unchanged:boolean;needs_explicit_review:boolean;message:string};
 const kinds:Kind[]=["IRL","PTS","PERFILES","PUESTOS","SUSTANCIAS"];
 const labels:Record<Kind,string>={IRL:"Riesgos laborales (IRL)",PTS:"Procedimientos seguros (PTS)",
@@ -305,7 +309,13 @@ export default function JavieraMatrixEditor(){
             <p><strong>Documentos por revisar:</strong> {impact.new_pdf_formats.join(", ").toUpperCase()}</p>
             <p><strong>Expedientes con ese cargo:</strong> {impact.affected_dossiers}
               {impact.count_is_partial?" (conteo parcial)":""}</p>
+            <p>Proyecto Javiera actual: {impact.affected_by_origin.current_documentary_workflow}
+              {" · "}Históricos: {impact.affected_by_origin.historical_workflow}</p>
             <p><strong>Última revisión aprobada:</strong> {impact.current_approved_revision||"Ninguna"}</p>
+            <p><strong>Coherencia preventiva por revisar:</strong> {impact.related_formats_for_review.join(", ").toUpperCase()}
+              {" "}(referencias relacionadas, no se actualizan automáticamente)</p>
+            <p><strong>Versiones aprobadas relacionadas:</strong> IRL {impact.related_matrix_versions.irl||"Sin versión"},
+              {" "}PTS {impact.related_matrix_versions.pts||"Sin versión"}</p>
             <p>Los archivos ya emitidos permanecen intactos. La nueva revisión no se activa al guardarla.</p>
             <label className="jmx-confirm"><input type="checkbox" checked={confirmed}
               onChange={e=>setConfirmed(e.target.checked)}/>
