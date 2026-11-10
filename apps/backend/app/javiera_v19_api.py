@@ -158,6 +158,20 @@ def native_editor(code: str, user: User = Depends(administrator),
     """Texto editable HTML por tipo documental; no expone archivos Excel."""
     if code not in DOCUMENT_TITLES:
         raise HTTPException(404, "Documento no reconocido.")
+    if payload.code == "irl":
+        # Prioridad de fidelidad: usar directamente la hoja original, sus
+        # bordes, imágenes, saltos y encabezados con LibreOffice. La versión
+        # nativa HTML queda como respaldo de pruebas cuando no existe XLSX.
+        # Esto evita pérdidas de palabras observadas en fitz.Story 1.28.
+        from .javiera_layout_api import latest_layout, make_pdf
+        layout = latest_layout(db, user.org_id, "irl", approved=False)
+        if layout:
+            pdf = make_pdf(db, user, layout, data, preview=True)
+            return Response(content=pdf, media_type="application/pdf", headers={
+                "Cache-Control": "no-store, private",
+                "Content-Disposition": 'inline; filename="irl-original-para-revision.pdf"',
+                "X-Galant-IRL-Renderer": "original-excel-layout",
+            })
     row = db.scalar(select(JavieraTemplate).where(
         JavieraTemplate.org_id == user.org_id, JavieraTemplate.code == code))
     latest = _latest_native_revision(db, row)
