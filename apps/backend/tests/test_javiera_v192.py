@@ -239,3 +239,22 @@ def test_missing_required_source_content_blocks_transaction(env):
     assert commit.status_code==422
     with sessions() as db:
         assert db.scalar(select(func.count(JavieraMatrix.id)))==before
+
+
+
+def test_matrix_impact_counts_current_javiera_dossiers_and_cross_review(env):
+    from test_javiera_v19 import _local_dossier
+    client,_=env
+    admin=login(client,"a@example.cl")
+    local_id=_local_dossier(client,admin)
+    assert local_id
+    response=client.get("/api/v1/javiera/v192/matrix-impact",
+                        headers=admin,params={"kind":"IRL","cargo":"CARPINTERO"})
+    assert response.status_code==200,response.text
+    result=response.json()
+    assert result["affected_by_origin"]["current_documentary_workflow"]>=1
+    assert result["affected_dossiers"]>=1
+    assert result["new_pdf_formats"]==["irl"]
+    assert "pts" in result["related_formats_for_review"]
+    assert result["related_formats_are_advisory"] is True
+    assert result["historical_pdfs_unchanged"] is True
