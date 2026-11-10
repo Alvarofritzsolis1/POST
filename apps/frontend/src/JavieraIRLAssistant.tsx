@@ -10,16 +10,17 @@ type RoleDetail={
   cargo:string;
   irl:{approved:boolean;revision:number|null;matrix_id:string|null;
     records:RecordIRL[];has_unstructured:boolean};
-  pts:{approved:boolean;revision:number|null;sections_complete:boolean;section_count:number};
+  pts:{approved:boolean;revision:number|null;sections_complete:boolean;section_count:number;
+    sections:string[];source_columns:string[]};
   additional_matrices:Record<string,{revision:number|null;available:boolean;sections:string[]}>;
   can_preview_irl:boolean;warnings:string[];
 };
-type Props={cargo:string;onCargoChange:(cargo:string)=>void;
+type Props={cargo:string;documentKind:"irl"|"pts";onCargoChange:(cargo:string)=>void;
   manualLabor:string;onManualLaborChange:(labor:string)=>void;
   reviewedLaborIds:string;onReviewedLaborIdsChange:(ids:string)=>void};
 
 export default function JavieraIRLAssistant({
-  cargo,onCargoChange,manualLabor,onManualLaborChange,reviewedLaborIds,onReviewedLaborIdsChange,
+  cargo,documentKind,onCargoChange,manualLabor,onManualLaborChange,reviewedLaborIds,onReviewedLaborIdsChange,
 }:Props){
   const [query,setQuery]=useState("");
   const [matches,setMatches]=useState<Role[]>([]);
@@ -56,7 +57,7 @@ export default function JavieraIRLAssistant({
   }
   return <section className="jia-root" aria-label="Asistente de labores y riesgos IRL">
     <div className="jia-heading"><ClipboardList size={19}/>
-      <div><h4>Labores y matriz IRL del cargo</h4>
+      <div><h4>{documentKind==="pts"?"Labores y procedimiento PTS del cargo":"Labores y matriz IRL del cargo"}</h4>
         <p>Selecciona un cargo existente y revisa sus tareas, peligros y controles reales.</p></div>
     </div>
     <label className="jia-label" htmlFor="jia-role-search"><Search size={15}/> Buscar cargos de matrices</label>
@@ -99,6 +100,16 @@ export default function JavieraIRLAssistant({
           <p className="jia-summary"><ShieldCheck size={15}/> {tasks.filter(t=>reviewed.has(t.id)).length}
             {" de "}{tasks.length} labores revisadas; la revisión no equivale a aprobación preventiva.</p>
         </>}
+        {detail.pts.sections.length>0&&<details className="jia-related">
+          <summary>Ver {detail.pts.sections.length} apartados del PTS aprobado
+            {" "}(columnas de origen D:T)</summary>
+          <ol>{detail.pts.sections.map((section,i)=><li key={i}>
+            <strong>Columna {detail.pts.source_columns[i]||"?"}</strong>
+            <p>{section}</p>
+          </li>)}</ol>
+          <p>Los encabezados textuales definitivos deben verificarse con el Excel fuente.
+            Esta vista no sustituye la revisión preventiva.</p>
+        </details>}
         <details className="jia-related"><summary>Ver matrices relacionadas del cargo</summary>
           {Object.entries(detail.additional_matrices).map(([kind,data])=>
             <div key={kind}><strong>{kind}</strong>
