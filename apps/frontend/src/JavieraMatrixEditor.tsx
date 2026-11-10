@@ -19,6 +19,7 @@ const labels:Record<Kind,string>={IRL:"Riesgos laborales (IRL)",PTS:"Procedimien
 type Preview={sha256:string;baseline_sha256:string;
   sheets_found:string[];sheets_missing:string[];irl_source_rows:number;
   pts_source_rows:number;formula_count:number;formula_count_partial:boolean;
+  irl_embedded_images:number|null;irl_formula_count:number;
   formulas_by_sheet:Record<string,number>;
   formula_inventory:{sheet:string;cell:string;type:string;dependencies_a1_detected:string[];expression:string}[];
   formula_equivalence_verified:boolean;
@@ -238,7 +239,10 @@ export default function JavieraMatrixEditor(){
         <div className="jmx-summary"><span>IRL: {importPreview.irl_source_rows} filas</span>
           <span>PTS: {importPreview.pts_source_rows} filas</span>
           <span>Fórmulas localizadas: {importPreview.formula_count}
-            {importPreview.formula_count_partial?" (parcial)":""}</span></div>
+            {importPreview.formula_count_partial?" (parcial)":""}</span>
+          <span>Fórmulas hoja IRL: {importPreview.irl_formula_count}</span>
+          <span>Imágenes IRL: {importPreview.irl_embedded_images===null?"sin verificar":
+            importPreview.irl_embedded_images}</span></div>
         <p className="jmx-help-note">El inventario confirma qué fórmulas existen en el Excel, pero
           no acredita todavía equivalencia de cálculo con Excel.</p>
         <details><summary>Inventario de fórmulas por hoja y celda</summary>
