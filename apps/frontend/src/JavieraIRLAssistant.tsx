@@ -11,7 +11,7 @@ type RoleDetail={
   irl:{approved:boolean;revision:number|null;matrix_id:string|null;
     records:RecordIRL[];has_unstructured:boolean};
   pts:{approved:boolean;revision:number|null;sections_complete:boolean;section_count:number;
-    sections:string[];source_columns:string[]};
+    sections:string[];source_columns:string[];headings:string[]};
   additional_matrices:Record<string,{revision:number|null;available:boolean;sections:string[]}>;
   can_preview_irl:boolean;warnings:string[];
 };
@@ -104,11 +104,12 @@ export default function JavieraIRLAssistant({
           <summary>Ver {detail.pts.sections.length} apartados del PTS aprobado
             {" "}(columnas de origen D:T)</summary>
           <ol>{detail.pts.sections.map((section,i)=><li key={i}>
-            <strong>Columna {detail.pts.source_columns[i]||"?"}</strong>
+            <strong>{detail.pts.headings[i]||"Apartado sin encabezado"}</strong>
+            <small> · Columna {detail.pts.source_columns[i]||"?"}</small>
             <p>{section}</p>
           </li>)}</ol>
-          <p>Los encabezados textuales definitivos deben verificarse con el Excel fuente.
-            Esta vista no sustituye la revisión preventiva.</p>
+          <p>Los encabezados se contrastaron con la hoja MATRIZ PTS del Excel corregido.
+            La aprobación profesional del procedimiento sigue siendo obligatoria.</p>
         </details>}
         <details className="jia-related"><summary>Ver matrices relacionadas del cargo</summary>
           {Object.entries(detail.additional_matrices).map(([kind,data])=>
@@ -124,7 +125,7 @@ export default function JavieraIRLAssistant({
       value={manualLabor} onChange={e=>onManualLaborChange(e.target.value)}
       placeholder="Describe la labor real que falta en las matrices"/>
     {manualLabor.trim()?<p className="jia-warning"><AlertTriangle size={15}/>
-      Labor nueva guardada en borrador y pendiente de revisión preventiva.
+      Labor nueva detectada. Se conservará al guardar el borrador y requiere revisión preventiva.
       El IRL y PTS no se podrán imprimir hasta vincularla a una matriz aprobada.</p>
       :detail?.can_preview_irl?<p className="jia-ready"><CheckCircle2 size={15}/>
       Matriz IRL estructurada disponible. Completa la identificación y la fecha del documento para obtener el PDF A4.</p>:null}
