@@ -219,8 +219,9 @@ export default function JavieraMatrixEditor(){
     {message&&<p className="jmx-success" role="status"><CheckCircle2 size={17}/>{message}</p>}
     <section className="jmx-import" aria-label="Importar matrices desde Excel">
       <div><h3><Upload size={18}/> Importar Excel con comparación previa</h3>
-        <p>Se revisan las cinco hojas, riesgos, PTS y fórmulas antes de crear borradores.
-          No se reemplazan registros históricos ni se publica la matriz automáticamente.</p></div>
+        <p>Las cinco matrices se consultan precargadas desde el Excel original.
+          Sube otro archivo solo si necesitas comparar diferencias; nunca se modifica
+          automáticamente una matriz aprobada ni un documento histórico.</p></div>
       <label className="jmx-upload">Seleccionar archivo .xlsx
         <input type="file" accept=".xlsx,application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
           disabled={busy} onChange={e=>{
@@ -233,7 +234,7 @@ export default function JavieraMatrixEditor(){
           <span>Fórmulas localizadas: {importPreview.formula_count}
             {importPreview.formula_count_partial?" (parcial)":""}</span></div>
         <p className="jmx-help-note">El inventario confirma qué fórmulas existen en el Excel, pero
-          no acredita todavía que el backend reproduzca sus 423 resultados.</p>
+          no acredita todavía equivalencia de cálculo con Excel.</p>
         <details><summary>Inventario de fórmulas por hoja y celda</summary>
           <div className="jmx-changes">
             <p>{Object.entries(importPreview.formulas_by_sheet).map(([sheet,count])=>
@@ -278,12 +279,16 @@ export default function JavieraMatrixEditor(){
         <label htmlFor="jmx-search"><Search size={14}/> Buscar cargo</label>
         <input id="jmx-search" type="search" value={search} onChange={e=>setSearch(e.target.value)}
           placeholder="Ej. carpintero, pintor"/>
-        {loading?<p>Cargando matrices…</p>:<div className="jmx-items">
-          <small>{latest.length} cargos encontrados</small>
-          {latest.map(row=><button key={row.id} type="button" className={row.cargo===cargo?"chosen":""}
-            onClick={()=>selectRecord(row)}><span>{row.cargo}<small>{row.kind} · Revisión {row.revision}
-              {" · "+(row.status==="approved"?"Aprobada":"Borrador")}</small></span><ArrowRight size={14}/></button>)}
-          {!latest.length&&<p>Sin cargos en esta categoría. Puedes agregar uno sin afectar otras matrices.</p>}
+        {(loading||referenceLoading)?<p>Cargando registros originales del Excel…</p>:<div className="jmx-items">
+          <small>{latest.length} entradas y variantes · {referenceTotal} filas de Excel</small>
+          {latest.map(row=><button key={row.id} type="button" className={row.id===selectedId?"chosen":""}
+            onClick={()=>selectRecord(row)}><span>{row.cargo}<small>{
+              row.status==="reference"?
+                "Excel original · fila "+row.source_row+" · sin aprobar":
+                row.kind+" · revisión "+row.revision+" · "+
+                  (row.status==="approved"?"Aprobada":"Borrador")
+            }</small></span><ArrowRight size={14}/></button>)}
+          {!latest.length&&<p>No se encontraron registros en el Excel ni en GALANT.</p>}
         </div>}
       </aside>
       <div className="jmx-editor">
@@ -292,17 +297,31 @@ export default function JavieraMatrixEditor(){
             <input value={cargo} onChange={e=>{setCargo(e.target.value);setSelectedId("");invalidate();}}
               maxLength={160} placeholder="Cargo según matriz original"/>
           </label>
-          <label>Revisión
+          <label>Revisión o archivo original
             <select value={selectedId} onChange={e=>{
-              const row=rows.find(x=>x.id===e.target.value);if(row)selectRecord(row);
+              const row=allRows.find(x=>x.id===e.target.value);if(row)selectRecord(row);
             }} disabled={!versions.length}>
               {!versions.length&&<option value="">Nueva</option>}
               {versions.map(row=><option key={row.id} value={row.id}>
-                Revisión {row.revision} · {row.status==="approved"?"Aprobada":"Borrador"}
+                {row.status==="reference"?
+                  "Excel original · fila "+row.source_row+" (sin aprobar)":
+                  "Revisión "+row.revision+" · "+(row.status==="approved"?"Aprobada":"Borrador")}
               </option>)}
             </select>
           </label>
         </div>
+        {current?.status==="reference"&&<div className="jmx-warning">
+          <strong>Matriz precargada automáticamente desde el Excel</strong>
+          <p>{current.source}. Todos sus apartados se muestran para consulta y edición.
+          Es una referencia técnica, no una matriz aprobada. Para imprimirla,
+          crea una revisión en borrador y solicita validación preventiva.</p>
+        </div>}
+        {referenceVariants.some(item=>item.cargo===cargo)&&<div className="jmx-warning">
+          <strong>El Excel contiene registros duplicados para este cargo.</strong>
+          Conservamos las filas {referenceVariants.filter(item=>item.cargo===cargo)
+            .flatMap(item=>item.source_rows).join(", ")}.
+          Elige la variante correcta antes de solicitar aprobación.
+        </div>}
         <div className="jmx-summary">
           <span><FileSpreadsheet size={15}/> {sections.length} apartados / registros</span>
           <span>{approved?"Aprobada v"+approved.revision:"Sin revisión aprobada"}</span>
@@ -322,7 +341,7 @@ export default function JavieraMatrixEditor(){
               </tr>;
             })}</tbody></table></div>:<div className="jmx-rows">
           {sections.map((section,index)=><label key={index}>
-            <span>{kind==="PTS"?"Apartado técnico":"Campo"} {index+1}
+            <span>{referenceColumns[index]||((kind==="PTS"?"Apartado técnico ":"Campo ")+(index+1))}
               {approved && approved.sections[index]!==section?" · Modificado":""}</span>
             <textarea value={section} rows={3} onChange={e=>edit(index,e.target.value)}/>
           </label>)}</div>}
