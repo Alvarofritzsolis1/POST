@@ -437,6 +437,14 @@ def preview_native(payload: NativePreviewInput,
     if payload.code not in record.selected_codes:
         raise HTTPException(422, "Selecciona el documento dentro del expediente.")
     data = _document(record, payload.code, db, user)
+    if payload.code in {"irl", "pts"}:
+        irl_fields = (record.document_data or {}).get("irl") or {}
+        manual = (irl_fields.get("event") or {}).get("irl_manual_labor", "")
+        if isinstance(manual, str) and manual.strip():
+            raise HTTPException(
+                409, "Hay una labor manual pendiente de incorporar a la matriz preventiva. "
+                     "Conserva el borrador y solicita revisión antes de imprimir IRL/PTS."
+            )
     # Paridad del campo original 'Datos Contrato' C32 -> 'NUMEROS A LETRAS' S4.
     # Este cálculo se limita al contrato y jamás sustituye fórmulas del Excel.
     if payload.code == "labor_contract":
