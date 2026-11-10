@@ -100,8 +100,8 @@ def _irl_table_rows(values: list[str], role: str) -> str:
     fila única; nunca se reinterpretan como medidas preventivas nuevas.
     """
     from .javiera_irl import parse_irl_section
-    if not values or len(values) > 80:
-        raise NativeDocumentError("La matriz IRL excede los 80 registros imprimibles por documento.")
+    if not values or len(values) > 1500:
+        raise NativeDocumentError("La matriz IRL debe contener entre 1 y 1.500 registros válidos.")
     parts = []
     for ordinal, value in enumerate(values, 1):
         record = parse_irl_section(value, version=0, ordinal=ordinal, cargo=role)
