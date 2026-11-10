@@ -185,6 +185,32 @@ def native_editor(code: str, user: User = Depends(administrator),
     }
 
 
+@router.get("/editor/{code}/history")
+def native_editor_history(code: str, user: User = Depends(administrator),
+                          db: Session = Depends(get_db)):
+    """Historial visual de borradores, sin sobrescribir plantillas publicadas."""
+    if code not in DOCUMENT_TITLES:
+        raise HTTPException(404, "Documento no reconocido.")
+    row = db.scalar(select(JavieraTemplate).where(
+        JavieraTemplate.org_id == user.org_id, JavieraTemplate.code == code))
+    if row is None:
+        return {"code": code, "revisions": []}
+    revisions = db.scalars(select(JavieraRevision).where(
+        JavieraRevision.org_id == user.org_id,
+        JavieraRevision.template_id == row.id,
+    ).order_by(JavieraRevision.revision.desc()).limit(50)).all()
+    return {
+        "code": code,
+        "revisions": [{
+            "revision": item.revision, "state": item.state,
+            "reason": item.reason, "created_at": item.created_at.isoformat(),
+            "html": (item.contents or {}).get("layout", {}).get("native_html"),
+        } for item in revisions
+            if (item.contents or {}).get("layout", {}).get("native_html")],
+        "restoration_policy": "copy_as_new_draft",
+    }
+
+
 @router.put("/editor/{code}")
 def save_native_html(code: str, payload: NativeHtmlDraft,
                      user: User = Depends(administrator),

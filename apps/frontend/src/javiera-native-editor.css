@@ -43,3 +43,35 @@
 @media(max-width:1300px){.jne-panels{grid-template-columns:1fr}}
 @media(max-width:850px){.jne-layout{grid-template-columns:1fr}.jne-list{grid-template-columns:repeat(2,minmax(0,1fr))}.jne-list h3{grid-column:1/-1}.jne-workspace{padding:12px}}
 @media(max-width:480px){.jne-list{grid-template-columns:1fr}.jne-shell{padding:10px}.jne-paper{padding:7px}}
+
+/* GALANT 19.2: document-first editing, never editable source code by default. */
+.jne-visual-mode{display:flex;align-items:center;justify-content:space-between;gap:12px;margin:8px 0 12px;font-size:.85rem}
+.jne-visual-mode button{border:0;background:transparent;color:#526780;font-size:.72rem;cursor:pointer;text-decoration:underline}
+.jne-visual{border:1px solid #d5dfe9;border-radius:11px;overflow:hidden;background:#edf2f7}
+.jne-visual-toolbar{display:flex;flex-wrap:wrap;align-items:center;gap:5px;padding:10px;background:#fff;border-bottom:1px solid #d8e3ee;position:sticky;top:0;z-index:2}
+.jne-visual-toolbar button{border:1px solid #dae4ed;background:#fff;padding:7px 9px;border-radius:7px;cursor:pointer;color:#244768;display:flex;align-items:center;justify-content:center}
+.jne-visual-toolbar button:hover{background:#e9f1f8}
+.jne-visual-toolbar select{min-width:165px;max-width:100%;padding:8px;border:1px solid #cad6e2;border-radius:7px;background:#fff;color:#26405c}
+.jne-editable-paper{background:#fff;color:#182c40;min-height:500px;padding:35px 30px;max-width:100%;overflow-wrap:anywhere;outline:none;font:11pt/1.55 Arial,sans-serif;box-shadow:0 5px 25px #17344a12;margin:14px}
+.jne-editable-paper:focus-visible{outline:2px solid #4d86b7;outline-offset:-2px}
+.jne-editable-paper :is(h2,h3){color:#1e3b59;margin:16px 0 10px}
+.jne-editable-paper p{margin:10px 0}
+.jne-editable-paper table{border-collapse:collapse;width:100%;table-layout:fixed}
+.jne-editable-paper :is(th,td){border:1px solid #bdcbd9;padding:8px;vertical-align:top;overflow-wrap:anywhere}
+.jne-editable-paper th{background:#edf3f8}
+.jne-editable-paper .jne-variable{background:#e7f2ff;border:1px solid #b2cdea;border-radius:5px;padding:1px 5px;color:#174871;white-space:normal;font-weight:700;user-select:all}
+.jne-visual>.jne-help{padding:0 14px 12px;margin:0}
+@media(min-width:1400px){.jne-panels{grid-template-columns:minmax(0,1.2fr) minmax(0,.8fr)}}
+@media(max-width:650px){.jne-editable-paper{padding:18px 14px;margin:7px}.jne-visual-toolbar{position:static}}
+
+.jne-history-control{display:grid;gap:7px;justify-items:end}
+.jne-history-control button{border:0;background:transparent;color:#20567f;cursor:pointer;text-decoration:underline;font-size:.77rem}
+.jne-history{margin-bottom:16px;padding:15px;background:#f7fafc;border:1px solid #d1dfec;border-radius:10px}
+.jne-history h4{margin:0 0 5px;color:#274c70}
+.jne-history p{font-size:.8rem;color:#546b80;line-height:1.5}
+.jne-history-list{display:grid;gap:7px;max-height:200px;overflow:auto}
+.jne-history-list>div{background:white;border:1px solid #d9e5ee;border-radius:7px;padding:9px;display:flex;gap:9px;justify-content:space-between;align-items:center}
+.jne-history-list span{font-size:.79rem;font-weight:700}
+.jne-history-list small{display:block;font-size:.71rem;color:#536d83;font-weight:400;margin-top:4px}
+.jne-history-list button{border:1px solid #c2d3e2;background:#fff;border-radius:7px;padding:9px;color:#255278;cursor:pointer}
+@media(max-width:550px){.jne-history-list>div{flex-direction:column;align-items:flex-start}.jne-history-control{justify-items:start}}

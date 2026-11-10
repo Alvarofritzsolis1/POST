@@ -1,14 +1,17 @@
 name: GALANT POST - CI
 on:
   push:
+    branches:
+      - main
   pull_request:
   schedule:
     - cron: "0 9 * * 1"
   workflow_dispatch:
   workflow_call:
 
-# Ejecutar solamente la revisión más reciente de cada rama o PR para evitar
-# docenas de verificaciones obsoletas al preparar una nueva versión.
+# Evitar la doble ejecución push + pull_request en ramas de desarrollo.
+# main se valida después del merge; las ramas de trabajo, vía pull_request.
+# Se conserva cancel-in-progress para PR obsoletos de la misma rama.
 concurrency:
   group: ${{ github.workflow }}-${{ github.head_ref || github.ref_name }}
   cancel-in-progress: true

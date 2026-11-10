@@ -32,15 +32,21 @@ class _DocumentHtml(HTMLParser):
         self.count = 0
 
     def handle_starttag(self, tag, attrs):
-        if tag not in ALLOWED_TAGS or attrs:
+        # Solo alineación textual declarativa; nunca estilos arbitrarios ni URL.
+        alignment = (attrs[0][1] if len(attrs) == 1
+                     and attrs[0][0] == "align" else None)
+        safe_alignment = (tag in {"p", "h2", "h3", "td", "th"}
+                          and alignment in {"left", "center", "right"})
+        if tag not in ALLOWED_TAGS or (attrs and not safe_alignment):
             raise NativeHtmlError(
                 "Solo se permiten párrafos, títulos, listas, tablas y estilos de texto. "
-                "No se admiten enlaces, scripts, imágenes ni atributos HTML."
+                "No se admiten enlaces, scripts, imágenes ni atributos HTML arbitrarios."
             )
         self.count += 1
         if self.count > 600:
             raise NativeHtmlError("El diseño supera la cantidad permitida de etiquetas.")
-        self.parts.append("<" + tag + ">")
+        attribute = ' align="' + alignment + '"' if safe_alignment else ""
+        self.parts.append("<" + tag + attribute + ">")
         if tag not in VOID_TAGS:
             self.open_tags.append(tag)
 

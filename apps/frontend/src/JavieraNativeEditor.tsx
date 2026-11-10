@@ -1,7 +1,8 @@
 import {useCallback, useEffect, useRef, useState} from "react";
-import {ArrowLeft, CheckCircle2, Code2, Eye, FileCode2, FileText, Save, ShieldCheck} from "lucide-react";
+import {ArrowLeft, CheckCircle2, Eye, FileText, Save, ShieldCheck} from "lucide-react";
 import {request} from "./api";
 import "./javiera-native-editor.css";
+import JavieraVisualCanvas from "./JavieraVisualCanvas";
 
 type Format={code:string;title:string;status:"ready"|"requires_review"|"requires_published_text";
   source_kind:string;source_revision:number|null};
@@ -9,6 +10,8 @@ type FormatList={formats:Format[];message:string};
 type EditorDocument={code:string;title:string;html:string;revision:number|null;
   state:string;mode:"supplement"|"main_body";preview_only:boolean;needs_review:boolean};
 type EditorSave={code:string;revision:number;state:string;message:string};
+type EditorHistoryItem={revision:number;state:string;reason:string;created_at:string;html:string};
+type EditorHistory={code:string;revisions:EditorHistoryItem[];restoration_policy:string};
 
 const sampleCsp="default-src 'none'; style-src 'unsafe-inline'; img-src 'none'; font-src 'none'; connect-src 'none';";
 const previewCss=`
@@ -18,10 +21,18 @@ p{margin:8px 0}table{border-collapse:collapse;width:100%}
 td,th{border:1px solid #b7c6d4;padding:6px;font-size:10pt;vertical-align:top}
 th{background:#edf2f6}blockquote{border-left:3px solid #abbdd1;margin:10px 0;padding:6px 12px}
 `;
+const previewFields:Record<string,string>={
+  "worker.name":"Nombre del trabajador","worker.rut":"RUT del trabajador",
+  "employer.name":"Empresa","employer.rut":"RUT de la empresa",
+  "site.name":"Obra","role":"Cargo","event.date":"Fecha del documento",
+};
 function designPreview(html:string){
+  const text=html.replace(/\{\{\s*([A-Za-z0-9_.]+)\s*\}\}/g,
+    (_full:string,key:string)=>'<strong class="document-variable">'+
+      (previewFields[key]||"Dato automático")+'</strong>');
   return '<!doctype html><html lang="es"><head><meta charset="utf-8">'+
     '<meta http-equiv="Content-Security-Policy" content="'+sampleCsp+'">'+
-    '<style>'+previewCss+'</style></head><body>'+html+'</body></html>';
+    '<style>'+previewCss+'.document-variable{background:#e8f2fc;color:#215278;border-radius:3px;padding:2px 4px}'+'</style></head><body>'+text+'</body></html>';
 }
 const insertions=[
   {label:"Párrafo",source:"<p>Escribe aquí el texto oficial.</p>\n"},
@@ -48,6 +59,10 @@ export default function JavieraNativeEditor({onBack,initialCode="internal_rules_
   const [error,setError]=useState("");
   const [notice,setNotice]=useState("");
   const [sourceView,setSourceView]=useState(true);
+  const [expertHtml,setExpertHtml]=useState(false);
+  const [history,setHistory]=useState<EditorHistoryItem[]>([]);
+  const [historyOpen,setHistoryOpen]=useState(false);
+  const [canvasSeed,setCanvasSeed]=useState(0);
   const input=useRef<HTMLTextAreaElement|null>(null);
   const dirty=html!==savedHtml;
 
@@ -58,7 +73,13 @@ export default function JavieraNativeEditor({onBack,initialCode="internal_rules_
   const openDocument=useCallback(async(code:string)=>{
     setLoading(true);setError("");setNotice("");
     try{
-      const current=await request<EditorDocument>("/javiera/v19/editor/"+code);
+      const [current,versions]=await Promise.all([
+        request<EditorDocument>("/javiera/v19/editor/"+code),
+        request<EditorHistory>("/javiera/v19/editor/"+code+"/history"),
+      ]);
+      setHistory(versions.revisions);
+      setCanvasSeed(seed=>seed+1);
+      setHistoryOpen(false);
       setDocument(current);
       setHtml(current.html);
       setSavedHtml(current.html);
@@ -81,6 +102,15 @@ export default function JavieraNativeEditor({onBack,initialCode="internal_rules_
     if(dirty&&!window.confirm("Hay cambios sin guardar. ¿Salir sin guardarlos?"))return;
     onBack();
   }
+  function recoverVersion(item:EditorHistoryItem){
+    if(dirty&&!window.confirm("Hay cambios sin guardar. ¿Descartarlos para cargar otra revisión?"))return;
+    setHtml(item.html);
+    setReason("Recuperación de la revisión "+item.revision);
+    setConfirmed(false);
+    setCanvasSeed(seed=>seed+1);
+    setHistoryOpen(false);
+    setNotice("Se cargó la revisión "+item.revision+" para editarla. Guarda un nuevo borrador; la versión histórica permanece intacta.");
+  }
   function insert(fragment:string){
     const field=input.current;
     if(!field){setHtml(old=>old+"\n"+fragment);return;}
@@ -94,7 +124,7 @@ export default function JavieraNativeEditor({onBack,initialCode="internal_rules_
     });
   }
   async function save(){
-    if(!html.trim())return setError("Completa el documento en HTML antes de guardarlo.");
+    if(!html.trim())return setError("Completa el documento antes de guardarlo.");
     setBusy(true);setError("");setNotice("");
     try{
       const result=await request<EditorSave>("/javiera/v19/editor/"+selected,{
@@ -102,13 +132,13 @@ export default function JavieraNativeEditor({onBack,initialCode="internal_rules_
       });
       await openDocument(selected);
       await refreshFormats();
-      setNotice("Borrador HTML guardado · revisión "+result.revision+
+      setNotice("Borrador visual guardado · revisión "+result.revision+
         ". Comprueba la vista y habilita el PDF A4 cuando corresponda.");
     }catch(e){setError(e instanceof Error?e.message:String(e));}
     finally{setBusy(false);}
   }
   async function enable(){
-    if(!document?.revision)return setError("Guarda primero el formato HTML.");
+    if(!document?.revision)return setError("Guarda primero el documento.");
     if(dirty)return setError("Guarda los cambios antes de habilitar la vista previa.");
     if(!confirmed)return setError("Confirma que verificaste el contenido y su distribución.");
     setBusy(true);setError("");setNotice("");
@@ -130,15 +160,15 @@ export default function JavieraNativeEditor({onBack,initialCode="internal_rules_
       <button type="button" className="jne-back" onClick={goBack}>
         <ArrowLeft size={17}/> Volver a documentos
       </button>
-      <div><small>PROYECTO JAVIERA · NUEVO GENERADOR</small>
-        <h2><FileCode2 size={25}/> Editor de formatos HTML</h2>
-        <p>Edita el documento aquí, revisa su aspecto y prepara el PDF A4 sin modificar Excel.</p>
+      <div><small>PROYECTO JAVIERA · EDITOR VISUAL 19.2</small>
+        <h2><FileText size={25}/> Editor visual de documentos</h2>
+        <p>Haz clic en la hoja para escribir, insertar datos automáticos y preparar el PDF A4.</p>
       </div>
     </header>
     {error&&<p role="alert" className="jne-alert">{error}</p>}
     {notice&&<p role="status" className="jne-ok"><CheckCircle2 size={17}/>{notice}</p>}
     <div className="jne-layout">
-      <aside className="jne-list" aria-label="Seleccionar formato HTML">
+      <aside className="jne-list" aria-label="Seleccionar formato de documento">
         <h3>Documentos <span>{formats.length}/10</span></h3>
         {formats.map(f=><button key={f.code} type="button"
           className={selected===f.code?"selected":""}
@@ -154,42 +184,64 @@ export default function JavieraNativeEditor({onBack,initialCode="internal_rules_
           <div className="jne-context">
             <div><h3>{document.title}</h3>
               <p>{document.mode==="supplement"
-                ?"Este contenido HTML se añade al formulario original. Las matrices y casillas obligatorias se conservan."
-                :"Este contenido HTML reemplaza el texto visual del formato en el PDF nativo. Copia las cláusulas originales sin modificar su significado."}</p>
+                ?"Este contenido se añade al formulario original. Las matrices y casillas obligatorias se conservan."
+                :"Este contenido reemplaza el texto del formato en el PDF. Copia las cláusulas originales sin modificar su significado."}</p>
             </div>
-            <span className="jne-version">{document.revision?"Revisión "+document.revision:"Sin revisión HTML"}</span>
+            <div className="jne-history-control">
+              <span className="jne-version">{document.revision?"Revisión "+document.revision:"Sin revisión"}</span>
+              <button type="button" onClick={()=>setHistoryOpen(!historyOpen)}>
+                {historyOpen?"Cerrar historial":"Ver versiones anteriores"}
+              </button>
+            </div>
           </div>
+          {historyOpen&&<section className="jne-history" aria-label="Historial del documento">
+            <h4>Historial de versiones</h4>
+            <p>Cada revisión se conserva. Recuperar una versión solo la carga en el editor:
+              al guardar se crea un borrador nuevo, sin modificar los PDF históricos.</p>
+            {history.length===0?<p>Este documento aún no tiene revisiones visuales.</p>:
+              <div className="jne-history-list">{history.map(item=>
+                <div key={item.revision}>
+                  <span>Revisión {item.revision} · {item.state==="pilot_print"?"Vista previa habilitada":"Borrador"}
+                    <small>{item.reason}</small></span>
+                  <button type="button" onClick={()=>recoverVersion(item)}>Recuperar en el editor</button>
+                </div>)}</div>}
+          </section>}
           <div className="jne-panels">
             <section className="jne-editor-panel">
-              <div className="jne-panel-heading"><h4><Code2 size={17}/> Editar contenido</h4>
+              <div className="jne-panel-heading"><h4><FileText size={17}/> Editar documento</h4>
                 <small>{dirty?"Cambios sin guardar":"Sin cambios pendientes"}</small></div>
-              <div className="jne-toolbar" role="group" aria-label="Insertar elementos del documento">
-                {insertions.map(item=><button type="button" key={item.label}
-                  onClick={()=>insert(item.source)}>{item.label}</button>)}
+              <div className="jne-visual-mode">
+                <strong>Edición visual</strong>
+                <button type="button" onClick={()=>setExpertHtml(!expertHtml)}>
+                  {expertHtml?"Volver al editor visual":"Edición HTML avanzada (solo administradores)"}
+                </button>
               </div>
-              <label className="jne-label" htmlFor="native-html-source">
-                Texto y estructura HTML
-              </label>
-              <textarea id="native-html-source" ref={input} spellCheck={false}
-                value={html} rows={22}
-                placeholder={"<h2>Título original</h2>\n<p>Escribe o pega aquí el contenido real del documento.</p>"}
-                onChange={e=>setHtml(e.target.value)}/>
-              <p className="jne-help">Usa los botones para insertar títulos, párrafos, casillas y tablas.
-                Los campos automáticos mantienen la sintaxis {"{{worker.name}}"}.
-                No se permiten scripts, enlaces, imágenes externas ni estilos inseguros.</p>
+              {expertHtml?<div>
+                <div className="jne-toolbar" role="group" aria-label="Insertar elementos del documento">
+                  {insertions.map(item=><button type="button" key={item.label}
+                    onClick={()=>insert(item.source)}>{item.label}</button>)}
+                </div>
+                <label className="jne-label" htmlFor="native-html-source">Código HTML avanzado</label>
+                <textarea id="native-html-source" ref={input} spellCheck={false}
+                  value={html} rows={22}
+                  onChange={e=>setHtml(e.target.value)}/>
+                <p className="jne-help">Modo avanzado: se mantiene la validación de seguridad del servidor.
+                  El HTML nunca aparece en el documento impreso.</p>
+              </div>:<JavieraVisualCanvas html={html} onChange={setHtml}
+                resetKey={selected+":"+(document.revision||"base")+":"+canvasSeed}/>}
               <label className="jne-label" htmlFor="native-change-reason">Motivo del cambio</label>
               <input id="native-change-reason" value={reason} maxLength={500}
                 onChange={e=>setReason(e.target.value)}/>
               <div className="jne-actions">
                 <button type="button" className="jne-primary" disabled={busy||!dirty||reason.trim().length<6}
-                  onClick={()=>void save()}><Save size={17}/> {busy?"Procesando…":"Guardar HTML"}</button>
+                  onClick={()=>void save()}><Save size={17}/> {busy?"Procesando…":"Guardar borrador"}</button>
               </div>
             </section>
             <section className="jne-preview-panel">
               <div className="jne-panel-heading"><h4><Eye size={17}/> Vista del diseño</h4>
                 <button type="button" onClick={()=>setSourceView(!sourceView)}>
                   {sourceView?"Ocultar ayuda":"Mostrar ayuda"}</button></div>
-              {sourceView&&<p className="jne-help">Esta es una maqueta del texto HTML, no el PDF definitivo.
+              {sourceView&&<p className="jne-help">Esta es una maqueta del documento, no el PDF definitivo.
                 Comprueba el resultado con <strong>Vista previa A4</strong> después de completar un expediente.</p>}
               <div className="jne-paper">
                 <iframe title={"Vista preliminar HTML "+document.title}
