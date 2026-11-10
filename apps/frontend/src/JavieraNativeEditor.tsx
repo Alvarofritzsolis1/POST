@@ -189,7 +189,7 @@ export default function JavieraNativeEditor({onBack,initialCode="internal_rules_
                 onChange={e=>setReason(e.target.value)}/>
               <div className="jne-actions">
                 <button type="button" className="jne-primary" disabled={busy||!dirty||reason.trim().length<6}
-                  onClick={()=>void save()}><Save size={17}/> {busy?"Procesando…""Guardar borrador"}</button>
+                  onClick={()=>void save()}><Save size={17}/> {busy?"Procesando…":"Guardar borrador"}</button>
               </div>
             </section>
             <section className="jne-preview-panel">
