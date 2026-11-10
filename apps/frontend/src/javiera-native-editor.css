@@ -63,3 +63,15 @@
 .jne-visual>.jne-help{padding:0 14px 12px;margin:0}
 @media(min-width:1400px){.jne-panels{grid-template-columns:minmax(0,1.2fr) minmax(0,.8fr)}}
 @media(max-width:650px){.jne-editable-paper{padding:18px 14px;margin:7px}.jne-visual-toolbar{position:static}}
+
+.jne-history-control{display:grid;gap:7px;justify-items:end}
+.jne-history-control button{border:0;background:transparent;color:#20567f;cursor:pointer;text-decoration:underline;font-size:.77rem}
+.jne-history{margin-bottom:16px;padding:15px;background:#f7fafc;border:1px solid #d1dfec;border-radius:10px}
+.jne-history h4{margin:0 0 5px;color:#274c70}
+.jne-history p{font-size:.8rem;color:#546b80;line-height:1.5}
+.jne-history-list{display:grid;gap:7px;max-height:200px;overflow:auto}
+.jne-history-list>div{background:white;border:1px solid #d9e5ee;border-radius:7px;padding:9px;display:flex;gap:9px;justify-content:space-between;align-items:center}
+.jne-history-list span{font-size:.79rem;font-weight:700}
+.jne-history-list small{display:block;font-size:.71rem;color:#536d83;font-weight:400;margin-top:4px}
+.jne-history-list button{border:1px solid #c2d3e2;background:#fff;border-radius:7px;padding:9px;color:#255278;cursor:pointer}
+@media(max-width:550px){.jne-history-list>div{flex-direction:column;align-items:flex-start}.jne-history-control{justify-items:start}}
