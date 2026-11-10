@@ -10,6 +10,8 @@ type FormatList={formats:Format[];message:string};
 type EditorDocument={code:string;title:string;html:string;revision:number|null;
   state:string;mode:"supplement"|"main_body";preview_only:boolean;needs_review:boolean};
 type EditorSave={code:string;revision:number;state:string;message:string};
+type EditorHistoryItem={revision:number;state:string;reason:string;created_at:string;html:string};
+type EditorHistory={code:string;revisions:EditorHistoryItem[];restoration_policy:string};
 
 const sampleCsp="default-src 'none'; style-src 'unsafe-inline'; img-src 'none'; font-src 'none'; connect-src 'none';";
 const previewCss=`
@@ -58,6 +60,9 @@ export default function JavieraNativeEditor({onBack,initialCode="internal_rules_
   const [notice,setNotice]=useState("");
   const [sourceView,setSourceView]=useState(true);
   const [expertHtml,setExpertHtml]=useState(false);
+  const [history,setHistory]=useState<EditorHistoryItem[]>([]);
+  const [historyOpen,setHistoryOpen]=useState(false);
+  const [canvasSeed,setCanvasSeed]=useState(0);
   const input=useRef<HTMLTextAreaElement|null>(null);
   const dirty=html!==savedHtml;
 
@@ -68,7 +73,13 @@ export default function JavieraNativeEditor({onBack,initialCode="internal_rules_
   const openDocument=useCallback(async(code:string)=>{
     setLoading(true);setError("");setNotice("");
     try{
-      const current=await request<EditorDocument>("/javiera/v19/editor/"+code);
+      const [current,versions]=await Promise.all([
+        request<EditorDocument>("/javiera/v19/editor/"+code),
+        request<EditorHistory>("/javiera/v19/editor/"+code+"/history"),
+      ]);
+      setHistory(versions.revisions);
+      setCanvasSeed(seed=>seed+1);
+      setHistoryOpen(false);
       setDocument(current);
       setHtml(current.html);
       setSavedHtml(current.html);
@@ -90,6 +101,15 @@ export default function JavieraNativeEditor({onBack,initialCode="internal_rules_
   function goBack(){
     if(dirty&&!window.confirm("Hay cambios sin guardar. ¿Salir sin guardarlos?"))return;
     onBack();
+  }
+  function recoverVersion(item:EditorHistoryItem){
+    if(dirty&&!window.confirm("Hay cambios sin guardar. ¿Descartarlos para cargar otra revisión?"))return;
+    setHtml(item.html);
+    setReason("Recuperación de la revisión "+item.revision);
+    setConfirmed(false);
+    setCanvasSeed(seed=>seed+1);
+    setHistoryOpen(false);
+    setNotice("Se cargó la revisión "+item.revision+" para editarla. Guarda un nuevo borrador; la versión histórica permanece intacta.");
   }
   function insert(fragment:string){
     const field=input.current;
@@ -167,8 +187,25 @@ export default function JavieraNativeEditor({onBack,initialCode="internal_rules_
                 ?"Este contenido se añade al formulario original. Las matrices y casillas obligatorias se conservan."
                 :"Este contenido reemplaza el texto del formato en el PDF. Copia las cláusulas originales sin modificar su significado."}</p>
             </div>
-            <span className="jne-version">{document.revision?"Revisión "+document.revision:"Sin revisión"}</span>
+            <div className="jne-history-control">
+              <span className="jne-version">{document.revision?"Revisión "+document.revision:"Sin revisión"}</span>
+              <button type="button" onClick={()=>setHistoryOpen(!historyOpen)}>
+                {historyOpen?"Cerrar historial":"Ver versiones anteriores"}
+              </button>
+            </div>
           </div>
+          {historyOpen&&<section className="jne-history" aria-label="Historial del documento">
+            <h4>Historial de versiones</h4>
+            <p>Cada revisión se conserva. Recuperar una versión solo la carga en el editor:
+              al guardar se crea un borrador nuevo, sin modificar los PDF históricos.</p>
+            {history.length===0?<p>Este documento aún no tiene revisiones visuales.</p>:
+              <div className="jne-history-list">{history.map(item=>
+                <div key={item.revision}>
+                  <span>Revisión {item.revision} · {item.state==="pilot_print"?"Vista previa habilitada":"Borrador"}
+                    <small>{item.reason}</small></span>
+                  <button type="button" onClick={()=>recoverVersion(item)}>Recuperar en el editor</button>
+                </div>)}</div>}
+          </section>}
           <div className="jne-panels">
             <section className="jne-editor-panel">
               <div className="jne-panel-heading"><h4><FileText size={17}/> Editar documento</h4>
@@ -191,7 +228,7 @@ export default function JavieraNativeEditor({onBack,initialCode="internal_rules_
                 <p className="jne-help">Modo avanzado: se mantiene la validación de seguridad del servidor.
                   El HTML nunca aparece en el documento impreso.</p>
               </div>:<JavieraVisualCanvas html={html} onChange={setHtml}
-                resetKey={selected+":"+(document.revision||"base")}/>}
+                resetKey={selected+":"+(document.revision||"base")+":"+canvasSeed}/>}
               <label className="jne-label" htmlFor="native-change-reason">Motivo del cambio</label>
               <input id="native-change-reason" value={reason} maxLength={500}
                 onChange={e=>setReason(e.target.value)}/>
