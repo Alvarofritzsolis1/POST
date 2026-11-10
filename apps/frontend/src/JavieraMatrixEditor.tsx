@@ -125,6 +125,10 @@ export default function JavieraMatrixEditor(){
     setMessage("Cargo nuevo: el primer guardado será una revisión en borrador.");
   }
   function selectKind(value:Kind){
+    // Seleccionar de nuevo la misma categoría no debe borrar el cargo ni
+    // sus riesgos. React no repite el efecto dependiente de `kind` si
+    // su valor no cambia; antes esto dejaba una fila IRL vacía.
+    if(value===kind)return;
     setKind(value);setSelectedId("");setCargo("");
     setSections(value==="PTS"?Array(17).fill(""):value==="IRL"?
       ["Tarea: \nPeligro: \nRiesgo: \nMedidas: "]:[""]);invalidate();
