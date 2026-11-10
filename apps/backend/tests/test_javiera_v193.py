@@ -125,3 +125,58 @@ def test_manual_labor_is_saved_in_documentary_draft_but_blocks_printing(env):
         after = {cls.__name__: db.scalar(select(func.count(cls.id)))
                  for cls in (Worker, Contractor, WorkerAssignment)}
         assert before == after
+
+
+
+def test_approved_but_incomplete_irl_is_rejected_for_new_pdf(env):
+    client, sessions = env
+    admin = login(client, "a@example.cl")
+    dossier_id = _local_dossier(client, admin)
+    with sessions.begin() as db:
+        user = db.scalar(select(User).where(User.email == "a@example.cl"))
+        db.add(JavieraMatrix(org_id=user.org_id, kind="IRL", cargo="CARPINTERO",
+                             revision=1, sections=[
+                                 "Tarea: corte\nPeligro: filo\nRiesgo: herida\nMedida: "
+                             ], status="approved", author_id=user.id,
+                             reviewer_id=user.id, source="Prueba de migración histórica"))
+    info = client.get(ROOT+"/role", headers=admin, params={"cargo": "CARPINTERO"})
+    assert info.status_code == 200
+    assert info.json()["irl"]["approved"] is True
+    assert info.json()["can_preview_irl"] is False
+    preview = client.post("/api/v1/javiera/v19/preview",
+                          headers=admin, json={"dossier_id": dossier_id, "code": "irl"})
+    assert preview.status_code == 409, preview.text
+    assert "medida preventiva" in preview.json()["detail"].lower()
+    eligibility = client.get(FORM + "/dossiers/" + dossier_id + "/eligibility", headers=admin)
+    item = next(d for d in eligibility.json()["documents"] if d["code"] == "irl")
+    assert item["can_issue"] is False
+    assert any("medida preventiva" in e.lower() for e in item["blocking_errors"])
+
+
+def test_irl_pdf_binds_approved_matrix_revision_not_entered_text(env):
+    client, sessions = env
+    admin = login(client, "a@example.cl")
+    dossier_id = _local_dossier(client, admin)
+    with sessions.begin() as db:
+        user = db.scalar(select(User).where(User.email == "a@example.cl"))
+        db.add(JavieraMatrix(org_id=user.org_id, kind="IRL", cargo="CARPINTERO",
+                             revision=7, sections=[SECTION], status="approved",
+                             author_id=user.id, reviewer_id=user.id,
+                             source="Revisión sintética 7"))
+    pdf = client.post("/api/v1/javiera/v19/preview", headers=admin,
+                      json={"dossier_id": dossier_id, "code": "irl"})
+    assert pdf.status_code == 200, pdf.text[:500]
+    with fitz.open(stream=pdf.content, filetype="pdf") as pages:
+        text = " ".join(" ".join(page.get_text().split()) for page in pages)
+        assert "IRL revisión 7" in text
+        assert "Solvente inflamable" in text
+
+
+def test_irl_table_writer_does_not_truncate_at_eighty_rows():
+    from app.javiera_native import _irl_table_rows
+    source = [SECTION.replace("Aplicar pintura", "Labor "+str(n))
+              for n in range(1, 103)]
+    content = _irl_table_rows(source, "PINTOR")
+    assert content.count("<tr>") == 102
+    assert "Labor 102" in content
+    assert "Labor 1 " in content
