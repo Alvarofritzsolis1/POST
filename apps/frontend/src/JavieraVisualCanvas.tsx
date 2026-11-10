@@ -1,4 +1,4 @@
-import {useEffect, useRef} from "react";
+import {useEffect, useRef, type ClipboardEvent} from "react";
 import {AlignCenter, AlignLeft, AlignRight, Bold, Heading2, Heading3, Italic, List, ListOrdered, Redo2, Table2, Undo2, Underline} from "lucide-react";
 
 type Props={html:string;onChange:(value:string)=>void;resetKey:string};
@@ -32,7 +32,11 @@ function serialize(node:Node):string{
     return "{{"+token+"}}";
   const tag=el.tagName.toLowerCase();
   let children=Array.from(el.childNodes).map(serialize).join("");
-  if(tag==="div")return "<p>"+children+"</p>";
+  if(tag==="div"){
+    const alignment=el.style.textAlign;
+    const attr=["left","center","right"].includes(alignment)?' align="'+alignment+'"':"";
+    return "<p"+attr+">"+children+"</p>";
+  }
   if(tag==="font"||tag==="span")return children;
   if(!safeTags.has(tag))return children;
   if(tag==="br")return "<br/>";
@@ -66,7 +70,7 @@ export default function JavieraVisualCanvas({html,onChange,resetKey}:Props){
     command("insertHTML",'<span class="jne-variable" data-token="'+esc(key)+
       '" contenteditable="false">'+esc(labels[key]||key)+'</span>&nbsp;');
   }
-  function pasteText(event:React.ClipboardEvent<HTMLDivElement>){
+  function pasteText(event:ClipboardEvent<HTMLDivElement>){
     event.preventDefault();
     const plain=event.clipboardData.getData("text/plain").slice(0,18000);
     command("insertText",plain);
