@@ -115,6 +115,25 @@ def _irl_table_rows(values: list[str], role: str) -> str:
     return "".join(parts)
 
 
+def _pts_table_rows(values: list[str]) -> str:
+    """Imprimir apartados PTS D:T con sus encabezados técnicos originales."""
+    from .javiera_pts_headers import PTS_TECHNICAL_HEADINGS
+    if not values or len(values) > 17:
+        raise NativeDocumentError("El PTS excede los 17 apartados técnicos documentados.")
+    full = len(values) == 17
+    rows = []
+    for index, section in enumerate(values, 1):
+        value = str(section or "").strip()
+        if not value:
+            raise NativeDocumentError(f"El PTS tiene vacío el apartado {index}.")
+        if len(value) > 5500:
+            raise NativeDocumentError(f"El apartado PTS {index} excede la longitud imprimible.")
+        title = PTS_TECHNICAL_HEADINGS[index - 1] if full else f"Sección {index}"
+        rows.append("<tr><th>" + str(index) + "</th><th>" + _html(title) +
+                    "</th><td>" + _html(value) + "</td></tr>")
+    return "".join(rows)
+
+
 def _source_paragraphs(approved_text: str | None) -> str:
     """Preserve every approved clause/paragraph; escape untrusted HTML."""
     if not approved_text or not approved_text.strip():
@@ -168,7 +187,7 @@ def _body(code: str, data: dict, matrix: list[str] | None,
         if code == "pts":
             if not matrix:
                 raise NativeDocumentError("Falta una matriz PTS aprobada para el cargo.")
-            params["matrix_rows"] = _rows("risk", matrix)
+            params["matrix_rows"] = _pts_table_rows(matrix)
         if code == "pts_receipt":
             params["pts_version"] = _html(_get(data, "event.pts_version", required=True))
         return _template(code).substitute(**params)
