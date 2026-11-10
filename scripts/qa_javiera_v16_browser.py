@@ -116,7 +116,7 @@ def main():
             report["scenarios"]["native_preview_entrypoint_visible"] = "PASS"
             # Las vistas previas HTML no exigen ni publican documentos Excel.
             # Comprobar la petición PDF real desde el botón principal.
-            assert "Diseño HTML disponible" in page.locator(".j166-status").inner_text()
+            assert "Diseño disponible" in page.locator(".j166-status").inner_text()
             report["scenarios"]["html_status_without_legacy_issue"] = "PASS"
             expect(page.get_by_role("button", name="Preparar paquete PDF A4 (1)")).to_be_visible()
             with page.expect_response(
