@@ -47,3 +47,18 @@
 .jmx-success{color:#276143;background:#eef8f2;border:1px solid #c8e5d3;display:flex;gap:8px}
 @media(max-width:950px){.jmx-grid{grid-template-columns:1fr}.jmx-items{max-height:210px}}
 @media(max-width:550px){.jmx-top{flex-direction:column;align-items:flex-start}.jmx-controls{grid-template-columns:1fr}.jmx-root{padding:10px}}
+
+.jmx-import{border:1px solid #d6e3ef;background:#f8fbfe;border-radius:11px;padding:13px;margin:15px 0 20px}
+.jmx-import h3{display:flex;align-items:center;gap:8px;font-size:.95rem;margin:0 0 6px}
+.jmx-import p{font-size:.82rem;line-height:1.5;color:#4e657b;margin:6px 0 12px}
+.jmx-upload{display:inline-flex;align-items:center;gap:7px;background:#fff;border:1px solid #b8cfdf;border-radius:8px;padding:9px 11px;cursor:pointer}
+.jmx-upload input{font:inherit;max-width:250px}
+.jmx-import-result{border-top:1px solid #d4e2ef;padding-top:13px;margin-top:13px}
+.jmx-import-result details{font-size:.8rem;margin:10px 0}
+.jmx-import-result summary{color:#214b6f;cursor:pointer;font-weight:700}
+.jmx-changes{max-height:240px;overflow:auto;border:1px solid #d3e2ee;padding:7px 12px;border-radius:8px;background:#fff}
+.jmx-warning{border-left:3px solid #bf8a2e;background:#fff9ed;border-radius:7px;padding:10px 12px;font-size:.79rem;margin:10px 0}
+.jmx-warning ul{margin:7px 0 0 18px;padding:0;display:grid;gap:4px}
+.jmx-import-result>.jmx-confirm{display:flex;align-items:flex-start;gap:8px;margin:10px 0}
+.jmx-import-result>.jmx-save{background:#244765;color:#fff;border:1px solid #244765;border-radius:8px;padding:10px 13px;cursor:pointer}
+@media(max-width:550px){.jmx-upload{display:flex;flex-direction:column;align-items:flex-start}.jmx-upload input{max-width:100%}}
