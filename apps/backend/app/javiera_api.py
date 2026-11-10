@@ -756,6 +756,27 @@ def change_matrix(item: MatrixChange, user: User = Depends(administrator),
     return {"id": row.id, "revision": row.revision, "status": row.status}
 
 
+def _check_preventive_matrix_before_approval(row: JavieraMatrix):
+    """Impedir que borradores técnicos incompletos se impriman como vigentes."""
+    sections = row.sections or []
+    if not sections or any(not isinstance(part, str) or not part.strip() for part in sections):
+        raise HTTPException(422, "Completa los apartados de la matriz antes de aprobarla.")
+    if row.kind == "PTS" and len(sections) != 17:
+        raise HTTPException(422, "PTS exige exactamente 17 apartados completos por cargo.")
+    if row.kind == "IRL" and str(row.source or "").startswith((
+            "GALANT 19.2 XLSX", "Editor visual GALANT 19.2")):
+        for number, section in enumerate(sections, 1):
+            patterns = (
+                r"(?im)^Tarea:[ \t]*\S",
+                r"(?im)^Peligro:[ \t]*\S",
+                r"(?im)^Riesgo:[ \t]*\S",
+                r"(?im)^Medidas?:[ \t]*\S",
+            )
+            if any(re.search(pattern, section) is None for pattern in patterns):
+                raise HTTPException(422, "IRL incompleto: revisa Tarea, Peligro, Riesgo y Medidas "
+                                    f"en la fila {number}.")
+
+
 @router.post("/admin/matrices/{matrix_id}/enable-print")
 def enable_matrix_for_pilot(matrix_id: str, payload: PilotMatrixPrint,
                             user: User = Depends(administrator),
@@ -776,10 +797,7 @@ def enable_matrix_for_pilot(matrix_id: str, payload: PilotMatrixPrint,
         return {"id": row.id, "status": row.status, "pilot_print_only": True}
     if row.status != "draft":
         raise HTTPException(409, "La matriz no está disponible para impresión")
-    if not row.sections or any(not str(section).strip() for section in row.sections):
-        raise HTTPException(422, "La matriz contiene secciones incompletas")
-    if row.kind == "PTS" and len(row.sections) != 17:
-        raise HTTPException(422, "La matriz PTS debe contener sus 17 secciones")
+    _check_preventive_matrix_before_approval(row)
     row.status, row.reviewer_id = "approved", user.id
     audit(db, user, "javiera.pilot_matrix_enabled_for_print", row.id)
     db.commit()
@@ -792,6 +810,7 @@ def approve_matrix(matrix_id: str, user: User = Depends(administrator), db: Sess
     row = by_org(db, JavieraMatrix, matrix_id, user.org_id)
     if row.status != "draft":
         raise HTTPException(409, "Matriz no está en borrador")
+    _check_preventive_matrix_before_approval(row)
     if row.author_id == user.id:
         raise HTTPException(403, "Requiere validación independiente de prevención")
     require_signoff(db, user, "matrix", row.id, "prevencion")
