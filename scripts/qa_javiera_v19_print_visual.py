@@ -63,6 +63,17 @@ def inspect_pdf(code, raw, output):
                 failures.append("falta texto obligatorio: " + word)
         if "GALANT" in compact:
             failures.append("marca interna visible en PDF")
+        # La vista previa está en la interfaz; el documento impreso no debe
+        # contener ninguna leyenda técnica ni advertencia de firma ficticia.
+        normalized = compact.casefold()
+        for forbidden in (
+            "vista previa", "no acredita", "formato para completar",
+            "espacios para firma física", "firmar físicamente",
+            "este pdf", "observaciones para revisión",
+            "contenido del formato aprobado", "documento que se prepara",
+        ):
+            if forbidden in normalized:
+                failures.append("texto interno visible en PDF: " + forbidden)
         if "Firma" not in compact:
             failures.append("no se encuentra espacio para firma")
         if code in {"pts", "irl"} and "Sección aprobada 01" not in compact:
