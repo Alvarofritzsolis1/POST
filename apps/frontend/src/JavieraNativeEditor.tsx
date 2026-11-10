@@ -25,7 +25,7 @@ const previewFields:Record<string,string>={
   "site.name":"Obra","role":"Cargo","event.date":"Fecha del documento",
 };
 function designPreview(html:string){
-  const text=html.replace(/\\{\\{\\s*([A-Za-z0-9_.]+)\\s*\\}\\}/g,
+  const text=html.replace(/\{\{\s*([A-Za-z0-9_.]+)\s*\}\}/g,
     (_full:string,key:string)=>'<strong class="document-variable">'+
       (previewFields[key]||"Dato automático")+'</strong>');
   return '<!doctype html><html lang="es"><head><meta charset="utf-8">'+
