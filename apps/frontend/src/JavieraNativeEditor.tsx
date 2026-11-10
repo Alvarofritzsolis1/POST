@@ -110,7 +110,7 @@ export default function JavieraNativeEditor({onBack,initialCode="internal_rules_
     finally{setBusy(false);}
   }
   async function enable(){
-    if(!document?.revision)return setError("Guarda primero el formato HTML.");
+    if(!document?.revision)return setError("Guarda primero el documento.");
     if(dirty)return setError("Guarda los cambios antes de habilitar la vista previa.");
     if(!confirmed)return setError("Confirma que verificaste el contenido y su distribución.");
     setBusy(true);setError("");setNotice("");
@@ -140,7 +140,7 @@ export default function JavieraNativeEditor({onBack,initialCode="internal_rules_
     {error&&<p role="alert" className="jne-alert">{error}</p>}
     {notice&&<p role="status" className="jne-ok"><CheckCircle2 size={17}/>{notice}</p>}
     <div className="jne-layout">
-      <aside className="jne-list" aria-label="Seleccionar formato HTML">
+      <aside className="jne-list" aria-label="Seleccionar formato de documento">
         <h3>Documentos <span>{formats.length}/10</span></h3>
         {formats.map(f=><button key={f.code} type="button"
           className={selected===f.code?"selected":""}
@@ -156,10 +156,10 @@ export default function JavieraNativeEditor({onBack,initialCode="internal_rules_
           <div className="jne-context">
             <div><h3>{document.title}</h3>
               <p>{document.mode==="supplement"
-                ?"Este contenido HTML se añade al formulario original. Las matrices y casillas obligatorias se conservan."
-                :"Este contenido HTML reemplaza el texto visual del formato en el PDF nativo. Copia las cláusulas originales sin modificar su significado."}</p>
+                ?"Este contenido se añade al formulario original. Las matrices y casillas obligatorias se conservan."
+                :"Este contenido reemplaza el texto del formato en el PDF. Copia las cláusulas originales sin modificar su significado."}</p>
             </div>
-            <span className="jne-version">{document.revision?"Revisión "+document.revision:"Sin revisión HTML"}</span>
+            <span className="jne-version">{document.revision?"Revisión "+document.revision:"Sin revisión"}</span>
           </div>
           <div className="jne-panels">
             <section className="jne-editor-panel">
@@ -196,7 +196,7 @@ export default function JavieraNativeEditor({onBack,initialCode="internal_rules_
               <div className="jne-panel-heading"><h4><Eye size={17}/> Vista del diseño</h4>
                 <button type="button" onClick={()=>setSourceView(!sourceView)}>
                   {sourceView?"Ocultar ayuda":"Mostrar ayuda"}</button></div>
-              {sourceView&&<p className="jne-help">Esta es una maqueta del texto HTML, no el PDF definitivo.
+              {sourceView&&<p className="jne-help">Esta es una maqueta del documento, no el PDF definitivo.
                 Comprueba el resultado con <strong>Vista previa A4</strong> después de completar un expediente.</p>}
               <div className="jne-paper">
                 <iframe title={"Vista preliminar HTML "+document.title}
