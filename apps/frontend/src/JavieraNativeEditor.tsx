@@ -198,7 +198,7 @@ export default function JavieraNativeEditor({onBack,onOpenMatrices,initialCode="
       <button type="button" className="jne-back" onClick={goBack}>
         <ArrowLeft size={17}/> Volver a documentos
       </button>
-      <div><small>PROYECTO JAVIERA · EDITOR VISUAL 19.3</small>
+      <div><small>PROYECTO JAVIERA · EDITOR VISUAL 19.3.1</small>
         <h2><FileText size={25}/> Editor visual de documentos</h2>
         <p>Revisa la estructura del IRL y sus matrices. El texto complementario se edita por separado.</p>
       </div>
@@ -292,8 +292,9 @@ export default function JavieraNativeEditor({onBack,onOpenMatrices,initialCode="
               <div className="jne-panel-heading"><h4><Eye size={17}/> Vista del diseño</h4>
                 <button type="button" onClick={()=>setSourceView(!sourceView)}>
                   {sourceView?"Ocultar ayuda":"Mostrar ayuda"}</button></div>
-              <p className="jne-help">Elige un expediente guardado para generar el <strong>PDF A4 auténtico</strong>,
-                con sus matrices, datos y distribución de impresión. Debes guardar y habilitar antes el formato.</p>
+              <p className="jne-help">{selected==="irl"
+                ?"La estructura del IRL y su matriz están a la izquierda. Selecciona un expediente guardado para ver el PDF A4 final; no necesitas editar HTML."
+                :"Elige un expediente guardado para generar el PDF A4 real. Guarda y habilita antes el diseño del formato."}</p>
               <div className="jne-pdf-controls">
                 <label htmlFor="jne-preview-dossier">Expediente para comprobar el diseño</label>
                 <select id="jne-preview-dossier" value={sampleId}
