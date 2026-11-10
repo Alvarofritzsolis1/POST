@@ -438,9 +438,14 @@ def preview_native(payload: NativePreviewInput,
         raise HTTPException(422, "Selecciona el documento dentro del expediente.")
     data = _document(record, payload.code, db, user)
     if payload.code in {"irl", "pts"}:
-        irl_fields = (record.document_data or {}).get("irl") or {}
-        manual = (irl_fields.get("event") or {}).get("irl_manual_labor", "")
-        if isinstance(manual, str) and manual.strip():
+        document_fields = record.document_data or {}
+        manual = []
+        for code, key in (("irl", "irl_manual_labor"), ("pts", "pts_manual_labor")):
+            entry = document_fields.get(code) or {}
+            text = (entry.get("event") or {}).get(key, "")
+            if isinstance(text, str) and text.strip():
+                manual.append(text)
+        if manual:
             raise HTTPException(
                 409, "Hay una labor manual pendiente de incorporar a la matriz preventiva. "
                      "Conserva el borrador y solicita revisión antes de imprimir IRL/PTS."
