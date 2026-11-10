@@ -239,6 +239,7 @@ def render_native_pdf(code: str, data: dict, *, matrix: list[str] | None = None,
     html = _template("irl_document" if code == "irl" else "base").substitute(
         original_code=_html((original_source or {}).get("document_code") or "DPR-IRL-03"),
         original_version=_html((original_source or {}).get("source_version") or ""),
+        irl_print_mode="irl-images-ready" if code == "irl" and (original_source or {}).get("images") else "",
         declaration=_html(((original_source or {}).get("static") or {}).get("A172", "")),
         title=_html(DOCUMENT_TITLES[code]),
         company=_html(company),
@@ -309,9 +310,14 @@ def render_native_pdf(code: str, data: dict, *, matrix: list[str] | None = None,
                 # Rechazar firmas que queden solas en la última página:
                 # un PDF técnicamente válido no siempre es imprimible.
                 last_text = page.get_text()
+                irl_folio_cierre = (
+                    code == "irl" and bool((original_source or {}).get("images"))
+                    and "Declaración" in last_text
+                    and "Firma trabajador" in last_text and "RUT:" in last_text
+                )
                 if (pdf.page_count > 1 and index == pdf.page_count
                         and ("Firma trabajador" in last_text or "Firma declarante" in last_text)
-                        and len(last_text.strip()) < 210):
+                        and len(last_text.strip()) < 210 and not irl_folio_cierre):
                     if not _compact:
                         # Mantener todas las cláusulas y su tipografía; se
                         # redistribuyen únicamente márgenes y espaciados.
