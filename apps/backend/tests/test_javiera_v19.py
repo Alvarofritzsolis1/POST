@@ -294,7 +294,7 @@ def test_printed_a4_documents_have_no_preview_or_internal_system_messages(code):
             "documento que se prepara", "observaciones para revisión",
         )
         assert not any(value in normalized for value in banned), (code, normalized)
-        assert "firmas" in normalized, code
+        assert ("firma trabajador" if code == "irl" else "firmas") in normalized, code
         assert "firma" in normalized, code
         assert 1 <= len(pdf) <= 40
         assert all(abs(page.rect.width - 595.28) < 1 for page in pdf)
