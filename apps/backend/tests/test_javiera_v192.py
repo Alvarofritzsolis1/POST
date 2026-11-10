@@ -90,7 +90,10 @@ def test_workbook_preview_is_read_only_and_exposes_difference_inventory(env):
     assert body["pts_source_rows"]==1
     assert body["formula_count"]==1
     assert body["new"]>=2
-    assert body["can_import"] is True
+    assert body["can_import"] is False
+    assert body["formula_equivalence_verified"] is False
+    assert body["formula_inventory"][0]["cell"] == "A1"
+    assert any("Importación bloqueada" in warning for warning in body["warnings"])
     with sessions() as db:
         assert db.scalar(select(func.count(JavieraMatrix.id)))==before
 
@@ -125,3 +128,114 @@ def test_visual_editor_history_is_scoped_and_restorable_as_new_draft(env):
     assert restored.json()["revision"]>second.json()["revision"]
     updated=client.get(base+"/history",headers=admin)
     assert len(updated.json()["revisions"])>=3
+
+
+
+def _complete_synthetic_workbook():
+    """Sólo datos ficticios, cantidades de referencia sin Excel privado."""
+    from io import BytesIO
+    from openpyxl import Workbook
+    wb=Workbook()
+    irl=wb.active
+    irl.title="MATRIZ IRL"
+    irl.append(["N","Cargo","Tarea","Peligro","Riesgo","Medidas"])
+    for idx in range(338):
+        irl.append([idx+1,"PINTOR","Pintura "+str(idx+1),
+                    "Trabajo en altura","Caída","Usar protección "+str(idx+1)])
+    pts=wb.create_sheet("MATRIZ PTS")
+    pts.append(["Cargo","Col B","Col C"]+["Apartado "+str(i) for i in range(1,18)])
+    for idx in range(26):
+        pts.append(["CARGO "+str(idx+1),"",""]+
+                   ["Texto técnico de prueba "+str(idx)+"-"+str(i) for i in range(17)])
+    for name in ("MATRIZ DESCRIPCION DE CARGO IRL",
+                 "Matriz IRL Optimizada","Base_Datos_Sustancias"):
+        wb.create_sheet(name)
+    formula_sheet=wb.create_sheet("FORMULAS")
+    for idx in range(423):
+        formula_sheet.cell(idx+1,1,value="=1+"+str(idx+1))
+    binary=BytesIO()
+    wb.save(binary)
+    wb.close()
+    return binary.getvalue()
+
+
+def test_full_import_uses_preview_checksum_and_does_not_duplicate_unchanged(env):
+    client,sessions=env
+    admin=login(client,"a@example.cl")
+    raw=_complete_synthetic_workbook()
+    filepath="matrices.xlsx"
+    mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
+    preview=client.post("/api/v1/javiera/v192/workbook-preview",headers=admin,
+        files={"file":(filepath,raw,mime)})
+    assert preview.status_code==200,preview.text
+    body=preview.json()
+    assert body["can_import"] is True,body["warnings"]
+    assert body["irl_source_rows"]==338
+    assert body["pts_source_rows"]==26
+    assert body["formula_count"]==423
+    assert len(body["formula_inventory"])==423
+    assert body["formula_equivalence_verified"] is False
+    with sessions() as db:
+        original={cls.__name__:db.scalar(select(func.count(cls.id)))
+                  for cls in (JavieraDossier,Worker,Contractor,WorkerAssignment,JavieraMatrix)}
+    data={"sha256":body["sha256"],"baseline_sha256":body["baseline_sha256"],"confirmed":"true"}
+    mismatch=client.post("/api/v1/javiera/v192/workbook-commit",headers=admin,
+        data={**data,"sha256":"incorrect"},
+        files={"file":(filepath,raw,mime)})
+    assert mismatch.status_code==409
+    imported=client.post("/api/v1/javiera/v192/workbook-commit",headers=admin,
+        data=data,files={"file":(filepath,raw,mime)})
+    assert imported.status_code==200,imported.text
+    assert imported.json()["created"]==27
+    assert imported.json()["omissions"]==[]
+    with sessions() as db:
+        after={cls.__name__:db.scalar(select(func.count(cls.id)))
+               for cls in (JavieraDossier,Worker,Contractor,WorkerAssignment,JavieraMatrix)}
+        latest=db.scalars(select(JavieraMatrix).where(
+            JavieraMatrix.org_id.is_not(None),
+            JavieraMatrix.kind=="IRL",JavieraMatrix.cargo=="PINTOR",
+        ).order_by(JavieraMatrix.revision.desc()).limit(1)).first()
+        assert len(latest.sections)==338
+        assert latest.status=="draft"
+    assert after["JavieraMatrix"]==original["JavieraMatrix"]+27
+    for entity in ("JavieraDossier","Worker","Contractor","WorkerAssignment"):
+        assert after[entity]==original[entity]
+    new_preview=client.post("/api/v1/javiera/v192/workbook-preview",headers=admin,
+        files={"file":(filepath,raw,mime)})
+    assert new_preview.status_code==200
+    assert new_preview.json()["unchanged"]==27
+    second=client.post("/api/v1/javiera/v192/workbook-commit",headers=admin,
+        data={"sha256":new_preview.json()["sha256"],
+              "baseline_sha256":new_preview.json()["baseline_sha256"],
+              "confirmed":"true"},files={"file":(filepath,raw,mime)})
+    assert second.status_code==200
+    assert second.json()["created"]==0
+    stale=client.post("/api/v1/javiera/v192/workbook-commit",headers=admin,
+        data=data,files={"file":(filepath,raw,mime)})
+    assert stale.status_code==409
+    with sessions() as db:
+        assert db.scalar(select(func.count(JavieraMatrix.id)))==after["JavieraMatrix"]
+
+
+def test_missing_required_source_content_blocks_transaction(env):
+    from io import BytesIO
+    from openpyxl import load_workbook
+    client,sessions=env
+    admin=login(client,"a@example.cl")
+    wb=load_workbook(BytesIO(_complete_synthetic_workbook()))
+    wb["MATRIZ PTS"]["D2"]=None
+    binary=BytesIO();wb.save(binary);wb.close()
+    raw=binary.getvalue()
+    preview=client.post("/api/v1/javiera/v192/workbook-preview",headers=admin,
+        files={"file":("missing.xlsx",raw,"application/vnd.openxmlformats-officedocument.spreadsheetml.sheet")})
+    assert preview.status_code==200
+    assert preview.json()["can_import"] is False
+    with sessions() as db:
+        before=db.scalar(select(func.count(JavieraMatrix.id)))
+    commit=client.post("/api/v1/javiera/v192/workbook-commit",headers=admin,
+        data={"sha256":preview.json()["sha256"],
+              "baseline_sha256":preview.json()["baseline_sha256"],"confirmed":"true"},
+        files={"file":("missing.xlsx",raw,"application/vnd.openxmlformats-officedocument.spreadsheetml.sheet")})
+    assert commit.status_code==422
+    with sessions() as db:
+        assert db.scalar(select(func.count(JavieraMatrix.id)))==before
