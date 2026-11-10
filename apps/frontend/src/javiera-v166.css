@@ -88,3 +88,12 @@
 .j166-excel-legacy button{margin-top:8px}
 .j166-legacy-preview{flex-basis:100%;margin:6px 0;font-size:.75rem}
 .j166-legacy-preview button{margin-top:7px}
+
+/* GALANT 19.3: mostrar exactamente el PDF que se abrirá para impresión. */
+.j166-inline-pdf{min-width:0;overflow:hidden}
+.j166-pdf-head{display:flex;justify-content:space-between;align-items:center;gap:14px;flex-wrap:wrap}
+.j166-pdf-head h4{margin:0 0 5px;color:#1d4264}
+.j166-pdf-head p{margin:0 0 10px;font-size:.8rem;color:#516b7f}
+.j166-pdf-head a{display:inline-flex;align-items:center;padding:9px 12px;text-decoration:none;color:#245276;border:1px solid #c7d9e9;border-radius:8px;background:#fff}
+.j166-inline-pdf iframe{display:block;min-height:690px;height:75vh;width:100%;border:1px solid #bdcfdc;border-radius:9px;background:#f4f6f9}
+@media(max-width:650px){.j166-inline-pdf iframe{min-height:460px;height:68vh}}
