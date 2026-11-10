@@ -180,3 +180,24 @@ def test_irl_table_writer_does_not_truncate_at_eighty_rows():
     assert content.count("<tr>") == 102
     assert "Labor 102" in content
     assert "Labor 1 " in content
+
+
+
+def test_pts_prints_real_seventeen_technical_headings():
+    """El PDF PTS identifica todos los apartados D:T de su fuente."""
+    from app.javiera_native import _pts_table_rows
+    from app.javiera_pts_headers import PTS_TECHNICAL_HEADINGS
+    assert len(PTS_TECHNICAL_HEADINGS) == 17
+    values = [f"Procedimiento controlado {i}" for i in range(1, 18)]
+    rows = _pts_table_rows(values)
+    assert rows.count("<tr>") == 17
+    for heading in PTS_TECHNICAL_HEADINGS:
+        assert heading in rows
+    assert "Procedimiento controlado 17" in rows
+    with fitz.open(stream=render_native_pdf(
+        "pts", data(), matrix=values, approved_text="Texto original técnico de ensayo verificado."
+    ), filetype="pdf") as pdf:
+        content = " ".join(" ".join(page.get_text().split()) for page in pdf)
+        assert "OBJETIVO" in content and "GLOSARIO" in content
+        assert "Procedimiento controlado 17" in content
+        assert all(page.get_text().strip() for page in pdf)
