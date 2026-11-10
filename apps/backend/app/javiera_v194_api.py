@@ -16,6 +16,7 @@ from sqlalchemy.orm import Session
 
 from .db import get_db
 from .javiera_logic import normalize_cargo
+from .javiera_irl_integrity import audit_reference_role
 from .javiera_v193_api import roles as db_roles, role_detail as db_role_detail
 from .models import User
 from .security import administrator
@@ -115,6 +116,9 @@ def reference_detail(cargo: str = Query(..., min_length=1, max_length=160),
     source_role, rows = source
     references = [_to_preview_record(row, ordinal) for ordinal, row in enumerate(rows, 1)]
     invalid = [row["excel_row"] for row in references if not row["structured"]]
+    reference_audit = audit_reference_role(source_role, rows, related_catalog()["matrices"])
+    data["reference_audit"] = reference_audit
+    data["warnings"].extend(reference_audit["warnings"])
     data.update({
         "source_excel_available": True,
         "source_excel_role": source_role,
@@ -131,6 +135,24 @@ def reference_detail(cargo: str = Query(..., min_length=1, max_length=160),
     for kind in RELATED_KINDS:
         candidates = related_for_role(kind, cargo)
         if not candidates:
+            continue
+        if len(candidates) > 1:
+            # Las filas de un mismo cargo pueden representar variantes
+            # distintas. No elegir candidates[0] de manera silenciosa.
+            variants = [
+                {"row": item["source_row"], "cargo": item["cargo"]}
+                for item in candidates
+            ]
+            if kind == "PTS":
+                data["pts"]["source_variants"] = variants
+                data["pts"]["requires_disambiguation"] = True
+            else:
+                data["additional_matrices"][kind]["source_variants"] = variants
+                data["additional_matrices"][kind]["requires_disambiguation"] = True
+            data["warnings"].append(
+                f"{kind}: existen {len(candidates)} filas para {cargo}. "
+                "Selecciona y valida una variante antes de usarla."
+            )
             continue
         if kind == "PTS":
             if not data["pts"]["approved"]:
@@ -150,11 +172,6 @@ def reference_detail(cargo: str = Query(..., min_length=1, max_length=160),
                         {"row": c["source_row"], "cargo": c["cargo"]} for c in candidates
                     ],
                 })
-        if len(candidates) > 1:
-            data["warnings"].append(
-                f"{kind}: existen {len(candidates)} filas fuente para {cargo}; "
-                "conservar ambas y resolver la equivalencia antes de aprobar."
-            )
     if not data["irl"]["approved"]:
         # El front puede estudiar la matriz original sin tener que importarla
         # a mano. Ningún documento imprimible usa este contenido hasta que

@@ -390,3 +390,69 @@ def test_substance_matrix_preserves_all_twelve_columns_b_to_m(env):
         assert substance.status == "draft"
         assert len(substance.sections) == 12
         assert substance.sections[-1] == "Texto privado de prueba 12"
+
+
+def test_substance_import_does_not_shift_hds_when_middle_column_is_blank(env):
+    """Un campo vacío en C...L debe conservar su posición original, no mover HDS."""
+    from io import BytesIO
+    from openpyxl import load_workbook
+    from sqlalchemy import select
+    from app.javiera_models import JavieraMatrix
+    client, sessions = env
+    admin = login(client, "a@example.cl")
+    book = load_workbook(BytesIO(_complete_synthetic_workbook()))
+    fields = [f"Campo exacto {i}" for i in range(1, 13)]
+    fields[4] = None  # La columna F es opcional en el Excel de prueba.
+    book["Base_Datos_Sustancias"].append(["Especialidad / Labor", *[f"Columna {i}" for i in range(1, 13)]])
+    book["Base_Datos_Sustancias"].append(["PINTOR", *fields])
+    stream = BytesIO()
+    book.save(stream)
+    book.close()
+    raw = stream.getvalue()
+    file_part = ("preservar-posiciones.xlsx", raw,
+                 "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet")
+    preview = client.post("/api/v1/javiera/v192/workbook-preview", headers=admin,
+                          files={"file": file_part})
+    assert preview.status_code == 200, preview.text
+    report = preview.json()
+    assert report["can_import"] is True, report["omissions"]
+    commit = client.post("/api/v1/javiera/v192/workbook-commit", headers=admin,
+                         data={"sha256": report["sha256"],
+                               "baseline_sha256": report["baseline_sha256"],
+                               "confirmed": "true"},
+                         files={"file": file_part})
+    assert commit.status_code == 200, commit.text
+    with sessions() as db:
+        record = db.scalar(select(JavieraMatrix).where(
+            JavieraMatrix.kind == "SUSTANCIAS", JavieraMatrix.cargo == "PINTOR"
+        ))
+        assert record is not None and record.status == "draft"
+        assert len(record.sections) == 12
+        assert record.sections[4] == ""
+        assert record.sections[5] == fields[5]
+        assert record.sections[-1] == "Campo exacto 12"
+
+
+def test_irl_image_inventory_uses_sheet_relationships_not_all_workbook_media():
+    """Detectar las imágenes originales del IRL, sin confundir otras hojas."""
+    from io import BytesIO
+    from PIL import Image as PILImage
+    from openpyxl import load_workbook
+    from openpyxl.drawing.image import Image as ExcelImage
+    from app.javiera_v192_workbook import _sheet_image_count
+
+    workbook = load_workbook(BytesIO(_complete_synthetic_workbook()))
+    irl_printable = workbook.create_sheet("IRL")
+    picture = PILImage.new("RGB", (3, 3), "white")
+    image_bytes = BytesIO()
+    picture.save(image_bytes, format="PNG")
+    image_bytes.seek(0)
+    excel_image = ExcelImage(image_bytes)
+    irl_printable.add_image(excel_image, "A87")
+    output = BytesIO()
+    workbook.save(output)
+    workbook.close()
+    raw = output.getvalue()
+    assert _sheet_image_count(raw, "IRL") == 1
+    assert _sheet_image_count(raw, "MATRIZ IRL") == 0
+    assert _sheet_image_count(raw, "NO_EXISTE") is None

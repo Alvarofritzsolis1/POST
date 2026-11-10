@@ -62,3 +62,32 @@
 .jmx-import-result>.jmx-confirm{display:flex;align-items:flex-start;gap:8px;margin:10px 0}
 .jmx-import-result>.jmx-save{background:#244765;color:#fff;border:1px solid #244765;border-radius:8px;padding:10px 13px;cursor:pointer}
 @media(max-width:550px){.jmx-upload{display:flex;flex-direction:column;align-items:flex-start}.jmx-upload input{max-width:100%}}
+
+/* 19.4.1 IRL: reemplaza la tabla de edición horizontal por pasos legibles. */
+.jmx-irl-easy-editor{margin:12px 0;min-width:0}
+.jmx-irl-heading{margin:0 0 10px}
+.jmx-irl-heading h3{font-size:1rem;margin:0 0 5px;color:#193b57}
+.jmx-irl-heading p{font-size:.82rem;line-height:1.5;color:#506980;margin:0}
+.jmx-irl-layout{display:grid;grid-template-columns:minmax(185px,32%) minmax(0,1fr);gap:12px;min-width:0}
+.jmx-irl-task-list{display:flex;flex-direction:column;gap:5px;max-height:580px;overflow-y:auto;min-width:0;
+  border:1px solid #cbd8e5;border-radius:9px;background:#f6f9fc;padding:7px}
+.jmx-irl-task-list button{display:flex;gap:7px;align-items:flex-start;text-align:left;cursor:pointer;border:1px solid transparent;
+  background:transparent;border-radius:7px;padding:9px;min-width:0;color:#254c6d;font-size:.8rem;line-height:1.35}
+.jmx-irl-task-list button>span:nth-child(2){overflow-wrap:anywhere;min-width:0;flex:1}
+.jmx-irl-task-list button.jmx-irl-active{background:#e5f1fe;border-color:#95bce1;font-weight:800}
+.jmx-irl-task-list em{font-style:normal;font-weight:800;color:#9b4513}
+.jmx-irl-fields{border:1px solid #cbd8e5;border-radius:9px;background:#fff;padding:14px;min-width:0}
+.jmx-irl-field-head{display:flex;justify-content:space-between;flex-wrap:wrap;gap:6px;margin-bottom:11px}
+.jmx-irl-field-head strong{font-size:.86rem;color:#193a55}
+.jmx-irl-field-head span{font-size:.75rem;color:#87531f}
+.jmx-irl-fields label{display:block;margin:0 0 12px}
+.jmx-irl-fields label>span{display:block;font-weight:750;font-size:.8rem;color:#234761;margin-bottom:5px}
+.jmx-irl-fields textarea{display:block;box-sizing:border-box;width:100%;max-width:100%;resize:vertical;
+  border:1px solid #b7ccdc;border-radius:7px;background:#fff;color:#1b344b;
+  padding:9px;font:inherit;font-size:.83rem;line-height:1.5}
+.jmx-irl-navigation{display:flex;justify-content:space-between;gap:9px;flex-wrap:wrap}
+.jmx-irl-navigation button{border:1px solid #a3bed3;background:#edf5fc;color:#205174;
+  font-size:.79rem;padding:9px 12px;border-radius:7px;cursor:pointer}
+.jmx-irl-navigation button:disabled{opacity:.45;cursor:not-allowed}
+@media(max-width:800px){.jmx-irl-layout{grid-template-columns:minmax(0,1fr)}
+  .jmx-irl-task-list{max-height:180px}}
