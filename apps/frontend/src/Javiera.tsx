@@ -6,6 +6,7 @@ import "./javiera.css";
 import JavieraExcelAdmin from "./JavieraExcelAdmin";
 import JavieraV17 from "./JavieraV17";
 import JavieraNativeEditor from "./JavieraNativeEditor";
+import JavieraMatrixEditor from "./JavieraMatrixEditor";
 
 type Source = {sites: {id:string;name:string}[];contractors:{id:string;site_id:string;name:string;rut:string|null;nature:string}[];workers:{id:string;name:string;rut:string|null;active:boolean}[]};
 type Catalog = {code:string;area:string;title:string;required_fields:string[];published_version:number};
@@ -59,7 +60,7 @@ function Setup({onBack}:{onBack:()=>void}){
   const [draft,setDraft]=useState<Template|null>(null);
   const [reason,setReason]=useState("");
   const [newField,setNewField]=useState("");
-  const [tab,setTab]=useState<"documentos"|"matrices"|"excel"|"reviews"|"texto_legacy">("documentos");
+  const [tab,setTab]=useState<"documentos"|"matrices"|"legacy_matrices"|"excel"|"reviews"|"texto_legacy">("documentos");
   const [matrices,setMatrices]=useState<Matrix[]>([]);
   const [matrixKind,setMatrixKind]=useState<"PTS"|"IRL">("PTS");
   const [soloPilot,setSoloPilot]=useState(false);
@@ -153,15 +154,16 @@ function Setup({onBack}:{onBack:()=>void}){
     <header className="jv-heading"><button type="button" onClick={onBack} className="jv-back"><ArrowLeft size={18}/> Volver a GALANT</button>
       <div><small>GALANT · CONTROL DE VERSIONES</small><h1>Configuración de automatización</h1>
         <p>Plantillas de PDF para imprimir y obtener firmas en papel. Los cambios conservan historial y auditoría.</p></div>
-      <span className="jv-mark">Proyecto JAVIERA · HTML 19.1.1</span></header>
+      <span className="jv-mark">Proyecto JAVIERA · Visual 19.2</span></header>
     <div className="jv-tabs"><button className={tab==="documentos"?"active":""} aria-pressed={tab==="documentos"} onClick={()=>setTab("documentos")}>Plantillas y cláusulas</button>
-      <button className={tab==="matrices"?"active":""} aria-pressed={tab==="matrices"} onClick={()=>setTab("matrices")}>Matrices PTS / IRL</button>
+      <button className={tab==="matrices"?"active":""} aria-pressed={tab==="matrices"} onClick={()=>setTab("matrices")}>Matrices y cargos</button>
       <button className={tab==="excel"?"active":""} aria-pressed={tab==="excel"} onClick={()=>setTab("excel")}>Diseños Excel originales</button>
       <button className={tab==="reviews"?"active":""} aria-pressed={tab==="reviews"} onClick={()=>setTab("reviews")}>Habilitar PDF / revisiones</button>
       <button className={tab==="texto_legacy"?"active":""} aria-pressed={tab==="texto_legacy"}
         onClick={()=>setTab("texto_legacy")}>Texto tradicional (respaldo)</button></div>
     {error&&<p role="alert" className="jv-error">{error}</p>}{notice&&<p role="status" className="jv-success">{notice}</p>}
     {tab==="documentos"&&<JavieraNativeEditor onBack={onBack}/>}
+     {tab==="matrices"&&<JavieraMatrixEditor/>}
     {tab==="texto_legacy"&&<div className="jv-admin-layout">
       <nav className="jv-template-list" aria-label="Plantillas documentales">{templates.map(t=>
         <button key={t.code} className={selected===t.code?"chosen":""} onClick={()=>pick(t.code)}>
@@ -227,7 +229,7 @@ function Setup({onBack}:{onBack:()=>void}){
       </aside>
     </div>}
     {(tab==="excel"||tab==="reviews")&&<JavieraExcelAdmin tab={tab} onChangeTab={setTab}/>}
-    {tab==="matrices"&&<section className="jv-import">
+    {tab==="legacy_matrices"&&<section className="jv-import">
       <h2>Importar matrices del Excel JAVIERA</h2>
       <p>Selecciona el Excel corregido desde tu computador. Se procesan las matrices y no se suben datos laborales al repositorio GitHub.</p>
       <label className="jv-upload"><Upload size={16}/> {importing?"Importando…":"Seleccionar Excel .xlsx"}
@@ -236,7 +238,7 @@ function Setup({onBack}:{onBack:()=>void}){
       </label>
       {importReport&&<p className="jv-success" role="status">{importReport}</p>}
     </section>}
-    {tab==="matrices"&&<div className="jv-admin-layout">
+    {tab==="legacy_matrices"&&<div className="jv-admin-layout">
       <nav className="jv-template-list" aria-label="Matrices existentes">
         {latestMatrices.map(m=><button key={m.id} onClick={()=>{setMatrixKind(m.kind as "PTS"|"IRL");setCargo(m.cargo);setSections(m.sections);setSelectedMatrixId(m.id);setMatrixConfirmed(false);}}>
           <ClipboardList size={16}/><span>{m.cargo}<small>{m.kind} · v{m.revision} · {m.status}</small></span></button>)}
