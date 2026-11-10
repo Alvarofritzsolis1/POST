@@ -93,6 +93,28 @@ def _rows(kind: str, values: list[str]) -> str:
     return "".join(output)
 
 
+def _irl_table_rows(values: list[str], role: str) -> str:
+    """Tabla IRL con columnas reales: labor, peligro, riesgo y controles.
+
+    Las revisiones antiguas no estructuradas se conservan textualmente en una
+    fila única; nunca se reinterpretan como medidas preventivas nuevas.
+    """
+    from .javiera_irl import parse_irl_section
+    if not values or len(values) > 80:
+        raise NativeDocumentError("La matriz IRL excede los 80 registros imprimibles por documento.")
+    parts = []
+    for ordinal, value in enumerate(values, 1):
+        record = parse_irl_section(value, version=0, ordinal=ordinal, cargo=role)
+        if record["structured"]:
+            columns = "".join("<td>" + _html(record[key]) + "</td>"
+                              for key in ("labor", "peligro", "riesgo", "medidas"))
+        else:
+            # Esta fila se imprime íntegra, sin simular una tabla validada.
+            columns = '<td colspan="4">' + _html(record["original"]) + '</td>'
+        parts.append("<tr><th>" + str(ordinal) + "</th>" + columns + "</tr>")
+    return "".join(parts)
+
+
 def _source_paragraphs(approved_text: str | None) -> str:
     """Preserve every approved clause/paragraph; escape untrusted HTML."""
     if not approved_text or not approved_text.strip():
@@ -118,7 +140,7 @@ def _body(code: str, data: dict, matrix: list[str] | None,
             raise NativeDocumentError(
                 "No existe una matriz IRL aprobada para el cargo. Completa su revisión antes de generar el PDF."
             )
-        return _template(code).substitute(risk_rows=_rows("risk", matrix))
+        return _template(code).substitute(risk_rows=_irl_table_rows(matrix, _get(data, "role")))
     if code == "induction":
         topics = _get(data, "event.induction_topics")
         if not topics:
