@@ -11,8 +11,12 @@ type Impact={kind:Kind;cargo:string;new_pdf_formats:string[];affected_dossiers:n
 const kinds:Kind[]=["IRL","PTS","PERFILES","PUESTOS","SUSTANCIAS"];
 const labels:Record<Kind,string>={IRL:"Riesgos laborales (IRL)",PTS:"Procedimientos seguros (PTS)",
   PERFILES:"Descripción de cargos",PUESTOS:"Matriz IRL optimizada",SUSTANCIAS:"Sustancias"};
-type Preview={sha256:string;sheets_found:string[];sheets_missing:string[];irl_source_rows:number;
+type Preview={sha256:string;baseline_sha256:string;
+  sheets_found:string[];sheets_missing:string[];irl_source_rows:number;
   pts_source_rows:number;formula_count:number;formula_count_partial:boolean;
+  formulas_by_sheet:Record<string,number>;
+  formula_inventory:{sheet:string;cell:string;type:string;dependencies_a1_detected:string[];expression:string}[];
+  formula_equivalence_verified:boolean;
   matrices:{kind:string;cargo:string;change:string;different_sections:number;current_revision:number|null}[];
   new:number;changed:number;unchanged:number;omissions:string[];warnings:string[];
   can_import:boolean;preview_only:boolean;message:string};
@@ -83,12 +87,14 @@ export default function JavieraMatrixEditor(){
   }
   function newRecord(){
     setCargo("");setSelectedId("");
-    setSections(Array(kind==="PTS"?17:1).fill(""));invalidate();
+    setSections(kind==="PTS"?Array(17).fill(""):kind==="IRL"?
+      ["Tarea: \nPeligro: \nRiesgo: \nMedidas: "]:[""]);invalidate();
     setMessage("Cargo nuevo: el primer guardado será una revisión en borrador.");
   }
   function selectKind(value:Kind){
     setKind(value);setSelectedId("");setCargo("");
-    setSections(Array(value==="PTS"?17:1).fill(""));invalidate();
+    setSections(value==="PTS"?Array(17).fill(""):value==="IRL"?
+      ["Tarea: \nPeligro: \nRiesgo: \nMedidas: "]:[""]);invalidate();
   }
   function edit(index:number,value:string){
     setSections(prev=>prev.map((section,i)=>i===index?value:section));invalidate();
@@ -153,19 +159,21 @@ export default function JavieraMatrixEditor(){
     if(!importPreview?.can_import||!importFile||!importConfirmed)return;
     setBusy(true);setError("");
     try{
-      const form=new FormData();form.append("file",importFile);
-      const result=await request<{drafts:Record<string,number>;omissions:string[]}>(
-        "/javiera/admin/import-workbook",{method:"POST",body:form});
-      if(result.omissions.length)
-        setMessage("Importación parcial detectada: "+result.omissions.join("; ")+
-          ". No habilites estas matrices sin corregir el Excel.");
-      else setMessage("Excel importado como borradores; ninguna matriz se ha aprobado automáticamente.");
+      const form=new FormData();
+      form.append("file",importFile);
+      form.append("sha256",importPreview.sha256);
+      form.append("baseline_sha256",importPreview.baseline_sha256);
+      form.append("confirmed","true");
+      const result=await request<{drafts:Record<string,number>;created:number;unchanged:number;status:string}>(
+        "/javiera/v192/workbook-commit",{method:"POST",body:form});
+      setMessage("Importación verificada: "+result.created+" revisiones nuevas en borrador y "+
+        result.unchanged+" sin cambios. Ninguna matriz aprobada o PDF histórico fue reemplazado.");
       await reload();
       setImportPreview(null);setImportFile(null);setImportConfirmed(false);
     }catch(e){setError(errorText(e));}finally{setBusy(false);}
   }
   function appendRow(){
-    if(kind==="PTS"||sections.length>=35)return;
+    if(kind==="PTS"||sections.length>=1500)return;
     setSections(prev=>[...prev,kind==="IRL"?
       "Tarea: \nPeligro: \nRiesgo: \nMedidas: ":""]);invalidate();
   }
@@ -191,6 +199,22 @@ export default function JavieraMatrixEditor(){
           <span>PTS: {importPreview.pts_source_rows} filas</span>
           <span>Fórmulas localizadas: {importPreview.formula_count}
             {importPreview.formula_count_partial?" (parcial)":""}</span></div>
+        <p className="jmx-help-note">El inventario confirma qué fórmulas existen en el Excel, pero
+          no acredita todavía que el backend reproduzca sus 423 resultados.</p>
+        <details><summary>Inventario de fórmulas por hoja y celda</summary>
+          <div className="jmx-changes">
+            <p>{Object.entries(importPreview.formulas_by_sheet).map(([sheet,count])=>
+              sheet+": "+count).join(" · ")}</p>
+            <div className="jmx-formula-list">
+              {importPreview.formula_inventory.slice(0,60).map((item,i)=><p key={i}>
+                <strong>{item.sheet}!{item.cell}</strong> · {item.type} ·
+                {" "}Referencias detectadas: {item.dependencies_a1_detected.join(", ")||"Sin referencias A1 directas"}
+              </p>)}
+            </div>
+            {importPreview.formula_inventory.length>60&&<p>Se muestran 60 fórmulas de
+              {" "}{importPreview.formula_inventory.length} inventariadas.</p>}
+          </div>
+        </details>
         <p><strong>Comparación:</strong> {importPreview.new} cargos nuevos, {importPreview.changed} modificados,
           {" "}{importPreview.unchanged} sin cambios.</p>
         {importPreview.warnings.length>0&&<div className="jmx-warning">
@@ -270,7 +294,7 @@ export default function JavieraMatrixEditor(){
             <textarea value={section} rows={3} onChange={e=>edit(index,e.target.value)}/>
           </label>)}</div>}
         {kind!=="PTS"&&<button className="jmx-add" type="button" onClick={appendRow}
-          disabled={sections.length>=35}><Plus size={15}/> Agregar fila (máx. 35 por cargo)</button>}
+          disabled={sections.length>=1500}><Plus size={15}/> Agregar fila (máx. 1.500 por cargo)</button>}
         <div className="jmx-impact">
           <h3>Antes de activar los cambios</h3>
           <p>El borrador no reemplaza la matriz aprobada ni modifica PDF históricos.
