@@ -93,3 +93,35 @@ def test_workbook_preview_is_read_only_and_exposes_difference_inventory(env):
     assert body["can_import"] is True
     with sessions() as db:
         assert db.scalar(select(func.count(JavieraMatrix.id)))==before
+
+
+def test_visual_editor_history_is_scoped_and_restorable_as_new_draft(env):
+    client,sessions=env
+    admin=login(client,"a@example.cl")
+    base="/api/v1/javiera/v19/editor/internal_rules_receipt"
+    first=client.put(base,headers=admin,json={
+        "html":"<h2>CONSTANCIA DE ENTREGA</h2><p>Primera revisión de documento seguro.</p>",
+        "reason":"Inicio de historial visual"
+    })
+    assert first.status_code==200,first.text
+    second=client.put(base,headers=admin,json={
+        "html":"<h2>CONSTANCIA DE ENTREGA</h2><p>Segunda revisión del contenido.</p>",
+        "reason":"Segunda versión de control"
+    })
+    assert second.status_code==200,second.text
+    history=client.get(base+"/history",headers=admin)
+    assert history.status_code==200,history.text
+    entries=history.json()["revisions"]
+    assert len(entries)>=2
+    assert entries[0]["revision"]==second.json()["revision"]
+    assert entries[1]["revision"]==first.json()["revision"]
+    assert "Primera revisión" in entries[1]["html"]
+    # Restoring is a copy; the prior revision is kept forever.
+    restored=client.put(base,headers=admin,json={
+        "html":entries[1]["html"],
+        "reason":"Recuperación de primera versión guardada"
+    })
+    assert restored.status_code==200
+    assert restored.json()["revision"]>second.json()["revision"]
+    updated=client.get(base+"/history",headers=admin)
+    assert len(updated.json()["revisions"])>=3
