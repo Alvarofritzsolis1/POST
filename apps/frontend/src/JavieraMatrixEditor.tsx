@@ -1,5 +1,5 @@
 import {useEffect,useMemo,useState} from "react";
-import {ArrowRight,CheckCircle2,ClipboardList,FileSpreadsheet,Plus,Save,Search,ShieldCheck} from "lucide-react";
+import {ArrowRight,CheckCircle2,ClipboardList,FileSpreadsheet,Plus,Save,Search,ShieldCheck,Upload} from "lucide-react";
 import {request} from "./api";
 import "./javiera-matrix-editor.css";
 
@@ -11,6 +11,11 @@ type Impact={kind:Kind;cargo:string;new_pdf_formats:string[];affected_dossiers:n
 const kinds:Kind[]=["IRL","PTS","PERFILES","PUESTOS","SUSTANCIAS"];
 const labels:Record<Kind,string>={IRL:"Riesgos laborales (IRL)",PTS:"Procedimientos seguros (PTS)",
   PERFILES:"Descripción de cargos",PUESTOS:"Matriz IRL optimizada",SUSTANCIAS:"Sustancias"};
+type Preview={sha256:string;sheets_found:string[];sheets_missing:string[];irl_source_rows:number;
+  pts_source_rows:number;formula_count:number;formula_count_partial:boolean;
+  matrices:{kind:string;cargo:string;change:string;different_sections:number;current_revision:number|null}[];
+  new:number;changed:number;unchanged:number;omissions:string[];warnings:string[];
+  can_import:boolean;preview_only:boolean;message:string};
 const names=["Tarea","Peligro","Riesgo","Medidas"];
 const pattern=/^Tarea: ([\s\S]*?)\nPeligro: ([\s\S]*?)\nRiesgo: ([\s\S]*?)\nMedidas: ([\s\S]*)$/;
 function splitSection(section:string):string[]|null{
@@ -39,6 +44,9 @@ export default function JavieraMatrixEditor(){
   const [soloPilot,setSoloPilot]=useState(false);
   const [loading,setLoading]=useState(true);
   const [busy,setBusy]=useState(false);
+  const [importFile,setImportFile]=useState<File|null>(null);
+  const [importPreview,setImportPreview]=useState<Preview|null>(null);
+  const [importConfirmed,setImportConfirmed]=useState(false);
   const [message,setMessage]=useState("");
   const [error,setError]=useState("");
   const current=rows.find(x=>x.id===selectedId);
@@ -127,6 +135,35 @@ export default function JavieraMatrixEditor(){
       setMessage(soloPilot?"Matriz habilitada para vista previa PDF. No constituye revisión profesional.":"Revisión aprobada por revisor autorizado.");
     }catch(e){setError(errorText(e));}finally{setBusy(false);}
   }
+  async function reviewFile(file:File){
+    setImportPreview(null);setImportConfirmed(false);setImportFile(null);setError("");
+    if(!file.name.toLowerCase().endsWith(".xlsx")){
+      setError("Debes seleccionar un archivo Excel .xlsx.");return;
+    }
+    setBusy(true);
+    try{
+      const form=new FormData();form.append("file",file);
+      const result=await request<Preview>("/javiera/v192/workbook-preview",{
+        method:"POST",body:form,
+      });
+      setImportPreview(result);setImportFile(file);
+    }catch(e){setError(errorText(e));}finally{setBusy(false);}
+  }
+  async function applyWorkbook(){
+    if(!importPreview?.can_import||!importFile||!importConfirmed)return;
+    setBusy(true);setError("");
+    try{
+      const form=new FormData();form.append("file",importFile);
+      const result=await request<{drafts:Record<string,number>;omissions:string[]}>(
+        "/javiera/admin/import-workbook",{method:"POST",body:form});
+      if(result.omissions.length)
+        setMessage("Importación parcial detectada: "+result.omissions.join("; ")+
+          ". No habilites estas matrices sin corregir el Excel.");
+      else setMessage("Excel importado como borradores; ninguna matriz se ha aprobado automáticamente.");
+      await reload();
+      setImportPreview(null);setImportFile(null);setImportConfirmed(false);
+    }catch(e){setError(errorText(e));}finally{setBusy(false);}
+  }
   function appendRow(){
     if(kind==="PTS"||sections.length>=35)return;
     setSections(prev=>[...prev,kind==="IRL"?
@@ -139,6 +176,42 @@ export default function JavieraMatrixEditor(){
     </div><button type="button" onClick={newRecord}><Plus size={16}/> Nuevo cargo</button></header>
     {error&&<p className="jmx-error" role="alert">{error}</p>}
     {message&&<p className="jmx-success" role="status"><CheckCircle2 size={17}/>{message}</p>}
+    <section className="jmx-import" aria-label="Importar matrices desde Excel">
+      <div><h3><Upload size={18}/> Importar Excel con comparación previa</h3>
+        <p>Se revisan las cinco hojas, riesgos, PTS y fórmulas antes de crear borradores.
+          No se reemplazan registros históricos ni se publica la matriz automáticamente.</p></div>
+      <label className="jmx-upload">Seleccionar archivo .xlsx
+        <input type="file" accept=".xlsx,application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
+          disabled={busy} onChange={e=>{
+            const file=e.target.files?.[0];if(file)void reviewFile(file);e.target.value="";
+          }}/>
+      </label>
+      {importPreview&&<div className="jmx-import-result">
+        <div className="jmx-summary"><span>IRL: {importPreview.irl_source_rows} filas</span>
+          <span>PTS: {importPreview.pts_source_rows} filas</span>
+          <span>Fórmulas localizadas: {importPreview.formula_count}
+            {importPreview.formula_count_partial?" (parcial)":""}</span></div>
+        <p><strong>Comparación:</strong> {importPreview.new} cargos nuevos, {importPreview.changed} modificados,
+          {" "}{importPreview.unchanged} sin cambios.</p>
+        {importPreview.warnings.length>0&&<div className="jmx-warning">
+          <strong>Observaciones que requieren revisión</strong>
+          <ul>{importPreview.warnings.map((warning,i)=><li key={i}>{warning}</li>)}</ul>
+        </div>}
+        <details><summary>Ver cambios detectados por cargo</summary>
+          <div className="jmx-changes">{importPreview.matrices.map((entry,i)=>
+            <p key={i}><b>{entry.kind} · {entry.cargo}</b> — {entry.change==="new"?"Nuevo":
+              entry.change==="changed"?"Modificado":"Sin cambios"} ·
+              {" "}{entry.different_sections} secciones distintas</p>)}</div>
+        </details>
+        {importPreview.can_import?<><label className="jmx-confirm">
+          <input type="checkbox" checked={importConfirmed} onChange={e=>setImportConfirmed(e.target.checked)}/>
+          He revisado las diferencias y entiendo que se crearán borradores, incluso para matrices sin cambios.
+        </label><button type="button" className="jmx-save" disabled={busy||!importConfirmed}
+          onClick={()=>void applyWorkbook()}>Confirmar importación en borrador</button></>:
+          <p className="jmx-error">Importación bloqueada: falta información o se omitieron matrices.
+            Corrige el Excel para evitar perder registros.</p>}
+      </div>}
+    </section>
     <div className="jmx-grid">
       <aside className="jmx-aside">
         <label htmlFor="jmx-kind">Tipo de matriz</label>
