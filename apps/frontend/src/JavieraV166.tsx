@@ -613,13 +613,22 @@ export default function JavieraV166({onConfig,onTextEditor}:{onConfig?:()=>void;
       </section>}
       <section className="j166-sub"><h4>Datos compartidos</h4>
         <div className="j166-fields">{commonKeys.map(key=>field(key))}</div></section>
-      {checked.includes("irl")&&<JavieraIRLAssistant
+      {(checked.includes("irl")||checked.includes("pts"))&&<JavieraIRLAssistant
         cargo={shared.role||""}
+        documentKind={checked.includes("irl")?"irl":"pts"}
         onCargoChange={value=>changeField("role",value)}
-        manualLabor={specific.irl?.["event.irl_manual_labor"]||""}
-        onManualLaborChange={value=>changeField("event.irl_manual_labor",value,"irl")}
-        reviewedLaborIds={specific.irl?.["event.irl_reviewed_labor_ids"]||""}
-        onReviewedLaborIdsChange={value=>changeField("event.irl_reviewed_labor_ids",value,"irl")}/>}
+        manualLabor={checked.includes("irl")?
+          specific.irl?.["event.irl_manual_labor"]||"":
+          specific.pts?.["event.pts_manual_labor"]||""}
+        onManualLaborChange={value=>changeField(
+          checked.includes("irl")?"event.irl_manual_labor":"event.pts_manual_labor",value,
+          checked.includes("irl")?"irl":"pts")}
+        reviewedLaborIds={checked.includes("irl")?
+          specific.irl?.["event.irl_reviewed_labor_ids"]||"":
+          specific.pts?.["event.pts_reviewed_labor_ids"]||""}
+        onReviewedLaborIdsChange={value=>changeField(
+          checked.includes("irl")?"event.irl_reviewed_labor_ids":"event.pts_reviewed_labor_ids",
+          value,checked.includes("irl")?"irl":"pts")}/>}
       <p className="j166-native-help">Abre solo el documento que necesitas completar.
         Los datos comunes se reutilizan automáticamente en los demás.</p>
       {checked.map((code,index)=><details key={code} className="j166-sub j166-doc-accordion" open={index===0}>
