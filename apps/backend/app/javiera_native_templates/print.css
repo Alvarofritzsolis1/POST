@@ -113,3 +113,7 @@ body h2 {margin:12pt 0 6pt;}
 .irl-signature .signature-space{height:30pt}
 .irl-signature p{margin:2pt 0;font-size:8.3pt}
 .irl-signature strong{font-size:9pt}
+
+/* Firma original siempre acompañada de su declaración */
+.irl-ending{break-inside:avoid;margin-top:10pt}
+.irl-ending .irl-declaration{margin:3pt 0 11pt;line-height:1.4}
