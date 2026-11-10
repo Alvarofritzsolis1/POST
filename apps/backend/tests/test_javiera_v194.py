@@ -76,6 +76,7 @@ def test_source_matrices_are_displayed_by_type_and_do_not_require_upload(env):
                for group in pts.json()["variants"])
     invalid = client.get(ROOT + "/reference-matrices", params={"kind": "OTRA"}, headers=headers)
     assert invalid.status_code == 422
+    client.cookies.clear()  # El login usa cookies de sesión, no bearer headers.
     anonymous = client.get(ROOT + "/reference-matrices", params={"kind": "IRL"})
     assert anonymous.status_code in (401, 403)
 
