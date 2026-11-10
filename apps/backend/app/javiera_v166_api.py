@@ -25,6 +25,7 @@ from .javiera_layout_api import latest_layout, make_pdf
 from .javiera_logic import DOCUMENTS, DOCUMENT_BY_CODE, eligibility, normalize_cargo, render_tokens
 from .javiera_excel import DOC_SHEETS
 from .javiera_matrices import latest_approved_matrix
+from .javiera_irl import preventive_matrix_blocker
 from .javiera_models import JavieraExcelLayout, JavieraMatrix, JavieraTemplate, JavieraIssue
 from .javiera_v166_models import (
     JavieraLocalCompany, JavieraLocalPerson, JavieraLocalDossier,
@@ -160,6 +161,14 @@ def _status(db, user, record, code):
             item.update(status="PENDIENTE_REVISION", reason=warning,
                         can_issue=False, can_preview=False)
             item.setdefault("blocking_errors", []).append(warning)
+    if code in {"irl", "pts", "pts_receipt"}:
+        kind = "IRL" if code == "irl" else "PTS"
+        source = latest_approved_matrix(db, user.org_id, kind, role)
+        issue = preventive_matrix_blocker(kind, source.sections if source else None)
+        if issue:
+            item.update(status="PENDIENTE_REVISION", reason=issue,
+                        can_issue=False, can_preview=False)
+            item.setdefault("blocking_errors", []).append(issue)
     # An imported Excel in draft status must never silently fall back to
     # an unrelated text template merely because that text was published.
     newest = latest_layout(db, user.org_id, code, approved=False)
