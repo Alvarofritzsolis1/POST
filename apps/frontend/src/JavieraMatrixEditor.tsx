@@ -52,6 +52,7 @@ export default function JavieraMatrixEditor(){
   const [selectedId,setSelectedId]=useState("");
   const [cargo,setCargo]=useState("");
   const [sections,setSections]=useState<string[]>([]);
+  const [activeIRL,setActiveIRL]=useState(0);
   const [impact,setImpact]=useState<Impact|null>(null);
   const [impactFingerprint,setImpactFingerprint]=useState("");
   const [confirmed,setConfirmed]=useState(false);
@@ -115,11 +116,11 @@ export default function JavieraMatrixEditor(){
   },[kind]);
   function invalidate(){setImpact(null);setImpactFingerprint("");setConfirmed(false);}
   function selectRecord(row:Matrix){
-    setKind(row.kind);setCargo(row.cargo);setSections([...row.sections]);setSelectedId(row.id);
+    setKind(row.kind);setCargo(row.cargo);setSections([...row.sections]);setSelectedId(row.id);setActiveIRL(0);
     invalidate();setError("");setMessage("");
   }
   function newRecord(){
-    setCargo("");setSelectedId("");
+    setCargo("");setSelectedId("");setActiveIRL(0);
     setSections(kind==="PTS"?Array(17).fill(""):kind==="IRL"?
       ["Tarea: \nPeligro: \nRiesgo: \nMedidas: "]:[""]);invalidate();
     setMessage("Cargo nuevo: el primer guardado será una revisión en borrador.");
@@ -129,7 +130,7 @@ export default function JavieraMatrixEditor(){
     // sus riesgos. React no repite el efecto dependiente de `kind` si
     // su valor no cambia; antes esto dejaba una fila IRL vacía.
     if(value===kind)return;
-    setKind(value);setSelectedId("");setCargo("");
+    setKind(value);setSelectedId("");setCargo("");setActiveIRL(0);
     setSections(value==="PTS"?Array(17).fill(""):value==="IRL"?
       ["Tarea: \nPeligro: \nRiesgo: \nMedidas: "]:[""]);invalidate();
   }
@@ -157,7 +158,7 @@ export default function JavieraMatrixEditor(){
     setBusy(true);setError("");setMessage("");
     try{
       const result=await request<{id:string;revision:number;status:string}>("/javiera/admin/matrices",{
-        method:"POST",body:JSON.stringify({kind,cargo,sections,source:"Editor visual GALANT 19.4"})
+        method:"POST",body:JSON.stringify({kind,cargo,sections,source:"Editor visual GALANT 19.4.1"})
       });
       await reload(result.id);
       invalidate();
@@ -211,11 +212,12 @@ export default function JavieraMatrixEditor(){
   }
   function appendRow(){
     if(kind==="PTS"||sections.length>=1500)return;
+    setActiveIRL(sections.length);
     setSections(prev=>[...prev,kind==="IRL"?
       "Tarea: \nPeligro: \nRiesgo: \nMedidas: ":""]);invalidate();
   }
   return <section className="jmx-root">
-    <header className="jmx-top"><div><small>PROYECTO JAVIERA · 19.4</small>
+    <header className="jmx-top"><div><small>PROYECTO JAVIERA · parche IRL 19.4.1</small>
       <h2><ClipboardList size={23}/> Matrices y cargos</h2>
       <p>Revisa riesgos, controles y procedimientos por cargo, sin editar Excel. Cada cambio crea una revisión separada.</p>
     </div><button type="button" onClick={newRecord}><Plus size={16}/> Nuevo cargo</button></header>
@@ -331,19 +333,56 @@ export default function JavieraMatrixEditor(){
           <span>{approved?"Aprobada v"+approved.revision:"Sin revisión aprobada"}</span>
           <span>{changes} apartados distintos de la aprobada</span>
         </div>
-        {kind==="IRL"?<div className="jmx-table-scroll">
-          <table><thead><tr><th>N°</th><th>Tarea</th><th>Peligro</th><th>Riesgo</th><th>Medidas preventivas</th></tr></thead>
-            <tbody>{sections.map((section,index)=>{
-              const parsed=splitSection(section);
-              return <tr key={index}><th scope="row">{index+1}</th>
-                {parsed?parsed.map((value,col)=><td key={col}><textarea rows={4}
-                  aria-label={names[col]+" fila "+(index+1)} value={value}
-                  onChange={e=>edit(index,withColumn(section,col,e.target.value))}/></td>):
-                <td colSpan={4}><label>Contenido original sin estructura de cuatro campos
-                  <textarea rows={5} value={section}
-                    onChange={e=>edit(index,e.target.value)}/></label></td>}
-              </tr>;
-            })}</tbody></table></div>:<div className="jmx-rows">
+        {kind==="IRL"?<section className="jmx-irl-easy-editor" aria-label="Edición guiada de riesgos">
+          <header className="jmx-irl-heading">
+            <h3>Editar labores y riesgos, paso a paso</h3>
+            <p>Selecciona una tarea. Sus cuatro campos permanecen unidos al mismo registro
+              y puedes editar sin desplazarte horizontalmente.</p>
+          </header>
+          <div className="jmx-irl-layout">
+            <nav aria-label="Labores IRL" className="jmx-irl-task-list">
+              {sections.map((section,index)=>{
+                const fields=splitSection(section);
+                const incomplete=!fields||fields.some(field=>!field.trim());
+                return <button type="button" key={index} onClick={()=>setActiveIRL(index)}
+                  className={activeIRL===index?"jmx-irl-active":""}
+                  aria-current={activeIRL===index?"step":undefined}>
+                  <span>{index+1}.</span>
+                  <span>{fields?.[0]?.trim()||"Tarea pendiente"}</span>
+                  {incomplete&&<em aria-label="Campos incompletos">!</em>}
+                </button>;
+              })}
+            </nav>
+            <div className="jmx-irl-fields">
+              {sections.length>0&&(()=>{
+                const index=Math.min(activeIRL,sections.length-1);
+                const section=sections[index];
+                const fields=splitSection(section);
+                return <div key={index}>
+                  <div className="jmx-irl-field-head">
+                    <strong>Tarea {index+1} de {sections.length}</strong>
+                    <span>{fields&&fields.every(field=>field.trim())?"Campos completos":"Revisión pendiente"}</span>
+                  </div>
+                  {fields?names.map((name,col)=><label key={name}>
+                    <span>{name}{col===3?" preventivas":""}</span>
+                    <textarea rows={col===3?5:3} value={fields[col]}
+                      aria-label={name+" de tarea "+(index+1)}
+                      onChange={event=>edit(index,withColumn(section,col,event.target.value))}/>
+                  </label>):<label>
+                    <span>Contenido original sin cuatro campos: debe estructurarse</span>
+                    <textarea rows={8} value={section} onChange={event=>edit(index,event.target.value)}/>
+                  </label>}
+                  <div className="jmx-irl-navigation">
+                    <button type="button" disabled={index===0}
+                      onClick={()=>setActiveIRL(index-1)}>Anterior</button>
+                    <button type="button" disabled={index>=sections.length-1}
+                      onClick={()=>setActiveIRL(index+1)}>Siguiente tarea</button>
+                  </div>
+                </div>;
+              })()}
+            </div>
+          </div>
+        </section>:<div className="jmx-rows">
           {sections.map((section,index)=><label key={index}>
             <span>{referenceColumns[index]||((kind==="PTS"?"Apartado técnico ":"Campo ")+(index+1))}
               {approved && approved.sections[index]!==section?" · Modificado":""}</span>
