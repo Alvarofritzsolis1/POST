@@ -24,10 +24,14 @@ def test_guided_ten_sheet_import_is_private_idempotent_and_documentary_only(env,
     monkeypatch.setenv("DOCUMENT_DIR",str(tmp_path))
     settings.cache_clear()
     admin=login(client,"a@example.cl")
+    # Reutilizar los mismos bytes: openpyxl agrega marcas de tiempo al ZIP
+    # al guardar. Dos llamadas distintas a sample_xlsx() no son necesariamente
+    # idénticas aunque las celdas coincidan.
+    original_file=sample_xlsx()
     with sessions() as db:
         before={cls.__name__:db.scalar(select(func.count(cls.id))) for cls in (
             Worker, Contractor, WorkerAssignment)}
-    result=_import(client,admin)
+    result=_import(client,admin,raw=original_file)
     assert result.status_code==200,result.text
     assert result.json()["status"]=="imported_as_draft"
     assert result.json()["created"]==10
@@ -38,7 +42,7 @@ def test_guided_ten_sheet_import_is_private_idempotent_and_documentary_only(env,
     assert len(library["documents"])==10
     assert all(not x["ready"] for x in library["documents"])
     assert any(x["sheet"]=="REGLAMENTO INTERNO" for x in library["documents"])
-    repeated=_import(client,admin)
+    repeated=_import(client,admin,raw=original_file)
     assert repeated.status_code==200,repeated.text
     assert repeated.json()["status"]=="already_imported"
     assert repeated.json()["created"]==0
