@@ -147,10 +147,10 @@ export default function JavieraV166({onConfig,onTextEditor}:{onConfig?:()=>void;
   const templateInfo=(code:string)=>library.find(x=>x.code===code);
   const libraryLabel=(code:string)=>{
     const item=nativeFormats.find(f=>f.code===code);
-    if(!item)return "Consultando diseño HTML…";
-    if(item.status==="ready")return "Formato HTML disponible para vista previa";
-    if(item.status==="requires_review")return "HTML editado · pendiente de habilitación";
-    return "Falta revisar el contenido HTML";
+    if(!item)return "Consultando diseño del documento…";
+    if(item.status==="ready")return "Formato visual disponible para vista previa";
+    if(item.status==="requires_review")return "Formato editado · pendiente de habilitación";
+    return "Falta revisar el contenido del documento";
   };
 
   useEffect(()=>{void Promise.all([request<Source>(BASE+"/sources"),
@@ -495,7 +495,7 @@ export default function JavieraV166({onConfig,onTextEditor}:{onConfig?:()=>void;
 
   return <main className="j166">
     <header className="j166-head">
-      <div><small>PROYECTO JAVIERA · DOCUMENTOS HTML</small><h2>Generador de documentos PDF A4</h2>
+      <div><small>PROYECTO JAVIERA · DOCUMENTOS VISUALES</small><h2>Generador de documentos PDF A4</h2>
         <p>Prepara documentos sin incorporar personas ni empresas a los módulos operativos de GALANT.</p></div>
       {onConfig&&<button className="j166-light" onClick={onConfig}>Configurar plantillas</button>}
     </header>
@@ -629,20 +629,20 @@ export default function JavieraV166({onConfig,onTextEditor}:{onConfig?:()=>void;
       <h3>Revisión e impresión</h3>
       <p className="j166-native-help">Elige <strong>Vista previa A4</strong> para revisar cada formato
         o <strong>Preparar paquete PDF A4</strong> para imprimir todos los seleccionados.
-        Si falta contenido, abre <strong>Editar HTML</strong>. Ya no necesitas importar Excel.
+        Si falta contenido, abre <strong>Editar documento</strong>. Ya no necesitas importar Excel.
         Puedes corregir los datos antes de imprimir; el PDF no registra firmas físicas.</p>
-      <p>{checked.length} documentos seleccionados · {checked.filter(c=>nativeFormats.find(f=>f.code===c)?.status==="ready").length} con formato HTML habilitado</p>
+      <p>{checked.length} documentos seleccionados · {checked.filter(c=>nativeFormats.find(f=>f.code===c)?.status==="ready").length} con formato visual habilitado</p>
       {states.map(s=><div className="j166-status" key={s.code}>
         <div><strong>{title(s.code)}</strong><small>{
           nativeFormats.find(f=>f.code===s.code)?.status==="ready"?
-            "Diseño HTML disponible · comprobar los datos":
+            "Diseño disponible · comprobar los datos":
           nativeFormats.find(f=>f.code===s.code)?.status==="requires_review"?
-            "Diseño HTML pendiente de revisión":"Requiere editar y habilitar HTML"
+            "Diseño pendiente de revisión":"Requiere editar y habilitar el formato"
         }</small>
           {s.missing_fields.length>0&&<small>Faltan: {s.missing_fields.map(x=>JAVIERA_FIELD_META[x]?.label||x).join(", ")}</small>}
           {s.blocking_errors.map(x=><small key={x}>{x}</small>)}
           {nativeFormats.find(f=>f.code===s.code)?.status==="requires_review"&&
-            <small>Hay cambios HTML pendientes de habilitar.</small>}
+            <small>Hay cambios del documento pendientes de habilitar.</small>}
         </div><div className="j166-status-actions">
           {s.can_issue&&<details className="j166-legacy-preview"><summary>Versión Excel histórica</summary>
             <button className="j166-light" onClick={()=>void openPreview(s.code)}><Eye size={16}/> Vista previa Excel</button>
@@ -657,8 +657,8 @@ export default function JavieraV166({onConfig,onTextEditor}:{onConfig?:()=>void;
           {["requires_published_text","requires_review"].includes(
               nativeFormats.find(f=>f.code===s.code)?.status||"")&&
             <button className="j166-light" disabled={!onTextEditor} onClick={()=>onTextEditor?.(s.code)}
-              title="Editar la versión HTML, guardar y habilitar su vista previa">
-              <FileText size={16}/> Editar HTML
+              title="Editar visualmente, guardar y habilitar su vista previa">
+              <FileText size={16}/> Editar documento
             </button>}
           {s.last_issue_id&&<a href={API+"/issues/"+s.last_issue_id+"/pdf"} target="_blank" rel="noreferrer">PDF anterior</a>}
         </div>
