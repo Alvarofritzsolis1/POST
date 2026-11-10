@@ -6,7 +6,23 @@ import "./javiera-irl-structure.css";
 type Role={cargo:string;has_approved_irl:boolean;has_approved_pts:boolean;has_draft:boolean;source_excel_available?:boolean;reference_count?:number};
 type IRLRow={id:string;ordinal:number;labor:string;peligro:string;riesgo:string;medidas:string;original:string;structured:boolean};
 type Detail={cargo:string;irl:{approved:boolean;revision:number|null;records:IRLRow[];has_unstructured:boolean;reference_only?:boolean};
-  warnings:string[];can_preview_irl:boolean;reference_total?:number;source_excel_available?:boolean;reference_incomplete_excel_rows?:number[]};
+  warnings:string[];can_preview_irl:boolean;reference_total?:number;source_excel_available?:boolean;reference_incomplete_excel_rows?:number[];reference_audit?:ReferenceAudit};
+type AuditKind="PERFILES"|"PUESTOS"|"SUSTANCIAS";
+type AuditSource={source_sheet:string;source_row:number;source_cargo:string;sections:string[];reference_only:boolean};
+type AuditLink={match_count:number;source_entries:AuditSource[];missing:boolean;ambiguous:boolean;suggested_aliases_pending_review:string[]};
+type ReferenceAudit={risk_count:number;incomplete_excel_rows:number[];duplicate_source_numbers:string[];
+  full_excel_parity_certified:boolean;original_visual_blocks:{title:string;status:string}[];
+  linked:Record<AuditKind|"PTS",AuditLink>;warnings:string[]};
+const AUX_LABELS:Record<AuditKind,string>={
+  PERFILES:"Descripción y labores del cargo",PUESTOS:"Condiciones del puesto de trabajo",SUSTANCIAS:"Sustancias y HDS"
+};
+const AUX_COLUMNS:Record<AuditKind,string[]>={
+  PERFILES:["Perfil técnico"],
+  PUESTOS:["Espacio de trabajo","Condiciones ambientales","Orden y aseo","Máquinas y herramientas"],
+  SUSTANCIAS:["Producto","Sinónimo","Fórmula","Aspecto","Olor","Modo de empleo",
+    "Límites de exposición","Almacenamiento","Uso de EPP","Primeros auxilios",
+    "Información de etiqueta DS 57","Información de HDS"]
+};
 type Props={onEditMatrices?:()=>void};
 
 export default function JavieraIRLStructure({onEditMatrices}:Props){
@@ -51,7 +67,7 @@ export default function JavieraIRLStructure({onEditMatrices}:Props){
   const current=detail?.cargo===cargo&&!roleLoading?detail:null;
   return <div className="jir-root">
     <div className="jir-intro">
-      <div><div className="jir-kicker"><ClipboardList size={16}/> Estructura del IRL · GALANT 19.4</div>
+      <div><div className="jir-kicker"><ClipboardList size={16}/> Estructura IRL · revisión integral</div>
         <h4>Formato original, datos vinculados y matriz de riesgos</h4>
         <p>Esta hoja muestra la estructura fija del IRL y los riesgos de la matriz aprobada del cargo.
           No debes escribir HTML ni pegar la matriz en el documento.</p>
@@ -83,7 +99,7 @@ export default function JavieraIRLStructure({onEditMatrices}:Props){
 
     <div className="jir-scroll">
       <article className="jir-page" aria-label="Estructura IRL en tamaño de hoja A4">
-        <div className="jir-print-label">ESTRUCTURA DEL DOCUMENTO · A4</div>
+        <div className="jir-print-label">VISTA ESTRUCTURAL · DOCUMENTO A4 (NO APTO PARA IMPRESIÓN)</div>
         <div className="jir-doc-head"><span>DOCUMENTACIÓN LABORAL Y PREVENTIVA</span>
           <h3>INFORMACIÓN DE RIESGOS LABORALES (IRL)</h3>
         </div>
@@ -117,6 +133,47 @@ export default function JavieraIRLStructure({onEditMatrices}:Props){
         </section>
       </article>
     </div>
+    {current?.reference_audit&&<section className="jir-parity" aria-label="Auditoría de integridad de matrices IRL">
+      <div className="jir-parity-head">
+        <h4>Datos relacionados con este cargo</h4>
+        <p>Consulta la información técnica sin escribir código. Estas referencias provienen del catálogo
+          del Excel y no equivalen a una revisión preventiva aprobada. Para corregirlas, abre «Matrices y cargos».</p>
+      </div>
+      <div className="jir-aux-grid">
+        {(["PERFILES","PUESTOS","SUSTANCIAS"] as const).map(kind=>{
+          const linked=current.reference_audit!.linked[kind];
+          return <details className="jir-aux" key={kind}>
+            <summary><span>{AUX_LABELS[kind]}</span>
+              <strong>{linked.missing?"Sin vinculación":linked.ambiguous?"Revisar duplicidad":"Referencia disponible"}</strong>
+            </summary>
+            {linked.suggested_aliases_pending_review.length>0&&
+              <p className="jir-aux-alert">Posible equivalencia pendiente de validación:
+                {" "+linked.suggested_aliases_pending_review.join(", ")}. No se vincula automáticamente.</p>}
+            {linked.source_entries.length>0?linked.source_entries.map(entry=>
+              <div key={entry.source_sheet+":"+entry.source_row} className="jir-aux-content">
+                <small>Hoja {entry.source_sheet} · fila {entry.source_row} · cargo fuente «{entry.source_cargo}»</small>
+                <dl>{entry.sections.map((value,i)=><div key={i}>
+                  <dt>{AUX_COLUMNS[kind][i]||"Campo "+(i+1)}</dt>
+                  <dd>{value.trim()||"Pendiente de completar y validar"}</dd>
+                </div>)}</dl>
+              </div>
+            ):<p className="jir-aux-alert">No existe una matriz inequívoca para este cargo. Debe revisarse;
+              no se completarán campos utilizando otro cargo.</p>}
+          </details>;
+        })}
+      </div>
+      <details className="jir-original-blocks">
+        <summary>Contenido del IRL original todavía no migrado: cinco bloques gráficos</summary>
+        <ol>{current.reference_audit.original_visual_blocks.map(block=>
+          <li key={block.title}>{block.title} · pendiente de transcripción y validación HTML</li>)}</ol>
+        <p>No se puede certificar todavía que la vista estructural o el PDF reproduzcan
+          la totalidad de las páginas del Excel original.</p>
+      </details>
+      {current.reference_audit.warnings.length>0&&<details className="jir-audit-alerts">
+        <summary>Observaciones de integridad ({current.reference_audit.warnings.length})</summary>
+        <ul>{current.reference_audit.warnings.map((warning,index)=><li key={index}>{warning}</li>)}</ul>
+      </details>}
+    </section>}
     <div className="jir-footer" role="status">
       {current?.irl.approved?<p className={unstructured?"jir-warning":"jir-status"}>
         {unstructured?<AlertTriangle size={16}/>:<ShieldCheck size={16}/>}
