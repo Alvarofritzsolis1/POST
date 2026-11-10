@@ -403,6 +403,7 @@ def test_substance_import_does_not_shift_hds_when_middle_column_is_blank(env):
     book = load_workbook(BytesIO(_complete_synthetic_workbook()))
     fields = [f"Campo exacto {i}" for i in range(1, 13)]
     fields[4] = None  # La columna F es opcional en el Excel de prueba.
+    book["Base_Datos_Sustancias"].append(["Especialidad / Labor", *[f"Columna {i}" for i in range(1, 13)]])
     book["Base_Datos_Sustancias"].append(["PINTOR", *fields])
     stream = BytesIO()
     book.save(stream)
