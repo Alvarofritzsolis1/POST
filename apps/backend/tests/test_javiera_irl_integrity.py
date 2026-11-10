@@ -22,7 +22,9 @@ def test_risks_keep_all_four_fields_linked_by_source_row():
 def test_duplicate_gasfiter_blocks_remain_explicitly_ambiguous():
     result = audit("GASFITER")
     assert result["risk_count"] == 26
-    assert len(result["duplicate_source_numbers"]) == 13
+    assert len(result["source_excel_rows"]) == 26
+    assert len(set(result["source_excel_rows"])) == 26
+    # La numeración fuente es única aunque haya dos perfiles y dos PTS.
     assert result["linked"]["PERFILES"]["match_count"] == 2
     assert result["linked"]["PERFILES"]["ambiguous"] is True
     assert result["linked"]["PTS"]["ambiguous"] is True
