@@ -147,9 +147,14 @@ def _status(db, user, record, code):
     # Una labor nueva pertenece al borrador documental y no puede emitirse
     # mediante el motor antiguo ni el nuevo hasta su revisión preventiva.
     if code in {"irl", "pts"}:
-        irl_fields = (record.document_data or {}).get("irl") or {}
-        manual = (irl_fields.get("event") or {}).get("irl_manual_labor", "")
-        if isinstance(manual, str) and manual.strip():
+        document_fields = record.document_data or {}
+        manual = []
+        for subtype, key in (("irl", "irl_manual_labor"), ("pts", "pts_manual_labor")):
+            section = document_fields.get(subtype) or {}
+            value = (section.get("event") or {}).get(key, "")
+            if isinstance(value, str) and value.strip():
+                manual.append(value)
+        if manual:
             warning = ("Labor manual pendiente de vincular a la matriz preventiva. "
                        "Solicita revisión antes de generar IRL o PTS.")
             item.update(status="PENDIENTE_REVISION", reason=warning,
