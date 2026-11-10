@@ -255,3 +255,49 @@ def test_single_admin_can_enable_preview_without_publishing_legacy_approval(
         assert revision_row.state == "pilot_print"
         assert revision_row.reviewer_id is None
     settings.cache_clear()
+
+
+
+@pytest.mark.parametrize("code", [
+    "internal_rules_receipt", "irl", "induction",
+    "labor_contract", "transfer_addendum", "extension_addendum",
+    "sworn_declaration", "ppe_delivery", "pts", "pts_receipt",
+])
+def test_printed_a4_documents_have_no_preview_or_internal_system_messages(code):
+    """La vista previa puede identificarse en la UI, NUNCA en el PDF físico."""
+    synthetic = data()
+    synthetic["event"]["epp_items"] = "Casco 1\nGuantes 1 par"
+    synthetic["event"]["pts_version"] = "PTS-2026"
+    synthetic["extra"]["representative_name"] = "REPRESENTANTE DOCUMENTAL"
+    synthetic["extra"]["representative_rut"] = rut(10000113)
+    if code == "sworn_declaration":
+        synthetic["worker"] = {"name": "", "rut": ""}
+    matrix = (["Sección preventiva de prueba para confirmar estructura de riesgos."] * 4
+              if code in {"pts", "irl"} else None)
+    text_source = (
+        "PRIMERA: Cláusula documental original de ensayo.\n\n"
+        "SEGUNDA: Los antecedentes y las firmas corresponden a este formulario."
+        if code in {
+            "labor_contract", "transfer_addendum", "extension_addendum",
+            "sworn_declaration", "ppe_delivery", "pts", "pts_receipt",
+        } else None
+    )
+    output = render_native_pdf(code, synthetic, matrix=matrix,
+                               approved_text=text_source)
+    with fitz.open(stream=output, filetype="pdf") as pdf:
+        document = " ".join(page.get_text() for page in pdf).casefold()
+        normalized = " ".join(document.split())
+        banned = (
+            "vista previa", "no acredita", "formato para completar",
+            "espacios para firma física", "firmar físicamente",
+            "este pdf", "generado por galant", "contenido del formato aprobado",
+            "documento que se prepara", "observaciones para revisión",
+        )
+        assert not any(value in normalized for value in banned), (code, normalized)
+        assert "firmas" in normalized, code
+        assert "firma" in normalized, code
+        assert 1 <= len(pdf) <= 40
+        assert all(abs(page.rect.width - 595.28) < 1 for page in pdf)
+        if code == "internal_rules_receipt":
+            assert "constancia de recepción" in normalized
+            assert "dejo constancia de haber recibido" in normalized
