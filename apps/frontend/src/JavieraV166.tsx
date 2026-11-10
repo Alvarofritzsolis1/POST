@@ -4,6 +4,7 @@ import {ArrowLeft, CheckCircle2, ChevronRight, Download, Eye, FileText,
 import {request} from "./api";
 import {JAVIERA_EXCEL_FIELDS, JAVIERA_FIELD_META} from "./JavieraWorkspace";
 import "./javiera-v166.css";
+import JavieraIRLAssistant from "./JavieraIRLAssistant";
 
 type Origin="new"|"operational"|"documentary";
 type Company={id:string;name:string;rut:string;site_id:string;origin:Origin};
@@ -133,6 +134,8 @@ export default function JavieraV166({onConfig,onTextEditor}:{onConfig?:()=>void;
   const [reasons,setReasons]=useState<Record<string,string>>({});
   const [error,setError]=useState("");
   const [notice,setNotice]=useState("");
+  const [inlinePdf,setInlinePdf]=useState<{code:string;url:string}|null>(null);
+  useEffect(()=>()=>{if(inlinePdf)URL.revokeObjectURL(inlinePdf.url);},[inlinePdf]);
   const [saving,setSaving]=useState(false);
   const [lookup,setLookup]=useState("");
   const savingRef=useRef(false);
@@ -217,6 +220,8 @@ export default function JavieraV166({onConfig,onTextEditor}:{onConfig?:()=>void;
   const ready=states.filter(x=>x.can_issue);
   const invalid=states.filter(x=>!x.can_issue);
   const fingerprint=JSON.stringify({siteId,companyId,personId,companyRut,personName,personRut,personChoice,personOrigin,checked,shared,specific,relation,parentName});
+  // El PDF pertenece a una instantánea; no mantenerlo cuando cambien datos.
+  useEffect(()=>{setInlinePdf(null);},[fingerprint]);
   const showFailure=(e:unknown)=>{setError(errorText(e));setNotice("");};
 
   function chooseCode(code:string){
@@ -413,6 +418,18 @@ export default function JavieraV166({onConfig,onTextEditor}:{onConfig?:()=>void;
         "Deben firmarse físicamente después.");
     }catch(e){tab?.close();showFailure(e);}
   }
+  async function openInlinePreview(code:string){
+    try{
+      const record=await saveDraft(true);
+      if(!record)return;
+      const blob=await nativePreviewRequest(record.id,code);
+      if(blob.type!=="application/pdf"&&blob.type!=="application/octet-stream")
+        throw new Error("El servicio no devolvió un PDF válido.");
+      const url=URL.createObjectURL(blob);
+      setInlinePdf({code,url});
+      setNotice("Mostrando el mismo PDF A4 que puedes abrir e imprimir. Este archivo no acredita firma ni entrega.");
+    }catch(e){setInlinePdf(null);showFailure(e);}
+  }
   async function openNativePreview(code:string){
     const tab=pdfTab();
     try{
@@ -596,6 +613,13 @@ export default function JavieraV166({onConfig,onTextEditor}:{onConfig?:()=>void;
       </section>}
       <section className="j166-sub"><h4>Datos compartidos</h4>
         <div className="j166-fields">{commonKeys.map(key=>field(key))}</div></section>
+      {checked.includes("irl")&&<JavieraIRLAssistant
+        cargo={shared.role||""}
+        onCargoChange={value=>changeField("role",value)}
+        manualLabor={specific.irl?.["event.irl_manual_labor"]||""}
+        onManualLaborChange={value=>changeField("event.irl_manual_labor",value,"irl")}
+        reviewedLaborIds={specific.irl?.["event.irl_reviewed_labor_ids"]||""}
+        onReviewedLaborIdsChange={value=>changeField("event.irl_reviewed_labor_ids",value,"irl")}/>}
       <p className="j166-native-help">Abre solo el documento que necesitas completar.
         Los datos comunes se reutilizan automáticamente en los demás.</p>
       {checked.map((code,index)=><details key={code} className="j166-sub j166-doc-accordion" open={index===0}>
@@ -648,12 +672,18 @@ export default function JavieraV166({onConfig,onTextEditor}:{onConfig?:()=>void;
             <button className="j166-light" onClick={()=>void openPreview(s.code)}><Eye size={16}/> Vista previa Excel</button>
           </details>}
           {nativeLoading&&<small>Consultando formatos A4…</small>}
-          {nativeFormats.find(f=>f.code===s.code)?.status==="ready"&&
+          {nativeFormats.find(f=>f.code===s.code)?.status==="ready"&&<>
+            <button className="j166-light" disabled={saving}
+              onClick={()=>void openInlinePreview(s.code)}
+              title="PDF A4 real dentro de esta misma pantalla.">
+              <Eye size={16}/> Ver PDF A4 aquí
+            </button>
             <button className="j166-light" disabled={saving}
               onClick={()=>void openNativePreview(s.code)}
-              title="PDF A4 para revisar e imprimir. No acredita firma ni recepción.">
-              <Eye size={16}/> Vista previa A4
-            </button>}
+              title="Abrir PDF A4 en una pestaña nueva.">
+              <Printer size={16}/> Abrir PDF
+            </button>
+          </>}
           {["requires_published_text","requires_review"].includes(
               nativeFormats.find(f=>f.code===s.code)?.status||"")&&
             <button className="j166-light" disabled={!onTextEditor} onClick={()=>onTextEditor?.(s.code)}
@@ -665,6 +695,15 @@ export default function JavieraV166({onConfig,onTextEditor}:{onConfig?:()=>void;
         {s.has_history&&<label className="j166-field"><span>Motivo de reemisión (mínimo 20 caracteres si cambian los datos)</span>
           <input value={reasons[s.code]||""} onChange={e=>setReasons(old=>({...old,[s.code]:e.target.value}))}/></label>}
       </div>)}
+      {inlinePdf&&<section className="j166-sub j166-inline-pdf">
+        <div className="j166-pdf-head"><div><h4>PDF A4 auténtico — {title(inlinePdf.code)}</h4>
+          <p>Se muestra el archivo generado por el backend, no una maqueta HTML.
+            Usa el visor del navegador para zoom, páginas e impresión.</p></div>
+          <a className="j166-light" href={inlinePdf.url} target="_blank" rel="noreferrer"
+            title="Abrir exactamente el PDF de esta vista previa">Abrir este mismo PDF para imprimir</a>
+        </div>
+        <iframe title={"Documento PDF A4 — "+title(inlinePdf.code)} src={inlinePdf.url}/>
+      </section>}
       <div className="j166-actions">
         <button disabled={saving||!checked.length} className="j166-primary" onClick={()=>void openNativeBatch()}>
           <Printer size={18}/> Preparar paquete PDF A4 ({checked.length})
