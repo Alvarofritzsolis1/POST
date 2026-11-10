@@ -1,0 +1,29 @@
+"""Encabezados técnicos originales de MATRIZ PTS D:T.
+
+Extraídos de JAVIERA_ETAPA_1_PTS_CORREGIDOS.xlsx (SHA-256 verificado).
+No representan verificación profesional de los procedimientos o de las fórmulas.
+"""
+from __future__ import annotations
+
+PTS_REFERENCE_SHA256 = "2a6657a0f6c7d78731565ecbb59485542343629903aaf161aacfbea405da5edd"
+
+PTS_TECHNICAL_HEADINGS = (
+    "OBJETIVO",
+    "CUMPLIMIENTO",
+    "DESCRIPCION DE LA ACTIVIDAD",
+    "TAREA QUE REALIZA",
+    "LUGARES DE TRABAJO",
+    "HERRAMIENTAS Y EQUIPO",
+    "EQUIPO DE PROTECCION PERSONAL",
+    "SUBESPECIALIDADES",
+    "RIESGOS PRESENTES  9.1 EN LA TAREAS",
+    "9.2. EN EL LUGAR DE TRABAJO",
+    "10.-MEDIDAS PREVENTIVAS, 10.1. EN LAS TAREAS",
+    "10.2. EN EL LUGAR DE TRABAJO",
+    "10.3. RESTRICCIONES FISICAS",
+    "10.3.1. EN ALTURA FISICA",
+    "10.3.2. EN ALTURA GEOGRAFICA",
+    "10.3.3. EN LAS TAREAS",
+    "GLOSARIO",
+)
+assert len(PTS_TECHNICAL_HEADINGS) == 17
