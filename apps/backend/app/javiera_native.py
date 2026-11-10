@@ -199,16 +199,16 @@ def render_native_pdf(code: str, data: dict, *, matrix: list[str] | None = None,
         signatory_label="Firma declarante" if is_declaration else "Firma trabajador/a",
         signatory_name=_html(signer),
         site=_html(site),
-        role=_html(_get(data, "role") or "Por indicar"),
+        role=_html(_get(data, "role")),
         date=_html(_record_date(data)),
-        document_ref=_html(version or "Por indicar"),
+        document_ref=_html(version),
         content=body,
     )
     if _get(data, "event.print_notes"):
         note = _get(data, "event.print_notes")
         html = html.replace(
             '<div class="signature-panel">',
-            '<section class="print-notes"><h2>OBSERVACIONES PARA REVISIÓN</h2><p>'
+            '<section class="print-notes"><h2>OBSERVACIONES</h2><p>'
             + _html(note) + '</p></section><div class="signature-panel">'
         )
     css = (TEMPLATE_PATH / "print.css").read_text(encoding="utf-8")
@@ -282,9 +282,10 @@ def render_native_pdf(code: str, data: dict, *, matrix: list[str] | None = None,
                         raise NativeDocumentError(
                             "Texto fuera de los límites A4 en página " + str(index)
                         )
-                page.insert_text(
-                    (43, A4.height - 31),
-                    "Vista previa documental · Página " + str(index) + " de " + str(pdf.page_count),
-                    fontsize=8, color=(0.30, 0.35, 0.40),
-                )
+                if pdf.page_count > 1:
+                    page.insert_text(
+                        (A4.width - 105, A4.height - 31),
+                        "Página " + str(index) + " de " + str(pdf.page_count),
+                        fontsize=8, color=(0.30, 0.35, 0.40),
+                    )
             return pdf.tobytes(garbage=3, deflate=True)
