@@ -23,7 +23,7 @@ def main():
         raise SystemExit("Solo se permite QA local en 127.0.0.1")
     args.output.mkdir(parents=True, exist_ok=True)
     failures, responses = [], []
-    report = {"version": "19.1.1-rc1", "at": datetime.now(timezone.utc).isoformat(),
+    report = {"version": "19.2.0-rc1", "at": datetime.now(timezone.utc).isoformat(),
               "scenarios": {}, "console_errors": [], "server_errors": []}
     with sync_playwright() as playwright:
         browser = playwright.chromium.launch(
@@ -54,18 +54,18 @@ def main():
             expect(page.get_by_role("heading", name="Documentos listos para preparar e imprimir")).to_be_visible()
             expect(page.get_by_role("heading", name="¿La empresa es nueva o ya existe?")).to_be_visible()
             report["scenarios"]["html_primary_without_excel_import"] = "PASS"
-            page.get_by_role("button", name="Editar formatos HTML").click()
-            expect(page.get_by_role("heading", name="Editor de formatos HTML")).to_be_visible()
-            expect(page.get_by_label("Texto y estructura HTML")).to_be_visible()
-            report["scenarios"]["html_editor_in_main_workflow"] = "PASS"
-            page.get_by_label("Texto y estructura HTML").fill(
-                "<h2>FORMATO DOCUMENTAL DE PRUEBA</h2>"
-                "<p>Cláusula de prueba para {{worker.name}} y {{employer.name}}. "
-                "Solo verifica la edición HTML sin publicar un contrato real.</p>"
-            )
-            page.get_by_role("button", name="Guardar HTML").click()
-            expect(page.get_by_text("Borrador HTML guardado", exact=False)).to_be_visible(timeout=20000)
-            report["scenarios"]["native_html_saved_from_browser"] = "PASS"
+            page.get_by_role("button", name="Editar documentos visualmente").click()
+            expect(page.get_by_role("heading", name="Editor visual de documentos")).to_be_visible()
+            editor = page.get_by_role("textbox", name="Documento editable")
+            expect(editor).to_be_visible()
+            expect(page.get_by_role("combobox", name="Insertar dato automático")).to_be_visible()
+            report["scenarios"]["visual_editor_without_html"] = "PASS"
+            editor.fill("FORMATO DOCUMENTAL DE PRUEBA: constancia de recepción para el trabajador. ")
+            page.get_by_role("combobox", name="Insertar dato automático").select_option("worker.name")
+            page.get_by_role("combobox", name="Insertar dato automático").select_option("employer.name")
+            page.get_by_role("button", name="Guardar borrador").click()
+            expect(page.get_by_text("Borrador visual guardado", exact=False)).to_be_visible(timeout=20000)
+            report["scenarios"]["visual_editor_saved_from_browser"] = "PASS"
             page.get_by_label(
                 "Revisé que este texto corresponde al documento original y que no faltan cláusulas."
             ).check()
@@ -166,7 +166,7 @@ def main():
             page.screenshot(path=str(args.output / "javiera_movil.png"), full_page=True)
             page.goto(args.url + "/configuracion/automatizacion", wait_until="domcontentloaded")
             expect(page.get_by_role("heading", name="Configuración de automatización")).to_be_visible()
-            for name in ["Plantillas y cláusulas", "Matrices PTS / IRL",
+            for name in ["Plantillas y cláusulas", "Matrices y cargos",
                          "Diseños Excel originales", "Habilitar PDF / revisiones"]:
                 expect(page.get_by_role("button", name=name)).to_be_visible()
             report["scenarios"]["config_legacy_compatible"] = "PASS"
