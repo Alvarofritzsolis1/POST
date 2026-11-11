@@ -131,3 +131,15 @@ body h2 {margin:12pt 0 6pt;}
 
 /* Hojas con imágenes originales: folio de cierre indivisible para declaración/firma. */
 .irl-original-print.irl-images-ready .irl-ending{break-before:page;page-break-before:always}
+
+
+/* IRL editable aprobada: las cinco tablas normativas como texto HTML real. */
+.irl-ed-block{border:.6pt solid #a5b9c9;padding:7pt 9pt;margin:9pt 0 11pt;
+  max-width:100%;break-inside:auto;page-break-inside:auto}
+.irl-ed-block h3{background:#e8f0f5;text-align:center;font-size:9pt;
+  border:0;border-bottom:.6pt solid #9fb7c9;margin:0 0 6pt;padding:4pt 1pt}
+.irl-ed-block p{margin:2pt 0;font-size:8.2pt;line-height:1.34;
+  white-space:pre-wrap;overflow-wrap:anywhere}
+.irl-ed-block .irl-ed-gap{height:5pt}
+.irl-original-print.irl-edited-html-ready .irl-ending{break-before:page;
+  page-break-before:always}
