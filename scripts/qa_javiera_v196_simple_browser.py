@@ -57,7 +57,7 @@ def main():
             })
             page.goto(args.url + "/proyecto-javiera", wait_until="domcontentloaded")
             expect(page.get_by_role("heading", name="Proyecto Javiera")).to_be_visible(timeout=30000)
-            expect(page.get_by_role("region", name="Proyecto Javiera modo simple")).to_be_visible()
+            expect(page.get_by_role("main", name="Proyecto Javiera modo simple")).to_be_visible()
             expect(page.get_by_role("heading", name="Nuevo documento")).to_be_visible()
             assert page.get_by_role("button", name="Editar documentos visualmente").count() == 0
             assert page.get_by_role("button", name="Abrir Matrices y cargos").count() == 0
@@ -80,7 +80,7 @@ def main():
             # No imported approved Excel means no issued PDF; never use the
             # old HTML fallback to imply an approved original.
             button = page.get_by_role("button", name="Generar PDF")
-            if "disabled" in button.evaluate("(el)=>el.outerHTML"):
+            if button.is_disabled():
                 expect(page.get_by_text("plantilla", exact=False).first).to_be_visible()
                 report["scenarios"]["missing_original_excel_fail_closed"] = "PASS"
             else:
