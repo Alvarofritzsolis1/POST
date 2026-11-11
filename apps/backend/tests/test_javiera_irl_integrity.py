@@ -46,7 +46,7 @@ def test_paisajista_alias_is_suggestion_not_automatic_chemical_matrix():
     substances = result["linked"]["SUSTANCIAS"]
     assert substances["missing"] is True
     assert substances["match_count"] == 0
-    assert substances["suggested_aliases_pending_review"] == ["PAISAJISMO"]
+    assert substances["suggested_aliases_pending_review"] == ["PAISAJISMO (REVISAR HDS)"]
     assert substances["source_entries"] == []
 
 
