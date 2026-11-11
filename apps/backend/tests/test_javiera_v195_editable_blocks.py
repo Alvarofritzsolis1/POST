@@ -36,7 +36,7 @@ def valid_payload():
         "reason": "Primera revisión editorial del IRL, cotejo manual obligatorio.",
         "blocks": [{
             "id": i,
-            "text": "\\n".join(
+            "text": "\n".join(
                 f"{n:02d}.- Descripción sintética de ensayo {n}; no utilizar en documento real."
                 for n in required[i]
             ),
@@ -240,7 +240,7 @@ def test_visual_source_numbering_gate_prevents_missing_13th_norm(env, monkeypatc
     monkeypatch.setattr(visual, "_authorized_original", fake_source)
     source = valid_payload()
     assert visual.missing_original_items(source["blocks"]) == {}
-    source["blocks"][4]["text"] = "\\n".join(
+    source["blocks"][4]["text"] = "\n".join(
         line for line in source["blocks"][4]["text"].splitlines()
         if not line.startswith("13.-")
     )
