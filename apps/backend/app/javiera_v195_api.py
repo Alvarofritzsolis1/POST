@@ -52,7 +52,7 @@ REQUIRED_ORIGINAL_ITEMS = {
     5: (10, 11, 12, 13),
 }
 ORIGINAL_ITEM_LINE = re.compile(
-    r"^\\s*(?:☐|□|\\[\\s*\\])?\\s*0*(\\d{1,2})(?:\\s*[-.)]|\\s{1,})",
+    r"^\s*(?:☐|□|\[\s*\])?\s*0*(\d{1,2})(?:\s*[-.)]|\s{1,})",
     re.MULTILINE,
 )
 
