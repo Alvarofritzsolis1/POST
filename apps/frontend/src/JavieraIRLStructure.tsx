@@ -230,7 +230,7 @@ export default function JavieraIRLStructure({onEditMatrices}:Props){
             " La fila «PAISAJISMO (REVISAR HDS)» incluye productos de pintura y no se vincula sin revisión preventiva.":
             " Verifica los productos y HDS reales antes de la aprobación."}
         </p>}
-        {current.corrective_draft?.type==="risk_row"&&
+        {!current.irl.approved&&current.corrective_draft?.type==="risk_row"&&
           current.corrective_draft.proposal&&<div className="jir-suggested-correction">
             <h4>Propuesta de corrección · CARPINTERO fila 40</h4>
             <p><b>Consecuencias propuestas:</b> {current.corrective_draft.proposal.risk_suggestion}</p>
