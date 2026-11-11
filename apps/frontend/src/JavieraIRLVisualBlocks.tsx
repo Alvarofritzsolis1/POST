@@ -217,3 +217,4 @@ export default function JavieraIRLVisualBlocks({source}: {source:Source}){
       </section>}
     </div>}
   </section>;
+}
