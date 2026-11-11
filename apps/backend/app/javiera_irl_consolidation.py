@@ -16,7 +16,7 @@ RISK_FIELDS = ("tarea", "peligro", "riesgo", "medidas")
 
 def _cell(value: object) -> str:
     """Normalización no semántica: caracteres Unicode y espacios."""
-    return re.sub(r"\\s+", " ", unicodedata.normalize("NFKC", str(value or "")).strip())
+    return re.sub(r"\s+", " ", unicodedata.normalize("NFKC", str(value or "")).strip())
 
 
 def identical_variants(rows: list[dict]) -> bool:
@@ -32,7 +32,7 @@ def _task_key(task: object, role: str) -> str:
     normalized = _cell(task).upper()
     # No generalizar alias de cargos a peligros o controles.
     if normalize_cargo(role) == "GASFITER":
-        normalized = re.sub(r"\\bGASFITERIA\\b", "GASFITER", normalized)
+        normalized = re.sub(r"\bGASFITERIA\b", "GASFITER", normalized)
     return normalized
 
 
