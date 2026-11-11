@@ -56,7 +56,7 @@ export default function JavieraIRLStructure({onEditMatrices}:Props){
       .then(payload=>{
         if(!active)return;
         setRoles(payload.roles);
-        setCargo(previous=>previous||payload.roles.find(r=>r.has_approved_irl)?.cargo||"");
+        setCargo(previous=>previous||payload.roles.find(r=>r.has_approved_irl)?.cargo||payload.roles.find(r=>r.source_excel_available)?.cargo||"");
         setError("");
       })
       .catch(reason=>{if(active)setError(reason instanceof Error?reason.message:String(reason));})
@@ -99,9 +99,10 @@ export default function JavieraIRLStructure({onEditMatrices}:Props){
 
   const filtered=useMemo(()=>roles.filter(r=>r.cargo.toLocaleLowerCase("es")
     .includes(query.trim().toLocaleLowerCase("es"))),[roles,query]);
-  const rows=detail?.irl.records||[];
-  const unstructured=rows.some(r=>!r.structured);
   const current=detail?.cargo===cargo&&!roleLoading?detail:null;
+  // No mostrar temporalmente riesgos de otro cargo durante una consulta.
+  const rows=current?.irl.records||[];
+  const unstructured=rows.some(r=>!r.structured);
   const reference=current?.reference_audit;
   const sectionFor=(kind:AuditKind)=>{
     const approvedOrReference=current?.additional_matrices?.[kind];
@@ -182,11 +183,11 @@ export default function JavieraIRLStructure({onEditMatrices}:Props){
       <span><strong>{rows.length}</strong> labores en esta vista
         {current?.reference_total&&current.reference_total>rows.length?
           " · "+(current.reference_total-rows.length)+" filas repetidas agrupadas":""}
-        {" · "}Referencia no aprobada hasta revisión preventiva</span>
+        {" · "}{current?.irl.approved?"Matriz aprobada": "Referencia pendiente de aprobación preventiva"}</span>
       <button type="button" onClick={()=>void copyRiskMatrix()} disabled={!rows.length}>Copiar matriz para Excel</button>
       {copyStatus&&<small role="status">{copyStatus}</small>}
     </div>
-    <details className="jir-preview"><summary>Mostrar / ocultar vista previa A4 completa</summary>
+    <details className="jir-preview" open><summary>Mostrar / ocultar vista previa A4 completa</summary>
     <div className="jir-scroll">
       <article className="jir-page jir-original-document" aria-label="IRL original reconstruido en formato A4">
         <div className="jir-print-label">VISTA PREVIA DE FORMATO ORIGINAL · SIN FIRMAS</div>
