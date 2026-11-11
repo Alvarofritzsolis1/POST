@@ -2,6 +2,7 @@ import {useEffect,useMemo,useState} from "react";
 import {AlertTriangle,ClipboardList,FileSpreadsheet,Search,ShieldCheck} from "lucide-react";
 import {request} from "./api";
 import {serializeIRLClipboard} from "./javiera-irl-clipboard";
+import JavieraIRLVisualBlocks from "./JavieraIRLVisualBlocks";
 import "./javiera-irl-structure.css";
 
 type Role={cargo:string;has_approved_irl:boolean;has_approved_pts:boolean;has_draft:boolean;source_excel_available?:boolean;reference_count?:number};
@@ -26,7 +27,7 @@ const AUX_COLUMNS:Record<AuditKind,string[]>={
     "Información de etiqueta DS 57","Información de HDS"]
 };
 type OriginalImage={title:string;order:number;anchor_row:number|null;data_uri:string;sha256:string};
-type OriginalIRL={available:boolean;status:string;image_count:number;all_five_images_present?:boolean;
+type OriginalIRL={available:boolean;status:string;image_count:number;source_sha256?:string;all_five_images_present?:boolean;
   images:OriginalImage[];static:Record<string,string>;document_code?:string;source_version?:string;
   layout_revision?:number;message?:string};
 const IRL_CONDITIONS=["a) Espacio de trabajo","b) Condiciones ambientales del puesto",
@@ -179,6 +180,7 @@ export default function JavieraIRLStructure({onEditMatrices}:Props){
       </div>}
       {originalError&&<p className="jir-warning" role="alert">{originalError}</p>}
     </section>
+    {original?.available&&original.images?.length===5&&<JavieraIRLVisualBlocks source={original}/>}
     <div className="jir-view-toolbar">
       <span><strong>{rows.length}</strong> labores en esta vista
         {current?.reference_total&&current.reference_total>rows.length?
