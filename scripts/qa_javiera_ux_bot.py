@@ -109,7 +109,7 @@ def main():
                 raise
 
             try:
-                page.goto(args.url + "/proyecto-javiera",
+                page.goto(args.url + "/proyecto-javiera?legacy=1",
                           wait_until="domcontentloaded", timeout=20000)
                 page.get_by_role("button", name="Editar documentos visualmente").click()
                 page.get_by_role(
