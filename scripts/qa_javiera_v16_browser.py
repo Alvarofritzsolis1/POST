@@ -77,9 +77,13 @@ def main():
             warning = page.get_by_role("region", name="Alertas preventivas de matriz original")
             expect(warning).to_contain_text("40", timeout=20000)
             expect(warning).to_contain_text("No se completarán ni aprobarán automáticamente")
+            expect(warning).to_contain_text("Contacto eléctrico directo o indirecto")
+            expect(warning.get_by_role("button", name="Copiar las 13 filas con la propuesta para el editor")).to_be_visible()
             role_selector.select_option("PAISAJISTA")
             expect(warning).to_contain_text("PAISAJISMO (REVISAR HDS)", timeout=20000)
             expect(warning).to_contain_text("no se vincula sin revisión preventiva")
+            expect(warning).to_contain_text("Inventario")
+            expect(warning.get_by_role("button", name="Copiar ficha de 12 campos HDS para levantar datos reales")).to_be_visible()
             role_selector.select_option("GASFITER")
             expect(page.locator(".jir-view-toolbar strong")).to_have_text("13", timeout=20000)
             report["scenarios"]["source_risk_and_hds_alerts"] = "PASS"
