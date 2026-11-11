@@ -80,3 +80,74 @@ def test_admin_role_api_exposes_proposals_without_changing_approval(env):
         else:
             assert draft["proposal"]["template"][0]["value"] is None
             assert data["reference_audit"]["linked"]["SUSTANCIAS"]["missing"] is True
+
+
+
+def test_carpintero_one_click_draft_is_idempotent_and_not_approved(env):
+    client, sessions = env
+    headers = login(client, "a@example.cl")
+    url = "/api/v1/javiera/v194/corrective-draft?cargo=CARPINTERO"
+    first = client.post(url, headers=headers)
+    assert first.status_code == 200, first.text
+    item = first.json()
+    assert item["created"] is True
+    assert item["kind"] == "IRL"
+    assert item["status"] == "draft"
+    assert item["requires_preventive_signoff"] is True
+    second = client.post(url, headers=headers)
+    assert second.status_code == 200, second.text
+    assert second.json()["id"] == item["id"]
+    assert second.json()["created"] is False
+    from app.javiera_models import JavieraMatrix
+    with sessions() as db:
+        row = db.get(JavieraMatrix, item["id"])
+        assert row.status == "draft"
+        assert row.reviewer_id is None
+        assert len(row.sections) == 13
+        assert "Editor visual GALANT 19.5.0 CARPINTERO" in row.source
+        assert any("Contacto eléctrico" in section for section in row.sections)
+    approved = client.get("/api/v1/javiera/v193/role?cargo=CARPINTERO",
+                          headers=headers)
+    assert approved.status_code == 200, approved.text
+    assert approved.json()["irl"]["approved"] is False
+
+
+def test_paisajista_one_click_creates_hds_pending_with_hard_approval_gate(env):
+    from fastapi import HTTPException
+    from app.javiera_api import _check_preventive_matrix_before_approval
+    from app.javiera_models import JavieraMatrix
+    client, sessions = env
+    headers = login(client, "a@example.cl")
+    url = "/api/v1/javiera/v194/corrective-draft?cargo=PAISAJISTA"
+    response = client.post(url, headers=headers)
+    assert response.status_code == 200, response.text
+    draft = response.json()
+    assert draft["kind"] == "SUSTANCIAS"
+    assert draft["status"] == "draft"
+    with sessions() as db:
+        row = db.get(JavieraMatrix, draft["id"])
+        assert len(row.sections) == 12
+        assert all("PENDIENTE DE EVIDENCIA" in s for s in row.sections)
+        try:
+            _check_preventive_matrix_before_approval(row)
+        except HTTPException as exc:
+            assert exc.status_code == 422
+            assert "fichas de seguridad" in exc.detail
+        else:
+            raise AssertionError("No debe habilitarse HDS sin productos reales")
+    duplicate = client.post(url, headers=headers)
+    assert duplicate.status_code == 200
+    assert duplicate.json()["created"] is False
+    assert duplicate.json()["id"] == draft["id"]
+
+
+def test_cannot_generate_other_role_or_guess_hds_by_similar_name(env):
+    client, _ = env
+    headers = login(client, "a@example.cl")
+    rejected = client.post(
+        "/api/v1/javiera/v194/corrective-draft?cargo=PINTOR", headers=headers)
+    assert rejected.status_code == 409
+    spoof = client.post(
+        "/api/v1/javiera/v194/corrective-draft?cargo=PAISAJISMO%20(REVISAR%20HDS)",
+        headers=headers)
+    assert spoof.status_code == 404
