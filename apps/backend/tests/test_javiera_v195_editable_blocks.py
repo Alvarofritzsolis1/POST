@@ -26,13 +26,22 @@ def fake_source(*args, **kwargs):
 
 
 def valid_payload():
+    # La matriz original de las cinco imágenes tiene filas 08–15 y normas
+    # numeradas 01–13. En CI se usan SOLO descripciones sintéticas.
+    required = {1: range(8, 16), 2: (1, 2, 3), 3: (4, 5, 6),
+                4: (7, 8, 9), 5: (10, 11, 12, 13)}
     return {
         "source_sha256": SOURCE,
-        "image_hashes": list(HASHES),  # Aislar cada caso: mutar payload no cambia la fuente.
+        "image_hashes": list(HASHES),  # No compartir array mutable entre casos.
         "reason": "Primera revisión editorial del IRL, cotejo manual obligatorio.",
-        "blocks": [{"id": i, "text": f"Norma {i}: contenido sintético para revisar." +
-                    " Texto técnico de prueba sin valor legal.",
-                    "reviewed": False} for i in range(1,6)],
+        "blocks": [{
+            "id": i,
+            "text": "\\n".join(
+                f"{n:02d}.- Descripción sintética de ensayo {n}; no utilizar en documento real."
+                for n in required[i]
+            ),
+            "reviewed": False,
+        } for i in range(1, 6)],
     }
 
 
@@ -225,3 +234,29 @@ def test_designated_doc_reviewer_can_sign_and_admin_can_publish(env, monkeypatch
         result = visual.attach_approved_irl_visual(db, admin, source)
         assert len(result["approved_editable_blocks"]) == 5
         assert result["approved_editor_revision"] == 1
+
+
+def test_visual_source_numbering_gate_prevents_missing_13th_norm(env, monkeypatch):
+    monkeypatch.setattr(visual, "_authorized_original", fake_source)
+    source = valid_payload()
+    assert visual.missing_original_items(source["blocks"]) == {}
+    source["blocks"][4]["text"] = "\\n".join(
+        line for line in source["blocks"][4]["text"].splitlines()
+        if not line.startswith("13.-")
+    )
+    missing = visual.missing_original_items(source["blocks"])
+    assert missing == {"5": [13]}
+    for block in source["blocks"]:
+        block["reviewed"] = True
+    client, _ = env
+    headers = login(client, "a@example.cl")
+    saved = client.post(ROOT + "/irl-blocks", json=source, headers=headers)
+    assert saved.status_code == 200, saved.text
+    status = client.get(ROOT + "/irl-blocks", headers=headers)
+    assert status.status_code == 200
+    assert status.json()["latest"]["missing_original_items"] == {"5": [13]}
+    assert status.json()["latest"]["can_publish"] is False
+    blocked = client.post(ROOT + "/irl-blocks/" + saved.json()["id"] + "/publish",
+                          headers=headers)
+    assert blocked.status_code == 422, blocked.text
+    assert "bloque 5" in blocked.json()["detail"]
