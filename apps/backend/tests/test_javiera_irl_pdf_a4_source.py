@@ -68,9 +68,6 @@ def test_five_png_images_survive_irl_a4_with_all_13_risks():
         "irl", _data(), matrix=_matrix(),
         original_source={"images": _images(), "status": "approved",
                          "document_code": "DPR-IRL-03",
-        "static": {"A172": "Declaración del documento: el trabajador "
-                   "recibió información de riesgos en este ensayo "
-                   "sintético; las firmas no son reales."},
                          "static": {"A172": "Declaración del documento: el trabajador "
                                     "recibió información de riesgos en este ensayo "
                                     "sintético; las firmas no son reales."}},
@@ -118,3 +115,53 @@ def test_five_reviewed_html_blocks_print_as_actual_text_without_unsafe_html():
         assert "<script>" not in text
         assert "alert(" not in text
         assert "Firma" in text
+
+
+
+def test_print_structured_html_table_eight_antecedents_and_all_thirteen_norms():
+    """Native A4 really supports the five-column editable original, not only plain text."""
+    table = [
+        "ANTECEDENTES GENERALES",
+        "Indique en el recuadro la opción que corresponda con una (x):",
+        "N.° | Accidente | Sí | No | Observaciones / Diagnóstico / Controles / Medicamentos",
+        *[f"{n:02d} | Antecedente de ensayo {n} | ☐ | ☐ |"
+          for n in range(8, 11)],
+        "",
+        "OTRAS CONSIDERACIONES",
+        "N.° | Consideración | Sí | No | Observaciones / Diagnóstico / Controles / Medicamentos",
+        *[f"{n:02d} | Consideración sintética {n} | ☐ | ☐ |"
+          for n in range(11, 16)],
+    ]
+    blocks = [{
+        "title": "Antecedentes y otras consideraciones",
+        "text": "\n".join(table),
+    }]
+    ranges = ((1, 3), (4, 6), (7, 9), (10, 13))
+    for position, (start, end) in enumerate(ranges, 2):
+        lines = [f"☐ {i}.- NORMA SINTETICA {i}\n• Medida preventiva de prueba {i}."
+                 for i in range(start, end + 1)]
+        blocks.append({
+            "title": f"Normas de seguridad {position}",
+            "text": "\n".join(lines),
+        })
+    source = {
+        "status": "approved",
+        "images": _images(),
+        "approved_editable_blocks": blocks,
+        "approved_editor_revision": 11,
+        "document_code": "DPR-IRL-03",
+        "static": {"A172": "Declaración sintética completa del IRL, las firmas se verifican aparte."},
+    }
+    payload = render_native_pdf("irl", _data(), matrix=_matrix(),
+                                original_source=source)
+    with _read_pdf(payload) as pdf:
+        all_text = unicodedata.normalize(
+            "NFKC", "\n".join(page.get_text() for page in pdf))
+        for number in range(8, 16):
+            assert f"{number:02d}" in all_text
+        for number in range(1, 14):
+            assert f"NORMA SINTETICA {number}" in " ".join(all_text.split())
+        assert "ANTECEDENTES GENERALES" in all_text
+        assert "OTRAS CONSIDERACIONES" in all_text
+        assert "Control verificable 13" in " ".join(all_text.split())
+        assert "Firma" in all_text
