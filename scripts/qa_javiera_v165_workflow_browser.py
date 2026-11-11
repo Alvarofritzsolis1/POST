@@ -78,7 +78,7 @@ def verify_guided_workflow(page, context, browser, url, output, report):
     identity_seed = int(suffix, 16) % 999999
     company_rut, worker_rut, representative_rut = (
         _rut(76000000 + identity_seed), _rut(20000000 + identity_seed), _rut(15000000 + identity_seed))
-    page.goto(url + "/proyecto-javiera", wait_until="domcontentloaded")
+    page.goto(url + "/proyecto-javiera?legacy=1", wait_until="domcontentloaded")
     page.locator(".j65-entry button").first.click()
     page.get_by_role("button", name="Procedimiento de trabajo seguro (PTS)").click()
     page.get_by_label("Obra", exact=True).select_option(site["id"])
@@ -185,7 +185,7 @@ def verify_guided_workflow(page, context, browser, url, output, report):
         }},
     })
     private_data = _api(context, url, f"/javiera/dossiers/{private['id']}")
-    page.goto(url + "/proyecto-javiera", wait_until="domcontentloaded")
+    page.goto(url + "/proyecto-javiera?legacy=1", wait_until="domcontentloaded")
     page.locator(".j65-entry button").first.click()
     page.get_by_role("button", name="Zona Subcontratos", exact=True).click()
     page.locator(".j65-documents").get_by_role("button", name="Contrato de trabajo").click()
