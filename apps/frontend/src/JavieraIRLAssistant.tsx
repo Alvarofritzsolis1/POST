@@ -50,6 +50,7 @@ export default function JavieraIRLAssistant({
   },[cargo]);
   const reviewed=useMemo(()=>new Set(reviewedLaborIds.split(",").filter(Boolean)),[reviewedLaborIds]);
   const tasks=detail?.irl.records||[];
+  const warnings=[...new Set(detail?.warnings||[])];
   function toggleLabor(id:string){
     const next=new Set(reviewed);
     if(next.has(id))next.delete(id);else next.add(id);
@@ -80,14 +81,18 @@ export default function JavieraIRLAssistant({
           <span>{detail.pts.approved?"PTS aprobado · revisión "+detail.pts.revision:detail.pts.sections.length?"PTS del Excel · sin aprobar":"PTS pendiente"}</span>
           <span>{tasks.length} registros IRL del cargo</span>
         </div>
-        {detail.warnings.map((warning,i)=><p className="jia-warning" key={i}>
-          <AlertTriangle size={15}/> {warning}</p>)}
+        {warnings.length>0&&<details className="jia-related jia-alerts">
+          <summary><AlertTriangle size={15}/> {warnings.length} observaciones · ver soluciones y pendientes</summary>
+          <ul>{warnings.map((warning,i)=><li key={i}>{warning}</li>)}</ul>
+        </details>}
         {tasks.length>0&&<>
           <p>Revisa las labores del Excel original. Las matrices que aún no tienen aprobación de Prevención son solo referencias y no se imprimen. El PDF conserva por
             seguridad todos los riesgos de la matriz aprobada hasta que exista una
             selección preventiva validada; marcar una labor no modifica la matriz.</p>
+          <details className="jia-related jia-task-toggle">
+            <summary>Revisar {tasks.length} labores y sus riesgos · desplegar tabla</summary>
           <div className="jia-table-wrap"><table>
-            <thead><tr><th>Revisada</th><th>Labor / tarea</th><th>Peligro</th><th>Riesgo</th><th>Medida preventiva</th></tr></thead>
+            <thead><tr><th>Revisada</th><th>Labor / tarea</th><th>Peligro</th><th>Consecuencia potencial</th><th>Medida preventiva</th></tr></thead>
             <tbody>{tasks.map(task=><tr key={task.id}>
               <td><input type="checkbox" aria-label={"Revisar labor "+task.ordinal}
                 checked={reviewed.has(task.id)}
@@ -97,11 +102,12 @@ export default function JavieraIRLAssistant({
                 <td colSpan={4}><AlertTriangle size={14}/> Contenido original sin los cuatro campos:
                   <pre>{task.original}</pre></td>}
             </tr>)}</tbody></table></div>
+          </details>
           <p className="jia-summary"><ShieldCheck size={15}/> {tasks.filter(t=>reviewed.has(t.id)).length}
             {" de "}{tasks.length} labores revisadas; la revisión no equivale a aprobación preventiva.</p>
         </>}
         {detail.pts.sections.length>0&&<details className="jia-related">
-          <summary>Ver {detail.pts.sections.length} apartados del PTS aprobado
+          <summary>Ver {detail.pts.sections.length} apartados del PTS {detail.pts.approved?"aprobado":"de referencia"}
             {" "}(columnas de origen D:T)</summary>
           <ol>{detail.pts.sections.map((section,i)=><li key={i}>
             <strong>{detail.pts.headings[i]||"Apartado sin encabezado"}</strong>
