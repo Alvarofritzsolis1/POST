@@ -1065,6 +1065,20 @@ def pdf_from_workbook(raw: bytes, code: str, data: dict, *,
             "internal_rules_receipt",
         } and worker not in printed:
             raise LayoutError("El PDF no contiene al trabajador seleccionado; revisión obligatoria")
+        if code == "pts_receipt":
+            # El texto A1 contiene un título variable. Una plantilla fuente
+            # con unión demasiado angosta puede producir un PDF A4 válido
+            # pero truncar la última letra del cargo (CARPINTERO -> CARPINTER).
+            # Nunca liberar un acta que cambie la identificación del PTS.
+            expected = " ".join(
+                ("ENTREGA PTS DE " + get_data(data, "role").strip().upper()).casefold().split()
+            )
+            if expected not in printed:
+                raise LayoutError(
+                    "El título ENTREGA PTS se recortó o no coincide con el cargo. "
+                    "Revisa el rango combinado y el ancho del encabezado de la "
+                    "plantilla original antes de imprimir."
+                )
         if preview:
             for page in pdf:
                 page.insert_text((32, 30), "VISTA PREVIA - NO VALIDO PARA FIRMA",
