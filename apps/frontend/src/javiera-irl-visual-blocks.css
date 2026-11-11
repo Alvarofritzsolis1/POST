@@ -6,7 +6,7 @@
 .jvb-heading h3{display:flex;align-items:center;gap:8px;margin:4px 0 5px;font-size:1rem}
 .jvb-heading p{color:#526a80;font-size:.8rem;line-height:1.5;margin:0}
 .jvb-root button,.jvb-upload{cursor:pointer;border:1px solid #b7cbdf;background:#fff;color:#234967;
-  border-radius:8px;padding:9px 12px;font:700 .8rem inherit}
+  border-radius:8px;padding:9px 12px;font-family:inherit;font-size:.8rem;font-weight:700}
 .jvb-root button:disabled{opacity:.5;cursor:not-allowed}
 .jvb-bar{display:flex;gap:10px;flex-wrap:wrap;border-top:1px solid #e0e9f1;
   margin-top:11px;padding-top:11px;font-size:.75rem;color:#5e7384}
@@ -15,7 +15,10 @@
 .jvb-tools{display:flex;flex-wrap:wrap;gap:10px;align-items:center;margin:13px 0}
 .jvb-tools span,.jvb-subtle{font-size:.76rem;color:#5c6f7f;line-height:1.5}
 .jvb-upload{display:inline-flex;align-items:center;gap:7px}
-.jvb-upload input{display:none}
+.jvb-upload{position:relative}
+.jvb-upload input{position:absolute;width:1px;height:1px;opacity:0;
+  overflow:hidden;clip-path:inset(50%);white-space:nowrap;pointer-events:none}
+.jvb-upload:focus-within{outline:3px solid #5689b2;outline-offset:3px}
 .jvb-block{background:#fff;border:1px solid #d7e3ed;border-radius:10px;
   margin-top:13px;padding:13px}
 .jvb-block-title{display:flex;justify-content:space-between;align-items:center;
@@ -23,6 +26,7 @@
 .jvb-block-title strong{color:#183d5c;font-size:.89rem}
 .jvb-block-title span{color:#936822;background:#fff5df;padding:5px 9px;
   border-radius:6px;font-size:.74rem;font-weight:700}
+.jvb-block-title span.jvb-state-reviewed{color:#206547;background:#e4f6ed}
 .jvb-split{display:grid;grid-template-columns:1fr 1fr;gap:15px;min-width:0}
 .jvb-split>div{min-width:0}
 .jvb-root label{display:block;color:#284d69;font-weight:700;font-size:.77rem;margin-bottom:6px}
@@ -48,3 +52,14 @@
 .jvb-actionline{display:flex;flex-wrap:wrap;gap:10px;margin-top:14px}
 @media(max-width:950px){.jvb-split{grid-template-columns:1fr}}
 @media(max-width:550px){.jvb-heading{display:block}.jvb-heading>button{margin-top:10px}}
+
+/* Los cinco bloques son secciones plegables por defecto; reduce la longitud
+   del editor sin ocultar los datos al lector de pantalla. */
+.jvb-block>summary{cursor:pointer;list-style:none;padding-right:20px;position:relative}
+.jvb-block>summary::-webkit-details-marker{display:none}
+.jvb-block>summary:after{content:"+";position:absolute;right:2px;top:-2px;
+  font-size:1.15rem;color:#375e79}
+.jvb-block[open]>summary:after{content:"−"}
+.jvb-block>summary:focus-visible{outline:3px solid #4683aa;outline-offset:4px}
+.jvb-root button:focus-visible{outline:3px solid #4683aa;outline-offset:3px}
+.jvb-block:not([open]){padding-bottom:8px}
