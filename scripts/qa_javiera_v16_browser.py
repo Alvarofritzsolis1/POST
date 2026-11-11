@@ -65,6 +65,15 @@ def main():
             # document structure and preventive matrix, not a blank HTML canvas.
             page.get_by_role("button", name=re.compile("INFORMACIÓN DE RIESGOS LABORALES")).click()
             expect(page.get_by_role("heading", name="Formato original, datos vinculados y matriz de riesgos")).to_be_visible()
+            # Seleccionar un cargo de referencia real: no aceptar una tabla vacía
+            # ni una matriz heredada de otro cargo durante el cambio.
+            role_selector = page.get_by_role("combobox", name="Cargo que deseas revisar")
+            expect(role_selector).not_to_have_value("", timeout=15000)
+            role_selector.select_option("GASFITER")
+            expect(page.locator(".jir-view-toolbar strong")).to_have_text("13", timeout=20000)
+            # El IRL A4 debe estar abierto desde el ingreso; antes estaba
+            # contraído y la interfaz parecía vacía aunque había contenido.
+            expect(page.locator("details.jir-preview")).to_have_attribute("open", "", timeout=15000)
             expect(page.locator(".jir-risk-table thead th")).to_have_count(4)
             expect(page.get_by_role("columnheader", name="Actividad")).to_be_visible()
             expect(page.get_by_role("heading", name="3 - CARACTERÍSTICAS DE PRODUCTOS Y SUSTANCIAS A MANIPULAR")).to_be_visible()
