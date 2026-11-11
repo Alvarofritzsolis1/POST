@@ -48,3 +48,23 @@ export function parseIRLClipboard(source:string){
   }
   return {sections,duplicates,originalRows:body.length};
 }
+
+
+/** Copia reversible hacia Excel: conserva tabulaciones, comillas y saltos internos.
+ * Nunca evalúa expresiones copiadas. Los prefijos peligrosos se escriben como
+ * texto literal en Excel para evitar fórmulas ejecutables.
+ */
+export function serializeIRLClipboard(rows:string[][],withHeader=true):string{
+  const cell=(input:string):string=>{
+    let value=String(input??"");
+    if(/^[\t\r\n ]*[=+@]/.test(value))value="'"+value;
+    // CSV/TSV de Excel: delimitador tab, celdas entrecomilladas si contienen
+    // tabs, nuevas líneas o comillas, duplicando comillas internas.
+    return /[\t\r\n"]/.test(value)?'"'+value.replace(/"/g,'""')+'"':value;
+  };
+  const body=withHeader?[
+    ["Actividad","Peligro","Consecuencia","Medida preventiva"],...rows,
+  ]:rows;
+  if(body.some(row=>row.length!==4))throw new Error("El IRL requiere cuatro columnas.");
+  return body.map(row=>row.map(cell).join("\t")).join("\r\n");
+}
