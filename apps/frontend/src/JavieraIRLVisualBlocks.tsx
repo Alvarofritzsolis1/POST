@@ -37,7 +37,7 @@ export default function JavieraIRLVisualBlocks({source}: {source:Source}){
   const five=source.images.length===5&&!!source.source_sha256;
   const complete=blocks.length===5&&blocks.every(b=>b.text.trim().length>=30);
   const reviewed=complete&&blocks.every(b=>b.reviewed);
-  const sourceReady=data?.source_sha256===source.source_sha256&&
+  const sourceReady=!!data&&data.source_sha256===source.source_sha256&&
     data.image_hashes.every((hash,i)=>hash===source.images[i]?.sha256);
   const completedCount=useMemo(()=>blocks.filter(b=>b.reviewed).length,[blocks]);
   async function refresh(){
