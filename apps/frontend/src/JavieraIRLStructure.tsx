@@ -59,6 +59,7 @@ export default function JavieraIRLStructure({onEditMatrices}:Props){
   const [sourceRefresh,setSourceRefresh]=useState(0);
   const [importingOriginal,setImportingOriginal]=useState(false);
   const [copyStatus,setCopyStatus]=useState("");
+  const [preparingDraft,setPreparingDraft]=useState(false);
 
   useEffect(()=>{
     let active=true;
@@ -126,6 +127,18 @@ export default function JavieraIRLStructure({onEditMatrices}:Props){
   const substances=sectionFor("SUSTANCIAS");
   const staticValue=(coordinate:string)=>original?.static[coordinate]||"";
   const warningList=[...new Set([...(current?.warnings||[]),...(reference?.warnings||[])])];
+  async function prepareCorrectiveDraft(){
+    if(preparingDraft||!current?.corrective_draft?.proposal)return;
+    setPreparingDraft(true);setCopyStatus("");
+    try{
+      const result=await request<{id:string;revision:number;status:string;created:boolean;kind:string}>(
+        "/javiera/v194/corrective-draft?cargo="+encodeURIComponent(cargo),
+        {method:"POST"});
+      setCopyStatus("GALANT guardó "+result.kind+" revisión "+result.revision+
+        " como BORRADOR (sin aprobación). Abre Matrices y cargos para revisar y enviar a Prevención.");
+    }catch(e){setCopyStatus("Error: "+(e instanceof Error?e.message:String(e)))}
+    finally{setPreparingDraft(false)}
+  }
   async function copyCorrectiveDraft(){
     if(!current?.corrective_draft?.proposal)return;
     const correction=current.corrective_draft;
@@ -238,8 +251,13 @@ export default function JavieraIRLStructure({onEditMatrices}:Props){
             <p><b>Consecuencias propuestas:</b> {current.corrective_draft.proposal.risk_suggestion}</p>
             <p><b>Medidas preventivas propuestas:</b> {current.corrective_draft.proposal.controls_suggestion}</p>
             <p className="jir-noapprove">{current.corrective_draft.proposal.disclaimer}</p>
-            <button type="button" onClick={()=>void copyCorrectiveDraft()}>
-              Copiar las 13 filas con la propuesta para el editor
+            <button type="button" disabled={preparingDraft}
+              onClick={()=>void prepareCorrectiveDraft()}>
+              {preparingDraft?"Guardando…":"Crear borrador de 13 riesgos en GALANT"}
+            </button>
+            <button type="button" disabled={preparingDraft}
+              onClick={()=>void copyCorrectiveDraft()}>
+              Copiar las 13 filas como alternativa
             </button>
           </div>}
         {current.corrective_draft?.type==="chemical_inventory"&&
@@ -251,8 +269,13 @@ export default function JavieraIRLStructure({onEditMatrices}:Props){
             <ul>{(current.corrective_draft.proposal.missing_evidence||[])
               .map(item=><li key={item}>{item}</li>)}</ul>
             <p>{current.corrective_draft.proposal.no_chemical_use_policy}</p>
-            <button type="button" onClick={()=>void copyCorrectiveDraft()}>
-              Copiar ficha de 12 campos HDS para levantar datos reales
+            <button type="button" disabled={preparingDraft}
+              onClick={()=>void prepareCorrectiveDraft()}>
+              {preparingDraft?"Guardando…":"Crear ficha editable HDS en GALANT"}
+            </button>
+            <button type="button" disabled={preparingDraft}
+              onClick={()=>void copyCorrectiveDraft()}>
+              Copiar ficha de 12 campos HDS como alternativa
             </button>
           </div>}
         {onEditMatrices&&<button type="button" onClick={onEditMatrices}>
