@@ -23,6 +23,19 @@ const checklist=[
 ] as const;
 const basis="D.S. 44, artículos 7 y 15; https://www.bcn.cl/leychile/navegar?idNorma=1205298";
 const msg=(error:unknown)=>error instanceof Error?error.message:String(error);
+// Cada gráfico del IRL contiene numeraciones definidas en el Excel original.
+// Una casilla "cotejado" no reemplaza la presencia real de cada apartado.
+const requiredOriginalNumbers:Record<number,number[]>={
+  1:[8,9,10,11,12,13,14,15],
+  2:[1,2,3],3:[4,5,6],4:[7,8,9],5:[10,11,12,13],
+};
+function missingOriginalNumbers(item:Block|undefined,id:number):number[]{
+  const found=new Set<number>();
+  const matcher=/^\s*(?:☐|□|\[\s*\])?\s*0*(\d{1,2})(?:\s*[-.)]|\s{1,})/gm;
+  for(const match of (item?.text||"").matchAll(matcher))
+    found.add(Number(match[1]));
+  return (requiredOriginalNumbers[id]||[]).filter(x=>!found.has(x));
+}
 
 export default function JavieraIRLVisualBlocks({source}: {source:Source}){
   const [data,setData]=useState<Data|null>(null);
@@ -40,7 +53,9 @@ export default function JavieraIRLVisualBlocks({source}: {source:Source}){
   const five=source.images.length===5&&!!source.source_sha256;
   const complete=blocks.length===5&&blocks.every(b=>b.text.trim().length>=30);
   const reviewed=complete&&blocks.every(b=>b.reviewed);
-  const canPublish=!!revisionId&&!!data?.latest.can_publish&&reviewed;
+  const missing=blocks.flatMap(block=>missingOriginalNumbers(block,block.id));
+  const readyForPreventiveReview=reviewed&&missing.length===0;
+  const canPublish=!!revisionId&&!!data?.latest.can_publish&&readyForPreventiveReview;
   const sourceReady=!!data&&data.source_sha256===source.source_sha256&&
     data.image_hashes.every((hash,i)=>hash===source.images[i]?.sha256);
   const completedCount=useMemo(()=>blocks.filter(b=>b.reviewed).length,[blocks]);
@@ -112,7 +127,7 @@ export default function JavieraIRLVisualBlocks({source}: {source:Source}){
     }catch(e){setError(msg(e))}finally{setBusy(false)}
   }
   async function signoff(){
-    if(!revisionId||!reviewed||comments.trim().length<40||
+    if(!revisionId||!readyForPreventiveReview||comments.trim().length<40||
       !checklist.every(([key])=>checks[key])||busy)return;
     setBusy(true);setError("");
     try{
@@ -180,6 +195,7 @@ export default function JavieraIRLVisualBlocks({source}: {source:Source}){
       </div>
       {source.images.map((image,index)=>{
         const item=blocks.find(b=>b.id===index+1);
+        const notFound=missingOriginalNumbers(item,index+1);
         return <details className="jvb-block" key={image.sha256} open={index===0}>
           <summary className="jvb-block-title">
             <strong>{index+1}. {data?.titles[index]||image.title}</strong>
@@ -193,8 +209,13 @@ export default function JavieraIRLVisualBlocks({source}: {source:Source}){
             <div><label htmlFor={"jvb-text-"+index}>Texto editable para impresión HTML</label>
               <textarea id={"jvb-text-"+index} rows={13} value={item?.text||""}
                 onChange={event=>edit(index+1,{text:event.target.value})}/>
+              {notFound.length>0&&<p className="jvb-missing" role="status">
+                Faltan apartados originales: {notFound.map(v=>String(v).padStart(2,"0")).join(", ")}.
+                Escribe cada número al inicio de la línea, por ejemplo «{String(notFound[0]).padStart(2,"0")}.-».
+                Puedes guardar un borrador, pero no aprobarlo todavía.
+              </p>}
               <label className="jvb-check"><input type="checkbox"
-                checked={!!item?.reviewed} disabled={!item||item.text.trim().length<30}
+                checked={!!item?.reviewed} disabled={!item||item.text.trim().length<30||notFound.length>0}
                 onChange={e=>edit(index+1,{reviewed:e.target.checked})}/>
                 Cotejé cada línea y casilla con la imagen original</label></div>
           </div>
@@ -241,7 +262,7 @@ export default function JavieraIRLVisualBlocks({source}: {source:Source}){
               placeholder="Explica qué imágenes cotejaste y cómo verificaste el IRL."/>
           </label>
           <div className="jvb-actionline">
-            <button type="button" disabled={!reviewed||comments.trim().length<40||
+            <button type="button" disabled={!readyForPreventiveReview||comments.trim().length<40||
               !checklist.every(([key])=>checks[key])||busy||
               !!data?.latest.author_is_current_user||
               data?.latest.preventive_verdict!=="pending"}
