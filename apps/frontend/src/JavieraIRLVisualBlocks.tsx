@@ -8,7 +8,9 @@ type Source={available:boolean;source_sha256?:string;images:ImageItem[]};
 type Block={id:number;text:string;reviewed:boolean};
 type Data={
   source_sha256:string;image_hashes:string[];titles:string[];
-  latest:{id:string|null;revision:number|null;status:string;blocks:Block[];source_matches:boolean};
+  latest:{id:string|null;revision:number|null;status:string;blocks:Block[];
+    source_matches:boolean;preventive_verdict:"pending"|"approved"|"rejected";
+    author_is_current_user:boolean;can_publish:boolean};
   approved_revision:number|null;approved_source_matches:boolean;
 };
 const checklist=[
@@ -37,6 +39,7 @@ export default function JavieraIRLVisualBlocks({source}: {source:Source}){
   const five=source.images.length===5&&!!source.source_sha256;
   const complete=blocks.length===5&&blocks.every(b=>b.text.trim().length>=30);
   const reviewed=complete&&blocks.every(b=>b.reviewed);
+  const canPublish=!!revisionId&&!!data?.latest.can_publish&&reviewed;
   const sourceReady=!!data&&data.source_sha256===source.source_sha256&&
     data.image_hashes.every((hash,i)=>hash===source.images[i]?.sha256);
   const completedCount=useMemo(()=>blocks.filter(b=>b.reviewed).length,[blocks]);
@@ -101,7 +104,8 @@ export default function JavieraIRLVisualBlocks({source}: {source:Source}){
       });
       setRevisionId(result.id);
       setData({...data!,latest:{id:result.id,revision:result.revision,
-        status:"draft",source_matches:true,blocks}});
+        status:"draft",source_matches:true,blocks,preventive_verdict:"pending",
+        author_is_current_user:true,can_publish:false}});
       setMessage("Revisión "+result.revision+" guardada como borrador. No se ha aprobado.");
     }catch(e){setError(msg(e))}finally{setBusy(false)}
   }
@@ -118,11 +122,12 @@ export default function JavieraIRLVisualBlocks({source}: {source:Source}){
           comments,regulatory_basis:basis,
         }),
       });
-      setMessage("Acta preventiva registrada. Puedes publicar la revisión con el control siguiente.");
+      await refresh();
+      setMessage("Acta preventiva registrada. La publicación se habilita si el servidor confirma el acta.");
     }catch(e){setError(msg(e))}finally{setBusy(false)}
   }
   async function publish(){
-    if(!revisionId||!reviewed||busy)return;
+    if(!canPublish||busy)return;
     setBusy(true);setError("");
     try{
       await request("/javiera/v195/irl-blocks/"+encodeURIComponent(revisionId)+"/publish",
@@ -145,6 +150,11 @@ export default function JavieraIRLVisualBlocks({source}: {source:Source}){
       <span>{data?.approved_source_matches?"Existe versión editorial aprobada para esta fuente":
         "Se imprime el material gráfico original mientras falte aprobación"}</span>
       <span>{revisionId?"Revisión "+(data?.latest.revision||"borrador"):"Cambios locales sin guardar"}</span>
+      <span role="status">{data?.latest.status==="approved"?
+        "Versión editorial publicada":data?.latest.preventive_verdict==="approved"?
+        "Acta preventiva aprobada":data?.latest.preventive_verdict==="rejected"?
+        "Acta preventiva rechazada":revisionId?"Pendiente de acta preventiva":
+        "Sin revisión lista para aprobar"}</span>
     </div>
     {error&&<p className="jvb-error" role="alert">{error}</p>}
     {message&&<p className="jvb-info" role="status">{message}</p>}
@@ -152,7 +162,7 @@ export default function JavieraIRLVisualBlocks({source}: {source:Source}){
     {loading&&<p>Consultando revisiones editoriales…</p>}
     {expanded&&five&&!loading&&<div className="jvb-content">
       <div className="jvb-tools">
-        <label className="jvb-upload"><Upload size={15}/> Importar borrador HTML / JSON
+        <label className="jvb-upload"><Upload size={15}/> Importar borrador JSON
           <input type="file" accept=".json,application/json"
             onChange={e=>{const file=e.target.files?.[0];
               if(file)void importDraft(file);e.target.value="";}}/>
@@ -169,7 +179,7 @@ export default function JavieraIRLVisualBlocks({source}: {source:Source}){
           <div className="jvb-split">
             <div><label>Imagen original · fila {image.anchor_row}</label>
               <img src={image.data_uri} alt={image.title}/></div>
-            <div><label htmlFor={"jvb-text-"+index}>Transcripción editable (HTML seguro)</label>
+            <div><label htmlFor={"jvb-text-"+index}>Texto editable para impresión HTML</label>
               <textarea id={"jvb-text-"+index} rows={13} value={item?.text||""}
                 onChange={event=>edit(index+1,{text:event.target.value})}/>
               <label className="jvb-check"><input type="checkbox"
@@ -192,9 +202,20 @@ export default function JavieraIRLVisualBlocks({source}: {source:Source}){
         <div><strong>Acta preventiva independiente y publicación</strong>
           <p>Recurso de revisión: <code>{revisionId}</code>. El autor no puede
             firmar su propia transcripción. Requiere designación de revisor de prevención.</p></div>
-        <button type="button" onClick={()=>setShowReview(v=>!v)}>
-          {showReview?"Ocultar control de firma":"Revisión y publicación"}
-        </button>
+        <div className="jvb-actionline">
+          <button type="button" onClick={()=>void refresh()} disabled={busy}>
+            Actualizar estado de aprobación
+          </button>
+          <button type="button" onClick={()=>setShowReview(v=>!v)}>
+            {showReview?"Ocultar control de firma":"Revisión y publicación"}
+          </button>
+        </div>
+        {data?.latest.author_is_current_user&&<p className="jvb-subtle">
+          Eres el autor: otra persona designada en prevención debe registrar la aprobación.
+        </p>}
+        {data?.latest.preventive_verdict==="rejected"&&<p className="jvb-error">
+          Rechazada. Corrige el contenido y guarda una nueva revisión.
+        </p>}
         {showReview&&<div>
           {checklist.map(([key,label])=><label className="jvb-check" key={key}>
             <input type="checkbox" checked={!!checks[key]}
@@ -206,9 +227,11 @@ export default function JavieraIRLVisualBlocks({source}: {source:Source}){
           </label>
           <div className="jvb-actionline">
             <button type="button" disabled={!reviewed||comments.trim().length<40||
-              !checklist.every(([key])=>checks[key])||busy}
+              !checklist.every(([key])=>checks[key])||busy||
+              !!data?.latest.author_is_current_user||
+              data?.latest.preventive_verdict!=="pending"}
               onClick={()=>void signoff()}><ShieldCheck size={16}/> Registrar acta preventiva</button>
-            <button className="jvb-primary" type="button" disabled={!reviewed||busy}
+            <button className="jvb-primary" type="button" disabled={!canPublish||busy}
               onClick={()=>void publish()}><CheckCircle2 size={15}/> Publicar revisión autorizada</button>
           </div>
           <p className="jvb-subtle">Si no existe un acta preventiva de otro usuario,
