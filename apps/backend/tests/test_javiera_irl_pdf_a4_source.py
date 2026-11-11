@@ -77,6 +77,8 @@ def test_five_png_images_survive_irl_a4_with_all_13_risks():
     )
     with _read_pdf(payload) as pdf:
         all_text = "\n".join(page.get_text() for page in pdf)
+        assert "DEPARTAMENTO" in all_text, "Encabezado IRL original recortado"
+        assert "PREVENCIÓN" in all_text, "Falta parte del encabezado preventivo"
         assert "Actividad de ensayo 1" in all_text
         assert "Actividad de ensayo 13" in all_text
         assert "Control verificable 13" in " ".join(all_text.split()), (
