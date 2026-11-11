@@ -124,3 +124,18 @@
 .jir-original-signature strong{font-size:9pt}
 .jir-original-signature small{font-size:7.8pt;color:#4f6578}
 @media(max-width:800px){.jir-original-document{min-width:650px}}
+
+
+/* GALANT 19.4.3 — navegación compacta de la vista técnica IRL. */
+.jir-view-toolbar{display:flex;align-items:center;justify-content:space-between;flex-wrap:wrap;
+  gap:9px;margin:12px 0;border:1px solid #d6e2eb;border-radius:9px;background:#f6f9fc;
+  padding:10px 12px;font-size:.82rem;color:#2d5068}
+.jir-view-toolbar button{border:1px solid #b8cad8;border-radius:7px;padding:8px 11px;
+  cursor:pointer;background:#fff;font-weight:700;color:#234a67}
+.jir-view-toolbar button:disabled{opacity:.5;cursor:not-allowed}
+.jir-view-toolbar small{width:100%;color:#325f78}
+.jir-preview{border:1px solid #ccdbe5;border-radius:9px;background:#fff}
+.jir-preview>summary{cursor:pointer;padding:12px 14px;font-size:.88rem;
+  font-weight:700;color:#264964}
+.jir-preview[open]>summary{border-bottom:1px solid #dce5ed}
+.jir-preview .jir-scroll{margin:0}
