@@ -181,6 +181,26 @@ export default function JavieraIRLStructure({onEditMatrices}:Props){
       {originalError&&<p className="jir-warning" role="alert">{originalError}</p>}
     </section>
     {original?.available&&original.images?.length===5&&<JavieraIRLVisualBlocks source={original}/>}
+    {current?.reference_audit&&
+      (current.reference_audit.incomplete_excel_rows.length>0||
+       current.reference_audit.linked.SUSTANCIAS.missing)&&
+      <section className="jir-critical-source" aria-label="Alertas preventivas de matriz original">
+        <strong><AlertTriangle size={17}/> La referencia original de este cargo requiere correcciones</strong>
+        {current.reference_audit.incomplete_excel_rows.length>0&&<p>
+          Riesgos con consecuencia o medida preventiva faltante en filas Excel:
+          {" "+current.reference_audit.incomplete_excel_rows.join(", ")}.
+          No se completarán ni aprobarán automáticamente.
+        </p>}
+        {current.reference_audit.linked.SUSTANCIAS.missing&&<p>
+          Sustancias y HDS sin vinculación exacta para {cargo}.
+          {cargo==="PAISAJISTA"?
+            " La fila «PAISAJISMO (REVISAR HDS)» incluye productos de pintura y no se vincula sin revisión preventiva.":
+            " Verifica los productos y HDS reales antes de la aprobación."}
+        </p>}
+        {onEditMatrices&&<button type="button" onClick={onEditMatrices}>
+          Revisar matrices y corregir faltantes
+        </button>}
+      </section>}
     <div className="jir-view-toolbar">
       <span><strong>{rows.length}</strong> labores en esta vista
         {current?.reference_total&&current.reference_total>rows.length?
