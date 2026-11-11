@@ -151,3 +151,67 @@ def test_unapproved_excel_layout_cannot_publish_or_override_original_images(env,
         type("Reviewer", (), {"org_id": "fake"})(), original)
     assert edited is original
     assert "approved_editable_blocks" not in edited
+
+
+def test_designated_doc_reviewer_can_sign_and_admin_can_publish(env, monkeypatch):
+    """Cuentas reviewer pueden aprobar; el autor admin no firma lo suyo."""
+    from sqlalchemy import select
+    from app.models import User
+    from app.security import hash_password
+    from app.javiera_models import JavieraReviewerAuthorization
+    from app.javiera_review import CHECKLISTS, BASIS
+
+    monkeypatch.setattr(visual, "_authorized_original", fake_source)
+    client, sessions = env
+    with sessions.begin() as db:
+        author = db.scalar(select(User).where(User.email == "a@example.cl"))
+        reviewer = User(
+            org_id=author.org_id, email="reviewer@example.cl", role="doc_reviewer",
+            password_hash=hash_password("password-valid-2026"))
+        db.add(reviewer)
+        db.flush()
+        db.add(JavieraReviewerAuthorization(
+            org_id=author.org_id, user_id=reviewer.id,
+            specialty="prevencion", designation="Prevencionista autorizado en prueba sintética",
+            delegated_by=author.id, active=True))
+
+    admin_headers = login(client, "a@example.cl")
+    content = valid_payload()
+    for block in content["blocks"]:
+        block["reviewed"] = True
+    draft = client.post(ROOT + "/irl-blocks", json=content, headers=admin_headers)
+    assert draft.status_code == 200, draft.text
+    revision_id = draft.json()["id"]
+
+    # Un revisor con rol distinto al administrador tiene acceso a su checklist.
+    reviewer_headers = login(client, "reviewer@example.cl")
+    checklist = client.get("/api/v1/javiera/admin/reviews/checklists",
+                           headers=reviewer_headers)
+    assert checklist.status_code == 200
+    signed = client.post("/api/v1/javiera/admin/reviews/signoff", headers=reviewer_headers,
+        json={
+            "resource_kind": "template", "resource_id": revision_id,
+            "specialty": "prevencion", "verdict": "approved",
+            "checklist": {key: True for key in CHECKLISTS["prevencion"]},
+            "comments": "Cotejo sintético de cinco bloques, controles y requerimientos preventivos; solo ensayo.",
+            "regulatory_basis": BASIS["prevencion"],
+        })
+    assert signed.status_code == 200, signed.text
+
+    admin_headers = login(client, "a@example.cl")
+    details = client.get(ROOT + "/irl-blocks", headers=admin_headers)
+    assert details.status_code == 200
+    assert details.json()["latest"]["preventive_verdict"] == "approved"
+    assert details.json()["latest"]["preventive_authorization_valid"] is True
+    assert details.json()["latest"]["can_publish"] is True
+
+    published = client.post(ROOT + "/irl-blocks/" + revision_id + "/publish",
+                            headers=admin_headers)
+    assert published.status_code == 200, published.text
+    assert published.json()["state"] == "approved"
+    with sessions() as db:
+        admin = db.scalar(select(User).where(User.email == "a@example.cl"))
+        source = fake_source()
+        result = visual.attach_approved_irl_visual(db, admin, source)
+        assert len(result["approved_editable_blocks"]) == 5
+        assert result["approved_editor_revision"] == 1
