@@ -2,6 +2,7 @@
 from __future__ import annotations
 
 import hashlib
+import json
 import re
 import shutil
 from pathlib import Path
@@ -24,6 +25,7 @@ from .javiera_excel import (
 )
 from .javiera_models import JavieraDossier, JavieraExcelLayout
 from .javiera_matrices import latest_approved_matrix
+from .javiera_pdf_preview_cache import pdf_preview_cache
 from .javiera_review import require_signoff, specialty_for_code
 from .models import AuditEvent, User, utcnow
 from .security import administrator
@@ -172,12 +174,33 @@ def make_pdf(db: Session, user: User, item: JavieraExcelLayout,
         if preview and matrix is None:
             matrix = (["PENDIENTE DE REVISIÓN DE PREVENCIÓN"] * 17 if item.code == "pts"
                       else ["Tarea: PENDIENTE DE MATRIZ\nPeligro: PENDIENTE\nRiesgo: PENDIENTE\nMedidas: PENDIENTE"])
+    # Cached previews are keyed by the *verified bytes*, organization, fully
+    # resolved record and active approved matrix content. A new Excel, changed
+    # override, role, approval or worker can never reuse a different PDF.
+    # The original source hash is checked above even for a cache hit.
+    cache_key = None
+    if preview:
+        fingerprint = {
+            "org": user.org_id, "layout": item.id, "revision": item.revision,
+            "workbook_sha256": item.workbook_sha256, "code": item.code,
+            "data": data, "overrides": item.overrides,
+            "matrix": matrix, "extra_matrices": extra,
+        }
+        cache_key = hashlib.sha256(json.dumps(
+            fingerprint, sort_keys=True, ensure_ascii=False,
+            default=str, separators=(",", ":")
+        ).encode("utf-8")).hexdigest()
+        cached = pdf_preview_cache.read(cache_key)
+        if cached is not None:
+            return cached
     try:
         output = pdf_from_workbook(raw, item.code, data,
                                    changes=item.overrides, matrix=matrix,
                                    extra_matrices=extra, preview=preview)
     except LayoutError as exc:
         raise HTTPException(409, str(exc)) from None
+    if cache_key is not None:
+        pdf_preview_cache.put(cache_key, output)
     if not preview:
         leaks = source_leaks(raw, output, data)
         if leaks:
