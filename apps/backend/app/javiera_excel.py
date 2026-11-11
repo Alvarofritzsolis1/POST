@@ -241,6 +241,9 @@ PROTECTED_DOCUMENT_CELLS = {
     "ppe_delivery": {f"D{row}" for row in range(12, 20)},
     "extension_addendum": {"A5", "M4"},
     "sworn_declaration": {"A4", "A5"},
+    # La constancia PTS incorpora cargo y firmas DESDE el expediente.
+    # No permitir cambiarlos mediante el editor de celdas de plantilla.
+    "pts_receipt": {"A1", "A3", "A23", "F23", "A24", "F24"},
 }
 
 RESTRICTED_PARTS = ("vbaproject.bin", "externallinks/", "connections.xml", "oleobjects/", "activex/")
