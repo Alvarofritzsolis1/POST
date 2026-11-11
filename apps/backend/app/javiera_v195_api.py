@@ -1,4 +1,5 @@
 """GALANT 19.4.2: acceso autenticado a las imágenes del IRL original privado."""
+import re
 from fastapi import APIRouter, Depends, Response, HTTPException
 from pydantic import BaseModel, ConfigDict, Field
 from sqlalchemy import func, select
@@ -39,6 +40,38 @@ BLOCK_TITLES = (
     "Normas generales de seguridad, puntos 10–13",
 )
 BLOCK_TEMPLATE_CODE = "irl_visual_blocks"
+
+# Anclajes concretos de las cinco imágenes del Excel privado:
+# antecedentes 08–15 y normas generales 01–13, sin saltarse una norma.
+# Esto verifica numeración, NO certifica que el texto o las HDS sean exactos.
+REQUIRED_ORIGINAL_ITEMS = {
+    1: tuple(range(8, 16)),
+    2: (1, 2, 3),
+    3: (4, 5, 6),
+    4: (7, 8, 9),
+    5: (10, 11, 12, 13),
+}
+ORIGINAL_ITEM_LINE = re.compile(
+    r"^\\s*(?:☐|□|\\[\\s*\\])?\\s*0*(\\d{1,2})(?:\\s*[-.)]|\\s{1,})",
+    re.MULTILINE,
+)
+
+
+def missing_original_items(blocks: list[dict]) -> dict[str, list[int]]:
+    """Detectar secciones de imágenes olvidadas; nunca inferir aprobación."""
+    coverage: dict[str, list[int]] = {}
+    by_id = {
+        block.get("id"): block
+        for block in blocks if isinstance(block, dict)
+    }
+    for number, required in REQUIRED_ORIGINAL_ITEMS.items():
+        value = str((by_id.get(number) or {}).get("text") or "")
+        found = {int(match.group(1)) for match in ORIGINAL_ITEM_LINE.finditer(value)}
+        absent = [item for item in required if item not in found]
+        if absent:
+            coverage[str(number)] = absent
+    return coverage
+
 
 
 class GraphicBlock(BaseModel):
@@ -114,6 +147,7 @@ def irl_visual_blocks(response: Response,
         JavieraRevision.state == "approved")) if template and
         template.published_version else None)
     contents = latest.contents if latest else {}
+    outstanding = missing_original_items(contents.get("blocks") or [])
     valid_approval = _authorized_signoff(db, user.org_id, latest) if latest else None
     preventive_review = (db.scalar(select(JavieraSignoff).where(
         JavieraSignoff.org_id == user.org_id,
@@ -135,6 +169,7 @@ def irl_visual_blocks(response: Response,
                                    source["source_sha256"] and
                                    contents.get("image_hashes") ==
                                    [i["sha256"] for i in source["images"]]),
+            "missing_original_items": outstanding,
             "preventive_verdict": (preventive_review.verdict
                                     if preventive_review else "pending"),
             "preventive_authorization_valid": bool(valid_approval),
@@ -145,6 +180,7 @@ def irl_visual_blocks(response: Response,
                 contents.get("image_hashes") ==
                 [i["sha256"] for i in source["images"]] and
                 len(contents.get("blocks") or []) == 5 and
+                not outstanding and
                 all(block.get("reviewed") for block in
                     contents.get("blocks") or [])),
         },
@@ -270,6 +306,14 @@ def publish_irl_visual_blocks(revision_id: str,
         not x.get("reviewed") or not str(x.get("text") or "").strip() for x in blocks
     ):
         raise HTTPException(422, "Los cinco bloques deben estar cotejados y completos.")
+    missing = missing_original_items(blocks)
+    if missing:
+        raise HTTPException(
+            422, "La transcripción omite numeraciones de las imágenes IRL: " +
+            "; ".join(f"bloque {number}: " + ", ".join(map(str, items))
+                      for number, items in missing.items()) +
+            ". Corrige y coteja de nuevo antes de publicar."
+        )
     signoff = _authorized_signoff(db, user.org_id, row)
     if not signoff:
         raise HTTPException(409, "Falta acta preventiva aprobada por un revisor "
@@ -304,6 +348,7 @@ def attach_approved_irl_visual(db: Session, user: User, source: dict) -> dict:
     if (content.get("source_sha256") != source.get("source_sha256") or
         content.get("image_hashes") != hashes or
         len(content.get("blocks") or []) != 5 or
+        missing_original_items(content["blocks"]) or
         not all(x.get("reviewed") for x in content["blocks"])):
         return source
     prepared = dict(source)
