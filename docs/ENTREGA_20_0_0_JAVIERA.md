@@ -31,7 +31,7 @@ La importación original y la limpieza son dos revisiones auditables. Para conse
 - Navegación por las hojas originales, incluida `IRL ` con espacio final. Selección de cargo mediante sus claves exactas y acceso a las filas de las matrices del libro. No se crea otra fuente editable JSON de contenido preventivo.
 - Generación por obra, empresa, trabajador, cargo y documento, con campos adicionales según el documento seleccionado. Se reutilizan los antecedentes disponibles de la empresa y las fechas contractuales registradas. Cambiar o crear otro trabajador limpia los antecedentes personales del anterior.
 - Calc recalcula el libro completo en una copia aislada. Se validan errores y dependencias de las celdas utilizadas por el documento. Se exportan únicamente las hojas solicitadas, manteniendo papel y márgenes originales; el flujo nuevo no normaliza todos los PDF a A4 ni representa el documento con HTML.
-- Las matrices se contrastan con los resultados del IRL/PTS por cargo. Los riesgos que superan doce registros continúan en copias de la tabla original dentro del propio Excel de conversión. Los datos preventivos incompletos o ambiguos bloquean su emisión.
+- Las matrices se contrastan con los resultados del IRL/PTS por cargo. Los riesgos que superan doce registros continúan en copias de la tabla original dentro del propio Excel de conversión. Los datos preventivos incompletos o procedimientos de clave duplicada incompatibles bloquean su emisión.
 - Caché privado por organización, contenido del maestro, datos, cargo, modo y versión del renderizador; deduplicación de solicitudes concurrentes; verificación del hash de cada PDF reutilizado. Las emisiones existentes conservan su archivo e instantánea.
 - Servicio Calc persistente mediante UNO, con una conversión por servicio, límite de espera, tiempo máximo y contenedor limitado. La API admite hasta dos solicitudes de conversión concurrentes. La conversión CLI de Calc sigue disponible si no se configura el servicio persistente; es el mismo motor, no otro generador documental.
 - Se mantienen autenticación, CSRF, aislamiento por organización y designación de revisores. Publicar requiere una revisión profesional registrada por alguien distinto del autor y una vista previa comprobada del formato.
@@ -51,7 +51,7 @@ Pruebas realizadas en el entorno QA de esta sesión, con usuarios y antecedentes
 
 | Verificación | Resultado |
 |---|---|
-| Suite completa backend, con PostgreSQL configurado | 211 aprobadas, 15 omitidas |
+| Suite completa backend, con PostgreSQL configurado | 212 aprobadas, 15 omitidas |
 | Regresión documental con Calc 25.2.3 dentro de Docker | 32 aprobadas; cubre las 13 pruebas PDF omitidas por falta del ejecutable `libreoffice` en el host |
 | Omisiones restantes | 2 escenarios de bloqueo no aplicables a SQLite; sus variantes PostgreSQL se ejecutaron |
 | Lógica frontend | 17 aprobadas |
@@ -68,7 +68,7 @@ Pruebas realizadas en el entorno QA de esta sesión, con usuarios y antecedentes
 | Anchos 1440, 1280, 1024 y 768 | Sin desbordamiento horizontal de toda la página |
 | Compose adicional y sintaxis Python | Validados |
 
-Los ocho formatos no bloqueados se generaron con datos nuevos: contrato, traslado, prórroga, declaración jurada, reglamento, EPP, PTS y entrega PTS. Se verificaron identidades nuevas y remuneración numérica/en palabras. IRL de PINTOR produjo seis páginas, incluidas trece actividades y la continuación Excel. Todos son borradores de QA; ninguna prueba constituye una aprobación laboral o preventiva.
+Los ocho formatos no bloqueados se generaron con datos nuevos: contrato, traslado, prórroga, declaración jurada, reglamento, EPP, PTS y entrega PTS. Se verificaron identidades nuevas y remuneración numérica/en palabras. IRL de PINTOR produjo seis páginas con trece actividades. GASFITER incorpora sus veintiséis registros, aunque estén en bloques no contiguos, en siete páginas con dos continuaciones Excel. Se comprobó que los 52 y 104 campos preventivos respectivamente aparecen completos en el PDF. Todos son borradores de QA; ninguna prueba constituye una aprobación laboral o preventiva.
 
 ## Rendimiento medido
 
@@ -89,11 +89,10 @@ Se observó el contenedor del motor con 780,7 MiB y 0,15 % de CPU tras las prueb
 ## Bloqueos reales y límites de esta candidata
 
 1. **CARPINTERO:** `MATRIZ IRL`, fila 40, tiene riesgos/medidas incompletos. Su IRL se bloquea hasta completar y revisar esa información; no se inventó contenido.
-2. **GASFITER:** existen bloques duplicados de matriz con contenido diferente. La conversión bloquea la elección automática. Se requiere definir la asociación correcta en la fuente maestra y revisión preventiva.
-3. **Inducción original:** la página 11 recorta el encabezado; el texto tiene coordenada superior aproximada de −2,46 pt. Se inspeccionó visualmente el PDF. El formato no se habilita mientras persista ese recorte. No se reescaló ni se eliminaron imágenes para ocultarlo.
-4. **Editor completo:** se implementó un editor nativo de celdas, fórmulas y fragmentos de cláusulas; conserva imágenes en el archivo, pero no las reproduce en su cuadrícula y la edición de formato se limita a copiar estilos/altura. ONLYOFFICE Docs no está integrado ni probado con este libro. Se verificó su licencia AGPL-3.0 en la fuente oficial, pero no su fidelidad EMF, concurrencia ni edición de formatos. Por ello este requisito amplio del prompt continúa pendiente.
-5. **Fidelidad final y cobertura:** no se ha contrastado con una impresión patrón aprobada de Microsoft Excel ni se han habilitado todos los formularios IND como emisiones independientes. Las hojas están disponibles para edición, pero no se afirma equivalencia documental completa ni cobertura de todos los cargos.
-6. **Publicación y VPS:** no se hicieron revisiones profesionales reales, despliegue, limpieza de producción ni ensayo de rollback en el VPS. El objetivo de la arquitectura completa sigue pendiente de esos controles.
+2. **Inducción original:** la página 11 recorta el encabezado; el texto tiene coordenada superior aproximada de −2,46 pt. Se inspeccionó visualmente el PDF. El formato no se habilita mientras persista ese recorte. No se reescaló ni se eliminaron imágenes para ocultarlo.
+3. **Editor completo:** se implementó un editor nativo de celdas, fórmulas y fragmentos de cláusulas; conserva imágenes en el archivo, pero no las reproduce en su cuadrícula y la edición de formato se limita a copiar estilos/altura. ONLYOFFICE Docs no está integrado ni probado con este libro. Se verificó su licencia AGPL-3.0 en la fuente oficial, pero no su fidelidad EMF, concurrencia ni edición de formatos. Por ello este requisito amplio del prompt continúa pendiente.
+4. **Fidelidad final y cobertura:** no se ha contrastado con una impresión patrón aprobada de Microsoft Excel ni se han habilitado todos los formularios IND como emisiones independientes. Las hojas están disponibles para edición, pero no se afirma equivalencia documental completa ni cobertura de todos los cargos.
+5. **Publicación y VPS:** no se hicieron revisiones profesionales reales, despliegue, limpieza de producción ni ensayo de rollback en el VPS. El objetivo de la arquitectura completa sigue pendiente de esos controles.
 
 Referencia de licencia consultada: https://github.com/ONLYOFFICE/DocumentServer/blob/master/LICENSE.
 

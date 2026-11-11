@@ -12,7 +12,7 @@ from app.db import Base
 from app.javiera_excel import LayoutError, Q, sheet_files, shared_strings, cell_text
 from app.javiera_models import JavieraDossier, JavieraIssue
 from app.javiera_workbook import (digest, edit_workbook, inventory, read_sheet, repair_master, clean_master,
-                                  roles, validate_calculated)
+                                  roles, validate_calculated, irl_continuations)
 from app.javiera_workbook_models import JavieraWorkbook
 from test_control_api import env, login
 from test_javiera_excel_layout import sample_xlsx
@@ -183,3 +183,18 @@ def test_cache_deduplicates_concurrent_conversion_and_invalidates_content(monkey
     module.cached_pdf(edited,'labor_contract',data,'org-test',tmp_path,True)
     module.cached_pdf(raw,'labor_contract',data,'otra-org',tmp_path,True)
     assert len(calls)==3
+
+
+def test_irl_continues_exact_cargo_rows_after_another_cargo_block():
+    """The thirteenth matching risk must not be confused with the intervening cargo."""
+    wb=load_workbook(io.BytesIO(master()));matrix=wb['MATRIZ IRL']
+    for i in range(2,13):matrix.append([i,'CARPINTERO','ACTIVIDAD '+str(i),'PELIGRO','RIESGO','MEDIDA'])
+    matrix.append([13,'PINTOR','OTRO CARGO','PELIGRO','RIESGO','MEDIDA'])
+    matrix.append([14,'CARPINTERO','ACTIVIDAD FINAL CORRECTA','PELIGRO','RIESGO','MEDIDA'])
+    for col in 'ABCD':wb['IRL'][col+'45']="='Datos Contrato'!C29"
+    out=io.BytesIO();wb.save(out);result,names=irl_continuations(out.getvalue(),'CARPINTERO')
+    assert len(names)==1
+    cells={c['cell']:c for c in read_sheet(result,names[0],45,1)['cells']}
+    assert "'MATRIZ IRL'!$B$15" in cells['A45']['formula']
+    assert "'MATRIZ IRL'!$C$15" in cells['A45']['formula']
+    assert "'MATRIZ IRL'!$E$15" in cells['C45']['formula']

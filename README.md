@@ -1,6 +1,6 @@
 # GALANT POST — 20.0.0-rc1 · Javiera con maestro Excel
 
-Candidata con edición nativa del XLSX, matrices vinculadas, revisiones privadas, recálculo Calc, caché y reinicio reversible de Javiera. **Migración integral y despliegue al VPS pendientes:** hay información preventiva incompleta/ambigua, un recorte en la inducción y límites del editor que deben resolverse antes de declarar terminada la versión.
+Candidata con edición nativa del XLSX, matrices vinculadas, revisiones privadas, recálculo Calc, caché y reinicio reversible de Javiera. **Migración integral y despliegue al VPS pendientes:** hay información preventiva incompleta, un recorte en la inducción y límites del editor que deben resolverse antes de declarar terminada la versión.
 
 [Entrega, resultados de QA, límites y actualización](docs/ENTREGA_20_0_0_JAVIERA.md). La limpieza fue probada en QA; no se han eliminado documentos del VPS. Las revisiones profesionales reales continúan siendo obligatorias.
 

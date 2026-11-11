@@ -4,7 +4,7 @@
 - Recálculo real Calc, matrices Excel sin segunda fuente editable, exportación por hoja y caché privado.
 - Correcciones verificables de vínculos IRL, declaración, fechas y datos fijos de ejemplo; conservación de 17 EMF.
 - Reinicio documental exclusivo de Javiera, respaldado y reversible; sin borrar datos operativos de otros módulos.
-- Candidata no desplegada. Pendientes: datos preventivos incompletos/ambiguos, inducción recortada, editor completo y validación del VPS. Ver `docs/ENTREGA_20_0_0_JAVIERA.md`.
+- Candidata no desplegada. Pendientes: datos preventivos incompletos, inducción recortada, editor completo y validación del VPS. Ver `docs/ENTREGA_20_0_0_JAVIERA.md`.
 
 # Historial de cambios
 

@@ -465,11 +465,8 @@ def matrix_records(raw: bytes, role: str, kind: str) -> list[dict]:
 
 def irl_continuations(raw: bytes, role: str) -> tuple[bytes, list[str]]:
     """Continue overflowing risks with copies of the original Excel table, never HTML/PDF drawing."""
-    records = matrix_records(raw, role, "IRL"); first = [records[0]]
-    for row in records[1:]:
-        if row["row"] != first[-1]["row"] + 1: break
-        first.append(row)
-    if len(first) <= 12: return raw, []
+    records = matrix_records(raw, role, "IRL")
+    if len(records) <= 12: return raw, []
     with ZipFile(io.BytesIO(raw)) as z:
         files = sheet_files(z); main_name = resolve_sheet(files, "IRL")
         source_path = files[main_name]; book = ET.fromstring(z.read("xl/workbook.xml"))
@@ -478,17 +475,23 @@ def irl_continuations(raw: bytes, role: str) -> tuple[bytes, list[str]]:
         if definitions is None: definitions = ET.SubElement(book, Q("definedNames"))
         max_id = max(int(s.get("sheetId")) for s in sheets_node)
         changes = {}; names = []
-        for chunk, offset in enumerate(range(12, len(first), 12), 1):
+        for chunk, offset in enumerate(range(12, len(records), 12), 1):
             name = "IRL continuación " + str(chunk); names.append(name)
             path = "xl/worksheets/galant_cont_" + str(chunk) + ".xml"
-            root = ET.fromstring(z.read(source_path)); count = min(12, len(first) - offset)
+            root = ET.fromstring(z.read(source_path)); count = min(12, len(records) - offset)
             for index in range(count):
                 for col in "ABCD":
                     cell = ensure_cell(root, col + str(45 + 2 * index)); base = ensure_cell(root, col + "45")
                     f = base.find(Q("f"))
-                    # Use original first-row formulas with an exact source offset.
+                    # Preserve the original table's formula-driven risk cells.
                     if f is None: raise LayoutError("La tabla IRL debe conservar sus fórmulas antes de continuar")
-                    formula = re.sub(r",0\)\+\d+", ",0)+" + str(offset + index), f.text or "")
+                    # Exact cargo matches can live in separate source blocks.
+                    # Bind the continuation to their actual Excel rows rather
+                    # than stepping through rows belonging to another cargo.
+                    source_row = records[offset + index]['row']
+                    source_col = 'CDEF'['ABCD'.index(col)]
+                    formula = ("IF('MATRIZ IRL'!$B$"+str(source_row)+"='Datos Contrato'!$C$29,"
+                               "'MATRIZ IRL'!$"+source_col+'$'+str(source_row)+',"")')
                     for child in list(cell): cell.remove(child)
                     cell.attrib.pop("t", None); ET.SubElement(cell, Q("f")).text = formula
             set_text(root,'D40','Continuación '+str(chunk))
@@ -515,10 +518,7 @@ def irl_continuations(raw: bytes, role: str) -> tuple[bytes, list[str]]:
 def validate_matrix_results(calculated: bytes, role: str, code: str, continuations: list[str]) -> None:
     if code not in {"irl", "pts", "pts_receipt"}: return
     kind = "IRL" if code == "irl" else "PTS"; records = matrix_records(calculated, role, kind)
-    first = [records[0]]
-    for row in records[1:]:
-        if row['row'] != first[-1]['row'] + 1: break
-        first.append(row)
+    first = records
     # PTS is one logical record. Repeated keys must resolve to identical content.
     if kind == "PTS": first = first[:1]
     columns = list("CDEF") if kind == "IRL" else [chr(i) for i in range(ord("D"), ord("T") + 1)]
@@ -527,7 +527,7 @@ def validate_matrix_results(calculated: bytes, role: str, code: str, continuatio
     if missing:
         raise LayoutError('Matriz '+kind+' pendiente para '+role+': faltan antecedentes preventivos en filas '+', '.join(map(str,missing)))
     normalize = lambda text: " ".join(str(text).split())
-    remaining = records[len(first):]
+    remaining = records[len(first):] if kind == 'PTS' else []
     if remaining:
         if len(remaining) % len(first) or any(
             [normalize(r['values'].get(c, '')) for c in columns] != [normalize(v) for v in expected[i % len(first)]]
@@ -601,10 +601,12 @@ def warm_convert(raw: bytes, sheets: list[str]) -> dict:
         raise LayoutError("El motor Calc privado no pudo completar la conversión; revisa su disponibilidad") from None
 
 
-def validate_calculated(raw: bytes, selected: str) -> dict:
+def validate_calculated(raw: bytes, selected: str | list[str]) -> dict:
     """Trace actual cell dependencies; unrelated control-sheet warnings do not block a document."""
     with ZipFile(io.BytesIO(raw)) as z:
-        files = sheet_files(z); selected = resolve_sheet(files, selected); strings = shared_strings(z)
+        files = sheet_files(z)
+        selected = [resolve_sheet(files,name) for name in ([selected] if isinstance(selected,str) else selected)]
+        strings = shared_strings(z)
         cells = {name: {c.get("r"): c for c in ET.fromstring(z.read(path)).findall(".//" + Q("c"))}
                  for name, path in files.items()}
         def point(ref):
@@ -620,7 +622,7 @@ def validate_calculated(raw: bytes, selected: str) -> dict:
                     a[0] <= point(ref)[0] <= b[0] and a[1] <= point(ref)[1] <= b[1]]
         qualified = re.compile(r"(?:'([^']+)'|([A-Za-z_][A-Za-z_0-9]*))!(\$?[A-Z]{1,3}\$?\d+)(?::(\$?[A-Z]{1,3}\$?\d+))?")
         local = re.compile(r"(?<![A-Za-z_0-9.])([A-Z]{1,3}\$?\d+)(?::(\$?[A-Z]{1,3}\$?\d+))?(?![A-Za-z_0-9.(])")
-        queue = [(selected, ref) for ref in cells[selected]]; visited = set(); errors = []; formulas = 0
+        queue = [(name, ref) for name in selected for ref in cells[name]]; visited = set(); errors = []; formulas = 0
         while queue:
             name, ref = queue.pop()
             if (name, ref) in visited: continue
@@ -677,11 +679,11 @@ def convert_pdf(raw: bytes, sheet: str, *, preview: bool = False,
             selected_sheets = [sheet, *(extra_sheets or [])]
             if settings().javiera_calc_url:
                 result = warm_convert(raw, selected_sheets); calculated = base64.b64decode(result['calculated'], validate=True)
-                validation = validate_calculated(calculated, sheet)
+                validation = validate_calculated(calculated, selected_sheets)
                 pdf = base64.b64decode(result['pdf'], validate=True)
             else:
                 calculated = run_calc(raw, folder)
-                validation = validate_calculated(calculated, sheet)
+                validation = validate_calculated(calculated, selected_sheets)
                 scoped = select_print_sheet(calculated, selected_sheets)
                 source = folder / "document.xlsx"; source.write_bytes(scoped)
                 binary = shutil.which("libreoffice") or shutil.which("soffice")
@@ -708,6 +710,16 @@ def convert_pdf(raw: bytes, sheet: str, *, preview: bool = False,
                         if b[0] < -1 or b[1] < -1 or b[2] > page.rect.width + 1 or b[3] > page.rect.height + 1:
                             clipped.append(i + 1)
                 if clipped: raise LayoutError("Contenido recortado en páginas " + str(sorted(set(clipped))))
+                if code == 'irl':
+                    normalize = lambda value: re.sub(r'[\W_]+','',unicodedata.normalize('NFKC',value).casefold())
+                    printed_content = normalize(' '.join(page.get_text() for page in doc)); checked = 0
+                    for record in matrix_records(calculated,role,'IRL'):
+                        for column in 'CDEF':
+                            value = record['values'].get(column,'')
+                            if value and normalize(value) not in printed_content:
+                                raise LayoutError('El PDF no reproduce íntegro el contenido preventivo de la matriz en '+column+str(record['row']))
+                            checked += 1
+                    validation['printed_matrix_fields'] = checked
                 if preview:
                     for page in doc:
                         page.insert_text((12, 12), "BORRADOR - SIN FIRMA - REQUIERE REVISION", fontsize=7, color=(0.65, 0.15, 0.1))
@@ -724,7 +736,7 @@ def cached_pdf(raw: bytes, code: str, data: dict, org_id: str, cache: Path, prev
                reference: bytes | None = None) -> tuple[bytes, dict]:
     from .config import settings
     key = digest(json.dumps({"org": org_id, "workbook": digest(raw), "code": code,
-        "data": data, "preview": preview, 'reference':digest(reference or raw), "engine": "calc-v20.4-" + ('uno' if settings().javiera_calc_url else 'cli')}, sort_keys=True, ensure_ascii=False).encode())
+        "data": data, "preview": preview, 'reference':digest(reference or raw), "engine": "calc-v20.6-" + ('uno' if settings().javiera_calc_url else 'cli')}, sort_keys=True, ensure_ascii=False).encode())
     with _locks_guard:
         lock = _locks.setdefault(key, threading.Lock())
     with lock:
