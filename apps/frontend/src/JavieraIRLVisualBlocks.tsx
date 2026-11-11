@@ -10,7 +10,8 @@ type Data={
   source_sha256:string;image_hashes:string[];titles:string[];
   latest:{id:string|null;revision:number|null;status:string;blocks:Block[];
     source_matches:boolean;preventive_verdict:"pending"|"approved"|"rejected";
-    author_is_current_user:boolean;can_publish:boolean};
+    author_is_current_user:boolean;can_publish:boolean;
+    preventive_authorization_valid:boolean};
   approved_revision:number|null;approved_source_matches:boolean;
 };
 const checklist=[
@@ -105,7 +106,8 @@ export default function JavieraIRLVisualBlocks({source}: {source:Source}){
       setRevisionId(result.id);
       setData({...data!,latest:{id:result.id,revision:result.revision,
         status:"draft",source_matches:true,blocks,preventive_verdict:"pending",
-        author_is_current_user:true,can_publish:false}});
+        author_is_current_user:true,can_publish:false,
+        preventive_authorization_valid:false}});
       setMessage("Revisión "+result.revision+" guardada como borrador. No se ha aprobado.");
     }catch(e){setError(msg(e))}finally{setBusy(false)}
   }
@@ -150,7 +152,9 @@ export default function JavieraIRLVisualBlocks({source}: {source:Source}){
       <span>{data?.approved_source_matches?"Existe versión editorial aprobada para esta fuente":
         "Se imprime el material gráfico original mientras falte aprobación"}</span>
       <span>{revisionId?"Revisión "+(data?.latest.revision||"borrador"):"Cambios locales sin guardar"}</span>
-      <span role="status">{data?.latest.status==="approved"?
+      <span role="status">{data?.latest.preventive_verdict==="approved"&&
+          !data.latest.preventive_authorization_valid?
+        "Acta sin autorización vigente: requiere designar revisor":data?.latest.status==="approved"?
         "Versión editorial publicada":data?.latest.preventive_verdict==="approved"?
         "Acta preventiva aprobada":data?.latest.preventive_verdict==="rejected"?
         "Acta preventiva rechazada":revisionId?"Pendiente de acta preventiva":
@@ -234,8 +238,9 @@ export default function JavieraIRLVisualBlocks({source}: {source:Source}){
             <button className="jvb-primary" type="button" disabled={!canPublish||busy}
               onClick={()=>void publish()}><CheckCircle2 size={15}/> Publicar revisión autorizada</button>
           </div>
-          <p className="jvb-subtle">Si no existe un acta preventiva de otro usuario,
-            la publicación será rechazada por el servidor.</p>
+          <p className="jvb-subtle">El revisor preventivo y el autor deben ser personas distintas.
+            La aprobación requiere una designación vigente. Una vez registrada
+            el acta, cualquier administrador puede publicar sin falsificar la firma técnica.</p>
         </div>}
       </section>}
     </div>}
