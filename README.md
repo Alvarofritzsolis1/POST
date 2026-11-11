@@ -1,3 +1,9 @@
+# GALANT POST — 20.0.0-rc1 · Javiera con maestro Excel
+
+Candidata con edición nativa del XLSX, matrices vinculadas, revisiones privadas, recálculo Calc, caché y reinicio reversible de Javiera. **Migración integral y despliegue al VPS pendientes:** hay información preventiva incompleta/ambigua, un recorte en la inducción y límites del editor que deben resolverse antes de declarar terminada la versión.
+
+[Entrega, resultados de QA, límites y actualización](docs/ENTREGA_20_0_0_JAVIERA.md). La limpieza fue probada en QA; no se han eliminado documentos del VPS. Las revisiones profesionales reales continúan siendo obligatorias.
+
 # GALANT POST — 15.0.5-rc1 · Actualización automática del VPS
 
 **Ya no se necesita pulsar Run workflow para cada nueva versión:** si se fusiona en `main` un incremento coherente de las versiones backend/frontend/lockfile, GitHub Actions valida la nueva versión, ejecuta la CI completa y, únicamente si todo aprueba, despliega GALANT usando el SSH ya configurado. Una modificación sin cambio de versión no actualiza el VPS.

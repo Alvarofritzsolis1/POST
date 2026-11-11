@@ -21,6 +21,8 @@ class Settings(BaseSettings):
     smtp_user: str = ""
     smtp_password: str = ""
     smtp_from: str = ""
+    javiera_calc_url: str = ""
+    javiera_calc_secret: str = ""
 
 
 @lru_cache
