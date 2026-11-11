@@ -153,3 +153,22 @@ body h2 {margin:12pt 0 6pt;}
   width:50%;font-size:8.1pt}
 .irl-letterhead span{display:block;white-space:normal;word-break:normal}
 .irl-version-grid{margin-top:0;margin-bottom:8pt}
+
+/* Transcripción estructurada: conservar columnas y casillas del bloque 1,
+   sin celdas combinadas incompatibles con PyMuPDF Story. */
+.irl-ed-subhead{font-size:8.5pt;text-align:center;background:#e8f0f5;
+  border:.5pt solid #9fb7c9;padding:3pt;margin:8pt 0 2pt}
+.irl-ed-checklist{width:100%;table-layout:fixed;border-collapse:collapse;
+  margin:2pt 0 8pt}
+.irl-ed-checklist th,.irl-ed-checklist td{font-size:6.7pt;
+  border:.45pt solid #9fb7c9;padding:3pt;vertical-align:top;
+  white-space:normal;word-break:normal}
+.irl-ed-checklist th:nth-child(1),.irl-ed-checklist td:nth-child(1){width:6%}
+.irl-ed-checklist th:nth-child(2),.irl-ed-checklist td:nth-child(2){width:28%}
+.irl-ed-checklist th:nth-child(3),.irl-ed-checklist td:nth-child(3){width:6%;text-align:center}
+.irl-ed-checklist th:nth-child(4),.irl-ed-checklist td:nth-child(4){width:6%;text-align:center}
+.irl-ed-checklist th:nth-child(5),.irl-ed-checklist td:nth-child(5){width:54%}
+.irl-ed-norm{font-size:8pt;font-weight:bold;border-top:.4pt solid #adbdc9;
+  padding:3pt 0 0;margin:7pt 0 2pt;break-after:avoid}
+.irl-ed-block p.irl-ed-bullet{padding-left:14pt;margin:2pt 0 2pt;
+  font-size:7.8pt;line-height:1.3}
