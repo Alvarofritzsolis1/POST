@@ -19,15 +19,18 @@ def test_risks_keep_all_four_fields_linked_by_source_row():
         assert all(risk[key] for key in ("tarea", "peligro", "riesgo", "medidas"))
 
 
-def test_duplicate_gasfiter_blocks_remain_explicitly_ambiguous():
+def test_duplicate_gasfiter_blocks_are_collapsed_for_view_without_source_loss():
     result = audit("GASFITER")
     assert result["risk_count"] == 26
     assert len(result["source_excel_rows"]) == 26
     assert len(set(result["source_excel_rows"])) == 26
     # La numeración fuente es única aunque haya dos perfiles y dos PTS.
     assert result["linked"]["PERFILES"]["match_count"] == 2
-    assert result["linked"]["PERFILES"]["ambiguous"] is True
-    assert result["linked"]["PTS"]["ambiguous"] is True
+    assert result["linked"]["PERFILES"]["ambiguous"] is False
+    assert result["linked"]["PTS"]["ambiguous"] is False
+    assert result["linked"]["PERFILES"]["duplicate_identical"] is True
+    assert result["display_risk_count"] == 13
+    assert len(result["collapsed_risk_groups"]) == 13
     assert result["source_is_not_automatically_approved"] is True
 
 
