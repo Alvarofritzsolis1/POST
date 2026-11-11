@@ -117,10 +117,10 @@ export default function JavieraIRLStructure({onEditMatrices}:Props){
   const warningList=[...new Set([...(current?.warnings||[]),...(reference?.warnings||[])])];
   async function copyRiskMatrix(){
     if(!rows.length)return;
-    const values=[["Actividad","Peligro","Consecuencia","Medida preventiva"].join("\\t"),
+    const values=[["Actividad","Peligro","Consecuencia","Medida preventiva"].join("\t"),
       ...rows.map(row=>[row.labor,row.peligro,row.riesgo,row.medidas]
-        .map(value=>String(value||"").replace(/\\t/g," ").replace(/\\r?\\n/g," ")).join("\\t"))];
-    try{await navigator.clipboard.writeText(values.join("\\n"));
+        .map(value=>String(value||"").replace(/\t/g," ").replace(/\r?\n/g," ")).join("\t"))];
+    try{await navigator.clipboard.writeText(values.join("\n"));
       setCopyStatus("Matriz copiada; puedes pegarla en Excel o en el editor de matrices.");
     }catch{setCopyStatus("El navegador no permitió copiar automáticamente.");}
   }
