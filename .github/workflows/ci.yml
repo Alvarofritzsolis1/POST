@@ -66,6 +66,19 @@ jobs:
           name: galant-javiera-v19-print
           path: ${{ runner.temp }}/javiera-v19-print
           if-no-files-found: warn
+  backend_irl:
+    name: Backend IRL independiente — fórmulas, roles y firmas
+    runs-on: ubuntu-24.04
+    timeout-minutes: 12
+    defaults: {run: {working-directory: apps/backend}}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with: {python-version: "3.12"}
+      # Pruebas sintéticas que no requieren OCR, LibreOffice ni datos reales.
+      # Si falla un caso aquí, no ocultarlo bajo problemas de apt.
+      - run: python -m pip install -r requirements-dev.txt
+      - run: python -m pytest -q tests/test_javiera_irl_private_source_fingerprints.py tests/test_javiera_v195_editable_blocks.py tests/test_javiera_irl_integrity.py
   frontend:
     runs-on: ubuntu-latest
     timeout-minutes: 15
