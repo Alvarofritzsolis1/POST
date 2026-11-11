@@ -45,35 +45,40 @@ jobs:
       - uses: actions/checkout@v4
       - uses: actions/setup-python@v5
         with: {python-version: "3.12"}
-      - name: Verify backend system dependencies; install only what is missing
+      - name: Construir imagen REAL del backend con OCR y LibreOffice
+        working-directory: .
         run: |
           set -Eeuo pipefail
-          required=(tesseract-ocr tesseract-ocr-spa tesseract-ocr-eng libreoffice-calc fonts-dejavu-core)
-          missing=()
-          for package in "${required[@]}"; do
-            if ! dpkg-query -W -f='${Status}' "$package" 2>/dev/null | grep -q 'install ok installed'; then
-              missing+=("$package")
-            fi
-          done
-          if (( ${#missing[@]} )); then
-            echo "Dependencias faltantes: ${missing[*]}"
-            # No dejar ocupada la CI durante muchos minutos ante cortes DNS.
-            # Un fallo de aprovisionamiento debe verse ROJO, nunca ignorarse.
-            timeout 120s sudo apt-get -o Acquire::Retries=1 -o Acquire::http::Timeout=12 update
-            timeout 180s sudo apt-get -y -o Acquire::Retries=1 -o Acquire::http::Timeout=12 install "${missing[@]}"
-          fi
-          command -v tesseract >/dev/null
-          command -v libreoffice >/dev/null
-          tesseract --list-langs | grep -Eq '(^|[[:space:]])spa([[:space:]]|$)'
-          echo "OCR español y LibreOffice disponibles para todas las pruebas."
-      - run: python -m pip install -r requirements-dev.txt
-      - run: python -m compileall -q app
-      - run: python -m pytest -q
+          docker build --file apps/backend/Dockerfile --tag galant-ci-backend \
+            --build-arg "SOURCE_COMMIT=$GITHUB_SHA" .
+      - name: Ejecutar suite COMPLETA de backend dentro de Docker real
+        working-directory: .
+        run: |
+          set -Eeuo pipefail
+          docker run --rm --network host --user 0 \
+            -e TEST_DATABASE_URL="$TEST_DATABASE_URL" \
+            -e PYTHONDONTWRITEBYTECODE=1 \
+            -v "$GITHUB_WORKSPACE:/srv/ci" \
+            -w /srv/ci/apps/backend \
+            galant-ci-backend sh -ec '
+              python -m pip install -r requirements-dev.txt
+              command -v tesseract
+              command -v libreoffice
+              tesseract --list-langs | grep -Eq "(^|[[:space:]])spa([[:space:]]|$)"
+              python -m compileall -q app
+              python -m pytest -q
+            '
       - name: QA de los diez PDF A4 nativos (sin datos reales)
-        # No ejecutar una segunda prueba con dependencias no instaladas si
-        # el aprovisionamiento del job falló; el job ya queda en rojo.
-        if: success()
-        run: python ../../scripts/qa_javiera_v19_print_visual.py --output "$RUNNER_TEMP/javiera-v19-print"
+        working-directory: .
+        run: |
+          set -Eeuo pipefail
+          mkdir -p "$RUNNER_TEMP/javiera-v19-print"
+          docker run --rm --network host --user 0 \
+            -v "$GITHUB_WORKSPACE:/srv/ci" \
+            -v "$RUNNER_TEMP:/qa-output" \
+            -w /srv/ci/apps/backend \
+            galant-ci-backend python /srv/ci/scripts/qa_javiera_v19_print_visual.py \
+              --output /qa-output/javiera-v19-print
       - name: Evidencia visual de los diez formatos (PNG + PDF + informe)
         if: always()
         uses: actions/upload-artifact@v4
