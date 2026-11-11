@@ -129,20 +129,22 @@ export default function JavieraIRLStructure({onEditMatrices}:Props){
   async function copyCorrectiveDraft(){
     if(!current?.corrective_draft?.proposal)return;
     const correction=current.corrective_draft;
+    const proposal=correction.proposal;
+    if(!proposal)return;
     let content="";
     if(correction.type==="risk_row"&&correction.proposal.excel_row===40){
       content=serializeIRLClipboard(rows.map(row=>{
         const isTarget=row.source_excel_rows?.includes(40);
         return [row.labor,row.peligro,
-          isTarget?correction.proposal!.risk_suggestion||"":row.riesgo,
-          isTarget?correction.proposal!.controls_suggestion||"":row.medidas];
+          isTarget?proposal.risk_suggestion||"":row.riesgo,
+          isTarget?proposal.controls_suggestion||"":row.medidas];
       }));
     }else if(correction.type==="chemical_inventory"){
       content=[
         "PAISAJISTA — FICHA DE LEVANTAMIENTO HDS (SIN APROBACIÓN)",
-        ...(correction.proposal.fields||[]).map(field=>field+"\tPENDIENTE DE EVIDENCIA"),
+        ...(proposal.fields||[]).map(field=>field+"\tPENDIENTE DE EVIDENCIA"),
         "",
-        ...(correction.proposal.missing_evidence||[]).map(item=>"VERIFICAR: "+item),
+        ...(proposal.missing_evidence||[]).map(item=>"VERIFICAR: "+item),
       ].join("\n");
     }
     if(!content)return;
