@@ -2,17 +2,19 @@
 <html lang="es">
 <head><meta charset="utf-8"></head>
 <body class="irl-original-print $irl_print_mode">
-  <table class="irl-original-header">
+  <!-- PyMuPDF Story no admite colspan/rowspan y calcula el ancho de
+       columna automáticamente. Dos tablas planas evitan recortar el
+       membrete original, sin reducir el tamaño de sus letras. -->
+  <table class="irl-original-header irl-letterhead">
+    <tbody><tr>
+      <th><span>DEPARTAMENTO DE</span><span>PREVENCIÓN DE RIESGOS</span></th>
+      <th>INFORMACIÓN DE RIESGOS LABORALES</th>
+    </tr></tbody>
+  </table>
+  <table class="irl-original-header irl-version-grid">
     <tbody>
-      <!-- PyMuPDF Story requiere tablas planas: no admite rowspan/colspan.
-           Cuatro columnas REALES por fila evitan recorte del texto impreso. -->
-      <tr><th><span>DEPARTAMENTO DE</span><span>PREVENCIÓN DE RIESGOS</span></th>
-          <th>INFORMACIÓN DE RIESGOS LABORALES</th>
-          <th>Código: $original_code</th>
-          <th>$original_version</th></tr>
-      <tr><th class="irl-head-continuation"></th>
-          <th>IRL - D.S. N° 44</th>
-          <th>Documento:</th><th>$document_ref</th></tr>
+      <tr><th>Código: $original_code</th><th>Versión: $original_version</th></tr>
+      <tr><th>IRL - D.S. N° 44</th><th>Documento: $document_ref</th></tr>
     </tbody>
   </table>
   <table class="irl-original-identity">
