@@ -1,6 +1,7 @@
 import {useEffect,useMemo,useState} from "react";
 import {AlertTriangle,ClipboardList,FileSpreadsheet,Search,ShieldCheck} from "lucide-react";
 import {request} from "./api";
+import {serializeIRLClipboard} from "./javiera-irl-clipboard";
 import "./javiera-irl-structure.css";
 
 type Role={cargo:string;has_approved_irl:boolean;has_approved_pts:boolean;has_draft:boolean;source_excel_available?:boolean;reference_count?:number};
@@ -118,10 +119,9 @@ export default function JavieraIRLStructure({onEditMatrices}:Props){
   const warningList=[...new Set([...(current?.warnings||[]),...(reference?.warnings||[])])];
   async function copyRiskMatrix(){
     if(!rows.length)return;
-    const values=[["Actividad","Peligro","Consecuencia","Medida preventiva"].join("\t"),
-      ...rows.map(row=>[row.labor,row.peligro,row.riesgo,row.medidas]
-        .map(value=>String(value||"").replace(/\t/g," ").replace(/\r?\n/g," ")).join("\t"))];
-    try{await navigator.clipboard.writeText(values.join("\n"));
+    const values=serializeIRLClipboard(rows.map(row=>
+      [row.labor,row.peligro,row.riesgo,row.medidas]));
+    try{await navigator.clipboard.writeText(values);
       setCopyStatus("Matriz copiada; puedes pegarla en Excel o en el editor de matrices.");
     }catch{setCopyStatus("El navegador no permitió copiar automáticamente.");}
   }
