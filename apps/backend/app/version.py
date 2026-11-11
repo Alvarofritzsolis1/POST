@@ -1,5 +1,5 @@
 """The API container is the single source of the displayed release and revision."""
-VERSION = "19.5.0-rc1"
+VERSION = "19.6.0-rc1"
 try:
     from .build_revision import SOURCE_COMMIT
 except ImportError:  # Local development has no container build revision.
