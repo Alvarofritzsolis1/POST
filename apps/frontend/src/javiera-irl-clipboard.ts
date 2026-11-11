@@ -9,18 +9,18 @@ function splitTsv(source:string):string[][]{
     if(ch==='"'){
       if(quoted&&source[i+1]==='"'){cell+='"';i++;}
       else quoted=!quoted;
-    }else if(ch==="\\t"&&!quoted){record.push(cell);cell="";}
-    else if((ch==="\\r"||ch==="\\n")&&!quoted){
+    }else if(ch==="\t"&&!quoted){record.push(cell);cell="";}
+    else if((ch==="\r"||ch==="\n")&&!quoted){
       record.push(cell);if(record.some(v=>v.trim()))rows.push(record);
       record=[];cell="";
-      if(ch==="\\r"&&source[i+1]==="\\n")i++;
+      if(ch==="\r"&&source[i+1]==="\n")i++;
     }else{cell+=ch;}
   }
   if(quoted)throw new Error("El texto pegado contiene comillas sin cerrar.");
   record.push(cell);if(record.some(v=>v.trim()))rows.push(record);
   return rows;
 }
-const clean=(value:string)=>value.trim().normalize("NFKC").replace(/\\s+/g," ").toLowerCase();
+const clean=(value:string)=>value.trim().normalize("NFKC").replace(/\s+/g," ").toLowerCase();
 
 export function parseIRLClipboard(source:string){
   if(source.length>250_000)throw new Error("El pegado supera 250.000 caracteres.");
@@ -41,10 +41,10 @@ export function parseIRLClipboard(source:string){
   const seen=new Set<string>();let duplicates=0;
   const sections:string[]=[];
   for(const row of body){
-    const key=row.map(clean).join("\\u001f");
+    const key=row.map(clean).join("\u001f");
     if(seen.has(key)){duplicates++;continue;}
     seen.add(key);
-    sections.push(LABELS.map((name,i)=>name+": "+row[i].trim()).join("\\n"));
+    sections.push(LABELS.map((name,i)=>name+": "+row[i].trim()).join("\n"));
   }
   return {sections,duplicates,originalRows:body.length};
 }
