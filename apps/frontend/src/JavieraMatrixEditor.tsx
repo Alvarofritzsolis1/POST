@@ -38,6 +38,16 @@ function withColumn(section:string,column:number,value:string){
   parts[column]=value;
   return names.map((name,index)=>name+": "+parts[index]).join("\n");
 }
+type ReviewFilter="all"|"approved"|"draft"|"incomplete"|"reference";
+const hasMissingFields=(record:Matrix):boolean=>{
+  if(!record.sections.length)return true;
+  if(record.kind==="IRL")return record.sections.some(section=>{
+    const fields=splitSection(section);
+    return !fields||fields.some(field=>!field.trim());
+  });
+  if(record.kind==="PTS"&&record.sections.length!==17)return true;
+  return record.sections.some(section=>!section.trim());
+};
 const errorText=(error:unknown)=>error instanceof Error?error.message:String(error);
 function fingerprint(kind:Kind,cargo:string,sections:string[]){
   return JSON.stringify([kind,cargo,sections]);
@@ -51,6 +61,7 @@ export default function JavieraMatrixEditor(){
   const [referenceLoading,setReferenceLoading]=useState(false);
   const [kind,setKind]=useState<Kind>("IRL");
   const [search,setSearch]=useState("");
+  const [reviewFilter,setReviewFilter]=useState<ReviewFilter>("all");
   const [selectedId,setSelectedId]=useState("");
   const [cargo,setCargo]=useState("");
   const [sections,setSections]=useState<string[]>([]);
@@ -81,8 +92,20 @@ export default function JavieraMatrixEditor(){
       const key=row.status==="reference"?"excel:"+row.id:"db:"+row.cargo;
       if(seen.has(key))return false;
       seen.add(key);return true;
-    }).filter(row=>row.cargo.toLocaleLowerCase("es").includes(search.toLocaleLowerCase("es")));
-  },[allRows,kind,search]);
+    }).filter(row=>row.cargo.toLocaleLowerCase("es").includes(search.toLocaleLowerCase("es")))
+      .filter(row=>reviewFilter==="all"||
+        (reviewFilter==="incomplete"?hasMissingFields(row):
+        reviewFilter==="reference"?row.status==="reference":row.status===reviewFilter));
+  },[allRows,kind,search,reviewFilter]);
+  const currentKindRows=useMemo(()=>rows.filter(row=>row.kind===kind),[rows,kind]);
+  const reviewStats=useMemo(()=>({
+    approved:currentKindRows.filter(row=>row.status==="approved").length,
+    draft:currentKindRows.filter(row=>row.status==="draft"&&!hasMissingFields(row)).length,
+    incomplete:allRows.filter(row=>row.kind===kind&&hasMissingFields(row)).length,
+    reference:referenceRows.length,
+  }),[currentKindRows,allRows,referenceRows,kind]);
+  const pendingReview=useMemo(()=>currentKindRows.filter(row=>row.status==="draft"&&!hasMissingFields(row)),
+    [currentKindRows]);
   const variant=referenceVariants.find(item=>item.cargo===cargo);
   const variantRows=referenceRows.filter(row=>variant?.source_rows.includes(row.source_row||-1));
   const variantIdentical=variantRows.length>1&&variantRows.every(row=>
@@ -153,7 +176,7 @@ export default function JavieraMatrixEditor(){
     invalidate();setError("");setMessage("");
   }
   function newRecord(){
-    setCargo("");setSelectedId("");setActiveIRL(0);resetPaste();
+    setCargo("");setSelectedId("");setActiveIRL(0);setReviewFilter("all");resetPaste();
     setSections(kind==="PTS"?Array(17).fill(""):kind==="IRL"?
       ["Tarea: \nPeligro: \nRiesgo: \nMedidas: "]:[""]);invalidate();
     setMessage("Cargo nuevo: el primer guardado será una revisión en borrador.");
@@ -163,7 +186,7 @@ export default function JavieraMatrixEditor(){
     // sus riesgos. React no repite el efecto dependiente de `kind` si
     // su valor no cambia; antes esto dejaba una fila IRL vacía.
     if(value===kind)return;
-    setKind(value);setSelectedId("");setCargo("");setActiveIRL(0);resetPaste();
+    setKind(value);setSelectedId("");setCargo("");setActiveIRL(0);setReviewFilter("all");resetPaste();
     setSections(value==="PTS"?Array(17).fill(""):value==="IRL"?
       ["Tarea: \nPeligro: \nRiesgo: \nMedidas: "]:[""]);invalidate();
   }
@@ -256,6 +279,39 @@ export default function JavieraMatrixEditor(){
     </div><button type="button" onClick={newRecord}><Plus size={16}/> Nuevo cargo</button></header>
     {error&&<p className="jmx-error" role="alert">{error}</p>}
     {message&&<p className="jmx-success" role="status"><CheckCircle2 size={17}/>{message}</p>}
+    <section className="jmx-command-center" aria-label="Centro de control de matrices">
+      <div className="jmx-command-title"><div>
+        <h3>Centro de control y aprobaciones</h3>
+        <p>Estados reales del tipo seleccionado. Las referencias del Excel no equivalen a aprobación.</p>
+      </div><label>Mostrar
+        <select aria-label="Filtrar por estado" value={reviewFilter}
+          onChange={e=>setReviewFilter(e.target.value as ReviewFilter)}>
+          <option value="all">Todas</option>
+          <option value="approved">Aprobadas</option>
+          <option value="draft">Borradores</option>
+          <option value="incomplete">Con campos faltantes</option>
+          <option value="reference">Referencias Excel</option>
+        </select></label></div>
+      <div className="jmx-command-stats">
+        <button type="button" data-status="approved" onClick={()=>setReviewFilter("approved")}>
+          <span>Aprobadas</span><strong>{reviewStats.approved}</strong></button>
+        <button type="button" data-status="draft" onClick={()=>setReviewFilter("draft")}>
+          <span>Listas para revisar</span><strong>{reviewStats.draft}</strong></button>
+        <button type="button" data-status="incomplete" onClick={()=>setReviewFilter("incomplete")}>
+          <span>Con campos faltantes</span><strong>{reviewStats.incomplete}</strong></button>
+        <button type="button" data-status="reference" onClick={()=>setReviewFilter("reference")}>
+          <span>Referencias Excel sin aprobar</span><strong>{reviewStats.reference}</strong></button>
+      </div>
+      {pendingReview.length>0?<div className="jmx-pending">
+        <strong>Revisiones pendientes de decisión</strong>
+        <div>{pendingReview.slice(0,8).map(row=><button key={row.id} type="button"
+          onClick={()=>{selectRecord(row);document.getElementById("jmx-editor-start")?.scrollIntoView({block:"start"});}}>
+          {row.cargo} · revisión {row.revision} · Ver y comprobar impacto
+        </button>)}</div>
+        {pendingReview.length>8&&<small>Se muestran 8 de {pendingReview.length}; filtra borradores para consultar el resto.</small>}
+      </div>:<p className="jmx-command-empty">No hay borradores completos esperando revisión en esta categoría.
+        Los errores deben corregirse antes de solicitar aprobación.</p>}
+    </section>
     <section className="jmx-import" aria-label="Importar matrices desde Excel">
       <div><h3><Upload size={18}/> Importar Excel con comparación previa</h3>
         <p>Las cinco matrices se consultan precargadas desde el Excel original.
@@ -322,7 +378,7 @@ export default function JavieraMatrixEditor(){
         <input id="jmx-search" type="search" value={search} onChange={e=>setSearch(e.target.value)}
           placeholder="Ej. carpintero, pintor"/>
         {(loading||referenceLoading)?<p>Cargando registros originales del Excel…</p>:<div className="jmx-items">
-          <small>{latest.length} entradas y variantes · {referenceTotal} filas de Excel</small>
+          <small>{latest.length} entradas mostradas · {referenceTotal} referencias Excel</small>
           {latest.map(row=><button key={row.id} type="button" className={row.id===selectedId?"chosen":""}
             onClick={()=>selectRecord(row)}><span>{row.cargo}<small>{
               row.status==="reference"?
@@ -330,10 +386,10 @@ export default function JavieraMatrixEditor(){
                 row.kind+" · revisión "+row.revision+" · "+
                   (row.status==="approved"?"Aprobada":"Borrador")
             }</small></span><ArrowRight size={14}/></button>)}
-          {!latest.length&&<p>No se encontraron registros en el Excel ni en GALANT.</p>}
+          {!latest.length&&<p>No hay resultados para este filtro; selecciona «Todas» para ver el catálogo completo.</p>}
         </div>}
       </aside>
-      <div className="jmx-editor">
+      <div className="jmx-editor" id="jmx-editor-start">
         <div className="jmx-controls">
           <label>Cargo / puesto
             <input value={cargo} onChange={e=>{setCargo(e.target.value);setSelectedId("");invalidate();}}
