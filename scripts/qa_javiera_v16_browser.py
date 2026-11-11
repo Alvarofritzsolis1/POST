@@ -81,6 +81,14 @@ def main():
             expect(page.get_by_role("button", name="Abrir Matrices y cargos")).to_be_visible()
             page.get_by_role("button", name="Abrir Matrices y cargos").click()
             expect(page.get_by_role("heading", name="Matrices y cargos")).to_be_visible()
+            center = page.get_by_role("region", name="Centro de control de matrices")
+            expect(center).to_be_visible()
+            expect(center.get_by_role("heading", name="Centro de control y aprobaciones")).to_be_visible()
+            expect(center.get_by_role("button", name=re.compile("Aprobadas"))).to_be_visible()
+            expect(center.get_by_role("button", name=re.compile("Listas para revisar"))).to_be_visible()
+            expect(center.get_by_role("button", name=re.compile("Con campos faltantes"))).to_be_visible()
+            expect(center.get_by_role("button", name=re.compile("Referencias Excel sin aprobar"))).to_be_visible()
+            report["scenarios"]["matrix_approval_dashboard_visible"] = "PASS"
             # GALANT 19.4: los cinco tipos ya tienen contenido del Excel
             # aunque la organización aún no importe ni apruebe las matrices.
             for kind, expected, fields in (
