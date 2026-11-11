@@ -65,3 +65,38 @@ def test_all_five_untranscribed_visual_blocks_are_disclosed():
                for item in result["original_visual_blocks"])
     assert result["full_excel_parity_certified"] is False
     assert any("cinco bloques" in w for w in result["warnings"])
+
+
+def test_exact_technical_duplicates_keep_every_source_excel_row():
+    from app.javiera_irl_consolidation import consolidate_reference_risks
+    from app.javiera_v194_api import lookup_role
+    role, original = lookup_role("GASFITER")
+    viewed, groups = consolidate_reference_risks(original, role)
+    assert len(original) == 26
+    assert len(viewed) == 13
+    assert len(groups) == 13
+    assert {row["excel_row"] for row in original} == {
+        number for row in viewed for number in row["source_excel_rows"]
+    }
+    assert all(len(row["source_excel_rows"]) == 2 for row in viewed)
+    # Nunca mutar la fuente ni reducir campos técnicos.
+    assert all("source_excel_rows" not in row for row in original)
+    assert all(all(row[field] for field in ("tarea", "peligro", "riesgo", "medidas"))
+               for row in viewed)
+
+
+def test_different_risk_or_control_is_never_collapsed():
+    from app.javiera_irl_consolidation import consolidate_reference_risks
+    base = {"cargo": "GASFITER", "tarea": "Instalar tuberías",
+            "peligro": "Corte", "riesgo": "Herida", "medidas": "Control A"}
+    rows = [dict(base, excel_row=1), dict(base, excel_row=2, medidas="Control B")]
+    result, groups = consolidate_reference_risks(rows, "GASFITER")
+    assert len(result) == 2
+    assert not groups
+
+
+def test_identical_variants_must_match_every_technical_section():
+    from app.javiera_irl_consolidation import identical_variants
+    assert identical_variants([{"sections": ["A", "B"]}, {"sections": ["A", "B"]}])
+    assert not identical_variants([{"sections": ["A", "B"]}, {"sections": ["A", "C"]}])
+    assert not identical_variants([])
