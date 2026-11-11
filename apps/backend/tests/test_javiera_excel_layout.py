@@ -260,6 +260,37 @@ def test_mandante_references_are_replaced_in_induction_and_email_link_allowed():
 
 @pytest.mark.skipif(shutil.which("libreoffice") is None, reason="Requiere LibreOffice Calc en CI")
 @pytest.mark.parametrize("code",list(DOC_SHEETS))
+def test_pts_receipt_source_merges_match_real_print_format():
+    from app.javiera_excel import DOC_SHEETS, sheet_files, Q
+    with ZipFile(io.BytesIO(sample_xlsx())) as source:
+        root = ET.fromstring(source.read(sheet_files(source)[DOC_SHEETS["pts_receipt"]]))
+        merged = [m.get("ref") for m in root.findall(".//" + Q("mergeCell"))]
+        assert "A1:I2" in merged
+        assert "A1:D1" not in merged
+    # Este ensayo reproduce el encabezado ancho del archivo original,
+    # no cambia estilos ni documentos de otros formatos.
+
+
+def test_pts_receipt_does_not_emit_pdf_with_clipped_role_heading(monkeypatch):
+    from app import javiera_excel
+
+    def clipped_pdf(_xlsx):
+        pdf = fitz.open()
+        page = pdf.new_page(width=595, height=842)
+        page.insert_text((40, 70), "ENTREGA PTS DE CARPINTER", fontsize=13)
+        page.insert_text((40, 100), "EMPRESA DE PRUEBA", fontsize=10)
+        page.insert_text((40, 130), "PERSONA NUEVA DE PRUEBA", fontsize=10)
+        value = pdf.tobytes()
+        pdf.close()
+        return value
+
+    monkeypatch.setattr(javiera_excel, "libreoffice_pdf", clipped_pdf)
+    with pytest.raises(LayoutError, match="título ENTREGA PTS se recortó"):
+        javiera_excel.pdf_from_workbook(
+            sample_xlsx(), "pts_receipt", valid_data(), preview=True
+        )
+
+
 def test_ten_original_document_pdfs_with_synthetic_person_only(code):
     """Una vista previa por cada tipo, evitando mostrar nombres del Excel origen."""
     from app.javiera_excel import pdf_from_workbook
