@@ -271,6 +271,36 @@ def test_pts_receipt_source_merges_match_real_print_format():
     # no cambia estilos ni documentos de otros formatos.
 
 
+def test_pts_receipt_print_only_clones_cell_style_for_shrink_to_fit():
+    from app.javiera_excel import DOC_SHEETS, sheet_files, Q
+    source = sample_xlsx()
+    printed = excel_document(source, "pts_receipt", valid_data())
+    with ZipFile(io.BytesIO(source)) as old, ZipFile(io.BytesIO(printed)) as new:
+        original_styles = ET.fromstring(old.read("xl/styles.xml"))
+        temporary_styles = ET.fromstring(new.read("xl/styles.xml"))
+        old_styles = original_styles.find(Q("cellXfs"))
+        new_styles = temporary_styles.find(Q("cellXfs"))
+        assert len(new_styles) == len(old_styles) + 1
+        title = ET.fromstring(new.read(sheet_files(new)[DOC_SHEETS["pts_receipt"]]))
+        a1 = title.find(".//" + Q("c") + "[@r='A1']")
+        assert a1.get("s") == str(len(new_styles) - 1)
+        original_title_style = int(ET.fromstring(
+            old.read(sheet_files(old)[DOC_SHEETS["pts_receipt"]])
+        ).find(".//" + Q("c") + "[@r='A1']").get("s", "0"))
+        old_xf = list(old_styles)[original_title_style]
+        new_xf = list(new_styles)[int(a1.get("s"))]
+        for key in ("fontId", "fillId", "borderId", "numFmtId"):
+            assert new_xf.get(key) == old_xf.get(key), key
+        assert new_xf.find(Q("alignment")).get("shrinkToFit") == "1"
+        # No tocar el estilo en el libro histórico importado.
+        assert old.read("xl/styles.xml") == source_style_xml(source)
+
+
+def source_style_xml(workbook: bytes) -> bytes:
+    with ZipFile(io.BytesIO(workbook)) as archive:
+        return archive.read("xl/styles.xml")
+
+
 def test_pts_receipt_does_not_emit_pdf_with_clipped_role_heading(monkeypatch):
     from app import javiera_excel
 
@@ -368,6 +398,12 @@ def test_irl_pdf_keeps_every_approved_risk_even_past_12_rows(risk_rows):
     ("ppe_delivery", "D12"),
     ("extension_addendum", "A5"),
     ("sworn_declaration", "A4"),
+    ("pts_receipt", "A1"),
+    ("pts_receipt", "A3"),
+    ("pts_receipt", "A23"),
+    ("pts_receipt", "F23"),
+    ("pts_receipt", "A24"),
+    ("pts_receipt", "F24"),
 ])
 def test_template_edits_cannot_override_verified_business_fields(code, coordinate):
     from app.javiera_excel import PROTECTED_DOCUMENT_CELLS
