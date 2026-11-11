@@ -122,6 +122,7 @@ def irl_visual_blocks(response: Response,
         if latest else None)
     return {
         "source_sha256": source["source_sha256"],
+        "source_layout_status": source.get("status", "not_approved"),
         "image_hashes": [image["sha256"] for image in source["images"]],
         "titles": list(BLOCK_TITLES),
         "latest": {
@@ -138,7 +139,7 @@ def irl_visual_blocks(response: Response,
             "preventive_authorization_valid": bool(valid_approval),
             "author_is_current_user": bool(latest and latest.author_id == user.id),
             "can_publish": bool(latest and latest.state == "draft" and
-                valid_approval and
+                source.get("status") == "approved" and valid_approval and
                 contents.get("source_sha256") == source["source_sha256"] and
                 contents.get("image_hashes") ==
                 [i["sha256"] for i in source["images"]] and
@@ -208,6 +209,9 @@ def publish_irl_visual_blocks(revision_id: str,
     if _latest_graphic(db, template.id).id != row.id:
         raise HTTPException(409, "La aprobación corresponde a una revisión anterior.")
     source = _authorized_original(db, user)
+    if source.get("status") != "approved":
+        raise HTTPException(409, "Primero aprueba el formato Excel IRL original "
+                            "antes de publicar los cinco bloques editables.")
     content = row.contents
     if (content.get("source_sha256") != source["source_sha256"] or
         content.get("image_hashes") != [i["sha256"] for i in source["images"]]):
@@ -234,7 +238,8 @@ def publish_irl_visual_blocks(revision_id: str,
 
 def attach_approved_irl_visual(db: Session, user: User, source: dict) -> dict:
     """Reemplazo impreso solo de fuente exacta y versión PUBLICADA por revisor."""
-    if not source.get("available") or len(source.get("images") or []) != 5:
+    if (not source.get("available") or source.get("status") != "approved" or
+        len(source.get("images") or []) != 5):
         return source
     template = _graphic_template(db, user.org_id)
     if not template or not template.published_version:
