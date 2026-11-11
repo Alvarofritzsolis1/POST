@@ -1,7 +1,7 @@
 import {useEffect,useMemo,useRef,useState} from "react";
 import {ArrowLeft,CheckCircle2,Download,Eye,FileSpreadsheet,Loader2,Settings2,ShieldAlert} from "lucide-react";
 import {request} from "./api";
-import {JAVIERA_FIELD_META,JAVIERA_EXCEL_FIELDS} from "./JavieraWorkspace";
+
 import "./javiera-simple.css";
 
 type Origin="operational"|"documentary";
@@ -26,6 +26,57 @@ const LABELS:Record<string,string>={
   pts_receipt:"Recepción de PTS",induction:"Inducción de prevención",
 };
 const ORDER=Object.keys(LABELS);
+// Metadata deliberately kept small: Modo Simple never imports the old editor.
+const FIELDS:Record<string,string[]>={
+  labor_contract:["contract.start","contract.end","contract.salary","contract.hours",
+    "extra.worker_address","extra.afp","extra.health_provider","extra.representative_name",
+    "extra.representative_rut","extra.employer_address"],
+  transfer_addendum:["contract.transfer_date","extra.destinations","extra.transport_allowance"],
+  extension_addendum:["contract.end","contract.new_end"],
+  sworn_declaration:["extra.representative_name","extra.representative_rut",
+    "extra.declaration_period","contract.declaration_reason"],
+  internal_rules_receipt:["extra.regulation_version"],
+  ppe_delivery:["event.epp_items"],
+  irl:[],pts:["extra.representative_name","extra.representative_rut"],
+  pts_receipt:["event.pts_version"],
+  induction:["event.induction_topics","extra.employer_phone","extra.employer_address"],
+};
+const FIELDMETA:Record<string,{label:string;type?:string}>={
+  "contract.start":{label:"Fecha de ingreso",type:"date"},
+  "contract.end":{label:"Fecha de término",type:"date"},
+  "contract.new_end":{label:"Nueva fecha de término",type:"date"},
+  "contract.transfer_date":{label:"Fecha de traslado",type:"date"},
+  "contract.salary":{label:"Sueldo base",type:"number"},
+  "contract.hours":{label:"Jornada semanal",type:"number"},
+  "contract.declaration_reason":{label:"Motivo de la declaración"},
+  "extra.representative_name":{label:"Nombre del representante legal"},
+  "extra.representative_rut":{label:"RUT del representante legal"},
+  "extra.representative_nationality":{label:"Nacionalidad del representante"},
+  "extra.worker_nationality":{label:"Nacionalidad del trabajador"},
+  "extra.worker_address":{label:"Domicilio del trabajador"},
+  "extra.worker_commune":{label:"Comuna del trabajador"},
+  "extra.worker_birthdate":{label:"Fecha de nacimiento",type:"date"},
+  "extra.worker_marital_status":{label:"Estado civil"},
+  "extra.worker_phone":{label:"Teléfono del trabajador"},
+  "extra.worker_email":{label:"Correo del trabajador"},
+  "extra.employer_phone":{label:"Teléfono de la empresa"},
+  "extra.employer_address":{label:"Domicilio de la empresa"},
+  "extra.employer_commune":{label:"Comuna de la empresa"},
+  "extra.employer_city":{label:"Ciudad de la empresa"},
+  "extra.site_address":{label:"Dirección de obra"},
+  "extra.destinations":{label:"Destinos autorizados"},
+  "extra.transport_allowance":{label:"Asignación de transporte"},
+  "extra.regulation_version":{label:"Versión del reglamento interno"},
+  "extra.declaration_period":{label:"Período de declaración"},
+  "extra.afp":{label:"AFP"},
+  "extra.health_provider":{label:"Previsión de salud"},
+  "extra.payment_frequency":{label:"Frecuencia de pago"},
+  "extra.bank_account":{label:"Datos de la cuenta de pago"},
+  "event.epp_items":{label:"Elementos de protección personal"},
+  "event.pts_version":{label:"Versión del PTS"},
+  "event.induction_topics":{label:"Temas de inducción"},
+  "event.print_notes":{label:"Observaciones para impresión"},
+};
 const base="/javiera/v166";
 function deep(values:Record<string,string>):Record<string,unknown>{
   const root:Record<string,unknown>={};
@@ -260,7 +311,7 @@ export default function JavieraSimple({onConfig,onBack}:{onConfig?:()=>void;onBa
     }catch(e){setError(friendly(e));}
     finally{setBusy(false);}
   }
-  const fieldKeys=JAVIERA_EXCEL_FIELDS[code]||[];
+  const fieldKeys=FIELDS[code]||[];
   const auto=new Set(["role","event.date","worker.name","worker.rut","employer.name","employer.rut","site.name"]);
   const requiredCatalog=catalog.find(x=>x.code===code)?.required_fields||[];
   const extraFields=[...new Set([...fieldKeys,...requiredCatalog,...missing])]
@@ -340,7 +391,7 @@ export default function JavieraSimple({onConfig,onBack}:{onConfig?:()=>void;onBa
         <summary>Completar otros datos del documento {missing.length>0&&"("+missing.length+" pendientes)"}</summary>
         <div className="jsm-extra-grid">
           {extraFields.map(key=>{
-            const meta=JAVIERA_FIELD_META[key];
+            const meta=FIELDMETA[key];
             const required=missing.includes(key);
             return <label key={key}>{meta?.label||key.replaceAll("."," · ")}
               <input type={meta?.type==="date"?"date":meta?.type==="number"?"number":"text"}
