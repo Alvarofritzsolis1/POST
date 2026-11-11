@@ -4,10 +4,10 @@ import {request} from "./api";
 import "./javiera-irl-visual-blocks.css";
 
 type ImageItem={order:number;title:string;data_uri:string;sha256:string;anchor_row:number|null};
-type Source={available:boolean;source_sha256?:string;images:ImageItem[]};
+type Source={available:boolean;status?:string;source_sha256?:string;images:ImageItem[]};
 type Block={id:number;text:string;reviewed:boolean};
 type Data={
-  source_sha256:string;image_hashes:string[];titles:string[];
+  source_sha256:string;source_layout_status:string;image_hashes:string[];titles:string[];
   latest:{id:string|null;revision:number|null;status:string;blocks:Block[];
     source_matches:boolean;preventive_verdict:"pending"|"approved"|"rejected";
     author_is_current_user:boolean;can_publish:boolean;
@@ -149,6 +149,8 @@ export default function JavieraIRLVisualBlocks({source}: {source:Source}){
     </header>
     <div className="jvb-bar">
       <span className="jvb-pill">{completedCount}/5 cotejados</span>
+      <span>{data?.source_layout_status==="approved"?
+        "Excel fuente aprobado": "Bloqueo: Excel original aún sin aprobación"}</span>
       <span>{data?.approved_source_matches?"Existe versión editorial aprobada para esta fuente":
         "Se imprime el material gráfico original mientras falte aprobación"}</span>
       <span>{revisionId?"Revisión "+(data?.latest.revision||"borrador"):"Cambios locales sin guardar"}</span>
@@ -221,6 +223,10 @@ export default function JavieraIRLVisualBlocks({source}: {source:Source}){
           Rechazada. Corrige el contenido y guarda una nueva revisión.
         </p>}
         {showReview&&<div>
+          {data?.source_layout_status!=="approved"&&<p className="jvb-error">
+            Falta aprobación independiente del formato Excel IRL. Puedes
+            guardar y revisar los borradores, pero no publicarlos todavía.
+          </p>}
           {checklist.map(([key,label])=><label className="jvb-check" key={key}>
             <input type="checkbox" checked={!!checks[key]}
               onChange={e=>setChecks(prev=>({...prev,[key]:e.target.checked}))}/>{label}
