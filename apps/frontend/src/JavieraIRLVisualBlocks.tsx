@@ -1,0 +1,219 @@
+import {useEffect,useMemo,useState} from "react";
+import {CheckCircle2,FileText,Save,ShieldCheck,Upload} from "lucide-react";
+import {request} from "./api";
+import "./javiera-irl-visual-blocks.css";
+
+type ImageItem={order:number;title:string;data_uri:string;sha256:string;anchor_row:number|null};
+type Source={available:boolean;source_sha256?:string;images:ImageItem[]};
+type Block={id:number;text:string;reviewed:boolean};
+type Data={
+  source_sha256:string;image_hashes:string[];titles:string[];
+  latest:{id:string|null;revision:number|null;status:string;blocks:Block[];source_matches:boolean};
+  approved_revision:number|null;approved_source_matches:boolean;
+};
+const checklist=[
+  ["riesgos_reales_de_la_actividad","Riesgos correspondientes a las actividades reales"],
+  ["matriz_y_medidas_de_control","Medidas preventivas y matriz revisadas"],
+  ["puestos_sustancias_y_entorno","Puesto, sustancias y HDS revisados"],
+  ["eventos_capacitaciones_y_epp","EPP, procedimientos y capacitación revisados"],
+  ["coherencia_con_ds44","Contenido cotejado con DS 44 y Excel de referencia"],
+] as const;
+const basis="D.S. 44, artículos 7 y 15; https://www.bcn.cl/leychile/navegar?idNorma=1205298";
+const msg=(error:unknown)=>error instanceof Error?error.message:String(error);
+
+export default function JavieraIRLVisualBlocks({source}: {source:Source}){
+  const [data,setData]=useState<Data|null>(null);
+  const [blocks,setBlocks]=useState<Block[]>([]);
+  const [reason,setReason]=useState("Reconstrucción editable del IRL original; cotejo visual de cinco bloques.");
+  const [comments,setComments]=useState("");
+  const [checks,setChecks]=useState<Record<string,boolean>>({});
+  const [message,setMessage]=useState("");
+  const [error,setError]=useState("");
+  const [loading,setLoading]=useState(true);
+  const [busy,setBusy]=useState(false);
+  const [expanded,setExpanded]=useState(false);
+  const [revisionId,setRevisionId]=useState<string|null>(null);
+  const [showReview,setShowReview]=useState(false);
+  const five=source.images.length===5&&!!source.source_sha256;
+  const complete=blocks.length===5&&blocks.every(b=>b.text.trim().length>=30);
+  const reviewed=complete&&blocks.every(b=>b.reviewed);
+  const sourceReady=data?.source_sha256===source.source_sha256&&
+    data.image_hashes.every((hash,i)=>hash===source.images[i]?.sha256);
+  const completedCount=useMemo(()=>blocks.filter(b=>b.reviewed).length,[blocks]);
+  async function refresh(){
+    const response=await request<Data>("/javiera/v195/irl-blocks");
+    setData(response);
+    const initial=response.latest.source_matches?response.latest.blocks:[];
+    setBlocks(Array.from({length:5},(_,index)=>initial.find(row=>row.id===index+1)||
+      {id:index+1,text:"",reviewed:false}));
+    setRevisionId(response.latest.id);
+  }
+  useEffect(()=>{
+    let active=true;
+    setLoading(true);
+    if(!five){setLoading(false);return;}
+    void request<Data>("/javiera/v195/irl-blocks").then(response=>{
+      if(!active)return;setData(response);
+      const initial=response.latest.source_matches?response.latest.blocks:[];
+      setBlocks(Array.from({length:5},(_,index)=>initial.find(row=>row.id===index+1)||
+        {id:index+1,text:"",reviewed:false}));
+      setRevisionId(response.latest.id);
+    }).catch(e=>{if(active)setError(msg(e))}).finally(()=>{if(active)setLoading(false)});
+    return()=>{active=false};
+  },[source.source_sha256,five]);
+  function edit(id:number,change:Partial<Block>){
+    setBlocks(prev=>prev.map(block=>block.id!==id?block:{
+      ...block,...change,reviewed:change.text!==undefined?false:
+        (change.reviewed??block.reviewed)
+    }));
+    setMessage("");setRevisionId(null);
+  }
+  async function importDraft(file:File){
+    setError("");setMessage("");
+    try{
+      if(file.size>100000)throw Error("El borrador supera 100 KB.");
+      const payload=JSON.parse(await file.text());
+      const items=payload.items;
+      if(payload.format!=="galant-irl-blocks-draft-1"||!Array.isArray(items)||
+         items.length!==5||new Set(items.map((x:Block)=>x.id)).size!==5)
+        throw Error("Archivo inválido: deben existir los cinco bloques IRL.");
+      const result:Block[]=items.map((item:Block)=>({
+        id:item.id,text:String(item.text||""),reviewed:false,
+      })).sort((a,b)=>a.id-b.id);
+      if(result.some((item,i)=>item.id!==i+1||item.text.length<30||item.text.length>18000))
+        throw Error("Transcripción incompleta o demasiado extensa.");
+      setBlocks(result);
+      setRevisionId(null);
+      setMessage("Borrador importado. Debes cotejar de nuevo cada bloque contra el Excel.");
+      setExpanded(true);
+    }catch(e){setError(msg(e))}
+  }
+  async function save(){
+    if(!complete||!sourceReady||busy)return;
+    setBusy(true);setError("");setMessage("");
+    try{
+      const result=await request<{id:string;revision:number;state:string}>(
+        "/javiera/v195/irl-blocks",{
+        method:"POST",body:JSON.stringify({
+          source_sha256:data!.source_sha256,image_hashes:data!.image_hashes,
+          reason,blocks:blocks.map(b=>({...b,text:b.text.trim()})),
+        }),
+      });
+      setRevisionId(result.id);
+      setData({...data!,latest:{id:result.id,revision:result.revision,
+        status:"draft",source_matches:true,blocks}});
+      setMessage("Revisión "+result.revision+" guardada como borrador. No se ha aprobado.");
+    }catch(e){setError(msg(e))}finally{setBusy(false)}
+  }
+  async function signoff(){
+    if(!revisionId||!reviewed||comments.trim().length<40||
+      !checklist.every(([key])=>checks[key])||busy)return;
+    setBusy(true);setError("");
+    try{
+      await request("/javiera/admin/reviews/signoff",{
+        method:"POST",body:JSON.stringify({
+          resource_kind:"template",resource_id:revisionId,
+          specialty:"prevencion",verdict:"approved",
+          checklist:Object.fromEntries(checklist.map(([key])=>[key,true])),
+          comments,regulatory_basis:basis,
+        }),
+      });
+      setMessage("Acta preventiva registrada. Puedes publicar la revisión con el control siguiente.");
+    }catch(e){setError(msg(e))}finally{setBusy(false)}
+  }
+  async function publish(){
+    if(!revisionId||!reviewed||busy)return;
+    setBusy(true);setError("");
+    try{
+      await request("/javiera/v195/irl-blocks/"+encodeURIComponent(revisionId)+"/publish",
+        {method:"POST"});
+      await refresh();setMessage("La revisión editorial fue publicada después del acta preventiva.");
+    }catch(e){setError(msg(e))}finally{setBusy(false)}
+  }
+  return <section className="jvb-root" aria-label="Editor de cinco bloques originales">
+    <header className="jvb-heading">
+      <div><small>IRL · TEXTO EDITABLE Y CONTROL DE FUENTE</small>
+        <h3><FileText size={18}/> Cinco bloques originales</h3>
+        <p>Coteja cada transcripción junto a su imagen. GALANT conserva el PNG exacto
+          hasta que otro revisor autorizado apruebe una versión editorial.</p></div>
+      <button type="button" onClick={()=>setExpanded(value=>!value)}>
+        {expanded?"Ocultar editor":"Abrir editor de bloques"}
+      </button>
+    </header>
+    <div className="jvb-bar">
+      <span className="jvb-pill">{completedCount}/5 cotejados</span>
+      <span>{data?.approved_source_matches?"Existe versión editorial aprobada para esta fuente":
+        "Se imprime el material gráfico original mientras falte aprobación"}</span>
+      <span>{revisionId?"Revisión "+(data?.latest.revision||"borrador"):"Cambios locales sin guardar"}</span>
+    </div>
+    {error&&<p className="jvb-error" role="alert">{error}</p>}
+    {message&&<p className="jvb-info" role="status">{message}</p>}
+    {!five&&<p className="jvb-error">Importa el Excel original con sus cinco imágenes para habilitar el editor.</p>}
+    {loading&&<p>Consultando revisiones editoriales…</p>}
+    {expanded&&five&&!loading&&<div className="jvb-content">
+      <div className="jvb-tools">
+        <label className="jvb-upload"><Upload size={15}/> Importar borrador HTML / JSON
+          <input type="file" accept=".json,application/json"
+            onChange={e=>{const file=e.target.files?.[0];
+              if(file)void importDraft(file);e.target.value="";}}/>
+        </label>
+        <span>Para iniciar, importa el JSON generado desde el editor HTML de cotejo o escribe cada bloque.</span>
+      </div>
+      {source.images.map((image,index)=>{
+        const item=blocks.find(b=>b.id===index+1);
+        return <div className="jvb-block" key={image.sha256}>
+          <div className="jvb-block-title">
+            <strong>{index+1}. {data?.titles[index]||image.title}</strong>
+            <span>{item?.reviewed?"Cotejo visual marcado":"Pendiente de cotejo"}</span>
+          </div>
+          <div className="jvb-split">
+            <div><label>Imagen original · fila {image.anchor_row}</label>
+              <img src={image.data_uri} alt={image.title}/></div>
+            <div><label htmlFor={"jvb-text-"+index}>Transcripción editable (HTML seguro)</label>
+              <textarea id={"jvb-text-"+index} rows={13} value={item?.text||""}
+                onChange={event=>edit(index+1,{text:event.target.value})}/>
+              <label className="jvb-check"><input type="checkbox"
+                checked={!!item?.reviewed} disabled={!item||item.text.trim().length<30}
+                onChange={e=>edit(index+1,{reviewed:e.target.checked})}/>
+                Cotejé cada línea y casilla con la imagen original</label></div>
+          </div>
+        </div>
+      })}
+      <div className="jvb-bottom">
+        <label>Motivo de la revisión
+          <textarea rows={2} maxLength={800} value={reason}
+            onChange={event=>setReason(event.target.value)}/>
+        </label>
+        <button type="button" className="jvb-primary" disabled={!complete||busy||
+          reason.trim().length<12||!sourceReady}
+          onClick={()=>void save()}><Save size={15}/> Guardar nueva revisión en borrador</button>
+      </div>
+      {revisionId&&<section className="jvb-signoff">
+        <div><strong>Acta preventiva independiente y publicación</strong>
+          <p>Recurso de revisión: <code>{revisionId}</code>. El autor no puede
+            firmar su propia transcripción. Requiere designación de revisor de prevención.</p></div>
+        <button type="button" onClick={()=>setShowReview(v=>!v)}>
+          {showReview?"Ocultar control de firma":"Revisión y publicación"}
+        </button>
+        {showReview&&<div>
+          {checklist.map(([key,label])=><label className="jvb-check" key={key}>
+            <input type="checkbox" checked={!!checks[key]}
+              onChange={e=>setChecks(prev=>({...prev,[key]:e.target.checked}))}/>{label}
+          </label>)}
+          <label>Fundamento de la decisión y comprobación del cotejo
+            <textarea rows={3} value={comments} onChange={e=>setComments(e.target.value)}
+              placeholder="Explica qué imágenes cotejaste y cómo verificaste el IRL."/>
+          </label>
+          <div className="jvb-actionline">
+            <button type="button" disabled={!reviewed||comments.trim().length<40||
+              !checklist.every(([key])=>checks[key])||busy}
+              onClick={()=>void signoff()}><ShieldCheck size={16}/> Registrar acta preventiva</button>
+            <button className="jvb-primary" type="button" disabled={!reviewed||busy}
+              onClick={()=>void publish()}><CheckCircle2 size={15}/> Publicar revisión autorizada</button>
+          </div>
+          <p className="jvb-subtle">Si no existe un acta preventiva de otro usuario,
+            la publicación será rechazada por el servidor.</p>
+        </div>}
+      </section>}
+    </div>}
+  </section>;
