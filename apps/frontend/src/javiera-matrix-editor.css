@@ -91,3 +91,69 @@
 .jmx-irl-navigation button:disabled{opacity:.45;cursor:not-allowed}
 @media(max-width:800px){.jmx-irl-layout{grid-template-columns:minmax(0,1fr)}
   .jmx-irl-task-list{max-height:180px}}
+
+
+/* GALANT 19.4.3 — pegado masivo sin escritura directa hasta la confirmación. */
+.jmx-bulk{border:1px solid #c9d9e6;background:#f6faff;border-radius:10px;
+  padding:13px;margin:12px 0;min-width:0}
+.jmx-bulk-heading{display:flex;align-items:flex-start;justify-content:space-between;
+  gap:12px;flex-wrap:wrap}
+.jmx-bulk-heading strong{font-size:.92rem;color:#173f5c}
+.jmx-bulk-heading p{font-size:.8rem;color:#4d687b;line-height:1.4;margin:4px 0 10px}
+.jmx-bulk button{border:1px solid #bed0dc;color:#214b69;background:white;
+  border-radius:7px;padding:8px 11px;cursor:pointer;font-weight:650}
+.jmx-bulk button:disabled{opacity:.5;cursor:not-allowed}
+.jmx-bulk textarea{width:100%;box-sizing:border-box;border:1px solid #aec4d3;
+  border-radius:8px;padding:10px;font:12px/1.45 ui-monospace,Consolas,monospace;
+  resize:vertical;min-height:76px}
+.jmx-bulk-actions{display:flex;align-items:flex-end;gap:9px;flex-wrap:wrap;margin-top:9px}
+.jmx-bulk-actions label{display:flex;flex-direction:column;gap:4px;font-size:.76rem}
+.jmx-bulk-actions select{padding:8px;border:1px solid #bdcedb;border-radius:7px;
+  background:white;color:#25445b}
+.jmx-bulk-preview{margin-top:10px;padding:11px;border-radius:8px;border:1px solid #a9c8b9;
+  background:#eef7f1;color:#245341;font-size:.81rem}
+.jmx-bulk-preview p{margin:5px 0 10px;overflow-wrap:anywhere}
+
+
+/* Centro de control IRL: el color acompaña al estado, sin ser su única señal. */
+.jmx-command-center{border:1px solid #cfdce8;border-radius:12px;background:#f9fbfe;
+  padding:15px;margin:14px 0 19px}
+.jmx-command-title{display:flex;justify-content:space-between;align-items:flex-start;gap:16px}
+.jmx-command-title h3{font-size:1rem;margin:0 0 4px;color:#1d405e}
+.jmx-command-title p{font-size:.8rem;line-height:1.45;color:#536a7b;margin:0 0 11px}
+.jmx-command-title label{display:grid;gap:5px;min-width:155px}
+.jmx-command-title select{padding:8px;border:1px solid #c4d3df;background:#fff;color:#263b50;
+  border-radius:7px;width:100%}
+.jmx-command-stats{display:grid;grid-template-columns:repeat(4,minmax(0,1fr));gap:9px}
+.jmx-command-stats button{display:flex;flex-direction:column;gap:5px;align-items:flex-start;
+  padding:11px;border:1px solid #d4e0ea;border-left:4px solid #7991a5;
+  background:#fff;border-radius:8px;text-align:left;cursor:pointer;color:#24445e}
+.jmx-command-stats button:hover,.jmx-command-stats button:focus-visible{
+  outline:2px solid #8eacc6;outline-offset:1px}
+.jmx-command-stats button[data-status=approved]{border-left-color:#2c8c66}
+.jmx-command-stats button[data-status=draft]{border-left-color:#d7a12e}
+.jmx-command-stats button[data-status=incomplete]{border-left-color:#c35048}
+.jmx-command-stats button[data-status=reference]{border-left-color:#527dac}
+.jmx-command-stats span{font-size:.76rem;font-weight:650;line-height:1.25}
+.jmx-command-stats strong{font-size:1.35rem;font-variant-numeric:tabular-nums}
+.jmx-pending{margin-top:12px;padding-top:12px;border-top:1px solid #d8e3ec}
+.jmx-pending>strong{font-size:.82rem;color:#294a67}
+.jmx-pending>div{display:flex;flex-wrap:wrap;gap:7px;margin-top:8px}
+.jmx-pending button{padding:8px 11px;border:1px solid #afc9dc;border-radius:7px;
+  background:#fff;color:#24516f;cursor:pointer;font-size:.77rem;text-align:left}
+.jmx-pending small,.jmx-command-empty{color:#5e7282;font-size:.77rem;line-height:1.45}
+.jmx-command-empty{margin:12px 0 0}
+@media(max-width:900px){.jmx-command-stats{grid-template-columns:repeat(2,minmax(0,1fr))}}
+@media(max-width:550px){.jmx-command-title{flex-direction:column}
+ .jmx-command-title label{width:100%}.jmx-command-stats{grid-template-columns:1fr 1fr}}
+
+/* Lista guiada de faltantes: mostrar el problema y llevar al campo correcto. */
+.jmx-completeness{padding:12px 14px;border:1px solid #d7c7a5;
+  border-left:4px solid #c78a20;border-radius:9px;background:#fffaf0;margin:13px 0}
+.jmx-completeness>strong{font-size:.85rem;color:#5c431b}
+.jmx-completeness p,.jmx-completeness small{color:#755e3b;font-size:.78rem;line-height:1.45;margin:6px 0}
+.jmx-completeness>div{display:flex;flex-wrap:wrap;gap:7px;margin-top:8px}
+.jmx-completeness button{border:1px solid #d5b87e;background:white;color:#67460b;border-radius:7px;
+  cursor:pointer;font-size:.77rem;padding:7px 9px;text-align:left}
+.jmx-completeness button:hover,.jmx-completeness button:focus-visible{
+  background:#fff1d4;outline:2px solid #ba8b3a;outline-offset:1px}

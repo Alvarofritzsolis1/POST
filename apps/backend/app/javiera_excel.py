@@ -241,6 +241,9 @@ PROTECTED_DOCUMENT_CELLS = {
     "ppe_delivery": {f"D{row}" for row in range(12, 20)},
     "extension_addendum": {"A5", "M4"},
     "sworn_declaration": {"A4", "A5"},
+    # La constancia PTS incorpora cargo y firmas DESDE el expediente.
+    # No permitir cambiarlos mediante el editor de celdas de plantilla.
+    "pts_receipt": {"A1", "A3", "A23", "F23", "A24", "F24"},
 }
 
 RESTRICTED_PARTS = ("vbaproject.bin", "externallinks/", "connections.xml", "oleobjects/", "activex/")
@@ -414,6 +417,41 @@ def set_text(root: ET.Element, coordinate: str, text: str, style_source: str | N
     t.text = text
     if text != text.strip():
         t.set("{http://www.w3.org/XML/1998/namespace}space", "preserve")
+
+
+def protect_pts_receipt_heading_fit(target: ET.Element, styles: bytes) -> bytes:
+    """Only in the disposable print workbook, fit the variable PTS heading.
+
+    The source title A1:I2 is merged. With a long role, Calc can silently
+    print CARPINTER instead of CARPINTERO unless text fitting is enabled.
+    Preserve font, fill, border and source style; clone just the cell XF
+    alignment so no other workbook cells or private source are mutated.
+    """
+    root = ET.fromstring(styles)
+    cell_xfs = root.find(Q("cellXfs"))
+    if cell_xfs is None or not len(cell_xfs):
+        raise LayoutError("La plantilla PTS no contiene estilos de celda")
+    title = ensure_cell(target, "A1")
+    try:
+        old_index = int(title.get("s", "0"))
+        old_xf = list(cell_xfs)[old_index]
+    except (ValueError, IndexError):
+        raise LayoutError("El estilo del título PTS es inválido") from None
+    old_alignment = old_xf.find(Q("alignment"))
+    if old_alignment is not None and old_alignment.get("shrinkToFit") == "1":
+        return styles
+    new_xf = ET.fromstring(ET.tostring(old_xf, encoding="utf-8"))
+    alignment = new_xf.find(Q("alignment"))
+    if alignment is None:
+        alignment = ET.SubElement(new_xf, Q("alignment"))
+    alignment.set("shrinkToFit", "1")
+    alignment.attrib.pop("wrapText", None)
+    new_xf.set("applyAlignment", "1")
+    index = len(cell_xfs)
+    cell_xfs.append(new_xf)
+    cell_xfs.set("count", str(len(cell_xfs)))
+    title.set("s", str(index))
+    return ET.tostring(root, encoding="UTF-8", xml_declaration=True)
 
 
 def set_numeric(root: ET.Element, coordinate: str, value: float):
@@ -861,10 +899,16 @@ def excel_document(raw: bytes, code: str, data: dict, changes: dict | None = Non
         if calc is not None:
             calc.set("fullCalcOnLoad", "0")
             calc.set("forceFullCalc", "0")
+        style_replacement = (
+            protect_pts_receipt_heading_fit(target, z.read("xl/styles.xml"))
+            if code == "pts_receipt" else None
+        )
         replacement = {
             files[selected]: ET.tostring(target, encoding="UTF-8", xml_declaration=True),
             "xl/workbook.xml": ET.tostring(book, encoding="UTF-8", xml_declaration=True),
         }
+        if style_replacement is not None:
+            replacement["xl/styles.xml"] = style_replacement
         buffer = io.BytesIO()
         with ZipFile(buffer, "w", compression=ZIP_DEFLATED, compresslevel=5) as out:
             for info in z.infolist():
@@ -1065,6 +1109,20 @@ def pdf_from_workbook(raw: bytes, code: str, data: dict, *,
             "internal_rules_receipt",
         } and worker not in printed:
             raise LayoutError("El PDF no contiene al trabajador seleccionado; revisión obligatoria")
+        if code == "pts_receipt":
+            # El texto A1 contiene un título variable. Una plantilla fuente
+            # con unión demasiado angosta puede producir un PDF A4 válido
+            # pero truncar la última letra del cargo (CARPINTERO -> CARPINTER).
+            # Nunca liberar un acta que cambie la identificación del PTS.
+            expected = " ".join(
+                ("ENTREGA PTS DE " + get_data(data, "role").strip().upper()).casefold().split()
+            )
+            if expected not in printed:
+                raise LayoutError(
+                    "El título ENTREGA PTS se recortó o no coincide con el cargo. "
+                    "Revisa el rango combinado y el ancho del encabezado de la "
+                    "plantilla original antes de imprimir."
+                )
         if preview:
             for page in pdf:
                 page.insert_text((32, 30), "VISTA PREVIA - NO VALIDO PARA FIRMA",

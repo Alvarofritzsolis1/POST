@@ -1,0 +1,70 @@
+.jvb-root{margin:15px 0 20px;background:#fbfdff;border:1px solid #cdddea;
+  border-radius:12px;padding:15px;color:#203e55}
+.jvb-root *{box-sizing:border-box}
+.jvb-heading{display:flex;align-items:center;justify-content:space-between;gap:15px}
+.jvb-heading small{color:#59738a;font-size:.7rem;font-weight:800;letter-spacing:.055em}
+.jvb-heading h3{display:flex;align-items:center;gap:8px;margin:4px 0 5px;font-size:1rem}
+.jvb-heading p{color:#526a80;font-size:.8rem;line-height:1.5;margin:0}
+.jvb-root button,.jvb-upload{cursor:pointer;border:1px solid #b7cbdf;background:#fff;color:#234967;
+  border-radius:8px;padding:9px 12px;font-family:inherit;font-size:.8rem;font-weight:700}
+.jvb-root button:disabled{opacity:.5;cursor:not-allowed}
+.jvb-bar{display:flex;gap:10px;flex-wrap:wrap;border-top:1px solid #e0e9f1;
+  margin-top:11px;padding-top:11px;font-size:.75rem;color:#5e7384}
+.jvb-pill{background:#eaf2fd;color:#1e4b71;font-weight:700;
+  border-radius:25px;padding:4px 10px}
+.jvb-tools{display:flex;flex-wrap:wrap;gap:10px;align-items:center;margin:13px 0}
+.jvb-tools span,.jvb-subtle{font-size:.76rem;color:#5c6f7f;line-height:1.5}
+.jvb-upload{display:inline-flex;align-items:center;gap:7px}
+.jvb-upload{position:relative}
+.jvb-upload input{position:absolute;width:1px;height:1px;opacity:0;
+  overflow:hidden;clip-path:inset(50%);white-space:nowrap;pointer-events:none}
+.jvb-upload:focus-within{outline:3px solid #5689b2;outline-offset:3px}
+.jvb-block{background:#fff;border:1px solid #d7e3ed;border-radius:10px;
+  margin-top:13px;padding:13px}
+.jvb-block-title{display:flex;justify-content:space-between;align-items:center;
+  flex-wrap:wrap;gap:8px;margin-bottom:12px}
+.jvb-block-title strong{color:#183d5c;font-size:.89rem}
+.jvb-block-title span{color:#936822;background:#fff5df;padding:5px 9px;
+  border-radius:6px;font-size:.74rem;font-weight:700}
+.jvb-block-title span.jvb-state-reviewed{color:#206547;background:#e4f6ed}
+.jvb-split{display:grid;grid-template-columns:1fr 1fr;gap:15px;min-width:0}
+.jvb-split>div{min-width:0}
+.jvb-root label{display:block;color:#284d69;font-weight:700;font-size:.77rem;margin-bottom:6px}
+.jvb-split img{display:block;max-width:100%;height:auto;max-height:470px;
+  object-fit:contain;border:1px solid #bdcbd8;background:#fff}
+.jvb-root textarea{width:100%;border:1px solid #b6cadb;border-radius:7px;
+  min-height:80px;padding:9px;color:#263d52;background:white;
+  font:13px/1.48 "Segoe UI",Arial,sans-serif;resize:vertical}
+.jvb-split textarea{min-height:240px}
+.jvb-root .jvb-check{display:flex;gap:8px;align-items:flex-start;margin:11px 0;
+  font-size:.76rem;font-weight:600;color:#37536a}
+.jvb-check input{width:17px;height:17px;accent-color:#326b8e}
+.jvb-bottom{display:grid;gap:10px;margin:15px 0}
+.jvb-bottom label,.jvb-signoff label:not(.jvb-check){display:grid;gap:6px}
+.jvb-root button.jvb-primary{background:#235678;border-color:#235678;color:#fff;max-width:max-content}
+.jvb-error,.jvb-info{font-size:.8rem;border-radius:7px;padding:10px 12px;line-height:1.4}
+.jvb-error{background:#fff1ef;color:#992d26;border:1px solid #e8c4c0}
+.jvb-info{background:#eaf8f0;color:#246b48;border:1px solid #b9dbc7}
+.jvb-signoff{padding:14px;border:1px solid #d0dfe8;border-radius:9px;
+  background:#f4f9fd;margin-top:13px}
+.jvb-signoff p{font-size:.78rem;color:#5b7081}
+.jvb-signoff code{font-size:.75rem;overflow-wrap:anywhere}
+.jvb-actionline{display:flex;flex-wrap:wrap;gap:10px;margin-top:14px}
+@media(max-width:950px){.jvb-split{grid-template-columns:1fr}}
+@media(max-width:550px){.jvb-heading{display:block}.jvb-heading>button{margin-top:10px}}
+
+/* Los cinco bloques son secciones plegables por defecto; reduce la longitud
+   del editor sin ocultar los datos al lector de pantalla. */
+.jvb-block>summary{cursor:pointer;list-style:none;padding-right:20px;position:relative}
+.jvb-block>summary::-webkit-details-marker{display:none}
+.jvb-block>summary:after{content:"+";position:absolute;right:2px;top:-2px;
+  font-size:1.15rem;color:#375e79}
+.jvb-block[open]>summary:after{content:"−"}
+.jvb-block>summary:focus-visible{outline:3px solid #4683aa;outline-offset:4px}
+.jvb-root button:focus-visible{outline:3px solid #4683aa;outline-offset:3px}
+.jvb-block:not([open]){padding-bottom:8px}
+
+.jvb-missing{background:#fff5e7;color:#804d11;border-left:3px solid #c98c35;
+  border-radius:5px;padding:9px 11px;font-size:.77rem;line-height:1.45;
+  margin:9px 0}
+.jvb-missing:focus-visible{outline:2px solid #c98c35}

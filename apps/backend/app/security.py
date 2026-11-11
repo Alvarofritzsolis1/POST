@@ -65,8 +65,22 @@ def authorized_user(request: Request, db: Session = Depends(get_db)) -> User:
     if user.role == "doc_reviewer":
         # Restrict reviewers to the explicitly-scoped document review API.
         path = request.url.path
-        if not (path.startswith("/api/v1/javiera/v17/review/") or
-                path == "/api/v1/javiera/v17/review/queue" or
+        # Solo recursos de revisión. No abrir rutas generales de JAVIERA
+        # ni expedientes operativos a este perfil.
+        reviewer_read = (
+            path.startswith("/api/v1/javiera/v17/review/") or
+            (request.method == "GET" and path in {
+                "/api/v1/javiera/admin/reviews/checklists",
+                "/api/v1/javiera/v195/irl-blocks/review-queue",
+            }) or
+            (request.method == "GET" and
+             path.startswith("/api/v1/javiera/admin/reviews/signoff/"))
+        )
+        reviewer_write = (
+            request.method == "POST" and
+            path == "/api/v1/javiera/admin/reviews/signoff"
+        )
+        if not (reviewer_read or reviewer_write or
                 path in {"/api/v1/auth/me", "/api/v1/auth/logout"}):
             raise HTTPException(403, "El revisor solo puede acceder a la revisión documental")
     if user.role == "resident" and not (request.url.path.startswith("/api/v1/network/") or

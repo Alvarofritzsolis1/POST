@@ -14,7 +14,7 @@ from .db import get_db
 from .javiera_models import JavieraReviewerAuthorization, JavieraSignoff
 from .models import AuditEvent, User
 from .network_models import NetworkMember
-from .security import administrator
+from .security import administrator, document_reviewer
 
 router = APIRouter(prefix="/api/v1/javiera/admin/reviews", tags=["JAVIERA · Revisión"])
 
@@ -95,7 +95,7 @@ def specialty_for_code(code: str) -> str:
 
 
 @router.get("/checklists")
-def checklists(user: User = Depends(administrator)):
+def checklists(user: User = Depends(document_reviewer)):
     return [{"specialty": key, "requirements": list(items), "legal_reference": BASIS[key]}
             for key, items in CHECKLISTS.items()]
 
@@ -141,7 +141,7 @@ def assign_reviewer(payload: ReviewerAssignment, user: User = Depends(administra
 
 
 @router.post("/signoff")
-def signoff(payload: ReviewInput, user: User = Depends(administrator),
+def signoff(payload: ReviewInput, user: User = Depends(document_reviewer),
             db: Session = Depends(get_db)):
     from .javiera_models import JavieraExcelLayout, JavieraMatrix, JavieraRevision
     resources = {"template":JavieraRevision, "matrix":JavieraMatrix, "excel_layout":JavieraExcelLayout}
@@ -159,6 +159,17 @@ def signoff(payload: ReviewInput, user: User = Depends(administrator),
             db.get(JavieraTemplate, obj.template_id).code)
         if specialty_for_code(code) != payload.specialty:
             raise HTTPException(422, "La especialidad del revisor no corresponde al documento")
+        if code == "irl_visual_blocks" and payload.verdict == "approved":
+            # El revisor no puede firmar un borrador que omitió filas
+            # personales 08–15 o reglas preventivas 01–13 del IRL fuente.
+            from .javiera_v195_api import missing_original_items
+            missing = missing_original_items((obj.contents or {}).get("blocks") or [])
+            if missing:
+                raise HTTPException(
+                    422, "Faltan elementos numerados del IRL original por cotejar: " +
+                    ", ".join(f"bloque {i}: " + ", ".join(map(str, numbers))
+                              for i, numbers in missing.items())
+                )
     expected = set(CHECKLISTS[payload.specialty])
     if set(payload.checklist) != expected or (
         payload.verdict == "approved" and not all(payload.checklist.values())
@@ -186,7 +197,7 @@ def signoff(payload: ReviewInput, user: User = Depends(administrator),
 
 @router.get("/signoff/{kind}/{resource_id}")
 def get_signoff(kind: Literal["template", "matrix", "excel_layout"], resource_id: str,
-                user: User = Depends(administrator), db: Session = Depends(get_db)):
+                user: User = Depends(document_reviewer), db: Session = Depends(get_db)):
     rows = db.scalars(select(JavieraSignoff).where(
         JavieraSignoff.org_id == user.org_id, JavieraSignoff.resource_kind == kind,
         JavieraSignoff.resource_id == resource_id)).all()

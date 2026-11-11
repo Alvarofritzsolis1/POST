@@ -1,16 +1,27 @@
 import {useEffect,useMemo,useState} from "react";
 import {AlertTriangle,ClipboardList,FileSpreadsheet,Search,ShieldCheck} from "lucide-react";
 import {request} from "./api";
+import {serializeIRLClipboard} from "./javiera-irl-clipboard";
+import JavieraIRLVisualBlocks from "./JavieraIRLVisualBlocks";
 import "./javiera-irl-structure.css";
 
 type Role={cargo:string;has_approved_irl:boolean;has_approved_pts:boolean;has_draft:boolean;source_excel_available?:boolean;reference_count?:number};
-type IRLRow={id:string;ordinal:number;labor:string;peligro:string;riesgo:string;medidas:string;original:string;structured:boolean};
-type Detail={cargo:string;irl:{approved:boolean;revision:number|null;records:IRLRow[];has_unstructured:boolean;reference_only?:boolean};
-  warnings:string[];can_preview_irl:boolean;reference_total?:number;source_excel_available?:boolean;reference_incomplete_excel_rows?:number[];reference_audit?:ReferenceAudit};
+type IRLRow={id:string;ordinal:number;labor:string;peligro:string;riesgo:string;medidas:string;original:string;structured:boolean;source_excel_rows?:number[]};
+type CorrectiveDraft={type:"risk_row"|"chemical_inventory"|"none";
+  source_preserved?:boolean;approval_status:string;
+  proposal?:{excel_row?:number;status?:string;
+    risk_suggestion?:string;controls_suggestion?:string;
+    disclaimer?:string;technical_reference?:string;
+    missing_evidence?:string[];fields?:string[];
+    no_chemical_use_policy?:string;source_alias_not_accepted?:string};
+  editor_draft_sections?:string[]};
+type Detail={cargo:string;corrective_draft?:CorrectiveDraft;irl:{approved:boolean;revision:number|null;records:IRLRow[];has_unstructured:boolean;reference_only?:boolean};
+  warnings:string[];can_preview_irl:boolean;reference_total?:number;reference_display_total?:number;source_excel_available?:boolean;reference_incomplete_excel_rows?:number[];reference_audit?:ReferenceAudit;
+  additional_matrices:Record<AuditKind,{sections:string[];available:boolean;reference_only?:boolean;revision:number|null}>};
 type AuditKind="PERFILES"|"PUESTOS"|"SUSTANCIAS";
 type AuditSource={source_sheet:string;source_row:number;source_cargo:string;sections:string[];reference_only:boolean};
-type AuditLink={match_count:number;source_entries:AuditSource[];missing:boolean;ambiguous:boolean;suggested_aliases_pending_review:string[]};
-type ReferenceAudit={risk_count:number;incomplete_excel_rows:number[];duplicate_source_numbers:string[];
+type AuditLink={match_count:number;source_entries:AuditSource[];resolved_source?:AuditSource|null;duplicate_identical?:boolean;missing:boolean;ambiguous:boolean;suggested_aliases_pending_review:string[]};
+type ReferenceAudit={risk_count:number;display_risk_count?:number;collapsed_risk_groups?:{source_excel_rows:number[]}[];incomplete_excel_rows:number[];duplicate_source_numbers:string[];
   full_excel_parity_certified:boolean;original_visual_blocks:{title:string;status:string}[];
   linked:Record<AuditKind|"PTS",AuditLink>;warnings:string[]};
 const AUX_LABELS:Record<AuditKind,string>={
@@ -24,7 +35,7 @@ const AUX_COLUMNS:Record<AuditKind,string[]>={
     "Información de etiqueta DS 57","Información de HDS"]
 };
 type OriginalImage={title:string;order:number;anchor_row:number|null;data_uri:string;sha256:string};
-type OriginalIRL={available:boolean;status:string;image_count:number;all_five_images_present?:boolean;
+type OriginalIRL={available:boolean;status:string;image_count:number;source_sha256?:string;all_five_images_present?:boolean;
   images:OriginalImage[];static:Record<string,string>;document_code?:string;source_version?:string;
   layout_revision?:number;message?:string};
 const IRL_CONDITIONS=["a) Espacio de trabajo","b) Condiciones ambientales del puesto",
@@ -47,6 +58,8 @@ export default function JavieraIRLStructure({onEditMatrices}:Props){
   const [originalError,setOriginalError]=useState("");
   const [sourceRefresh,setSourceRefresh]=useState(0);
   const [importingOriginal,setImportingOriginal]=useState(false);
+  const [copyStatus,setCopyStatus]=useState("");
+  const [preparingDraft,setPreparingDraft]=useState(false);
 
   useEffect(()=>{
     let active=true;
@@ -54,7 +67,7 @@ export default function JavieraIRLStructure({onEditMatrices}:Props){
       .then(payload=>{
         if(!active)return;
         setRoles(payload.roles);
-        setCargo(previous=>previous||payload.roles.find(r=>r.has_approved_irl)?.cargo||"");
+        setCargo(previous=>previous||payload.roles.find(r=>r.has_approved_irl)?.cargo||payload.roles.find(r=>r.source_excel_available)?.cargo||"");
         setError("");
       })
       .catch(reason=>{if(active)setError(reason instanceof Error?reason.message:String(reason));})
@@ -97,19 +110,70 @@ export default function JavieraIRLStructure({onEditMatrices}:Props){
 
   const filtered=useMemo(()=>roles.filter(r=>r.cargo.toLocaleLowerCase("es")
     .includes(query.trim().toLocaleLowerCase("es"))),[roles,query]);
-  const rows=detail?.irl.records||[];
-  const unstructured=rows.some(r=>!r.structured);
   const current=detail?.cargo===cargo&&!roleLoading?detail:null;
+  // No mostrar temporalmente riesgos de otro cargo durante una consulta.
+  const rows=current?.irl.records||[];
+  const unstructured=rows.some(r=>!r.structured);
   const reference=current?.reference_audit;
   const sectionFor=(kind:AuditKind)=>{
-    const items=reference?.linked[kind];
-    return items&&!items.ambiguous&&items.source_entries.length===1?
-      items.source_entries[0].sections:[];
+    const approvedOrReference=current?.additional_matrices?.[kind];
+    if(approvedOrReference?.available && approvedOrReference.sections.length){
+      return approvedOrReference.sections;
+    }
+    return reference?.linked[kind]?.resolved_source?.sections||[];
   };
   const profile=sectionFor("PERFILES")[0]||"Pendiente de validar el perfil de este cargo.";
   const workplace=sectionFor("PUESTOS");
   const substances=sectionFor("SUSTANCIAS");
   const staticValue=(coordinate:string)=>original?.static[coordinate]||"";
+  const warningList=[...new Set([...(current?.warnings||[]),...(reference?.warnings||[])])];
+  async function prepareCorrectiveDraft(){
+    if(preparingDraft||!current?.corrective_draft?.proposal)return;
+    setPreparingDraft(true);setCopyStatus("");
+    try{
+      const result=await request<{id:string;revision:number;status:string;created:boolean;kind:string}>(
+        "/javiera/v194/corrective-draft?cargo="+encodeURIComponent(cargo),
+        {method:"POST"});
+      setCopyStatus("GALANT guardó "+result.kind+" revisión "+result.revision+
+        " como BORRADOR (sin aprobación). Abre Matrices y cargos para revisar y enviar a Prevención.");
+    }catch(e){setCopyStatus("Error: "+(e instanceof Error?e.message:String(e)))}
+    finally{setPreparingDraft(false)}
+  }
+  async function copyCorrectiveDraft(){
+    if(!current?.corrective_draft?.proposal)return;
+    const correction=current.corrective_draft;
+    const proposal=correction.proposal;
+    if(!proposal)return;
+    let content="";
+    if(correction.type==="risk_row"&&proposal.excel_row===40){
+      content=serializeIRLClipboard(rows.map(row=>{
+        const isTarget=row.source_excel_rows?.includes(40);
+        return [row.labor,row.peligro,
+          isTarget?proposal.risk_suggestion||"":row.riesgo,
+          isTarget?proposal.controls_suggestion||"":row.medidas];
+      }));
+    }else if(correction.type==="chemical_inventory"){
+      content=[
+        "PAISAJISTA — FICHA DE LEVANTAMIENTO HDS (SIN APROBACIÓN)",
+        ...(proposal.fields||[]).map(field=>field+"\tPENDIENTE DE EVIDENCIA"),
+        "",
+        ...(proposal.missing_evidence||[]).map(item=>"VERIFICAR: "+item),
+      ].join("\n");
+    }
+    if(!content)return;
+    try{
+      await navigator.clipboard.writeText(content);
+      setCopyStatus("Propuesta copiada para edición. NO aprobada: verificar en obra y firmar el acta.");
+    }catch{setCopyStatus("El navegador no permitió copiar. Verifica permisos del portapapeles.")}
+  }
+  async function copyRiskMatrix(){
+    if(!rows.length)return;
+    const values=serializeIRLClipboard(rows.map(row=>
+      [row.labor,row.peligro,row.riesgo,row.medidas]));
+    try{await navigator.clipboard.writeText(values);
+      setCopyStatus("Matriz copiada; puedes pegarla en Excel o en el editor de matrices.");
+    }catch{setCopyStatus("El navegador no permitió copiar automáticamente.");}
+  }
   return <div className="jir-root">
     <div className="jir-intro">
       <div><div className="jir-kicker"><ClipboardList size={16}/> Estructura IRL · revisión integral</div>
@@ -164,6 +228,69 @@ export default function JavieraIRLStructure({onEditMatrices}:Props){
       </div>}
       {originalError&&<p className="jir-warning" role="alert">{originalError}</p>}
     </section>
+    {original?.available&&original.images?.length===5&&<JavieraIRLVisualBlocks source={original}/>}
+    {current?.reference_audit&&
+      (current.reference_audit.incomplete_excel_rows.length>0||
+       current.reference_audit.linked.SUSTANCIAS.missing)&&
+      <section className="jir-critical-source" aria-label="Alertas preventivas de matriz original">
+        <strong><AlertTriangle size={17}/> La referencia original de este cargo requiere correcciones</strong>
+        {current.reference_audit.incomplete_excel_rows.length>0&&<p>
+          Riesgos con consecuencia o medida preventiva faltante en filas Excel:
+          {" "+current.reference_audit.incomplete_excel_rows.join(", ")}.
+          No se completarán ni aprobarán automáticamente.
+        </p>}
+        {current.reference_audit.linked.SUSTANCIAS.missing&&<p>
+          Sustancias y HDS sin vinculación exacta para {cargo}.
+          {cargo==="PAISAJISTA"?
+            " La fila «PAISAJISMO (REVISAR HDS)» incluye productos de pintura y no se vincula sin revisión preventiva.":
+            " Verifica los productos y HDS reales antes de la aprobación."}
+        </p>}
+        {!current.irl.approved&&current.corrective_draft?.type==="risk_row"&&
+          current.corrective_draft.proposal&&<div className="jir-suggested-correction">
+            <h4>Propuesta de corrección · CARPINTERO fila 40</h4>
+            <p><b>Consecuencias propuestas:</b> {current.corrective_draft.proposal.risk_suggestion}</p>
+            <p><b>Medidas preventivas propuestas:</b> {current.corrective_draft.proposal.controls_suggestion}</p>
+            <p className="jir-noapprove">{current.corrective_draft.proposal.disclaimer}</p>
+            <button type="button" disabled={preparingDraft}
+              onClick={()=>void prepareCorrectiveDraft()}>
+              {preparingDraft?"Guardando…":"Crear borrador de 13 riesgos en GALANT"}
+            </button>
+            <button type="button" disabled={preparingDraft}
+              onClick={()=>void copyCorrectiveDraft()}>
+              Copiar las 13 filas como alternativa
+            </button>
+          </div>}
+        {current.corrective_draft?.type==="chemical_inventory"&&
+          current.corrective_draft.proposal&&<div className="jir-suggested-correction">
+            <h4>Ficha HDS por verificar · PAISAJISTA</h4>
+            <p>No se importan los productos de
+              «{current.corrective_draft.proposal.source_alias_not_accepted}» como sustancias del cargo.</p>
+            <p><b>Documentos necesarios:</b></p>
+            <ul>{(current.corrective_draft.proposal.missing_evidence||[])
+              .map(item=><li key={item}>{item}</li>)}</ul>
+            <p>{current.corrective_draft.proposal.no_chemical_use_policy}</p>
+            <button type="button" disabled={preparingDraft}
+              onClick={()=>void prepareCorrectiveDraft()}>
+              {preparingDraft?"Guardando…":"Crear ficha editable HDS en GALANT"}
+            </button>
+            <button type="button" disabled={preparingDraft}
+              onClick={()=>void copyCorrectiveDraft()}>
+              Copiar ficha de 12 campos HDS como alternativa
+            </button>
+          </div>}
+        {onEditMatrices&&<button type="button" onClick={onEditMatrices}>
+          Revisar matrices y corregir faltantes
+        </button>}
+      </section>}
+    <div className="jir-view-toolbar">
+      <span><strong>{rows.length}</strong> labores en esta vista
+        {current?.reference_total&&current.reference_total>rows.length?
+          " · "+(current.reference_total-rows.length)+" filas repetidas agrupadas":""}
+        {" · "}{current?.irl.approved?"Matriz aprobada": "Referencia pendiente de aprobación preventiva"}</span>
+      <button type="button" onClick={()=>void copyRiskMatrix()} disabled={!rows.length}>Copiar matriz para Excel</button>
+      {copyStatus&&<small role="status">{copyStatus}</small>}
+    </div>
+    <details className="jir-preview" open><summary>Mostrar / ocultar vista previa A4 completa</summary>
     <div className="jir-scroll">
       <article className="jir-page jir-original-document" aria-label="IRL original reconstruido en formato A4">
         <div className="jir-print-label">VISTA PREVIA DE FORMATO ORIGINAL · SIN FIRMAS</div>
@@ -229,6 +356,7 @@ export default function JavieraIRLStructure({onEditMatrices}:Props){
         </div>
       </article>
     </div>
+    </details>
     {current?.reference_audit&&<section className="jir-parity" aria-label="Auditoría de integridad de matrices IRL">
       <div className="jir-parity-head">
         <h4>Datos relacionados con este cargo</h4>
@@ -240,7 +368,7 @@ export default function JavieraIRLStructure({onEditMatrices}:Props){
           const linked=current.reference_audit!.linked[kind];
           return <details className="jir-aux" key={kind}>
             <summary><span>{AUX_LABELS[kind]}</span>
-              <strong>{linked.missing?"Sin vinculación":linked.ambiguous?"Revisar duplicidad":"Referencia disponible"}</strong>
+              <strong>{linked.missing?"Sin vinculación":linked.ambiguous?"Revisar variantes":linked.duplicate_identical?"Duplicado idéntico resuelto":"Referencia disponible"}</strong>
             </summary>
             {linked.suggested_aliases_pending_review.length>0&&
               <p className="jir-aux-alert">Posible equivalencia pendiente de validación:
@@ -264,9 +392,9 @@ export default function JavieraIRLStructure({onEditMatrices}:Props){
           <li key={block.title}>{block.title} · foto preservada cuando la fuente está disponible; contenido textual por digitalizar</li>)}</ol>
         <p>Las imágenes originales se conservan como fotos. Su contenido todavía no puede editarse como texto HTML. Se requiere validación preventiva y cotejo página por página.</p>
       </details>
-      {current.reference_audit.warnings.length>0&&<details className="jir-audit-alerts">
-        <summary>Observaciones de integridad ({current.reference_audit.warnings.length})</summary>
-        <ul>{current.reference_audit.warnings.map((warning,index)=><li key={index}>{warning}</li>)}</ul>
+      {warningList.length>0&&<details className="jir-audit-alerts">
+        <summary>Observaciones pendientes ({warningList.length}) · ver detalles</summary>
+        <ul>{warningList.map((warning,index)=><li key={index}>{warning}</li>)}</ul>
       </details>}
     </section>}
     <div className="jir-footer" role="status">

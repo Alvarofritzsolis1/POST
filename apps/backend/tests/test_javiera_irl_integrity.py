@@ -19,15 +19,18 @@ def test_risks_keep_all_four_fields_linked_by_source_row():
         assert all(risk[key] for key in ("tarea", "peligro", "riesgo", "medidas"))
 
 
-def test_duplicate_gasfiter_blocks_remain_explicitly_ambiguous():
+def test_duplicate_gasfiter_blocks_are_collapsed_for_view_without_source_loss():
     result = audit("GASFITER")
     assert result["risk_count"] == 26
     assert len(result["source_excel_rows"]) == 26
     assert len(set(result["source_excel_rows"])) == 26
     # La numeración fuente es única aunque haya dos perfiles y dos PTS.
     assert result["linked"]["PERFILES"]["match_count"] == 2
-    assert result["linked"]["PERFILES"]["ambiguous"] is True
-    assert result["linked"]["PTS"]["ambiguous"] is True
+    assert result["linked"]["PERFILES"]["ambiguous"] is False
+    assert result["linked"]["PTS"]["ambiguous"] is False
+    assert result["linked"]["PERFILES"]["duplicate_identical"] is True
+    assert result["display_risk_count"] == 13
+    assert len(result["collapsed_risk_groups"]) == 13
     assert result["source_is_not_automatically_approved"] is True
 
 
@@ -43,7 +46,7 @@ def test_paisajista_alias_is_suggestion_not_automatic_chemical_matrix():
     substances = result["linked"]["SUSTANCIAS"]
     assert substances["missing"] is True
     assert substances["match_count"] == 0
-    assert substances["suggested_aliases_pending_review"] == ["PAISAJISMO"]
+    assert substances["suggested_aliases_pending_review"] == ["PAISAJISMO (REVISAR HDS)"]
     assert substances["source_entries"] == []
 
 
@@ -62,3 +65,38 @@ def test_all_five_untranscribed_visual_blocks_are_disclosed():
                for item in result["original_visual_blocks"])
     assert result["full_excel_parity_certified"] is False
     assert any("cinco bloques" in w for w in result["warnings"])
+
+
+def test_exact_technical_duplicates_keep_every_source_excel_row():
+    from app.javiera_irl_consolidation import consolidate_reference_risks
+    from app.javiera_v194_api import lookup_role
+    role, original = lookup_role("GASFITER")
+    viewed, groups = consolidate_reference_risks(original, role)
+    assert len(original) == 26
+    assert len(viewed) == 13
+    assert len(groups) == 13
+    assert {row["excel_row"] for row in original} == {
+        number for row in viewed for number in row["source_excel_rows"]
+    }
+    assert all(len(row["source_excel_rows"]) == 2 for row in viewed)
+    # Nunca mutar la fuente ni reducir campos técnicos.
+    assert all("source_excel_rows" not in row for row in original)
+    assert all(all(row[field] for field in ("tarea", "peligro", "riesgo", "medidas"))
+               for row in viewed)
+
+
+def test_different_risk_or_control_is_never_collapsed():
+    from app.javiera_irl_consolidation import consolidate_reference_risks
+    base = {"cargo": "GASFITER", "tarea": "Instalar tuberías",
+            "peligro": "Corte", "riesgo": "Herida", "medidas": "Control A"}
+    rows = [dict(base, excel_row=1), dict(base, excel_row=2, medidas="Control B")]
+    result, groups = consolidate_reference_risks(rows, "GASFITER")
+    assert len(result) == 2
+    assert not groups
+
+
+def test_identical_variants_must_match_every_technical_section():
+    from app.javiera_irl_consolidation import identical_variants
+    assert identical_variants([{"sections": ["A", "B"]}, {"sections": ["A", "B"]}])
+    assert not identical_variants([{"sections": ["A", "B"]}, {"sections": ["A", "C"]}])
+    assert not identical_variants([])

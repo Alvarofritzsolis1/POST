@@ -27,3 +27,13 @@
 .jia-related span{color:#677f92;margin-left:10px}
 .jia-related li{white-space:pre-wrap;margin-top:7px;overflow-wrap:anywhere}
 .jia-root .jia-ready{display:flex;align-items:center;gap:7px;color:#1a6642}
+
+
+/* GALANT 19.4.3: observaciones y lista de tareas plegables */
+.jia-alerts,.jia-task-toggle{border:1px solid #d6e1eb;border-radius:8px;
+  background:#f8fbfe;min-width:0}
+.jia-alerts summary,.jia-task-toggle summary{display:flex;align-items:center;
+  gap:8px;padding:10px;line-height:1.4}
+.jia-alerts ul{padding:2px 16px 12px 27px;margin:0}
+.jia-alerts li{font-size:.79rem;color:#5c4e35;line-height:1.4}
+.jia-task-toggle .jia-table-wrap{border:0;border-top:1px solid #dce5ec;border-radius:0}

@@ -37,7 +37,14 @@ def sample_xlsx() -> bytes:
         doc["A1"] = "DOCUMENTO DE PRUEBA"  # No hay datos personales reales.
         doc["A1"].font = Font(name="Arial", size=15, bold=True, color="FFFFFF")
         doc["A1"].fill = PatternFill("solid", fgColor="25466B")
-        doc.merge_cells("A1:D1")
+        # Entrega PTS no comparte el membrete genérico del resto:
+        # el Excel original usa A1:I2 y permite el título completo.
+        # Una prueba que comprimía el título en A1:D1 daba un
+        # falso fallo de impresión, sin representar el archivo fuente.
+        if code == "pts_receipt":
+            doc.merge_cells("A1:I2")
+        else:
+            doc.merge_cells("A1:D1")
         doc["A3"] = "NOMBRE DE TRABAJADOR:"
         doc["B3"] = "='Datos Contrato'!C17"
         doc["B4"] = "='Datos Contrato'!C5"
@@ -45,7 +52,7 @@ def sample_xlsx() -> bytes:
         doc["B5"] = "RUT"
         if code == "induction":
             doc["A119"] = "Recibí del contratista principal CONSTRUCTORA EJEMPLO LIMITADA."
-        doc.print_area = "A1:D15"
+        doc.print_area = "A1:I24" if code == "pts_receipt" else "A1:D15"
         doc.sheet_properties.pageSetUpPr.fitToPage = True
         doc.page_setup.fitToWidth = 1
         doc.page_setup.fitToHeight = 0
@@ -251,6 +258,67 @@ def test_mandante_references_are_replaced_in_induction_and_email_link_allowed():
 
 
 
+def test_pts_receipt_source_merges_match_real_print_format():
+    from app.javiera_excel import DOC_SHEETS, sheet_files, Q
+    with ZipFile(io.BytesIO(sample_xlsx())) as source:
+        root = ET.fromstring(source.read(sheet_files(source)[DOC_SHEETS["pts_receipt"]]))
+        merged = [m.get("ref") for m in root.findall(".//" + Q("mergeCell"))]
+        assert "A1:I2" in merged
+        assert "A1:D1" not in merged
+    # Este ensayo reproduce el encabezado ancho del archivo original,
+    # no cambia estilos ni documentos de otros formatos.
+
+
+def test_pts_receipt_print_only_clones_cell_style_for_shrink_to_fit():
+    from app.javiera_excel import DOC_SHEETS, sheet_files, Q
+    source = sample_xlsx()
+    printed = excel_document(source, "pts_receipt", valid_data())
+    with ZipFile(io.BytesIO(source)) as old, ZipFile(io.BytesIO(printed)) as new:
+        original_styles = ET.fromstring(old.read("xl/styles.xml"))
+        temporary_styles = ET.fromstring(new.read("xl/styles.xml"))
+        old_styles = original_styles.find(Q("cellXfs"))
+        new_styles = temporary_styles.find(Q("cellXfs"))
+        assert len(new_styles) == len(old_styles) + 1
+        title = ET.fromstring(new.read(sheet_files(new)[DOC_SHEETS["pts_receipt"]]))
+        a1 = title.find(".//" + Q("c") + "[@r='A1']")
+        assert a1.get("s") == str(len(new_styles) - 1)
+        original_title_style = int(ET.fromstring(
+            old.read(sheet_files(old)[DOC_SHEETS["pts_receipt"]])
+        ).find(".//" + Q("c") + "[@r='A1']").get("s", "0"))
+        old_xf = list(old_styles)[original_title_style]
+        new_xf = list(new_styles)[int(a1.get("s"))]
+        for key in ("fontId", "fillId", "borderId", "numFmtId"):
+            assert new_xf.get(key) == old_xf.get(key), key
+        assert new_xf.find(Q("alignment")).get("shrinkToFit") == "1"
+        # No tocar el estilo en el libro histórico importado.
+        assert old.read("xl/styles.xml") == source_style_xml(source)
+
+
+def source_style_xml(workbook: bytes) -> bytes:
+    with ZipFile(io.BytesIO(workbook)) as archive:
+        return archive.read("xl/styles.xml")
+
+
+def test_pts_receipt_does_not_emit_pdf_with_clipped_role_heading(monkeypatch):
+    from app import javiera_excel
+
+    def clipped_pdf(_xlsx):
+        pdf = fitz.open()
+        page = pdf.new_page(width=595, height=842)
+        page.insert_text((40, 70), "ENTREGA PTS DE CARPINTER", fontsize=13)
+        page.insert_text((40, 100), "EMPRESA DE PRUEBA", fontsize=10)
+        page.insert_text((40, 130), "PERSONA NUEVA DE PRUEBA", fontsize=10)
+        value = pdf.tobytes()
+        pdf.close()
+        return value
+
+    monkeypatch.setattr(javiera_excel, "libreoffice_pdf", clipped_pdf)
+    with pytest.raises(LayoutError, match="título ENTREGA PTS se recortó"):
+        javiera_excel.pdf_from_workbook(
+            sample_xlsx(), "pts_receipt", valid_data(), preview=True
+        )
+
+
 @pytest.mark.skipif(shutil.which("libreoffice") is None, reason="Requiere LibreOffice Calc en CI")
 @pytest.mark.parametrize("code",list(DOC_SHEETS))
 def test_ten_original_document_pdfs_with_synthetic_person_only(code):
@@ -330,6 +398,12 @@ def test_irl_pdf_keeps_every_approved_risk_even_past_12_rows(risk_rows):
     ("ppe_delivery", "D12"),
     ("extension_addendum", "A5"),
     ("sworn_declaration", "A4"),
+    ("pts_receipt", "A1"),
+    ("pts_receipt", "A3"),
+    ("pts_receipt", "A23"),
+    ("pts_receipt", "F23"),
+    ("pts_receipt", "A24"),
+    ("pts_receipt", "F24"),
 ])
 def test_template_edits_cannot_override_verified_business_fields(code, coordinate):
     from app.javiera_excel import PROTECTED_DOCUMENT_CELLS

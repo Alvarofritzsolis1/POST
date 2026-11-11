@@ -554,6 +554,8 @@ def preview_native(payload: NativePreviewInput,
         # Se reutiliza la fuente privada previamente importada: las imágenes
         # se incorporan AUTOMÁTICAMENTE al PDF de cada trabajador.
         irl_original = load_original_for_user(db, user, approved_only=False)
+        from .javiera_v195_api import attach_approved_irl_visual
+        irl_original = attach_approved_irl_visual(db, user, irl_original)
         irl_context = {}
         for related in ("PERFILES", "PUESTOS", "SUSTANCIAS"):
             validated = latest_approved_matrix(db, user.org_id, related, data.get("role", ""))

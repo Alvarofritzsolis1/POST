@@ -763,6 +763,24 @@ def _check_preventive_matrix_before_approval(row: JavieraMatrix):
         raise HTTPException(422, "Completa los apartados de la matriz antes de aprobarla.")
     if row.kind == "PTS" and len(sections) != 17:
         raise HTTPException(422, "PTS exige exactamente 17 apartados completos por cargo.")
+    # El formulario de levantamiento de PAISAJISTA es útil para edición,
+    # pero carece de nombres comerciales, fabricante y fichas HDS reales.
+    # Ni el administrador ni el modo piloto pueden liberarlo con
+    # marcadores pendientes como si fueran datos preventivos verificados.
+    if (row.kind == "SUSTANCIAS" and
+            (normalize_cargo(row.cargo) == "PAISAJISTA" or
+             str(row.source or "").startswith("Editor visual GALANT 19.5.0 HDS"))):
+        if len(sections) != 12 or any(
+            ("PENDIENTE" in str(value).upper() or
+             not str(value).strip())
+            for value in sections
+        ):
+            raise HTTPException(
+                422, "No se puede aprobar la HDS de PAISAJISTA con campos "
+                "pendientes. Registrar productos reales y sus fichas de "
+                "seguridad, o acreditación de no utilización verificada "
+                "por Prevención de Riesgos."
+            )
     if row.kind == "IRL" and str(row.source or "").startswith((
             "GALANT 19.2 XLSX", "Editor visual GALANT ")):
         # Incluye nuevas revisiones 19.4 precargadas desde el Excel.

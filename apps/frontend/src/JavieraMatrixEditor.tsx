@@ -1,6 +1,7 @@
 import {useEffect,useMemo,useState} from "react";
 import {ArrowRight,CheckCircle2,ClipboardList,FileSpreadsheet,Plus,Save,Search,ShieldCheck,Upload} from "lucide-react";
 import {request} from "./api";
+import {parseIRLClipboard,serializeIRLClipboard} from "./javiera-irl-clipboard";
 import "./javiera-matrix-editor.css";
 
 type Kind="IRL"|"PTS"|"PUESTOS"|"PERFILES"|"SUSTANCIAS";
@@ -37,6 +38,16 @@ function withColumn(section:string,column:number,value:string){
   parts[column]=value;
   return names.map((name,index)=>name+": "+parts[index]).join("\n");
 }
+type ReviewFilter="all"|"approved"|"draft"|"incomplete"|"reference";
+const hasMissingFields=(record:Matrix):boolean=>{
+  if(!record.sections.length)return true;
+  if(record.kind==="IRL")return record.sections.some(section=>{
+    const fields=splitSection(section);
+    return !fields||fields.some(field=>!field.trim());
+  });
+  if(record.kind==="PTS"&&record.sections.length!==17)return true;
+  return record.sections.some(section=>!section.trim());
+};
 const errorText=(error:unknown)=>error instanceof Error?error.message:String(error);
 function fingerprint(kind:Kind,cargo:string,sections:string[]){
   return JSON.stringify([kind,cargo,sections]);
@@ -50,6 +61,7 @@ export default function JavieraMatrixEditor(){
   const [referenceLoading,setReferenceLoading]=useState(false);
   const [kind,setKind]=useState<Kind>("IRL");
   const [search,setSearch]=useState("");
+  const [reviewFilter,setReviewFilter]=useState<ReviewFilter>("all");
   const [selectedId,setSelectedId]=useState("");
   const [cargo,setCargo]=useState("");
   const [sections,setSections]=useState<string[]>([]);
@@ -65,6 +77,10 @@ export default function JavieraMatrixEditor(){
   const [importConfirmed,setImportConfirmed]=useState(false);
   const [message,setMessage]=useState("");
   const [error,setError]=useState("");
+  const [bulkText,setBulkText]=useState("");
+  const [bulkPreview,setBulkPreview]=useState<ReturnType<typeof parseIRLClipboard>|null>(null);
+  const [bulkMode,setBulkMode]=useState<"replace"|"append">("replace");
+  const [bulkUndo,setBulkUndo]=useState<string[]|null>(null);
   const allRows=useMemo(()=>[...rows,...referenceRows],[rows,referenceRows]);
   const current=allRows.find(x=>x.id===selectedId);
   const versions=useMemo(()=>allRows.filter(x=>x.kind===kind&&x.cargo===cargo)
@@ -76,8 +92,31 @@ export default function JavieraMatrixEditor(){
       const key=row.status==="reference"?"excel:"+row.id:"db:"+row.cargo;
       if(seen.has(key))return false;
       seen.add(key);return true;
-    }).filter(row=>row.cargo.toLocaleLowerCase("es").includes(search.toLocaleLowerCase("es")));
-  },[allRows,kind,search]);
+    }).filter(row=>row.cargo.toLocaleLowerCase("es").includes(search.toLocaleLowerCase("es")))
+      .filter(row=>reviewFilter==="all"||
+        (reviewFilter==="incomplete"?hasMissingFields(row):
+        reviewFilter==="reference"?row.status==="reference":row.status===reviewFilter));
+  },[allRows,kind,search,reviewFilter]);
+  const currentKindRows=useMemo(()=>rows.filter(row=>row.kind===kind),[rows,kind]);
+  const reviewStats=useMemo(()=>({
+    approved:currentKindRows.filter(row=>row.status==="approved").length,
+    draft:currentKindRows.filter(row=>row.status==="draft"&&!hasMissingFields(row)).length,
+    incomplete:allRows.filter(row=>row.kind===kind&&hasMissingFields(row)).length,
+    reference:referenceRows.length,
+  }),[currentKindRows,allRows,referenceRows,kind]);
+  const pendingReview=useMemo(()=>currentKindRows.filter(row=>row.status==="draft"&&!hasMissingFields(row)),
+    [currentKindRows]);
+  const variant=referenceVariants.find(item=>item.cargo===cargo);
+  const variantRows=referenceRows.filter(row=>variant?.source_rows.includes(row.source_row||-1));
+  const variantIdentical=variantRows.length>1&&variantRows.every(row=>
+    JSON.stringify(row.sections)===JSON.stringify(variantRows[0].sections));
+  const missingIRL=useMemo(()=>kind==="IRL"?sections.flatMap((section,index)=>{
+    const fields=splitSection(section);
+    const missing=fields?fields.flatMap((value,i)=>!value.trim()?
+      [["Actividad","Peligro","Consecuencia","Medidas preventivas"][i]]:[]):
+      ["Estructura de las cuatro columnas"];
+    return missing.length?[{index,fields:missing}]:[];
+  }):[],[kind,sections]);
   const changed=!!current && (sections.length!==current.sections.length ||
     sections.some((s,i)=>s!==current.sections[i]));
   const approved=versions.find(r=>r.status==="approved");
@@ -116,12 +155,34 @@ export default function JavieraMatrixEditor(){
     return()=>{active=false;};
   },[kind]);
   function invalidate(){setImpact(null);setImpactFingerprint("");setConfirmed(false);}
+  function resetPaste(){setBulkText("");setBulkPreview(null);setBulkUndo(null);}
+  function checkPaste(){
+    try{setBulkPreview(parseIRLClipboard(bulkText));setError("");}
+    catch(e){setBulkPreview(null);setError(errorText(e));}
+  }
+  function applyPaste(){
+    if(!bulkPreview||kind!=="IRL")return;
+    const merged=bulkMode==="replace"?bulkPreview.sections:[...sections,...bulkPreview.sections];
+    if(merged.length>1500){setError("El resultado supera 1.500 labores.");return;}
+    setBulkUndo([...sections]);setSections(merged);setActiveIRL(0);invalidate();
+    setMessage(bulkPreview.sections.length+" labores cargadas en el editor, sin guardar ni aprobar. "+
+      bulkPreview.duplicates+" duplicados idénticos omitidos en el pegado.");
+    setBulkPreview(null);setBulkText("");setError("");
+  }
+  async function copySections(){
+    if(kind!=="IRL")return;
+    const tsv=serializeIRLClipboard(sections.map(section=>
+      splitSection(section)||["","","",section]));
+    try{await navigator.clipboard.writeText(tsv);setMessage("Matriz copiada al portapapeles.");}
+    catch{setError("No se pudo copiar: revisa el permiso del portapapeles.");}
+  }
   function selectRecord(row:Matrix){
     setKind(row.kind);setCargo(row.cargo);setSections([...row.sections]);setSelectedId(row.id);setActiveIRL(0);
+    resetPaste();
     invalidate();setError("");setMessage("");
   }
   function newRecord(){
-    setCargo("");setSelectedId("");setActiveIRL(0);
+    setCargo("");setSelectedId("");setActiveIRL(0);setReviewFilter("all");resetPaste();
     setSections(kind==="PTS"?Array(17).fill(""):kind==="IRL"?
       ["Tarea: \nPeligro: \nRiesgo: \nMedidas: "]:[""]);invalidate();
     setMessage("Cargo nuevo: el primer guardado será una revisión en borrador.");
@@ -131,7 +192,7 @@ export default function JavieraMatrixEditor(){
     // sus riesgos. React no repite el efecto dependiente de `kind` si
     // su valor no cambia; antes esto dejaba una fila IRL vacía.
     if(value===kind)return;
-    setKind(value);setSelectedId("");setCargo("");setActiveIRL(0);
+    setKind(value);setSelectedId("");setCargo("");setActiveIRL(0);setReviewFilter("all");resetPaste();
     setSections(value==="PTS"?Array(17).fill(""):value==="IRL"?
       ["Tarea: \nPeligro: \nRiesgo: \nMedidas: "]:[""]);invalidate();
   }
@@ -218,12 +279,45 @@ export default function JavieraMatrixEditor(){
       "Tarea: \nPeligro: \nRiesgo: \nMedidas: ":""]);invalidate();
   }
   return <section className="jmx-root">
-    <header className="jmx-top"><div><small>PROYECTO JAVIERA · parche IRL 19.4.1</small>
+    <header className="jmx-top"><div><small>PROYECTO JAVIERA · 19.5.0-rc1 · correcciones preventivas en borrador</small>
       <h2><ClipboardList size={23}/> Matrices y cargos</h2>
       <p>Revisa riesgos, controles y procedimientos por cargo, sin editar Excel. Cada cambio crea una revisión separada.</p>
     </div><button type="button" onClick={newRecord}><Plus size={16}/> Nuevo cargo</button></header>
     {error&&<p className="jmx-error" role="alert">{error}</p>}
     {message&&<p className="jmx-success" role="status"><CheckCircle2 size={17}/>{message}</p>}
+    <section className="jmx-command-center" aria-label="Centro de control de matrices">
+      <div className="jmx-command-title"><div>
+        <h3>Centro de control y aprobaciones</h3>
+        <p>Estados reales del tipo seleccionado. Las referencias del Excel no equivalen a aprobación.</p>
+      </div><label>Mostrar
+        <select aria-label="Filtrar por estado" value={reviewFilter}
+          onChange={e=>setReviewFilter(e.target.value as ReviewFilter)}>
+          <option value="all">Todas</option>
+          <option value="approved">Aprobadas</option>
+          <option value="draft">Borradores</option>
+          <option value="incomplete">Con campos faltantes</option>
+          <option value="reference">Referencias Excel</option>
+        </select></label></div>
+      <div className="jmx-command-stats">
+        <button type="button" data-status="approved" onClick={()=>setReviewFilter("approved")}>
+          <span>Aprobadas</span><strong>{reviewStats.approved}</strong></button>
+        <button type="button" data-status="draft" onClick={()=>setReviewFilter("draft")}>
+          <span>Listas para revisar</span><strong>{reviewStats.draft}</strong></button>
+        <button type="button" data-status="incomplete" onClick={()=>setReviewFilter("incomplete")}>
+          <span>Con campos faltantes</span><strong>{reviewStats.incomplete}</strong></button>
+        <button type="button" data-status="reference" onClick={()=>setReviewFilter("reference")}>
+          <span>Referencias Excel sin aprobar</span><strong>{reviewStats.reference}</strong></button>
+      </div>
+      {pendingReview.length>0?<div className="jmx-pending">
+        <strong>Revisiones pendientes de decisión</strong>
+        <div>{pendingReview.slice(0,8).map(row=><button key={row.id} type="button"
+          onClick={()=>{selectRecord(row);document.getElementById("jmx-editor-start")?.scrollIntoView({block:"start"});}}>
+          {row.cargo} · revisión {row.revision} · Ver y comprobar impacto
+        </button>)}</div>
+        {pendingReview.length>8&&<small>Se muestran 8 de {pendingReview.length}; filtra borradores para consultar el resto.</small>}
+      </div>:<p className="jmx-command-empty">No hay borradores completos esperando revisión en esta categoría.
+        Los errores deben corregirse antes de solicitar aprobación.</p>}
+    </section>
     <section className="jmx-import" aria-label="Importar matrices desde Excel">
       <div><h3><Upload size={18}/> Importar Excel con comparación previa</h3>
         <p>Las cinco matrices se consultan precargadas desde el Excel original.
@@ -290,7 +384,7 @@ export default function JavieraMatrixEditor(){
         <input id="jmx-search" type="search" value={search} onChange={e=>setSearch(e.target.value)}
           placeholder="Ej. carpintero, pintor"/>
         {(loading||referenceLoading)?<p>Cargando registros originales del Excel…</p>:<div className="jmx-items">
-          <small>{latest.length} entradas y variantes · {referenceTotal} filas de Excel</small>
+          <small>{latest.length} entradas mostradas · {referenceTotal} referencias Excel</small>
           {latest.map(row=><button key={row.id} type="button" className={row.id===selectedId?"chosen":""}
             onClick={()=>selectRecord(row)}><span>{row.cargo}<small>{
               row.status==="reference"?
@@ -298,10 +392,10 @@ export default function JavieraMatrixEditor(){
                 row.kind+" · revisión "+row.revision+" · "+
                   (row.status==="approved"?"Aprobada":"Borrador")
             }</small></span><ArrowRight size={14}/></button>)}
-          {!latest.length&&<p>No se encontraron registros en el Excel ni en GALANT.</p>}
+          {!latest.length&&<p>No hay resultados para este filtro; selecciona «Todas» para ver el catálogo completo.</p>}
         </div>}
       </aside>
-      <div className="jmx-editor">
+      <div className="jmx-editor" id="jmx-editor-start">
         <div className="jmx-controls">
           <label>Cargo / puesto
             <input value={cargo} onChange={e=>{setCargo(e.target.value);setSelectedId("");invalidate();}}
@@ -326,17 +420,49 @@ export default function JavieraMatrixEditor(){
           Es una referencia técnica, no una matriz aprobada. Para imprimirla,
           crea una revisión en borrador y solicita validación preventiva.</p>
         </div>}
-        {referenceVariants.some(item=>item.cargo===cargo)&&<div className="jmx-warning">
+        {variant&&!variantIdentical&&<div className="jmx-warning">
           <strong>El Excel contiene registros duplicados para este cargo.</strong>
           Conservamos las filas {referenceVariants.filter(item=>item.cargo===cargo)
             .flatMap(item=>item.source_rows).join(", ")}.
           Elige la variante correcta antes de solicitar aprobación.
         </div>}
+        {variantIdentical&&<p className="jmx-success">Coincidencias originales idénticas: se pueden consultar sin elegir manualmente una variante. Su aprobación continúa pendiente.</p>}
         <div className="jmx-summary">
           <span><FileSpreadsheet size={15}/> {sections.length} apartados / registros</span>
           <span>{approved?"Aprobada v"+approved.revision:"Sin revisión aprobada"}</span>
           <span>{changes} apartados distintos de la aprobada</span>
         </div>
+        {kind==="IRL"&&<section className="jmx-completeness" aria-label="Revisión de campos del IRL">
+          {missingIRL.length>0?<><strong>{missingIRL.length} tareas incompletas · faltan datos antes de aprobación</strong>
+            <p>Corrige los campos indicados. La revisión preventiva sigue siendo obligatoria.</p>
+            <div>{missingIRL.slice(0,12).map(item=><button type="button" key={item.index}
+              onClick={()=>{setActiveIRL(item.index);
+                document.querySelector(".jmx-irl-easy-editor")?.scrollIntoView({block:"start"});}}>
+              Tarea {item.index+1}: {item.fields.join(", ")}
+            </button>)}</div>
+            {missingIRL.length>12&&<small>Mostrando 12 de {missingIRL.length} tareas con campos faltantes.</small>}
+          </>:<><strong>Campos estructurales completos en esta vista</strong>
+            <p>Esto no significa que la matriz esté aprobada: revisa coherencia, sustancias, HDS y firmas autorizadas.</p></>}
+        </section>}
+        {kind==="IRL"&&<section className="jmx-bulk" aria-label="Pegar matriz de riesgos desde Excel">
+          <div className="jmx-bulk-heading"><div><strong>Copiar y pegar matriz desde Excel</strong>
+            <p>Pega cuatro columnas: actividad, peligro, consecuencia y medida. Revisa antes de aplicar; no se guarda automáticamente.</p></div>
+            <button type="button" onClick={()=>void copySections()}>Copiar matriz</button></div>
+          <textarea rows={3} value={bulkText} onChange={e=>{setBulkText(e.target.value);setBulkPreview(null);}}
+            placeholder="Actividad\tPeligro\tConsecuencia\tMedida preventiva" aria-label="Datos tabulados copiados desde Excel" />
+          <div className="jmx-bulk-actions">
+            <label>Acción <select value={bulkMode} onChange={e=>setBulkMode(e.target.value as "replace"|"append")}>
+              <option value="replace">Reemplazar filas del editor</option><option value="append">Agregar al final</option>
+            </select></label>
+            <button type="button" disabled={!bulkText.trim()} onClick={checkPaste}>Previsualizar pegado</button>
+            {bulkUndo&&<button type="button" onClick={()=>{setSections(bulkUndo);setBulkUndo(null);invalidate();setMessage("Se deshizo el último pegado.");}}>Deshacer pegado</button>}
+          </div>
+          {bulkPreview&&<div className="jmx-bulk-preview" role="status">
+            <strong>{bulkPreview.sections.length} labores válidas</strong> · {bulkPreview.duplicates} duplicados idénticos omitidos.
+            <p>Ejemplos: {bulkPreview.sections.slice(0,2).map(s=>splitSection(s)?.[0]).join(" · ")}</p>
+            <button type="button" onClick={applyPaste}>Aplicar al editor (borrador local)</button>
+          </div>}
+        </section>}
         {kind==="IRL"?<section className="jmx-irl-easy-editor" aria-label="Edición guiada de riesgos">
           <header className="jmx-irl-heading">
             <h3>Editar labores y riesgos, paso a paso</h3>

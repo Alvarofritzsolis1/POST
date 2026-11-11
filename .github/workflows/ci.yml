@@ -20,7 +20,9 @@ permissions:
   contents: read
 jobs:
   backend:
-    runs-on: ubuntu-latest
+    # Imagen estable para dependencias OCR/LibreOffice: evita los mirrors
+    # resolute de Ubuntu latest que fallaron DNS en el runner anterior.
+    runs-on: ubuntu-24.04
     timeout-minutes: 20
     services:
       postgres:
@@ -43,19 +45,82 @@ jobs:
       - uses: actions/checkout@v4
       - uses: actions/setup-python@v5
         with: {python-version: "3.12"}
-      - run: sudo apt-get update && sudo apt-get install -y tesseract-ocr tesseract-ocr-spa tesseract-ocr-eng libreoffice-calc fonts-dejavu-core
-      - run: python -m pip install -r requirements-dev.txt
-      - run: python -m compileall -q app
-      - run: python -m pytest -q
+      - name: Construir imagen REAL del backend con OCR y LibreOffice
+        working-directory: .
+        run: |
+          set -Eeuo pipefail
+          docker build --file apps/backend/Dockerfile --tag galant-ci-backend \
+            --build-arg "SOURCE_COMMIT=$GITHUB_SHA" .
+      - name: Ejecutar suite COMPLETA de backend dentro de Docker real
+        working-directory: .
+        run: |
+          set -Eeuo pipefail
+          docker run --rm --network host --user 0 \
+            -e TEST_DATABASE_URL="$TEST_DATABASE_URL" \
+            -e PYTHONDONTWRITEBYTECODE=1 \
+            -v "$GITHUB_WORKSPACE:/srv/ci" \
+            -w /srv/ci/apps/backend \
+            galant-ci-backend sh -ec '
+              python -m pip install -r requirements-dev.txt
+              command -v tesseract
+              command -v libreoffice
+              tesseract --list-langs | grep -Eq "(^|[[:space:]])spa([[:space:]]|$)"
+              python -m compileall -q app
+              python -m pytest -q
+            '
       - name: QA de los diez PDF A4 nativos (sin datos reales)
-        if: always()
-        run: python ../../scripts/qa_javiera_v19_print_visual.py --output "$RUNNER_TEMP/javiera-v19-print"
+        working-directory: .
+        run: |
+          set -Eeuo pipefail
+          mkdir -p "$RUNNER_TEMP/javiera-v19-print"
+          docker run --rm --network host --user 0 \
+            -v "$GITHUB_WORKSPACE:/srv/ci" \
+            -v "$RUNNER_TEMP:/qa-output" \
+            -w /srv/ci/apps/backend \
+            galant-ci-backend python /srv/ci/scripts/qa_javiera_v19_print_visual.py \
+              --output /qa-output/javiera-v19-print
       - name: Evidencia visual de los diez formatos (PNG + PDF + informe)
         if: always()
         uses: actions/upload-artifact@v4
         with:
           name: galant-javiera-v19-print
           path: ${{ runner.temp }}/javiera-v19-print
+          if-no-files-found: warn
+  backend_irl:
+    name: Backend IRL independiente — fórmulas, roles y firmas
+    runs-on: ubuntu-24.04
+    timeout-minutes: 12
+    defaults: {run: {working-directory: apps/backend}}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with: {python-version: "3.12"}
+      # Pruebas sintéticas que no requieren OCR, LibreOffice ni datos reales.
+      # Si falla un caso aquí, no ocultarlo bajo problemas de apt.
+      - run: python -m pip install -r requirements-dev.txt
+      - run: python -m pytest -q tests/test_javiera_irl_private_source_fingerprints.py tests/test_javiera_v195_editable_blocks.py tests/test_javiera_irl_integrity.py tests/test_javiera_irl_corrective_drafts.py
+  backend_pdf:
+    name: PDF A4 independiente — diez documentos sintéticos
+    runs-on: ubuntu-24.04
+    timeout-minutes: 12
+    defaults: {run: {working-directory: apps/backend}}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with: {python-version: "3.12"}
+      - run: python -m pip install -r requirements-dev.txt
+      # El motor HTML -> PDF usa PyMuPDF, no LibreOffice. Cada PDF se
+      # inspecciona por tamaño A4, tipografía, texto, bordes y firmas.
+      - name: Verificar IRL completo — 13 riesgos, cinco imágenes y HTML aprobado
+        run: python -m pytest -q tests/test_javiera_irl_pdf_a4_source.py
+      - name: Verificar 10 PDF reales con geometría sintética
+        run: python ../../scripts/qa_javiera_v19_print_visual.py --output "$RUNNER_TEMP/javiera-pdf-independiente"
+      - name: Guardar evidencias PDF y capturas de cada página
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: galant-pdf-a4-independiente
+          path: ${{ runner.temp }}/javiera-pdf-independiente
           if-no-files-found: warn
   frontend:
     runs-on: ubuntu-latest
@@ -73,7 +138,7 @@ jobs:
     steps:
       - uses: actions/checkout@v4
       - run: bash -n scripts/install-preview.sh scripts/diagnose.sh scripts/backup-preview.sh scripts/verify-restore-preview.sh scripts/update-preview.sh scripts/start-qa-preview.sh scripts/wait-for-final-postgres.sh
-      - run: python3 -m py_compile scripts/soak_24h.py scripts/qa_stack_smoke.py scripts/qa_operational_smoke.py scripts/qa_network_browser.py scripts/qa_v1010_browser.py scripts/qa_ux_2026_browser.py scripts/qa_v1501_focus_browser.py scripts/qa_v1502_scroll_browser.py scripts/qa_v1504_creator_browser.py scripts/qa_javiera_v16_browser.py scripts/qa_javiera_v165_workflow_browser.py
+      - run: python3 -m py_compile scripts/soak_24h.py scripts/qa_stack_smoke.py scripts/qa_operational_smoke.py scripts/qa_network_browser.py scripts/qa_v1010_browser.py scripts/qa_ux_2026_browser.py scripts/qa_v1501_focus_browser.py scripts/qa_v1502_scroll_browser.py scripts/qa_v1504_creator_browser.py scripts/qa_javiera_v16_browser.py scripts/qa_javiera_v165_workflow_browser.py scripts/qa_javiera_ux_bot.py
       - name: Validate manual/automatic VPS deployment security contracts
         run: python3 scripts/qa_manual_deploy_contract.py
       - name: Validate automatic release gate with synthetic Git commits
@@ -268,10 +333,16 @@ jobs:
           python3 scripts/qa_stack_smoke.py --verify-only
       - uses: actions/setup-python@v5
         with: {python-version: "3.12"}
-      - name: Install browser verification dependencies
+      - name: Install Chromium without a second system-wide apt upgrade
         run: |
+          set -Eeuo pipefail
           python3 -m pip install 'playwright>=1.50,<2'
-          python3 -m playwright install --with-deps chromium
+          # GitHub-hosted Ubuntu runners already provide Chromium shared
+          # libraries. --with-deps invokes apt and previously failed during
+          # a temporary DNS outage, masking the application QA results.
+          # If a required runtime library is missing the browser test MUST
+          # fail rather than reporting a false positive.
+          python3 -m playwright install chromium
       - name: QA GALANT 15.0.4 - firma elegante en portada y móviles
         run: |
           set -Eeuo pipefail
@@ -328,6 +399,19 @@ jobs:
           set -Eeuo pipefail
           export GALANT_JAVIERA_QA_PASSWORD="$QA_SMOKE_PASSWORD"
           python3 scripts/qa_javiera_v16_browser.py --url http://127.0.0.1:18612 --output "$RUNNER_TEMP/javiera-v16-browser"
+      - name: Bot UX JAVIERA - navegación, accesibilidad, IRL y móviles
+        env:
+          GALANT_JAVIERA_QA_EMAIL: qa-admin@example.test
+        run: |
+          set -Eeuo pipefail
+          export GALANT_JAVIERA_QA_PASSWORD="$QA_SMOKE_PASSWORD"
+          python3 scripts/qa_javiera_ux_bot.py --url http://127.0.0.1:18612 --output "$RUNNER_TEMP/javiera-ux-bot"
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: galant-javiera-ux-bot
+          path: ${{ runner.temp }}/javiera-ux-bot
+          if-no-files-found: warn
       - uses: actions/upload-artifact@v4
         if: always()
         with:

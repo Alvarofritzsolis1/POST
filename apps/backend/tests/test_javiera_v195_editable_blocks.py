@@ -1,0 +1,344 @@
+"""IRL: cinco bloques editables, fuente privada y gate de aprobación.
+
+La API usa una fuente simulada para que CI no pueda publicar imágenes, datos
+personales ni Excel privados en el repositorio. La aprobación profesional
+requiere la firma real de un usuario designado en el flujo de revisiones.
+"""
+from types import SimpleNamespace
+
+from app import javiera_v195_api as visual
+from app.javiera_irl_render_context import original_context
+from test_control_api import env, login
+
+ROOT = "/api/v1/javiera/v195"
+SOURCE = "a" * 64
+HASHES = [hex(i)[2:] * 64 for i in range(1, 6)]
+
+
+def fake_source(*args, **kwargs):
+    return {
+        "available": True, "status": "approved", "source_sha256": SOURCE,
+        "images": [{"sha256": HASHES[i], "title": str(i+1),
+                    "data_uri": "data:image/png;base64,AA==",
+                    "anchor_row": [87,101,120,135,153][i]} for i in range(5)],
+        "static": {"A4": "IRL"}, "document_code": "DPR-IRL-03",
+    }
+
+
+def valid_payload():
+    # La matriz original de las cinco imágenes tiene filas 08–15 y normas
+    # numeradas 01–13. En CI se usan SOLO descripciones sintéticas.
+    required = {1: range(8, 16), 2: (1, 2, 3), 3: (4, 5, 6),
+                4: (7, 8, 9), 5: (10, 11, 12, 13)}
+    return {
+        "source_sha256": SOURCE,
+        "image_hashes": list(HASHES),  # No compartir array mutable entre casos.
+        "reason": "Primera revisión editorial del IRL, cotejo manual obligatorio.",
+        "blocks": [{
+            "id": i,
+            "text": "\n".join(
+                f"{n:02d}.- Descripción sintética de ensayo {n}; no utilizar en documento real."
+                for n in required[i]
+            ),
+            "reviewed": False,
+        } for i in range(1, 6)],
+    }
+
+
+def test_editor_draft_requires_same_private_source_and_never_auto_approves(env, monkeypatch):
+    monkeypatch.setattr(visual, "_authorized_original", fake_source)
+    client, _ = env
+    headers = login(client, "a@example.cl")
+    before = client.get(ROOT + "/irl-blocks", headers=headers)
+    assert before.status_code == 200, before.text
+    assert before.json()["approved_revision"] is None
+
+    bad = valid_payload()
+    bad["image_hashes"][0] = "f" * 64
+    rejected = client.post(ROOT + "/irl-blocks", json=bad, headers=headers)
+    assert rejected.status_code == 409
+
+    content = valid_payload()
+    result = client.post(ROOT + "/irl-blocks", json=content, headers=headers)
+    assert result.status_code == 200, result.text
+    revision_id = result.json()["id"]
+    assert result.json()["state"] == "draft"
+    current = client.get(ROOT + "/irl-blocks", headers=headers)
+    assert current.status_code == 200
+    assert current.json()["latest"]["revision"] == 1
+    assert current.json()["latest"]["source_matches"] is True
+    assert current.json()["approved_revision"] is None
+    assert current.json()["latest"]["preventive_verdict"] == "pending"
+    assert current.json()["latest"]["preventive_authorization_valid"] is False
+    assert current.json()["latest"]["can_publish"] is False
+    assert current.json()["latest"]["author_is_current_user"] is True
+
+    # No hay aprobación profesional; aunque el autor pulse publicar, se rechaza.
+    publish = client.post(ROOT + "/irl-blocks/" + revision_id + "/publish", headers=headers)
+    assert publish.status_code in (403,409,422)
+    assert client.get(ROOT + "/irl-blocks", headers=headers).json()["approved_revision"] is None
+
+
+def test_source_graphics_stay_printed_without_signed_editorial_override():
+    original = fake_source()
+    output = original_context({"PERFILES": ["Cargo de prueba"]}, original)
+    assert output["original_images"].count("<img") == 5
+    assert "data:image/png;base64" in output["original_images"]
+
+
+def test_safe_html_replaces_exactly_five_images_only_when_override_is_approved():
+    original = fake_source()
+    original["approved_editable_blocks"] = [
+        {"title": f"Bloque {i}", "text": f"Título {i} <script>alert(1)</script>\n☐ Ítem {i}"}
+        for i in range(1,6)
+    ]
+    output = original_context({}, original)
+    markup = output["original_images"]
+    assert markup.count('class="irl-ed-block"') == 5
+    assert "<script>" not in markup
+    assert "&lt;script&gt;" in markup
+    assert "<img" not in markup
+    assert "☐ Ítem 5" in markup
+
+
+def test_publish_cannot_use_stale_signed_revision(env, monkeypatch):
+    monkeypatch.setattr(visual, "_authorized_original", fake_source)
+    client, _ = env
+    headers = login(client, "a@example.cl")
+    first = client.post(ROOT + "/irl-blocks", json=valid_payload(), headers=headers)
+    assert first.status_code == 200, first.text
+    second = client.post(ROOT + "/irl-blocks", json=valid_payload(), headers=headers)
+    assert second.status_code == 200
+    old_id = first.json()["id"]
+    # Se bloquea revisión anterior antes incluso de revisar la firma.
+    attempt = client.post(ROOT + "/irl-blocks/" + old_id + "/publish", headers=headers)
+    assert attempt.status_code == 409
+
+
+def test_completely_reviewed_blocks_still_require_independent_preventive_signoff(env, monkeypatch):
+    monkeypatch.setattr(visual, "_authorized_original", fake_source)
+    client, _ = env
+    headers = login(client, "a@example.cl")
+    payload = valid_payload()
+    for block in payload["blocks"]:
+        block["reviewed"] = True
+    result = client.post(ROOT + "/irl-blocks", json=payload, headers=headers)
+    assert result.status_code == 200, result.text
+    current = client.get(ROOT + "/irl-blocks", headers=headers).json()
+    assert current["latest"]["can_publish"] is False
+    assert current["latest"]["preventive_verdict"] == "pending"
+    attempt = client.post(ROOT + "/irl-blocks/" + result.json()["id"] + "/publish", headers=headers)
+    assert attempt.status_code == 409, attempt.text
+    assert "acta preventiva" in attempt.json()["detail"]
+
+
+def test_unapproved_excel_layout_cannot_publish_or_override_original_images(env, monkeypatch):
+    def source_in_draft(*args, **kwargs):
+        result = fake_source()
+        result["status"] = "draft"
+        return result
+
+    monkeypatch.setattr(visual, "_authorized_original", source_in_draft)
+    client, _ = env
+    headers = login(client, "a@example.cl")
+    payload = valid_payload()
+    for block in payload["blocks"]:
+        block["reviewed"] = True
+    saved = client.post(ROOT + "/irl-blocks", json=payload, headers=headers)
+    assert saved.status_code == 200, saved.text
+    state = client.get(ROOT + "/irl-blocks", headers=headers)
+    assert state.status_code == 200
+    assert state.json()["source_layout_status"] == "draft"
+    assert state.json()["latest"]["can_publish"] is False
+    denied = client.post(ROOT + "/irl-blocks/" + saved.json()["id"] + "/publish",
+                         headers=headers)
+    assert denied.status_code == 409
+    assert "formato Excel IRL original" in denied.json()["detail"]
+    original = source_in_draft()
+    # Una maquetación sin aprobación jamás sustituye las imágenes originales.
+    edited = visual.attach_approved_irl_visual(None,
+        type("Reviewer", (), {"org_id": "fake"})(), original)
+    assert edited is original
+    assert "approved_editable_blocks" not in edited
+
+
+def test_designated_doc_reviewer_can_sign_and_admin_can_publish(env, monkeypatch):
+    """Cuentas reviewer pueden aprobar; el autor admin no firma lo suyo."""
+    from sqlalchemy import select
+    from app.models import User
+    from app.security import hash_password
+    from app.javiera_models import JavieraReviewerAuthorization
+    from app.javiera_review import CHECKLISTS, BASIS
+
+    monkeypatch.setattr(visual, "_authorized_original", fake_source)
+    client, sessions = env
+    with sessions.begin() as db:
+        author = db.scalar(select(User).where(User.email == "a@example.cl"))
+        reviewer = User(
+            org_id=author.org_id, email="reviewer@example.cl", role="doc_reviewer",
+            password_hash=hash_password("password-valid-2026"))
+        db.add(reviewer)
+        db.flush()
+        db.add(JavieraReviewerAuthorization(
+            org_id=author.org_id, user_id=reviewer.id,
+            specialty="prevencion", designation="Prevencionista autorizado en prueba sintética",
+            delegated_by=author.id, active=True))
+
+    admin_headers = login(client, "a@example.cl")
+    content = valid_payload()
+    for block in content["blocks"]:
+        block["reviewed"] = True
+    draft = client.post(ROOT + "/irl-blocks", json=content, headers=admin_headers)
+    assert draft.status_code == 200, draft.text
+    revision_id = draft.json()["id"]
+
+    # Un revisor con rol distinto al administrador tiene acceso a su checklist.
+    reviewer_headers = login(client, "reviewer@example.cl")
+    checklist = client.get("/api/v1/javiera/admin/reviews/checklists",
+                           headers=reviewer_headers)
+    assert checklist.status_code == 200
+    queue = client.get(ROOT + "/irl-blocks/review-queue", headers=reviewer_headers)
+    assert queue.status_code == 200, queue.text
+    assert queue.json()["authorized"] is True
+    assert len(queue.json()["items"]) == 1
+    assert queue.json()["items"][0]["id"] == revision_id
+    assert len(queue.json()["items"][0]["images"]) == 5
+    assert len(queue.json()["items"][0]["blocks"]) == 5
+    signed = client.post("/api/v1/javiera/admin/reviews/signoff", headers=reviewer_headers,
+        json={
+            "resource_kind": "template", "resource_id": revision_id,
+            "specialty": "prevencion", "verdict": "approved",
+            "checklist": {key: True for key in CHECKLISTS["prevencion"]},
+            "comments": "Cotejo sintético de cinco bloques, controles y requerimientos preventivos; solo ensayo.",
+            "regulatory_basis": BASIS["prevencion"],
+        })
+    assert signed.status_code == 200, signed.text
+    reviewed_queue = client.get(ROOT + "/irl-blocks/review-queue", headers=reviewer_headers)
+    assert reviewed_queue.status_code == 200
+    assert reviewed_queue.json()["items"] == []
+
+    admin_headers = login(client, "a@example.cl")
+    details = client.get(ROOT + "/irl-blocks", headers=admin_headers)
+    assert details.status_code == 200
+    assert details.json()["latest"]["preventive_verdict"] == "approved"
+    assert details.json()["latest"]["preventive_authorization_valid"] is True
+    assert details.json()["latest"]["can_publish"] is True
+
+    published = client.post(ROOT + "/irl-blocks/" + revision_id + "/publish",
+                            headers=admin_headers)
+    assert published.status_code == 200, published.text
+    assert published.json()["state"] == "approved"
+    with sessions() as db:
+        admin = db.scalar(select(User).where(User.email == "a@example.cl"))
+        source = fake_source()
+        result = visual.attach_approved_irl_visual(db, admin, source)
+        assert len(result["approved_editable_blocks"]) == 5
+        assert result["approved_editor_revision"] == 1
+
+
+def test_visual_source_numbering_gate_prevents_missing_13th_norm(env, monkeypatch):
+    monkeypatch.setattr(visual, "_authorized_original", fake_source)
+    source = valid_payload()
+    assert visual.missing_original_items(source["blocks"]) == {}
+    source["blocks"][4]["text"] = "\n".join(
+        line for line in source["blocks"][4]["text"].splitlines()
+        if not line.startswith("13.-")
+    )
+    missing = visual.missing_original_items(source["blocks"])
+    assert missing == {"5": [13]}
+    for block in source["blocks"]:
+        block["reviewed"] = True
+    client, _ = env
+    headers = login(client, "a@example.cl")
+    saved = client.post(ROOT + "/irl-blocks", json=source, headers=headers)
+    assert saved.status_code == 200, saved.text
+    status = client.get(ROOT + "/irl-blocks", headers=headers)
+    assert status.status_code == 200
+    assert status.json()["latest"]["missing_original_items"] == {"5": [13]}
+    assert status.json()["latest"]["can_publish"] is False
+    blocked = client.post(ROOT + "/irl-blocks/" + saved.json()["id"] + "/publish",
+                          headers=headers)
+    assert blocked.status_code == 422, blocked.text
+    assert "bloque 5" in blocked.json()["detail"]
+
+
+
+def test_editable_html_uses_original_medical_table_structure_without_scripting():
+    from app.javiera_irl_render_context import original_editorial_html
+    block = {
+        "title": "Antecedentes generales",
+        "text": (
+            "ANTECEDENTES GENERALES\n"
+            "Indique en el recuadro la opción que corresponda con una (x):\n"
+            "N.° | Accidente | Sí | No | Observaciones / Diagnóstico / Controles / Medicamentos\n"
+            "08 | Fractura / Esguince / TEC | ☐ | ☐ |\n"
+            "09 | Tratamientos Médicos | ☐ | ☐ |\n"
+            "10 | Grupo Sanguíneo | ☐ | ☐ |\n\n"
+            "OTRAS CONSIDERACIONES\n"
+            "N.° | Consideración | Sí | No | Observaciones / Diagnóstico / Controles / Medicamentos\n"
+            "11 | Alergia | ☐ | ☐ |\n"
+            "12 | Prótesis | ☐ | ☐ |\n"
+            "13 | Órtesis | ☐ | ☐ |\n"
+            "14 | Discapacidad | ☐ | ☐ |\n"
+            "15 | Otras | ☐ | ☐ |"
+        ),
+    }
+    html = original_editorial_html(block, 1)
+    assert html.count('<table class="irl-ed-checklist">') == 2
+    assert html.count("<tr>") == 10  # 8 data rows and two table headers.
+    assert html.count("<td>☐</td>") == 16
+    assert "<td>08</td>" in html
+    assert "<td>15</td>" in html
+    assert "OTRAS CONSIDERACIONES" in html
+    assert html.count("</table>") == 2
+
+
+def test_safety_norms_become_html_headings_and_bullets_without_executing_code():
+    from app.javiera_irl_render_context import original_editorial_html
+    block = {"title": "Seguridad <script>NO</script>",
+             "text": "☐ 1.- Norma de prueba\n• Primera medida\n"
+                     "☐ 2.- Otra norma\n• <img src=x onerror=alert(1)>"}
+    html = original_editorial_html(block, 2)
+    assert html.count('class="irl-ed-norm"') == 2
+    assert html.count('class="irl-ed-bullet"') == 2
+    assert '<script>' not in html
+    assert '<img ' not in html
+    assert '&lt;img src=x onerror=alert(1)&gt;' in html
+    assert '&lt;script&gt;' in html
+
+
+
+def test_html_preserves_checked_medical_answers_and_private_observations_without_code():
+    from app.javiera_irl_render_context import original_editorial_html
+    medical = {
+        "title": "Antecedentes generales",
+        "text": (
+            "ANTECEDENTES GENERALES\n"
+            "N.° | Accidente | Sí | No | Observaciones / Diagnóstico / Controles / Medicamentos\n"
+            "08 | Fractura / TEC | ☑ | ☐ | Control médico anotado <script>NO</script>\n"
+            "09 | Tratamientos médicos | ☐ | ☑ | No aplica\n"
+            "10 | Grupo sanguíneo | ☐ | ☐ | Observación con barra | adicional"
+        ),
+    }
+    html = original_editorial_html(medical, 1)
+    assert "<td>☑</td>" in html
+    assert "<td>☐</td>" in html
+    assert "Control médico anotado &lt;script&gt;NO&lt;/script&gt;" in html
+    assert "<script>" not in html
+    assert "Observación con barra | adicional" in html
+    norm = original_editorial_html({
+        "title": "Normas",
+        "text": "☑ 1.- Norma recibida\n□ 2.- Norma pendiente\n☒ 3.- Norma no aplica",
+    }, 2)
+    assert "☑ 1.- Norma recibida" in norm
+    assert "□ 2.- Norma pendiente" in norm
+    assert "☒ 3.- Norma no aplica" in norm
+
+
+def test_checked_norm_numbering_does_not_invalidate_integrity_gate():
+    from app.javiera_v195_api import missing_original_items
+    payload = valid_payload()
+    for block in payload["blocks"][1:]:
+        block["text"] = block["text"].replace(
+            "01.-", "☑ 01.-").replace("04.-", "☒ 04.-")
+    assert missing_original_items(payload["blocks"]) == {}

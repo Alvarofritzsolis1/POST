@@ -12,13 +12,17 @@ from functools import lru_cache
 from pathlib import Path
 
 from fastapi import APIRouter, Depends, HTTPException, Query
+from sqlalchemy import select
 from sqlalchemy.orm import Session
 
 from .db import get_db
 from .javiera_logic import normalize_cargo
 from .javiera_irl_integrity import audit_reference_role
+from .javiera_irl_corrective_drafts import corrective_draft_for_role, merged_draft_sections
+from .javiera_irl_consolidation import consolidate_reference_risks, identical_variants
 from .javiera_v193_api import roles as db_roles, role_detail as db_role_detail
 from .models import User
+from .javiera_models import JavieraMatrix
 from .security import administrator
 
 router = APIRouter(prefix="/api/v1/javiera/v194", tags=["Javiera 19.4 · 25 cargos IRL"])
@@ -61,6 +65,7 @@ def _to_preview_record(row: dict, ordinal: int) -> dict:
         "ordinal": ordinal,
         "source_number": row["n"],
         "excel_row": row["excel_row"],
+        "source_excel_rows": list(row.get("source_excel_rows", [row["excel_row"]])),
         "labor": row["tarea"],
         "peligro": row["peligro"],
         "riesgo": row["riesgo"],
@@ -88,7 +93,10 @@ def reference_roles(query: str = Query("", max_length=160),
             "has_draft": False,
         })
         current["source_excel_available"] = True
-        current["reference_count"] = catalog()["risk_counts"][role]
+        source_rows = [row for row in catalog()["rows"] if row["cargo"] == role]
+        display_rows, _ = consolidate_reference_risks(source_rows, role)
+        current["reference_count"] = len(display_rows)
+        current["reference_source_count"] = len(source_rows)
         current["source_preventive_approval"] = "not_approved_automatically"
     values = sorted(
         (item for item in found.values()
@@ -115,9 +123,16 @@ def reference_detail(cargo: str = Query(..., min_length=1, max_length=160),
         return data
     source_role, rows = source
     references = [_to_preview_record(row, ordinal) for ordinal, row in enumerate(rows, 1)]
+    unique_rows, collapsed_groups = consolidate_reference_risks(rows, source_role)
+    display_references = [_to_preview_record(row, ordinal)
+                          for ordinal, row in enumerate(unique_rows, 1)]
     invalid = [row["excel_row"] for row in references if not row["structured"]]
     reference_audit = audit_reference_role(source_role, rows, related_catalog()["matrices"])
+    correction = corrective_draft_for_role(source_role, rows)
+    if correction["type"] == "risk_row":
+        correction["editor_draft_sections"] = merged_draft_sections(rows, correction)
     data["reference_audit"] = reference_audit
+    data["corrective_draft"] = correction
     data["warnings"].extend(reference_audit["warnings"])
     data.update({
         "source_excel_available": True,
@@ -125,6 +140,8 @@ def reference_detail(cargo: str = Query(..., min_length=1, max_length=160),
         "source_excel_sha256": catalog()["source_sha256"],
         "reference_records": references,
         "reference_total": len(references),
+        "reference_display_total": len(display_references),
+        "reference_collapsed_groups": collapsed_groups,
         "reference_unstructured": len(invalid),
         "reference_incomplete_excel_rows": invalid,
         "reference_approved": False,
@@ -136,49 +153,44 @@ def reference_detail(cargo: str = Query(..., min_length=1, max_length=160),
         candidates = related_for_role(kind, cargo)
         if not candidates:
             continue
-        if len(candidates) > 1:
-            # Las filas de un mismo cargo pueden representar variantes
-            # distintas. No elegir candidates[0] de manera silenciosa.
-            variants = [
-                {"row": item["source_row"], "cargo": item["cargo"]}
-                for item in candidates
-            ]
-            if kind == "PTS":
-                data["pts"]["source_variants"] = variants
-                data["pts"]["requires_disambiguation"] = True
-            else:
-                data["additional_matrices"][kind]["source_variants"] = variants
-                data["additional_matrices"][kind]["requires_disambiguation"] = True
+        variants = [{"row": item["source_row"], "cargo": item["cargo"]}
+                    for item in candidates]
+        equivalent = identical_variants(candidates)
+        unresolved = len(candidates) > 1 and not equivalent
+        if kind == "PTS":
+            target = data["pts"]
+        else:
+            target = data["additional_matrices"][kind]
+        target["source_variants"] = variants
+        target["requires_disambiguation"] = unresolved
+        target["identical_reference_variants"] = len(candidates) > 1 and equivalent
+        # Las matrices aprobadas siempre tienen precedencia. El catálogo
+        # histórico sirve para precompletar referencias, nunca habilitar PDF.
+        if unresolved:
             data["warnings"].append(
-                f"{kind}: existen {len(candidates)} filas para {cargo}. "
-                "Selecciona y valida una variante antes de usarla."
+                f"{kind}: existen {len(candidates)} variantes diferentes para {cargo}; "
+                "requieren selección y revisión preventiva."
             )
             continue
         if kind == "PTS":
-            if not data["pts"]["approved"]:
-                data["pts"]["sections"] = list(candidates[0]["sections"])
-                data["pts"]["section_count"] = len(candidates[0]["sections"])
-                data["pts"]["reference_only"] = True
-                data["pts"]["source_variants"] = [
-                    {"row": c["source_row"], "cargo": c["cargo"]} for c in candidates
-                ]
-        else:
-            current = data["additional_matrices"][kind]
-            if not current["available"]:
-                current.update({
-                    "available": True, "reference_only": True,
-                    "sections": list(candidates[0]["sections"]),
-                    "source_variants": [
-                        {"row": c["source_row"], "cargo": c["cargo"]} for c in candidates
-                    ],
-                })
+            if not target["approved"]:
+                target["sections"] = list(candidates[0]["sections"])
+                target["section_count"] = len(candidates[0]["sections"])
+                target["reference_only"] = True
+        elif not target["available"]:
+            target.update({
+                "available": True, "reference_only": True,
+                "sections": list(candidates[0]["sections"]),
+            })
     if not data["irl"]["approved"]:
         # El front puede estudiar la matriz original sin tener que importarla
         # a mano. Ningún documento imprimible usa este contenido hasta que
         # se cree/autorice una revisión por el circuito preventivo.
-        data["irl"]["records"] = references
+        data["irl"]["records"] = display_references
         data["irl"]["reference_only"] = True
-        data["irl"]["has_unstructured"] = bool(invalid)
+        data["irl"]["has_unstructured"] = any(not row["structured"] for row in display_references)
+        data["irl"]["source_rows_preserved"] = len(references)
+        data["irl"]["display_rows"] = len(display_references)
         data["warnings"].insert(0,
             "Matriz original de Excel disponible para consulta, sin aprobación preventiva."
             " Se requiere revisión autorizada antes de imprimir.")
@@ -288,4 +300,71 @@ def reference_matrices(kind: str = Query(..., max_length=20),
         "historical_pdfs_unchanged": True,
         "editable_as_new_draft": True,
         "source_sha256": catalog()["source_sha256"] if kind == "IRL" else related_catalog()["source_sha256"],
+    }
+
+
+@router.post("/corrective-draft")
+def prepare_corrective_draft(
+    cargo: str = Query(..., min_length=2, max_length=160),
+    user: User = Depends(administrator),
+    db: Session = Depends(get_db),
+):
+    """One-click review DRAFT. Never authorizes risks or HDS.
+
+    CARPINTERO: preserve the other 12 source rows, suggest only E40/F40.
+    PAISAJISTA: twelve empty-evidence editable fields, with no fake
+    products, solvents or chemical hazards inherited from another job.
+    """
+    source = lookup_role(cargo)
+    if source is None:
+        raise HTTPException(404, "Cargo inexistente en la fuente original.")
+    source_role, rows = source
+    corrected = corrective_draft_for_role(source_role, rows)
+    if corrected["type"] == "none":
+        raise HTTPException(409, "No existe una propuesta específica para el cargo.")
+    if corrected["type"] == "risk_row":
+        kind = "IRL"
+        sections = merged_draft_sections(rows, corrected)
+        if len(sections) != 13:
+            raise HTTPException(409, "La referencia CARPINTERO no conserva las 13 filas.")
+        origin = "Editor visual GALANT 19.5.0 CARPINTERO E40 F40 propuesta"
+    elif corrected["type"] == "chemical_inventory":
+        kind = "SUSTANCIAS"
+        fields = corrected["proposal"]["fields"]
+        if len(fields) != 12 or related_for_role(kind, source_role):
+            raise HTTPException(409, "Debe verificarse la procedencia de HDS del cargo.")
+        sections = [
+            f"{i+1}. {field}: PENDIENTE DE EVIDENCIA DE PRODUCTO / HDS"
+            for i, field in enumerate(fields)
+        ]
+        origin = "Editor visual GALANT 19.5.0 HDS PENDIENTE"
+    else:
+        raise HTTPException(409, "Tipo de propuesta no reconocido.")
+
+    recent = db.scalar(select(JavieraMatrix).where(
+        JavieraMatrix.org_id == user.org_id,
+        JavieraMatrix.kind == kind,
+        JavieraMatrix.cargo == source_role,
+    ).order_by(JavieraMatrix.revision.desc()))
+    if (recent and recent.status == "draft" and recent.source == origin
+            and list(recent.sections) == sections):
+        return {
+            "id": recent.id, "revision": recent.revision, "status": "draft",
+            "kind": kind, "cargo": source_role, "created": False,
+            "requires_preventive_signoff": True,
+        }
+
+    from .javiera_api import MatrixChange, change_matrix
+    result = change_matrix(
+        MatrixChange(kind=kind, cargo=source_role,
+                     sections=sections, source=origin),
+        user=user, db=db,
+    )
+    return {
+        **result, "kind": kind, "cargo": source_role, "created": True,
+        "requires_preventive_signoff": True,
+        "message": (
+            "Se creó un borrador revisable. No está aprobado ni se puede "
+            "emitir como documento del trabajador."
+        ),
     }

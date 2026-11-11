@@ -65,6 +65,31 @@ def main():
             # document structure and preventive matrix, not a blank HTML canvas.
             page.get_by_role("button", name=re.compile("INFORMACIÓN DE RIESGOS LABORALES")).click()
             expect(page.get_by_role("heading", name="Formato original, datos vinculados y matriz de riesgos")).to_be_visible()
+            # Seleccionar un cargo de referencia real: no aceptar una tabla vacía
+            # ni una matriz heredada de otro cargo durante el cambio.
+            role_selector = page.get_by_role("combobox", name="Cargo que deseas revisar")
+            expect(role_selector).not_to_have_value("", timeout=15000)
+            role_selector.select_option("GASFITER")
+            expect(page.locator(".jir-view-toolbar strong")).to_have_text("13", timeout=20000)
+            # Revisar alarmas reales de la fuente por cargo, sin aprobar ni
+            # rellenar consecuencias, medidas o sustancias inventadas.
+            role_selector.select_option("CARPINTERO")
+            warning = page.get_by_role("region", name="Alertas preventivas de matriz original")
+            expect(warning).to_contain_text("40", timeout=20000)
+            expect(warning).to_contain_text("No se completarán ni aprobarán automáticamente")
+            expect(warning).to_contain_text("Contacto eléctrico directo o indirecto")
+            expect(warning.get_by_role("button", name="Crear borrador de 13 riesgos en GALANT")).to_be_visible()
+            role_selector.select_option("PAISAJISTA")
+            expect(warning).to_contain_text("PAISAJISMO (REVISAR HDS)", timeout=20000)
+            expect(warning).to_contain_text("no se vincula sin revisión preventiva")
+            expect(warning).to_contain_text("Inventario")
+            expect(warning.get_by_role("button", name="Crear ficha editable HDS en GALANT")).to_be_visible()
+            role_selector.select_option("GASFITER")
+            expect(page.locator(".jir-view-toolbar strong")).to_have_text("13", timeout=20000)
+            report["scenarios"]["source_risk_and_hds_alerts"] = "PASS"
+            # El IRL A4 debe estar abierto desde el ingreso; antes estaba
+            # contraído y la interfaz parecía vacía aunque había contenido.
+            expect(page.locator("details.jir-preview")).to_have_attribute("open", "", timeout=15000)
             expect(page.locator(".jir-risk-table thead th")).to_have_count(4)
             expect(page.get_by_role("columnheader", name="Actividad")).to_be_visible()
             expect(page.get_by_role("heading", name="3 - CARACTERÍSTICAS DE PRODUCTOS Y SUSTANCIAS A MANIPULAR")).to_be_visible()
@@ -72,6 +97,18 @@ def main():
             expect(page.get_by_role("button", name="Abrir Matrices y cargos")).to_be_visible()
             page.get_by_role("button", name="Abrir Matrices y cargos").click()
             expect(page.get_by_role("heading", name="Matrices y cargos")).to_be_visible()
+            center = page.get_by_role("region", name="Centro de control de matrices")
+            expect(center).to_be_visible()
+            expect(center.get_by_role("heading", name="Centro de control y aprobaciones")).to_be_visible()
+            expect(center.get_by_role("button", name=re.compile("Aprobadas"))).to_be_visible()
+            expect(center.get_by_role("button", name=re.compile("Listas para revisar"))).to_be_visible()
+            expect(center.get_by_role("button", name=re.compile("Con campos faltantes"))).to_be_visible()
+            expect(center.get_by_role("button", name=re.compile("Referencias Excel sin aprobar"))).to_be_visible()
+            # Comprobar el filtro y después restaurar todo el catálogo.
+            center.get_by_role("button", name=re.compile("Referencias Excel sin aprobar")).click()
+            expect(page.get_by_role("combobox", name="Filtrar por estado")).to_have_value("reference")
+            center.get_by_role("combobox", name="Filtrar por estado").select_option("all")
+            report["scenarios"]["matrix_approval_dashboard_visible"] = "PASS"
             # GALANT 19.4: los cinco tipos ya tienen contenido del Excel
             # aunque la organización aún no importe ni apruebe las matrices.
             for kind, expected, fields in (
@@ -80,7 +117,7 @@ def main():
             ):
                 page.locator("#jmx-kind").select_option(kind)
                 expect(page.locator(".jmx-items small").first).to_contain_text(
-                    f"{expected} filas de Excel", timeout=30000
+                    f"{expected} referencias Excel", timeout=30000
                 )
                 expect(page.get_by_text(
                     "Matriz precargada automáticamente desde el Excel"
@@ -90,11 +127,17 @@ def main():
                     expect(page.locator(".jmx-irl-fields textarea")).to_have_count(4)
                     expect(page.get_by_role("heading", name="Editar labores y riesgos, paso a paso")).to_be_visible()
                     expect(page.get_by_role("textbox", name="Cargo / puesto")).to_have_value("GASFITER")
+                    complete = page.get_by_role("region", name="Revisión de campos del IRL")
+                    expect(complete).to_contain_text("Campos estructurales completos")
                     # Seleccionar la misma categoría otra vez no puede vaciar
                     # el cargo y sus 26 registros (regresión de PR #55).
                     page.locator("#jmx-kind").select_option("IRL")
                     expect(page.locator(".jmx-irl-task-list button")).to_have_count(26)
                     expect(page.get_by_role("textbox", name="Cargo / puesto")).to_have_value("GASFITER")
+                    # Un cargo nuevo vacío explica exactamente qué debe llenarse.
+                    page.get_by_role("button", name="Nuevo cargo").click()
+                    expect(complete).to_contain_text("1 tareas incompletas")
+                    expect(complete.get_by_role("button", name=re.compile("Tarea 1:"))).to_be_visible()
                 else:
                     expect(page.locator(".jmx-rows textarea")).to_have_count(fields)
             report["scenarios"]["five_matrices_preloaded_from_original_excel"] = "PASS"
