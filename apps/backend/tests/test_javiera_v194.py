@@ -106,7 +106,7 @@ def test_role_includes_related_reference_contents_without_approval(env):
         assert detail["irl"]["reference_only"] is True
         assert detail["can_preview_irl"] is False
 
-def test_v194_role_reports_integrity_and_does_not_pick_ambiguous_source(env):
+def test_v194_role_resolves_identical_sources_without_auto_approval(env):
     client, sessions = env
     headers = login(client, "a@example.cl")
     response = client.get(ROOT + "/role", params={"cargo": "GASFITER"}, headers=headers)
@@ -114,14 +114,25 @@ def test_v194_role_reports_integrity_and_does_not_pick_ambiguous_source(env):
     detail = response.json()
     audit = detail["reference_audit"]
     assert audit["risk_count"] == 26
-    assert audit["linked"]["PTS"]["ambiguous"] is True
-    assert audit["linked"]["PERFILES"]["ambiguous"] is True
+    assert audit["linked"]["PTS"]["ambiguous"] is False
+    assert audit["linked"]["PERFILES"]["ambiguous"] is False
+    assert audit["linked"]["PUESTOS"]["duplicate_identical"] is True
+    assert audit["linked"]["SUSTANCIAS"]["duplicate_identical"] is True
+    assert audit["display_risk_count"] == 13
+    assert len(audit["collapsed_risk_groups"]) == 13
+    assert detail["reference_total"] == 26
+    assert detail["reference_display_total"] == 13
+    assert len(detail["reference_records"]) == 26
+    assert len(detail["irl"]["records"]) == 13
+    assert detail["irl"]["reference_only"] is True
     assert audit["full_excel_parity_certified"] is False
     assert len(audit["original_visual_blocks"]) == 5
     if not detail["pts"]["approved"]:
-        assert detail["pts"]["requires_disambiguation"] is True
-        assert detail["pts"]["sections"] == []
+        assert detail["pts"]["requires_disambiguation"] is False
+        assert detail["pts"]["identical_reference_variants"] is True
+        assert len(detail["pts"]["sections"]) == 17
     if not detail["additional_matrices"]["PERFILES"]["revision"]:
         perfil = detail["additional_matrices"]["PERFILES"]
-        assert perfil["requires_disambiguation"] is True
-        assert perfil["sections"] == []
+        assert perfil["requires_disambiguation"] is False
+        assert perfil["identical_reference_variants"] is True
+        assert len(perfil["sections"]) == 1
