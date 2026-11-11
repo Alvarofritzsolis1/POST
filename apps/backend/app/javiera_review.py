@@ -159,6 +159,17 @@ def signoff(payload: ReviewInput, user: User = Depends(document_reviewer),
             db.get(JavieraTemplate, obj.template_id).code)
         if specialty_for_code(code) != payload.specialty:
             raise HTTPException(422, "La especialidad del revisor no corresponde al documento")
+        if code == "irl_visual_blocks" and payload.verdict == "approved":
+            # El revisor no puede firmar un borrador que omitió filas
+            # personales 08–15 o reglas preventivas 01–13 del IRL fuente.
+            from .javiera_v195_api import missing_original_items
+            missing = missing_original_items((obj.contents or {}).get("blocks") or [])
+            if missing:
+                raise HTTPException(
+                    422, "Faltan elementos numerados del IRL original por cotejar: " +
+                    ", ".join(f"bloque {i}: " + ", ".join(map(str, numbers))
+                              for i, numbers in missing.items())
+                )
     expected = set(CHECKLISTS[payload.specialty])
     if set(payload.checklist) != expected or (
         payload.verdict == "approved" and not all(payload.checklist.values())
