@@ -7,7 +7,15 @@ import "./javiera-irl-structure.css";
 
 type Role={cargo:string;has_approved_irl:boolean;has_approved_pts:boolean;has_draft:boolean;source_excel_available?:boolean;reference_count?:number};
 type IRLRow={id:string;ordinal:number;labor:string;peligro:string;riesgo:string;medidas:string;original:string;structured:boolean;source_excel_rows?:number[]};
-type Detail={cargo:string;irl:{approved:boolean;revision:number|null;records:IRLRow[];has_unstructured:boolean;reference_only?:boolean};
+type CorrectiveDraft={type:"risk_row"|"chemical_inventory"|"none";
+  source_preserved?:boolean;approval_status:string;
+  proposal?:{excel_row?:number;status?:string;
+    risk_suggestion?:string;controls_suggestion?:string;
+    disclaimer?:string;technical_reference?:string;
+    missing_evidence?:string[];fields?:string[];
+    no_chemical_use_policy?:string;source_alias_not_accepted?:string};
+  editor_draft_sections?:string[]};
+type Detail={cargo:string;corrective_draft?:CorrectiveDraft;irl:{approved:boolean;revision:number|null;records:IRLRow[];has_unstructured:boolean;reference_only?:boolean};
   warnings:string[];can_preview_irl:boolean;reference_total?:number;reference_display_total?:number;source_excel_available?:boolean;reference_incomplete_excel_rows?:number[];reference_audit?:ReferenceAudit;
   additional_matrices:Record<AuditKind,{sections:string[];available:boolean;reference_only?:boolean;revision:number|null}>};
 type AuditKind="PERFILES"|"PUESTOS"|"SUSTANCIAS";
@@ -118,6 +126,31 @@ export default function JavieraIRLStructure({onEditMatrices}:Props){
   const substances=sectionFor("SUSTANCIAS");
   const staticValue=(coordinate:string)=>original?.static[coordinate]||"";
   const warningList=[...new Set([...(current?.warnings||[]),...(reference?.warnings||[])])];
+  async function copyCorrectiveDraft(){
+    if(!current?.corrective_draft?.proposal)return;
+    const correction=current.corrective_draft;
+    let content="";
+    if(correction.type==="risk_row"&&correction.proposal.excel_row===40){
+      content=serializeIRLClipboard(rows.map(row=>{
+        const isTarget=row.source_excel_rows?.includes(40);
+        return [row.labor,row.peligro,
+          isTarget?correction.proposal!.risk_suggestion||"":row.riesgo,
+          isTarget?correction.proposal!.controls_suggestion||"":row.medidas];
+      }));
+    }else if(correction.type==="chemical_inventory"){
+      content=[
+        "PAISAJISTA — FICHA DE LEVANTAMIENTO HDS (SIN APROBACIÓN)",
+        ...(correction.proposal.fields||[]).map(field=>field+"\tPENDIENTE DE EVIDENCIA"),
+        "",
+        ...(correction.proposal.missing_evidence||[]).map(item=>"VERIFICAR: "+item),
+      ].join("\n");
+    }
+    if(!content)return;
+    try{
+      await navigator.clipboard.writeText(content);
+      setCopyStatus("Propuesta copiada para edición. NO aprobada: verificar en obra y firmar el acta.");
+    }catch{setCopyStatus("El navegador no permitió copiar. Verifica permisos del portapapeles.")}
+  }
   async function copyRiskMatrix(){
     if(!rows.length)return;
     const values=serializeIRLClipboard(rows.map(row=>
@@ -197,6 +230,29 @@ export default function JavieraIRLStructure({onEditMatrices}:Props){
             " La fila «PAISAJISMO (REVISAR HDS)» incluye productos de pintura y no se vincula sin revisión preventiva.":
             " Verifica los productos y HDS reales antes de la aprobación."}
         </p>}
+        {current.corrective_draft?.type==="risk_row"&&
+          current.corrective_draft.proposal&&<div className="jir-suggested-correction">
+            <h4>Propuesta de corrección · CARPINTERO fila 40</h4>
+            <p><b>Consecuencias propuestas:</b> {current.corrective_draft.proposal.risk_suggestion}</p>
+            <p><b>Medidas preventivas propuestas:</b> {current.corrective_draft.proposal.controls_suggestion}</p>
+            <p className="jir-noapprove">{current.corrective_draft.proposal.disclaimer}</p>
+            <button type="button" onClick={()=>void copyCorrectiveDraft()}>
+              Copiar las 13 filas con la propuesta para el editor
+            </button>
+          </div>}
+        {current.corrective_draft?.type==="chemical_inventory"&&
+          current.corrective_draft.proposal&&<div className="jir-suggested-correction">
+            <h4>Ficha HDS por verificar · PAISAJISTA</h4>
+            <p>No se importan los productos de
+              «{current.corrective_draft.proposal.source_alias_not_accepted}» como sustancias del cargo.</p>
+            <p><b>Documentos necesarios:</b></p>
+            <ul>{(current.corrective_draft.proposal.missing_evidence||[])
+              .map(item=><li key={item}>{item}</li>)}</ul>
+            <p>{current.corrective_draft.proposal.no_chemical_use_policy}</p>
+            <button type="button" onClick={()=>void copyCorrectiveDraft()}>
+              Copiar ficha de 12 campos HDS para levantar datos reales
+            </button>
+          </div>}
         {onEditMatrices&&<button type="button" onClick={onEditMatrices}>
           Revisar matrices y corregir faltantes
         </button>}
