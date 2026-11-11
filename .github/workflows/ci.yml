@@ -45,12 +45,27 @@ jobs:
       - uses: actions/checkout@v4
       - uses: actions/setup-python@v5
         with: {python-version: "3.12"}
-      - name: Install backend system dependencies with bounded network retries
+      - name: Verify backend system dependencies; install only what is missing
         run: |
           set -Eeuo pipefail
-          sudo apt-get -o Acquire::Retries=2 -o Acquire::http::Timeout=20 update
-          sudo apt-get -y -o Acquire::Retries=2 -o Acquire::http::Timeout=20 install \
-            tesseract-ocr tesseract-ocr-spa tesseract-ocr-eng libreoffice-calc fonts-dejavu-core
+          required=(tesseract-ocr tesseract-ocr-spa tesseract-ocr-eng libreoffice-calc fonts-dejavu-core)
+          missing=()
+          for package in "${required[@]}"; do
+            if ! dpkg-query -W -f='${Status}' "$package" 2>/dev/null | grep -q 'install ok installed'; then
+              missing+=("$package")
+            fi
+          done
+          if (( ${#missing[@]} )); then
+            echo "Dependencias faltantes: ${missing[*]}"
+            # No dejar ocupada la CI durante muchos minutos ante cortes DNS.
+            # Un fallo de aprovisionamiento debe verse ROJO, nunca ignorarse.
+            timeout 120s sudo apt-get -o Acquire::Retries=1 -o Acquire::http::Timeout=12 update
+            timeout 180s sudo apt-get -y -o Acquire::Retries=1 -o Acquire::http::Timeout=12 install "${missing[@]}"
+          fi
+          command -v tesseract >/dev/null
+          command -v libreoffice >/dev/null
+          tesseract --list-langs | grep -Eq '(^|[[:space:]])spa([[:space:]]|$)'
+          echo "OCR español y LibreOffice disponibles para todas las pruebas."
       - run: python -m pip install -r requirements-dev.txt
       - run: python -m compileall -q app
       - run: python -m pytest -q
