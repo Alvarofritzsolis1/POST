@@ -279,7 +279,7 @@ export default function JavieraMatrixEditor(){
       "Tarea: \nPeligro: \nRiesgo: \nMedidas: ":""]);invalidate();
   }
   return <section className="jmx-root">
-    <header className="jmx-top"><div><small>PROYECTO JAVIERA · parche IRL 19.4.3</small>
+    <header className="jmx-top"><div><small>PROYECTO JAVIERA · 19.5.0-rc1 · correcciones preventivas en borrador</small>
       <h2><ClipboardList size={23}/> Matrices y cargos</h2>
       <p>Revisa riesgos, controles y procedimientos por cargo, sin editar Excel. Cada cambio crea una revisión separada.</p>
     </div><button type="button" onClick={newRecord}><Plus size={16}/> Nuevo cargo</button></header>
