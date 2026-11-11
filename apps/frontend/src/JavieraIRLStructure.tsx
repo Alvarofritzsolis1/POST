@@ -4,13 +4,14 @@ import {request} from "./api";
 import "./javiera-irl-structure.css";
 
 type Role={cargo:string;has_approved_irl:boolean;has_approved_pts:boolean;has_draft:boolean;source_excel_available?:boolean;reference_count?:number};
-type IRLRow={id:string;ordinal:number;labor:string;peligro:string;riesgo:string;medidas:string;original:string;structured:boolean};
+type IRLRow={id:string;ordinal:number;labor:string;peligro:string;riesgo:string;medidas:string;original:string;structured:boolean;source_excel_rows?:number[]};
 type Detail={cargo:string;irl:{approved:boolean;revision:number|null;records:IRLRow[];has_unstructured:boolean;reference_only?:boolean};
-  warnings:string[];can_preview_irl:boolean;reference_total?:number;source_excel_available?:boolean;reference_incomplete_excel_rows?:number[];reference_audit?:ReferenceAudit};
+  warnings:string[];can_preview_irl:boolean;reference_total?:number;reference_display_total?:number;source_excel_available?:boolean;reference_incomplete_excel_rows?:number[];reference_audit?:ReferenceAudit;
+  additional_matrices:Record<AuditKind,{sections:string[];available:boolean;reference_only?:boolean;revision:number|null}>};
 type AuditKind="PERFILES"|"PUESTOS"|"SUSTANCIAS";
 type AuditSource={source_sheet:string;source_row:number;source_cargo:string;sections:string[];reference_only:boolean};
-type AuditLink={match_count:number;source_entries:AuditSource[];missing:boolean;ambiguous:boolean;suggested_aliases_pending_review:string[]};
-type ReferenceAudit={risk_count:number;incomplete_excel_rows:number[];duplicate_source_numbers:string[];
+type AuditLink={match_count:number;source_entries:AuditSource[];resolved_source?:AuditSource|null;duplicate_identical?:boolean;missing:boolean;ambiguous:boolean;suggested_aliases_pending_review:string[]};
+type ReferenceAudit={risk_count:number;display_risk_count?:number;collapsed_risk_groups?:{source_excel_rows:number[]}[];incomplete_excel_rows:number[];duplicate_source_numbers:string[];
   full_excel_parity_certified:boolean;original_visual_blocks:{title:string;status:string}[];
   linked:Record<AuditKind|"PTS",AuditLink>;warnings:string[]};
 const AUX_LABELS:Record<AuditKind,string>={
@@ -47,6 +48,7 @@ export default function JavieraIRLStructure({onEditMatrices}:Props){
   const [originalError,setOriginalError]=useState("");
   const [sourceRefresh,setSourceRefresh]=useState(0);
   const [importingOriginal,setImportingOriginal]=useState(false);
+  const [copyStatus,setCopyStatus]=useState("");
 
   useEffect(()=>{
     let active=true;
@@ -102,14 +104,26 @@ export default function JavieraIRLStructure({onEditMatrices}:Props){
   const current=detail?.cargo===cargo&&!roleLoading?detail:null;
   const reference=current?.reference_audit;
   const sectionFor=(kind:AuditKind)=>{
-    const items=reference?.linked[kind];
-    return items&&!items.ambiguous&&items.source_entries.length===1?
-      items.source_entries[0].sections:[];
+    const approvedOrReference=current?.additional_matrices?.[kind];
+    if(approvedOrReference?.available && approvedOrReference.sections.length){
+      return approvedOrReference.sections;
+    }
+    return reference?.linked[kind]?.resolved_source?.sections||[];
   };
   const profile=sectionFor("PERFILES")[0]||"Pendiente de validar el perfil de este cargo.";
   const workplace=sectionFor("PUESTOS");
   const substances=sectionFor("SUSTANCIAS");
   const staticValue=(coordinate:string)=>original?.static[coordinate]||"";
+  const warningList=[...new Set([...(current?.warnings||[]),...(reference?.warnings||[])])];
+  async function copyRiskMatrix(){
+    if(!rows.length)return;
+    const values=[["Actividad","Peligro","Consecuencia","Medida preventiva"].join("\\t"),
+      ...rows.map(row=>[row.labor,row.peligro,row.riesgo,row.medidas]
+        .map(value=>String(value||"").replace(/\\t/g," ").replace(/\\r?\\n/g," ")).join("\\t"))];
+    try{await navigator.clipboard.writeText(values.join("\\n"));
+      setCopyStatus("Matriz copiada; puedes pegarla en Excel o en el editor de matrices.");
+    }catch{setCopyStatus("El navegador no permitió copiar automáticamente.");}
+  }
   return <div className="jir-root">
     <div className="jir-intro">
       <div><div className="jir-kicker"><ClipboardList size={16}/> Estructura IRL · revisión integral</div>
@@ -164,6 +178,15 @@ export default function JavieraIRLStructure({onEditMatrices}:Props){
       </div>}
       {originalError&&<p className="jir-warning" role="alert">{originalError}</p>}
     </section>
+    <div className="jir-view-toolbar">
+      <span><strong>{rows.length}</strong> labores en esta vista
+        {current?.reference_total&&current.reference_total>rows.length?
+          " · "+(current.reference_total-rows.length)+" filas repetidas agrupadas":""}
+        {" · "}Referencia no aprobada hasta revisión preventiva</span>
+      <button type="button" onClick={()=>void copyRiskMatrix()} disabled={!rows.length}>Copiar matriz para Excel</button>
+      {copyStatus&&<small role="status">{copyStatus}</small>}
+    </div>
+    <details className="jir-preview"><summary>Mostrar / ocultar vista previa A4 completa</summary>
     <div className="jir-scroll">
       <article className="jir-page jir-original-document" aria-label="IRL original reconstruido en formato A4">
         <div className="jir-print-label">VISTA PREVIA DE FORMATO ORIGINAL · SIN FIRMAS</div>
@@ -229,6 +252,7 @@ export default function JavieraIRLStructure({onEditMatrices}:Props){
         </div>
       </article>
     </div>
+    </details>
     {current?.reference_audit&&<section className="jir-parity" aria-label="Auditoría de integridad de matrices IRL">
       <div className="jir-parity-head">
         <h4>Datos relacionados con este cargo</h4>
@@ -240,7 +264,7 @@ export default function JavieraIRLStructure({onEditMatrices}:Props){
           const linked=current.reference_audit!.linked[kind];
           return <details className="jir-aux" key={kind}>
             <summary><span>{AUX_LABELS[kind]}</span>
-              <strong>{linked.missing?"Sin vinculación":linked.ambiguous?"Revisar duplicidad":"Referencia disponible"}</strong>
+              <strong>{linked.missing?"Sin vinculación":linked.ambiguous?"Revisar variantes":linked.duplicate_identical?"Duplicado idéntico resuelto":"Referencia disponible"}</strong>
             </summary>
             {linked.suggested_aliases_pending_review.length>0&&
               <p className="jir-aux-alert">Posible equivalencia pendiente de validación:
@@ -264,9 +288,9 @@ export default function JavieraIRLStructure({onEditMatrices}:Props){
           <li key={block.title}>{block.title} · foto preservada cuando la fuente está disponible; contenido textual por digitalizar</li>)}</ol>
         <p>Las imágenes originales se conservan como fotos. Su contenido todavía no puede editarse como texto HTML. Se requiere validación preventiva y cotejo página por página.</p>
       </details>
-      {current.reference_audit.warnings.length>0&&<details className="jir-audit-alerts">
-        <summary>Observaciones de integridad ({current.reference_audit.warnings.length})</summary>
-        <ul>{current.reference_audit.warnings.map((warning,index)=><li key={index}>{warning}</li>)}</ul>
+      {warningList.length>0&&<details className="jir-audit-alerts">
+        <summary>Observaciones pendientes ({warningList.length}) · ver detalles</summary>
+        <ul>{warningList.map((warning,index)=><li key={index}>{warning}</li>)}</ul>
       </details>}
     </section>}
     <div className="jir-footer" role="status">
