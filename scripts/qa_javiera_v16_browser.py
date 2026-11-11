@@ -71,6 +71,18 @@ def main():
             expect(role_selector).not_to_have_value("", timeout=15000)
             role_selector.select_option("GASFITER")
             expect(page.locator(".jir-view-toolbar strong")).to_have_text("13", timeout=20000)
+            # Revisar alarmas reales de la fuente por cargo, sin aprobar ni
+            # rellenar consecuencias, medidas o sustancias inventadas.
+            role_selector.select_option("CARPINTERO")
+            warning = page.get_by_role("region", name="Alertas preventivas de matriz original")
+            expect(warning).to_contain_text("40", timeout=20000)
+            expect(warning).to_contain_text("No se completarán ni aprobarán automáticamente")
+            role_selector.select_option("PAISAJISTA")
+            expect(warning).to_contain_text("PAISAJISMO (REVISAR HDS)", timeout=20000)
+            expect(warning).to_contain_text("no se vincula sin revisión preventiva")
+            role_selector.select_option("GASFITER")
+            expect(page.locator(".jir-view-toolbar strong")).to_have_text("13", timeout=20000)
+            report["scenarios"]["source_risk_and_hds_alerts"] = "PASS"
             # El IRL A4 debe estar abierto desde el ingreso; antes estaba
             # contraído y la interfaz parecía vacía aunque había contenido.
             expect(page.locator("details.jir-preview")).to_have_attribute("open", "", timeout=15000)
