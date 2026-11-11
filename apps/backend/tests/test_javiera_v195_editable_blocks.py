@@ -17,7 +17,7 @@ HASHES = [hex(i)[2:] * 64 for i in range(1, 6)]
 
 def fake_source(*args, **kwargs):
     return {
-        "available": True, "source_sha256": SOURCE,
+        "available": True, "status": "approved", "source_sha256": SOURCE,
         "images": [{"sha256": HASHES[i], "title": str(i+1),
                     "data_uri": "data:image/png;base64,AA==",
                     "anchor_row": [87,101,120,135,153][i]} for i in range(5)],
@@ -121,3 +121,33 @@ def test_completely_reviewed_blocks_still_require_independent_preventive_signoff
     attempt = client.post(ROOT + "/irl-blocks/" + result.json()["id"] + "/publish", headers=headers)
     assert attempt.status_code == 409, attempt.text
     assert "acta preventiva" in attempt.json()["detail"]
+
+
+def test_unapproved_excel_layout_cannot_publish_or_override_original_images(env, monkeypatch):
+    def source_in_draft(*args, **kwargs):
+        result = fake_source()
+        result["status"] = "draft"
+        return result
+
+    monkeypatch.setattr(visual, "_authorized_original", source_in_draft)
+    client, _ = env
+    headers = login(client, "a@example.cl")
+    payload = valid_payload()
+    for block in payload["blocks"]:
+        block["reviewed"] = True
+    saved = client.post(ROOT + "/irl-blocks", json=payload, headers=headers)
+    assert saved.status_code == 200, saved.text
+    state = client.get(ROOT + "/irl-blocks", headers=headers)
+    assert state.status_code == 200
+    assert state.json()["source_layout_status"] == "draft"
+    assert state.json()["latest"]["can_publish"] is False
+    denied = client.post(ROOT + "/irl-blocks/" + saved.json()["id"] + "/publish",
+                         headers=headers)
+    assert denied.status_code == 409
+    assert "formato Excel IRL original" in denied.json()["detail"]
+    original = source_in_draft()
+    # Una maquetación sin aprobación jamás sustituye las imágenes originales.
+    edited = visual.attach_approved_irl_visual(None,
+        type("Reviewer", (), {"org_id": "fake"})(), original)
+    assert edited is original
+    assert "approved_editable_blocks" not in edited
