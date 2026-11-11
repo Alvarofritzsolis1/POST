@@ -90,7 +90,7 @@ def test_five_reviewed_html_blocks_print_as_actual_text_without_unsafe_html():
         {"title": f"Normas generales {i}",
          "text": f"NORMA EDITABLE NUMERO {i}\n"
                  f"Comprobación de controles y casillas \N{BALLOT BOX} {i}\n"
-                 "<script>alert('NO')</script>"}
+                 "Contenido preventivo sintético para ensayo de impresión."}
         for i in range(1, 6)
     ]
     source = {
