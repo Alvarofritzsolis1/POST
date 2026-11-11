@@ -69,8 +69,9 @@ def main():
                 has_text=company["name"])).to_have_count(1,timeout=20000)
             page.get_by_role("combobox",name="Empresa contratista").select_option(
                 "documentary:"+company["id"])
-            expect(page.get_by_role("combobox",name="Trabajador").locator("option",
-                has_text=person["name"])).to_have_count(1,timeout=20000)
+            expect(page.get_by_role("combobox",name="Trabajador").get_by_role(
+                "option", name=person["name"], exact=True
+            )).to_have_count(1,timeout=20000)
             page.get_by_role("combobox",name="Trabajador").select_option(
                 "documentary:"+person["id"])
             expect(page.get_by_role("combobox",name="Cargo")).to_be_enabled()
