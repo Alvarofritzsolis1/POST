@@ -50,5 +50,5 @@ test("copia y vuelve a importar matrices sin perder nuevas líneas, tabs ni comi
 test("protege exportación a hojas de cálculo de expresiones de fórmula",()=>{
   const exported=serializeIRLClipboard([["=HYPERLINK(\"https://example.com\")","Corte",
     "Herida","Control"]],false);
-  assert.match(exported,/^'=HYPERLINK/);
+  assert.match(exported,/^"'=HYPERLINK/);
 });
