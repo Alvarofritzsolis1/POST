@@ -146,3 +146,14 @@
 @media(max-width:900px){.jmx-command-stats{grid-template-columns:repeat(2,minmax(0,1fr))}}
 @media(max-width:550px){.jmx-command-title{flex-direction:column}
  .jmx-command-title label{width:100%}.jmx-command-stats{grid-template-columns:1fr 1fr}}
+
+/* Lista guiada de faltantes: mostrar el problema y llevar al campo correcto. */
+.jmx-completeness{padding:12px 14px;border:1px solid #d7c7a5;
+  border-left:4px solid #c78a20;border-radius:9px;background:#fffaf0;margin:13px 0}
+.jmx-completeness>strong{font-size:.85rem;color:#5c431b}
+.jmx-completeness p,.jmx-completeness small{color:#755e3b;font-size:.78rem;line-height:1.45;margin:6px 0}
+.jmx-completeness>div{display:flex;flex-wrap:wrap;gap:7px;margin-top:8px}
+.jmx-completeness button{border:1px solid #d5b87e;background:white;color:#67460b;border-radius:7px;
+  cursor:pointer;font-size:.77rem;padding:7px 9px;text-align:left}
+.jmx-completeness button:hover,.jmx-completeness button:focus-visible{
+  background:#fff1d4;outline:2px solid #ba8b3a;outline-offset:1px}
