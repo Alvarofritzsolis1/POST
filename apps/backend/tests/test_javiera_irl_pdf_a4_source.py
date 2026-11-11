@@ -66,7 +66,13 @@ def test_five_png_images_survive_irl_a4_with_all_13_risks():
     payload = render_native_pdf(
         "irl", _data(), matrix=_matrix(),
         original_source={"images": _images(), "status": "approved",
-                         "document_code": "DPR-IRL-03"},
+                         "document_code": "DPR-IRL-03",
+        "static": {"A172": "Declaración del documento: el trabajador "
+                   "recibió información de riesgos en este ensayo "
+                   "sintético; las firmas no son reales."},
+                         "static": {"A172": "Declaración del documento: el trabajador "
+                                    "recibió información de riesgos en este ensayo "
+                                    "sintético; las firmas no son reales."}},
         irl_context={"PERFILES": ["Perfil sintético para comprobar impresión"]},
     )
     with _read_pdf(payload) as pdf:
@@ -99,7 +105,7 @@ def test_five_reviewed_html_blocks_print_as_actual_text_without_unsafe_html():
         text = "\n".join(page.get_text() for page in pdf)
         for i in range(1, 6):
             assert f"NORMA EDITABLE NUMERO {i}" in text
-        assert "Control verificable 13" in text
+        assert "Control verificable 13" in " ".join(text.split())
         assert "<script>" not in text
         assert "alert(" not in text
         assert "Firma" in text
