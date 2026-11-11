@@ -286,7 +286,7 @@ def test_editable_html_uses_original_medical_table_structure_without_scripting()
     html = original_editorial_html(block, 1)
     assert html.count('<table class="irl-ed-checklist">') == 2
     assert html.count("<tr>") == 10  # 8 data rows and two table headers.
-    assert html.count("<td>□</td>") == 16
+    assert html.count("<td>☐</td>") == 16
     assert "<td>08</td>" in html
     assert "<td>15</td>" in html
     assert "OTRAS CONSIDERACIONES" in html
@@ -305,3 +305,40 @@ def test_safety_norms_become_html_headings_and_bullets_without_executing_code():
     assert '<img ' not in html
     assert '&lt;img src=x onerror=alert(1)&gt;' in html
     assert '&lt;script&gt;' in html
+
+
+
+def test_html_preserves_checked_medical_answers_and_private_observations_without_code():
+    from app.javiera_irl_render_context import original_editorial_html
+    medical = {
+        "title": "Antecedentes generales",
+        "text": (
+            "ANTECEDENTES GENERALES\n"
+            "N.° | Accidente | Sí | No | Observaciones / Diagnóstico / Controles / Medicamentos\n"
+            "08 | Fractura / TEC | ☑ | ☐ | Control médico anotado <script>NO</script>\n"
+            "09 | Tratamientos médicos | ☐ | ☑ | No aplica\n"
+            "10 | Grupo sanguíneo | ☐ | ☐ | Observación con barra | adicional"
+        ),
+    }
+    html = original_editorial_html(medical, 1)
+    assert "<td>☑</td>" in html
+    assert "<td>☐</td>" in html
+    assert "Control médico anotado &lt;script&gt;NO&lt;/script&gt;" in html
+    assert "<script>" not in html
+    assert "Observación con barra | adicional" in html
+    norm = original_editorial_html({
+        "title": "Normas",
+        "text": "☑ 1.- Norma recibida\n□ 2.- Norma pendiente\n☒ 3.- Norma no aplica",
+    }, 2)
+    assert "☑ 1.- Norma recibida" in norm
+    assert "□ 2.- Norma pendiente" in norm
+    assert "☒ 3.- Norma no aplica" in norm
+
+
+def test_checked_norm_numbering_does_not_invalidate_integrity_gate():
+    from app.javiera_v195_api import missing_original_items
+    payload = valid_payload()
+    for block in payload["blocks"][1:]:
+        block["text"] = block["text"].replace(
+            "01.-", "☑ 01.-").replace("04.-", "☒ 04.-")
+    assert missing_original_items(payload["blocks"]) == {}
