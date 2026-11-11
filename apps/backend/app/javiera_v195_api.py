@@ -2,7 +2,7 @@
 from fastapi import APIRouter, Depends, Response, HTTPException
 from pydantic import BaseModel, ConfigDict, Field
 from sqlalchemy import func, select
-from .javiera_models import JavieraTemplate, JavieraRevision
+from .javiera_models import JavieraTemplate, JavieraRevision, JavieraSignoff
 from .javiera_review import require_signoff
 from .models import AuditEvent, utcnow
 
@@ -89,6 +89,12 @@ def irl_visual_blocks(response: Response,
         JavieraRevision.state == "approved")) if template and
         template.published_version else None)
     contents = latest.contents if latest else {}
+    preventive_review = (db.scalar(select(JavieraSignoff).where(
+        JavieraSignoff.org_id == user.org_id,
+        JavieraSignoff.resource_kind == "template",
+        JavieraSignoff.resource_id == latest.id,
+        JavieraSignoff.specialty == "prevencion"))
+        if latest else None)
     return {
         "source_sha256": source["source_sha256"],
         "image_hashes": [image["sha256"] for image in source["images"]],
@@ -102,6 +108,18 @@ def irl_visual_blocks(response: Response,
                                    source["source_sha256"] and
                                    contents.get("image_hashes") ==
                                    [i["sha256"] for i in source["images"]]),
+            "preventive_verdict": (preventive_review.verdict
+                                    if preventive_review else "pending"),
+            "author_is_current_user": bool(latest and latest.author_id == user.id),
+            "can_publish": bool(latest and latest.state == "draft" and
+                preventive_review and preventive_review.verdict == "approved" and
+                latest.author_id != preventive_review.reviewer_id and
+                contents.get("source_sha256") == source["source_sha256"] and
+                contents.get("image_hashes") ==
+                [i["sha256"] for i in source["images"]] and
+                len(contents.get("blocks") or []) == 5 and
+                all(block.get("reviewed") for block in
+                    contents.get("blocks") or [])),
         },
         "approved_revision": approved.revision if approved else None,
         "approved_source_matches": bool(approved and
