@@ -768,7 +768,8 @@ def _check_preventive_matrix_before_approval(row: JavieraMatrix):
     # Ni el administrador ni el modo piloto pueden liberarlo con
     # marcadores pendientes como si fueran datos preventivos verificados.
     if (row.kind == "SUSTANCIAS" and
-            str(row.source or "").startswith("Editor visual GALANT 19.5.0 HDS")):
+            (normalize_cargo(row.cargo) == "PAISAJISTA" or
+             str(row.source or "").startswith("Editor visual GALANT 19.5.0 HDS"))):
         if len(sections) != 12 or any(
             ("PENDIENTE" in str(value).upper() or
              not str(value).strip())
