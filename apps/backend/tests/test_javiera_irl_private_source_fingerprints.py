@@ -169,8 +169,8 @@ def test_native_irl_html_includes_every_risk_without_excel_twelve_row_limit():
     from app.javiera_native import _irl_table_rows
     from app.javiera_irl import preventive_matrix_blocker
     sections = [
-        f"Tarea: Trabajo real {i}\\nPeligro: Peligro {i}\\n"
-        f"Riesgo: Consecuencia {i}\\nMedidas: Control {i}"
+        f"Tarea: Trabajo real {i}\nPeligro: Peligro {i}\n"
+        f"Riesgo: Consecuencia {i}\nMedidas: Control {i}"
         for i in range(1, 14)
     ]
     assert preventive_matrix_blocker("IRL", sections) is None
@@ -188,8 +188,8 @@ def test_native_irl_does_not_silently_complete_carpintero_excel_row_40():
     rows = catalog()["rows"]
     for row in rows:
         if row["excel_row"] == 40:
-            incomplete = ("Tarea: " + row["tarea"] + "\\nPeligro: " + row["peligro"]
-                          + "\\nRiesgo: " + row["riesgo"] + "\\nMedidas: " + row["medidas"])
+            incomplete = ("Tarea: " + row["tarea"] + "\nPeligro: " + row["peligro"]
+                          + "\nRiesgo: " + row["riesgo"] + "\nMedidas: " + row["medidas"])
             break
     else:
         raise AssertionError("No se encontró fila 40")
