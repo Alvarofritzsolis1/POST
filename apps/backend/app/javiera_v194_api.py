@@ -12,6 +12,7 @@ from functools import lru_cache
 from pathlib import Path
 
 from fastapi import APIRouter, Depends, HTTPException, Query
+from sqlalchemy import select
 from sqlalchemy.orm import Session
 
 from .db import get_db
@@ -21,6 +22,7 @@ from .javiera_irl_corrective_drafts import corrective_draft_for_role, merged_dra
 from .javiera_irl_consolidation import consolidate_reference_risks, identical_variants
 from .javiera_v193_api import roles as db_roles, role_detail as db_role_detail
 from .models import User
+from .javiera_models import JavieraMatrix
 from .security import administrator
 
 router = APIRouter(prefix="/api/v1/javiera/v194", tags=["Javiera 19.4 · 25 cargos IRL"])
@@ -298,4 +300,71 @@ def reference_matrices(kind: str = Query(..., max_length=20),
         "historical_pdfs_unchanged": True,
         "editable_as_new_draft": True,
         "source_sha256": catalog()["source_sha256"] if kind == "IRL" else related_catalog()["source_sha256"],
+    }
+
+
+@router.post("/corrective-draft")
+def prepare_corrective_draft(
+    cargo: str = Query(..., min_length=2, max_length=160),
+    user: User = Depends(administrator),
+    db: Session = Depends(get_db),
+):
+    """One-click review DRAFT. Never authorizes risks or HDS.
+
+    CARPINTERO: preserve the other 12 source rows, suggest only E40/F40.
+    PAISAJISTA: twelve empty-evidence editable fields, with no fake
+    products, solvents or chemical hazards inherited from another job.
+    """
+    source = lookup_role(cargo)
+    if source is None:
+        raise HTTPException(404, "Cargo inexistente en la fuente original.")
+    source_role, rows = source
+    corrected = corrective_draft_for_role(source_role, rows)
+    if corrected["type"] == "none":
+        raise HTTPException(409, "No existe una propuesta específica para el cargo.")
+    if corrected["type"] == "risk_row":
+        kind = "IRL"
+        sections = merged_draft_sections(rows, corrected)
+        if len(sections) != 13:
+            raise HTTPException(409, "La referencia CARPINTERO no conserva las 13 filas.")
+        origin = "Editor visual GALANT 19.5.0 CARPINTERO E40 F40 propuesta"
+    elif corrected["type"] == "chemical_inventory":
+        kind = "SUSTANCIAS"
+        fields = corrected["proposal"]["fields"]
+        if len(fields) != 12 or related_for_role(kind, source_role):
+            raise HTTPException(409, "Debe verificarse la procedencia de HDS del cargo.")
+        sections = [
+            f"{i+1}. {field}: PENDIENTE DE EVIDENCIA DE PRODUCTO / HDS"
+            for i, field in enumerate(fields)
+        ]
+        origin = "Editor visual GALANT 19.5.0 HDS PENDIENTE"
+    else:
+        raise HTTPException(409, "Tipo de propuesta no reconocido.")
+
+    recent = db.scalar(select(JavieraMatrix).where(
+        JavieraMatrix.org_id == user.org_id,
+        JavieraMatrix.kind == kind,
+        JavieraMatrix.cargo == source_role,
+    ).order_by(JavieraMatrix.revision.desc()))
+    if (recent and recent.status == "draft" and recent.source == origin
+            and list(recent.sections) == sections):
+        return {
+            "id": recent.id, "revision": recent.revision, "status": "draft",
+            "kind": kind, "cargo": source_role, "created": False,
+            "requires_preventive_signoff": True,
+        }
+
+    from .javiera_api import MatrixChange, change_matrix
+    result = change_matrix(
+        MatrixChange(kind=kind, cargo=source_role,
+                     sections=sections, source=origin),
+        user=user, db=db,
+    )
+    return {
+        **result, "kind": kind, "cargo": source_role, "created": True,
+        "requires_preventive_signoff": True,
+        "message": (
+            "Se creó un borrador revisable. No está aprobado ni se puede "
+            "emitir como documento del trabajador."
+        ),
     }
