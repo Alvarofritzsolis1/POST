@@ -268,5 +268,5 @@ function Setup({onBack}:{onBack:()=>void}){
 }
 
 export default function Javiera({configuration=false,onBack,onConfig}:{configuration?:boolean;onBack?:()=>void;onConfig?:()=>void}){
-  return configuration?<Setup onBack={onBack||(()=>window.history.back())}/>:<JavieraSimple onConfig={onConfig} onBack={onBack}/>;
+  return configuration?<Setup onBack={onBack||(()=>window.history.back())}/>:new URLSearchParams(window.location.search).get("legacy")==="1"?<JavieraV17 onConfig={onConfig}/>:<JavieraSimple onConfig={onConfig} onBack={onBack}/>;
 }
