@@ -51,7 +51,7 @@ def main():
             site = next(s for s in sites if s["name"] == "Brisas de Junquillar")
             suffix = uuid4().hex[:8]
             seed = int(suffix, 16) % 999999
-            page.goto(args.url + "/proyecto-javiera", wait_until="domcontentloaded")
+            page.goto(args.url + "/proyecto-javiera?legacy=1", wait_until="domcontentloaded")
             expect(page.get_by_role("heading", name="Documentos listos para preparar e imprimir")).to_be_visible()
             expect(page.get_by_role("heading", name="¿La empresa es nueva o ya existe?")).to_be_visible()
             report["scenarios"]["html_primary_without_excel_import"] = "PASS"
@@ -249,7 +249,7 @@ def main():
             report["scenarios"]["person_switch_private_data_reset"] = "PASS"
 
             page.set_viewport_size({"width": 390, "height": 844})
-            page.goto(args.url + "/proyecto-javiera", wait_until="domcontentloaded")
+            page.goto(args.url + "/proyecto-javiera?legacy=1", wait_until="domcontentloaded")
             expect(page.get_by_role("heading", name="Documentos listos para preparar e imprimir")).to_be_visible()
             widths = page.evaluate("({document:document.documentElement.scrollWidth,viewport:window.innerWidth})")
             assert widths["document"] <= widths["viewport"] + 2, widths
