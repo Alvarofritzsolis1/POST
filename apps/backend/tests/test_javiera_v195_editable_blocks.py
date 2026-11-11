@@ -260,3 +260,48 @@ def test_visual_source_numbering_gate_prevents_missing_13th_norm(env, monkeypatc
                           headers=headers)
     assert blocked.status_code == 422, blocked.text
     assert "bloque 5" in blocked.json()["detail"]
+
+
+
+def test_editable_html_uses_original_medical_table_structure_without_scripting():
+    from app.javiera_irl_render_context import original_editorial_html
+    block = {
+        "title": "Antecedentes generales",
+        "text": (
+            "ANTECEDENTES GENERALES\n"
+            "Indique en el recuadro la opción que corresponda con una (x):\n"
+            "N.° | Accidente | Sí | No | Observaciones / Diagnóstico / Controles / Medicamentos\n"
+            "08 | Fractura / Esguince / TEC | ☐ | ☐ |\n"
+            "09 | Tratamientos Médicos | ☐ | ☐ |\n"
+            "10 | Grupo Sanguíneo | ☐ | ☐ |\n\n"
+            "OTRAS CONSIDERACIONES\n"
+            "N.° | Consideración | Sí | No | Observaciones / Diagnóstico / Controles / Medicamentos\n"
+            "11 | Alergia | ☐ | ☐ |\n"
+            "12 | Prótesis | ☐ | ☐ |\n"
+            "13 | Órtesis | ☐ | ☐ |\n"
+            "14 | Discapacidad | ☐ | ☐ |\n"
+            "15 | Otras | ☐ | ☐ |"
+        ),
+    }
+    html = original_editorial_html(block, 1)
+    assert html.count('<table class="irl-ed-checklist">') == 2
+    assert html.count("<tr>") == 10  # 8 data rows and two table headers.
+    assert html.count("<td>□</td>") == 16
+    assert "<td>08</td>" in html
+    assert "<td>15</td>" in html
+    assert "OTRAS CONSIDERACIONES" in html
+    assert html.count("</table>") == 2
+
+
+def test_safety_norms_become_html_headings_and_bullets_without_executing_code():
+    from app.javiera_irl_render_context import original_editorial_html
+    block = {"title": "Seguridad <script>NO</script>",
+             "text": "☐ 1.- Norma de prueba\n• Primera medida\n"
+                     "☐ 2.- Otra norma\n• <img src=x onerror=alert(1)>"}
+    html = original_editorial_html(block, 2)
+    assert html.count('class="irl-ed-norm"') == 2
+    assert html.count('class="irl-ed-bullet"') == 2
+    assert '<script>' not in html
+    assert '<img ' not in html
+    assert '&lt;img src=x onerror=alert(1)&gt;' in html
+    assert '&lt;script&gt;' in html
