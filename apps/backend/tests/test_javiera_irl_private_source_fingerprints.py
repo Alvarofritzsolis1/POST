@@ -163,3 +163,36 @@ def test_74_formula_cell_contract_includes_only_12_excel_print_rows():
     assert len(chemicals) == 12
     assert len(manifest) == 74
     assert "A63" in manifest and "D63" in manifest
+
+
+def test_native_irl_html_includes_every_risk_without_excel_twelve_row_limit():
+    from app.javiera_native import _irl_table_rows
+    from app.javiera_irl import preventive_matrix_blocker
+    sections = [
+        f"Tarea: Trabajo real {i}\\nPeligro: Peligro {i}\\n"
+        f"Riesgo: Consecuencia {i}\\nMedidas: Control {i}"
+        for i in range(1, 14)
+    ]
+    assert preventive_matrix_blocker("IRL", sections) is None
+    markup = _irl_table_rows(sections, "PINTOR")
+    assert markup.count("<tr>") == 13
+    for i in range(1, 14):
+        assert f"Trabajo real {i}</td>" in markup
+        assert f"Control {i}</td>" in markup
+    assert "Trabajo real 13</td>" in markup
+    assert "Control 13</td>" in markup
+
+
+def test_native_irl_does_not_silently_complete_carpintero_excel_row_40():
+    from app.javiera_irl import preventive_matrix_blocker
+    rows = catalog()["rows"]
+    for row in rows:
+        if row["excel_row"] == 40:
+            incomplete = ("Tarea: " + row["tarea"] + "\\nPeligro: " + row["peligro"]
+                          + "\\nRiesgo: " + row["riesgo"] + "\\nMedidas: " + row["medidas"])
+            break
+    else:
+        raise AssertionError("No se encontró fila 40")
+    reason = preventive_matrix_blocker("IRL", [incomplete])
+    assert reason is not None
+    assert "Medida preventiva" in reason
