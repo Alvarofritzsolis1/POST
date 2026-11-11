@@ -111,11 +111,17 @@ def main():
                     expect(page.locator(".jmx-irl-fields textarea")).to_have_count(4)
                     expect(page.get_by_role("heading", name="Editar labores y riesgos, paso a paso")).to_be_visible()
                     expect(page.get_by_role("textbox", name="Cargo / puesto")).to_have_value("GASFITER")
+                    complete = page.get_by_role("region", name="Revisión de campos del IRL")
+                    expect(complete).to_contain_text("Campos estructurales completos")
                     # Seleccionar la misma categoría otra vez no puede vaciar
                     # el cargo y sus 26 registros (regresión de PR #55).
                     page.locator("#jmx-kind").select_option("IRL")
                     expect(page.locator(".jmx-irl-task-list button")).to_have_count(26)
                     expect(page.get_by_role("textbox", name="Cargo / puesto")).to_have_value("GASFITER")
+                    # Un cargo nuevo vacío explica exactamente qué debe llenarse.
+                    page.get_by_role("button", name="Nuevo cargo").click()
+                    expect(complete).to_contain_text("1 tareas incompletas")
+                    expect(complete.get_by_role("button", name=re.compile("Tarea 1:"))).to_be_visible()
                 else:
                     expect(page.locator(".jmx-rows textarea")).to_have_count(fields)
             report["scenarios"]["five_matrices_preloaded_from_original_excel"] = "PASS"
