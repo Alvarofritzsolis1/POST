@@ -7,6 +7,7 @@ import JavieraExcelAdmin from "./JavieraExcelAdmin";
 import JavieraV17 from "./JavieraV17";
 import JavieraNativeEditor from "./JavieraNativeEditor";
 import JavieraMatrixEditor from "./JavieraMatrixEditor";
+import JavieraSimple from "./JavieraSimple";
 
 type Source = {sites: {id:string;name:string}[];contractors:{id:string;site_id:string;name:string;rut:string|null;nature:string}[];workers:{id:string;name:string;rut:string|null;active:boolean}[]};
 type Catalog = {code:string;area:string;title:string;required_fields:string[];published_version:number};
@@ -267,5 +268,5 @@ function Setup({onBack}:{onBack:()=>void}){
 }
 
 export default function Javiera({configuration=false,onBack,onConfig}:{configuration?:boolean;onBack?:()=>void;onConfig?:()=>void}){
-  return configuration?<Setup onBack={onBack||(()=>window.history.back())}/>:<JavieraV17 onConfig={onConfig}/>;
+  return configuration?<Setup onBack={onBack||(()=>window.history.back())}/>:<JavieraSimple onConfig={onConfig} onBack={onBack}/>;
 }
