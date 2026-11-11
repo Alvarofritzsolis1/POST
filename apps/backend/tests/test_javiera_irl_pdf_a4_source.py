@@ -79,7 +79,9 @@ def test_five_png_images_survive_irl_a4_with_all_13_risks():
         all_text = "\n".join(page.get_text() for page in pdf)
         assert "Actividad de ensayo 1" in all_text
         assert "Actividad de ensayo 13" in all_text
-        assert "Control verificable 13" in all_text
+        assert "Control verificable 13" in " ".join(all_text.split()), (
+            [line for line in all_text.splitlines() if
+             "Control" in line or "verific" in line or "13" in line][-30:])
         assert "Firma" in all_text
         embedded = sum(len(page.get_images(full=True)) for page in pdf)
         assert embedded >= 5, f"Imágenes originales ausentes: {embedded}"
@@ -105,7 +107,9 @@ def test_five_reviewed_html_blocks_print_as_actual_text_without_unsafe_html():
         text = "\n".join(page.get_text() for page in pdf)
         for i in range(1, 6):
             assert f"NORMA EDITABLE NUMERO {i}" in text
-        assert "Control verificable 13" in " ".join(text.split())
+        assert "Control verificable 13" in " ".join(text.split()), (
+            [line for line in text.splitlines() if
+             "Control" in line or "verific" in line or "13" in line][-30:])
         assert "<script>" not in text
         assert "alert(" not in text
         assert "Firma" in text
