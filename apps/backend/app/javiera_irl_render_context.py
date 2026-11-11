@@ -45,15 +45,30 @@ def original_context(context: dict | None, source: dict | None) -> dict:
         material.append("<tr><th>" + chr(97 + index) + ")</th><th>" +
                         safe(heading) + "</th><td>" + safe(value) + "</td></tr>")
     pictures = []
-    for image in source.get("images") or []:
-        uri = str(image.get("data_uri") or "")
-        if not (uri.startswith("data:image/png;base64,") or
-                uri.startswith("data:image/jpeg;base64,")):
-            raise ValueError("Tipo de imagen IRL no permitido para impresión.")
-        pictures.append(
-            '<figure class="irl-original-picture"><img src="' + escape(uri, quote=True) +
-            '" alt="' + safe(image.get("title")) + '"/></figure>'
-        )
+    # HTML editable solo después de la validación profesional documentada.
+    editorial = source.get("approved_editable_blocks") or []
+    if editorial:
+        if len(editorial) != 5 or any(not str(item.get("text") or "").strip()
+                                     for item in editorial):
+            raise ValueError("Transcripción IRL publicada incompleta.")
+        for item in editorial:
+            html_lines = []
+            for line in str(item["text"]).splitlines():
+                html_lines.append("<p>" + safe(line) + "</p>" if line.strip()
+                                  else '<div class="irl-ed-gap"></div>')
+            pictures.append('<section class="irl-ed-block"><h3>' +
+                            safe(item.get("title")) + '</h3>' +
+                            "".join(html_lines) + '</section>')
+    else:
+        for image in source.get("images") or []:
+            uri = str(image.get("data_uri") or "")
+            if not (uri.startswith("data:image/png;base64,") or
+                    uri.startswith("data:image/jpeg;base64,")):
+                raise ValueError("Tipo de imagen IRL no permitido para impresión.")
+            pictures.append(
+                '<figure class="irl-original-picture"><img src="' + escape(uri, quote=True) +
+                '" alt="' + safe(image.get("title")) + '"/></figure>'
+            )
     return {
         "original_heading": safe(text.get("A4") or "INFORMACIÓN DE RIESGOS LABORALES (IRL) - DECRETO SUPREMO N° 44"),
         "legal_intro": safe(text.get("A5")),
