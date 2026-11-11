@@ -1,7 +1,7 @@
 import {useEffect,useMemo,useState} from "react";
 import {ArrowRight,CheckCircle2,ClipboardList,FileSpreadsheet,Plus,Save,Search,ShieldCheck,Upload} from "lucide-react";
 import {request} from "./api";
-import {parseIRLClipboard} from "./javiera-irl-clipboard";
+import {parseIRLClipboard,serializeIRLClipboard} from "./javiera-irl-clipboard";
 import "./javiera-matrix-editor.css";
 
 type Kind="IRL"|"PTS"|"PUESTOS"|"PERFILES"|"SUSTANCIAS";
@@ -164,9 +164,8 @@ export default function JavieraMatrixEditor(){
   }
   async function copySections(){
     if(kind!=="IRL")return;
-    const tsv=[["Actividad","Peligro","Consecuencia","Medida preventiva"],
-      ...sections.map(section=>splitSection(section)||["","","",section])]
-      .map(row=>row.map(cell=>cell.replace(/\t/g," ").replace(/\r?\n/g," ")).join("\t")).join("\n");
+    const tsv=serializeIRLClipboard(sections.map(section=>
+      splitSection(section)||["","","",section]));
     try{await navigator.clipboard.writeText(tsv);setMessage("Matriz copiada al portapapeles.");}
     catch{setError("No se pudo copiar: revisa el permiso del portapapeles.");}
   }
