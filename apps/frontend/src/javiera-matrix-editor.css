@@ -91,3 +91,25 @@
 .jmx-irl-navigation button:disabled{opacity:.45;cursor:not-allowed}
 @media(max-width:800px){.jmx-irl-layout{grid-template-columns:minmax(0,1fr)}
   .jmx-irl-task-list{max-height:180px}}
+
+
+/* GALANT 19.4.3 — pegado masivo sin escritura directa hasta la confirmación. */
+.jmx-bulk{border:1px solid #c9d9e6;background:#f6faff;border-radius:10px;
+  padding:13px;margin:12px 0;min-width:0}
+.jmx-bulk-heading{display:flex;align-items:flex-start;justify-content:space-between;
+  gap:12px;flex-wrap:wrap}
+.jmx-bulk-heading strong{font-size:.92rem;color:#173f5c}
+.jmx-bulk-heading p{font-size:.8rem;color:#4d687b;line-height:1.4;margin:4px 0 10px}
+.jmx-bulk button{border:1px solid #bed0dc;color:#214b69;background:white;
+  border-radius:7px;padding:8px 11px;cursor:pointer;font-weight:650}
+.jmx-bulk button:disabled{opacity:.5;cursor:not-allowed}
+.jmx-bulk textarea{width:100%;box-sizing:border-box;border:1px solid #aec4d3;
+  border-radius:8px;padding:10px;font:12px/1.45 ui-monospace,Consolas,monospace;
+  resize:vertical;min-height:76px}
+.jmx-bulk-actions{display:flex;align-items:flex-end;gap:9px;flex-wrap:wrap;margin-top:9px}
+.jmx-bulk-actions label{display:flex;flex-direction:column;gap:4px;font-size:.76rem}
+.jmx-bulk-actions select{padding:8px;border:1px solid #bdcedb;border-radius:7px;
+  background:white;color:#25445b}
+.jmx-bulk-preview{margin-top:10px;padding:11px;border-radius:8px;border:1px solid #a9c8b9;
+  background:#eef7f1;color:#245341;font-size:.81rem}
+.jmx-bulk-preview p{margin:5px 0 10px;overflow-wrap:anywhere}
