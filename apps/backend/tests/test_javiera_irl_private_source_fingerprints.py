@@ -196,3 +196,18 @@ def test_native_irl_does_not_silently_complete_carpintero_excel_row_40():
     reason = preventive_matrix_blocker("IRL", [incomplete])
     assert reason is not None
     assert "Medida preventiva" in reason
+
+
+def test_paisajista_never_inherits_paisajismo_painter_chemicals():
+    from app.javiera_v194_api import related_catalog, related_for_role
+    from app.javiera_irl_integrity import audit_reference_role
+    sources = related_catalog()["matrices"]
+    risk_rows = [row for row in catalog()["rows"] if row["cargo"] == "PAISAJISTA"]
+    audit = audit_reference_role("PAISAJISTA", risk_rows, sources)
+    link = audit["linked"]["SUSTANCIAS"]
+    assert link["missing"] is True
+    assert link["resolved_source"] is None
+    assert "PAISAJISMO (REVISAR HDS)" in link["suggested_aliases_pending_review"]
+    assert related_for_role("SUSTANCIAS", "PAISAJISTA") == []
+    assert any("ALERTA PREVENTIVA" in warning for warning in audit["warnings"])
+    assert any("No importarla" in warning for warning in audit["warnings"])
