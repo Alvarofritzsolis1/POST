@@ -1,6 +1,7 @@
 import {useEffect,useMemo,useState} from "react";
 import {ArrowRight,CheckCircle2,ClipboardList,FileSpreadsheet,Plus,Save,Search,ShieldCheck,Upload} from "lucide-react";
 import {request} from "./api";
+import {parseIRLClipboard} from "./javiera-irl-clipboard";
 import "./javiera-matrix-editor.css";
 
 type Kind="IRL"|"PTS"|"PUESTOS"|"PERFILES"|"SUSTANCIAS";
@@ -65,6 +66,10 @@ export default function JavieraMatrixEditor(){
   const [importConfirmed,setImportConfirmed]=useState(false);
   const [message,setMessage]=useState("");
   const [error,setError]=useState("");
+  const [bulkText,setBulkText]=useState("");
+  const [bulkPreview,setBulkPreview]=useState<ReturnType<typeof parseIRLClipboard>|null>(null);
+  const [bulkMode,setBulkMode]=useState<"replace"|"append">("replace");
+  const [bulkUndo,setBulkUndo]=useState<string[]|null>(null);
   const allRows=useMemo(()=>[...rows,...referenceRows],[rows,referenceRows]);
   const current=allRows.find(x=>x.id===selectedId);
   const versions=useMemo(()=>allRows.filter(x=>x.kind===kind&&x.cargo===cargo)
@@ -78,6 +83,10 @@ export default function JavieraMatrixEditor(){
       seen.add(key);return true;
     }).filter(row=>row.cargo.toLocaleLowerCase("es").includes(search.toLocaleLowerCase("es")));
   },[allRows,kind,search]);
+  const variant=referenceVariants.find(item=>item.cargo===cargo);
+  const variantRows=referenceRows.filter(row=>variant?.source_rows.includes(row.source_row||-1));
+  const variantIdentical=variantRows.length>1&&variantRows.every(row=>
+    JSON.stringify(row.sections)===JSON.stringify(variantRows[0].sections));
   const changed=!!current && (sections.length!==current.sections.length ||
     sections.some((s,i)=>s!==current.sections[i]));
   const approved=versions.find(r=>r.status==="approved");
@@ -116,12 +125,35 @@ export default function JavieraMatrixEditor(){
     return()=>{active=false;};
   },[kind]);
   function invalidate(){setImpact(null);setImpactFingerprint("");setConfirmed(false);}
+  function resetPaste(){setBulkText("");setBulkPreview(null);setBulkUndo(null);}
+  function checkPaste(){
+    try{setBulkPreview(parseIRLClipboard(bulkText));setError("");}
+    catch(e){setBulkPreview(null);setError(errorText(e));}
+  }
+  function applyPaste(){
+    if(!bulkPreview||kind!=="IRL")return;
+    const merged=bulkMode==="replace"?bulkPreview.sections:[...sections,...bulkPreview.sections];
+    if(merged.length>1500){setError("El resultado supera 1.500 labores.");return;}
+    setBulkUndo([...sections]);setSections(merged);setActiveIRL(0);invalidate();
+    setMessage(bulkPreview.sections.length+" labores cargadas en el editor, sin guardar ni aprobar. "+
+      bulkPreview.duplicates+" duplicados idénticos omitidos en el pegado.");
+    setBulkPreview(null);setBulkText("");setError("");
+  }
+  async function copySections(){
+    if(kind!=="IRL")return;
+    const tsv=[["Actividad","Peligro","Consecuencia","Medida preventiva"],
+      ...sections.map(section=>splitSection(section)||["","","",section])]
+      .map(row=>row.map(cell=>cell.replace(/\t/g," ").replace(/\r?\n/g," ")).join("\t")).join("\n");
+    try{await navigator.clipboard.writeText(tsv);setMessage("Matriz copiada al portapapeles.");}
+    catch{setError("No se pudo copiar: revisa el permiso del portapapeles.");}
+  }
   function selectRecord(row:Matrix){
     setKind(row.kind);setCargo(row.cargo);setSections([...row.sections]);setSelectedId(row.id);setActiveIRL(0);
+    resetPaste();
     invalidate();setError("");setMessage("");
   }
   function newRecord(){
-    setCargo("");setSelectedId("");setActiveIRL(0);
+    setCargo("");setSelectedId("");setActiveIRL(0);resetPaste();
     setSections(kind==="PTS"?Array(17).fill(""):kind==="IRL"?
       ["Tarea: \nPeligro: \nRiesgo: \nMedidas: "]:[""]);invalidate();
     setMessage("Cargo nuevo: el primer guardado será una revisión en borrador.");
@@ -131,7 +163,7 @@ export default function JavieraMatrixEditor(){
     // sus riesgos. React no repite el efecto dependiente de `kind` si
     // su valor no cambia; antes esto dejaba una fila IRL vacía.
     if(value===kind)return;
-    setKind(value);setSelectedId("");setCargo("");setActiveIRL(0);
+    setKind(value);setSelectedId("");setCargo("");setActiveIRL(0);resetPaste();
     setSections(value==="PTS"?Array(17).fill(""):value==="IRL"?
       ["Tarea: \nPeligro: \nRiesgo: \nMedidas: "]:[""]);invalidate();
   }
@@ -326,17 +358,37 @@ export default function JavieraMatrixEditor(){
           Es una referencia técnica, no una matriz aprobada. Para imprimirla,
           crea una revisión en borrador y solicita validación preventiva.</p>
         </div>}
-        {referenceVariants.some(item=>item.cargo===cargo)&&<div className="jmx-warning">
+        {variant&&!variantIdentical&&<div className="jmx-warning">
           <strong>El Excel contiene registros duplicados para este cargo.</strong>
           Conservamos las filas {referenceVariants.filter(item=>item.cargo===cargo)
             .flatMap(item=>item.source_rows).join(", ")}.
           Elige la variante correcta antes de solicitar aprobación.
         </div>}
+        {variantIdentical&&<p className="jmx-success">Coincidencias originales idénticas: se pueden consultar sin elegir manualmente una variante. Su aprobación continúa pendiente.</p>}
         <div className="jmx-summary">
           <span><FileSpreadsheet size={15}/> {sections.length} apartados / registros</span>
           <span>{approved?"Aprobada v"+approved.revision:"Sin revisión aprobada"}</span>
           <span>{changes} apartados distintos de la aprobada</span>
         </div>
+        {kind==="IRL"&&<section className="jmx-bulk" aria-label="Pegar matriz de riesgos desde Excel">
+          <div className="jmx-bulk-heading"><div><strong>Copiar y pegar matriz desde Excel</strong>
+            <p>Pega cuatro columnas: actividad, peligro, consecuencia y medida. Revisa antes de aplicar; no se guarda automáticamente.</p></div>
+            <button type="button" onClick={()=>void copySections()}>Copiar matriz</button></div>
+          <textarea rows={3} value={bulkText} onChange={e=>{setBulkText(e.target.value);setBulkPreview(null);}}
+            placeholder="Actividad\tPeligro\tConsecuencia\tMedida preventiva" aria-label="Datos tabulados copiados desde Excel" />
+          <div className="jmx-bulk-actions">
+            <label>Acción <select value={bulkMode} onChange={e=>setBulkMode(e.target.value as "replace"|"append")}>
+              <option value="replace">Reemplazar filas del editor</option><option value="append">Agregar al final</option>
+            </select></label>
+            <button type="button" disabled={!bulkText.trim()} onClick={checkPaste}>Previsualizar pegado</button>
+            {bulkUndo&&<button type="button" onClick={()=>{setSections(bulkUndo);setBulkUndo(null);invalidate();setMessage("Se deshizo el último pegado.");}}>Deshacer pegado</button>}
+          </div>
+          {bulkPreview&&<div className="jmx-bulk-preview" role="status">
+            <strong>{bulkPreview.sections.length} labores válidas</strong> · {bulkPreview.duplicates} duplicados idénticos omitidos.
+            <p>Ejemplos: {bulkPreview.sections.slice(0,2).map(s=>splitSection(s)?.[0]).join(" · ")}</p>
+            <button type="button" onClick={applyPaste}>Aplicar al editor (borrador local)</button>
+          </div>}
+        </section>}
         {kind==="IRL"?<section className="jmx-irl-easy-editor" aria-label="Edición guiada de riesgos">
           <header className="jmx-irl-heading">
             <h3>Editar labores y riesgos, paso a paso</h3>
