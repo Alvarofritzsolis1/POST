@@ -586,7 +586,7 @@ function App() {
 
           </div>}
           {section === "network" && <RedDeObras user={user} />}
-          {section === "javiera" && <ErrorBoundary name="Proyecto JAVIERA"><Suspense fallback={<div className="app-loading">Cargando JAVIERA…</div>}><Javiera onConfig={() => go("javiera_config")} /></Suspense></ErrorBoundary>}
+          {section === "javiera" && <ErrorBoundary name="Proyecto JAVIERA"><Suspense fallback={<div className="app-loading">Cargando JAVIERA…</div>}><Javiera onBack={() => go("home")} onConfig={() => go("javiera_config")} /></Suspense></ErrorBoundary>}
           {error && (
             <div role="alert" className="alert danger">
               {error}
