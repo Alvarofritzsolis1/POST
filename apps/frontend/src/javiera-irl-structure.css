@@ -139,3 +139,13 @@
   font-weight:700;color:#264964}
 .jir-preview[open]>summary{border-bottom:1px solid #dce5ed}
 .jir-preview .jir-scroll{margin:0}
+
+/* Alertas preventivas prioritarias: visibles ANTES del IRL y no ocultas en details. */
+.jir-critical-source{background:#fff8ec;border:1px solid #e0b976;border-left:4px solid #b87718;
+  border-radius:9px;margin:12px 0;padding:12px 14px;color:#6d4415}
+.jir-critical-source strong{display:flex;gap:8px;align-items:center;font-size:.85rem}
+.jir-critical-source p{font-size:.79rem;line-height:1.5;margin:7px 0}
+.jir-critical-source button{border:1px solid #c4934b;background:white;color:#634218;
+  font:700 .78rem Arial,sans-serif;cursor:pointer;padding:8px 10px;border-radius:7px}
+.jir-critical-source button:hover,.jir-critical-source button:focus-visible{
+  outline:2px solid #b37d2a;outline-offset:2px;background:#fff0d3}
