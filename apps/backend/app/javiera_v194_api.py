@@ -17,6 +17,7 @@ from sqlalchemy.orm import Session
 from .db import get_db
 from .javiera_logic import normalize_cargo
 from .javiera_irl_integrity import audit_reference_role
+from .javiera_irl_corrective_drafts import corrective_draft_for_role, merged_draft_sections
 from .javiera_irl_consolidation import consolidate_reference_risks, identical_variants
 from .javiera_v193_api import roles as db_roles, role_detail as db_role_detail
 from .models import User
@@ -125,7 +126,11 @@ def reference_detail(cargo: str = Query(..., min_length=1, max_length=160),
                           for ordinal, row in enumerate(unique_rows, 1)]
     invalid = [row["excel_row"] for row in references if not row["structured"]]
     reference_audit = audit_reference_role(source_role, rows, related_catalog()["matrices"])
+    correction = corrective_draft_for_role(source_role, rows)
+    if correction["type"] == "risk_row":
+        correction["editor_draft_sections"] = merged_draft_sections(rows, correction)
     data["reference_audit"] = reference_audit
+    data["corrective_draft"] = correction
     data["warnings"].extend(reference_audit["warnings"])
     data.update({
         "source_excel_available": True,
