@@ -110,6 +110,13 @@ export default function JavieraMatrixEditor(){
   const variantRows=referenceRows.filter(row=>variant?.source_rows.includes(row.source_row||-1));
   const variantIdentical=variantRows.length>1&&variantRows.every(row=>
     JSON.stringify(row.sections)===JSON.stringify(variantRows[0].sections));
+  const missingIRL=useMemo(()=>kind==="IRL"?sections.flatMap((section,index)=>{
+    const fields=splitSection(section);
+    const missing=fields?fields.flatMap((value,i)=>!value.trim()?
+      [["Actividad","Peligro","Consecuencia","Medidas preventivas"][i]]:[]):
+      ["Estructura de las cuatro columnas"];
+    return missing.length?[{index,fields:missing}]:[];
+  }):[],[kind,sections]);
   const changed=!!current && (sections.length!==current.sections.length ||
     sections.some((s,i)=>s!==current.sections[i]));
   const approved=versions.find(r=>r.status==="approved");
@@ -425,6 +432,18 @@ export default function JavieraMatrixEditor(){
           <span>{approved?"Aprobada v"+approved.revision:"Sin revisión aprobada"}</span>
           <span>{changes} apartados distintos de la aprobada</span>
         </div>
+        {kind==="IRL"&&<section className="jmx-completeness" aria-label="Revisión de campos del IRL">
+          {missingIRL.length>0?<><strong>{missingIRL.length} tareas incompletas · faltan datos antes de aprobación</strong>
+            <p>Corrige los campos indicados. La revisión preventiva sigue siendo obligatoria.</p>
+            <div>{missingIRL.slice(0,12).map(item=><button type="button" key={item.index}
+              onClick={()=>{setActiveIRL(item.index);
+                document.querySelector(".jmx-irl-easy-editor")?.scrollIntoView({block:"start"});}}>
+              Tarea {item.index+1}: {item.fields.join(", ")}
+            </button>)}</div>
+            {missingIRL.length>12&&<small>Mostrando 12 de {missingIRL.length} tareas con campos faltantes.</small>}
+          </>:<><strong>Campos estructurales completos en esta vista</strong>
+            <p>Esto no significa que la matriz esté aprobada: revisa coherencia, sustancias, HDS y firmas autorizadas.</p></>}
+        </section>}
         {kind==="IRL"&&<section className="jmx-bulk" aria-label="Pegar matriz de riesgos desde Excel">
           <div className="jmx-bulk-heading"><div><strong>Copiar y pegar matriz desde Excel</strong>
             <p>Pega cuatro columnas: actividad, peligro, consecuencia y medida. Revisa antes de aplicar; no se guarda automáticamente.</p></div>
