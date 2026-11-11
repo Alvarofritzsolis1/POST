@@ -90,7 +90,10 @@ def reference_roles(query: str = Query("", max_length=160),
             "has_draft": False,
         })
         current["source_excel_available"] = True
-        current["reference_count"] = catalog()["risk_counts"][role]
+        source_rows = [row for row in catalog()["rows"] if row["cargo"] == role]
+        display_rows, _ = consolidate_reference_risks(source_rows, role)
+        current["reference_count"] = len(display_rows)
+        current["reference_source_count"] = len(source_rows)
         current["source_preventive_approval"] = "not_approved_automatically"
     values = sorted(
         (item for item in found.values()
