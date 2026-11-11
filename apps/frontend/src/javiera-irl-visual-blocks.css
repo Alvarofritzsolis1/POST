@@ -63,3 +63,8 @@
 .jvb-block>summary:focus-visible{outline:3px solid #4683aa;outline-offset:4px}
 .jvb-root button:focus-visible{outline:3px solid #4683aa;outline-offset:3px}
 .jvb-block:not([open]){padding-bottom:8px}
+
+.jvb-missing{background:#fff5e7;color:#804d11;border-left:3px solid #c98c35;
+  border-radius:5px;padding:9px 11px;font-size:.77rem;line-height:1.45;
+  margin:9px 0}
+.jvb-missing:focus-visible{outline:2px solid #c98c35}
