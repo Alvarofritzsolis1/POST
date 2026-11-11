@@ -32,12 +32,12 @@ export default function JavieraReviewerV17({onLogout}:{onLogout:()=>void}){
   const [error,setError]=useState("");
   const [notice,setNotice]=useState("");
   const load=useCallback(async()=>{
-    const [next,visual]=await Promise.all([
-      request<Queue>("/javiera/v17/review/queue"),
-      request<VisualQueue>("/javiera/v195/irl-blocks/review-queue")
-        // Un revisor exclusivamente laboral no tiene acceso a imágenes IRL.
-        .catch(()=>({authorized:false,items:[]})),
-    ]);
+    const next=await request<Queue>("/javiera/v17/review/queue");
+    // Revisores sólo laborales no deben pedir imágenes preventivas; para
+    // revisores preventivos, no ocultar un error del servidor como cola vacía.
+    const visual=next.scopes?.includes("prevencion")
+      ?await request<VisualQueue>("/javiera/v195/irl-blocks/review-queue")
+      :{authorized:false,items:[]};
     setQueue(next);setVisualQueue(visual);
     setActiveId(old=>next.documents.some(x=>x.id===old)?old:next.documents[0]?.id||"");
   },[]);
@@ -91,7 +91,7 @@ export default function JavieraReviewerV17({onLogout}:{onLogout:()=>void}){
     </section>}
     {queue?.authorized&&<>
       <div className="j17-review-metrics">
-        <div><span>Pendientes asignados</span><b>{queue.documents.length}</b></div>
+        <div><span>Pendientes asignados</span><b>{queue.documents.length+(visualQueue?.items.length||0)}</b></div>
         <div><span>Especialidades autorizadas</span><b>{queue.scopes?.map(x=>x==="laboral"?"Laboral":"Prevención").join(" y ")||"Sin alcance"}</b></div>
       </div>
       {!queue.documents.length&&!visualQueue?.items.length?<section className="j17-review-panel">
