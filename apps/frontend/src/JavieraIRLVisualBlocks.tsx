@@ -93,6 +93,13 @@ export default function JavieraIRLVisualBlocks({source}: {source:Source}){
       if(file.size>100000)throw Error("El borrador supera 100 KB.");
       const payload=JSON.parse(await file.text());
       const items=payload.items;
+      // Al importar el JSON preparado desde el Excel no aceptar borradores
+      // de otro juego de imágenes. El hash del libro puede variar entre
+      // versiones corregidas; los cinco PNG deben coincidir exactamente.
+      const hashes=payload.source?.images_sha256;
+      if(Array.isArray(hashes) && (hashes.length!==5||
+        hashes.some((value:unknown,index:number)=>value!==source.images[index]?.sha256)))
+        throw Error("Este JSON pertenece a otras imágenes del IRL. Importa el archivo que corresponde al Excel actual.");
       if(payload.format!=="galant-irl-blocks-draft-1"||!Array.isArray(items)||
          items.length!==5||new Set(items.map((x:Block)=>x.id)).size!==5)
         throw Error("Archivo inválido: deben existir los cinco bloques IRL.");
