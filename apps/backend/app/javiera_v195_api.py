@@ -5,13 +5,14 @@ from sqlalchemy import func, select
 from .javiera_models import (JavieraTemplate, JavieraRevision, JavieraSignoff,
                              JavieraReviewerAuthorization)
 from .models import AuditEvent, utcnow
+from .javiera_review import valid_reviewer
 
 from sqlalchemy.orm import Session
 
 from .db import get_db
 from .javiera_irl_original import load_original_for_user
 from .models import User
-from .security import administrator
+from .security import administrator, document_reviewer
 
 router = APIRouter(prefix="/api/v1/javiera/v195", tags=["Javiera · IRL original A4"])
 
@@ -155,6 +156,54 @@ def irl_visual_blocks(response: Response,
         "requires_preventive_signoff": True,
         "manual_review_cannot_be_assumed": True,
     }
+
+
+@router.get("/irl-blocks/review-queue")
+def irl_visual_review_queue(response: Response,
+                            user: User = Depends(document_reviewer),
+                            db: Session = Depends(get_db)):
+    """Revisor de prevención: solo versión pendiente más reciente de su org.
+
+    Se exponen las cinco imágenes extraídas de IRL, no el libro, ni RUT,
+    trabajadores o la información de otras organizaciones.
+    """
+    response.headers["Cache-Control"] = "private, no-store"
+    valid_reviewer(db, user, "prevencion")
+    template = _graphic_template(db, user.org_id)
+    if not template:
+        return {"authorized": True, "items": []}
+    row = _latest_graphic(db, template.id)
+    if not row or row.state != "draft" or row.author_id == user.id:
+        return {"authorized": True, "items": []}
+    previous = db.scalar(select(JavieraSignoff).where(
+        JavieraSignoff.org_id == user.org_id,
+        JavieraSignoff.resource_kind == "template",
+        JavieraSignoff.resource_id == row.id,
+        JavieraSignoff.specialty == "prevencion"))
+    if previous:
+        return {"authorized": True, "items": []}
+    source = _authorized_original(db, user)
+    content = row.contents or {}
+    images = source["images"]
+    if (content.get("source_sha256") != source["source_sha256"] or
+        content.get("image_hashes") != [img["sha256"] for img in images]):
+        return {"authorized": True, "items": [],
+                "warning": "El Excel IRL de esta organización cambió: el autor debe crear otra revisión."}
+    blocks = content.get("blocks") or []
+    if len(blocks) != 5 or {block.get("id") for block in blocks} != {1,2,3,4,5}:
+        return {"authorized": True, "items": [],
+                "warning": "La transcripción no contiene los cinco bloques originales."}
+    return {"authorized": True, "items": [{
+        "id": row.id, "revision": row.revision,
+        "title": "IRL · Cinco bloques HTML editables",
+        "source_layout_status": source.get("status", "draft"),
+        "reason": row.reason, "blocks": blocks,
+        "images": [{
+            "id": i + 1, "title": BLOCK_TITLES[i],
+            "anchor_row": img.get("anchor_row"),
+            "sha256": img["sha256"], "data_uri": img["data_uri"],
+        } for i, img in enumerate(images)],
+    }]}
 
 
 @router.post("/irl-blocks")
