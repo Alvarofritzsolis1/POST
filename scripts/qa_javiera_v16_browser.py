@@ -88,6 +88,10 @@ def main():
             expect(center.get_by_role("button", name=re.compile("Listas para revisar"))).to_be_visible()
             expect(center.get_by_role("button", name=re.compile("Con campos faltantes"))).to_be_visible()
             expect(center.get_by_role("button", name=re.compile("Referencias Excel sin aprobar"))).to_be_visible()
+            # Comprobar el filtro y después restaurar todo el catálogo.
+            center.get_by_role("button", name=re.compile("Referencias Excel sin aprobar")).click()
+            expect(page.get_by_role("combobox", name="Filtrar por estado")).to_have_value("reference")
+            center.get_by_role("combobox", name="Filtrar por estado").select_option("all")
             report["scenarios"]["matrix_approval_dashboard_visible"] = "PASS"
             # GALANT 19.4: los cinco tipos ya tienen contenido del Excel
             # aunque la organización aún no importe ni apruebe las matrices.
@@ -97,7 +101,7 @@ def main():
             ):
                 page.locator("#jmx-kind").select_option(kind)
                 expect(page.locator(".jmx-items small").first).to_contain_text(
-                    f"{expected} filas de Excel", timeout=30000
+                    f"{expected} referencias Excel", timeout=30000
                 )
                 expect(page.get_by_text(
                     "Matriz precargada automáticamente desde el Excel"
