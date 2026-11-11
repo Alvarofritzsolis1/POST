@@ -149,7 +149,9 @@ export default function JavieraIRLVisualBlocks({source}: {source:Source}){
     </header>
     <div className="jvb-bar">
       <span className="jvb-pill">{completedCount}/5 cotejados</span>
-      <span>{data?.source_layout_status==="approved"?
+      <span>Abre cada bloque para comparar su fotografía con el texto editable.</span>
+      <span>{!data?"Consultando aprobación del Excel fuente":
+        data.source_layout_status==="approved"?
         "Excel fuente aprobado": "Bloqueo: Excel original aún sin aprobación"}</span>
       <span>{data?.approved_source_matches?"Existe versión editorial aprobada para esta fuente":
         "Se imprime el material gráfico original mientras falte aprobación"}</span>
@@ -165,11 +167,12 @@ export default function JavieraIRLVisualBlocks({source}: {source:Source}){
     {error&&<p className="jvb-error" role="alert">{error}</p>}
     {message&&<p className="jvb-info" role="status">{message}</p>}
     {!five&&<p className="jvb-error">Importa el Excel original con sus cinco imágenes para habilitar el editor.</p>}
-    {loading&&<p>Consultando revisiones editoriales…</p>}
+    {loading&&<p role="status">Consultando revisiones editoriales…</p>}
     {expanded&&five&&!loading&&<div className="jvb-content">
       <div className="jvb-tools">
         <label className="jvb-upload"><Upload size={15}/> Importar borrador JSON
-          <input type="file" accept=".json,application/json"
+          <input aria-label="Importar transcripción JSON de cinco bloques" type="file"
+            accept=".json,application/json"
             onChange={e=>{const file=e.target.files?.[0];
               if(file)void importDraft(file);e.target.value="";}}/>
         </label>
@@ -177,11 +180,13 @@ export default function JavieraIRLVisualBlocks({source}: {source:Source}){
       </div>
       {source.images.map((image,index)=>{
         const item=blocks.find(b=>b.id===index+1);
-        return <div className="jvb-block" key={image.sha256}>
-          <div className="jvb-block-title">
+        return <details className="jvb-block" key={image.sha256} open={index===0}>
+          <summary className="jvb-block-title">
             <strong>{index+1}. {data?.titles[index]||image.title}</strong>
-            <span>{item?.reviewed?"Cotejo visual marcado":"Pendiente de cotejo"}</span>
-          </div>
+            <span className={item?.reviewed?"jvb-state-reviewed":"jvb-state-pending"}>
+              {item?.reviewed?"Cotejo visual marcado":"Pendiente de cotejo"}
+            </span>
+          </summary>
           <div className="jvb-split">
             <div><label>Imagen original · fila {image.anchor_row}</label>
               <img src={image.data_uri} alt={image.title}/></div>
@@ -193,7 +198,7 @@ export default function JavieraIRLVisualBlocks({source}: {source:Source}){
                 onChange={e=>edit(index+1,{reviewed:e.target.checked})}/>
                 Cotejé cada línea y casilla con la imagen original</label></div>
           </div>
-        </div>
+        </details>
       })}
       <div className="jvb-bottom">
         <label>Motivo de la revisión
