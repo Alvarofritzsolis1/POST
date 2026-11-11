@@ -45,7 +45,7 @@ CARPINTERO_ROW40_DRAFT = {
         "y reemplazar de inmediato todo elemento dañado. Canalizar o elevar "
         "cables fuera de las zonas de circulación; cuando el cruce sea "
         "inevitable, utilizar un protector de cables apto para tránsito. "
-        "Usar equipos y conexiones adecuados al lugar, tierra de protección "
+        "Usar equipos y conexiones adecuados a la faena, tierra de protección "
         "y protección diferencial cuando corresponda; evitar humedad y "
         "sobrecarga de tomas. Prohibir reparaciones eléctricas a personal no "
         "autorizado. Mantener acopio seco y ordenado y registro de inspección "
