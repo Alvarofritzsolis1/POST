@@ -59,6 +59,10 @@ def test_editor_draft_requires_same_private_source_and_never_auto_approves(env, 
     assert current.json()["latest"]["revision"] == 1
     assert current.json()["latest"]["source_matches"] is True
     assert current.json()["approved_revision"] is None
+    assert current.json()["latest"]["preventive_verdict"] == "pending"
+    assert current.json()["latest"]["preventive_authorization_valid"] is False
+    assert current.json()["latest"]["can_publish"] is False
+    assert current.json()["latest"]["author_is_current_user"] is True
 
     # No hay aprobación profesional; aunque el autor pulse publicar, se rechaza.
     publish = client.post(ROOT + "/irl-blocks/" + revision_id + "/publish", headers=headers)
@@ -100,3 +104,20 @@ def test_publish_cannot_use_stale_signed_revision(env, monkeypatch):
     # Se bloquea revisión anterior antes incluso de revisar la firma.
     attempt = client.post(ROOT + "/irl-blocks/" + old_id + "/publish", headers=headers)
     assert attempt.status_code == 409
+
+
+def test_completely_reviewed_blocks_still_require_independent_preventive_signoff(env, monkeypatch):
+    monkeypatch.setattr(visual, "_authorized_original", fake_source)
+    client, _ = env
+    headers = login(client, "a@example.cl")
+    payload = valid_payload()
+    for block in payload["blocks"]:
+        block["reviewed"] = True
+    result = client.post(ROOT + "/irl-blocks", json=payload, headers=headers)
+    assert result.status_code == 200, result.text
+    current = client.get(ROOT + "/irl-blocks", headers=headers).json()
+    assert current["latest"]["can_publish"] is False
+    assert current["latest"]["preventive_verdict"] == "pending"
+    attempt = client.post(ROOT + "/irl-blocks/" + result.json()["id"] + "/publish", headers=headers)
+    assert attempt.status_code == 409, attempt.text
+    assert "acta preventiva" in attempt.json()["detail"]
