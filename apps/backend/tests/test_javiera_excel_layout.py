@@ -37,7 +37,14 @@ def sample_xlsx() -> bytes:
         doc["A1"] = "DOCUMENTO DE PRUEBA"  # No hay datos personales reales.
         doc["A1"].font = Font(name="Arial", size=15, bold=True, color="FFFFFF")
         doc["A1"].fill = PatternFill("solid", fgColor="25466B")
-        doc.merge_cells("A1:D1")
+        # Entrega PTS no comparte el membrete genérico del resto:
+        # el Excel original usa A1:I2 y permite el título completo.
+        # Una prueba que comprimía el título en A1:D1 daba un
+        # falso fallo de impresión, sin representar el archivo fuente.
+        if code == "pts_receipt":
+            doc.merge_cells("A1:I2")
+        else:
+            doc.merge_cells("A1:D1")
         doc["A3"] = "NOMBRE DE TRABAJADOR:"
         doc["B3"] = "='Datos Contrato'!C17"
         doc["B4"] = "='Datos Contrato'!C5"
@@ -45,7 +52,7 @@ def sample_xlsx() -> bytes:
         doc["B5"] = "RUT"
         if code == "induction":
             doc["A119"] = "Recibí del contratista principal CONSTRUCTORA EJEMPLO LIMITADA."
-        doc.print_area = "A1:D15"
+        doc.print_area = "A1:I24" if code == "pts_receipt" else "A1:D15"
         doc.sheet_properties.pageSetUpPr.fitToPage = True
         doc.page_setup.fitToWidth = 1
         doc.page_setup.fitToHeight = 0
