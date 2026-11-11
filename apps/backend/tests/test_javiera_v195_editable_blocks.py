@@ -188,6 +188,13 @@ def test_designated_doc_reviewer_can_sign_and_admin_can_publish(env, monkeypatch
     checklist = client.get("/api/v1/javiera/admin/reviews/checklists",
                            headers=reviewer_headers)
     assert checklist.status_code == 200
+    queue = client.get(ROOT + "/irl-blocks/review-queue", headers=reviewer_headers)
+    assert queue.status_code == 200, queue.text
+    assert queue.json()["authorized"] is True
+    assert len(queue.json()["items"]) == 1
+    assert queue.json()["items"][0]["id"] == revision_id
+    assert len(queue.json()["items"][0]["images"]) == 5
+    assert len(queue.json()["items"][0]["blocks"]) == 5
     signed = client.post("/api/v1/javiera/admin/reviews/signoff", headers=reviewer_headers,
         json={
             "resource_kind": "template", "resource_id": revision_id,
@@ -197,6 +204,9 @@ def test_designated_doc_reviewer_can_sign_and_admin_can_publish(env, monkeypatch
             "regulatory_basis": BASIS["prevencion"],
         })
     assert signed.status_code == 200, signed.text
+    reviewed_queue = client.get(ROOT + "/irl-blocks/review-queue", headers=reviewer_headers)
+    assert reviewed_queue.status_code == 200
+    assert reviewed_queue.json()["items"] == []
 
     admin_headers = login(client, "a@example.cl")
     details = client.get(ROOT + "/irl-blocks", headers=admin_headers)
