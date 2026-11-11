@@ -7,6 +7,7 @@ from base64 import b64encode
 from io import BytesIO
 
 import fitz
+import unicodedata
 from PIL import Image, ImageDraw
 
 from app.javiera_native import render_native_pdf
@@ -81,7 +82,8 @@ def test_five_png_images_survive_irl_a4_with_all_13_risks():
         assert "PREVENCIÓN" in all_text, "Falta parte del encabezado preventivo"
         assert "Actividad de ensayo 1" in all_text
         assert "Actividad de ensayo 13" in all_text
-        assert "Control verificable 13" in " ".join(all_text.split()), (
+        assert "Control verificable 13" in " ".join(
+            unicodedata.normalize("NFKC", all_text).split()), (
             [line for line in all_text.splitlines() if
              "Control" in line or "verific" in line or "13" in line][-30:])
         assert "Firma" in all_text
@@ -109,7 +111,8 @@ def test_five_reviewed_html_blocks_print_as_actual_text_without_unsafe_html():
         text = "\n".join(page.get_text() for page in pdf)
         for i in range(1, 6):
             assert f"NORMA EDITABLE NUMERO {i}" in text
-        assert "Control verificable 13" in " ".join(text.split()), (
+        assert "Control verificable 13" in " ".join(
+            unicodedata.normalize("NFKC", text).split()), (
             [line for line in text.splitlines() if
              "Control" in line or "verific" in line or "13" in line][-30:])
         assert "<script>" not in text
