@@ -68,3 +68,59 @@
 .jir-original-blocks li,.jir-audit-alerts li{margin:5px 0;font-size:.78rem;line-height:1.4;color:#4c6277}
 .jir-original-blocks>p{padding:0 11px 11px;margin:0;font-size:.78rem;color:#81501e}
 @media(max-width:580px){.jir-parity{padding:9px}.jir-aux-grid{grid-template-columns:minmax(0,1fr)}}
+
+/* GALANT 19.4.2 — reproducción progresiva A4 del IRL fuente, con imágenes OOXML.
+ * El formato original es prioritario: sin fotos sustitutas ni recortes. */
+.jir-original-status{margin:12px 0;min-width:0}
+.jir-import-original{border:1px solid #c4d3e0;border-radius:9px;padding:13px;background:#fff}
+.jir-import-original strong{font-size:.88rem;color:#243d50}
+.jir-import-original p{font-size:.8rem;line-height:1.5;color:#50687a;margin:6px 0 11px}
+.jir-import-action{display:inline-flex;align-items:center;gap:8px;background:#1d527b;color:#fff;
+  border-radius:7px;padding:10px 13px;cursor:pointer;font-size:.82rem;font-weight:700}
+.jir-import-action input{position:absolute;width:1px;height:1px;opacity:0;pointer-events:none}
+.jir-original-document{font-family:Arial,Helvetica,sans-serif;font-size:9.2pt;line-height:1.36;color:#121d28}
+.jir-original-document h2{font-size:10.7pt;text-align:center;background:#e5e9ed;
+  margin:10px 0;padding:9px 8px;border:1px solid #8da0b0}
+.jir-original-document h3{font-size:10pt;line-height:1.35;color:#1b2e40;
+  margin:15px 0 6px;padding:7px 6px;border:1px solid #91a3b2;background:#eaf0f5}
+.jir-original-document h4{font-size:9.1pt;line-height:1.36;color:#243849;
+  margin:9px 0 3px;padding:4px 5px;border:1px solid #bdc9d3;background:#f4f7f9}
+.jir-original-masthead{table-layout:fixed;break-inside:avoid}
+.jir-original-masthead th{background:#ecf0f5;font-size:8pt;vertical-align:middle;
+  text-align:center;border:1px solid #8298aa;font-weight:700}
+.jir-original-masthead th:first-child{width:31%}
+.jir-original-masthead th:nth-child(2){width:31%}
+.jir-legal-intro,.jir-legal-quote,.jir-legal-close,.jir-legal-declaration{
+  white-space:pre-wrap;overflow-wrap:break-word;font-size:8.9pt;line-height:1.45;margin:8px 0 10px}
+.jir-legal-quote{padding:8px;border:1px solid #ccd4dd;background:#fff}
+.jir-person-fields{border:1px solid #9aabb8;padding:7px 8px;margin:10px 0;display:grid;gap:5px}
+.jir-person-fields p{margin:0;font-size:8.7pt;line-height:1.4}
+.jir-excel-value{white-space:pre-wrap;margin:6px 2px 9px;line-height:1.43;font-size:8.9pt}
+.jir-condition p{margin:4px 5px 9px;white-space:pre-wrap;font-size:8.7pt}
+.jir-original-document .jir-risk-table{table-layout:fixed}
+.jir-original-document .jir-risk-table th{background:#e5edf4;vertical-align:top;
+  font-size:8.1pt;line-height:1.3}
+.jir-original-document .jir-risk-table th:first-child,
+.jir-original-document .jir-risk-table td:first-child{width:25%;text-align:left}
+.jir-original-document .jir-risk-table th,
+.jir-original-document .jir-risk-table td{width:25%;padding:6px 5px;font-size:8.1pt;
+  line-height:1.43;white-space:pre-wrap;overflow-wrap:anywhere}
+.jir-original-document .jir-risk-table tr{break-inside:avoid}
+.jir-original-document .jir-substances{table-layout:fixed;margin:0}
+.jir-original-document .jir-substances th:first-child{width:6%;text-align:center}
+.jir-original-document .jir-substances th:nth-child(2){width:32%;text-align:left}
+.jir-original-document .jir-substances td{width:62%;text-align:left;white-space:pre-wrap;
+  overflow-wrap:anywhere}
+.jir-original-document .jir-substances th,.jir-original-document .jir-substances td{
+  padding:5px 6px;font-size:8.5pt;vertical-align:top}
+.jir-original-media{margin:10px 0 13px;break-inside:avoid;max-width:100%;
+  border:0;padding:0;background:#fff}
+.jir-original-media img{display:block;width:100%;max-width:100%;height:auto;
+  object-fit:contain;border:0;image-rendering:auto}
+.jir-original-media figcaption{margin:4px 1px 0;font-size:7.5pt;color:#66798a;
+  text-align:right}
+.jir-original-signature{margin-top:28px;min-height:85px;display:flex;flex-direction:column;
+  justify-content:flex-end;text-align:center;align-items:center;font-size:8.7pt;gap:3px}
+.jir-original-signature strong{font-size:9pt}
+.jir-original-signature small{font-size:7.8pt;color:#4f6578}
+@media(max-width:800px){.jir-original-document{min-width:650px}}

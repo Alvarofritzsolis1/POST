@@ -47,8 +47,8 @@ def test_irl_pdf_is_generated_from_structured_preventive_matrix():
     assert pdf_bytes.startswith(b"%PDF")
     with fitz.open(stream=pdf_bytes, filetype="pdf") as pdf:
         text = unicodedata.normalize("NFKC", " ".join(" ".join(page.get_text().split()) for page in pdf))
-        for expected in ("Labor o tarea", "Peligro", "Riesgo",
-                         "Medidas preventivas", "Aplicar pintura",
+        for expected in ("Actividad", "Riesgos Detectados", "Consecuencias Potenciales",
+                         "Medidas Preventivas Obligatorias", "Aplicar pintura",
                          "Solvente", "inflamable", "Ventilar"):
             assert expected in text, expected
         assert not any(page.get_links() for page in pdf)

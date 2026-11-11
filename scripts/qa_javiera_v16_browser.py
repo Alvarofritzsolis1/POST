@@ -65,8 +65,10 @@ def main():
             # document structure and preventive matrix, not a blank HTML canvas.
             page.get_by_role("button", name=re.compile("INFORMACIÓN DE RIESGOS LABORALES")).click()
             expect(page.get_by_role("heading", name="Formato original, datos vinculados y matriz de riesgos")).to_be_visible()
-            expect(page.locator(".jir-risk-table thead th")).to_have_count(5)
-            expect(page.get_by_role("columnheader", name="Labor o tarea")).to_be_visible()
+            expect(page.locator(".jir-risk-table thead th")).to_have_count(4)
+            expect(page.get_by_role("columnheader", name="Actividad")).to_be_visible()
+            expect(page.get_by_role("heading", name="3 - CARACTERÍSTICAS DE PRODUCTOS Y SUSTANCIAS A MANIPULAR")).to_be_visible()
+            expect(page.get_by_role("heading", name="4 - ANTECEDENTES GENERALES Y NORMAS GENERALES DE SEGURIDAD")).to_be_visible()
             expect(page.get_by_role("button", name="Abrir Matrices y cargos")).to_be_visible()
             page.get_by_role("button", name="Abrir Matrices y cargos").click()
             expect(page.get_by_role("heading", name="Matrices y cargos")).to_be_visible()

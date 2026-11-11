@@ -69,7 +69,7 @@ def _record_date(data: dict) -> str:
 
 
 def _template(name: str) -> Template:
-    if name not in {"base", *DOCUMENT_TITLES}:
+    if name not in {"base", "irl_document", *DOCUMENT_TITLES}:
         raise NativeDocumentError("No existe la plantilla nativa seleccionada.")
     path = TEMPLATE_PATH / (name + ".html")
     return Template(path.read_text(encoding="utf-8"))
@@ -111,7 +111,7 @@ def _irl_table_rows(values: list[str], role: str) -> str:
         else:
             # Esta fila se imprime íntegra, sin simular una tabla validada.
             columns = '<td colspan="4">' + _html(record["original"]) + '</td>'
-        parts.append("<tr><th>" + str(ordinal) + "</th>" + columns + "</tr>")
+        parts.append("<tr>" + columns + "</tr>")
     return "".join(parts)
 
 
@@ -150,7 +150,9 @@ def _source_paragraphs(approved_text: str | None) -> str:
 
 def _body(code: str, data: dict, matrix: list[str] | None,
           approved_text: str | None = None,
-          approved_html: str | None = None) -> str:
+          approved_html: str | None = None,
+          irl_context: dict | None = None,
+          original_source: dict | None = None) -> str:
     if code == "internal_rules_receipt":
         version = _get(data, "extra.regulation_version", required=True)
         return _template(code).substitute(regulation_version=_html(version))
@@ -159,7 +161,11 @@ def _body(code: str, data: dict, matrix: list[str] | None,
             raise NativeDocumentError(
                 "No existe una matriz IRL aprobada para el cargo. Completa su revisión antes de generar el PDF."
             )
-        return _template(code).substitute(risk_rows=_irl_table_rows(matrix, _get(data, "role")))
+        from .javiera_irl_render_context import original_context
+        context = original_context(irl_context, original_source)
+        return _template(code).substitute(
+            risk_rows=_irl_table_rows(matrix, _get(data, "role")), **context
+        )
     if code == "induction":
         topics = _get(data, "event.induction_topics")
         if not topics:
@@ -198,7 +204,9 @@ def render_native_pdf(code: str, data: dict, *, matrix: list[str] | None = None,
                       approved_text: str | None = None,
                       approved_html: str | None = None,
                       native_intro: str | None = None,
-                      _compact: bool = False) -> bytes:
+                      irl_context: dict | None = None,
+                       original_source: dict | None = None,
+                       _compact: bool = False) -> bytes:
     """Genera PDF A4 desde HTML/CSS versionado; solo vista previa no firmada.
 
     El motor NO consulta ni muta tablas operativas, historiales o hojas Excel.
@@ -211,7 +219,7 @@ def render_native_pdf(code: str, data: dict, *, matrix: list[str] | None = None,
     # El texto de origen es obligatorio para los siete formatos migrados.
     # Revisarlo primero permite informar la causa real en lugar de solicitar
     # datos de firma cuando el documento aún carece de cláusulas oficiales.
-    body = _body(code, data, matrix, approved_text, approved_html)
+    body = _body(code, data, matrix, approved_text, approved_html, irl_context, original_source)
     if native_intro:
         # IRL, inducción y Reglamento conservan sus tablas obligatorias.
         # El HTML editable se añade sin reemplazar matrices o casillas.
@@ -228,7 +236,11 @@ def render_native_pdf(code: str, data: dict, *, matrix: list[str] | None = None,
         "pts_receipt": "event.pts_version",
     }.get(code)
     version = _get(data, version_key) if version_key else ""
-    html = _template("base").substitute(
+    html = _template("irl_document" if code == "irl" else "base").substitute(
+        original_code=_html((original_source or {}).get("document_code") or "DPR-IRL-03"),
+        original_version=_html((original_source or {}).get("source_version") or ""),
+        irl_print_mode="irl-images-ready" if code == "irl" and (original_source or {}).get("images") else "",
+        declaration=_html(((original_source or {}).get("static") or {}).get("A172", "")),
         title=_html(DOCUMENT_TITLES[code]),
         company=_html(company),
         company_rut=_html(_get(data, "employer.rut", required=True)),
@@ -268,7 +280,8 @@ def render_native_pdf(code: str, data: dict, *, matrix: list[str] | None = None,
         """
     rect = (fitz.Rect(37, 34, A4.width - 37, A4.height - 43)
             if _compact else BODY_RECT)
-    if len(html) > 380_000:
+    html_limit = 1_500_000 if code == "irl" and original_source else 380_000
+    if len(html) > html_limit:
         raise NativeDocumentError("Documento demasiado extenso para la impresión segura.")
     story = fitz.Story(html=html, user_css=css)
     with TemporaryDirectory(prefix="javiera-native-") as temporary:
@@ -297,9 +310,14 @@ def render_native_pdf(code: str, data: dict, *, matrix: list[str] | None = None,
                 # Rechazar firmas que queden solas en la última página:
                 # un PDF técnicamente válido no siempre es imprimible.
                 last_text = page.get_text()
+                irl_folio_cierre = (
+                    code == "irl" and bool((original_source or {}).get("images"))
+                    and "Declaración" in last_text
+                    and "Firma trabajador" in last_text and "RUT:" in last_text
+                )
                 if (pdf.page_count > 1 and index == pdf.page_count
                         and ("Firma trabajador" in last_text or "Firma declarante" in last_text)
-                        and len(last_text.strip()) < 210):
+                        and len(last_text.strip()) < 210 and not irl_folio_cierre):
                     if not _compact:
                         # Mantener todas las cláusulas y su tipografía; se
                         # redistribuyen únicamente márgenes y espaciados.
@@ -307,7 +325,8 @@ def render_native_pdf(code: str, data: dict, *, matrix: list[str] | None = None,
                             code, data, matrix=matrix,
                             approved_text=approved_text,
                             approved_html=approved_html,
-                            native_intro=native_intro, _compact=True
+                            native_intro=native_intro, irl_context=irl_context,
+                            original_source=original_source, _compact=True
                         )
                     raise NativeDocumentError(
                         "La firma quedó aislada incluso tras optimizar los espacios."
@@ -315,8 +334,8 @@ def render_native_pdf(code: str, data: dict, *, matrix: list[str] | None = None,
                 blocks = [block for block in page.get_text("blocks")
                           if len(block) > 4 and isinstance(block[4], str)
                           and block[4].strip()]
-                if not blocks:
-                    raise NativeDocumentError("Se detectó una página sin contenido.")
+                if not blocks and not page.get_images(full=True):
+                    raise NativeDocumentError("Se detectó una página sin texto ni imágenes.")
                 for block in blocks:
                     if (block[0] < -0.5 or block[1] < -0.5 or
                             block[2] > A4.width + 0.5 or block[3] > A4.height + 0.5):

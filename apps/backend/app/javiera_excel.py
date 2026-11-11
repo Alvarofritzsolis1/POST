@@ -47,7 +47,7 @@ DOCUMENT_PRINT_AREAS = {
     "sworn_declaration": "A1:A16",
     "internal_rules_receipt": "A1:G12",
     "ppe_delivery": "A1:E30",
-    "irl": "A1:D178",
+    "irl": "A1:D179",
     "pts": "A1:G190",
     "pts_receipt": "A1:I24",
     "induction": "A1:D474",

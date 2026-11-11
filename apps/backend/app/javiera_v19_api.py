@@ -24,6 +24,7 @@ from .javiera_models import JavieraRevision, JavieraTemplate
 from .javiera_native_edit import TOKEN, NativeHtmlError, bind_native_html, plain_text_to_html, validate_native_html
 from .models import AuditEvent, utcnow
 from .javiera_native import DOCUMENT_TITLES, NativeDocumentError, render_native_pdf
+from .javiera_irl_original import load_original_for_user
 from .javiera_v166_api import _document, _dossier
 from .models import User
 from .security import administrator
@@ -496,6 +497,20 @@ def preview_native(payload: NativePreviewInput,
         else:
             data["event"] = {**(data.get("event") or {}),
                              "pts_version": f"PTS revisión {approved.revision}"}
+    if payload.code == "irl":
+        # Prioridad de fidelidad: usar directamente la hoja original, sus
+        # bordes, imágenes, saltos y encabezados con LibreOffice. La versión
+        # nativa HTML queda como respaldo de pruebas cuando no existe XLSX.
+        # Esto evita pérdidas de palabras observadas en fitz.Story 1.28.
+        from .javiera_layout_api import latest_layout, make_pdf
+        layout = latest_layout(db, user.org_id, "irl", approved=False)
+        if layout:
+            pdf = make_pdf(db, user, layout, data, preview=True)
+            return Response(content=pdf, media_type="application/pdf", headers={
+                "Cache-Control": "no-store, private",
+                "Content-Disposition": 'inline; filename="irl-original-para-revision.pdf"',
+                "X-Galant-IRL-Renderer": "original-excel-layout",
+            })
     row = db.scalar(select(JavieraTemplate).where(
         JavieraTemplate.org_id == user.org_id,
         JavieraTemplate.code == payload.code,
@@ -533,12 +548,24 @@ def preview_native(payload: NativePreviewInput,
             ) from None
         if "{{" in approved_text or "}}" in approved_text:
             raise HTTPException(422, "El texto contiene variables sin resolver.")
+    irl_context = None
+    irl_original = None
+    if payload.code == "irl":
+        # Se reutiliza la fuente privada previamente importada: las imágenes
+        # se incorporan AUTOMÁTICAMENTE al PDF de cada trabajador.
+        irl_original = load_original_for_user(db, user, approved_only=False)
+        irl_context = {}
+        for related in ("PERFILES", "PUESTOS", "SUSTANCIAS"):
+            validated = latest_approved_matrix(db, user.org_id, related, data.get("role", ""))
+            irl_context[related] = list(validated.sections) if validated else []
     try:
         pdf = render_native_pdf(payload.code, data, matrix=matrix,
                                 approved_text=approved_text,
                                 approved_html=approved_html,
-                                native_intro=native_intro)
-    except NativeDocumentError as exc:
+                                native_intro=native_intro,
+                                irl_context=irl_context,
+                                original_source=irl_original)
+    except (NativeDocumentError, ValueError) as exc:
         raise HTTPException(422, str(exc)) from None
     return Response(
         content=pdf, media_type="application/pdf",
