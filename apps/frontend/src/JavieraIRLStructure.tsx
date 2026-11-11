@@ -132,7 +132,7 @@ export default function JavieraIRLStructure({onEditMatrices}:Props){
     const proposal=correction.proposal;
     if(!proposal)return;
     let content="";
-    if(correction.type==="risk_row"&&correction.proposal.excel_row===40){
+    if(correction.type==="risk_row"&&proposal.excel_row===40){
       content=serializeIRLClipboard(rows.map(row=>{
         const isTarget=row.source_excel_rows?.includes(40);
         return [row.labor,row.peligro,
