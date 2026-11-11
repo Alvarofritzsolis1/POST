@@ -31,7 +31,7 @@ const requiredOriginalNumbers:Record<number,number[]>={
 };
 function missingOriginalNumbers(item:Block|undefined,id:number):number[]{
   const found=new Set<number>();
-  const matcher=/^\s*(?:☐|□|\[\s*\])?\s*0*(\d{1,2})(?:\s*[-.)]|\s{1,})/gm;
+  const matcher=/^\s*(?:☐|□|☑|☒|\[[xX ]?\])?\s*0*(\d{1,2})(?:\s*[-.)]|\s{1,})/gm;
   for(const match of (item?.text||"").matchAll(matcher))
     found.add(Number(match[1]));
   return (requiredOriginalNumbers[id]||[]).filter(x=>!found.has(x));
