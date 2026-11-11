@@ -28,7 +28,10 @@ def safe(value: object) -> str:
 
 
 _TABLE_ROW = re.compile(r"^\s*(0?\d{1,2})\s*\|\s*(.+?)(?:\s*\|\s*☐\s*\|\s*☐\s*\|?)?\s*$")
-_NUMBERED_RULE = re.compile(r"^\s*(?:☐|□)?\s*(0?\d{1,2})\s*(?:\.-|\.|-|\))\s*(.+)$")
+_NUMBERED_RULE = re.compile(
+    r"^\s*(?P<box>☐|□|☑|☒|\[[xX ]?\])?\s*"
+    r"(?P<number>0?\d{1,2})\s*(?:\.-|\.|-|\))\s*(?P<description>.+)$"
+)
 
 
 def original_editorial_html(item: dict, index: int) -> str:
@@ -74,7 +77,15 @@ def original_editorial_html(item: dict, index: int) -> str:
             if m and in_table:
                 fields = [v.strip() for v in text.split("|")]
                 if len(fields) >= 2:
-                    cells = [safe(fields[0].rstrip(".-")), safe(fields[1]), "□", "□", ""]
+                    # Conservar opciones seleccionadas y observaciones reales
+                    # (también si incluyen barras verticales) sin insertar HTML.
+                    values = [
+                        fields[0].rstrip(".-"), fields[1],
+                        fields[2] if len(fields) > 2 and fields[2] else "□",
+                        fields[3] if len(fields) > 3 and fields[3] else "□",
+                        " | ".join(fields[4:]) if len(fields) > 4 else "",
+                    ]
+                    cells = [safe(value) for value in values]
                     parts.append('<tr>' + "".join('<td>' + c + '</td>' for c in cells) +
                                  '</tr>')
                     continue
@@ -88,9 +99,10 @@ def original_editorial_html(item: dict, index: int) -> str:
                 continue
             match = _NUMBERED_RULE.match(text)
             if match:
-                parts.append('<h4 class="irl-ed-norm">□ ' +
-                             safe(match.group(1)) + '.- ' +
-                             safe(match.group(2)) + '</h4>')
+                parts.append('<h4 class="irl-ed-norm">' +
+                             safe(match.group("box") or "□") + ' ' +
+                             safe(match.group("number")) + '.- ' +
+                             safe(match.group("description")) + '</h4>')
             elif text.startswith(('•','- ')):
                 parts.append('<p class="irl-ed-bullet">• ' + safe(text.lstrip('•- ')) +
                              '</p>')
