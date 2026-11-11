@@ -3,10 +3,10 @@
   color:var(--jsm-ink);font-family:inherit}
 .jsm-shell *{box-sizing:border-box}
 .jsm-heading{display:flex;justify-content:space-between;align-items:flex-start;gap:18px;margin-bottom:24px}
-.jsm-eyebrow{color:#668098;font-size:.72rem;font-weight:750;letter-spacing:.12em}
+.jsm-eyebrow{display:block;color:#668098;font-size:.72rem;font-weight:750;letter-spacing:.12em}
 .jsm-heading h1{margin:5px 0 8px;font-size:clamp(1.65rem,2.8vw,2.4rem);letter-spacing:-.03em}
 .jsm-heading p{margin:0;color:var(--jsm-muted);font-size:.9rem;line-height:1.5;max-width:590px}
-.jsm-back{display:inline-flex;align-items:center;gap:5px;padding:0 0 18px;background:transparent;
+.jsm-back{display:flex;width:max-content;align-items:center;gap:5px;padding:0;margin:0 0 15px;background:transparent;
   border:0;color:var(--jsm-accent);font-weight:700;cursor:pointer}
 .jsm-settings{display:inline-flex;align-items:center;gap:7px;padding:10px 14px;
   border:1px solid var(--jsm-line);border-radius:9px;color:var(--jsm-accent);
