@@ -258,8 +258,6 @@ def test_mandante_references_are_replaced_in_induction_and_email_link_allowed():
 
 
 
-@pytest.mark.skipif(shutil.which("libreoffice") is None, reason="Requiere LibreOffice Calc en CI")
-@pytest.mark.parametrize("code",list(DOC_SHEETS))
 def test_pts_receipt_source_merges_match_real_print_format():
     from app.javiera_excel import DOC_SHEETS, sheet_files, Q
     with ZipFile(io.BytesIO(sample_xlsx())) as source:
@@ -321,6 +319,8 @@ def test_pts_receipt_does_not_emit_pdf_with_clipped_role_heading(monkeypatch):
         )
 
 
+@pytest.mark.skipif(shutil.which("libreoffice") is None, reason="Requiere LibreOffice Calc en CI")
+@pytest.mark.parametrize("code",list(DOC_SHEETS))
 def test_ten_original_document_pdfs_with_synthetic_person_only(code):
     """Una vista previa por cada tipo, evitando mostrar nombres del Excel origen."""
     from app.javiera_excel import pdf_from_workbook
