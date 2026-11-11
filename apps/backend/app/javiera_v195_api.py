@@ -2,8 +2,8 @@
 from fastapi import APIRouter, Depends, Response, HTTPException
 from pydantic import BaseModel, ConfigDict, Field
 from sqlalchemy import func, select
-from .javiera_models import JavieraTemplate, JavieraRevision, JavieraSignoff
-from .javiera_review import require_signoff
+from .javiera_models import (JavieraTemplate, JavieraRevision, JavieraSignoff,
+                             JavieraReviewerAuthorization)
 from .models import AuditEvent, utcnow
 
 from sqlalchemy.orm import Session
@@ -67,6 +67,30 @@ def _latest_graphic(db: Session, template_id: str) -> JavieraRevision | None:
             JavieraRevision.revision.desc()))
 
 
+def _authorized_signoff(db: Session, org_id: str,
+                        row: JavieraRevision) -> JavieraSignoff | None:
+    """Sólo un revisor independiente designado y vigente puede autorizar.
+    
+    El administrador puede ejecutar una publicación YA aprobada; no es
+    necesario que el publicador sea también un prevencionista. La aprobación
+    técnica pertenece al acta, no al botón Publicar.
+    """
+    signoff = db.scalar(select(JavieraSignoff).where(
+        JavieraSignoff.org_id == org_id,
+        JavieraSignoff.resource_kind == "template",
+        JavieraSignoff.resource_id == row.id,
+        JavieraSignoff.specialty == "prevencion",
+        JavieraSignoff.verdict == "approved"))
+    if not signoff or signoff.reviewer_id == row.author_id:
+        return None
+    granted = db.scalar(select(JavieraReviewerAuthorization).where(
+        JavieraReviewerAuthorization.org_id == org_id,
+        JavieraReviewerAuthorization.user_id == signoff.reviewer_id,
+        JavieraReviewerAuthorization.specialty == "prevencion",
+        JavieraReviewerAuthorization.active.is_(True)))
+    return signoff if granted else None
+
+
 def _authorized_original(db: Session, user: User) -> dict:
     source = load_original_for_user(db, user, approved_only=False)
     if not source.get("available") or len(source.get("images") or []) != 5:
@@ -89,6 +113,7 @@ def irl_visual_blocks(response: Response,
         JavieraRevision.state == "approved")) if template and
         template.published_version else None)
     contents = latest.contents if latest else {}
+    valid_approval = _authorized_signoff(db, user.org_id, latest) if latest else None
     preventive_review = (db.scalar(select(JavieraSignoff).where(
         JavieraSignoff.org_id == user.org_id,
         JavieraSignoff.resource_kind == "template",
@@ -110,10 +135,10 @@ def irl_visual_blocks(response: Response,
                                    [i["sha256"] for i in source["images"]]),
             "preventive_verdict": (preventive_review.verdict
                                     if preventive_review else "pending"),
+            "preventive_authorization_valid": bool(valid_approval),
             "author_is_current_user": bool(latest and latest.author_id == user.id),
             "can_publish": bool(latest and latest.state == "draft" and
-                preventive_review and preventive_review.verdict == "approved" and
-                latest.author_id != preventive_review.reviewer_id and
+                valid_approval and
                 contents.get("source_sha256") == source["source_sha256"] and
                 contents.get("image_hashes") ==
                 [i["sha256"] for i in source["images"]] and
@@ -192,9 +217,10 @@ def publish_irl_visual_blocks(revision_id: str,
         not x.get("reviewed") or not str(x.get("text") or "").strip() for x in blocks
     ):
         raise HTTPException(422, "Los cinco bloques deben estar cotejados y completos.")
-    signoff = require_signoff(db, user, "template", row.id, "prevencion")
-    if signoff.reviewer_id == row.author_id:
-        raise HTTPException(403, "El autor no puede aprobar su propia transcripción.")
+    signoff = _authorized_signoff(db, user.org_id, row)
+    if not signoff:
+        raise HTTPException(409, "Falta acta preventiva aprobada por un revisor "
+                            "distinto del autor y con designación vigente.")
     row.state = "approved"
     row.reviewer_id = signoff.reviewer_id
     row.reviewed_at = utcnow()
