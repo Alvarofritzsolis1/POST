@@ -140,11 +140,16 @@ export default function JavieraSimple({onConfig,onBack}:{onConfig?:()=>void;onBa
     return ()=>{active=false;};
   },[]);
   async function changeSite(value:string){
-    generation.current++;
+    const index=++generation.current;
     setSite(value);setCompanyToken("");setCompanyId("");setPersonToken("");setPersonId("");
     setRole("");setFilter("");setExtras({});setVerifiedNoWorkers(false);
     setSource(old=>({...old,people:[],operational_people:[]}));
     current.current=null;
+    try{
+      const loaded=await request<Sources>(base+"/sources"+
+        (value?"?site_id="+encodeURIComponent(value):""));
+      if(index===generation.current)setSource(loaded);
+    }catch(e){if(index===generation.current)setError(friendly(e));}
   }
   async function changeCompany(value:string){
     const index=++generation.current;
@@ -194,7 +199,10 @@ export default function JavieraSimple({onConfig,onBack}:{onConfig?:()=>void;onBa
     if(value==="sworn_declaration"){setPersonToken("");setPersonId("");}
   }
   async function prepare():Promise<Dossier|null>{
-    if(!ready||!selectedCompany){setError("Selecciona una obra, empresa, trabajador, cargo y documento.");return null;}
+    if(!ready){setError("Selecciona una obra, empresa, trabajador, cargo y documento.");return null;}
+    if(!library?.documents.some(item=>item.code===code&&item.ready)){
+      setError("La plantilla Excel original no está habilitada. Revísala en Administración de plantillas.");return null;
+    }
     if(current.current?.signature===signature)return current.current.dossier;
     const shared=deep({...extras,role,"event.date":date});
     const dossier=await request<Dossier>(base+"/dossiers",{
@@ -254,7 +262,8 @@ export default function JavieraSimple({onConfig,onBack}:{onConfig?:()=>void;onBa
   }
   const fieldKeys=JAVIERA_EXCEL_FIELDS[code]||[];
   const auto=new Set(["role","event.date","worker.name","worker.rut","employer.name","employer.rut","site.name"]);
-  const extraFields=[...new Set([...fieldKeys,...catalog.find(x=>x.code===code)?.required_fields||[],...missing])]
+  const requiredCatalog=catalog.find(x=>x.code===code)?.required_fields||[];
+  const extraFields=[...new Set([...fieldKeys,...requiredCatalog,...missing])]
     .filter(x=>!auto.has(x)&&x.includes("."));
   return <main className="jsm-shell" aria-label="Proyecto Javiera modo simple">
     <header className="jsm-heading">
@@ -348,7 +357,7 @@ export default function JavieraSimple({onConfig,onBack}:{onConfig?:()=>void;onBa
         {reasons.map((reason,i)=><p key={i}>{reason}</p>)}
       </div>}
       <div className="jsm-actions">
-        <button type="button" className="jsm-secondary" disabled={!ready||busy}
+        <button type="button" className="jsm-secondary" disabled={!ready||busy||!layout?.ready}
           onClick={()=>void run("preview")}>{busy?<Loader2 className="jsm-spin" size={18}/>:<Eye size={18}/>} Vista previa</button>
         <button type="button" className="jsm-primary" disabled={!ready||busy||!layout?.ready}
           onClick={()=>void run("issue")}>{busy?<Loader2 className="jsm-spin" size={18}/>:<Download size={18}/>} Generar PDF</button>
