@@ -22,7 +22,7 @@ ORIGINAL_VISUAL_BLOCKS = (
 )
 # Estos son candidatos que debe aprobar un prevencionista. No son aliases activos.
 SUGGESTED_SOURCE_EQUIVALENCES = {
-    ("PAISAJISTA", "SUSTANCIAS"): ("PAISAJISMO",),
+    ("PAISAJISTA", "SUSTANCIAS"): ("PAISAJISMO (REVISAR HDS)",),
 }
 
 
@@ -89,6 +89,14 @@ def audit_reference_role(cargo: str, irl_rows: list[dict],
             if candidates:
                 explanation += " Posible equivalente sin validar: " + ", ".join(candidates) + "."
             warnings.append(explanation)
+            if canonical == "PAISAJISTA" and kind == "SUSTANCIAS":
+                warnings.append(
+                    "ALERTA PREVENTIVA: la fila 'PAISAJISMO (REVISAR HDS)' "
+                    "contiene productos asociados a pinturas, no hay "
+                    "correspondencia documental acreditada con PAISAJISTA. "
+                    "No importarla como sustancias del cargo; verificar "
+                    "productos efectivamente usados y hojas de datos de seguridad."
+                )
         elif len(entries) > 1 and not resolved:
             warnings.append(
                 f"{kind} contiene {len(entries)} filas para {cargo}. "
