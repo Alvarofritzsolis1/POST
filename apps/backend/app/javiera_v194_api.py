@@ -17,6 +17,7 @@ from sqlalchemy.orm import Session
 from .db import get_db
 from .javiera_logic import normalize_cargo
 from .javiera_irl_integrity import audit_reference_role
+from .javiera_irl_consolidation import consolidate_reference_risks, identical_variants
 from .javiera_v193_api import roles as db_roles, role_detail as db_role_detail
 from .models import User
 from .security import administrator
@@ -61,6 +62,7 @@ def _to_preview_record(row: dict, ordinal: int) -> dict:
         "ordinal": ordinal,
         "source_number": row["n"],
         "excel_row": row["excel_row"],
+        "source_excel_rows": list(row.get("source_excel_rows", [row["excel_row"]])),
         "labor": row["tarea"],
         "peligro": row["peligro"],
         "riesgo": row["riesgo"],
@@ -115,6 +117,9 @@ def reference_detail(cargo: str = Query(..., min_length=1, max_length=160),
         return data
     source_role, rows = source
     references = [_to_preview_record(row, ordinal) for ordinal, row in enumerate(rows, 1)]
+    unique_rows, collapsed_groups = consolidate_reference_risks(rows, source_role)
+    display_references = [_to_preview_record(row, ordinal)
+                          for ordinal, row in enumerate(unique_rows, 1)]
     invalid = [row["excel_row"] for row in references if not row["structured"]]
     reference_audit = audit_reference_role(source_role, rows, related_catalog()["matrices"])
     data["reference_audit"] = reference_audit
@@ -125,6 +130,8 @@ def reference_detail(cargo: str = Query(..., min_length=1, max_length=160),
         "source_excel_sha256": catalog()["source_sha256"],
         "reference_records": references,
         "reference_total": len(references),
+        "reference_display_total": len(display_references),
+        "reference_collapsed_groups": collapsed_groups,
         "reference_unstructured": len(invalid),
         "reference_incomplete_excel_rows": invalid,
         "reference_approved": False,
@@ -136,49 +143,44 @@ def reference_detail(cargo: str = Query(..., min_length=1, max_length=160),
         candidates = related_for_role(kind, cargo)
         if not candidates:
             continue
-        if len(candidates) > 1:
-            # Las filas de un mismo cargo pueden representar variantes
-            # distintas. No elegir candidates[0] de manera silenciosa.
-            variants = [
-                {"row": item["source_row"], "cargo": item["cargo"]}
-                for item in candidates
-            ]
-            if kind == "PTS":
-                data["pts"]["source_variants"] = variants
-                data["pts"]["requires_disambiguation"] = True
-            else:
-                data["additional_matrices"][kind]["source_variants"] = variants
-                data["additional_matrices"][kind]["requires_disambiguation"] = True
+        variants = [{"row": item["source_row"], "cargo": item["cargo"]}
+                    for item in candidates]
+        equivalent = identical_variants(candidates)
+        unresolved = len(candidates) > 1 and not equivalent
+        if kind == "PTS":
+            target = data["pts"]
+        else:
+            target = data["additional_matrices"][kind]
+        target["source_variants"] = variants
+        target["requires_disambiguation"] = unresolved
+        target["identical_reference_variants"] = len(candidates) > 1 and equivalent
+        # Las matrices aprobadas siempre tienen precedencia. El catálogo
+        # histórico sirve para precompletar referencias, nunca habilitar PDF.
+        if unresolved:
             data["warnings"].append(
-                f"{kind}: existen {len(candidates)} filas para {cargo}. "
-                "Selecciona y valida una variante antes de usarla."
+                f"{kind}: existen {len(candidates)} variantes diferentes para {cargo}; "
+                "requieren selección y revisión preventiva."
             )
             continue
         if kind == "PTS":
-            if not data["pts"]["approved"]:
-                data["pts"]["sections"] = list(candidates[0]["sections"])
-                data["pts"]["section_count"] = len(candidates[0]["sections"])
-                data["pts"]["reference_only"] = True
-                data["pts"]["source_variants"] = [
-                    {"row": c["source_row"], "cargo": c["cargo"]} for c in candidates
-                ]
-        else:
-            current = data["additional_matrices"][kind]
-            if not current["available"]:
-                current.update({
-                    "available": True, "reference_only": True,
-                    "sections": list(candidates[0]["sections"]),
-                    "source_variants": [
-                        {"row": c["source_row"], "cargo": c["cargo"]} for c in candidates
-                    ],
-                })
+            if not target["approved"]:
+                target["sections"] = list(candidates[0]["sections"])
+                target["section_count"] = len(candidates[0]["sections"])
+                target["reference_only"] = True
+        elif not target["available"]:
+            target.update({
+                "available": True, "reference_only": True,
+                "sections": list(candidates[0]["sections"]),
+            })
     if not data["irl"]["approved"]:
         # El front puede estudiar la matriz original sin tener que importarla
         # a mano. Ningún documento imprimible usa este contenido hasta que
         # se cree/autorice una revisión por el circuito preventivo.
-        data["irl"]["records"] = references
+        data["irl"]["records"] = display_references
         data["irl"]["reference_only"] = True
-        data["irl"]["has_unstructured"] = bool(invalid)
+        data["irl"]["has_unstructured"] = any(not row["structured"] for row in display_references)
+        data["irl"]["source_rows_preserved"] = len(references)
+        data["irl"]["display_rows"] = len(display_references)
         data["warnings"].insert(0,
             "Matriz original de Excel disponible para consulta, sin aprobación preventiva."
             " Se requiere revisión autorizada antes de imprimir.")
