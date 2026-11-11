@@ -149,3 +149,15 @@
   font:700 .78rem Arial,sans-serif;cursor:pointer;padding:8px 10px;border-radius:7px}
 .jir-critical-source button:hover,.jir-critical-source button:focus-visible{
   outline:2px solid #b37d2a;outline-offset:2px;background:#fff0d3}
+
+/* Correcciones propuestas: distinguibles de la matriz aprobada y de la fuente. */
+.jir-suggested-correction{margin:12px 0;padding:12px;background:#fffdf7;
+  border:1px solid #dac6a0;border-radius:9px}
+.jir-suggested-correction h4{font-size:.9rem;margin:0 0 9px;color:#663e17}
+.jir-suggested-correction p{font-size:.79rem;line-height:1.52;color:#5e4b31}
+.jir-suggested-correction ul{font-size:.78rem;line-height:1.55;padding-left:22px}
+.jir-suggested-correction .jir-noapprove{font-weight:700;color:#9b3c28}
+.jir-suggested-correction button{cursor:pointer;background:#fff;color:#5b431e;
+  border:1px solid #bd995d;border-radius:7px;font-size:.8rem;font-weight:700;
+  padding:9px 11px}
+.jir-suggested-correction button:focus-visible{outline:2px solid #b47a37;outline-offset:3px}
