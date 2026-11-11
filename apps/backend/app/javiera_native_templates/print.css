@@ -143,3 +143,13 @@ body h2 {margin:12pt 0 6pt;}
 .irl-ed-block .irl-ed-gap{height:5pt}
 .irl-original-print.irl-edited-html-ready .irl-ending{break-before:page;
   page-break-before:always}
+
+/* Membrete IRL con dos tablas binarias compatibles con PyMuPDF Story.
+   La cabecera original no cabe en la falsa cuadrícula de cuatro columnas. */
+.irl-letterhead,.irl-version-grid{table-layout:auto;width:100%}
+.irl-letterhead th,.irl-version-grid th{width:50%;padding:5pt 8pt;
+  font-size:8.1pt;line-height:1.32;text-align:center}
+.irl-letterhead th:first-child,.irl-version-grid th:first-child{
+  width:50%;font-size:8.1pt}
+.irl-letterhead span{display:block;white-space:normal;word-break:normal}
+.irl-version-grid{margin-top:0;margin-bottom:8pt}
