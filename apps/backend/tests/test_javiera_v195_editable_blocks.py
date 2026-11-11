@@ -28,7 +28,7 @@ def fake_source(*args, **kwargs):
 def valid_payload():
     return {
         "source_sha256": SOURCE,
-        "image_hashes": HASHES,
+        "image_hashes": list(HASHES),  # Aislar cada caso: mutar payload no cambia la fuente.
         "reason": "Primera revisión editorial del IRL, cotejo manual obligatorio.",
         "blocks": [{"id": i, "text": f"Norma {i}: contenido sintético para revisar." +
                     " Texto técnico de prueba sin valor legal.",
