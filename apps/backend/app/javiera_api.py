@@ -30,6 +30,7 @@ from .javiera_logic import (DOCUMENTS, DOCUMENT_BY_CODE, LAYOUT_REQUIRED,
                             check_template_fields, eligibility, normalize_cargo, render_tokens)
 from .javiera_models import (JavieraDossier, JavieraHistory, JavieraIssue,
                              JavieraMatrix, JavieraRevision, JavieraTemplate)
+from .javiera_matrices import latest_approved_matrix, next_matrix_revision
 from .models import AuditEvent, User, utcnow
 from .ops_models import Contractor, ContractorWorksite, Worker, WorkerAssignment, Worksite
 from .security import administrator
@@ -66,6 +67,10 @@ class Action(Strict):
     reissue_reason: str | None = Field(default=None, max_length=600)
 
 
+class PilotMatrixPrint(Strict):
+    confirmed_content: bool = False
+
+
 class BatchIssue(Strict):
     dossier_id: str
     codes: list[str] = Field(min_length=1, max_length=10)
@@ -84,7 +89,7 @@ class TemplateChange(Strict):
 class MatrixChange(Strict):
     kind: str = Field(pattern="^(PTS|IRL|PUESTOS|PERFILES|SUSTANCIAS)$")
     cargo: str = Field(min_length=2, max_length=160)
-    sections: list[str] = Field(min_length=1, max_length=35)
+    sections: list[str] = Field(min_length=1, max_length=1500)
     source: str = Field(default="", max_length=180)
 
 
@@ -174,6 +179,12 @@ def resolve_data(db: Session, user: User, record: DossierInput) -> dict:
         parent = by_org(db, Contractor, record.parent_id, user.org_id)
         if parent.id == employer.id:
             raise HTTPException(422, "El contratista principal debe ser diferente")
+        if not db.scalar(select(ContractorWorksite.id).where(
+            ContractorWorksite.org_id == user.org_id,
+            ContractorWorksite.worksite_id == site.id,
+            ContractorWorksite.contractor_id == parent.id
+        )):
+            raise HTTPException(422, "El contratista principal no está vinculado a esta obra")
         if record.relationship != "subcontractor":
             raise HTTPException(422, "Indica el tipo Subcontratos")
     elif record.relationship == "subcontractor":
@@ -201,7 +212,7 @@ def evaluated(db: Session, user: User, data: dict, dossier_id: str | None,
     cargo = normalize_cargo(data.get("role"))
     matrix_rows = db.execute(select(JavieraMatrix.kind, JavieraMatrix.cargo).where(
         JavieraMatrix.org_id == user.org_id, JavieraMatrix.status == "approved")).all()
-    approved = {kind + ":" + matrix_cargo for kind, matrix_cargo in matrix_rows}
+    approved = {kind + ":" + normalize_cargo(matrix_cargo) for kind, matrix_cargo in matrix_rows}
     for code in ("irl", "pts", "pts_receipt"):
         master = active_workbook(db, user.org_id, published=True, code=code)
         if master:
@@ -329,9 +340,23 @@ def catalog(user: User = Depends(administrator), db: Session = Depends(get_db)):
     configured = template_data(db, user.org_id)
     return [{"code": code, "area": configured.get(code, {}).get("area", area),
              "title": configured.get(code, {}).get("title", title),
-             "required_fields": configured.get(code, {}).get("fields", fields),
+             "required_fields": list(dict.fromkeys([*configured.get(code, {}).get("fields", fields), *LAYOUT_REQUIRED.get(code, [])])),
              "published_version": configured.get(code, {}).get("published_version", 0)}
             for code, area, title, _, fields in DOCUMENTS]
+
+
+@router.get("/roles")
+def available_roles(user: User = Depends(administrator), db: Session = Depends(get_db)):
+    """Cargos del Excel/matrices, con normalización explícita y sin coincidencia difusa."""
+    from .javiera_logic import CARGO_ALIASES
+    rows = db.execute(select(JavieraMatrix.cargo).where(
+        JavieraMatrix.org_id == user.org_id,
+        JavieraMatrix.kind.in_(["PTS", "IRL"])
+    ).limit(450)).all()
+    canonical = {normalize_cargo(row[0]) for row in rows if row[0]}
+    canonical.update(CARGO_ALIASES.values())
+    return {"roles": sorted(canonical), "aliases": CARGO_ALIASES,
+            "matrix_roles": sorted({normalize_cargo(row[0]) for row in rows if row[0]})}
 
 
 @router.get("/sources")
@@ -370,13 +395,13 @@ def sources(site_id: str = "", contractor_id: str = "",
             ContractRegister.status == "active").order_by(ContractRegister.updated_at.desc())).all()
         registered = {}
         for contract in contracts: registered.setdefault(contract.worker_assignment_id, contract)
-        workers = [{"id": w.id, "name": w.name, "rut": w.rut,
+        workers = [{"id": w.id, "association_id": a.id, "name": w.name, "rut": w.rut,
                     "active": a.active, "contract": {
                         "start": registered[a.id].start_date.isoformat(),
                         "end": registered[a.id].end_date.isoformat() if registered[a.id].end_date else ""
                     } if a.id in registered else {}} for a, w in assignments]
     return {"sites": [{"id": s.id, "name": s.name} for s in sites],
-            "contractors": [{"id": c.id, "site_id": a.worksite_id,
+            "contractors": [{"id": c.id, "association_id": a.id, "site_id": a.worksite_id,
                              "name": c.name, "rut": c.rut, "nature": c.nature,
                              "defaults": defaults(c.id,a.worksite_id)}
                             for a, c in companies],
@@ -393,6 +418,10 @@ def save_dossier(payload: DossierInput,
         record = dossier(db, user, dossier_id)
         if payload.expected_revision != record.revision:
             raise HTTPException(409, "Otro usuario modificó la ficha. Recarga antes de guardar")
+        if (record.site_id, record.employer_id, record.worker_id, record.parent_id,
+                record.relationship) != (payload.site_id, payload.employer_id,
+                    payload.worker_id, payload.parent_id, payload.relationship):
+            raise HTTPException(409, "El expediente pertenece a otra empresa, obra o trabajador. Guarda una ficha nueva para conservar su historial")
     if record is None:
         record = JavieraDossier(org_id=user.org_id, updated_by=user.id)
         db.add(record)
@@ -493,10 +522,7 @@ def prepared(db, user, ident: str, code: str, preview: bool,
     if code in {"pts", "irl", "pts_receipt"}:
         kind = "IRL" if code == "irl" else "PTS"
         cargo = normalize_cargo(record.data.get("role"))
-        matrix = db.scalar(select(JavieraMatrix).where(
-            JavieraMatrix.org_id == user.org_id, JavieraMatrix.kind == kind,
-            JavieraMatrix.cargo == cargo, JavieraMatrix.status == "approved"
-        ).order_by(JavieraMatrix.revision.desc()))
+        matrix = latest_approved_matrix(db, user.org_id, kind, cargo)
         if not matrix:
             raise HTTPException(409, "Matriz preventiva pendiente de aprobación")
         if code != "pts_receipt":
@@ -505,10 +531,7 @@ def prepared(db, user, ident: str, code: str, preview: bool,
                 output += "\n\n" + str(number) + ". " + str(section)
         if code == "irl":
             for extra_kind in ("PERFILES", "PUESTOS", "SUSTANCIAS"):
-                extra = db.scalar(select(JavieraMatrix).where(
-                    JavieraMatrix.org_id == user.org_id, JavieraMatrix.kind == extra_kind,
-                    JavieraMatrix.cargo == cargo, JavieraMatrix.status == "approved"
-                ).order_by(JavieraMatrix.revision.desc()))
+                extra = latest_approved_matrix(db, user.org_id, extra_kind, cargo)
                 if extra:
                     output += "\n\n" + extra_kind + " · " + extra.cargo
                     for section in extra.sections:
@@ -703,7 +726,9 @@ def issued_pdf(issue_id: str, user: User = Depends(administrator), db: Session =
     if not path.resolve().is_relative_to(allowed) or not path.is_file():
         raise HTTPException(404, "PDF no disponible")
     return FileResponse(path, media_type="application/pdf",
-                        filename="GALANT-JAVIERA-" + item.code + ".pdf")
+                        filename="GALANT-JAVIERA-" + item.code + ".pdf",
+                        content_disposition_type="inline",
+                        headers={"Cache-Control": "no-store"})
 
 
 @router.get("/admin/templates")
@@ -804,13 +829,12 @@ def change_matrix(item: MatrixChange, user: User = Depends(administrator),
     cargo = normalize_cargo(item.cargo)
     if item.kind == "PTS" and (len(item.sections) != 17 or any(not str(s).strip() for s in item.sections)):
         raise HTTPException(422, "PTS requiere 17 secciones con contenido")
-    if len(json.dumps(item.sections, ensure_ascii=False)) > 50000:
-        raise HTTPException(413, "Matriz excesivamente grande")
-    version = db.scalar(select(func.max(JavieraMatrix.revision)).where(
-        JavieraMatrix.org_id == user.org_id, JavieraMatrix.kind == item.kind,
-        JavieraMatrix.cargo == cargo)) or 0
+    max_sections = 1500 if item.kind == "IRL" else (17 if item.kind == "PTS" else 500)
+    if len(item.sections) > max_sections or len(json.dumps(item.sections, ensure_ascii=False).encode("utf-8")) > 220000:
+        raise HTTPException(413, "Matriz excesivamente grande o superior al máximo por tipo")
+    version = next_matrix_revision(db, user.org_id, item.kind, cargo)
     row = JavieraMatrix(org_id=user.org_id, kind=item.kind, cargo=cargo,
-        revision=version + 1, sections=item.sections, source=item.source,
+        revision=version, sections=item.sections, source=item.source,
         author_id=user.id)
     db.add(row)
     db.flush()
@@ -819,11 +843,81 @@ def change_matrix(item: MatrixChange, user: User = Depends(administrator),
     return {"id": row.id, "revision": row.revision, "status": row.status}
 
 
+def _check_preventive_matrix_before_approval(row: JavieraMatrix):
+    """Impedir que borradores técnicos incompletos se impriman como vigentes."""
+    sections = row.sections or []
+    if not sections or any(not isinstance(part, str) or not part.strip() for part in sections):
+        raise HTTPException(422, "Completa los apartados de la matriz antes de aprobarla.")
+    if row.kind == "PTS" and len(sections) != 17:
+        raise HTTPException(422, "PTS exige exactamente 17 apartados completos por cargo.")
+    # El formulario de levantamiento de PAISAJISTA es útil para edición,
+    # pero carece de nombres comerciales, fabricante y fichas HDS reales.
+    # Ni el administrador ni el modo piloto pueden liberarlo con
+    # marcadores pendientes como si fueran datos preventivos verificados.
+    if (row.kind == "SUSTANCIAS" and
+            (normalize_cargo(row.cargo) == "PAISAJISTA" or
+             str(row.source or "").startswith("Editor visual GALANT 19.5.0 HDS"))):
+        if len(sections) != 12 or any(
+            ("PENDIENTE" in str(value).upper() or
+             not str(value).strip())
+            for value in sections
+        ):
+            raise HTTPException(
+                422, "No se puede aprobar la HDS de PAISAJISTA con campos "
+                "pendientes. Registrar productos reales y sus fichas de "
+                "seguridad, o acreditación de no utilización verificada "
+                "por Prevención de Riesgos."
+            )
+    if row.kind == "IRL" and str(row.source or "").startswith((
+            "GALANT 19.2 XLSX", "Editor visual GALANT ")):
+        # Incluye nuevas revisiones 19.4 precargadas desde el Excel.
+        # Un campo faltante jamás se publica como medida preventiva válida.
+        for number, section in enumerate(sections, 1):
+            patterns = (
+                r"(?im)^Tarea:[ \t]*\S",
+                r"(?im)^Peligro:[ \t]*\S",
+                r"(?im)^Riesgo:[ \t]*\S",
+                r"(?im)^Medidas?:[ \t]*\S",
+            )
+            if any(re.search(pattern, section) is None for pattern in patterns):
+                raise HTTPException(422, "IRL incompleto: revisa Tarea, Peligro, Riesgo y Medidas "
+                                    f"en la fila {number}.")
+
+
+@router.post("/admin/matrices/{matrix_id}/enable-print")
+def enable_matrix_for_pilot(matrix_id: str, payload: PilotMatrixPrint,
+                            user: User = Depends(administrator),
+                            db: Session = Depends(get_db)):
+    """Autoriza usar el contenido de una matriz en un PDF de firma física.
+
+    No crea actas profesionales ni acredita la entrega de ese documento.
+    """
+    if not settings().javiera_solo_pilot:
+        raise HTTPException(403, "Modo piloto administrativo desactivado")
+    if not payload.confirmed_content:
+        raise HTTPException(422, "Revisa el contenido completo de la matriz antes de habilitar su PDF")
+    row = by_org(db, JavieraMatrix, matrix_id, user.org_id)
+    newest_revision = next_matrix_revision(db, user.org_id, row.kind, row.cargo) - 1
+    if row.revision != newest_revision:
+        raise HTTPException(409, "Existe una versión más reciente de esta matriz")
+    if row.status == "approved":
+        return {"id": row.id, "status": row.status, "pilot_print_only": True}
+    if row.status != "draft":
+        raise HTTPException(409, "La matriz no está disponible para impresión")
+    _check_preventive_matrix_before_approval(row)
+    row.status, row.reviewer_id = "approved", user.id
+    audit(db, user, "javiera.pilot_matrix_enabled_for_print", row.id)
+    db.commit()
+    return {"id": row.id, "status": row.status, "pilot_print_only": True,
+            "message": "Matriz habilitada para usar en PDF imprimible; no implica validación profesional ni firma."}
+
+
 @router.post("/admin/matrices/{matrix_id}/approve")
 def approve_matrix(matrix_id: str, user: User = Depends(administrator), db: Session = Depends(get_db)):
     row = by_org(db, JavieraMatrix, matrix_id, user.org_id)
     if row.status != "draft":
         raise HTTPException(409, "Matriz no está en borrador")
+    _check_preventive_matrix_before_approval(row)
     if row.author_id == user.id:
         raise HTTPException(403, "Requiere validación independiente de prevención")
     require_signoff(db, user, "matrix", row.id, "prevencion")
@@ -947,16 +1041,21 @@ async def import_workbook(file: UploadFile = File(...),
         raise HTTPException(422, "No se encontraron matrices compatibles. Revisa los nombres de hojas.")
     if len(staged) > 250:
         raise HTTPException(413, "Demasiadas matrices para una importación")
-    counts = {}
+    # Importación LEGACY: abortar todo ante omisiones, sin crear revisiones parciales.
     for (kind, cargo), sections in staged.items():
         if len(sections) > 35 or len(json.dumps(sections, ensure_ascii=False)) > 50000:
-            omissions.append(kind + ": " + cargo + " excede límite de contenido")
-            continue
-        previous = db.scalar(select(func.max(JavieraMatrix.revision)).where(
-            JavieraMatrix.org_id == user.org_id, JavieraMatrix.kind == kind,
-            JavieraMatrix.cargo == cargo)) or 0
+            omissions.append(kind + ": " + cargo + " excede el límite del importador heredado")
+    if omissions:
+        raise HTTPException(422, {
+            "error": "El importador heredado no puede conservar todas las filas. "
+                     "Utiliza la importación verificada de GALANT 19.2.",
+            "omissions": omissions[:80],
+        })
+    counts = {}
+    for (kind, cargo), sections in staged.items():
+        revision = next_matrix_revision(db, user.org_id, kind, cargo)
         db.add(JavieraMatrix(org_id=user.org_id, kind=kind, cargo=cargo,
-            revision=previous + 1, sections=sections, status="draft",
+            revision=revision, sections=sections, status="draft",
             source="Excel JAVIERA (carga privada)", author_id=user.id))
         counts[kind] = counts.get(kind, 0) + 1
     audit(db, user, "javiera.workbook_import", str(uuid4()))

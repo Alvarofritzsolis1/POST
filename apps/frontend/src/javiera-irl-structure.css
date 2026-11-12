@@ -1,0 +1,163 @@
+.jir-root{border:1px solid #d0dfea;background:#f6f9fc;border-radius:11px;padding:14px;min-width:0}
+.jir-root *{box-sizing:border-box}
+.jir-intro{display:flex;flex-wrap:wrap;align-items:flex-start;justify-content:space-between;gap:12px}
+.jir-intro>div{flex:1;min-width:250px}
+.jir-kicker{display:flex;gap:7px;align-items:center;color:#24537c;font-size:.75rem;font-weight:800;letter-spacing:.025em}
+.jir-intro h4{font-size:1.04rem;margin:8px 0 6px;color:#193957}
+.jir-intro p,.jir-footer p{font-size:.8rem;line-height:1.55;color:#50697f;margin:6px 0}
+.jir-matrices{display:flex;align-items:center;justify-content:center;gap:8px;max-width:100%;
+  border:1px solid #a9c4dc;border-radius:8px;padding:10px 13px;background:#e8f1fb;
+  color:#164a73;cursor:pointer;font-size:.8rem;font-weight:750}
+.jir-filter{display:grid;grid-template-columns:1fr 1fr;column-gap:10px;row-gap:7px;margin:15px 0}
+.jir-filter label{font-weight:750;font-size:.79rem;color:#335472;display:flex;align-items:center;gap:5px}
+.jir-filter input,.jir-filter select{background:#fff;border:1px solid #bfcede;border-radius:8px;
+  width:100%;min-width:0;padding:10px;color:#25435d;font:inherit;font-size:.83rem}
+.jir-filter>small,.jir-filter>.jir-warning{grid-column:1/-1}
+.jir-scroll{width:100%;overflow-x:auto;border:1px solid #d2dde8;border-radius:10px;background:#e7edf3;padding:14px}
+.jir-page{width:100%;max-width:794px;min-height:900px;margin:0 auto;padding:28px 29px 55px;
+ background:#fff;color:#1e2b39;box-shadow:0 8px 25px #23384b18;font:11pt/1.4 Arial,Helvetica,sans-serif}
+.jir-page h3,.jir-page h4{font:700 10.5pt/1.32 Arial,Helvetica,sans-serif;color:#173653}
+.jir-page h4{padding-bottom:5px;margin:20px 0 9px;border-bottom:1px solid #aebdcb}
+.jir-print-label{color:#647b8e;font-size:8pt;letter-spacing:.08em;margin-bottom:15px;
+ border:1px dashed #a6bacb;border-radius:4px;padding:4px 7px;display:inline-block}
+.jir-doc-head{border-bottom:2px solid #253f58;padding-bottom:10px;margin-bottom:13px}
+.jir-doc-head span{font-size:9pt;letter-spacing:.08em;color:#54677a}
+.jir-doc-head h3{font-size:15pt;margin:6px 0 0}
+.jir-page table{border-collapse:collapse;width:100%;table-layout:fixed}
+.jir-page th,.jir-page td{border:1px solid #9fb3c4;padding:6px 5px;
+ overflow-wrap:anywhere;vertical-align:top;text-align:left}
+.jir-identity th{background:#e9eff5;width:16%;font-size:8.4pt}
+.jir-identity td{width:34%;font-size:8.4pt;color:#4e6174}
+.jir-risk-table thead th{background:#e8eff5;color:#254560;font-size:8.1pt;line-height:1.3}
+.jir-risk-table th:first-child,.jir-risk-table td:first-child{width:7%}
+.jir-risk-table td{font-size:8.2pt;line-height:1.38}
+.jir-risk-table td:first-child{text-align:center}
+.jir-risk-table .jir-empty{color:#6d7e8f;text-align:center;padding:22px 8px}
+.jir-original{white-space:pre-wrap;display:block;margin-top:4px}
+.jir-doc-note{font-size:9pt;color:#3e566a;margin:0 0 10px}
+.jir-signatures{margin:30px 0 5px}
+.jir-signatures>div{display:grid;grid-template-columns:1fr 1fr;gap:20px}
+.jir-signatures>div>div{padding:42px 8px 5px;border-bottom:1px solid #516579;text-align:center;font-size:8.3pt}
+.jir-footer{margin:12px 0 0}
+.jir-status,.jir-warning{display:flex;align-items:flex-start;gap:8px;border-radius:8px;padding:9px;
+ font-size:.8rem;line-height:1.45}
+.jir-status{background:#eff7f1;color:#255c3c;border:1px solid #c2ddcd}
+.jir-warning{background:#fff7eb;color:#87531f!important;border:1px solid #eed5b0}
+.jir-explanation{color:#587085}
+@media(max-width:800px){.jir-page{min-width:650px}.jir-scroll{padding:6px}}
+@media(max-width:580px){.jir-filter{grid-template-columns:1fr}.jir-page{min-width:650px}}
+
+/* IRL 19.4.1: ficha técnica progresiva; no añade desplazamiento horizontal. */
+.jir-parity{margin-top:12px;border:1px solid #c7d7e5;border-radius:10px;background:#fff;padding:14px}
+.jir-parity-head h4{font-size:.97rem;color:#183957;margin:0 0 5px}
+.jir-parity-head p{font-size:.82rem;color:#4d667c;line-height:1.55;margin:0 0 12px}
+.jir-aux-grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(min(100%,260px),1fr));gap:10px}
+.jir-aux,.jir-original-blocks,.jir-audit-alerts{border:1px solid #cbd8e3;border-radius:8px;background:#f9fbfd;min-width:0}
+.jir-aux summary,.jir-original-blocks summary,.jir-audit-alerts summary{cursor:pointer;padding:11px;line-height:1.45;font-size:.83rem;font-weight:750;color:#214966}
+.jir-aux summary{display:flex;justify-content:space-between;flex-wrap:wrap;gap:6px}
+.jir-aux summary strong{font-size:.73rem;color:#8d4c16}
+.jir-aux-content{padding:5px 11px 11px;border-top:1px solid #dce4ec}
+.jir-aux-content small{display:block;color:#647b8e;margin:6px 0 9px;font-size:.72rem}
+.jir-aux-content dl{margin:0}
+.jir-aux-content dl>div{padding:7px 0;border-top:1px solid #e1e8ef}
+.jir-aux-content dt{font-size:.73rem;font-weight:800;color:#385972}
+.jir-aux-content dd{font-size:.8rem;color:#253f57;margin:3px 0 0;overflow-wrap:anywhere;white-space:pre-line}
+.jir-aux-alert{font-size:.78rem;line-height:1.5;color:#87531f;margin:0;padding:9px 11px}
+.jir-original-blocks,.jir-audit-alerts{margin-top:10px}
+.jir-original-blocks ol,.jir-audit-alerts ul{margin:0 12px 12px 28px;padding:0}
+.jir-original-blocks li,.jir-audit-alerts li{margin:5px 0;font-size:.78rem;line-height:1.4;color:#4c6277}
+.jir-original-blocks>p{padding:0 11px 11px;margin:0;font-size:.78rem;color:#81501e}
+@media(max-width:580px){.jir-parity{padding:9px}.jir-aux-grid{grid-template-columns:minmax(0,1fr)}}
+
+/* GALANT 19.4.2 — reproducción progresiva A4 del IRL fuente, con imágenes OOXML.
+ * El formato original es prioritario: sin fotos sustitutas ni recortes. */
+.jir-original-status{margin:12px 0;min-width:0}
+.jir-import-original{border:1px solid #c4d3e0;border-radius:9px;padding:13px;background:#fff}
+.jir-import-original strong{font-size:.88rem;color:#243d50}
+.jir-import-original p{font-size:.8rem;line-height:1.5;color:#50687a;margin:6px 0 11px}
+.jir-import-action{display:inline-flex;align-items:center;gap:8px;background:#1d527b;color:#fff;
+  border-radius:7px;padding:10px 13px;cursor:pointer;font-size:.82rem;font-weight:700}
+.jir-import-action input{position:absolute;width:1px;height:1px;opacity:0;pointer-events:none}
+.jir-original-document{font-family:Arial,Helvetica,sans-serif;font-size:9.2pt;line-height:1.36;color:#121d28}
+.jir-original-document h2{font-size:10.7pt;text-align:center;background:#e5e9ed;
+  margin:10px 0;padding:9px 8px;border:1px solid #8da0b0}
+.jir-original-document h3{font-size:10pt;line-height:1.35;color:#1b2e40;
+  margin:15px 0 6px;padding:7px 6px;border:1px solid #91a3b2;background:#eaf0f5}
+.jir-original-document h4{font-size:9.1pt;line-height:1.36;color:#243849;
+  margin:9px 0 3px;padding:4px 5px;border:1px solid #bdc9d3;background:#f4f7f9}
+.jir-original-masthead{table-layout:fixed;break-inside:avoid}
+.jir-original-masthead th{background:#ecf0f5;font-size:8pt;vertical-align:middle;
+  text-align:center;border:1px solid #8298aa;font-weight:700}
+.jir-original-masthead th:first-child{width:31%}
+.jir-original-masthead th:nth-child(2){width:31%}
+.jir-legal-intro,.jir-legal-quote,.jir-legal-close,.jir-legal-declaration{
+  white-space:pre-wrap;overflow-wrap:break-word;font-size:8.9pt;line-height:1.45;margin:8px 0 10px}
+.jir-legal-quote{padding:8px;border:1px solid #ccd4dd;background:#fff}
+.jir-person-fields{border:1px solid #9aabb8;padding:7px 8px;margin:10px 0;display:grid;gap:5px}
+.jir-person-fields p{margin:0;font-size:8.7pt;line-height:1.4}
+.jir-excel-value{white-space:pre-wrap;margin:6px 2px 9px;line-height:1.43;font-size:8.9pt}
+.jir-condition p{margin:4px 5px 9px;white-space:pre-wrap;font-size:8.7pt}
+.jir-original-document .jir-risk-table{table-layout:fixed}
+.jir-original-document .jir-risk-table th{background:#e5edf4;vertical-align:top;
+  font-size:8.1pt;line-height:1.3}
+.jir-original-document .jir-risk-table th:first-child,
+.jir-original-document .jir-risk-table td:first-child{width:25%;text-align:left}
+.jir-original-document .jir-risk-table th,
+.jir-original-document .jir-risk-table td{width:25%;padding:6px 5px;font-size:8.1pt;
+  line-height:1.43;white-space:pre-wrap;overflow-wrap:anywhere}
+.jir-original-document .jir-risk-table tr{break-inside:avoid}
+.jir-original-document .jir-substances{table-layout:fixed;margin:0}
+.jir-original-document .jir-substances th:first-child{width:6%;text-align:center}
+.jir-original-document .jir-substances th:nth-child(2){width:32%;text-align:left}
+.jir-original-document .jir-substances td{width:62%;text-align:left;white-space:pre-wrap;
+  overflow-wrap:anywhere}
+.jir-original-document .jir-substances th,.jir-original-document .jir-substances td{
+  padding:5px 6px;font-size:8.5pt;vertical-align:top}
+.jir-original-media{margin:10px 0 13px;break-inside:avoid;max-width:100%;
+  border:0;padding:0;background:#fff}
+.jir-original-media img{display:block;width:100%;max-width:100%;height:auto;
+  object-fit:contain;border:0;image-rendering:auto}
+.jir-original-media figcaption{margin:4px 1px 0;font-size:7.5pt;color:#66798a;
+  text-align:right}
+.jir-original-signature{margin-top:28px;min-height:85px;display:flex;flex-direction:column;
+  justify-content:flex-end;text-align:center;align-items:center;font-size:8.7pt;gap:3px}
+.jir-original-signature strong{font-size:9pt}
+.jir-original-signature small{font-size:7.8pt;color:#4f6578}
+@media(max-width:800px){.jir-original-document{min-width:650px}}
+
+
+/* GALANT 19.4.3 — navegación compacta de la vista técnica IRL. */
+.jir-view-toolbar{display:flex;align-items:center;justify-content:space-between;flex-wrap:wrap;
+  gap:9px;margin:12px 0;border:1px solid #d6e2eb;border-radius:9px;background:#f6f9fc;
+  padding:10px 12px;font-size:.82rem;color:#2d5068}
+.jir-view-toolbar button{border:1px solid #b8cad8;border-radius:7px;padding:8px 11px;
+  cursor:pointer;background:#fff;font-weight:700;color:#234a67}
+.jir-view-toolbar button:disabled{opacity:.5;cursor:not-allowed}
+.jir-view-toolbar small{width:100%;color:#325f78}
+.jir-preview{border:1px solid #ccdbe5;border-radius:9px;background:#fff}
+.jir-preview>summary{cursor:pointer;padding:12px 14px;font-size:.88rem;
+  font-weight:700;color:#264964}
+.jir-preview[open]>summary{border-bottom:1px solid #dce5ed}
+.jir-preview .jir-scroll{margin:0}
+
+/* Alertas preventivas prioritarias: visibles ANTES del IRL y no ocultas en details. */
+.jir-critical-source{background:#fff8ec;border:1px solid #e0b976;border-left:4px solid #b87718;
+  border-radius:9px;margin:12px 0;padding:12px 14px;color:#6d4415}
+.jir-critical-source strong{display:flex;gap:8px;align-items:center;font-size:.85rem}
+.jir-critical-source p{font-size:.79rem;line-height:1.5;margin:7px 0}
+.jir-critical-source button{border:1px solid #c4934b;background:white;color:#634218;
+  font:700 .78rem Arial,sans-serif;cursor:pointer;padding:8px 10px;border-radius:7px}
+.jir-critical-source button:hover,.jir-critical-source button:focus-visible{
+  outline:2px solid #b37d2a;outline-offset:2px;background:#fff0d3}
+
+/* Correcciones propuestas: distinguibles de la matriz aprobada y de la fuente. */
+.jir-suggested-correction{margin:12px 0;padding:12px;background:#fffdf7;
+  border:1px solid #dac6a0;border-radius:9px}
+.jir-suggested-correction h4{font-size:.9rem;margin:0 0 9px;color:#663e17}
+.jir-suggested-correction p{font-size:.79rem;line-height:1.52;color:#5e4b31}
+.jir-suggested-correction ul{font-size:.78rem;line-height:1.55;padding-left:22px}
+.jir-suggested-correction .jir-noapprove{font-weight:700;color:#9b3c28}
+.jir-suggested-correction button{cursor:pointer;background:#fff;color:#5b431e;
+  border:1px solid #bd995d;border-radius:7px;font-size:.8rem;font-weight:700;
+  padding:9px 11px}
+.jir-suggested-correction button:focus-visible{outline:2px solid #b47a37;outline-offset:3px}

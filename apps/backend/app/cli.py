@@ -14,8 +14,8 @@ from .ops_api import DEFAULT_SITES, INITIAL_PERIOD, ensure_sites
 from .security import hash_password
 from .platform_models import BackupCheckpoint, SchemaVersion
 from .version import VERSION
-from .migrations import v0_6_0, v0_7_0, v8_1_0, v13_1_0, v16_0_0, v16_0_1, v20_0_0
-from . import v81_models, configuration_models, javiera_models, javiera_workbook_models  # register additive tables
+from .migrations import v0_6_0, v0_7_0, v8_1_0, v13_1_0, v16_0_0, v16_0_1, v16_6_0, v20_0_0
+from . import v81_models, configuration_models, javiera_models, javiera_v166_models, javiera_workbook_models  # register additive tables
 
 
 def record_verified_backup(db, sha256: str):
@@ -50,6 +50,10 @@ def migrate(db):
     if not db.get(SchemaVersion, v16_0_1.MIGRATION_ID):
         v16_0_1.upgrade(db.connection())
         db.add(SchemaVersion(version=v16_0_1.MIGRATION_ID))
+
+    if not db.get(SchemaVersion, v16_6_0.MIGRATION_ID):
+        v16_6_0.upgrade(db.connection())
+        db.add(SchemaVersion(version=v16_6_0.MIGRATION_ID))
 
     if not db.get(SchemaVersion, v20_0_0.MIGRATION_ID):
         v20_0_0.upgrade(db.connection())
@@ -95,7 +99,7 @@ def main():
         cmd = cmds.add_parser(command, help="Crear o vincular usuario a empresa EXISTENTE")
         cmd.add_argument("--email", required=True)
         cmd.add_argument("--admin-email", required=True, help="Administrador de la empresa que compartirá sus contratistas")
-        cmd.add_argument("--role", choices=("admin", "administrative", "resident"), default="administrative")
+        cmd.add_argument("--role", choices=("admin", "administrative", "resident", "doc_reviewer"), default="administrative")
         if command == "link-user":
             cmd.add_argument("--apply", action="store_true")
             cmd.add_argument("--backup", help="pg_dump custom validado con pg_restore --list")

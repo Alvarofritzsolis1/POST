@@ -38,6 +38,170 @@ DOC_SHEETS = {
     "pts_receipt": "ENTREGA PTS",
     "induction": "INDUCCION PREVENCION",
 }
+# Bounded print regions. Source auxiliaries are excluded from the emitted PDF;
+# no clause or procedural matrix is removed from the private workbook itself.
+DOCUMENT_PRINT_AREAS = {
+    "labor_contract": "A1:C36",
+    "transfer_addendum": "A1:C19",
+    "extension_addendum": "A1:I9",
+    "sworn_declaration": "A1:A16",
+    "internal_rules_receipt": "A1:G12",
+    "ppe_delivery": "A1:E30",
+    "irl": "A1:D179",
+    "pts": "A1:G190",
+    "pts_receipt": "A1:I24",
+    "induction": "A1:D474",
+}
+
+# Exact starts of the ten original forms in the private induction sheet.
+# The original content, formulas and signatures stay in their source rows.
+INDUCTION_FORM_START_ROWS = (9, 58, 116, 159, 206, 262, 304, 355, 404, 452)
+# A shape-based corporate header precedes each textual heading. Excel drawing
+# anchors are zero-indexed, hence the source form starts at these 1-based rows.
+INDUCTION_SECTION_FIRST_ROWS = (1, 48, 104, 149, 197, 253, 298, 345, 394, 442)
+# Header at row 298 is a drawing whose manual break creates a separate
+# header-only page in LibreOffice. The automatic break safely joins its text.
+INDUCTION_MANUAL_BREAK_STARTS = (48, 104, 149, 197, 253, 345, 394, 442)
+
+
+def set_document_print_profile(target: ET.Element, book: ET.Element, code: str, sheet_name: str):
+    """Apply a scoped A4 print setup only to this generated, one-sheet workbook.
+
+    Source XLSX and reviewed content remain unchanged. Excel/LibreOffice may
+    otherwise use stale/absent print areas and clip merged paragraphs.
+    """
+    if code not in DOCUMENT_PRINT_AREAS:
+        raise LayoutError("Documento desconocido para configuración de impresión")
+    props = target.find(Q("sheetPr"))
+    if props is None:
+        props = ET.Element(Q("sheetPr"))
+        target.insert(0, props)
+    layout = props.find(Q("pageSetUpPr"))
+    if layout is None:
+        layout = ET.SubElement(props, Q("pageSetUpPr"))
+    layout.set("fitToPage", "1")
+    margins = target.find(Q("pageMargins"))
+    if margins is None:
+        margins = ET.SubElement(target, Q("pageMargins"))
+    for key, value in {
+        "left": "0.36", "right": "0.36",
+        "top": "0.46", "bottom": "0.46",
+        "header": "0.18", "footer": "0.18",
+    }.items():
+        margins.set(key, value)
+    setup = target.find(Q("pageSetup"))
+    if setup is None:
+        setup = ET.SubElement(target, Q("pageSetup"))
+    setup.attrib.update({
+        "paperSize": "9",  # ISO A4
+        "orientation": "portrait",
+        "fitToWidth": "1",
+        "fitToHeight": "0",  # keep all required pages; never shrink to one
+        "usePrinterDefaults": "0",
+    })
+    names = book.find(Q("definedNames"))
+    if names is None:
+        names = ET.Element(Q("definedNames"))
+        calc = book.find(Q("calcPr"))
+        if calc is not None:
+            book.insert(list(book).index(calc), names)
+        else:
+            book.append(names)
+    # Source print areas were selected and approved with the template.
+    # Preserve them instead of overwriting them with the default range:
+    # the generic QA fixture uses A1:D15 and would lose its fourth column.
+    active = [item for item in names.findall(Q("definedName"))
+              if item.get("name") == "_xlnm.Print_Area"
+              and item.get("localSheetId") == "0"]
+    if active and active[0].text and re.search(
+        r"\$?[A-Z]+\$?[0-9]+:\$?[A-Z]+\$?[0-9]+", active[0].text
+    ):
+        # Duplicate historic declarations are not used for printing.
+        for redundant in active[1:]:
+            names.remove(redundant)
+        return
+    for item in list(names):
+        if item.get("name") == "_xlnm.Print_Area":
+            names.remove(item)
+    entry = ET.SubElement(names, Q("definedName"), {
+        "name": "_xlnm.Print_Area", "localSheetId": "0"
+    })
+    escaped = sheet_name.replace("'", "''")
+    cell_range = DOCUMENT_PRINT_AREAS[code]
+    left, right = cell_range.split(":")
+    # Convert A1 to $A$1 for portability between Excel and LibreOffice.
+    def absolute(address):
+        match = re.fullmatch(r"([A-Z]+)([0-9]+)", address)
+        if not match:
+            raise LayoutError("Área de impresión inválida")
+        return f"\u0024{match.group(1)}\u0024{match.group(2)}"
+    entry.text = f"'{escaped}'!{absolute(left)}:{absolute(right)}"
+
+
+def configure_induction_sections(target: ET.Element, book: ET.Element,
+                                 sheet_name: str, strings: list[str]) -> int:
+    """Put each of the ten original induction forms at a fresh page boundary.
+
+    This changes ONLY the disposable, one-sheet Excel generated for printing.
+    The imported XLSX, signed PDFs and historic versions remain immutable.
+    Do not create empty pages when an unrelated or synthetic induction sheet
+    lacks the actual form headings.
+    """
+    rows = target.find(Q("sheetData"))
+    if rows is None:
+        return 0
+    occupied = {}
+    for row in rows.findall(Q("row")):
+        number = int(row.get("r", "0"))
+        if number not in (*INDUCTION_FORM_START_ROWS, 1):
+            continue
+        first = next((c for c in row.findall(Q("c"))
+                      if c.get("r") == f"A{number}"), None)
+        occupied[number] = cell_text(first, strings).strip() if first is not None else ""
+    # Older user Excel files and minimal CI fixtures need no forced empty pages.
+    if sum(bool(occupied.get(n)) for n in INDUCTION_FORM_START_ROWS) < 8:
+        return 0
+
+    previous = target.find(Q("rowBreaks"))
+    if previous is not None:
+        target.remove(previous)
+    count = len(INDUCTION_MANUAL_BREAK_STARTS)
+    breaks = ET.Element(Q("rowBreaks"), {
+        "count": str(count), "manualBreakCount": str(count),
+    })
+    for start in INDUCTION_MANUAL_BREAK_STARTS:
+        ET.SubElement(breaks, Q("brk"), {
+            "id": str(start - 1), "min": "0", "max": "3", "man": "1",
+        })
+    # Keep schema order: rowBreaks follow page setup, before drawing objects.
+    tail = {Q(name) for name in (
+        "colBreaks", "customProperties", "cellWatches", "ignoredErrors",
+        "smartTags", "drawing", "legacyDrawing", "legacyDrawingHF",
+        "picture", "oleObjects", "controls", "webPublishItems",
+        "tableParts", "extLst")}
+    index = next((i for i, child in enumerate(list(target))
+                  if child.tag in tail), len(target))
+    target.insert(index, breaks)
+
+    # Original company headers are Excel drawing shapes anchored at each
+    # section start. Print titles would OVERLAY these genuine headers and
+    # manufacture pages containing only the duplicated masthead.
+    # Only allow repeated cell titles when no drawing exists (synthetic fixture).
+    if occupied.get(1) and target.find(Q("drawing")) is None:
+        names = book.find(Q("definedNames"))
+        if names is None:
+            names = ET.SubElement(book, Q("definedNames"))
+        for entry in list(names):
+            if entry.get("name") == "_xlnm.Print_Titles":
+                names.remove(entry)
+        entry = ET.SubElement(names, Q("definedName"), {
+            "name": "_xlnm.Print_Titles", "localSheetId": "0",
+        })
+        escaped = sheet_name.replace("'", "''")
+        entry.text = f"'{escaped}'!$1:$8"
+    return count
+
+
 SOURCE_FIELDS = {
     "C5":"employer.name", "C6":"employer.rut",
     "C7":"extra.representative_name", "C8":"extra.representative_rut",
@@ -56,6 +220,7 @@ SOURCE_FIELDS = {
     "C37":"contract.end", "C38":"extra.afp",
     "C39":"extra.health_provider", "C40":"event.date",
     "C43":"extra.destinations", "C44":"extra.transport_allowance",
+    "C45":"extra.declaration_period",
 }
 PTS_CELLS = [
     "A54", "A56", "A58", "A60", "A75", "A82", "A93", "A101",
@@ -76,6 +241,9 @@ PROTECTED_DOCUMENT_CELLS = {
     "ppe_delivery": {f"D{row}" for row in range(12, 20)},
     "extension_addendum": {"A5", "M4"},
     "sworn_declaration": {"A4", "A5"},
+    # La constancia PTS incorpora cargo y firmas DESDE el expediente.
+    # No permitir cambiarlos mediante el editor de celdas de plantilla.
+    "pts_receipt": {"A1", "A3", "A23", "F23", "A24", "F24"},
 }
 
 RESTRICTED_PARTS = ("vbaproject.bin", "externallinks/", "connections.xml", "oleobjects/", "activex/",
@@ -252,6 +420,41 @@ def set_text(root: ET.Element, coordinate: str, text: str, style_source: str | N
         t.set("{http://www.w3.org/XML/1998/namespace}space", "preserve")
 
 
+def protect_pts_receipt_heading_fit(target: ET.Element, styles: bytes) -> bytes:
+    """Only in the disposable print workbook, fit the variable PTS heading.
+
+    The source title A1:I2 is merged. With a long role, Calc can silently
+    print CARPINTER instead of CARPINTERO unless text fitting is enabled.
+    Preserve font, fill, border and source style; clone just the cell XF
+    alignment so no other workbook cells or private source are mutated.
+    """
+    root = ET.fromstring(styles)
+    cell_xfs = root.find(Q("cellXfs"))
+    if cell_xfs is None or not len(cell_xfs):
+        raise LayoutError("La plantilla PTS no contiene estilos de celda")
+    title = ensure_cell(target, "A1")
+    try:
+        old_index = int(title.get("s", "0"))
+        old_xf = list(cell_xfs)[old_index]
+    except (ValueError, IndexError):
+        raise LayoutError("El estilo del título PTS es inválido") from None
+    old_alignment = old_xf.find(Q("alignment"))
+    if old_alignment is not None and old_alignment.get("shrinkToFit") == "1":
+        return styles
+    new_xf = ET.fromstring(ET.tostring(old_xf, encoding="utf-8"))
+    alignment = new_xf.find(Q("alignment"))
+    if alignment is None:
+        alignment = ET.SubElement(new_xf, Q("alignment"))
+    alignment.set("shrinkToFit", "1")
+    alignment.attrib.pop("wrapText", None)
+    new_xf.set("applyAlignment", "1")
+    index = len(cell_xfs)
+    cell_xfs.append(new_xf)
+    cell_xfs.set("count", str(len(cell_xfs)))
+    title.set("s", str(index))
+    return ET.tostring(root, encoding="UTF-8", xml_declaration=True)
+
+
 def set_numeric(root: ET.Element, coordinate: str, value: float):
     cell = ensure_cell(root, coordinate)
     for child in list(cell):
@@ -309,6 +512,14 @@ def typed_input(root: ET.Element, coordinate: str, key: str, data: dict):
     value = get_data(data, key)
     if coordinate == "C33" and not value:
         value = spanish_amount(get_data(data, "contract.salary"))
+    if coordinate == "C45":
+        try:
+            month = date.fromisoformat(value + "-01")
+            set_numeric(root, coordinate, float((month-date(1899, 12, 30)).days))
+            return
+        except ValueError:
+            set_text(root, coordinate, "")
+            return
     if coordinate in {"C20", "C36", "C37", "C40"}:
         if not value:
             set_text(root, coordinate, "")
@@ -366,6 +577,8 @@ def dynamic_cached(text: str, field_examples: list[tuple[str, str]], data: dict)
         if not source_value or len(source_value) < 5:
             continue
         value = get_data(data, field_key)
+        if field_key == "extra.salary_words" and not value:
+            value = spanish_amount(get_data(data, "contract.salary"))
         values.append((source_value, value))
         if field_key == "contract.salary":
             try:
@@ -412,6 +625,28 @@ def dynamic_cached(text: str, field_examples: list[tuple[str, str]], data: dict)
     output = re.sub(r"\{\{\s*([a-z][a-z0-9_.]{0,80})\s*\}\}",
                     lambda m: get_data(data, m.group(1)), output)
     return output
+
+
+def replace_frozen_today(text: str, data: dict, formula: str) -> str:
+    """Materialize TODAY() in a document's cached attestation line.
+
+    Cached XLSX values can contain the date when the author's example was last
+    calculated. Never use that cached date as the date of the new legal event.
+    This only changes the attestation date, not the legally reviewed paragraph.
+    """
+    if "TODAY()" not in formula.upper() or "con fecha" not in text.lower():
+        return text
+    raw_date = get_data(data, "event.date").strip()
+    try:
+        effective = date.fromisoformat(raw_date[:10])
+    except ValueError:
+        raise LayoutError("Indica la fecha efectiva del documento para reemplazar la fecha del ejemplo") from None
+    pattern = r"(\bcon fecha\s+)\d{1,2}/\d{1,2}/\d{4}\b"
+    replaced, count = re.subn(pattern, lambda match: match.group(1) + effective.strftime("%d/%m/%Y"),
+                              text, count=1, flags=re.IGNORECASE)
+    if count != 1:
+        raise LayoutError("La fecha calculada por TODAY() no pudo reemplazarse en la constancia; revisar su fórmula")
+    return replaced
 
 
 def cached_values(root: ET.Element, strings: list[str]) -> dict[str, str]:
@@ -461,6 +696,8 @@ def excel_document(raw: bytes, code: str, data: dict, changes: dict | None = Non
                     text = cached
             else:
                 text = dynamic_cached(cached, field_examples, data)
+            if formula and "TODAY()" in formula.upper():
+                text = replace_frozen_today(text, data, formula)
             if code in {"induction","sworn_declaration"} and text:
                 principal = get_data(data, "extra.principal_company").strip()
                 if not principal:
@@ -524,8 +761,29 @@ def excel_document(raw: bytes, code: str, data: dict, changes: dict | None = Non
                      get_data(data, "contract.declaration_reason") + ".")
 
         if code == "pts_receipt":
-            set_text(target,"A24","Nacionalidad: "+get_data(data,"extra.worker_nationality"))
-            set_text(target,"F24","Estado civil: "+get_data(data,"extra.worker_marital_status"))
+            # Cargo del trabajador, nunca rubro del empleador del Excel de ejemplo.
+            role = get_data(data, "role").strip()
+            if not role:
+                raise LayoutError("Indica el cargo real para la entrega del PTS")
+            set_text(target, "A1", "ENTREGA PTS DE " + role.upper())
+            introduction = ensure_cell(target, "A3")
+            original = cell_text(introduction, strings)
+            if "correspondiente al cargo de" in original.lower():
+                updated, count = re.subn(
+                    r"(correspondiente al cargo de\s+)[^.\n]+(\.)",
+                    lambda match: match.group(1) + role.upper() + match.group(2),
+                    original, count=1, flags=re.IGNORECASE,
+                )
+                if count != 1:
+                    raise LayoutError("No se pudo vincular el cargo dentro de Entrega PTS")
+                set_text(target, "A3", updated)
+            # The supplied original has incorrect formulas in the signature
+            # block (A23/F23 point to RUTs, A24/F24 to nationality/civil status).
+            # Both name and RUT must come from the current dossier.
+            set_text(target, "A23", get_data(data, "extra.representative_name"))
+            set_text(target, "F23", get_data(data, "worker.name"))
+            set_text(target, "A24", "RUT: " + get_data(data, "extra.representative_rut"))
+            set_text(target, "F24", "RUT: " + get_data(data, "worker.rut"))
         if code == "pts":
             if matrix is None or len(matrix) != 17:
                 raise LayoutError("La impresión PTS exige 17 secciones de matriz aprobadas")
@@ -611,14 +869,23 @@ def excel_document(raw: bytes, code: str, data: dict, changes: dict | None = Non
                     item.set("localSheetId", "0")
                 else:
                     names.remove(item)
+        set_document_print_profile(target, book, code, selected)
+        if code == "induction":
+            configure_induction_sections(target, book, selected, strings)
         calc = book.find(Q("calcPr"))
         if calc is not None:
             calc.set("fullCalcOnLoad", "0")
             calc.set("forceFullCalc", "0")
+        style_replacement = (
+            protect_pts_receipt_heading_fit(target, z.read("xl/styles.xml"))
+            if code == "pts_receipt" else None
+        )
         replacement = {
             files[selected]: ET.tostring(target, encoding="UTF-8", xml_declaration=True),
             "xl/workbook.xml": ET.tostring(book, encoding="UTF-8", xml_declaration=True),
         }
+        if style_replacement is not None:
+            replacement["xl/styles.xml"] = style_replacement
         buffer = io.BytesIO()
         with ZipFile(buffer, "w", compression=ZIP_DEFLATED, compresslevel=5) as out:
             for info in z.infolist():
@@ -631,11 +898,12 @@ def excel_document(raw: bytes, code: str, data: dict, changes: dict | None = Non
 
 
 def normalize_pdf_a4(raw: bytes) -> bytes:
-    """Imprimir sin cortes y entregar todas las páginas en A4.
+    """Normalize each PDF page to A4 without hiding content outside a source margin.
 
-    La declaración jurada del Excel original tiene trazos 5 pt fuera del
-    MediaBox derecho; otros documentos usan Carta. Recupera esos trazos
-    expandiendo el área fuente antes de ajustar proporcionalmente al A4.
+    LibreOffice may put a title a few points before the source page's zero
+    coordinate. Expanding the source MediaBox on every side and then fitting
+    all recovered content proportionally is safer than discarding the PDF or
+    disabling layout validation. Very large negative displacement still blocks.
     """
     source = fitz.open(stream=raw, filetype="pdf")
     output = fitz.open()
@@ -643,36 +911,56 @@ def normalize_pdf_a4(raw: bytes) -> bytes:
         for index in range(source.page_count):
             page = source[index]
             original = page.rect
-            # PyMuPDF no extrae glifos que queden fuera del MediaBox vigente.
-            # Ampliar provisionalmente para detectar el verdadero ancho/alto
-            # del texto (y restaurar luego el tamaño mínimo que lo contiene).
-            page.set_mediabox(fitz.Rect(0, 0, original.width + 250,
-                                       original.height + 200))
+            first = [b for b in page.get_text("blocks")
+                     if len(b) >= 5 and (b[4].strip() if isinstance(b[4], str) else True)]
+            left = min([0, *[b[0] for b in first]])
+            top = min([0, *[b[1] for b in first]])
+            if left < -180 or top < -180:
+                raise LayoutError(
+                    f"Página {index + 1}: contenido desplazado más de 180 pt "
+                    "fuera del margen; revisar celdas, escalado y área de impresión"
+                )
+            # 16pt bleed also recovers partially clipped first/last characters.
+            left_pad = max(16.0, -left + 14.0)
+            top_pad = max(16.0, -top + 14.0)
+            page.set_mediabox(fitz.Rect(
+                -left_pad, -top_pad, original.width + 250, original.height + 200
+            ))
+            recovered = [b for b in page.get_text("blocks")
+                         if len(b) >= 5 and (b[4].strip() if isinstance(b[4], str) else True)]
+            max_x = max([original.width, *[b[2] for b in recovered]])
+            max_y = max([original.height, *[b[3] for b in recovered]])
+            if any(b[0] < -180 or b[1] < -180 for b in recovered):
+                raise LayoutError(
+                    f"Página {index + 1}: el contenido excede el margen de "
+                    "recuperación. Identifica la celda y corrige su formato."
+                )
+            page.set_mediabox(fitz.Rect(
+                -left_pad, -top_pad,
+                max(original.width, max_x - left_pad + 14),
+                max(original.height, max_y + 14)
+            ))
+            target = output.new_page(width=595, height=842)
+            target.show_pdf_page(
+                fitz.Rect(18, 18, 577, 824), source, index,
+                keep_proportion=True, overlay=True
+            )
+        for number, page in enumerate(output, 1):
             blocks = [b for b in page.get_text("blocks")
                       if len(b) >= 5 and (b[4].strip() if isinstance(b[4], str) else True)]
-            xmin = min([0, *[b[0] for b in blocks]])
-            ymin = min([0, *[b[1] for b in blocks]])
-            xmax = max([original.width, *[b[2] for b in blocks]])
-            ymax = max([original.height, *[b[3] for b in blocks]])
-            if xmin < -1 or ymin < -1:
-                raise LayoutError("Texto fuera del margen superior o izquierdo del Excel; revisa la maquetación")
-            if xmax > original.width + 1 or ymax > original.height + 1:
-                page.set_mediabox(fitz.Rect(0, 0, xmax + 8, ymax + 8))
-            else:
-                page.set_mediabox(fitz.Rect(0, 0, original.width, original.height))
-            target = output.new_page(width=595, height=842)
-            target.show_pdf_page(fitz.Rect(12, 12, 583, 830), source, index,
-                                 keep_proportion=True, overlay=True)
-        for page in output:
-            for block in page.get_text("blocks"):
-                if (block[0] < -1 or block[1] < -1 or
-                    block[2] > page.rect.width + 1 or
-                    block[3] > page.rect.height + 1):
-                    raise LayoutError("El PDF A4 contiene texto fuera de la página: revisar maquetación")
+            for block in blocks:
+                if (block[0] < 0 or block[1] < 0
+                        or block[2] > page.rect.width
+                        or block[3] > page.rect.height):
+                    raise LayoutError(
+                        f"Página {number}: texto fuera de la página A4 después "
+                        "de la normalización; revisar diseño original"
+                    )
         return output.tobytes(garbage=4, deflate=True)
     finally:
         source.close()
         output.close()
+
 
 
 def libreoffice_pdf(xlsx: bytes, timeout: int = 50) -> bytes:
@@ -798,6 +1086,20 @@ def pdf_from_workbook(raw: bytes, code: str, data: dict, *,
             "internal_rules_receipt",
         } and worker not in printed:
             raise LayoutError("El PDF no contiene al trabajador seleccionado; revisión obligatoria")
+        if code == "pts_receipt":
+            # El texto A1 contiene un título variable. Una plantilla fuente
+            # con unión demasiado angosta puede producir un PDF A4 válido
+            # pero truncar la última letra del cargo (CARPINTERO -> CARPINTER).
+            # Nunca liberar un acta que cambie la identificación del PTS.
+            expected = " ".join(
+                ("ENTREGA PTS DE " + get_data(data, "role").strip().upper()).casefold().split()
+            )
+            if expected not in printed:
+                raise LayoutError(
+                    "El título ENTREGA PTS se recortó o no coincide con el cargo. "
+                    "Revisa el rango combinado y el ancho del encabezado de la "
+                    "plantilla original antes de imprimir."
+                )
         if preview:
             for page in pdf:
                 page.insert_text((32, 30), "VISTA PREVIA - NO VALIDO PARA FIRMA",

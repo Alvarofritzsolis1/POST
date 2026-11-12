@@ -41,15 +41,20 @@ async function upload(file:File,path:string){
   return response.json() as Promise<unknown>;
 }
 async function showPDF(path:string){
-  const response=await fetch("/api/v1/javiera"+path,{credentials:"include",cache:"no-store"});
-  if(!response.ok)throw new Error("No se pudo generar la vista previa del Excel");
-  const blob=await response.blob();
-  const url=URL.createObjectURL(blob);
-  window.open(url,"_blank","noopener,noreferrer");
-  window.setTimeout(()=>URL.revokeObjectURL(url),60000);
+  const tab=window.open("","_blank");
+  if(tab){tab.opener=null;tab.document.title="Vista previa JAVIERA";tab.document.body.textContent="Preparando PDF…";}
+  try{
+    const response=await fetch("/api/v1/javiera"+path,{credentials:"include",cache:"no-store"});
+    if(!response.ok)throw new Error("No se pudo generar la vista previa del Excel");
+    const blob=await response.blob();
+    const url=URL.createObjectURL(blob);
+    if(tab)tab.location.href=url;
+    else window.open(url,"_blank","noopener,noreferrer");
+    window.setTimeout(()=>URL.revokeObjectURL(url),60000);
+  }catch(error){tab?.close();throw error;}
 }
 
-function LayoutStudio(){
+function LayoutStudio({onReviews}:{onReviews:()=>void}){
   const [layouts,setLayouts]=useState<Layout[]>([]);
   const [selected,setSelected]=useState("");
   const [source,setSource]=useState<CellPage|null>(null);
@@ -65,6 +70,12 @@ function LayoutStudio(){
   const [engine,setEngine]=useState<{available:boolean;engine:string}|null>(null);
   const [uploadReport,setUploadReport]=useState("");
   const current=layouts.find(x=>x.id===selected)||null;
+  const [showHistory,setShowHistory]=useState(false);
+  const latest=useMemo(()=>{
+    const seen=new Set<string>();
+    return layouts.filter(x=>{if(seen.has(x.code))return false;seen.add(x.code);return true;});
+  },[layouts]);
+  const older=useMemo(()=>layouts.filter(x=>!latest.some(y=>y.id===x.id)),[layouts,latest]);
   const locked=!!cell&&!!source?.protected_cells?.includes(cell);
   async function refresh(){
     const list=await request<Layout[]>("/javiera/admin/excel/layouts");
@@ -86,7 +97,7 @@ function LayoutStudio(){
       const result=await upload(file,"/admin/excel/import") as {templates:{sheet:string;cells:number}[];missing:string[]};
       setUploadReport(result.templates.length+" hojas documentales importadas · "+result.templates.reduce((n,x)=>n+x.cells,0)+" celdas con contenido · "+
         (result.missing.length?result.missing.length+" hojas por revisar":"sin hojas pendientes"));
-      setNotice("Las plantillas conservan estilos, celdas combinadas, imágenes y áreas de impresión. Deben revisarse y aprobarse.");
+      setNotice("Excel recibido. Los diseños existentes no se duplican; revisa el PDF de muestra y habilita su impresión.");
       await refresh();
     }catch(e){setError(errorText(e));}finally{setBusy(false);}
   }
@@ -106,16 +117,8 @@ function LayoutStudio(){
       if(height)edit.row_height=Number(height);
       const result=await request<{id:string;revision:number}>("/javiera/admin/excel/layouts/"+current.id+"/revise",{
         method:"POST",body:JSON.stringify({expected_revision:current.revision,edits:[edit],reason})});
-      await refresh();setSelected(result.id);setNotice("Nueva versión guardada. Requiere revisión profesional.");
+      await refresh();setSelected(result.id);setNotice("Cambio guardado. Revisa su PDF antes de habilitar la impresión.");
       setReason("");
-    }catch(e){setError(errorText(e));}finally{setBusy(false);}
-  }
-  async function approve(){
-    if(!current)return;
-    setBusy(true);setError("");
-    try{
-      await request("/javiera/admin/excel/layouts/"+current.id+"/approve",{method:"POST"});
-      await refresh();setNotice("Plantilla publicada. Las emisiones anteriores permanecen intactas.");
     }catch(e){setError(errorText(e));}finally{setBusy(false);}
   }
   return <section className="jvx">
@@ -134,11 +137,16 @@ function LayoutStudio(){
     </div>
     {uploadReport&&<p className="jvx-report">{uploadReport}</p>}
     <div className="jvx-layout">
-      <nav className="jvx-list" aria-label="Versiones de documentos importados">
-        {layouts.map(x=><button key={x.id} className={selected===x.id?"active":""} onClick={()=>{setSelected(x.id);setStart(1);setCell("");}}>
+      <nav className="jvx-list" aria-label="Plantillas vigentes sin duplicados">
+        {latest.map(x=><button key={x.id} className={selected===x.id?"active":""} onClick={()=>{setSelected(x.id);setStart(1);setCell("");}}>
           <FileText size={16}/><span>{codeLabels[x.code]||x.sheet}
-          <small>{x.status==="approved"?"Publicado":x.status==="draft"?"Borrador":"Histórico"} · v{x.revision} · {x.cells_modified} correcciones</small></span></button>)}
+          <small>{x.status==="approved"?"Habilitado para PDF":"Pendiente"} · versión vigente {x.revision}</small></span></button>)}
         {!layouts.length&&<p>No hay diseños importados. Selecciona el Excel para comenzar.</p>}
+        {older.length>0&&<button type="button" onClick={()=>setShowHistory(v=>!v)}>
+          {showHistory?"Ocultar historial":"Ver historial ("+older.length+")"}</button>}
+        {showHistory&&older.map(x=><button key={x.id} className={selected===x.id?"active":""} onClick={()=>{setSelected(x.id);setStart(1);setCell("");}}>
+          <FileText size={16}/><span>{codeLabels[x.code]||x.sheet}
+          <small>Versión histórica {x.revision} · solo consulta</small></span></button>)}
       </nav>
       <section className="jvx-inspector">
         <div className="jvx-bar">
@@ -146,7 +154,7 @@ function LayoutStudio(){
             {current&&<small>{current.inventory.cells} celdas · {current.inventory.merged} combinadas · {current.inventory.formulas} fórmulas</small>}</div>
           <div className="jvx-buttons">
             <button disabled={!current||busy||!engine?.available} onClick={()=>{if(current)void showPDF("/admin/excel/layouts/"+current.id+"/preview").catch(e=>setError(errorText(e)));}}>Vista previa PDF</button>
-            {current?.status==="draft"&&<button disabled={busy} onClick={()=>void approve()}>Aprobar versión</button>}
+            {current?.status==="draft"&&<button disabled={busy} onClick={onReviews}>Habilitar formato para PDF</button>}
           </div>
         </div>
         <div className="jvx-row-nav">
@@ -175,7 +183,7 @@ function LayoutStudio(){
           <label>Motivo del ajuste <textarea rows={3} value={reason} onChange={e=>setReason(e.target.value)}/></label>
           <button className="jv-primary" disabled={locked||busy||reason.trim().length<10||!current||!/^[A-Z]{1,3}[1-9][0-9]{0,5}$/.test(cell)} onClick={()=>void save()}>
             Guardar nueva revisión</button></>:<p>Selecciona cualquier celda para modificar su contenido.</p>}
-        <div className="jvx-legal-note"><ShieldCheck size={18}/><p>Los documentos laborales y preventivos requieren acta de revisión por el responsable designado antes de aprobarse para emisión.</p></div>
+        <div className="jvx-legal-note"><ShieldCheck size={18}/><p>Este módulo prepara PDF para obtener firmas en papel. Generarlo no equivale a firma, entrega ni recepción.</p></div>
       </aside>
     </div>
   </section>;
@@ -261,15 +269,15 @@ function ReviewDesk(){
   }
   return <section className="jvx">
     <header className="jvx-intro"><div><span className="jvx-kicker">TRAZABILIDAD PROFESIONAL</span><h2>Mesa de revisión laboral y preventiva</h2>
-      <p>Dos responsables diferentes: quien redacta no puede aprobar. Solo una persona designada puede emitir actas de revisión de su especialidad.</p></div></header>
+      <p>Revisión en dos roles: quien redacta no puede aprobar. La persona revisora puede tener una cuenta limitada a este módulo.</p></div></header>
     {error&&<p role="alert" className="jv-error">{error}</p>}{notice&&<p role="status" className="jv-success">{notice}</p>}
     <div className="jvx-review-grid">
       <aside className="jvx-edit">
-        <h3>Responsables autorizados</h3><p>La designación requiere otro administrador y una descripción de su función o acreditación.</p>
+        <h3>Responsables autorizados</h3><p>La persona revisora puede usar el perfil «Revisor documental» sin acceso a los módulos operativos. Registra su especialidad y designación.</p>
         {reviewers.map(x=><div className="jvx-reviewer" key={x.user_id}>
           <b>{x.name}</b><small>{x.specialties.filter(s=>s.active).map(s=>s.specialty).join(" · ")||"Sin especialidad autorizada"}</small>
         </div>)}
-        <label>Designar a otro administrador
+        <label>Seleccionar responsable autorizado
           <select value={chosenReviewer} onChange={e=>setChosenReviewer(e.target.value)}>
             <option value="">Seleccionar responsable</option>{reviewers.map(x=><option value={x.user_id} key={x.user_id}>{x.name}</option>)}
           </select></label>
@@ -310,6 +318,102 @@ function ReviewDesk(){
   </section>;
 }
 
-export default function JavieraExcelAdmin({tab}:{tab:"excel"|"reviews"}){
-  return tab==="excel"?<LayoutStudio/>:<ReviewDesk/>;
+
+function QuickPrintDesk(){
+  const [all,setAll]=useState<Layout[]>([]);
+  const [selected,setSelected]=useState("");
+  const [previewed,setPreviewed]=useState("");
+  const [confirmed,setConfirmed]=useState(false);
+  const [busy,setBusy]=useState(false);
+  const [error,setError]=useState("");
+  const [notice,setNotice]=useState("");
+  const current=useMemo(()=>{
+    const seen=new Set<string>();
+    return all.filter(x=>{if(seen.has(x.code))return false;seen.add(x.code);return true;});
+  },[all]);
+  const active=current.find(x=>x.id===selected)||null;
+  async function refresh(){
+    const result=await request<Layout[]>("/javiera/admin/excel/layouts");
+    setAll(result);
+    const seen=new Set<string>();
+    const latest=result.filter(x=>{if(seen.has(x.code))return false;seen.add(x.code);return true;});
+    setSelected(old=>latest.some(x=>x.id===old)?old:latest[0]?.id||"");
+  }
+  useEffect(()=>{void refresh().catch(e=>setError(errorText(e)));},[]);
+  async function preview(){
+    if(!active)return;
+    setBusy(true);setError("");setNotice("");
+    try{
+      await showPDF("/admin/excel/layouts/"+encodeURIComponent(active.id)+"/preview");
+      setPreviewed(active.id);
+      setNotice("Vista previa generada. Comprueba el texto, los datos variables y los espacios de firma.");
+    }catch(e){setPreviewed("");setError(errorText(e));}
+    finally{setBusy(false);}
+  }
+  async function enablePrint(){
+    if(!active||previewed!==active.id||!confirmed)return;
+    setBusy(true);setError("");setNotice("");
+    try{
+      await request("/javiera/admin/excel/layouts/"+encodeURIComponent(active.id)+"/enable-print",{
+        method:"POST",body:JSON.stringify({confirmed_preview:true})
+      });
+      await refresh();setConfirmed(false);setPreviewed("");
+      setNotice("Formato habilitado. Ve a «Preparar e imprimir documentos» para completar la ficha y sacar el PDF para firma física.");
+    }catch(e){setError(errorText(e));}
+    finally{setBusy(false);}
+  }
+  return <section className="jvx">
+    <header className="jvx-intro"><div><span className="jvx-kicker">PILOTO · ADMINISTRADOR ÚNICO</span>
+      <h2>Habilitar documentos para imprimir</h2>
+      <p>Solo se muestra la última versión de cada formato. No necesitas otra cuenta ni listas preventivas genéricas para preparar un PDF destinado a firma física.</p>
+    </div></header>
+    {error&&<p role="alert" className="jv-error">{error}</p>}
+    {notice&&<p role="status" className="jv-success">{notice}</p>}
+    <div className="jvx-review-grid">
+      <aside className="jvx-edit">
+        <h3>Formatos disponibles</h3>
+        <p>{current.length} documentos únicos · versiones antiguas conservadas en el historial del diseñador.</p>
+        {current.map(x=><button type="button" key={x.id}
+          className={selected===x.id?"jv-primary":""}
+          style={{display:"block",width:"100%",textAlign:"left",marginBottom:8}}
+          onClick={()=>{setSelected(x.id);setPreviewed("");setConfirmed(false);setError("");}}>
+          {codeLabels[x.code]||x.sheet} · {x.status==="approved"?"Habilitado":"Pendiente"}
+        </button>)}
+        {!current.length&&<p>Importa primero el Excel original desde el Diseñador.</p>}
+      </aside>
+      <section className="jvx-review-main">
+        {active?<div className="jvx-review-form">
+          <h3>{codeLabels[active.code]||active.sheet}</h3>
+          <p>Versión vigente {active.revision} · {active.status==="approved"?"Lista para PDF":"Pendiente de revisar el diseño de impresión"}.</p>
+          {active.status==="approved"?<div className="jv-success">
+            <CheckCircle2 size={18}/> Formato listo para generar PDF. No se registra aquí ninguna firma ni entrega.
+          </div>:<>
+            <p>1. Abre el PDF de prueba y comprueba el texto, las variables y los espacios para las firmas manuscritas.</p>
+            <button type="button" disabled={busy} onClick={()=>void preview()}>
+              <FileText size={16}/> {busy?"Preparando…":"Abrir vista previa PDF"}
+            </button>
+            <label className="jvx-check">
+              <input type="checkbox" checked={confirmed} disabled={previewed!==active.id||busy}
+                onChange={e=>setConfirmed(e.target.checked)}/>
+              <span>Revisé visualmente este formato. Sé que imprimirlo no acredita recepción ni firma.</span>
+            </label>
+            <button type="button" className="jv-primary"
+              disabled={busy||previewed!==active.id||!confirmed}
+              onClick={()=>void enablePrint()}>Habilitar impresión de este documento</button>
+          </>}
+          <p className="jvx-source">Completa los datos de la ficha, descarga o imprime el documento y obtén la firma en papel. Esto no crea trabajadores operativos ni registra entregas automáticamente.</p>
+        </div>:<p>Selecciona un formato para continuar.</p>}
+      </section>
+    </div>
+  </section>;
+}
+
+export default function JavieraExcelAdmin({tab,onChangeTab}:{tab:"excel"|"reviews";onChangeTab?:(tab:"excel"|"reviews")=>void}){
+  const [pilot,setPilot]=useState<boolean|null>(null);
+  useEffect(()=>{
+    void request<{solo_pilot:boolean}>("/javiera/admin/excel/status")
+      .then(x=>setPilot(x.solo_pilot)).catch(()=>setPilot(false));
+  },[]);
+  return tab==="excel"?<LayoutStudio onReviews={()=>onChangeTab?.("reviews")}/>:
+    pilot===null?<p>Consultando modo documental…</p>:pilot?<QuickPrintDesk/>:<ReviewDesk/>;
 }

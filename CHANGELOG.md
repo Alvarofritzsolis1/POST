@@ -8,6 +8,53 @@
 
 # Historial de cambios
 
+## 18.0.0-rc1 — Proyecto JAVIERA: Excel corregido y PDF A4 con preflight
+
+- Copia de Excel 18 con 22 hojas, 381 fórmulas y 250 combinaciones preservadas y alturas/alineación de documentos extensos revisadas; fichero privado descargable desde el chat, no incrustado en GitHub.
+- Impresión A4 por cada una de las 10 hojas, áreas de impresión acotadas, márgenes seguros y varias páginas cuando corresponda.
+- Recuperación controlada de contenido ligeramente desplazado en PDF sin desactivar las validaciones de recortes.
+- Biblioteca con preflight técnico de fórmulas, cantidad de páginas, áreas y texto dentro de A4.
+- Pruebas automatizadas de las 10 configuraciones, contenido parcialmente fuera de margen, permisos y ausencia de aprobación automática.
+- Conserva sistema documental independiente y aprobación por responsables.
+- Ver `docs/GALANT_18_JAVIERA_PRINT_PREFLIGHT.md` para alcance, limitaciones y pasos posteriores.
+
+## 17.0.0-rc1 — Biblioteca inteligente JAVIERA y revisión documental delimitada
+
+- Nuevo inicio de Proyecto JAVIERA con diez documentos precatalogados, un único importador de Excel privado, detección de cargas repetidas, vistas previas y acciones claras.
+- Excel preparado por el usuario se importa sin copiar su información privada a GitHub. Todas las plantillas nacen como borradores para modificar y aprobar una sola vez.
+- Nuevo perfil `doc_reviewer` con acceso exclusivamente a revisión documental por especialidad; firma de acta y publicación en un paso validado, manteniendo la separación del autor.
+- Sin cambios operativos en módulos de Trabajadores, Contratistas, Asistencia o Leyes Sociales.
+- Pruebas de seguridad, aislamiento, idempotencia y UX; ver [guía de implantación](docs/JAVIERA_17_BIBLIOTECA_INTELIGENTE.md).
+- Es versión candidata: requiere revisión y CI en verde y cargar/aprobar el XLSX en el servidor privado antes de emitir sus PDF.
+
+## 16.6.1-rc1 — JAVIERA: vinculación y diagnóstico de plantillas Excel (candidata)
+
+- Corrección de las firmas en Entrega PTS: nombres y RUT de representante y trabajador desde la ficha documental, en vez de nacionalidad o estado civil.
+- Fecha efectiva `event.date` sustituye el valor histórico calculado por `TODAY()` en constancias del Excel.
+- Biblioteca diagnóstica: hoja reconocida, plantilla importada, aprobación, almacenamiento privado y motor LibreOffice; mensajes de bloqueo con acción de configuración.
+- Reglamento Interno: no exigir una versión que no se imprime en el diseño Excel original.
+- Pruebas sintéticas y auditoría estructural del archivo original, conservando identidades y XLSX fuera del repositorio.
+- No se considera una certificación de plantillas publicadas ni despliegue en VPS hasta CI y revisión profesional.
+
+## 16.6.0-rc1 — JAVIERA independiente y generación múltiple (candidata)
+
+- Expedientes, empresas y personas documentales independientes; el asistente no da de alta ni modifica trabajadores y contratistas operativos.
+- Asistente por pasos y selección múltiple de las diez plantillas, información compartida y documentos específicos.
+- API independiente, generación parcial por lotes, PDF combinado e historial de emisión con originales inmutables.
+- Migración aditiva; sin cambios ni bajas en documentos históricos.
+- Requiere CI, aprobación humana de plantillas y verificación de impresión en VPS antes de considerar producción lista.
+
+
+## 16.5.0-rc1 — JAVIERA documental simplificado desde Excel (candidata)
+
+- Asistente centrado en elegir uno de los diez documentos; campos rotulados según el Excel y separados entre documentación laboral y prevención.
+- Alta de empleador y trabajador desde la misma ficha; se pueden completar RUT pendientes sin salir del asistente.
+- Equivalencias explícitas de labores y cargos compatibles con matrices históricas aprobadas, manteniendo sus revisiones.
+- Vista previa, apertura para imprimir y descarga diferenciadas. El PDF se abre en el visor; reemitir una corrección requiere motivo y conserva el PDF anterior.
+- Aislamiento ante respuestas tardías al cambiar empresa, obra o trabajador; expediente de empresa separado del individual y bloqueo de cambios de contexto en el servidor.
+- Corrección de sueldo en palabras y de un rechazo erróneo al coincidir el sueldo vigente con el ejemplo de la plantilla.
+- Regresiones de backend y Chromium con ficha incompleta, emisión, impresión, descarga, reemisión, inmutabilidad y cambio de contexto. Sin migraciones ni cambios en datos de producción.
+
 ## 15.0.5-rc1 — Despliegue automático seguro tras aprobación de versión
 
 - Se activa el flujo automático en GitHub Actions solo para commits integrados en `main` que aumenten la versión de backend, frontend y lockfile de forma coherente.

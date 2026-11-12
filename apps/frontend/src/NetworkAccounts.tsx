@@ -484,7 +484,7 @@ function AccountForm({
           name: d.get("name"),
           title: d.get("title"),
           role,
-          site_ids: role === "admin" ? [] : sites,
+          site_ids: ["admin","doc_reviewer"].includes(role) ? [] : sites,
           enabled: d.get("enabled") === "on",
           can_award: d.get("can_award") === "on",
           ...(!target ? { email: d.get("email") } : {}),
@@ -527,7 +527,7 @@ function AccountForm({
           Cuenta activa
         </label>
         <div className="nw-role-options">
-          {["admin", "administrative", "resident"].map((r) => (
+          {["admin", "doc_reviewer", "administrative", "resident"].map((r) => (
             <button
               type="button"
               className={"nw-role-card " + (role === r ? "selected" : "")}
@@ -535,23 +535,24 @@ function AccountForm({
               key={r}
               onClick={() => setRole(r)}
             >
-              {r === "resident" ? <Network /> : r === "administrative" ? <Users /> : <Settings />}
+              {r === "resident" ? <Network /> : r === "administrative" ? <Users /> : r === "doc_reviewer" ? <Check /> : <Settings />}
               <b>{labels[r]}</b>
               <small>
                 {r === "resident" ? "Solo Red de Obras"
                   : r === "administrative" ? "Asistencia semanal y contratos de trabajo"
+                  : r === "doc_reviewer" ? "Solo revisión de plantillas autorizadas, sin acceso a trabajadores ni contratistas"
                   : "Acceso completo de Administrador"}
               </small>
             </button>
           ))}
         </div>
-        {target && !["admin", "administrative", "resident"].includes(target.role) && (
+        {target && !["admin", "administrative", "resident", "doc_reviewer"].includes(target.role) && (
           <p className="nw-callout">
-            Esta cuenta tiene un perfil antiguo. Selecciona uno de los tres perfiles vigentes
+            Esta cuenta tiene un perfil antiguo. Selecciona uno de los perfiles vigentes
             para habilitar nuevamente su acceso.
           </p>
         )}
-        {role !== "admin" ? (
+        {["resident","administrative"].includes(role) ? (
           <>
             <b>Obras asignadas</b>
             {catalog.sites.map((s) => (
@@ -581,13 +582,12 @@ function AccountForm({
           </>
         ) : (
           <p className="nw-callout">
-            Se conservan las reglas de autorización de GALANT. El administrador
-            puede gestionar cuentas y confirmar adjudicaciones.
+            {role === "doc_reviewer" ? "El revisor documental solo puede revisar y aprobar las plantillas que le deleguen, sin acceder a datos operativos." : "El administrador puede gestionar cuentas y confirmar adjudicaciones."}
           </p>
         )}
         <button
           className="nw-btn nw-primary"
-          disabled={busy || (role !== "admin" && !sites.length)}
+          disabled={busy || (["resident","administrative"].includes(role) && !sites.length)}
         >
           {busy
             ? "Guardando…"

@@ -1,0 +1,174 @@
+body { font-family: sans-serif; font-size: 10.7pt; line-height: 1.35; color: #1d2939; margin: 0; }
+h1 { font-size: 16pt; color: #173550; margin: 7pt 0 3pt; text-align: center; }
+h2 { font-size: 10.5pt; font-weight: bold; color: #183b5b; background: #e8eef4;
+     border-left: 2pt solid #183b5b; padding: 7pt 8pt; margin: 17pt 0 9pt; }
+p { margin: 6pt 0 10pt; }
+.eyebrow { letter-spacing: 0.7pt; font-size: 8.6pt; font-weight: bold; text-align: center;
+            margin: 0; color: #3c5268; }
+.subtitle { color: #4b596a; text-align: center; font-size: 8.7pt; margin-top: 0; }
+.document-head { border-bottom: 1.5pt solid #183b5b; margin-bottom: 12pt; }
+table { border-collapse: collapse; width: 100%; }
+td, th { vertical-align: top; padding: 6pt; border: 0.5pt solid #b6c1ca; font-size: 9.5pt; }
+th { font-weight: bold; text-align: left; background: #edf2f6; color: #243a4f; }
+.identity th { width: 15%; font-size: 8.5pt; }
+.identity td { width: 35%; }
+.matrix th, .topics th { font-size: 9.4pt; }
+.matrix tr, .topics tr { break-inside: avoid; }
+.matrix td, .topics td { padding: 7pt 8pt; }
+.signature-panel { break-inside: avoid; margin-top: 18pt; }
+.signature-panel p { font-size: 8.3pt; color: #4b596a; }
+.signature-table td { width: 50%; border: none; text-align: center; padding: 8pt 10pt; }
+.signature-space { height: 35pt; }
+.signature-line { border-top: 0.6pt solid #334155; padding-top: 7pt; font-size: 9pt; text-align: center; }
+.handwriting-space { height: 35pt; border: 0.5pt solid #b6c1ca; }
+
+/* Estándar de impresión: legibilidad, tablas continuas y firmas manuscritas. */
+.legal-copy {font-size:10.5pt; line-height:1.48; text-align:justify; overflow-wrap:break-word;}
+.legal-copy p {margin:0 0 11pt; orphans:3; widows:3;}
+.legal-body {font-size:10.5pt;}
+.matrix thead, .topics thead {display:table-header-group;}
+.identity, .document-head {break-inside:avoid;}
+.matrix tr, .topics tr {break-inside:avoid;}
+.print-notes {break-inside:avoid; margin-top:10pt;}
+.print-notes p {white-space:normal; line-height:1.5;}
+.signature-panel, .signature-table, .signature-table tr {break-inside:avoid;}
+
+/* La inducción con cinco temas de prueba debe imprimirse en UNA hoja A4:
+   conservar el espacio de escritura y las firmas en esa misma página.
+   Las inducciones extensas pueden usar páginas adicionales sin letra pequeña. */
+.topics th, .topics td {padding:5pt 6pt;}
+.signature-panel {margin-top:7pt;}
+.signature-panel h2 {margin-top:8pt;margin-bottom:6pt;}
+.handwriting-space {height:30pt;}
+
+/* Compatibilidad de paginación PyMuPDF 1.26–1.28:
+   no comprimir tipografía, solo reducir espacios decorativos.
+   El contenido y 35pt útiles para firmas permanecen intactos. */
+body p {margin:4pt 0 6pt;}
+body h2 {margin:12pt 0 6pt;}
+.document-head {margin-bottom:7pt;}
+.identity td, .identity th {padding:5pt;}
+.signature-panel h2 {margin:8pt 0 6pt;}
+.ppe-source-label {margin:8pt 0 4pt; color:#243a4f; font-size:9.2pt;}
+.ppe-form .matrix td, .ppe-form .matrix th {padding:4pt 5pt;}
+
+/* 19.3: La matriz IRL corresponde a cuatro datos técnicos, no a texto corrido. */
+.irl-matrix {table-layout:fixed;width:100%;}
+.irl-matrix .irl-number {width:6%;}
+.irl-matrix th,.irl-matrix td{font-size:8.2pt;line-height:1.35;overflow-wrap:anywhere;word-break:normal;padding:5pt 4pt;}
+.irl-matrix tbody tr {break-inside:avoid;}
+.matrix-source-note {font-size:8.5pt;color:#334155;margin-bottom:8pt;}
+
+/* GALANT 19.3 — PTS: encabezados D:T del Excel fuente, sin perder contenido. */
+.pts-matrix {table-layout:fixed; width:100%;}
+.pts-matrix th, .pts-matrix td {font-size:8.8pt;line-height:1.35;
+  padding:5pt 6pt;overflow-wrap:anywhere;word-break:normal;}
+.pts-matrix thead {display:table-header-group;}
+.pts-matrix tr {break-inside:avoid;}
+
+/* GALANT 19.4.2 — IRL original: cuatro columnas y cinco fotografías sin recorte */
+.irl-original-print{font-family:Arial,Helvetica,sans-serif;color:#111827;
+  font-size:9pt;line-height:1.38}
+.irl-original-print table{border-collapse:collapse;width:100%;table-layout:fixed}
+.irl-original-header th{border:.65pt solid #8194a5;padding:5pt 4pt;text-align:center;
+  background:#eaf0f5;color:#152b3c;font-size:8pt;vertical-align:middle}
+.irl-original-header th:first-child{width:31%}
+.irl-original-identity{margin:8pt 0 11pt}
+.irl-original-identity th,.irl-original-identity td{border:.55pt solid #9cb0c0;
+  padding:5pt 5pt;font-size:8.2pt;overflow-wrap:anywhere}
+.irl-original-identity th{width:16%;background:#f0f4f7}
+.irl-original-identity td{width:34%}
+.irl-original-content .irl-title{text-align:center;font-size:11pt;
+  border:1pt solid #9aabba;background:#e9eef2;padding:7pt}
+.irl-original-content h2{border:.6pt solid #a8b9c7;border-left:0;
+  background:#eaf0f5;color:#173348;padding:7pt 6pt;font-size:10pt;line-height:1.35;
+  margin:13pt 0 6pt}
+.irl-original-content h3{font-size:9pt;color:#233b4e;
+  border:.5pt solid #bac7d3;background:#f4f7fa;padding:5pt;
+  margin:8pt 0 3pt}
+.irl-original-content p{font-size:8.8pt;line-height:1.45;margin:6pt 0}
+.irl-static-intro,.irl-static-quote,.irl-legal-close,.irl-declaration{
+  font-size:8.7pt;line-height:1.43;overflow-wrap:break-word;white-space:pre-line}
+.irl-static-quote{border:.5pt solid #c6d1da;padding:6pt}
+.irl-condition p{font-size:8.8pt;padding:0 4pt 4pt;margin:4pt 0 7pt}
+.irl-matrix{table-layout:fixed;width:100%}
+.irl-matrix thead{display:table-header-group}
+.irl-matrix th,.irl-matrix td{width:25%;font-size:8pt;line-height:1.4;
+  border:.6pt solid #97abbb;padding:6pt 4pt;
+  word-break:normal;overflow-wrap:anywhere;vertical-align:top}
+.irl-matrix th{background:#e7eef4;color:#263f55}
+.irl-matrix tr{break-inside:avoid}
+.irl-substances th:first-child{width:6%;text-align:center}
+.irl-substances th:nth-child(2){width:34%;text-align:left}
+.irl-substances td{width:60%;white-space:pre-line}
+.irl-substances th,.irl-substances td{padding:4pt 5pt;font-size:8.2pt;
+  border:.5pt solid #a8b6c2}
+.irl-original-picture{margin:8pt 0 12pt;break-inside:avoid;max-width:100%;
+  padding:0;border:0}
+.irl-original-picture img{display:block;width:100%;height:auto;max-width:100%;
+  object-fit:contain}
+.irl-legal-close{margin-top:13pt}
+.irl-declaration{margin:8pt 0 16pt}
+.irl-signature{text-align:center;break-inside:avoid;margin:22pt auto 0;max-width:280pt}
+.irl-signature .signature-space{height:30pt}
+.irl-signature p{margin:2pt 0;font-size:8.3pt}
+.irl-signature strong{font-size:9pt}
+
+/* Firma original siempre acompañada de su declaración */
+.irl-ending{break-inside:avoid;margin-top:10pt}
+.irl-ending .irl-declaration{margin:3pt 0 11pt;line-height:1.4}
+
+/* A4: la declaración y firma son una sola fila no divisible. */
+.irl-original-header th span{display:block;white-space:normal;overflow-wrap:normal}
+.irl-original-header th:first-child{width:31%;font-size:7.4pt;line-height:1.32}
+.irl-original-header th{overflow-wrap:break-word}
+.irl-ending{width:100%;border-collapse:collapse;table-layout:fixed;margin-top:10pt}
+.irl-ending tr{break-inside:avoid;page-break-inside:avoid}
+.irl-ending td{border:0;background:#fff;padding:1pt 0;vertical-align:top}
+.irl-ending .irl-declaration{margin:3pt 0 8pt;line-height:1.4}
+.irl-ending .irl-signature{margin-top:8pt}
+.irl-ending .irl-signature .signature-space{height:22pt}
+
+/* Hojas con imágenes originales: folio de cierre indivisible para declaración/firma. */
+.irl-original-print.irl-images-ready .irl-ending{break-before:page;page-break-before:always}
+
+
+/* IRL editable aprobada: las cinco tablas normativas como texto HTML real. */
+.irl-ed-block{border:.6pt solid #a5b9c9;padding:7pt 9pt;margin:9pt 0 11pt;
+  max-width:100%;break-inside:auto;page-break-inside:auto}
+.irl-ed-block h3{background:#e8f0f5;text-align:center;font-size:9pt;
+  border:0;border-bottom:.6pt solid #9fb7c9;margin:0 0 6pt;padding:4pt 1pt}
+.irl-ed-block p{margin:2pt 0;font-size:8.2pt;line-height:1.34;
+  white-space:pre-wrap;overflow-wrap:anywhere}
+.irl-ed-block .irl-ed-gap{height:5pt}
+.irl-original-print.irl-edited-html-ready .irl-ending{break-before:page;
+  page-break-before:always}
+
+/* Membrete IRL con dos tablas binarias compatibles con PyMuPDF Story.
+   La cabecera original no cabe en la falsa cuadrícula de cuatro columnas. */
+.irl-letterhead,.irl-version-grid{table-layout:auto;width:100%}
+.irl-letterhead th,.irl-version-grid th{width:50%;padding:5pt 8pt;
+  font-size:8.1pt;line-height:1.32;text-align:center}
+.irl-letterhead th:first-child,.irl-version-grid th:first-child{
+  width:50%;font-size:8.1pt}
+.irl-letterhead span{display:block;white-space:normal;word-break:normal}
+.irl-version-grid{margin-top:0;margin-bottom:8pt}
+
+/* Transcripción estructurada: conservar columnas y casillas del bloque 1,
+   sin celdas combinadas incompatibles con PyMuPDF Story. */
+.irl-ed-subhead{font-size:8.5pt;text-align:center;background:#e8f0f5;
+  border:.5pt solid #9fb7c9;padding:3pt;margin:8pt 0 2pt}
+.irl-ed-checklist{width:100%;table-layout:fixed;border-collapse:collapse;
+  margin:2pt 0 8pt}
+.irl-ed-checklist th,.irl-ed-checklist td{font-size:6.7pt;
+  border:.45pt solid #9fb7c9;padding:3pt;vertical-align:top;
+  white-space:normal;word-break:normal}
+.irl-ed-checklist th:nth-child(1),.irl-ed-checklist td:nth-child(1){width:6%}
+.irl-ed-checklist th:nth-child(2),.irl-ed-checklist td:nth-child(2){width:28%}
+.irl-ed-checklist th:nth-child(3),.irl-ed-checklist td:nth-child(3){width:6%;text-align:center}
+.irl-ed-checklist th:nth-child(4),.irl-ed-checklist td:nth-child(4){width:6%;text-align:center}
+.irl-ed-checklist th:nth-child(5),.irl-ed-checklist td:nth-child(5){width:54%}
+.irl-ed-norm{font-size:8pt;font-weight:bold;border-top:.4pt solid #adbdc9;
+  padding:3pt 0 0;margin:7pt 0 2pt;break-after:avoid}
+.irl-ed-block p.irl-ed-bullet{padding-left:14pt;margin:2pt 0 2pt;
+  font-size:7.8pt;line-height:1.3}

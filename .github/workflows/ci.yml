@@ -1,17 +1,28 @@
 name: GALANT POST - CI
 on:
   push:
+    branches:
+      - main
   pull_request:
   schedule:
     - cron: "0 9 * * 1"
   workflow_dispatch:
   workflow_call:
 
+# Evitar la doble ejecución push + pull_request en ramas de desarrollo.
+# main se valida después del merge; las ramas de trabajo, vía pull_request.
+# Se conserva cancel-in-progress para PR obsoletos de la misma rama.
+concurrency:
+  group: ${{ github.workflow }}-${{ github.head_ref || github.ref_name }}
+  cancel-in-progress: true
+
 permissions:
   contents: read
 jobs:
   backend:
-    runs-on: ubuntu-latest
+    # Imagen estable para dependencias OCR/LibreOffice: evita los mirrors
+    # resolute de Ubuntu latest que fallaron DNS en el runner anterior.
+    runs-on: ubuntu-24.04
     timeout-minutes: 20
     services:
       postgres:
@@ -34,10 +45,108 @@ jobs:
       - uses: actions/checkout@v4
       - uses: actions/setup-python@v5
         with: {python-version: "3.12"}
-      - run: sudo apt-get update && sudo apt-get install -y tesseract-ocr tesseract-ocr-spa tesseract-ocr-eng libreoffice-calc fonts-dejavu-core
+      - name: Construir imagen REAL del backend con OCR y LibreOffice
+        working-directory: .
+        run: |
+          set -Eeuo pipefail
+          docker build --file apps/backend/Dockerfile --tag galant-ci-backend \
+            --build-arg "SOURCE_COMMIT=$GITHUB_SHA" .
+      - name: Ejecutar suite COMPLETA de backend dentro de Docker real
+        working-directory: .
+        run: |
+          set -Eeuo pipefail
+          docker run --rm --network host --user 0 \
+            -e TEST_DATABASE_URL="$TEST_DATABASE_URL" \
+            -e PYTHONDONTWRITEBYTECODE=1 \
+            -v "$GITHUB_WORKSPACE:/srv/ci" \
+            -w /srv/ci/apps/backend \
+            galant-ci-backend sh -ec '
+              python -m pip install -r requirements-dev.txt
+              command -v tesseract
+              command -v libreoffice
+              tesseract --list-langs | grep -Eq "(^|[[:space:]])spa([[:space:]]|$)"
+              python -m compileall -q app
+              python -m pytest -q
+            '
+      - name: QA de los diez PDF A4 nativos (sin datos reales)
+        working-directory: .
+        run: |
+          set -Eeuo pipefail
+          mkdir -p "$RUNNER_TEMP/javiera-v19-print"
+          docker run --rm --network host --user 0 \
+            -v "$GITHUB_WORKSPACE:/srv/ci" \
+            -v "$RUNNER_TEMP:/qa-output" \
+            -w /srv/ci/apps/backend \
+            galant-ci-backend python /srv/ci/scripts/qa_javiera_v19_print_visual.py \
+              --output /qa-output/javiera-v19-print
+      - name: Probar arranque real, migración y Calc privado de GALANT 20
+        working-directory: .
+        env:
+          APP_SECRET: ci-synthetic-app-secret-galant-20-only
+          JAVIERA_CALC_SECRET: ci-synthetic-calc-secret-galant-20-only
+        run: |
+          set -Eeuo pipefail
+          trap 'docker rm -f galant-ci-api galant-ci-calc >/dev/null 2>&1 || true' EXIT
+          docker run --rm --network host -e "DATABASE_URL=$TEST_DATABASE_URL" \
+            galant-ci-backend python -m app.cli init-db
+          docker run --rm -d --name galant-ci-calc --network host \
+            --read-only --tmpfs /tmp:rw,nosuid,size=512m --memory 1g \
+            --pids-limit 160 --cap-drop ALL --security-opt no-new-privileges \
+            -e JAVIERA_CALC_SECRET galant-ci-backend \
+            /usr/bin/python3 /srv/app/javiera_calc_service.py
+          docker run --rm -d --name galant-ci-api --network host \
+            -e "DATABASE_URL=$TEST_DATABASE_URL" -e APP_SECRET \
+            -e JAVIERA_CALC_SECRET -e JAVIERA_CALC_URL=http://127.0.0.1:8001 \
+            galant-ci-backend
+          for i in {1..30}; do
+            if curl -fsS --max-time 3 http://127.0.0.1:8000/api/v1/health >/dev/null \
+              && curl -fsS --max-time 3 http://127.0.0.1:8001/health >/dev/null; then break; fi
+            sleep 2
+          done
+          docker exec galant-ci-api python -m app.deploy_verify --expected-commit "$GITHUB_SHA"
+      - name: Evidencia visual de los diez formatos (PNG + PDF + informe)
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: galant-javiera-v19-print
+          path: ${{ runner.temp }}/javiera-v19-print
+          if-no-files-found: warn
+  backend_irl:
+    name: Backend IRL independiente — fórmulas, roles y firmas
+    runs-on: ubuntu-24.04
+    timeout-minutes: 12
+    defaults: {run: {working-directory: apps/backend}}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with: {python-version: "3.12"}
+      # Pruebas sintéticas que no requieren OCR, LibreOffice ni datos reales.
+      # Si falla un caso aquí, no ocultarlo bajo problemas de apt.
       - run: python -m pip install -r requirements-dev.txt
-      - run: python -m compileall -q app
-      - run: python -m pytest -q
+      - run: python -m pytest -q tests/test_javiera_irl_private_source_fingerprints.py tests/test_javiera_v195_editable_blocks.py tests/test_javiera_irl_integrity.py tests/test_javiera_irl_corrective_drafts.py tests/test_javiera_v196_pdf_preview_cache.py
+  backend_pdf:
+    name: PDF A4 independiente — diez documentos sintéticos
+    runs-on: ubuntu-24.04
+    timeout-minutes: 12
+    defaults: {run: {working-directory: apps/backend}}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with: {python-version: "3.12"}
+      - run: python -m pip install -r requirements-dev.txt
+      # El motor HTML -> PDF usa PyMuPDF, no LibreOffice. Cada PDF se
+      # inspecciona por tamaño A4, tipografía, texto, bordes y firmas.
+      - name: Verificar IRL completo — 13 riesgos, cinco imágenes y HTML aprobado
+        run: python -m pytest -q tests/test_javiera_irl_pdf_a4_source.py
+      - name: Verificar 10 PDF reales con geometría sintética
+        run: python ../../scripts/qa_javiera_v19_print_visual.py --output "$RUNNER_TEMP/javiera-pdf-independiente"
+      - name: Guardar evidencias PDF y capturas de cada página
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: galant-pdf-a4-independiente
+          path: ${{ runner.temp }}/javiera-pdf-independiente
+          if-no-files-found: warn
   frontend:
     runs-on: ubuntu-latest
     timeout-minutes: 15
@@ -54,7 +163,7 @@ jobs:
     steps:
       - uses: actions/checkout@v4
       - run: bash -n scripts/install-preview.sh scripts/diagnose.sh scripts/backup-preview.sh scripts/verify-restore-preview.sh scripts/update-preview.sh scripts/start-qa-preview.sh scripts/wait-for-final-postgres.sh
-      - run: python3 -m py_compile scripts/soak_24h.py scripts/qa_stack_smoke.py scripts/qa_operational_smoke.py scripts/qa_network_browser.py scripts/qa_v1010_browser.py scripts/qa_ux_2026_browser.py scripts/qa_v1501_focus_browser.py scripts/qa_v1502_scroll_browser.py scripts/qa_v1504_creator_browser.py
+      - run: python3 -m py_compile scripts/soak_24h.py scripts/qa_stack_smoke.py scripts/qa_operational_smoke.py scripts/qa_network_browser.py scripts/qa_v1010_browser.py scripts/qa_ux_2026_browser.py scripts/qa_v1501_focus_browser.py scripts/qa_v1502_scroll_browser.py scripts/qa_v1504_creator_browser.py scripts/qa_javiera_v16_browser.py scripts/qa_javiera_v165_workflow_browser.py scripts/qa_javiera_ux_bot.py scripts/qa_javiera_v196_simple_browser.py
       - name: Validate manual/automatic VPS deployment security contracts
         run: python3 scripts/qa_manual_deploy_contract.py
       - name: Validate automatic release gate with synthetic Git commits
@@ -70,6 +179,9 @@ jobs:
         run: |
           printf 'APP_SECRET=%s\nPOSTGRES_PASSWORD=%s\n' "$APP_SECRET" "$POSTGRES_PASSWORD" > .env.preview
           docker compose --env-file .env.preview -f docker-compose.preview.yml config --quiet
+          python3 scripts/prepare-javiera20-env.py "$RUNNER_TEMP/.env.javiera20"
+          docker compose --env-file .env.preview --env-file "$RUNNER_TEMP/.env.javiera20" \
+            -f docker-compose.preview.yml -f docker-compose.javiera20.yml config --quiet
           python3 - <<'PY'
           import json,subprocess
           cmd=["docker","compose","--env-file",".env.preview","-f","docker-compose.preview.yml","config","--format","json"]
@@ -168,7 +280,9 @@ jobs:
           PORT=18612
           SECURE_COOKIES=false
           ENV
-          mkdir -m 700 qa-storage
+          # El volumen privado pertenece al usuario galant del contenedor,
+          # igual que preview-storage en install-preview.sh.
+          sudo install -d -o 10001 -g 10001 -m 0700 qa-storage
           docker compose -p galant-post-qa --env-file .env.qa -f docker-compose.preview.yml -f docker-compose.qa.yml config --quiet
       - name: Build and start isolated QA services (restricted source file permissions)
         run: |
@@ -179,6 +293,25 @@ jobs:
           COMPOSE_PARALLEL_LIMIT=1 docker compose -p galant-post-qa --env-file .env.qa -f docker-compose.preview.yml -f docker-compose.qa.yml up -d --build db api worker frontend proxy
           docker compose -p galant-post-qa --env-file .env.qa -f docker-compose.preview.yml -f docker-compose.qa.yml exec -T api python -m app.cli init-db
           docker compose -p galant-post-qa --env-file .env.qa -f docker-compose.preview.yml -f docker-compose.qa.yml exec -T api sh -c 'test -r /srv/app/main.py && test -r /srv/app/cli.py'
+      - name: Verify private document storage as application user
+        run: |
+          set -Eeuo pipefail
+          docker compose -p galant-post-qa --env-file .env.qa -f docker-compose.preview.yml -f docker-compose.qa.yml exec -T api python - <<'PY'
+          import os, stat, tempfile
+          from pathlib import Path
+          from app.config import settings
+          root = settings().document_dir
+          assert root.stat().st_uid == os.geteuid() == 10001
+          assert stat.S_IMODE(root.stat().st_mode) == 0o700
+          with tempfile.TemporaryDirectory(dir=root, prefix=".qa-storage-") as folder:
+              path = Path(folder) / "probe.pdf"
+              with path.open("xb") as handle:
+                  handle.write(b"Synthetic private storage probe")
+              path.chmod(0o600)
+              assert path.read_bytes() == b"Synthetic private storage probe"
+              assert stat.S_IMODE(path.stat().st_mode) == 0o600
+          print("Private document storage verified for UID 10001, directory 0700 and file 0600")
+          PY
       - name: Seed two synthetic users in same org
         run: |
           set -Eeuo pipefail
@@ -228,10 +361,16 @@ jobs:
           python3 scripts/qa_stack_smoke.py --verify-only
       - uses: actions/setup-python@v5
         with: {python-version: "3.12"}
-      - name: Install browser verification dependencies
+      - name: Install Chromium without a second system-wide apt upgrade
         run: |
+          set -Eeuo pipefail
           python3 -m pip install 'playwright>=1.50,<2'
-          python3 -m playwright install --with-deps chromium
+          # GitHub-hosted Ubuntu runners already provide Chromium shared
+          # libraries. --with-deps invokes apt and previously failed during
+          # a temporary DNS outage, masking the application QA results.
+          # If a required runtime library is missing the browser test MUST
+          # fail rather than reporting a false positive.
+          python3 -m playwright install chromium
       - name: QA GALANT 15.0.4 - firma elegante en portada y móviles
         run: |
           set -Eeuo pipefail
@@ -280,13 +419,40 @@ jobs:
           export GALANT_QA_PASSWORD="$QA_SMOKE_PASSWORD"
           export GALANT_SCROLL_QA_OUTPUT="$RUNNER_TEMP/galant-scroll-qa"
           python3 scripts/qa_v1502_scroll_browser.py
-      - name: QA JAVIERA v16 - documentos y configuración (Chromium)
+      - name: QA JAVIERA v16.5 - ficha, PDF, reemisión y aislamiento (Chromium)
+        env:
+          GALANT_JAVIERA_QA_EMAIL: qa-admin@example.test
+          GALANT_JAVIERA_QA_REVIEWER_EMAIL: qa-reviewer@example.test
+        run: |
+          set -Eeuo pipefail
+          export GALANT_JAVIERA_QA_PASSWORD="$QA_SMOKE_PASSWORD"
+          python3 scripts/qa_javiera_v16_browser.py --url http://127.0.0.1:18612 --output "$RUNNER_TEMP/javiera-v16-browser"
+      - name: QA GALANT 19.6 — Modo Simple Excel-first y móvil
         env:
           GALANT_JAVIERA_QA_EMAIL: qa-admin@example.test
         run: |
           set -Eeuo pipefail
           export GALANT_JAVIERA_QA_PASSWORD="$QA_SMOKE_PASSWORD"
-          python3 scripts/qa_javiera_v16_browser.py --url http://127.0.0.1:18612 --output "$RUNNER_TEMP/javiera-v16-browser"
+          python3 scripts/qa_javiera_v196_simple_browser.py --url http://127.0.0.1:18612 --output "$RUNNER_TEMP/javiera-v196-simple"
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: galant-javiera-v196-simple
+          path: ${{ runner.temp }}/javiera-v196-simple
+          if-no-files-found: warn
+      - name: Bot UX JAVIERA - navegación, accesibilidad, IRL y móviles
+        env:
+          GALANT_JAVIERA_QA_EMAIL: qa-admin@example.test
+        run: |
+          set -Eeuo pipefail
+          export GALANT_JAVIERA_QA_PASSWORD="$QA_SMOKE_PASSWORD"
+          python3 scripts/qa_javiera_ux_bot.py --url http://127.0.0.1:18612 --output "$RUNNER_TEMP/javiera-ux-bot"
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: galant-javiera-ux-bot
+          path: ${{ runner.temp }}/javiera-ux-bot
+          if-no-files-found: warn
       - uses: actions/upload-artifact@v4
         if: always()
         with:
@@ -332,4 +498,5 @@ jobs:
           if [ -f .env.qa ]; then
             docker compose -p galant-post-qa --env-file .env.qa -f docker-compose.preview.yml -f docker-compose.qa.yml down --volumes --remove-orphans || true
           fi
-          rm -rf qa-storage .env.qa
+          sudo rm -rf -- qa-storage
+          rm -f .env.qa

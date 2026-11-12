@@ -13,6 +13,7 @@ from openpyxl.styles import Font, PatternFill
 from app.javiera_excel import (
     DOC_SHEETS, LayoutError, Q, excel_document, layout_summary,
     libreoffice_pdf, sheet_files, spanish_amount, validate_xlsx,
+    INDUCTION_FORM_START_ROWS, INDUCTION_MANUAL_BREAK_STARTS,
 )
 from app.javiera_layout_api import source_leaks
 from app.javiera_review import CHECKLISTS, specialty_for_code
@@ -36,7 +37,14 @@ def sample_xlsx() -> bytes:
         doc["A1"] = "DOCUMENTO DE PRUEBA"  # No hay datos personales reales.
         doc["A1"].font = Font(name="Arial", size=15, bold=True, color="FFFFFF")
         doc["A1"].fill = PatternFill("solid", fgColor="25466B")
-        doc.merge_cells("A1:D1")
+        # Entrega PTS no comparte el membrete genérico del resto:
+        # el Excel original usa A1:I2 y permite el título completo.
+        # Una prueba que comprimía el título en A1:D1 daba un
+        # falso fallo de impresión, sin representar el archivo fuente.
+        if code == "pts_receipt":
+            doc.merge_cells("A1:I2")
+        else:
+            doc.merge_cells("A1:D1")
         doc["A3"] = "NOMBRE DE TRABAJADOR:"
         doc["B3"] = "='Datos Contrato'!C17"
         doc["B4"] = "='Datos Contrato'!C5"
@@ -44,7 +52,7 @@ def sample_xlsx() -> bytes:
         doc["B5"] = "RUT"
         if code == "induction":
             doc["A119"] = "Recibí del contratista principal CONSTRUCTORA EJEMPLO LIMITADA."
-        doc.print_area = "A1:D15"
+        doc.print_area = "A1:I24" if code == "pts_receipt" else "A1:D15"
         doc.sheet_properties.pageSetUpPr.fitToPage = True
         doc.page_setup.fitToWidth = 1
         doc.page_setup.fitToHeight = 0
@@ -113,6 +121,31 @@ def test_amount_words_and_reviewer_specialties():
     assert specialty_for_code("irl") == "prevencion"
     assert len(CHECKLISTS["laboral"]) >= 5
     assert len(CHECKLISTS["prevencion"]) >= 5
+
+
+def test_salary_words_in_cached_excel_are_derived_from_current_salary():
+    from app.javiera_excel import dynamic_cached
+    sample = [("Seiscientos mil pesos.", "extra.salary_words")]
+    actual = {"contract": {"salary": "800000"}, "extra": {}}
+    assert dynamic_cached("Sueldo: Seiscientos mil pesos.", sample, actual) == "Sueldo: Ochocientos mil pesos."
+    actual["extra"]["salary_words"] = "Ochocientos mil pesos líquidos"
+    assert dynamic_cached("Sueldo: Seiscientos mil pesos.", sample, actual) == "Sueldo: Ochocientos mil pesos líquidos"
+
+
+def test_salary_words_matching_current_amount_are_not_false_example_leaks():
+    from openpyxl import load_workbook
+    wb = load_workbook(io.BytesIO(sample_xlsx()))
+    wb["Datos Contrato"]["C33"] = "Seiscientos mil pesos."
+    source = io.BytesIO()
+    wb.save(source)
+    with fitz.open() as pdf:
+        page = pdf.new_page()
+        page.insert_text((40, 40), "Sueldo: Seiscientos mil pesos.")
+        output = pdf.tobytes()
+    data = valid_data()
+    assert source_leaks(source.getvalue(), output, data) == []
+    data["contract"]["salary"] = "800000"
+    assert "C33" in source_leaks(source.getvalue(), output, data)
 
 
 def test_reject_bad_excel_data():
@@ -225,6 +258,67 @@ def test_mandante_references_are_replaced_in_induction_and_email_link_allowed():
 
 
 
+def test_pts_receipt_source_merges_match_real_print_format():
+    from app.javiera_excel import DOC_SHEETS, sheet_files, Q
+    with ZipFile(io.BytesIO(sample_xlsx())) as source:
+        root = ET.fromstring(source.read(sheet_files(source)[DOC_SHEETS["pts_receipt"]]))
+        merged = [m.get("ref") for m in root.findall(".//" + Q("mergeCell"))]
+        assert "A1:I2" in merged
+        assert "A1:D1" not in merged
+    # Este ensayo reproduce el encabezado ancho del archivo original,
+    # no cambia estilos ni documentos de otros formatos.
+
+
+def test_pts_receipt_print_only_clones_cell_style_for_shrink_to_fit():
+    from app.javiera_excel import DOC_SHEETS, sheet_files, Q
+    source = sample_xlsx()
+    printed = excel_document(source, "pts_receipt", valid_data())
+    with ZipFile(io.BytesIO(source)) as old, ZipFile(io.BytesIO(printed)) as new:
+        original_styles = ET.fromstring(old.read("xl/styles.xml"))
+        temporary_styles = ET.fromstring(new.read("xl/styles.xml"))
+        old_styles = original_styles.find(Q("cellXfs"))
+        new_styles = temporary_styles.find(Q("cellXfs"))
+        assert len(new_styles) == len(old_styles) + 1
+        title = ET.fromstring(new.read(sheet_files(new)[DOC_SHEETS["pts_receipt"]]))
+        a1 = title.find(".//" + Q("c") + "[@r='A1']")
+        assert a1.get("s") == str(len(new_styles) - 1)
+        original_title_style = int(ET.fromstring(
+            old.read(sheet_files(old)[DOC_SHEETS["pts_receipt"]])
+        ).find(".//" + Q("c") + "[@r='A1']").get("s", "0"))
+        old_xf = list(old_styles)[original_title_style]
+        new_xf = list(new_styles)[int(a1.get("s"))]
+        for key in ("fontId", "fillId", "borderId", "numFmtId"):
+            assert new_xf.get(key) == old_xf.get(key), key
+        assert new_xf.find(Q("alignment")).get("shrinkToFit") == "1"
+        # No tocar el estilo en el libro histórico importado.
+        assert old.read("xl/styles.xml") == source_style_xml(source)
+
+
+def source_style_xml(workbook: bytes) -> bytes:
+    with ZipFile(io.BytesIO(workbook)) as archive:
+        return archive.read("xl/styles.xml")
+
+
+def test_pts_receipt_does_not_emit_pdf_with_clipped_role_heading(monkeypatch):
+    from app import javiera_excel
+
+    def clipped_pdf(_xlsx):
+        pdf = fitz.open()
+        page = pdf.new_page(width=595, height=842)
+        page.insert_text((40, 70), "ENTREGA PTS DE CARPINTER", fontsize=13)
+        page.insert_text((40, 100), "EMPRESA DE PRUEBA", fontsize=10)
+        page.insert_text((40, 130), "PERSONA NUEVA DE PRUEBA", fontsize=10)
+        value = pdf.tobytes()
+        pdf.close()
+        return value
+
+    monkeypatch.setattr(javiera_excel, "libreoffice_pdf", clipped_pdf)
+    with pytest.raises(LayoutError, match="título ENTREGA PTS se recortó"):
+        javiera_excel.pdf_from_workbook(
+            sample_xlsx(), "pts_receipt", valid_data(), preview=True
+        )
+
+
 @pytest.mark.skipif(shutil.which("libreoffice") is None, reason="Requiere LibreOffice Calc en CI")
 @pytest.mark.parametrize("code",list(DOC_SHEETS))
 def test_ten_original_document_pdfs_with_synthetic_person_only(code):
@@ -260,7 +354,13 @@ def test_ten_original_document_pdfs_with_synthetic_person_only(code):
                 assert block[2]<=page.rect.width+1
                 assert block[3]<=page.rect.height+1
         pages=" ".join(p.get_text() for p in document)
-        assert "DOCUMENTO DE PRUEBA" in pages
+        if code == "pts_receipt":
+            # The original generic heading is intentionally replaced with the
+            # specific document type and actual worker role.
+            assert "ENTREGA PTS DE CARPINTERO" in pages
+            assert "DOCUMENTO DE PRUEBA" not in pages
+        else:
+            assert "DOCUMENTO DE PRUEBA" in pages
         assert "PERSONA ANTIGUA" not in pages
         assert "VISTA PREVIA" in pages
 
@@ -298,6 +398,12 @@ def test_irl_pdf_keeps_every_approved_risk_even_past_12_rows(risk_rows):
     ("ppe_delivery", "D12"),
     ("extension_addendum", "A5"),
     ("sworn_declaration", "A4"),
+    ("pts_receipt", "A1"),
+    ("pts_receipt", "A3"),
+    ("pts_receipt", "A23"),
+    ("pts_receipt", "F23"),
+    ("pts_receipt", "A24"),
+    ("pts_receipt", "F24"),
 ])
 def test_template_edits_cannot_override_verified_business_fields(code, coordinate):
     from app.javiera_excel import PROTECTED_DOCUMENT_CELLS
@@ -375,3 +481,188 @@ def test_employer_and_worker_example_leaks_are_blocked_in_emitted_pdf():
     good=valid.tobytes()
     valid.close()
     assert source_leaks(workbook,good,data)==[]
+
+
+def test_real_attestation_date_replaces_cached_today_only():
+    from app.javiera_excel import replace_frozen_today
+    original = "En Concepción, con fecha 23/10/2026, declaro haber recibido el reglamento."
+    data = {"event": {"date": "2026-11-09"}}
+    result = replace_frozen_today(original, data, '"con fecha "&TEXT(TODAY(),"dd/mm/yyyy")')
+    assert "con fecha 09/11/2026" in result
+    assert "23/10/2026" not in result
+    assert "declaro haber recibido el reglamento" in result
+    # A document without TODAY() is not silently rewritten.
+    assert replace_frozen_today(original, data, "='Datos Contrato'!C40") == original
+    with pytest.raises(LayoutError, match="fecha efectiva"):
+        replace_frozen_today(original, {"event": {"date": ""}}, "TODAY()")
+
+
+def test_pts_receipt_signatures_use_correct_people_and_ruts():
+    from app.javiera_excel import cell_text, shared_strings
+    data = valid_data()
+    data["extra"]["representative_name"] = "REPRESENTANTE DOCUMENTAL SINTÉTICO"
+    data["extra"]["representative_rut"] = "12.345.678-5"
+    result = excel_document(sample_xlsx(), "pts_receipt", data)
+    with ZipFile(io.BytesIO(result)) as archive:
+        sheet = ET.fromstring(archive.read(sheet_files(archive)["ENTREGA PTS"]))
+        strings = shared_strings(archive)
+        def value(address):
+            cell = sheet.find(".//" + Q("c") + "[@r='" + address + "']")
+            assert cell is not None, address
+            return cell_text(cell, strings)
+        assert value("A23") == "REPRESENTANTE DOCUMENTAL SINTÉTICO"
+        assert value("F23") == data["worker"]["name"]
+        assert value("A24") == "RUT: 12.345.678-5"
+        assert value("F24") == "RUT: " + data["worker"]["rut"]
+        assert "Nacionalidad" not in value("A24")
+        assert "Estado civil" not in value("F24")
+
+
+def test_pts_receipt_cargo_is_worker_role_not_employer_specialty():
+    from openpyxl import load_workbook
+    from app.javiera_excel import cell_text, shared_strings
+    wb = load_workbook(io.BytesIO(sample_xlsx()))
+    wb["ENTREGA PTS"]["A3"] = (
+        "Declaro recepción del PTS correspondiente al cargo de CARPINTERIA. "
+        "Mantengo todas las obligaciones preventivas del documento."
+    )
+    data = valid_data()
+    data["role"] = "PINTOR"
+    data["extra"]["specialty"] = "CARPINTERIA"
+    wb_bytes = io.BytesIO()
+    wb.save(wb_bytes)
+    converted = excel_document(wb_bytes.getvalue(), "pts_receipt", data)
+    with ZipFile(io.BytesIO(converted)) as zipfile:
+        root = ET.fromstring(zipfile.read(sheet_files(zipfile)["ENTREGA PTS"]))
+        strings = shared_strings(zipfile)
+        def txt(coord):
+            return cell_text(root.find(".//" + Q("c") + "[@r='" + coord + "']"), strings)
+        assert txt("A1") == "ENTREGA PTS DE PINTOR"
+        assert "correspondiente al cargo de PINTOR." in txt("A3")
+        assert "correspondiente al cargo de CARPINTERIA." not in txt("A3")
+
+
+
+def test_v18_print_profile_has_scoped_range_and_a4_without_forcing_one_page():
+    from app.javiera_excel import DOC_SHEETS, DOCUMENT_PRINT_AREAS, set_document_print_profile
+    assert len(DOCUMENT_PRINT_AREAS) == 10
+    for code, sheet_name in DOC_SHEETS.items():
+        root = ET.Element(Q("worksheet"))
+        book = ET.Element(Q("workbook"))
+        ET.SubElement(book, Q("sheets"))
+        set_document_print_profile(root, book, code, sheet_name)
+        setup = root.find(Q("pageSetup"))
+        assert setup is not None
+        assert setup.attrib["paperSize"] == "9"
+        assert setup.attrib["fitToWidth"] == "1"
+        assert setup.attrib["fitToHeight"] == "0"
+        assert root.find(Q("sheetPr")).find(Q("pageSetUpPr")).get("fitToPage") == "1"
+        print_area = book.find(Q("definedNames")).find(Q("definedName"))
+        assert print_area.attrib == {"name": "_xlnm.Print_Area", "localSheetId": "0"}
+        assert print_area.text.startswith("'" + sheet_name + "'!")
+        assert "$" in print_area.text
+        assert DOCUMENT_PRINT_AREAS[code].startswith("A1:")
+
+
+def test_v18_excel_document_emits_print_range_in_output_zip():
+    data = valid_data()
+    raw = excel_document(sample_xlsx(), "labor_contract", data)
+    with ZipFile(io.BytesIO(raw)) as archive:
+        root = ET.fromstring(archive.read("xl/workbook.xml"))
+        print_names = root.find(Q("definedNames"))
+        assert print_names is not None
+        entries = [entry for entry in print_names.findall(Q("definedName"))
+                   if entry.get("name") == "_xlnm.Print_Area"]
+        assert len(entries) == 1
+        # The source fixture explicitly specifies A1:D15. Never override it.
+        assert "$A$1:$D$15" in entries[0].text
+        page = ET.fromstring(archive.read(sheet_files(archive)["Contrato Imprimible"]))
+        assert page.find(Q("pageSetup")).get("fitToHeight") == "0"
+
+
+def test_v18_recover_mild_negative_top_and_left_without_cropping():
+    from app.javiera_excel import normalize_pdf_a4
+    source = fitz.open()
+    page = source.new_page(width=400, height=400)
+    page.insert_text((-10, 4), "INICIO TEXTO SINTETICO", fontsize=10)
+    page.insert_text((30, 30), "NORMAL SINTETICO", fontsize=12)
+    content = source.tobytes()
+    source.close()
+    pdf = normalize_pdf_a4(content)
+    with fitz.open(stream=pdf, filetype="pdf") as document:
+        assert document.page_count == 1
+        page = document[0]
+        text = page.get_text()
+        assert "INICIO TEXTO SINTETICO" in text
+        assert "NORMAL SINTETICO" in text
+        assert round(page.rect.width) == 595
+        assert round(page.rect.height) == 842
+        assert all(b[0] >= 0 and b[1] >= 0 and
+                   b[2] <= page.rect.width and b[3] <= page.rect.height
+                   for b in page.get_text("blocks"))
+
+
+def test_v182_induction_ten_sections_get_print_breaks_and_repeated_header():
+    """Each of the original ten subforms begins on a fresh A4 page."""
+    from openpyxl import load_workbook
+
+    source = load_workbook(io.BytesIO(sample_xlsx()))
+    doc = source["INDUCCION PREVENCION"]
+    doc["A1"] = "DEPARTAMENTO DE PREVENCIÓN DE RIESGOS"
+    for index, start in enumerate(INDUCTION_FORM_START_ROWS, start=1):
+        doc[f"A{start}"] = f"FORMULARIO INDUCCIÓN {index}: TEXTO COMPLETO DE PRUEBA"
+    doc.print_area = "A1:D474"
+    memory = io.BytesIO()
+    source.save(memory)
+    data = valid_data()
+    data["extra"]["principal_company"] = "MANDANTE SINTÉTICA SPA"
+    generated = excel_document(memory.getvalue(), "induction", data)
+    with ZipFile(io.BytesIO(generated)) as archive:
+        target = ET.fromstring(archive.read(sheet_files(archive)["INDUCCION PREVENCION"]))
+        breaks = [int(item.get("id")) for item in target.findall(
+            ".//" + Q("rowBreaks") + "/" + Q("brk"))]
+        assert breaks == [row - 1 for row in INDUCTION_MANUAL_BREAK_STARTS]
+        names = ET.fromstring(archive.read("xl/workbook.xml")).findall(
+            ".//" + Q("definedName"))
+        titles = [item.text for item in names
+                  if item.get("name") == "_xlnm.Print_Titles"]
+        assert titles == ["'INDUCCION PREVENCION'!$1:$8"]
+        assert target.find(Q("pageSetup")).get("fitToHeight") == "0"
+        assert target.find(Q("pageSetup")).get("paperSize") == "9"
+
+
+def test_v182_induction_small_fixture_has_no_phantom_print_pages():
+    """A generic form is not falsely divided into ten empty documents."""
+    data = valid_data()
+    data["extra"]["principal_company"] = "MANDANTE SINTÉTICA SPA"
+    generated = excel_document(sample_xlsx(), "induction", data)
+    with ZipFile(io.BytesIO(generated)) as archive:
+        target = ET.fromstring(archive.read(sheet_files(archive)["INDUCCION PREVENCION"]))
+        assert not target.findall(".//" + Q("rowBreaks") + "/" + Q("brk"))
+        names = ET.fromstring(archive.read("xl/workbook.xml")).findall(
+            ".//" + Q("definedName"))
+        assert all(item.get("name") != "_xlnm.Print_Titles" for item in names)
+
+
+@pytest.mark.skipif(shutil.which("libreoffice") is None and shutil.which("soffice") is None,
+                    reason="Requiere LibreOffice para validar la paginación real")
+def test_v182_induction_pdf_has_no_empty_sections():
+    from openpyxl import load_workbook
+
+    book = load_workbook(io.BytesIO(sample_xlsx()))
+    doc = book["INDUCCION PREVENCION"]
+    doc["A1"] = "DEPARTAMENTO DE PREVENCIÓN DE RIESGOS"
+    for index, start in enumerate(INDUCTION_FORM_START_ROWS, start=1):
+        doc[f"A{start}"] = f"FORMULARIO DOCUMENTAL {index} - DESCRIPCIÓN DE SEGURIDAD"
+    doc.print_area = "A1:D474"
+    memory = io.BytesIO()
+    book.save(memory)
+    data = valid_data()
+    data["extra"]["principal_company"] = "MANDANTE SINTÉTICA SPA"
+    pdf = libreoffice_pdf(excel_document(memory.getvalue(), "induction", data))
+    with fitz.open(stream=pdf, filetype="pdf") as document:
+        assert document.page_count >= 10
+        assert all(page.rect.width == 595 and page.rect.height == 842 for page in document)
+        all_text = " ".join(page.get_text() for page in document)
+        assert all(f"FORMULARIO DOCUMENTAL {index}" in all_text for index in range(1, 11))
+        assert all(len(page.get_text().strip()) >= 30 for page in document)

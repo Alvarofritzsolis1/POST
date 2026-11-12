@@ -34,9 +34,23 @@ if [[ ! "$port" =~ ^[0-9]{1,5}$ ]]; then
     exit 1
 fi
 
-compose=(docker compose --env-file .env.preview -f docker-compose.preview.yml)
 previous_ref="$(git rev-parse HEAD)"
 switched=0
+previous_has_calc=0
+[[ ! -f docker-compose.javiera20.yml ]] || previous_has_calc=1
+
+configure_compose() {
+    compose=(docker compose --env-file .env.preview)
+    calc_services=()
+    if [[ -f docker-compose.javiera20.yml ]]; then
+        python3 scripts/prepare-javiera20-env.py .env.javiera20
+        compose+=(--env-file .env.javiera20 -f docker-compose.preview.yml -f docker-compose.javiera20.yml)
+        calc_services=(javiera-calc)
+    else
+        compose+=(-f docker-compose.preview.yml)
+    fi
+}
+configure_compose
 
 wait_for_health() {
     local expected_version health attempt expected_revision
@@ -58,8 +72,12 @@ rollback() {
     trap - EXIT ERR
     if (( status != 0 && switched )); then
         echo "La actualización falló; restaurando ${previous_ref}." >&2
+        if (( ! previous_has_calc && ${#calc_services[@]} )); then
+            "${compose[@]}" stop javiera-calc || true
+        fi
         export SOURCE_COMMIT="$previous_ref"
         if git checkout --detach "$previous_ref" \
+            && configure_compose \
             && "${compose[@]}" config --quiet \
             && COMPOSE_PARALLEL_LIMIT=1 "${compose[@]}" up -d --build db api worker frontend proxy \
             && "${compose[@]}" exec -T api python -m app.cli init-db \
@@ -77,6 +95,7 @@ git fetch --no-tags --depth=1 origin "$target_ref"
 git cat-file -e "${target_ref}^{commit}"
 git checkout --detach "$target_ref"
 switched=1
+configure_compose
 "${compose[@]}" config --quiet
 # Antes de sustituir contenedores, restaurar el respaldo en PostgreSQL aislado.
 # Un fallo de respaldo/restauración aborta la actualización; rollback restaura
@@ -91,13 +110,35 @@ fi
 bash scripts/verify-restore-preview.sh "$backup_path"
 backup_sha256="$(sha256sum "$backup_path/postgres.dump" | cut -d' ' -f1)"
 export SOURCE_COMMIT="$target_ref"
-COMPOSE_PARALLEL_LIMIT=1 "${compose[@]}" build api worker frontend
+COMPOSE_PARALLEL_LIMIT=1 "${compose[@]}" build api worker frontend "${calc_services[@]}"
 # Freeze writers before reprojecting legacy attendance. Old rows remain intact.
 # On failure the EXIT trap restores the previous containers; no volumes are removed.
 "${compose[@]}" stop api worker
 "${compose[@]}" run --rm --no-deps api python -m app.cli migrate-db --verified-backup-sha256 "$backup_sha256"
-COMPOSE_PARALLEL_LIMIT=1 "${compose[@]}" up -d --no-build db api worker frontend proxy
+COMPOSE_PARALLEL_LIMIT=1 "${compose[@]}" up -d --no-build db "${calc_services[@]}" api worker frontend proxy
 wait_for_health "$target_ref"
+# Check the exact build and additive migration, and exercise the authenticated
+# Calc transport with a disposable workbook. No production dossier is created.
+"${compose[@]}" exec -T api python -m app.deploy_verify --expected-commit "$target_ref"
+python3 - "$port" "$target_ref" <<'PY'
+import json, re, sys
+from urllib.request import urlopen
+base = "http://127.0.0.1:" + sys.argv[1]
+with urlopen(base + "/api/v1/health", timeout=5) as response:
+    health = json.load(response)
+if health.get("status") != "ok" or health.get("commit") != sys.argv[2]:
+    raise SystemExit("El proxy no está sirviendo el commit solicitado")
+with urlopen(base + "/", timeout=5) as response:
+    html = response.read().decode()
+assets = re.findall(r'(?:src|href)="(/assets/[^"<>]+\.(?:js|css))"', html)
+if 'id="root"' not in html or not assets:
+    raise SystemExit("La portada no contiene la aplicación compilada")
+for asset in assets:
+    with urlopen(base + asset, timeout=5) as response:
+        if response.status != 200 or not response.read(1):
+            raise SystemExit("Un recurso del frontend no está disponible")
+print(json.dumps({"proxy": "ok", "frontend_assets": len(assets), **health}))
+PY
 switched=0
 trap - EXIT
 echo "GALANT actualizado a ${target_ref}."

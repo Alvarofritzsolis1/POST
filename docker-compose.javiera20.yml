@@ -7,7 +7,7 @@ services:
     depends_on:
       javiera-calc: {condition: service_healthy}
   javiera-calc:
-    build: {context: ., dockerfile: apps/backend/Dockerfile}
+    build: {context: ., dockerfile: apps/backend/Dockerfile, args: {SOURCE_COMMIT: "${SOURCE_COMMIT:-unknown}"}}
     command: ["/usr/bin/python3", "/srv/app/javiera_calc_service.py"]
     restart: unless-stopped
     environment:
@@ -20,6 +20,9 @@ services:
     pids_limit: 160
     security_opt: [no-new-privileges:true]
     cap_drop: [ALL]
+    logging:
+      driver: json-file
+      options: {max-size: "10m", max-file: "3"}
     healthcheck:
       test: ["CMD", "/usr/bin/python3", "-c", "import urllib.request;urllib.request.urlopen('http://127.0.0.1:8001/health',timeout=3)"]
       interval: 10s

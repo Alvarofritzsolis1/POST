@@ -106,6 +106,16 @@ El resultado comprobado de la sesión QA es **0 expedientes activos y 0 plantill
 
 ## Preparación de despliegue y rollback
 
+### Integración para el despliegue solicitado
+
+Se incorporó `main` hasta GALANT 19.6 (`9d9d07b`) para conservar sus migraciones, permisos y mejoras de los demás módulos. La configuración habitual abre el nuevo editor Excel. Las organizaciones que aún no han importado su maestro conservan el generador simple existente; importar el maestro activa el flujo Excel de GALANT 20 en esa organización. Las vistas históricas siguen disponibles para comprobación y rollback antes de la importación.
+
+El actualizador ahora activa `docker-compose.javiera20.yml`, crea una credencial aleatoria de Calc exclusivamente en `.env.javiera20` (0600, ignorado por Git) y reconstruye el servicio privado. Mantiene el respaldo PostgreSQL/archivos y la restauración aislada antes de detener escritores. Si falla la actualización, recompone los contenedores anteriores y detiene el motor adicional cuando no pertenecía a la versión anterior.
+
+Después de migrar comprueba commit, tablas, almacenamiento privado, bloqueo anónimo, recálculo entre hojas y exportación exclusiva de la hoja solicitada mediante un Excel sintético. También verifica portada y recursos del frontend a través del proxy. Estas pruebas no crean expedientes, aprobaciones ni emisiones en producción. La CI reproduce el arranque de API y Calc con la imagen de despliegue y datos sintéticos.
+
+El despliegue del código no ejecuta por sí solo un reinicio de datos ni publica formatos. La importación y el reinicio deben conservar la trazabilidad de la organización y su respaldo; los bloqueos de CARPINTERO e inducción siguen vigentes.
+
 La rama dedicada contiene la versión `20.0.0-rc1`; la identificación exacta se entrega en `REVISION.txt`. No fusionar/activar la migración completa mientras no se acepten sus límites y se resuelvan los bloqueos aplicables.
 
 1. Seguir el procedimiento existente de respaldo de PostgreSQL/documentos y ensayo de restauración del repositorio. Conservar el commit y las imágenes de la versión anterior.

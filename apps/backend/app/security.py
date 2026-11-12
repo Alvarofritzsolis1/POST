@@ -60,8 +60,29 @@ def authorized_user(request: Request, db: Session = Depends(get_db)) -> User:
     if payload.get("ver", 0) != (member.session_version if member else 0):
         raise HTTPException(401, "La sesión fue revocada. Inicia sesión nuevamente")
     db.info["network_auth"] = (user.id, payload.get("ver", 0))
-    if user.role not in {"admin", "administrative", "resident"}:
+    if user.role not in {"admin", "administrative", "resident", "doc_reviewer"}:
         raise HTTPException(403, "Perfil anterior: un administrador debe asignarte uno de los tres perfiles vigentes")
+    if user.role == "doc_reviewer":
+        # Restrict reviewers to the explicitly-scoped document review API.
+        path = request.url.path
+        # Solo recursos de revisión. No abrir rutas generales de JAVIERA
+        # ni expedientes operativos a este perfil.
+        reviewer_read = (
+            path.startswith("/api/v1/javiera/v17/review/") or
+            (request.method == "GET" and path in {
+                "/api/v1/javiera/admin/reviews/checklists",
+                "/api/v1/javiera/v195/irl-blocks/review-queue",
+            }) or
+            (request.method == "GET" and
+             path.startswith("/api/v1/javiera/admin/reviews/signoff/"))
+        )
+        reviewer_write = (
+            request.method == "POST" and
+            path == "/api/v1/javiera/admin/reviews/signoff"
+        )
+        if not (reviewer_read or reviewer_write or
+                path in {"/api/v1/auth/me", "/api/v1/auth/logout"}):
+            raise HTTPException(403, "El revisor solo puede acceder a la revisión documental")
     if user.role == "resident" and not (request.url.path.startswith("/api/v1/network/") or
             request.url.path in {"/api/v1/auth/me", "/api/v1/auth/logout"}):
         raise HTTPException(403, "El residente solo tiene acceso a Red de Obras")
@@ -95,7 +116,7 @@ def editor(user: User = Depends(authorized_user)) -> User:
 
 
 def document_reviewer(user: User = Depends(authorized_user)) -> User:
-    if user.role not in {"admin"}:
+    if user.role not in {"admin", "doc_reviewer"}:
         raise HTTPException(403, "Sin permiso de revisión documental")
     return user
 
