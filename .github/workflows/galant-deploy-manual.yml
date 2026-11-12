@@ -1,9 +1,17 @@
-name: GALANT - Desplegar VPS (un clic)
+name: GALANT - Verificar configuración del VPS
 
 # ÚNICO disparador del despliegue: acción manual sobre main.
 # No habilitar push, pull_request ni schedule en este archivo.
 on:
   workflow_dispatch:
+    inputs:
+      operation:
+        type: choice
+        options: [inspect, import_reference]
+        default: inspect
+      reference_sha256:
+        type: string
+        default: 4f063b135d5e9c0d7f9806b57d1cd340bd2ecac78fed77345ffa7ccabbead292
 
 permissions:
   contents: read
@@ -14,16 +22,9 @@ concurrency:
   cancel-in-progress: false
 
 jobs:
-  pruebas:
-    name: Verificar backend, frontend, respaldos y QA aislada
-    uses: ./.github/workflows/ci.yml
-    permissions:
-      contents: read
-
   desplegar:
     name: Desplegar GALANT con respaldo y rollback
-    needs: pruebas
-    if: ${{ github.event_name == 'workflow_dispatch' && github.ref == 'refs/heads/main' }}
+    if: ${{ github.event_name == 'workflow_dispatch' && github.ref == 'refs/heads/codex/galant-20-vps-verify' }}
     runs-on: ubuntu-latest
     timeout-minutes: 30
 
@@ -37,15 +38,17 @@ jobs:
       VPS_PORT: ${{ secrets.VPS_PORT || vars.VPS_PORT || '22' }}
       VPS_SSH_KEY: ${{ secrets.VPS_SSH_KEY }}
       VPS_KNOWN_HOSTS: ${{ secrets.VPS_KNOWN_HOSTS }}
-      DEPLOY_SHA: ${{ github.sha }}
+      DEPLOY_SHA: a393a073e27849bf65e42a505f0e775bd9b77d60
+      OPERATION: ${{ inputs.operation }}
+      REFERENCE_SHA256: ${{ inputs.reference_sha256 }}
 
     steps:
       - name: Comprobar autorización y configuración SSH
         shell: bash
         run: |
           set -Eeuo pipefail
-          if [[ "$GITHUB_REF" != "refs/heads/main" ]]; then
-            echo "::error::Solo se despliega la rama main."
+          if [[ "$GITHUB_REF" != "refs/heads/codex/galant-20-vps-verify" ]]; then
+            echo "::error::Esta comprobación requiere la rama de operaciones autorizada."
             exit 1
           fi
           if [[ ! "$DEPLOY_SHA" =~ ^[0-9a-f]{40}$ ]]; then
@@ -75,38 +78,40 @@ jobs:
           chmod 600 "$RUNNER_TEMP/galant_vps_key" "$RUNNER_TEMP/galant_known_hosts"
           ssh-keygen -y -f "$RUNNER_TEMP/galant_vps_key" > /dev/null
 
-      - name: Actualizar VPS usando commit exacto y respaldo verificado
+      - name: Verificar inventario sin mostrar datos personales
         shell: bash
         run: |
           set -Eeuo pipefail
-          ssh_port="${VPS_PORT:-22}"
+          [[ "$REFERENCE_SHA256" =~ ^[0-9a-f]{64}$ ]] || exit 64
+          [[ "$OPERATION" == "inspect" ]] || { echo "Operación de modificación aún no habilitada" >&2; exit 64; }
           ssh -i "$RUNNER_TEMP/galant_vps_key" \
-            -o BatchMode=yes \
-            -o IdentitiesOnly=yes \
-            -o StrictHostKeyChecking=yes \
+            -o BatchMode=yes -o IdentitiesOnly=yes -o StrictHostKeyChecking=yes \
             -o UserKnownHostsFile="$RUNNER_TEMP/galant_known_hosts" \
-            -o ConnectTimeout=15 \
-            -p "$ssh_port" \
-            "$VPS_USER@$VPS_HOST" \
-            "bash -s -- '$DEPLOY_SHA'" <<'REMOTE'
-          set -Eeuo pipefail
-          target_ref="$1"
-          [[ "$target_ref" =~ ^[0-9a-f]{40}$ ]] || exit 64
-          cd /opt/galant-post
-          # Si main cambió después del clic, detener antes de modificar el VPS.
-          main_ref="$(git ls-remote origin refs/heads/main | awk 'NR == 1 {print $1}')"
-          [[ "$main_ref" == "$target_ref" ]] || {
-            echo "La rama main cambió. Vuelve a ejecutar el despliegue manual para la última versión." >&2
-            exit 1
-          }
-          git fetch --no-tags --depth=1 origin "$target_ref"
-          bootstrap_script="/tmp/galant-post-update-${target_ref}.sh"
-          trap 'rm -f "$bootstrap_script"' EXIT
-          git show "${target_ref}:scripts/update-preview.sh" > "$bootstrap_script"
-          # Incluye respaldo PostgreSQL + PDF, restauración aislada, migraciones,
-          # reconstrucción de contenedores, health check y rollback de código.
-          GALANT_DEPLOY_DIR=/opt/galant-post bash "$bootstrap_script" "$target_ref"
-          REMOTE
+            -o ConnectTimeout=15 -p "${VPS_PORT:-22}" "$VPS_USER@$VPS_HOST" \
+            "cd /opt/galant-post && docker compose --env-file .env.preview -f docker-compose.preview.yml exec -T api python - '$REFERENCE_SHA256' '$DEPLOY_SHA'" <<'PYTHON'
+          import json, sys
+          from sqlalchemy import select, func
+          from app.db import SessionLocal
+          from app.models import Organization, User
+          from app.javiera_models import JavieraExcelLayout, JavieraDossier
+          from app.javiera_v166_models import JavieraLocalDossier
+          from app.javiera_workbook_models import JavieraWorkbookHead
+          from app.version import VERSION, SOURCE_COMMIT
+          assert VERSION == '20.0.0-rc1' and SOURCE_COMMIT == sys.argv[2], 'Versión distinta a la solicitada'
+          with SessionLocal() as db:
+              reference = db.scalars(select(JavieraExcelLayout).where(JavieraExcelLayout.workbook_sha256 == sys.argv[1])).all()
+              orgs = db.scalars(select(Organization)).all()
+              print(json.dumps({
+                  'version': VERSION, 'commit': SOURCE_COMMIT,
+                  'organizations': len(orgs),
+                  'native_workspaces': db.scalar(select(func.count()).select_from(JavieraWorkbookHead)),
+                  'matching_reference_files': len({r.workbook_path for r in reference}),
+                  'matching_reference_organizations': len({r.org_id for r in reference}),
+                  'enabled_administrators': db.scalar(select(func.count()).select_from(User).where(User.role == 'admin', User.enabled.is_(True))),
+                  'historical_dossiers': db.scalar(select(func.count()).select_from(JavieraDossier)),
+                  'documentary_dossiers': db.scalar(select(func.count()).select_from(JavieraLocalDossier)),
+              }))
+          PYTHON
 
       - name: Limpiar archivos de credenciales temporales
         if: always()
