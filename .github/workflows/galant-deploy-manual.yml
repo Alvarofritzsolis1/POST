@@ -7,8 +7,16 @@ on:
     inputs:
       operation:
         type: choice
-        options: [inspect, import_reference]
+        options: [inspect, prepare_transfer, append_transfer, complete_transfer]
         default: inspect
+      transfer_id:
+        type: string
+      chunk_index:
+        type: string
+      total_parts:
+        type: string
+      chunk:
+        type: string
       reply_certificate:
         type: string
         required: false
@@ -44,9 +52,16 @@ jobs:
       DEPLOY_SHA: a393a073e27849bf65e42a505f0e775bd9b77d60
       REPLY_CERTIFICATE: ${{ inputs.reply_certificate }}
       OPERATION: ${{ inputs.operation }}
+      TRANSFER_ID: ${{ inputs.transfer_id }}
+      CHUNK_INDEX: ${{ inputs.chunk_index }}
+      TOTAL_PARTS: ${{ inputs.total_parts }}
+      CHUNK: ${{ inputs.chunk }}
       REFERENCE_SHA256: ${{ inputs.reference_sha256 }}
 
     steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
       - name: Comprobar autorización y configuración SSH
         shell: bash
         run: |
@@ -83,6 +98,7 @@ jobs:
           ssh-keygen -y -f "$RUNNER_TEMP/galant_vps_key" > /dev/null
 
       - name: Verificar inventario sin mostrar datos personales
+        if: ${{ inputs.operation == 'inspect' }}
         shell: bash
         run: |
           set -Eeuo pipefail
@@ -133,6 +149,27 @@ jobs:
           base64 -w0 "$RUNNER_TEMP/report.sealed"
           printf '\n'
           rm -f "$report_file" "$RUNNER_TEMP/reply-cert.pem" "$RUNNER_TEMP/report.sealed"
+
+      - name: Inicialización privada con transferencia cifrada
+        if: ${{ inputs.operation != 'inspect' }}
+        shell: bash
+        run: |
+          set -Eeuo pipefail
+          python3 - <<'PY'
+          import base64,json,os,shlex,subprocess
+          from pathlib import Path
+          payload={key:os.environ.get(env,"") for key,env in {
+              "operation":"OPERATION","transfer_id":"TRANSFER_ID","chunk_index":"CHUNK_INDEX",
+              "total_parts":"TOTAL_PARTS","chunk":"CHUNK"}.items()}
+          encoded=base64.b64encode(json.dumps(payload).encode()).decode()
+          folder=Path(os.environ['RUNNER_TEMP'])
+          remote="cd /opt/galant-post && "+shlex.join(['python3','-',encoded])
+          subprocess.run(['ssh','-i',str(folder/'galant_vps_key'),'-o','BatchMode=yes',
+              '-o','IdentitiesOnly=yes','-o','StrictHostKeyChecking=yes',
+              '-o','UserKnownHostsFile='+str(folder/'galant_known_hosts'),'-o','ConnectTimeout=15',
+              '-p',os.environ.get('VPS_PORT') or '22',os.environ['VPS_USER']+'@'+os.environ['VPS_HOST'],
+              remote],input=Path('scripts/galant20_private_setup.py').read_bytes(),check=True)
+          PY
 
       - name: Limpiar archivos de credenciales temporales
         if: always()
