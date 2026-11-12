@@ -51,6 +51,14 @@ def main():
     folder = parent / ident
     if folder.is_symlink():
         raise RuntimeError("Transferencia privada inválida")
+    if operation == "verify_master":
+        output = run(COMPOSE + ["exec", "-T", "api", "python", "-", EXPECTED_SOURCE,
+                               EXPECTED_COMMIT], input=VERIFY_CODE.encode())
+        receipt = json.loads(output.decode().strip().splitlines()[-1])
+        if folder.exists():
+            shutil.rmtree(folder)
+        print(json.dumps(receipt, ensure_ascii=False))
+        return
     if operation == "prepare_transfer":
         folder.mkdir(mode=0o700)
         run(["openssl", "req", "-x509", "-newkey", "rsa:3072", "-sha256", "-days", "1", "-nodes",
@@ -111,7 +119,7 @@ def main():
         output = run(COMPOSE + ["exec", "-T", "api", "python", "-", target,
                                manifest["org_id"], manifest["author_id"], EXPECTED_SOURCE,
                                EXPECTED_COMMIT], input=source_code)
-        receipt = json.loads(output)
+        receipt = json.loads(output.decode().strip().splitlines()[-1])
     finally:
         run(COMPOSE + ["exec", "-T", "api", "rm", "-f", target])
         source.unlink(missing_ok=True)
@@ -175,6 +183,57 @@ with SessionLocal() as db:
         'archived': receipt['archived'], 'reversible': receipt['reversible']}))
 '''
 
+
+VERIFY_CODE = r'''
+import hashlib,json,tempfile,sys
+from copy import deepcopy
+from pathlib import Path
+from sqlalchemy import select,func
+from app.db import SessionLocal
+from app.javiera_models import JavieraDossier,JavieraIssue,JavieraHistory
+from app.javiera_workbook_models import JavieraWorkbookHead,JavieraWorkbook,JavieraReset
+from app.javiera_workbook_api import raw_for,original_for,unarchived
+from app.javiera_workbook import inventory,cached_pdf,LayoutError,validate_matrix_results
+from app.config import settings
+from app.version import VERSION,SOURCE_COMMIT
+assert VERSION=='20.0.0-rc1' and SOURCE_COMMIT==sys.argv[2]
+def rut(n):
+ total=sum(int(d)*(2+i%6) for i,d in enumerate(reversed(str(n))));dv=11-total%11
+ return str(n)+'-'+('0' if dv==11 else 'K' if dv==10 else str(dv))
+with SessionLocal() as db:
+ heads=db.scalars(select(JavieraWorkbookHead)).all()
+ assert len(heads)==1,'Debe existir un espacio nativo'
+ head=heads[0];current=db.get(JavieraWorkbook,head.current_id)
+ raw=raw_for(current);reference=original_for(db,current)
+ assert hashlib.sha256(reference).hexdigest()==sys.argv[1]
+ report=inventory(raw);original=inventory(reference)
+ assert report['media']==original['media']
+ active={kind:db.scalar(select(func.count()).select_from(model).where(model.org_id==head.org_id,unarchived(model,head.org_id,kind))) for kind,model in [('dossier',JavieraDossier),('issue',JavieraIssue),('history',JavieraHistory)]}
+ assert not any(active.values()) and not head.publications and head.legacy_disabled
+ reset=db.scalar(select(JavieraReset).where(JavieraReset.org_id==head.org_id,JavieraReset.restored_at.is_(None)).order_by(JavieraReset.created_at.desc()))
+ assert reset and hashlib.sha256(Path(reset.path).read_bytes()).hexdigest()==reset.sha256
+ assert settings().javiera_calc_url
+ data={'employer':{'name':'EMPRESA QA DESPLIEGUE','rut':rut(76000444)},'worker':{'name':'PERSONA QA DESPLIEGUE','rut':rut(17000444)},'site':{'name':'OBRA QA DESPLIEGUE'},'role':'PINTOR','employment_type':'dependiente','event_type':'ingreso','contract':{'start':'2026-10-17','end':'2027-02-15','salary':'937451','hours':'40','new_end':'2027-03-15'},'event':{'date':'2026-11-12','epp_items':'Casco de Seguridad; Lentes de Seguridad','pts_version':'QA-20'},'extra':{'representative_name':'REPRESENTANTE QA','representative_rut':rut(17000333),'representative_nationality':'CHILENA','employer_address':'DOMICILIO EMPRESA QA','employer_city':'CIUDAD QA','employer_commune':'COMUNA QA','worker_nationality':'CHILENA','worker_birthdate':'1992-03-04','worker_marital_status':'SOLTERO','worker_address':'DOMICILIO PERSONA QA','worker_commune':'COMUNA PERSONA QA','worker_city':'CIUDAD QA','payment_frequency':'MENSUAL','bank_account':'CUENTA QA','afp':'AFP QA','health_provider':'FONASA','site_address':'DIRECCION OBRA QA','specialty':'PINTURA','principal_company':'MANDANTE QA','declaration_period':'2026-10','employer_phone':'987654321','worker_phone':'998765432','employer_email':'empresa@example.test','worker_email':'persona@example.test'}}
+ checks={};blocked={}
+ with tempfile.TemporaryDirectory(prefix='galant-deploy-native-') as tmp:
+  cache=Path(tmp)
+  for kind,role in [('labor_contract','PINTOR'),('irl','PINTOR'),('irl','GASFITER')]:
+   context=deepcopy(data);context['role']=role
+   first,conversion=cached_pdf(raw,kind,context,head.org_id,cache,True,reference)
+   again,reused=cached_pdf(raw,kind,context,head.org_id,cache,True,reference)
+   assert first==again and reused['cache_hit']
+   if kind=='irl':assert conversion['printed_matrix_fields']==(52 if role=='PINTOR' else 104)
+   checks[kind+'_'+role]={'pages':conversion['pages'],'sha256':conversion['sha256'],'cache_hit_verified':True,'printed_matrix_fields':conversion.get('printed_matrix_fields'),'elapsed_ms':conversion['elapsed_ms']}
+  try:validate_matrix_results(raw,'CARPINTERO','irl',[])
+  except LayoutError:blocked['CARPINTERO']=True
+  else:raise AssertionError('El cargo incompleto no se bloquea')
+  try:cached_pdf(raw,'induction',data,head.org_id,cache,True,reference)
+  except LayoutError as error:
+   assert 'recortado' in str(error).lower(),'Bloqueo de inducción distinto al recorte conocido'
+   blocked['induction']=True
+  else:raise AssertionError('La inducción recortada no se bloquea')
+ print(json.dumps({'version':VERSION,'commit':SOURCE_COMMIT,'source_sha256':current.original_sha256,'clean_sha256':current.sha256,'sheets':len(report['sheets']),'formulas':report['formula_count'],'media_preserved':len(report['media']),'active':active,'published':len(head.publications),'legacy_disabled':head.legacy_disabled,'reset_backup_sha256':reset.sha256,'archived':reset.manifest['counts'],'native_pdf_checks':checks,'known_defects_blocked':blocked}))
+'''
 
 if __name__ == "__main__":
     main()
