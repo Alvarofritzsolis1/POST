@@ -82,7 +82,7 @@ jobs:
       - name: Probar arranque real, migración y Calc privado de GALANT 20
         working-directory: .
         env:
-          APP_SECRET: ci-synthetic-app-secret-galant-20-only
+          APP_SECRET: ci-synthetic-app-secret-galant-20-only-minimum-48-characters
           JAVIERA_CALC_SECRET: ci-synthetic-calc-secret-galant-20-only
         run: |
           set -Eeuo pipefail

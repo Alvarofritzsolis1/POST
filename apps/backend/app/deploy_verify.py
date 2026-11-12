@@ -24,6 +24,8 @@ from .version import SOURCE_COMMIT, VERSION
 def verify(expected_commit: str):
     if SOURCE_COMMIT != expected_commit:
         raise RuntimeError("El contenedor no corresponde al commit solicitado")
+    if len(settings().app_secret) < 48:
+        raise RuntimeError("La clave de sesión no cumple la longitud requerida")
     tables = set(inspect(engine).get_table_names())
     expected_tables = {
         "javiera_workbooks", "javiera_workbook_heads", "javiera_workbook_validations",
