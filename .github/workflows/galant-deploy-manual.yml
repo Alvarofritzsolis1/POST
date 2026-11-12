@@ -9,6 +9,9 @@ on:
         type: choice
         options: [inspect, import_reference]
         default: inspect
+      reply_certificate:
+        type: string
+        required: false
       reference_sha256:
         type: string
         default: 4f063b135d5e9c0d7f9806b57d1cd340bd2ecac78fed77345ffa7ccabbead292
@@ -23,7 +26,7 @@ concurrency:
 
 jobs:
   desplegar:
-    name: Desplegar GALANT con respaldo y rollback
+    name: Verificar configuración privada del VPS
     if: ${{ github.event_name == 'workflow_dispatch' && github.ref == 'refs/heads/codex/galant-20-vps-verify' }}
     runs-on: ubuntu-latest
     timeout-minutes: 30
@@ -39,6 +42,7 @@ jobs:
       VPS_SSH_KEY: ${{ secrets.VPS_SSH_KEY }}
       VPS_KNOWN_HOSTS: ${{ secrets.VPS_KNOWN_HOSTS }}
       DEPLOY_SHA: a393a073e27849bf65e42a505f0e775bd9b77d60
+      REPLY_CERTIFICATE: ${{ inputs.reply_certificate }}
       OPERATION: ${{ inputs.operation }}
       REFERENCE_SHA256: ${{ inputs.reference_sha256 }}
 
@@ -84,11 +88,9 @@ jobs:
           set -Eeuo pipefail
           [[ "$REFERENCE_SHA256" =~ ^[0-9a-f]{64}$ ]] || exit 64
           [[ "$OPERATION" == "inspect" ]] || { echo "Operación de modificación aún no habilitada" >&2; exit 64; }
-          ssh -i "$RUNNER_TEMP/galant_vps_key" \
-            -o BatchMode=yes -o IdentitiesOnly=yes -o StrictHostKeyChecking=yes \
-            -o UserKnownHostsFile="$RUNNER_TEMP/galant_known_hosts" \
-            -o ConnectTimeout=15 -p "${VPS_PORT:-22}" "$VPS_USER@$VPS_HOST" \
-            "cd /opt/galant-post && docker compose --env-file .env.preview -f docker-compose.preview.yml exec -T api python - '$REFERENCE_SHA256' '$DEPLOY_SHA'" <<'PYTHON'
+          report_file="$RUNNER_TEMP/galant-private-report.json"
+          umask 077
+          ssh -i "$RUNNER_TEMP/galant_vps_key" -o BatchMode=yes -o IdentitiesOnly=yes -o StrictHostKeyChecking=yes -o UserKnownHostsFile="$RUNNER_TEMP/galant_known_hosts" -o ConnectTimeout=15 -p "${VPS_PORT:-22}" "$VPS_USER@$VPS_HOST" "cd /opt/galant-post && docker compose --env-file .env.preview -f docker-compose.preview.yml exec -T api python - '$REFERENCE_SHA256' '$DEPLOY_SHA'" > "$report_file" <<'PYTHON'
           import json, sys
           from sqlalchemy import select, func
           from app.db import SessionLocal
@@ -104,6 +106,12 @@ jobs:
               print(json.dumps({
                   'version': VERSION, 'commit': SOURCE_COMMIT,
                   'organizations': len(orgs),
+                  'scopes': [{'id': org.id, 'name': org.name,
+                    'admins': [{'id': u.id} for u in db.scalars(select(User).where(User.org_id == org.id, User.role == 'admin', User.enabled.is_(True))).all()],
+                    'historical_dossiers': db.scalar(select(func.count()).select_from(JavieraDossier).where(JavieraDossier.org_id == org.id)),
+                    'documentary_dossiers': db.scalar(select(func.count()).select_from(JavieraLocalDossier).where(JavieraLocalDossier.org_id == org.id)),
+                    'sources': [{'author_id': r.author_id, 'created_at': r.created_at.isoformat()} for r in db.scalars(select(JavieraExcelLayout).where(JavieraExcelLayout.org_id == org.id).order_by(JavieraExcelLayout.created_at.desc()).limit(1)).all()]
+                    } for org in orgs],
                   'native_workspaces': db.scalar(select(func.count()).select_from(JavieraWorkbookHead)),
                   'matching_reference_files': len({r.workbook_path for r in reference}),
                   'matching_reference_organizations': len({r.org_id for r in reference}),
@@ -112,6 +120,19 @@ jobs:
                   'documentary_dossiers': db.scalar(select(func.count()).select_from(JavieraLocalDossier)),
               }))
           PYTHON
+          if [[ -z "$REPLY_CERTIFICATE" ]]; then
+            rm -f "$report_file"
+            echo "Falta certificado de respuesta privada" >&2
+            exit 64
+          fi
+          printf '%s' "$REPLY_CERTIFICATE" | base64 --decode > "$RUNNER_TEMP/reply-cert.pem"
+          openssl cms -encrypt -aes-256-gcm -binary -in "$report_file" \
+            -out "$RUNNER_TEMP/report.sealed" -outform DER \
+            -recip "$RUNNER_TEMP/reply-cert.pem" -keyopt rsa_padding_mode:oaep
+          printf 'PRIVATE_REPORT_BASE64='
+          base64 -w0 "$RUNNER_TEMP/report.sealed"
+          printf '\n'
+          rm -f "$report_file" "$RUNNER_TEMP/reply-cert.pem" "$RUNNER_TEMP/report.sealed"
 
       - name: Limpiar archivos de credenciales temporales
         if: always()
