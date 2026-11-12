@@ -1,8 +1,8 @@
-# GALANT POST — 16.5.0-rc1 · JAVIERA documental desde Excel
+# GALANT POST — 20.0.0-rc1 · Javiera con maestro Excel
 
-JAVIERA comienza por el documento y solicita sus antecedentes: empresa y trabajador nuevos o existentes, prevención sin sueldo ni datos bancarios, y acciones de vista previa, impresión y descarga. Las fichas incompletas permiten completar el RUT desde el asistente. Las correcciones de PDF se emiten con motivo y conservan el original.
+Candidata con edición nativa del XLSX, matrices vinculadas, revisiones privadas, recálculo Calc, caché y reinicio reversible de Javiera. **Migración integral y despliegue al VPS pendientes:** hay información preventiva incompleta, un recorte en la inducción y límites del editor que deben resolverse antes de declarar terminada la versión.
 
-**Candidata en [PR #42](https://github.com/Alvarofritzsolis1/POST/pull/42), sin desplegar.** Consulta [recorrido, validaciones y límites de la entrega](docs/JAVIERA_16_5_ANALISIS_SISTEMA.md). Las plantillas y matrices requieren las aprobaciones documentales existentes.
+[Entrega, resultados de QA, límites y actualización](docs/ENTREGA_20_0_0_JAVIERA.md). La limpieza fue probada en QA; no se han eliminado documentos del VPS. Las revisiones profesionales reales continúan siendo obligatorias.
 
 ## Antecedentes de 15.0.5-rc1 · Actualización automática del VPS
 

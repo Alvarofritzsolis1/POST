@@ -34,6 +34,9 @@ from .javiera_matrices import latest_approved_matrix, next_matrix_revision
 from .models import AuditEvent, User, utcnow
 from .ops_models import Contractor, ContractorWorksite, Worker, WorkerAssignment, Worksite
 from .security import administrator
+from .javiera_workbook_api import active_workbook, unarchived, raw_for, root_for, head_for, original_for
+from .javiera_workbook import cached_pdf, roles as workbook_roles
+from .javiera_workbook_models import JavieraArchive
 
 router = APIRouter(prefix="/api/v1/javiera", tags=["Proyecto JAVIERA"])
 
@@ -108,6 +111,9 @@ def by_org(db: Session, cls, ident: str, org: str):
 
 
 def dossier(db, user, ident):
+    if db.scalar(select(JavieraArchive.id).where(JavieraArchive.org_id == user.org_id,
+            JavieraArchive.kind == "dossier", JavieraArchive.resource_id == ident)):
+        raise HTTPException(409, "Expediente archivado en el reinicio; disponible mediante restauración")
     return by_org(db, JavieraDossier, ident, user.org_id)
 
 
@@ -141,6 +147,21 @@ def template_data(db, org):
                 "rule": current.get("rule", {}),
                 "excel_source": True,
             }
+    current_workbook = active_workbook(db, org)
+    head = head_for(db, org)
+    if head and head.legacy_disabled:
+        result = {}
+    if current_workbook:
+        for code, area, title, _, fields in DOCUMENTS:
+            published = active_workbook(db, org, published=True, code=code)
+            if published or not result.get(code, {}).get("published_version"):
+                result[code] = {"title": title, "area": area,
+                    "fields": list(dict.fromkeys([*fields, *LAYOUT_REQUIRED.get(code, []),
+                        "employer.name", "employer.rut", "site.name",
+                        *(["role"] if code == "labor_contract" else []),
+                        *(["extra.employer_address"] if code == "pts" else [])])),
+                    "has_body": True, "published_version": published.revision if published else 0,
+                    "workbook_source": True, "excel_source": False, "rule": {}}
     return result
 
 
@@ -192,6 +213,14 @@ def evaluated(db: Session, user: User, data: dict, dossier_id: str | None,
     matrix_rows = db.execute(select(JavieraMatrix.kind, JavieraMatrix.cargo).where(
         JavieraMatrix.org_id == user.org_id, JavieraMatrix.status == "approved")).all()
     approved = {kind + ":" + normalize_cargo(matrix_cargo) for kind, matrix_cargo in matrix_rows}
+    for code in ("irl", "pts", "pts_receipt"):
+        master = active_workbook(db, user.org_id, published=True, code=code)
+        if master:
+            index = workbook_roles(raw_for(master))
+            kind = "IRL" if code == "irl" else "PTS"
+            approved = {key for key in approved if not key.startswith(kind + ":")}
+            if data.get("role", "") in index and kind in index[data["role"]]:
+                approved.add(kind + ":" + cargo)
     existing, history = set(), set()
     if dossier_id and not ignore_history:
         record = dossier(db, user, dossier_id)
@@ -201,7 +230,7 @@ def evaluated(db: Session, user: User, data: dict, dossier_id: str | None,
         for item in issues:
             current = templates.get(item.code) or {}
             current_version = current.get("published_version", 0)
-            current_source = "excel" if current.get("excel_source") else "structured"
+            current_source = "workbook" if current.get("workbook_source") else "excel" if current.get("excel_source") else "structured"
             saved_source = item.snapshot.get("source", "structured")
             if (item.dossier_revision == record.revision and
                 item.template_revision == current_version and
@@ -213,6 +242,14 @@ def evaluated(db: Session, user: User, data: dict, dossier_id: str | None,
             JavieraHistory.org_id == user.org_id,
             JavieraHistory.dossier_id == dossier_id)).all())
     results = eligibility(data, templates, approved, existing, history)
+    native = active_workbook(db,user.org_id,published=True,code='irl') or active_workbook(db,user.org_id)
+    if native:
+        pending = [p['row'] for p in native.inventory.get('matrix_pending',[]) if p['role'] == data.get('role')]
+        if pending:
+            row = next(item for item in results if item['code'] == 'irl')
+            if row['applicability'] == 'aplica':
+                row.update(status='PENDIENTE_REVISION',can_issue=False,can_preview=False,
+                           reason='Matriz IRL incompleta para este cargo; revisar filas '+', '.join(map(str,pending)))
     # Una declaración de ausencia de trabajadores no puede inferirse de una
     # ficha individual vacía: revisar también las asignaciones de la empresa.
     # La presencia de trabajadores activos es bloqueo conservador; para
@@ -334,6 +371,18 @@ def sources(site_id: str = "", contractor_id: str = "",
         by_org(db, Worksite, site_id, user.org_id)
         company_query = company_query.where(ContractorWorksite.worksite_id == site_id)
     companies = db.execute(company_query.limit(500)).all()
+    from .platform_models import ContractorDetails
+    from .control_models import ContractRegister
+    details = {row.contractor_id: row.values for row in db.scalars(select(ContractorDetails).where(
+        ContractorDetails.contractor_id.in_([c.id for _, c in companies])))}
+    def defaults(company_id, worksite_id):
+        raw = details.get(company_id) or {}
+        scoped = (raw.get("worksites") or {}).get(worksite_id) or {}
+        fields = {**raw, **scoped}
+        mapping = {"legal_representative":"representative_name", "legal_representative_rut":"representative_rut",
+                   "phone":"employer_phone", "email":"employer_email", "address":"employer_address",
+                   "city":"employer_city", "commune":"employer_commune", "specialty":"specialty"}
+        return {dest: str(fields[key]) for key,dest in mapping.items() if fields.get(key) and isinstance(fields[key], (str,int,float))}
     workers = []
     if site_id and contractor_id:
         by_org(db, Contractor, contractor_id, user.org_id)
@@ -341,11 +390,20 @@ def sources(site_id: str = "", contractor_id: str = "",
             Worker, WorkerAssignment.worker_id == Worker.id).where(
             WorkerAssignment.org_id == user.org_id, WorkerAssignment.worksite_id == site_id,
             WorkerAssignment.contractor_id == contractor_id).limit(500)).all()
+        contracts = db.scalars(select(ContractRegister).where(ContractRegister.org_id == user.org_id,
+            ContractRegister.worker_assignment_id.in_([a.id for a,_ in assignments]),
+            ContractRegister.status == "active").order_by(ContractRegister.updated_at.desc())).all()
+        registered = {}
+        for contract in contracts: registered.setdefault(contract.worker_assignment_id, contract)
         workers = [{"id": w.id, "association_id": a.id, "name": w.name, "rut": w.rut,
-                    "active": a.active} for a, w in assignments]
+                    "active": a.active, "contract": {
+                        "start": registered[a.id].start_date.isoformat(),
+                        "end": registered[a.id].end_date.isoformat() if registered[a.id].end_date else ""
+                    } if a.id in registered else {}} for a, w in assignments]
     return {"sites": [{"id": s.id, "name": s.name} for s in sites],
             "contractors": [{"id": c.id, "association_id": a.id, "site_id": a.worksite_id,
-                             "name": c.name, "rut": c.rut, "nature": c.nature}
+                             "name": c.name, "rut": c.rut, "nature": c.nature,
+                             "defaults": defaults(c.id,a.worksite_id)}
                             for a, c in companies],
             "workers": workers}
 
@@ -386,7 +444,8 @@ def save_dossier(payload: DossierInput,
 @router.get("/dossiers")
 def list_dossiers(site_id: str = "", employer_id: str = "", user: User = Depends(administrator),
                   db: Session = Depends(get_db)):
-    query = select(JavieraDossier).where(JavieraDossier.org_id == user.org_id)
+    query = select(JavieraDossier).where(JavieraDossier.org_id == user.org_id,
+                                        unarchived(JavieraDossier, user.org_id, "dossier"))
     if site_id:
         by_org(db, Worksite, site_id, user.org_id)
         query = query.where(JavieraDossier.site_id == site_id)
@@ -484,6 +543,18 @@ def prepared(db, user, ident: str, code: str, preview: bool,
 def preview(data: Action, user: User = Depends(administrator), db: Session = Depends(get_db)):
     if data.code not in DOCUMENT_BY_CODE:
         raise HTTPException(404, "Documento desconocido")
+    master = active_workbook(db, user.org_id)
+    if master:
+        record = dossier(db, user, data.dossier_id)
+        item = next(x for x in evaluated(db, user, record.data, record.id) if x["code"] == data.code)
+        if not item["can_preview"]:
+            raise HTTPException(409, {"error": item["reason"] or "Completa los datos del documento", "missing": item["missing_fields"]})
+        from .javiera_excel import LayoutError
+        try:
+            raw, _ = cached_pdf(raw_for(master), data.code, record.data, user.org_id,
+                                root_for(user.org_id) / "pdf-cache", True, reference=original_for(db,master))
+        except LayoutError as exc: raise HTTPException(422, str(exc)) from None
+        return Response(content=raw, media_type="application/pdf", headers={"Cache-Control": "no-store"})
     layout = latest_layout(db, user.org_id, data.code)
     if layout:
         record = dossier(db, user, data.dossier_id)
@@ -502,8 +573,13 @@ def preview(data: Action, user: User = Depends(administrator), db: Session = Dep
 def issue(data: Action, user: User = Depends(administrator), db: Session = Depends(get_db)):
     if data.code not in DOCUMENT_BY_CODE:
         raise HTTPException(404, "Documento desconocido")
+    # Same lock order as administrative reset/publication. A reset cannot race
+    # an in-flight native issuance into the newly emptied workspace.
+    from .javiera_workbook_models import JavieraWorkbookHead
+    db.scalar(select(JavieraWorkbookHead).where(JavieraWorkbookHead.org_id==user.org_id).with_for_update())
     # Serializar emisiones concurrentes del mismo expediente en PostgreSQL:
     # dos clics simultáneos no deben escribir dos PDF distintos.
+    dossier(db, user, data.dossier_id)
     record = db.scalar(select(JavieraDossier).where(
         JavieraDossier.id == data.dossier_id,
         JavieraDossier.org_id == user.org_id,
@@ -513,7 +589,8 @@ def issue(data: Action, user: User = Depends(administrator), db: Session = Depen
     status = next(x for x in evaluated(db, user, record.data, record.id)
                   if x["code"] == data.code)
     layout = latest_layout(db, user.org_id, data.code)
-    desired_source = "excel" if layout else "structured"
+    master = active_workbook(db, user.org_id, published=True, code=data.code)
+    desired_source = "workbook" if master else "excel" if layout else "structured"
     if status["status"] == "EMITIDO":
         current = db.scalars(select(JavieraIssue).where(
             JavieraIssue.org_id == user.org_id, JavieraIssue.dossier_id == record.id,
@@ -542,7 +619,17 @@ def issue(data: Action, user: User = Depends(administrator), db: Session = Depen
         raise HTTPException(409, {"error":"Documento bloqueado",
             "status":status["status"],"missing_fields":status["missing_fields"],
             "errors":status["blocking_errors"],"reason":status["reason"]})
-    if layout:
+    if master:
+        from .javiera_excel import LayoutError
+        try:
+            raw, report = cached_pdf(raw_for(master), data.code, record.data, user.org_id,
+                                     root_for(user.org_id) / "pdf-cache", False, reference=original_for(db,master))
+        except LayoutError as exc: raise HTTPException(422, str(exc)) from None
+        template_revision = master.revision; source = "workbook"
+        snapshot = {"data": record.data, "source": source, "workbook_id": master.id,
+                    "workbook_sha256": master.sha256, "conversion": report,
+                    "reissue_reason": justification if is_reissue else None}
+    elif layout:
         template_revision = layout.revision
         source = "excel"
         raw = make_pdf(db, user, layout, record.data, preview=False)

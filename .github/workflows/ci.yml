@@ -79,6 +79,31 @@ jobs:
             -w /srv/ci/apps/backend \
             galant-ci-backend python /srv/ci/scripts/qa_javiera_v19_print_visual.py \
               --output /qa-output/javiera-v19-print
+      - name: Probar arranque real, migración y Calc privado de GALANT 20
+        working-directory: .
+        env:
+          APP_SECRET: ci-synthetic-app-secret-galant-20-only-minimum-48-characters
+          JAVIERA_CALC_SECRET: ci-synthetic-calc-secret-galant-20-only
+        run: |
+          set -Eeuo pipefail
+          trap 'docker rm -f galant-ci-api galant-ci-calc >/dev/null 2>&1 || true' EXIT
+          docker run --rm --network host -e "DATABASE_URL=$TEST_DATABASE_URL" \
+            galant-ci-backend python -m app.cli init-db
+          docker run --rm -d --name galant-ci-calc --network host \
+            --read-only --tmpfs /tmp:rw,nosuid,size=512m --memory 1g \
+            --pids-limit 160 --cap-drop ALL --security-opt no-new-privileges \
+            -e JAVIERA_CALC_SECRET galant-ci-backend \
+            /usr/bin/python3 /srv/app/javiera_calc_service.py
+          docker run --rm -d --name galant-ci-api --network host \
+            -e "DATABASE_URL=$TEST_DATABASE_URL" -e APP_SECRET \
+            -e JAVIERA_CALC_SECRET -e JAVIERA_CALC_URL=http://127.0.0.1:8001 \
+            galant-ci-backend
+          for i in {1..30}; do
+            if curl -fsS --max-time 3 http://127.0.0.1:8000/api/v1/health >/dev/null \
+              && curl -fsS --max-time 3 http://127.0.0.1:8001/health >/dev/null; then break; fi
+            sleep 2
+          done
+          docker exec galant-ci-api python -m app.deploy_verify --expected-commit "$GITHUB_SHA"
       - name: Evidencia visual de los diez formatos (PNG + PDF + informe)
         if: always()
         uses: actions/upload-artifact@v4
@@ -154,6 +179,9 @@ jobs:
         run: |
           printf 'APP_SECRET=%s\nPOSTGRES_PASSWORD=%s\n' "$APP_SECRET" "$POSTGRES_PASSWORD" > .env.preview
           docker compose --env-file .env.preview -f docker-compose.preview.yml config --quiet
+          python3 scripts/prepare-javiera20-env.py "$RUNNER_TEMP/.env.javiera20"
+          docker compose --env-file .env.preview --env-file "$RUNNER_TEMP/.env.javiera20" \
+            -f docker-compose.preview.yml -f docker-compose.javiera20.yml config --quiet
           python3 - <<'PY'
           import json,subprocess
           cmd=["docker","compose","--env-file",".env.preview","-f","docker-compose.preview.yml","config","--format","json"]

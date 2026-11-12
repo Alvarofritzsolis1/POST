@@ -38,7 +38,7 @@ BASIS = {
     "laboral": "Código del Trabajo, artículos 9 y 10; https://www.bcn.cl/leychile/navegar?idNorma=207436",
     "prevencion": "D.S. 44, artículos 7 y 15; https://www.bcn.cl/leychile/navegar?idNorma=1205298",
 }
-KIND = {"template", "matrix", "excel_layout"}
+KIND = {"template", "matrix", "excel_layout", "workbook"}
 
 
 class Strict(BaseModel):
@@ -53,7 +53,7 @@ class ReviewerAssignment(Strict):
 
 
 class ReviewInput(Strict):
-    resource_kind: Literal["template", "matrix", "excel_layout"]
+    resource_kind: Literal["template", "matrix", "excel_layout", "workbook"]
     resource_id: str
     specialty: Literal["laboral", "prevencion"]
     verdict: Literal["approved", "rejected"]
@@ -144,7 +144,9 @@ def assign_reviewer(payload: ReviewerAssignment, user: User = Depends(administra
 def signoff(payload: ReviewInput, user: User = Depends(document_reviewer),
             db: Session = Depends(get_db)):
     from .javiera_models import JavieraExcelLayout, JavieraMatrix, JavieraRevision
-    resources = {"template":JavieraRevision, "matrix":JavieraMatrix, "excel_layout":JavieraExcelLayout}
+    from .javiera_workbook_models import JavieraWorkbook
+    resources = {"template":JavieraRevision, "matrix":JavieraMatrix, "excel_layout":JavieraExcelLayout,
+                 "workbook":JavieraWorkbook}
     obj = db.get(resources[payload.resource_kind], payload.resource_id)
     if not obj or obj.org_id != user.org_id:
         raise HTTPException(404, "Recurso fuera de la organización")
@@ -196,7 +198,7 @@ def signoff(payload: ReviewInput, user: User = Depends(document_reviewer),
 
 
 @router.get("/signoff/{kind}/{resource_id}")
-def get_signoff(kind: Literal["template", "matrix", "excel_layout"], resource_id: str,
+def get_signoff(kind: Literal["template", "matrix", "excel_layout", "workbook"], resource_id: str,
                 user: User = Depends(document_reviewer), db: Session = Depends(get_db)):
     rows = db.scalars(select(JavieraSignoff).where(
         JavieraSignoff.org_id == user.org_id, JavieraSignoff.resource_kind == kind,

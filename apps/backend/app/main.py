@@ -52,6 +52,7 @@ from .javiera_v194_api import router as javiera_v194_router
 from .javiera_v195_api import router as javiera_v195_router
 from .javiera_review import router as javiera_reviews_router
 from .javiera_layout_api import router as javiera_layouts_router
+from .javiera_workbook_api import router as javiera_workbook_router
 
 app = FastAPI(title="GALANT POST — Document Intelligence", version=VERSION, docs_url=None, redoc_url=None)
 app.include_router(configuration_router)
@@ -66,6 +67,7 @@ app.include_router(javiera_v194_router)
 app.include_router(javiera_v195_router)
 app.include_router(javiera_reviews_router)
 app.include_router(javiera_layouts_router)
+app.include_router(javiera_workbook_router)
 app.include_router(compliance_router)
 app.include_router(admin_router)
 app.include_router(reconciliation_router)

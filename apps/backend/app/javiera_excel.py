@@ -246,7 +246,8 @@ PROTECTED_DOCUMENT_CELLS = {
     "pts_receipt": {"A1", "A3", "A23", "F23", "A24", "F24"},
 }
 
-RESTRICTED_PARTS = ("vbaproject.bin", "externallinks/", "connections.xml", "oleobjects/", "activex/")
+RESTRICTED_PARTS = ("vbaproject.bin", "externallinks/", "connections.xml", "oleobjects/", "activex/",
+                    "macrosheets/", "embeddings/")
 # Referencias fijas de empresas mandantes del Excel de origen (no guardar
 # nombres reales ni direcciones dentro del código). Se cambia por mandante real.
 MANDANTE_PATTERN = re.compile(r"CONSTRUCTORA\s+[A-ZÁÉÍÓÚÑ][A-ZÁÉÍÓÚÑ\s]{2,38}\s+(?:LIMITADA|LTDA\.?)\b", re.I)
@@ -304,7 +305,7 @@ def sheet_files(z: ZipFile) -> dict[str, str]:
             raise LayoutError("No se admiten conexiones externas en plantillas")
         key = rel.attrib.get("Id")
         value = rel.attrib.get("Target", "")
-        if "/worksheets/" in value:
+        if value.startswith("worksheets/") or "/worksheets/" in value:
             path = "xl/" + value.lstrip("/") if value.startswith("worksheets/") else (
                 value.lstrip("/") if value.startswith("/") else "xl/" + value
             )
@@ -817,32 +818,8 @@ def excel_document(raw: bytes, code: str, data: dict, changes: dict | None = Non
         if code == "ppe_delivery":
             # La plantilla original pre-marca cantidad=1 para ocho EPP, lo que puede
             # generar falsas entregas. Limpiar SIEMPRE cantidades no declaradas.
-            names = [
-                "Casco de Seguridad", "Calzado de Seguridad", "Lentes de Seguridad",
-                "Guantes de Cabritilla", "Protección Auditiva/Mascarilla",
-                "Arnés de seguridad", "Delantal de cuero", "Guantes de soldador",
-            ]
-            imports = __import__("unicodedata")
-            def basic(text):
-                normalized = imports.normalize("NFD", text.strip().lower())
-                return " ".join("".join(x for x in normalized if imports.category(x)!="Mn").split())
-            declared = re.split(r"[,;\n]", get_data(data, "event.epp_items"))
-            quantities = [0]*len(names)
-            for item in declared:
-                item = basic(item)
-                if not item:
-                    continue
-                match = re.fullmatch(r"(\d{1,2})\s*[xX]?\s+(.+)", item)
-                amount, description = (int(match.group(1)), match.group(2)) if match else (1, item)
-                if amount < 1 or amount > 30:
-                    raise LayoutError("Cantidad EPP fuera de rango")
-                matches = [i for i, name in enumerate(names)
-                           if (description in basic(name) or basic(name) in description)]
-                if len(matches) != 1:
-                    raise LayoutError("EPP ambiguo o no contemplado en matriz original: " + item)
-                quantities[matches[0]] += amount
-            if not sum(quantities):
-                raise LayoutError("Debes identificar el EPP efectivamente entregado")
+            from .javiera_workbook import delivery_quantities
+            quantities = delivery_quantities(get_data(data, "event.epp_items"))
             for index, amount in enumerate(quantities, start=12):
                 set_text(target, "D"+str(index), str(amount) if amount else "")
 

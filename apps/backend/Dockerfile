@@ -3,7 +3,7 @@ FROM python:3.12-slim
 ENV PYTHONDONTWRITEBYTECODE=1 PYTHONUNBUFFERED=1 OMP_THREAD_LIMIT=1
 RUN apt-get update && apt-get install -y --no-install-recommends \
     tesseract-ocr tesseract-ocr-spa tesseract-ocr-eng \
-    postgresql-client libglib2.0-0 libreoffice-calc fonts-dejavu-core && rm -rf /var/lib/apt/lists/*
+    postgresql-client libglib2.0-0 libreoffice-calc python3-uno fonts-dejavu-core && rm -rf /var/lib/apt/lists/*
 WORKDIR /srv
 COPY apps/backend/requirements.txt ./requirements.txt
 RUN --mount=type=secret,id=proxy_ca,required=false \

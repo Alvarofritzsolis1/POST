@@ -255,7 +255,7 @@ def main():
             assert widths["document"] <= widths["viewport"] + 2, widths
             report["scenarios"]["mobile_no_horizontal_scroll"] = "PASS"
             page.screenshot(path=str(args.output / "javiera_movil.png"), full_page=True)
-            page.goto(args.url + "/configuracion/automatizacion", wait_until="domcontentloaded")
+            page.goto(args.url + "/configuracion/automatizacion?legacy=1", wait_until="domcontentloaded")
             expect(page.get_by_role("heading", name="Configuración de automatización")).to_be_visible()
             for name in ["Plantillas y cláusulas", "Matrices y cargos",
                          "Diseños Excel originales", "Habilitar PDF / revisiones"]:

@@ -1,0 +1,31 @@
+# Add explicitly to the normal compose command to enable the private warm engine.
+services:
+  api:
+    environment:
+      JAVIERA_CALC_URL: http://javiera-calc:8001
+      JAVIERA_CALC_SECRET: ${JAVIERA_CALC_SECRET:?Set a private random secret of at least 32 characters}
+    depends_on:
+      javiera-calc: {condition: service_healthy}
+  javiera-calc:
+    build: {context: ., dockerfile: apps/backend/Dockerfile, args: {SOURCE_COMMIT: "${SOURCE_COMMIT:-unknown}"}}
+    command: ["/usr/bin/python3", "/srv/app/javiera_calc_service.py"]
+    restart: unless-stopped
+    environment:
+      JAVIERA_CALC_SECRET: ${JAVIERA_CALC_SECRET:?Set a private random secret of at least 32 characters}
+    expose: ["8001"]
+    networks: [internal]
+    read_only: true
+    tmpfs: ["/tmp:rw,nosuid,size=512m"]
+    mem_limit: 1g
+    pids_limit: 160
+    security_opt: [no-new-privileges:true]
+    cap_drop: [ALL]
+    logging:
+      driver: json-file
+      options: {max-size: "10m", max-file: "3"}
+    healthcheck:
+      test: ["CMD", "/usr/bin/python3", "-c", "import urllib.request;urllib.request.urlopen('http://127.0.0.1:8001/health',timeout=3)"]
+      interval: 10s
+      timeout: 5s
+      retries: 8
+      start_period: 35s

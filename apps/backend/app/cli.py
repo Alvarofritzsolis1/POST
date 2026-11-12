@@ -14,8 +14,8 @@ from .ops_api import DEFAULT_SITES, INITIAL_PERIOD, ensure_sites
 from .security import hash_password
 from .platform_models import BackupCheckpoint, SchemaVersion
 from .version import VERSION
-from .migrations import v0_6_0, v0_7_0, v8_1_0, v13_1_0, v16_0_0, v16_0_1, v16_6_0
-from . import v81_models, configuration_models, javiera_models, javiera_v166_models  # register additive tables
+from .migrations import v0_6_0, v0_7_0, v8_1_0, v13_1_0, v16_0_0, v16_0_1, v16_6_0, v20_0_0
+from . import v81_models, configuration_models, javiera_models, javiera_v166_models, javiera_workbook_models  # register additive tables
 
 
 def record_verified_backup(db, sha256: str):
@@ -54,6 +54,10 @@ def migrate(db):
     if not db.get(SchemaVersion, v16_6_0.MIGRATION_ID):
         v16_6_0.upgrade(db.connection())
         db.add(SchemaVersion(version=v16_6_0.MIGRATION_ID))
+
+    if not db.get(SchemaVersion, v20_0_0.MIGRATION_ID):
+        v20_0_0.upgrade(db.connection())
+        db.add(SchemaVersion(version=v20_0_0.MIGRATION_ID))
 
 
 def find_admin(db, email: str) -> User:
