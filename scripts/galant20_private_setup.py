@@ -42,10 +42,12 @@ def main():
     ident = data["transfer_id"]
     if not re.fullmatch(r"[0-9a-f]{32}", ident):
         raise RuntimeError("Identificador de transferencia inválido")
-    parent = REPO / ".galant20-private-transfer"
+    parent = Path("/var/tmp/galant20-private-transfer")
     if parent.is_symlink():
         raise RuntimeError("Directorio privado inválido")
     parent.mkdir(mode=0o700, exist_ok=True)
+    if parent.stat().st_uid != 0 or parent.stat().st_mode & 0o077:
+        raise RuntimeError("El directorio de transferencia no es privado")
     folder = parent / ident
     if folder.is_symlink():
         raise RuntimeError("Transferencia privada inválida")
