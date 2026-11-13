@@ -125,10 +125,17 @@ def dossier(db, user, ident):
 def template_data(db, org):
     rows = db.scalars(select(JavieraTemplate).where(JavieraTemplate.org_id == org)).all()
     result = {}
+    # Una consulta para los últimos borradores; se evitan consultas N+1 cada vez
+    # que el usuario cambia un campo o pide evaluar la disponibilidad de PDFs.
+    drafts = db.scalars(select(JavieraRevision).where(
+        JavieraRevision.org_id == org, JavieraRevision.state == "draft",
+        JavieraRevision.template_id.in_([row.id for row in rows])
+    ).order_by(JavieraRevision.revision.desc())).all() if rows else []
+    newest_draft = {}
+    for draft in drafts:
+        newest_draft.setdefault(draft.template_id, draft)
     for row in rows:
-        draft = db.scalar(select(JavieraRevision).where(
-            JavieraRevision.org_id == org, JavieraRevision.template_id == row.id,
-            JavieraRevision.state == "draft").order_by(JavieraRevision.revision.desc()))
+        draft = newest_draft.get(row.id)
         result[row.code] = {"area": row.area, "title": row.title, "fields": row.fields,
             "rule": row.rule, "published_version": row.published_version,
             "has_body": bool(row.body or (draft and draft.contents.get("body")))}
@@ -218,10 +225,15 @@ def evaluated(db: Session, user: User, data: dict, dossier_id: str | None,
     matrix_rows = db.execute(select(JavieraMatrix.kind, JavieraMatrix.cargo).where(
         JavieraMatrix.org_id == user.org_id, JavieraMatrix.status == "approved")).all()
     approved = {kind + ":" + normalize_cargo(matrix_cargo) for kind, matrix_cargo in matrix_rows}
+    # IRL, PTS y Recepción PTS suelen apuntar al mismo Excel publicado:
+    # leer y analizar sus matrices una sola vez por solicitud, no tres.
+    workbook_role_index = {}
     for code in ("irl", "pts", "pts_receipt"):
         master = active_workbook(db, user.org_id, published=True, code=code)
         if master:
-            index = workbook_roles(raw_for(master))
+            if master.sha256 not in workbook_role_index:
+                workbook_role_index[master.sha256] = workbook_roles(raw_for(master))
+            index = workbook_role_index[master.sha256]
             kind = "IRL" if code == "irl" else "PTS"
             approved = {key for key in approved if not key.startswith(kind + ":")}
             if data.get("role", "") in index and kind in index[data["role"]]:

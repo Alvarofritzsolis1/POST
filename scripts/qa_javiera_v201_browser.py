@@ -56,6 +56,10 @@ def main():
             page.goto(args.url+'/proyecto-javiera',wait_until='domcontentloaded')
             page.get_by_role('button',name='Contratista nuevo').click()
             expect(page.get_by_label('Razón social',exact=True)).to_be_visible()
+            # La ficha no vuelve a pedir controles que se deducen del documento.
+            expect(page.get_by_label('Vínculo laboral',exact=True)).to_have_count(0)
+            expect(page.get_by_label('Motivo del expediente',exact=True)).to_have_count(0)
+            expect(page.locator('.jv-doc-card')).to_have_count(1)
             expect(page.get_by_text('Selecciona la empresa',exact=True)).to_have_count(0)
             page.locator('.jv-form select').first.select_option(site['id'])
             page.get_by_label('Razón social',exact=True).fill('JAVIERA NUEVA 20.2 QA '+suffix)
@@ -92,7 +96,8 @@ def main():
             page.get_by_role('button',name='Seleccionar hasta 20 expedientes').click()
             expect(page.locator('.jv-batch-targets input:checked')).to_have_count(2)
             page.get_by_role('button',name='Generar documentos listos').click()
-            expect(page.get_by_text('Lote terminado:',exact=False)).to_be_visible(timeout=30000)
+            # Un lote de expedientes incompletos no debe anunciar documentos emitidos.
+            expect(page.get_by_text('No se generaron documentos:',exact=False)).to_be_visible(timeout=30000)
             # Sparse dossiers lack required facts. Both failures must be reported;
             # no synthetic test is allowed to bypass the actual emission checks.
             expect(page.locator('.jv-batch-report p')).to_have_count(2)

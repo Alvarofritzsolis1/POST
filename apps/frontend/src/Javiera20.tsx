@@ -19,27 +19,36 @@ const statusText:Record<string,string>={
   LISTO_PARA_EMITIR:"Listo para PDF", EXISTENTE_POR_VERIFICAR:"Documento anterior",
   ERROR_TEMPORAL:"Validación no disponible", EMITIDO:"Emitido"
 };
-const eventOptions=[
-  ["ingreso","Ingreso o incorporación"],["reingreso","Reingreso"],["actualizacion","Actualización"],
-  ["traslado","Traslado de obra"],["prorroga","Prórroga"],["declaracion","Declaración jurada"],
-  ["reglamento","Recepción de reglamento"],["entrega_epp","Entrega real de EPP"],
-  ["recepcion_pts","Recepción de PTS"],["induccion","Inducción realizada"],["cambio_cargo","Cambio de cargo"]
-];
 const validField=(key:string)=>key.replaceAll(".","_");
 const extraLabels:Record<string,string>={representative_name:"Nombre del representante legal",representative_rut:"RUT del representante legal",representative_nationality:"Nacionalidad del representante",employer_address:"Domicilio de la empresa",employer_commune:"Comuna de la empresa",employer_city:"Ciudad de la empresa",employer_phone:"Teléfono de la empresa",employer_email:"Correo de la empresa",worker_nationality:"Nacionalidad del trabajador",worker_birthdate:"Fecha de nacimiento",worker_marital_status:"Estado civil",worker_address:"Domicilio del trabajador",worker_commune:"Comuna del trabajador",worker_city:"Ciudad del trabajador",worker_phone:"Teléfono del trabajador",worker_email:"Correo del trabajador",payment_frequency:"Periodicidad de pago",bank_account:"Datos de pago o cuenta bancaria",afp:"AFP",health_provider:"Sistema de salud",principal_company:"Empresa mandante",declaration_period:"Período de la declaración",site_address:"Dirección de la obra",specialty:"Especialidad",destinations:"Obras de destino autorizadas",transport_allowance:"Asignación de traslado"};
-const fieldLabel=(key:string)=>extraLabels[key.replace(/^extra\./,"")]||({"employer.name":"empresa","employer.rut":"RUT de empresa","worker.name":"trabajador","worker.rut":"RUT del trabajador","site.name":"obra","role":"cargo","employment_type":"vínculo laboral","event.date":"fecha del evento","event.epp_items":"EPP entregados","event.pts_version":"versión del PTS","contract.start":"fecha de ingreso","contract.end":"fecha de término","contract.salary":"sueldo base","contract.hours":"horas semanales"} as Record<string,string>)[key]||key.replaceAll("_"," ");
+const fieldLabel=(key:string)=>extraLabels[key.replace(/^extra\./,"")]||({"employer.name":"empresa","employer.rut":"RUT de empresa","worker.name":"trabajador","worker.rut":"RUT del trabajador","site.name":"obra","role":"cargo","employment_type":"vínculo laboral","event.date":"fecha del evento","event.epp_items":"EPP entregados","event.pts_version":"versión del PTS","contract.start":"fecha de ingreso","contract.end":"fecha de término","contract.new_end":"nueva fecha de término (anexo de prórroga)","contract.transfer_date":"fecha de traslado","contract.salary":"sueldo base","contract.hours":"horas semanales"} as Record<string,string>)[key]||key.replaceAll("_"," ");
 const errorMessage=(e:unknown)=>e instanceof Error?e.message:String(e);
 async function pdfRequest(url:string,body:unknown){
   const csrf=document.cookie.split("; ").find(c=>c.startsWith("galant_post_csrf="))?.split("=")[1]||"";
   const response=await fetch("/api/v1/javiera"+url,{method:"POST",headers:{"Content-Type":"application/json","X-CSRF-Token":csrf},
     credentials:"include",cache:"no-store",body:JSON.stringify(body)});
-  if(!response.ok){const x=await response.json().catch(()=>({detail:"PDF no disponible"}));throw new Error(typeof x.detail==="string"?x.detail:"El documento aún no está habilitado");}
+  if(!response.ok){
+    const x=await response.json().catch(()=>({detail:"PDF no disponible"}));
+    const d=x.detail||x;
+    const missing=Array.isArray(d.missing_fields)?d.missing_fields:Array.isArray(d.missing)?d.missing:[];
+    const explanation=typeof d==="string"?d:typeof d.reason==="string"&&d.reason?d.reason:typeof d.error==="string"?d.error:"PDF no disponible";
+    throw new Error(explanation+(missing.length?" · Faltan: "+missing.map((f:string)=>fieldLabel(f)).join(", "):""));
+  }
   return response.blob();
 }
-function previewBlob(blob:Blob){
-  const url=URL.createObjectURL(blob);
-  window.open(url,"_blank","noopener,noreferrer");
-  window.setTimeout(()=>URL.revokeObjectURL(url),60000);
+function downloadBlob(blob:Blob,fileName:string){
+  const url=URL.createObjectURL(blob),link=document.createElement("a");
+  link.href=url;link.download=fileName;link.style.display="none";
+  document.body.appendChild(link);link.click();link.remove();
+  window.setTimeout(()=>URL.revokeObjectURL(url),30000);
+}
+async function downloadIssuedPdf(id:string,code:string){
+  const response=await fetch("/api/v1/javiera/issued/"+encodeURIComponent(id)+"/pdf",{
+    method:"GET",credentials:"include",cache:"no-store"});
+  if(!response.ok)throw new Error("El PDF está emitido pero no se pudo descargar (HTTP "+response.status+"). Usa la opción Descargar emitido.");
+  const blob=await response.blob();
+  if(blob.size<8||(await blob.slice(0,5).text())!=="%PDF-")throw new Error("El servidor no devolvió un archivo PDF válido.");
+  downloadBlob(blob,"GALANT-JAVIERA-"+code+".pdf");
 }
 
 export default function Javiera({configuration=false,onBack,onConfig}:{configuration?:boolean;onBack?:()=>void;onConfig?:()=>void}){
@@ -108,10 +117,14 @@ export default function Javiera({configuration=false,onBack,onConfig}:{configura
   const employer=source.contractors.find(x=>x.id===companyId);
   const worker=source.workers.find(x=>x.id===workerId);
   const site=source.sites.find(x=>x.id===siteId);
+  const chosenCodes=selectedCodes??catalog.map(c=>c.code);
+  // Seleccionar un contrato permite preparar el documento; no acredita que ya esté firmado.
+  const inferredEmployment=employmentType||(workerId&&chosenCodes.includes("labor_contract")&&employer?.nature!=="independent"?"dependiente":"");
   const data=useMemo(()=>({
     employer:{name:employer?.name||"",rut:employer?.rut||""},worker:{name:worker?.name||"",rut:worker?.rut||""},
-    site:{name:site?.name||""},role,event_type:eventType,employment_type:employmentType,contract,event,extra
-  }),[employer?.name,employer?.rut,worker?.name,worker?.rut,site?.name,role,eventType,employmentType,contract,event,extra]);
+    site:{name:site?.name||""},role,event_type:eventType,employment_type:inferredEmployment,
+    requested_documents:chosenCodes,contract,event,extra
+  }),[employer?.name,employer?.rut,worker?.name,worker?.rut,site?.name,role,eventType,inferredEmployment,chosenCodes.join("|"),contract,event,extra]);
   const fingerprint=stableFingerprint({siteId,companyId,workerId,parentId,relationship,data});
   const unsaved=!dossierId||savedFingerprint!==fingerprint;
   useEffect(()=>{
@@ -132,7 +145,6 @@ export default function Javiera({configuration=false,onBack,onConfig}:{configura
     missing_fields:x.required_fields,blocking_errors:[],completion_percent:0,can_preview:false,can_issue:false,
     has_history:false,template_version:x.published_version
   }));
-  const chosenCodes=selectedCodes??catalog.map(c=>c.code);
   const cards=allCards;
   const selectedCatalog=catalog.filter(c=>chosenCodes.includes(c.code));
   const neededFields=new Set(selectedCatalog.flatMap(c=>c.required_fields));
@@ -160,10 +172,15 @@ export default function Javiera({configuration=false,onBack,onConfig}:{configura
       setBatchReport([]);setSaved(row);setDossierId(row.id);setDossierRevision(row.revision);
       setSource(src);setSiteId(row.site_id);setCompanyId(row.employer_id);setWorkerId(row.worker_id||"");
       setParentId(row.parent_id||"");setRelationship(row.relationship);setMode("existing");
+      const requested=Array.isArray(row.data.requested_documents)?
+        row.data.requested_documents.filter((code):code is string=>typeof code==="string"&&catalog.some(c=>c.code===code)):chosenCodes;
+      setSelectedCodes(requested);
       setRole(fields.role);setExtra(fields.extra);setEventType(fields.event_type);
       setEmploymentType(fields.employment_type);setContract(fields.contract);setEvent(fields.event);
+      const effectiveEmployment=fields.employment_type||(row.worker_id&&requested.includes("labor_contract")&&company?.nature!=="independent"?"dependiente":"");
       setSavedFingerprint(stableFingerprint({siteId:row.site_id,companyId:row.employer_id,workerId:row.worker_id||"",parentId:row.parent_id||"",relationship:row.relationship,data:{
-        employer:{name:company?.name||"",rut:company?.rut||""},worker:{name:worker?.name||"",rut:worker?.rut||""},site:{name:site?.name||""},...fields}}));
+        employer:{name:company?.name||"",rut:company?.rut||""},worker:{name:worker?.name||"",rut:worker?.rut||""},site:{name:site?.name||""},
+        ...fields,employment_type:effectiveEmployment,requested_documents:requested}}));
       setNotice("Expediente recuperado. Puedes revisar y generar sus documentos.");
     }catch(e){if(load===loadingDossier.current)setError(errorMessage(e));}finally{if(load===loadingDossier.current)setBusy(false);}
   }
@@ -193,6 +210,7 @@ export default function Javiera({configuration=false,onBack,onConfig}:{configura
   }
   async function saveDossier(){
     if(!mode||!companyId||!siteId){setError("Selecciona obra y empleador antes de guardar.");return;}
+    if(dossierId&&!unsaved){setNotice("No hay cambios por guardar. El expediente ya está actualizado.");return;}
     if(actionLock.current)return;actionLock.current=true;setBusy(true);setError("");setNotice("");
     try{
       const result=await request<{id:string;revision:number}>("/javiera/dossiers",{
@@ -209,8 +227,13 @@ export default function Javiera({configuration=false,onBack,onConfig}:{configura
   async function openPreview(code:string){
     if(unsaved){setError("Guarda los cambios antes de generar una vista previa.");return;}
     if(actionLock.current)return;actionLock.current=true;setBusy(true);setError("");
-    try{previewBlob(await pdfRequest("/preview",{dossier_id:dossierId,code}));}
-    catch(e){setError(errorMessage(e));}finally{actionLock.current=false;setBusy(false);}
+    // Reservar la pestaña durante el clic evita que el navegador bloquee la vista previa asíncrona.
+    const tab=window.open("about:blank","_blank");
+    try{
+      const blob=await pdfRequest("/preview",{dossier_id:dossierId,code});
+      if(tab&&!tab.closed){const url=URL.createObjectURL(blob);tab.location.href=url;window.setTimeout(()=>URL.revokeObjectURL(url),60000);}
+      else{downloadBlob(blob,"GALANT-JAVIERA-VISTA-PREVIA-"+code+".pdf");setNotice("La vista previa se descargó porque el navegador no permitió abrir otra pestaña.");}
+    }catch(e){tab?.close();setError(errorMessage(e));}finally{actionLock.current=false;setBusy(false);}
   }
   async function issue(code:string,reissue_reason?:string){
     if(unsaved){setError("Guarda los cambios antes de emitir el PDF.");return;}
@@ -218,9 +241,15 @@ export default function Javiera({configuration=false,onBack,onConfig}:{configura
     try{
       const result=await request<{id:string;reused:boolean}>("/javiera/issue",{
         method:"POST",body:JSON.stringify({dossier_id:dossierId,code,reissue_reason})});
-      await refreshDossier(dossierId);setNotice(result.reused?"PDF existente recuperado.":"PDF emitido, aún sin firma ni constancia de entrega.");
-      window.open("/api/v1/javiera/issued/"+encodeURIComponent(result.id)+"/pdf","_blank","noopener,noreferrer");
+      await downloadIssuedPdf(result.id,code);
+      await refreshDossier(dossierId);
+      setNotice(result.reused?"PDF emitido anteriormente y descargado.":"PDF emitido y descargado; la emisión no equivale a firma ni entrega.");
     }catch(e){setError(errorMessage(e));}finally{actionLock.current=false;setBusy(false);}
+  }
+  async function downloadExisting(id:string,code:string){
+    if(actionLock.current)return;actionLock.current=true;setBusy(true);setError("");
+    try{await downloadIssuedPdf(id,code);setNotice("PDF descargado correctamente.");}
+    catch(e){setError(errorMessage(e));}finally{actionLock.current=false;setBusy(false);}
   }
   async function issueReady(){
     if(actionLock.current||busy)return;
@@ -241,8 +270,27 @@ export default function Javiera({configuration=false,onBack,onConfig}:{configura
         }catch(e){results.push(...issuable.map(code=>({dossier_id:id,code,ok:false,reason:errorMessage(e)})));}
         setBatchReport([...results]);
       }
+      // La acción «Generar» debe entregar el archivo, no exigir un segundo clic.
+      // Un solo documento se descarga como PDF; varios se agrupan en ZIP.
+      const issued=results.filter(r=>r.ok&&r.id);
+      const failed=results.length-issued.length;
+      if(issued.length){
+        try{
+          if(issued.length===1){
+            await downloadIssuedPdf(issued[0].id!,issued[0].code);
+          }else{
+            const archive=await pdfRequest("/issue/archive",{issue_ids:issued.map(r=>r.id!)});
+            downloadBlob(archive,"JAVIERA-documentos.zip");
+          }
+          setNotice(issued.length+" documento(s) generado(s) y descargado(s)"+(failed?"; "+failed+" con observaciones.":"."));
+        }catch(downloadError){
+          // La emisión ya se guardó: no se declara que fracasó el documento.
+          setError("Documentos generados, pero falló la descarga: "+errorMessage(downloadError)+". Usa «Descargar documentos en ZIP» para reintentar.");
+        }
+      }else{
+        setNotice("No se generaron documentos: revisa las observaciones mostradas en el detalle.");
+      }
       if(dossierId)await refreshDossier(dossierId);
-      setNotice("Lote terminado: "+results.filter(r=>r.ok).length+" documentos generados o recuperados; "+results.filter(r=>!r.ok).length+" con observaciones. Revisa el detalle y descarga los disponibles.");
     }catch(e){setError(errorMessage(e));}finally{actionLock.current=false;setBusy(false);setBatchProgress("");}
   }
   async function downloadBatch(){
@@ -250,8 +298,8 @@ export default function Javiera({configuration=false,onBack,onConfig}:{configura
     try{
       const ids=batchReport.filter(r=>r.ok&&r.id).map(r=>r.id!);
       const blob=await pdfRequest("/issue/archive",{issue_ids:ids});
-      const url=URL.createObjectURL(blob),link=document.createElement("a");
-      link.href=url;link.download="JAVIERA-documentos.zip";link.click();window.setTimeout(()=>URL.revokeObjectURL(url),60000);
+      downloadBlob(blob,"JAVIERA-documentos.zip");
+      setNotice("Archivo ZIP preparado para su descarga.");
     }catch(e){setError(errorMessage(e));}finally{actionLock.current=false;setBusy(false);}
   }
   async function reviewHistorical(id:string,verified:boolean){
@@ -298,7 +346,7 @@ export default function Javiera({configuration=false,onBack,onConfig}:{configura
     <p className="jv-note">La emisión no certifica por sí sola firma, recepción, capacitación ni entrega real de EPP.</p>
   </section>;
   const ready=cards.filter(c=>chosenCodes.includes(c.code)&&c.can_issue).length;
-  const groups=Array.from(new Set(["Zona Subcontratos","Prevención de Riesgos",...cards.map(c=>c.area)]));
+  const groups=Array.from(new Set(cards.filter(c=>chosenCodes.includes(c.code)).map(c=>c.area)));
   return <section className="jv-module">
     <div className="jv-hero" style={{display:"grid",gridTemplateColumns:"minmax(0, 1fr)",gridAutoFlow:"row",justifyItems:"start",alignContent:"start",rowGap:9}}>
       <div className="jv-hero-back-row" style={{display:"block",width:"100%",minHeight:31,margin:0}}><button type="button" className="jv-back" disabled={busy} onClick={()=>{setMode(null);chooseSite("");setBatchMode(false);setSelectedDossiers([]);}}><ArrowLeft size={18}/> Proyecto JAVIERA</button></div>
@@ -360,13 +408,8 @@ export default function Javiera({configuration=false,onBack,onConfig}:{configura
               {existingDossiers.filter(d=>!workerId||d.worker_id===workerId).map(d=>
                 <option key={d.id} value={d.id}>Expediente {d.id.slice(0,8)} · revisión {d.revision}</option>)}
             </select></label>}
-          <label>Vínculo laboral <select value={employmentType} onChange={e=>setEmploymentType(e.target.value)}>
-            <option value="">Por determinar</option><option value="dependiente">Contrato laboral dependiente</option>
-            <option value="independiente">Independiente (sin vínculo dependiente acreditado)</option></select></label>
           <label>Cargo o especialidad<input list="javiera-cargos" value={role} onChange={e=>setRole(e.target.value)}/><datalist id="javiera-cargos">{nativeRoles.map(cargo=><option key={cargo} value={cargo}/>)}</datalist></label>
-
-          <label>Motivo del expediente <select value={eventType} onChange={e=>setEventType(e.target.value)}>
-            {eventOptions.map(([value,label])=><option key={value} value={value}>{label}</option>)}</select></label>
+          <p className="jv-hint">GALANT utiliza los documentos elegidos para identificar automáticamente el trámite. No necesitas indicar vínculo laboral ni motivo del expediente.</p>
           </>}
           {batchMode&&<p>El lote utiliza los datos guardados de cada expediente. Selecciona las personas en el panel de generación; para corregir sus datos, vuelve al modo individual.</p>}
         </div>
@@ -394,7 +437,7 @@ export default function Javiera({configuration=false,onBack,onConfig}:{configura
             fieldInput(f,extraLabels[f.slice(6)]||f.slice(6).replaceAll("_"," "),extra[f.slice(6)]||"",
               value=>setExtra(old=>({...old,[f.slice(6)]:value})),f.endsWith("birthdate")?"date":f.endsWith("declaration_period")?"month":"text"))}
         </div>}
-        {!batchMode&&<div className="jv-actions"><button type="button" className="jv-primary" disabled={busy||!siteId||!companyId}
+        {!batchMode&&<div className="jv-actions"><button type="button" className="jv-primary" disabled={busy||!siteId||!companyId||!!dossierId&&!unsaved}
           onClick={()=>void saveDossier()}>{busy?"Procesando…":dossierId?"Guardar nueva revisión":"Guardar expediente"}</button>
           {dossierId&&<span>Expediente {dossierId.slice(0,8)} · revisión {dossierRevision}{unsaved?" · cambios sin guardar":""}</span>}
         </div>}
@@ -425,7 +468,7 @@ export default function Javiera({configuration=false,onBack,onConfig}:{configura
           <button key={v} className={filter===v?"active":""} onClick={()=>setFilter(v)}>{l}</button>)}</div>
         {groups.filter(area=>cards.some(c=>c.area===area)).map(area=><div key={area} className="jv-doc-area">
           <h4>{area==="Zona Subcontratos"?<FolderOpen size={17}/>:<ShieldCheck size={17}/>} {area==="Zona Subcontratos"?"Documentos laborales":area}</h4>
-          {cards.filter(c=>c.area===area && (filter==="todos" || filter==="listos"&&c.can_issue ||
+          {cards.filter(c=>chosenCodes.includes(c.code)&&c.area===area && (filter==="todos" || filter==="listos"&&c.can_issue ||
             filter==="pendientes"&&!c.can_issue&&!c.has_history ||
             filter==="historicos"&&c.has_history)).map(c=><article className="jv-doc-card" key={c.code}>
             <div className="jv-doc-title"><input type="checkbox" aria-label={"Seleccionar "+c.title} checked={chosenCodes.includes(c.code)} disabled={busy} onChange={()=>toggleDocument(c.code)}/><FileText size={17}/><b>{c.title}</b><span className={"jv-state jv-"+c.status.toLowerCase()}>{statusText[c.status]||c.status}</span></div>
@@ -456,8 +499,8 @@ export default function Javiera({configuration=false,onBack,onConfig}:{configura
                   <button disabled={busy} onClick={()=>void reviewHistorical(h.id,false)}>Observar</button>
                 </>}
               </div>)}
-              {saved?.issues.filter(x=>x.code===c.code).map(issue=><a key={issue.id} href={"/api/v1/javiera/issued/"+encodeURIComponent(issue.id)+"/pdf"}
-                target="_blank" rel="noreferrer">Emitido v{issue.version}</a>)}
+              {saved?.issues.filter(x=>x.code===c.code).map(doc=><button type="button" key={doc.id} disabled={busy} onClick={()=>void downloadExisting(doc.id,doc.code)}>
+                <Download size={14}/> Descargar emitido v{doc.version}</button>)}
             </div>
           </article>)}
         </div>)}

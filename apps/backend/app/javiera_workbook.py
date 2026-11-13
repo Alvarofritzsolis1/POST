@@ -809,8 +809,12 @@ def convert_pdf(raw: bytes, sheet: str, *, preview: bool = False,
 def cached_pdf(raw: bytes, code: str, data: dict, org_id: str, cache: Path, preview: bool,
                reference: bytes | None = None) -> tuple[bytes, dict]:
     from .config import settings
+    # Los documentos marcados en pantalla cambian el flujo de emisión, pero
+    # no alteran el contenido ni las fórmulas del PDF de un mismo documento.
+    # Excluir esa preferencia del hash evita recalcular Calc al cambiar la selección.
+    printable_data = {k: v for k, v in data.items() if k != "requested_documents"}
     key = digest(json.dumps({"org": org_id, "workbook": digest(raw), "code": code,
-        "data": data, "preview": preview, 'reference':digest(reference or raw), "engine": "calc-v20.7-" + ('uno' if settings().javiera_calc_url else 'cli')}, sort_keys=True, ensure_ascii=False).encode())
+        "data": printable_data, "preview": preview, 'reference':digest(reference or raw), "engine": "calc-v20.7-" + ('uno' if settings().javiera_calc_url else 'cli')}, sort_keys=True, ensure_ascii=False).encode())
     with _locks_guard:
         lock = _locks.setdefault(key, threading.Lock())
     with lock:
