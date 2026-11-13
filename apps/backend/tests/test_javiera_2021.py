@@ -84,4 +84,4 @@ def test_selection_cannot_override_invalid_dates():
     data["contract"]["new_end"] = "2026-11-01"
     doc = status(data, "extension_addendum")
     assert doc["status"] == "FALTAN_DATOS"
-    assert any("extension" in message for message in doc["blocking_errors"])
+    assert any("contract.new_end" in message for message in doc["blocking_errors"])
