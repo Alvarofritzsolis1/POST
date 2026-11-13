@@ -52,6 +52,9 @@ def test_unexplained_old_date_is_still_blocked():
     }
     assert source_leaks(sample_dates(), pdf_date_text("10/05/2026"), data) == ["C36"]
     assert source_leaks(sample_dates(), pdf_date_text("15/06/2026"), data) == ["C40"]
+    # Aunque el campo nuevo venga vacío, no se debe conservar un dato ficticio.
+    data["contract"]["start"] = ""
+    assert source_leaks(sample_dates(), pdf_date_text("10/05/2026"), data) == ["C36"]
 
 
 def test_preflight_reports_exact_cells_without_issuing(env, monkeypatch):
