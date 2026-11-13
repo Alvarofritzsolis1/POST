@@ -131,7 +131,7 @@ export default function JavieraWorkbookAdmin({onBack}:{onBack:()=>void}){
  }
  function formatSelected(format:CellFormat){if(selected)mutate({cell:selected,format});}
  const activeChecklist=checklists.find(c=>c.specialty===specialty);
- const roleRows=new Set(cargo?roleIndex[cargo]?.[matrix]||[]);
+ const roleRows=new Set(cargo ? (roleIndex[cargo]?.[matrix] || []) : []);
  const editableEntries=(grid?.cells||[]).filter(x=>!x.formula&&x.type!=="n"&&String(x.value||"").trim().length>=2&&(tab!=="matrices"||!!cargo&&roleRows.has(x.row))).slice(0,24);
  const easyView=<section className="jw-easy" aria-label="Editor fácil">
   <header className="jw-easy-head"><div><small>{tab==="matrices"?"MATRIZ POR CARGO":"DOCUMENTO"}</small><h2>{tab==="matrices"?matrixNames[matrix]+" · "+(cargo||"Selecciona un cargo"):titles[code]||sheet}</h2><p>{tab==="matrices"?"Edita los antecedentes del cargo. Las fórmulas se mantienen protegidas.":"Modifica textos fijos sin buscar celdas; los datos personales se completan en cada expediente."}</p></div><button type="button" disabled={busy||dirty||loading} onClick={()=>setAdvanced(true)}><Settings2 size={16}/> Excel avanzado</button></header>
