@@ -38,6 +38,7 @@ from .security import administrator
 from .javiera_workbook_api import active_workbook, unarchived, raw_for, root_for, head_for, original_for
 from .javiera_workbook import cached_pdf, roles as workbook_roles
 from .javiera_workbook_models import JavieraArchive
+from .rut_format import format_rut
 
 router = APIRouter(prefix="/api/v1/javiera", tags=["Proyecto JAVIERA"])
 
@@ -406,7 +407,8 @@ def sources(site_id: str = "", contractor_id: str = "",
         mapping = {"legal_representative":"representative_name", "legal_representative_rut":"representative_rut",
                    "phone":"employer_phone", "email":"employer_email", "address":"employer_address",
                    "city":"employer_city", "commune":"employer_commune", "specialty":"specialty"}
-        return {dest: str(fields[key]) for key,dest in mapping.items() if fields.get(key) and isinstance(fields[key], (str,int,float))}
+        return {dest: (format_rut(fields[key]) if dest.endswith("_rut") else str(fields[key]))
+                for key,dest in mapping.items() if fields.get(key) and isinstance(fields[key], (str,int,float))}
     workers = []
     if site_id and contractor_id:
         by_org(db, Contractor, contractor_id, user.org_id)
@@ -419,14 +421,14 @@ def sources(site_id: str = "", contractor_id: str = "",
             ContractRegister.status == "active").order_by(ContractRegister.updated_at.desc())).all()
         registered = {}
         for contract in contracts: registered.setdefault(contract.worker_assignment_id, contract)
-        workers = [{"id": w.id, "association_id": a.id, "name": w.name, "rut": w.rut,
+        workers = [{"id": w.id, "association_id": a.id, "name": w.name, "rut": format_rut(w.rut),
                     "active": a.active, "contract": {
                         "start": registered[a.id].start_date.isoformat(),
                         "end": registered[a.id].end_date.isoformat() if registered[a.id].end_date else ""
                     } if a.id in registered else {}} for a, w in assignments]
     return {"sites": [{"id": s.id, "name": s.name} for s in sites],
             "contractors": [{"id": c.id, "association_id": a.id, "site_id": a.worksite_id,
-                             "name": c.name, "rut": c.rut, "nature": c.nature,
+                             "name": c.name, "rut": format_rut(c.rut), "nature": c.nature,
                              "defaults": defaults(c.id,a.worksite_id)}
                             for a, c in companies],
             "workers": workers}
