@@ -12,6 +12,7 @@ from app.javiera_excel import LayoutError, Q, cell_text, get_data, shared_string
 from app.javiera_logic import field, rut_valid
 from app.javiera_workbook import fill_workbook, irl_continuations
 from app.rut_format import format_rut
+from app.javiera_native import _get as native_field
 from test_javiera_workbook import master
 from zipfile import ZipFile
 from xml.etree import ElementTree as ET
@@ -139,3 +140,36 @@ def test_all_javiera_excel_and_structured_rut_fields_use_same_format():
 def test_invalid_rut_does_not_become_valid_after_formatting():
     assert not rut_valid("12.345.678-9")
     assert not rut_valid(format_rut("12.345.678-9"))
+
+
+@pytest.mark.parametrize("role,summary_role", [
+    ("CARPINTERO", "CARPINTERO"),
+    ("TECHADOR", "TECHUMBRE"),
+    ("OPERARIO DE HORMIGON", "OPERARIO DE HORMIGÓN"),
+    ("ALUMINERO", "ALUMINIOS"),
+    ("OPERARIO DE URBANIZACION", "URBANIZACION"),
+    ("ESTRUCTURERO METÁLICO", "ESTRUCTURAS METALICAS"),
+    ("HOJALATERO", "HOJALATERIA"),
+    ("ALBAÑIL", "ALBAÑILERIA"),
+    ("INSTALADOR DE EIFS", "INS EIFS"),
+    ("INSTALADOR DE PANDERETAS / VIBRADOS", "VIBRADOS (PANDERETAS)"),
+    ("MUEBLISTA", "INST DE MUEBLES"),
+    ("PAISAJISTA", "PAISAJISMO"),
+    ("OPERARIO DE OBRA GRUESA", "OBRA GRUESA"),
+])
+def test_verified_irl_role_equivalences_are_explicit(role, summary_role):
+    raw = source_with_broken_summary(role=role, available=summary_role)
+    filled = fill_workbook(raw, {"role": role}, "irl")
+    assert formula_at(filled, "IRL", "A23") == (
+        "'Matriz IRL Optimizada'!$B$2"
+    )
+
+
+def test_native_pdf_fields_use_same_chilean_rut_format():
+    data = {
+        "employer": {"rut": "123456789"},
+        "worker": {"rut": "12345678k"},
+        "extra": {"representative_rut": "12925516-1"},
+    }
+    for key in ("employer.rut", "worker.rut", "extra.representative_rut"):
+        assert native_field(data, key) == get_data(data, key)
