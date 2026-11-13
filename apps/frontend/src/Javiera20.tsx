@@ -569,7 +569,7 @@ export default function Javiera({configuration=false,onBack,onConfig}:{configura
                 {c.source_cells?.includes("C11")&&<button type="button" disabled={busy}
                   onClick={()=>focusMissingField("extra.employer_commune")}>Comprobar comuna de la empresa</button>}
                 {onConfig&&c.status==="BLOQUEADO_PLANTILLA"&&<button type="button" disabled={busy}
-                  onClick={()=>onConfig()}>Revisar plantilla Excel</button>
+                  onClick={()=>onConfig()}>Revisar plantilla Excel</button>}
               </div>:
               ["FALTAN_DATOS","PENDIENTE_REVISION","GUARDAR_FICHA"].includes(c.status)?
               <div className="jv-card-missing"><strong>{c.status==="FALTAN_DATOS"?"Completar información":c.status==="GUARDAR_FICHA"?"Guardar ficha":"Revisar configuración"}</strong>
@@ -578,7 +578,7 @@ export default function Javiera({configuration=false,onBack,onConfig}:{configura
                   <button type="button" disabled={busy} onClick={()=>focusMissingField(c.missing_fields[0])}>
                     Completar {fieldLabel(c.missing_fields[0])}
                   </button></>}
-                {!!c.blocking_errors.length&&<p>{c.blocking_errors.join("; ")}</p>
+                {!!c.blocking_errors.length&&<p>{c.blocking_errors.join("; ")}</p>}
               </div>:c.reason&&<p>{c.reason}</p>}
             <div className="jv-card-actions">
               <button disabled={!c.can_preview||unsaved||busy} onClick={()=>void openPreview(c.code)}>Vista previa</button>
