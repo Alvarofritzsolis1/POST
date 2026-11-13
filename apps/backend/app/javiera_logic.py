@@ -198,6 +198,10 @@ def eligibility(data: dict, templates: dict, matrix_approved: set[str] | None = 
     historical = historical or set()
     event = data.get("event_type") or "ingreso"
     kind = data.get("employment_type") or ""
+    # Seleccionar expresamente un documento sustituye al antiguo selector de motivo,
+    # pero nunca exime de fechas, requisitos, matrices o aprobaciones documentales.
+    requested = data.get("requested_documents")
+    requested = {code for code in requested if isinstance(code, str) and code in DOCUMENT_BY_CODE} if isinstance(requested, list) else set()
     has_context = bool(field(data, "employer.name") or field(data, "worker.name") or field(data, "site.name"))
     results = []
     for code, area, title, mode, defaults in DOCUMENTS:
@@ -207,6 +211,7 @@ def eligibility(data: dict, templates: dict, matrix_approved: set[str] | None = 
         custom_rule = settings.get("rule") or {}
         missing, errors = validate_requirements(data, required)
         reason = ""
+        explicitly_requested = code in requested
         applies = "aplica"
         if not has_context:
             applies, reason = "por_determinar", "Selecciona empresa, obra o trabajador"
@@ -216,10 +221,10 @@ def eligibility(data: dict, templates: dict, matrix_approved: set[str] | None = 
             applies, reason = "no_aplica", "No consta vínculo laboral dependiente"
         elif mode == "laboral" and kind != "dependiente":
             applies, reason = "por_determinar", "Confirma el vínculo laboral"
-        elif mode in {"traslado", "prorroga", "declaracion", "reglamento", "entrega_epp",
+        elif not explicitly_requested and mode in {"traslado", "prorroga", "declaracion", "reglamento", "entrega_epp",
                       "recepcion_pts", "induccion"} and event != mode and event != "ingreso":
             applies, reason = "no_aplica", "Este documento no corresponde al evento seleccionado"
-        elif mode in {"traslado", "prorroga", "declaracion"} and event != mode:
+        elif not explicitly_requested and mode in {"traslado", "prorroga", "declaracion"} and event != mode:
             applies, reason = "no_aplica", "Se emite solo al registrar el evento correspondiente"
         # Preparar el PDF no implica firma física, entrega ni capacitación realizada.
         # La recepción se acreditará después en el papel firmado.
