@@ -33,6 +33,7 @@ const isRutField=(key:string)=>key.endsWith(".rut")||key.endsWith("_rut");
 const extraLabels:Record<string,string>={representative_name:"Nombre del representante legal",representative_rut:"RUT del representante legal",representative_nationality:"Nacionalidad del representante",employer_address:"Domicilio de la empresa",employer_commune:"Comuna de la empresa",employer_city:"Ciudad de la empresa",employer_phone:"Teléfono de la empresa",employer_email:"Correo de la empresa",worker_nationality:"Nacionalidad del trabajador",worker_birthdate:"Fecha de nacimiento",worker_marital_status:"Estado civil",worker_address:"Domicilio del trabajador",worker_commune:"Comuna del trabajador",worker_city:"Ciudad del trabajador",worker_phone:"Teléfono del trabajador",worker_email:"Correo del trabajador",payment_frequency:"Periodicidad de pago",bank_account:"Datos de pago o cuenta bancaria",afp:"AFP",health_provider:"Sistema de salud",principal_company:"Empresa mandante",declaration_period:"Período de la declaración",site_address:"Dirección de la obra",specialty:"Especialidad",destinations:"Obras de destino autorizadas",transport_allowance:"Asignación de traslado"};
 const fieldLabel=(key:string)=>extraLabels[key.replace(/^extra\./,"")]||({"employer.name":"empresa","employer.rut":"RUT de empresa","worker.name":"trabajador","worker.rut":"RUT del trabajador","site.name":"obra","role":"cargo","employment_type":"vínculo laboral","event.date":"fecha del evento","event.epp_items":"EPP entregados","event.pts_version":"versión del PTS","contract.start":"fecha de ingreso","contract.end":"fecha de término","contract.new_end":"nueva fecha de término (anexo de prórroga)","contract.transfer_date":"fecha de traslado","contract.salary":"sueldo base","contract.hours":"horas semanales"} as Record<string,string>)[key]||key.replaceAll("_"," ");
 const errorMessage=(e:unknown)=>e instanceof Error?e.message:String(e);
+const excelProblemItems=(reason:string)=>reason.startsWith("Errores Excel:")?reason.slice("Errores Excel:".length).split(";").map(x=>x.trim()).filter(Boolean):[];
 async function pdfRequest(url:string,body:unknown){
   const csrf=document.cookie.split("; ").find(c=>c.startsWith("galant_post_csrf="))?.split("=")[1]||"";
   const response=await fetch("/api/v1/javiera"+url,{method:"POST",headers:{"Content-Type":"application/json","X-CSRF-Token":csrf},
@@ -554,14 +555,16 @@ export default function Javiera({configuration=false,onBack,onConfig}:{configura
               incompleteCards.length?"Documentos pendientes de completar o guardar":
               verifyingCards.length?"Comprobando el contenido del PDF…":
               ready?"Documentos verificados":"Selecciona documentos"}</strong>
-            <p>{criticalCards.length?"No se emitirá ningún PDF con datos del ejemplo.":
+            <p>{criticalCards.length?"Los documentos bloqueados no se emitirán hasta que se corrijan sus errores.":
               incompleteCards.length?"Revisa la tarjeta de cada documento y guarda la ficha antes de generar.":
               verifyingCards.length?"Revisando las fórmulas y valores de la salida real del Excel.":
               ready?ready+" documento(s) verificados.":"Completa la ficha para generar."}</p></div>
           </div>
           {criticalCards.map(doc=><div key={doc.code} className="jv-validation-item">
-            <strong>{doc.title}</strong><span>{doc.reason}</span>
-            {!!doc.source_cells?.length&&<small>Origen: Datos Contrato!{doc.source_cells.join(", ")}</small>}
+            <strong>{doc.title}</strong>
+            {excelProblemItems(doc.reason).length?<details><summary>{excelProblemItems(doc.reason).length} celdas con errores de cálculo · Ver ubicaciones</summary>
+              <ul>{excelProblemItems(doc.reason).map((detail,i)=><li key={i}>{detail}</li>)}</ul></details>:<span>{doc.reason}</span>}
+            {!!doc.source_cells?.length&&<small>Celdas implicadas: {doc.source_cells.join(", ")}</small>}
             {onConfig&&doc.status==="BLOQUEADO_PLANTILLA"&&<button type="button" disabled={busy}
               onClick={()=>onConfig()}>Abrir configuración del Excel</button>}
           </div>)}
@@ -602,8 +605,11 @@ export default function Javiera({configuration=false,onBack,onConfig}:{configura
               <div className="jv-progress"><span style={{width:String(c.completion_percent)+"%"}}/></div>}
             {["BLOQUEADO_PLANTILLA","ERROR_TEMPORAL"].includes(c.status)?
               <div className="jv-card-problem" role="alert"><strong>Documento bloqueado</strong>
-                <p>{c.reason||"El sistema detectó un error en la plantilla."}</p>
-                {!!c.source_cells?.length&&<p><strong>Ubicación exacta:</strong> Datos Contrato!{c.source_cells.join(", ")}</p>}
+                {excelProblemItems(c.reason||"").length?
+                  <details><summary>{excelProblemItems(c.reason).length} errores de cálculo · Ver detalles</summary>
+                    <ul>{excelProblemItems(c.reason).map((detail,i)=><li key={i}>{detail}</li>)}</ul></details>:
+                  <p>{c.reason||"El sistema detectó un error en la plantilla."}</p>}
+                {!!c.source_cells?.length&&<p><strong>Celdas implicadas:</strong> {c.source_cells.join(", ")}</p>}
                 {c.source_cells?.includes("C11")&&<button type="button" disabled={busy}
                   onClick={()=>focusMissingField("extra.employer_commune")}>Comprobar comuna de la empresa</button>}
                 {onConfig&&c.status==="BLOQUEADO_PLANTILLA"&&<button type="button" disabled={busy}
