@@ -25,9 +25,9 @@ const statusText:Record<string,string>={
 const validField=(key:string)=>key.replaceAll(".","_");
 const formatRutDisplay=(value:string):string=>{
   const raw=(value||"").trim();
-  const compact=raw.replace(/[.\\-\\s]/g,"").toUpperCase();
-  const match=compact.match(/^(\\d{7,8})([\\dK])$/);
-  return match?match[1].replace(/\\B(?=(\\d{3})+(?!\\d))/g,".")+"-"+match[2]:raw;
+  const compact=raw.replace(/[.\-\s]/g,"").toUpperCase();
+  const match=compact.match(/^(\d{7,8})([\dK])$/);
+  return match?match[1].replace(/\B(?=(\d{3})+(?!\d))/g,".")+"-"+match[2]:raw;
 };
 const isRutField=(key:string)=>key.endsWith(".rut")||key.endsWith("_rut");
 const extraLabels:Record<string,string>={representative_name:"Nombre del representante legal",representative_rut:"RUT del representante legal",representative_nationality:"Nacionalidad del representante",employer_address:"Domicilio de la empresa",employer_commune:"Comuna de la empresa",employer_city:"Ciudad de la empresa",employer_phone:"Teléfono de la empresa",employer_email:"Correo de la empresa",worker_nationality:"Nacionalidad del trabajador",worker_birthdate:"Fecha de nacimiento",worker_marital_status:"Estado civil",worker_address:"Domicilio del trabajador",worker_commune:"Comuna del trabajador",worker_city:"Ciudad del trabajador",worker_phone:"Teléfono del trabajador",worker_email:"Correo del trabajador",payment_frequency:"Periodicidad de pago",bank_account:"Datos de pago o cuenta bancaria",afp:"AFP",health_provider:"Sistema de salud",principal_company:"Empresa mandante",declaration_period:"Período de la declaración",site_address:"Dirección de la obra",specialty:"Especialidad",destinations:"Obras de destino autorizadas",transport_allowance:"Asignación de traslado"};
