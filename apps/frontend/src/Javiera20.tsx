@@ -547,7 +547,8 @@ export default function Javiera({configuration=false,onBack,onConfig}:{configura
              c.status==="FALTAN_DATOS"?"jv-card-warning":
              c.can_issue?"jv-card-ok":"")} key={c.code}>
             <div className="jv-doc-title"><input type="checkbox" aria-label={"Seleccionar "+c.title} checked={chosenCodes.includes(c.code)} disabled={busy} onChange={()=>toggleDocument(c.code)}/><FileText size={17}/><b>{c.title}</b><span className={"jv-state jv-"+c.status.toLowerCase()}>{statusText[c.status]||c.status}</span></div>
-            <div className="jv-progress"><span style={{width:String(c.completion_percent)+"%"}}/></div>
+            {!["BLOQUEADO_PLANTILLA","ERROR_TEMPORAL","VALIDANDO_PDF"].includes(c.status)&&
+              <div className="jv-progress"><span style={{width:String(c.completion_percent)+"%"}}/></div>}
             {["BLOQUEADO_PLANTILLA","ERROR_TEMPORAL"].includes(c.status)?
               <div className="jv-card-problem" role="alert"><strong>Documento bloqueado</strong>
                 <p>{c.reason||"El sistema detectó un error en la plantilla."}</p>
