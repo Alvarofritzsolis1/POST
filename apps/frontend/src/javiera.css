@@ -133,3 +133,23 @@
 .platform .jv-module .jv-hero>small{display:block;position:static;float:none;min-width:0;margin:0;line-height:1.45}
 .platform .jv-module .jv-hero>h2{margin:0;min-width:0}
 .platform .jv-module .jv-hero>p{margin:0;min-width:0}
+
+/* Javiera 20.1 · selección documental y generación por expedientes */
+.jv-flow{margin:0;padding:0;border:0;min-width:0}
+.jv-document-picker{padding:22px;background:white;border:1px solid var(--jv-border);border-radius:14px;margin-bottom:20px}
+.jv-picker-heading{display:flex;justify-content:space-between;gap:22px;align-items:start}
+.jv-picker-heading small{font-weight:750;letter-spacing:.08em;color:#416285;font-size:.72rem}
+.jv-picker-heading h3{margin:7px 0;font-size:1.3rem}.jv-picker-heading p{font-size:.88rem;color:#566a80}
+.jv-picker-heading label{display:grid;gap:7px;font-size:.82rem;min-width:230px}
+.jv-picker-heading input{padding:10px;border:1px solid #cdd9e7;border-radius:8px;font:inherit;width:100%}
+.jv-picker-actions{display:flex;gap:8px;flex-wrap:wrap;align-items:center;margin:16px 0}
+.jv-picker-actions button,.jv-batch-targets>button{padding:8px 10px;border:1px solid #cdd9e7;background:#f8fafc;border-radius:8px;color:#234b79;font-weight:650}
+.jv-picker-actions strong{margin-left:auto;font-size:.82rem;color:#234b79}
+.jv-picker-grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(205px,1fr));gap:9px}
+.jv-picker-card{display:flex;gap:10px;align-items:start;border:1px solid #dce4ec;border-radius:9px;padding:13px;cursor:pointer;line-height:1.4}
+.jv-picker-card.chosen{border-color:#5682ab;background:#f0f6fc}.jv-picker-card b{display:block;font-size:.84rem}.jv-picker-card small{display:block;color:#536b80;font-size:.72rem;margin-top:4px}
+.jv-picker-card input,.jv-check-line input,.jv-doc-title>input{width:17px;height:17px;flex-shrink:0;accent-color:#234b79}
+.jv-check-line{display:flex;gap:8px;align-items:center;margin:14px 0;font-size:.84rem;cursor:pointer}
+.jv-batch-targets{border:1px solid #dce4ec;border-radius:9px;padding:12px;max-height:300px;overflow:auto}.jv-batch-targets p{font-size:.8rem;line-height:1.5;color:#526b80}
+.jv-batch-report>button{display:flex;gap:7px;align-items:center;padding:10px;color:#234b79;background:white;border:1px solid #b6cede;border-radius:8px;font-weight:700;width:100%}
+@media(max-width:700px){.jv-picker-heading{display:block}.jv-picker-heading label{min-width:0}.jv-document-picker{padding:16px}.jv-picker-grid{grid-template-columns:1fr}.jv-picker-actions strong{margin-left:0;width:100%}}

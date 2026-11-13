@@ -1,3 +1,9 @@
+# GALANT POST — 20.1.0-rc1 · Javiera: selección y generación masiva
+
+Candidata local con entrada por contratista nuevo/existente, selección de los diez documentos, generación por varios expedientes y descarga ZIP. Corrige la pérdida de namespaces Microsoft en el XLSX y mejora el pegado y formato del editor web. **Excel original comprobado con LibreOffice y los diez tipos documentales. Sin despliegue al VPS; pendiente de apertura manual en Microsoft Excel.**
+
+[Detalle, validación y límites](docs/ENTREGA_20_1_0_JAVIERA.md).
+
 # GALANT POST — 20.0.0-rc1 · Javiera con maestro Excel
 
 Candidata con edición nativa del XLSX, matrices vinculadas, revisiones privadas, recálculo Calc, caché y reinicio reversible de Javiera. **Migración integral y despliegue al VPS pendientes:** hay información preventiva incompleta, un recorte en la inducción y límites del editor que deben resolverse antes de declarar terminada la versión.

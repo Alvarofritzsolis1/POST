@@ -3,15 +3,16 @@ import {ArrowLeft, CheckCircle2, ClipboardList, Download, FileText, FolderOpen, 
 import {request} from "./api";
 import {opsApi} from "./opsApi";
 import "./javiera.css";
+import {dossierFields,emptyContract,emptyEvent,stableFingerprint} from "./javiera-dossier-state";
 const JavieraWorkbookAdmin=lazy(()=>import("./JavieraWorkbookAdmin"));
 
 type Source = {sites: {id:string;name:string}[];contractors:{id:string;site_id:string;name:string;rut:string|null;nature:string;defaults?:Record<string,string>}[];workers:{id:string;name:string;rut:string|null;active:boolean;contract?:{start?:string;end?:string}}[]};
 type Catalog = {code:string;area:string;title:string;required_fields:string[];published_version:number};
 type Status = {code:string;area:string;title:string;status:string;reason:string;missing_fields:string[];blocking_errors:string[];completion_percent:number;can_preview:boolean;can_issue:boolean;has_history:boolean;template_version:number};
+type DossierSummary = {id:string;site_id:string;employer_id:string;worker_id:string|null;relationship:string;revision:number;worker_name?:string;employer_name?:string};
+type BatchResult = {dossier_id?:string;code:string;ok:boolean;id?:string;reason?:string};
 type Dossier = {id:string;revision:number;data:Record<string,unknown>;site_id:string;employer_id:string;worker_id:string|null;parent_id:string|null;relationship:string;issues:{id:string;code:string;at:string;sha256:string;version:number}[];historical:{id:string;code:string;state:string;comment:string}[]};
 const emptySource:Source={sites:[],contractors:[],workers:[]};
-const emptyContract={start:"",end:"",new_end:"",salary:"",hours:"",transfer_date:"",declaration_reason:"",regulation_version:""};
-const emptyEvent={date:"",epp_items:"",pts_version:""};
 const statusText:Record<string,string>={
   POR_DETERMINAR:"Por determinar", NO_APLICA:"No aplica", FALTAN_DATOS:"Faltan datos",
   PENDIENTE_REVISION:"Requiere revisión", PREVISUALIZABLE:"Vista previa disponible",
@@ -26,6 +27,7 @@ const eventOptions=[
 ];
 const validField=(key:string)=>key.replaceAll(".","_");
 const extraLabels:Record<string,string>={representative_name:"Nombre del representante legal",representative_rut:"RUT del representante legal",representative_nationality:"Nacionalidad del representante",employer_address:"Domicilio de la empresa",employer_commune:"Comuna de la empresa",employer_city:"Ciudad de la empresa",employer_phone:"Teléfono de la empresa",employer_email:"Correo de la empresa",worker_nationality:"Nacionalidad del trabajador",worker_birthdate:"Fecha de nacimiento",worker_marital_status:"Estado civil",worker_address:"Domicilio del trabajador",worker_commune:"Comuna del trabajador",worker_city:"Ciudad del trabajador",worker_phone:"Teléfono del trabajador",worker_email:"Correo del trabajador",payment_frequency:"Periodicidad de pago",bank_account:"Datos de pago o cuenta bancaria",afp:"AFP",health_provider:"Sistema de salud",principal_company:"Empresa mandante",declaration_period:"Período de la declaración",site_address:"Dirección de la obra",specialty:"Especialidad",destinations:"Obras de destino autorizadas",transport_allowance:"Asignación de traslado"};
+const fieldLabel=(key:string)=>extraLabels[key.replace(/^extra\./,"")]||({"employer.name":"empresa","employer.rut":"RUT de empresa","worker.name":"trabajador","worker.rut":"RUT del trabajador","site.name":"obra","role":"cargo","employment_type":"vínculo laboral","event.date":"fecha del evento","event.epp_items":"EPP entregados","event.pts_version":"versión del PTS","contract.start":"fecha de ingreso","contract.end":"fecha de término","contract.salary":"sueldo base","contract.hours":"horas semanales"} as Record<string,string>)[key]||key.replaceAll("_"," ");
 const errorMessage=(e:unknown)=>e instanceof Error?e.message:String(e);
 async function pdfRequest(url:string,body:unknown){
   const csrf=document.cookie.split("; ").find(c=>c.startsWith("galant_post_csrf="))?.split("=")[1]||"";
@@ -41,12 +43,13 @@ function previewBlob(blob:Blob){
 }
 
 export default function Javiera({configuration=false,onBack,onConfig}:{configuration?:boolean;onBack?:()=>void;onConfig?:()=>void}){
-  const [mode,setMode]=useState<"contractor"|"subcontractor"|null>(null);
+  const [mode,setMode]=useState<"new"|"existing"|null>(null);
   const [source,setSource]=useState<Source>(emptySource);
   const [catalog,setCatalog]=useState<Catalog[]>([]);
   const [siteId,setSiteId]=useState("");
   const [companyId,setCompanyId]=useState("");
   const [parentId,setParentId]=useState("");
+  const [relationship,setRelationship]=useState("contractor");
   const [workerId,setWorkerId]=useState("");
   const [role,setRole]=useState("");
   const [extra,setExtra]=useState<Record<string,string>>({});
@@ -62,17 +65,30 @@ export default function Javiera({configuration=false,onBack,onConfig}:{configura
   const [notice,setNotice]=useState("");
   const [busy,setBusy]=useState(false);
   const [filter,setFilter]=useState("todos");
-  const [documentChoice,setDocumentChoice]=useState("labor_contract");
+  const [selectedCodes,setSelectedCodes]=useState<string[]|null>(null);
+  const [documentSearch,setDocumentSearch]=useState("");
+  const [batchMode,setBatchMode]=useState(false);
+  const [selectedDossiers,setSelectedDossiers]=useState<string[]>([]);
+  const [batchProgress,setBatchProgress]=useState("");
   const [nativeRoles,setNativeRoles]=useState<string[]>([]);
   const [savedFingerprint,setSavedFingerprint]=useState("");
-  const [existingDossiers,setExistingDossiers]=useState<{id:string;site_id:string;employer_id:string;worker_id:string|null;relationship:string;revision:number}[]>([]);
+  const [existingDossiers,setExistingDossiers]=useState<DossierSummary[]>([]);
   const [newContractor,setNewContractor]=useState({name:"",rut:""});
   const [newWorker,setNewWorker]=useState({name:"",rut:""});
   const [showCreate,setShowCreate]=useState<"contractor"|"worker"|null>(null);
   const [reviewComments,setReviewComments]=useState<Record<string,string>>({});
   const [reissueReasons,setReissueReasons]=useState<Record<string,string>>({});
-  const [batchReport,setBatchReport]=useState<{code:string;ok:boolean;id?:string;reason?:string}[]>([]);
+  const [batchReport,setBatchReport]=useState<BatchResult[]>([]);
+  useEffect(()=>{
+    if(!busy)return;
+    const beforeUnload=(e:BeforeUnloadEvent)=>{e.preventDefault();e.returnValue="";};
+    const beforeNavigate=(e:Event)=>{e.preventDefault();setError("Hay una operación en curso. Espera su resultado antes de cambiar de módulo.");};
+    window.addEventListener("beforeunload",beforeUnload);window.addEventListener("galant-before-navigate",beforeNavigate);
+    return()=>{window.removeEventListener("beforeunload",beforeUnload);window.removeEventListener("galant-before-navigate",beforeNavigate);};
+  },[busy]);
   const revision=useRef(0);
+  const loadingDossier=useRef(0);
+  const actionLock=useRef(false);
   useEffect(()=>{if(configuration)return;let active=true;
     request<{current:{id:string}|null}>("/javiera/workbook").then(async result=>{
       if(result.current){const roles=await request<Record<string,unknown>>("/javiera/workbook/"+result.current.id+"/roles");if(active)setNativeRoles(Object.keys(roles).sort());}
@@ -96,7 +112,7 @@ export default function Javiera({configuration=false,onBack,onConfig}:{configura
     employer:{name:employer?.name||"",rut:employer?.rut||""},worker:{name:worker?.name||"",rut:worker?.rut||""},
     site:{name:site?.name||""},role,event_type:eventType,employment_type:employmentType,contract,event,extra
   }),[employer?.name,employer?.rut,worker?.name,worker?.rut,site?.name,role,eventType,employmentType,contract,event,extra]);
-  const fingerprint=JSON.stringify(data);
+  const fingerprint=stableFingerprint({siteId,companyId,workerId,parentId,relationship,data});
   const unsaved=!dossierId||savedFingerprint!==fingerprint;
   useEffect(()=>{
     if(configuration)return;
@@ -116,162 +132,197 @@ export default function Javiera({configuration=false,onBack,onConfig}:{configura
     missing_fields:x.required_fields,blocking_errors:[],completion_percent:0,can_preview:false,can_issue:false,
     has_history:false,template_version:x.published_version
   }));
-  const cards=allCards.filter(c=>documentChoice==="todos"||c.code===documentChoice);
-  const selectedCatalog=catalog.filter(c=>documentChoice==="todos"||c.code===documentChoice);
+  const chosenCodes=selectedCodes??catalog.map(c=>c.code);
+  const cards=allCards;
+  const selectedCatalog=catalog.filter(c=>chosenCodes.includes(c.code));
   const neededFields=new Set(selectedCatalog.flatMap(c=>c.required_fields));
   const fieldInput=(field:string,label:string,value:string,change:(v:string)=>void,type="text")=>
     <label key={field} htmlFor={validField(field)}>{label}<input id={validField(field)} value={value}
       type={type} onChange={e=>change(e.target.value)}/></label>;
   useEffect(()=>{
-    if(!mode||!companyId||!siteId)return;
+    if(!mode||!companyId||!siteId){setExistingDossiers([]);return;}
     let alive=true;
     request<typeof existingDossiers>("/javiera/dossiers?site_id="+encodeURIComponent(siteId)+"&employer_id="+encodeURIComponent(companyId))
       .then(rows=>{if(alive)setExistingDossiers(rows);}).catch(e=>{if(alive)setError(errorMessage(e));});
     return()=>{alive=false;};
   },[mode,siteId,companyId,saved?.issues.length]);
   async function loadDossier(id:string){
+    if(actionLock.current)return;
+    const load=++loadingDossier.current;setBusy(true);setError("");
     try{
-      const row=await request<Dossier>("/javiera/dossiers/"+id);
+      const row=await request<Dossier>("/javiera/dossiers/"+encodeURIComponent(id));
       const src=await request<Source>("/javiera/sources?site_id="+encodeURIComponent(row.site_id)+"&contractor_id="+encodeURIComponent(row.employer_id));
-      const obj=row.data;
+      if(load!==loadingDossier.current)return;
+      const fields=dossierFields(row.data);
       const company=src.contractors.find(c=>c.id===row.employer_id);
       const worker=src.workers.find(w=>w.id===row.worker_id);
       const site=src.sites.find(z=>z.id===row.site_id);
-      setSaved(row);setDossierId(row.id);setDossierRevision(row.revision);
+      setBatchReport([]);setSaved(row);setDossierId(row.id);setDossierRevision(row.revision);
       setSource(src);setSiteId(row.site_id);setCompanyId(row.employer_id);setWorkerId(row.worker_id||"");
-      setParentId(row.parent_id||"");setMode(row.relationship==="subcontractor"?"subcontractor":"contractor");
-      setRole(String(obj.role||""));setExtra(typeof obj.extra==="object"&&obj.extra?obj.extra as Record<string,string>:{});setEventType(String(obj.event_type||"ingreso"));
-      setEmploymentType(String(obj.employment_type||""));
-      setContract({...emptyContract,...(typeof obj.contract==="object"&&obj.contract?obj.contract as typeof emptyContract:{})});
-      setEvent({...emptyEvent,...(typeof obj.event==="object"&&obj.event?obj.event as typeof emptyEvent:{})});
-      setSavedFingerprint(JSON.stringify({...obj,employer:{name:company?.name||"",rut:company?.rut||""},
-        worker:{name:worker?.name||"",rut:worker?.rut||""},site:{name:site?.name||""}}));
-      setNotice("Expediente histórico recuperado; revisa los datos antes de emitir.");
-    }catch(e){setError(errorMessage(e));}
+      setParentId(row.parent_id||"");setRelationship(row.relationship);setMode("existing");
+      setRole(fields.role);setExtra(fields.extra);setEventType(fields.event_type);
+      setEmploymentType(fields.employment_type);setContract(fields.contract);setEvent(fields.event);
+      setSavedFingerprint(stableFingerprint({siteId:row.site_id,companyId:row.employer_id,workerId:row.worker_id||"",parentId:row.parent_id||"",relationship:row.relationship,data:{
+        employer:{name:company?.name||"",rut:company?.rut||""},worker:{name:worker?.name||"",rut:worker?.rut||""},site:{name:site?.name||""},...fields}}));
+      setNotice("Expediente recuperado. Puedes revisar y generar sus documentos.");
+    }catch(e){if(load===loadingDossier.current)setError(errorMessage(e));}finally{if(load===loadingDossier.current)setBusy(false);}
   }
   async function createCompany(){
     if(!siteId||!newContractor.name.trim()){setError("Selecciona una obra e indica la empresa");return;}
-    setBusy(true);setError("");
+    if(actionLock.current)return;actionLock.current=true;setBusy(true);setError("");
     try{
       const result=await opsApi.createContractor({site_id:siteId,name:newContractor.name,rut:newContractor.rut||null,
         historical_code:"",nature:"unclassified",frequency:"unclassified",contract_status:"active"});
       const src=await request<Source>("/javiera/sources?site_id="+encodeURIComponent(siteId));
       setSource(src);chooseCompany(result.contractor_id);setShowCreate(null);setNewContractor({name:"",rut:""});
       setNotice("Contratista registrado y vinculado a la obra.");
-    }catch(e){setError(errorMessage(e));}finally{setBusy(false);}
+    }catch(e){setError(errorMessage(e));}finally{actionLock.current=false;setBusy(false);}
   }
   async function createWorker(){
     if(!siteId||!companyId||!newWorker.name.trim()){setError("Selecciona empleador e indica el trabajador");return;}
-    setBusy(true);setError("");
+    if(actionLock.current)return;actionLock.current=true;setBusy(true);setError("");
     try{
       const result=await opsApi.createWorker({site_id:siteId,contractor_id:companyId,name:newWorker.name,rut:newWorker.rut||null});
       const src=await request<Source>("/javiera/sources?site_id="+encodeURIComponent(siteId)+"&contractor_id="+encodeURIComponent(companyId));
       setSource(src);chooseWorker(result.worker_id);setShowCreate(null);setNewWorker({name:"",rut:""});
       setNotice("Trabajador vinculado al empleador.");
-    }catch(e){setError(errorMessage(e));}finally{setBusy(false);}
+    }catch(e){setError(errorMessage(e));}finally{actionLock.current=false;setBusy(false);}
   }
   async function refreshDossier(id:string){
     const result=await request<Dossier>("/javiera/dossiers/"+id);setSaved(result);
   }
   async function saveDossier(){
     if(!mode||!companyId||!siteId){setError("Selecciona obra y empleador antes de guardar.");return;}
-    setBusy(true);setError("");setNotice("");
+    if(actionLock.current)return;actionLock.current=true;setBusy(true);setError("");setNotice("");
     try{
       const result=await request<{id:string;revision:number}>("/javiera/dossiers",{
         method:"POST",body:JSON.stringify({site_id:siteId,employer_id:companyId,
-          worker_id:workerId||null,parent_id:mode==="subcontractor"?parentId:null,
-          relationship:mode,data:{...data,...(dossierId?{_dossier_id:dossierId}:{})},
+          worker_id:workerId||null,parent_id:parentId||null,
+          relationship,data:{...(saved?.data||{}),...data,...(dossierId?{_dossier_id:dossierId}:{})},
           expected_revision:dossierId?dossierRevision:null})});
       setDossierId(result.id);setDossierRevision(result.revision);setSavedFingerprint(fingerprint);
+      setExistingDossiers(rows=>[{id:result.id,site_id:siteId,employer_id:companyId,worker_id:workerId||null,relationship,revision:result.revision,worker_name:worker?.name},...rows.filter(r=>r.id!==result.id)]);
       await refreshDossier(result.id);
       setNotice("Ficha guardada. Los PDF se generan de forma individual tras validación.");
-    }catch(e){setError(errorMessage(e));}finally{setBusy(false);}
+    }catch(e){setError(errorMessage(e));}finally{actionLock.current=false;setBusy(false);}
   }
   async function openPreview(code:string){
     if(unsaved){setError("Guarda los cambios antes de generar una vista previa.");return;}
-    setBusy(true);setError("");
+    if(actionLock.current)return;actionLock.current=true;setBusy(true);setError("");
     try{previewBlob(await pdfRequest("/preview",{dossier_id:dossierId,code}));}
-    catch(e){setError(errorMessage(e));}finally{setBusy(false);}
+    catch(e){setError(errorMessage(e));}finally{actionLock.current=false;setBusy(false);}
   }
   async function issue(code:string,reissue_reason?:string){
     if(unsaved){setError("Guarda los cambios antes de emitir el PDF.");return;}
-    setBusy(true);setError("");
+    if(actionLock.current)return;actionLock.current=true;setBusy(true);setError("");
     try{
       const result=await request<{id:string;reused:boolean}>("/javiera/issue",{
         method:"POST",body:JSON.stringify({dossier_id:dossierId,code,reissue_reason})});
       await refreshDossier(dossierId);setNotice(result.reused?"PDF existente recuperado.":"PDF emitido, aún sin firma ni constancia de entrega.");
       window.open("/api/v1/javiera/issued/"+encodeURIComponent(result.id)+"/pdf","_blank","noopener,noreferrer");
-    }catch(e){setError(errorMessage(e));}finally{setBusy(false);}
+    }catch(e){setError(errorMessage(e));}finally{actionLock.current=false;setBusy(false);}
   }
   async function issueReady(){
-    if(unsaved||busy){setError("Guarda primero los cambios del expediente.");return;}
-    const codes=cards.filter(c=>c.can_issue).map(c=>c.code);
-    if(!codes.length){setError("No hay documentos aprobados listos para emisión.");return;}
-    setBusy(true);setError("");setNotice("");setBatchReport([]);
+    if(actionLock.current||busy)return;
+    if(!chosenCodes.length){setError("Selecciona al menos un documento.");return;}
+    if(!batchMode&&unsaved){setError("Guarda primero los cambios del expediente.");return;}
+    const targets=batchMode?selectedDossiers:[dossierId];
+    if(!targets.length){setError("Selecciona los expedientes que quieres generar.");return;}
+    actionLock.current=true;setBusy(true);setError("");setNotice("");setBatchReport([]);
+    const results:BatchResult[]=[];
     try{
-      const result=await request<{issued:number;failed:number;results:{code:string;ok:boolean;id?:string;reason?:string}[]}>
-        ("/javiera/issue/batch",{method:"POST",
-          body:JSON.stringify({dossier_id:dossierId,codes})});
-      setBatchReport(result.results);
-      await refreshDossier(dossierId);
-      setNotice("Lote terminado: "+result.issued+" emitidos o recuperados; "+result.failed+
-        " documentos con observaciones. La emisión no implica firma ni entrega.");
-    }catch(e){setError(errorMessage(e));}finally{setBusy(false);}
+      for(const [index,id] of targets.entries()){
+        setBatchProgress("Procesando expediente "+(index+1)+" de "+targets.length);
+        try{
+          const result=await request<{results:BatchResult[]}>("/javiera/issue/batch",{method:"POST",body:JSON.stringify({dossier_id:id,codes:chosenCodes})});
+          results.push(...result.results.map(item=>({...item,dossier_id:id})));
+        }catch(e){results.push(...chosenCodes.map(code=>({dossier_id:id,code,ok:false,reason:errorMessage(e)})));}
+        setBatchReport([...results]);
+      }
+      if(dossierId)await refreshDossier(dossierId);
+      setNotice("Lote terminado: "+results.filter(r=>r.ok).length+" documentos generados o recuperados; "+results.filter(r=>!r.ok).length+" con observaciones. Revisa el detalle y descarga los disponibles.");
+    }catch(e){setError(errorMessage(e));}finally{actionLock.current=false;setBusy(false);setBatchProgress("");}
+  }
+  async function downloadBatch(){
+    if(actionLock.current)return;actionLock.current=true;setBusy(true);setError("");
+    try{
+      const ids=batchReport.filter(r=>r.ok&&r.id).map(r=>r.id!);
+      const blob=await pdfRequest("/issue/archive",{issue_ids:ids});
+      const url=URL.createObjectURL(blob),link=document.createElement("a");
+      link.href=url;link.download="JAVIERA-documentos.zip";link.click();window.setTimeout(()=>URL.revokeObjectURL(url),60000);
+    }catch(e){setError(errorMessage(e));}finally{actionLock.current=false;setBusy(false);}
   }
   async function reviewHistorical(id:string,verified:boolean){
     const reason=reviewComments[id]?.trim()||"";
     if(reason.length<6){setError("Indica el motivo y evidencia de la revisión del documento histórico.");return;}
-    setBusy(true);setError("");
+    if(actionLock.current)return;actionLock.current=true;setBusy(true);setError("");
     try{
       await request("/javiera/admin/history/"+encodeURIComponent(id)+"/verify",{
         method:"POST",body:JSON.stringify({verified,reason})});
       if(dossierId)await refreshDossier(dossierId);
       setNotice(verified?"Documento histórico revisado; comprueba su aplicabilidad actual.":"Documento histórico observado.");
-    }catch(e){setError(errorMessage(e));}finally{setBusy(false);}
+    }catch(e){setError(errorMessage(e));}finally{actionLock.current=false;setBusy(false);}
   }
   async function uploadHistorical(code:string,file:File){
     if(!dossierId){setError("Guarda el expediente antes de subir documentos anteriores.");return;}
     const csrf=document.cookie.split("; ").find(c=>c.startsWith("galant_post_csrf="))?.split("=")[1]||"";
     const form=new FormData();form.append("file",file);
-    setBusy(true);setError("");
+    if(actionLock.current)return;actionLock.current=true;setBusy(true);setError("");
     try{const res=await fetch("/api/v1/javiera/dossiers/"+encodeURIComponent(dossierId)+"/history/"+encodeURIComponent(code),{
         method:"POST",body:form,credentials:"include",headers:{"X-CSRF-Token":csrf}});
       if(!res.ok)throw new Error("No se pudo cargar el PDF histórico");
       await refreshDossier(dossierId);setNotice("Documento histórico cargado; pendiente de verificación.");
-    }catch(e){setError(errorMessage(e));}finally{setBusy(false);}
+    }catch(e){setError(errorMessage(e));}finally{actionLock.current=false;setBusy(false);}
   }
-  function clearPerson(){setContract(emptyContract);setEvent(emptyEvent);setRole("");setEmploymentType("");setDossierId("");setDossierRevision(0);setSaved(null);setSavedFingerprint("");}
-  function chooseSite(v:string){setSiteId(v);setCompanyId("");setWorkerId("");setParentId("");setExtra({});clearPerson();}
-  function chooseCompany(v:string){setCompanyId(v);setWorkerId("");setParentId("");clearPerson();setExtra(source.contractors.find(c=>c.id===v)?.defaults||{});}
-  function chooseWorker(v:string){setWorkerId(v);clearPerson();setContract({...emptyContract,...source.workers.find(w=>w.id===v)?.contract});setExtra(old=>Object.fromEntries(Object.entries(old).filter(([key])=>!key.startsWith("worker_")&&!["salary_words","afp","health_provider","bank_account"].includes(key))));}
-  function chooseDocument(v:string){setDocumentChoice(v);const events:Record<string,string>={transfer_addendum:"traslado",extension_addendum:"prorroga",sworn_declaration:"declaracion",internal_rules_receipt:"reglamento",ppe_delivery:"entrega_epp",pts_receipt:"recepcion_pts",induction:"induccion"};if(events[v])setEventType(events[v]);}
+  function clearPerson(){loadingDossier.current+=1;setBatchReport([]);setReviewComments({});setReissueReasons({});setEventType("ingreso");setContract(emptyContract);setEvent(emptyEvent);setRole("");setEmploymentType("");setDossierId("");setDossierRevision(0);setSaved(null);setSavedFingerprint("");}
+  function chooseSite(v:string){setSelectedDossiers([]);setExistingDossiers([]);setRelationship("contractor");setSiteId(v);setCompanyId("");setWorkerId("");setParentId("");setExtra({});clearPerson();}
+  function chooseCompany(v:string){setSelectedDossiers([]);setExistingDossiers([]);setRelationship("contractor");setCompanyId(v);setWorkerId("");setParentId("");clearPerson();setExtra(source.contractors.find(c=>c.id===v)?.defaults||{});}
+  function chooseWorker(v:string){setWorkerId(v);clearPerson();setContract({...emptyContract,...source.workers.find(w=>w.id===v)?.contract});setExtra(old=>Object.fromEntries(Object.entries(old).filter(([key])=>!key.startsWith("worker_")&&!["salary_words","afp","health_provider","bank_account","payment_frequency","transport_allowance"].includes(key))));}
+  function toggleDocument(code:string){
+    setSelectedCodes(old=>{const current=old??catalog.map(c=>c.code);return current.includes(code)?current.filter(c=>c!==code):[...current,code];});
+    setBatchReport([]);
+  }
   if(configuration)return <Suspense fallback={<div className="app-loading">Abriendo el Excel maestro…</div>}><JavieraWorkbookAdmin onBack={onBack||(()=>window.history.back())}/></Suspense>;
   if(!mode)return <section className="jv-module">
     <div className="jv-hero"><small>AUTOMATIZACIÓN DOCUMENTAL · GALANT 20</small><h2>Proyecto JAVIERA</h2>
       <p>Una sola ficha para documentos laborales y prevención de riesgos. Los documentos aparecen conforme completas los datos.</p></div>
     <div className="jv-mode-cards">
-      <button onClick={()=>setMode("contractor")}><FolderOpen size={28}/><strong>Contratistas</strong>
-        <span>Expedientes de empresas y trabajadores vinculados a cada obra.</span></button>
-      <button onClick={()=>setMode("subcontractor")}><ShieldCheck size={28}/><strong>Subcontratos</strong>
-        <span>Empleador directo, contratista principal y documentos por trabajador.</span></button>
+      <button onClick={()=>{setMode("new");setSelectedCodes(null);setShowCreate("contractor");}}><FolderOpen size={28}/><strong>Contratista nuevo</strong>
+        <span>Registra la empresa y sus trabajadores para preparar sus documentos de ingreso.</span></button>
+      <button onClick={()=>{setMode("existing");setSelectedCodes(null);setShowCreate(null);}}><ClipboardList size={28}/><strong>Contratista existente</strong>
+        <span>Busca una empresa registrada, recupera sus antecedentes y prepara los documentos que faltan.</span></button>
     </div>
+    {onConfig&&<button type="button" className="jv-inline-action" onClick={()=>{if(!busy)onConfig();}}><Settings2 size={16}/> Editar Excel maestro y plantillas</button>}
     <p className="jv-note">La emisión no certifica por sí sola firma, recepción, capacitación ni entrega real de EPP.</p>
   </section>;
-  const ready=cards.filter(c=>c.can_issue).length;
-  const groups=["Zona Subcontratos","Prevención de Riesgos"];
+  const ready=cards.filter(c=>chosenCodes.includes(c.code)&&c.can_issue).length;
+  const groups=Array.from(new Set(["Zona Subcontratos","Prevención de Riesgos",...cards.map(c=>c.area)]));
   return <section className="jv-module">
     <div className="jv-hero" style={{display:"grid",gridTemplateColumns:"minmax(0, 1fr)",gridAutoFlow:"row",justifyItems:"start",alignContent:"start",rowGap:9}}>
-      <div className="jv-hero-back-row" style={{display:"block",width:"100%",minHeight:31,margin:0}}><button type="button" className="jv-back" onClick={()=>{setMode(null);setDossierId("");setSaved(null);}}><ArrowLeft size={18}/> Proyecto JAVIERA</button></div>
-      <small style={{display:"block",gridColumn:1}}>{mode==="contractor"?"CONTRATISTAS":"SUBCONTRATOS"} · EXPEDIENTE</small>
-      <h2>Generación documental interactiva</h2><p>Selecciona registros existentes y completa solo los antecedentes del documento que necesitas.</p></div>
+      <div className="jv-hero-back-row" style={{display:"block",width:"100%",minHeight:31,margin:0}}><button type="button" className="jv-back" disabled={busy} onClick={()=>{setMode(null);chooseSite("");setBatchMode(false);setSelectedDossiers([]);}}><ArrowLeft size={18}/> Proyecto JAVIERA</button></div>
+      <small style={{display:"block",gridColumn:1}}>{mode==="new"?"CONTRATISTA NUEVO":"CONTRATISTA EXISTENTE"} · EXPEDIENTE</small>
+      {onConfig&&<button type="button" disabled={busy} className="jv-back" onClick={()=>{if(!busy)onConfig();}}><Settings2 size={16}/> Editar Excel maestro y plantillas</button>}
+      <h2>Generación documental interactiva</h2><p>Gestiona contratos, anexos, declaraciones, IRL, PTS, EPP, reglamento e inducción desde una misma ficha.</p></div>
     {error&&<p role="alert" className="jv-error"><AlertCircle size={16}/>{error}</p>}
     {notice&&<p role="status" className="jv-success"><CheckCircle2 size={16}/>{notice}</p>}
+    <section className="jv-document-picker" aria-label="Seleccionar documentos">
+      <div className="jv-picker-heading"><div><small>PASO 1 · DOCUMENTOS</small><h3>¿Qué necesitas generar?</h3><p>Marca uno o varios documentos. La ficha pedirá los datos que necesitan.</p></div>
+        <label>Buscar documento<input type="search" value={documentSearch} onChange={e=>setDocumentSearch(e.target.value)} placeholder="IRL, EPP, contrato…"/></label></div>
+      <fieldset disabled={busy} className="jv-flow"><div className="jv-picker-actions">
+        <button type="button" onClick={()=>setSelectedCodes(null)}>Seleccionar todos</button>
+        <button type="button" onClick={()=>setSelectedCodes(catalog.filter(c=>c.area==="Prevención de Riesgos").map(c=>c.code))}>Solo prevención</button>
+        <button type="button" onClick={()=>setSelectedCodes(catalog.filter(c=>c.area!=="Prevención de Riesgos").map(c=>c.code))}>Solo laborales</button>
+        <button type="button" onClick={()=>setSelectedCodes([])}>Limpiar selección</button><strong>{chosenCodes.length} seleccionados</strong></div>
+      <div className="jv-picker-grid">{catalog.filter(c=>c.title.toLocaleLowerCase("es").includes(documentSearch.toLocaleLowerCase("es"))).map(c=><label className={"jv-picker-card "+(chosenCodes.includes(c.code)?"chosen":"")} key={c.code}>
+        <input type="checkbox" checked={chosenCodes.includes(c.code)} onChange={()=>toggleDocument(c.code)}/><span><b>{c.title}</b><small>{c.area==="Zona Subcontratos"?"Laboral":c.area}</small></span></label>)}</div>
+      {catalog.length>0&&!catalog.some(c=>c.title.toLocaleLowerCase("es").includes(documentSearch.toLocaleLowerCase("es")))&&<p>No hay documentos con ese nombre.</p>}</fieldset>
+    </section>
     <div className="jv-workspace">
-      <div className="jv-form">
-        <div className="jv-section"><h3>1. Empresa y trabajador</h3>
+      <div className="jv-form"><fieldset disabled={busy} className="jv-flow">
+        <div className="jv-section"><h3>{batchMode?"Paso 2 · Obra y empresa del lote":"Paso 2 · Empresa y trabajador"}</h3>
           <label>Obra <select value={siteId} onChange={e=>chooseSite(e.target.value)}><option value="">Selecciona una obra</option>
             {source.sites.map(s=><option value={s.id} key={s.id}>{s.name}</option>)}</select></label>
-          <label>Empleador directo <select value={companyId} onChange={e=>chooseCompany(e.target.value)}>
+          <label>Empresa contratista <select value={companyId} onChange={e=>chooseCompany(e.target.value)}>
             <option value="">Selecciona la empresa</option>{source.contractors.filter(c=>c.site_id===siteId).map(c=><option key={c.id} value={c.id}>{c.name}</option>)}</select></label>
           <button type="button" className="jv-inline-action" onClick={()=>setShowCreate(showCreate==="contractor"?null:"contractor")}>+ Registrar contratista nuevo</button>
           {showCreate==="contractor"&&<div className="jv-new-form">
@@ -279,9 +330,10 @@ export default function Javiera({configuration=false,onBack,onConfig}:{configura
             <label>RUT de empresa<input value={newContractor.rut} onChange={e=>setNewContractor({...newContractor,rut:e.target.value})}/></label>
             <button disabled={busy||!siteId} type="button" onClick={()=>void createCompany()}>Guardar empresa</button>
           </div>}
-          {mode==="subcontractor"&&<label>Contratista principal <select value={parentId} onChange={e=>setParentId(e.target.value)}>
+          {relationship==="subcontractor"&&<label>Contratista principal del expediente anterior <select value={parentId} onChange={e=>setParentId(e.target.value)}>
             <option value="">Selecciona el contratista principal</option>{source.contractors.filter(c=>c.id!==companyId&&c.site_id===siteId).map(c=>
               <option key={c.id} value={c.id}>{c.name}</option>)}</select></label>}
+          {!batchMode&&<>
           <label>Trabajador <select value={workerId} onChange={e=>chooseWorker(e.target.value)}>
             <option value="">Selecciona trabajador asignado a esta obra</option>
             {source.workers.map(w=><option key={w.id} value={w.id}>{w.name}</option>)}</select></label>
@@ -295,18 +347,20 @@ export default function Javiera({configuration=false,onBack,onConfig}:{configura
           {existingDossiers.length>0&&<label>Expediente anterior
             <select value={dossierId} onChange={e=>{if(e.target.value)void loadDossier(e.target.value);}}>
               <option value="">Selecciona expediente para recuperar</option>
-              {existingDossiers.filter(d=>d.relationship===mode&&(!workerId||d.worker_id===workerId)).map(d=>
+              {existingDossiers.filter(d=>!workerId||d.worker_id===workerId).map(d=>
                 <option key={d.id} value={d.id}>Expediente {d.id.slice(0,8)} · revisión {d.revision}</option>)}
             </select></label>}
           <label>Vínculo laboral <select value={employmentType} onChange={e=>setEmploymentType(e.target.value)}>
             <option value="">Por determinar</option><option value="dependiente">Contrato laboral dependiente</option>
             <option value="independiente">Independiente (sin vínculo dependiente acreditado)</option></select></label>
           <label>Cargo o especialidad<input list="javiera-cargos" value={role} onChange={e=>setRole(e.target.value)}/><datalist id="javiera-cargos">{nativeRoles.map(cargo=><option key={cargo} value={cargo}/>)}</datalist></label>
-          <label>Documento<select value={documentChoice} onChange={e=>chooseDocument(e.target.value)}>{catalog.map(d=><option key={d.code} value={d.code}>{d.title}</option>)}<option value="todos">Todos los documentos · generación en lote</option></select></label>
+
           <label>Motivo del expediente <select value={eventType} onChange={e=>setEventType(e.target.value)}>
             {eventOptions.map(([value,label])=><option key={value} value={value}>{label}</option>)}</select></label>
+          </>}
+          {batchMode&&<p>El lote utiliza los datos guardados de cada expediente. Selecciona las personas en el panel de generación; para corregir sus datos, vuelve al modo individual.</p>}
         </div>
-        {[...neededFields].some(f=>f.startsWith("contract."))&&<div className="jv-section"><h3>2. Datos contractuales</h3>
+        {!batchMode&&[...neededFields].some(f=>f.startsWith("contract."))&&<div className="jv-section"><h3>Datos contractuales solicitados</h3>
           <div className="jv-paired">
             {neededFields.has("contract.start")&&fieldInput("contract.start","Fecha de ingreso",contract.start,v=>setContract({...contract,start:v}),"date")}
             {neededFields.has("contract.end")&&fieldInput("contract.end","Término actual",contract.end,v=>setContract({...contract,end:v}),"date")}
@@ -318,46 +372,54 @@ export default function Javiera({configuration=false,onBack,onConfig}:{configura
           {neededFields.has("contract.declaration_reason")&&fieldInput("contract.declaration_reason","Motivo de declaración jurada",contract.declaration_reason,v=>setContract({...contract,declaration_reason:v}))}
           {neededFields.has("contract.regulation_version")&&fieldInput("contract.regulation_version","Versión del Reglamento Interno",contract.regulation_version,v=>setContract({...contract,regulation_version:v}))}
         </div>}
-        {[...neededFields].some(f=>f.startsWith("event."))&&<div className="jv-section"><h3>3. Eventos y constancias</h3>
+        {!batchMode&&[...neededFields].some(f=>f.startsWith("event."))&&<div className="jv-section"><h3>Datos de prevención y constancias</h3>
           <p>Una fecha rellenada no reemplaza la evidencia de una entrega, firma o inducción real.</p>
           {neededFields.has("event.date")&&fieldInput("event.date","Fecha efectiva del evento",event.date,v=>setEvent({...event,date:v}),"date")}
-          {neededFields.has("event.epp_items")&&fieldInput("event.epp_items","EPP entregados realmente",event.epp_items,v=>setEvent({...event,epp_items:v}))}
+          {neededFields.has("event.epp_items")&&<>{fieldInput("event.epp_items","EPP entregados realmente",event.epp_items,v=>setEvent({...event,epp_items:v}))}<p className="jv-hint">Separa los elementos con comas e indica la cantidad. Ejemplo: 1 casco, 1 calzado de seguridad, 2 guantes de cabritilla.</p></>}
           {neededFields.has("event.pts_version")&&fieldInput("event.pts_version","Versión del PTS entregado",event.pts_version,v=>setEvent({...event,pts_version:v}))}
         </div>}
-        {selectedCatalog.some(c=>c.required_fields.some(f=>f.startsWith("extra.")))&&<div className="jv-section">
+        {!batchMode&&selectedCatalog.some(c=>c.required_fields.some(f=>f.startsWith("extra.")))&&<div className="jv-section">
           <h3>Antecedentes del documento</h3><p>Completa solo la información que falta en los registros de GALANT.</p>
           {Array.from(new Set(selectedCatalog.flatMap(c=>c.required_fields.filter(f=>f.startsWith("extra."))))).map(f=>
             fieldInput(f,extraLabels[f.slice(6)]||f.slice(6).replaceAll("_"," "),extra[f.slice(6)]||"",
               value=>setExtra(old=>({...old,[f.slice(6)]:value})),f.endsWith("birthdate")?"date":f.endsWith("declaration_period")?"month":"text"))}
         </div>}
-        <div className="jv-actions"><button type="button" className="jv-primary" disabled={busy||!siteId||!companyId}
+        {!batchMode&&<div className="jv-actions"><button type="button" className="jv-primary" disabled={busy||!siteId||!companyId}
           onClick={()=>void saveDossier()}>{busy?"Procesando…":dossierId?"Guardar nueva revisión":"Guardar expediente"}</button>
           {dossierId&&<span>Expediente {dossierId.slice(0,8)} · revisión {dossierRevision}{unsaved?" · cambios sin guardar":""}</span>}
-        </div>
-      </div>
-      <aside className="jv-document-panel" aria-label="Documentos que puedes exportar a PDF">
-        {unsaved&&<p className="jv-note" role="status">Guarda los cambios para habilitar la exportación de PDFs.</p>}
-        <div className="jv-panel-head"><div><small>GENERACIÓN EN VIVO</small><h3>Documentos que puedes exportar a PDF</h3>
-          <p>Actualización automática al completar datos</p></div><strong>{ready} listos</strong></div>
-        <button type="button" className="jv-primary jv-batch" disabled={unsaved||busy||ready===0}
-          onClick={()=>void issueReady()}>Generar documentos listos ({ready})</button>
-        {batchReport.length>0&&<div className="jv-batch-report" role="status">
-          {batchReport.map(item=><p key={item.code}>{item.ok?"✓":"!"} {catalog.find(c=>c.code===item.code)?.title||item.code}
-            {item.ok&&item.id?<a target="_blank" rel="noreferrer"
-              href={"/api/v1/javiera/issued/"+encodeURIComponent(item.id)+"/pdf"}>Abrir PDF</a>:
-              <span>{item.reason||"Pendiente de revisión"}</span>}</p>)}
         </div>}
+      </fieldset></div>
+      <aside className="jv-document-panel" aria-label="Documentos que puedes exportar a PDF">
+        {!batchMode&&unsaved&&<p className="jv-note" role="status">Guarda los cambios para habilitar la exportación de PDFs.</p>}
+        <div className="jv-panel-head"><div><small>GENERACIÓN EN VIVO</small><h3>Documentos que puedes exportar a PDF</h3>
+          <p>{batchMode?"Se valida cada expediente con sus propios datos":"Actualización automática al completar datos"}</p></div><strong>{batchMode?selectedDossiers.length+" expedientes":ready+" listos"}</strong></div>
+        <fieldset disabled={busy} className="jv-flow"><label className="jv-check-line"><input type="checkbox" checked={batchMode} onChange={e=>{setBatchMode(e.target.checked);}}/> Generar para varios expedientes guardados</label>
+        {batchMode&&<div className="jv-batch-targets"><p>Usa los datos propios de cada expediente de esta empresa y obra. Para agregar otra persona, completa y guarda su ficha.</p>
+          <button type="button" onClick={()=>setSelectedDossiers(existingDossiers.slice(0,20).map(d=>d.id))}>Seleccionar hasta 20 expedientes</button>
+          <button type="button" onClick={()=>setSelectedDossiers([])}>Limpiar</button>
+          {existingDossiers.map(d=><label className="jv-check-line" key={d.id}><input type="checkbox" checked={selectedDossiers.includes(d.id)} disabled={!selectedDossiers.includes(d.id)&&selectedDossiers.length>=20} onChange={e=>setSelectedDossiers(old=>e.target.checked?[...old,d.id]:old.filter(id=>id!==d.id))}/>
+            <span>{d.worker_name||source.workers.find(w=>w.id===d.worker_id)?.name||(d.worker_id?"Trabajador "+d.worker_id.slice(0,8):"Empresa · declaración jurada")} · revisión {d.revision}</span></label>)}
+          {!existingDossiers.length&&<p>Selecciona obra y empresa para ver sus expedientes guardados.</p>}</div>}
+        <button type="button" className="jv-primary jv-batch" disabled={busy||!chosenCodes.length||(batchMode?!selectedDossiers.length:unsaved)}
+          onClick={()=>void issueReady()}>{busy?"Generando…":"Generar selección"} ({chosenCodes.length} documentos{batchMode?" × "+selectedDossiers.length+" expedientes":""})</button></fieldset>
+        {batchProgress&&<p role="status">{batchProgress}</p>}
+        {batchReport.length>0&&<div className="jv-batch-report" role="status">
+          {batchReport.some(r=>r.ok)&&<button type="button" disabled={busy} onClick={()=>void downloadBatch()}><Download size={15}/> Descargar documentos en ZIP</button>}
+          {batchReport.map(item=><p key={(item.dossier_id||"")+item.code}>{item.ok?"✓":"!"} {batchMode?(existingDossiers.find(d=>d.id===item.dossier_id)?.worker_name||"Empresa")+" · ":""}{catalog.find(c=>c.code===item.code)?.title||item.code}
+            {item.ok&&item.id?<a target="_blank" rel="noreferrer" href={"/api/v1/javiera/issued/"+encodeURIComponent(item.id)+"/pdf"}>Abrir PDF</a>:<span>{item.reason||"Pendiente de revisión"}</span>}</p>)}
+        </div>}
+        {!batchMode&&<>
         <div className="jv-filters">{[["todos","Todos"],["listos","Listos"],["pendientes","Pendientes"],["historicos","Existentes"]].map(([v,l])=>
           <button key={v} className={filter===v?"active":""} onClick={()=>setFilter(v)}>{l}</button>)}</div>
         {groups.filter(area=>cards.some(c=>c.area===area)).map(area=><div key={area} className="jv-doc-area">
-          <h4>{area==="Zona Subcontratos"?<FolderOpen size={17}/>:<ShieldCheck size={17}/>} {area}</h4>
+          <h4>{area==="Zona Subcontratos"?<FolderOpen size={17}/>:<ShieldCheck size={17}/>} {area==="Zona Subcontratos"?"Documentos laborales":area}</h4>
           {cards.filter(c=>c.area===area && (filter==="todos" || filter==="listos"&&c.can_issue ||
             filter==="pendientes"&&!c.can_issue&&!c.has_history ||
             filter==="historicos"&&c.has_history)).map(c=><article className="jv-doc-card" key={c.code}>
-            <div className="jv-doc-title"><FileText size={17}/><b>{c.title}</b><span className={"jv-state jv-"+c.status.toLowerCase()}>{statusText[c.status]||c.status}</span></div>
+            <div className="jv-doc-title"><input type="checkbox" aria-label={"Seleccionar "+c.title} checked={chosenCodes.includes(c.code)} disabled={busy} onChange={()=>toggleDocument(c.code)}/><FileText size={17}/><b>{c.title}</b><span className={"jv-state jv-"+c.status.toLowerCase()}>{statusText[c.status]||c.status}</span></div>
             <div className="jv-progress"><span style={{width:String(c.completion_percent)+"%"}}/></div>
             {c.reason&&<p>{c.reason}</p>}
-            {!!c.missing_fields.length&&<p>Faltan: {c.missing_fields.slice(0,3).join(", ")}{c.missing_fields.length>3?"…":""}</p>}
+            {!!c.missing_fields.length&&<p>Faltan: {c.missing_fields.slice(0,3).map(fieldLabel).join(", ")}{c.missing_fields.length>3?"…":""}</p>}
             {!!c.blocking_errors.length&&<p className="jv-text-danger">{c.blocking_errors.join("; ")}</p>}
             <div className="jv-card-actions">
               <button disabled={!c.can_preview||unsaved||busy} onClick={()=>void openPreview(c.code)}>Vista previa</button>
@@ -387,6 +449,7 @@ export default function Javiera({configuration=false,onBack,onConfig}:{configura
             </div>
           </article>)}
         </div>)}
+        </>}
         <p className="jv-note">Documentos anteriores: existencia no equivale a vigencia. Su verificación es independiente.</p>
       </aside>
     </div>

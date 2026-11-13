@@ -12,13 +12,14 @@ import re
 from datetime import datetime
 from pathlib import Path
 from uuid import uuid4
+from zipfile import ZipFile, ZIP_DEFLATED
 
 import fitz
 from openpyxl import load_workbook
 from fastapi import APIRouter, Depends, File, HTTPException, UploadFile
 from fastapi.responses import FileResponse, Response
 from pydantic import BaseModel, ConfigDict, Field
-from sqlalchemy import func, select
+from sqlalchemy import func, select, update
 from sqlalchemy.orm import Session
 
 from .config import settings
@@ -74,6 +75,10 @@ class PilotMatrixPrint(Strict):
 class BatchIssue(Strict):
     dossier_id: str
     codes: list[str] = Field(min_length=1, max_length=10)
+
+
+class IssueArchive(Strict):
+    issue_ids: list[str] = Field(min_length=1, max_length=200)
 
 
 class TemplateChange(Strict):
@@ -422,23 +427,27 @@ def save_dossier(payload: DossierInput,
                 record.relationship) != (payload.site_id, payload.employer_id,
                     payload.worker_id, payload.parent_id, payload.relationship):
             raise HTTPException(409, "El expediente pertenece a otra empresa, obra o trabajador. Guarda una ficha nueva para conservar su historial")
-    if record is None:
-        record = JavieraDossier(org_id=user.org_id, updated_by=user.id)
-        db.add(record)
-    record.site_id = payload.site_id
-    record.employer_id = payload.employer_id
-    record.worker_id = payload.worker_id
-    record.parent_id = payload.parent_id
-    record.relationship = payload.relationship
     data.pop("_dossier_id", None)
-    record.data = data
-    record.revision = (record.revision + 1) if dossier_id else 1
-    record.updated_at = utcnow()
-    record.updated_by = user.id
-    db.flush()
-    audit(db, user, "javiera.dossier_saved", record.id)
+    values = {"site_id":payload.site_id, "employer_id":payload.employer_id,
+              "worker_id":payload.worker_id, "parent_id":payload.parent_id,
+              "relationship":payload.relationship, "data":data,
+              "updated_at":utcnow(), "updated_by":user.id}
+    if record is None:
+        record = JavieraDossier(org_id=user.org_id, revision=1, **values)
+        db.add(record); db.flush()
+        ident, revision = record.id, 1
+    else:
+        ident, revision = record.id, record.revision + 1
+        changed = db.execute(update(JavieraDossier).where(
+            JavieraDossier.id == ident, JavieraDossier.org_id == user.org_id,
+            JavieraDossier.revision == payload.expected_revision
+        ).values(**values, revision=revision), execution_options={"synchronize_session":False})
+        if changed.rowcount != 1:
+            db.rollback()
+            raise HTTPException(409, "Otro usuario modificó la ficha. Conserva tus cambios y recarga antes de guardar")
+    audit(db, user, "javiera.dossier_saved", ident)
     db.commit()
-    return {"id": record.id, "revision": record.revision, "data": data}
+    return {"id": ident, "revision": revision, "data": data}
 
 
 @router.get("/dossiers")
@@ -455,7 +464,9 @@ def list_dossiers(site_id: str = "", employer_id: str = "", user: User = Depends
     rows = db.scalars(query.order_by(JavieraDossier.updated_at.desc()).limit(120)).all()
     return [{"id": r.id, "site_id": r.site_id, "employer_id": r.employer_id,
              "worker_id": r.worker_id, "relationship": r.relationship,
-             "revision": r.revision, "updated_at": r.updated_at.isoformat()} for r in rows]
+             "revision": r.revision, "worker_name": (r.data.get("worker") or {}).get("name", ""),
+             "employer_name": (r.data.get("employer") or {}).get("name", ""),
+             "updated_at": r.updated_at.isoformat()} for r in rows]
 
 
 @router.get("/dossiers/{dossier_id}")
@@ -716,6 +727,39 @@ def issue_batch(payload: BatchIssue, user: User = Depends(administrator),
             "total":len(report), "issued":sum(1 for x in report if x["ok"]),
             "failed":sum(1 for x in report if not x["ok"]),
             "results":report}
+
+
+@router.post("/issue/archive")
+def issue_archive(payload: IssueArchive, user: User = Depends(administrator), db: Session = Depends(get_db)):
+    """Download issued PDFs only; never regenerate or bypass per-document checks."""
+    ids = list(dict.fromkeys(payload.issue_ids))
+    rows = db.scalars(select(JavieraIssue).where(JavieraIssue.org_id == user.org_id,
+        JavieraIssue.id.in_(ids), unarchived(JavieraIssue, user.org_id, "issue"))).all()
+    if len(rows) != len(ids):
+        raise HTTPException(404, "Algún documento no está disponible en esta organización")
+    allowed = (settings().document_dir / user.org_id / "javiera").resolve()
+    total = 0; files = []
+    for item in rows:
+        path = Path(item.storage_path).resolve()
+        if not path.is_relative_to(allowed) or not path.is_file():
+            raise HTTPException(404, "PDF no disponible")
+        total += path.stat().st_size
+        if total > 100 * 1024 * 1024:
+            raise HTTPException(422, "El lote supera 100 MB; descarga menos documentos a la vez")
+        files.append((item, path))
+    buffer = io.BytesIO(); manifest = []
+    with ZipFile(buffer, "w", ZIP_DEFLATED) as archive:
+        for item, path in files:
+            raw = path.read_bytes()
+            if hashlib.sha256(raw).hexdigest() != item.sha256:
+                raise HTTPException(409, "Un PDF cambió desde su emisión; revisa su integridad")
+            filename = item.dossier_id + "/" + item.code + "-" + item.id + ".pdf"
+            archive.writestr(filename, raw)
+            manifest.append({"file":filename, "sha256":item.sha256,
+                             "dossier_revision":item.dossier_revision, "template_revision":item.template_revision})
+        archive.writestr("documentos.json", json.dumps(manifest, ensure_ascii=False, indent=2))
+    return Response(buffer.getvalue(), media_type="application/zip", headers={
+        "Content-Disposition": 'attachment; filename="JAVIERA-documentos.zip"', "Cache-Control":"no-store"})
 
 
 @router.get("/issued/{issue_id}/pdf")

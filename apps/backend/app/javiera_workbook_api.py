@@ -5,6 +5,7 @@ import json
 import shutil
 import time
 import tempfile
+from typing import Literal
 from datetime import datetime
 from pathlib import Path
 from uuid import uuid4
@@ -26,6 +27,7 @@ from .javiera_workbook_models import (JavieraWorkbook, JavieraWorkbookHead,
     JavieraWorkbookValidation, JavieraReset, JavieraArchive)
 from .models import AuditEvent, User, utcnow
 from .security import administrator
+from .xlsx_package import compatible_package
 
 router = APIRouter(prefix="/api/v1/javiera/workbook", tags=["Javiera · Excel maestro"])
 
@@ -34,12 +36,22 @@ class Strict(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
 
+class CellFormat(Strict):
+    bold: bool | None = None
+    italic: bool | None = None
+    font_size: float | None = Field(default=None, ge=6, le=72)
+    fill_color: str | None = Field(default=None, pattern=r"^#[0-9a-fA-F]{6}$")
+    align: Literal["left", "center", "right", "justify"] | None = None
+    wrap: bool | None = None
+
+
 class CellEdit(Strict):
     cell: str = Field(pattern=r"^[A-Z]{1,3}[1-9]\d{0,5}$")
     value: str | float | None = Field(default=None)
     formula: str | None = Field(default=None, max_length=15000)
     style_from: str | None = Field(default=None, pattern=r"^[A-Z]{1,3}[1-9]\d{0,5}$")
     row_height: float | None = Field(default=None, ge=10, le=409)
+    format: CellFormat | None = None
 
 
 class RevisionInput(Strict):
@@ -121,7 +133,7 @@ def unarchived(model, org_id: str, kind: str):
         JavieraArchive.org_id == org_id, JavieraArchive.kind == kind))
 
 
-def write_revision(db, user, raw, reason, expected: int, parent: JavieraWorkbook | None = None):
+def write_revision(db, user, raw, reason, expected: int, parent: JavieraWorkbook | None = None, *, commit: bool = True):
     report = inventory(raw); ident = str(uuid4()); revision = expected + 1
     head = head_for(db, user.org_id)
     if head is None:
@@ -138,17 +150,19 @@ def write_revision(db, user, raw, reason, expected: int, parent: JavieraWorkbook
         db.rollback(); raise HTTPException(409, "Otro administrador guardó una revisión. Recarga y conserva tus cambios")
     folder = root_for(user.org_id) / "workbooks"; folder.mkdir(parents=True, exist_ok=True, mode=0o700)
     path = folder / (ident + ".xlsx")
-    with path.open("xb") as f: f.write(raw)
-    path.chmod(0o400)
-    obj = JavieraWorkbook(id=ident, org_id=user.org_id, revision=revision,
-        parent_id=parent.id if parent else None, path=str(path), sha256=digest(raw),
-        original_sha256=parent.original_sha256 if parent else digest(raw), inventory=report,
-        reason=reason, author_id=user.id)
-    db.add(obj); audit(db, user, "javiera.workbook_saved", ident)
-    try: db.commit()
+    try:
+        with path.open("xb") as f: f.write(raw)
+        path.chmod(0o400)
+        obj = JavieraWorkbook(id=ident, org_id=user.org_id, revision=revision,
+            parent_id=parent.id if parent else None, path=str(path), sha256=digest(raw),
+            original_sha256=parent.original_sha256 if parent else digest(raw), inventory=report,
+            reason=reason, author_id=user.id)
+        db.add(obj); audit(db, user, "javiera.workbook_saved", ident)
+        if commit: db.commit()
+        else: db.flush()
     except Exception:
         db.rollback(); path.unlink(missing_ok=True); raise
-    db.expire_all()
+    if commit: db.expire_all()
     return obj
 
 
@@ -175,17 +189,27 @@ async def import_workbook(expected_revision: int = 0, file: UploadFile = File(..
     if not file.filename or not file.filename.lower().endswith(".xlsx"):
         raise HTTPException(422, "Selecciona un archivo .xlsx sin macros")
     raw = await file.read(MAX_FILE + 1)
+    created = []
     try:
         report = inventory(raw)
         names = {s["name"].strip() for s in report["sheets"]}
         required = {"Datos Contrato", "Contrato Imprimible", "MATRIZ IRL", "MATRIZ PTS"}
         if not required.issubset(names): raise LayoutError("Faltan hojas maestras de contratación y matrices")
-        obj = write_revision(db, user, raw, "Importación íntegra del Excel maestro original", expected_revision)
+        # Finish both packages before making either revision active.
         repaired, notes = repair_master(raw)
         repaired = clean_master(repaired)
+        inventory(repaired)
+        obj = write_revision(db, user, raw, "Importación íntegra del Excel maestro original", expected_revision, commit=False)
+        created.append(Path(obj.path))
         obj = write_revision(db, user, repaired,
-            "Datos de ejemplo vaciados; original conservado. " + "; ".join(notes)[:730], obj.revision, obj)
-    except LayoutError as e: raise HTTPException(422, str(e)) from None
+            "Datos de ejemplo vaciados; original conservado. " + "; ".join(notes)[:730], obj.revision, obj, commit=False)
+        created.append(Path(obj.path))
+        db.commit(); db.expire_all()
+    except Exception as exc:
+        db.rollback()
+        for path in created: path.unlink(missing_ok=True)
+        if isinstance(exc, LayoutError): raise HTTPException(422, str(exc)) from None
+        raise
     return summary(obj)
 
 
@@ -224,8 +248,10 @@ def calculate_sheet(ident: str, payload: CalculationInput, user: User = Depends(
 @router.get("/{ident}/download")
 def download(ident: str, user: User = Depends(administrator), db: Session = Depends(get_db)):
     obj = workbook(db, user, ident); raw = raw_for(obj)
+    raw = compatible_package(raw, original_for(db, obj))
     return Response(raw, media_type="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
-                    headers={"Content-Disposition": f'attachment; filename="GALANT_Maestro_r{obj.revision}.xlsx"'})
+                    headers={"Content-Disposition": f'attachment; filename="GALANT_Maestro_r{obj.revision}.xlsx"',
+                             "Cache-Control": "no-store", "X-Content-SHA256": digest(raw)})
 
 
 @router.post("/{ident}/edit")
@@ -235,8 +261,11 @@ def edit(ident: str, payload: RevisionInput, user: User = Depends(administrator)
         raise HTTPException(409, "Abre la revisión actual antes de guardar")
     try:
         changes = [e.model_dump(exclude_unset=True) for e in payload.edits]
+        for change in changes:
+            if change.get("format"):
+                change["format"] = {k:v for k,v in change["format"].items() if v is not None}
         if len(json.dumps(changes)) > 1_000_000: raise LayoutError("La edición supera el tamaño permitido")
-        raw = edit_workbook(raw_for(obj), payload.sheet, changes)
+        raw = edit_workbook(compatible_package(raw_for(obj), original_for(db, obj)), payload.sheet, changes)
         return summary(write_revision(db, user, raw, payload.reason, payload.expected_revision, obj))
     except LayoutError as e: raise HTTPException(422, str(e)) from None
 
