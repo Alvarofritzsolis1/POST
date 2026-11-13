@@ -193,6 +193,12 @@ export default function Javiera({configuration=false,onBack,onConfig}:{configura
       .then(rows=>{if(alive)setExistingDossiers(rows);}).catch(e=>{if(alive)setError(errorMessage(e));});
     return()=>{alive=false;};
   },[mode,siteId,companyId,saved?.issues.length]);
+  // Recuperar la ficha anterior del trabajador sin mostrar un selector técnico.
+  useEffect(()=>{
+    if(mode!=="existing"||batchMode||!workerId||!companyId||!siteId||dossierId||busy)return;
+    const previous=existingDossiers.find(d=>d.worker_id===workerId);
+    if(previous)void loadDossier(previous.id);
+  },[mode,batchMode,workerId,companyId,siteId,dossierId,existingDossiers]);
   async function loadDossier(id:string){
     if(actionLock.current)return;
     const load=++loadingDossier.current;setBusy(true);setError("");
@@ -279,7 +285,11 @@ export default function Javiera({configuration=false,onBack,onConfig}:{configura
       await downloadIssuedPdf(result.id,code);
       await refreshDossier(dossierId);
       setNotice(result.reused?"PDF emitido anteriormente y descargado.":"PDF emitido y descargado; la emisión no equivale a firma ni entrega.");
-    }catch(e){setError(errorMessage(e));}finally{actionLock.current=false;setBusy(false);}
+    }catch(e){
+      const reason=errorMessage(e);
+      setIssueFailures(old=>({...old,[code]:reason}));
+      setError(reason);
+    }finally{actionLock.current=false;setBusy(false);}
   }
   async function downloadExisting(id:string,code:string){
     if(actionLock.current)return;actionLock.current=true;setBusy(true);setError("");
@@ -323,7 +333,13 @@ export default function Javiera({configuration=false,onBack,onConfig}:{configura
           setError("Documentos generados, pero falló la descarga: "+errorMessage(downloadError)+". Usa «Descargar documentos en ZIP» para reintentar.");
         }
       }else{
-        setNotice("No se generaron documentos: revisa las observaciones mostradas en el detalle.");
+        setError("No se generaron documentos. Revisa el motivo dentro de la tarjeta afectada.");
+      }
+      if(!batchMode){
+        const failures=results.filter(row=>!row.ok).reduce<Record<string,string>>((out,row)=>{
+          out[row.code]=row.reason||"Documento bloqueado durante la validación.";return out;
+        },{});
+        if(Object.keys(failures).length)setIssueFailures(old=>({...old,...failures}));
       }
       if(dossierId)await refreshDossier(dossierId);
     }catch(e){setError(errorMessage(e));}finally{actionLock.current=false;setBusy(false);setBatchProgress("");}
@@ -437,12 +453,6 @@ export default function Javiera({configuration=false,onBack,onConfig}:{configura
             <button disabled={busy||!companyId} type="button" onClick={()=>void createWorker()}>Guardar trabajador</button>
           </div>}
           <p className="jv-hint">{workerId?"Trabajador asignado en GALANT":"Selecciona o registra el trabajador sin duplicar su RUT."}</p>
-          {existingDossiers.length>0&&<label>Expediente anterior
-            <select value={dossierId} onChange={e=>{if(e.target.value)void loadDossier(e.target.value);}}>
-              <option value="">Selecciona expediente para recuperar</option>
-              {existingDossiers.filter(d=>!workerId||d.worker_id===workerId).map(d=>
-                <option key={d.id} value={d.id}>Expediente {d.id.slice(0,8)} · revisión {d.revision}</option>)}
-            </select></label>}
           <label>Cargo o especialidad<input list="javiera-cargos" value={role} onChange={e=>setRole(e.target.value)}/><datalist id="javiera-cargos">{nativeRoles.map(cargo=><option key={cargo} value={cargo}/>)}</datalist></label>
           <p className="jv-hint">GALANT utiliza los documentos elegidos para identificar automáticamente el trámite. No necesitas indicar vínculo laboral ni motivo del expediente.</p>
           </>}
