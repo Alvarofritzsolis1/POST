@@ -210,6 +210,7 @@ export default function Javiera({configuration=false,onBack,onConfig}:{configura
   }
   async function saveDossier(){
     if(!mode||!companyId||!siteId){setError("Selecciona obra y empleador antes de guardar.");return;}
+    if(dossierId&&!unsaved){setNotice("No hay cambios por guardar. El expediente ya está actualizado.");return;}
     if(actionLock.current)return;actionLock.current=true;setBusy(true);setError("");setNotice("");
     try{
       const result=await request<{id:string;revision:number}>("/javiera/dossiers",{
@@ -269,8 +270,27 @@ export default function Javiera({configuration=false,onBack,onConfig}:{configura
         }catch(e){results.push(...issuable.map(code=>({dossier_id:id,code,ok:false,reason:errorMessage(e)})));}
         setBatchReport([...results]);
       }
+      // La acción «Generar» debe entregar el archivo, no exigir un segundo clic.
+      // Un solo documento se descarga como PDF; varios se agrupan en ZIP.
+      const issued=results.filter(r=>r.ok&&r.id);
+      const failed=results.length-issued.length;
+      if(issued.length){
+        try{
+          if(issued.length===1){
+            await downloadIssuedPdf(issued[0].id!,issued[0].code);
+          }else{
+            const archive=await pdfRequest("/issue/archive",{issue_ids:issued.map(r=>r.id!)});
+            downloadBlob(archive,"JAVIERA-documentos.zip");
+          }
+          setNotice(issued.length+" documento(s) generado(s) y descargado(s)"+(failed?"; "+failed+" con observaciones.":"."));
+        }catch(downloadError){
+          // La emisión ya se guardó: no se declara que fracasó el documento.
+          setError("Documentos generados, pero falló la descarga: "+errorMessage(downloadError)+". Usa «Descargar documentos en ZIP» para reintentar.");
+        }
+      }else{
+        setNotice("No se generaron documentos: revisa las observaciones mostradas en el detalle.");
+      }
       if(dossierId)await refreshDossier(dossierId);
-      setNotice("Lote terminado: "+results.filter(r=>r.ok).length+" documentos generados o recuperados; "+results.filter(r=>!r.ok).length+" con observaciones. Revisa el detalle y descarga los disponibles.");
     }catch(e){setError(errorMessage(e));}finally{actionLock.current=false;setBusy(false);setBatchProgress("");}
   }
   async function downloadBatch(){
@@ -417,7 +437,7 @@ export default function Javiera({configuration=false,onBack,onConfig}:{configura
             fieldInput(f,extraLabels[f.slice(6)]||f.slice(6).replaceAll("_"," "),extra[f.slice(6)]||"",
               value=>setExtra(old=>({...old,[f.slice(6)]:value})),f.endsWith("birthdate")?"date":f.endsWith("declaration_period")?"month":"text"))}
         </div>}
-        {!batchMode&&<div className="jv-actions"><button type="button" className="jv-primary" disabled={busy||!siteId||!companyId}
+        {!batchMode&&<div className="jv-actions"><button type="button" className="jv-primary" disabled={busy||!siteId||!companyId||!!dossierId&&!unsaved}
           onClick={()=>void saveDossier()}>{busy?"Procesando…":dossierId?"Guardar nueva revisión":"Guardar expediente"}</button>
           {dossierId&&<span>Expediente {dossierId.slice(0,8)} · revisión {dossierRevision}{unsaved?" · cambios sin guardar":""}</span>}
         </div>}
