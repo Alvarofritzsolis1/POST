@@ -334,26 +334,13 @@ def fill_workbook(raw: bytes, data: dict, code: str) -> bytes:
 
 
 def delivery_quantities(text: str) -> list[int]:
-    names = ['Casco de Seguridad', 'Calzado de Seguridad', 'Lentes de Seguridad',
-        'Guantes de Cabritilla', 'Protección Auditiva/Mascarilla', 'Arnés de seguridad',
-        'Delantal de cuero', 'Guantes de soldador']
-    def basic(value):
-        return ' '.join(''.join(c for c in unicodedata.normalize('NFD', value.strip().lower())
-                               if not unicodedata.combining(c)).split())
-    quantities = [0] * len(names)
-    for item in re.split(r'[,;\n]', text):
-        item = basic(item)
-        if not item: continue
-        match = re.fullmatch(r'(\d{1,2})\s*[xX]?\s+(.+)', item)
-        amount, description = (int(match.group(1)), match.group(2)) if match else (1, item)
-        aliases = {'zapato de seguridad':'calzado de seguridad', 'zapatos de seguridad':'calzado de seguridad', 'botas de seguridad':'calzado de seguridad', 'botin de seguridad':'calzado de seguridad', 'botines de seguridad':'calzado de seguridad'}
-        description = aliases.get(description, description)
-        matches = [i for i, name in enumerate(names) if description in basic(name) or basic(name) in description]
-        if len(matches) != 1: raise LayoutError('EPP ambiguo o no contemplado en matriz original: ' + item)
-        quantities[matches[0]] += amount
-        if not 1 <= amount <= 30 or quantities[matches[0]] > 30: raise LayoutError('Cantidad EPP fuera de rango')
-    if not sum(quantities): raise LayoutError('Debes identificar el EPP efectivamente entregado')
-    return quantities
+    """Usa el mismo catálogo que el formulario y las reglas del backend."""
+    from .javiera_epp import EppInputError, epp_quantities
+    try:
+        return epp_quantities(text)
+    except EppInputError as exc:
+        raise LayoutError(str(exc)) from None
+
 
 
 def clean_master(raw: bytes) -> bytes:
