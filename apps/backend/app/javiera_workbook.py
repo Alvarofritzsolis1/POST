@@ -290,6 +290,99 @@ def roles(raw: bytes) -> dict:
     return result
 
 
+# Equivalencias documentadas entre las DOS matrices de la plantilla de GALANT.
+# Sólo se aplica al resumen de condiciones, nunca a la matriz de peligros.
+# No se equipara IMPERMEABILIZADOR con MEMBRANA ASFALTICA: podría usar otro sistema.
+_IRL_SUMMARY_ALIASES = {
+    "TECHADOR": "TECHUMBRE",
+    "OPERARIO DE HORMIGON": "OPERARIO DE HORMIGON",
+    "ALUMINERO": "ALUMINIOS",
+    "OPERARIO DE URBANIZACION": "URBANIZACION",
+    "ESTRUCTURERO METALICO": "ESTRUCTURAS METALICAS",
+    "HOJALATERO": "HOJALATERIA",
+    "ALBANIL": "ALBANILERIA",
+    "INSTALADOR DE EIFS": "INS EIFS",
+    "INSTALADOR DE PANDERETAS / VIBRADOS": "VIBRADOS (PANDERETAS)",
+    "MUEBLISTA": "INST DE MUEBLES",
+    "PAISAJISTA": "PAISAJISMO",
+    "OPERARIO DE OBRA GRUESA": "OBRA GRUESA",
+}
+
+
+def _irl_role_key(value: str) -> str:
+    plain = unicodedata.normalize("NFD", str(value or "").upper())
+    return re.sub(r"\\s+", " ", "".join(c for c in plain if not unicodedata.combining(c))).strip()
+
+
+def bind_irl_summary_lookup(z: ZipFile, files: dict, target: ET.Element, role: str) -> bool:
+    """Repara referencias VLOOKUP rotas en la COPIA desechable del Excel.
+
+    Las cabeceras del IRL y de sus páginas de continuación quedan unidas a las
+    cuatro celdas exactas del puesto en Matriz IRL Optimizada. Las filas de
+    peligros siguen dependiendo exclusivamente de MATRIZ IRL y se verifican
+    contra el PDF generado; nunca se simula un cálculo exitoso.
+    """
+    columns = {"A23": "B", "A25": "C", "A28": "D", "A31": "E"}
+    summary_cells = {
+        coord: target.find(".//" + Q("c") + "[@r='" + coord + "']")
+        for coord in columns
+    }
+    lookup_present = any(
+        cell is not None and (formula := cell.find(Q("f"))) is not None
+        and ("VLOOKUP(" in (formula.text or "").upper() or "#REF!" in (formula.text or "").upper())
+        for cell in summary_cells.values()
+    )
+    if not lookup_present:
+        return False
+
+    source_name = resolve_sheet(files, "Matriz IRL Optimizada")
+    source = ET.fromstring(z.read(files[source_name]))
+    strings = shared_strings(z)
+    key = _irl_role_key(role)
+    target_key = _IRL_SUMMARY_ALIASES.get(key, key)
+    matches = []
+    for row in source.findall(".//" + Q("row")):
+        number = int(row.get("r", "0"))
+        if number < 2:
+            continue
+        cell = row.find(Q("c") + "[@r='A" + str(number) + "']")
+        if cell is not None and _irl_role_key(cell_text(cell, strings)) == target_key:
+            matches.append((number, row))
+
+    if len(matches) != 1:
+        raise LayoutError(
+            "El cargo " + (role or "sin seleccionar") +
+            " no tiene una correspondencia única y verificada en "
+            "'Matriz IRL Optimizada'. Revisa las condiciones del puesto y "
+            "agrega una fila para el cargo exacto antes de emitir el IRL."
+        )
+    row_no, record = matches[0]
+    for coordinate, column in columns.items():
+        source_cell = record.find(Q("c") + "[@r='" + column + str(row_no) + "']")
+        raw_value = cell_text(source_cell, strings).strip() if source_cell is not None else ""
+        if not raw_value or raw_value in ERRORS:
+            raise LayoutError(
+                "El cargo " + role + " no tiene completas las condiciones de "
+                "trabajo del IRL: Matriz IRL Optimizada!" + column + str(row_no)
+            )
+        cell = summary_cells[coordinate]
+        if cell is not None and cell.find(Q("f")) is None:
+            old = cell_text(cell, strings).strip()
+            if old and old not in {"REVISAR CARGO EN MATRIZ", "#N/A", "#REF!"}:
+                raise LayoutError(
+                    "La cabecera IRL!" + coordinate +
+                    " contiene texto fijo; revisa el formato antes de recalcular."
+                )
+        cell = ensure_cell(target, coordinate)
+        for child in list(cell):
+            cell.remove(child)
+        cell.attrib.pop("t", None)
+        ET.SubElement(cell, Q("f")).text = (
+            "'Matriz IRL Optimizada'!$" + column + "$" + str(row_no)
+        )
+    return True
+
+
 def fill_workbook(raw: bytes, data: dict, code: str) -> bytes:
     if code not in DOC_SHEETS: raise LayoutError("Documento desconocido")
     with ZipFile(io.BytesIO(raw)) as z:
@@ -328,6 +421,8 @@ def fill_workbook(raw: bytes, data: dict, code: str) -> bytes:
         if code == 'ppe_delivery':
             for index, amount in enumerate(delivery_quantities(get_data(data, 'event.epp_items')), 12):
                 set_text(target, 'D' + str(index), str(amount) if amount else '')
+        if code == "irl":
+            bind_irl_summary_lookup(z, files, target, get_data(data, "role"))
         # Every supplied context is written including blanks, so examples cannot leak.
         changes.update({files[name]: xml(root), files[target_name]: xml(target)})
         return pack(z, changes)
@@ -801,7 +896,7 @@ def cached_pdf(raw: bytes, code: str, data: dict, org_id: str, cache: Path, prev
     # Excluir esa preferencia del hash evita recalcular Calc al cambiar la selección.
     printable_data = {k: v for k, v in data.items() if k != "requested_documents"}
     key = digest(json.dumps({"org": org_id, "workbook": digest(raw), "code": code,
-        "data": printable_data, "preview": preview, 'reference':digest(reference or raw), "engine": "calc-v20.7-" + ('uno' if settings().javiera_calc_url else 'cli')}, sort_keys=True, ensure_ascii=False).encode())
+        "data": printable_data, "preview": preview, 'reference':digest(reference or raw), "engine": "calc-v20.8-irl-rut-" + ('uno' if settings().javiera_calc_url else 'cli')}, sort_keys=True, ensure_ascii=False).encode())
     with _locks_guard:
         lock = _locks.setdefault(key, threading.Lock())
     with lock:
