@@ -23,6 +23,13 @@ const statusText:Record<string,string>={
   GUARDAR_FICHA:"Guardar para verificar"
 };
 const validField=(key:string)=>key.replaceAll(".","_");
+const formatRutDisplay=(value:string):string=>{
+  const raw=(value||"").trim();
+  const compact=raw.replace(/[.\\-\\s]/g,"").toUpperCase();
+  const match=compact.match(/^(\\d{7,8})([\\dK])$/);
+  return match?match[1].replace(/\\B(?=(\\d{3})+(?!\\d))/g,".")+"-"+match[2]:raw;
+};
+const isRutField=(key:string)=>key.endsWith(".rut")||key.endsWith("_rut");
 const extraLabels:Record<string,string>={representative_name:"Nombre del representante legal",representative_rut:"RUT del representante legal",representative_nationality:"Nacionalidad del representante",employer_address:"Domicilio de la empresa",employer_commune:"Comuna de la empresa",employer_city:"Ciudad de la empresa",employer_phone:"Teléfono de la empresa",employer_email:"Correo de la empresa",worker_nationality:"Nacionalidad del trabajador",worker_birthdate:"Fecha de nacimiento",worker_marital_status:"Estado civil",worker_address:"Domicilio del trabajador",worker_commune:"Comuna del trabajador",worker_city:"Ciudad del trabajador",worker_phone:"Teléfono del trabajador",worker_email:"Correo del trabajador",payment_frequency:"Periodicidad de pago",bank_account:"Datos de pago o cuenta bancaria",afp:"AFP",health_provider:"Sistema de salud",principal_company:"Empresa mandante",declaration_period:"Período de la declaración",site_address:"Dirección de la obra",specialty:"Especialidad",destinations:"Obras de destino autorizadas",transport_allowance:"Asignación de traslado"};
 const fieldLabel=(key:string)=>extraLabels[key.replace(/^extra\./,"")]||({"employer.name":"empresa","employer.rut":"RUT de empresa","worker.name":"trabajador","worker.rut":"RUT del trabajador","site.name":"obra","role":"cargo","employment_type":"vínculo laboral","event.date":"fecha del evento","event.epp_items":"EPP entregados","event.pts_version":"versión del PTS","contract.start":"fecha de ingreso","contract.end":"fecha de término","contract.new_end":"nueva fecha de término (anexo de prórroga)","contract.transfer_date":"fecha de traslado","contract.salary":"sueldo base","contract.hours":"horas semanales"} as Record<string,string>)[key]||key.replaceAll("_"," ");
 const errorMessage=(e:unknown)=>e instanceof Error?e.message:String(e);
@@ -202,8 +209,8 @@ export default function Javiera({configuration=false,onBack,onConfig}:{configura
     }
   }
   const fieldInput=(field:string,label:string,value:string,change:(v:string)=>void,type="text")=>
-    <label key={field} htmlFor={validField(field)}>{label}<input id={validField(field)} value={value}
-      type={type} onChange={e=>change(e.target.value)}/></label>;
+    <label key={field} htmlFor={validField(field)}>{label}<input id={validField(field)} value={isRutField(field)?formatRutDisplay(value):value}
+      type={type} onChange={e=>change(e.target.value)} onBlur={()=>{if(isRutField(field))change(formatRutDisplay(value));}}/></label>;
   useEffect(()=>{
     if(!mode||!companyId||!siteId){setExistingDossiers([]);return;}
     let alive=true;
@@ -247,7 +254,7 @@ export default function Javiera({configuration=false,onBack,onConfig}:{configura
     if(!siteId||!newContractor.name.trim()||!newContractor.rut.trim()){setError("Selecciona la obra e ingresa razón social y RUT de empresa.");return;}
     if(actionLock.current)return;actionLock.current=true;setBusy(true);setError("");
     try{
-      const result=await opsApi.createContractor({site_id:siteId,name:newContractor.name,rut:newContractor.rut||null,
+      const result=await opsApi.createContractor({site_id:siteId,name:newContractor.name,rut:formatRutDisplay(newContractor.rut)||null,
         historical_code:"",nature:"unclassified",frequency:"unclassified",contract_status:"active"});
       const src=await request<Source>("/javiera/sources?site_id="+encodeURIComponent(siteId));
       setSource(src);chooseCompany(result.contractor_id);setShowCreate(null);setNewContractor({name:"",rut:""});
@@ -258,7 +265,7 @@ export default function Javiera({configuration=false,onBack,onConfig}:{configura
     if(!siteId||!companyId||!newWorker.name.trim()){setError("Selecciona empleador e indica el trabajador");return;}
     if(actionLock.current)return;actionLock.current=true;setBusy(true);setError("");
     try{
-      const result=await opsApi.createWorker({site_id:siteId,contractor_id:companyId,name:newWorker.name,rut:newWorker.rut||null});
+      const result=await opsApi.createWorker({site_id:siteId,contractor_id:companyId,name:newWorker.name,rut:formatRutDisplay(newWorker.rut)||null});
       const src=await request<Source>("/javiera/sources?site_id="+encodeURIComponent(siteId)+"&contractor_id="+encodeURIComponent(companyId));
       setSource(src);chooseWorker(result.worker_id);setShowCreate(null);setNewWorker({name:"",rut:""});
       setNotice("Trabajador vinculado al empleador.");
@@ -457,7 +464,7 @@ export default function Javiera({configuration=false,onBack,onConfig}:{configura
           </div>:<div className="jv-new-form">
             <p>Registra la empresa una sola vez para preparar sus documentos.</p>
             <label>Razón social <input required value={newContractor.name} onChange={e=>setNewContractor({...newContractor,name:e.target.value})} placeholder="Nombre completo de la empresa"/></label>
-            <label>RUT de empresa <input required value={newContractor.rut} onChange={e=>setNewContractor({...newContractor,rut:e.target.value})} placeholder="12.345.678-9"/></label>
+            <label>RUT de empresa <input required value={formatRutDisplay(newContractor.rut)} onChange={e=>setNewContractor({...newContractor,rut:e.target.value})} onBlur={()=>setNewContractor(old=>({...old,rut:formatRutDisplay(old.rut)}))} placeholder="12.345.678-9"/></label>
             <button disabled={busy||!siteId||!newContractor.name.trim()||!newContractor.rut.trim()} type="button" onClick={()=>void createCompany()}>Guardar y continuar</button>
             {!siteId&&<p role="status">Selecciona primero una obra.</p>}
           </div>}
@@ -471,7 +478,7 @@ export default function Javiera({configuration=false,onBack,onConfig}:{configura
           <button type="button" className="jv-inline-action" onClick={()=>setShowCreate(showCreate==="worker"?null:"worker")}>+ Registrar trabajador nuevo</button>
           {showCreate==="worker"&&<div className="jv-new-form">
             <label>Nombre del trabajador<input value={newWorker.name} onChange={e=>setNewWorker({...newWorker,name:e.target.value})}/></label>
-            <label>RUT del trabajador<input value={newWorker.rut} onChange={e=>setNewWorker({...newWorker,rut:e.target.value})}/></label>
+            <label>RUT del trabajador<input value={formatRutDisplay(newWorker.rut)} onChange={e=>setNewWorker({...newWorker,rut:e.target.value})} onBlur={()=>setNewWorker(old=>({...old,rut:formatRutDisplay(old.rut)}))} placeholder="12.345.678-9"/></label>
             <button disabled={busy||!companyId} type="button" onClick={()=>void createWorker()}>Guardar trabajador</button>
           </div>}
           <p className="jv-hint">{workerId?"Trabajador asignado en GALANT":"Selecciona o registra el trabajador sin duplicar su RUT."}</p>
