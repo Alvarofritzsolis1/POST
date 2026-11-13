@@ -115,6 +115,21 @@ def source_leaks(raw: bytes, pdf: bytes, data: dict) -> list[str]:
     with fitz.open(stream=pdf, filetype="pdf") as output:
         full_text = normalized(" ".join(page.get_text() for page in output))
     full_digits = digits(full_text)
+    # La misma fecha puede aparecer legítimamente en más de un campo (p. ej.
+    # fecha del contrato y recepción del reglamento). La coincidencia global
+    # de texto NO permite atribuir ese valor a una celda de origen concreta.
+    # Solo denunciar una fecha de muestra cuando NO es un dato del expediente.
+    current_dates = set()
+    for path in ("contract.start", "contract.end", "contract.new_end",
+                 "contract.transfer_date", "event.date", "extra.worker_birthdate"):
+        node = data
+        for part in path.split("."):
+            node = node.get(part) if isinstance(node, dict) else None
+        if node:
+            try:
+                current_dates.add(date.fromisoformat(str(node)[:10]))
+            except (TypeError, ValueError):
+                pass
     issues = []
     skip_generic = {"CHILENA", "CHILENO", "CASADO", "SOLTERO", "SOLTERA"}
     date_coordinates = {"C20", "C36", "C37", "C40"}
@@ -134,10 +149,15 @@ def source_leaks(raw: bytes, pdf: bytes, data: dict) -> list[str]:
         if coord in date_coordinates:
             try:
                 old_date = date(1899, 12, 30) + timedelta(days=int(float(original_value)))
-                new_date = date.fromisoformat(new_value[:10])
             except (TypeError, ValueError, OverflowError):
                 continue
-            if old_date != new_date and (
+            try:
+                new_date = date.fromisoformat(new_value[:10])
+            except (TypeError, ValueError):
+                new_date = None
+            # Una fecha de entrada vacía no puede ocultar un valor antiguo impreso.
+            # Se bloquea si la fecha antigua tampoco es legítima en otro campo.
+            if old_date not in current_dates and old_date != new_date and (
                 old_date.strftime("%d/%m/%Y") in full_text or
                 str(old_date.day) + "/" + str(old_date.month) + "/" + str(old_date.year) in full_text
             ):

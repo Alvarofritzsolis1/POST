@@ -85,11 +85,13 @@ def main():
             form.locator('select').nth(1).select_option(company['contractor_id'])
             form.locator('select').nth(2).select_option(people[0])
             page.locator('.jv-form input[list="javiera-cargos"]').fill('PINTOR QA '+suffix)
-            page.get_by_label('Expediente anterior').select_option(dossiers[0])
+            expect(page.get_by_text('Expediente anterior',exact=True)).to_have_count(0)
+            expect(page.get_by_text('Expediente recuperado.',exact=False)).to_be_visible(timeout=10000)
             expect(page.get_by_role('button',name='Generar documentos listos')).to_be_disabled()
             report['scenarios']['recover_without_false_unsaved_changes']='PASS'
             form.locator('select').nth(2).select_option(people[1])
-            expect(page.locator('.jv-form input[list="javiera-cargos"]')).to_have_value('')
+            expect(page.get_by_text('Expediente recuperado.',exact=False)).to_be_visible(timeout=10000)
+            expect(page.locator('.jv-form input[list="javiera-cargos"]')).to_have_value('PINTOR QA '+suffix)
             expect(page.get_by_role('button',name='Generar documentos listos')).to_be_disabled()
             report['scenarios']['worker_context_reset']='PASS'
             page.get_by_label('Generar para varios expedientes guardados').check()
@@ -97,7 +99,7 @@ def main():
             expect(page.locator('.jv-batch-targets input:checked')).to_have_count(2)
             page.get_by_role('button',name='Generar documentos listos').click()
             # Un lote de expedientes incompletos no debe anunciar documentos emitidos.
-            expect(page.get_by_text('No se generaron documentos:',exact=False)).to_be_visible(timeout=30000)
+            expect(page.get_by_text('No se generaron documentos.',exact=False)).to_be_visible(timeout=30000)
             # Sparse dossiers lack required facts. Both failures must be reported;
             # no synthetic test is allowed to bypass the actual emission checks.
             expect(page.locator('.jv-batch-report p')).to_have_count(2)

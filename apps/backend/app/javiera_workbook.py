@@ -840,7 +840,9 @@ def cached_pdf(raw: bytes, code: str, data: dict, org_id: str, cache: Path, prev
         # Specialty words are part of the source matrix for the exact verified
         # role (e.g. carpintería). They are not sample identities in IRL/PTS.
         if code in {'irl','pts'}: leaks = [ref for ref in leaks if ref != 'C14']
-        if leaks: raise LayoutError("El PDF contiene datos del ejemplo; emisión bloqueada")
+        if leaks: raise LayoutError(
+            "El PDF conserva datos del ejemplo en Datos Contrato!" +
+            ", ".join(leaks) + ". Revisa las fórmulas o los valores fijos de la hoja imprimible.")
         cache.mkdir(parents=True, exist_ok=True, mode=0o700)
         report.update({"sha256": digest(pdf), "cache_key": key, "cache_hit": False})
         for target, content in ((path, pdf), (meta, json.dumps(report).encode())):

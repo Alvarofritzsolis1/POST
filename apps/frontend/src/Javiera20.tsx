@@ -8,7 +8,7 @@ const JavieraWorkbookAdmin=lazy(()=>import("./JavieraWorkbookAdmin"));
 
 type Source = {sites: {id:string;name:string}[];contractors:{id:string;site_id:string;name:string;rut:string|null;nature:string;defaults?:Record<string,string>}[];workers:{id:string;name:string;rut:string|null;active:boolean;contract?:{start?:string;end?:string}}[]};
 type Catalog = {code:string;area:string;title:string;required_fields:string[];published_version:number};
-type Status = {code:string;area:string;title:string;status:string;reason:string;missing_fields:string[];blocking_errors:string[];completion_percent:number;can_preview:boolean;can_issue:boolean;has_history:boolean;template_version:number};
+type Status = {code:string;area:string;title:string;status:string;reason:string;missing_fields:string[];blocking_errors:string[];completion_percent:number;can_preview:boolean;can_issue:boolean;has_history:boolean;template_version:number;source_cells?:string[];cache_hit?:boolean};
 type DossierSummary = {id:string;site_id:string;employer_id:string;worker_id:string|null;relationship:string;revision:number;worker_name?:string;employer_name?:string};
 type BatchResult = {dossier_id?:string;code:string;ok:boolean;id?:string;reason?:string};
 type Dossier = {id:string;revision:number;data:Record<string,unknown>;site_id:string;employer_id:string;worker_id:string|null;parent_id:string|null;relationship:string;issues:{id:string;code:string;at:string;sha256:string;version:number}[];historical:{id:string;code:string;state:string;comment:string}[]};
@@ -17,7 +17,9 @@ const statusText:Record<string,string>={
   POR_DETERMINAR:"Por determinar", NO_APLICA:"No aplica", FALTAN_DATOS:"Faltan datos",
   PENDIENTE_REVISION:"Revisar configuración", PREVISUALIZABLE:"Vista previa disponible",
   LISTO_PARA_EMITIR:"Listo para PDF", EXISTENTE_POR_VERIFICAR:"Documento anterior",
-  ERROR_TEMPORAL:"Validación no disponible", EMITIDO:"Emitido"
+  ERROR_TEMPORAL:"Validación no disponible", EMITIDO:"Emitido",
+  VALIDANDO_PDF:"Comprobando PDF", BLOQUEADO_PLANTILLA:"Error de plantilla",
+  GUARDAR_FICHA:"Guardar para verificar"
 };
 const validField=(key:string)=>key.replaceAll(".","_");
 const extraLabels:Record<string,string>={representative_name:"Nombre del representante legal",representative_rut:"RUT del representante legal",representative_nationality:"Nacionalidad del representante",employer_address:"Domicilio de la empresa",employer_commune:"Comuna de la empresa",employer_city:"Ciudad de la empresa",employer_phone:"Teléfono de la empresa",employer_email:"Correo de la empresa",worker_nationality:"Nacionalidad del trabajador",worker_birthdate:"Fecha de nacimiento",worker_marital_status:"Estado civil",worker_address:"Domicilio del trabajador",worker_commune:"Comuna del trabajador",worker_city:"Ciudad del trabajador",worker_phone:"Teléfono del trabajador",worker_email:"Correo del trabajador",payment_frequency:"Periodicidad de pago",bank_account:"Datos de pago o cuenta bancaria",afp:"AFP",health_provider:"Sistema de salud",principal_company:"Empresa mandante",declaration_period:"Período de la declaración",site_address:"Dirección de la obra",specialty:"Especialidad",destinations:"Obras de destino autorizadas",transport_allowance:"Asignación de traslado"};
@@ -70,6 +72,8 @@ export default function Javiera({configuration=false,onBack,onConfig}:{configura
   const [dossierRevision,setDossierRevision]=useState(0);
   const [saved,setSaved]=useState<Dossier|null>(null);
   const [response,setResponse]=useState<{key:string;documents:Status[]}|null>(null);
+  const [preflight,setPreflight]=useState<{key:string;documents:Status[]}|null>(null);
+  const [issueFailures,setIssueFailures]=useState<Record<string,string>>({});
   const [error,setError]=useState("");
   const [notice,setNotice]=useState("");
   const [busy,setBusy]=useState(false);
@@ -145,7 +149,41 @@ export default function Javiera({configuration=false,onBack,onConfig}:{configura
     missing_fields:x.required_fields,blocking_errors:[],completion_percent:0,can_preview:false,can_issue:false,
     has_history:false,template_version:x.published_version
   }));
-  const cards=allCards;
+  const preflightCodes=allCards.filter(x=>chosenCodes.includes(x.code)&&x.can_issue).map(x=>x.code);
+  const preflightKey=[dossierId,dossierRevision,fingerprint,preflightCodes.join(",")].join("|");
+  useEffect(()=>{
+    if(configuration||batchMode||!dossierId||unsaved||!preflightCodes.length){setPreflight(null);return;}
+    const controller=new AbortController();setPreflight(null);
+    void request<{documents:Status[];dossier_revision:number}>("/javiera/eligibility/preflight",{
+      method:"POST",body:JSON.stringify({dossier_id:dossierId,codes:preflightCodes}),signal:controller.signal
+    }).then(result=>{
+      if(!controller.signal.aborted&&result.dossier_revision===dossierRevision){
+        setPreflight({key:preflightKey,documents:result.documents});
+      }
+    }).catch(e=>{
+      if(!controller.signal.aborted){
+        setPreflight({key:preflightKey,documents:preflightCodes.map(code=>({
+          ...allCards.find(x=>x.code===code)!,status:"ERROR_TEMPORAL",can_issue:false,
+          reason:"No se pudo comprobar la plantilla. "+errorMessage(e)
+        }))});
+      }
+    });
+    return()=>controller.abort();
+  },[configuration,batchMode,dossierId,unsaved,preflightKey]);
+  useEffect(()=>{setIssueFailures({});},[fingerprint]);
+  const cards=allCards.map(item=>{
+    if(batchMode||!chosenCodes.includes(item.code))return item;
+    if(issueFailures[item.code])return {...item,status:"BLOQUEADO_PLANTILLA",can_issue:false,
+      reason:issueFailures[item.code]};
+    if(!item.can_issue)return item;
+    if(unsaved||!dossierId)return {...item,status:"GUARDAR_FICHA",can_issue:false,
+      reason:"Guarda la ficha para comprobar el contenido real del PDF antes de descargar."};
+    const result=preflight?.key===preflightKey?preflight.documents.find(x=>x.code===item.code):null;
+    return result?{...item,...result}:{
+      ...item,status:"VALIDANDO_PDF",can_issue:false,
+      reason:"Comprobando la salida real del Excel antes de habilitar la descarga."
+    };
+  });
   const selectedCatalog=catalog.filter(c=>chosenCodes.includes(c.code));
   const neededFields=new Set(selectedCatalog.flatMap(c=>c.required_fields));
   const fieldInput=(field:string,label:string,value:string,change:(v:string)=>void,type="text")=>
@@ -158,6 +196,12 @@ export default function Javiera({configuration=false,onBack,onConfig}:{configura
       .then(rows=>{if(alive)setExistingDossiers(rows);}).catch(e=>{if(alive)setError(errorMessage(e));});
     return()=>{alive=false;};
   },[mode,siteId,companyId,saved?.issues.length]);
+  // Recuperar la ficha anterior del trabajador sin mostrar un selector técnico.
+  useEffect(()=>{
+    if(mode!=="existing"||batchMode||!workerId||!companyId||!siteId||dossierId||busy)return;
+    const previous=existingDossiers.find(d=>d.worker_id===workerId);
+    if(previous)void loadDossier(previous.id);
+  },[mode,batchMode,workerId,companyId,siteId,dossierId,existingDossiers]);
   async function loadDossier(id:string){
     if(actionLock.current)return;
     const load=++loadingDossier.current;setBusy(true);setError("");
@@ -244,7 +288,11 @@ export default function Javiera({configuration=false,onBack,onConfig}:{configura
       await downloadIssuedPdf(result.id,code);
       await refreshDossier(dossierId);
       setNotice(result.reused?"PDF emitido anteriormente y descargado.":"PDF emitido y descargado; la emisión no equivale a firma ni entrega.");
-    }catch(e){setError(errorMessage(e));}finally{actionLock.current=false;setBusy(false);}
+    }catch(e){
+      const reason=errorMessage(e);
+      setIssueFailures(old=>({...old,[code]:reason}));
+      setError(reason);
+    }finally{actionLock.current=false;setBusy(false);}
   }
   async function downloadExisting(id:string,code:string){
     if(actionLock.current)return;actionLock.current=true;setBusy(true);setError("");
@@ -288,7 +336,13 @@ export default function Javiera({configuration=false,onBack,onConfig}:{configura
           setError("Documentos generados, pero falló la descarga: "+errorMessage(downloadError)+". Usa «Descargar documentos en ZIP» para reintentar.");
         }
       }else{
-        setNotice("No se generaron documentos: revisa las observaciones mostradas en el detalle.");
+        setError("No se generaron documentos. Revisa el motivo dentro de la tarjeta afectada.");
+      }
+      if(!batchMode){
+        const failures=results.filter(row=>!row.ok).reduce<Record<string,string>>((out,row)=>{
+          out[row.code]=row.reason||"Documento bloqueado durante la validación.";return out;
+        },{});
+        if(Object.keys(failures).length)setIssueFailures(old=>({...old,...failures}));
       }
       if(dossierId)await refreshDossier(dossierId);
     }catch(e){setError(errorMessage(e));}finally{actionLock.current=false;setBusy(false);setBatchProgress("");}
@@ -345,8 +399,12 @@ export default function Javiera({configuration=false,onBack,onConfig}:{configura
     {onConfig&&<button type="button" className="jv-inline-action" onClick={()=>{if(!busy)onConfig();}}><Settings2 size={16}/> Editar Excel maestro y plantillas</button>}
     <p className="jv-note">La emisión no certifica por sí sola firma, recepción, capacitación ni entrega real de EPP.</p>
   </section>;
-  const ready=cards.filter(c=>chosenCodes.includes(c.code)&&c.can_issue).length;
-  const groups=Array.from(new Set(cards.filter(c=>chosenCodes.includes(c.code)).map(c=>c.area)));
+  const selectedCards=cards.filter(c=>chosenCodes.includes(c.code));
+  const ready=selectedCards.filter(c=>c.can_issue).length;
+  const criticalCards=selectedCards.filter(c=>["BLOQUEADO_PLANTILLA","ERROR_TEMPORAL"].includes(c.status));
+  const incompleteCards=selectedCards.filter(c=>["FALTAN_DATOS","PENDIENTE_REVISION","POR_DETERMINAR","GUARDAR_FICHA"].includes(c.status));
+  const verifyingCards=selectedCards.filter(c=>c.status==="VALIDANDO_PDF");
+  const groups=Array.from(new Set(selectedCards.map(c=>c.area)));
   return <section className="jv-module">
     <div className="jv-hero" style={{display:"grid",gridTemplateColumns:"minmax(0, 1fr)",gridAutoFlow:"row",justifyItems:"start",alignContent:"start",rowGap:9}}>
       <div className="jv-hero-back-row" style={{display:"block",width:"100%",minHeight:31,margin:0}}><button type="button" className="jv-back" disabled={busy} onClick={()=>{setMode(null);chooseSite("");setBatchMode(false);setSelectedDossiers([]);}}><ArrowLeft size={18}/> Proyecto JAVIERA</button></div>
@@ -354,7 +412,7 @@ export default function Javiera({configuration=false,onBack,onConfig}:{configura
       {onConfig&&<button type="button" disabled={busy} className="jv-back" onClick={()=>{if(!busy)onConfig();}}><Settings2 size={16}/> Editar Excel maestro y plantillas</button>}
       <h2>Generación documental interactiva</h2><p>Gestiona contratos, anexos, declaraciones, IRL, PTS, EPP, reglamento e inducción desde una misma ficha.</p></div>
     {error&&<p role="alert" className="jv-error"><AlertCircle size={16}/>{error}</p>}
-    {notice&&<p role="status" className="jv-success"><CheckCircle2 size={16}/>{notice}</p>}
+    {!error&&notice&&<p role="status" className="jv-success"><CheckCircle2 size={16}/>{notice}</p>}
     <section className="jv-document-picker" aria-label="Seleccionar documentos">
       <div className="jv-picker-heading"><div><small>PASO 1 · DOCUMENTOS</small><h3>¿Qué necesitas generar?</h3><p>Marca uno o varios documentos. La ficha pedirá los datos que necesitan.</p></div>
         <label>Buscar documento<input type="search" value={documentSearch} onChange={e=>setDocumentSearch(e.target.value)} placeholder="IRL, EPP, contrato…"/></label></div>
@@ -402,12 +460,6 @@ export default function Javiera({configuration=false,onBack,onConfig}:{configura
             <button disabled={busy||!companyId} type="button" onClick={()=>void createWorker()}>Guardar trabajador</button>
           </div>}
           <p className="jv-hint">{workerId?"Trabajador asignado en GALANT":"Selecciona o registra el trabajador sin duplicar su RUT."}</p>
-          {existingDossiers.length>0&&<label>Expediente anterior
-            <select value={dossierId} onChange={e=>{if(e.target.value)void loadDossier(e.target.value);}}>
-              <option value="">Selecciona expediente para recuperar</option>
-              {existingDossiers.filter(d=>!workerId||d.worker_id===workerId).map(d=>
-                <option key={d.id} value={d.id}>Expediente {d.id.slice(0,8)} · revisión {d.revision}</option>)}
-            </select></label>}
           <label>Cargo o especialidad<input list="javiera-cargos" value={role} onChange={e=>setRole(e.target.value)}/><datalist id="javiera-cargos">{nativeRoles.map(cargo=><option key={cargo} value={cargo}/>)}</datalist></label>
           <p className="jv-hint">GALANT utiliza los documentos elegidos para identificar automáticamente el trámite. No necesitas indicar vínculo laboral ni motivo del expediente.</p>
           </>}
@@ -443,6 +495,29 @@ export default function Javiera({configuration=false,onBack,onConfig}:{configura
         </div>}
       </fieldset></div>
       <aside className="jv-document-panel" aria-label="Documentos que puedes exportar a PDF">
+        {!batchMode&&selectedCards.length>0&&<div className={"jv-validation-panel "+(
+          criticalCards.length?"jv-validation-danger":incompleteCards.length?"jv-validation-warning":
+          verifyingCards.length?"jv-validation-checking":ready?"jv-validation-ok":"jv-validation-warning"
+        )} role="status" aria-live="polite">
+          <div className="jv-validation-heading">
+            {criticalCards.length||incompleteCards.length||verifyingCards.length?
+              <AlertCircle size={20}/>:<CheckCircle2 size={20}/>}
+            <div><strong>{criticalCards.length?"Hay documentos bloqueados":
+              incompleteCards.length?"Documentos pendientes de completar o guardar":
+              verifyingCards.length?"Comprobando el contenido del PDF…":
+              ready?"Documentos verificados":"Selecciona documentos"}</strong>
+            <p>{criticalCards.length?"No se emitirá ningún PDF con datos del ejemplo.":
+              incompleteCards.length?"Revisa la tarjeta de cada documento y guarda la ficha antes de generar.":
+              verifyingCards.length?"Revisando las fórmulas y valores de la salida real del Excel.":
+              ready?ready+" documento(s) verificados.":"Completa la ficha para generar."}</p></div>
+          </div>
+          {criticalCards.map(doc=><div key={doc.code} className="jv-validation-item">
+            <strong>{doc.title}</strong><span>{doc.reason}</span>
+            {!!doc.source_cells?.length&&<small>Origen: Datos Contrato!{doc.source_cells.join(", ")}</small>}
+            {onConfig&&doc.status==="BLOQUEADO_PLANTILLA"&&<button type="button" disabled={busy}
+              onClick={()=>onConfig()}>Abrir configuración del Excel</button>}
+          </div>)}
+        </div>}
         {!batchMode&&unsaved&&<p className="jv-note" role="status">Guarda los cambios para habilitar la exportación de PDFs.</p>}
         <div className="jv-panel-head"><div><small>DOCUMENTOS SELECCIONADOS</small><h3>Preparar y generar PDF</h3>
           <p>{batchMode?"Se valida cada expediente con sus propios datos":!companyId?"Primero registra o selecciona la empresa":unsaved?"Guarda el expediente para habilitar la descarga":"Los estados se actualizan automáticamente"}</p></div><strong>{batchMode?selectedDossiers.length+" expedientes":response?.key===fingerprint?ready+" listos":"Validando…"}</strong></div>
@@ -469,13 +544,27 @@ export default function Javiera({configuration=false,onBack,onConfig}:{configura
         {groups.filter(area=>cards.some(c=>c.area===area)).map(area=><div key={area} className="jv-doc-area">
           <h4>{area==="Zona Subcontratos"?<FolderOpen size={17}/>:<ShieldCheck size={17}/>} {area==="Zona Subcontratos"?"Documentos laborales":area}</h4>
           {cards.filter(c=>chosenCodes.includes(c.code)&&c.area===area && (filter==="todos" || filter==="listos"&&c.can_issue ||
-            filter==="pendientes"&&!c.can_issue&&!c.has_history ||
-            filter==="historicos"&&c.has_history)).map(c=><article className="jv-doc-card" key={c.code}>
+            filter==="pendientes"&&!c.can_issue&&(!c.has_history||["BLOQUEADO_PLANTILLA","ERROR_TEMPORAL"].includes(c.status)) ||
+            filter==="historicos"&&c.has_history)).map(c=><article className={"jv-doc-card "+(
+             ["BLOQUEADO_PLANTILLA","ERROR_TEMPORAL"].includes(c.status)?"jv-card-danger":
+             c.status==="FALTAN_DATOS"?"jv-card-warning":
+             c.can_issue?"jv-card-ok":"")} key={c.code}>
             <div className="jv-doc-title"><input type="checkbox" aria-label={"Seleccionar "+c.title} checked={chosenCodes.includes(c.code)} disabled={busy} onChange={()=>toggleDocument(c.code)}/><FileText size={17}/><b>{c.title}</b><span className={"jv-state jv-"+c.status.toLowerCase()}>{statusText[c.status]||c.status}</span></div>
-            <div className="jv-progress"><span style={{width:String(c.completion_percent)+"%"}}/></div>
-            {c.reason&&<p>{c.reason}</p>}
-            {!!c.missing_fields.length&&<p>Faltan: {c.missing_fields.slice(0,3).map(fieldLabel).join(", ")}{c.missing_fields.length>3?"…":""}</p>}
-            {!!c.blocking_errors.length&&<p className="jv-text-danger">{c.blocking_errors.join("; ")}</p>}
+            {!["BLOQUEADO_PLANTILLA","ERROR_TEMPORAL","VALIDANDO_PDF"].includes(c.status)&&
+              <div className="jv-progress"><span style={{width:String(c.completion_percent)+"%"}}/></div>}
+            {["BLOQUEADO_PLANTILLA","ERROR_TEMPORAL"].includes(c.status)?
+              <div className="jv-card-problem" role="alert"><strong>Documento bloqueado</strong>
+                <p>{c.reason||"El sistema detectó un error en la plantilla."}</p>
+                {!!c.source_cells?.length&&<p><strong>Ubicación exacta:</strong> Datos Contrato!{c.source_cells.join(", ")}</p>}
+                {onConfig&&c.status==="BLOQUEADO_PLANTILLA"&&<button type="button" disabled={busy}
+                  onClick={()=>onConfig()}>Revisar plantilla Excel</button>}
+              </div>:
+              ["FALTAN_DATOS","PENDIENTE_REVISION","GUARDAR_FICHA"].includes(c.status)?
+              <div className="jv-card-missing"><strong>{c.status==="FALTAN_DATOS"?"Completar información":c.status==="GUARDAR_FICHA"?"Guardar ficha":"Revisar configuración"}</strong>
+                {c.reason&&<p>{c.reason}</p>}
+                {!!c.missing_fields.length&&<p>Faltan: {c.missing_fields.map(fieldLabel).join(", ")}</p>}
+                {!!c.blocking_errors.length&&<p>{c.blocking_errors.join("; ")}</p>}
+              </div>:c.reason&&<p>{c.reason}</p>}
             <div className="jv-card-actions">
               <button disabled={!c.can_preview||unsaved||busy} onClick={()=>void openPreview(c.code)}>Vista previa</button>
               <button disabled={!c.can_issue||unsaved||busy} onClick={()=>void issue(c.code)}><Download size={14}/> PDF</button>

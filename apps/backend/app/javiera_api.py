@@ -512,6 +512,59 @@ def evaluate(payload: Evaluation, user: User = Depends(administrator), db: Sessi
             "documents": evaluated(db, user, data, payload.dossier_id)}
 
 
+@router.post("/eligibility/preflight")
+def preflight_documents(payload: BatchIssue, user: User = Depends(administrator),
+                        db: Session = Depends(get_db)):
+    """Comprobar la salida REAL antes de ofrecer el botón PDF.
+
+    Se usa el mismo motor, revisión publicada y caché que /issue.
+    No registra una emisión ni altera los expedientes/plantillas aprobados.
+    """
+    record = dossier(db, user, payload.dossier_id)
+    codes = list(dict.fromkeys(payload.codes))
+    if len(codes) != len(payload.codes) or any(code not in DOCUMENT_BY_CODE for code in codes):
+        raise HTTPException(422, "Selección de documentos inválida")
+    from .javiera_excel import LayoutError
+    candidates = {row["code"]: row for row in evaluated(db, user, record.data, record.id)}
+    report = []
+    for code in codes:
+        row = dict(candidates[code])
+        if not row["can_issue"]:
+            report.append(row)
+            continue
+        master = active_workbook(db, user.org_id, published=True, code=code)
+        layout = latest_layout(db, user.org_id, code)
+        try:
+            if master:
+                _, validation = cached_pdf(
+                    raw_for(master), code, record.data, user.org_id,
+                    root_for(user.org_id) / "pdf-cache", False,
+                    reference=original_for(db, master))
+                row["cache_hit"] = bool(validation.get("cache_hit"))
+            elif layout:
+                # Tampoco se confía en «Listo» de la antigua maquetación Excel.
+                make_pdf(db, user, layout, record.data, preview=False)
+            # Las plantillas estructuradas ya usan exclusivamente campos validados.
+        except HTTPException as exc:
+            detail = exc.detail
+            explanation = detail if isinstance(detail, str) else str(
+                detail.get("error") or detail.get("reason") or "Error en plantilla"
+            ) if isinstance(detail, dict) else "Error de validación documental"
+            row.update(status="BLOQUEADO_PLANTILLA", can_issue=False,
+                       reason=explanation)
+        except LayoutError as exc:
+            row.update(status="BLOQUEADO_PLANTILLA", can_issue=False, reason=str(exc))
+        # No emitir nunca un archivo cuya conversión no se pudo verificar.
+        except Exception:
+            row.update(status="ERROR_TEMPORAL", can_issue=False,
+                       reason="No se pudo verificar el PDF. Intenta nuevamente o consulta al administrador.")
+        if not row["can_issue"]:
+            row["source_cells"] = re.findall(
+                r"\b(?:[A-Z]{1,3})[1-9]\d{0,5}\b", row["reason"])[:15]
+        report.append(row)
+    return {"dossier_revision": record.revision, "documents": report}
+
+
 def prepared(db, user, ident: str, code: str, preview: bool,
              allow_reissue: bool = False):
     if code not in DOCUMENT_BY_CODE:

@@ -160,3 +160,32 @@
 .jv-company-confirmed strong{display:flex;align-items:center;gap:8px;color:#1b6348}
 .jv-company-confirmed span{color:#244e3e;font-weight:650;overflow-wrap:anywhere}
 .jv-company-confirmed p{margin:0;color:#436a5a}
+
+
+/* GALANT 20.2.2 — validación por documento clara y accesible */
+.jv-validation-panel{border:1px solid #d4e0ed;background:#f6f9fd;color:#264461;border-radius:12px;padding:14px;margin:0 0 15px;overflow-wrap:anywhere}
+.jv-validation-heading{display:flex;align-items:flex-start;gap:10px}
+.jv-validation-heading svg{flex-shrink:0;margin-top:2px}
+.jv-validation-heading strong{font-size:.91rem;display:block;line-height:1.4}
+.jv-validation-heading p{font-size:.78rem;line-height:1.5;margin:5px 0 0}
+.jv-validation-danger{background:#fff5f4;border-color:#f1b7b4;color:#96363b}
+.jv-validation-warning{background:#fffaed;border-color:#e8d6a5;color:#85611d}
+.jv-validation-checking{background:#f1f6fc;border-color:#a7c6e8;color:#255482}
+.jv-validation-ok{background:#f0f8f3;border-color:#abd8bb;color:#276445}
+.jv-validation-item{border-top:1px solid currentColor;margin-top:11px;padding-top:10px;display:flex;flex-direction:column;align-items:flex-start;gap:5px}
+.jv-validation-item strong{font-size:.83rem}
+.jv-validation-item span{font-size:.78rem;line-height:1.45}
+.jv-validation-item small{font-size:.74rem;font-weight:700;word-break:break-word}
+.jv-validation-item button,.jv-card-problem button{border:1px solid #cd807e;background:#fff;color:#8f2e39;padding:8px 11px;border-radius:8px;font-weight:700;margin-top:5px}
+.jv-card-danger{border:1px solid #e5a09f;background:#fffdfd}
+.jv-card-warning{border:1px solid #e7d5a1;background:#fffefa}
+.jv-card-ok{border-color:#a6d8bb}
+.jv-bloqueado_plantilla,.jv-error_temporal{background:#fce7e7;color:#9a3035}
+.jv-validando_pdf{background:#e6f0fd;color:#265d95}
+.jv-card-problem,.jv-card-missing{padding:11px 12px;border-radius:9px;margin:10px 0 0}
+.jv-card-problem{background:#fff1f0;color:#9b3538;border:1px solid #f2c1bf}
+.jv-card-missing{background:#fff8e9;color:#835a16;border:1px solid #f0dda8}
+.jv-card-problem strong,.jv-card-missing strong{font-size:.77rem}
+.jv-card-problem p,.jv-card-missing p{color:inherit!important;line-height:1.5;font-size:.76rem}
+.jv-card-problem button:focus-visible,.jv-validation-item button:focus-visible{outline:3px solid #317ac2;outline-offset:2px}
+@media(max-width:720px){.jv-validation-panel{padding:12px}.jv-card-problem,.jv-card-missing{padding:10px}}
