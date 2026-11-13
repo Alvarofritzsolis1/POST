@@ -351,6 +351,7 @@ function App() {
     }
   }
   function go(s: string) {
+    if(s!==section&&!window.dispatchEvent(new Event("galant-before-navigate",{cancelable:true})))return;
     // Antes del cambio de componentes, evitar que el módulo nuevo herede el scroll viejo.
     if (s !== section || (s === "contractors" && /^\/contratistas\/[^/]+/.test(window.location.pathname))) {
       window.scrollTo({top: 0, left: 0, behavior: "instant"});

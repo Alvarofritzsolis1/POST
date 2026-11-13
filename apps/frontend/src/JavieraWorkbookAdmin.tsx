@@ -1,15 +1,17 @@
 import {useCallback, useEffect, useMemo, useState} from "react";
 import type {CSSProperties} from "react";
 import {ArrowLeft, Check, Download, FileSpreadsheet, FileText, History, Layers3, Save, ShieldCheck, Undo2, Redo2, Upload, Eye, Settings2, RefreshCw} from "lucide-react";
-import {request} from "./api";
+import {ApiError,request} from "./api";
 import "./javiera-workbook.css";
+import {parseSheetClipboard} from "./javiera-sheet-paste";
 
 type SheetInfo={name:string;purpose:string;formulas:number;cells:number;merged:string[];dependencies:string[];print_areas:string[]};
 type Revision={id:string;revision:number;sha256:string;original_sha256:string;reason:string;created_at:string;author_id:string;inventory:{sheet_count:number;formula_count:number;media_count:number;emf_count:number;print_area_count:number;sheets:SheetInfo[];matrix_pending?:{sheet:string;row:number;role:string;columns:string[]}[]}};
 type Workspace={current:Revision|null;publications:Record<string,string>;engine:{name:string;available:boolean;max_parallel:number};documents:{code:string;sheet:string}[]};
 type Cell={cell:string;row:number;value:string;formula:string|null;style:string;type:string};
 type Grid={name:string;cells:Cell[];styles:CSSProperties[];merged:string[];columns:{min:string;max:string;width:string}[];heights:Record<string,string>;last_row:number;start:number;count:number};
-type Edit={cell:string;value?:string|number;formula?:string;style_from?:string;row_height?:number};
+type CellFormat={bold?:boolean;italic?:boolean;font_size?:number;fill_color?:string;align?:"left"|"center"|"right"|"justify";wrap?:boolean};
+type Edit={format?:CellFormat;cell:string;value?:string|number;formula?:string;style_from?:string;row_height?:number};
 type Dossier={id:string;revision:number};
 type Plan={sha256:string;counts:Record<string,number>};
 type Reset={id:string;sha256:string;counts:Record<string,number>;created_at:string;restored:boolean};
@@ -20,6 +22,10 @@ const titles:Record<string,string>={labor_contract:"Contrato de trabajo",transfe
 const matrixSheets:Record<string,string>={IRL:"MATRIZ IRL",PTS:"MATRIZ PTS",PUESTOS:"Matriz IRL Optimizada",PERFILES:"MATRIZ DESCRIPCION DE CARGO IRL",SUSTANCIAS:"Base_Datos_Sustancias"};
 const matrixNames:Record<string,string>={IRL:"Actividades y riesgos",PTS:"Procedimientos seguros",PUESTOS:"Condiciones de trabajo",PERFILES:"Descripción del cargo",SUSTANCIAS:"Productos y sustancias"};
 const message=(e:unknown)=>e instanceof Error?e.message:String(e);
+function formatCss(format?:CellFormat):CSSProperties{
+ if(!format)return {};
+ return {...(format.bold!==undefined?{fontWeight:format.bold?"bold":"normal"}:{}),...(format.italic!==undefined?{fontStyle:format.italic?"italic":"normal"}:{}),...(format.font_size?{fontSize:format.font_size}:{}),...(format.fill_color?{backgroundColor:format.fill_color}:{}),...(format.align?{textAlign:format.align}:{})};
+}
 function columnNumber(value:string){return [...value].reduce((n,c)=>n*26+c.charCodeAt(0)-64,0);}
 function columnName(value:number){let out="";for(let n=value;n;n=Math.floor((n-1)/26))out=String.fromCharCode(65+(n-1)%26)+out;return out;}
 function address(value:string){const m=/^([A-Z]+)(\d+)$/.exec(value);return m?{col:columnNumber(m[1]),row:Number(m[2])}:{col:1,row:1};}
@@ -34,6 +40,10 @@ export default function JavieraWorkbookAdmin({onBack}:{onBack:()=>void}){
  const [state,setState]=useState<Workspace|null>(null),[tab,setTab]=useState<"templates"|"matrices"|"versions">("templates");
  const [code,setCode]=useState("labor_contract"),[sheet,setSheet]=useState("Contrato Imprimible"),[grid,setGrid]=useState<Grid|null>(null);
  const [start,setStart]=useState(1),[selected,setSelected]=useState(""),[input,setInput]=useState(""),[formulaMode,setFormulaMode]=useState(false);
+ const [inputDirty,setInputDirty]=useState(false);
+ const [conflict,setConflict]=useState(false);
+ const [reloadKey,setReloadKey]=useState(0);
+ const [jump,setJump]=useState<string|null>(null);
  const [clauseDraft,setClauseDraft]=useState<string|null>(null);
  const [editHistory,setEditHistory]=useState<Record<string,Edit>[]>([{}]),[cursor,setCursor]=useState(0),[reason,setReason]=useState("");
  const [revisions,setRevisions]=useState<Revision[]>([]),[roleIndex,setRoleIndex]=useState<Record<string,Record<string,number[]>>>({});
@@ -44,7 +54,7 @@ export default function JavieraWorkbookAdmin({onBack}:{onBack:()=>void}){
  const [reviewers,setReviewers]=useState<Reviewer[]>([]),[reviewerId,setReviewerId]=useState(""),[designation,setDesignation]=useState(""),[grantSpecialty,setGrantSpecialty]=useState("laboral");
  const [checklists,setChecklists]=useState<Checklist[]>([]),[specialty,setSpecialty]=useState("laboral"),[checks,setChecks]=useState<Record<string,boolean>>({}),[comments,setComments]=useState("");
  const [validations,setValidations]=useState<Validation[]>([]),[publishCodes,setPublishCodes]=useState<string[]>([]);
- const current=state?.current,edits=editHistory[cursor],dirty=Object.keys(edits).length>0||clauseDraft!==null;
+ const current=state?.current,edits=editHistory[cursor],dirty=Object.keys(edits).length>0||clauseDraft!==null||inputDirty;
  const path=current?"/javiera/workbook/"+current.id:"";
  const refresh=useCallback(async()=>{
   const s=await request<Workspace>("/javiera/workbook");setState(s);
@@ -55,49 +65,102 @@ export default function JavieraWorkbookAdmin({onBack}:{onBack:()=>void}){
  },[]);
  useEffect(()=>{void refresh().catch(e=>setError(message(e)));},[refresh]);
  useEffect(()=>{if(!current)return;let active=true;setLoading(true);setError("");
-  request<Grid>(path+"/sheet?name="+encodeURIComponent(sheet)+"&start="+start+"&count=55").then(g=>{if(active){setGrid(g);setSelected("");setInput("");}}).catch(e=>{if(active)setError(message(e));}).finally(()=>{if(active)setLoading(false);});
+  request<Grid>(path+"/sheet?name="+encodeURIComponent(sheet)+"&start="+start+"&count=55").then(g=>{if(active){setGrid(g);setSelected("");setInput("");}}).catch(e=>{if(active){setGrid(null);setError(message(e));}}).finally(()=>{if(active)setLoading(false);});
   return()=>{active=false;};
- },[path,sheet,start,current?.id]);
+ },[path,sheet,start,current?.id,reloadKey]);
  useEffect(()=>{if(tab!=="versions")return;
   void Promise.all([request<Reviewer[]>("/javiera/admin/reviews/reviewers").then(setReviewers),request<Reset[]>("/javiera/workbook/reset/history").then(setResets),request<Checklist[]>("/javiera/admin/reviews/checklists").then(setChecklists),request<Dossier[]>("/javiera/dossiers").then(setDossiers),current?request<Validation[]>(path+"/validations").then(setValidations):Promise.resolve()]).catch(e=>setError(message(e)));
  },[tab,path,current?.id]);
  useEffect(()=>{const handler=(e:BeforeUnloadEvent)=>{if(dirty){e.preventDefault();e.returnValue="";}};window.addEventListener("beforeunload",handler);return()=>window.removeEventListener("beforeunload",handler);},[dirty]);
- const mutate=(edit:Edit)=>{setEditHistory(old=>[...old.slice(0,cursor+1),{...edits,[edit.cell]:{...edits[edit.cell],...edit}}]);setCursor(cursor+1);setNotice("");};
- const clear=()=>{setEditHistory([{}]);setCursor(0);setReason("");setClauseDraft(null);};
- function navigate(next:()=>void){if(dirty){setError("Hay cambios pendientes. Guarda la revisión o descártalos antes de cambiar de hoja.");return;}setError("");setGrid(null);next();}
+ const mutateMany=(changes:Edit[])=>{const next={...edits};for(const edit of changes)next[edit.cell]={...next[edit.cell],...edit,format:{...next[edit.cell]?.format,...edit.format}};if(Object.keys(next).length>500){setError("Esta revisión supera 500 celdas. Guarda los cambios actuales antes de continuar.");return;}setEditHistory(old=>[...old.slice(0,cursor+1),next]);setCursor(cursor+1);setNotice("");};
+ const mutate=(edit:Edit)=>mutateMany([edit]);
+ const clear=()=>{setEditHistory([{}]);setCursor(0);setReason("");setClauseDraft(null);setInputDirty(false);setConflict(false);};
+ function navigate(next:()=>void){if(busy||loading)return;if(dirty){setError("Hay cambios pendientes. Guarda la revisión o descártalos antes de cambiar de hoja.");return;}setError("");next();}
  function chooseDoc(next:string){navigate(()=>{setCode(next);setSheet(state?.documents.find(d=>d.code===next)?.sheet||"");setStart(1);});}
  function chooseMatrix(kind:string,role=cargo){navigate(()=>{setMatrix(kind);setSheet(matrixSheets[kind]);setStart(Math.max(1,(roleIndex[role]?.[kind]?.[0]||2)-1));});}
  async function action(fn:()=>Promise<void>){setBusy(true);setError("");setNotice("");try{await fn();}catch(e){setError(message(e));}finally{setBusy(false);}}
  async function upload(file:File){await action(async()=>{const form=new FormData();form.append("file",file);await request("/javiera/workbook/import?expected_revision="+(current?.revision||0),{method:"POST",body:form});clear();await refresh();setNotice("Excel importado completo. El original queda privado e inmutable; requiere revisión para publicar.");});}
- async function save(){if(!current)return;await action(async()=>{await request(path+"/edit",{method:"POST",body:JSON.stringify({expected_revision:current.revision,sheet,reason,edits:Object.values(edits)})});clear();await refresh();setNotice("Revisión guardada. Las fórmulas se recalcularán antes de generar PDF.");});}
+ async function save(){if(!current)return;await action(async()=>{
+  try{await request(path+"/edit",{method:"POST",body:JSON.stringify({expected_revision:current.revision,sheet,reason,edits:Object.values(edits)})});}
+  catch(e){if(e instanceof ApiError&&e.status===409)setConflict(true);throw e;}
+  clear();await refresh();setNotice("Revisión guardada. Las fórmulas se recalcularán antes de generar PDF.");
+ });}
+ function downloadDraft(){
+  const copy={workbook_id:current?.id,revision:current?.revision,sheet,reason,edits:Object.values(edits),pending_cell:inputDirty?{cell:selected,content:input,formula:formulaMode}:null,pending_clause:clauseDraft};
+  const url=URL.createObjectURL(new Blob([JSON.stringify(copy,null,2)],{type:"application/json"}));
+  const link=document.createElement("a");link.href=url;link.download="JAVIERA-cambios-pendientes.json";link.click();window.setTimeout(()=>URL.revokeObjectURL(url),60000);
+ }
+ function applyInput(){if(!selected)return;mutate(formulaMode?{cell:selected,formula:input.replace(/^=/,"")}:{cell:selected,value:input});setInputDirty(false);}
  const cellMap=useMemo(()=>new Map(grid?.cells.map(c=>[c.cell,c])||[]),[grid]);
- const mergeMap=useMemo(()=>{const map=new Map<string,{rows:number;cols:number}>(),hidden=new Set<string>();for(const value of grid?.merged||[]){const [first,last]=value.split(":"),a=address(first),b=address(last||first);if(a.row<start||a.row>=start+55)continue;map.set(first,{rows:b.row-a.row+1,cols:b.col-a.col+1});for(let r=a.row;r<=b.row;r++)for(let c=a.col;c<=b.col;c++){const ref=columnName(c)+r;if(ref!==first)hidden.add(ref);}}return {map,hidden};},[grid,start]);
+ const mergeMap=useMemo(()=>{
+  const map=new Map<string,{rows:number;cols:number}>(),hidden=new Set<string>(),locked=new Set<string>();
+  for(const range of grid?.merged||[]){
+   const [first,last]=range.split(":"),a=address(first),b=address(last||first);
+   if(b.row<start||a.row>=start+55)continue;
+   const anchor=a.row<start?columnName(a.col)+start:first;
+   map.set(anchor,{rows:Math.min(b.row,start+54)-Math.max(a.row,start)+1,cols:b.col-a.col+1});
+   if(a.row<start)locked.add(anchor);
+   for(let r=Math.max(a.row,start);r<=Math.min(b.row,start+54);r++)for(let c=a.col;c<=Math.min(b.col,48);c++){
+    const ref=columnName(c)+r;if(ref!==anchor)hidden.add(ref);
+   }
+  }
+  return {map,hidden,locked};
+ },[grid,start]);
  const maxCol=Math.min(48,Math.max(4,...(grid?.cells.map(c=>address(c.cell).col)||[4])));
  const rows=Array.from({length:Math.max(0,Math.min(55,(grid?.last_row||1)-start+1))},(_,i)=>start+i);
  const selectedCell=cellMap.get(selected),selectedEdit=edits[selected];
+ useEffect(()=>{
+  if(!selected||inputDirty)return;
+  const cell=cellMap.get(selected),edit=edits[selected];
+  setInput(edit?.formula!==undefined?"="+edit.formula:cell?.formula?"="+cell.formula:edit?.value!==undefined?String(edit.value):cell?.value||"");
+ },[cursor,selected,cellMap,edits,inputDirty]);
  const textParts=clauseDraft===null?[]:[...clauseDraft.matchAll(/"(?:[^"]|"")*"/g)].filter(m=>m[0].length>16);
+ function pasteCells(coordinate:string,text:string){
+  try{
+   const origin=address(coordinate),values=parseSheetClipboard(text),changes:Edit[]=[];
+   for(const [dr,row] of values.entries())for(const [dc,value] of row.entries()){
+    const ref=columnName(origin.col+dc)+(origin.row+dr);
+    if(origin.col+dc>maxCol||origin.row+dr>=start+55)throw new Error("El pegado supera la página visible. Pega un bloque más pequeño.");
+    if(mergeMap.hidden.has(ref)||mergeMap.locked.has(ref))throw new Error("El pegado cruza celdas combinadas. Pega en las celdas principales por separado.");
+    if(cellMap.get(ref)?.formula||edits[ref]?.formula!==undefined)throw new Error("El pegado incluye una fórmula protegida en "+ref+". No se aplicó ningún cambio.");
+    changes.push({cell:ref,value:cellMap.get(ref)?.type==="n"&&/^-?(?:0|[1-9]\d*)(?:\.\d+)?$/.test(value)?Number(value):value});
+   }
+   mutateMany(changes);setError("");setNotice(changes.length+" celdas pegadas. Revisa y guarda la revisión.");
+  }catch(e){setError(message(e));}
+ }
+ function formatSelected(format:CellFormat){if(selected)mutate({cell:selected,format});}
  const activeChecklist=checklists.find(c=>c.specialty===specialty);
- const gridView=<section className="jw-editor" aria-busy={loading}>
+ const gridView=<fieldset disabled={busy||loading||!grid} className="jw-editor" aria-busy={loading}>
   <div className="jw-editor-heading"><div><span className="jw-overline">HOJA ORIGINAL</span><h2>{sheet.trim()}</h2></div><span className="jw-tag">{dirty?"Cambios sin guardar":"Revisión "+(current?.revision||1)}</span></div>
-  <div className="jw-toolbar"><button disabled={!cursor||busy} onClick={()=>setCursor(cursor-1)} title="Deshacer" aria-label="Deshacer"><Undo2 size={16}/></button><button disabled={cursor===editHistory.length-1||busy} onClick={()=>setCursor(cursor+1)} title="Rehacer" aria-label="Rehacer"><Redo2 size={16}/></button><span className="jw-toolbar-divider"/><span><i className="jw-dot editable"/> Editable</span><span><i className="jw-dot calculated"/> Fórmula</span><span className="jw-grow"/><button disabled={busy||dirty} onClick={()=>void action(async()=>{setGrid(await request<Grid>(path+"/calculate-sheet",{method:"POST",body:JSON.stringify({sheet,start,count:55,dossier_id:dossier||null})}));setNotice("Fórmulas recalculadas por Calc. El Excel maestro conserva su revisión.");})}><RefreshCw size={14}/> Recalcular</button><a href={"/api/v1"+path+"/download"}><Download size={15}/> Excel</a></div>
-  <div className="jw-formula-bar"><span>{selected||"Celda"}</span><b>ƒx</b><input aria-label="Contenido de la celda seleccionada" value={input} disabled={!selected||!!selectedCell?.formula&&!formulaMode} onChange={e=>setInput(e.target.value)} onKeyDown={e=>{if(e.key==="Enter"&&selected)mutate(formulaMode?{cell:selected,formula:input.replace(/^=/,"")}:{cell:selected,value:input});}}/>
-   {selectedCell?.formula&&!formulaMode?<><button onClick={()=>setClauseDraft(selectedEdit?.formula||selectedCell.formula||"")}>Editar texto</button><button onClick={()=>{setFormulaMode(true);setInput("="+(selectedEdit?.formula||selectedCell.formula));}}>Fórmula</button></>:<button disabled={!selected} onClick={()=>mutate(formulaMode?{cell:selected,formula:input.replace(/^=/,"")}:{cell:selected,value:input})}><Check size={15}/><span className="jw-sr">Aplicar contenido</span></button>}</div>
+  <div className="jw-toolbar"><button disabled={!cursor||busy||inputDirty} onClick={()=>setCursor(cursor-1)} title="Deshacer" aria-label="Deshacer"><Undo2 size={16}/></button><button disabled={cursor===editHistory.length-1||busy||inputDirty} onClick={()=>setCursor(cursor+1)} title="Rehacer" aria-label="Rehacer"><Redo2 size={16}/></button><span className="jw-toolbar-divider"/><span><i className="jw-dot editable"/> Editable</span><span><i className="jw-dot calculated"/> Fórmula</span><span className="jw-grow"/><button disabled={busy||dirty} onClick={()=>void action(async()=>{setGrid(await request<Grid>(path+"/calculate-sheet",{method:"POST",body:JSON.stringify({sheet,start,count:55,dossier_id:dossier||null})}));setNotice("Fórmulas recalculadas por Calc. El Excel maestro conserva su revisión.");})}><RefreshCw size={14}/> Recalcular</button><a href={"/api/v1"+path+"/download"}><Download size={15}/> Excel</a></div>
+  <div className="jw-format-toolbar" aria-label="Formato de celda">
+   <button aria-label="Negrita" disabled={!selected} aria-pressed={selectedEdit?.format?.bold??grid?.styles[Number(selectedCell?.style||0)]?.fontWeight==="bold"} onClick={()=>formatSelected({bold:!(selectedEdit?.format?.bold??grid?.styles[Number(selectedCell?.style||0)]?.fontWeight==="bold")})}><b>N</b><span className="jw-sr">Negrita</span></button>
+   <button aria-label="Cursiva" disabled={!selected} aria-pressed={selectedEdit?.format?.italic??grid?.styles[Number(selectedCell?.style||0)]?.fontStyle==="italic"} onClick={()=>formatSelected({italic:!(selectedEdit?.format?.italic??grid?.styles[Number(selectedCell?.style||0)]?.fontStyle==="italic")})}><i>C</i><span className="jw-sr">Cursiva</span></button>
+   <label>Tamaño<input type="number" min="6" max="72" key={selected+cursor} defaultValue={selectedEdit?.format?.font_size||Number(grid?.styles[Number(selectedCell?.style||0)]?.fontSize)||11} disabled={!selected} onBlur={e=>{const n=Number(e.target.value);if(n>=6&&n<=72&&n!==(selectedEdit?.format?.font_size||Number(grid?.styles[Number(selectedCell?.style||0)]?.fontSize)||11))formatSelected({font_size:n});}}/></label>
+   <label>Alineación<select disabled={!selected} value={selectedEdit?.format?.align||grid?.styles[Number(selectedCell?.style||0)]?.textAlign||"left"} onChange={e=>formatSelected({align:e.target.value as CellFormat["align"]})}><option value="left">Izquierda</option><option value="center">Centro</option><option value="right">Derecha</option><option value="justify">Justificar</option></select></label>
+   <label>Fondo<input type="color" disabled={!selected} value={selectedEdit?.format?.fill_color||String(grid?.styles[Number(selectedCell?.style||0)]?.backgroundColor||"#ffffff")} onChange={e=>formatSelected({fill_color:e.target.value})}/></label>
+   <span>Selecciona una celda para editar. Puedes pegar un bloque desde Excel.</span>
+  </div>
+  <div className="jw-formula-bar"><input className="jw-cell-address" aria-label="Ir a celda" placeholder="A1" value={jump??selected} onChange={e=>setJump(e.target.value.toUpperCase())} onKeyDown={e=>{if(e.key!=="Enter")return;e.preventDefault();const ref=jump??selected;if(!/^[A-Z]{1,3}[1-9]\d{0,5}$/.test(ref)){setError("Indica una celda válida, por ejemplo B12.");return;}const target=address(ref);if(target.col>maxCol){setError("La columna está fuera de la cuadrícula visible.");return;}const page=Math.floor((target.row-1)/55)*55+1;if(page!==start){navigate(()=>{setStart(page);setJump(null);});return;}document.querySelector<HTMLTextAreaElement>('[data-cell="'+ref+'"]')?.focus();setJump(null);}}/><b>ƒx</b><input aria-label="Contenido de la celda seleccionada" value={input} disabled={!selected||!!selectedCell?.formula&&!formulaMode} onChange={e=>{setInput(e.target.value);setInputDirty(true);}} onKeyDown={e=>{if(e.key==="Enter"&&selected)applyInput();}}/>
+   {selectedCell?.formula&&!formulaMode?<><button onClick={()=>setClauseDraft(selectedEdit?.formula||selectedCell.formula||"")}>Editar texto</button><button onClick={()=>{setFormulaMode(true);setInput("="+(selectedEdit?.formula||selectedCell.formula));}}>Fórmula</button></>:<button disabled={!selected} onClick={applyInput}><Check size={15}/><span className="jw-sr">Aplicar contenido</span></button>}</div>
+  {inputDirty&&<p className="jw-input-pending" role="status">Contenido pendiente: presiona Enter o Aplicar contenido para incluirlo en la revisión.</p>}
   {clauseDraft!==null&&<section className="jw-clause-editor" aria-label="Edición de cláusulas"><h3>Editar el texto del documento</h3><p>Las referencias a empresa, trabajador y matrices se conservan dentro del Excel.</p>{textParts.length?textParts.map((part,index)=><label key={index}>Texto {index+1}<textarea rows={3} value={part[0].slice(1,-1).replaceAll('""','"')} onChange={e=>setClauseDraft(clauseDraft.slice(0,part.index)+'"'+e.target.value.replaceAll('"','""')+'"'+clauseDraft.slice((part.index||0)+part[0].length))}/></label>):<p>Esta fórmula no contiene párrafos editables. Su contenido procede de otra celda o matriz.</p>}<div><button className="jw-primary" disabled={!textParts.length} onClick={()=>{mutate({cell:selected,formula:clauseDraft});setInput('='+clauseDraft);setClauseDraft(null);}}>Aplicar textos</button><button onClick={()=>setClauseDraft(null)}>Cerrar</button></div></section>}
-  <div className="jw-grid-scroll" onKeyDown={e=>{if((e.ctrlKey||e.metaKey)&&e.key==="z"){e.preventDefault();setCursor(v=>e.shiftKey?Math.min(editHistory.length-1,v+1):Math.max(0,v-1));}}}>
+  <div className="jw-grid-scroll" onKeyDown={e=>{if(!inputDirty&&(e.ctrlKey||e.metaKey)&&e.key==="z"){e.preventDefault();setCursor(v=>e.shiftKey?Math.min(editHistory.length-1,v+1):Math.max(0,v-1));}}}>
    {loading?<div className="jw-loading"><RefreshCw size={22}/> Abriendo la hoja original…</div>:grid&&<table className="jw-grid" aria-label={"Excel: "+sheet.trim()}><colgroup><col style={{width:36}}/>{Array.from({length:maxCol},(_,i)=>{const d=grid.columns.find(c=>Number(c.min)<=i+1&&Number(c.max)>=i+1);return <col key={i} style={{width:Math.min(340,Math.max(95,Number(d?.width||16)*7))}}/>;})}</colgroup><thead><tr><th/>{Array.from({length:maxCol},(_,i)=><th key={i}>{columnName(i+1)}</th>)}</tr></thead><tbody>
-    {rows.map(row=><tr key={row}><th scope="row">{row}</th>{Array.from({length:maxCol},(_,i)=>{const coordinate=columnName(i+1)+row;if(mergeMap.hidden.has(coordinate))return null;const cell=cellMap.get(coordinate),merge=mergeMap.map.get(coordinate),edit=edits[coordinate],computed=!!cell?.formula;const value=edit?.value!==undefined?String(edit.value):cell?.value||"";return <td key={coordinate} rowSpan={merge?.rows} colSpan={merge?.cols} className={(computed?"jw-calculated ":"")+(edit?"jw-modified ":"")+(selected===coordinate?"jw-selected":"")} style={grid.styles[Number(cell?.style||0)]}>
-      <textarea aria-label={(computed?"Fórmula ":"Celda ")+coordinate} title={computed?"Celda calculada. Usa la barra de fórmulas para modificar su cálculo.":"Editar contenido"} readOnly={computed} value={value||computed&&"ƒx · Se recalcula al generar"||""} style={{height:Math.min(400,Math.max(30,Number(grid.heights[String(row)]||24)*1.25))}} onFocus={()=>{setSelected(coordinate);setFormulaMode(false);setInput(edit?.formula?"="+edit.formula:computed?"="+cell?.formula:value);}} onChange={e=>{const value=e.target.value;mutate({cell:coordinate,value:cell?.type==="n"&&/^-?\d+(\.\d+)?$/.test(value)?Number(value):value});setInput(value);}}/>
+    {rows.map(row=><tr key={row}><th scope="row">{row}</th>{Array.from({length:maxCol},(_,i)=>{const coordinate=columnName(i+1)+row;if(mergeMap.hidden.has(coordinate))return null;const cell=cellMap.get(coordinate),merge=mergeMap.map.get(coordinate),edit=edits[coordinate],computed=!!cell?.formula;const value=edit?.value!==undefined?String(edit.value):cell?.value||"";return <td key={coordinate} rowSpan={merge?.rows} colSpan={merge?.cols} className={(computed?"jw-calculated ":"")+(edit?"jw-modified ":"")+(selected===coordinate?"jw-selected":"")} style={{...grid.styles[Number(cell?.style||0)],...formatCss(edit?.format)}}>
+      <textarea data-cell={coordinate} onPaste={e=>{const text=e.clipboardData.getData("text/plain");if(!computed&&(text.includes("\t")||text.includes("\n"))){e.preventDefault();pasteCells(coordinate,text);}}} aria-label={(computed?"Fórmula ":"Celda ")+coordinate} title={computed?"Celda calculada. Usa la barra de fórmulas para modificar su cálculo.":"Editar contenido"} readOnly={computed||mergeMap.locked.has(coordinate)} value={mergeMap.locked.has(coordinate)?"Continuación de celda combinada":value||computed&&"ƒx · Se recalcula al generar"||""} style={{height:Math.min(400,Math.max(30,Number(grid.heights[String(row)]||24)*1.25))}} onFocus={e=>{if(mergeMap.locked.has(coordinate))return;if(inputDirty){setError("Aplica el contenido pendiente con Enter o el botón Aplicar antes de cambiar de celda.");e.target.blur();return;}setSelected(coordinate);setFormulaMode(false);setInput(edit?.formula?"="+edit.formula:computed?"="+cell?.formula:value);}} onChange={e=>{const value=e.target.value;mutate({cell:coordinate,value:cell?.type==="n"&&/^-?(?:0|[1-9]\d*)(?:\.\d+)?$/.test(value)?Number(value):value});setInput(value);}}/>
      </td>;})}</tr>)}
    </tbody></table>}
   </div>
   <div className="jw-sheet-footer"><span><FileSpreadsheet size={14}/>{grid?.name.trim()||sheet.trim()}</span><div><button disabled={start===1||dirty||loading} onClick={()=>setStart(Math.max(1,start-55))}>Anterior</button><span>Filas {start}–{Math.min(start+54,grid?.last_row||start)}</span><button disabled={!grid||start+55>grid.last_row||dirty||loading} onClick={()=>setStart(start+55)}>Siguiente</button></div></div>
-  <div className="jw-save-area"><label>Motivo de la revisión<input value={reason} onChange={e=>setReason(e.target.value)} placeholder="Describe el cambio para el historial"/></label><button className="jw-primary" disabled={!Object.keys(edits).length||clauseDraft!==null||reason.trim().length<10||busy} onClick={()=>void save()}><Save size={16}/>{busy?"Guardando…":"Guardar revisión"}</button>{dirty&&<button disabled={busy} onClick={()=>{clear();setSelected("");setInput("");}}>Descartar cambios</button>}</div>
+  <div className="jw-save-area"><label>Motivo de la revisión<input value={reason} onChange={e=>setReason(e.target.value)} placeholder="Describe el cambio para el historial"/></label><button className="jw-primary" disabled={!Object.keys(edits).length||clauseDraft!==null||inputDirty||reason.trim().length<10||busy} onClick={()=>void save()}><Save size={16}/>{busy?"Guardando…":"Guardar revisión"}</button>{dirty&&<button disabled={busy} onClick={()=>{clear();setSelected("");setInput("");}}>Descartar cambios</button>}</div>
   <details className="jw-format"><summary>Ajustar formato de la celda seleccionada</summary><div><label>Copiar estilo de otra celda<input placeholder="Por ejemplo A2" disabled={!selected} onBlur={e=>{if(selected&&/^[A-Z]{1,3}[1-9]\d*$/.test(e.target.value))mutate({cell:selected,style_from:e.target.value});}}/></label><label>Alto de la fila (pt)<input type="number" min="10" max="409" disabled={!selected} onBlur={e=>{const n=Number(e.target.value);if(selected&&n>=10&&n<=409)mutate({cell:selected,row_height:n});}}/></label></div></details>
- </section>;
- return <main className="jw-app">
-  <header className="jw-header"><button className="jw-back" onClick={()=>navigate(onBack)}><ArrowLeft size={17}/> Volver a GALANT</button><div className="jw-title"><small>GALANT · PROYECTO JAVIERA</small><h1>Configuración de automatización</h1><p>Un solo Excel para tus plantillas, matrices y documentos.</p></div><span className="jw-version">20.0.0-rc1</span></header>
+ </fieldset>;
+ return <main className="jw-app" onKeyDown={e=>{if((e.ctrlKey||e.metaKey)&&e.key.toLowerCase()==="s"){e.preventDefault();if(!busy&&Object.keys(edits).length&&reason.trim().length>=10&&clauseDraft===null&&!inputDirty)void save();else setError("Indica el motivo de la revisión y aplica los textos pendientes antes de guardar.");}}}>
+  <header className="jw-header"><button className="jw-back" onClick={()=>navigate(onBack)}><ArrowLeft size={17}/> Volver a GALANT</button><div className="jw-title"><small>GALANT · PROYECTO JAVIERA</small><h1>Configuración de automatización</h1><p>Un solo Excel para tus plantillas, matrices y documentos.</p></div><span className="jw-version">20.1.0-rc1</span></header>
   <nav className="jw-tabs" aria-label="Configuración de Javiera">{([["templates",FileSpreadsheet,"Plantillas Excel"],["matrices",Layers3,"Matrices y cargos"],["versions",History,"Configuración y versiones"]] as const).map(([id,Icon,title])=><button key={id} className={tab===id?"active":""} aria-current={tab===id?"page":undefined} onClick={()=>navigate(()=>{setTab(id);if(id==="templates"){setSheet(state?.documents.find(d=>d.code===code)?.sheet||"Contrato Imprimible");setStart(1);}if(id==="matrices"){setSheet(matrixSheets[matrix]);setStart(Math.max(1,(roleIndex[cargo]?.[matrix]?.[0]||2)-1));}})}><Icon size={17}/>{title}</button>)}</nav>
-  {error&&<div className="jw-error" role="alert">{error}</div>}{notice&&<div className="jw-success" role="status"><Check size={17}/>{notice}</div>}
+  {error&&<div className="jw-error" role="alert">{error}{!grid&&current&&<button disabled={busy||loading} onClick={()=>setReloadKey(n=>n+1)}>Reintentar abrir hoja</button>}</div>}{notice&&<div className="jw-success" role="status"><Check size={17}/>{notice}</div>}
+  {conflict&&<section className="jw-conflict" role="status"><p>La revisión cambió mientras editabas. Tus cambios siguen aquí. Guarda una copia antes de abrir la revisión actual.</p><button onClick={downloadDraft}>Guardar copia de mis cambios</button><button disabled={busy} onClick={()=>void action(async()=>{clear();await refresh();setReloadKey(n=>n+1);setNotice("Revisión actual abierta. Revisa la copia de los cambios si la descargaste.");})}>Descartar cambios y abrir revisión actual</button></section>}
   {!state?<div className="jw-empty">Cargando el espacio de trabajo…</div>:!current?<section className="jw-empty"><div className="jw-empty-icon"><FileSpreadsheet size={34}/></div><h2>Comienza con tu Excel maestro</h2><p>Importa <b>galant proyect.xlsx</b> para conservar sus hojas, fórmulas y diseños originales. Los documentos generados comenzarán vacíos.</p><label className="jw-upload jw-primary"><Upload size={17}/>{busy?"Importando…":"Importar Excel maestro"}<input type="file" accept=".xlsx" disabled={busy} onChange={e=>{const f=e.target.files?.[0];if(f)void upload(f);e.target.value="";}}/></label><small>Archivo privado · hasta 12 MB · sin macros</small></section>:
   <>
    <div className="jw-summary"><div><span className="jw-excel-mark"><FileSpreadsheet size={21}/></span><div><strong>Excel maestro de Javiera</strong><small>Revisión {current.revision} · {current.inventory.sheet_count} hojas · {current.inventory.formula_count} fórmulas · {current.inventory.media_count} recursos gráficos</small></div></div><span className="jw-tag"><i className="jw-dot editable"/>Original preservado</span></div>

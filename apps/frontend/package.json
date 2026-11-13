@@ -1,12 +1,12 @@
 {
   "name": "galant-post-frontend",
-  "version": "20.0.0-rc1",
+  "version": "20.1.0-rc1",
   "private": true,
   "type": "module",
   "scripts": {
     "dev": "vite --host 0.0.0.0",
     "build": "tsc -b && vite build",
-    "test:logic": "node --experimental-strip-types --test ../../scripts/qa_v15_document_states.mjs ../../scripts/qa_v1501_focus_stability.mjs ../../scripts/qa_v1502_scroll_flicker.mjs ../../scripts/qa_javiera_irl_clipboard.mjs",
+    "test:logic": "node --experimental-strip-types --test ../../scripts/qa_v15_document_states.mjs ../../scripts/qa_v1501_focus_stability.mjs ../../scripts/qa_v1502_scroll_flicker.mjs ../../scripts/qa_javiera_irl_clipboard.mjs ../../scripts/qa_javiera_sheet_paste.mjs",
     "preview": "vite preview --host 0.0.0.0"
   },
   "dependencies": {

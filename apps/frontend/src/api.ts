@@ -12,6 +12,10 @@ export type DocumentSummary = Pick<DocumentView,"id"|"original_name"|"declared_t
 const base="/api/v1"
 const csrf=()=>document.cookie.split("; ").find(item=>item.startsWith("galant_post_csrf="))?.split("=")[1] || ""
 
+export class ApiError extends Error {
+  constructor(readonly status:number,message:string){super(message);this.name="ApiError";}
+}
+
 export async function request<T>(url:string,options:RequestInit={}):Promise<T> {
   const headers=new Headers(options.headers)
   const method=(options.method||"GET").toUpperCase()
@@ -31,7 +35,7 @@ export async function request<T>(url:string,options:RequestInit={}):Promise<T> {
         else if(typeof detail.error==="string")message=(detail.row_id?detail.row_id+": ":"")+detail.error
       }
     }catch{}
-    throw new Error(message)
+    throw new ApiError(response.status,message)
   }
   return response.json() as Promise<T>
 }

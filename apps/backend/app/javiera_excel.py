@@ -8,6 +8,7 @@ from __future__ import annotations
 
 import hashlib
 import io
+import math
 from datetime import date, timedelta
 import os
 import re
@@ -18,6 +19,7 @@ from pathlib import Path
 from zipfile import ZIP_DEFLATED, ZipFile, BadZipFile
 from xml.etree import ElementTree as ET
 import fitz
+from .xlsx_package import preserve_namespaces
 
 M = "http://schemas.openxmlformats.org/spreadsheetml/2006/main"
 R = "http://schemas.openxmlformats.org/officeDocument/2006/relationships"
@@ -138,6 +140,31 @@ def set_document_print_profile(target: ET.Element, book: ET.Element, code: str, 
     entry.text = f"'{escaped}'!{absolute(left)}:{absolute(right)}"
 
 
+def protect_induction_evaluation_header(target: ET.Element, strings: list[str]) -> bool:
+    """Keep the original evaluation's second masthead on its own page.
+
+    The real form anchors a header at row 468. Calc's automatic break cuts
+    through that shape. An explicit break before it preserves the full header,
+    text, paper size and scale; generic workbooks are left untouched.
+    """
+    if target.find(Q("drawing")) is None: return False
+    def text(ref):
+        cell=target.find(".//"+Q("c")+"[@r='"+ref+"']")
+        return cell_text(cell,strings).upper() if cell is not None else ""
+    if "TEST DE APRENDIZAJE" not in " ".join(text("A458").split()) or "ENFERMEDADES PROFESIONALES" not in text("A470"):
+        return False
+    breaks=target.find(Q("rowBreaks"))
+    if breaks is None:
+        breaks=ET.Element(Q("rowBreaks"))
+        tail={Q(name) for name in ("colBreaks","customProperties","cellWatches","ignoredErrors","smartTags","drawing","legacyDrawing","legacyDrawingHF","picture","oleObjects","controls","webPublishItems","tableParts","extLst")}
+        index=next((i for i,child in enumerate(target) if child.tag in tail),len(target));target.insert(index,breaks)
+    if any(node.get("id")=="467" for node in breaks): return False
+    entry=ET.Element(Q("brk"),{"id":"467","min":"0","max":"3","man":"1"})
+    index=next((i for i,node in enumerate(breaks) if int(node.get("id","0"))>467),len(breaks));breaks.insert(index,entry)
+    breaks.set("count",str(len(breaks)));breaks.set("manualBreakCount",str(sum(node.get("man")=="1" for node in breaks)))
+    return True
+
+
 def configure_induction_sections(target: ET.Element, book: ET.Element,
                                  sheet_name: str, strings: list[str]) -> int:
     """Put each of the ten original induction forms at a fresh page boundary.
@@ -199,7 +226,8 @@ def configure_induction_sections(target: ET.Element, book: ET.Element,
         })
         escaped = sheet_name.replace("'", "''")
         entry.text = f"'{escaped}'!$1:$8"
-    return count
+    protect_induction_evaluation_header(target, strings)
+    return len(breaks)
 
 
 SOURCE_FIELDS = {
@@ -274,11 +302,17 @@ def validate_xlsx(raw: bytes):
                     raise LayoutError("Ruta insegura dentro del XLSX")
                 if any(banned in name for banned in RESTRICTED_PARTS):
                     raise LayoutError("Retira macros, enlaces externos y objetos incrustados")
-            if "xl/workbook.xml" not in z.namelist():
+            names = z.namelist()
+            if len(names) != len(set(names)):
+                raise LayoutError("El Excel contiene partes duplicadas")
+            required = {"xl/workbook.xml", "xl/styles.xml", "xl/_rels/workbook.xml.rels", "[Content_Types].xml", "_rels/.rels"}
+            if not required.issubset(names):
                 raise LayoutError("El archivo no contiene un libro Excel válido")
             # Las relaciones externas también pueden existir dentro de hojas o dibujos.
             # No permitir que un convertidor de documentos contacte sitios externos.
             for item in items:
+                if item.filename.lower().endswith(".xml"):
+                    ET.fromstring(z.read(item.filename))
                 if item.filename.lower().endswith(".rels"):
                     rels = ET.fromstring(z.read(item.filename))
                     for node in rels:
@@ -291,7 +325,28 @@ def validate_xlsx(raw: bytes):
                             # Un mailto no se descarga en la conversión y no se ejecuta.
                             continue
                         raise LayoutError("Retira conexiones, imágenes y enlaces web externos del XLSX")
-            sheet_files(z)
+            for path in sheet_files(z).values():
+                if path not in names: raise LayoutError("Falta una hoja referenciada por el Excel")
+            styles = ET.fromstring(z.read("xl/styles.xml"))
+            groups = {tag:styles.find(Q(tag)) for tag in ("fonts", "fills", "borders", "cellXfs")}
+            if any(group is None or not len(group) for group in groups.values()):
+                raise LayoutError("El Excel no contiene estilos válidos")
+            for xf in groups["cellXfs"]:
+                for attr, group in (("fontId","fonts"),("fillId","fills"),("borderId","borders")):
+                    value = xf.get(attr, "0")
+                    if not value.isdigit() or int(value) >= len(groups[group]):
+                        raise LayoutError("El Excel tiene referencias de formato inválidas")
+            for path in sheet_files(z).values():
+                root = ET.fromstring(z.read(path))
+                for cell in root.findall(".//"+Q("c")):
+                    style = cell.get("s", "0")
+                    if not style.isdigit() or int(style) >= len(groups["cellXfs"]):
+                        raise LayoutError("Una celda referencia un estilo que no existe")
+                    value = cell.find(Q("v"))
+                    if cell.get("t", "n") == "n" and value is not None and value.text:
+                        try: valid = math.isfinite(float(value.text))
+                        except ValueError: valid = False
+                        if not valid: raise LayoutError("Una celda contiene un número inválido para Excel")
     except (BadZipFile, ET.ParseError, KeyError):
         raise LayoutError("Estructura del Excel inválida") from None
 
@@ -403,7 +458,15 @@ def ensure_cell(root: ET.Element, coordinate: str) -> ET.Element:
     return cell
 
 
+def validate_cell_text(text: str) -> None:
+    if re.search(r"[\x00-\x08\x0b\x0c\x0e-\x1f\ud800-\udfff\ufffe\uffff]", text):
+        raise LayoutError("El contenido contiene caracteres de control no admitidos por Excel")
+    if len(text.encode("utf-16-le")) // 2 > 32767:
+        raise LayoutError("Una celda de Excel admite hasta 32767 caracteres")
+
+
 def set_text(root: ET.Element, coordinate: str, text: str, style_source: str | None = None):
+    validate_cell_text(text)
     cell = ensure_cell(root, coordinate)
     if style_source:
         style = ensure_cell(root, style_source).get("s")
@@ -456,6 +519,8 @@ def protect_pts_receipt_heading_fit(target: ET.Element, styles: bytes) -> bytes:
 
 
 def set_numeric(root: ET.Element, coordinate: str, value: float):
+    if not math.isfinite(value):
+        raise LayoutError("El número debe ser finito y válido para Excel")
     cell = ensure_cell(root, coordinate)
     for child in list(cell):
         if child.tag in {Q("v"), Q("f"), Q("is")}:
@@ -890,7 +955,7 @@ def excel_document(raw: bytes, code: str, data: dict, changes: dict | None = Non
         with ZipFile(buffer, "w", compression=ZIP_DEFLATED, compresslevel=5) as out:
             for info in z.infolist():
                 if info.filename in replacement:
-                    out.writestr(copy(info), replacement[info.filename])
+                    out.writestr(copy(info), preserve_namespaces(replacement[info.filename], z.read(info.filename)))
                 else:
                     out.writestr(copy(info), z.read(info.filename))
         return buffer.getvalue()

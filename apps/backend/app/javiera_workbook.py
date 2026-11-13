@@ -17,7 +17,7 @@ import threading
 import time
 import unicodedata
 import weakref
-from copy import deepcopy
+from copy import copy, deepcopy
 import base64
 from urllib.request import Request, build_opener, ProxyHandler, HTTPRedirectHandler
 from urllib.error import URLError
@@ -29,7 +29,8 @@ from xml.etree import ElementTree as ET
 import fitz
 from .javiera_excel import (DOC_SHEETS, SOURCE_FIELDS, PTS_CELLS, LayoutError, Q, R,
     apply_changes, cell_text, ensure_cell, set_numeric, set_text, shared_strings,
-    sheet_files, typed_input, validate_xlsx, get_data, MANDANTE_PATTERN)
+    sheet_files, typed_input, validate_xlsx, validate_cell_text, get_data, MANDANTE_PATTERN, protect_induction_evaluation_header)
+from .xlsx_package import preserve_namespaces
 from datetime import date
 
 MATRIX_SHEETS = {"IRL": ("MATRIZ IRL", "B"), "PTS": ("MATRIZ PTS", "A"),
@@ -57,7 +58,11 @@ def pack(z: ZipFile, changes: dict[str, bytes]) -> bytes:
     out = io.BytesIO()
     with ZipFile(out, "w", ZIP_DEFLATED) as result:
         for item in z.infolist():
-            result.writestr(item, changes.get(item.filename, z.read(item.filename)))
+            original = z.read(item.filename)
+            changed = changes.get(item.filename)
+            if changed is not None and item.filename.endswith((".xml", ".rels")):
+                changed = preserve_namespaces(changed, original)
+            result.writestr(copy(item), changed if changed is not None else original)
         for name, raw in changes.items():
             if name not in z.namelist(): result.writestr(name, raw)
     return out.getvalue()
@@ -138,8 +143,9 @@ def read_sheet(raw: bytes, name: str, start: int = 1, count: int = 60) -> dict:
             align = xf.find(Q("alignment")); size = font.find(Q("sz")); color = font.find(Q("color"))
             fg = fill.find(".//" + Q("fgColor"))
             border = borders[int(xf.get("borderId", 0))]
-            style = {"fontSize": min(18, float(size.get("val", 11))) if size is not None else 11,
-                     "fontWeight": "bold" if font.find(Q("b")) is not None else "normal"}
+            style = {"fontSize": min(72, float(size.get("val", 11))) if size is not None else 11,
+                     "fontWeight": "bold" if font.find(Q("b")) is not None and font.find(Q("b")).get("val", "1") != "0" else "normal",
+                     "fontStyle": "italic" if font.find(Q("i")) is not None and font.find(Q("i")).get("val", "1") != "0" else "normal"}
             if color is not None and color.get("rgb"): style["color"] = "#" + color.get("rgb")[-6:]
             if fg is not None and fg.get("rgb"): style["backgroundColor"] = "#" + fg.get("rgb")[-6:]
             if align is not None:
@@ -156,18 +162,72 @@ def read_sheet(raw: bytes, name: str, start: int = 1, count: int = 60) -> dict:
             "start": start, "count": count}
 
 
+def cell_format(styles: ET.Element, cell: ET.Element, changes: dict) -> None:
+    """Clone a cell style so formatting one cell never changes its neighbours."""
+    xfs = styles.find(Q("cellXfs")); fonts = styles.find(Q("fonts")); fills = styles.find(Q("fills"))
+    xf = deepcopy(xfs[int(cell.get("s", "0"))])
+    font = deepcopy(fonts[int(xf.get("fontId", "0"))])
+    for key, tag in (("bold", "b"), ("italic", "i")):
+        if key in changes:
+            for old in list(font.findall(Q(tag))): font.remove(old)
+            if changes[key]: ET.SubElement(font, Q(tag))
+    if "font_size" in changes:
+        n = font.find(Q("sz"))
+        if n is None: n = ET.SubElement(font, Q("sz"))
+        n.set("val", str(changes["font_size"]))
+    if any(key in changes for key in ("bold", "italic", "font_size")):
+        fonts.append(font); fonts.set("count", str(len(fonts)))
+        xf.set("fontId", str(len(fonts)-1)); xf.set("applyFont", "1")
+    if "fill_color" in changes:
+        fill = ET.Element(Q("fill")); pattern = ET.SubElement(fill, Q("patternFill"), {"patternType":"solid"})
+        ET.SubElement(pattern, Q("fgColor"), {"rgb":"FF"+changes["fill_color"].lstrip("#").upper()})
+        ET.SubElement(pattern, Q("bgColor"), {"indexed":"64"})
+        fills.append(fill); fills.set("count", str(len(fills)))
+        xf.set("fillId", str(len(fills)-1)); xf.set("applyFill", "1")
+    if any(key in changes for key in ("align", "wrap")):
+        align = xf.find(Q("alignment"))
+        if align is None:
+            align = ET.Element(Q("alignment"))
+            index = next((i for i, child in enumerate(xf) if child.tag in {Q("protection"), Q("extLst")}), len(xf))
+            xf.insert(index, align)
+        if "align" in changes: align.set("horizontal", changes["align"])
+        if "wrap" in changes: align.set("wrapText", "1" if changes["wrap"] else "0")
+        xf.set("applyAlignment", "1")
+    # Reuse identical styles, including when pasting the same format repeatedly.
+    serialized = xml(xf)
+    index = next((i for i, old in enumerate(xfs) if xml(old) == serialized), None)
+    if index is None:
+        index = len(xfs); xfs.append(xf); xfs.set("count", str(len(xfs)))
+    cell.set("s", str(index))
+
+
 def edit_workbook(raw: bytes, sheet: str, edits: list[dict]) -> bytes:
     """Edits materialize into a new XLSX; no JSON overrides or shadow content."""
     with ZipFile(io.BytesIO(raw)) as z:
         files = sheet_files(z); sheet = resolve_sheet(files, sheet)
         root = ET.fromstring(z.read(files[sheet]))
+        styles = ET.fromstring(z.read("xl/styles.xml")); format_changed = False
+        merges = []
+        def column_number(value):
+            return sum((ord(c)-64)*26**i for i,c in enumerate(reversed(value)))
+        for node in root.findall(".//"+Q("mergeCell")):
+            first, _, last = node.get("ref", "").partition(":")
+            a=re.fullmatch(r"([A-Z]+)([1-9]\d*)",first); b=re.fullmatch(r"([A-Z]+)([1-9]\d*)",last or first)
+            if a and b: merges.append((first,column_number(a[1]),int(a[2]),column_number(b[1]),int(b[2])))
         for edit in edits:
-            coord = edit["cell"]; cell = ensure_cell(root, coord)
+            coord = edit["cell"]
+            match = re.fullmatch(r"([A-Z]{1,3})([1-9]\d{0,5})",coord)
+            if not match: raise LayoutError("Referencia de celda inválida")
+            col,row = column_number(match[1]),int(match[2])
+            if any(first!=coord and left<=col<=right and top<=row<=bottom for first,left,top,right,bottom in merges):
+                raise LayoutError("Edita la celda principal del rango combinado, no una celda cubierta")
+            cell = ensure_cell(root, coord)
             column = re.match(r"[A-Z]+", coord).group()
             if sum((ord(c) - 64) * 26 ** i for i, c in enumerate(reversed(column))) > 16384:
                 raise LayoutError("La columna excede el límite de Excel")
             if "formula" in edit and edit["formula"] is not None:
                 formula = edit["formula"].lstrip("=")
+                validate_cell_text(formula)
                 if re.search(r"\[|\||\b(?:DDE|WEBSERVICE|HYPERLINK|RTD|CALL|EXEC|SHELL|REGISTER(?:\.ID)?|SQL\.REQUEST|IMAGE)\s*\(",
                              re.sub(r'"(?:[^"]|"")*"','""',formula), re.I):
                     raise LayoutError("Las fórmulas no pueden abrir conexiones externas")
@@ -181,16 +241,25 @@ def edit_workbook(raw: bytes, sheet: str, edits: list[dict]) -> bytes:
                 if isinstance(value, (float, int)) and not isinstance(value, bool): set_numeric(root, coord, value)
                 else: set_text(root, coord, str(value or ""))
             if edit.get("style_from"):
-                cell.set("s", ensure_cell(root, edit["style_from"]).get("s", "0"))
+                source = root.find(".//"+Q("c")+"[@r='"+edit["style_from"]+"']")
+                if source is None: raise LayoutError("La celda de origen del estilo no existe")
+                cell.set("s", source.get("s", "0"))
+            if edit.get("format"):
+                cell_format(styles, cell, edit["format"]); format_changed = True
             if edit.get("row_height"):
                 row = root.find(".//" + Q("row") + "[@r='" + re.search(r"\d+", coord).group() + "']")
                 row.set("ht", str(edit["row_height"])); row.set("customHeight", "1")
         book = ET.fromstring(z.read("xl/workbook.xml"))
         calc = book.find(Q("calcPr"))
-        if calc is None: calc = ET.SubElement(book, Q("calcPr"))
+        if calc is None:
+            calc = ET.Element(Q("calcPr"))
+            following = {Q(name) for name in ("oleSize", "customWorkbookViews", "pivotCaches", "smartTagPr", "smartTagTypes", "webPublishing", "fileRecoveryPr", "webPublishObjects", "extLst")}
+            index = next((i for i, child in enumerate(book) if child.tag in following), len(book))
+            book.insert(index, calc)
         calc.set("fullCalcOnLoad", "1"); calc.set("forceFullCalc", "1"); calc.set("calcMode", "auto")
         # Invalidate all cached formula results while keeping every formula intact.
         changes = {files[sheet]: xml(root), "xl/workbook.xml": xml(book)}
+        if format_changed: changes["xl/styles.xml"] = xml(styles)
         for path in files.values():
             current = root if path == files[sheet] else ET.fromstring(z.read(path))
             changed = path == files[sheet]
@@ -255,6 +324,7 @@ def fill_workbook(raw: bytes, data: dict, code: str) -> bytes:
             set_text(context, 'B2', get_data(data, 'extra.principal_company'))
             set_text(context, 'B4', get_data(data, 'extra.representative_nationality'))
             changes[files['GALANT Datos']] = xml(context)
+        if code == 'induction': protect_induction_evaluation_header(target, shared_strings(z))
         if code == 'ppe_delivery':
             for index, amount in enumerate(delivery_quantities(get_data(data, 'event.epp_items')), 12):
                 set_text(target, 'D' + str(index), str(amount) if amount else '')
@@ -276,6 +346,8 @@ def delivery_quantities(text: str) -> list[int]:
         if not item: continue
         match = re.fullmatch(r'(\d{1,2})\s*[xX]?\s+(.+)', item)
         amount, description = (int(match.group(1)), match.group(2)) if match else (1, item)
+        aliases = {'zapato de seguridad':'calzado de seguridad', 'zapatos de seguridad':'calzado de seguridad', 'botas de seguridad':'calzado de seguridad', 'botin de seguridad':'calzado de seguridad', 'botines de seguridad':'calzado de seguridad'}
+        description = aliases.get(description, description)
         matches = [i for i, name in enumerate(names) if description in basic(name) or basic(name) in description]
         if len(matches) != 1: raise LayoutError('EPP ambiguo o no contemplado en matriz original: ' + item)
         quantities[matches[0]] += amount
@@ -446,6 +518,8 @@ def repair_master(raw: bytes) -> tuple[bytes, list[str]]:
                         cell.attrib.pop('t',None); formula = ET.SubElement(cell,Q('f'))
                     formula.text = expression; changed = True
                     notes.append(name+'!'+cell.get('r')+': dato fijo vinculado al expediente')
+            if name.strip() == 'INDUCCION PREVENCION' and protect_induction_evaluation_header(target, strings):
+                changed = True; notes.append(name+': salto antes de fila 468 para conservar el encabezado completo de la evaluación')
             if changed:changes[path]=xml(target)
         return pack(z, changes), notes
 
@@ -736,7 +810,7 @@ def cached_pdf(raw: bytes, code: str, data: dict, org_id: str, cache: Path, prev
                reference: bytes | None = None) -> tuple[bytes, dict]:
     from .config import settings
     key = digest(json.dumps({"org": org_id, "workbook": digest(raw), "code": code,
-        "data": data, "preview": preview, 'reference':digest(reference or raw), "engine": "calc-v20.6-" + ('uno' if settings().javiera_calc_url else 'cli')}, sort_keys=True, ensure_ascii=False).encode())
+        "data": data, "preview": preview, 'reference':digest(reference or raw), "engine": "calc-v20.7-" + ('uno' if settings().javiera_calc_url else 'cli')}, sort_keys=True, ensure_ascii=False).encode())
     with _locks_guard:
         lock = _locks.setdefault(key, threading.Lock())
     with lock:
