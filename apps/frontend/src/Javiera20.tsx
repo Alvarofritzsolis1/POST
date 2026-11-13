@@ -8,7 +8,7 @@ const JavieraWorkbookAdmin=lazy(()=>import("./JavieraWorkbookAdmin"));
 
 type Source = {sites: {id:string;name:string}[];contractors:{id:string;site_id:string;name:string;rut:string|null;nature:string;defaults?:Record<string,string>}[];workers:{id:string;name:string;rut:string|null;active:boolean;contract?:{start?:string;end?:string}}[]};
 type Catalog = {code:string;area:string;title:string;required_fields:string[];published_version:number};
-type Status = {code:string;area:string;title:string;status:string;reason:string;missing_fields:string[];blocking_errors:string[];completion_percent:number;can_preview:boolean;can_issue:boolean;has_history:boolean;template_version:number};
+type Status = {code:string;area:string;title:string;status:string;reason:string;missing_fields:string[];blocking_errors:string[];completion_percent:number;can_preview:boolean;can_issue:boolean;has_history:boolean;template_version:number;source_cells?:string[];cache_hit?:boolean};
 type DossierSummary = {id:string;site_id:string;employer_id:string;worker_id:string|null;relationship:string;revision:number;worker_name?:string;employer_name?:string};
 type BatchResult = {dossier_id?:string;code:string;ok:boolean;id?:string;reason?:string};
 type Dossier = {id:string;revision:number;data:Record<string,unknown>;site_id:string;employer_id:string;worker_id:string|null;parent_id:string|null;relationship:string;issues:{id:string;code:string;at:string;sha256:string;version:number}[];historical:{id:string;code:string;state:string;comment:string}[]};
@@ -17,7 +17,8 @@ const statusText:Record<string,string>={
   POR_DETERMINAR:"Por determinar", NO_APLICA:"No aplica", FALTAN_DATOS:"Faltan datos",
   PENDIENTE_REVISION:"Revisar configuración", PREVISUALIZABLE:"Vista previa disponible",
   LISTO_PARA_EMITIR:"Listo para PDF", EXISTENTE_POR_VERIFICAR:"Documento anterior",
-  ERROR_TEMPORAL:"Validación no disponible", EMITIDO:"Emitido"
+  ERROR_TEMPORAL:"Validación no disponible", EMITIDO:"Emitido",
+  VALIDANDO_PDF:"Comprobando PDF", BLOQUEADO_PLANTILLA:"Error de plantilla"
 };
 const validField=(key:string)=>key.replaceAll(".","_");
 const extraLabels:Record<string,string>={representative_name:"Nombre del representante legal",representative_rut:"RUT del representante legal",representative_nationality:"Nacionalidad del representante",employer_address:"Domicilio de la empresa",employer_commune:"Comuna de la empresa",employer_city:"Ciudad de la empresa",employer_phone:"Teléfono de la empresa",employer_email:"Correo de la empresa",worker_nationality:"Nacionalidad del trabajador",worker_birthdate:"Fecha de nacimiento",worker_marital_status:"Estado civil",worker_address:"Domicilio del trabajador",worker_commune:"Comuna del trabajador",worker_city:"Ciudad del trabajador",worker_phone:"Teléfono del trabajador",worker_email:"Correo del trabajador",payment_frequency:"Periodicidad de pago",bank_account:"Datos de pago o cuenta bancaria",afp:"AFP",health_provider:"Sistema de salud",principal_company:"Empresa mandante",declaration_period:"Período de la declaración",site_address:"Dirección de la obra",specialty:"Especialidad",destinations:"Obras de destino autorizadas",transport_allowance:"Asignación de traslado"};
@@ -70,6 +71,8 @@ export default function Javiera({configuration=false,onBack,onConfig}:{configura
   const [dossierRevision,setDossierRevision]=useState(0);
   const [saved,setSaved]=useState<Dossier|null>(null);
   const [response,setResponse]=useState<{key:string;documents:Status[]}|null>(null);
+  const [preflight,setPreflight]=useState<{key:string;documents:Status[]}|null>(null);
+  const [issueFailures,setIssueFailures]=useState<Record<string,string>>({});
   const [error,setError]=useState("");
   const [notice,setNotice]=useState("");
   const [busy,setBusy]=useState(false);
@@ -145,7 +148,39 @@ export default function Javiera({configuration=false,onBack,onConfig}:{configura
     missing_fields:x.required_fields,blocking_errors:[],completion_percent:0,can_preview:false,can_issue:false,
     has_history:false,template_version:x.published_version
   }));
-  const cards=allCards;
+  const preflightCodes=allCards.filter(x=>chosenCodes.includes(x.code)&&x.can_issue).map(x=>x.code);
+  const preflightKey=[dossierId,dossierRevision,fingerprint,preflightCodes.join(",")].join("|");
+  useEffect(()=>{
+    if(configuration||batchMode||!dossierId||unsaved||!preflightCodes.length){setPreflight(null);return;}
+    const controller=new AbortController();setPreflight(null);
+    void request<{documents:Status[];dossier_revision:number}>("/javiera/eligibility/preflight",{
+      method:"POST",body:JSON.stringify({dossier_id:dossierId,codes:preflightCodes}),signal:controller.signal
+    }).then(result=>{
+      if(!controller.signal.aborted&&result.dossier_revision===dossierRevision){
+        setPreflight({key:preflightKey,documents:result.documents});
+      }
+    }).catch(e=>{
+      if(!controller.signal.aborted){
+        setPreflight({key:preflightKey,documents:preflightCodes.map(code=>({
+          ...allCards.find(x=>x.code===code)!,status:"ERROR_TEMPORAL",can_issue:false,
+          reason:"No se pudo comprobar la plantilla. "+errorMessage(e)
+        }))});
+      }
+    });
+    return()=>controller.abort();
+  },[configuration,batchMode,dossierId,unsaved,preflightKey]);
+  useEffect(()=>{setIssueFailures({});},[fingerprint]);
+  const cards=allCards.map(item=>{
+    if(batchMode||!chosenCodes.includes(item.code))return item;
+    if(issueFailures[item.code])return {...item,status:"BLOQUEADO_PLANTILLA",can_issue:false,
+      reason:issueFailures[item.code]};
+    if(!item.can_issue||unsaved||!dossierId)return item;
+    const result=preflight?.key===preflightKey?preflight.documents.find(x=>x.code===item.code):null;
+    return result?{...item,...result}:{
+      ...item,status:"VALIDANDO_PDF",can_issue:false,
+      reason:"Comprobando la salida real del Excel antes de habilitar la descarga."
+    };
+  });
   const selectedCatalog=catalog.filter(c=>chosenCodes.includes(c.code));
   const neededFields=new Set(selectedCatalog.flatMap(c=>c.required_fields));
   const fieldInput=(field:string,label:string,value:string,change:(v:string)=>void,type="text")=>
