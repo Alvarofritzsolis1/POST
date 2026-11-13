@@ -396,8 +396,12 @@ export default function Javiera({configuration=false,onBack,onConfig}:{configura
     {onConfig&&<button type="button" className="jv-inline-action" onClick={()=>{if(!busy)onConfig();}}><Settings2 size={16}/> Editar Excel maestro y plantillas</button>}
     <p className="jv-note">La emisión no certifica por sí sola firma, recepción, capacitación ni entrega real de EPP.</p>
   </section>;
-  const ready=cards.filter(c=>chosenCodes.includes(c.code)&&c.can_issue).length;
-  const groups=Array.from(new Set(cards.filter(c=>chosenCodes.includes(c.code)).map(c=>c.area)));
+  const selectedCards=cards.filter(c=>chosenCodes.includes(c.code));
+  const ready=selectedCards.filter(c=>c.can_issue).length;
+  const criticalCards=selectedCards.filter(c=>["BLOQUEADO_PLANTILLA","ERROR_TEMPORAL"].includes(c.status));
+  const incompleteCards=selectedCards.filter(c=>["FALTAN_DATOS","PENDIENTE_REVISION","POR_DETERMINAR"].includes(c.status));
+  const verifyingCards=selectedCards.filter(c=>c.status==="VALIDANDO_PDF");
+  const groups=Array.from(new Set(selectedCards.map(c=>c.area)));
   return <section className="jv-module">
     <div className="jv-hero" style={{display:"grid",gridTemplateColumns:"minmax(0, 1fr)",gridAutoFlow:"row",justifyItems:"start",alignContent:"start",rowGap:9}}>
       <div className="jv-hero-back-row" style={{display:"block",width:"100%",minHeight:31,margin:0}}><button type="button" className="jv-back" disabled={busy} onClick={()=>{setMode(null);chooseSite("");setBatchMode(false);setSelectedDossiers([]);}}><ArrowLeft size={18}/> Proyecto JAVIERA</button></div>
@@ -405,7 +409,7 @@ export default function Javiera({configuration=false,onBack,onConfig}:{configura
       {onConfig&&<button type="button" disabled={busy} className="jv-back" onClick={()=>{if(!busy)onConfig();}}><Settings2 size={16}/> Editar Excel maestro y plantillas</button>}
       <h2>Generación documental interactiva</h2><p>Gestiona contratos, anexos, declaraciones, IRL, PTS, EPP, reglamento e inducción desde una misma ficha.</p></div>
     {error&&<p role="alert" className="jv-error"><AlertCircle size={16}/>{error}</p>}
-    {notice&&<p role="status" className="jv-success"><CheckCircle2 size={16}/>{notice}</p>}
+    {!error&&notice&&<p role="status" className="jv-success"><CheckCircle2 size={16}/>{notice}</p>}
     <section className="jv-document-picker" aria-label="Seleccionar documentos">
       <div className="jv-picker-heading"><div><small>PASO 1 · DOCUMENTOS</small><h3>¿Qué necesitas generar?</h3><p>Marca uno o varios documentos. La ficha pedirá los datos que necesitan.</p></div>
         <label>Buscar documento<input type="search" value={documentSearch} onChange={e=>setDocumentSearch(e.target.value)} placeholder="IRL, EPP, contrato…"/></label></div>
@@ -488,6 +492,29 @@ export default function Javiera({configuration=false,onBack,onConfig}:{configura
         </div>}
       </fieldset></div>
       <aside className="jv-document-panel" aria-label="Documentos que puedes exportar a PDF">
+        {!batchMode&&selectedCards.length>0&&<div className={"jv-validation-panel "+(
+          criticalCards.length?"jv-validation-danger":incompleteCards.length?"jv-validation-warning":
+          verifyingCards.length?"jv-validation-checking":ready?"jv-validation-ok":"jv-validation-warning"
+        )} role="status" aria-live="polite">
+          <div className="jv-validation-heading">
+            {criticalCards.length||incompleteCards.length||verifyingCards.length?
+              <AlertCircle size={20}/>:<CheckCircle2 size={20}/>}
+            <div><strong>{criticalCards.length?"Hay documentos bloqueados":
+              incompleteCards.length?"Documentos con datos pendientes":
+              verifyingCards.length?"Comprobando el contenido del PDF…":
+              ready?"Documentos verificados":"Selecciona documentos"}</strong>
+            <p>{criticalCards.length?"No se emitirá ningún PDF con datos del ejemplo.":
+              incompleteCards.length?"Revisa los campos indicados en la tarjeta de cada documento.":
+              verifyingCards.length?"Revisando las fórmulas y valores de la salida real del Excel.":
+              ready?ready+" documento(s) verificados.":"Completa la ficha para generar."}</p></div>
+          </div>
+          {criticalCards.map(doc=><div key={doc.code} className="jv-validation-item">
+            <strong>{doc.title}</strong><span>{doc.reason}</span>
+            {!!doc.source_cells?.length&&<small>Origen: Datos Contrato!{doc.source_cells.join(", ")}</small>}
+            {onConfig&&doc.status==="BLOQUEADO_PLANTILLA"&&<button type="button" disabled={busy}
+              onClick={()=>onConfig()}>Abrir configuración del Excel</button>}
+          </div>)}
+        </div>}
         {!batchMode&&unsaved&&<p className="jv-note" role="status">Guarda los cambios para habilitar la exportación de PDFs.</p>}
         <div className="jv-panel-head"><div><small>DOCUMENTOS SELECCIONADOS</small><h3>Preparar y generar PDF</h3>
           <p>{batchMode?"Se valida cada expediente con sus propios datos":!companyId?"Primero registra o selecciona la empresa":unsaved?"Guarda el expediente para habilitar la descarga":"Los estados se actualizan automáticamente"}</p></div><strong>{batchMode?selectedDossiers.length+" expedientes":response?.key===fingerprint?ready+" listos":"Validando…"}</strong></div>
@@ -515,12 +542,25 @@ export default function Javiera({configuration=false,onBack,onConfig}:{configura
           <h4>{area==="Zona Subcontratos"?<FolderOpen size={17}/>:<ShieldCheck size={17}/>} {area==="Zona Subcontratos"?"Documentos laborales":area}</h4>
           {cards.filter(c=>chosenCodes.includes(c.code)&&c.area===area && (filter==="todos" || filter==="listos"&&c.can_issue ||
             filter==="pendientes"&&!c.can_issue&&!c.has_history ||
-            filter==="historicos"&&c.has_history)).map(c=><article className="jv-doc-card" key={c.code}>
+            filter==="historicos"&&c.has_history)).map(c=><article className={"jv-doc-card "+(
+             ["BLOQUEADO_PLANTILLA","ERROR_TEMPORAL"].includes(c.status)?"jv-card-danger":
+             c.status==="FALTAN_DATOS"?"jv-card-warning":
+             c.can_issue?"jv-card-ok":"")} key={c.code}>
             <div className="jv-doc-title"><input type="checkbox" aria-label={"Seleccionar "+c.title} checked={chosenCodes.includes(c.code)} disabled={busy} onChange={()=>toggleDocument(c.code)}/><FileText size={17}/><b>{c.title}</b><span className={"jv-state jv-"+c.status.toLowerCase()}>{statusText[c.status]||c.status}</span></div>
             <div className="jv-progress"><span style={{width:String(c.completion_percent)+"%"}}/></div>
-            {c.reason&&<p>{c.reason}</p>}
-            {!!c.missing_fields.length&&<p>Faltan: {c.missing_fields.slice(0,3).map(fieldLabel).join(", ")}{c.missing_fields.length>3?"…":""}</p>}
-            {!!c.blocking_errors.length&&<p className="jv-text-danger">{c.blocking_errors.join("; ")}</p>}
+            {["BLOQUEADO_PLANTILLA","ERROR_TEMPORAL"].includes(c.status)?
+              <div className="jv-card-problem" role="alert"><strong>Documento bloqueado</strong>
+                <p>{c.reason||"El sistema detectó un error en la plantilla."}</p>
+                {!!c.source_cells?.length&&<p><strong>Ubicación exacta:</strong> Datos Contrato!{c.source_cells.join(", ")}</p>}
+                {onConfig&&c.status==="BLOQUEADO_PLANTILLA"&&<button type="button" disabled={busy}
+                  onClick={()=>onConfig()}>Revisar plantilla Excel</button>}
+              </div>:
+              ["FALTAN_DATOS","PENDIENTE_REVISION"].includes(c.status)?
+              <div className="jv-card-missing"><strong>{c.status==="FALTAN_DATOS"?"Completar información":"Revisar configuración"}</strong>
+                {c.reason&&<p>{c.reason}</p>}
+                {!!c.missing_fields.length&&<p>Faltan: {c.missing_fields.map(fieldLabel).join(", ")}</p>}
+                {!!c.blocking_errors.length&&<p>{c.blocking_errors.join("; ")}</p>}
+              </div>:c.reason&&<p>{c.reason}</p>}
             <div className="jv-card-actions">
               <button disabled={!c.can_preview||unsaved||busy} onClick={()=>void openPreview(c.code)}>Vista previa</button>
               <button disabled={!c.can_issue||unsaved||busy} onClick={()=>void issue(c.code)}><Download size={14}/> PDF</button>
