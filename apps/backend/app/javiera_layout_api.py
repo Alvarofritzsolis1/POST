@@ -113,8 +113,57 @@ def source_leaks(raw: bytes, pdf: bytes, data: dict) -> list[str]:
         sample_cells = {c.get("r"): cell_text(c, strings).strip()
                         for c in original.iter(Q("c"))}
     with fitz.open(stream=pdf, filetype="pdf") as output:
-        full_text = normalized(" ".join(page.get_text() for page in output))
-    full_digits = digits(full_text)
+        pdf_lines = [normalized(line) for page in output
+                     for line in page.get_text().splitlines() if line.strip()]
+    full_text = " ".join(pdf_lines)
+
+    def exact_phrase(needle: str, text: str) -> bool:
+        """Whole-word evidence: 'lota' must not match 'pelota'."""
+        return bool(needle and re.search(r"(?<!\w)" + re.escape(needle) + r"(?!\w)", text))
+
+    # Geografía es información compartida entre empleado, empresa y obra.
+    # Una ciudad/comuna impresa en el lugar de la obra no demuestra que la
+    # comuna del empleador se haya heredado del ejemplo.
+    geo_keys = {"C11", "C12", "C23", "C24"}
+    geo_anchors = {
+        "C11": r"\bcomuna\s+(?:de\s+)?(?:la\s+)?(?:empresa|empleador|contratista)\b",
+        "C12": r"\bciudad\s+(?:de\s+)?(?:la\s+)?(?:empresa|empleador|contratista)\b",
+        "C23": r"\bcomuna\s+(?:del?\s+)?trabajador\b",
+        "C24": r"\bciudad\s+(?:del?\s+)?trabajador\b",
+    }
+    # Solo antecedentes geográficos, nunca identidades, RUT ni datos bancarios.
+    geo_allowed_paths = (
+        "extra.employer_commune", "extra.employer_city", "extra.employer_address",
+        "extra.worker_commune", "extra.worker_city", "extra.worker_address",
+        "extra.site_address", "extra.destinations", "site.name",
+    )
+    def lookup(path: str):
+        node = data
+        for part in path.split("."):
+            node = node.get(part) if isinstance(node, dict) else None
+        return node
+    def legitimate_geo_occurrence(original: str, current_field: str) -> bool:
+        alternatives = [normalized(lookup(path)) for path in geo_allowed_paths
+                        if path != current_field and lookup(path)]
+        return any(exact_phrase(original, value) for value in alternatives)
+
+    def explicit_wrong_geo_field(coordinate: str, original: str) -> bool:
+        marker = geo_anchors.get(coordinate)
+        if not marker:
+            return False
+        # Solo bloquear un valor compartido si está vinculado inequívocamente
+        # al campo específico, nunca por texto suelto en el PDF.
+        return any(re.search(marker, line) and exact_phrase(original, line)
+                   for line in pdf_lines)
+
+    def exact_printed_number(original: str) -> bool:
+        # No concatenar todos los números del PDF: eso producía RUT ficticios
+        # atravesando teléfonos, fechas y otras cifras no relacionadas.
+        number = digits(original)
+        if len(number) < 7:
+            return False
+        pattern = r"(?<!\d)" + r"[.\-/\s]{0,1}".join(number) + r"(?!\d)"
+        return bool(re.search(pattern, full_text))
     # La misma fecha puede aparecer legítimamente en más de un campo (p. ej.
     # fecha del contrato y recepción del reglamento). La coincidencia global
     # de texto NO permite atribuir ese valor a una celda de origen concreta.
@@ -138,9 +187,7 @@ def source_leaks(raw: bytes, pdf: bytes, data: dict) -> list[str]:
         original_value = sample_cells.get(coord, "")
         if not original_value:
             continue
-        new_value = data
-        for section in field_key.split("."):
-            new_value = new_value.get(section) if isinstance(new_value, dict) else None
+        new_value = lookup(field_key)
         if field_key == "extra.salary_words" and not new_value:
             new_value = spanish_amount((data.get("contract") or {}).get("salary", ""))
         new_value = "" if new_value is None else str(new_value).strip()
@@ -168,11 +215,14 @@ def source_leaks(raw: bytes, pdf: bytes, data: dict) -> list[str]:
         if coord in numeric_coordinates or field_key.endswith(".rut"):
             old_digits = digits(original_value)
             new_digits = digits(new_value)
-            if len(old_digits) >= 7 and old_digits != new_digits and old_digits in full_digits:
+            if len(old_digits) >= 7 and old_digits != new_digits and exact_printed_number(original_value):
                 issues.append(coord)
             continue
         old_norm = normalized(original_value)
-        if len(old_norm) >= 6 and old_norm in full_text:
+        if len(old_norm) >= (3 if coord in geo_keys else 6) and exact_phrase(old_norm, full_text):
+            if coord in geo_keys and legitimate_geo_occurrence(old_norm, field_key):
+                if not explicit_wrong_geo_field(coord, old_norm):
+                    continue
             issues.append(coord)
     return sorted(set(issues))
 

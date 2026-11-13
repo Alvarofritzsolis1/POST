@@ -186,6 +186,16 @@ export default function Javiera({configuration=false,onBack,onConfig}:{configura
   });
   const selectedCatalog=catalog.filter(c=>chosenCodes.includes(c.code));
   const neededFields=new Set(selectedCatalog.flatMap(c=>c.required_fields));
+  function focusMissingField(field:string){
+    const element=document.getElementById(validField(field));
+    if(element){
+      element.scrollIntoView({behavior:"smooth",block:"center"});
+      element.focus();
+      setError("");
+    }else{
+      setError("Este dato no está disponible en el formulario. Revisa la configuración de la plantilla.");
+    }
+  }
   const fieldInput=(field:string,label:string,value:string,change:(v:string)=>void,type="text")=>
     <label key={field} htmlFor={validField(field)}>{label}<input id={validField(field)} value={value}
       type={type} onChange={e=>change(e.target.value)}/></label>;
@@ -556,13 +566,18 @@ export default function Javiera({configuration=false,onBack,onConfig}:{configura
               <div className="jv-card-problem" role="alert"><strong>Documento bloqueado</strong>
                 <p>{c.reason||"El sistema detectó un error en la plantilla."}</p>
                 {!!c.source_cells?.length&&<p><strong>Ubicación exacta:</strong> Datos Contrato!{c.source_cells.join(", ")}</p>}
+                {c.source_cells?.includes("C11")&&<button type="button" disabled={busy}
+                  onClick={()=>focusMissingField("extra.employer_commune")}>Comprobar comuna de la empresa</button>}
                 {onConfig&&c.status==="BLOQUEADO_PLANTILLA"&&<button type="button" disabled={busy}
                   onClick={()=>onConfig()}>Revisar plantilla Excel</button>}
               </div>:
               ["FALTAN_DATOS","PENDIENTE_REVISION","GUARDAR_FICHA"].includes(c.status)?
               <div className="jv-card-missing"><strong>{c.status==="FALTAN_DATOS"?"Completar información":c.status==="GUARDAR_FICHA"?"Guardar ficha":"Revisar configuración"}</strong>
                 {c.reason&&<p>{c.reason}</p>}
-                {!!c.missing_fields.length&&<p>Faltan: {c.missing_fields.map(fieldLabel).join(", ")}</p>}
+                {!!c.missing_fields.length&&<><p>Faltan: {c.missing_fields.map(fieldLabel).join(", ")}</p>
+                  <button type="button" disabled={busy} onClick={()=>focusMissingField(c.missing_fields[0])}>
+                    Completar {fieldLabel(c.missing_fields[0])}
+                  </button></>}
                 {!!c.blocking_errors.length&&<p>{c.blocking_errors.join("; ")}</p>}
               </div>:c.reason&&<p>{c.reason}</p>}
             <div className="jv-card-actions">

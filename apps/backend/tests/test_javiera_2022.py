@@ -100,3 +100,68 @@ def test_preflight_validates_selection_and_preserves_incomplete_status(env, monk
                             json={"dossier_id": ident, "codes": ["internal_rules_receipt",
                                                                 "internal_rules_receipt"]})
     assert duplicate.status_code == 422
+
+
+def geo_master(sample_commune="CONCEPCION", worker_commune="LOTA"):
+    wb = Workbook()
+    ws = wb.active
+    ws.title = "Datos Contrato"
+    ws["C11"] = sample_commune
+    ws["C23"] = worker_commune
+    output = io.BytesIO()
+    wb.save(output)
+    return output.getvalue()
+
+
+def test_comuna_repetida_en_obra_o_ciudad_no_es_una_fuga_de_datos():
+    data = {"extra": {
+        "employer_commune": "SAN PEDRO DE LA PAZ",
+        "employer_city": "CONCEPCION",
+        "worker_commune": "CORONEL",
+    }, "site": {"name": "OBRA EN CONCEPCION"}}
+    pdf = pdf_date_text("REGLAMENTO INTERNO OBRA EN CONCEPCION")
+    assert source_leaks(geo_master(), pdf, data) == []
+
+
+def test_comuna_fija_identificada_como_empleador_sigue_bloqueada():
+    data = {"extra": {
+        "employer_commune": "SAN PEDRO DE LA PAZ",
+        "employer_city": "CONCEPCION",
+        "worker_commune": "CORONEL",
+    }, "site": {"name": "OBRA EN CONCEPCION"}}
+    pdf = pdf_date_text("COMUNA DE LA EMPRESA: CONCEPCION")
+    assert source_leaks(geo_master(), pdf, data) == ["C11"]
+
+
+def test_comuna_obsoleta_que_no_corresponde_a_ningun_dato_se_bloquea():
+    data = {"extra": {
+        "employer_commune": "SAN PEDRO DE LA PAZ",
+        "employer_city": "TALCAHUANO",
+        "worker_commune": "CORONEL",
+    }, "site": {"name": "BRISAS DE JUNQUILLAR"}}
+    assert source_leaks(geo_master(), pdf_date_text("COMUNA: CONCEPCION"), data) == ["C11"]
+
+
+def test_comuna_corta_no_se_confunde_con_fragmentos_de_otras_palabras():
+    data = {"extra":{"employer_commune":"CORONEL","worker_commune":"SAN PEDRO"},
+            "site":{"name":"BRISAS DE JUNQUILLAR"}}
+    raw = geo_master(sample_commune="LOTA", worker_commune="")
+    assert source_leaks(raw, pdf_date_text("JUGADOR DE PELOTA"), data) == []
+    assert source_leaks(raw, pdf_date_text("COMUNA: LOTA"), data) == ["C11"]
+
+
+def test_rut_no_se_fabrica_al_concatenar_numeros_distintos_en_pdf():
+    wb = Workbook()
+    ws = wb.active
+    ws.title = "Datos Contrato"
+    ws["C6"] = "12345678-9"
+    output = io.BytesIO()
+    wb.save(output)
+    data = {"employer": {"rut":"87654321-0"}}
+    assert source_leaks(output.getvalue(), pdf_date_text("NUMEROS 1234 ABCD 56789"), data) == []
+    assert source_leaks(output.getvalue(), pdf_date_text("RUT: 12.345.678-9"), data) == ["C6"]
+
+
+def test_receipt_exige_comuna_antes_de_generar_pdf():
+    from app.javiera_logic import LAYOUT_REQUIRED
+    assert "extra.employer_commune" in LAYOUT_REQUIRED["internal_rules_receipt"]

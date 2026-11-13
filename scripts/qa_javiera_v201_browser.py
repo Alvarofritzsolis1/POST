@@ -72,6 +72,12 @@ def main():
             expect(page.get_by_label('Razón social',exact=True)).to_have_count(0)
             expect(page.locator('.jv-picker-card')).to_have_count(10)
             report['scenarios']['new_existing_and_all_ten_documents']='PASS'
+            page.get_by_label('Buscar documento').fill('Reglamento Interno')
+            page.locator('.jv-picker-card input').check()
+            expect(page.get_by_label('Comuna de la empresa',exact=True)).to_be_visible()
+            expect(page.get_by_label('Ciudad de la empresa',exact=True)).to_be_visible()
+            page.get_by_label('Buscar documento').fill('')
+            report['scenarios']['reglamento_requires_correct_employer_commune']='PASS'
             page.get_by_role('button',name='Solo prevención',exact=True).click()
             expect(page.get_by_text('6 seleccionados',exact=True)).to_be_visible()
             page.get_by_role('button',name='Limpiar selección',exact=True).click()
