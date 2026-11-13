@@ -256,15 +256,15 @@ def main():
             report["scenarios"]["mobile_no_horizontal_scroll"] = "PASS"
             page.screenshot(path=str(args.output / "javiera_movil.png"), full_page=True)
             page.goto(args.url + "/configuracion/automatizacion?legacy=1", wait_until="domcontentloaded")
-            expect(page.get_by_role("heading", name="Configuración de automatización")).to_be_visible()
+            expect(page.get_by_role("heading", name="Documentos y matrices")).to_be_visible()
             # Legacy document routes remain covered above. Configuration now
             # intentionally opens the current Excel workspace, even with legacy=1.
-            for name in ["Plantillas Excel", "Matrices y cargos", "Configuración y versiones"]:
+            for name in ["Documentos", "Matrices y cargos", "Administración avanzada"]:
                 expect(page.get_by_role("button", name=name, exact=True)).to_be_visible()
             report["scenarios"]["legacy_routes_reach_current_excel_configuration"] = "PASS"
             workbook = _api(context, args.url, "/javiera/workbook")
             if workbook["current"]:
-                page.get_by_role("button", name="Configuración y versiones", exact=True).click()
+                page.get_by_role("button", name="Administración avanzada", exact=True).click()
                 expect(page.get_by_role("heading", name="Revisión y publicación")).to_be_visible()
             else:
                 expect(page.get_by_role("heading", name="Comienza con tu Excel maestro")).to_be_visible()
