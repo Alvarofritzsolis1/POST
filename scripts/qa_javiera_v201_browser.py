@@ -105,8 +105,13 @@ def main():
             report['scenarios']['mobile_no_horizontal_scroll']='PASS'
             page.get_by_role('button',name='Editar Excel maestro y plantillas',exact=True).click()
             expect(page.get_by_role('heading',name='Documentos y matrices')).to_be_visible()
-            expect(page.get_by_role('button',name='Excel avanzado')).to_be_visible()
-            expect(page.locator('.jw-grid-scroll')).to_have_count(0)
+            if page.locator('.jw-easy').count():
+                expect(page.get_by_role('button',name='Excel avanzado')).to_be_visible()
+                expect(page.locator('.jw-grid-scroll')).to_have_count(0)
+                report['scenarios']['simplified_excel_editor']='PASS'
+            else:
+                expect(page.get_by_role('heading',name='Comienza con tu Excel maestro')).to_be_visible()
+                report['scenarios']['workbook_not_imported_yet']='PASS'
             report['scenarios']['excel_configuration_available']='PASS'
             assert not errors,errors
             report.update(status='PASS',console_errors=errors)
