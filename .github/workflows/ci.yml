@@ -163,7 +163,7 @@ jobs:
     steps:
       - uses: actions/checkout@v4
       - run: bash -n scripts/install-preview.sh scripts/diagnose.sh scripts/backup-preview.sh scripts/verify-restore-preview.sh scripts/update-preview.sh scripts/start-qa-preview.sh scripts/wait-for-final-postgres.sh
-      - run: python3 -m py_compile scripts/soak_24h.py scripts/qa_stack_smoke.py scripts/qa_operational_smoke.py scripts/qa_network_browser.py scripts/qa_v1010_browser.py scripts/qa_ux_2026_browser.py scripts/qa_v1501_focus_browser.py scripts/qa_v1502_scroll_browser.py scripts/qa_v1504_creator_browser.py scripts/qa_javiera_v16_browser.py scripts/qa_javiera_v165_workflow_browser.py scripts/qa_javiera_ux_bot.py scripts/qa_javiera_v196_simple_browser.py
+      - run: python3 -m py_compile scripts/soak_24h.py scripts/qa_stack_smoke.py scripts/qa_operational_smoke.py scripts/qa_network_browser.py scripts/qa_v1010_browser.py scripts/qa_ux_2026_browser.py scripts/qa_v1501_focus_browser.py scripts/qa_v1502_scroll_browser.py scripts/qa_v1504_creator_browser.py scripts/qa_javiera_v16_browser.py scripts/qa_javiera_v165_workflow_browser.py scripts/qa_javiera_ux_bot.py scripts/qa_javiera_v196_simple_browser.py scripts/qa_javiera_v201_browser.py
       - name: Validate manual/automatic VPS deployment security contracts
         run: python3 scripts/qa_manual_deploy_contract.py
       - name: Validate automatic release gate with synthetic Git commits
@@ -427,13 +427,13 @@ jobs:
           set -Eeuo pipefail
           export GALANT_JAVIERA_QA_PASSWORD="$QA_SMOKE_PASSWORD"
           python3 scripts/qa_javiera_v16_browser.py --url http://127.0.0.1:18612 --output "$RUNNER_TEMP/javiera-v16-browser"
-      - name: QA GALANT 19.6 — Modo Simple Excel-first y móvil
+      - name: QA GALANT 20.1 — nuevo/existente, documentos, lotes y móvil
         env:
           GALANT_JAVIERA_QA_EMAIL: qa-admin@example.test
         run: |
           set -Eeuo pipefail
           export GALANT_JAVIERA_QA_PASSWORD="$QA_SMOKE_PASSWORD"
-          python3 scripts/qa_javiera_v196_simple_browser.py --url http://127.0.0.1:18612 --output "$RUNNER_TEMP/javiera-v196-simple"
+          python3 scripts/qa_javiera_v201_browser.py --url http://127.0.0.1:18612 --output "$RUNNER_TEMP/javiera-v196-simple"
       - uses: actions/upload-artifact@v4
         if: always()
         with:
