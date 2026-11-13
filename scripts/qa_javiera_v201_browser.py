@@ -56,6 +56,10 @@ def main():
             page.goto(args.url+'/proyecto-javiera',wait_until='domcontentloaded')
             page.get_by_role('button',name='Contratista nuevo').click()
             expect(page.get_by_label('Razón social',exact=True)).to_be_visible()
+            # La ficha no vuelve a pedir controles que se deducen del documento.
+            expect(page.get_by_label('Vínculo laboral',exact=True)).to_have_count(0)
+            expect(page.get_by_label('Motivo del expediente',exact=True)).to_have_count(0)
+            expect(page.locator('.jv-doc-card')).to_have_count(1)
             expect(page.get_by_text('Selecciona la empresa',exact=True)).to_have_count(0)
             page.locator('.jv-form select').first.select_option(site['id'])
             page.get_by_label('Razón social',exact=True).fill('JAVIERA NUEVA 20.2 QA '+suffix)
