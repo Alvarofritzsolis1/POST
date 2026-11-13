@@ -541,7 +541,7 @@ export default function Javiera({configuration=false,onBack,onConfig}:{configura
         {groups.filter(area=>cards.some(c=>c.area===area)).map(area=><div key={area} className="jv-doc-area">
           <h4>{area==="Zona Subcontratos"?<FolderOpen size={17}/>:<ShieldCheck size={17}/>} {area==="Zona Subcontratos"?"Documentos laborales":area}</h4>
           {cards.filter(c=>chosenCodes.includes(c.code)&&c.area===area && (filter==="todos" || filter==="listos"&&c.can_issue ||
-            filter==="pendientes"&&!c.can_issue&&!c.has_history ||
+            filter==="pendientes"&&!c.can_issue&&(!c.has_history||["BLOQUEADO_PLANTILLA","ERROR_TEMPORAL"].includes(c.status)) ||
             filter==="historicos"&&c.has_history)).map(c=><article className={"jv-doc-card "+(
              ["BLOQUEADO_PLANTILLA","ERROR_TEMPORAL"].includes(c.status)?"jv-card-danger":
              c.status==="FALTAN_DATOS"?"jv-card-warning":
