@@ -1,4 +1,4 @@
-"""Javiera 20.1: actual entry flow, canonical identities and safe bulk errors.
+"""Javiera 20.2: new contractor wizard, PDF readiness and simplified Excel editor.
 
 Runs only against localhost with synthetic QA accounts. It does not import a
 private workbook, approve a professional review or issue a legal document.
@@ -22,7 +22,7 @@ def main():
     if urlparse(args.url).hostname not in ('localhost', '127.0.0.1'):
         raise SystemExit('QA solo sobre localhost y datos sintéticos')
     args.output.mkdir(parents=True, exist_ok=True)
-    report = {'version':'20.1', 'scenarios':{}, 'status':'FAIL'}
+    report = {'version':'20.2', 'scenarios':{}, 'status':'FAIL'}
     with sync_playwright() as pw:
         browser = pw.chromium.launch(headless=True,
             executable_path=os.environ.get('GALANT_QA_BROWSER_EXECUTABLE') or None)
@@ -55,10 +55,17 @@ def main():
                 dossiers.append(row['id'])
             page.goto(args.url+'/proyecto-javiera',wait_until='domcontentloaded')
             page.get_by_role('button',name='Contratista nuevo').click()
-            expect(page.get_by_label('Nombre de empresa',exact=True)).to_be_visible()
+            expect(page.get_by_label('Razón social',exact=True)).to_be_visible()
+            expect(page.get_by_text('Selecciona la empresa',exact=True)).to_have_count(0)
+            page.locator('.jv-form select').first.select_option(site['id'])
+            page.get_by_label('Razón social',exact=True).fill('JAVIERA NUEVA 20.2 QA '+suffix)
+            page.get_by_label('RUT de empresa',exact=True).fill(_rut(82000000+seed))
+            page.get_by_role('button',name='Guardar y continuar').click()
+            expect(page.locator('.jv-company-confirmed')).to_be_visible()
+            expect(page.get_by_text('Selecciona la empresa',exact=True)).to_have_count(0)
             page.locator('.jv-module .jv-hero-back-row .jv-back').click()
             page.get_by_role('button',name='Contratista existente').click()
-            expect(page.get_by_label('Nombre de empresa',exact=True)).to_have_count(0)
+            expect(page.get_by_label('Razón social',exact=True)).to_have_count(0)
             expect(page.locator('.jv-picker-card')).to_have_count(10)
             report['scenarios']['new_existing_and_all_ten_documents']='PASS'
             page.get_by_role('button',name='Solo prevención',exact=True).click()
@@ -75,16 +82,16 @@ def main():
             form.locator('select').nth(2).select_option(people[0])
             page.locator('.jv-form input[list="javiera-cargos"]').fill('PINTOR QA '+suffix)
             page.get_by_label('Expediente anterior').select_option(dossiers[0])
-            expect(page.get_by_role('button',name='Generar selección')).to_be_enabled()
+            expect(page.get_by_role('button',name='Generar documentos listos')).to_be_disabled()
             report['scenarios']['recover_without_false_unsaved_changes']='PASS'
             form.locator('select').nth(2).select_option(people[1])
             expect(page.locator('.jv-form input[list="javiera-cargos"]')).to_have_value('')
-            expect(page.get_by_role('button',name='Generar selección')).to_be_disabled()
+            expect(page.get_by_role('button',name='Generar documentos listos')).to_be_disabled()
             report['scenarios']['worker_context_reset']='PASS'
             page.get_by_label('Generar para varios expedientes guardados').check()
             page.get_by_role('button',name='Seleccionar hasta 20 expedientes').click()
             expect(page.locator('.jv-batch-targets input:checked')).to_have_count(2)
-            page.get_by_role('button',name='Generar selección').click()
+            page.get_by_role('button',name='Generar documentos listos').click()
             expect(page.get_by_text('Lote terminado:',exact=False)).to_be_visible(timeout=30000)
             # Sparse dossiers lack required facts. Both failures must be reported;
             # no synthetic test is allowed to bypass the actual emission checks.
@@ -97,11 +104,13 @@ def main():
             page.screenshot(path=str(args.output/'galant-201-mobile.png'),full_page=True)
             report['scenarios']['mobile_no_horizontal_scroll']='PASS'
             page.get_by_role('button',name='Editar Excel maestro y plantillas',exact=True).click()
-            expect(page.get_by_role('heading',name='Configuración de automatización')).to_be_visible()
+            expect(page.get_by_role('heading',name='Documentos y matrices')).to_be_visible()
+            expect(page.get_by_role('button',name='Excel avanzado')).to_be_visible()
+            expect(page.locator('.jw-grid-scroll')).to_have_count(0)
             report['scenarios']['excel_configuration_available']='PASS'
             assert not errors,errors
             report.update(status='PASS',console_errors=errors)
-            print('PASS Javiera 20.1 — new/existing, ten documents, context, bulk errors, Excel and mobile')
+            print('PASS Javiera 20.2 — new/existing, readiness, simplified Excel and mobile')
         finally:
             (args.output/'report.json').write_text(json.dumps(report,ensure_ascii=False,indent=2))
             browser.close()
