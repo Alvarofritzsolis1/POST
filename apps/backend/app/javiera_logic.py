@@ -61,7 +61,7 @@ LAYOUT_REQUIRED = {
         "extra.principal_company", "extra.declaration_period",
         "event.date",
     ],
-    "internal_rules_receipt": ["extra.employer_city", "event.date"],
+    "internal_rules_receipt": ["extra.employer_commune", "extra.employer_city", "event.date"],
     "ppe_delivery": ["event.date", "event.epp_items"],
     "irl": ["event.date", "role"],
     "pts": ["event.date", "extra.representative_name", "extra.representative_rut"],
