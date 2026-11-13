@@ -99,7 +99,7 @@ def main():
             expect(page.locator('.jv-batch-targets input:checked')).to_have_count(2)
             page.get_by_role('button',name='Generar documentos listos').click()
             # Un lote de expedientes incompletos no debe anunciar documentos emitidos.
-            expect(page.get_by_text('No se generaron documentos:',exact=False)).to_be_visible(timeout=30000)
+            expect(page.get_by_text('No se generaron documentos.',exact=False)).to_be_visible(timeout=30000)
             # Sparse dossiers lack required facts. Both failures must be reported;
             # no synthetic test is allowed to bypass the actual emission checks.
             expect(page.locator('.jv-batch-report p')).to_have_count(2)
