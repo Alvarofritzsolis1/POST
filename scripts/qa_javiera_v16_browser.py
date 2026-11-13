@@ -257,14 +257,20 @@ def main():
             page.screenshot(path=str(args.output / "javiera_movil.png"), full_page=True)
             page.goto(args.url + "/configuracion/automatizacion?legacy=1", wait_until="domcontentloaded")
             expect(page.get_by_role("heading", name="Configuración de automatización")).to_be_visible()
-            for name in ["Plantillas y cláusulas", "Matrices y cargos",
-                         "Diseños Excel originales", "Habilitar PDF / revisiones"]:
-                expect(page.get_by_role("button", name=name)).to_be_visible()
-            report["scenarios"]["config_legacy_compatible"] = "PASS"
-            page.get_by_role("button", name="Habilitar PDF / revisiones").click()
-            expect(page.get_by_role("heading", name="Habilitar documentos para imprimir")).to_be_visible()
-            report["scenarios"]["single_admin_pilot_print_validation_screen"] = "PASS"
-            page.screenshot(path=str(args.output / "javiera_admin_piloto.png"), full_page=True)
+            # Legacy document routes remain covered above. Configuration now
+            # intentionally opens the current Excel workspace, even with legacy=1.
+            for name in ["Plantillas Excel", "Matrices y cargos", "Configuración y versiones"]:
+                expect(page.get_by_role("button", name=name, exact=True)).to_be_visible()
+            report["scenarios"]["legacy_routes_reach_current_excel_configuration"] = "PASS"
+            workbook = _api(context, args.url, "/javiera/workbook")
+            if workbook["current"]:
+                page.get_by_role("button", name="Configuración y versiones", exact=True).click()
+                expect(page.get_by_role("heading", name="Revisión y publicación")).to_be_visible()
+            else:
+                expect(page.get_by_role("heading", name="Comienza con tu Excel maestro")).to_be_visible()
+                expect(page.locator('input[type="file"][accept=".xlsx"]')).to_be_attached()
+            report["scenarios"]["excel_import_or_review_workspace_available"] = "PASS"
+            page.screenshot(path=str(args.output / "javiera_admin_excel.png"), full_page=True)
             assert not failures, failures
             assert not responses, responses
             report.update(status="PASS", console_errors=failures, server_errors=responses)
