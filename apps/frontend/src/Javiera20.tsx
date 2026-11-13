@@ -33,13 +33,28 @@ async function pdfRequest(url:string,body:unknown){
   const csrf=document.cookie.split("; ").find(c=>c.startsWith("galant_post_csrf="))?.split("=")[1]||"";
   const response=await fetch("/api/v1/javiera"+url,{method:"POST",headers:{"Content-Type":"application/json","X-CSRF-Token":csrf},
     credentials:"include",cache:"no-store",body:JSON.stringify(body)});
-  if(!response.ok){const x=await response.json().catch(()=>({detail:"PDF no disponible"}));throw new Error(typeof x.detail==="string"?x.detail:"El documento aún no está habilitado");}
+  if(!response.ok){
+    const x=await response.json().catch(()=>({detail:"PDF no disponible"}));
+    const d=x.detail||x;
+    const missing=Array.isArray(d.missing_fields)?d.missing_fields:Array.isArray(d.missing)?d.missing:[];
+    const explanation=typeof d==="string"?d:typeof d.reason==="string"&&d.reason?d.reason:typeof d.error==="string"?d.error:"PDF no disponible";
+    throw new Error(explanation+(missing.length?" · Faltan: "+missing.map((f:string)=>fieldLabel(f)).join(", "):""));
+  }
   return response.blob();
 }
-function previewBlob(blob:Blob){
-  const url=URL.createObjectURL(blob);
-  window.open(url,"_blank","noopener,noreferrer");
-  window.setTimeout(()=>URL.revokeObjectURL(url),60000);
+function downloadBlob(blob:Blob,fileName:string){
+  const url=URL.createObjectURL(blob),link=document.createElement("a");
+  link.href=url;link.download=fileName;link.style.display="none";
+  document.body.appendChild(link);link.click();link.remove();
+  window.setTimeout(()=>URL.revokeObjectURL(url),30000);
+}
+async function downloadIssuedPdf(id:string,code:string){
+  const response=await fetch("/api/v1/javiera/issued/"+encodeURIComponent(id)+"/pdf",{
+    method:"GET",credentials:"include",cache:"no-store"});
+  if(!response.ok)throw new Error("El PDF está emitido pero no se pudo descargar (HTTP "+response.status+"). Usa la opción Descargar emitido.");
+  const blob=await response.blob();
+  if(blob.size<8||(await blob.slice(0,5).text())!=="%PDF-")throw new Error("El servidor no devolvió un archivo PDF válido.");
+  downloadBlob(blob,"GALANT-JAVIERA-"+code+".pdf");
 }
 
 export default function Javiera({configuration=false,onBack,onConfig}:{configuration?:boolean;onBack?:()=>void;onConfig?:()=>void}){
@@ -209,8 +224,13 @@ export default function Javiera({configuration=false,onBack,onConfig}:{configura
   async function openPreview(code:string){
     if(unsaved){setError("Guarda los cambios antes de generar una vista previa.");return;}
     if(actionLock.current)return;actionLock.current=true;setBusy(true);setError("");
-    try{previewBlob(await pdfRequest("/preview",{dossier_id:dossierId,code}));}
-    catch(e){setError(errorMessage(e));}finally{actionLock.current=false;setBusy(false);}
+    // Reservar la pestaña durante el clic evita que el navegador bloquee la vista previa asíncrona.
+    const tab=window.open("about:blank","_blank");
+    try{
+      const blob=await pdfRequest("/preview",{dossier_id:dossierId,code});
+      if(tab&&!tab.closed){const url=URL.createObjectURL(blob);tab.location.href=url;window.setTimeout(()=>URL.revokeObjectURL(url),60000);}
+      else{downloadBlob(blob,"GALANT-JAVIERA-VISTA-PREVIA-"+code+".pdf");setNotice("La vista previa se descargó porque el navegador no permitió abrir otra pestaña.");}
+    }catch(e){tab?.close();setError(errorMessage(e));}finally{actionLock.current=false;setBusy(false);}
   }
   async function issue(code:string,reissue_reason?:string){
     if(unsaved){setError("Guarda los cambios antes de emitir el PDF.");return;}
@@ -218,9 +238,15 @@ export default function Javiera({configuration=false,onBack,onConfig}:{configura
     try{
       const result=await request<{id:string;reused:boolean}>("/javiera/issue",{
         method:"POST",body:JSON.stringify({dossier_id:dossierId,code,reissue_reason})});
-      await refreshDossier(dossierId);setNotice(result.reused?"PDF existente recuperado.":"PDF emitido, aún sin firma ni constancia de entrega.");
-      window.open("/api/v1/javiera/issued/"+encodeURIComponent(result.id)+"/pdf","_blank","noopener,noreferrer");
+      await downloadIssuedPdf(result.id,code);
+      await refreshDossier(dossierId);
+      setNotice(result.reused?"PDF emitido anteriormente y descargado.":"PDF emitido y descargado; la emisión no equivale a firma ni entrega.");
     }catch(e){setError(errorMessage(e));}finally{actionLock.current=false;setBusy(false);}
+  }
+  async function downloadExisting(id:string,code:string){
+    if(actionLock.current)return;actionLock.current=true;setBusy(true);setError("");
+    try{await downloadIssuedPdf(id,code);setNotice("PDF descargado correctamente.");}
+    catch(e){setError(errorMessage(e));}finally{actionLock.current=false;setBusy(false);}
   }
   async function issueReady(){
     if(actionLock.current||busy)return;
@@ -250,8 +276,8 @@ export default function Javiera({configuration=false,onBack,onConfig}:{configura
     try{
       const ids=batchReport.filter(r=>r.ok&&r.id).map(r=>r.id!);
       const blob=await pdfRequest("/issue/archive",{issue_ids:ids});
-      const url=URL.createObjectURL(blob),link=document.createElement("a");
-      link.href=url;link.download="JAVIERA-documentos.zip";link.click();window.setTimeout(()=>URL.revokeObjectURL(url),60000);
+      downloadBlob(blob,"JAVIERA-documentos.zip");
+      setNotice("Archivo ZIP preparado para su descarga.");
     }catch(e){setError(errorMessage(e));}finally{actionLock.current=false;setBusy(false);}
   }
   async function reviewHistorical(id:string,verified:boolean){
@@ -456,8 +482,8 @@ export default function Javiera({configuration=false,onBack,onConfig}:{configura
                   <button disabled={busy} onClick={()=>void reviewHistorical(h.id,false)}>Observar</button>
                 </>}
               </div>)}
-              {saved?.issues.filter(x=>x.code===c.code).map(issue=><a key={issue.id} href={"/api/v1/javiera/issued/"+encodeURIComponent(issue.id)+"/pdf"}
-                target="_blank" rel="noreferrer">Emitido v{issue.version}</a>)}
+              {saved?.issues.filter(x=>x.code===c.code).map(doc=><button type="button" key={doc.id} disabled={busy} onClick={()=>void downloadExisting(doc.id,doc.code)}>
+                <Download size={14}/> Descargar emitido v{doc.version}</button>)}
             </div>
           </article>)}
         </div>)}
