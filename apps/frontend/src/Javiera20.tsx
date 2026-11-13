@@ -18,7 +18,8 @@ const statusText:Record<string,string>={
   PENDIENTE_REVISION:"Revisar configuración", PREVISUALIZABLE:"Vista previa disponible",
   LISTO_PARA_EMITIR:"Listo para PDF", EXISTENTE_POR_VERIFICAR:"Documento anterior",
   ERROR_TEMPORAL:"Validación no disponible", EMITIDO:"Emitido",
-  VALIDANDO_PDF:"Comprobando PDF", BLOQUEADO_PLANTILLA:"Error de plantilla"
+  VALIDANDO_PDF:"Comprobando PDF", BLOQUEADO_PLANTILLA:"Error de plantilla",
+  GUARDAR_FICHA:"Guardar para verificar"
 };
 const validField=(key:string)=>key.replaceAll(".","_");
 const extraLabels:Record<string,string>={representative_name:"Nombre del representante legal",representative_rut:"RUT del representante legal",representative_nationality:"Nacionalidad del representante",employer_address:"Domicilio de la empresa",employer_commune:"Comuna de la empresa",employer_city:"Ciudad de la empresa",employer_phone:"Teléfono de la empresa",employer_email:"Correo de la empresa",worker_nationality:"Nacionalidad del trabajador",worker_birthdate:"Fecha de nacimiento",worker_marital_status:"Estado civil",worker_address:"Domicilio del trabajador",worker_commune:"Comuna del trabajador",worker_city:"Ciudad del trabajador",worker_phone:"Teléfono del trabajador",worker_email:"Correo del trabajador",payment_frequency:"Periodicidad de pago",bank_account:"Datos de pago o cuenta bancaria",afp:"AFP",health_provider:"Sistema de salud",principal_company:"Empresa mandante",declaration_period:"Período de la declaración",site_address:"Dirección de la obra",specialty:"Especialidad",destinations:"Obras de destino autorizadas",transport_allowance:"Asignación de traslado"};
@@ -174,7 +175,9 @@ export default function Javiera({configuration=false,onBack,onConfig}:{configura
     if(batchMode||!chosenCodes.includes(item.code))return item;
     if(issueFailures[item.code])return {...item,status:"BLOQUEADO_PLANTILLA",can_issue:false,
       reason:issueFailures[item.code]};
-    if(!item.can_issue||unsaved||!dossierId)return item;
+    if(!item.can_issue)return item;
+    if(unsaved||!dossierId)return {...item,status:"GUARDAR_FICHA",can_issue:false,
+      reason:"Guarda la ficha para comprobar el contenido real del PDF antes de descargar."};
     const result=preflight?.key===preflightKey?preflight.documents.find(x=>x.code===item.code):null;
     return result?{...item,...result}:{
       ...item,status:"VALIDANDO_PDF",can_issue:false,
@@ -399,7 +402,7 @@ export default function Javiera({configuration=false,onBack,onConfig}:{configura
   const selectedCards=cards.filter(c=>chosenCodes.includes(c.code));
   const ready=selectedCards.filter(c=>c.can_issue).length;
   const criticalCards=selectedCards.filter(c=>["BLOQUEADO_PLANTILLA","ERROR_TEMPORAL"].includes(c.status));
-  const incompleteCards=selectedCards.filter(c=>["FALTAN_DATOS","PENDIENTE_REVISION","POR_DETERMINAR"].includes(c.status));
+  const incompleteCards=selectedCards.filter(c=>["FALTAN_DATOS","PENDIENTE_REVISION","POR_DETERMINAR","GUARDAR_FICHA"].includes(c.status));
   const verifyingCards=selectedCards.filter(c=>c.status==="VALIDANDO_PDF");
   const groups=Array.from(new Set(selectedCards.map(c=>c.area)));
   return <section className="jv-module">
@@ -500,11 +503,11 @@ export default function Javiera({configuration=false,onBack,onConfig}:{configura
             {criticalCards.length||incompleteCards.length||verifyingCards.length?
               <AlertCircle size={20}/>:<CheckCircle2 size={20}/>}
             <div><strong>{criticalCards.length?"Hay documentos bloqueados":
-              incompleteCards.length?"Documentos con datos pendientes":
+              incompleteCards.length?"Documentos pendientes de completar o guardar":
               verifyingCards.length?"Comprobando el contenido del PDF…":
               ready?"Documentos verificados":"Selecciona documentos"}</strong>
             <p>{criticalCards.length?"No se emitirá ningún PDF con datos del ejemplo.":
-              incompleteCards.length?"Revisa los campos indicados en la tarjeta de cada documento.":
+              incompleteCards.length?"Revisa la tarjeta de cada documento y guarda la ficha antes de generar.":
               verifyingCards.length?"Revisando las fórmulas y valores de la salida real del Excel.":
               ready?ready+" documento(s) verificados.":"Completa la ficha para generar."}</p></div>
           </div>
@@ -556,8 +559,8 @@ export default function Javiera({configuration=false,onBack,onConfig}:{configura
                 {onConfig&&c.status==="BLOQUEADO_PLANTILLA"&&<button type="button" disabled={busy}
                   onClick={()=>onConfig()}>Revisar plantilla Excel</button>}
               </div>:
-              ["FALTAN_DATOS","PENDIENTE_REVISION"].includes(c.status)?
-              <div className="jv-card-missing"><strong>{c.status==="FALTAN_DATOS"?"Completar información":"Revisar configuración"}</strong>
+              ["FALTAN_DATOS","PENDIENTE_REVISION","GUARDAR_FICHA"].includes(c.status)?
+              <div className="jv-card-missing"><strong>{c.status==="FALTAN_DATOS"?"Completar información":c.status==="GUARDAR_FICHA"?"Guardar ficha":"Revisar configuración"}</strong>
                 {c.reason&&<p>{c.reason}</p>}
                 {!!c.missing_fields.length&&<p>Faltan: {c.missing_fields.map(fieldLabel).join(", ")}</p>}
                 {!!c.blocking_errors.length&&<p>{c.blocking_errors.join("; ")}</p>}
