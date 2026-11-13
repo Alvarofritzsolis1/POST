@@ -150,6 +150,14 @@ def ordinary_weekly_hours_limit(effective_date: str | None) -> int:
 def validate_requirements(data: dict, required: list[str]) -> tuple[list[str], list[str]]:
     missing = [key for key in required if field(data, key) in (None, "", [], {})]
     errors = []
+    # EPP se comprueba antes de LibreOffice: una fecha no es un elemento,
+    # y no debe aparecer como un inespecífico "error de plantilla".
+    if "event.epp_items" in required and "event.epp_items" not in missing:
+        from .javiera_epp import EppInputError, epp_quantities
+        try:
+            epp_quantities(str(field(data, "event.epp_items")))
+        except EppInputError as exc:
+            errors.append("event.epp_items: " + str(exc))
     for key in ("worker.rut", "employer.rut", "extra.representative_rut"):
         if key not in missing and key in required and not rut_valid(field(data, key)):
             errors.append(key + ": RUT inválido")

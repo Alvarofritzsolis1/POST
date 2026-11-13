@@ -352,6 +352,13 @@ def pdf_for(title: str, body: str, draft: bool, layout: dict | None = None) -> b
     return raw
 
 
+@router.get("/epp/catalog")
+def get_epp_catalog(user: User = Depends(administrator)):
+    """Lista real de las ocho filas D12:D19 de la plantilla original."""
+    from .javiera_epp import epp_catalog
+    return epp_catalog()
+
+
 @router.get("/catalog")
 def catalog(user: User = Depends(administrator), db: Session = Depends(get_db)):
     configured = template_data(db, user.org_id)

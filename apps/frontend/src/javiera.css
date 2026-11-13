@@ -197,3 +197,20 @@
 .jv-card-missing button:focus-visible{outline:3px solid #2d73bd;outline-offset:2px}
 .jv-card-problem button+button{margin-left:8px}
 @media(max-width:560px){.jv-card-problem button+button{margin-left:0}.jv-card-problem button{width:100%;text-align:left}}
+
+
+/* GALANT 20.2.4 — captura de EPP mediante cantidades explícitas */
+.jv-epp-editor{border:1px solid #d6e2ef;background:#fbfcff;padding:15px;border-radius:12px;min-width:0}
+.jv-epp-editor h4{font-size:.9rem;color:#23456b;margin:0 0 8px}
+.jv-epp-editor>p{font-size:.78rem;color:#52677d;line-height:1.5;margin:5px 0 13px}
+.jv-epp-grid{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:10px}
+.jv-epp-grid label{display:flex;flex-direction:row;justify-content:space-between;gap:12px;align-items:center;padding:11px 13px;background:white;border:1px solid #dce5ee;border-radius:9px;min-width:0}
+.jv-epp-grid label span{font-size:.78rem;font-weight:620;line-height:1.4;min-width:0}
+.jv-epp-grid input[type=number]{width:67px;min-width:67px;max-width:67px;text-align:center;padding:7px 5px;margin:0}
+.jv-epp-grid input[type=number]:disabled{opacity:.4}
+.jv-epp-invalid{border:1px solid #e8b3b1;border-radius:10px;background:#fff2f1;color:#913a39;padding:13px;margin:10px 0}
+.jv-epp-invalid strong{font-size:.85rem}
+.jv-epp-invalid p{color:inherit;font-size:.78rem;line-height:1.5;margin:7px 0}
+.jv-epp-invalid button{padding:9px 12px;border-radius:8px;border:1px solid #c97979;background:white;color:#8b3338;font-weight:700}
+.jv-epp-invalid button:focus-visible,.jv-epp-grid input:focus-visible{outline:3px solid #2f79b8;outline-offset:2px}
+@media(max-width:900px){.jv-epp-grid{grid-template-columns:1fr}}

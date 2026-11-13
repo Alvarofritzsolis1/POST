@@ -4,6 +4,7 @@ import {request} from "./api";
 import {opsApi} from "./opsApi";
 import "./javiera.css";
 import {dossierFields,emptyContract,emptyEvent,stableFingerprint} from "./javiera-dossier-state";
+import {parseEppDraft,serializeEppDraft,type EppChoice} from "./javiera-epp";
 const JavieraWorkbookAdmin=lazy(()=>import("./JavieraWorkbookAdmin"));
 
 type Source = {sites: {id:string;name:string}[];contractors:{id:string;site_id:string;name:string;rut:string|null;nature:string;defaults?:Record<string,string>}[];workers:{id:string;name:string;rut:string|null;active:boolean;contract?:{start?:string;end?:string}}[]};
@@ -84,6 +85,7 @@ export default function Javiera({configuration=false,onBack,onConfig}:{configura
   const [selectedDossiers,setSelectedDossiers]=useState<string[]>([]);
   const [batchProgress,setBatchProgress]=useState("");
   const [nativeRoles,setNativeRoles]=useState<string[]>([]);
+  const [eppOptions,setEppOptions]=useState<EppChoice[]>([]);
   const [savedFingerprint,setSavedFingerprint]=useState("");
   const [existingDossiers,setExistingDossiers]=useState<DossierSummary[]>([]);
   const [newContractor,setNewContractor]=useState({name:"",rut:""});
@@ -110,6 +112,8 @@ export default function Javiera({configuration=false,onBack,onConfig}:{configura
   useEffect(()=>{
     if(configuration)return;
     void request<Catalog[]>("/javiera/catalog").then(setCatalog).catch(e=>setError(errorMessage(e)));
+    void request<EppChoice[]>("/javiera/epp/catalog").then(setEppOptions)
+      .catch(e=>setError("No se pudo cargar la lista de EPP: "+errorMessage(e)));
   },[configuration]);
   useEffect(()=>{
     if(configuration)return;
@@ -185,6 +189,7 @@ export default function Javiera({configuration=false,onBack,onConfig}:{configura
     };
   });
   const selectedCatalog=catalog.filter(c=>chosenCodes.includes(c.code));
+  const eppDraft=useMemo(()=>parseEppDraft(event.epp_items,eppOptions),[event.epp_items,eppOptions]);
   const neededFields=new Set(selectedCatalog.flatMap(c=>c.required_fields));
   function focusMissingField(field:string){
     const element=document.getElementById(validField(field));
@@ -490,7 +495,33 @@ export default function Javiera({configuration=false,onBack,onConfig}:{configura
         {!batchMode&&[...neededFields].some(f=>f.startsWith("event."))&&<div className="jv-section"><h3>Datos de prevención y constancias</h3>
           <p>Una fecha rellenada no reemplaza la evidencia de una entrega, firma o inducción real.</p>
           {neededFields.has("event.date")&&fieldInput("event.date","Fecha efectiva del evento",event.date,v=>setEvent({...event,date:v}),"date")}
-          {neededFields.has("event.epp_items")&&<>{fieldInput("event.epp_items","EPP entregados realmente",event.epp_items,v=>setEvent({...event,epp_items:v}))}<p className="jv-hint">Separa los elementos con comas e indica la cantidad. Ejemplo: 1 casco, 1 calzado de seguridad, 2 guantes de cabritilla.</p></>}
+          {neededFields.has("event.epp_items")&&<div className="jv-epp-editor" id={validField("event.epp_items")}>
+            <h4>EPP efectivamente entregados</h4>
+            <p>Indica la cantidad real de cada elemento. Deja <strong>0</strong> si no se entregó. La fecha se registra arriba, no aquí.</p>
+            {eppDraft.invalid.length>0&&<div className="jv-epp-invalid" role="alert">
+              <strong>Hay datos que no corresponden a un EPP</strong>
+              <p>{eppDraft.invalid.join("; ")}</p>
+              <p>Este valor anterior no se modificará sin tu autorización. Comprueba la fecha y corrige el registro antes de declarar una entrega real.</p>
+              <button type="button" disabled={busy} onClick={()=>setEvent(old=>({...old,epp_items:""}))}>
+                Quitar dato incorrecto y registrar EPP
+              </button>
+            </div>}
+            {eppOptions.length===0?<p role="status">Cargando la lista de EPP del Excel maestro…</p>:
+              <div className="jv-epp-grid">{eppOptions.map((option,index)=><label key={option.name}>
+                <span>{option.name}</span>
+                <input aria-label={"Cantidad de "+option.name} type="number" min="0"
+                  max={option.max_quantity} step="1" inputMode="numeric"
+                  disabled={busy||eppDraft.invalid.length>0}
+                  value={eppDraft.quantities[index]??0}
+                  onChange={e=>{
+                    const value=Number(e.target.value);
+                    if(!Number.isInteger(value)||value<0||value>option.max_quantity)return;
+                    const quantities=eppDraft.quantities.slice();quantities[index]=value;
+                    setEvent(old=>({...old,epp_items:serializeEppDraft(eppOptions,quantities)}));
+                  }}/>
+              </label>)}</div>}
+            <p className="jv-hint">El Excel contiene ocho filas de EPP. No se agregarán elementos ni cantidades no acreditados. «Protección Auditiva/Mascarilla» corresponde a una sola fila del formato original.</p>
+          </div>}
           {neededFields.has("event.pts_version")&&fieldInput("event.pts_version","Versión del PTS entregado",event.pts_version,v=>setEvent({...event,pts_version:v}))}
         </div>}
         {!batchMode&&selectedCatalog.some(c=>c.required_fields.some(f=>f.startsWith("extra.")))&&<div className="jv-section">
