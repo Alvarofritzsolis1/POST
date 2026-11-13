@@ -524,6 +524,7 @@ def preflight_documents(payload: BatchIssue, user: User = Depends(administrator)
     codes = list(dict.fromkeys(payload.codes))
     if len(codes) != len(payload.codes) or any(code not in DOCUMENT_BY_CODE for code in codes):
         raise HTTPException(422, "Selección de documentos inválida")
+    from .javiera_excel import LayoutError
     candidates = {row["code"]: row for row in evaluated(db, user, record.data, record.id)}
     report = []
     for code in codes:
@@ -535,7 +536,6 @@ def preflight_documents(payload: BatchIssue, user: User = Depends(administrator)
         layout = latest_layout(db, user.org_id, code)
         try:
             if master:
-                from .javiera_excel import LayoutError
                 _, validation = cached_pdf(
                     raw_for(master), code, record.data, user.org_id,
                     root_for(user.org_id) / "pdf-cache", False,
