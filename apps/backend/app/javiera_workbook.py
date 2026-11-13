@@ -311,7 +311,7 @@ _IRL_SUMMARY_ALIASES = {
 
 def _irl_role_key(value: str) -> str:
     plain = unicodedata.normalize("NFD", str(value or "").upper())
-    return re.sub(r"\\s+", " ", "".join(c for c in plain if not unicodedata.combining(c))).strip()
+    return re.sub(r"\s+", " ", "".join(c for c in plain if not unicodedata.combining(c))).strip()
 
 
 def bind_irl_summary_lookup(z: ZipFile, files: dict, target: ET.Element, role: str) -> bool:
