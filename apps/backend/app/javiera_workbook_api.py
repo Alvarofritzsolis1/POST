@@ -213,6 +213,49 @@ async def import_workbook(expected_revision: int = 0, file: UploadFile = File(..
     return summary(obj)
 
 
+class ApprovedMasterInput(Strict):
+    """Declara la aprobación previa del Excel sin fingir una nueva revisión profesional."""
+    expected_revision: int = Field(ge=1)
+    confirmation: Literal["PLANTILLAS_PREVIAMENTE_APROBADAS"]
+
+
+@router.post("/{ident}/activate-approved-master")
+def activate_approved_master(ident: str, payload: ApprovedMasterInput,
+                             user: User = Depends(administrator), db: Session = Depends(get_db)):
+    """Habilitación inicial auditable de un maestro que ya fue aprobado fuera de GALANT.
+
+    Nunca autoriza revisiones posteriores ni reemplaza una firma o constancia
+    laboral. El administrador declara explícitamente la aprobación preexistente.
+    """
+    obj = workbook(db, user, ident)
+    head = db.scalar(select(JavieraWorkbookHead).where(
+        JavieraWorkbookHead.org_id == user.org_id).with_for_update())
+    if not head or head.current_id != obj.id or head.revision != payload.expected_revision:
+        raise HTTPException(409, "El Excel cambió. Vuelve a abrir la versión actual")
+    if any(head.publications.values()):
+        raise HTTPException(409, "Ya hay plantillas publicadas. Las revisiones nuevas requieren el control habitual")
+    # Verifica en disco el SHA-256 y la procedencia del maestro original.
+    raw_for(obj)
+    original_for(db, obj)
+    existing = {sheet["name"].strip() for sheet in obj.inventory.get("sheets", [])}
+    missing = sorted(set(DOC_SHEETS.values()) - existing)
+    if missing:
+        raise HTTPException(422, {"error": "Faltan hojas originales del documento", "sheets": missing})
+    publications = {code: obj.id for code in DOC_SHEETS}
+    changed = db.execute(update(JavieraWorkbookHead).where(
+        JavieraWorkbookHead.org_id == user.org_id,
+        JavieraWorkbookHead.revision == payload.expected_revision,
+        JavieraWorkbookHead.current_id == ident).values(
+            publications=publications, published_id=ident),
+        execution_options={"synchronize_session": False})
+    if changed.rowcount != 1:
+        db.rollback()
+        raise HTTPException(409, "Otra operación modificó el Excel")
+    audit(db, user, "javiera.approved_master_existing_confirmed", obj.id)
+    db.commit()
+    return {"revision": obj.revision, "codes": list(publications), "workbook_sha256": obj.sha256}
+
+
 @router.get("/revisions")
 def revisions(user: User = Depends(administrator), db: Session = Depends(get_db)):
     return [summary(obj) for obj in db.scalars(select(JavieraWorkbook).where(

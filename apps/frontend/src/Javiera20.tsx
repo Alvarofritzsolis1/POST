@@ -15,7 +15,7 @@ type Dossier = {id:string;revision:number;data:Record<string,unknown>;site_id:st
 const emptySource:Source={sites:[],contractors:[],workers:[]};
 const statusText:Record<string,string>={
   POR_DETERMINAR:"Por determinar", NO_APLICA:"No aplica", FALTAN_DATOS:"Faltan datos",
-  PENDIENTE_REVISION:"Requiere revisión", PREVISUALIZABLE:"Vista previa disponible",
+  PENDIENTE_REVISION:"Revisar configuración", PREVISUALIZABLE:"Vista previa disponible",
   LISTO_PARA_EMITIR:"Listo para PDF", EXISTENTE_POR_VERIFICAR:"Documento anterior",
   ERROR_TEMPORAL:"Validación no disponible", EMITIDO:"Emitido"
 };
@@ -168,7 +168,7 @@ export default function Javiera({configuration=false,onBack,onConfig}:{configura
     }catch(e){if(load===loadingDossier.current)setError(errorMessage(e));}finally{if(load===loadingDossier.current)setBusy(false);}
   }
   async function createCompany(){
-    if(!siteId||!newContractor.name.trim()){setError("Selecciona una obra e indica la empresa");return;}
+    if(!siteId||!newContractor.name.trim()||!newContractor.rut.trim()){setError("Selecciona la obra e ingresa razón social y RUT de empresa.");return;}
     if(actionLock.current)return;actionLock.current=true;setBusy(true);setError("");
     try{
       const result=await opsApi.createContractor({site_id:siteId,name:newContractor.name,rut:newContractor.rut||null,
@@ -203,7 +203,7 @@ export default function Javiera({configuration=false,onBack,onConfig}:{configura
       setDossierId(result.id);setDossierRevision(result.revision);setSavedFingerprint(fingerprint);
       setExistingDossiers(rows=>[{id:result.id,site_id:siteId,employer_id:companyId,worker_id:workerId||null,relationship,revision:result.revision,worker_name:worker?.name},...rows.filter(r=>r.id!==result.id)]);
       await refreshDossier(result.id);
-      setNotice("Ficha guardada. Los PDF se generan de forma individual tras validación.");
+      setNotice("Ficha guardada. Puedes generar los documentos que estén listos.");
     }catch(e){setError(errorMessage(e));}finally{actionLock.current=false;setBusy(false);}
   }
   async function openPreview(code:string){
@@ -226,6 +226,8 @@ export default function Javiera({configuration=false,onBack,onConfig}:{configura
     if(actionLock.current||busy)return;
     if(!chosenCodes.length){setError("Selecciona al menos un documento.");return;}
     if(!batchMode&&unsaved){setError("Guarda primero los cambios del expediente.");return;}
+    const issuable=batchMode?chosenCodes:cards.filter(c=>chosenCodes.includes(c.code)&&c.can_issue).map(c=>c.code);
+    if(!issuable.length){setError("No hay documentos listos. Completa los campos obligatorios indicados en las tarjetas.");return;}
     const targets=batchMode?selectedDossiers:[dossierId];
     if(!targets.length){setError("Selecciona los expedientes que quieres generar.");return;}
     actionLock.current=true;setBusy(true);setError("");setNotice("");setBatchReport([]);
@@ -234,9 +236,9 @@ export default function Javiera({configuration=false,onBack,onConfig}:{configura
       for(const [index,id] of targets.entries()){
         setBatchProgress("Procesando expediente "+(index+1)+" de "+targets.length);
         try{
-          const result=await request<{results:BatchResult[]}>("/javiera/issue/batch",{method:"POST",body:JSON.stringify({dossier_id:id,codes:chosenCodes})});
+          const result=await request<{results:BatchResult[]}>("/javiera/issue/batch",{method:"POST",body:JSON.stringify({dossier_id:id,codes:issuable})});
           results.push(...result.results.map(item=>({...item,dossier_id:id})));
-        }catch(e){results.push(...chosenCodes.map(code=>({dossier_id:id,code,ok:false,reason:errorMessage(e)})));}
+        }catch(e){results.push(...issuable.map(code=>({dossier_id:id,code,ok:false,reason:errorMessage(e)})));}
         setBatchReport([...results]);
       }
       if(dossierId)await refreshDossier(dossierId);
@@ -287,9 +289,9 @@ export default function Javiera({configuration=false,onBack,onConfig}:{configura
     <div className="jv-hero"><small>AUTOMATIZACIÓN DOCUMENTAL · GALANT 20</small><h2>Proyecto JAVIERA</h2>
       <p>Una sola ficha para documentos laborales y prevención de riesgos. Los documentos aparecen conforme completas los datos.</p></div>
     <div className="jv-mode-cards">
-      <button onClick={()=>{setMode("new");setSelectedCodes(null);setShowCreate("contractor");}}><FolderOpen size={28}/><strong>Contratista nuevo</strong>
+      <button onClick={()=>{setMode("new");setSelectedCodes(["labor_contract"]);setShowCreate("contractor");}}><FolderOpen size={28}/><strong>Contratista nuevo</strong>
         <span>Registra la empresa y sus trabajadores para preparar sus documentos de ingreso.</span></button>
-      <button onClick={()=>{setMode("existing");setSelectedCodes(null);setShowCreate(null);}}><ClipboardList size={28}/><strong>Contratista existente</strong>
+      <button onClick={()=>{setMode("existing");setSelectedCodes([]);setShowCreate(null);}}><ClipboardList size={28}/><strong>Contratista existente</strong>
         <span>Busca una empresa registrada, recupera sus antecedentes y prepara los documentos que faltan.</span></button>
     </div>
     {onConfig&&<button type="button" className="jv-inline-action" onClick={()=>{if(!busy)onConfig();}}><Settings2 size={16}/> Editar Excel maestro y plantillas</button>}
@@ -322,13 +324,21 @@ export default function Javiera({configuration=false,onBack,onConfig}:{configura
         <div className="jv-section"><h3>{batchMode?"Paso 2 · Obra y empresa del lote":"Paso 2 · Empresa y trabajador"}</h3>
           <label>Obra <select value={siteId} onChange={e=>chooseSite(e.target.value)}><option value="">Selecciona una obra</option>
             {source.sites.map(s=><option value={s.id} key={s.id}>{s.name}</option>)}</select></label>
-          <label>Empresa contratista <select value={companyId} onChange={e=>chooseCompany(e.target.value)}>
-            <option value="">Selecciona la empresa</option>{source.contractors.filter(c=>c.site_id===siteId).map(c=><option key={c.id} value={c.id}>{c.name}</option>)}</select></label>
-          <button type="button" className="jv-inline-action" onClick={()=>setShowCreate(showCreate==="contractor"?null:"contractor")}>+ Registrar contratista nuevo</button>
-          {showCreate==="contractor"&&<div className="jv-new-form">
-            <label>Nombre de empresa<input value={newContractor.name} onChange={e=>setNewContractor({...newContractor,name:e.target.value})}/></label>
-            <label>RUT de empresa<input value={newContractor.rut} onChange={e=>setNewContractor({...newContractor,rut:e.target.value})}/></label>
-            <button disabled={busy||!siteId} type="button" onClick={()=>void createCompany()}>Guardar empresa</button>
+          {mode==="existing"?<label>Empresa registrada
+            <select value={companyId} onChange={e=>chooseCompany(e.target.value)}>
+              <option value="">Selecciona una empresa de esta obra</option>
+              {source.contractors.filter(c=>c.site_id===siteId).map(c=><option key={c.id} value={c.id}>{c.name}{c.rut?" · "+c.rut:""}</option>)}
+            </select>
+          </label>:companyId?<div className="jv-new-form jv-company-confirmed" role="status">
+            <strong><CheckCircle2 size={16}/> Empresa registrada y vinculada</strong>
+            <span>{employer?.name||"Empresa guardada"}{employer?.rut?" · "+employer.rut:""}</span>
+            <p>Continúa con los datos del trabajador. No necesitas seleccionar la empresa nuevamente.</p>
+          </div>:<div className="jv-new-form">
+            <p>Registra la empresa una sola vez para preparar sus documentos.</p>
+            <label>Razón social <input required value={newContractor.name} onChange={e=>setNewContractor({...newContractor,name:e.target.value})} placeholder="Nombre completo de la empresa"/></label>
+            <label>RUT de empresa <input required value={newContractor.rut} onChange={e=>setNewContractor({...newContractor,rut:e.target.value})} placeholder="12.345.678-9"/></label>
+            <button disabled={busy||!siteId||!newContractor.name.trim()||!newContractor.rut.trim()} type="button" onClick={()=>void createCompany()}>Guardar y continuar</button>
+            {!siteId&&<p role="status">Selecciona primero una obra.</p>}
           </div>}
           {relationship==="subcontractor"&&<label>Contratista principal del expediente anterior <select value={parentId} onChange={e=>setParentId(e.target.value)}>
             <option value="">Selecciona el contratista principal</option>{source.contractors.filter(c=>c.id!==companyId&&c.site_id===siteId).map(c=>
@@ -391,8 +401,8 @@ export default function Javiera({configuration=false,onBack,onConfig}:{configura
       </fieldset></div>
       <aside className="jv-document-panel" aria-label="Documentos que puedes exportar a PDF">
         {!batchMode&&unsaved&&<p className="jv-note" role="status">Guarda los cambios para habilitar la exportación de PDFs.</p>}
-        <div className="jv-panel-head"><div><small>GENERACIÓN EN VIVO</small><h3>Documentos que puedes exportar a PDF</h3>
-          <p>{batchMode?"Se valida cada expediente con sus propios datos":"Actualización automática al completar datos"}</p></div><strong>{batchMode?selectedDossiers.length+" expedientes":ready+" listos"}</strong></div>
+        <div className="jv-panel-head"><div><small>DOCUMENTOS SELECCIONADOS</small><h3>Preparar y generar PDF</h3>
+          <p>{batchMode?"Se valida cada expediente con sus propios datos":!companyId?"Primero registra o selecciona la empresa":unsaved?"Guarda el expediente para habilitar la descarga":"Los estados se actualizan automáticamente"}</p></div><strong>{batchMode?selectedDossiers.length+" expedientes":response?.key===fingerprint?ready+" listos":"Validando…"}</strong></div>
         <fieldset disabled={busy} className="jv-flow"><label className="jv-check-line"><input type="checkbox" checked={batchMode} onChange={e=>{setBatchMode(e.target.checked);}}/> Generar para varios expedientes guardados</label>
         {batchMode&&<div className="jv-batch-targets"><p>Usa los datos propios de cada expediente de esta empresa y obra. Para agregar otra persona, completa y guarda su ficha.</p>
           <button type="button" onClick={()=>setSelectedDossiers(existingDossiers.slice(0,20).map(d=>d.id))}>Seleccionar hasta 20 expedientes</button>
@@ -400,8 +410,10 @@ export default function Javiera({configuration=false,onBack,onConfig}:{configura
           {existingDossiers.map(d=><label className="jv-check-line" key={d.id}><input type="checkbox" checked={selectedDossiers.includes(d.id)} disabled={!selectedDossiers.includes(d.id)&&selectedDossiers.length>=20} onChange={e=>setSelectedDossiers(old=>e.target.checked?[...old,d.id]:old.filter(id=>id!==d.id))}/>
             <span>{d.worker_name||source.workers.find(w=>w.id===d.worker_id)?.name||(d.worker_id?"Trabajador "+d.worker_id.slice(0,8):"Empresa · declaración jurada")} · revisión {d.revision}</span></label>)}
           {!existingDossiers.length&&<p>Selecciona obra y empresa para ver sus expedientes guardados.</p>}</div>}
-        <button type="button" className="jv-primary jv-batch" disabled={busy||!chosenCodes.length||(batchMode?!selectedDossiers.length:unsaved)}
-          onClick={()=>void issueReady()}>{busy?"Generando…":"Generar selección"} ({chosenCodes.length} documentos{batchMode?" × "+selectedDossiers.length+" expedientes":""})</button></fieldset>
+        <button type="button" className="jv-primary jv-batch" disabled={busy||!chosenCodes.length||(batchMode?!selectedDossiers.length:unsaved||!ready)}
+          onClick={()=>void issueReady()}>{busy?"Generando…":"Generar documentos listos"} ({batchMode?chosenCodes.length:ready}{batchMode?" × "+selectedDossiers.length+" expedientes":""})</button>
+        {!batchMode&&!ready&&!!chosenCodes.length&&<p className="jv-hint" role="status">Todavía no hay documentos listos. Revisa los datos faltantes en las tarjetas y guarda la ficha.</p>}
+        {!chosenCodes.length&&<p className="jv-hint" role="status">Selecciona al menos un documento en el paso 1.</p>}</fieldset>
         {batchProgress&&<p role="status">{batchProgress}</p>}
         {batchReport.length>0&&<div className="jv-batch-report" role="status">
           {batchReport.some(r=>r.ok)&&<button type="button" disabled={busy} onClick={()=>void downloadBatch()}><Download size={15}/> Descargar documentos en ZIP</button>}

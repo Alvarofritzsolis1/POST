@@ -102,7 +102,7 @@ def main():
             page.screenshot(path=str(args.output/"galant-196-mobile.png"), full_page=True)
             # Existing administrator templates are not deleted.
             page.get_by_role("button",name="Administración de plantillas").click()
-            expect(page.get_by_role("heading",name="Configuración de automatización")).to_be_visible()
+            expect(page.get_by_role("heading",name="Documentos y matrices")).to_be_visible()
             report["scenarios"]["existing_admin_workspace_preserved"] = "PASS"
             assert not errors, errors
             report["status"]="PASS"
