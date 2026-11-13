@@ -119,17 +119,17 @@ def source_leaks(raw: bytes, pdf: bytes, data: dict) -> list[str]:
 
     def exact_phrase(needle: str, text: str) -> bool:
         """Whole-word evidence: 'lota' must not match 'pelota'."""
-        return bool(needle and re.search(r"(?<!\\w)" + re.escape(needle) + r"(?!\\w)", text))
+        return bool(needle and re.search(r"(?<!\w)" + re.escape(needle) + r"(?!\w)", text))
 
     # Geografía es información compartida entre empleado, empresa y obra.
     # Una ciudad/comuna impresa en el lugar de la obra no demuestra que la
     # comuna del empleador se haya heredado del ejemplo.
     geo_keys = {"C11", "C12", "C23", "C24"}
     geo_anchors = {
-        "C11": r"\\bcomuna\\s+(?:de\\s+)?(?:la\\s+)?(?:empresa|empleador|contratista)\\b",
-        "C12": r"\\bciudad\\s+(?:de\\s+)?(?:la\\s+)?(?:empresa|empleador|contratista)\\b",
-        "C23": r"\\bcomuna\\s+(?:del?\\s+)?trabajador\\b",
-        "C24": r"\\bciudad\\s+(?:del?\\s+)?trabajador\\b",
+        "C11": r"\bcomuna\s+(?:de\s+)?(?:la\s+)?(?:empresa|empleador|contratista)\b",
+        "C12": r"\bciudad\s+(?:de\s+)?(?:la\s+)?(?:empresa|empleador|contratista)\b",
+        "C23": r"\bcomuna\s+(?:del?\s+)?trabajador\b",
+        "C24": r"\bciudad\s+(?:del?\s+)?trabajador\b",
     }
     # Solo antecedentes geográficos, nunca identidades, RUT ni datos bancarios.
     geo_allowed_paths = (
@@ -162,7 +162,7 @@ def source_leaks(raw: bytes, pdf: bytes, data: dict) -> list[str]:
         number = digits(original)
         if len(number) < 7:
             return False
-        pattern = r"(?<!\\d)" + r"[.\\-/\\s]{0,1}".join(number) + r"(?!\\d)"
+        pattern = r"(?<!\d)" + r"[.\-/\s]{0,1}".join(number) + r"(?!\d)"
         return bool(re.search(pattern, full_text))
     # La misma fecha puede aparecer legítimamente en más de un campo (p. ej.
     # fecha del contrato y recepción del reglamento). La coincidencia global
