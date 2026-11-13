@@ -153,3 +153,10 @@
 .jv-batch-targets{border:1px solid #dce4ec;border-radius:9px;padding:12px;max-height:300px;overflow:auto}.jv-batch-targets p{font-size:.8rem;line-height:1.5;color:#526b80}
 .jv-batch-report>button{display:flex;gap:7px;align-items:center;padding:10px;color:#234b79;background:white;border:1px solid #b6cede;border-radius:8px;font-weight:700;width:100%}
 @media(max-width:700px){.jv-picker-heading{display:block}.jv-picker-heading label{min-width:0}.jv-document-picker{padding:16px}.jv-picker-grid{grid-template-columns:1fr}.jv-picker-actions strong{margin-left:0;width:100%}}
+
+
+/* GALANT 20.2 — alta guiada de empresas sin selección duplicada */
+.jv-company-confirmed{border-color:#a6d3bb!important;background:#effaf3!important;display:flex;flex-direction:column;gap:8px}
+.jv-company-confirmed strong{display:flex;align-items:center;gap:8px;color:#1b6348}
+.jv-company-confirmed span{color:#244e3e;font-weight:650;overflow-wrap:anywhere}
+.jv-company-confirmed p{margin:0;color:#436a5a}
