@@ -189,3 +189,11 @@
 .jv-card-problem p,.jv-card-missing p{color:inherit!important;line-height:1.5;font-size:.76rem}
 .jv-card-problem button:focus-visible,.jv-validation-item button:focus-visible{outline:3px solid #317ac2;outline-offset:2px}
 @media(max-width:720px){.jv-validation-panel{padding:12px}.jv-card-problem,.jv-card-missing{padding:10px}}
+
+
+/* GALANT 20.2.3 — acciones de corrección integradas en la validación */
+.jv-card-missing button{margin-top:8px;border:1px solid #c9a55a;border-radius:8px;padding:8px 11px;background:#fffdf5;color:#75500e;font-weight:700;cursor:pointer}
+.jv-card-missing button:hover{background:#fff3d7}
+.jv-card-missing button:focus-visible{outline:3px solid #2d73bd;outline-offset:2px}
+.jv-card-problem button+button{margin-left:8px}
+@media(max-width:560px){.jv-card-problem button+button{margin-left:0}.jv-card-problem button{width:100%;text-align:left}}
