@@ -38,8 +38,7 @@ def main():
             expect(page.get_by_role("button", name="Menú de usuario")).to_be_visible(timeout=15000)
             sites = _api(context, args.url, "/ops/sites")
             site = next(x for x in sites if x["name"] == "Brisas de Junquillar")
-            operational_before = _api(context, args.url, "/ops/contractors", "GET", None,
-                                      {"site_id": site["id"]})
+            operational_before = _api(context, args.url, "/ops/contractors?site_id=" + site["id"])
             page.goto(args.url + "/proyecto-javiera", wait_until="domcontentloaded")
             expect(page.get_by_role("main", name="Proyecto Javiera modo simple")).to_be_visible()
             expect(page.get_by_role("heading", name="Proyecto Javiera")).to_be_visible()
@@ -50,8 +49,7 @@ def main():
             page.get_by_label("RUT empresa", exact=True).fill(_rut(78000000 + int(suffix, 16) % 999999))
             page.get_by_role("button", name="Guardar solo en Javiera").click()
             expect(page.get_by_text("Empresa guardada solo en Proyecto Javiera", exact=False)).to_be_visible(timeout=12000)
-            operational_after = _api(context, args.url, "/ops/contractors", "GET", None,
-                                     {"site_id": site["id"]})
+            operational_after = _api(context, args.url, "/ops/contractors?site_id=" + site["id"])
             assert len(operational_after) == len(operational_before)
             report["scenarios"]["company_never_creates_operational_contractor"] = "PASS"
 
@@ -60,8 +58,7 @@ def main():
             page.get_by_label("RUT trabajador", exact=True).fill(_rut(22000000 + int(suffix, 16) % 999999))
             page.get_by_role("button", name="Guardar solo en Javiera").click()
             expect(page.get_by_text("Trabajador guardado solo en Proyecto Javiera", exact=False)).to_be_visible(timeout=12000)
-            operational_workers = _api(context, args.url, "/ops/workers", "GET", None,
-                                       {"site_id": site["id"]})
+            operational_workers = _api(context, args.url, "/ops/workers?site_id=" + site["id"])
             assert not any("RENE SINTETICO " + suffix == x.get("name") for x in operational_workers)
             report["scenarios"]["worker_never_creates_operational_assignment"] = "PASS"
 
