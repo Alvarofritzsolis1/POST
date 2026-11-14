@@ -43,7 +43,7 @@ def test_backend_print_dates_match_excel_day_month_year(month):
     when = date(2026, month, 9 if month % 2 else 28)
     data = {
         "employer": {"name": "EMPRESA SINTÉTICA", "rut": "76000000-0"},
-        "worker": {"name": "TRABAJADOR SINTÉTICO", "rut": "20000000-0"},
+        "worker": {"name": "TRABAJADOR SINTÉTICO", "rut": "20000000-5"},
         "site": {"name": "OBRA SINTÉTICA"},
         "role": "CARPINTERO",
         "event": {"date": when.isoformat()},
@@ -62,7 +62,7 @@ def test_printed_identity_changes_with_each_input_not_a_cached_excel_value():
     def render(name):
         d = {
             "employer": {"name": "EMPRESA SINTÉTICA", "rut": "76000000-0"},
-            "worker": {"name": name, "rut": "20000000-0"},
+            "worker": {"name": name, "rut": "20000000-5"},
             "site": {"name": "OBRA SINTÉTICA"},
             "role": "CARPINTERO",
             "event": {"date": "2026-11-09"},
