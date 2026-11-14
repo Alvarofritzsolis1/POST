@@ -294,11 +294,57 @@ def create_contractor(payload: ContractorCreate,
         raise HTTPException(409, "El RUT ya pertenece a otra empresa")
     if contractor and contractor.nature not in {payload.nature, "unclassified"} and payload.nature != "unclassified":
         raise HTTPException(409, "La naturaleza de la empresa difiere de la ficha existente")
-    if contractor and db.scalar(select(ContractorWorksite.id).where(
+    existing_link = db.scalar(select(ContractorWorksite).where(
         ContractorWorksite.org_id == user.org_id,
         ContractorWorksite.worksite_id == payload.site_id,
         ContractorWorksite.contractor_id == contractor.id,
-    )):
+    )) if contractor else None
+    if existing_link:
+        # Reparar SOLO el antiguo alta provisional creada incidentalmente
+        # desde Javiera20. La prueba de procedencia exige un expediente
+        # documental real y los valores iniciales "unclassified".
+        # Una inscripción operativa ya formalizada conserva su 409 habitual.
+        from .javiera_models import JavieraDossier
+        prior_dossier = db.scalar(select(JavieraDossier.id).where(
+            JavieraDossier.org_id == user.org_id,
+            JavieraDossier.site_id == payload.site_id,
+            JavieraDossier.employer_id == contractor.id).limit(1))
+        placeholder = (
+            contractor.nature == "unclassified" and
+            existing_link.frequency == "unclassified" and
+            not (existing_link.historical_code or "").strip() and
+            prior_dossier is not None
+        )
+        formal_request = (payload.nature != "unclassified" or
+                          payload.frequency != "unclassified" or
+                          bool(payload.historical_code))
+        if placeholder and formal_request:
+            if payload.nature == "independent" and has_active_workers(db, user.org_id, contractor.id):
+                raise HTTPException(409, "No se puede clasificar como independiente con trabajadores activos")
+            original = {
+                "nature": contractor.nature, "frequency": existing_link.frequency,
+                "historical_code": existing_link.historical_code,
+                "contract_status": existing_link.contract_status,
+            }
+            if payload.nature != "unclassified":
+                contractor.nature = payload.nature
+            if payload.frequency != "unclassified":
+                existing_link.frequency = payload.frequency
+            if payload.historical_code:
+                existing_link.historical_code = payload.historical_code
+            existing_link.contract_status = payload.contract_status
+            contractor.updated_at = utcnow()
+            audit_change(db, user, "contractor_worksite", existing_link.id, {
+                "recovered_provisional_documentary_registration": True,
+                "previous": original,
+                "current": {
+                    "nature": contractor.nature, "frequency": existing_link.frequency,
+                    "historical_code": existing_link.historical_code,
+                    "contract_status": existing_link.contract_status,
+                },
+            })
+            db.commit()
+            return contractor_view(existing_link, contractor)
         raise HTTPException(409, "El contratista ya está asociado a esta obra")
     try:
         if contractor is None:
