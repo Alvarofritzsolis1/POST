@@ -18,6 +18,8 @@ type Reset={id:string;sha256:string;counts:Record<string,number>;created_at:stri
 type Checklist={specialty:string;requirements:string[];legal_reference:string};
 type Reviewer={user_id:string;name:string};
 type Validation={code:string;result:{pages:number;elapsed_ms:number;images:number;formulas_checked:number}};
+type MatrixFinding={role:string;scope:"IRL"|"PTS";matrix:"IRL"|"PTS"|"PUESTOS";cell:string;code:string;message:string;severity:"error"|"warning"};
+type PreventiveAudit={roles_total:number;blocking_count:number;warning_count:number;findings:MatrixFinding[];sha256:string};
 const titles:Record<string,string>={labor_contract:"Contrato de trabajo",transfer_addendum:"Anexo de traslado",extension_addendum:"Anexo de prórroga",sworn_declaration:"Declaración jurada",internal_rules_receipt:"Reglamento interno",ppe_delivery:"Entrega de EPP",irl:"Información de riesgos laborales",pts:"Procedimiento de trabajo seguro",pts_receipt:"Entrega de PTS",induction:"Inducción de prevención"};
 const matrixSheets:Record<string,string>={IRL:"MATRIZ IRL",PTS:"MATRIZ PTS",PUESTOS:"Matriz IRL Optimizada",PERFILES:"MATRIZ DESCRIPCION DE CARGO IRL",SUSTANCIAS:"Base_Datos_Sustancias"};
 const matrixNames:Record<string,string>={IRL:"Actividades y riesgos",PTS:"Procedimientos seguros",PUESTOS:"Condiciones de trabajo",PERFILES:"Descripción del cargo",SUSTANCIAS:"Productos y sustancias"};
@@ -55,14 +57,15 @@ export default function JavieraWorkbookAdmin({onBack}:{onBack:()=>void}){
  const [reviewers,setReviewers]=useState<Reviewer[]>([]),[reviewerId,setReviewerId]=useState(""),[designation,setDesignation]=useState(""),[grantSpecialty,setGrantSpecialty]=useState("laboral");
  const [checklists,setChecklists]=useState<Checklist[]>([]),[specialty,setSpecialty]=useState("laboral"),[checks,setChecks]=useState<Record<string,boolean>>({}),[comments,setComments]=useState("");
  const [validations,setValidations]=useState<Validation[]>([]),[publishCodes,setPublishCodes]=useState<string[]>([]);
+ const [preventiveAudit,setPreventiveAudit]=useState<PreventiveAudit|null>(null);
  const current=state?.current,edits=editHistory[cursor],dirty=Object.keys(edits).length>0||clauseDraft!==null||inputDirty;
  const path=current?"/javiera/workbook/"+current.id:"";
  const refresh=useCallback(async()=>{
   const s=await request<Workspace>("/javiera/workbook");setState(s);
   if(s.current){
-   const [history,index]=await Promise.all([request<Revision[]>("/javiera/workbook/revisions"),request<Record<string,Record<string,number[]>>>("/javiera/workbook/"+s.current.id+"/roles")]);
-   setRevisions(history);setRoleIndex(index);
-  }
+   const [history,index,inspection]=await Promise.all([request<Revision[]>("/javiera/workbook/revisions"),request<Record<string,Record<string,number[]>>>("/javiera/workbook/"+s.current.id+"/roles"),request<PreventiveAudit>("/javiera/workbook/"+s.current.id+"/audit/preventive")]);
+   setRevisions(history);setRoleIndex(index);setPreventiveAudit(inspection);
+  }else setPreventiveAudit(null);
  },[]);
  useEffect(()=>{void refresh().catch(e=>setError(message(e)));},[refresh]);
  useEffect(()=>{if(!current)return;let active=true;setLoading(true);setError("");
@@ -174,13 +177,23 @@ export default function JavieraWorkbookAdmin({onBack}:{onBack:()=>void}){
   {!state?<div className="jw-empty">Cargando el espacio de trabajo…</div>:!current?<section className="jw-empty"><div className="jw-empty-icon"><FileSpreadsheet size={34}/></div><h2>Comienza con tu Excel maestro</h2><p>Importa <b>galant proyect.xlsx</b> para conservar sus hojas, fórmulas y diseños originales. Los documentos generados comenzarán vacíos.</p><label className="jw-upload jw-primary"><Upload size={17}/>{busy?"Importando…":"Importar Excel maestro"}<input type="file" accept=".xlsx" disabled={busy} onChange={e=>{const f=e.target.files?.[0];if(f)void upload(f);e.target.value="";}}/></label><small>Archivo privado · hasta 12 MB · sin macros</small></section>:
   <>
    <div className="jw-summary"><div><span className="jw-excel-mark"><FileSpreadsheet size={21}/></span><div><strong>Excel maestro de Javiera</strong><small>Revisión {current.revision} · {current.inventory.sheet_count} hojas · {current.inventory.formula_count} fórmulas · {current.inventory.media_count} recursos gráficos</small></div></div><span className="jw-tag"><i className="jw-dot editable"/>Original preservado</span></div>
+   {preventiveAudit&&preventiveAudit.blocking_count>0&&<section className="jw-error" role="alert">
+    <strong>{preventiveAudit.blocking_count} problemas preventivos · {preventiveAudit.roles_total} cargos auditados</strong>
+    <p>Antes de habilitar IRL y PTS, revisa las celdas indicadas. No se asignarán medidas preventivas por suposición.</p>
+    {preventiveAudit.findings.filter(x=>x.severity==="error").slice(0,12).map((finding,i)=><button key={finding.role+finding.cell+i} type="button" disabled={busy||dirty}
+      onClick={()=>{setTab("matrices");setAdvanced(true);setCargo(finding.role);setMatrix(finding.matrix);setSheet(matrixSheets[finding.matrix]);
+        const row=Number(finding.cell.match(/\d+/)?.[0]||2);setStart(Math.floor((row-1)/55)*55+1);setJump(finding.cell);}}>
+      {finding.role} · {matrixSheets[finding.matrix]}!{finding.cell}: {finding.message}
+    </button>)}
+   </section>}
+   {preventiveAudit&&preventiveAudit.warning_count>0&&<p role="status">Observaciones de matriz: {preventiveAudit.warning_count}. Revisa duplicados antes de aprobar.</p>}
    {tab==="matrices"&&!!current.inventory.matrix_pending?.some(p=>!cargo||p.role===cargo)&&<div className="jw-error" role="status">Hay filas con antecedentes preventivos pendientes en esta matriz. Completa y revisa los riesgos y medidas del cargo antes de habilitar su IRL.</div>}
    {tab==="templates"&&<>
     {!Object.values(state.publications).some(Boolean)&&<section className="jw-approved-source">
       <h2><ShieldCheck size={19}/> Excel maestro ya aprobado</h2>
       <p>Si estas plantillas ya están aprobadas antes de cargarlas a GALANT, registra su habilitación una sola vez. Luego se podrán generar PDF sin repetir aprobaciones por expediente. No habilita cambios nuevos sin control de versiones.</p>
       <label className="jw-check"><input type="checkbox" checked={approvedConfirmed} onChange={e=>setApprovedConfirmed(e.target.checked)}/> Confirmo que estas plantillas fueron aprobadas previamente.</label>
-      <button type="button" className="jw-primary" disabled={busy||!approvedConfirmed} onClick={()=>void action(async()=>{await request(path+"/activate-approved-master",{method:"POST",body:JSON.stringify({expected_revision:current.revision,confirmation:"PLANTILLAS_PREVIAMENTE_APROBADAS"})});setApprovedConfirmed(false);await refresh();setNotice("Plantillas existentes habilitadas. No se solicitará aprobación repetida por expediente.");})}>Habilitar los 10 documentos existentes</button>
+      <button type="button" className="jw-primary" disabled={busy||!approvedConfirmed||!preventiveAudit||preventiveAudit.blocking_count>0} onClick={()=>void action(async()=>{await request(path+"/activate-approved-master",{method:"POST",body:JSON.stringify({expected_revision:current.revision,confirmation:"PLANTILLAS_PREVIAMENTE_APROBADAS"})});setApprovedConfirmed(false);await refresh();setNotice("Plantillas existentes habilitadas. No se solicitará aprobación repetida por expediente.");})}>Habilitar los 10 documentos existentes</button>
     </section>}
     <div className="jw-workspace jw-simplified"><aside className="jw-documents"><div className="jw-side-title">DOCUMENTOS <span>{state.documents.length}</span></div>
       {state.documents.map(doc=><button key={doc.code} className={code===doc.code?"chosen":""} onClick={()=>chooseDoc(doc.code)}><FileText size={17}/><span>{titles[doc.code]||doc.code}<small>{state.publications[doc.code]===current.id?"Disponible para generar":state.publications[doc.code]?"Usa una versión anterior":"Sin habilitar"}</small></span></button>)}

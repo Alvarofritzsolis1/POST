@@ -606,6 +606,101 @@ def repair_master(raw: bytes) -> tuple[bytes, list[str]]:
         return pack(z, changes), notes
 
 
+def audit_preventive_master(raw: bytes) -> dict:
+    """Read-only review of ALL positions before preventive publication.
+
+    Detects incomplete/ambiguous IRL and PTS rows. Does not invent control
+    measures or treat an unverified alias as an approved task description.
+    """
+    source: dict[str, dict[str, list[dict]]] = {"IRL": {}, "PTS": {}, "PUESTOS": {}}
+    selected = {
+        "IRL": ("MATRIZ IRL", "B", "CDEF"),
+        "PTS": ("MATRIZ PTS", "A", "DEFGHIJKLMNOPQRST"),
+        "PUESTOS": ("Matriz IRL Optimizada", "A", "BCDE"),
+    }
+    with ZipFile(io.BytesIO(raw)) as z:
+        files = sheet_files(z)
+        strings = shared_strings(z)
+        for kind, (sheet, role_column, fields) in selected.items():
+            root = ET.fromstring(z.read(files[resolve_sheet(files, sheet)]))
+            for row in root.findall(".//" + Q("row")):
+                row_number = int(row.get("r", "0"))
+                if row_number < 2:
+                    continue
+                values = {re.match(r"[A-Z]+", c.get("r")).group():
+                          cell_text(c, strings).strip() for c in row.findall(Q("c"))}
+                name = values.get(role_column, "").strip()
+                if name and len(name) <= 160:
+                    source[kind].setdefault(name, []).append({
+                        "row": row_number,
+                        "fields": {column: values.get(column, "").strip() for column in fields},
+                    })
+    normalized_summary: dict[str, list[dict]] = {}
+    for role, rows in source["PUESTOS"].items():
+        normalized_summary.setdefault(_irl_role_key(role), []).extend(rows)
+    found = sorted(set(source["IRL"]) | set(source["PTS"]))
+    findings: list[dict] = []
+    def add(role: str, scope: str, matrix: str, cell: str,
+            code: str, message: str, severity: str = "error") -> None:
+        findings.append({"role": role, "scope": scope, "matrix": matrix,
+                         "cell": cell, "code": code, "message": message,
+                         "severity": severity})
+    if not found:
+        add("(sin cargos)", "IRL", "IRL", "B2", "NO_ROLES",
+            "No existen cargos asociados a las matrices")
+        add("(sin cargos)", "PTS", "PTS", "A2", "NO_ROLES",
+            "No existen cargos asociados a las matrices")
+    for role in found:
+        risks = source["IRL"].get(role, [])
+        procedures = source["PTS"].get(role, [])
+        if not risks:
+            add(role, "IRL", "IRL", "B2", "NO_IRL", "Cargo sin matriz IRL")
+        for item in risks:
+            for col, text in item["fields"].items():
+                if not text:
+                    add(role, "IRL", "IRL", col + str(item["row"]),
+                        "EMPTY_IRL", "Actividad, peligro, consecuencia o medida sin completar")
+        if not procedures:
+            add(role, "PTS", "PTS", "A2", "NO_PTS", "Cargo sin matriz PTS")
+        for item in procedures:
+            for col, text in item["fields"].items():
+                if not text:
+                    add(role, "PTS", "PTS", col + str(item["row"]),
+                        "EMPTY_PTS", "Apartado obligatorio del procedimiento sin completar")
+        # Duplicate PTS records with different bodies are ambiguous.
+        if len(procedures) > 1:
+            signatures = {tuple(p["fields"][col] for col in "DEFGHIJKLMNOPQRST")
+                          for p in procedures}
+            if len(signatures) != 1:
+                add(role, "PTS", "PTS", "A" + str(procedures[1]["row"]),
+                    "CONFLICTING_PTS", "Existen procedimientos diferentes para una misma clave")
+        if risks:
+            summary_key = _IRL_SUMMARY_ALIASES.get(_irl_role_key(role), _irl_role_key(role))
+            matches = normalized_summary.get(summary_key, [])
+            if len(matches) != 1:
+                add(role, "IRL", "PUESTOS", "A2", "MISSING_SUMMARY",
+                    "La matriz de condiciones no contiene una correspondencia única para este cargo")
+            else:
+                for col, text in matches[0]["fields"].items():
+                    if not text:
+                        add(role, "IRL", "PUESTOS", col + str(matches[0]["row"]),
+                            "EMPTY_SUMMARY", "Faltan condiciones originales del puesto")
+            normalized_risks = [
+                tuple(_irl_role_key(x["fields"][c]) for c in "CDEF") for x in risks
+            ]
+            if len(normalized_risks) != len(set(normalized_risks)):
+                add(role, "IRL", "IRL", "B" + str(risks[-1]["row"]),
+                    "DUPLICATE_RISKS", "Existen riesgos idénticos repetidos; confirmar si corresponde",
+                    severity="warning")
+    blocking_count = sum(x["severity"] == "error" for x in findings)
+    return {
+        "sha256": digest(raw), "roles_total": len(found),
+        "blocking_count": blocking_count,
+        "warning_count": len(findings) - blocking_count,
+        "findings": findings,
+    }
+
+
 def matrix_records(raw: bytes, role: str, kind: str) -> list[dict]:
     wanted, col = MATRIX_SHEETS[kind]
     with ZipFile(io.BytesIO(raw)) as z:
