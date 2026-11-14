@@ -364,6 +364,12 @@ def save_company(payload: CompanyInput, user: User = Depends(administrator), db:
             JavieraLocalCompany.site_id == site.id,
             JavieraLocalCompany.source_contractor_id == linked_id))
         if previous:
+            # La selección explícita de una empresa operativa actualiza solo
+            # la copia documental; resuelve correcciones posteriores de RUT/nombre.
+            if previous.name != name or (previous.rut or "") != rut:
+                previous.name, previous.rut = name, rut or None
+                audit(db, user, "javiera.company_source_refreshed", previous.id)
+                db.commit()
             return _company_dict(previous)
     if not name or len(name) < 2:
         raise HTTPException(422, "Escribe la razón social de la empresa")
@@ -415,6 +421,12 @@ def save_person(payload: PersonInput, user: User = Depends(administrator), db: S
             JavieraLocalPerson.company_id == company.id,
             JavieraLocalPerson.source_worker_id == source_id))
         if previous:
+            # El trabajador corregido en GALANT se copia nuevamente al
+            # seleccionarlo, sin tocar la ficha operativa ni un PDF emitido.
+            if previous.name != name or (previous.rut or "") != rut:
+                previous.name, previous.rut = name, rut or None
+                audit(db, user, "javiera.person_source_refreshed", previous.id)
+                db.commit()
             return _person_dict(previous)
     if len(name) < 2:
         raise HTTPException(422, "Escribe el nombre de la persona")
