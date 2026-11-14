@@ -82,7 +82,6 @@ class CalculationInput(Strict):
 class PublishInput(Strict):
     expected_revision: int = Field(ge=1)
     codes: list[str] = Field(min_length=1, max_length=10)
-    confirmation: Literal["DOCUMENTOS_PREVIAMENTE_APROBADOS"]
 
 
 class ResetInput(Strict):
@@ -172,9 +171,20 @@ def write_revision(db, user, raw, reason, expected: int, parent: JavieraWorkbook
         try: db.flush()
         except IntegrityError:
             db.rollback(); raise HTTPException(409, "Otro administrador importó el Excel; recarga") from None
+    # Files supplied by the organization are existing templates, not new
+    # approval requests. Register usable document sheets at each immutable
+    # revision; the PDF generator still checks the chosen worker/role and
+    # rejects incomplete or invalid outputs at issue time.
+    sheets = {entry["name"].strip(): entry for entry in report["sheets"]}
+    available = {code: ident for code, name in DOC_SHEETS.items()
+                 if name in sheets and sheets[name].get("print_areas")}
+    publications = {**(head.publications or {}), **available}
     changed = db.execute(update(JavieraWorkbookHead).where(
         JavieraWorkbookHead.org_id == user.org_id, JavieraWorkbookHead.revision == expected
-    ).values(revision=revision, current_id=ident), execution_options={"synchronize_session": False})
+    ).values(revision=revision, current_id=ident,
+             publications=publications,
+             published_id=ident if available else head.published_id),
+        execution_options={"synchronize_session": False})
     if changed.rowcount != 1:
         db.rollback(); raise HTTPException(409, "Otro administrador guardó una revisión. Recarga y conserva tus cambios")
     folder = root_for(user.org_id) / "workbooks"; folder.mkdir(parents=True, exist_ok=True, mode=0o700)
@@ -186,7 +196,10 @@ def write_revision(db, user, raw, reason, expected: int, parent: JavieraWorkbook
             parent_id=parent.id if parent else None, path=str(path), sha256=digest(raw),
             original_sha256=parent.original_sha256 if parent else digest(raw), inventory=report,
             reason=reason, author_id=user.id)
-        db.add(obj); audit(db, user, "javiera.workbook_saved", ident)
+        db.add(obj)
+        audit(db, user, "javiera.workbook_saved", ident)
+        if available:
+            audit(db, user, "javiera.existing_source_registered", ident)
         if commit: db.commit()
         else: db.flush()
     except Exception:
@@ -250,12 +263,6 @@ class KnownRepairInput(Strict):
     confirmation: Literal["CREAR_BORRADOR_PREVENTIVO"]
 
 
-class ApprovedMasterInput(Strict):
-    """Declara la aprobación previa del Excel sin fingir una nueva revisión profesional."""
-    expected_revision: int = Field(ge=1)
-    confirmation: Literal["PLANTILLAS_PREVIAMENTE_APROBADAS"]
-
-
 @router.post("/{ident}/repair-known-gaps")
 def repair_known_gaps(ident: str, payload: KnownRepairInput,
                       user: User = Depends(administrator),
@@ -283,53 +290,8 @@ def repair_known_gaps(ident: str, payload: KnownRepairInput,
         raise HTTPException(422, str(exc)) from None
     return {
         **summary(corrected), "corrected_cells": details,
-        "requires_admin_confirmation": True,
+        "ready_without_approval_step": True,
     }
-
-
-@router.post("/{ident}/activate-approved-master")
-def activate_approved_master(ident: str, payload: ApprovedMasterInput,
-                             user: User = Depends(administrator), db: Session = Depends(get_db)):
-    """Habilitación inicial auditable de un maestro que ya fue aprobado fuera de GALANT.
-
-    Nunca autoriza revisiones posteriores ni reemplaza una firma o constancia
-    laboral. El administrador declara explícitamente la aprobación preexistente.
-    """
-    obj = workbook(db, user, ident)
-    head = db.scalar(select(JavieraWorkbookHead).where(
-        JavieraWorkbookHead.org_id == user.org_id).with_for_update())
-    if not head or head.current_id != obj.id or head.revision != payload.expected_revision:
-        raise HTTPException(409, "El Excel cambió. Vuelve a abrir la versión actual")
-    if any(head.publications.values()):
-        raise HTTPException(409, "Ya hay plantillas publicadas. Las revisiones nuevas requieren el control habitual")
-    # Verifica en disco el SHA-256 y la procedencia del maestro original.
-    raw = raw_for(obj)
-    original_for(db, obj)
-    check_print_areas(obj.inventory)
-    preventive = audit_preventive_master(raw)
-    if preventive["blocking_count"]:
-        raise HTTPException(422, {
-            "error": "El Excel conserva matrices preventivas incompletas o sin asociación",
-            "blocking_count": preventive["blocking_count"],
-            "issues": [x for x in preventive["findings"] if x["severity"] == "error"][:50],
-        })
-    existing = {sheet["name"].strip() for sheet in obj.inventory.get("sheets", [])}
-    missing = sorted(set(DOC_SHEETS.values()) - existing)
-    if missing:
-        raise HTTPException(422, {"error": "Faltan hojas originales del documento", "sheets": missing})
-    publications = {code: obj.id for code in DOC_SHEETS}
-    changed = db.execute(update(JavieraWorkbookHead).where(
-        JavieraWorkbookHead.org_id == user.org_id,
-        JavieraWorkbookHead.revision == payload.expected_revision,
-        JavieraWorkbookHead.current_id == ident).values(
-            publications=publications, published_id=ident),
-        execution_options={"synchronize_session": False})
-    if changed.rowcount != 1:
-        db.rollback()
-        raise HTTPException(409, "Otra operación modificó el Excel")
-    audit(db, user, "javiera.approved_master_existing_confirmed", obj.id)
-    db.commit()
-    return {"revision": obj.revision, "codes": list(publications), "workbook_sha256": obj.sha256}
 
 
 @router.get("/revisions")
@@ -438,43 +400,30 @@ def validations(ident: str, user: User = Depends(administrator), db: Session = D
 
 
 @router.post("/{ident}/publish")
-def publish(ident: str, payload: PublishInput, user: User = Depends(administrator), db: Session = Depends(get_db)):
-    # Approved historical templates are attested by the administrator.
-    # No duplicate signoff is generated; integrity and PDF QA remain mandatory.
+def publish(ident: str, payload: PublishInput, user: User = Depends(administrator),
+            db: Session = Depends(get_db)):
+    """Compatibility endpoint: no extra signoff or manual approval checkbox."""
     obj = workbook(db, user, ident)
-    head = db.scalar(select(JavieraWorkbookHead).where(JavieraWorkbookHead.org_id==user.org_id).with_for_update())
+    head = db.scalar(select(JavieraWorkbookHead).where(
+        JavieraWorkbookHead.org_id == user.org_id).with_for_update())
     if not head or obj.id != head.current_id or obj.revision != payload.expected_revision:
         raise HTTPException(409, "La revisión actual cambió")
-    preventive = (audit_preventive_master(raw_for(obj)) if
-                  any(c in {"irl", "pts", "pts_receipt"} for c in payload.codes)
-                  else None)
     for code in payload.codes:
-        if code not in DOC_SHEETS: raise HTTPException(422, "Documento desconocido")
+        if code not in DOC_SHEETS:
+            raise HTTPException(422, "Documento desconocido")
         check_print_areas(obj.inventory, [code])
-        if preventive and code in {"irl", "pts", "pts_receipt"}:
-            target = "IRL" if code == "irl" else "PTS"
-            errors = [entry for entry in preventive["findings"]
-                      if entry["scope"] == target and entry["severity"] == "error"]
-            if errors:
-                raise HTTPException(422, {
-                    "error": "No se puede publicar " + target + " con matrices incompletas",
-                    "blocking_count": len(errors), "issues": errors[:50],
-                })
-        result = db.scalar(select(JavieraWorkbookValidation).where(
-            JavieraWorkbookValidation.org_id == user.org_id,
-            JavieraWorkbookValidation.workbook_id == obj.id, JavieraWorkbookValidation.code == code))
-        if not result: raise HTTPException(409, "Primero genera y comprueba la vista previa de " + code)
-    # Publishing is also a CAS operation: a simultaneous save cannot publish stale content.
-    result = db.execute(update(JavieraWorkbookHead).where(
-        JavieraWorkbookHead.org_id == user.org_id, JavieraWorkbookHead.revision == payload.expected_revision,
+    new_publications = {**head.publications, **{code: obj.id for code in payload.codes}}
+    changed = db.execute(update(JavieraWorkbookHead).where(
+        JavieraWorkbookHead.org_id == user.org_id,
+        JavieraWorkbookHead.revision == payload.expected_revision,
         JavieraWorkbookHead.current_id == ident).values(
-            publications={**head.publications, **{code: obj.id for code in payload.codes}}, published_id=obj.id))
-    if result.rowcount != 1: db.rollback(); raise HTTPException(409, "La revisión cambió durante la publicación")
-    audit(db, user, "javiera.preapproved_master_confirmed", obj.id)
-    audit(db, user, "javiera.workbook_published", obj.id)
+            publications=new_publications, published_id=obj.id))
+    if changed.rowcount != 1:
+        db.rollback()
+        raise HTTPException(409, "La revisión cambió durante la actualización")
+    audit(db, user, "javiera.existing_source_registered", obj.id)
     db.commit()
-    return {"revision": obj.revision, "codes": payload.codes,
-            "approved_source_confirmed": True}
+    return {"revision": obj.revision, "codes": payload.codes, "ready": True}
 
 
 def reset_plan(db, user):

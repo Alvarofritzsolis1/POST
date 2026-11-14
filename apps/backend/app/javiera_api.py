@@ -36,7 +36,7 @@ from .models import AuditEvent, User, utcnow
 from .ops_models import Contractor, ContractorWorksite, Worker, WorkerAssignment, Worksite
 from .security import administrator
 from .javiera_workbook_api import active_workbook, unarchived, raw_for, root_for, head_for, original_for
-from .javiera_workbook import cached_pdf, roles as workbook_roles, resolve_workbook_role
+from .javiera_workbook import cached_pdf, roles as workbook_roles, resolve_workbook_role, audit_preventive_master
 from .javiera_excel import LayoutError
 from .javiera_workbook_models import JavieraArchive
 from .rut_format import format_rut
@@ -280,15 +280,28 @@ def evaluated(db: Session, user: User, data: dict, dossier_id: str | None,
             JavieraHistory.org_id == user.org_id,
             JavieraHistory.dossier_id == dossier_id)).all())
     results = eligibility(data, templates, approved, existing, history)
-    native = active_workbook(db, user.org_id, published=True, code="irl")
-    if native:
-        pending = [p['row'] for p in native.inventory.get('matrix_pending',[])
-                   if normalize_cargo(p.get('role')) == cargo]
-        if pending:
-            row = next(item for item in results if item['code'] == 'irl')
-            if row['applicability'] == 'aplica':
-                row.update(status='PENDIENTE_REVISION',can_issue=False,can_preview=False,
-                           reason='Matriz IRL incompleta para este cargo; revisar filas '+', '.join(map(str,pending)))
+    # Template availability is automatic. Data quality is evaluated for the
+    # requested specialty only, so a defect in CARPINTERO never blocks ALBAÑIL.
+    preventive_audits = {}
+    for code in ("irl", "pts", "pts_receipt"):
+        master = active_workbook(db, user.org_id, published=True, code=code)
+        if not master:
+            continue
+        if master.sha256 not in preventive_audits:
+            preventive_audits[master.sha256] = audit_preventive_master(raw_for(master))
+        scope = "IRL" if code == "irl" else "PTS"
+        faults = [entry for entry in preventive_audits[master.sha256]["findings"]
+                  if entry["severity"] == "error" and entry["scope"] == scope
+                  and normalize_cargo(entry["role"]) == cargo]
+        row = next(item for item in results if item["code"] == code)
+        if faults and row["applicability"] == "aplica":
+            positions = ", ".join(
+                entry["matrix"] + "!" + entry["cell"] for entry in faults[:5]
+            )
+            row.update(
+                status="FALTAN_DATOS", can_issue=False, can_preview=False,
+                reason="Completa la información del cargo en " + positions,
+            )
     # Una declaración de ausencia de trabajadores no puede inferirse de una
     # ficha individual vacía: revisar también las asignaciones de la empresa.
     # La presencia de trabajadores activos es bloqueo conservador; para
