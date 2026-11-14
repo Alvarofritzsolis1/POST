@@ -616,7 +616,7 @@ def matrix_records(raw: bytes, role: str, kind: str) -> list[dict]:
             values = {re.match(r"[A-Z]+", c.get("r")).group(): cell_text(c, strings) for c in row.findall(Q("c"))}
             if values.get(col, "").strip() == role: rows.append({"row": int(row.get("r")), "values": values})
         if not rows: raise LayoutError("No existe información " + kind + " para la clave exacta del cargo seleccionado")
-        if kind == "IRL":
+        if kind == "IRL" and _irl_role_key(role) == "GASFITER":
             # El Excel histórico repite dos bloques de 13 riesgos para GASFITER.
             # Una de las tareas usa el rótulo GASFITERIA en vez de GASFITER.
             # Se colapsan SOLO actividades equivalentes con idénticos peligros,
