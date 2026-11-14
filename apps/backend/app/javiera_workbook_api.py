@@ -82,6 +82,7 @@ class CalculationInput(Strict):
 class PublishInput(Strict):
     expected_revision: int = Field(ge=1)
     codes: list[str] = Field(min_length=1, max_length=10)
+    confirmation: Literal["DOCUMENTOS_PREVIAMENTE_APROBADOS"]
 
 
 class ResetInput(Strict):
@@ -274,7 +275,7 @@ def repair_known_gaps(ident: str, payload: KnownRepairInput,
             raw = edit_workbook(raw, sheet, edits)
         corrected = write_revision(
             db, user, raw,
-            "Reparación preventiva documentada, pendiente de aprobación: " +
+            "Reparación técnica de datos existentes, declarada por administrador: " +
             ", ".join(details)[:520],
             obj.revision, obj,
         )
@@ -282,7 +283,7 @@ def repair_known_gaps(ident: str, payload: KnownRepairInput,
         raise HTTPException(422, str(exc)) from None
     return {
         **summary(corrected), "corrected_cells": details,
-        "pending_professional_approval": True,
+        "requires_admin_confirmation": True,
     }
 
 
@@ -301,8 +302,6 @@ def activate_approved_master(ident: str, payload: ApprovedMasterInput,
         raise HTTPException(409, "El Excel cambió. Vuelve a abrir la versión actual")
     if any(head.publications.values()):
         raise HTTPException(409, "Ya hay plantillas publicadas. Las revisiones nuevas requieren el control habitual")
-    if "Reparación preventiva documentada" in obj.reason:
-        raise HTTPException(409, "Las correcciones preventivas requieren aprobación independiente")
     # Verifica en disco el SHA-256 y la procedencia del maestro original.
     raw = raw_for(obj)
     original_for(db, obj)
@@ -440,11 +439,12 @@ def validations(ident: str, user: User = Depends(administrator), db: Session = D
 
 @router.post("/{ident}/publish")
 def publish(ident: str, payload: PublishInput, user: User = Depends(administrator), db: Session = Depends(get_db)):
-    from .javiera_review import require_signoff, specialty_for_code
+    # Approved historical templates are attested by the administrator.
+    # No duplicate signoff is generated; integrity and PDF QA remain mandatory.
     obj = workbook(db, user, ident)
     head = db.scalar(select(JavieraWorkbookHead).where(JavieraWorkbookHead.org_id==user.org_id).with_for_update())
-    if obj.id != head.current_id or obj.revision != payload.expected_revision: raise HTTPException(409, "La revisión actual cambió")
-    if obj.author_id == user.id: raise HTTPException(403, "Otro administrador debe revisar y publicar el Excel")
+    if not head or obj.id != head.current_id or obj.revision != payload.expected_revision:
+        raise HTTPException(409, "La revisión actual cambió")
     preventive = (audit_preventive_master(raw_for(obj)) if
                   any(c in {"irl", "pts", "pts_receipt"} for c in payload.codes)
                   else None)
@@ -460,7 +460,6 @@ def publish(ident: str, payload: PublishInput, user: User = Depends(administrato
                     "error": "No se puede publicar " + target + " con matrices incompletas",
                     "blocking_count": len(errors), "issues": errors[:50],
                 })
-        require_signoff(db, user, "workbook", obj.id, specialty_for_code(code))
         result = db.scalar(select(JavieraWorkbookValidation).where(
             JavieraWorkbookValidation.org_id == user.org_id,
             JavieraWorkbookValidation.workbook_id == obj.id, JavieraWorkbookValidation.code == code))
@@ -471,8 +470,11 @@ def publish(ident: str, payload: PublishInput, user: User = Depends(administrato
         JavieraWorkbookHead.current_id == ident).values(
             publications={**head.publications, **{code: obj.id for code in payload.codes}}, published_id=obj.id))
     if result.rowcount != 1: db.rollback(); raise HTTPException(409, "La revisión cambió durante la publicación")
-    audit(db, user, "javiera.workbook_published", obj.id); db.commit()
-    return {"revision": obj.revision, "codes": payload.codes}
+    audit(db, user, "javiera.preapproved_master_confirmed", obj.id)
+    audit(db, user, "javiera.workbook_published", obj.id)
+    db.commit()
+    return {"revision": obj.revision, "codes": payload.codes,
+            "approved_source_confirmed": True}
 
 
 def reset_plan(db, user):

@@ -88,7 +88,7 @@ def test_repair_api_creates_unpublished_revision_and_never_requires_another_uplo
     assert response.status_code == 200, response.text
     result = response.json()
     assert len(result["corrected_cells"]) == 7
-    assert result["pending_professional_approval"] is True
+    assert result["requires_admin_confirmation"] is True
     assert result["inventory"]["media"] == imported["inventory"]["media"]
     assert result["inventory"]["print_area_count"] == imported["inventory"]["print_area_count"]
     state = client.get("/api/v1/javiera/workbook").json()
