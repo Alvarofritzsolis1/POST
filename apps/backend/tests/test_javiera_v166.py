@@ -95,16 +95,17 @@ def test_documentary_multi_issue_packet_reuse_and_immutable_reissue(env):
                   **payload["shared"]["contract"], "salary": "910000"}}}
     revised = client.post(BASE + "/dossiers", headers=headers, json=edited)
     assert revised.status_code == 200, revised.text
-    without_reason = client.post(BASE + "/issue/batch", headers=headers,
-                                 json={"dossier_id": doc["id"], "codes": ["labor_contract"]})
-    assert without_reason.status_code == 200
-    assert without_reason.json()["failed"] == 1
+    # Una corrección de datos reales no exige aprobar otra vez el documento.
+    # Su nuevo hash crea un PDF inmutable y registra un motivo técnico.
     correction = client.post(BASE + "/issue/batch", headers=headers,
-        json={"dossier_id": doc["id"], "codes": ["labor_contract"],
-              "reissue_reasons": {"labor_contract": "Se corrigió el sueldo documentado sintético."}})
+                                 json={"dossier_id": doc["id"], "codes": ["labor_contract"]})
     assert correction.status_code == 200, correction.text
     assert correction.json()["issued"] == 1
     assert correction.json()["results"][0]["id"] not in initial_ids
+    repeat_reissue = client.post(BASE + "/issue/batch", headers=headers,
+        json={"dossier_id": doc["id"], "codes": ["labor_contract"]})
+    assert repeat_reissue.json()["results"][0]["reused"] is True
+    assert repeat_reissue.json()["results"][0]["id"] == correction.json()["results"][0]["id"]
     assert client.get(BASE + "/issues/" + initial_ids[0] + "/pdf").status_code == 200
     with sessions() as db:
         assert db.scalar(select(func.count(JavieraLocalIssue.id))) == 3
