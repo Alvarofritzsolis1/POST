@@ -225,11 +225,13 @@ def test_provisional_company_created_by_legacy_javiera_can_be_formalized_once(en
         before = _operational_count(db)
 
     formal = client.post("/api/v1/ops/contractors", headers=admin, json={
-        **company_data, "nature": "with_workers", "frequency": "fixed",
+        **company_data, "name": "EMPRESA DOCUMENTAL CORREGIDA QA",
+        "nature": "with_workers", "frequency": "fixed",
         "historical_code": "QA-FORMAL-1",
     })
     assert formal.status_code == 201, formal.text
     assert formal.json()["contractor_id"] == identity
+    assert formal.json()["name"] == "EMPRESA DOCUMENTAL CORREGIDA QA"
     assert formal.json()["historical_code"] == "QA-FORMAL-1"
     with sessions() as db:
         assert _operational_count(db) == before
