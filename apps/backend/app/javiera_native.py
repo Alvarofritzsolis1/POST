@@ -248,7 +248,7 @@ def render_native_pdf(code: str, data: dict, *, matrix: list[str] | None = None,
         title=_html(DOCUMENT_TITLES[code]),
         company=_html(company),
         company_rut=_html(_get(data, "employer.rut", required=True)),
-        worker=_html(worker if worker else "No aplica"),
+        worker=_html(signer if is_declaration else worker),
         worker_rut=_html(_get(data, "extra.representative_rut", required=True)
                          if is_declaration else _get(data, "worker.rut", required=True)),
         person_label="Representante legal" if is_declaration else "Trabajador/a",
