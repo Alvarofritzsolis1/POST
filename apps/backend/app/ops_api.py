@@ -290,8 +290,7 @@ def create_contractor(payload: ContractorCreate,
             if not payload.rut and name_match.rut:
                 raise HTTPException(409, "Ya existe una empresa con ese nombre; indica su RUT")
             contractor = name_match
-    elif contractor.name.casefold() != payload.name.casefold():
-        raise HTTPException(409, "El RUT ya pertenece a otra empresa")
+    name_mismatch = bool(contractor and contractor.name.casefold() != payload.name.casefold())
     if contractor and contractor.nature not in {payload.nature, "unclassified"} and payload.nature != "unclassified":
         raise HTTPException(409, "La naturaleza de la empresa difiere de la ficha existente")
     existing_link = db.scalar(select(ContractorWorksite).where(
@@ -326,6 +325,10 @@ def create_contractor(payload: ContractorCreate,
                 "historical_code": existing_link.historical_code,
                 "contract_status": existing_link.contract_status,
             }
+            if name_mismatch:
+                # El RUT y la procedencia documental están acreditados; el
+                # alta formal puede corregir el nombre mal escrito en el piloto.
+                contractor.name = payload.name
             if payload.nature != "unclassified":
                 contractor.nature = payload.nature
             if payload.frequency != "unclassified":
@@ -345,7 +348,11 @@ def create_contractor(payload: ContractorCreate,
             })
             db.commit()
             return contractor_view(existing_link, contractor)
+        if name_mismatch:
+            raise HTTPException(409, "El RUT ya pertenece a otra empresa")
         raise HTTPException(409, "El contratista ya está asociado a esta obra")
+    if name_mismatch:
+        raise HTTPException(409, "El RUT ya pertenece a otra empresa")
     try:
         if contractor is None:
             contractor = Contractor(org_id=user.org_id, name=payload.name,
