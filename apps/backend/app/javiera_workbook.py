@@ -982,6 +982,23 @@ def convert_pdf(raw: bytes, sheet: str, *, preview: bool = False,
                                 raise LayoutError('El PDF no reproduce íntegro el contenido preventivo de la matriz en '+column+str(record['row']))
                             checked += 1
                     validation['printed_matrix_fields'] = checked
+                if code == 'pts':
+                    normalize = lambda value: re.sub(
+                        r'[\W_]+', '', unicodedata.normalize('NFKC', value).casefold()
+                    )
+                    printed_content = normalize(' '.join(page.get_text() for page in doc))
+                    pts_records = matrix_records(calculated, role, 'PTS')
+                    checked = 0
+                    for column in 'DEFGHIJKLMNOPQRST':
+                        value = pts_records[0]['values'].get(column, '')
+                        if value and normalize(value) not in printed_content:
+                            raise LayoutError(
+                                'El PDF PTS no reproduce íntegra la sección ' +
+                                column + str(pts_records[0]['row']) +
+                                ' de la matriz del cargo ' + role
+                            )
+                        checked += 1
+                    validation['printed_matrix_fields'] = checked
                 if preview:
                     for page in doc:
                         page.insert_text((12, 12), "BORRADOR - SIN FIRMA - REQUIERE REVISION", fontsize=7, color=(0.65, 0.15, 0.1))
