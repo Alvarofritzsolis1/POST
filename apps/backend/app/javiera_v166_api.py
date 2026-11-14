@@ -28,7 +28,7 @@ from .javiera_workbook_api import active_workbook, raw_for, original_for, root_f
 from .javiera_workbook import cached_pdf, roles as workbook_roles, resolve_workbook_role, audit_preventive_master
 from .javiera_matrices import latest_approved_matrix
 from .javiera_irl import preventive_matrix_blocker
-from .javiera_models import JavieraExcelLayout, JavieraMatrix, JavieraTemplate, JavieraIssue
+from .javiera_models import JavieraExcelLayout, JavieraMatrix, JavieraTemplate, JavieraIssue, JavieraDossier
 from .javiera_v166_models import (
     JavieraLocalCompany, JavieraLocalPerson, JavieraLocalDossier,
     JavieraLocalIssue, JavieraLocalBatch,
@@ -599,7 +599,30 @@ def save_dossier(payload: DossierInput, user: User = Depends(administrator), db:
             relationship=payload.relationship, updated_by=user.id)
         db.add(record)
     record.parent_name = (payload.parent_name or "").strip() or None
-    record.shared = payload.shared
+    shared = payload.shared
+    if not payload.dossier_id and company.source_contractor_id:
+        # Reutilizar datos de un expediente anterior de la misma identidad exacta,
+        # sin vincular el nuevo expediente a tablas operativas ni alterar el original.
+        person = _person(db, user, payload.person_id) if payload.person_id else None
+        old_person_id = person.source_worker_id if person else None
+        historic = db.scalar(select(JavieraDossier).where(
+            JavieraDossier.org_id == user.org_id,
+            JavieraDossier.site_id == site.id,
+            JavieraDossier.employer_id == company.source_contractor_id,
+            JavieraDossier.worker_id == old_person_id,
+        ).order_by(JavieraDossier.updated_at.desc()).limit(1))
+        if historic and isinstance(historic.data, dict):
+            old_values = {key: historic.data[key] for key in
+                          ("role", "employment_type", "contract", "event", "extra")
+                          if key in historic.data}
+            shared = {**old_values, **payload.shared}
+            for section in ("contract", "event", "extra"):
+                previous = old_values.get(section)
+                current = payload.shared.get(section)
+                if isinstance(previous, dict) and isinstance(current, dict):
+                    shared[section] = {**previous, **current}
+            audit(db, user, "javiera.legacy_fields_reused", historic.id)
+    record.shared = shared
     record.document_data = payload.document_data
     record.selected_codes = payload.selected_codes
     record.updated_by = user.id
