@@ -20,6 +20,7 @@ from zipfile import ZIP_DEFLATED, ZipFile, BadZipFile
 from xml.etree import ElementTree as ET
 import fitz
 from .xlsx_package import preserve_namespaces
+from .rut_format import format_rut, is_rut_field
 
 M = "http://schemas.openxmlformats.org/spreadsheetml/2006/main"
 R = "http://schemas.openxmlformats.org/officeDocument/2006/relationships"
@@ -428,7 +429,8 @@ def get_data(data: dict, key: str) -> str:
         if not isinstance(node, dict):
             return ""
         node = node.get(name)
-    return "" if node is None else str(node)
+    value = "" if node is None else str(node)
+    return format_rut(value) if is_rut_field(key) else value
 
 
 def ensure_cell(root: ET.Element, coordinate: str) -> ET.Element:

@@ -7,6 +7,7 @@ from __future__ import annotations
 import re
 import unicodedata
 from datetime import date
+from .rut_format import format_rut, is_rut_field
 
 DOCUMENTS = [
     ("labor_contract", "Zona Subcontratos", "Contrato de trabajo", "laboral",
@@ -91,7 +92,7 @@ def field(data: dict, key: str):
         if not isinstance(node, dict):
             return None
         node = node.get(part)
-    return node
+    return format_rut(node) if node is not None and is_rut_field(key) else node
 
 
 def rut_valid(value: str | None) -> bool:
