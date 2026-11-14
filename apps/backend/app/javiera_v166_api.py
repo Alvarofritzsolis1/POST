@@ -486,6 +486,48 @@ def correct_person(ident: str, payload: LocalIdentityCorrection,
     return _person_dict(person)
 
 
+@router.post("/companies/{ident}/refresh-source")
+def refresh_company_source(ident: str, user: User = Depends(administrator),
+                           db: Session = Depends(get_db)):
+    """Explicitly refresh a documentary snapshot; never mutate operational records."""
+    company = _company(db, user, ident)
+    if not company.source_contractor_id:
+        raise HTTPException(422, "Empresa creada en Javiera: edita los datos de su ficha documental")
+    original = by_org(db, Contractor, company.source_contractor_id, user.org_id)
+    assigned = db.scalar(select(ContractorWorksite.id).where(
+        ContractorWorksite.org_id == user.org_id,
+        ContractorWorksite.worksite_id == company.site_id,
+        ContractorWorksite.contractor_id == original.id))
+    if not assigned:
+        raise HTTPException(409, "La empresa ya no figura vinculada a esta obra")
+    company.name, company.rut = original.name, original.rut
+    audit(db, user, "javiera.company_source_refreshed", company.id)
+    db.commit()
+    return _company_dict(company)
+
+
+@router.post("/people/{ident}/refresh-source")
+def refresh_person_source(ident: str, user: User = Depends(administrator),
+                          db: Session = Depends(get_db)):
+    """Refresh documentary copy of a corrected worker, preserving all issued PDFs."""
+    person = _person(db, user, ident)
+    company = _company(db, user, person.company_id)
+    if not person.source_worker_id or not company.source_contractor_id:
+        raise HTTPException(422, "Trabajador creado en Javiera: edita los datos documentales")
+    original = by_org(db, Worker, person.source_worker_id, user.org_id)
+    assigned = db.scalar(select(WorkerAssignment.id).where(
+        WorkerAssignment.org_id == user.org_id,
+        WorkerAssignment.worksite_id == company.site_id,
+        WorkerAssignment.contractor_id == company.source_contractor_id,
+        WorkerAssignment.worker_id == original.id))
+    if not assigned:
+        raise HTTPException(409, "El trabajador ya no está asociado a esta obra y contratista")
+    person.name, person.rut = original.name, original.rut
+    audit(db, user, "javiera.person_source_refreshed", person.id)
+    db.commit()
+    return _person_dict(person)
+
+
 @router.post("/dossiers")
 def save_dossier(payload: DossierInput, user: User = Depends(administrator), db: Session = Depends(get_db)):
     _only_codes(payload.selected_codes)
