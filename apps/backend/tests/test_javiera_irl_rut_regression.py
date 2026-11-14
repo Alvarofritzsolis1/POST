@@ -280,3 +280,28 @@ def test_irl_13_risks_recalculate_and_print_without_duplicates():
         for source_row in range(2, 15):
             assert text.count(f"Actividad sintetica unica {source_row}") == 1, source_row
             assert text.count(f"Medida sintetica unica {source_row}") == 1, source_row
+
+
+
+@pytest.mark.parametrize("field_name, payload", [
+    ("worker.name", {"worker": {"name": "32423432"}}),
+    ("employer.name", {"employer": {"name": "12925516-1"}}),
+    ("extra.representative_name", {"extra": {"representative_name": "12345"}}),
+])
+def test_numeric_identifiers_are_never_accepted_as_legal_names(field_name, payload):
+    from app.javiera_logic import validate_requirements
+    missing, errors = validate_requirements(payload, [field_name])
+    assert not missing
+    assert any(field_name in problem and "nombre legible" in problem for problem in errors)
+
+
+def test_native_pdf_does_not_format_invalid_rut_as_if_verified():
+    from app.javiera_native import render_native_pdf, NativeDocumentError
+    invalid = {
+        "employer": {"name": "EMPRESA QA", "rut": "12.345.678-9"},
+        "worker": {"name": "TRABAJADOR QA", "rut": "20.000.000-5"},
+        "site": {"name": "OBRA QA"},
+        "event": {"date": "2026-11-14"},
+    }
+    with pytest.raises(NativeDocumentError, match="RUT inválido"):
+        render_native_pdf("labor_contract", invalid, approved_text="TEXTO DE PRUEBA")
