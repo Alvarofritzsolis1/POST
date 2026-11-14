@@ -186,7 +186,12 @@ export default function JavieraSimple({onConfig,onBack}:{onConfig?:()=>void;onBa
     setPreview(old=>{if(old)URL.revokeObjectURL(old.url);return null;});
     setIssued("");setMissing([]);setReasons([]);setNotice("");setError("");
   }
-  useEffect(()=>{resetPreview();},[signature]);
+  // Al cambiar una ficha se invalidan pruebas PDF anteriores; NO se borra
+  // el aviso de guardado que acaba de mostrar la acción de alta o corrección.
+  useEffect(()=>{
+    setPreview(old=>{if(old)URL.revokeObjectURL(old.url);return null;});
+    setIssued("");setMissing([]);setReasons([]);setError("");
+  },[signature]);
   useEffect(()=>{
     let active=true;
     void Promise.all([
