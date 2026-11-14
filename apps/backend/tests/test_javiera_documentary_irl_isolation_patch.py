@@ -193,3 +193,66 @@ def test_existing_legacy_dossier_fields_survive_documental_copy_and_second_edit(
     assert changed.json()["shared"]["extra"]["employer_commune"] == "CONCEPCION"
     assert changed.json()["shared"]["contract"]["salary"] == "750000"
     assert client.get("/api/v1/javiera/dossiers/" + legacy.json()["id"]).status_code == 200
+
+
+
+def test_provisional_company_created_by_legacy_javiera_can_be_formalized_once(env):
+    """Existing accidental registration becomes a formal CT without duplicates."""
+    client, sessions = env
+    admin = login(client, "a@example.cl")
+    site = client.get("/api/v1/ops/sites").json()[0]["id"]
+    company_data = {
+        "site_id": site, "name": "EMPRESA DOCUMENTAL PROVISIONAL QA",
+        "rut": rut(78444777), "nature": "unclassified",
+        "frequency": "unclassified", "historical_code": "",
+        "contract_status": "active",
+    }
+    provisional = client.post("/api/v1/ops/contractors", headers=admin, json=company_data)
+    assert provisional.status_code == 201, provisional.text
+    identity = provisional.json()["contractor_id"]
+    worker = client.post("/api/v1/ops/workers", headers=admin, json={
+        "site_id": site, "contractor_id": identity,
+        "name": "RENE DOCUMENTAL QA", "rut": rut(11444999),
+    })
+    assert worker.status_code == 201
+    dossier = client.post("/api/v1/javiera/dossiers", headers=admin, json={
+        "site_id": site, "employer_id": identity,
+        "worker_id": worker.json()["worker_id"], "relationship": "contractor",
+        "data": {"role": "TECHUMBRE", "event": {"date": "2026-11-14"}},
+    })
+    assert dossier.status_code == 200, dossier.text
+    with sessions() as db:
+        before = _operational_count(db)
+
+    formal = client.post("/api/v1/ops/contractors", headers=admin, json={
+        **company_data, "nature": "with_workers", "frequency": "fixed",
+        "historical_code": "QA-FORMAL-1",
+    })
+    assert formal.status_code == 201, formal.text
+    assert formal.json()["contractor_id"] == identity
+    assert formal.json()["historical_code"] == "QA-FORMAL-1"
+    with sessions() as db:
+        assert _operational_count(db) == before
+    duplicate = client.post("/api/v1/ops/contractors", headers=admin, json={
+        **company_data, "nature": "with_workers", "frequency": "fixed",
+        "historical_code": "QA-FORMAL-1",
+    })
+    assert duplicate.status_code == 409
+
+
+def test_without_legacy_dossier_no_automatic_formalization(env):
+    client, _ = env
+    admin = login(client, "a@example.cl")
+    site = client.get("/api/v1/ops/sites").json()[0]["id"]
+    data = {
+        "site_id": site, "name": "PROVISORIA SIN EXPEDIENTE QA",
+        "rut": rut(78444776), "nature": "unclassified",
+        "frequency": "unclassified", "historical_code": "",
+        "contract_status": "active",
+    }
+    provisional = client.post("/api/v1/ops/contractors", headers=admin, json=data)
+    assert provisional.status_code == 201
+    formal = client.post("/api/v1/ops/contractors", headers=admin, json={
+        **data, "nature": "with_workers", "frequency": "fixed",
+    })
+    assert formal.status_code == 409
