@@ -23,7 +23,9 @@ from .db import get_db
 from .javiera_api import audit, by_org, pdf_for, template_data
 from .javiera_layout_api import latest_layout, make_pdf
 from .javiera_logic import DOCUMENTS, DOCUMENT_BY_CODE, eligibility, normalize_cargo, render_tokens
-from .javiera_excel import DOC_SHEETS
+from .javiera_excel import DOC_SHEETS, LayoutError
+from .javiera_workbook_api import active_workbook, raw_for, original_for, root_for
+from .javiera_workbook import cached_pdf, roles as workbook_roles, resolve_workbook_role, audit_preventive_master
 from .javiera_matrices import latest_approved_matrix
 from .javiera_irl import preventive_matrix_blocker
 from .javiera_models import JavieraExcelLayout, JavieraMatrix, JavieraTemplate, JavieraIssue
@@ -143,6 +145,24 @@ def _status(db, user, record, code):
         JavieraMatrix.org_id == user.org_id,
         JavieraMatrix.status == "approved")).all()
     approved = {kind + ":" + normalize_cargo(cargo) for kind, cargo in matrices}
+    # La revisión Excel publicada es la fuente de la matriz para este documento.
+    # Un expediente documental no necesita dar de alta al contratista ni al trabajador.
+    master = active_workbook(db, user.org_id, published=True, code=code) if code in {"irl", "pts", "pts_receipt"} else None
+    source_error = ""
+    source_faults = []
+    if master:
+        kind = "IRL" if code == "irl" else "PTS"
+        try:
+            workbook_data = raw_for(master)
+            resolve_workbook_role(workbook_roles(workbook_data), role, kind)
+            findings = audit_preventive_master(workbook_data)["findings"]
+            source_faults = [f for f in findings
+                             if f["severity"] == "error" and f["scope"] == kind
+                             and normalize_cargo(f["role"]) == role]
+            if not source_faults:
+                approved.add(kind + ":" + role)
+        except (LayoutError, HTTPException) as error:
+            source_error = str(error.detail) if isinstance(error, HTTPException) else str(error)
     data = _document(record, code, db, user)
     item = next(s for s in eligibility(data, templates, approved) if s["code"] == code)
     # Una labor nueva pertenece al borrador documental y no puede emitirse
@@ -163,21 +183,23 @@ def _status(db, user, record, code):
             item.setdefault("blocking_errors", []).append(warning)
     if code in {"irl", "pts", "pts_receipt"}:
         kind = "IRL" if code == "irl" else "PTS"
-        source = latest_approved_matrix(db, user.org_id, kind, role)
-        issue = preventive_matrix_blocker(kind, source.sections if source else None)
-        if issue:
-            # Mostrar primero la labor nueva aportada por el usuario. La
-            # matriz ausente/incompleta sigue listada como segundo bloqueo.
-            manual_priority = any(
-                "Labor manual" in warning
-                for warning in item.get("blocking_errors", [])
-            )
-            item.update(
-                status="PENDIENTE_REVISION",
-                reason=item["reason"] if manual_priority else issue,
-                can_issue=False, can_preview=False,
-            )
-            item.setdefault("blocking_errors", []).append(issue)
+        if master:
+            if source_faults:
+                locations = ", ".join(f["matrix"] + "!" + f["cell"] for f in source_faults[:8])
+                source_error = "Corrige las celdas de " + role + ": " + locations
+            if source_error:
+                item.update(status="FALTAN_DATOS", reason=source_error,
+                            can_issue=False, can_preview=False)
+                item.setdefault("blocking_errors", []).append(source_error)
+        else:
+            source = latest_approved_matrix(db, user.org_id, kind, role)
+            issue = preventive_matrix_blocker(kind, source.sections if source else None)
+            if issue:
+                manual_priority = any("Labor manual" in warning for warning in item.get("blocking_errors", []))
+                item.update(status="PENDIENTE_REVISION",
+                            reason=item["reason"] if manual_priority else issue,
+                            can_issue=False, can_preview=False)
+                item.setdefault("blocking_errors", []).append(issue)
     # An imported Excel in draft status must never silently fall back to
     # an unrelated text template merely because that text was published.
     newest = latest_layout(db, user.org_id, code, approved=False)
@@ -539,6 +561,18 @@ def evaluate(ident: str, user: User = Depends(administrator), db: Session = Depe
 
 
 def _build_pdf(db, user, record, code, data, preview=False):
+    # Único motor Excel publicado para el flujo documental y el sistema:
+    # IRL paginado sin sobrescribir encabezados y sin usar filas heredadas.
+    master = active_workbook(db, user.org_id, published=True, code=code)
+    if master:
+        try:
+            pdf, _report = cached_pdf(raw_for(master), code, data, user.org_id,
+                                      root_for(user.org_id) / "pdf-cache", preview,
+                                      reference=original_for(db, master))
+        except LayoutError as error:
+            raise HTTPException(409, {"reason": str(error), "document": code,
+                                      "cargo": str(data.get("role") or "")}) from None
+        return pdf, master.revision, "workbook"
     layout = latest_layout(db, user.org_id, code)
     if layout:
         return make_pdf(db, user, layout, data, preview=preview), layout.revision, "excel"
