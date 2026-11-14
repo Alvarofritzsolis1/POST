@@ -60,8 +60,11 @@ def test_approval_uses_published_workbook_but_never_approves_unpublished(
     approved_seen = []
     def eligibility(data, templates, approved, existing, history):
         approved_seen.append(set(approved))
-        return [{"code":"irl","applicability":"aplica","can_issue":True,
-                 "can_preview":True,"status":"LISTO_PARA_EMITIR"}]
+        return [
+            {"code":code,"applicability":"aplica","can_issue":True,
+             "can_preview":True,"status":"LISTO_PARA_EMITIR","reason":""}
+            for code in ("irl","pts","pts_receipt")
+        ]
     monkeypatch.setattr(api, "template_data", lambda db, org: {})
     monkeypatch.setattr(api, "eligibility", eligibility)
     monkeypatch.setattr(api, "workbook_roles", lambda raw: roles(master))

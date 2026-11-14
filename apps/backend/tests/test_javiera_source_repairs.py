@@ -88,19 +88,13 @@ def test_repair_api_creates_unpublished_revision_and_never_requires_another_uplo
     assert response.status_code == 200, response.text
     result = response.json()
     assert len(result["corrected_cells"]) == 7
-    assert result["requires_admin_confirmation"] is True
+    assert result["ready_without_approval_step"] is True
     assert result["inventory"]["media"] == imported["inventory"]["media"]
     assert result["inventory"]["print_area_count"] == imported["inventory"]["print_area_count"]
     state = client.get("/api/v1/javiera/workbook").json()
     assert state["current"]["id"] == result["id"]
-    assert state["publications"] == {}
-    assert client.post(
-        "/api/v1/javiera/workbook/" + result["id"] + "/activate-approved-master",
-        headers=headers, json={
-            "expected_revision": result["revision"],
-            "confirmation": "PLANTILLAS_PREVIAMENTE_APROBADAS",
-        },
-    ).status_code == 422  # La matriz sintética incompleta sigue bloqueada por validación técnica.
+    assert state["publications"]["irl"] == result["id"]
+    # No manual approval endpoint is part of the flow anymore.
     assert client.post("/api/v1/javiera/workbook/" + result["id"] + "/repair-known-gaps",
         headers=headers, json={
             "expected_revision": result["revision"],
