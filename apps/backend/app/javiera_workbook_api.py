@@ -133,8 +133,27 @@ def unarchived(model, org_id: str, kind: str):
         JavieraArchive.org_id == org_id, JavieraArchive.kind == kind))
 
 
+def check_print_areas(report: dict, codes: list[str] | None = None) -> None:
+    """No permitir documentos sin sus límites aprobados para impresión.
+
+    Se ejecuta al importar, guardar revisiones y publicar; un XLSX exportado
+    por un editor que pierde definedNames ya no puede generar PDFs inválidos.
+    """
+    wanted = {DOC_SHEETS[code] for code in (codes or list(DOC_SHEETS))}
+    missing = [row["name"] for row in report["sheets"]
+               if row["name"].strip() in wanted and not row.get("print_areas")]
+    if missing:
+        raise LayoutError(
+            "El Excel perdió el área de impresión de: " +
+            ", ".join(sorted(missing)) +
+            ". Recupera las áreas desde la plantilla original antes de importar."
+        )
+
+
 def write_revision(db, user, raw, reason, expected: int, parent: JavieraWorkbook | None = None, *, commit: bool = True):
-    report = inventory(raw); ident = str(uuid4()); revision = expected + 1
+    report = inventory(raw)
+    check_print_areas(report)
+    ident = str(uuid4()); revision = expected + 1
     head = head_for(db, user.org_id)
     if head is None:
         if expected != 0: raise HTTPException(409, "El libro cambió; recarga antes de guardar")
@@ -195,6 +214,7 @@ async def import_workbook(expected_revision: int = 0, file: UploadFile = File(..
         names = {s["name"].strip() for s in report["sheets"]}
         required = {"Datos Contrato", "Contrato Imprimible", "MATRIZ IRL", "MATRIZ PTS"}
         if not required.issubset(names): raise LayoutError("Faltan hojas maestras de contratación y matrices")
+        check_print_areas(report)
         # Finish both packages before making either revision active.
         repaired, notes = repair_master(raw)
         repaired = clean_master(repaired)
@@ -364,6 +384,7 @@ def publish(ident: str, payload: PublishInput, user: User = Depends(administrato
     if obj.author_id == user.id: raise HTTPException(403, "Otro administrador debe revisar y publicar el Excel")
     for code in payload.codes:
         if code not in DOC_SHEETS: raise HTTPException(422, "Documento desconocido")
+        check_print_areas(obj.inventory, [code])
         require_signoff(db, user, "workbook", obj.id, specialty_for_code(code))
         result = db.scalar(select(JavieraWorkbookValidation).where(
             JavieraWorkbookValidation.org_id == user.org_id,
