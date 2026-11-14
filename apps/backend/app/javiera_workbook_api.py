@@ -153,6 +153,14 @@ def check_print_areas(report: dict, codes: list[str] | None = None) -> None:
 def write_revision(db, user, raw, reason, expected: int, parent: JavieraWorkbook | None = None, *, commit: bool = True):
     report = inventory(raw)
     check_print_areas(report)
+    if parent is not None:
+        old = parent.inventory
+        if report["media"] != old.get("media", []):
+            raise LayoutError("Una imagen original se perdió o cambió; restaura la plantilla y repite la edición.")
+        old_prints = {row["name"]: row["print_areas"] for row in old["sheets"] if row.get("print_areas")}
+        new_prints = {row["name"]: row["print_areas"] for row in report["sheets"] if row.get("print_areas")}
+        if old_prints != new_prints:
+            raise LayoutError("Las áreas de impresión cambiaron o desaparecieron; conserva las del Excel aprobado.")
     ident = str(uuid4()); revision = expected + 1
     head = head_for(db, user.org_id)
     if head is None:

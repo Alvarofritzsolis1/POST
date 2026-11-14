@@ -67,6 +67,7 @@ class Action(Strict):
     dossier_id: str
     code: str
     reissue_reason: str | None = Field(default=None, max_length=600)
+    expected_preview_fingerprint: str | None = Field(default=None, pattern=r"^[0-9a-f]{64}$")
 
 
 class PilotMatrixPrint(Strict):
@@ -76,6 +77,7 @@ class PilotMatrixPrint(Strict):
 class BatchIssue(Strict):
     dossier_id: str
     codes: list[str] = Field(min_length=1, max_length=10)
+    expected_preview_fingerprints: dict[str, str] = Field(default_factory=dict)
 
 
 class IssueArchive(Strict):
@@ -260,7 +262,7 @@ def evaluated(db: Session, user: User, data: dict, dossier_id: str | None,
             JavieraHistory.org_id == user.org_id,
             JavieraHistory.dossier_id == dossier_id)).all())
     results = eligibility(data, templates, approved, existing, history)
-    native = active_workbook(db,user.org_id,published=True,code='irl') or active_workbook(db,user.org_id)
+    native = active_workbook(db, user.org_id, published=True, code="irl")
     if native:
         pending = [p['row'] for p in native.inventory.get('matrix_pending',[]) if p['role'] == data.get('role')]
         if pending:
@@ -541,19 +543,23 @@ def preflight_documents(payload: BatchIssue, user: User = Depends(administrator)
         if not row["can_issue"]:
             report.append(row)
             continue
-        master = active_workbook(db, user.org_id, published=True, code=code)
-        layout = latest_layout(db, user.org_id, code)
+        kind, source = published_document_source(db, user.org_id, code)
+        row["preview_fingerprint"] = document_source_fingerprint(kind, source, record)
         try:
-            if master:
+            if kind == "workbook":
                 _, validation = cached_pdf(
-                    raw_for(master), code, record.data, user.org_id,
+                    raw_for(source), code, record.data, user.org_id,
                     root_for(user.org_id) / "pdf-cache", False,
-                    reference=original_for(db, master))
+                    reference=original_for(db, source))
                 row["cache_hit"] = bool(validation.get("cache_hit"))
-            elif layout:
-                # Tampoco se confía en «Listo» de la antigua maquetación Excel.
-                make_pdf(db, user, layout, record.data, preview=False)
-            # Las plantillas estructuradas ya usan exclusivamente campos validados.
+            elif kind == "excel":
+                make_pdf(db, user, source, record.data, preview=False)
+            else:
+                _, template, title, body = prepared(db, user, record.id, code, False)
+                raw = pdf_for(title, body, False, template.layout)
+                with fitz.open(stream=raw, filetype="pdf") as rendered:
+                    if not rendered.page_count or not any(p.get_text().strip() for p in rendered):
+                        raise HTTPException(422, "El PDF estructurado está vacío")
         except HTTPException as exc:
             detail = exc.detail
             explanation = detail if isinstance(detail, str) else str(
@@ -572,6 +578,42 @@ def preflight_documents(payload: BatchIssue, user: User = Depends(administrator)
                 r"\b(?:[A-Z]{1,3})[1-9]\d{0,5}\b", row["reason"])[:15]
         report.append(row)
     return {"dossier_revision": record.revision, "documents": report}
+
+
+def published_document_source(db: Session, org_id: str, code: str):
+    """Resolve one document source for preview, preflight and definitive issue.
+
+    Draft workbook previews use the explicit administrative endpoint, never
+    the regular worker-facing document preview.
+    """
+    master = active_workbook(db, org_id, published=True, code=code)
+    if master:
+        return "workbook", master
+    layout = latest_layout(db, org_id, code)
+    if layout:
+        return "excel", layout
+    template = db.scalar(select(JavieraTemplate).where(
+        JavieraTemplate.org_id == org_id, JavieraTemplate.code == code))
+    return "structured", template
+
+
+def document_source_fingerprint(kind: str, source, record: JavieraDossier) -> str:
+    """Digest of exact approved source AND the dossier seen in the preview."""
+    if kind == "workbook":
+        version = [source.id, source.sha256, source.revision]
+    elif kind == "excel":
+        version = [source.id, source.workbook_sha256, source.revision,
+                   source.overrides]
+    else:
+        version = ([source.id, source.published_version, source.body,
+                    source.layout] if source else ["no-template"])
+    payload = {
+        "kind": kind, "version": version, "dossier_id": record.id,
+        "dossier_revision": record.revision, "dossier_data": record.data,
+    }
+    return hashlib.sha256(json.dumps(
+        payload, sort_keys=True, ensure_ascii=False, default=str
+    ).encode("utf-8")).hexdigest()
 
 
 def prepared(db, user, ident: str, code: str, preview: bool,
@@ -628,31 +670,36 @@ def prepared(db, user, ident: str, code: str, preview: bool,
 def preview(data: Action, user: User = Depends(administrator), db: Session = Depends(get_db)):
     if data.code not in DOCUMENT_BY_CODE:
         raise HTTPException(404, "Documento desconocido")
-    master = active_workbook(db, user.org_id)
-    if master:
-        record = dossier(db, user, data.dossier_id)
-        item = next(x for x in evaluated(db, user, record.data, record.id) if x["code"] == data.code)
-        if not item["can_preview"]:
-            raise HTTPException(409, {"error": item["reason"] or "Completa los datos del documento", "missing": item["missing_fields"]})
+    record = dossier(db, user, data.dossier_id)
+    kind, source = published_document_source(db, user.org_id, data.code)
+    item = next(x for x in evaluated(db, user, record.data, record.id)
+                if x["code"] == data.code)
+    if not item["can_preview"]:
+        raise HTTPException(409, {"error": item["reason"] or "Completa los datos del documento",
+                                  "missing": item["missing_fields"]})
+    if kind == "workbook":
         from .javiera_excel import LayoutError
         try:
-            raw, _ = cached_pdf(raw_for(master), data.code, record.data, user.org_id,
-                                root_for(user.org_id) / "pdf-cache", True, reference=original_for(db,master))
-        except LayoutError as exc: raise HTTPException(422, str(exc)) from None
-        return Response(content=raw, media_type="application/pdf", headers={"Cache-Control": "no-store"})
-    layout = latest_layout(db, user.org_id, data.code)
-    if layout:
-        record = dossier(db, user, data.dossier_id)
-        item = next(x for x in evaluated(db, user, record.data, record.id) if x["code"] == data.code)
-        if not item["can_preview"]:
-            raise HTTPException(409, {"status": item["status"], "missing": item["missing_fields"]})
-        raw = make_pdf(db, user, layout, record.data, preview=True)
-        return Response(content=raw, media_type="application/pdf",
-                        headers={"Cache-Control":"no-store"})
-    record, template, title, text = prepared(db, user, data.dossier_id, data.code, True)
-    return Response(content=pdf_for(title, text, True, template.layout),
-                    media_type="application/pdf", headers={"Cache-Control": "no-store"})
-
+            raw, _ = cached_pdf(
+                raw_for(source), data.code, record.data, user.org_id,
+                root_for(user.org_id) / "pdf-cache", True,
+                reference=original_for(db, source))
+        except LayoutError as exc:
+            raise HTTPException(422, str(exc)) from None
+    elif kind == "excel":
+        raw = make_pdf(db, user, source, record.data, preview=True)
+    else:
+        _, template, title, body = prepared(db, user, record.id, data.code, True)
+        raw = pdf_for(title, body, True, template.layout)
+    fingerprint = document_source_fingerprint(kind, source, record)
+    published = kind != "structured" or bool(source and source.published_version)
+    return Response(content=raw, media_type="application/pdf", headers={
+        "Cache-Control": "no-store",
+        "X-Galant-Source-Type": kind,
+        "X-Galant-Preview-Fingerprint": fingerprint,
+        "X-Galant-Dossier-Revision": str(record.revision),
+        "X-Galant-Preview-Draft": "false" if published else "true",
+    })
 
 @router.post("/issue")
 def issue(data: Action, user: User = Depends(administrator), db: Session = Depends(get_db)):
@@ -671,11 +718,16 @@ def issue(data: Action, user: User = Depends(administrator), db: Session = Depen
     ).with_for_update())
     if record is None:
         raise HTTPException(404, "Expediente no encontrado")
+    source_kind, source = published_document_source(db, user.org_id, data.code)
+    actual_fingerprint = document_source_fingerprint(source_kind, source, record)
+    if (data.expected_preview_fingerprint and
+            actual_fingerprint != data.expected_preview_fingerprint):
+        raise HTTPException(409, "El documento o expediente cambió desde la vista previa. Vuelve a revisarlo antes de emitir.")
     status = next(x for x in evaluated(db, user, record.data, record.id)
                   if x["code"] == data.code)
-    layout = latest_layout(db, user.org_id, data.code)
-    master = active_workbook(db, user.org_id, published=True, code=data.code)
-    desired_source = "workbook" if master else "excel" if layout else "structured"
+    master = source if source_kind == "workbook" else None
+    layout = source if source_kind == "excel" else None
+    desired_source = source_kind
     if status["status"] == "EMITIDO":
         current = db.scalars(select(JavieraIssue).where(
             JavieraIssue.org_id == user.org_id, JavieraIssue.dossier_id == record.id,
@@ -783,7 +835,8 @@ def issue_batch(payload: BatchIssue, user: User = Depends(administrator),
     report = []
     for code in codes:
         try:
-            result = issue(Action(dossier_id=payload.dossier_id, code=code),
+            result = issue(Action(dossier_id=payload.dossier_id, code=code,
+                                  expected_preview_fingerprint=payload.expected_preview_fingerprints.get(code)),
                            user=user, db=db)
             report.append({"code":code, "ok":True,
                            "id":result["id"], "reused":result["reused"]})
