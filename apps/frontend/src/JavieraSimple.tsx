@@ -1,6 +1,7 @@
 import {useEffect,useMemo,useRef,useState} from "react";
 import {ArrowLeft,CheckCircle2,Download,Eye,FileSpreadsheet,Loader2,Settings2,ShieldAlert} from "lucide-react";
 import {request} from "./api";
+import {parseEppDraft,serializeEppDraft,type EppChoice} from "./javiera-epp";
 
 import "./javiera-simple.css";
 
@@ -133,6 +134,7 @@ export default function JavieraSimple({onConfig,onBack}:{onConfig?:()=>void;onBa
   const [library,setLibrary]=useState<Library|null>(null);
   const [roles,setRoles]=useState<string[]>([]);
   const [catalog,setCatalog]=useState<Catalog>([]);
+  const [eppOptions,setEppOptions]=useState<EppChoice[]>([]);
   const [site,setSite]=useState("");
   const [companyToken,setCompanyToken]=useState("");
   const [companyId,setCompanyId]=useState("");
@@ -173,6 +175,7 @@ export default function JavieraSimple({onConfig,onBack}:{onConfig?:()=>void;onBa
   const selectedCompany=locate(companies,companyToken);
   const selectedPerson=locate(people,personToken);
   const layout=library?.documents.find(x=>x.code===code);
+  const eppDraft=useMemo(()=>parseEppDraft(extras["event.epp_items"]||"",eppOptions),[extras,eppOptions]);
   const workerless=code==="sworn_declaration";
   const ready=!!site&&!!companyToken&&!!companyId&&
     (!!personToken&&!!personId||workerless)&&!!code&&!!date&&
@@ -191,9 +194,11 @@ export default function JavieraSimple({onConfig,onBack}:{onConfig?:()=>void;onBa
       request<Library>(base+"/templates/status"),
       request<RoleList>("/javiera/v194/roles"),
       request<Catalog>("/javiera/catalog"),
-    ]).then(([s,l,r,c])=>{
+      request<EppChoice[]>("/javiera/epp/catalog"),
+    ]).then(([s,l,r,c,epp])=>{
       if(!active)return;
       setSource(s);setLibrary(l);setRoles(r.roles.map(x=>x.cargo));setCatalog(c);
+      setEppOptions(epp);
     }).catch(e=>{if(active)setError(friendly(e));})
       .finally(()=>{if(active)setBooting(false);});
     return ()=>{active=false;};
@@ -543,6 +548,30 @@ export default function JavieraSimple({onConfig,onBack}:{onConfig?:()=>void;onBa
         <summary>Completar otros datos del documento {missing.length>0&&"("+missing.length+" pendientes)"}</summary>
         <div className="jsm-extra-grid">
           {extraFields.map(key=>{
+            if(key==="event.epp_items")return <div key={key} className="jsm-epp-editor">
+              <strong>EPP efectivamente entregados (solo cantidades reales)</strong>
+              {eppOptions.length===0&&<p>No está disponible el catálogo de ocho EPP.</p>}
+              {eppDraft.invalid.length>0&&<div className="jsm-alert" role="alert">
+                <p>Registro anterior no reconocido: {eppDraft.invalid.join("; ")}</p>
+                <button type="button" disabled={busy}
+                  onClick={()=>setExtras(old=>({...old,"event.epp_items":""}))}>
+                  Corregir datos EPP anteriores</button>
+              </div>}
+              <div className="jsm-extra-grid">{eppOptions.map((choice,i)=><label key={choice.name}>
+                {choice.name}
+                <input type="number" min={0} max={choice.max_quantity} step={1}
+                  aria-label={"Cantidad de "+choice.name}
+                  disabled={busy||!!eppDraft.invalid.length}
+                  value={eppDraft.quantities[i]||0}
+                  onChange={e=>{
+                    const amount=Number(e.target.value);
+                    if(!Number.isInteger(amount)||amount<0||amount>choice.max_quantity)return;
+                    const values=[...eppDraft.quantities];values[i]=amount;
+                    setExtras(old=>({...old,"event.epp_items":serializeEppDraft(eppOptions,values)}));
+                  }}/>
+              </label>)}</div>
+              <p>Deja en cero los elementos que no fueron entregados.</p>
+            </div>;
             const meta=FIELDMETA[key];
             const required=missing.includes(key);
             return <label key={key}>{meta?.label||key.replaceAll("."," · ")}
