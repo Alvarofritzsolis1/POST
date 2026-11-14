@@ -36,7 +36,8 @@ from .models import AuditEvent, User, utcnow
 from .ops_models import Contractor, ContractorWorksite, Worker, WorkerAssignment, Worksite
 from .security import administrator
 from .javiera_workbook_api import active_workbook, unarchived, raw_for, root_for, head_for, original_for
-from .javiera_workbook import cached_pdf, roles as workbook_roles
+from .javiera_workbook import cached_pdf, roles as workbook_roles, resolve_workbook_role
+from .javiera_excel import LayoutError
 from .javiera_workbook_models import JavieraArchive
 from .rut_format import format_rut
 
@@ -239,7 +240,13 @@ def evaluated(db: Session, user: User, data: dict, dossier_id: str | None,
             index = workbook_role_index[master.sha256]
             kind = "IRL" if code == "irl" else "PTS"
             approved = {key for key in approved if not key.startswith(kind + ":")}
-            if data.get("role", "") in index and kind in index[data["role"]]:
+            try:
+                resolve_workbook_role(index, str(data.get("role") or ""), kind)
+            except LayoutError:
+                pass
+            else:
+                # The workbook must already be published. Matching a source
+                # name must never approve an unpublished preventive matrix.
                 approved.add(kind + ":" + cargo)
     existing, history = set(), set()
     if dossier_id and not ignore_history:
@@ -275,7 +282,8 @@ def evaluated(db: Session, user: User, data: dict, dossier_id: str | None,
     results = eligibility(data, templates, approved, existing, history)
     native = active_workbook(db, user.org_id, published=True, code="irl")
     if native:
-        pending = [p['row'] for p in native.inventory.get('matrix_pending',[]) if p['role'] == data.get('role')]
+        pending = [p['row'] for p in native.inventory.get('matrix_pending',[])
+                   if normalize_cargo(p.get('role')) == cargo]
         if pending:
             row = next(item for item in results if item['code'] == 'irl')
             if row['applicability'] == 'aplica':
