@@ -309,11 +309,31 @@ def documentary_template_status(user: User = Depends(administrator),
         if item.state == "approved":
             published.setdefault(item.code, item)
     result = []
-    engine_available = bool(__import__("shutil").which("libreoffice") or
+    engine_available = bool(settings().javiera_calc_url or __import__("shutil").which("libreoffice") or
                             __import__("shutil").which("soffice"))
     for code, sheet in DOC_SHEETS.items():
         current = latest.get(code)
         approved = published.get(code)
+        master = active_workbook(db, user.org_id, published=True, code=code)
+        if master:
+            try:
+                raw_for(master)
+                state, message = (
+                    ("published", "Excel maestro publicado: plantilla y fórmulas disponibles.")
+                    if engine_available else
+                    ("engine_unavailable", "El motor de conversión PDF no está disponible.")
+                )
+            except HTTPException as exc:
+                state, message = "missing_storage", str(exc.detail)
+            result.append({
+                "code": code, "sheet": sheet, "linked": True,
+                "imported": True, "latest_revision": master.revision,
+                "approved_revision": master.revision, "state": state,
+                "message": message, "ready": state == "published",
+                "source_sha256": master.sha256,
+                "fields_detected": len(DOCUMENT_BY_CODE[code][4]),
+            })
+            continue
         source_exists = False
         if approved:
             safe_root = (settings().document_dir / user.org_id /
