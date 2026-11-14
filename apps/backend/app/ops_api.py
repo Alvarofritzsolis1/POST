@@ -321,7 +321,8 @@ def create_contractor(payload: ContractorCreate,
             if payload.nature == "independent" and has_active_workers(db, user.org_id, contractor.id):
                 raise HTTPException(409, "No se puede clasificar como independiente con trabajadores activos")
             original = {
-                "nature": contractor.nature, "frequency": existing_link.frequency,
+                "name": contractor.name, "nature": contractor.nature,
+                "frequency": existing_link.frequency,
                 "historical_code": existing_link.historical_code,
                 "contract_status": existing_link.contract_status,
             }
@@ -341,7 +342,8 @@ def create_contractor(payload: ContractorCreate,
                 "recovered_provisional_documentary_registration": True,
                 "previous": original,
                 "current": {
-                    "nature": contractor.nature, "frequency": existing_link.frequency,
+                    "name": contractor.name, "nature": contractor.nature,
+                    "frequency": existing_link.frequency,
                     "historical_code": existing_link.historical_code,
                     "contract_status": existing_link.contract_status,
                 },
