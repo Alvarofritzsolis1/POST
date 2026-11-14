@@ -168,8 +168,8 @@ def test_verified_irl_role_equivalences_are_explicit(role, summary_role):
 
 def test_native_pdf_fields_use_same_chilean_rut_format():
     data = {
-        "employer": {"rut": "123456789"},
-        "worker": {"rut": "12345678k"},
+        "employer": {"rut": "123456785"},
+        "worker": {"rut": "200000005"},
         "extra": {"representative_rut": "12925516-1"},
     }
     for key in ("employer.rut", "worker.rut", "extra.representative_rut"):
