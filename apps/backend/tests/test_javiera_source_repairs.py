@@ -100,7 +100,7 @@ def test_repair_api_creates_unpublished_revision_and_never_requires_another_uplo
             "expected_revision": result["revision"],
             "confirmation": "PLANTILLAS_PREVIAMENTE_APROBADAS",
         },
-    ).status_code == 409
+    ).status_code == 422  # La matriz sintética incompleta sigue bloqueada por validación técnica.
     assert client.post("/api/v1/javiera/workbook/" + result["id"] + "/repair-known-gaps",
         headers=headers, json={
             "expected_revision": result["revision"],
