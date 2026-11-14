@@ -616,6 +616,25 @@ def matrix_records(raw: bytes, role: str, kind: str) -> list[dict]:
             values = {re.match(r"[A-Z]+", c.get("r")).group(): cell_text(c, strings) for c in row.findall(Q("c"))}
             if values.get(col, "").strip() == role: rows.append({"row": int(row.get("r")), "values": values})
         if not rows: raise LayoutError("No existe información " + kind + " para la clave exacta del cargo seleccionado")
+        if kind == "IRL":
+            # El Excel histórico repite dos bloques de 13 riesgos para GASFITER.
+            # Una de las tareas usa el rótulo GASFITERIA en vez de GASFITER.
+            # Se colapsan SOLO actividades equivalentes con idénticos peligros,
+            # consecuencias y medidas; los controles diferentes se conservan.
+            seen: set[tuple[str, ...]] = set()
+            unique: list[dict] = []
+            for record in rows:
+                values = record["values"]
+                task = _irl_role_key(values.get("C", ""))
+                if _irl_role_key(role) == "GASFITER":
+                    task = re.sub(r"\\bGASFITERIA\\b", "GASFITER", task)
+                signature = (task, *(
+                    _irl_role_key(values.get(col, "")) for col in "DEF"
+                ))
+                if signature not in seen:
+                    seen.add(signature)
+                    unique.append(record)
+            rows = unique
         return rows
 
 
