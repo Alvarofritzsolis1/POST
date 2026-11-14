@@ -157,6 +157,9 @@ export default function JavieraSimple({onConfig,onBack}:{onConfig?:()=>void;onBa
   const [notice,setNotice]=useState("");
   const [preview,setPreview]=useState<LocalPreview|null>(null);
   const [issued,setIssued]=useState("");
+  const [history,setHistory]=useState<{issues:{id:string;code:string;issued_at:string}[];
+    legacy_issues:{id:string;code:string;issued_at:string}[]}|null>(null);
+  const [historyLoading,setHistoryLoading]=useState(false);
   const current=useRef<{signature:string;dossier:Dossier}|null>(null);
   const generation=useRef(0);
   const previewRef=useRef<LocalPreview|null>(null);
@@ -309,6 +312,14 @@ export default function JavieraSimple({onConfig,onBack}:{onConfig?:()=>void;onBa
       setNotice("Datos documentales actualizados desde GALANT. La siguiente vista previa será recalculada.");
     }catch(e){setError(friendly(e));}
     finally{setBusy(false);}
+  }
+  async function loadHistory(){
+    setHistoryLoading(true);setError("");
+    try{
+      setHistory(await request<{issues:{id:string;code:string;issued_at:string}[];
+        legacy_issues:{id:string;code:string;issued_at:string}[]}>(base+"/history"));
+    }catch(e){setError(friendly(e));}
+    finally{setHistoryLoading(false);}
   }
   function changeDocument(value:string){
     setCode(value);setExtras({});setShowExtras(false);setVerifiedNoWorkers(false);
@@ -514,8 +525,26 @@ export default function JavieraSimple({onConfig,onBack}:{onConfig?:()=>void;onBa
         <button type="button" className="jsm-primary" disabled={!ready||busy||!layout?.ready}
           onClick={()=>void run("issue")}>{busy?<Loader2 className="jsm-spin" size={18}/>:<Download size={18}/>} Generar PDF</button>
       </div>
-      <p className="jsm-footnote">Las matrices y documentos preventivos sin aprobación siguen bloqueados.
-        Los PDF emitidos se guardan de forma privada, sin firmas ficticias.</p>
+      <p className="jsm-footnote">Los PDF emitidos se guardan con su historial, sin firmas ficticias.</p>
+      <details className="jsm-extras">
+        <summary>Historial de PDF emitidos, incluidos los de versiones anteriores</summary>
+        <button type="button" className="jsm-secondary" disabled={historyLoading}
+          onClick={()=>void loadHistory()}>{historyLoading?"Consultando…":"Consultar historial"}</button>
+        {history&&<div className="jsm-history">
+          {history.legacy_issues.map(item=><p key={item.id}>
+            {LABELS[item.code]||item.code} · {item.issued_at.slice(0,10)} ·
+            <a target="_blank" rel="noreferrer"
+              href={"/api/v1/javiera/issued/"+encodeURIComponent(item.id)+"/pdf"}> Abrir PDF anterior</a>
+          </p>)}
+          {history.issues.map(item=><p key={item.id}>
+            {LABELS[item.code]||item.code} · {item.issued_at.slice(0,10)} ·
+            <a target="_blank" rel="noreferrer"
+              href={base.replace("/javiera","/api/v1/javiera")+"/issues/"+encodeURIComponent(item.id)+"/pdf"}>
+              Abrir PDF documental</a>
+          </p>)}
+          {!history.issues.length&&!history.legacy_issues.length&&<p>No hay PDF emitidos aún.</p>}
+        </div>}
+      </details>
     </section>}
     {preview&&<section className="jsm-preview" aria-label="Vista previa del PDF">
       <header><div><strong>Vista previa PDF</strong><small>Recepción: {Math.round(preview.elapsedMs)} ms (medición de esta solicitud, no tiempo garantizado)</small></div>
