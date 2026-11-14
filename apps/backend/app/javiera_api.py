@@ -721,7 +721,7 @@ def preview(data: Action, user: User = Depends(administrator), db: Session = Dep
             )
         _, template, title, body = prepared(db, user, record.id, data.code, True)
         raw = pdf_for(title, body, True, template.layout)
-    fingerprint = document_source_fingerprint(kind, source, record, db=db, org_id=user.org_id, code=code)
+    fingerprint = document_source_fingerprint(kind, source, record, db=db, org_id=user.org_id, code=data.code)
     published = kind != "structured" or bool(source and source.published_version)
     return Response(content=raw, media_type="application/pdf", headers={
         "Cache-Control": "no-store",
