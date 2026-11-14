@@ -293,8 +293,8 @@ def evaluated(db: Session, user: User, data: dict, dossier_id: str | None,
         faults = [entry for entry in preventive_audits[master.sha256]["findings"]
                   if entry["severity"] == "error" and entry["scope"] == scope
                   and normalize_cargo(entry["role"]) == cargo]
-        row = next(item for item in results if item["code"] == code)
-        if faults and row["applicability"] == "aplica":
+        row = next((item for item in results if item["code"] == code), None)
+        if row and faults and row["applicability"] == "aplica":
             positions = ", ".join(
                 entry["matrix"] + "!" + entry["cell"] for entry in faults[:5]
             )
