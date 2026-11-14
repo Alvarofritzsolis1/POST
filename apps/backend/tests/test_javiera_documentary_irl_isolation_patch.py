@@ -12,7 +12,7 @@ from app.javiera_logic import normalize_cargo
 from app.javiera_v194_api import lookup_role
 from app.javiera_workbook import resolve_workbook_role
 from app.ops_models import Contractor, ContractorWorksite, Worker, WorkerAssignment
-from test_control_api import env, login
+from test_control_api import env, login, create_company
 from test_platform import rut
 
 
@@ -105,3 +105,43 @@ def test_documentary_pdf_uses_published_workbook_engine(monkeypatch, tmp_path):
     assert engine == "workbook"
     assert paths == {"raw": b"workbook-qa", "code": "irl", "role": "TECHUMBRE",
                      "preview": True, "reference": b"source-qa"}
+
+
+
+def test_corrected_existing_contractor_and_worker_refresh_without_duplicate_registration(env):
+    """Regression for an existing company/worker corrected after first preparation."""
+    client, sessions = env
+    admin = login(client, "a@example.cl")
+    site = client.get("/api/v1/ops/sites").json()[0]["id"]
+    op_company = create_company(client, admin, site, "CT", "EMPRESA EXISTENTE QA")
+    op_person = client.post("/api/v1/ops/workers", headers=admin, json={
+        "site_id": site, "contractor_id": op_company["contractor_id"],
+        "name": "RENE ANTIGUO QA", "rut": rut(11333555),
+    })
+    assert op_person.status_code == 201
+    company_request = {"site_id": site, "origin": "operational",
+                       "source_id": op_company["contractor_id"]}
+    linked_company = client.post(BASE + "/companies", headers=admin, json=company_request)
+    assert linked_company.status_code == 200
+    person_request = {"company_id": linked_company.json()["id"],
+                      "origin": "operational",
+                      "source_id": op_person.json()["worker_id"]}
+    linked_person = client.post(BASE + "/people", headers=admin, json=person_request)
+    assert linked_person.status_code == 200
+
+    with sessions.begin() as db:
+        company = db.get(Contractor, op_company["contractor_id"])
+        person = db.get(Worker, op_person.json()["worker_id"])
+        company.name = "EMPRESA CORREGIDA QA"
+        person.name = "RENE CORREGIDO QA"
+    with sessions() as db:
+        before = _operational_count(db)
+    company_again = client.post(BASE + "/companies", headers=admin, json=company_request)
+    person_again = client.post(BASE + "/people", headers=admin, json=person_request)
+    assert company_again.status_code == person_again.status_code == 200
+    assert company_again.json()["id"] == linked_company.json()["id"]
+    assert person_again.json()["id"] == linked_person.json()["id"]
+    assert company_again.json()["name"] == "EMPRESA CORREGIDA QA"
+    assert person_again.json()["name"] == "RENE CORREGIDO QA"
+    with sessions() as db:
+        assert _operational_count(db) == before
