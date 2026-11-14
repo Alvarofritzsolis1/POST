@@ -16,7 +16,7 @@ type Dossier = {id:string;revision:number;data:Record<string,unknown>;site_id:st
 const emptySource:Source={sites:[],contractors:[],workers:[]};
 const statusText:Record<string,string>={
   POR_DETERMINAR:"Por determinar", NO_APLICA:"No aplica", FALTAN_DATOS:"Faltan datos",
-  PENDIENTE_REVISION:"Revisar configuración", PREVISUALIZABLE:"Vista previa disponible",
+  PENDIENTE_REVISION:"Completar información de matriz", PREVISUALIZABLE:"Vista previa disponible",
   LISTO_PARA_EMITIR:"Listo para PDF", EXISTENTE_POR_VERIFICAR:"Documento anterior",
   ERROR_TEMPORAL:"Validación no disponible", EMITIDO:"Emitido",
   VALIDANDO_PDF:"Comprobando PDF", BLOQUEADO_PLANTILLA:"Error de plantilla",

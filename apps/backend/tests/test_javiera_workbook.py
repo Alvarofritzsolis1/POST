@@ -91,15 +91,21 @@ def test_import_cas_history_restore_and_private_tenants(env, monkeypatch, tmp_pa
     assert client.get("/api/v1/javiera/workbook").status_code == 403
 
 
-def test_publication_needs_real_validation_and_independent_review(env, monkeypatch, tmp_path):
-    client, _, headers, first = prepare(env, monkeypatch, tmp_path)
-    body = {"expected_revision": first["revision"], "codes": ["labor_contract"]}
+def test_publication_uses_existing_approval_without_second_professional_signoff(env, monkeypatch, tmp_path):
+    client, sessions, headers, first = prepare(env, monkeypatch, tmp_path)
     path = "/api/v1/javiera/workbook/"+first["id"]+"/publish"
-    assert client.post(path, headers=headers, json=body).status_code == 403
-    other = login(client, "b@example.cl")
-    assert client.post(path, headers=other, json=body).status_code == 403
-    # An import is never a professional approval, nor a PDF compatibility proof.
-    assert client.get("/api/v1/javiera/workbook").json()["publications"] == {}
+    state = client.get("/api/v1/javiera/workbook").json()
+    assert state["publications"]["labor_contract"] == first["id"]
+    # The compatibility endpoint no longer requires an approval checkbox,
+    # other administrator, or manually recorded PDF validation.
+    result = client.post(path, headers=headers, json={
+        "expected_revision": first["revision"], "codes": ["labor_contract"]
+    })
+    assert result.status_code == 200, result.text
+    assert result.json()["ready"] is True
+    assert client.post(path, headers=headers, json={
+        "expected_revision": first["revision"], "codes": ["unknown"]
+    }).status_code == 422
 
 
 def test_reset_verified_backup_preserves_other_modules_and_restores(env, monkeypatch, tmp_path):

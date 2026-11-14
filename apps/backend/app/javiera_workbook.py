@@ -32,6 +32,7 @@ from .javiera_excel import (DOC_SHEETS, SOURCE_FIELDS, PTS_CELLS, LayoutError, Q
     sheet_files, typed_input, validate_xlsx, validate_cell_text, get_data, MANDANTE_PATTERN, protect_induction_evaluation_header)
 from .xlsx_package import preserve_namespaces
 from datetime import date
+from .javiera_logic import normalize_cargo
 
 MATRIX_SHEETS = {"IRL": ("MATRIZ IRL", "B"), "PTS": ("MATRIZ PTS", "A"),
     "PUESTOS": ("Matriz IRL Optimizada", "A"),
@@ -316,6 +317,27 @@ def roles(raw: bytes) -> dict:
                 if cargo and len(cargo) < 160:
                     result.setdefault(cargo, {}).setdefault(kind, []).append(n)
     return result
+
+
+def resolve_workbook_role(index: dict, entered_role: str, kind: str) -> str:
+    """Resolve an input specialty to ONE verified Excel source role.
+
+    The source contains ALBAÑIL, while the user can select ALBAÑILERÍA.
+    No fuzzy guesses, duplicate roles or implicit approvals are permitted.
+    """
+    requested = normalize_cargo(entered_role)
+    if not requested or kind not in MATRIX_SHEETS:
+        raise LayoutError("Selecciona un cargo con matriz preventiva existente")
+    if entered_role in index and kind in index[entered_role]:
+        return entered_role
+    candidates = [role for role, sections in index.items()
+                  if kind in sections and normalize_cargo(role) == requested]
+    if len(candidates) != 1:
+        raise LayoutError(
+            "No hay correspondencia única de " + entered_role +
+            " en la matriz " + kind + " del Excel publicado"
+        )
+    return candidates[0]
 
 
 # Equivalencias documentadas entre las DOS matrices de la plantilla de GALANT.
@@ -1169,11 +1191,24 @@ def cached_pdf(raw: bytes, code: str, data: dict, org_id: str, cache: Path, prev
         if path.is_file() and meta.is_file():
             report = json.loads(meta.read_text()); pdf = path.read_bytes()
             if report.get("sha256") == digest(pdf): return pdf, {**report, "cache_hit": True}
-        filled = fill_workbook(raw, data, code)
+        source_data = data
+        if code in {"irl", "pts", "pts_receipt"}:
+            source_role = resolve_workbook_role(
+                roles(raw), str(data.get("role") or ""),
+                "IRL" if code == "irl" else "PTS",
+            )
+            source_data = {**data, "role": source_role}
+        filled = fill_workbook(raw, source_data, code)
         continuation_sheets = []
-        if code == 'irl': filled, continuation_sheets = irl_continuations(filled, data.get('role', ''))
-        pdf, report = convert_pdf(filled, DOC_SHEETS[code], preview=preview,
-                                 extra_sheets=continuation_sheets, role=data.get('role', ''), code=code)
+        if code == "irl":
+            filled, continuation_sheets = irl_continuations(
+                filled, source_data.get("role", "")
+            )
+        pdf, report = convert_pdf(
+            filled, DOC_SHEETS[code], preview=preview,
+            extra_sheets=continuation_sheets,
+            role=source_data.get("role", ""), code=code,
+        )
         with fitz.open(stream=pdf,filetype='pdf') as document:
             printed = ' '.join(' '.join(page.get_text().casefold().split()) for page in document)
         if 'no emitir:' in printed:raise LayoutError('El Excel solicita antecedentes pendientes; emisión bloqueada')

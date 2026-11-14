@@ -36,7 +36,8 @@ from .models import AuditEvent, User, utcnow
 from .ops_models import Contractor, ContractorWorksite, Worker, WorkerAssignment, Worksite
 from .security import administrator
 from .javiera_workbook_api import active_workbook, unarchived, raw_for, root_for, head_for, original_for
-from .javiera_workbook import cached_pdf, roles as workbook_roles
+from .javiera_workbook import cached_pdf, roles as workbook_roles, resolve_workbook_role, audit_preventive_master
+from .javiera_excel import LayoutError
 from .javiera_workbook_models import JavieraArchive
 from .rut_format import format_rut
 
@@ -239,7 +240,13 @@ def evaluated(db: Session, user: User, data: dict, dossier_id: str | None,
             index = workbook_role_index[master.sha256]
             kind = "IRL" if code == "irl" else "PTS"
             approved = {key for key in approved if not key.startswith(kind + ":")}
-            if data.get("role", "") in index and kind in index[data["role"]]:
+            try:
+                resolve_workbook_role(index, str(data.get("role") or ""), kind)
+            except LayoutError:
+                pass
+            else:
+                # The workbook must already be published. Matching a source
+                # name must never approve an unpublished preventive matrix.
                 approved.add(kind + ":" + cargo)
     existing, history = set(), set()
     if dossier_id and not ignore_history:
@@ -273,14 +280,28 @@ def evaluated(db: Session, user: User, data: dict, dossier_id: str | None,
             JavieraHistory.org_id == user.org_id,
             JavieraHistory.dossier_id == dossier_id)).all())
     results = eligibility(data, templates, approved, existing, history)
-    native = active_workbook(db, user.org_id, published=True, code="irl")
-    if native:
-        pending = [p['row'] for p in native.inventory.get('matrix_pending',[]) if p['role'] == data.get('role')]
-        if pending:
-            row = next(item for item in results if item['code'] == 'irl')
-            if row['applicability'] == 'aplica':
-                row.update(status='PENDIENTE_REVISION',can_issue=False,can_preview=False,
-                           reason='Matriz IRL incompleta para este cargo; revisar filas '+', '.join(map(str,pending)))
+    # Template availability is automatic. Data quality is evaluated for the
+    # requested specialty only, so a defect in CARPINTERO never blocks ALBAÑIL.
+    preventive_audits = {}
+    for code in ("irl", "pts", "pts_receipt"):
+        master = active_workbook(db, user.org_id, published=True, code=code)
+        if not master:
+            continue
+        if master.sha256 not in preventive_audits:
+            preventive_audits[master.sha256] = audit_preventive_master(raw_for(master))
+        scope = "IRL" if code == "irl" else "PTS"
+        faults = [entry for entry in preventive_audits[master.sha256]["findings"]
+                  if entry["severity"] == "error" and entry["scope"] == scope
+                  and normalize_cargo(entry["role"]) == cargo]
+        row = next((item for item in results if item["code"] == code), None)
+        if row and faults and row["applicability"] == "aplica":
+            positions = ", ".join(
+                entry["matrix"] + "!" + entry["cell"] for entry in faults[:5]
+            )
+            row.update(
+                status="FALTAN_DATOS", can_issue=False, can_preview=False,
+                reason="Completa la información del cargo en " + positions,
+            )
     # Una declaración de ausencia de trabajadores no puede inferirse de una
     # ficha individual vacía: revisar también las asignaciones de la empresa.
     # La presencia de trabajadores activos es bloqueo conservador; para

@@ -15,8 +15,6 @@ type Edit={format?:CellFormat;cell:string;value?:string|number;formula?:string;s
 type Dossier={id:string;revision:number};
 type Plan={sha256:string;counts:Record<string,number>};
 type Reset={id:string;sha256:string;counts:Record<string,number>;created_at:string;restored:boolean};
-type Checklist={specialty:string;requirements:string[];legal_reference:string};
-type Reviewer={user_id:string;name:string};
 type Validation={code:string;result:{pages:number;elapsed_ms:number;images:number;formulas_checked:number}};
 type MatrixFinding={role:string;scope:"IRL"|"PTS";matrix:"IRL"|"PTS"|"PUESTOS";cell:string;code:string;message:string;severity:"error"|"warning"};
 type PreventiveAudit={roles_total:number;blocking_count:number;warning_count:number;findings:MatrixFinding[];sha256:string};
@@ -42,7 +40,7 @@ export default function JavieraWorkbookAdmin({onBack}:{onBack:()=>void}){
  const [state,setState]=useState<Workspace|null>(null),[tab,setTab]=useState<"templates"|"matrices"|"versions">("templates");
  const [releaseVersion,setReleaseVersion]=useState<string>("…");
  useEffect(()=>{void request<{version:string}>("/version").then(v=>setReleaseVersion(v.version)).catch(()=>setReleaseVersion("no disponible"));},[]);
- const [advanced,setAdvanced]=useState(false),[approvedConfirmed,setApprovedConfirmed]=useState(false);
+ const [advanced,setAdvanced]=useState(false);
  const [code,setCode]=useState("labor_contract"),[sheet,setSheet]=useState("Contrato Imprimible"),[grid,setGrid]=useState<Grid|null>(null);
  const [start,setStart]=useState(1),[selected,setSelected]=useState(""),[input,setInput]=useState(""),[formulaMode,setFormulaMode]=useState(false);
  const [inputDirty,setInputDirty]=useState(false);
@@ -56,9 +54,7 @@ export default function JavieraWorkbookAdmin({onBack}:{onBack:()=>void}){
  const [error,setError]=useState(""),[notice,setNotice]=useState(""),[busy,setBusy]=useState(false),[loading,setLoading]=useState(false);
  const [dossiers,setDossiers]=useState<Dossier[]>([]),[dossier,setDossier]=useState("");
  const [plan,setPlan]=useState<Plan|null>(null),[resets,setResets]=useState<Reset[]>([]),[resetReason,setResetReason]=useState("");
- const [reviewers,setReviewers]=useState<Reviewer[]>([]),[reviewerId,setReviewerId]=useState(""),[designation,setDesignation]=useState(""),[grantSpecialty,setGrantSpecialty]=useState("laboral");
- const [checklists,setChecklists]=useState<Checklist[]>([]),[specialty,setSpecialty]=useState("laboral"),[checks,setChecks]=useState<Record<string,boolean>>({}),[comments,setComments]=useState("");
- const [validations,setValidations]=useState<Validation[]>([]),[publishCodes,setPublishCodes]=useState<string[]>([]);
+ const [validations,setValidations]=useState<Validation[]>([]);
  const [preventiveAudit,setPreventiveAudit]=useState<PreventiveAudit|null>(null);
  const current=state?.current,edits=editHistory[cursor],dirty=Object.keys(edits).length>0||clauseDraft!==null||inputDirty;
  const path=current?"/javiera/workbook/"+current.id:"";
@@ -75,7 +71,7 @@ export default function JavieraWorkbookAdmin({onBack}:{onBack:()=>void}){
   return()=>{active=false;};
  },[path,sheet,start,current?.id,reloadKey]);
  useEffect(()=>{if(tab==="templates"&&current){void request<Dossier[]>("/javiera/dossiers").then(setDossiers).catch(e=>setError(message(e)));return;}if(tab!=="versions")return;
-  void Promise.all([request<Reviewer[]>("/javiera/admin/reviews/reviewers").then(setReviewers),request<Reset[]>("/javiera/workbook/reset/history").then(setResets),request<Checklist[]>("/javiera/admin/reviews/checklists").then(setChecklists),request<Dossier[]>("/javiera/dossiers").then(setDossiers),current?request<Validation[]>(path+"/validations").then(setValidations):Promise.resolve()]).catch(e=>setError(message(e)));
+  void Promise.all([request<Reset[]>("/javiera/workbook/reset/history").then(setResets),request<Dossier[]>("/javiera/dossiers").then(setDossiers),current?request<Validation[]>(path+"/validations").then(setValidations):Promise.resolve()]).catch(e=>setError(message(e)));
  },[tab,path,current?.id]);
  useEffect(()=>{const handler=(e:BeforeUnloadEvent)=>{if(dirty){e.preventDefault();e.returnValue="";}};window.addEventListener("beforeunload",handler);return()=>window.removeEventListener("beforeunload",handler);},[dirty]);
  const mutateMany=(changes:Edit[])=>{const next={...edits};for(const edit of changes)next[edit.cell]={...next[edit.cell],...edit,format:{...next[edit.cell]?.format,...edit.format}};if(Object.keys(next).length>500){setError("Esta revisión supera 500 celdas. Guarda los cambios actuales antes de continuar.");return;}setEditHistory(old=>[...old.slice(0,cursor+1),next]);setCursor(cursor+1);setNotice("");};
@@ -85,11 +81,11 @@ export default function JavieraWorkbookAdmin({onBack}:{onBack:()=>void}){
  function chooseDoc(next:string){navigate(()=>{setAdvanced(false);setCode(next);setSheet(state?.documents.find(d=>d.code===next)?.sheet||"");setStart(1);});}
  function chooseMatrix(kind:string,role=cargo){navigate(()=>{setAdvanced(false);setMatrix(kind);setSheet(matrixSheets[kind]);setStart(Math.max(1,(roleIndex[role]?.[kind]?.[0]||2)-1));});}
  async function action(fn:()=>Promise<void>){setBusy(true);setError("");setNotice("");try{await fn();}catch(e){setError(message(e));}finally{setBusy(false);}}
- async function upload(file:File){await action(async()=>{const form=new FormData();form.append("file",file);await request("/javiera/workbook/import?expected_revision="+(current?.revision||0),{method:"POST",body:form});clear();await refresh();setNotice("Excel importado. Original preservado. Habilita sus formatos si ya estaban aprobados.");});}
+ async function upload(file:File){await action(async()=>{const form=new FormData();form.append("file",file);await request("/javiera/workbook/import?expected_revision="+(current?.revision||0),{method:"POST",body:form});clear();await refresh();setNotice("Excel importado. Original preservado. Los formatos disponibles se han registrado automáticamente.");});}
  async function save(){if(!current)return;await action(async()=>{
   try{await request(path+"/edit",{method:"POST",body:JSON.stringify({expected_revision:current.revision,sheet,reason,edits:Object.values(edits)})});}
   catch(e){if(e instanceof ApiError&&e.status===409)setConflict(true);throw e;}
-  clear();await refresh();setNotice("Revisión guardada. Las fórmulas se recalcularán antes de generar PDF.");
+  clear();await refresh();setNotice("Revisión guardada y formatos actualizados. Las fórmulas se recalcularán antes de generar PDF.");
  });}
  function downloadDraft(){
   const copy={workbook_id:current?.id,revision:current?.revision,sheet,reason,edits:Object.values(edits),pending_cell:inputDirty?{cell:selected,content:input,formula:formulaMode}:null,pending_clause:clauseDraft};
@@ -135,7 +131,6 @@ export default function JavieraWorkbookAdmin({onBack}:{onBack:()=>void}){
   }catch(e){setError(message(e));}
  }
  function formatSelected(format:CellFormat){if(selected)mutate({cell:selected,format});}
- const activeChecklist=checklists.find(c=>c.specialty===specialty);
  const roleRows=new Set(cargo ? (roleIndex[cargo]?.[matrix] || []) : []);
  const editableEntries=(grid?.cells||[]).filter(x=>!x.formula&&x.type!=="n"&&String(x.value||"").trim().length>=2&&(tab!=="matrices"||!!cargo&&roleRows.has(x.row))).slice(0,24);
  const easyView=<section className="jw-easy" aria-label="Editor fácil">
@@ -181,7 +176,7 @@ export default function JavieraWorkbookAdmin({onBack}:{onBack:()=>void}){
    <div className="jw-summary"><div><span className="jw-excel-mark"><FileSpreadsheet size={21}/></span><div><strong>Excel maestro de Javiera</strong><small>Revisión {current.revision} · {current.inventory.sheet_count} hojas · {current.inventory.formula_count} fórmulas · {current.inventory.media_count} recursos gráficos</small></div></div><span className="jw-tag"><i className="jw-dot editable"/>Original preservado</span></div>
    {preventiveAudit&&preventiveAudit.blocking_count>0&&<section className="jw-error" role="alert">
     <strong>{preventiveAudit.blocking_count} problemas preventivos · {preventiveAudit.roles_total} cargos auditados</strong>
-    <p>Antes de habilitar IRL y PTS, revisa las celdas indicadas. No se asignarán medidas preventivas por suposición.</p>
+    <p>Estos datos se deben completar para generar correctamente el documento del cargo afectado. Los demás cargos continúan disponibles.</p>
     {preventiveAudit.findings.filter(x=>x.severity==="error").slice(0,12).map((finding,i)=><button key={finding.role+finding.cell+i} type="button" disabled={busy||dirty}
       onClick={()=>{setTab("matrices");setAdvanced(true);setCargo(finding.role);setMatrix(finding.matrix);setSheet(matrixSheets[finding.matrix]);
         const row=Number(finding.cell.match(/\d+/)?.[0]||2);setStart(Math.floor((row-1)/55)*55+1);setJump(finding.cell);}}>
@@ -193,7 +188,7 @@ export default function JavieraWorkbookAdmin({onBack}:{onBack:()=>void}){
        (x.code==="MISSING_SUMMARY"&&x.role==="IMPERMEABILIZADOR"))&&
     <section className="jw-panel" aria-label="Reparar matriz original">
       <h3>Recuperar datos de la plantilla corregida</h3>
-      <p>Conserva el Excel original y sus fórmulas, imágenes y áreas de impresión. Los cambios forman un borrador sujeto a aprobación preventiva.</p>
+      <p>Se conservan el Excel original, sus fórmulas, imágenes y áreas de impresión. Los formatos se actualizan automáticamente.</p>
       <button className="jw-primary" type="button" disabled={busy||dirty}
         onClick={()=>void action(async()=>{
           const result=await request<{corrected_cells:string[];revision:number}>(
@@ -204,20 +199,14 @@ export default function JavieraWorkbookAdmin({onBack}:{onBack:()=>void}){
               }),
             });
           clear();await refresh();setTab("versions");
-          setNotice("Revisión "+result.revision+" creada. Celdas reparadas: "+
-            result.corrected_cells.join(", ")+". Requiere aprobación preventiva antes de publicarse.");
+          setNotice("Revisión "+result.revision+" creada. Celdas recuperadas: "+
+            result.corrected_cells.join(", ")+". Los formatos se actualizan sin repetir aprobaciones.");
         })}>
         <ShieldCheck size={16}/> Recuperar datos sin volver a subir Excel
       </button>
     </section>}
    {tab==="matrices"&&!!current.inventory.matrix_pending?.some(p=>!cargo||p.role===cargo)&&<div className="jw-error" role="status">Hay filas con antecedentes preventivos pendientes en esta matriz. Completa y revisa los riesgos y medidas del cargo antes de habilitar su IRL.</div>}
    {tab==="templates"&&<>
-    {!Object.values(state.publications).some(Boolean)&&<section className="jw-approved-source">
-      <h2><ShieldCheck size={19}/> Excel maestro ya aprobado</h2>
-      <p>Si estas plantillas ya están aprobadas antes de cargarlas a GALANT, registra su habilitación una sola vez. Luego se podrán generar PDF sin repetir aprobaciones por expediente. No habilita cambios nuevos sin control de versiones.</p>
-      <label className="jw-check"><input type="checkbox" checked={approvedConfirmed} onChange={e=>setApprovedConfirmed(e.target.checked)}/> Confirmo que estas plantillas fueron aprobadas previamente.</label>
-      <button type="button" className="jw-primary" disabled={busy||!approvedConfirmed||!preventiveAudit||preventiveAudit.blocking_count>0} onClick={()=>void action(async()=>{await request(path+"/activate-approved-master",{method:"POST",body:JSON.stringify({expected_revision:current.revision,confirmation:"PLANTILLAS_PREVIAMENTE_APROBADAS"})});setApprovedConfirmed(false);await refresh();setNotice("Plantillas existentes habilitadas. No se solicitará aprobación repetida por expediente.");})}>Habilitar los 10 documentos existentes</button>
-    </section>}
     <div className="jw-workspace jw-simplified"><aside className="jw-documents"><div className="jw-side-title">DOCUMENTOS <span>{state.documents.length}</span></div>
       {state.documents.map(doc=><button key={doc.code} className={code===doc.code?"chosen":""} onClick={()=>chooseDoc(doc.code)}><FileText size={17}/><span>{titles[doc.code]||doc.code}<small>{state.publications[doc.code]===current.id?"Disponible para generar":state.publications[doc.code]?"Usa una versión anterior":"Sin habilitar"}</small></span></button>)}
       {advanced&&<div className="jw-aux"><label>Hoja del Excel<select value={sheet} onChange={e=>navigate(()=>{setSheet(e.target.value);setStart(1);})}>{current.inventory.sheets.map(s=><option key={s.name}>{s.name}</option>)}</select></label></div>}
@@ -225,13 +214,16 @@ export default function JavieraWorkbookAdmin({onBack}:{onBack:()=>void}){
    </>}
    {tab==="matrices"&&<><section className="jw-matrix-heading"><div><h2>Información del cargo y sus matrices</h2><p>Selecciona un cargo y modifica sus datos; las fórmulas y relaciones se conservarán.</p></div><label>Cargo o especialidad<select aria-label="Cargo o especialidad" value={cargo} onChange={e=>{const role=e.target.value;navigate(()=>{setCargo(role);setSheet(matrixSheets[matrix]);setStart(Math.max(1,(roleIndex[role]?.[matrix]?.[0]||2)-1));});}}><option value="">Todos los cargos</option>{Object.keys(roleIndex).sort().map(role=><option key={role}>{role}</option>)}</select></label></section><div className="jw-workspace"><aside className="jw-documents"><div className="jw-side-title">MATRICES ORIGINALES</div>{Object.keys(matrixSheets).map(kind=><button key={kind} className={matrix===kind?"chosen":""} onClick={()=>chooseMatrix(kind)}><Layers3 size={17}/><span>{matrixNames[kind]}<small>{cargo?(roleIndex[cargo]?.[kind]?.length||0)+" filas vinculadas":matrixSheets[kind]}</small></span></button>)}<p className="jw-side-note">Se utiliza la clave exacta del cargo en el Excel. Mantén los antecedentes técnicos y preventivos correctos.</p></aside>{advanced?<div className="jw-advanced-wrap"><button type="button" onClick={()=>{if(!dirty)setAdvanced(false);else setError("Guarda o descarta los cambios antes de salir.");}}><ArrowLeft size={15}/> Volver al editor sencillo</button>{gridView}</div>:easyView}</div></>}
    {tab==="versions"&&<div className="jw-settings">
-    <section className="jw-panel"><h2><ShieldCheck size={20}/> Revisión y publicación</h2><p>Primero comprueba cada PDF con un expediente real. Un responsable distinto del autor registra la revisión profesional.</p><div className="jw-two"><label>Expediente para vista previa<select aria-label="Expediente para vista previa" value={dossier} onChange={e=>setDossier(e.target.value)}><option value="">Selecciona un expediente guardado</option>{dossiers.map(d=><option value={d.id} key={d.id}>Expediente {d.id.slice(0,8)} · revisión {d.revision}</option>)}</select></label><label>Documento<select value={code} onChange={e=>setCode(e.target.value)}>{state.documents.map(d=><option value={d.code} key={d.code}>{titles[d.code]}</option>)}</select></label></div><button disabled={!dossier||busy} onClick={()=>void action(async()=>{await openPdf("/"+current.id+"/preview",{code,dossier_id:dossier});setValidations(await request<Validation[]>(path+"/validations"));setNotice("Vista previa generada y recálculo comprobado. Revisa visualmente el documento antes de aprobarlo.");})}><Eye size={16}/> Comprobar PDF</button>
-     <div className="jw-review"><label>Especialidad<select value={specialty} onChange={e=>{setSpecialty(e.target.value);setChecks({});}}><option value="laboral">Revisión laboral</option><option value="prevencion">Prevención de riesgos</option></select></label>{activeChecklist?.requirements.map(c=><label className="jw-check" key={c}><input type="checkbox" checked={!!checks[c]} onChange={e=>setChecks({...checks,[c]:e.target.checked})}/>{c.replaceAll("_"," ")}</label>)}<label>Observaciones de la revisión<textarea rows={3} value={comments} onChange={e=>setComments(e.target.value)} placeholder="Registra la evidencia y el resultado de tu revisión"/></label><button disabled={busy||comments.trim().length<40||!activeChecklist?.requirements.every(c=>checks[c])} onClick={()=>void action(async()=>{await request("/javiera/admin/reviews/signoff",{method:"POST",body:JSON.stringify({resource_kind:"workbook",resource_id:current.id,specialty,verdict:"approved",checklist:checks,comments,regulatory_basis:activeChecklist?.legal_reference})});setNotice("Acta de revisión registrada por el responsable autorizado.");})}>Registrar acta de revisión</button></div>
-     <div className="jw-publish"><h3>Documentos comprobados</h3>{validations.length===0?<p>Aún no hay vistas previas comprobadas para esta revisión.</p>:validations.map(v=><label className="jw-check" key={v.code}><input type="checkbox" checked={publishCodes.includes(v.code)} onChange={e=>setPublishCodes(old=>e.target.checked?[...old,v.code]:old.filter(c=>c!==v.code))}/><span>{titles[v.code]}<small>{v.result.pages} páginas · {v.result.formulas_checked} fórmulas comprobadas · {(v.result.elapsed_ms/1000).toFixed(2)} s</small></span></label>)}<button className="jw-primary" disabled={busy||!publishCodes.length} onClick={()=>void action(async()=>{await request(path+"/publish",{method:"POST",body:JSON.stringify({expected_revision:current.revision,codes:publishCodes})});await refresh();setNotice("Documentos publicados con su revisión y auditoría.");})}>Publicar documentos seleccionados</button></div>
+    <section className="jw-panel"><h2><ShieldCheck size={20}/> Documentos y pruebas</h2><p>Los formatos del Excel maestro quedan disponibles automáticamente. GALANT verifica cada PDF antes de emitirlo.</p><div className="jw-two"><label>Expediente para vista previa<select aria-label="Expediente para vista previa" value={dossier} onChange={e=>setDossier(e.target.value)}><option value="">Selecciona un expediente guardado</option>{dossiers.map(d=><option value={d.id} key={d.id}>Expediente {d.id.slice(0,8)} · revisión {d.revision}</option>)}</select></label><label>Documento<select value={code} onChange={e=>setCode(e.target.value)}>{state.documents.map(d=><option value={d.code} key={d.code}>{titles[d.code]}</option>)}</select></label></div><button disabled={!dossier||busy} onClick={()=>void action(async()=>{await openPdf("/"+current.id+"/preview",{code,dossier_id:dossier});setValidations(await request<Validation[]>(path+"/validations"));setNotice("Vista previa generada y recálculo comprobado. El formato está disponible sin aprobación adicional.");})}><Eye size={16}/> Comprobar PDF</button>
+     <div className="jw-publish" aria-live="polite">
+       <h3>PDF verificados automáticamente</h3>
+       {validations.length===0?<p>Los PDF se comprueban al generar una vista previa o emitir un documento. No necesitas aprobar formatos nuevamente.</p>:
+         validations.map(v=><p key={v.code}><b>{titles[v.code]}</b> · {v.result.pages} páginas · {v.result.formulas_checked} fórmulas comprobadas</p>)}
+     </div>
     </section>
     <section className="jw-panel"><h2><History size={20}/> Historial del Excel</h2><p>Restaurar crea una revisión nueva. Los documentos emitidos conservan su versión original.</p>{revisions.map(r=><div className="jw-revision" key={r.id}><div><strong>Revisión {r.revision}</strong><small>{new Date(r.created_at).toLocaleString("es-CL")}</small><p>{r.reason}</p><code title={r.sha256}>SHA256 {r.sha256.slice(0,16)}…</code></div>{r.id===current.id?<span className="jw-tag">Actual</span>:<button disabled={busy} onClick={()=>void action(async()=>{await request("/javiera/workbook/"+r.id+"/restore",{method:"POST",body:JSON.stringify({expected_revision:current.revision,reason:"Restauración administrativa de la revisión "+r.revision})});clear();await refresh();setNotice("Versión recuperada como nueva revisión pendiente de publicación.");})}>Restaurar</button>}</div>)}<details><summary>Inventario técnico verificable</summary><div className="jw-inventory">{current.inventory.sheets.map(s=><p key={s.name}><b>{s.name}</b> · {s.formulas} fórmulas · {s.merged.length} combinaciones · {s.print_areas.length} áreas de impresión</p>)}</div></details><div className="jw-engine"><Settings2 size={16}/>{state.engine.name} · {state.engine.available?"Disponible":"Pendiente de instalación"}</div><label className="jw-upload"><Upload size={16}/> Importar otro Excel como revisión nueva<input type="file" accept=".xlsx" disabled={busy} onChange={e=>{const f=e.target.files?.[0];if(f)void upload(f);e.target.value="";}}/></label></section>
     <section className="jw-panel jw-reset"><h2><RefreshCw size={20}/> Empezar con documentos vacíos</h2><p>Archiva los expedientes y PDF anteriores de Javiera después de crear y verificar un respaldo. Conserva las empresas, trabajadores, obras y los documentos sujetos a conservación.</p><button disabled={busy} onClick={()=>void action(async()=>{setPlan(await request<Plan>("/javiera/workbook/reset/plan"));})}>Preparar limpieza de Javiera</button>{plan&&<div className="jw-reset-plan"><p><b>{plan.counts.dossier} expedientes · {plan.counts.issue} PDF generados · {plan.counts.history} documentos anteriores</b></p><p>La operación es reversible y afecta exclusivamente a Javiera.</p><label>Motivo del reinicio<input value={resetReason} onChange={e=>setResetReason(e.target.value)} placeholder="Por ejemplo: comenzar con el nuevo Excel maestro"/></label><button disabled={busy||resetReason.trim().length<10} onClick={()=>void action(async()=>{const result=await request<{backup_sha256:string}>("/javiera/workbook/reset/execute",{method:"POST",body:JSON.stringify({plan_sha256:plan.sha256,reason:resetReason})});setPlan(null);setResets(await request<Reset[]>("/javiera/workbook/reset/history"));setDossiers([]);setDossier("");await refresh();setNotice("Javiera reiniciada. Respaldo verificado: "+result.backup_sha256.slice(0,20)+"…");})}>Respaldar y vaciar documentos de Javiera</button></div>}{resets.map(r=><div className="jw-revision" key={r.id}><div><strong>Reinicio {new Date(r.created_at).toLocaleDateString("es-CL")}</strong><small>Respaldo SHA256 {r.sha256.slice(0,16)}…</small></div><button disabled={r.restored||busy} onClick={()=>void action(async()=>{await request("/javiera/workbook/reset/"+r.id+"/restore",{method:"POST"});setResets(await request<Reset[]>("/javiera/workbook/reset/history"));await refresh();setNotice("Expedientes y documentos anteriores restaurados.");})}>{r.restored?"Restaurado":"Restaurar documentos"}</button></div>)}</section>
-    <details className="jw-panel jw-wide"><summary>Administrar responsables de revisión</summary><div className="jw-two"><label>Responsable<select aria-label="Responsable de revisión" value={reviewerId} onChange={e=>setReviewerId(e.target.value)}><option value="">Selecciona otro administrador</option>{reviewers.map(r=><option key={r.user_id} value={r.user_id}>{r.name}</option>)}</select></label><label>Especialidad de la designación<select value={grantSpecialty} onChange={e=>setGrantSpecialty(e.target.value)}><option value="laboral">Laboral</option><option value="prevencion">Prevención de riesgos</option></select></label><label>Designación profesional<input value={designation} onChange={e=>setDesignation(e.target.value)} placeholder="Registra el cargo y alcance de su designación"/></label></div><button disabled={busy||!reviewerId||designation.trim().length<12} onClick={()=>void action(async()=>{await request("/javiera/admin/reviews/reviewers",{method:"PUT",body:JSON.stringify({user_id:reviewerId,specialty:grantSpecialty,designation,active:true})});setNotice("Responsable designado y registrado en auditoría.");})}>Guardar designación</button></details>
+
    </div>}
   </>}
   <footer className="jw-footer"><ShieldCheck size={14}/> Archivos privados por organización. Generar un PDF no registra firmas, recepciones ni capacitaciones.</footer>
