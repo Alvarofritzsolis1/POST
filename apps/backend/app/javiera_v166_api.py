@@ -204,7 +204,10 @@ def _status(db, user, record, code):
     # an unrelated text template merely because that text was published.
     newest = latest_layout(db, user.org_id, code, approved=False)
     enabled = latest_layout(db, user.org_id, code)
-    if newest and (not enabled or newest.revision > enabled.revision):
+    # Una maqueta Excel antigua en borrador no debe bloquear un maestro
+    # más reciente ya publicado para este código: era un bloqueo obsoleto.
+    if (not active_workbook(db, user.org_id, published=True, code=code)
+            and newest and (not enabled or newest.revision > enabled.revision)):
         item.update(status="PENDIENTE_REVISION",
                     reason="El diseño vigente requiere una revisión visual antes de imprimir.",
                     can_issue=False, can_preview=False)
