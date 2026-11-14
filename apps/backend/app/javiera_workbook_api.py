@@ -336,7 +336,14 @@ def get_roles(ident: str, user: User = Depends(administrator), db: Session = Dep
 @router.get("/{ident}/audit/preventive")
 def audit_preventive(ident: str, user: User = Depends(administrator),
                      db: Session = Depends(get_db)):
-    return audit_preventive_master(raw_for(workbook(db, user, ident)))
+    obj = workbook(db, user, ident)
+    raw = raw_for(obj)
+    report = audit_preventive_master(raw)
+    # The user's corrected workbook already supplied these exact values.
+    # Expose a guarded recovery option; no approval or fresh import required.
+    repairs, cells = proposed_repairs(raw)
+    report["recovery"] = {"available": bool(repairs), "cells": cells}
+    return report
 
 
 @router.post("/{ident}/calculate-sheet")
