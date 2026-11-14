@@ -22,12 +22,13 @@ from .javiera_excel import DOC_SHEETS, MAX_FILE, LayoutError
 from .javiera_models import (JavieraDossier, JavieraIssue, JavieraHistory, JavieraTemplate,
     JavieraRevision, JavieraMatrix, JavieraExcelLayout, JavieraSignoff, JavieraReviewerAuthorization)
 from .javiera_workbook import (MATRIX_SHEETS, cached_pdf, convert_pdf, digest, edit_workbook,
-    inventory, read_sheet, resolve_sheet, roles, repair_master, clean_master, run_calc, CONVERSIONS, fill_workbook)
+    inventory, read_sheet, resolve_sheet, roles, audit_preventive_master, repair_master, clean_master, run_calc, CONVERSIONS, fill_workbook)
 from .javiera_workbook_models import (JavieraWorkbook, JavieraWorkbookHead,
     JavieraWorkbookValidation, JavieraReset, JavieraArchive)
 from .models import AuditEvent, User, utcnow
 from .security import administrator
 from .xlsx_package import compatible_package
+from .javiera_repair_catalog import proposed_repairs
 
 router = APIRouter(prefix="/api/v1/javiera/workbook", tags=["Javiera · Excel maestro"])
 
@@ -133,8 +134,35 @@ def unarchived(model, org_id: str, kind: str):
         JavieraArchive.org_id == org_id, JavieraArchive.kind == kind))
 
 
+def check_print_areas(report: dict, codes: list[str] | None = None) -> None:
+    """No permitir documentos sin sus límites aprobados para impresión.
+
+    Se ejecuta al importar, guardar revisiones y publicar; un XLSX exportado
+    por un editor que pierde definedNames ya no puede generar PDFs inválidos.
+    """
+    wanted = {DOC_SHEETS[code] for code in (codes or list(DOC_SHEETS))}
+    missing = [row["name"] for row in report["sheets"]
+               if row["name"].strip() in wanted and not row.get("print_areas")]
+    if missing:
+        raise LayoutError(
+            "El Excel perdió el área de impresión de: " +
+            ", ".join(sorted(missing)) +
+            ". Recupera las áreas desde la plantilla original antes de importar."
+        )
+
+
 def write_revision(db, user, raw, reason, expected: int, parent: JavieraWorkbook | None = None, *, commit: bool = True):
-    report = inventory(raw); ident = str(uuid4()); revision = expected + 1
+    report = inventory(raw)
+    check_print_areas(report)
+    if parent is not None:
+        old = parent.inventory
+        if report["media"] != old.get("media", []):
+            raise LayoutError("Una imagen original se perdió o cambió; restaura la plantilla y repite la edición.")
+        old_prints = {row["name"]: row["print_areas"] for row in old["sheets"] if row.get("print_areas")}
+        new_prints = {row["name"]: row["print_areas"] for row in report["sheets"] if row.get("print_areas")}
+        if old_prints != new_prints:
+            raise LayoutError("Las áreas de impresión cambiaron o desaparecieron; conserva las del Excel aprobado.")
+    ident = str(uuid4()); revision = expected + 1
     head = head_for(db, user.org_id)
     if head is None:
         if expected != 0: raise HTTPException(409, "El libro cambió; recarga antes de guardar")
@@ -193,8 +221,11 @@ async def import_workbook(expected_revision: int = 0, file: UploadFile = File(..
     try:
         report = inventory(raw)
         names = {s["name"].strip() for s in report["sheets"]}
-        required = {"Datos Contrato", "Contrato Imprimible", "MATRIZ IRL", "MATRIZ PTS"}
-        if not required.issubset(names): raise LayoutError("Faltan hojas maestras de contratación y matrices")
+        required = {"Datos Contrato", "MATRIZ IRL", "MATRIZ PTS", "Matriz IRL Optimizada", *DOC_SHEETS.values()}
+        missing = required - names
+        if missing:
+            raise LayoutError("El Excel maestro está incompleto. Faltan hojas IRL/PTS o documentos: " + ", ".join(sorted(missing)))
+        check_print_areas(report)
         # Finish both packages before making either revision active.
         repaired, notes = repair_master(raw)
         repaired = clean_master(repaired)
@@ -213,10 +244,46 @@ async def import_workbook(expected_revision: int = 0, file: UploadFile = File(..
     return summary(obj)
 
 
+class KnownRepairInput(Strict):
+    expected_revision: int = Field(ge=1)
+    confirmation: Literal["CREAR_BORRADOR_PREVENTIVO"]
+
+
 class ApprovedMasterInput(Strict):
     """Declara la aprobación previa del Excel sin fingir una nueva revisión profesional."""
     expected_revision: int = Field(ge=1)
     confirmation: Literal["PLANTILLAS_PREVIAMENTE_APROBADAS"]
+
+
+@router.post("/{ident}/repair-known-gaps")
+def repair_known_gaps(ident: str, payload: KnownRepairInput,
+                      user: User = Depends(administrator),
+                      db: Session = Depends(get_db)):
+    """Create a new draft from verified source fixes; keep original immutable."""
+    obj = workbook(db, user, ident)
+    head = db.scalar(select(JavieraWorkbookHead).where(
+        JavieraWorkbookHead.org_id == user.org_id).with_for_update())
+    if not head or head.current_id != obj.id or obj.revision != payload.expected_revision:
+        raise HTTPException(409, "El Excel cambió. Abre la revisión actual antes de reparar")
+    raw = compatible_package(raw_for(obj), original_for(db, obj))
+    try:
+        changes, details = proposed_repairs(raw)
+        if not changes:
+            raise HTTPException(409, "No existen reparaciones verificadas pendientes")
+        for sheet, edits in changes.items():
+            raw = edit_workbook(raw, sheet, edits)
+        corrected = write_revision(
+            db, user, raw,
+            "Reparación preventiva documentada, pendiente de aprobación: " +
+            ", ".join(details)[:520],
+            obj.revision, obj,
+        )
+    except LayoutError as exc:
+        raise HTTPException(422, str(exc)) from None
+    return {
+        **summary(corrected), "corrected_cells": details,
+        "pending_professional_approval": True,
+    }
 
 
 @router.post("/{ident}/activate-approved-master")
@@ -234,9 +301,19 @@ def activate_approved_master(ident: str, payload: ApprovedMasterInput,
         raise HTTPException(409, "El Excel cambió. Vuelve a abrir la versión actual")
     if any(head.publications.values()):
         raise HTTPException(409, "Ya hay plantillas publicadas. Las revisiones nuevas requieren el control habitual")
+    if "Reparación preventiva documentada" in obj.reason:
+        raise HTTPException(409, "Las correcciones preventivas requieren aprobación independiente")
     # Verifica en disco el SHA-256 y la procedencia del maestro original.
-    raw_for(obj)
+    raw = raw_for(obj)
     original_for(db, obj)
+    check_print_areas(obj.inventory)
+    preventive = audit_preventive_master(raw)
+    if preventive["blocking_count"]:
+        raise HTTPException(422, {
+            "error": "El Excel conserva matrices preventivas incompletas o sin asociación",
+            "blocking_count": preventive["blocking_count"],
+            "issues": [x for x in preventive["findings"] if x["severity"] == "error"][:50],
+        })
     existing = {sheet["name"].strip() for sheet in obj.inventory.get("sheets", [])}
     missing = sorted(set(DOC_SHEETS.values()) - existing)
     if missing:
@@ -273,6 +350,12 @@ def get_sheet(ident: str, name: str, start: int = 1, count: int = 60,
 @router.get("/{ident}/roles")
 def get_roles(ident: str, user: User = Depends(administrator), db: Session = Depends(get_db)):
     return roles(raw_for(workbook(db, user, ident)))
+
+
+@router.get("/{ident}/audit/preventive")
+def audit_preventive(ident: str, user: User = Depends(administrator),
+                     db: Session = Depends(get_db)):
+    return audit_preventive_master(raw_for(workbook(db, user, ident)))
 
 
 @router.post("/{ident}/calculate-sheet")
@@ -362,8 +445,21 @@ def publish(ident: str, payload: PublishInput, user: User = Depends(administrato
     head = db.scalar(select(JavieraWorkbookHead).where(JavieraWorkbookHead.org_id==user.org_id).with_for_update())
     if obj.id != head.current_id or obj.revision != payload.expected_revision: raise HTTPException(409, "La revisión actual cambió")
     if obj.author_id == user.id: raise HTTPException(403, "Otro administrador debe revisar y publicar el Excel")
+    preventive = (audit_preventive_master(raw_for(obj)) if
+                  any(c in {"irl", "pts", "pts_receipt"} for c in payload.codes)
+                  else None)
     for code in payload.codes:
         if code not in DOC_SHEETS: raise HTTPException(422, "Documento desconocido")
+        check_print_areas(obj.inventory, [code])
+        if preventive and code in {"irl", "pts", "pts_receipt"}:
+            target = "IRL" if code == "irl" else "PTS"
+            errors = [entry for entry in preventive["findings"]
+                      if entry["scope"] == target and entry["severity"] == "error"]
+            if errors:
+                raise HTTPException(422, {
+                    "error": "No se puede publicar " + target + " con matrices incompletas",
+                    "blocking_count": len(errors), "issues": errors[:50],
+                })
         require_signoff(db, user, "workbook", obj.id, specialty_for_code(code))
         result = db.scalar(select(JavieraWorkbookValidation).where(
             JavieraWorkbookValidation.org_id == user.org_id,

@@ -16,7 +16,7 @@ from app.javiera_native import render_native_pdf
 def _data():
     return {
         "employer": {"name": "EMPRESA SINTETICA DE CONSTRUCCION SPA", "rut": "76000000-0"},
-        "worker": {"name": "PERSONA SINTETICA PARA PRUEBAS", "rut": "20000000-0"},
+        "worker": {"name": "PERSONA SINTETICA PARA PRUEBAS", "rut": "20000000-5"},
         "site": {"name": "OBRA DE PRUEBAS A4"},
         "role": "PINTOR",
         "event": {"date": "2026-11-11"},

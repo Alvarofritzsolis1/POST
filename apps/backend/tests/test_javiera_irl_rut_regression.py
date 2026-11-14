@@ -10,7 +10,8 @@ from openpyxl import load_workbook
 
 from app.javiera_excel import LayoutError, Q, cell_text, get_data, shared_strings, sheet_files
 from app.javiera_logic import field, rut_valid
-from app.javiera_workbook import fill_workbook, irl_continuations
+from app.javiera_workbook import (fill_workbook, irl_continuations, irl_risk_print_rows,
+    IRL_PRINT_RISK_ROWS, convert_pdf, validate_calculated, validate_matrix_results)
 from app.rut_format import format_rut
 from app.javiera_native import _get as native_field
 from test_javiera_workbook import master
@@ -167,9 +168,140 @@ def test_verified_irl_role_equivalences_are_explicit(role, summary_role):
 
 def test_native_pdf_fields_use_same_chilean_rut_format():
     data = {
-        "employer": {"rut": "123456789"},
-        "worker": {"rut": "12345678k"},
+        "employer": {"rut": "123456785"},
+        "worker": {"rut": "200000005"},
         "extra": {"representative_rut": "12925516-1"},
     }
     for key in ("employer.rut", "worker.rut", "extra.representative_rut"):
         assert native_field(data, key) == get_data(data, key)
+
+
+def realistic_irl_13_risks() -> bytes:
+    """Celdas y saltos del IRL original, con DATOS SINTÉTICOS."""
+    role = "ESTRUCTURERO METÁLICO"
+    book = load_workbook(io.BytesIO(source_with_broken_summary(
+        role=role, available="ESTRUCTURAS METALICAS"
+    )))
+    matrix = book["MATRIZ IRL"]
+    for source_row in range(2, 15):
+        matrix[f"B{source_row}"] = role
+        for c, title in (
+            ("C", "Actividad"), ("D", "Peligro"),
+            ("E", "Consecuencia"), ("F", "Medida")
+        ):
+            matrix[f"{c}{source_row}"] = f"{title} sintetica unica {source_row}"
+    sheet = book["IRL"]
+    from openpyxl.styles import Alignment, Font
+    for col, width in {"A": 24.3, "B": 20.9, "C": 22.6, "D": 30.7}.items():
+        sheet.column_dimensions[col].width = width
+    for rowno in IRL_PRINT_RISK_ROWS:
+        sheet.row_dimensions[rowno].height = 92
+        for col in "ABCD":
+            sheet[f"{col}{rowno}"].alignment = Alignment(wrap_text=True, vertical="top")
+            sheet[f"{col}{rowno}"].font = Font(name="Arial", size=8)
+    sheet.sheet_properties.pageSetUpPr.fitToPage = True
+    sheet.page_setup.fitToWidth = 1
+    sheet.page_setup.fitToHeight = 0
+    sheet["A34"] = "DEPARTAMENTO DE PREVENCION DE RIESGOS"
+    sheet["A37"] = "2 - RIESGOS Y MEDIDAS PREVENTIVAS"
+    sheet["D40"] = "Medidas Preventivas Obligatorias"
+    sheet.print_area = "A1:D67"
+    for target_row in IRL_PRINT_RISK_ROWS:
+        for dest_col, src_col in zip("ABCD", "CDEF"):
+            sheet[f"{dest_col}{target_row}"] = (
+                "=IF('MATRIZ IRL'!$B$2='Datos Contrato'!$C$29,"
+                "'MATRIZ IRL'!$" + src_col + "$2,\"\")"
+            )
+    out = io.BytesIO()
+    book.save(out)
+    return out.getvalue()
+
+
+def test_original_irl_print_positions_and_unused_continuation_are_exact():
+    raw = realistic_irl_13_risks()
+    filled = fill_workbook(raw, {"role": "ESTRUCTURERO METÁLICO"}, "irl")
+    expanded, names = irl_continuations(filled, "ESTRUCTURERO METÁLICO")
+    assert names == ["IRL continuación 1"]
+    assert "'MATRIZ IRL'!$C$2" in formula_at(expanded, "IRL", "A39")
+    assert "'MATRIZ IRL'!$C$13" in formula_at(expanded, "IRL", "A67")
+    assert "'MATRIZ IRL'!$C$14" in formula_at(expanded, names[0], "A39")
+    assert formula_at(expanded, names[0], "A41") is None
+    assert formula_at(expanded, names[0], "A45") is None
+    assert formula_at(expanded, names[0], "A23") == "'Matriz IRL Optimizada'!$B$2"
+    with ZipFile(io.BytesIO(expanded)) as archive:
+        files = sheet_files(archive)
+        continuation = ET.fromstring(archive.read(files[names[0]]))
+        assert "Medidas Preventivas Obligatorias" in cell_text(
+            continuation.find(".//" + Q("c") + "[@r='D40']"),
+            shared_strings(archive)
+        )
+        assert "CONTINUACIÓN 1" in cell_text(
+            continuation.find(".//" + Q("c") + "[@r='A37']"),
+            shared_strings(archive)
+        )
+        workbook = ET.fromstring(archive.read("xl/workbook.xml"))
+        print_areas = [node.text for node in workbook.findall(".//" + Q("definedName"))
+                       if node.get("name") == "_xlnm.Print_Area"]
+        assert "'IRL continuación 1'!$A$34:$D$39" in print_areas
+
+
+def test_real_irl_layout_rejects_missing_risk_print_rows():
+    book = load_workbook(io.BytesIO(realistic_irl_13_risks()))
+    book["IRL"]["A41"] = ""
+    out = io.BytesIO()
+    book.save(out)
+    filled = fill_workbook(out.getvalue(), {"role": "ESTRUCTURERO METÁLICO"}, "irl")
+    with pytest.raises(LayoutError, match="incompletas o desordenadas"):
+        irl_continuations(filled, "ESTRUCTURERO METÁLICO")
+
+
+def test_irl_13_risks_recalculate_and_print_without_duplicates():
+    """CI real: LibreOffice + PDF deben imprimir trece registros, una sola vez."""
+    import shutil
+    if not (shutil.which("libreoffice") or shutil.which("soffice")):
+        pytest.skip("LibreOffice no instalado fuera de CI Docker")
+    data = {
+        "role": "ESTRUCTURERO METÁLICO",
+        "employer": {"name": "EMPRESA SINTETICA QA", "rut": "12.345.678-5"},
+        "worker": {"name": "TRABAJADOR SINTETICO QA", "rut": "12.345.678-5"},
+        "site": {"name": "OBRA SINTETICA QA"},
+        "event": {"date": "2026-11-14"},
+    }
+    filled = fill_workbook(realistic_irl_13_risks(), data, "irl")
+    expanded, names = irl_continuations(filled, data["role"])
+    pdf, report = convert_pdf(expanded, "IRL", extra_sheets=names,
+                              role=data["role"], code="irl")
+    assert report["matrix_verified"] is True
+    assert report["printed_matrix_fields"] == 52
+    assert report["pages"] >= 1
+    import fitz
+    with fitz.open(stream=pdf, filetype="pdf") as document:
+        text = " ".join(page.get_text() for page in document)
+        for source_row in range(2, 15):
+            assert text.count(f"Actividad sintetica unica {source_row}") == 1, source_row
+            assert text.count(f"Medida sintetica unica {source_row}") == 1, source_row
+
+
+
+@pytest.mark.parametrize("field_name, payload", [
+    ("worker.name", {"worker": {"name": "32423432"}}),
+    ("employer.name", {"employer": {"name": "12925516-1"}}),
+    ("extra.representative_name", {"extra": {"representative_name": "12345"}}),
+])
+def test_numeric_identifiers_are_never_accepted_as_legal_names(field_name, payload):
+    from app.javiera_logic import validate_requirements
+    missing, errors = validate_requirements(payload, [field_name])
+    assert not missing
+    assert any(field_name in problem and "nombre legible" in problem for problem in errors)
+
+
+def test_native_pdf_does_not_format_invalid_rut_as_if_verified():
+    from app.javiera_native import render_native_pdf, NativeDocumentError
+    invalid = {
+        "employer": {"name": "EMPRESA QA", "rut": "12.345.678-9"},
+        "worker": {"name": "TRABAJADOR QA", "rut": "20.000.000-5"},
+        "site": {"name": "OBRA QA"},
+        "event": {"date": "2026-11-14"},
+    }
+    with pytest.raises(NativeDocumentError, match="RUT inválido"):
+        render_native_pdf("labor_contract", invalid, approved_text="TEXTO DE PRUEBA")

@@ -9,7 +9,7 @@ const JavieraWorkbookAdmin=lazy(()=>import("./JavieraWorkbookAdmin"));
 
 type Source = {sites: {id:string;name:string}[];contractors:{id:string;site_id:string;name:string;rut:string|null;nature:string;defaults?:Record<string,string>}[];workers:{id:string;name:string;rut:string|null;active:boolean;contract?:{start?:string;end?:string}}[]};
 type Catalog = {code:string;area:string;title:string;required_fields:string[];published_version:number};
-type Status = {code:string;area:string;title:string;status:string;reason:string;missing_fields:string[];blocking_errors:string[];completion_percent:number;can_preview:boolean;can_issue:boolean;has_history:boolean;template_version:number;source_cells?:string[];cache_hit?:boolean};
+type Status = {code:string;area:string;title:string;status:string;reason:string;missing_fields:string[];blocking_errors:string[];completion_percent:number;can_preview:boolean;can_issue:boolean;has_history:boolean;template_version:number;source_cells?:string[];cache_hit?:boolean;preview_fingerprint?:string};
 type DossierSummary = {id:string;site_id:string;employer_id:string;worker_id:string|null;relationship:string;revision:number;worker_name?:string;employer_name?:string};
 type BatchResult = {dossier_id?:string;code:string;ok:boolean;id?:string;reason?:string};
 type Dossier = {id:string;revision:number;data:Record<string,unknown>;site_id:string;employer_id:string;worker_id:string|null;parent_id:string|null;relationship:string;issues:{id:string;code:string;at:string;sha256:string;version:number}[];historical:{id:string;code:string;state:string;comment:string}[]};
@@ -34,7 +34,7 @@ const extraLabels:Record<string,string>={representative_name:"Nombre del represe
 const fieldLabel=(key:string)=>extraLabels[key.replace(/^extra\./,"")]||({"employer.name":"empresa","employer.rut":"RUT de empresa","worker.name":"trabajador","worker.rut":"RUT del trabajador","site.name":"obra","role":"cargo","employment_type":"vínculo laboral","event.date":"fecha del evento","event.epp_items":"EPP entregados","event.pts_version":"versión del PTS","contract.start":"fecha de ingreso","contract.end":"fecha de término","contract.new_end":"nueva fecha de término (anexo de prórroga)","contract.transfer_date":"fecha de traslado","contract.salary":"sueldo base","contract.hours":"horas semanales"} as Record<string,string>)[key]||key.replaceAll("_"," ");
 const errorMessage=(e:unknown)=>e instanceof Error?e.message:String(e);
 const excelProblemItems=(reason:string)=>reason.startsWith("Errores Excel:")?reason.slice("Errores Excel:".length).split(";").map(x=>x.trim()).filter(Boolean):[];
-async function pdfRequest(url:string,body:unknown){
+async function pdfResponse(url:string,body:unknown){
   const csrf=document.cookie.split("; ").find(c=>c.startsWith("galant_post_csrf="))?.split("=")[1]||"";
   const response=await fetch("/api/v1/javiera"+url,{method:"POST",headers:{"Content-Type":"application/json","X-CSRF-Token":csrf},
     credentials:"include",cache:"no-store",body:JSON.stringify(body)});
@@ -45,7 +45,10 @@ async function pdfRequest(url:string,body:unknown){
     const explanation=typeof d==="string"?d:typeof d.reason==="string"&&d.reason?d.reason:typeof d.error==="string"?d.error:"PDF no disponible";
     throw new Error(explanation+(missing.length?" · Faltan: "+missing.map((f:string)=>fieldLabel(f)).join(", "):""));
   }
-  return response.blob();
+  return response;
+}
+async function pdfRequest(url:string,body:unknown){
+  return (await pdfResponse(url,body)).blob();
 }
 function downloadBlob(blob:Blob,fileName:string){
   const url=URL.createObjectURL(blob),link=document.createElement("a");
@@ -82,6 +85,7 @@ export default function Javiera({configuration=false,onBack,onConfig}:{configura
   const [saved,setSaved]=useState<Dossier|null>(null);
   const [response,setResponse]=useState<{key:string;documents:Status[]}|null>(null);
   const [preflight,setPreflight]=useState<{key:string;documents:Status[]}|null>(null);
+  const [previewProofs,setPreviewProofs]=useState<Record<string,string>>({});
   const [issueFailures,setIssueFailures]=useState<Record<string,string>>({});
   const [error,setError]=useState("");
   const [notice,setNotice]=useState("");
@@ -236,7 +240,7 @@ export default function Javiera({configuration=false,onBack,onConfig}:{configura
       const company=src.contractors.find(c=>c.id===row.employer_id);
       const worker=src.workers.find(w=>w.id===row.worker_id);
       const site=src.sites.find(z=>z.id===row.site_id);
-      setBatchReport([]);setSaved(row);setDossierId(row.id);setDossierRevision(row.revision);
+      setPreviewProofs({});setBatchReport([]);setSaved(row);setDossierId(row.id);setDossierRevision(row.revision);
       setSource(src);setSiteId(row.site_id);setCompanyId(row.employer_id);setWorkerId(row.worker_id||"");
       setParentId(row.parent_id||"");setRelationship(row.relationship);setMode("existing");
       const requested=Array.isArray(row.data.requested_documents)?
@@ -285,7 +289,7 @@ export default function Javiera({configuration=false,onBack,onConfig}:{configura
           worker_id:workerId||null,parent_id:parentId||null,
           relationship,data:{...(saved?.data||{}),...data,...(dossierId?{_dossier_id:dossierId}:{})},
           expected_revision:dossierId?dossierRevision:null})});
-      setDossierId(result.id);setDossierRevision(result.revision);setSavedFingerprint(fingerprint);
+      setDossierId(result.id);setDossierRevision(result.revision);setSavedFingerprint(fingerprint);setPreviewProofs({});
       setExistingDossiers(rows=>[{id:result.id,site_id:siteId,employer_id:companyId,worker_id:workerId||null,relationship,revision:result.revision,worker_name:worker?.name},...rows.filter(r=>r.id!==result.id)]);
       await refreshDossier(result.id);
       setNotice("Ficha guardada. Puedes generar los documentos que estén listos.");
@@ -297,7 +301,10 @@ export default function Javiera({configuration=false,onBack,onConfig}:{configura
     // Reservar la pestaña durante el clic evita que el navegador bloquee la vista previa asíncrona.
     const tab=window.open("about:blank","_blank");
     try{
-      const blob=await pdfRequest("/preview",{dossier_id:dossierId,code});
+      const response=await pdfResponse("/preview",{dossier_id:dossierId,code});
+      const proof=response.headers.get("X-Galant-Preview-Fingerprint");
+      if(proof&&response.headers.get("X-Galant-Preview-Draft")!=="true")setPreviewProofs(old=>({...old,[code]:proof}));
+      const blob=await response.blob();
       if(tab&&!tab.closed){const url=URL.createObjectURL(blob);tab.location.href=url;window.setTimeout(()=>URL.revokeObjectURL(url),60000);}
       else{downloadBlob(blob,"GALANT-JAVIERA-VISTA-PREVIA-"+code+".pdf");setNotice("La vista previa se descargó porque el navegador no permitió abrir otra pestaña.");}
     }catch(e){tab?.close();setError(errorMessage(e));}finally{actionLock.current=false;setBusy(false);}
@@ -307,7 +314,8 @@ export default function Javiera({configuration=false,onBack,onConfig}:{configura
     if(actionLock.current)return;actionLock.current=true;setBusy(true);setError("");
     try{
       const result=await request<{id:string;reused:boolean}>("/javiera/issue",{
-        method:"POST",body:JSON.stringify({dossier_id:dossierId,code,reissue_reason})});
+        method:"POST",body:JSON.stringify({dossier_id:dossierId,code,reissue_reason,
+          expected_preview_fingerprint:previewProofs[code]||cards.find(c=>c.code===code)?.preview_fingerprint||undefined})});
       await downloadIssuedPdf(result.id,code);
       await refreshDossier(dossierId);
       setNotice(result.reused?"PDF emitido anteriormente y descargado.":"PDF emitido y descargado; la emisión no equivale a firma ni entrega.");
@@ -336,7 +344,11 @@ export default function Javiera({configuration=false,onBack,onConfig}:{configura
       for(const [index,id] of targets.entries()){
         setBatchProgress("Procesando expediente "+(index+1)+" de "+targets.length);
         try{
-          const result=await request<{results:BatchResult[]}>("/javiera/issue/batch",{method:"POST",body:JSON.stringify({dossier_id:id,codes:issuable})});
+          const proofs=batchMode?{}:Object.fromEntries(issuable.flatMap(code=>{
+            const proof=previewProofs[code]||cards.find(c=>c.code===code)?.preview_fingerprint;
+            return proof?[[code,proof]]:[];
+          }));
+          const result=await request<{results:BatchResult[]}>("/javiera/issue/batch",{method:"POST",body:JSON.stringify({dossier_id:id,codes:issuable,expected_preview_fingerprints:proofs})});
           results.push(...result.results.map(item=>({...item,dossier_id:id})));
         }catch(e){results.push(...issuable.map(code=>({dossier_id:id,code,ok:false,reason:errorMessage(e)})));}
         setBatchReport([...results]);
@@ -401,7 +413,7 @@ export default function Javiera({configuration=false,onBack,onConfig}:{configura
       await refreshDossier(dossierId);setNotice("Documento histórico cargado; pendiente de verificación.");
     }catch(e){setError(errorMessage(e));}finally{actionLock.current=false;setBusy(false);}
   }
-  function clearPerson(){loadingDossier.current+=1;setBatchReport([]);setReviewComments({});setReissueReasons({});setEventType("ingreso");setContract(emptyContract);setEvent(emptyEvent);setRole("");setEmploymentType("");setDossierId("");setDossierRevision(0);setSaved(null);setSavedFingerprint("");}
+  function clearPerson(){loadingDossier.current+=1;setPreviewProofs({});setBatchReport([]);setReviewComments({});setReissueReasons({});setEventType("ingreso");setContract(emptyContract);setEvent(emptyEvent);setRole("");setEmploymentType("");setDossierId("");setDossierRevision(0);setSaved(null);setSavedFingerprint("");}
   function chooseSite(v:string){setSelectedDossiers([]);setExistingDossiers([]);setRelationship("contractor");setSiteId(v);setCompanyId("");setWorkerId("");setParentId("");setExtra({});clearPerson();}
   function chooseCompany(v:string){setSelectedDossiers([]);setExistingDossiers([]);setRelationship("contractor");setCompanyId(v);setWorkerId("");setParentId("");clearPerson();setExtra(source.contractors.find(c=>c.id===v)?.defaults||{});}
   function chooseWorker(v:string){setWorkerId(v);clearPerson();setContract({...emptyContract,...source.workers.find(w=>w.id===v)?.contract});setExtra(old=>Object.fromEntries(Object.entries(old).filter(([key])=>!key.startsWith("worker_")&&!["salary_words","afp","health_provider","bank_account","payment_frequency","transport_allowance"].includes(key))));}

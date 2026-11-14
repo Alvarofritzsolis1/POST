@@ -142,6 +142,28 @@ def test_archive_is_private_complete_and_checks_integrity(env,monkeypatch,tmp_pa
     assert client.post('/api/v1/javiera/issue/archive',headers=headers,json={'issue_ids':[]}).status_code==422
 
 
+def test_missing_print_areas_block_import_and_preserve_current_revision(env,monkeypatch,tmp_path):
+    """Un editor Excel que borra Print_Area no debe cambiar los documentos."""
+    client,sessions,headers,current=prepare(env,monkeypatch,tmp_path)
+    original=master()
+    with ZipFile(io.BytesIO(original)) as archive:
+        workbook=ET.fromstring(archive.read('xl/workbook.xml'))
+        names=workbook.find(Q('definedNames'))
+        assert names is not None
+        for item in list(names):
+            if item.get('name') == '_xlnm.Print_Area':
+                names.remove(item)
+        corrupt=pack(archive,{'xl/workbook.xml':ET.tostring(workbook,encoding='utf-8')})
+    response=client.post('/api/v1/javiera/workbook/import?expected_revision='+str(current['revision']),
+        headers=headers,files={'file':('sin-areas-de-impresion.xlsx',corrupt,
+                 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet')})
+    assert response.status_code == 422, response.text
+    assert 'impresión' in response.text.lower()
+    after=client.get('/api/v1/javiera/workbook',headers=headers).json()
+    assert after['current']['id'] == current['id']
+    assert after['current']['revision'] == current['revision']
+
+
 def test_invalid_control_characters_never_produce_a_corrupt_excel():
     for edit in [{'cell':'A5','value':'contenido\x01inválido'}, {'cell':'B3','formula':'"texto\x00"'}]:
         with pytest.raises(LayoutError, match='caracteres de control'):
