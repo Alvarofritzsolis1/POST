@@ -5,8 +5,8 @@ import {request} from "./api";
 import "./javiera-simple.css";
 
 type Origin="operational"|"documentary";
-type Company={id:string;site_id:string;name:string;rut:string;origin:Origin;details?:Record<string,string>};
-type Person={id:string;name:string;rut:string;origin:Origin;details?:Record<string,string>};
+type Company={id:string;site_id:string;name:string;rut:string;origin:Origin;details?:Record<string,string>;source_contractor_id?:string|null};
+type Person={id:string;name:string;rut:string;origin:Origin;details?:Record<string,string>;source_worker_id?:string|null};
 type Sources={sites:{id:string;name:string}[];companies:Company[];
   operational_companies:Company[];people:Person[];operational_people:Person[]};
 type Library={engine_available:boolean;documents:{code:string;state:string;ready:boolean;sheet:string}[]};
@@ -465,10 +465,10 @@ export default function JavieraSimple({onConfig,onBack}:{onConfig?:()=>void;onBa
           <button type="button" disabled={busy||!companyId||!newPerson.name.trim()||!newPerson.rut.trim()}
             onClick={()=>void createPerson()}>Guardar solo en Javiera</button>
         </div>}
-        {selectedCompany?.origin==="operational"&&companyId&&
+        {(selectedCompany?.origin==="operational"||selectedCompany?.source_contractor_id)&&companyId&&
           <button type="button" disabled={busy} className="jsm-secondary"
             onClick={()=>void refreshIdentity("company")}>Actualizar empresa desde GALANT</button>}
-        {selectedPerson?.origin==="operational"&&personId&&
+        {(selectedPerson?.origin==="operational"||selectedPerson?.source_worker_id)&&personId&&
           <button type="button" disabled={busy} className="jsm-secondary"
             onClick={()=>void refreshIdentity("person")}>Actualizar trabajador desde GALANT</button>}
         <p className="jsm-footnote">Los registros creados aquí son exclusivos de Proyecto Javiera.
