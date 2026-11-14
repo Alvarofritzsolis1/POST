@@ -1,4 +1,4 @@
-import {useCallback, useEffect, useMemo, useState} from "react";
+import {useCallback, useEffect, useMemo, useRef, useState} from "react";
 import type {CSSProperties} from "react";
 import {ArrowLeft, Check, Download, FileSpreadsheet, FileText, History, Layers3, Save, ShieldCheck, Undo2, Redo2, Upload, Eye, Settings2, RefreshCw} from "lucide-react";
 import {ApiError,request} from "./api";
@@ -17,7 +17,7 @@ type Plan={sha256:string;counts:Record<string,number>};
 type Reset={id:string;sha256:string;counts:Record<string,number>;created_at:string;restored:boolean};
 type Validation={code:string;result:{pages:number;elapsed_ms:number;images:number;formulas_checked:number}};
 type MatrixFinding={role:string;scope:"IRL"|"PTS";matrix:"IRL"|"PTS"|"PUESTOS";cell:string;code:string;message:string;severity:"error"|"warning"};
-type PreventiveAudit={roles_total:number;blocking_count:number;warning_count:number;findings:MatrixFinding[];sha256:string};
+type PreventiveAudit={roles_total:number;blocking_count:number;warning_count:number;findings:MatrixFinding[];sha256:string;recovery?:{available:boolean;cells:string[]}};
 const titles:Record<string,string>={labor_contract:"Contrato de trabajo",transfer_addendum:"Anexo de traslado",extension_addendum:"Anexo de prórroga",sworn_declaration:"Declaración jurada",internal_rules_receipt:"Reglamento interno",ppe_delivery:"Entrega de EPP",irl:"Información de riesgos laborales",pts:"Procedimiento de trabajo seguro",pts_receipt:"Entrega de PTS",induction:"Inducción de prevención"};
 const matrixSheets:Record<string,string>={IRL:"MATRIZ IRL",PTS:"MATRIZ PTS",PUESTOS:"Matriz IRL Optimizada",PERFILES:"MATRIZ DESCRIPCION DE CARGO IRL",SUSTANCIAS:"Base_Datos_Sustancias"};
 const matrixNames:Record<string,string>={IRL:"Actividades y riesgos",PTS:"Procedimientos seguros",PUESTOS:"Condiciones de trabajo",PERFILES:"Descripción del cargo",SUSTANCIAS:"Productos y sustancias"};
@@ -56,6 +56,7 @@ export default function JavieraWorkbookAdmin({onBack}:{onBack:()=>void}){
  const [plan,setPlan]=useState<Plan|null>(null),[resets,setResets]=useState<Reset[]>([]),[resetReason,setResetReason]=useState("");
  const [validations,setValidations]=useState<Validation[]>([]);
  const [preventiveAudit,setPreventiveAudit]=useState<PreventiveAudit|null>(null);
+ const recoveryAttempted=useRef(new Set<string>());
  const current=state?.current,edits=editHistory[cursor],dirty=Object.keys(edits).length>0||clauseDraft!==null||inputDirty;
  const path=current?"/javiera/workbook/"+current.id:"";
  const refresh=useCallback(async()=>{
@@ -74,6 +75,35 @@ export default function JavieraWorkbookAdmin({onBack}:{onBack:()=>void}){
   void Promise.all([request<Reset[]>("/javiera/workbook/reset/history").then(setResets),request<Dossier[]>("/javiera/dossiers").then(setDossiers),current?request<Validation[]>(path+"/validations").then(setValidations):Promise.resolve()]).catch(e=>setError(message(e)));
  },[tab,path,current?.id]);
  useEffect(()=>{const handler=(e:BeforeUnloadEvent)=>{if(dirty){e.preventDefault();e.returnValue="";}};window.addEventListener("beforeunload",handler);return()=>window.removeEventListener("beforeunload",handler);},[dirty]);
+ useEffect(()=>{
+  // Automatically recover only verified, exact blank cells from the
+  // previously supplied correction workbook. One revision per source id.
+  if(!current||!preventiveAudit?.recovery?.available||busy||dirty||loading)return;
+  if(current.sha256!==preventiveAudit.sha256)return;
+  if(recoveryAttempted.current.has(current.id))return;
+  recoveryAttempted.current.add(current.id);
+  setBusy(true);
+  void request<{corrected_cells:string[];revision:number}>(
+   "/javiera/workbook/"+current.id+"/repair-known-gaps",{
+    method:"POST",body:JSON.stringify({
+      expected_revision:current.revision,
+      confirmation:"CREAR_BORRADOR_PREVENTIVO",
+    }),
+   }).then(async result=>{
+     clear();
+     await refresh();
+     setNotice("Se recuperaron automáticamente "+result.corrected_cells.length+
+       " campos de las matrices del Excel anterior, conservando el formato original.");
+   }).catch(async e=>{
+     if(e instanceof ApiError&&e.status===409){
+       await refresh();
+     }else{
+       setError("No se pudo recuperar el Excel automáticamente: "+message(e));
+     }
+   }).finally(()=>setBusy(false));
+ },[current?.id,current?.sha256,preventiveAudit?.sha256,
+    preventiveAudit?.recovery?.available,busy,dirty,loading,refresh]);
+
  const mutateMany=(changes:Edit[])=>{const next={...edits};for(const edit of changes)next[edit.cell]={...next[edit.cell],...edit,format:{...next[edit.cell]?.format,...edit.format}};if(Object.keys(next).length>500){setError("Esta revisión supera 500 celdas. Guarda los cambios actuales antes de continuar.");return;}setEditHistory(old=>[...old.slice(0,cursor+1),next]);setCursor(cursor+1);setNotice("");};
  const mutate=(edit:Edit)=>mutateMany([edit]);
  const clear=()=>{setEditHistory([{}]);setCursor(0);setReason("");setClauseDraft(null);setInputDirty(false);setConflict(false);};
@@ -176,35 +206,14 @@ export default function JavieraWorkbookAdmin({onBack}:{onBack:()=>void}){
    <div className="jw-summary"><div><span className="jw-excel-mark"><FileSpreadsheet size={21}/></span><div><strong>Excel maestro de Javiera</strong><small>Revisión {current.revision} · {current.inventory.sheet_count} hojas · {current.inventory.formula_count} fórmulas · {current.inventory.media_count} recursos gráficos</small></div></div><span className="jw-tag"><i className="jw-dot editable"/>Original preservado</span></div>
    {preventiveAudit&&preventiveAudit.blocking_count>0&&<section className="jw-error" role="alert">
     <strong>{preventiveAudit.blocking_count} problemas preventivos · {preventiveAudit.roles_total} cargos auditados</strong>
-    <p>Estos datos se deben completar para generar correctamente el documento del cargo afectado. Los demás cargos continúan disponibles.</p>
+    <p>Se muestran únicamente los datos pendientes reales del cargo; los demás documentos siguen disponibles.</p>
     {preventiveAudit.findings.filter(x=>x.severity==="error").slice(0,12).map((finding,i)=><button key={finding.role+finding.cell+i} type="button" disabled={busy||dirty}
       onClick={()=>{setTab("matrices");setAdvanced(true);setCargo(finding.role);setMatrix(finding.matrix);setSheet(matrixSheets[finding.matrix]);
         const row=Number(finding.cell.match(/\d+/)?.[0]||2);setStart(Math.floor((row-1)/55)*55+1);setJump(finding.cell);}}>
       {finding.role} · {matrixSheets[finding.matrix]}!{finding.cell}: {finding.message}
     </button>)}
    </section>}
-   {preventiveAudit&&preventiveAudit.warning_count>0&&<p role="status">Observaciones de matriz: {preventiveAudit.warning_count}. Revisa duplicados antes de aprobar.</p>}
-   {preventiveAudit?.findings.some(x=>(x.code==="EMPTY_IRL"&&["E40","F40"].includes(x.cell))||
-       (x.code==="MISSING_SUMMARY"&&x.role==="IMPERMEABILIZADOR"))&&
-    <section className="jw-panel" aria-label="Reparar matriz original">
-      <h3>Recuperar datos de la plantilla corregida</h3>
-      <p>Se conservan el Excel original, sus fórmulas, imágenes y áreas de impresión. Los formatos se actualizan automáticamente.</p>
-      <button className="jw-primary" type="button" disabled={busy||dirty}
-        onClick={()=>void action(async()=>{
-          const result=await request<{corrected_cells:string[];revision:number}>(
-            path+"/repair-known-gaps",{
-              method:"POST",body:JSON.stringify({
-                expected_revision:current.revision,
-                confirmation:"CREAR_BORRADOR_PREVENTIVO",
-              }),
-            });
-          clear();await refresh();setTab("versions");
-          setNotice("Revisión "+result.revision+" creada. Celdas recuperadas: "+
-            result.corrected_cells.join(", ")+". Los formatos se actualizan sin repetir aprobaciones.");
-        })}>
-        <ShieldCheck size={16}/> Recuperar datos sin volver a subir Excel
-      </button>
-    </section>}
+   {preventiveAudit&&preventiveAudit.warning_count>0&&<p role="status">Observaciones informativas de matriz: {preventiveAudit.warning_count}.</p>}
    {tab==="matrices"&&!!current.inventory.matrix_pending?.some(p=>!cargo||p.role===cargo)&&<div className="jw-error" role="status">Hay filas con antecedentes preventivos pendientes en esta matriz. Completa y revisa los riesgos y medidas del cargo antes de habilitar su IRL.</div>}
    {tab==="templates"&&<>
     <div className="jw-workspace jw-simplified"><aside className="jw-documents"><div className="jw-side-title">DOCUMENTOS <span>{state.documents.length}</span></div>

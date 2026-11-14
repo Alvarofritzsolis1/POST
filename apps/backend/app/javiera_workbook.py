@@ -300,6 +300,98 @@ def edit_workbook(raw: bytes, sheet: str, edits: list[dict]) -> bytes:
         return pack(z, changes)
 
 
+def _matrix_rows(z: ZipFile, files: dict, strings: list[str],
+                 sheet: str) -> list[tuple[int, dict[str, str]]]:
+    """Read OOXML matrix content without relying on volatile Calc caches.
+
+    The supplied PTS sheet has 23 role keys that directly reference
+    'MATRIZ IRL'!ANn, and one duplicated Gasfiter row whose 17 procedure
+    cells use shared same-sheet formulas. clean_master() correctly removes
+    stale formula caches but these *deterministic* references must still
+    be resolved when indexing, auditing and generating PDFs.
+    Only direct cell references are evaluated; no arbitrary formulas,
+    fuzzy role inference or synthetic preventive measures are introduced.
+    """
+    name = resolve_sheet(files, sheet)
+    root = ET.fromstring(z.read(files[name]))
+    nodes = {c.get("r", ""): c for c in root.findall(".//" + Q("c"))}
+    external_nodes = {}
+    if name == "MATRIZ PTS":
+        source = ET.fromstring(z.read(files[resolve_sheet(files, "MATRIZ IRL")]))
+        external_nodes = {c.get("r", ""): c
+                          for c in source.findall(".//" + Q("c"))}
+    shared: dict[str, tuple[str, str]] = {}
+    for address, cell in nodes.items():
+        f = cell.find(Q("f"))
+        if f is not None and f.get("t") == "shared" and f.get("si") is not None \
+                and (f.text or "").strip():
+            shared[f.get("si")] = (address, f.text.strip())
+
+    def number(column: str) -> int:
+        value = 0
+        for char in column:
+            value = value * 26 + ord(char) - 64
+        return value
+
+    def letters(number_value: int) -> str:
+        result = ""
+        while number_value > 0:
+            number_value, remainder = divmod(number_value - 1, 26)
+            result = chr(65 + remainder) + result
+        return result
+
+    def value(address: str, seen: frozenset[str] = frozenset()) -> str:
+        if address in seen:
+            return ""
+        cell = nodes.get(address)
+        if cell is None:
+            return ""
+        cached = cell_text(cell, strings).strip()
+        if cached and cached not in ERRORS:
+            return cached
+        f = cell.find(Q("f"))
+        if f is None:
+            return cached
+        formula = (f.text or "").strip()
+        if name == "MATRIZ PTS":
+            direct = re.fullmatch(
+                r"'?MATRIZ IRL'?!\$?(AN)\$?([1-9]\d*)", formula, re.I
+            )
+            if direct:
+                target = external_nodes.get("AN" + direct[2])
+                return cell_text(target, strings).strip() if target is not None else ""
+        next_seen = seen | {address}
+        # A same-sheet direct formula is safe to resolve recursively.
+        direct_local = re.fullmatch(r"\$?([A-Z]{1,3})\$?([1-9]\d*)", formula, re.I)
+        if direct_local:
+            return value(direct_local[1] + direct_local[2], next_seen)
+        if not formula and f.get("t") == "shared" and f.get("si") in shared:
+            anchor_address, anchor_formula = shared[f.get("si")]
+            anchor = re.fullmatch(r"([A-Z]+)([1-9]\d*)", anchor_address)
+            local_ref = re.fullmatch(
+                r"\$?([A-Z]{1,3})\$?([1-9]\d*)", anchor_formula, re.I
+            )
+            current = re.fullmatch(r"([A-Z]+)([1-9]\d*)", address)
+            if anchor and local_ref and current:
+                col = number(local_ref[1]) + number(current[1]) - number(anchor[1])
+                row = int(local_ref[2]) + int(current[2]) - int(anchor[2])
+                if col > 0 and row > 0:
+                    return value(letters(col) + str(row), next_seen)
+        return cached
+
+    result = []
+    for row in root.findall(".//" + Q("sheetData") + "/" + Q("row")):
+        index = int(row.get("r", "0"))
+        if index < 2:
+            continue
+        values = {re.match(r"[A-Z]+", c.get("r", "")).group():
+                  value(c.get("r", ""))
+                  for c in row.findall(Q("c"))
+                  if re.match(r"[A-Z]+", c.get("r", ""))}
+        result.append((index, values))
+    return result
+
+
 def roles(raw: bytes) -> dict:
     """Exact workbook keys; no fuzzy matching or invented associations."""
     result: dict[str, dict] = {}
@@ -308,12 +400,8 @@ def roles(raw: bytes) -> dict:
         for kind, (wanted, col) in MATRIX_SHEETS.items():
             try: name = resolve_sheet(files, wanted)
             except LayoutError: continue
-            root = ET.fromstring(z.read(files[name]))
-            for row in root.findall(".//" + Q("row")):
-                n = int(row.get("r"))
-                if n < 2: continue
-                c = row.find(Q("c") + "[@r='" + col + str(n) + "']")
-                cargo = cell_text(c, strings).strip() if c is not None else ""
+            for n, values in _matrix_rows(z, files, strings, name):
+                cargo = values.get(col, "").strip()
                 if cargo and len(cargo) < 160:
                     result.setdefault(cargo, {}).setdefault(kind, []).append(n)
     return result
@@ -672,18 +760,13 @@ def audit_preventive_master(raw: bytes) -> dict:
         files = sheet_files(z)
         strings = shared_strings(z)
         for kind, (sheet, role_column, fields) in selected.items():
-            root = ET.fromstring(z.read(files[resolve_sheet(files, sheet)]))
-            for row in root.findall(".//" + Q("row")):
-                row_number = int(row.get("r", "0"))
-                if row_number < 2:
-                    continue
-                values = {re.match(r"[A-Z]+", c.get("r")).group():
-                          cell_text(c, strings).strip() for c in row.findall(Q("c"))}
+            for row_number, values in _matrix_rows(z, files, strings, sheet):
                 name = values.get(role_column, "").strip()
                 if name and len(name) <= 160:
                     source[kind].setdefault(name, []).append({
                         "row": row_number,
-                        "fields": {column: values.get(column, "").strip() for column in fields},
+                        "fields": {column: values.get(column, "").strip()
+                                   for column in fields},
                     })
     normalized_summary: dict[str, list[dict]] = {}
     for role, rows in source["PUESTOS"].items():
@@ -755,11 +838,10 @@ def matrix_records(raw: bytes, role: str, kind: str) -> list[dict]:
     wanted, col = MATRIX_SHEETS[kind]
     with ZipFile(io.BytesIO(raw)) as z:
         files = sheet_files(z); name = resolve_sheet(files, wanted); strings = shared_strings(z)
-        root = ET.fromstring(z.read(files[name])); rows = []
-        for row in root.findall(".//" + Q("row")):
-            if int(row.get("r")) < 2: continue
-            values = {re.match(r"[A-Z]+", c.get("r")).group(): cell_text(c, strings) for c in row.findall(Q("c"))}
-            if values.get(col, "").strip() == role: rows.append({"row": int(row.get("r")), "values": values})
+        rows = []
+        for row_number, values in _matrix_rows(z, files, strings, name):
+            if values.get(col, "").strip() == role:
+                rows.append({"row": row_number, "values": values})
         if not rows: raise LayoutError("No existe información " + kind + " para la clave exacta del cargo seleccionado")
         if kind == "IRL" and _irl_role_key(role) == "GASFITER":
             # El Excel histórico repite dos bloques de 13 riesgos para GASFITER.
