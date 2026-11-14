@@ -145,3 +145,51 @@ def test_corrected_existing_contractor_and_worker_refresh_without_duplicate_regi
     assert person_again.json()["name"] == "RENE CORREGIDO QA"
     with sessions() as db:
         assert _operational_count(db) == before
+
+
+
+def test_existing_legacy_dossier_fields_survive_documental_copy_and_second_edit(env):
+    client, _ = env
+    admin = login(client, "a@example.cl")
+    site = client.get("/api/v1/ops/sites").json()[0]["id"]
+    company = create_company(client, admin, site, "CT", "EMPRESA PREVIA QA")
+    worker = client.post("/api/v1/ops/workers", headers=admin, json={
+        "site_id": site, "contractor_id": company["contractor_id"],
+        "name": "RENE PREVIO QA", "rut": rut(11333444)})
+    assert worker.status_code == 201
+    legacy = client.post("/api/v1/javiera/dossiers", headers=admin, json={
+        "site_id": site, "employer_id": company["contractor_id"],
+        "worker_id": worker.json()["worker_id"], "relationship": "contractor",
+        "data": {
+            "role": "TECHUMBRE", "extra": {"employer_commune": "CONCEPCION"},
+            "contract": {"salary": "750000", "start": "2026-11-01"},
+        },
+    })
+    assert legacy.status_code == 200, legacy.text
+    local_company = client.post(BASE + "/companies", headers=admin, json={
+        "site_id": site, "origin": "operational", "source_id": company["contractor_id"]})
+    assert local_company.status_code == 200
+    local_worker = client.post(BASE + "/people", headers=admin, json={
+        "company_id": local_company.json()["id"], "origin": "operational",
+        "source_id": worker.json()["worker_id"]})
+    assert local_worker.status_code == 200
+    values = {
+        "site_id": site, "company_id": local_company.json()["id"],
+        "person_id": local_worker.json()["id"], "relationship": "contractor",
+        "selected_codes": ["irl"], "shared": {
+            "role": "TECHUMBRE", "event": {"date": "2026-11-14"},
+        }, "document_data": {"irl": {}},
+    }
+    local = client.post(BASE + "/dossiers", headers=admin, json=values)
+    assert local.status_code == 200, local.text
+    assert local.json()["shared"]["contract"]["salary"] == "750000"
+    assert local.json()["shared"]["extra"]["employer_commune"] == "CONCEPCION"
+    changed = client.post(BASE + "/dossiers", headers=admin, json={
+        **values, "dossier_id": local.json()["id"],
+        "expected_revision": local.json()["revision"],
+        "shared": {"role": "TECHUMBRE", "event": {"date": "2026-11-15"}},
+    })
+    assert changed.status_code == 200, changed.text
+    assert changed.json()["shared"]["extra"]["employer_commune"] == "CONCEPCION"
+    assert changed.json()["shared"]["contract"]["salary"] == "750000"
+    assert client.get("/api/v1/javiera/dossiers/" + legacy.json()["id"]).status_code == 200
