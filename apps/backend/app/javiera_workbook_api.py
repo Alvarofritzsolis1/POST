@@ -28,6 +28,7 @@ from .javiera_workbook_models import (JavieraWorkbook, JavieraWorkbookHead,
 from .models import AuditEvent, User, utcnow
 from .security import administrator
 from .xlsx_package import compatible_package
+from .javiera_repair_catalog import proposed_repairs
 
 router = APIRouter(prefix="/api/v1/javiera/workbook", tags=["Javiera · Excel maestro"])
 
@@ -243,10 +244,46 @@ async def import_workbook(expected_revision: int = 0, file: UploadFile = File(..
     return summary(obj)
 
 
+class KnownRepairInput(Strict):
+    expected_revision: int = Field(ge=1)
+    confirmation: Literal["CREAR_BORRADOR_PREVENTIVO"]
+
+
 class ApprovedMasterInput(Strict):
     """Declara la aprobación previa del Excel sin fingir una nueva revisión profesional."""
     expected_revision: int = Field(ge=1)
     confirmation: Literal["PLANTILLAS_PREVIAMENTE_APROBADAS"]
+
+
+@router.post("/{ident}/repair-known-gaps")
+def repair_known_gaps(ident: str, payload: KnownRepairInput,
+                      user: User = Depends(administrator),
+                      db: Session = Depends(get_db)):
+    """Create a new draft from verified source fixes; keep original immutable."""
+    obj = workbook(db, user, ident)
+    head = db.scalar(select(JavieraWorkbookHead).where(
+        JavieraWorkbookHead.org_id == user.org_id).with_for_update())
+    if not head or head.current_id != obj.id or obj.revision != payload.expected_revision:
+        raise HTTPException(409, "El Excel cambió. Abre la revisión actual antes de reparar")
+    raw = compatible_package(raw_for(obj), original_for(db, obj))
+    try:
+        changes, details = proposed_repairs(raw)
+        if not changes:
+            raise HTTPException(409, "No existen reparaciones verificadas pendientes")
+        for sheet, edits in changes.items():
+            raw = edit_workbook(raw, sheet, edits)
+        corrected = write_revision(
+            db, user, raw,
+            "Reparación preventiva documentada, pendiente de aprobación: " +
+            ", ".join(details)[:520],
+            obj.revision, obj,
+        )
+    except LayoutError as exc:
+        raise HTTPException(422, str(exc)) from None
+    return {
+        **summary(corrected), "corrected_cells": details,
+        "pending_professional_approval": True,
+    }
 
 
 @router.post("/{ident}/activate-approved-master")
@@ -264,6 +301,8 @@ def activate_approved_master(ident: str, payload: ApprovedMasterInput,
         raise HTTPException(409, "El Excel cambió. Vuelve a abrir la versión actual")
     if any(head.publications.values()):
         raise HTTPException(409, "Ya hay plantillas publicadas. Las revisiones nuevas requieren el control habitual")
+    if "Reparación preventiva documentada" in obj.reason:
+        raise HTTPException(409, "Las correcciones preventivas requieren aprobación independiente")
     # Verifica en disco el SHA-256 y la procedencia del maestro original.
     raw = raw_for(obj)
     original_for(db, obj)

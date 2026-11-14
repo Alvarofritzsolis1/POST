@@ -260,14 +260,42 @@ def edit_workbook(raw: bytes, sheet: str, edits: list[dict]) -> bytes:
         # Invalidate all cached formula results while keeping every formula intact.
         changes = {files[sheet]: xml(root), "xl/workbook.xml": xml(book)}
         if format_changed: changes["xl/styles.xml"] = xml(styles)
+        # Keep deterministic direct-reference ROLE keys while invalidating all
+        # other calculation caches. Without this, an unrelated Excel edit
+        # silently hides most PTS roles until LibreOffice recalculates.
+        reference_root = (root if sheet == "MATRIZ IRL" else
+                          ET.fromstring(z.read(files["MATRIZ IRL"])))
+        direct_roles = {
+            cell.get("r"): cell_text(cell, shared_strings(z))
+            for cell in reference_root.findall(".//" + Q("c"))
+            if re.fullmatch(r"AN[1-9]\d*", cell.get("r", ""))
+        }
         for path in files.values():
             current = root if path == files[sheet] else ET.fromstring(z.read(path))
             changed = path == files[sheet]
             for c in current.findall(".//" + Q("c")):
-                if c.find(Q("f")) is not None:
-                    v = c.find(Q("v"))
-                    if v is not None: c.remove(v); changed = True
-            if changed: changes[path] = xml(current)
+                formula = c.find(Q("f"))
+                if formula is None:
+                    continue
+                direct = re.fullmatch(
+                    r"'?MATRIZ IRL'?!\$?AN\$?([1-9]\d*)",
+                    (formula.text or "").strip(), re.I,
+                )
+                value = direct_roles.get("AN" + direct[1], "") if direct else ""
+                if value:
+                    cached = c.find(Q("v"))
+                    if cached is None:
+                        cached = ET.SubElement(c, Q("v"))
+                    cached.text = value
+                    c.set("t", "str")
+                    changed = True
+                else:
+                    cached = c.find(Q("v"))
+                    if cached is not None:
+                        c.remove(cached)
+                        changed = True
+            if changed:
+                changes[path] = xml(current)
         return pack(z, changes)
 
 

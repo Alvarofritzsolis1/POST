@@ -189,6 +189,27 @@ export default function JavieraWorkbookAdmin({onBack}:{onBack:()=>void}){
     </button>)}
    </section>}
    {preventiveAudit&&preventiveAudit.warning_count>0&&<p role="status">Observaciones de matriz: {preventiveAudit.warning_count}. Revisa duplicados antes de aprobar.</p>}
+   {preventiveAudit?.findings.some(x=>(x.code==="EMPTY_IRL"&&["E40","F40"].includes(x.cell))||
+       (x.code==="MISSING_SUMMARY"&&x.role==="IMPERMEABILIZADOR"))&&
+    <section className="jw-panel" aria-label="Reparar matriz original">
+      <h3>Recuperar datos de la plantilla corregida</h3>
+      <p>Conserva el Excel original y sus fórmulas, imágenes y áreas de impresión. Los cambios forman un borrador sujeto a aprobación preventiva.</p>
+      <button className="jw-primary" type="button" disabled={busy||dirty}
+        onClick={()=>void action(async()=>{
+          const result=await request<{corrected_cells:string[];revision:number}>(
+            path+"/repair-known-gaps",{
+              method:"POST",body:JSON.stringify({
+                expected_revision:current.revision,
+                confirmation:"CREAR_BORRADOR_PREVENTIVO",
+              }),
+            });
+          clear();await refresh();setTab("versions");
+          setNotice("Revisión "+result.revision+" creada. Celdas reparadas: "+
+            result.corrected_cells.join(", ")+". Requiere aprobación preventiva antes de publicarse.");
+        })}>
+        <ShieldCheck size={16}/> Recuperar datos sin volver a subir Excel
+      </button>
+    </section>}
    {tab==="matrices"&&!!current.inventory.matrix_pending?.some(p=>!cargo||p.role===cargo)&&<div className="jw-error" role="status">Hay filas con antecedentes preventivos pendientes en esta matriz. Completa y revisa los riesgos y medidas del cargo antes de habilitar su IRL.</div>}
    {tab==="templates"&&<>
     {!Object.values(state.publications).some(Boolean)&&<section className="jw-approved-source">
