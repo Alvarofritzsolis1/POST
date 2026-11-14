@@ -2,7 +2,7 @@
 
 No utiliza datos personales del entorno real: empresas y personas sintéticas.
 """
-import io
+from types import SimpleNamespace
 
 import fitz
 from sqlalchemy import func, select
@@ -83,7 +83,7 @@ def test_techumbre_is_reliably_linked_to_thirteen_techador_risks():
 
 
 def test_documentary_pdf_uses_published_workbook_engine(monkeypatch, tmp_path):
-    marker = object()
+    marker = SimpleNamespace(revision=7)
     fake_pdf = fitz.open()
     fake_pdf.new_page().insert_text((60, 60), "IRL TECHADOR - PRUEBA")
     expected = fake_pdf.tobytes()
