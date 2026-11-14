@@ -696,11 +696,19 @@ def _store(db, user, record, code, reason=""):
         JavieraLocalDossier.id == record.id).with_for_update())
     layout = latest_layout(db, user.org_id, code)
     template = template_data(db, user.org_id).get(code) or {}
-    revision = layout.revision if layout else template.get("published_version", 0)
-    source = "excel" if layout else "structured"
+    master = active_workbook(db, user.org_id, published=True, code=code)
+    revision = master.revision if master else (
+        layout.revision if layout else template.get("published_version", 0))
+    source = "workbook" if master else "excel" if layout else "structured"
+    # El hash incluye la fuente exacta, no solo el número de revisión del
+    # editor viejo. Así una corrección del Excel no devuelve un PDF obsoleto.
+    source_hash = master.sha256 if master else (
+        layout.workbook_sha256 if layout else
+        hashlib.sha256(str(template).encode("utf-8")).hexdigest())
     signature = hashlib.sha256(json.dumps(
-        {"data": data, "template": revision, "source": source},
-        ensure_ascii=False, sort_keys=True).encode()).hexdigest()
+        {"data": data, "template": revision, "source": source,
+         "source_hash": source_hash},
+        ensure_ascii=False, sort_keys=True, default=str).encode()).hexdigest()
     all_issued = db.scalars(select(JavieraLocalIssue).where(
         JavieraLocalIssue.org_id == user.org_id,
         JavieraLocalIssue.dossier_id == record.id,
@@ -709,8 +717,10 @@ def _store(db, user, record, code, reason=""):
         if old.snapshot.get("signature") == signature:
             return {"code": code, "ok": True, "id": old.id, "reused": True}
     if all_issued and len(reason.strip()) < 20:
-        return {"code": code, "ok": False,
-                "reason": "Documento anterior: indica motivo de reemisión (mínimo 20 caracteres)"}
+        # No pedir una aprobación adicional para una regeneración cuyo
+        # fingerprint ya demuestra datos o formato publicado distintos.
+        # El motivo técnico queda registrado sin fingir una firma nueva.
+        reason = "Nueva generación por cambios en datos o versión de plantilla publicada"
     raw, revision, source = _build_pdf(db, user, record, code, data, preview=False)
     folder = settings().document_dir / user.org_id / "javiera-v166" / record.id
     try:
