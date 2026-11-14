@@ -589,16 +589,12 @@ def save_dossier(payload: DossierInput, user: User = Depends(administrator), db:
         if (record.site_id, record.company_id, record.person_id, record.relationship) != (
             payload.site_id, payload.company_id, payload.person_id, payload.relationship):
             raise HTTPException(409, "No se permite reasignar un expediente a otra identidad")
-        if (record.parent_name or "", record.shared, record.document_data, record.selected_codes) == (
-            payload.parent_name or "", payload.shared, payload.document_data, payload.selected_codes):
-            return _dossier_dict(record, db, user)
-        record.revision += 1
     else:
         record = JavieraLocalDossier(org_id=user.org_id, site_id=site.id,
             company_id=company.id, person_id=payload.person_id,
             relationship=payload.relationship, updated_by=user.id)
         db.add(record)
-    record.parent_name = (payload.parent_name or "").strip() or None
+    new_parent = (payload.parent_name or "").strip() or None
     shared = payload.shared
     if not payload.dossier_id and company.source_contractor_id:
         # Reutilizar datos de un expediente anterior de la misma identidad exacta,
@@ -622,6 +618,20 @@ def save_dossier(payload: DossierInput, user: User = Depends(administrator), db:
                 if isinstance(previous, dict) and isinstance(current, dict):
                     shared[section] = {**previous, **current}
             audit(db, user, "javiera.legacy_fields_reused", historic.id)
+    if payload.dossier_id:
+        # El formulario actual solo envía los campos editados: conservar
+        # otros antecedentes anteriores sin impedir nuevas correcciones.
+        former = record.shared if isinstance(record.shared, dict) else {}
+        shared = {**former, **shared}
+        for section in ("contract", "event", "extra"):
+            old_section, new_section = former.get(section), payload.shared.get(section)
+            if isinstance(old_section, dict) and isinstance(new_section, dict):
+                shared[section] = {**old_section, **new_section}
+        if (record.parent_name, record.shared, record.document_data, record.selected_codes) == (
+                new_parent, shared, payload.document_data, payload.selected_codes):
+            return _dossier_dict(record, db, user)
+        record.revision += 1
+    record.parent_name = new_parent
     record.shared = shared
     record.document_data = payload.document_data
     record.selected_codes = payload.selected_codes
