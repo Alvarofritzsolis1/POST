@@ -144,6 +144,7 @@ export default function JavieraSimple({onConfig,onBack}:{onConfig?:()=>void;onBa
   const [newCompany,setNewCompany]=useState({name:"",rut:""});
   const [newPerson,setNewPerson]=useState({name:"",rut:""});
   const [code,setCode]=useState("irl");
+  const [selectedCodes,setSelectedCodes]=useState<string[]>(["irl"]);
   const [date,setDate]=useState(today);
   const [filter,setFilter]=useState("");
   const [extras,setExtras]=useState<Record<string,string>>({});
@@ -177,7 +178,7 @@ export default function JavieraSimple({onConfig,onBack}:{onConfig?:()=>void;onBa
     (!!personToken&&!!personId||workerless)&&!!code&&!!date&&
     (!!role||!["irl","pts","pts_receipt","ppe_delivery","induction"].includes(code))&&
     (workerless?verifiedNoWorkers:true);
-  const signature=JSON.stringify({site,companyId,personId:workerless?null:personId,role,code,date,extras,verifiedNoWorkers});
+  const signature=JSON.stringify({site,companyId,personId:workerless?null:personId,role,code,selectedCodes,date,extras,verifiedNoWorkers});
   function resetPreview(){
     setPreview(old=>{if(old)URL.revokeObjectURL(old.url);return null;});
     setIssued("");setMissing([]);setReasons([]);setNotice("");setError("");
@@ -322,7 +323,7 @@ export default function JavieraSimple({onConfig,onBack}:{onConfig?:()=>void;onBa
     finally{setHistoryLoading(false);}
   }
   function changeDocument(value:string){
-    setCode(value);setExtras({});setShowExtras(false);setVerifiedNoWorkers(false);
+    setCode(value);setSelectedCodes([value]);setExtras({});setShowExtras(false);setVerifiedNoWorkers(false);
     current.current=null;
     if(value==="sworn_declaration"){setPersonToken("");setPersonId("");}
   }
@@ -336,8 +337,10 @@ export default function JavieraSimple({onConfig,onBack}:{onConfig?:()=>void;onBa
     const dossier=await request<Dossier>(base+"/dossiers",{
       method:"POST",body:JSON.stringify({
         site_id:site,company_id:companyId,person_id:workerless?null:personId,
-        relationship:"contractor",parent_name:null,selected_codes:[code],
-        shared,document_data:workerless?{[code]:{verified_no_workers:verifiedNoWorkers}}:{[code]:{}},
+        relationship:"contractor",parent_name:null,selected_codes:selectedCodes,
+        shared,document_data:Object.fromEntries(selectedCodes.map(selected=>[
+          selected,selected==="sworn_declaration"?{verified_no_workers:verifiedNoWorkers}:{}
+        ])),
         ...(current.current&&{
           dossier_id:current.current.dossier.id,
           expected_revision:current.current.dossier.revision,
@@ -377,20 +380,28 @@ export default function JavieraSimple({onConfig,onBack}:{onConfig?:()=>void;onBa
         setNotice("Vista previa lista. La impresión no representa una firma o entrega realizada.");
       }else{
         const result=await request<Batch>(base+"/issue/batch",{
-          method:"POST",body:JSON.stringify({dossier_id:dossier.id,codes:[code]})
+          method:"POST",body:JSON.stringify({dossier_id:dossier.id,codes:selectedCodes})
         });
-        if(!result.issued||!result.results[0]?.ok){
-          throw new Error(result.results[0]?.reason||"No se pudo emitir este documento.");
+        if(!result.issued){
+          throw new Error(result.results.map(item=>item.reason).filter(Boolean).join(" · ")
+            ||"No se pudo emitir ninguno de los documentos.");
         }
-        setIssued("/api/v1/javiera/v166/issues/"+encodeURIComponent(result.results[0].id||"")+"/pdf");
-        setNotice("Documento generado y guardado en el historial privado.");
+        const first=result.results.find(item=>item.ok&&item.id);
+        setIssued(result.pdf_url||"/api/v1/javiera/v166/issues/"+
+          encodeURIComponent(first?.id||"")+"/pdf");
+        const failures=result.results.filter(item=>!item.ok);
+        if(failures.length)setReasons(failures.map(item=>
+          (LABELS[item.code]||item.code)+": "+(item.reason||"Documento pendiente")));
+        setNotice(result.issued+" documento(s) generados y guardados en el historial privado."
+          +(failures.length?" Otros "+failures.length+" no se pudieron generar; revisa sus errores.":""));
       }
     }catch(e){setError(friendly(e));}
     finally{setBusy(false);}
   }
-  const fieldKeys=FIELDS[code]||[];
+  const fieldKeys=[...new Set(selectedCodes.flatMap(item=>FIELDS[item]||[]))];
   const auto=new Set(["role","event.date","worker.name","worker.rut","employer.name","employer.rut","site.name"]);
-  const requiredCatalog=catalog.find(x=>x.code===code)?.required_fields||[];
+  const requiredCatalog=[...new Set(selectedCodes.flatMap(item=>
+    catalog.find(x=>x.code===item)?.required_fields||[]))];
   const extraFields=[...new Set([...fieldKeys,...requiredCatalog,...missing])]
     .filter(x=>!auto.has(x)&&x.includes("."));
   return <main className="jsm-shell" aria-label="Proyecto Javiera modo simple">
@@ -450,6 +461,35 @@ export default function JavieraSimple({onConfig,onBack}:{onConfig?:()=>void;onBa
             {ORDER.map(key=><option key={key} value={key}>{LABELS[key]}</option>)}
           </select>
         </label>
+      </div>
+      <div className="jsm-multi-selection">
+        <p>Documentos a generar: {selectedCodes.length} seleccionados. Puedes preparar varios desde la misma ficha.</p>
+        <div className="jsm-actions">
+          <button type="button" className="jsm-secondary"
+            onClick={()=>{setSelectedCodes(ORDER.filter(x=>x!=="sworn_declaration"));setCode("irl");current.current=null;}}>
+            Seleccionar laborales y prevención
+          </button>
+          <button type="button" className="jsm-secondary"
+            onClick={()=>{setSelectedCodes(["irl","pts","pts_receipt","ppe_delivery","induction"]);setCode("irl");current.current=null;}}>
+            Solo prevención
+          </button>
+          <button type="button" className="jsm-secondary" onClick={()=>changeDocument(code)}>
+            Solo documento actual
+          </button>
+        </div>
+        <div className="jsm-extra-grid">
+          {ORDER.map(item=><label key={item} className="jsm-checkbox">
+            <input type="checkbox" checked={selectedCodes.includes(item)}
+              disabled={item==="sworn_declaration"&&selectedCodes.length>1}
+              onChange={e=>{
+                const next=e.target.checked?[...selectedCodes,item]:selectedCodes.filter(x=>x!==item);
+                if(!next.length)return;
+                if(next.includes("sworn_declaration")&&next.length>1)return;
+                setSelectedCodes(next);if(!next.includes(code))setCode(next[0]);current.current=null;
+              }}/>
+            {LABELS[item]}
+          </label>)}
+        </div>
       </div>
       <div className="jsm-documental-registration">
         {site&&<button type="button" className="jsm-secondary" disabled={busy}
@@ -521,9 +561,10 @@ export default function JavieraSimple({onConfig,onBack}:{onConfig?:()=>void;onBa
       </div>}
       <div className="jsm-actions">
         <button type="button" className="jsm-secondary" disabled={!ready||busy||!layout?.ready}
-          onClick={()=>void run("preview")}>{busy?<Loader2 className="jsm-spin" size={18}/>:<Eye size={18}/>} Vista previa</button>
+          onClick={()=>void run("preview")}>{busy?<Loader2 className="jsm-spin" size={18}/>:<Eye size={18}/>} Vista previa del documento actual</button>
         <button type="button" className="jsm-primary" disabled={!ready||busy||!layout?.ready}
-          onClick={()=>void run("issue")}>{busy?<Loader2 className="jsm-spin" size={18}/>:<Download size={18}/>} Generar PDF</button>
+          onClick={()=>void run("issue")}>{busy?<Loader2 className="jsm-spin" size={18}/>:<Download size={18}/>}
+          Generar {selectedCodes.length} documento(s)</button>
       </div>
       <p className="jsm-footnote">Los PDF emitidos se guardan con su historial, sin firmas ficticias.</p>
       <details className="jsm-extras">
