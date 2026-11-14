@@ -65,3 +65,34 @@ def test_incomplete_source_stays_identifiable_without_approval_form(env, monkeyp
     assert inspection.json()["findings"]
     # A known incomplete role must not be silently considered content-complete
     # merely because the imported Excel is available as a source.
+
+
+
+def test_legacy_master_on_vps_becomes_available_without_reupload_or_user_action(
+    env, monkeypatch, tmp_path
+):
+    from app.javiera_workbook_models import JavieraWorkbookHead, JavieraWorkbook
+    from app.models import User
+    from app.javiera_workbook_api import active_workbook
+    from sqlalchemy import select
+
+    client, sessions, headers, imported = prepare(env, monkeypatch, tmp_path)
+    with sessions.begin() as db:
+        user = db.scalar(select(User).where(User.email == "a@example.cl"))
+        head = db.get(JavieraWorkbookHead, user.org_id)
+        head.publications = {}
+        head.published_id = None
+        db.flush()
+        found = active_workbook(db, user.org_id, published=True, code="irl")
+        assert found.id == imported["id"]
+
+    response = client.get("/api/v1/javiera/workbook", headers=headers)
+    assert response.status_code == 200
+    assert response.json()["publications"]["irl"] == imported["id"]
+    assert response.json()["publications"]["pts"] == imported["id"]
+    with sessions() as db:
+        user = db.scalar(select(User).where(User.email == "a@example.cl"))
+        head = db.get(JavieraWorkbookHead, user.org_id)
+        assert head.publications == {}
+        assert head.published_id is None
+    # A future save registers the available sources durably, without approval.

@@ -122,11 +122,29 @@ def head_for(db, org_id: str):
     return db.get(JavieraWorkbookHead, org_id)
 
 
+def _available_codes(obj: JavieraWorkbook | None) -> dict[str, str]:
+    """Published source compatibility for a master already on the VPS."""
+    if obj is None:
+        return {}
+    sheets = {item["name"].strip(): item for item in obj.inventory.get("sheets", [])}
+    return {code: obj.id for code, sheet in DOC_SHEETS.items()
+            if sheet in sheets and sheets[sheet].get("print_areas")}
+
+
 def active_workbook(db, org_id: str, published: bool = False, code: str | None = None):
     head = head_for(db, org_id)
-    if not head: return None
-    ident = head.publications.get(code) if published and code else head.published_id if published else head.current_id
-    return db.get(JavieraWorkbook, ident) if ident else None
+    if not head:
+        return None
+    ident = (head.publications.get(code) if published and code
+             else head.published_id if published else head.current_id)
+    if ident:
+        return db.get(JavieraWorkbook, ident)
+    # Legacy source was already imported but lacked an explicit publication.
+    # Read-only fallback: no new approval, no DB mutation, no reupload.
+    if published and code and head.current_id:
+        current = db.get(JavieraWorkbook, head.current_id)
+        return current if code in _available_codes(current) else None
+    return None
 
 
 def unarchived(model, org_id: str, kind: str):
@@ -218,7 +236,9 @@ def summary(obj):
 def status(user: User = Depends(administrator), db: Session = Depends(get_db)):
     current = active_workbook(db, user.org_id); head = head_for(db, user.org_id)
     return {"current": summary(current) if current else None,
-        "publications": head.publications if head else {},
+        "publications": {**(head.publications if head else {}),
+                         **{code: ident for code, ident in _available_codes(current).items()
+                            if not head or not head.publications.get(code)}},
         "engine": {"name": "LibreOffice Calc", "available": bool(settings().javiera_calc_url or shutil.which("libreoffice") or shutil.which("soffice")),
                    "warm": bool(settings().javiera_calc_url),
                    "max_parallel": 2},
