@@ -139,6 +139,10 @@ export default function JavieraSimple({onConfig,onBack}:{onConfig?:()=>void;onBa
   const [personToken,setPersonToken]=useState("");
   const [personId,setPersonId]=useState("");
   const [role,setRole]=useState("");
+  const [showNewCompany,setShowNewCompany]=useState(false);
+  const [showNewPerson,setShowNewPerson]=useState(false);
+  const [newCompany,setNewCompany]=useState({name:"",rut:""});
+  const [newPerson,setNewPerson]=useState({name:"",rut:""});
   const [code,setCode]=useState("irl");
   const [date,setDate]=useState(today);
   const [filter,setFilter]=useState("");
@@ -194,6 +198,7 @@ export default function JavieraSimple({onConfig,onBack}:{onConfig?:()=>void;onBa
     const index=++generation.current;
     setSite(value);setCompanyToken("");setCompanyId("");setPersonToken("");setPersonId("");
     setRole("");setFilter("");setExtras({});setVerifiedNoWorkers(false);
+    setShowNewCompany(false);setShowNewPerson(false);
     setSource(old=>({...old,people:[],operational_people:[]}));
     current.current=null;
     try{
@@ -205,7 +210,7 @@ export default function JavieraSimple({onConfig,onBack}:{onConfig?:()=>void;onBa
   async function changeCompany(value:string){
     const index=++generation.current;
     setCompanyToken(value);setCompanyId("");setPersonToken("");setPersonId("");
-    setExtras({});setRole("");current.current=null;
+    setExtras({});setRole("");current.current=null;setShowNewPerson(false);
     if(!value)return;
     const item=locate([...source.companies,...source.operational_companies],value);
     if(!item)return;
@@ -243,6 +248,67 @@ export default function JavieraSimple({onConfig,onBack}:{onConfig?:()=>void;onBa
       if(item.details?.role)setRole(item.details.role);
     }catch(e){if(index===generation.current)setError(friendly(e));}
     finally{if(index===generation.current)setBusy(false);}
+  }
+  async function createCompany(){
+    if(!site||!newCompany.name.trim()||!newCompany.rut.trim()){
+      setError("Indica la obra, razón social y RUT para preparar documentos.");return;
+    }
+    const index=++generation.current;
+    setBusy(true);setError("");
+    try{
+      const company=await request<Company>(base+"/companies",{
+        method:"POST",body:JSON.stringify({
+          site_id:site,origin:"new",name:newCompany.name.trim(),rut:newCompany.rut.trim()
+        })
+      });
+      const loaded=await request<Sources>(base+"/sources?site_id="+encodeURIComponent(site)+
+        "&company_id="+encodeURIComponent(company.id));
+      if(index!==generation.current)return;
+      setSource(loaded);setCompanyToken(token(company));setCompanyId(company.id);
+      setPersonToken("");setPersonId("");setRole("");setShowNewCompany(false);
+      setShowNewPerson(false);setNewCompany({name:"",rut:""});
+      current.current=null;
+      setNotice("Empresa guardada solo en Proyecto Javiera. No se registró en GALANT operativo.");
+    }catch(e){if(index===generation.current)setError(friendly(e));}
+    finally{if(index===generation.current)setBusy(false);}
+  }
+  async function createPerson(){
+    if(!companyId||!newPerson.name.trim()||!newPerson.rut.trim()){
+      setError("Indica nombre y RUT del trabajador para su ficha documental.");return;
+    }
+    const index=++generation.current;
+    setBusy(true);setError("");
+    try{
+      const person=await request<Person>(base+"/people",{
+        method:"POST",body:JSON.stringify({
+          company_id:companyId,origin:"new",name:newPerson.name.trim(),rut:newPerson.rut.trim()
+        })
+      });
+      const loaded=await request<Sources>(base+"/sources?site_id="+encodeURIComponent(site)+
+        "&company_id="+encodeURIComponent(companyId));
+      if(index!==generation.current)return;
+      setSource(loaded);setPersonToken(token(person));setPersonId(person.id);
+      setRole("");setShowNewPerson(false);setNewPerson({name:"",rut:""});
+      current.current=null;
+      setNotice("Trabajador guardado solo en Proyecto Javiera. No se asignó a una obra operativa.");
+    }catch(e){if(index===generation.current)setError(friendly(e));}
+    finally{if(index===generation.current)setBusy(false);}
+  }
+  async function refreshIdentity(kind:"company"|"person"){
+    const id=kind==="company"?companyId:personId;
+    if(!id)return;
+    setBusy(true);setError("");
+    try{
+      await request(base+"/"+(kind==="company"?"companies":"people")+"/"+
+        encodeURIComponent(id)+"/refresh-source",{method:"POST"});
+      const loaded=await request<Sources>(base+"/sources?site_id="+encodeURIComponent(site)+
+        "&company_id="+encodeURIComponent(companyId));
+      setSource(loaded);
+      current.current=null;
+      resetPreview();
+      setNotice("Datos documentales actualizados desde GALANT. La siguiente vista previa será recalculada.");
+    }catch(e){setError(friendly(e));}
+    finally{setBusy(false);}
   }
   function changeDocument(value:string){
     setCode(value);setExtras({});setShowExtras(false);setVerifiedNoWorkers(false);
@@ -321,9 +387,9 @@ export default function JavieraSimple({onConfig,onBack}:{onConfig?:()=>void;onBa
       <div>
         {onBack&&<button type="button" className="jsm-back" onClick={onBack}>
           <ArrowLeft size={17}/> Volver</button>}
-        <span className="jsm-eyebrow">GALANT 19.6 · MODO SIMPLE</span>
+        <span className="jsm-eyebrow">GALANT · PROYECTO JAVIERA DOCUMENTAL</span>
         <h1>Proyecto Javiera</h1>
-        <p>Selecciona a la persona y el documento. GALANT utiliza las plantillas originales de Excel.</p>
+        <p>Genera documentación con identidades independientes, sin registrar contratistas ni trabajadores en el sistema operativo.</p>
       </div>
       {onConfig&&<button type="button" className="jsm-settings" onClick={onConfig}>
         <Settings2 size={17}/> Administración de plantillas</button>}
@@ -364,6 +430,7 @@ export default function JavieraSimple({onConfig,onBack}:{onConfig?:()=>void;onBa
           <select aria-label="Cargo" value={role} onChange={e=>setRole(e.target.value)} disabled={busy}>
             <option value="">Selecciona el cargo</option>
             {role&&!roles.includes(role)&&<option value={role}>{role}</option>}
+            {roles.includes("TECHADOR")&&<option value="TECHUMBRE">TECHUMBRE (matriz de TECHADOR)</option>}
             {roles.map(name=><option value={name} key={name}>{name}</option>)}
           </select>
         </label>
@@ -372,6 +439,40 @@ export default function JavieraSimple({onConfig,onBack}:{onConfig?:()=>void;onBa
             {ORDER.map(key=><option key={key} value={key}>{LABELS[key]}</option>)}
           </select>
         </label>
+      </div>
+      <div className="jsm-documental-registration">
+        {site&&<button type="button" className="jsm-secondary" disabled={busy}
+          onClick={()=>{setShowNewCompany(!showNewCompany);setError("");}}>
+          {showNewCompany?"Cerrar registro":" + Preparar documentos para empresa nueva"}
+        </button>}
+        {showNewCompany&&<div className="jsm-extra-grid">
+          <label>Razón social<input value={newCompany.name}
+            onChange={e=>setNewCompany(old=>({...old,name:e.target.value}))}/></label>
+          <label>RUT empresa<input value={newCompany.rut}
+            onChange={e=>setNewCompany(old=>({...old,rut:e.target.value}))}/></label>
+          <button type="button" disabled={busy||!site||!newCompany.name.trim()||!newCompany.rut.trim()}
+            onClick={()=>void createCompany()}>Guardar solo en Javiera</button>
+        </div>}
+        {companyId&&<button type="button" className="jsm-secondary" disabled={busy}
+          onClick={()=>{setShowNewPerson(!showNewPerson);setError("");}}>
+          {showNewPerson?"Cerrar trabajador":" + Preparar documentos para trabajador nuevo"}
+        </button>}
+        {showNewPerson&&<div className="jsm-extra-grid">
+          <label>Nombre del trabajador<input value={newPerson.name}
+            onChange={e=>setNewPerson(old=>({...old,name:e.target.value}))}/></label>
+          <label>RUT trabajador<input value={newPerson.rut}
+            onChange={e=>setNewPerson(old=>({...old,rut:e.target.value}))}/></label>
+          <button type="button" disabled={busy||!companyId||!newPerson.name.trim()||!newPerson.rut.trim()}
+            onClick={()=>void createPerson()}>Guardar solo en Javiera</button>
+        </div>}
+        {selectedCompany?.origin==="operational"&&companyId&&
+          <button type="button" disabled={busy} className="jsm-secondary"
+            onClick={()=>void refreshIdentity("company")}>Actualizar empresa desde GALANT</button>}
+        {selectedPerson?.origin==="operational"&&personId&&
+          <button type="button" disabled={busy} className="jsm-secondary"
+            onClick={()=>void refreshIdentity("person")}>Actualizar trabajador desde GALANT</button>}
+        <p className="jsm-footnote">Los registros creados aquí son exclusivos de Proyecto Javiera.
+          Actualizar una copia documental no altera los módulos operativos.</p>
       </div>
       <div className="jsm-details">
         <label>Fecha del documento <input type="date" value={date} onChange={e=>setDate(e.target.value)}/></label>
