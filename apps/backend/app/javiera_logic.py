@@ -151,6 +151,14 @@ def ordinary_weekly_hours_limit(effective_date: str | None) -> int:
 def validate_requirements(data: dict, required: list[str]) -> tuple[list[str], list[str]]:
     missing = [key for key in required if field(data, key) in (None, "", [], {})]
     errors = []
+    # Nunca convertir un identificador numérico (por ejemplo "32423432")
+    # en nombre de trabajador ni en razón social dentro de un documento legal.
+    for key in ("worker.name", "employer.name", "extra.representative_name"):
+        if key not in required or key in missing:
+            continue
+        raw = str(field(data, key)).strip()
+        if not re.search(r"[A-Za-zÁÉÍÓÚÑÜáéíóúñü]", raw):
+            errors.append(key + ": falta nombre legible; no ingreses RUT o números como nombre")
     # EPP se comprueba antes de LibreOffice: una fecha no es un elemento,
     # y no debe aparecer como un inespecífico "error de plantilla".
     if "event.epp_items" in required and "event.epp_items" not in missing:

@@ -66,7 +66,7 @@ def test_preflight_reports_exact_cells_without_issuing(env, monkeypatch):
               "blocking_errors": [], "can_preview": True}
     monkeypatch.setattr(javiera_api, "evaluated", lambda *a, **kw: [sample])
     monkeypatch.setattr(javiera_api, "active_workbook",
-                        lambda *a, **kw: SimpleNamespace(sha256="test", id="master"))
+                        lambda *a, **kw: SimpleNamespace(sha256="test", id="master", revision=1))
     monkeypatch.setattr(javiera_api, "raw_for", lambda *a: b"x")
     monkeypatch.setattr(javiera_api, "original_for", lambda *a: b"x")
     def fails(*args, **kwargs):

@@ -2,9 +2,13 @@
 from app.javiera_excel import DOC_SHEETS
 from test_control_api import env, login
 from test_javiera_workbook import prepare
+from test_javiera_all_roles_contract import all_roles_master
+import test_javiera_workbook as workbook_test_data
 
 
 def test_existing_approved_master_activation_is_once_only_and_audited(env, monkeypatch, tmp_path):
+    # Previously approved fixture has complete IRL + PTS for all 25 roles.
+    monkeypatch.setattr(workbook_test_data, "master", lambda: all_roles_master.__wrapped__())
     client, sessions, headers, imported = prepare(env, monkeypatch, tmp_path)
     path = "/api/v1/javiera/workbook/" + imported["id"]
     request = {
@@ -44,3 +48,19 @@ def test_approved_master_activation_respects_permissions(env, monkeypatch, tmp_p
         "confirmation": "PLANTILLAS_PREVIAMENTE_APROBADAS",
     })
     assert response.status_code == 403
+
+
+
+def test_unfinished_original_cannot_be_activated_by_checkbox(env, monkeypatch, tmp_path):
+    client, sessions, headers, imported = prepare(env, monkeypatch, tmp_path)
+    response = client.post(
+        "/api/v1/javiera/workbook/" + imported["id"] + "/activate-approved-master",
+        headers=headers,
+        json={"expected_revision": imported["revision"],
+              "confirmation": "PLANTILLAS_PREVIAMENTE_APROBADAS"},
+    )
+    assert response.status_code == 422, response.text
+    detail = response.json()["detail"]
+    assert detail["blocking_count"] > 0
+    assert detail["issues"]
+    assert client.get("/api/v1/javiera/workbook").json()["publications"] == {}

@@ -23,7 +23,7 @@ def sample_data():
         "employer": {"name": "CONSTRUCTORA SINTÉTICA PARA CONTROL DE CALIDAD SPA",
                      "rut": "76000000-0"},
         "worker": {"name": "TRABAJADOR DE PRUEBA CON APELLIDOS LARGOS",
-                   "rut": "20000000-0"},
+                   "rut": "20000000-5"},
         "site": {"name": "OBRA DE ENSAYO A4"},
         "role": "CARPINTERO",
         "event": {
@@ -41,7 +41,7 @@ def sample_data():
         "extra": {
             "regulation_version": "VERSIÓN SINTÉTICA DE ENSAYO",
             "representative_name": "REPRESENTANTE DE EMPRESA SINTÉTICA",
-            "representative_rut": "15000000-0",
+            "representative_rut": "15000000-9",
         },
     }
 
@@ -63,6 +63,19 @@ def inspect_pdf(code, raw, output):
                 failures.append("falta texto obligatorio: " + word)
         if "GALANT" in compact:
             failures.append("marca interna visible en PDF")
+        if code == "sworn_declaration":
+            # La identidad de la empresa debe indicar a su REPRESENTANTE,
+            # nunca el nombre del trabajador ni "No aplica".
+            if "Representante legal No aplica" in compact:
+                failures.append("declaración jurada omite nombre del representante legal")
+            if ("Representante legal REPRESENTANTE DE EMPRESA SINTÉTICA" not in compact):
+                failures.append("nombre del representante incompleto en ficha documental")
+            if "RUT representante 15.000.000-9" not in compact:
+                failures.append("RUT del representante ausente o mal formateado")
+        if code == "ppe_delivery":
+            if "Recibido en físico" not in compact:
+                failures.append("cabecera de recepción EPP truncada o no impresa")
+
         # La vista previa está en la interfaz; el documento impreso no debe
         # contener ninguna leyenda técnica ni advertencia de firma ficticia.
         normalized = compact.casefold()

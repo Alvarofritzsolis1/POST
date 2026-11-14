@@ -606,6 +606,101 @@ def repair_master(raw: bytes) -> tuple[bytes, list[str]]:
         return pack(z, changes), notes
 
 
+def audit_preventive_master(raw: bytes) -> dict:
+    """Read-only review of ALL positions before preventive publication.
+
+    Detects incomplete/ambiguous IRL and PTS rows. Does not invent control
+    measures or treat an unverified alias as an approved task description.
+    """
+    source: dict[str, dict[str, list[dict]]] = {"IRL": {}, "PTS": {}, "PUESTOS": {}}
+    selected = {
+        "IRL": ("MATRIZ IRL", "B", "CDEF"),
+        "PTS": ("MATRIZ PTS", "A", "DEFGHIJKLMNOPQRST"),
+        "PUESTOS": ("Matriz IRL Optimizada", "A", "BCDE"),
+    }
+    with ZipFile(io.BytesIO(raw)) as z:
+        files = sheet_files(z)
+        strings = shared_strings(z)
+        for kind, (sheet, role_column, fields) in selected.items():
+            root = ET.fromstring(z.read(files[resolve_sheet(files, sheet)]))
+            for row in root.findall(".//" + Q("row")):
+                row_number = int(row.get("r", "0"))
+                if row_number < 2:
+                    continue
+                values = {re.match(r"[A-Z]+", c.get("r")).group():
+                          cell_text(c, strings).strip() for c in row.findall(Q("c"))}
+                name = values.get(role_column, "").strip()
+                if name and len(name) <= 160:
+                    source[kind].setdefault(name, []).append({
+                        "row": row_number,
+                        "fields": {column: values.get(column, "").strip() for column in fields},
+                    })
+    normalized_summary: dict[str, list[dict]] = {}
+    for role, rows in source["PUESTOS"].items():
+        normalized_summary.setdefault(_irl_role_key(role), []).extend(rows)
+    found = sorted(set(source["IRL"]) | set(source["PTS"]))
+    findings: list[dict] = []
+    def add(role: str, scope: str, matrix: str, cell: str,
+            code: str, message: str, severity: str = "error") -> None:
+        findings.append({"role": role, "scope": scope, "matrix": matrix,
+                         "cell": cell, "code": code, "message": message,
+                         "severity": severity})
+    if not found:
+        add("(sin cargos)", "IRL", "IRL", "B2", "NO_ROLES",
+            "No existen cargos asociados a las matrices")
+        add("(sin cargos)", "PTS", "PTS", "A2", "NO_ROLES",
+            "No existen cargos asociados a las matrices")
+    for role in found:
+        risks = source["IRL"].get(role, [])
+        procedures = source["PTS"].get(role, [])
+        if not risks:
+            add(role, "IRL", "IRL", "B2", "NO_IRL", "Cargo sin matriz IRL")
+        for item in risks:
+            for col, text in item["fields"].items():
+                if not text:
+                    add(role, "IRL", "IRL", col + str(item["row"]),
+                        "EMPTY_IRL", "Actividad, peligro, consecuencia o medida sin completar")
+        if not procedures:
+            add(role, "PTS", "PTS", "A2", "NO_PTS", "Cargo sin matriz PTS")
+        for item in procedures:
+            for col, text in item["fields"].items():
+                if not text:
+                    add(role, "PTS", "PTS", col + str(item["row"]),
+                        "EMPTY_PTS", "Apartado obligatorio del procedimiento sin completar")
+        # Duplicate PTS records with different bodies are ambiguous.
+        if len(procedures) > 1:
+            signatures = {tuple(p["fields"][col] for col in "DEFGHIJKLMNOPQRST")
+                          for p in procedures}
+            if len(signatures) != 1:
+                add(role, "PTS", "PTS", "A" + str(procedures[1]["row"]),
+                    "CONFLICTING_PTS", "Existen procedimientos diferentes para una misma clave")
+        if risks:
+            summary_key = _IRL_SUMMARY_ALIASES.get(_irl_role_key(role), _irl_role_key(role))
+            matches = normalized_summary.get(summary_key, [])
+            if len(matches) != 1:
+                add(role, "IRL", "PUESTOS", "A2", "MISSING_SUMMARY",
+                    "La matriz de condiciones no contiene una correspondencia única para este cargo")
+            else:
+                for col, text in matches[0]["fields"].items():
+                    if not text:
+                        add(role, "IRL", "PUESTOS", col + str(matches[0]["row"]),
+                            "EMPTY_SUMMARY", "Faltan condiciones originales del puesto")
+            normalized_risks = [
+                tuple(_irl_role_key(x["fields"][c]) for c in "CDEF") for x in risks
+            ]
+            if len(normalized_risks) != len(set(normalized_risks)):
+                add(role, "IRL", "IRL", "B" + str(risks[-1]["row"]),
+                    "DUPLICATE_RISKS", "Existen riesgos idénticos repetidos; confirmar si corresponde",
+                    severity="warning")
+    blocking_count = sum(x["severity"] == "error" for x in findings)
+    return {
+        "sha256": digest(raw), "roles_total": len(found),
+        "blocking_count": blocking_count,
+        "warning_count": len(findings) - blocking_count,
+        "findings": findings,
+    }
+
+
 def matrix_records(raw: bytes, role: str, kind: str) -> list[dict]:
     wanted, col = MATRIX_SHEETS[kind]
     with ZipFile(io.BytesIO(raw)) as z:
@@ -616,59 +711,165 @@ def matrix_records(raw: bytes, role: str, kind: str) -> list[dict]:
             values = {re.match(r"[A-Z]+", c.get("r")).group(): cell_text(c, strings) for c in row.findall(Q("c"))}
             if values.get(col, "").strip() == role: rows.append({"row": int(row.get("r")), "values": values})
         if not rows: raise LayoutError("No existe información " + kind + " para la clave exacta del cargo seleccionado")
+        if kind == "IRL" and _irl_role_key(role) == "GASFITER":
+            # El Excel histórico repite dos bloques de 13 riesgos para GASFITER.
+            # Una de las tareas usa el rótulo GASFITERIA en vez de GASFITER.
+            # Se colapsan SOLO actividades equivalentes con idénticos peligros,
+            # consecuencias y medidas; los controles diferentes se conservan.
+            seen: set[tuple[str, ...]] = set()
+            unique: list[dict] = []
+            for record in rows:
+                values = record["values"]
+                task = _irl_role_key(values.get("C", ""))
+                if _irl_role_key(role) == "GASFITER":
+                    task = re.sub(r"\bGASFITERIA\b", "GASFITER", task)
+                signature = (task, *(
+                    _irl_role_key(values.get(col, "")) for col in "DEF"
+                ))
+                if signature not in seen:
+                    seen.add(signature)
+                    unique.append(record)
+            rows = unique
         return rows
 
 
+# Localizaciones reales de los 12 primeros riesgos en el IRL de GALANT.
+# Las filas pares 40, 42, 44, 46, etc., contienen encabezados y NUNCA
+# deben ser sobrescritas por actividades ni medidas preventivas.
+IRL_PRINT_RISK_ROWS = (39, 41, 43, 45, 47, 49, 52, 54, 56, 63, 65, 67)
+
+
+def irl_risk_print_rows(root: ET.Element) -> tuple[tuple[int, ...], bool]:
+    """Identifica la maqueta IRL real sin adivinar posiciones de filas.
+
+    Se conserva compatibilidad con las plantillas sintéticas antiguas en que
+    sólo se usa A45. En una plantilla real parcialmente alterada se bloquea
+    en lugar de imprimir la matriz desfasada.
+    """
+    detected: list[int] = []
+    for cell in root.findall(".//" + Q("c")):
+        address = cell.get("r", "")
+        match = re.fullmatch(r"A([1-9]\d*)", address)
+        formula = cell.find(Q("f"))
+        if (match and formula is not None and
+                "MATRIZ IRL" in (formula.text or "").upper() and
+                35 <= int(match[1]) <= 70):
+            detected.append(int(match[1]))
+    if sorted(set(detected)) == list(IRL_PRINT_RISK_ROWS):
+        return IRL_PRINT_RISK_ROWS, True
+    if detected == [45]:
+        # Fixtures legados: sólo A45 enlaza a la matriz; no tienen la maqueta
+        # completa del archivo original. Nunca aplicar este camino al libro real.
+        return tuple(45 + 2 * i for i in range(12)), False
+    if detected:
+        raise LayoutError(
+            "La plantilla IRL tiene filas de riesgos incompletas o desordenadas "
+            f"({sorted(set(detected))}). Corrige la distribución original antes de imprimir."
+        )
+    return tuple(45 + 2 * i for i in range(12)), False
+
+
+def put_irl_risks(root: ET.Element, matrix: list[dict], rows: tuple[int, ...]) -> None:
+    """Vincula cada campo a su FILA EXACTA en MATRIZ IRL, incluso entre cargos."""
+    for index, target_row in enumerate(rows):
+        record = matrix[index] if index < len(matrix) else None
+        for dest_col, src_col in zip("ABCD", "CDEF"):
+            address = dest_col + str(target_row)
+            if record is None:
+                set_text(root, address, "")
+                continue
+            source_row = record["row"]
+            source_role = (
+                "IF('MATRIZ IRL'!$B$" + str(source_row) +
+                "='Datos Contrato'!$C$29,"
+                "'MATRIZ IRL'!$" + src_col + "$" + str(source_row) + ', "")'
+            )
+            cell = ensure_cell(root, address)
+            for child in list(cell):
+                cell.remove(child)
+            cell.attrib.pop("t", None)
+            ET.SubElement(cell, Q("f")).text = source_role
+
+
 def irl_continuations(raw: bytes, role: str) -> tuple[bytes, list[str]]:
-    """Continue overflowing risks with copies of the original Excel table, never HTML/PDF drawing."""
+    """Paginar las 13+ filas de riesgos sobre la disposición ORIGINAL del IRL.
+
+    La primera hoja imprime riesgos 1-12. Las continuaciones imprimen sólo
+    riesgos restantes, con membretes, bordes y encabezados sin sobrescribir.
+    Todos los campos siguen siendo fórmulas que referencian la matriz aprobada.
+    """
     records = matrix_records(raw, role, "IRL")
-    if len(records) <= 12: return raw, []
     with ZipFile(io.BytesIO(raw)) as z:
-        files = sheet_files(z); main_name = resolve_sheet(files, "IRL")
-        source_path = files[main_name]; book = ET.fromstring(z.read("xl/workbook.xml"))
-        rels = ET.fromstring(z.read("xl/_rels/workbook.xml.rels")); types = ET.fromstring(z.read("[Content_Types].xml"))
-        sheets_node = book.find(Q("sheets")); definitions = book.find(Q("definedNames"))
-        if definitions is None: definitions = ET.SubElement(book, Q("definedNames"))
-        max_id = max(int(s.get("sheetId")) for s in sheets_node)
-        changes = {}; names = []
+        files = sheet_files(z)
+        main_name = resolve_sheet(files, "IRL")
+        source_path = files[main_name]
+        original = ET.fromstring(z.read(source_path))
+        rows, actual_template = irl_risk_print_rows(original)
+
+        # La plantilla real se repara siempre, también con 1-12 riesgos.
+        if not actual_template and len(records) <= 12:
+            return raw, []
+        first = deepcopy(original)
+        put_irl_risks(first, records[:12], rows)
+        changes = {source_path: xml(first)}
+        if len(records) <= 12:
+            return pack(z, changes), []
+
+        book = ET.fromstring(z.read("xl/workbook.xml"))
+        rels = ET.fromstring(z.read("xl/_rels/workbook.xml.rels"))
+        types = ET.fromstring(z.read("[Content_Types].xml"))
+        sheets_node = book.find(Q("sheets"))
+        definitions = book.find(Q("definedNames"))
+        if definitions is None:
+            definitions = ET.SubElement(book, Q("definedNames"))
+        max_id = max(int(sheet.get("sheetId")) for sheet in sheets_node)
+        names: list[str] = []
+        rel_ns = "http://schemas.openxmlformats.org/package/2006/relationships"
+        type_ns = "http://schemas.openxmlformats.org/package/2006/content-types"
         for chunk, offset in enumerate(range(12, len(records), 12), 1):
-            name = "IRL continuación " + str(chunk); names.append(name)
+            name = "IRL continuación " + str(chunk)
+            names.append(name)
             path = "xl/worksheets/galant_cont_" + str(chunk) + ".xml"
-            root = ET.fromstring(z.read(source_path)); count = min(12, len(records) - offset)
-            for index in range(count):
-                for col in "ABCD":
-                    cell = ensure_cell(root, col + str(45 + 2 * index)); base = ensure_cell(root, col + "45")
-                    f = base.find(Q("f"))
-                    # Preserve the original table's formula-driven risk cells.
-                    if f is None: raise LayoutError("La tabla IRL debe conservar sus fórmulas antes de continuar")
-                    # Exact cargo matches can live in separate source blocks.
-                    # Bind the continuation to their actual Excel rows rather
-                    # than stepping through rows belonging to another cargo.
-                    source_row = records[offset + index]['row']
-                    source_col = 'CDEF'['ABCD'.index(col)]
-                    formula = ("IF('MATRIZ IRL'!$B$"+str(source_row)+"='Datos Contrato'!$C$29,"
-                               "'MATRIZ IRL'!$"+source_col+'$'+str(source_row)+',"")')
-                    for child in list(cell): cell.remove(child)
-                    cell.attrib.pop("t", None); ET.SubElement(cell, Q("f")).text = formula
-            set_text(root,'D40','Continuación '+str(chunk))
-            set_text(root,'A42','2 - RIESGOS Y MEDIDAS PREVENTIVAS · CONTINUACIÓN')
-            changes[path] = xml(root)
+            count = min(12, len(records) - offset)
+            page = deepcopy(first)
+            put_irl_risks(page, records[offset:offset + count], rows)
+            if actual_template:
+                # A37 es el título, D40 es un ENCABEZADO ORIGINAL y no se toca.
+                set_text(page, "A37", "2 - RIESGOS Y MEDIDAS PREVENTIVAS · CONTINUACIÓN " + str(chunk))
+                first_print_row, last_print_row = 34, rows[count - 1]
+            else:
+                # Compatibilidad con fixtures históricos que sólo definen A45.
+                first_print_row, last_print_row = 39, 44 + 2 * count
+            changes[path] = xml(page)
+
             rid = "rIdGalantCont" + str(chunk)
-            ET.SubElement(sheets_node, Q("sheet"), {"name": name, "sheetId": str(max_id + chunk), "state": "visible", "{" + R + "}id": rid})
-            relation_ns = "http://schemas.openxmlformats.org/package/2006/relationships"
-            ET.SubElement(rels, "{" + relation_ns + "}Relationship", {"Id": rid,
-                "Type": R + "/worksheet", "Target": "worksheets/galant_cont_" + str(chunk) + ".xml"})
-            ET.SubElement(types, "{http://schemas.openxmlformats.org/package/2006/content-types}Override", {
-                "PartName": "/" + path, "ContentType": "application/vnd.openxmlformats-officedocument.spreadsheetml.worksheet+xml"})
-            ET.SubElement(definitions, Q("definedName"), {"name": "_xlnm.Print_Area", "localSheetId": str(len(files) + chunk - 1)}).text = "'" + name + "'!$A$39:$D$" + str(44 + 2 * count)
-            rel_path = posixpath.dirname(source_path) + "/_rels/" + posixpath.basename(source_path) + ".rels"
-            if rel_path in z.namelist(): changes["xl/worksheets/_rels/" + posixpath.basename(path) + ".rels"] = z.read(rel_path)
-        changes.update({"xl/workbook.xml": xml(book), "xl/_rels/workbook.xml.rels": xml(rels), "[Content_Types].xml": xml(types)})
-        out = io.BytesIO()
-        with ZipFile(out, "w", ZIP_DEFLATED) as dest:
-            for item in z.infolist(): dest.writestr(item, changes.pop(item.filename, z.read(item.filename)))
-            for path, content in changes.items(): dest.writestr(path, content)
-        return out.getvalue(), names
+            ET.SubElement(sheets_node, Q("sheet"), {
+                "name": name, "sheetId": str(max_id + chunk),
+                "state": "visible", "{" + R + "}id": rid
+            })
+            ET.SubElement(rels, "{" + rel_ns + "}Relationship", {
+                "Id": rid, "Type": R + "/worksheet",
+                "Target": "worksheets/galant_cont_" + str(chunk) + ".xml"
+            })
+            ET.SubElement(types, "{" + type_ns + "}Override", {
+                "PartName": "/" + path,
+                "ContentType": "application/vnd.openxmlformats-officedocument.spreadsheetml.worksheet+xml"
+            })
+            ET.SubElement(definitions, Q("definedName"), {
+                "name": "_xlnm.Print_Area", "localSheetId": str(len(files) + chunk - 1)
+            }).text = ("'" + name + "'!$A$" + str(first_print_row) +
+                      ":$D$" + str(last_print_row))
+            rel_path = (posixpath.dirname(source_path) + "/_rels/" +
+                        posixpath.basename(source_path) + ".rels")
+            if rel_path in z.namelist():
+                changes["xl/worksheets/_rels/" + posixpath.basename(path) + ".rels"] = z.read(rel_path)
+
+        changes.update({
+            "xl/workbook.xml": xml(book),
+            "xl/_rels/workbook.xml.rels": xml(rels),
+            "[Content_Types].xml": xml(types)
+        })
+        return pack(z, changes), names
 
 
 def validate_matrix_results(calculated: bytes, role: str, code: str, continuations: list[str]) -> None:
@@ -700,13 +901,32 @@ def validate_matrix_results(calculated: bytes, role: str, code: str, continuatio
                     raise LayoutError("El PTS no coincide con la matriz Excel en " + coordinate)
         else:
             names = [resolve_sheet(files, "IRL"), *continuations]
+            original_root = ET.fromstring(z.read(files[names[0]]))
+            print_rows, actual_template = irl_risk_print_rows(original_root)
             for i, values in enumerate(expected):
-                if i // 12 >= len(names): raise LayoutError("Faltan páginas Excel para los riesgos del cargo")
-                root = ET.fromstring(z.read(files[names[i // 12]])); row = 45 + 2 * (i % 12)
+                if i // 12 >= len(names):
+                    raise LayoutError("Faltan páginas Excel para los riesgos del cargo")
+                root = ET.fromstring(z.read(files[names[i // 12]]))
+                row = print_rows[i % 12]
                 for col, value in zip("ABCD", values):
-                    c = root.find(".//" + Q("c") + "[@r='" + col + str(row) + "']")
-                    if c is None or normalize(cell_text(c, strings)) != normalize(value):
-                        raise LayoutError("El IRL no coincide con el cargo en " + col + str(row) + "; se bloquea la asociación incorrecta")
+                    cell = root.find(".//" + Q("c") + "[@r='" + col + str(row) + "']")
+                    if cell is None or normalize(cell_text(cell, strings)) != normalize(value):
+                        raise LayoutError(
+                            "El IRL no coincide con la matriz exacta del cargo: " +
+                            names[i // 12] + "!" + col + str(row)
+                        )
+            if actual_template:
+                for j, name in enumerate(names[1:], 1):
+                    count = max(0, min(12, len(expected) - 12 * j))
+                    root = ET.fromstring(z.read(files[name]))
+                    for row in print_rows[count:]:
+                        for col in "ABCD":
+                            cell = root.find(".//" + Q("c") + "[@r='" + col + str(row) + "']")
+                            if cell is not None and cell_text(cell, strings).strip():
+                                raise LayoutError(
+                                    "El IRL contiene datos residuales en una página de continuación: " +
+                                    name + "!" + col + str(row)
+                                )
 
 
 def run_calc(raw: bytes, folder: Path, timeout: int = 70) -> bytes:
@@ -876,6 +1096,23 @@ def convert_pdf(raw: bytes, sheet: str, *, preview: bool = False,
                                 raise LayoutError('El PDF no reproduce íntegro el contenido preventivo de la matriz en '+column+str(record['row']))
                             checked += 1
                     validation['printed_matrix_fields'] = checked
+                if code == 'pts':
+                    normalize = lambda value: re.sub(
+                        r'[\W_]+', '', unicodedata.normalize('NFKC', value).casefold()
+                    )
+                    printed_content = normalize(' '.join(page.get_text() for page in doc))
+                    pts_records = matrix_records(calculated, role, 'PTS')
+                    checked = 0
+                    for column in 'DEFGHIJKLMNOPQRST':
+                        value = pts_records[0]['values'].get(column, '')
+                        if value and normalize(value) not in printed_content:
+                            raise LayoutError(
+                                'El PDF PTS no reproduce íntegra la sección ' +
+                                column + str(pts_records[0]['row']) +
+                                ' de la matriz del cargo ' + role
+                            )
+                        checked += 1
+                    validation['printed_matrix_fields'] = checked
                 if preview:
                     for page in doc:
                         page.insert_text((12, 12), "BORRADOR - SIN FIRMA - REQUIERE REVISION", fontsize=7, color=(0.65, 0.15, 0.1))
@@ -896,7 +1133,7 @@ def cached_pdf(raw: bytes, code: str, data: dict, org_id: str, cache: Path, prev
     # Excluir esa preferencia del hash evita recalcular Calc al cambiar la selección.
     printable_data = {k: v for k, v in data.items() if k != "requested_documents"}
     key = digest(json.dumps({"org": org_id, "workbook": digest(raw), "code": code,
-        "data": printable_data, "preview": preview, 'reference':digest(reference or raw), "engine": "calc-v20.8-irl-rut-" + ('uno' if settings().javiera_calc_url else 'cli')}, sort_keys=True, ensure_ascii=False).encode())
+        "data": printable_data, "preview": preview, 'reference':digest(reference or raw), "engine": "calc-v20.9-irl-print-map-" + ('uno' if settings().javiera_calc_url else 'cli')}, sort_keys=True, ensure_ascii=False).encode())
     with _locks_guard:
         lock = _locks.setdefault(key, threading.Lock())
     with lock:
