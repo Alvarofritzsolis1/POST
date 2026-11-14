@@ -23,10 +23,12 @@ from .db import get_db
 from .javiera_api import audit, by_org, pdf_for, template_data
 from .javiera_layout_api import latest_layout, make_pdf
 from .javiera_logic import DOCUMENTS, DOCUMENT_BY_CODE, eligibility, normalize_cargo, render_tokens
-from .javiera_excel import DOC_SHEETS
+from .javiera_excel import DOC_SHEETS, LayoutError
+from .javiera_workbook_api import active_workbook, raw_for, original_for, root_for
+from .javiera_workbook import cached_pdf, roles as workbook_roles, resolve_workbook_role, audit_preventive_master
 from .javiera_matrices import latest_approved_matrix
 from .javiera_irl import preventive_matrix_blocker
-from .javiera_models import JavieraExcelLayout, JavieraMatrix, JavieraTemplate, JavieraIssue
+from .javiera_models import JavieraExcelLayout, JavieraMatrix, JavieraTemplate, JavieraIssue, JavieraDossier
 from .javiera_v166_models import (
     JavieraLocalCompany, JavieraLocalPerson, JavieraLocalDossier,
     JavieraLocalIssue, JavieraLocalBatch,
@@ -143,6 +145,24 @@ def _status(db, user, record, code):
         JavieraMatrix.org_id == user.org_id,
         JavieraMatrix.status == "approved")).all()
     approved = {kind + ":" + normalize_cargo(cargo) for kind, cargo in matrices}
+    # La revisión Excel publicada es la fuente de la matriz para este documento.
+    # Un expediente documental no necesita dar de alta al contratista ni al trabajador.
+    master = active_workbook(db, user.org_id, published=True, code=code) if code in {"irl", "pts", "pts_receipt"} else None
+    source_error = ""
+    source_faults = []
+    if master:
+        kind = "IRL" if code == "irl" else "PTS"
+        try:
+            workbook_data = raw_for(master)
+            resolve_workbook_role(workbook_roles(workbook_data), role, kind)
+            findings = audit_preventive_master(workbook_data)["findings"]
+            source_faults = [f for f in findings
+                             if f["severity"] == "error" and f["scope"] == kind
+                             and normalize_cargo(f["role"]) == role]
+            if not source_faults:
+                approved.add(kind + ":" + role)
+        except (LayoutError, HTTPException) as error:
+            source_error = str(error.detail) if isinstance(error, HTTPException) else str(error)
     data = _document(record, code, db, user)
     item = next(s for s in eligibility(data, templates, approved) if s["code"] == code)
     # Una labor nueva pertenece al borrador documental y no puede emitirse
@@ -163,26 +183,31 @@ def _status(db, user, record, code):
             item.setdefault("blocking_errors", []).append(warning)
     if code in {"irl", "pts", "pts_receipt"}:
         kind = "IRL" if code == "irl" else "PTS"
-        source = latest_approved_matrix(db, user.org_id, kind, role)
-        issue = preventive_matrix_blocker(kind, source.sections if source else None)
-        if issue:
-            # Mostrar primero la labor nueva aportada por el usuario. La
-            # matriz ausente/incompleta sigue listada como segundo bloqueo.
-            manual_priority = any(
-                "Labor manual" in warning
-                for warning in item.get("blocking_errors", [])
-            )
-            item.update(
-                status="PENDIENTE_REVISION",
-                reason=item["reason"] if manual_priority else issue,
-                can_issue=False, can_preview=False,
-            )
-            item.setdefault("blocking_errors", []).append(issue)
+        if master:
+            if source_faults:
+                locations = ", ".join(f["matrix"] + "!" + f["cell"] for f in source_faults[:8])
+                source_error = "Corrige las celdas de " + role + ": " + locations
+            if source_error:
+                item.update(status="FALTAN_DATOS", reason=source_error,
+                            can_issue=False, can_preview=False)
+                item.setdefault("blocking_errors", []).append(source_error)
+        else:
+            source = latest_approved_matrix(db, user.org_id, kind, role)
+            issue = preventive_matrix_blocker(kind, source.sections if source else None)
+            if issue:
+                manual_priority = any("Labor manual" in warning for warning in item.get("blocking_errors", []))
+                item.update(status="PENDIENTE_REVISION",
+                            reason=item["reason"] if manual_priority else issue,
+                            can_issue=False, can_preview=False)
+                item.setdefault("blocking_errors", []).append(issue)
     # An imported Excel in draft status must never silently fall back to
     # an unrelated text template merely because that text was published.
     newest = latest_layout(db, user.org_id, code, approved=False)
     enabled = latest_layout(db, user.org_id, code)
-    if newest and (not enabled or newest.revision > enabled.revision):
+    # Una maqueta Excel antigua en borrador no debe bloquear un maestro
+    # más reciente ya publicado para este código: era un bloqueo obsoleto.
+    if (not active_workbook(db, user.org_id, published=True, code=code)
+            and newest and (not enabled or newest.revision > enabled.revision)):
         item.update(status="PENDIENTE_REVISION",
                     reason="El diseño vigente requiere una revisión visual antes de imprimir.",
                     can_issue=False, can_preview=False)
@@ -284,11 +309,31 @@ def documentary_template_status(user: User = Depends(administrator),
         if item.state == "approved":
             published.setdefault(item.code, item)
     result = []
-    engine_available = bool(__import__("shutil").which("libreoffice") or
+    engine_available = bool(settings().javiera_calc_url or __import__("shutil").which("libreoffice") or
                             __import__("shutil").which("soffice"))
     for code, sheet in DOC_SHEETS.items():
         current = latest.get(code)
         approved = published.get(code)
+        master = active_workbook(db, user.org_id, published=True, code=code)
+        if master:
+            try:
+                raw_for(master)
+                state, message = (
+                    ("published", "Excel maestro publicado: plantilla y fórmulas disponibles.")
+                    if engine_available else
+                    ("engine_unavailable", "El motor de conversión PDF no está disponible.")
+                )
+            except HTTPException as exc:
+                state, message = "missing_storage", str(exc.detail)
+            result.append({
+                "code": code, "sheet": sheet, "linked": True,
+                "imported": True, "latest_revision": master.revision,
+                "approved_revision": master.revision, "state": state,
+                "message": message, "ready": state == "published",
+                "source_sha256": master.sha256,
+                "fields_detected": len(DOCUMENT_BY_CODE[code][4]),
+            })
+            continue
         source_exists = False
         if approved:
             safe_root = (settings().document_dir / user.org_id /
@@ -342,6 +387,12 @@ def save_company(payload: CompanyInput, user: User = Depends(administrator), db:
             JavieraLocalCompany.site_id == site.id,
             JavieraLocalCompany.source_contractor_id == linked_id))
         if previous:
+            # La selección explícita de una empresa operativa actualiza solo
+            # la copia documental; resuelve correcciones posteriores de RUT/nombre.
+            if previous.name != name or (previous.rut or "") != rut:
+                previous.name, previous.rut = name, rut or None
+                audit(db, user, "javiera.company_source_refreshed", previous.id)
+                db.commit()
             return _company_dict(previous)
     if not name or len(name) < 2:
         raise HTTPException(422, "Escribe la razón social de la empresa")
@@ -393,6 +444,12 @@ def save_person(payload: PersonInput, user: User = Depends(administrator), db: S
             JavieraLocalPerson.company_id == company.id,
             JavieraLocalPerson.source_worker_id == source_id))
         if previous:
+            # El trabajador corregido en GALANT se copia nuevamente al
+            # seleccionarlo, sin tocar la ficha operativa ni un PDF emitido.
+            if previous.name != name or (previous.rut or "") != rut:
+                previous.name, previous.rut = name, rut or None
+                audit(db, user, "javiera.person_source_refreshed", previous.id)
+                db.commit()
             return _person_dict(previous)
     if len(name) < 2:
         raise HTTPException(422, "Escribe el nombre de la persona")
@@ -464,6 +521,48 @@ def correct_person(ident: str, payload: LocalIdentityCorrection,
     return _person_dict(person)
 
 
+@router.post("/companies/{ident}/refresh-source")
+def refresh_company_source(ident: str, user: User = Depends(administrator),
+                           db: Session = Depends(get_db)):
+    """Explicitly refresh a documentary snapshot; never mutate operational records."""
+    company = _company(db, user, ident)
+    if not company.source_contractor_id:
+        raise HTTPException(422, "Empresa creada en Javiera: edita los datos de su ficha documental")
+    original = by_org(db, Contractor, company.source_contractor_id, user.org_id)
+    assigned = db.scalar(select(ContractorWorksite.id).where(
+        ContractorWorksite.org_id == user.org_id,
+        ContractorWorksite.worksite_id == company.site_id,
+        ContractorWorksite.contractor_id == original.id))
+    if not assigned:
+        raise HTTPException(409, "La empresa ya no figura vinculada a esta obra")
+    company.name, company.rut = original.name, original.rut
+    audit(db, user, "javiera.company_source_refreshed", company.id)
+    db.commit()
+    return _company_dict(company)
+
+
+@router.post("/people/{ident}/refresh-source")
+def refresh_person_source(ident: str, user: User = Depends(administrator),
+                          db: Session = Depends(get_db)):
+    """Refresh documentary copy of a corrected worker, preserving all issued PDFs."""
+    person = _person(db, user, ident)
+    company = _company(db, user, person.company_id)
+    if not person.source_worker_id or not company.source_contractor_id:
+        raise HTTPException(422, "Trabajador creado en Javiera: edita los datos documentales")
+    original = by_org(db, Worker, person.source_worker_id, user.org_id)
+    assigned = db.scalar(select(WorkerAssignment.id).where(
+        WorkerAssignment.org_id == user.org_id,
+        WorkerAssignment.worksite_id == company.site_id,
+        WorkerAssignment.contractor_id == company.source_contractor_id,
+        WorkerAssignment.worker_id == original.id))
+    if not assigned:
+        raise HTTPException(409, "El trabajador ya no está asociado a esta obra y contratista")
+    person.name, person.rut = original.name, original.rut
+    audit(db, user, "javiera.person_source_refreshed", person.id)
+    db.commit()
+    return _person_dict(person)
+
+
 @router.post("/dossiers")
 def save_dossier(payload: DossierInput, user: User = Depends(administrator), db: Session = Depends(get_db)):
     _only_codes(payload.selected_codes)
@@ -490,17 +589,50 @@ def save_dossier(payload: DossierInput, user: User = Depends(administrator), db:
         if (record.site_id, record.company_id, record.person_id, record.relationship) != (
             payload.site_id, payload.company_id, payload.person_id, payload.relationship):
             raise HTTPException(409, "No se permite reasignar un expediente a otra identidad")
-        if (record.parent_name or "", record.shared, record.document_data, record.selected_codes) == (
-            payload.parent_name or "", payload.shared, payload.document_data, payload.selected_codes):
-            return _dossier_dict(record, db, user)
-        record.revision += 1
     else:
         record = JavieraLocalDossier(org_id=user.org_id, site_id=site.id,
             company_id=company.id, person_id=payload.person_id,
             relationship=payload.relationship, updated_by=user.id)
         db.add(record)
-    record.parent_name = (payload.parent_name or "").strip() or None
-    record.shared = payload.shared
+    new_parent = (payload.parent_name or "").strip() or None
+    shared = payload.shared
+    if not payload.dossier_id and company.source_contractor_id:
+        # Reutilizar datos de un expediente anterior de la misma identidad exacta,
+        # sin vincular el nuevo expediente a tablas operativas ni alterar el original.
+        person = _person(db, user, payload.person_id) if payload.person_id else None
+        old_person_id = person.source_worker_id if person else None
+        historic = db.scalar(select(JavieraDossier).where(
+            JavieraDossier.org_id == user.org_id,
+            JavieraDossier.site_id == site.id,
+            JavieraDossier.employer_id == company.source_contractor_id,
+            JavieraDossier.worker_id == old_person_id,
+        ).order_by(JavieraDossier.updated_at.desc()).limit(1))
+        if historic and isinstance(historic.data, dict):
+            old_values = {key: historic.data[key] for key in
+                          ("role", "employment_type", "contract", "event", "extra")
+                          if key in historic.data}
+            shared = {**old_values, **payload.shared}
+            for section in ("contract", "event", "extra"):
+                previous = old_values.get(section)
+                current = payload.shared.get(section)
+                if isinstance(previous, dict) and isinstance(current, dict):
+                    shared[section] = {**previous, **current}
+            audit(db, user, "javiera.legacy_fields_reused", historic.id)
+    if payload.dossier_id:
+        # El formulario actual solo envía los campos editados: conservar
+        # otros antecedentes anteriores sin impedir nuevas correcciones.
+        former = record.shared if isinstance(record.shared, dict) else {}
+        shared = {**former, **shared}
+        for section in ("contract", "event", "extra"):
+            old_section, new_section = former.get(section), payload.shared.get(section)
+            if isinstance(old_section, dict) and isinstance(new_section, dict):
+                shared[section] = {**old_section, **new_section}
+        if (record.parent_name, record.shared, record.document_data, record.selected_codes) == (
+                new_parent, shared, payload.document_data, payload.selected_codes):
+            return _dossier_dict(record, db, user)
+        record.revision += 1
+    record.parent_name = new_parent
+    record.shared = shared
     record.document_data = payload.document_data
     record.selected_codes = payload.selected_codes
     record.updated_by = user.id
@@ -539,6 +671,18 @@ def evaluate(ident: str, user: User = Depends(administrator), db: Session = Depe
 
 
 def _build_pdf(db, user, record, code, data, preview=False):
+    # Único motor Excel publicado para el flujo documental y el sistema:
+    # IRL paginado sin sobrescribir encabezados y sin usar filas heredadas.
+    master = active_workbook(db, user.org_id, published=True, code=code)
+    if master:
+        try:
+            pdf, _report = cached_pdf(raw_for(master), code, data, user.org_id,
+                                      root_for(user.org_id) / "pdf-cache", preview,
+                                      reference=original_for(db, master))
+        except LayoutError as error:
+            raise HTTPException(409, {"reason": str(error), "document": code,
+                                      "cargo": str(data.get("role") or "")}) from None
+        return pdf, master.revision, "workbook"
     layout = latest_layout(db, user.org_id, code)
     if layout:
         return make_pdf(db, user, layout, data, preview=preview), layout.revision, "excel"
@@ -585,11 +729,19 @@ def _store(db, user, record, code, reason=""):
         JavieraLocalDossier.id == record.id).with_for_update())
     layout = latest_layout(db, user.org_id, code)
     template = template_data(db, user.org_id).get(code) or {}
-    revision = layout.revision if layout else template.get("published_version", 0)
-    source = "excel" if layout else "structured"
+    master = active_workbook(db, user.org_id, published=True, code=code)
+    revision = master.revision if master else (
+        layout.revision if layout else template.get("published_version", 0))
+    source = "workbook" if master else "excel" if layout else "structured"
+    # El hash incluye la fuente exacta, no solo el número de revisión del
+    # editor viejo. Así una corrección del Excel no devuelve un PDF obsoleto.
+    source_hash = master.sha256 if master else (
+        layout.workbook_sha256 if layout else
+        hashlib.sha256(str(template).encode("utf-8")).hexdigest())
     signature = hashlib.sha256(json.dumps(
-        {"data": data, "template": revision, "source": source},
-        ensure_ascii=False, sort_keys=True).encode()).hexdigest()
+        {"data": data, "template": revision, "source": source,
+         "source_hash": source_hash},
+        ensure_ascii=False, sort_keys=True, default=str).encode()).hexdigest()
     all_issued = db.scalars(select(JavieraLocalIssue).where(
         JavieraLocalIssue.org_id == user.org_id,
         JavieraLocalIssue.dossier_id == record.id,
@@ -598,8 +750,10 @@ def _store(db, user, record, code, reason=""):
         if old.snapshot.get("signature") == signature:
             return {"code": code, "ok": True, "id": old.id, "reused": True}
     if all_issued and len(reason.strip()) < 20:
-        return {"code": code, "ok": False,
-                "reason": "Documento anterior: indica motivo de reemisión (mínimo 20 caracteres)"}
+        # No pedir una aprobación adicional para una regeneración cuyo
+        # fingerprint ya demuestra datos o formato publicado distintos.
+        # El motivo técnico queda registrado sin fingir una firma nueva.
+        reason = "Nueva generación por cambios en datos o versión de plantilla publicada"
     raw, revision, source = _build_pdf(db, user, record, code, data, preview=False)
     folder = settings().document_dir / user.org_id / "javiera-v166" / record.id
     try:
