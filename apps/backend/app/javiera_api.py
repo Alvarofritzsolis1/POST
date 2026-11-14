@@ -252,9 +252,20 @@ def evaluated(db: Session, user: User, data: dict, dossier_id: str | None,
             current_version = current.get("published_version", 0)
             current_source = "workbook" if current.get("workbook_source") else "excel" if current.get("excel_source") else "structured"
             saved_source = item.snapshot.get("source", "structured")
-            if (item.dossier_revision == record.revision and
+            same_source = (item.dossier_revision == record.revision and
                 item.template_revision == current_version and
-                saved_source == current_source):
+                saved_source == current_source)
+            stored_fingerprint = item.snapshot.get("source_fingerprint")
+            if same_source and stored_fingerprint:
+                current_kind, current_document = published_document_source(
+                    db, user.org_id, item.code
+                )
+                current_fingerprint = document_source_fingerprint(
+                    current_kind, current_document, record, db=db,
+                    org_id=user.org_id, code=item.code
+                )
+                same_source = stored_fingerprint == current_fingerprint
+            if same_source:
                 existing.add(item.code)
             else:
                 history.add(item.code)
@@ -544,7 +555,7 @@ def preflight_documents(payload: BatchIssue, user: User = Depends(administrator)
             report.append(row)
             continue
         kind, source = published_document_source(db, user.org_id, code)
-        row["preview_fingerprint"] = document_source_fingerprint(kind, source, record)
+        row["preview_fingerprint"] = document_source_fingerprint(kind, source, record, db=db, org_id=user.org_id, code=code)
         try:
             if kind == "workbook":
                 _, validation = cached_pdf(
@@ -597,8 +608,11 @@ def published_document_source(db: Session, org_id: str, code: str):
     return "structured", template
 
 
-def document_source_fingerprint(kind: str, source, record: JavieraDossier) -> str:
-    """Digest of exact approved source AND the dossier seen in the preview."""
+def document_source_fingerprint(kind: str, source, record: JavieraDossier,
+                                *, db=None, org_id: str | None = None,
+                                code: str | None = None) -> str:
+    """Pin source, dossier and current approved preventive matrix revisions."""
+
     if kind == "workbook":
         version = [source.id, source.sha256, source.revision]
     elif kind == "excel":
@@ -607,7 +621,19 @@ def document_source_fingerprint(kind: str, source, record: JavieraDossier) -> st
     else:
         version = ([source.id, source.published_version, source.body,
                     source.layout] if source else ["no-template"])
+    preventive_matrices = []
+    if (kind != "workbook" and db is not None and org_id and
+            code in {"irl", "pts", "pts_receipt"}):
+        role = normalize_cargo(record.data.get("role"))
+        kinds = ("IRL", "PERFILES", "PUESTOS", "SUSTANCIAS") if code == "irl" else ("PTS",)
+        for matrix_kind in kinds:
+            matrix = latest_approved_matrix(db, org_id, matrix_kind, role)
+            preventive_matrices.append([
+                matrix_kind, matrix.id, matrix.revision,
+                matrix.sections, matrix.created_at
+            ] if matrix else [matrix_kind, None])
     payload = {
+        "preventive_matrices": preventive_matrices,
         "kind": kind, "version": version, "dossier_id": record.id,
         "dossier_revision": record.revision, "dossier_data": record.data,
     }
@@ -689,9 +715,13 @@ def preview(data: Action, user: User = Depends(administrator), db: Session = Dep
     elif kind == "excel":
         raw = make_pdf(db, user, source, record.data, preview=True)
     else:
+        if not source or not source.published_version or not source.body:
+            raise HTTPException(
+                409, "Esta plantilla es un borrador. Publícala antes de generar una vista previa para emitir."
+            )
         _, template, title, body = prepared(db, user, record.id, data.code, True)
         raw = pdf_for(title, body, True, template.layout)
-    fingerprint = document_source_fingerprint(kind, source, record)
+    fingerprint = document_source_fingerprint(kind, source, record, db=db, org_id=user.org_id, code=code)
     published = kind != "structured" or bool(source and source.published_version)
     return Response(content=raw, media_type="application/pdf", headers={
         "Cache-Control": "no-store",
@@ -719,7 +749,7 @@ def issue(data: Action, user: User = Depends(administrator), db: Session = Depen
     if record is None:
         raise HTTPException(404, "Expediente no encontrado")
     source_kind, source = published_document_source(db, user.org_id, data.code)
-    actual_fingerprint = document_source_fingerprint(source_kind, source, record)
+    actual_fingerprint = document_source_fingerprint(source_kind, source, record, db=db, org_id=user.org_id, code=data.code)
     if (data.expected_preview_fingerprint and
             actual_fingerprint != data.expected_preview_fingerprint):
         raise HTTPException(409, "El documento o expediente cambió desde la vista previa. Vuelve a revisarlo antes de emitir.")
@@ -735,7 +765,8 @@ def issue(data: Action, user: User = Depends(administrator), db: Session = Depen
             JavieraIssue.dossier_revision == record.revision,
             JavieraIssue.template_revision == status["template_version"])).all()
         for previous in current:
-            if previous.snapshot.get("source", "structured") == desired_source:
+            if (previous.snapshot.get("source", "structured") == desired_source and
+                previous.snapshot.get("source_fingerprint", actual_fingerprint) == actual_fingerprint):
                 return {"id":previous.id, "sha256":previous.sha256, "reused":True}
     is_reissue = status["status"] == "EXISTENTE_POR_VERIFICAR"
     justification = (data.reissue_reason or "").strip()
@@ -791,8 +822,10 @@ def issue(data: Action, user: User = Depends(administrator), db: Session = Depen
         JavieraIssue.template_revision == template_revision,
         JavieraIssue.dossier_revision == record.revision)).all()
     for existing in previous:
-        if existing.snapshot.get("source", "structured") == source:
+        if (existing.snapshot.get("source", "structured") == source and
+                existing.snapshot.get("source_fingerprint", actual_fingerprint) == actual_fingerprint):
             return {"id": existing.id, "sha256": existing.sha256, "reused": True}
+    snapshot["source_fingerprint"] = actual_fingerprint
     digest = hashlib.sha256(raw).hexdigest()
     ident = str(uuid4())
     directory = settings().document_dir / user.org_id / "javiera" / record.id

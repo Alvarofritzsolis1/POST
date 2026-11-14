@@ -115,3 +115,37 @@ def test_revisions_cannot_replace_original_images(env, monkeypatch, tmp_path):
         with pytest.raises(LayoutError, match="imagen|Imagen"):
             write_revision(db, user, altered, "Editar imagen sin autorización",
                            current_wb.revision, current_wb)
+
+
+def test_structured_fingerprint_detects_updated_approved_preventive_matrix(env):
+    from types import SimpleNamespace
+    from app.javiera_api import document_source_fingerprint
+    from app.javiera_models import JavieraMatrix, JavieraDossier
+    from app.models import User
+    from sqlalchemy import select
+
+    client, sessions = env
+    with sessions() as db:
+        user = db.scalar(select(User).where(User.email == "a@example.cl"))
+        org = user.org_id
+        # Identical template and dossier; ONLY matrix contents/revision change.
+        record = SimpleNamespace(
+            id="synthetic-record", revision=1,
+            data={"role": "CARPINTERO", "worker": {"name": "PERSONA SINTÉTICA"}},
+        )
+        template = SimpleNamespace(id="synthetic-template", published_version=1,
+                                   body="PTS aprobado", layout={})
+        first = document_source_fingerprint(
+            "structured", template, record, db=db, org_id=org, code="pts"
+        )
+        db.add(JavieraMatrix(
+            org_id=org, kind="PTS", cargo="CARPINTERO", revision=1,
+            status="approved", author_id=user.id,
+            sections=["Contenido de prueba aprobado"] * 17,
+        ))
+        db.commit()
+        second = document_source_fingerprint(
+            "structured", template, record, db=db, org_id=org, code="pts"
+        )
+        assert first != second
+        assert len(first) == len(second) == 64
