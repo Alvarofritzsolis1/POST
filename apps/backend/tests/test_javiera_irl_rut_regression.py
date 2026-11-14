@@ -191,6 +191,17 @@ def realistic_irl_13_risks() -> bytes:
         ):
             matrix[f"{c}{source_row}"] = f"{title} sintetica unica {source_row}"
     sheet = book["IRL"]
+    from openpyxl.styles import Alignment, Font
+    for col, width in {"A": 24.3, "B": 20.9, "C": 22.6, "D": 30.7}.items():
+        sheet.column_dimensions[col].width = width
+    for rowno in IRL_PRINT_RISK_ROWS:
+        sheet.row_dimensions[rowno].height = 92
+        for col in "ABCD":
+            sheet[f"{col}{rowno}"].alignment = Alignment(wrap_text=True, vertical="top")
+            sheet[f"{col}{rowno}"].font = Font(name="Arial", size=8)
+    sheet.sheet_properties.pageSetUpPr.fitToPage = True
+    sheet.page_setup.fitToWidth = 1
+    sheet.page_setup.fitToHeight = 0
     sheet["A34"] = "DEPARTAMENTO DE PREVENCION DE RIESGOS"
     sheet["A37"] = "2 - RIESGOS Y MEDIDAS PREVENTIVAS"
     sheet["D40"] = "Medidas Preventivas Obligatorias"
