@@ -53,7 +53,8 @@ def test_user_provided_repair_creates_derived_cells_without_changing_print_geome
     changes, trace = proposed_repairs(raw)
     assert len(trace) == 7, trace
     assert set(changes) == {"MATRIZ IRL", "Matriz IRL Optimizada"}
-    assert roles(raw)["CARPINTERO"]["PTS"] == [2]
+    # The imported Excel may not carry Calc cache values yet; the edited
+    # revision must reconstruct this deterministic role key on its own.
     updated = raw
     for sheet, edits in changes.items():
         updated = edit_workbook(updated, sheet, edits)
