@@ -119,3 +119,18 @@ def test_25_roles_are_unique_and_no_unlisted_role_is_created(all_roles_master):
     }) == 25
     with pytest.raises(Exception, match="No existe información"):
         matrix_records(all_roles_master, "CARGO NO VERIFICADO", "IRL")
+
+
+
+def test_no_hidden_risk_deletion_for_roles_other_than_gasfiter():
+    """Nunca asumir que una actividad repetida debe desaparecer."""
+    book = load_workbook(io.BytesIO(master()))
+    risks = book["MATRIZ IRL"]
+    repeated = [1, "PINTOR", "ACTIVIDAD REPETIDA", "PELIGRO", "RIESGO", "CONTROL"]
+    risks.append(repeated)
+    risks.append(repeated)
+    result = io.BytesIO()
+    book.save(result)
+    records = matrix_records(result.getvalue(), "PINTOR", "IRL")
+    assert len(records) == 2
+    assert records[0]["row"] != records[1]["row"]
