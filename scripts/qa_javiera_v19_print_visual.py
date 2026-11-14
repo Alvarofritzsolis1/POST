@@ -23,7 +23,7 @@ def sample_data():
         "employer": {"name": "CONSTRUCTORA SINTÉTICA PARA CONTROL DE CALIDAD SPA",
                      "rut": "76000000-0"},
         "worker": {"name": "TRABAJADOR DE PRUEBA CON APELLIDOS LARGOS",
-                   "rut": "20000000-0"},
+                   "rut": "20000000-5"},
         "site": {"name": "OBRA DE ENSAYO A4"},
         "role": "CARPINTERO",
         "event": {
@@ -41,7 +41,7 @@ def sample_data():
         "extra": {
             "regulation_version": "VERSIÓN SINTÉTICA DE ENSAYO",
             "representative_name": "REPRESENTANTE DE EMPRESA SINTÉTICA",
-            "representative_rut": "15000000-0",
+            "representative_rut": "15000000-9",
         },
     }
 
@@ -70,7 +70,7 @@ def inspect_pdf(code, raw, output):
                 failures.append("declaración jurada omite nombre del representante legal")
             if ("Representante legal REPRESENTANTE DE EMPRESA SINTÉTICA" not in compact):
                 failures.append("nombre del representante incompleto en ficha documental")
-            if "RUT representante 15.000.000-0" not in compact:
+            if "RUT representante 15.000.000-9" not in compact:
                 failures.append("RUT del representante ausente o mal formateado")
         if code == "ppe_delivery":
             if "Recibido en físico" not in compact:
