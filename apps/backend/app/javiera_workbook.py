@@ -627,7 +627,7 @@ def matrix_records(raw: bytes, role: str, kind: str) -> list[dict]:
                 values = record["values"]
                 task = _irl_role_key(values.get("C", ""))
                 if _irl_role_key(role) == "GASFITER":
-                    task = re.sub(r"\\bGASFITERIA\\b", "GASFITER", task)
+                    task = re.sub(r"\bGASFITERIA\b", "GASFITER", task)
                 signature = (task, *(
                     _irl_role_key(values.get(col, "")) for col in "DEF"
                 ))
