@@ -212,8 +212,10 @@ async def import_workbook(expected_revision: int = 0, file: UploadFile = File(..
     try:
         report = inventory(raw)
         names = {s["name"].strip() for s in report["sheets"]}
-        required = {"Datos Contrato", "Contrato Imprimible", "MATRIZ IRL", "MATRIZ PTS"}
-        if not required.issubset(names): raise LayoutError("Faltan hojas maestras de contratación y matrices")
+        required = {"Datos Contrato", "MATRIZ IRL", "MATRIZ PTS", "Matriz IRL Optimizada", *DOC_SHEETS.values()}
+        missing = required - names
+        if missing:
+            raise LayoutError("El Excel maestro está incompleto. Faltan hojas IRL/PTS o documentos: " + ", ".join(sorted(missing)))
         check_print_areas(report)
         # Finish both packages before making either revision active.
         repaired, notes = repair_master(raw)
