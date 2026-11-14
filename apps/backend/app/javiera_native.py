@@ -15,6 +15,7 @@ from typing import Any
 
 import fitz
 from .rut_format import format_rut, is_rut_field
+from .javiera_logic import rut_valid
 
 
 TEMPLATE_PATH = Path(__file__).resolve().parent / "javiera_native_templates"
@@ -54,7 +55,13 @@ def _get(data: dict, dotted: str, *, required: bool = False) -> str:
         raise NativeDocumentError("El campo " + dotted + " excede el límite documental.")
     if required and not value:
         raise NativeDocumentError("Falta completar " + dotted + " para la vista previa nativa.")
-    return format_rut(value) if is_rut_field(dotted) else value
+    if value and is_rut_field(dotted):
+        if not rut_valid(value):
+            raise NativeDocumentError(
+                "RUT inválido en " + dotted + ": comprueba el dígito verificador"
+            )
+        return format_rut(value)
+    return value
 
 
 def _html(value: str) -> str:
