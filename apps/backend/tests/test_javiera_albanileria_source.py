@@ -68,7 +68,7 @@ def test_approval_uses_published_workbook_but_never_approves_unpublished(
     monkeypatch.setattr(api, "raw_for", lambda obj: master)
     present = [False]
     monkeypatch.setattr(api, "active_workbook", lambda db, org_id, **kwargs:
-        SimpleNamespace(sha256="synthetic") if present[0] else None)
+        SimpleNamespace(sha256="synthetic", inventory={"matrix_pending":[]}) if present[0] else None)
     db = SimpleNamespace(execute=lambda query: SimpleNamespace(all=lambda: []))
     user = SimpleNamespace(org_id="qa-org")
     data = {"role":"ALBAÑILERÍA"}
