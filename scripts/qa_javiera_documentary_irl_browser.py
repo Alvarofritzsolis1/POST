@@ -80,12 +80,12 @@ def main():
             page.get_by_role("button", name="Contratista existente").click()
             page.get_by_role("combobox", name="Obra", exact=True).select_option(site["id"])
             company_select=page.get_by_role("combobox", name="Empresa registrada")
-            company_select.locator("option",has_text="JAVIERA DOCUMENTAL QA " + suffix).wait_for()
+            company_select.locator("option",has_text="JAVIERA DOCUMENTAL QA " + suffix).wait_for(state="attached")
             company_value=company_select.locator("option",has_text="JAVIERA DOCUMENTAL QA " + suffix).get_attribute("value")
             assert company_value
             company_select.select_option(company_value)
             worker_select=page.get_by_role("combobox",name="Trabajador")
-            worker_select.locator("option",has_text="RENE SINTETICO " + suffix).wait_for()
+            worker_select.locator("option",has_text="RENE SINTETICO " + suffix).wait_for(state="attached")
             worker_value=worker_select.locator("option",has_text="RENE SINTETICO " + suffix).get_attribute("value")
             assert worker_value
             worker_select.select_option(worker_value)
