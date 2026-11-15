@@ -265,6 +265,8 @@ def test_existing_mode_prefills_only_exact_company_site_and_worker(env):
     client, sessions = env
     admin = login(client, "a@example.cl")
     site = client.get("/api/v1/ops/sites").json()[0]["id"]
+    with sessions() as db:
+        before = _operational_count(db)
     company = client.post(BASE + "/companies", headers=admin, json={
         "site_id": site, "origin": "new", "name": "EMPRESA DOCUMENTAL ORDEN QA",
         "rut": rut(78666111)})
@@ -304,7 +306,7 @@ def test_existing_mode_prefills_only_exact_company_site_and_worker(env):
     assert company_only.status_code == 200
     assert company_only.json()["found"] is False
     with sessions() as db:
-        assert _operational_count(db) == (0, 0, 0, 0)
+        assert _operational_count(db) == before
 
 
 def test_existing_mode_prefills_legacy_data_without_creating_operational_records(env):
