@@ -1,8 +1,9 @@
 import {useEffect,useMemo,useRef,useState} from "react";
-import {ArrowLeft,CheckCircle2,Download,Eye,FileSpreadsheet,Loader2,Settings2,ShieldAlert} from "lucide-react";
+import {ArrowLeft,CheckCircle2,ClipboardList,Download,Eye,FileSpreadsheet,FileText,FolderOpen,Loader2,Settings2,ShieldAlert,ShieldCheck} from "lucide-react";
 import {request} from "./api";
 import {parseEppDraft,serializeEppDraft,type EppChoice} from "./javiera-epp";
 
+import "./javiera.css";
 import "./javiera-simple.css";
 
 type Origin="operational"|"documentary";
@@ -12,8 +13,9 @@ type Sources={sites:{id:string;name:string}[];companies:Company[];
   operational_companies:Company[];people:Person[];operational_people:Person[]};
 type Library={engine_available:boolean;documents:{code:string;state:string;ready:boolean;sheet:string}[]};
 type RoleList={roles:{cargo:string}[]};
-type Catalog={code:string;title:string;required_fields:string[]}[];
-type Dossier={id:string;revision:number};
+type Catalog={code:string;title:string;area:string;required_fields:string[]}[];
+type Dossier={id:string;revision:number;shared?:Record<string,unknown>;selected_codes?:string[];document_data?:Record<string,Record<string,unknown>>};
+type DossierLookup={found:boolean;dossier:Dossier|null;legacy_shared?:Record<string,unknown>|null};
 type DocumentStatus={code:string;can_issue:boolean;reason:string;missing_fields:string[];
   blocking_errors:string[];last_issue_id?:string|null};
 type Batch={issued:number;results:{code:string;ok:boolean;id?:string;reason?:string}[];pdf_url?:string|null};
@@ -135,6 +137,9 @@ export default function JavieraSimple({onConfig,onBack}:{onConfig?:()=>void;onBa
   const [roles,setRoles]=useState<string[]>([]);
   const [catalog,setCatalog]=useState<Catalog>([]);
   const [eppOptions,setEppOptions]=useState<EppChoice[]>([]);
+  const [mode,setMode]=useState<"new"|"existing"|null>(null);
+  const [documentSearch,setDocumentSearch]=useState("");
+  const [verified,setVerified]=useState<DocumentStatus[]>([]);
   const [site,setSite]=useState("");
   const [companyToken,setCompanyToken]=useState("");
   const [companyId,setCompanyId]=useState("");
@@ -168,29 +173,34 @@ export default function JavieraSimple({onConfig,onBack}:{onConfig?:()=>void;onBa
   const previewRef=useRef<LocalPreview|null>(null);
   useEffect(()=>{previewRef.current=preview;},[preview]);
   useEffect(()=>()=>{if(previewRef.current)URL.revokeObjectURL(previewRef.current.url);},[]);
-  const companies=useMemo(()=>[...source.companies,...source.operational_companies]
-    .filter(x=>x.site_id===site&&(x.name+" "+x.rut).toLowerCase().includes(filter.toLowerCase())),
-    [source,site,filter]);
-  const people=useMemo(()=>[...source.people,...source.operational_people],[source]);
+  const companies=useMemo(()=>{
+    const linked=new Set(source.companies.map(c=>c.source_contractor_id).filter(Boolean));
+    return [...source.companies,...source.operational_companies.filter(c=>!linked.has(c.id))]
+      .filter(c=>c.site_id===site&&(c.name+" "+c.rut).toLocaleLowerCase("es").includes(filter.toLocaleLowerCase("es")));
+  },[source,site,filter]);
+  const people=useMemo(()=>{
+    const linked=new Set(source.people.map(p=>p.source_worker_id).filter(Boolean));
+    return [...source.people,...source.operational_people.filter(p=>!linked.has(p.id))];
+  },[source]);
   const selectedCompany=locate(companies,companyToken);
   const selectedPerson=locate(people,personToken);
   const layout=library?.documents.find(x=>x.code===code);
   const eppDraft=useMemo(()=>parseEppDraft(extras["event.epp_items"]||"",eppOptions),[extras,eppOptions]);
   const workerless=code==="sworn_declaration";
-  const ready=!!site&&!!companyToken&&!!companyId&&
+  const ready=!!site&&!!companyToken&&!!companyId&&selectedCodes.length>0&&
     (!!personToken&&!!personId||workerless)&&!!code&&!!date&&
     (!!role||!["irl","pts","pts_receipt","ppe_delivery","induction"].includes(code))&&
     (workerless?verifiedNoWorkers:true);
   const signature=JSON.stringify({site,companyId,personId:workerless?null:personId,role,code,selectedCodes,date,extras,verifiedNoWorkers});
   function resetPreview(){
     setPreview(old=>{if(old)URL.revokeObjectURL(old.url);return null;});
-    setIssued("");setMissing([]);setReasons([]);setNotice("");setError("");
+    setIssued("");setMissing([]);setReasons([]);setVerified([]);setNotice("");setError("");
   }
   // Al cambiar una ficha se invalidan pruebas PDF anteriores; NO se borra
   // el aviso de guardado que acaba de mostrar la acción de alta o corrección.
   useEffect(()=>{
     setPreview(old=>{if(old)URL.revokeObjectURL(old.url);return null;});
-    setIssued("");setMissing([]);setReasons([]);setError("");
+    setIssued("");setMissing([]);setReasons([]);setVerified([]);setError("");
   },[signature]);
   useEffect(()=>{
     let active=true;
@@ -208,11 +218,58 @@ export default function JavieraSimple({onConfig,onBack}:{onConfig?:()=>void;onBa
       .finally(()=>{if(active)setBooting(false);});
     return ()=>{active=false;};
   },[]);
+  function chooseMode(next:"new"|"existing"){
+    generation.current+=1;
+    setMode(next);setSite("");setFilter("");setSource(old=>({...old,people:[],operational_people:[]}));
+    setCompanyToken("");setCompanyId("");setPersonToken("");setPersonId("");
+    setNewCompany({name:"",rut:""});setNewPerson({name:"",rut:""});
+    setShowNewCompany(next==="new");setShowNewPerson(false);setRole("");
+    setCode(next==="new"?"labor_contract":"irl");
+    setSelectedCodes(next==="new"?["labor_contract"]:[]);
+    setDocumentSearch("");setExtras({});setVerifiedNoWorkers(false);
+    current.current=null;resetPreview();
+  }
+  function fillShared(shared:Record<string,unknown>|null|undefined){
+    if(!shared)return;
+    const filled:Record<string,string>={};
+    for(const section of ["extra","event","contract"]){
+      const values=shared[section];
+      if(values&&typeof values==="object"&&!Array.isArray(values))
+        for(const [key,value] of Object.entries(values as Record<string,unknown>))
+          if(value!==undefined&&value!==null&&typeof value!=="object")
+            filled[section+"."+key]=String(value);
+    }
+    setExtras(filled);
+    if(typeof shared.role==="string")setRole(shared.role);
+    const event=shared.event as Record<string,unknown>|undefined;
+    if(event&&typeof event.date==="string")setDate(event.date.slice(0,10));
+  }
+  async function recoverExisting(siteId:string,contractorId:string,workerId:string|null,index:number){
+    const params=new URLSearchParams({site_id:siteId,company_id:contractorId});
+    if(workerId)params.set("person_id",workerId);
+    const data=await request<DossierLookup>(base+"/dossiers/lookup?"+params);
+    if(index!==generation.current)return;
+    current.current=null;
+    if(data.found&&data.dossier){
+      fillShared(data.dossier.shared);
+      const codes=(data.dossier.selected_codes||[]).filter(code=>ORDER.includes(code));
+      if(codes.length){setSelectedCodes(codes);setCode(codes[0]);}
+      const sworn=data.dossier.document_data?.sworn_declaration;
+      setVerifiedNoWorkers(sworn?.verified_no_workers===true);
+      current.current={signature:"",dossier:data.dossier};
+      setNotice("Ficha anterior recuperada. Revisa los datos antes de emitir documentos.");
+    }else if(data.legacy_shared){
+      fillShared(data.legacy_shared);
+      setNotice("Datos anteriores recuperados para esta empresa y trabajador. Se conservarán al preparar el expediente.");
+    }else{
+      setNotice("Empresa y trabajador seleccionados. Completa solo los datos que falten.");
+    }
+  }
   async function changeSite(value:string){
     const index=++generation.current;
     setSite(value);setCompanyToken("");setCompanyId("");setPersonToken("");setPersonId("");
     setRole("");setFilter("");setExtras({});setVerifiedNoWorkers(false);
-    setShowNewCompany(false);setShowNewPerson(false);
+    setShowNewCompany(mode==="new");setShowNewPerson(false);
     setSource(old=>({...old,people:[],operational_people:[]}));
     current.current=null;
     try{
@@ -224,13 +281,14 @@ export default function JavieraSimple({onConfig,onBack}:{onConfig?:()=>void;onBa
   async function changeCompany(value:string){
     const index=++generation.current;
     setCompanyToken(value);setCompanyId("");setPersonToken("");setPersonId("");
-    setExtras({});setRole("");current.current=null;setShowNewPerson(false);
+    setExtras({});setRole("");setVerifiedNoWorkers(false);
+    current.current=null;setShowNewPerson(false);setVerified([]);
     if(!value)return;
     const item=locate([...source.companies,...source.operational_companies],value);
     if(!item)return;
     setBusy(true);setError("");
     try{
-      const linked=await request<{id:string}>(base+"/companies",{
+      const linked=await request<Company>(base+"/companies",{
         method:"POST",body:JSON.stringify({
           site_id:site,origin:item.origin,source_id:item.id
         })
@@ -240,26 +298,30 @@ export default function JavieraSimple({onConfig,onBack}:{onConfig?:()=>void;onBa
       const loaded=await request<Sources>(base+"/sources?site_id="+encodeURIComponent(site)+
         "&company_id="+encodeURIComponent(linked.id));
       if(index!==generation.current)return;
-      setSource(loaded);
+      setSource(loaded);setCompanyToken(token(linked));
+      if(linked.details)fillShared({extra:linked.details});
+      await recoverExisting(site,linked.id,null,index);
     }catch(e){if(index===generation.current)setError(friendly(e));}
     finally{if(index===generation.current)setBusy(false);}
   }
   async function changePerson(value:string){
     const index=++generation.current;
-    setPersonToken(value);setPersonId("");setRole("");current.current=null;
+    setPersonToken(value);setPersonId("");setRole("");setExtras({});
+    setVerifiedNoWorkers(false);current.current=null;setVerified([]);
     if(!value)return;
     const item=locate(people,value);
     if(!item||!companyId)return;
     setBusy(true);setError("");
     try{
-      const linked=await request<{id:string}>(base+"/people",{
+      const linked=await request<Person>(base+"/people",{
         method:"POST",body:JSON.stringify({
           company_id:companyId,origin:item.origin,source_id:item.id
         })
       });
       if(index!==generation.current)return;
-      setPersonId(linked.id);
-      if(item.details?.role)setRole(item.details.role);
+      setPersonId(linked.id);setPersonToken(token(linked));
+      if(linked.details?.role)setRole(linked.details.role);
+      await recoverExisting(site,companyId,linked.id,index);
     }catch(e){if(index===generation.current)setError(friendly(e));}
     finally{if(index===generation.current)setBusy(false);}
   }
@@ -280,7 +342,7 @@ export default function JavieraSimple({onConfig,onBack}:{onConfig?:()=>void;onBa
       if(index!==generation.current)return;
       setSource(loaded);setCompanyToken(token(company));setCompanyId(company.id);
       setPersonToken("");setPersonId("");setRole("");setShowNewCompany(false);
-      setShowNewPerson(false);setNewCompany({name:"",rut:""});
+      setShowNewPerson(true);setNewCompany({name:"",rut:""});
       current.current=null;
       setNotice("Empresa guardada solo en Proyecto Javiera. No se registró en GALANT operativo.");
     }catch(e){if(index===generation.current)setError(friendly(e));}
@@ -333,12 +395,19 @@ export default function JavieraSimple({onConfig,onBack}:{onConfig?:()=>void;onBa
     finally{setHistoryLoading(false);}
   }
   function changeDocument(value:string){
-    setCode(value);setSelectedCodes([value]);setExtras({});setShowExtras(false);setVerifiedNoWorkers(false);
-    current.current=null;
+    setCode(value);setSelectedCodes([value]);setShowExtras(false);
     if(value==="sworn_declaration"){setPersonToken("");setPersonId("");}
   }
+  function toggleDocument(value:string,checked:boolean){
+    setSelectedCodes(old=>{
+      if(value==="sworn_declaration")return checked?["sworn_declaration"]:[];
+      const others=old.filter(code=>code!=="sworn_declaration");
+      return checked?[...new Set([...others,value])]:others.filter(code=>code!==value);
+    });
+    if(checked)setCode(value);
+  }
   async function prepare():Promise<Dossier|null>{
-    if(!ready){setError("Selecciona una obra, empresa, trabajador, cargo y documento.");return null;}
+    if(!ready){setError("Completa empresa, trabajador, cargo cuando corresponda y selecciona un documento.");return null;}
     if(!library?.documents.some(item=>item.code===code&&item.ready)){
       setError("La plantilla Excel original no está habilitada. Revísala en Administración de plantillas.");return null;
     }
