@@ -76,7 +76,7 @@ def main():
             expect(page.get_by_text("Ficha guardada.",exact=False)).to_be_visible(timeout=16000)
             report["scenarios"]["techumbre_and_multi_document"] = "PASS"
             # Existing contractor must retrieve the same independent identity.
-            page.get_by_role("button", name="Proyecto JAVIERA").click()
+            page.get_by_role("region",name="Proyecto Javiera").get_by_role("button",name="Proyecto JAVIERA").click()
             page.get_by_role("button", name="Contratista existente").click()
             page.get_by_role("combobox", name="Obra", exact=True).select_option(site["id"])
             company_select=page.get_by_role("combobox", name="Empresa registrada")
