@@ -41,6 +41,7 @@ export default function CatalogEditor({ json, onChange }: { json: string; onChan
     onChange(JSON.stringify(next, null, 2));
   }
   function add(kind: "status_mapping" | "classification_mapping") {
+    if (!data) return;
     const key = (kind === "status_mapping" ? statusName : className).trim().toUpperCase();
     if (!key) { setError("Escribe primero el valor recibido."); return; }
     if (Object.prototype.hasOwnProperty.call(data[kind], key)) {
@@ -56,6 +57,7 @@ export default function CatalogEditor({ json, onChange }: { json: string; onChan
     }
   }
   function remove(kind: "status_mapping" | "classification_mapping", key: string) {
+    if (!data) return;
     if (kind === "status_mapping") {
       if (Object.keys(data.status_mapping).length <= 1) {
         setError("Debe existir al menos una interpretación de estado."); return;
