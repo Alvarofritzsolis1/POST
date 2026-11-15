@@ -258,3 +258,86 @@ def test_without_legacy_dossier_no_automatic_formalization(env):
         **data, "nature": "with_workers", "frequency": "fixed",
     })
     assert formal.status_code == 409
+
+
+
+def test_existing_mode_prefills_only_exact_company_site_and_worker(env):
+    client, sessions = env
+    admin = login(client, "a@example.cl")
+    site = client.get("/api/v1/ops/sites").json()[0]["id"]
+    company = client.post(BASE + "/companies", headers=admin, json={
+        "site_id": site, "origin": "new", "name": "EMPRESA DOCUMENTAL ORDEN QA",
+        "rut": rut(78666111)})
+    assert company.status_code == 200, company.text
+    people = []
+    for index in (1, 2):
+        response = client.post(BASE + "/people", headers=admin, json={
+            "company_id": company.json()["id"], "origin": "new",
+            "name": f"TRABAJADOR DOCUMENTAL QA {index}", "rut": rut(11444110 + index)})
+        assert response.status_code == 200, response.text
+        people.append(response.json()["id"])
+    data = {
+        "site_id": site, "company_id": company.json()["id"],
+        "person_id": people[0], "relationship": "contractor",
+        "selected_codes": ["irl"], "shared": {
+            "role": "TECHUMBRE",
+            "event": {"date": "2026-11-14"},
+            "extra": {"worker_address": "DOMICILIO PRIVADO QA A"},
+        }, "document_data": {"irl": {}},
+    }
+    dossier = client.post(BASE + "/dossiers", headers=admin, json=data)
+    assert dossier.status_code == 200, dossier.text
+    matching = client.get(BASE + "/dossiers/lookup", headers=admin, params={
+        "site_id": site, "company_id": company.json()["id"], "person_id": people[0]})
+    assert matching.status_code == 200, matching.text
+    assert matching.json()["found"] is True
+    assert matching.json()["dossier"]["id"] == dossier.json()["id"]
+    assert matching.json()["dossier"]["shared"]["role"] == "TECHUMBRE"
+    assert matching.json()["dossier"]["shared"]["extra"]["worker_address"] == "DOMICILIO PRIVADO QA A"
+    other = client.get(BASE + "/dossiers/lookup", headers=admin, params={
+        "site_id": site, "company_id": company.json()["id"], "person_id": people[1]})
+    assert other.status_code == 200, other.text
+    assert other.json()["found"] is False
+    assert other.json()["legacy_shared"] is None
+    company_only = client.get(BASE + "/dossiers/lookup", headers=admin, params={
+        "site_id": site, "company_id": company.json()["id"]})
+    assert company_only.status_code == 200
+    assert company_only.json()["found"] is False
+    with sessions() as db:
+        assert _operational_count(db) == (0, 0, 0, 0)
+
+
+def test_existing_mode_prefills_legacy_data_without_creating_operational_records(env):
+    client, sessions = env
+    admin = login(client, "a@example.cl")
+    site = client.get("/api/v1/ops/sites").json()[0]["id"]
+    operational = create_company(client, admin, site, "CT", "EMPRESA HISTORICA QA")
+    worker = client.post("/api/v1/ops/workers", headers=admin, json={
+        "site_id": site, "contractor_id": operational["contractor_id"],
+        "name": "RENE HISTORICO QA", "rut": rut(11555666)})
+    assert worker.status_code == 201, worker.text
+    legacy = client.post("/api/v1/javiera/dossiers", headers=admin, json={
+        "site_id": site, "employer_id": operational["contractor_id"],
+        "worker_id": worker.json()["worker_id"], "relationship": "contractor",
+        "data": {"role": "ESTRUCTURERO METÁLICO", "extra": {"worker_address": "DOMICILIO PRIVADO QA B"}},
+    })
+    assert legacy.status_code == 200, legacy.text
+    company = client.post(BASE + "/companies", headers=admin, json={
+        "site_id": site, "origin": "operational",
+        "source_id": operational["contractor_id"]})
+    assert company.status_code == 200, company.text
+    person = client.post(BASE + "/people", headers=admin, json={
+        "company_id": company.json()["id"], "origin": "operational",
+        "source_id": worker.json()["worker_id"]})
+    assert person.status_code == 200, person.text
+    with sessions() as db:
+        before = _operational_count(db)
+    lookup = client.get(BASE + "/dossiers/lookup", headers=admin, params={
+        "site_id": site, "company_id": company.json()["id"],
+        "person_id": person.json()["id"]})
+    assert lookup.status_code == 200, lookup.text
+    assert lookup.json()["found"] is False
+    assert lookup.json()["legacy_shared"]["role"] == "ESTRUCTURERO METÁLICO"
+    assert lookup.json()["legacy_shared"]["extra"]["worker_address"] == "DOMICILIO PRIVADO QA B"
+    with sessions() as db:
+        assert _operational_count(db) == before
