@@ -75,16 +75,27 @@ with sync_playwright() as playwright:
     bootstrap = context.request.get(URL + ROOT + "/bootstrap").json()
     gate = next(row for row in bootstrap["catalog"] if row["code"] == "porteria")
 
-    # The existing settings menu must lead to a dedicated full-width route.
+    # One configuration hub, visible category navigation and predictable back.
     page.get_by_role("button", name="Configuración", exact=True).click()
-    page.get_by_role("button", name="Configuración General", exact=True).click()
-    expect(page).to_have_url(re.compile(r"/admin/configuracion(?:\?.*)?$"))
-    expect(page.get_by_role("heading", name="Configuración General", exact=True)).to_be_visible()
+    hub = page.get_by_test_id("settings-center")
+    expect(hub).to_be_visible()
+    expect(hub.get_by_role("heading", name="Configuración", exact=True)).to_be_visible()
+    expect(hub.get_by_role("button", name=re.compile("Usuarios y permisos"))).to_be_visible()
+    hub.get_by_role("button", name=re.compile("Reglas operativas")).click()
+    expect(hub.get_by_role("heading", name="Reglas operativas")).to_be_visible()
+    expect(hub.locator("textarea[aria-label='Catálogos de importación']")).to_have_count(0)
+    hub.get_by_role("button", name="Configuración", exact=True).click()
+    hub.get_by_role("button", name=re.compile("Exigencias documentales")).click()
+    expect(page).to_have_url(re.compile(r"/admin/configuracion/documentos(?:\?.*)?$"))
+    expect(page.get_by_role("heading", name="Configuración documental", exact=True)).to_be_visible()
     expect(page.get_by_role("button", name="← Volver", exact=True)).to_be_visible()
     expect(page.locator("input[type=file]")).to_have_count(0)
     expect(page.locator(".global-filters")).not_to_be_visible()
     page.screenshot(path=str(OUT / "configuracion-general-escritorio.png"), full_page=True)
     no_horizontal_scroll(page)
+    page.get_by_role("button", name="← Volver", exact=True).click()
+    expect(page.get_by_test_id("settings-center")).to_be_visible()
+    page.get_by_role("button", name=re.compile("Exigencias documentales")).click()
 
     # Create a catalog entry and apply an individual obligation through the
     # actual preview/confirmation UI, then verify persistence in the API.
