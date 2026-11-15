@@ -408,9 +408,6 @@ export default function JavieraSimple({onConfig,onBack}:{onConfig?:()=>void;onBa
   }
   async function prepare():Promise<Dossier|null>{
     if(!ready){setError("Completa empresa, trabajador, cargo cuando corresponda y selecciona un documento.");return null;}
-    if(!library?.documents.some(item=>item.code===code&&item.ready)){
-      setError("La plantilla Excel original no está habilitada. Revísala en Administración de plantillas.");return null;
-    }
     if(current.current?.signature===signature)return current.current.dossier;
     const shared=deep({...extras,role,"event.date":date});
     const dossier=await request<Dossier>(base+"/dossiers",{
