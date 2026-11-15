@@ -1,3 +1,9 @@
+# GALANT POST — 20.3.2-rc1 · Parche de Configuración Unificada
+
+Configuración organizada por categorías, acceso a exigencias documentales y automatizaciones, regreso consistente y usuarios adaptables. Las reglas de importación se editan visualmente sin mostrar JSON; las retenciones se registran por mes. **Versión candidata en GitHub; pendiente de CI y verificación de despliegue.**
+
+[Detalle y pruebas](docs/ENTREGA_20_3_2_CONFIGURACION.md).
+
 # GALANT POST — 20.1.0-rc1 · Javiera: selección y generación masiva
 
 Candidata local con entrada por contratista nuevo/existente, selección de los diez documentos, generación por varios expedientes y descarga ZIP. Corrige la pérdida de namespaces Microsoft en el XLSX y mejora el pegado y formato del editor web. **Excel original comprobado con LibreOffice y los diez tipos documentales. Sin despliegue al VPS; pendiente de apertura manual en Microsoft Excel.**

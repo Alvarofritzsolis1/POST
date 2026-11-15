@@ -145,6 +145,8 @@ function App() {
     [evidence, setEvidence] = useState(false),
     [sporadic, setSporadic] = useState(false),
     [page, setPage] = useState(0);
+  const settingsReturnRef = useRef("home");
+  const automationReturnRef = useRef("javiera");
   const sectionRef = useRef(section);
   sectionRef.current = section;
   useEffect(() => { window.localStorage.setItem("galant-sidebar-collapsed", String(sidebarCollapsed)); }, [sidebarCollapsed]);
@@ -350,20 +352,22 @@ function App() {
       setError(errorText(e));
     }
   }
-  function go(s: string) {
+  function go(s: string, configDestination = "") {
+    if(s === "settings" && section !== "settings" && section !== "configuration" && section !== "javiera_config") settingsReturnRef.current = section;
     if(s!==section&&!window.dispatchEvent(new Event("galant-before-navigate",{cancelable:true})))return;
     // Antes del cambio de componentes, evitar que el módulo nuevo herede el scroll viejo.
     if (s !== section || (s === "contractors" && /^\/contratistas\/[^/]+/.test(window.location.pathname))) {
       window.scrollTo({top: 0, left: 0, behavior: "instant"});
     }
     if (s === "javiera_config") {
+      automationReturnRef.current = section === "settings" ? "settings" : "javiera";
       window.history.pushState({ galantSection: "javiera_config" }, "", "/configuracion/automatizacion");
       setSection("javiera_config");
       return;
     }
     if (s === "configuration") {
       window.history.replaceState({ ...window.history.state, galantSection: section }, "", window.location.href);
-      window.history.pushState({ galantSection: "configuration", galantConfiguration: true }, "", "/admin/configuracion");
+      window.history.pushState({ galantSection: "configuration", galantConfiguration: true }, "", "/admin/configuracion" + (configDestination ? "/" + configDestination : ""));
       setSection("configuration");
       return;
     }
@@ -400,8 +404,8 @@ function App() {
   if (section === "configuration" && user.role !== "admin") return <main className="panel" style={{ margin: "40px auto", maxWidth: 620 }}><h1>Acceso restringido</h1><p>Configuración General está disponible exclusivamente para administradores.</p><button type="button" onClick={() => { window.history.replaceState({}, "", "/"); setSection("home"); }}>← Volver</button></main>;
   if (user.role === "resident") return <ResidentNetwork user={user} version={version} logout={() => void logout()} />;
   if (user.role === "administrative") return <AdministrativeWorkspace user={user} version={version} logout={() => void logout()} />;
-  if (section === "javiera_config" && user.role === "admin") return <ErrorBoundary name="Configuración de automatización"><Suspense fallback={<div className="app-loading">Cargando JAVIERA…</div>}><Javiera configuration onBack={() => go("javiera")} /></Suspense></ErrorBoundary>;
-  if (section === "configuration" && user.role === "admin") return <ErrorBoundary name="Configuración General"><Suspense fallback={<div className="app-loading">Cargando Configuración General…</div>}><GeneralConfiguration user={user} version={version} logout={() => void logout()} onOpenSettings={() => go("settings")} onBack={() => { if (window.history.state?.galantConfiguration) window.history.back(); else go("settings"); }}/></Suspense></ErrorBoundary>;
+  if (section === "javiera_config" && user.role === "admin") return <ErrorBoundary name="Configuración de automatización"><Suspense fallback={<div className="app-loading">Cargando JAVIERA…</div>}><Javiera configuration onBack={() => go(automationReturnRef.current)} /></Suspense></ErrorBoundary>;
+  if (section === "configuration" && user.role === "admin") return <ErrorBoundary name="Configuración General"><Suspense fallback={<div className="app-loading">Cargando Configuración General…</div>}><GeneralConfiguration user={user} version={version} logout={() => void logout()} onOpenSettings={() => go("settings")} onBack={() => go("settings")}/></Suspense></ErrorBoundary>;
   const rows = (contributions?.rows || []).filter(
     (r) =>
       (!search ||
@@ -569,11 +573,11 @@ function App() {
           </button>
           <div className="v16-account-cluster">
             <NetworkAccountMenu user={user} logout={() => void logout()} openNetwork={() => go("network")} openSettings={() => go("settings")} />
-            {user.role === "admin" && <button type="button" className="v16-automation-entry" onClick={() => go("javiera_config")} title="Editar documentos, matrices y reglas de JAVIERA" aria-label="Configuración de automatización"><SettingsIcon size={16} /> <span>Configuración de automatización</span></button>}
+            {user.role === "admin" && section !== "settings" && <button type="button" className="v16-automation-entry" onClick={() => go("javiera_config")} title="Editar documentos, matrices y reglas de JAVIERA" aria-label="Configuración de automatización"><SettingsIcon size={16} /> <span>Configuración de automatización</span></button>}
           </div>
         </header>
         <div className="page">
-          {section !== "network" && section !== "javiera" && <div className="intro">
+          {section !== "network" && section !== "javiera" && section !== "settings" && <div className="intro">
             <div>
               <span className="eyebrow">
                 {profile?.organization} /{" "}
@@ -1203,7 +1207,9 @@ function App() {
               admin={user.role === "admin"}
               sites={sites}
               onPreferences={applyPreferences}
-              onOpenConfiguration={() => go("configuration")}
+              onOpenConfiguration={(destination) => go("configuration", destination)}
+              onOpenAutomation={() => go("javiera_config")}
+              onBack={() => go(settingsReturnRef.current)}
             />
           )}
           {editing && (
