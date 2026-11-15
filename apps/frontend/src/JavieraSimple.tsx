@@ -534,9 +534,6 @@ export default function JavieraSimple({onConfig,onBack}:{onConfig?:()=>void;onBa
   return <section className="jv-module" aria-label="Proyecto Javiera">
     <div className="jv-hero" style={{display:"grid",gridTemplateColumns:"minmax(0,1fr)",gridAutoFlow:"row",justifyItems:"start",alignContent:"start",rowGap:9}}>
       <div className="jv-hero-back-row">
-        <button className="jv-back" type="button" disabled={busy} onClick={()=>chooseMode(mode==="new"?"new":"existing")}>
-          <ArrowLeft size={17}/> {mode==="new"?"Contratista nuevo":"Contratista existente"}
-        </button>
         <button className="jv-back" type="button" disabled={busy} onClick={()=>{
           generation.current+=1;setMode(null);setSite("");setCompanyId("");setPersonId("");
           setCompanyToken("");setPersonToken("");setExtras({});current.current=null;resetPreview();
