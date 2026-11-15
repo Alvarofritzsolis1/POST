@@ -439,6 +439,27 @@ export default function JavieraSimple({onConfig,onBack}:{onConfig?:()=>void;onBa
     setShowExtras(true);
     return false;
   }
+  async function verifyDocuments(){
+    if(busy)return;
+    setBusy(true);setError("");setNotice("");
+    try{
+      const dossier=await prepare();
+      if(!dossier)return;
+      const result=await request<{documents:DocumentStatus[]}>(base+"/dossiers/"+
+        encodeURIComponent(dossier.id)+"/eligibility");
+      setVerified(result.documents);
+      const unavailable=result.documents.filter(item=>!item.can_issue);
+      setReasons(unavailable.map(item=>
+        (LABELS[item.code]||item.code)+": "+(item.reason||"Completa la ficha")));
+      setMissing([...new Set(unavailable.flatMap(item=>item.missing_fields||[]))
+        ].filter(key=>!["worker.name","worker.rut","employer.name","employer.rut","site.name"].includes(key)));
+      if(unavailable.length)setShowExtras(true);
+      setNotice(unavailable.length?
+        "Ficha guardada. Revisa los campos indicados en los documentos pendientes.":
+        "Ficha guardada. Los documentos seleccionados están listos para generar.");
+    }catch(e){setError(friendly(e));}
+    finally{setBusy(false);}
+  }
   async function run(action:"preview"|"issue"){
     if(busy)return;
     setBusy(true);setError("");setNotice("");
