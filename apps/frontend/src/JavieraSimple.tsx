@@ -1,8 +1,9 @@
 import {useEffect,useMemo,useRef,useState} from "react";
-import {ArrowLeft,CheckCircle2,Download,Eye,FileSpreadsheet,Loader2,Settings2,ShieldAlert} from "lucide-react";
+import {ArrowLeft,CheckCircle2,ClipboardList,Download,Eye,FileSpreadsheet,FileText,FolderOpen,Loader2,Settings2,ShieldAlert,ShieldCheck} from "lucide-react";
 import {request} from "./api";
 import {parseEppDraft,serializeEppDraft,type EppChoice} from "./javiera-epp";
 
+import "./javiera.css";
 import "./javiera-simple.css";
 
 type Origin="operational"|"documentary";
@@ -12,8 +13,9 @@ type Sources={sites:{id:string;name:string}[];companies:Company[];
   operational_companies:Company[];people:Person[];operational_people:Person[]};
 type Library={engine_available:boolean;documents:{code:string;state:string;ready:boolean;sheet:string}[]};
 type RoleList={roles:{cargo:string}[]};
-type Catalog={code:string;title:string;required_fields:string[]}[];
-type Dossier={id:string;revision:number};
+type Catalog={code:string;title:string;area:string;required_fields:string[]}[];
+type Dossier={id:string;revision:number;shared?:Record<string,unknown>;selected_codes?:string[];document_data?:Record<string,Record<string,unknown>>};
+type DossierLookup={found:boolean;dossier:Dossier|null;legacy_shared?:Record<string,unknown>|null};
 type DocumentStatus={code:string;can_issue:boolean;reason:string;missing_fields:string[];
   blocking_errors:string[];last_issue_id?:string|null};
 type Batch={issued:number;results:{code:string;ok:boolean;id?:string;reason?:string}[];pdf_url?:string|null};
@@ -135,6 +137,9 @@ export default function JavieraSimple({onConfig,onBack}:{onConfig?:()=>void;onBa
   const [roles,setRoles]=useState<string[]>([]);
   const [catalog,setCatalog]=useState<Catalog>([]);
   const [eppOptions,setEppOptions]=useState<EppChoice[]>([]);
+  const [mode,setMode]=useState<"new"|"existing"|null>(null);
+  const [documentSearch,setDocumentSearch]=useState("");
+  const [verified,setVerified]=useState<DocumentStatus[]>([]);
   const [site,setSite]=useState("");
   const [companyToken,setCompanyToken]=useState("");
   const [companyId,setCompanyId]=useState("");
@@ -168,29 +173,34 @@ export default function JavieraSimple({onConfig,onBack}:{onConfig?:()=>void;onBa
   const previewRef=useRef<LocalPreview|null>(null);
   useEffect(()=>{previewRef.current=preview;},[preview]);
   useEffect(()=>()=>{if(previewRef.current)URL.revokeObjectURL(previewRef.current.url);},[]);
-  const companies=useMemo(()=>[...source.companies,...source.operational_companies]
-    .filter(x=>x.site_id===site&&(x.name+" "+x.rut).toLowerCase().includes(filter.toLowerCase())),
-    [source,site,filter]);
-  const people=useMemo(()=>[...source.people,...source.operational_people],[source]);
+  const companies=useMemo(()=>{
+    const linked=new Set(source.companies.map(c=>c.source_contractor_id).filter(Boolean));
+    return [...source.companies,...source.operational_companies.filter(c=>!linked.has(c.id))]
+      .filter(c=>c.site_id===site&&(c.name+" "+c.rut).toLocaleLowerCase("es").includes(filter.toLocaleLowerCase("es")));
+  },[source,site,filter]);
+  const people=useMemo(()=>{
+    const linked=new Set(source.people.map(p=>p.source_worker_id).filter(Boolean));
+    return [...source.people,...source.operational_people.filter(p=>!linked.has(p.id))];
+  },[source]);
   const selectedCompany=locate(companies,companyToken);
   const selectedPerson=locate(people,personToken);
   const layout=library?.documents.find(x=>x.code===code);
   const eppDraft=useMemo(()=>parseEppDraft(extras["event.epp_items"]||"",eppOptions),[extras,eppOptions]);
   const workerless=code==="sworn_declaration";
-  const ready=!!site&&!!companyToken&&!!companyId&&
+  const ready=!!site&&!!companyToken&&!!companyId&&selectedCodes.length>0&&
     (!!personToken&&!!personId||workerless)&&!!code&&!!date&&
     (!!role||!["irl","pts","pts_receipt","ppe_delivery","induction"].includes(code))&&
     (workerless?verifiedNoWorkers:true);
   const signature=JSON.stringify({site,companyId,personId:workerless?null:personId,role,code,selectedCodes,date,extras,verifiedNoWorkers});
   function resetPreview(){
     setPreview(old=>{if(old)URL.revokeObjectURL(old.url);return null;});
-    setIssued("");setMissing([]);setReasons([]);setNotice("");setError("");
+    setIssued("");setMissing([]);setReasons([]);setVerified([]);setNotice("");setError("");
   }
   // Al cambiar una ficha se invalidan pruebas PDF anteriores; NO se borra
   // el aviso de guardado que acaba de mostrar la acción de alta o corrección.
   useEffect(()=>{
     setPreview(old=>{if(old)URL.revokeObjectURL(old.url);return null;});
-    setIssued("");setMissing([]);setReasons([]);setError("");
+    setIssued("");setMissing([]);setReasons([]);setVerified([]);setError("");
   },[signature]);
   useEffect(()=>{
     let active=true;
@@ -208,11 +218,58 @@ export default function JavieraSimple({onConfig,onBack}:{onConfig?:()=>void;onBa
       .finally(()=>{if(active)setBooting(false);});
     return ()=>{active=false;};
   },[]);
+  function chooseMode(next:"new"|"existing"){
+    generation.current+=1;
+    setMode(next);setSite("");setFilter("");setSource(old=>({...old,people:[],operational_people:[]}));
+    setCompanyToken("");setCompanyId("");setPersonToken("");setPersonId("");
+    setNewCompany({name:"",rut:""});setNewPerson({name:"",rut:""});
+    setShowNewCompany(next==="new");setShowNewPerson(false);setRole("");
+    setCode(next==="new"?"labor_contract":"irl");
+    setSelectedCodes(next==="new"?["labor_contract"]:[]);
+    setDocumentSearch("");setExtras({});setVerifiedNoWorkers(false);
+    current.current=null;resetPreview();
+  }
+  function fillShared(shared:Record<string,unknown>|null|undefined){
+    if(!shared)return;
+    const filled:Record<string,string>={};
+    for(const section of ["extra","event","contract"]){
+      const values=shared[section];
+      if(values&&typeof values==="object"&&!Array.isArray(values))
+        for(const [key,value] of Object.entries(values as Record<string,unknown>))
+          if(value!==undefined&&value!==null&&typeof value!=="object")
+            filled[section+"."+key]=String(value);
+    }
+    setExtras(filled);
+    if(typeof shared.role==="string")setRole(shared.role);
+    const event=shared.event as Record<string,unknown>|undefined;
+    if(event&&typeof event.date==="string")setDate(event.date.slice(0,10));
+  }
+  async function recoverExisting(siteId:string,contractorId:string,workerId:string|null,index:number){
+    const params=new URLSearchParams({site_id:siteId,company_id:contractorId});
+    if(workerId)params.set("person_id",workerId);
+    const data=await request<DossierLookup>(base+"/dossiers/lookup?"+params);
+    if(index!==generation.current)return;
+    current.current=null;
+    if(data.found&&data.dossier){
+      fillShared(data.dossier.shared);
+      const codes=(data.dossier.selected_codes||[]).filter(code=>ORDER.includes(code));
+      if(codes.length){setSelectedCodes(codes);setCode(codes[0]);}
+      const sworn=data.dossier.document_data?.sworn_declaration;
+      setVerifiedNoWorkers(sworn?.verified_no_workers===true);
+      current.current={signature:"",dossier:data.dossier};
+      setNotice("Ficha anterior recuperada. Revisa los datos antes de emitir documentos.");
+    }else if(data.legacy_shared){
+      fillShared(data.legacy_shared);
+      setNotice("Datos anteriores recuperados para esta empresa y trabajador. Se conservarán al preparar el expediente.");
+    }else{
+      setNotice("Empresa y trabajador seleccionados. Completa solo los datos que falten.");
+    }
+  }
   async function changeSite(value:string){
     const index=++generation.current;
     setSite(value);setCompanyToken("");setCompanyId("");setPersonToken("");setPersonId("");
     setRole("");setFilter("");setExtras({});setVerifiedNoWorkers(false);
-    setShowNewCompany(false);setShowNewPerson(false);
+    setShowNewCompany(mode==="new");setShowNewPerson(false);
     setSource(old=>({...old,people:[],operational_people:[]}));
     current.current=null;
     try{
@@ -224,13 +281,14 @@ export default function JavieraSimple({onConfig,onBack}:{onConfig?:()=>void;onBa
   async function changeCompany(value:string){
     const index=++generation.current;
     setCompanyToken(value);setCompanyId("");setPersonToken("");setPersonId("");
-    setExtras({});setRole("");current.current=null;setShowNewPerson(false);
+    setExtras({});setRole("");setVerifiedNoWorkers(false);
+    current.current=null;setShowNewPerson(false);setVerified([]);
     if(!value)return;
     const item=locate([...source.companies,...source.operational_companies],value);
     if(!item)return;
     setBusy(true);setError("");
     try{
-      const linked=await request<{id:string}>(base+"/companies",{
+      const linked=await request<Company>(base+"/companies",{
         method:"POST",body:JSON.stringify({
           site_id:site,origin:item.origin,source_id:item.id
         })
@@ -240,26 +298,30 @@ export default function JavieraSimple({onConfig,onBack}:{onConfig?:()=>void;onBa
       const loaded=await request<Sources>(base+"/sources?site_id="+encodeURIComponent(site)+
         "&company_id="+encodeURIComponent(linked.id));
       if(index!==generation.current)return;
-      setSource(loaded);
+      setSource(loaded);setCompanyToken(token(linked));
+      if(linked.details)fillShared({extra:linked.details});
+      await recoverExisting(site,linked.id,null,index);
     }catch(e){if(index===generation.current)setError(friendly(e));}
     finally{if(index===generation.current)setBusy(false);}
   }
   async function changePerson(value:string){
     const index=++generation.current;
-    setPersonToken(value);setPersonId("");setRole("");current.current=null;
+    setPersonToken(value);setPersonId("");setRole("");setExtras({});
+    setVerifiedNoWorkers(false);current.current=null;setVerified([]);
     if(!value)return;
     const item=locate(people,value);
     if(!item||!companyId)return;
     setBusy(true);setError("");
     try{
-      const linked=await request<{id:string}>(base+"/people",{
+      const linked=await request<Person>(base+"/people",{
         method:"POST",body:JSON.stringify({
           company_id:companyId,origin:item.origin,source_id:item.id
         })
       });
       if(index!==generation.current)return;
-      setPersonId(linked.id);
-      if(item.details?.role)setRole(item.details.role);
+      setPersonId(linked.id);setPersonToken(token(linked));
+      if(linked.details?.role)setRole(linked.details.role);
+      await recoverExisting(site,companyId,linked.id,index);
     }catch(e){if(index===generation.current)setError(friendly(e));}
     finally{if(index===generation.current)setBusy(false);}
   }
@@ -280,7 +342,7 @@ export default function JavieraSimple({onConfig,onBack}:{onConfig?:()=>void;onBa
       if(index!==generation.current)return;
       setSource(loaded);setCompanyToken(token(company));setCompanyId(company.id);
       setPersonToken("");setPersonId("");setRole("");setShowNewCompany(false);
-      setShowNewPerson(false);setNewCompany({name:"",rut:""});
+      setShowNewPerson(true);setNewCompany({name:"",rut:""});
       current.current=null;
       setNotice("Empresa guardada solo en Proyecto Javiera. No se registró en GALANT operativo.");
     }catch(e){if(index===generation.current)setError(friendly(e));}
@@ -333,15 +395,19 @@ export default function JavieraSimple({onConfig,onBack}:{onConfig?:()=>void;onBa
     finally{setHistoryLoading(false);}
   }
   function changeDocument(value:string){
-    setCode(value);setSelectedCodes([value]);setExtras({});setShowExtras(false);setVerifiedNoWorkers(false);
-    current.current=null;
+    setCode(value);setSelectedCodes([value]);setShowExtras(false);
     if(value==="sworn_declaration"){setPersonToken("");setPersonId("");}
   }
+  function toggleDocument(value:string,checked:boolean){
+    setSelectedCodes(old=>{
+      if(value==="sworn_declaration")return checked?["sworn_declaration"]:[];
+      const others=old.filter(code=>code!=="sworn_declaration");
+      return checked?[...new Set([...others,value])]:others.filter(code=>code!==value);
+    });
+    if(checked)setCode(value);
+  }
   async function prepare():Promise<Dossier|null>{
-    if(!ready){setError("Selecciona una obra, empresa, trabajador, cargo y documento.");return null;}
-    if(!library?.documents.some(item=>item.code===code&&item.ready)){
-      setError("La plantilla Excel original no está habilitada. Revísala en Administración de plantillas.");return null;
-    }
+    if(!ready){setError("Completa empresa, trabajador, cargo cuando corresponda y selecciona un documento.");return null;}
     if(current.current?.signature===signature)return current.current.dossier;
     const shared=deep({...extras,role,"event.date":date});
     const dossier=await request<Dossier>(base+"/dossiers",{
@@ -369,6 +435,27 @@ export default function JavieraSimple({onConfig,onBack}:{onConfig?:()=>void;onBa
     setReasons([...new Set([item.reason,...(item.blocking_errors||[])].filter(Boolean))]);
     setShowExtras(true);
     return false;
+  }
+  async function verifyDocuments(){
+    if(busy)return;
+    setBusy(true);setError("");setNotice("");
+    try{
+      const dossier=await prepare();
+      if(!dossier)return;
+      const result=await request<{documents:DocumentStatus[]}>(base+"/dossiers/"+
+        encodeURIComponent(dossier.id)+"/eligibility");
+      setVerified(result.documents);
+      const unavailable=result.documents.filter(item=>!item.can_issue);
+      setReasons(unavailable.map(item=>
+        (LABELS[item.code]||item.code)+": "+(item.reason||"Completa la ficha")));
+      setMissing([...new Set(unavailable.flatMap(item=>item.missing_fields||[]))
+        ].filter(key=>!["worker.name","worker.rut","employer.name","employer.rut","site.name"].includes(key)));
+      if(unavailable.length)setShowExtras(true);
+      setNotice(unavailable.length?
+        "Ficha guardada. Revisa los campos indicados en los documentos pendientes.":
+        "Ficha guardada. Los documentos seleccionados están listos para generar.");
+    }catch(e){setError(friendly(e));}
+    finally{setBusy(false);}
   }
   async function run(action:"preview"|"issue"){
     if(busy)return;
@@ -414,221 +501,320 @@ export default function JavieraSimple({onConfig,onBack}:{onConfig?:()=>void;onBa
     catalog.find(x=>x.code===item)?.required_fields||[]))];
   const extraFields=[...new Set([...fieldKeys,...requiredCatalog,...missing])]
     .filter(x=>!auto.has(x)&&x.includes("."));
-  return <main className="jsm-shell" aria-label="Proyecto Javiera modo simple">
-    <header className="jsm-heading">
-      <div>
-        {onBack&&<button type="button" className="jsm-back" onClick={onBack}>
-          <ArrowLeft size={17}/> Volver</button>}
-        <span className="jsm-eyebrow">GALANT · PROYECTO JAVIERA DOCUMENTAL</span>
-        <h1>Proyecto Javiera</h1>
-        <p>Genera documentación con identidades independientes, sin registrar contratistas ni trabajadores en el sistema operativo.</p>
+  if(!mode)return <section className="jv-module" aria-label="Proyecto Javiera">
+    <div className="jv-hero">
+      <small>AUTOMATIZACIÓN DOCUMENTAL · GALANT</small>
+      <h2>Proyecto JAVIERA</h2>
+      <p>Una sola ficha para documentos laborales y prevención de riesgos. Primero indica si el contratista es nuevo o existente.</p>
+    </div>
+    {error&&<p role="alert" className="jv-error"><ShieldAlert size={16}/>{error}</p>}
+    <div className="jv-mode-cards" aria-label="Tipo de contratista">
+      <button type="button" disabled={busy} onClick={()=>chooseMode("new")}>
+        <FolderOpen size={28}/>
+        <strong>Contratista nuevo</strong>
+        <span>Ingresa la empresa y el trabajador para preparar su documentación. No los registra en el módulo operativo de GALANT.</span>
+      </button>
+      <button type="button" disabled={busy} onClick={()=>chooseMode("existing")}>
+        <ClipboardList size={28}/>
+        <strong>Contratista existente</strong>
+        <span>Elige una empresa registrada y recupera los datos anteriores de sus trabajadores y documentos.</span>
+      </button>
+    </div>
+    {onConfig&&<button type="button" className="jv-inline-action" onClick={onConfig}>
+      <Settings2 size={16}/> Editar Excel maestro y plantillas
+    </button>}
+    {onBack&&<button type="button" className="jv-back" onClick={onBack}><ArrowLeft size={16}/> Volver a GALANT</button>}
+    <p className="jv-note">Los documentos preparados aquí no crean contratistas ni asignaciones operativas. La impresión no acredita firmas o entregas reales.</p>
+  </section>;
+  const selectedCatalog=catalog.filter(item=>selectedCodes.includes(item.code));
+  const verifiedReady=verified.filter(item=>item.can_issue).length;
+  return <section className="jv-module" aria-label="Proyecto Javiera">
+    <div className="jv-hero" style={{display:"grid",gridTemplateColumns:"minmax(0,1fr)",gridAutoFlow:"row",justifyItems:"start",alignContent:"start",rowGap:9}}>
+      <div className="jv-hero-back-row">
+        <button className="jv-back" type="button" disabled={busy} onClick={()=>{
+          generation.current+=1;setMode(null);setSite("");setCompanyId("");setPersonId("");
+          setCompanyToken("");setPersonToken("");setExtras({});current.current=null;resetPreview();
+        }}><ArrowLeft size={17}/> Proyecto JAVIERA</button>
       </div>
-      {onConfig&&<button type="button" className="jsm-settings" onClick={onConfig}>
-        <Settings2 size={17}/> Administración de plantillas</button>}
-    </header>
-    {error&&<div className="jsm-message error" role="alert"><ShieldAlert size={19}/>{error}</div>}
-    {notice&&<div className="jsm-message ok" role="status"><CheckCircle2 size={19}/>{notice}</div>}
-    {booting?<p className="jsm-loading"><Loader2 size={20} className="jsm-spin"/> Cargando documentos…</p>:
-    <section className="jsm-panel">
-      <div className="jsm-intro"><FileSpreadsheet size={21}/>
-        <div><h2>Nuevo documento</h2><p>Los datos existentes se recuperan automáticamente.</p></div>
-      </div>
-      <div className="jsm-grid">
-        <label>Obra
-          <select aria-label="Obra" value={site} onChange={e=>void changeSite(e.target.value)} disabled={busy}>
-            <option value="">Selecciona la obra</option>
-            {source.sites.map(x=><option key={x.id} value={x.id}>{x.name}</option>)}
-          </select>
-        </label>
-        <label>Buscar empresa
-          <input aria-label="Buscar empresa" value={filter} onChange={e=>setFilter(e.target.value)}
-            placeholder="Razón social o RUT" disabled={!site||busy}/>
-        </label>
-        <label>Empresa contratista
-          <select aria-label="Empresa contratista" value={companyToken} disabled={!site||busy}
-            onChange={e=>void changeCompany(e.target.value)}>
-            <option value="">Selecciona la empresa</option>
-            {companies.map(x=><option key={token(x)} value={token(x)}>{x.name}</option>)}
-          </select>
-        </label>
-        <label>Trabajador
-          <select aria-label="Trabajador" value={workerless?"":personToken}
-            disabled={!companyId||busy||workerless} onChange={e=>void changePerson(e.target.value)}>
-            <option value="">{workerless?"No corresponde a declaración empresarial":"Selecciona un trabajador"}</option>
-            {people.map(x=><option key={token(x)} value={token(x)}>{x.name}</option>)}
-          </select>
-        </label>
-        <label>Cargo
-          <select aria-label="Cargo" value={role} onChange={e=>setRole(e.target.value)} disabled={busy}>
-            <option value="">Selecciona el cargo</option>
-            {role&&!roles.includes(role)&&<option value={role}>{role}</option>}
-            {roles.includes("TECHADOR")&&<option value="TECHUMBRE">TECHUMBRE (matriz de TECHADOR)</option>}
-            {roles.map(name=><option value={name} key={name}>{name}</option>)}
-          </select>
-        </label>
-        <label>Documento
-          <select aria-label="Documento" value={code} disabled={busy} onChange={e=>changeDocument(e.target.value)}>
-            {ORDER.map(key=><option key={key} value={key}>{LABELS[key]}</option>)}
-          </select>
-        </label>
-      </div>
-      <div className="jsm-multi-selection">
-        <p>Documentos a generar: {selectedCodes.length} seleccionados. Puedes preparar varios desde la misma ficha.</p>
-        <div className="jsm-actions">
-          <button type="button" className="jsm-secondary"
-            onClick={()=>{setSelectedCodes(ORDER.filter(x=>x!=="sworn_declaration"));setCode("irl");current.current=null;}}>
-            Seleccionar laborales y prevención
-          </button>
-          <button type="button" className="jsm-secondary"
-            onClick={()=>{setSelectedCodes(["irl","pts","pts_receipt","ppe_delivery","induction"]);setCode("irl");current.current=null;}}>
-            Solo prevención
-          </button>
-          <button type="button" className="jsm-secondary" onClick={()=>changeDocument(code)}>
-            Solo documento actual
-          </button>
+      <small>{mode==="new"?"CONTRATISTA NUEVO":"CONTRATISTA EXISTENTE"} · EXPEDIENTE</small>
+      {onConfig&&<button type="button" disabled={busy} className="jv-back" onClick={onConfig}>
+        <Settings2 size={16}/> Editar Excel maestro y plantillas
+      </button>}
+      <h2>Generación documental interactiva</h2>
+      <p>Gestiona contratos, anexos, declaraciones, IRL, PTS, EPP, reglamento e inducción desde una misma ficha.</p>
+    </div>
+    {error&&<p role="alert" className="jv-error"><ShieldAlert size={16}/>{error}</p>}
+    {!error&&notice&&<p role="status" className="jv-success"><CheckCircle2 size={16}/>{notice}</p>}
+    {booting?<div className="jv-document-picker" role="status"><Loader2 size={18} className="jsm-spin"/> Cargando obras y plantillas…</div>:<>
+      <section className="jv-document-picker" aria-label="Seleccionar documentos">
+        <div className="jv-picker-heading">
+          <div><small>PASO 1 · DOCUMENTOS</small><h3>¿Qué necesitas generar?</h3>
+            <p>Marca uno o varios documentos. La ficha pedirá únicamente los datos correspondientes.</p>
+          </div>
+          <label>Buscar documento
+            <input aria-label="Buscar documento" type="search" value={documentSearch}
+              placeholder="IRL, EPP, contrato…" onChange={e=>setDocumentSearch(e.target.value)}/>
+          </label>
         </div>
-        <div className="jsm-extra-grid">
-          {ORDER.map(item=><label key={item} className="jsm-checkbox">
-            <input type="checkbox" checked={selectedCodes.includes(item)}
-              disabled={item==="sworn_declaration"&&selectedCodes.length>1}
-              onChange={e=>{
-                const next=e.target.checked?[...selectedCodes,item]:selectedCodes.filter(x=>x!==item);
-                if(!next.length)return;
-                if(next.includes("sworn_declaration")&&next.length>1)return;
-                setSelectedCodes(next);if(!next.includes(code))setCode(next[0]);current.current=null;
-              }}/>
-            {LABELS[item]}
-          </label>)}
+        <fieldset disabled={busy} className="jv-flow">
+          <div className="jv-picker-actions">
+            <button type="button" onClick={()=>{setSelectedCodes(ORDER.filter(x=>x!=="sworn_declaration"));setCode("irl");}}>
+              Seleccionar todos</button>
+            <button type="button" onClick={()=>{setSelectedCodes(["irl","pts","pts_receipt","ppe_delivery","induction"]);setCode("irl");}}>
+              Solo prevención</button>
+            <button type="button" onClick={()=>{setSelectedCodes(ORDER.filter(x=>!["sworn_declaration","irl","pts","pts_receipt","ppe_delivery","induction"].includes(x)));setCode("labor_contract");}}>
+              Solo laborales</button>
+            <button type="button" onClick={()=>setSelectedCodes([])}>Limpiar selección</button>
+            <strong>{selectedCodes.length} seleccionados</strong>
+          </div>
+          <div className="jv-picker-grid">
+            {catalog.filter(item=>(item.title+" "+item.code).toLocaleLowerCase("es").includes(documentSearch.toLocaleLowerCase("es")))
+              .map(item=><label key={item.code} className={"jv-picker-card "+(selectedCodes.includes(item.code)?"chosen":"")}>
+                <input type="checkbox" checked={selectedCodes.includes(item.code)}
+                  onChange={e=>toggleDocument(item.code,e.target.checked)}/>
+                <span><b>{item.title}</b><small>{item.area||"Documento"}</small></span>
+              </label>)}
+          </div>
+          {!catalog.length&&<p className="jv-hint" role="status">No se pudieron cargar los documentos disponibles.</p>}
+        </fieldset>
+      </section>
+      <div className="jv-workspace">
+        <div className="jv-form">
+          <fieldset disabled={busy} className="jv-flow">
+            <div className="jv-section">
+              <h3>Paso 2 · Empresa y trabajador</h3>
+              <label>Obra
+                <select aria-label="Obra" value={site} onChange={e=>void changeSite(e.target.value)}>
+                  <option value="">Selecciona una obra</option>
+                  {source.sites.map(item=><option key={item.id} value={item.id}>{item.name}</option>)}
+                </select>
+              </label>
+              {mode==="new"?(
+                !companyId?<div className="jv-new-form">
+                  <p>Completa la empresa para generar sus documentos. Este registro es exclusivo de Proyecto Javiera.</p>
+                  <label>Razón social
+                    <input required value={newCompany.name} placeholder="Nombre completo de la empresa"
+                      onChange={e=>setNewCompany(old=>({...old,name:e.target.value}))}/>
+                  </label>
+                  <label>RUT de empresa
+                    <input required value={newCompany.rut} placeholder="12.345.678-9"
+                      onChange={e=>setNewCompany(old=>({...old,rut:e.target.value}))}/>
+                  </label>
+                  <button type="button" disabled={!site||!newCompany.name.trim()||!newCompany.rut.trim()}
+                    onClick={()=>void createCompany()}>Guardar y continuar</button>
+                  {!site&&<p role="status">Selecciona primero una obra.</p>}
+                </div>:<div className="jv-new-form jv-company-confirmed" role="status">
+                  <strong><CheckCircle2 size={16}/> Empresa registrada solo en Proyecto Javiera</strong>
+                  <span>{selectedCompany?.name||"Empresa guardada"} · {selectedCompany?.rut||""}</span>
+                  <p>Continúa con el trabajador. No necesitas crear la empresa en GALANT operativo.</p>
+                </div>
+              ):<>
+                <label>Buscar empresa
+                  <input aria-label="Buscar empresa" type="search" placeholder="Razón social o RUT"
+                    value={filter} onChange={e=>setFilter(e.target.value)} disabled={!site}/>
+                </label>
+                <label>Empresa registrada
+                  <select aria-label="Empresa registrada" value={companyToken} disabled={!site}
+                    onChange={e=>void changeCompany(e.target.value)}>
+                    <option value="">Selecciona una empresa de esta obra</option>
+                    {companies.map(item=><option value={token(item)} key={token(item)}>
+                      {item.name}{item.rut?" · "+item.rut:""}
+                    </option>)}
+                  </select>
+                </label>
+                {selectedCompany&&companyId&&<div className="jv-new-form jv-company-confirmed">
+                  <strong><CheckCircle2 size={16}/> Datos de la empresa recuperados</strong>
+                  <span>{selectedCompany.name} · {selectedCompany.rut||"RUT pendiente"}</span>
+                </div>}
+              </>}
+              {companyId&&!workerless&&<>
+                <label>Trabajador
+                  <select aria-label="Trabajador" value={personToken} onChange={e=>void changePerson(e.target.value)}>
+                    <option value="">Selecciona un trabajador de esta empresa</option>
+                    {people.map(item=><option key={token(item)} value={token(item)}>
+                      {item.name}{item.rut?" · "+item.rut:""}</option>)}
+                  </select>
+                </label>
+                <button type="button" className="jv-inline-action"
+                  onClick={()=>setShowNewPerson(old=>!old)}>
+                  {showNewPerson?"Cerrar registro de trabajador":"+ Registrar trabajador nuevo"}
+                </button>
+                {showNewPerson&&<div className="jv-new-form">
+                  <label>Nombre del trabajador
+                    <input value={newPerson.name} placeholder="Nombre completo"
+                      onChange={e=>setNewPerson(old=>({...old,name:e.target.value}))}/>
+                  </label>
+                  <label>RUT del trabajador
+                    <input value={newPerson.rut} placeholder="12.345.678-9"
+                      onChange={e=>setNewPerson(old=>({...old,rut:e.target.value}))}/>
+                  </label>
+                  <button type="button" disabled={!newPerson.name.trim()||!newPerson.rut.trim()}
+                    onClick={()=>void createPerson()}>Guardar trabajador</button>
+                </div>}
+                <p className="jv-hint">{selectedPerson?"Trabajador: "+selectedPerson.name+" · "+(selectedPerson.rut||"RUT pendiente"):
+                  "Selecciona o registra al trabajador. No se crean asignaciones en GALANT operativo."}</p>
+              </>}
+              {companyId&&workerless&&<p className="jv-hint">La declaración jurada se prepara a nivel de empresa, sin seleccionar trabajador.</p>}
+              {companyId&&(selectedCompany?.source_contractor_id||selectedCompany?.origin==="operational")&&
+                <button type="button" className="jv-inline-action" onClick={()=>void refreshIdentity("company")}>
+                  Actualizar empresa desde GALANT</button>}
+              {personId&&(selectedPerson?.source_worker_id||selectedPerson?.origin==="operational")&&
+                <button type="button" className="jv-inline-action" onClick={()=>void refreshIdentity("person")}>
+                  Actualizar trabajador desde GALANT</button>}
+              {companyId&&!workerless&&<label>Cargo o especialidad
+                <input aria-label="Cargo o especialidad" list="javiera-cargos" value={role}
+                  onChange={e=>setRole(e.target.value)} placeholder="Ej. TECHUMBRE"/>
+                <datalist id="javiera-cargos">
+                  <option value="TECHUMBRE"/>
+                  {roles.map(item=><option value={item} key={item}/>)}
+                </datalist>
+              </label>}
+              <p className="jv-hint">El expediente utiliza los documentos seleccionados. No exige vínculo laboral ni motivo adicional.</p>
+            </div>
+            <div className="jv-section">
+              <h3>Datos de prevención y constancias</h3>
+              <p>Una fecha rellenada no reemplaza una firma, capacitación o entrega real.</p>
+              <label>Fecha efectiva del evento
+                <input aria-label="Fecha efectiva del evento" type="date" value={date}
+                  onChange={e=>setDate(e.target.value)}/>
+              </label>
+              {workerless&&<label className="jv-check-line">
+                <input type="checkbox" checked={verifiedNoWorkers}
+                  onChange={e=>setVerifiedNoWorkers(e.target.checked)}/>
+                Confirmo que la empresa no tiene trabajadores en el período declarado
+              </label>}
+            </div>
+            {extraFields.length>0&&<div className="jv-section">
+              <h3>Antecedentes de los documentos</h3>
+              <p>Los antecedentes recuperados aparecen completados y puedes corregirlos aquí.</p>
+              <div className="jv-paired">
+              {extraFields.map(key=>{
+                if(key==="event.epp_items")return <div key={key} className="jv-epp-editor">
+                  <h4>EPP efectivamente entregados</h4>
+                  {eppDraft.invalid.length>0&&<p className="jv-error">
+                    Corrige el registro anterior: {eppDraft.invalid.join("; ")}
+                    <button type="button" onClick={()=>setExtras(old=>({...old,"event.epp_items":""}))}>
+                      Limpiar registro incorrecto</button>
+                  </p>}
+                  {eppOptions.map((item,i)=><label key={item.name}>
+                    {item.name}
+                    <input aria-label={"Cantidad de "+item.name} type="number" min={0}
+                      max={item.max_quantity} step={1}
+                      value={eppDraft.quantities[i]||0} disabled={!!eppDraft.invalid.length}
+                      onChange={e=>{
+                        const value=Number(e.target.value);
+                        if(!Number.isInteger(value)||value<0||value>item.max_quantity)return;
+                        const values=[...eppDraft.quantities];values[i]=value;
+                        setExtras(old=>({...old,"event.epp_items":serializeEppDraft(eppOptions,values)}));
+                      }}/>
+                  </label>)}
+                </div>;
+                const meta=FIELDMETA[key];
+                return <label key={key}>{meta?.label||key.replaceAll("."," · ")}
+                  <input aria-invalid={missing.includes(key)&&!extras[key]}
+                    type={meta?.type==="date"?"date":meta?.type==="number"?"number":"text"}
+                    placeholder={missing.includes(key)?"Dato requerido para generar":""}
+                    value={extras[key]||""}
+                    onChange={e=>setExtras(old=>({...old,[key]:e.target.value}))}/>
+                </label>;
+              })}
+              </div>
+            </div>}
+            {reasons.length>0&&<div className="jv-section" role="alert">
+              <h3>Datos pendientes por corregir</h3>
+              {reasons.map((reason,i)=><p className="jv-error" key={i}>{reason}</p>)}
+            </div>}
+            <div className="jv-actions">
+              <button type="button" className="jv-primary" disabled={!ready||busy}
+                onClick={()=>void verifyDocuments()}>
+                {busy?"Comprobando…":"Guardar ficha y verificar"}
+              </button>
+              <span>{selectedCompany?.name||"Empresa pendiente"} · {selectedPerson?.name||"Sin trabajador seleccionado"}</span>
+            </div>
+          </fieldset>
         </div>
+        <aside className="jv-document-panel" aria-label="Documentos que puedes exportar a PDF">
+          <div className="jv-panel-head">
+            <small>DOCUMENTOS SELECCIONADOS</small>
+            <h3>Preparar y generar PDF</h3>
+            <p>{!companyId?"Primero registra o selecciona la empresa":
+              !personId&&!workerless?"Selecciona o registra el trabajador":
+              "Guarda y verifica la ficha para conocer los datos pendientes."}</p>
+          </div>
+          {verified.length>0&&<div className="jv-validation-panel" role="status">
+            <strong>{verifiedReady} de {selectedCodes.length} documentos listos</strong>
+            <p>{verifiedReady===selectedCodes.length?"Puedes generar los documentos seleccionados.":
+              "Revisa los campos que se indican en cada documento."}</p>
+          </div>}
+          <button type="button" className="jv-primary jv-batch"
+            disabled={!ready||busy||selectedCodes.length===0}
+            onClick={()=>void run("issue")}>
+            {busy?"Generando…":"Generar documentos listos"} ({verifiedReady})
+          </button>
+          {!verified.length&&selectedCodes.length>0&&<p className="jv-hint">
+            Guarda y verifica la ficha para actualizar la disponibilidad de cada PDF.
+          </p>}
+          {!selectedCodes.length&&<p className="jv-hint">Selecciona al menos un documento en el paso 1.</p>}
+          <div className="jv-doc-groups">
+            {selectedCatalog.map(item=>{
+              const state=verified.find(x=>x.code===item.code);
+              const errors=[...(state?.blocking_errors||[]),...(state?.missing_fields||[])];
+              const downloadable=state?.can_issue===true&&item.code===code;
+              return <div className="jv-doc-card" key={item.code}>
+                <div className="jv-doc-title">
+                  <input type="checkbox" aria-label={"Seleccionar "+item.title}
+                    checked={selectedCodes.includes(item.code)}
+                    onChange={e=>toggleDocument(item.code,e.target.checked)}/>
+                  <FileText size={16}/><b>{item.title}</b>
+                </div>
+                <p>{item.area||"Documento"}</p>
+                <p className={state?.can_issue?"jv-card-ready":"jv-hint"}>
+                  {state?(state.can_issue?"Listo para PDF":"Faltan datos"):
+                    "Pendiente de verificación"}</p>
+                {state&&!state.can_issue&&<div className="jv-card-problem" role="alert">
+                  <strong>Completar información</strong>
+                  <p>{state.reason||"Falta información para generar este documento."}</p>
+                  {errors.slice(0,5).map((reason,i)=><p key={i}>{reason}</p>)}
+                </div>}
+                <div className="jv-actions jv-card-actions">
+                  <button type="button" onClick={()=>setCode(item.code)}>
+                    {code===item.code?"Documento seleccionado":"Ver este documento"}
+                  </button>
+                  {downloadable&&<button type="button" onClick={()=>void run("preview")}>
+                    <Eye size={14}/> Vista previa</button>}
+                </div>
+              </div>;
+            })}
+          </div>
+          <p className="jv-note">Los documentos anteriores conservan su historial. Generar no equivale a firma o recepción real.</p>
+          <details className="jsm-extras">
+            <summary>Historial de documentos emitidos</summary>
+            <button type="button" disabled={historyLoading} onClick={()=>void loadHistory()}>
+              {historyLoading?"Consultando…":"Consultar historial"}
+            </button>
+            {history&&<div className="jsm-history">
+              {[...history.legacy_issues.map(item=>({...item,legacy:true})),
+                ...history.issues.map(item=>({...item,legacy:false}))].map(item=><p key={item.id}>
+                {LABELS[item.code]||item.code} · {item.issued_at.slice(0,10)} ·
+                <a target="_blank" rel="noreferrer" href={(item.legacy?
+                  "/api/v1/javiera/issued/":"/api/v1/javiera/v166/issues/")+
+                  encodeURIComponent(item.id)+"/pdf"}> Abrir PDF</a>
+              </p>)}
+              {!history.legacy_issues.length&&!history.issues.length&&<p>No existen documentos emitidos.</p>}
+            </div>}
+          </details>
+        </aside>
       </div>
-      <div className="jsm-documental-registration">
-        {site&&<button type="button" className="jsm-secondary" disabled={busy}
-          onClick={()=>{setShowNewCompany(!showNewCompany);setError("");}}>
-          {showNewCompany?"Cerrar registro":" + Preparar documentos para empresa nueva"}
-        </button>}
-        {showNewCompany&&<div className="jsm-extra-grid">
-          <label>Razón social<input value={newCompany.name}
-            onChange={e=>setNewCompany(old=>({...old,name:e.target.value}))}/></label>
-          <label>RUT empresa<input value={newCompany.rut}
-            onChange={e=>setNewCompany(old=>({...old,rut:e.target.value}))}/></label>
-          <button type="button" disabled={busy||!site||!newCompany.name.trim()||!newCompany.rut.trim()}
-            onClick={()=>void createCompany()}>Guardar solo en Javiera</button>
-        </div>}
-        {companyId&&<button type="button" className="jsm-secondary" disabled={busy}
-          onClick={()=>{setShowNewPerson(!showNewPerson);setError("");}}>
-          {showNewPerson?"Cerrar trabajador":" + Preparar documentos para trabajador nuevo"}
-        </button>}
-        {showNewPerson&&<div className="jsm-extra-grid">
-          <label>Nombre del trabajador<input value={newPerson.name}
-            onChange={e=>setNewPerson(old=>({...old,name:e.target.value}))}/></label>
-          <label>RUT trabajador<input value={newPerson.rut}
-            onChange={e=>setNewPerson(old=>({...old,rut:e.target.value}))}/></label>
-          <button type="button" disabled={busy||!companyId||!newPerson.name.trim()||!newPerson.rut.trim()}
-            onClick={()=>void createPerson()}>Guardar solo en Javiera</button>
-        </div>}
-        {(selectedCompany?.origin==="operational"||selectedCompany?.source_contractor_id)&&companyId&&
-          <button type="button" disabled={busy} className="jsm-secondary"
-            onClick={()=>void refreshIdentity("company")}>Actualizar empresa desde GALANT</button>}
-        {(selectedPerson?.origin==="operational"||selectedPerson?.source_worker_id)&&personId&&
-          <button type="button" disabled={busy} className="jsm-secondary"
-            onClick={()=>void refreshIdentity("person")}>Actualizar trabajador desde GALANT</button>}
-        <p className="jsm-footnote">Los registros creados aquí son exclusivos de Proyecto Javiera.
-          Actualizar una copia documental no altera los módulos operativos.</p>
-      </div>
-      <div className="jsm-details">
-        <label>Fecha del documento <input type="date" value={date} onChange={e=>setDate(e.target.value)}/></label>
-        <p>{selectedPerson?.name||"Selecciona el trabajador"} · {selectedCompany?.name||"Empresa por seleccionar"}</p>
-      </div>
-      {workerless&&<label className="jsm-checkbox"><input type="checkbox"
-        checked={verifiedNoWorkers} onChange={e=>setVerifiedNoWorkers(e.target.checked)}/>
-        Confirmo que la empresa no tiene trabajadores en el período declarado.
-      </label>}
-      {!layout?.ready&&<p className="jsm-alert" role="status">
-        {layout?.state==="draft"?"La plantilla Excel necesita revisión antes de emitir.":
-          layout?.state==="not_imported"?"Importa la plantilla original desde Administración de plantillas.":
-          "La plantilla no está habilitada o requiere comprobar el motor PDF."}
-      </p>}
-      {(extraFields.length>0||missing.length>0)&&<details className="jsm-extras"
-        open={showExtras} onToggle={e=>setShowExtras(e.currentTarget.open)}>
-        <summary>Completar otros datos del documento {missing.length>0&&"("+missing.length+" pendientes)"}</summary>
-        <div className="jsm-extra-grid">
-          {extraFields.map(key=>{
-            if(key==="event.epp_items")return <div key={key} className="jsm-epp-editor">
-              <strong>EPP efectivamente entregados (solo cantidades reales)</strong>
-              {eppOptions.length===0&&<p>No está disponible el catálogo de ocho EPP.</p>}
-              {eppDraft.invalid.length>0&&<div className="jsm-alert" role="alert">
-                <p>Registro anterior no reconocido: {eppDraft.invalid.join("; ")}</p>
-                <button type="button" disabled={busy}
-                  onClick={()=>setExtras(old=>({...old,"event.epp_items":""}))}>
-                  Corregir datos EPP anteriores</button>
-              </div>}
-              <div className="jsm-extra-grid">{eppOptions.map((choice,i)=><label key={choice.name}>
-                {choice.name}
-                <input type="number" min={0} max={choice.max_quantity} step={1}
-                  aria-label={"Cantidad de "+choice.name}
-                  disabled={busy||!!eppDraft.invalid.length}
-                  value={eppDraft.quantities[i]||0}
-                  onChange={e=>{
-                    const amount=Number(e.target.value);
-                    if(!Number.isInteger(amount)||amount<0||amount>choice.max_quantity)return;
-                    const values=[...eppDraft.quantities];values[i]=amount;
-                    setExtras(old=>({...old,"event.epp_items":serializeEppDraft(eppOptions,values)}));
-                  }}/>
-              </label>)}</div>
-              <p>Deja en cero los elementos que no fueron entregados.</p>
-            </div>;
-            const meta=FIELDMETA[key];
-            const required=missing.includes(key);
-            return <label key={key}>{meta?.label||key.replaceAll("."," · ")}
-              <input type={meta?.type==="date"?"date":meta?.type==="number"?"number":"text"}
-                aria-invalid={required&&!extras[key]}
-                value={extras[key]||""}
-                onChange={e=>setExtras(old=>({...old,[key]:e.target.value}))}
-                placeholder={required?"Dato necesario para continuar":""}/>
-            </label>;
-          })}
-        </div>
-      </details>}
-      {reasons.length>0&&<div className="jsm-alert" role="status">
-        <strong>Antes de generar el documento:</strong>
-        {reasons.map((reason,i)=><p key={i}>{reason}</p>)}
+      {preview&&<section className="jsm-preview" aria-label="Vista previa del PDF">
+        <header><div><strong>Vista previa PDF</strong><small>{Math.round(preview.elapsedMs)} ms en esta solicitud</small></div>
+          <a href={preview.url} target="_blank" rel="noreferrer">Abrir PDF</a></header>
+        <iframe title="Documento PDF Proyecto Javiera" src={preview.url} loading="eager"/>
+      </section>}
+      {issued&&<div className="jsm-issued" role="status">
+        <CheckCircle2 size={19}/>
+        <a target="_blank" rel="noreferrer" href={issued}>Abrir PDF generado</a>
+        <small>Documento guardado en el historial privado.</small>
       </div>}
-      <div className="jsm-actions">
-        <button type="button" className="jsm-secondary" disabled={!ready||busy||!layout?.ready}
-          onClick={()=>void run("preview")}>{busy?<Loader2 className="jsm-spin" size={18}/>:<Eye size={18}/>} Vista previa del documento actual</button>
-        <button type="button" className="jsm-primary" disabled={!ready||busy||!layout?.ready}
-          onClick={()=>void run("issue")}>{busy?<Loader2 className="jsm-spin" size={18}/>:<Download size={18}/>}
-          Generar {selectedCodes.length} documento(s)</button>
-      </div>
-      <p className="jsm-footnote">Los PDF emitidos se guardan con su historial, sin firmas ficticias.</p>
-      <details className="jsm-extras">
-        <summary>Historial de PDF emitidos, incluidos los de versiones anteriores</summary>
-        <button type="button" className="jsm-secondary" disabled={historyLoading}
-          onClick={()=>void loadHistory()}>{historyLoading?"Consultando…":"Consultar historial"}</button>
-        {history&&<div className="jsm-history">
-          {history.legacy_issues.map(item=><p key={item.id}>
-            {LABELS[item.code]||item.code} · {item.issued_at.slice(0,10)} ·
-            <a target="_blank" rel="noreferrer"
-              href={"/api/v1/javiera/issued/"+encodeURIComponent(item.id)+"/pdf"}> Abrir PDF anterior</a>
-          </p>)}
-          {history.issues.map(item=><p key={item.id}>
-            {LABELS[item.code]||item.code} · {item.issued_at.slice(0,10)} ·
-            <a target="_blank" rel="noreferrer"
-              href={base.replace("/javiera","/api/v1/javiera")+"/issues/"+encodeURIComponent(item.id)+"/pdf"}>
-              Abrir PDF documental</a>
-          </p>)}
-          {!history.issues.length&&!history.legacy_issues.length&&<p>No hay PDF emitidos aún.</p>}
-        </div>}
-      </details>
-    </section>}
-    {preview&&<section className="jsm-preview" aria-label="Vista previa del PDF">
-      <header><div><strong>Vista previa PDF</strong><small>Recepción: {Math.round(preview.elapsedMs)} ms (medición de esta solicitud, no tiempo garantizado)</small></div>
-        <a href={preview.url} target="_blank" rel="noreferrer">Abrir en pestaña</a></header>
-      <iframe title="Documento PDF de Proyecto Javiera" src={preview.url} loading="eager"/>
-    </section>}
-    {issued&&<div className="jsm-issued">
-      <CheckCircle2 size={20}/><a href={issued} target="_blank" rel="noreferrer">Abrir PDF generado</a>
-      <small>Documento guardado; listo para obtener firmas presenciales.</small>
-    </div>}
-  </main>;
+    </>}
+  </section>;
 }
