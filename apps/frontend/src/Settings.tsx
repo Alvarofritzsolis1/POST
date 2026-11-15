@@ -436,8 +436,8 @@ export default function Settings({
           <h2>Retenciones y vigencias</h2>
           <h3>Valor diario con vigencia mensual</h3>
           <p>
-            Valor inicial: $4.950 CLP. La retención es una estimación
-            administrativa.
+            Valor registrado más reciente: ${(rates[0]?.daily_clp ?? 4950).toLocaleString("es-CL")} CLP.
+            La retención es una estimación administrativa y cada vigencia conserva su historial.
           </p>
           <ul>
             {rates.map((r) => (
@@ -449,9 +449,14 @@ export default function Settings({
           <form
             onSubmit={(e) => {
               e.preventDefault();
+              if (rates.some((item) => item.effective_from === date + "-01")) {
+                setError("Ya existe un valor para este mes. Se conservará el registro histórico.");
+                return;
+              }
+              if (!window.confirm("¿Registrar una vigencia nueva de $" + rate.toLocaleString("es-CL") + " diarios desde " + date + "?")) return;
               void run(async () => {
                 await send("/admin/rates", {
-                  effective_from: date,
+                  effective_from: date + "-01",
                   daily_clp: rate,
                 });
                 setRates(await read<typeof rates>("/admin/rates"));
@@ -461,7 +466,7 @@ export default function Settings({
             <label>
               Vigencia desde
               <input
-                type="date"
+                type="month"
                 required
                 value={date}
                 onChange={(e) => setDate(e.target.value)}
