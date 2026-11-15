@@ -27,7 +27,7 @@ test("la primera ruta respeta el historial y abre desde arriba", () => {
   assert.match(app, /function sectionFromLocation\(\)/);
   assert.match(app, /nav\.some\(\(\[id\]\)\s*=>\s*id\s*===\s*saved\)/);
   assert.match(app, /next !== sectionRef\.current\) window\.scrollTo/);
-  assert.match(app, /function go\(s: string\)[\s\S]*?window\.scrollTo\(\{top: 0, left: 0, behavior: "instant"\}\)/);
+  assert.match(app, /function go\(s: string(?:,\s*configDestination = "")?\)[\s\S]*?window\.scrollTo\(\{top: 0, left: 0, behavior: "instant"\}\)/);
   assert.match(main, /window\.scrollTo\(\{top:0,left:0,behavior:"instant"\}\)/);
   assert.match(index, /history\.scrollRestoration = "manual"/);
   assert.match(app, /sessionStorage\.getItem\("galant-active-site"\)/);
