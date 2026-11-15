@@ -653,6 +653,31 @@ def dossiers(site_id: str = "", user: User = Depends(administrator), db: Session
     return [_dossier_dict(r, db, user) for r in records]
 
 
+@router.get("/dossiers/lookup")
+def lookup_dossier(site_id: str, company_id: str, person_id: str | None = None,
+                   user: User = Depends(administrator), db: Session = Depends(get_db)):
+    """Read-only recovery of the last exact worker dossier for the guided UI.
+
+    No automatic identity creation, no operational writes and no cross-site
+    fallback: a previous person's IRL must never populate another worker.
+    """
+    site = by_org(db, Worksite, site_id, user.org_id)
+    company = _company(db, user, company_id)
+    if company.site_id != site.id:
+        raise HTTPException(422, "La empresa no corresponde a la obra seleccionada")
+    if person_id and _person(db, user, person_id).company_id != company.id:
+        raise HTTPException(422, "El trabajador no corresponde a esta empresa")
+    latest = db.scalar(select(JavieraLocalDossier).where(
+        JavieraLocalDossier.org_id == user.org_id,
+        JavieraLocalDossier.site_id == site.id,
+        JavieraLocalDossier.company_id == company.id,
+        JavieraLocalDossier.person_id == person_id,
+    ).order_by(JavieraLocalDossier.updated_at.desc()).limit(1))
+    if latest is None:
+        return {"found": False, "dossier": None}
+    return {"found": True, "dossier": _dossier_dict(latest, db, user)}
+
+
 @router.get("/dossiers/{ident}")
 def get_dossier(ident: str, user: User = Depends(administrator), db: Session = Depends(get_db)):
     return _dossier_dict(_dossier(db, user, ident), db, user)
