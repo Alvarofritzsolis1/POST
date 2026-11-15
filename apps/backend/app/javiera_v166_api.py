@@ -674,8 +674,25 @@ def lookup_dossier(site_id: str, company_id: str, person_id: str | None = None,
         JavieraLocalDossier.person_id == person_id,
     ).order_by(JavieraLocalDossier.updated_at.desc()).limit(1))
     if latest is None:
-        return {"found": False, "dossier": None}
-    return {"found": True, "dossier": _dossier_dict(latest, db, user)}
+        # An earlier GALANT dossier can prefill the screen without copying an
+        # old operational identity, assigning a worker or issuing anything.
+        if company.source_contractor_id:
+            person = _person(db, user, person_id) if person_id else None
+            worker_source = person.source_worker_id if person else None
+            legacy = db.scalar(select(JavieraDossier).where(
+                JavieraDossier.org_id == user.org_id,
+                JavieraDossier.site_id == site.id,
+                JavieraDossier.employer_id == company.source_contractor_id,
+                JavieraDossier.worker_id == worker_source,
+            ).order_by(JavieraDossier.updated_at.desc()).limit(1))
+            if legacy and isinstance(legacy.data, dict):
+                permitted = ("role", "contract", "event", "extra", "employment_type")
+                return {"found": False, "dossier": None, "legacy_shared": {
+                    key: legacy.data[key] for key in permitted if key in legacy.data
+                }}
+        return {"found": False, "dossier": None, "legacy_shared": None}
+    return {"found": True, "dossier": _dossier_dict(latest, db, user),
+            "legacy_shared": None}
 
 
 @router.get("/dossiers/{ident}")
