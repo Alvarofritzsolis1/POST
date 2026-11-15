@@ -1,19 +1,27 @@
 import { useEffect, useState } from "react";
+import { ArrowLeft, UserRound, Users, Building2, FileCheck2, SlidersHorizontal, Settings2, History, ChevronRight } from "lucide-react";
+import CatalogEditor from "./CatalogEditor";
 import { read, send, type OrgProfile, type Preferences } from "./platformApi";
 import type { Site } from "./opsApi";
 import Reconciliation from "./Reconciliation";
 type Account = { id: string; email: string; role: string; enabled: boolean };
+type SettingsView = "home" | "profile" | "users" | "sites" | "rules" | "historical";
 export default function Settings({
   admin,
   sites,
   onPreferences,
   onOpenConfiguration,
+  onOpenAutomation,
+  onBack,
 }: {
   admin: boolean;
   sites: Site[];
   onPreferences: (p: Preferences) => void;
-  onOpenConfiguration?: () => void;
+  onOpenConfiguration?: (section?: string) => void;
+  onOpenAutomation?: () => void;
+  onBack: () => void;
 }) {
+  const [view, setView] = useState<SettingsView>("home");
   const [profile, setProfile] = useState<OrgProfile | null>(null),
     [users, setUsers] = useState<Account[]>([]),
     [rates, setRates] = useState<
@@ -73,14 +81,60 @@ export default function Settings({
     };
   }, [admin]);
   const prefs = profile?.preferences;
+  function open(next: SettingsView) {
+    setView(next);
+    setError("");
+    setNotice("");
+    window.scrollTo({ top: 0, left: 0, behavior: "instant" });
+  }
+  const labels: Record<SettingsView, string> = {
+    home: "Configuración", profile: "Mi cuenta", users: "Usuarios y permisos",
+    sites: "Obras", rules: "Reglas operativas", historical: "Recuperación histórica",
+  };
   return (
-    <div className="settings-grid">
-      {admin && onOpenConfiguration && <section className="panel" style={{ gridColumn: "1 / -1" }}>
-        <h2>Configuración General</h2>
-        <p>Administra exigencias documentales por contratista, categoría, obra y período. Consulta el cumplimiento histórico y la trazabilidad.</p>
-        <button type="button" className="primary" onClick={onOpenConfiguration}>Configuración General</button>
-      </section>}
-      <section className="panel">
+    <div className="settings-center" data-testid="settings-center">
+      <header className="settings-heading">
+        <button type="button" className="settings-back" onClick={() => view === "home" ? onBack() : open(view === "historical" ? "rules" : "home")}>
+          <ArrowLeft size={18} /> {view === "home" ? "Volver" : "Configuración"}
+        </button>
+        <div>
+          <p className="settings-breadcrumb">Inicio / Configuración{view === "home" ? "" : " / " + labels[view]}</p>
+          <h1>{labels[view]}</h1>
+          <p className="settings-description">{view === "home" ? "Todas las opciones administrativas en un solo lugar." : "Modifica solo lo necesario y conserva el resto de la información."}</p>
+        </div>
+      </header>
+      {view === "home" && <div className="settings-category-grid" aria-label="Categorías de configuración">
+        <button type="button" className="settings-category" onClick={() => open("profile")}>
+          <span className="settings-category-icon"><UserRound size={22} /></span><strong>Mi cuenta</strong>
+          <small>Perfil, preferencias y contraseña</small><ChevronRight size={18} className="settings-category-arrow" />
+        </button>
+        {admin && <button type="button" className="settings-category" onClick={() => open("users")}>
+          <span className="settings-category-icon"><Users size={22} /></span><strong>Usuarios y permisos</strong>
+          <small>Cuentas y niveles de acceso</small><ChevronRight size={18} className="settings-category-arrow" />
+        </button>}
+        {admin && <button type="button" className="settings-category" onClick={() => open("sites")}>
+          <span className="settings-category-icon"><Building2 size={22} /></span><strong>Obras</strong>
+          <small>Obras y datos generales</small><ChevronRight size={18} className="settings-category-arrow" />
+        </button>}
+        {admin && <button type="button" className="settings-category" onClick={() => open("rules")}>
+          <span className="settings-category-icon"><SlidersHorizontal size={22} /></span><strong>Reglas operativas</strong>
+          <small>Retenciones, importaciones y alertas</small><ChevronRight size={18} className="settings-category-arrow" />
+        </button>}
+        {admin && onOpenConfiguration && <button type="button" className="settings-category" onClick={() => onOpenConfiguration("documentos")}>
+          <span className="settings-category-icon"><FileCheck2 size={22} /></span><strong>Exigencias documentales</strong>
+          <small>Obras, contratistas, periodos y requisitos</small><ChevronRight size={18} className="settings-category-arrow" />
+        </button>}
+        {admin && onOpenAutomation && <button type="button" className="settings-category" onClick={onOpenAutomation}>
+          <span className="settings-category-icon"><Settings2 size={22} /></span><strong>Automatizaciones</strong>
+          <small>Configuración de procesos de JAVIERA</small><ChevronRight size={18} className="settings-category-arrow" />
+        </button>}
+        {admin && onOpenConfiguration && <button type="button" className="settings-category settings-category-advanced" onClick={() => onOpenConfiguration("auditoria")}>
+          <span className="settings-category-icon"><History size={22} /></span><strong>Auditoría documental</strong>
+          <small>Historial y trazabilidad de cambios</small><ChevronRight size={18} className="settings-category-arrow" />
+        </button>}
+      </div>}
+      <div className="settings-detail">
+      {view === "profile" && <section className="panel">
         <h2>Perfil y preferencias</h2>
         <p>
           {profile?.organization} · GALANT v{profile?.version} · Servicio:{" "}
@@ -226,8 +280,8 @@ export default function Settings({
           </label>
           <button disabled={busy}>Cambiar contraseña</button>
         </form>
-      </section>
-      {admin && (
+      </section>}
+      {admin && view === "users" && (
         <section className="panel">
           <h2>Administración de usuarios</h2>
           <p>
@@ -280,7 +334,7 @@ export default function Settings({
               Crear cuenta en esta organización
             </button>
           </form>
-          <div className="table-wrap">
+          <div className="settings-users-wrap">
             <table>
               <thead>
                 <tr>
@@ -350,9 +404,11 @@ export default function Settings({
           </details>
         </section>
       )}
-      {admin && (
+      {admin && view === "sites" && (
         <section className="panel">
-          <h2>Obras, catálogos y retenciones</h2>
+          <h2>Obras de la organización</h2>
+          <p>Obras registradas: {sites.length}</p>
+          <ul className="settings-site-list">{sites.map((s) => <li key={s.id}><Building2 size={16} />{s.name}</li>)}</ul>
           <form
             onSubmit={(e) => {
               e.preventDefault();
@@ -373,6 +429,11 @@ export default function Settings({
             </label>
             <button disabled={busy}>Crear obra</button>
           </form>
+        </section>
+      )}
+      {admin && view === "rules" && (<>
+        <section className="panel">
+          <h2>Retenciones y vigencias</h2>
           <h3>Valor diario con vigencia mensual</h3>
           <p>
             Valor inicial: $4.950 CLP. La retención es una estimación
@@ -418,7 +479,9 @@ export default function Settings({
             </label>
             <button disabled={busy}>Registrar vigencia</button>
           </form>
-          <h3>Reglas de importación</h3>
+        </section>
+        <section className="panel">
+          <h2>Reglas de importación</h2>
           <p>
             Mapeo explícito de estados y códigos históricos; plazos de alertas,
             causales legales y tipos de contrato. COD no determina la frecuencia.
@@ -437,23 +500,20 @@ export default function Settings({
               });
             }}
           >
-            <textarea
-              rows={12}
-              aria-label="Catálogos de importación"
-              value={catalogs}
-              onChange={(e) => setCatalogs(e.target.value)}
-            />
-            <button disabled={busy}>Guardar catálogos</button>
+            <CatalogEditor json={catalogs} onChange={setCatalogs} />
+            <button disabled={busy} className="primary">Guardar reglas</button>
           </form>
         </section>
-      )}
-      {admin && <Reconciliation />}
+        <button type="button" className="settings-history" onClick={() => open("historical")}><History size={17} /> Recuperación de clasificaciones históricas <ChevronRight size={18} /></button>
+      </>)}
+      {admin && view === "historical" && <section className="panel"><h2>Recuperación de clasificaciones históricas</h2><Reconciliation /></section>}
       {error && (
         <p role="alert" className="form-error">
           {error}
         </p>
       )}
-      {notice && <p role="status">{notice}</p>}
+      {notice && <p role="status" className="settings-saved">{notice}</p>}
+      </div>
     </div>
   );
 }
