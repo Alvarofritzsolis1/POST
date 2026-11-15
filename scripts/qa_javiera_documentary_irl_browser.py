@@ -72,6 +72,8 @@ def main():
             expect(page.locator(".jv-picker-card")).to_have_count(1)
             page.locator(".jv-picker-card input").check()
             page.get_by_label("Buscar documento").fill("")
+            page.get_by_role("button",name="Guardar ficha y verificar").click()
+            expect(page.get_by_text("Ficha guardada.",exact=False)).to_be_visible(timeout=16000)
             report["scenarios"]["techumbre_and_multi_document"] = "PASS"
             # Existing contractor must retrieve the same independent identity.
             page.get_by_role("button", name="Proyecto JAVIERA").click()
@@ -89,6 +91,8 @@ def main():
             worker_select.select_option(worker_value)
             expect(worker_select).to_have_value(worker_value)
             expect(page.locator(".jv-hint").filter(has_text="RENE SINTETICO " + suffix)).to_be_visible()
+            expect(page.get_by_label("Cargo o especialidad")).to_have_value("TECHUMBRE",timeout=15000)
+            expect(page.get_by_text("Ficha anterior recuperada.",exact=False)).to_be_visible()
             report["scenarios"]["original_new_existing_entry_reuses_documentary_identity"]="PASS"
 
             page.screenshot(path=str(args.output / "javiera-documental-desktop.png"), full_page=True)
