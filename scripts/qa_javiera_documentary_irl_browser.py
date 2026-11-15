@@ -63,8 +63,8 @@ def main():
             assert not any("RENE SINTETICO " + suffix == x.get("name") for x in operational_workers)
             report["scenarios"]["worker_never_creates_operational_assignment"] = "PASS"
 
-            page.get_by_role("textbox", name="Cargo o especialidad").fill("TECHUMBRE")
-            expect(page.get_by_role("textbox", name="Cargo o especialidad")).to_have_value("TECHUMBRE")
+            page.get_by_label("Cargo o especialidad").fill("TECHUMBRE")
+            expect(page.get_by_label("Cargo o especialidad")).to_have_value("TECHUMBRE")
             page.get_by_role("button", name="Solo prevención").click()
             expect(page.get_by_text("5 seleccionados", exact=False)).to_be_visible()
             page.get_by_role("button", name="Limpiar selección").click()
