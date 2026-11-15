@@ -79,11 +79,16 @@ def main():
             page.get_by_role("combobox", name="Obra", exact=True).select_option(site["id"])
             company_select=page.get_by_role("combobox", name="Empresa registrada")
             company_select.locator("option",has_text="JAVIERA DOCUMENTAL QA " + suffix).wait_for()
-            company_select.select_option(label="JAVIERA DOCUMENTAL QA " + suffix + " · " + _rut(78000000 + int(suffix, 16) % 999999))
+            company_value=company_select.locator("option",has_text="JAVIERA DOCUMENTAL QA " + suffix).get_attribute("value")
+            assert company_value
+            company_select.select_option(company_value)
             worker_select=page.get_by_role("combobox",name="Trabajador")
             worker_select.locator("option",has_text="RENE SINTETICO " + suffix).wait_for()
-            worker_select.select_option(label="RENE SINTETICO " + suffix + " · " + _rut(22000000 + int(suffix, 16) % 999999))
-            expect(page.get_by_text("RENE SINTETICO " + suffix,exact=False).first).to_be_visible()
+            worker_value=worker_select.locator("option",has_text="RENE SINTETICO " + suffix).get_attribute("value")
+            assert worker_value
+            worker_select.select_option(worker_value)
+            expect(worker_select).to_have_value(worker_value)
+            expect(page.locator(".jv-hint").filter(has_text="RENE SINTETICO " + suffix)).to_be_visible()
             report["scenarios"]["original_new_existing_entry_reuses_documentary_identity"]="PASS"
 
             page.screenshot(path=str(args.output / "javiera-documental-desktop.png"), full_page=True)
