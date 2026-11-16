@@ -152,7 +152,7 @@ def _guide_for(db: Session, lead: FacebookLead) -> FacebookTradeGuide | None:
 def list_trade_guides(user: User = Depends(administrator), db: Session = Depends(get_db)):
     guides = list(db.scalars(select(FacebookTradeGuide).where(
         FacebookTradeGuide.org_id == user.org_id).order_by(FacebookTradeGuide.trade)))
-    return [{"id": g.id, "trade": g.trade, "aliases": g.aliases or [],
+    return [{"id": g.id, "slug": g.slug, "trade": g.trade, "aliases": g.aliases or [],
              "explanation": g.explanation, "document_guidance": g.document_guidance or [],
              "approved": g.approved} for g in guides]
 
@@ -220,6 +220,8 @@ async def webhook(request: Request, db: Session = Depends(get_db)):
         if str(entry.get("id")) != cfg.facebook_page_id:
             continue
         for event in entry.get("messaging", [])[:30]:
+            if not isinstance(event, dict):
+                continue
             meta_message = event.get("message") or {}
             if not isinstance(meta_message, dict) or meta_message.get("is_echo"):
                 continue
@@ -290,6 +292,22 @@ def center(user: User = Depends(administrator), db: Session = Depends(get_db)):
         NetworkFacebookPost.state.in_(["pending", "sending", "failed", "uncertain"]),
     ).order_by(NetworkFacebookPost.created_at.desc()).limit(100)))
     ads = []
+    queued_ids = {row.requirement_id for row in rows}
+    # Mostrar también requerimientos seleccionados antes de habilitar el VPS.
+    selected_needs = list(db.scalars(select(NetworkRequirement).where(
+        NetworkRequirement.org_id == user.org_id,
+        NetworkRequirement.publish_to_facebook.is_(True),
+        NetworkRequirement.state == "published",
+    ).order_by(NetworkRequirement.created_at.desc()).limit(100)))
+    for req in selected_needs:
+        if req.id not in queued_ids:
+            ads.append({"id": "not-queued-" + req.id, "requirement_id": req.id,
+                        "title": req.title, "specialty": req.specialty,
+                        "state": "not_queued" if cfg.facebook_autopublish_enabled else "disabled",
+                        "error": ("La conexión debe activarse en el VPS."
+                                  if not cfg.facebook_autopublish_enabled else
+                                  "La solicitud todavía no está en cola."),
+                        "post_url": None})
     for row in rows:
         req = db.scalar(select(NetworkRequirement).where(
             NetworkRequirement.id == row.requirement_id,
