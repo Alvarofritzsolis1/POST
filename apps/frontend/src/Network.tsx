@@ -15,6 +15,7 @@ import {
   CircleHelp,
   Clock3,
   FileCheck2,
+  Facebook,
   LayoutDashboard,
   LayoutGrid,
   List,
@@ -54,6 +55,7 @@ import {
   RequirementForm,
 } from "./NetworkForms";
 import { NetworkAccountMenu } from "./NetworkAccounts";
+import NetworkFacebook from "./NetworkFacebook";
 import {
   Badge,
   dateText,
@@ -69,6 +71,7 @@ import "./network.css";
 
 const tabs = [
   ["home", "Inicio", LayoutDashboard],
+  ["facebook", "Publicar en Facebook", Facebook],
   ["requirements", "Necesito contratista", Building2],
   ["capacities", "Contratistas con capacidad", Users],
   ["matches", "Coincidencias", Sparkles],
@@ -591,7 +594,7 @@ export default function RedDeObras({ user }: { user: Profile }) {
         )}
       </div>
       <nav className="nw-tabs" aria-label="Red de Obras">
-        {tabs.map(([id, label, Icon]) => (
+        {tabs.filter(([id]) => id !== "facebook" || user.role === "admin").map(([id, label, Icon]) => (
           <button
             key={id}
             aria-current={tab === id ? "page" : undefined}
@@ -606,7 +609,7 @@ export default function RedDeObras({ user }: { user: Profile }) {
           </button>
         ))}
       </nav>
-      <div className="nw-filters">
+      <div className="nw-filters" style={{ display: tab === "facebook" ? "none" : undefined }}>
         <label>
           <Building2 size={16} />
           <select
@@ -722,6 +725,9 @@ export default function RedDeObras({ user }: { user: Profile }) {
           </div>
         )}
       </div>
+      {tab === "facebook" && user.role === "admin" && (
+        <NetworkFacebook catalog={catalog} />
+      )}
       {error && (
         <div role="alert" className="nw-error">
           {error}
