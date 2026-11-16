@@ -1167,7 +1167,7 @@ export default function RedDeObras({ user }: { user: Profile }) {
               : panel === "request-form"
                 ? selectedReq
                   ? "Editar requerimiento"
-                  : "Publicar requerimiento"
+                  : "Nueva necesidad"
                 : panel === "capacity-form"
                   ? "Publicar contratista con capacidad"
                   : panel === "capacity-detail"
@@ -1255,6 +1255,7 @@ export default function RedDeObras({ user }: { user: Profile }) {
                   <p className="nw-muted">
                     {{
                       disabled: "Desactivada en el servidor. No se publicará automáticamente.",
+                      not_selected: "Esta necesidad se mantiene solo en GALANT, sin difusión en Facebook.",
                       not_queued: "Aún sin aviso externo. Solo se envían automáticamente los nuevos requerimientos.",
                       pending: "En cola para publicarse en la página.",
                       sending: "Enviando a Meta. Evita repetir la operación.",
