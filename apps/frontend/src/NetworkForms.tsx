@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState, type FormEvent } from "react";
-import { ArrowDown, ArrowUp, Plus, Trash2 } from "lucide-react";
+import { ArrowDown, ArrowUp, Facebook, Plus, Trash2 } from "lucide-react";
 import {
   attach,
   change,
@@ -67,6 +67,7 @@ export function RequirementForm({
     [end, setEnd] = useState(current?.end_date || initial);
   const [error, setError] = useState(""),
     [busy, setBusy] = useState(false);
+  const [publishFacebook, setPublishFacebook] = useState(current?.publish_to_facebook ?? false);
   const clientKey = useRef(crypto.randomUUID());
   const ownSites = catalog.sites.filter((s) => s.editable);
   const update = (i: number, field: keyof Part, value: string | number) =>
@@ -100,6 +101,7 @@ export function RequirementForm({
         end_date: end,
         deadline: dataText(data, "deadline"),
         items: parts,
+        publish_to_facebook: publishFacebook,
         state,
         client_key: clientKey.current,
         ...(current
@@ -404,6 +406,19 @@ export function RequirementForm({
           multiple
         />
       </label>
+      {current && (
+        <div className="nw-quick-facebook nw-facebook-edit">
+          <label className="nw-quick-facebook-heading">
+            <input type="checkbox" checked={publishFacebook}
+              onChange={(event) => setPublishFacebook(event.target.checked)} />
+            <Facebook size={21} aria-hidden="true" />
+            <strong>Publicar también en Facebook</strong>
+          </label>
+          <p>{publishFacebook
+            ? "El aviso se enviará o se mantendrá actualizado en la página autorizada."
+            : "Al guardar, se solicitará retirar la publicación externa existente, si la hay."}</p>
+        </div>
+      )}
       {current && (
         <label>
           Motivo del cambio

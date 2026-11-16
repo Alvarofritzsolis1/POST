@@ -376,6 +376,8 @@ def sync_facebook_requirement(
     row = requirement_for(db, user, record_id, detail=True)
     if row.state != "published":
         raise HTTPException(409, "Solo se difunden requerimientos publicados")
+    if not row.publish_to_facebook:
+        raise HTTPException(409, "Activa la difusión en Facebook antes de sincronizar")
     task = enqueue(db, row, force=True)
     if task is None:
         raise HTTPException(409, "Facebook no está habilitado o falta el ID de página")
@@ -1051,6 +1053,11 @@ def create_award(
         return award_view(db, user, prior)
     if req.state != "published":
         raise HTTPException(409, "Solo se puede adjudicar un requerimiento publicado")
+    if item.notes.startswith("Partida global preliminar;"):
+        raise HTTPException(
+            409,
+            "Esta partida es preliminar: completa fechas, unidad y cantidad reales antes de adjudicar",
+        )
     record_for(db, Contractor, user, body.contractor_id)
     _, awarded, _, _, _ = allocation(db, item)
     if body.quantity > item.quantity - awarded:

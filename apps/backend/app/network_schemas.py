@@ -99,6 +99,7 @@ class RequirementInput(Dated):
     deadline: date
     state: Literal["draft", "published", "cancelled"] = "published"
     items: list[ItemInput] = Field(min_length=1)
+    publish_to_facebook: bool = False
     client_key: str = Field(
         default_factory=lambda: str(uuid4()), min_length=8, max_length=80
     )

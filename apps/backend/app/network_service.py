@@ -389,6 +389,7 @@ def requirement_view(db, user, req, detailed=False):
         "title": req.title,
         "specialty": req.specialty,
         "priority": req.priority,
+        "publish_to_facebook": req.publish_to_facebook,
         "workers": req.workers,
         "start_date": req.start_date,
         "end_date": req.end_date,

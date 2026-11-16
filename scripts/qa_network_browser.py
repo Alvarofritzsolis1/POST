@@ -83,6 +83,16 @@ def main():
             assert result.ok, (path, result.status, result.text())
             return result.json()
 
+        def update_requirement(ctx, record_id, body):
+            csrf = next(c["value"] for c in ctx.cookies() if c["name"] == "galant_post_csrf")
+            response = ctx.request.put(
+                args.url + root + "/requirements/" + record_id,
+                data=body,
+                headers={"X-CSRF-Token": csrf},
+            )
+            assert response.ok, (response.status, response.text())
+            return response.json()
+
         if args.verify_only:
             report = json.loads((args.output / "browser-report.json").read_text())
             req = api(admin_ctx, "/requirements/" + report["requirement_id"])
@@ -110,7 +120,7 @@ def main():
             expect(admin.locator(".nw-kpis")).to_be_visible()
             expect(admin.get_by_text("Actualizando información compartida…", exact=True)).not_to_be_visible()
             admin.screenshot(path=str(args.output / "administrador.png"), full_page=True)
-            admin.get_by_role("navigation", name="Red de Obras", exact=True).get_by_role("button", name="Necesito contratista", exact=True).click()
+            admin.get_by_role("navigation", name="Red de Obras", exact=True).get_by_role("button", name="Necesidades", exact=True).click()
             admin.get_by_role("button", name=req["title"], exact=True).click()
             expect(admin.get_by_role("dialog").get_by_text("ADJUDICADO A: " + req["items"][0]["awards"][0]["contractor"], exact=True)).to_be_visible()
             admin.screenshot(path=str(args.output / "adjudicacion.png"), full_page=True)
@@ -213,51 +223,75 @@ def main():
         end = (datetime.fromisoformat(start).date() + timedelta(days=10)).isoformat()
         title = "Carpintería para terminaciones · " + run
         a.locator(".nw-heading").get_by_role(
-            "button", name="Necesito contratista", exact=True
+            "button", name="Nueva necesidad", exact=True
         ).click()
         drawer = a.get_by_role("dialog")
-        # Una sola obra asignada: no debe existir un selector editable de destino.
-        assert drawer.locator('input[name="site_id"][type="hidden"]').input_value() == destination["id"]
+        expect(drawer.get_by_role("heading", name="Nueva necesidad")).to_be_visible()
+        # La ventana amplia debe ocupar gran parte de la pantalla.
+        assert drawer.evaluate("(el) => el.getBoundingClientRect().width") >= 1000
+        # Una sola obra asignada: se muestra la obra sin permitir cambiar el origen.
+        expect(drawer.get_by_text(destination["name"], exact=True)).to_be_visible()
+        assert drawer.get_by_role("combobox", name="Obra", exact=True).count() == 0
         drawer.get_by_label("Especialidad", exact=True).fill("Carpintería")
-        drawer.get_by_label("Título del requerimiento", exact=True).fill(title)
-        drawer.get_by_label("Trabajadores estimados", exact=True).fill("3")
-        drawer.get_by_label("Inicio necesario", exact=True).fill(start)
-        drawer.get_by_label("Término estimado", exact=True).fill(end)
-        drawer.get_by_label("Fecha límite del contratista", exact=True).fill(start)
-        for _ in range(2):
-            drawer.get_by_role("button", name="Agregar partida", exact=True).click()
-        for i, (name, qty, unit) in enumerate(
-            [
-                ("Instalación de puertas", "100", "un"),
-                ("Guardapolvos", "300", "m"),
-                ("Terminaciones interiores", "1", "gl"),
-            ]
-        ):
-            part = drawer.locator(".nw-part-form").nth(i)
-            part.get_by_label("Nombre de partida", exact=True).fill(name)
-            part.get_by_label("Cantidad", exact=True).fill(qty)
-            part.get_by_label("Unidad", exact=True).fill(unit)
-        drawer.get_by_role("button", name="Publicar requerimiento", exact=True).click()
+        drawer.get_by_label("¿Qué contratista necesitas?", exact=True).fill(title)
+        drawer.get_by_label("Trabajadores aprox.", exact=True).fill("3")
+        drawer.get_by_label("Inicio estimado", exact=True).fill(start)
+        drawer.get_by_label("Describe brevemente lo que se necesita", exact=True).fill(
+            "Instalación de puertas, guardapolvos y terminaciones interiores."
+        )
+        fb = drawer.get_by_role("checkbox", name="Publicar también en Facebook")
+        assert fb.is_checked(), "Facebook debe estar preseleccionado inicialmente"
+        fb.uncheck()
+        assert not fb.is_checked()
+        # Un clic fuera del panel no debe cerrar ni perder el formulario.
+        a.mouse.click(3, 3)
+        expect(drawer.get_by_label("¿Qué contratista necesitas?", exact=True)).to_have_value(title)
+        # Cerrar con cambios requiere confirmación; rechazarla mantiene lo escrito.
+        a.once("dialog", lambda prompt: prompt.dismiss())
+        drawer.get_by_role("button", name="Cerrar panel").click()
+        expect(drawer).to_be_visible()
+        expect(drawer.get_by_label("¿Qué contratista necesitas?", exact=True)).to_have_value(title)
+        drawer.get_by_role("button", name="Crear necesidad", exact=True).click()
         expect(drawer.get_by_role("heading", name=title, exact=True)).to_be_visible()
-        expect(drawer.get_by_text("Requerimiento creado", exact=True)).to_be_visible()
+        # El aviso se muestra detrás del diálogo modal (es intencional: fondo inerte).
+        assert "Necesidad publicada solo en GALANT." in (a.locator(".nw-success").text_content() or "")
         assert drawer.locator(".nw-history pre").count() == 0
         drawer.get_by_role("button", name="Cerrar panel").click()
-        req = next(
-            r for r in api(a_ctx, "/requirements")["rows"] if r["title"] == title
-        )
+        req = next(r for r in api(a_ctx, "/requirements")["rows"] if r["title"] == title)
+        assert req["publish_to_facebook"] is False
+        # El alta es deliberadamente rápida: confirmar fechas y cantidades
+        # mediante la API antes de una adjudicación real, sin falsos datos.
+        item = api(a_ctx, "/requirements/" + req["id"])["items"][0]
+        items = [
+            {"id": item["id"], "name": "Instalación de puertas", "quantity": 100, "unit": "un",
+             "start_date": start, "end_date": end, "notes": ""},
+            {"name": "Guardapolvos", "quantity": 300, "unit": "m",
+             "start_date": start, "end_date": end},
+            {"name": "Terminaciones interiores", "quantity": 1, "unit": "gl",
+             "start_date": start, "end_date": end},
+        ]
+        req = update_requirement(a_ctx, req["id"], {
+            "site_id": destination["id"], "specialty": "Carpintería", "title": title,
+            "description": "Instalación de puertas, guardapolvos y terminaciones interiores.",
+            "workers": 3, "priority": "normal",
+            "start_date": start, "end_date": end, "deadline": start,
+            "items": items, "state": "published", "publish_to_facebook": False,
+            "version": req["version"], "reason": "Detalles técnicos confirmados antes de adjudicar",
+        })
+        assert len(req["items"]) == 3
         # Otro residente ve el requerimiento de Junquillar con su origen intacto.
         external = api(b_ctx, "/requirements/" + req["id"])
         assert external["site_id"] == destination["id"]
         assert external["site"] == destination["name"]
         assert api(b_ctx, "/overview")["requirements"] >= 1
         b.get_by_role("navigation", name="Red de Obras", exact=True).get_by_role(
-            "button", name="Necesito contratista", exact=True
+            "button", name="Necesidades", exact=True
         ).click()
         foreign_card = b.locator(".nw-card").filter(has_text=title)
         expect(foreign_card).to_be_visible()
         expect(foreign_card).to_contain_text(destination["name"])
         b.locator(".nw-heading").get_by_role(
-            "button", name="Tengo contratista con capacidad", exact=True
+            "button", name="Tengo contratista disponible", exact=True
         ).click()
         drawer = b.get_by_role("dialog")
         drawer.get_by_role(
@@ -274,8 +308,9 @@ def main():
             if c["contractor_id"] == companies[0]["id"]
         )
         a.get_by_role("navigation", name="Red de Obras", exact=True).get_by_role(
-            "button", name="Coincidencias", exact=True
+            "button", name="Seguimiento", exact=True
         ).click()
+        expect(a.get_by_role("navigation", name="Seguimiento de las necesidades")).to_be_visible()
         match = (
             a.locator(".nw-match-card")
             .filter(has_text=title)
@@ -295,7 +330,10 @@ def main():
         ).to_be_visible()
         conversation = api(a_ctx, "/conversations")["rows"][0]
         b.get_by_role("navigation", name="Red de Obras", exact=True).get_by_role(
-            "button", name="Mensajes", exact=False
+            "button", name="Seguimiento", exact=True
+        ).click()
+        b.get_by_role("navigation", name="Seguimiento de las necesidades").get_by_role(
+            "button", name="Mensajes", exact=True
         ).click()
         b.locator(".nw-messaging aside").get_by_role("button").filter(
             has_text=title
@@ -316,7 +354,7 @@ def main():
             )
         ).to_be_visible()
         admin.get_by_role("navigation", name="Red de Obras", exact=True).get_by_role(
-            "button", name="Necesito contratista", exact=True
+            "button", name="Necesidades", exact=True
         ).click()
         admin.get_by_role("button", name=title, exact=True).click()
         for qty, company in [("60", companies[0]), ("40", companies[1])]:
@@ -352,12 +390,12 @@ def main():
         admin.screenshot(path=str(args.output / "adjudicacion.png"), full_page=True)
         admin.get_by_role("dialog").get_by_role("button", name="Cerrar panel").click()
         admin.get_by_role("navigation", name="Red de Obras", exact=True).get_by_role(
-            "button", name="Inicio", exact=True
+            "button", name="Resumen", exact=True
         ).click()
         expect(admin.locator(".nw-kpis")).to_be_visible()
         admin.screenshot(path=str(args.output / "administrador.png"), full_page=True)
         a.get_by_role("navigation", name="Red de Obras", exact=True).get_by_role(
-            "button", name="Inicio", exact=True
+            "button", name="Resumen", exact=True
         ).click()
         a.screenshot(path=str(args.output / "residente.png"), full_page=True)
         a.set_viewport_size({"width": 390, "height": 844})
@@ -367,6 +405,9 @@ def main():
         ), "Desbordamiento horizontal en móvil"
         a.screenshot(path=str(args.output / "movil.png"), full_page=True)
         a.get_by_role("navigation", name="Red de Obras", exact=True).get_by_role(
+            "button", name="Seguimiento", exact=True
+        ).click()
+        a.get_by_role("navigation", name="Seguimiento de las necesidades").get_by_role(
             "button", name="Calendario", exact=True
         ).click()
         expect(a.locator(".nw-calendar-grid")).to_be_visible()

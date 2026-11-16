@@ -81,6 +81,7 @@ export type Requirement = {
   title: string;
   specialty: string;
   priority: string;
+  publish_to_facebook: boolean;
   workers: number;
   start_date: string;
   end_date: string;
@@ -97,6 +98,7 @@ export type Requirement = {
   version: number;
   facebook?: {
     enabled: boolean;
+    selected?: boolean;
     state: string;
     post_url: string | null;
     error: string | null;

@@ -34,7 +34,7 @@ def enqueue(db: Session, req: NetworkRequirement, *, force=False) -> NetworkFace
         NetworkFacebookPost.page_id == cfg.facebook_page_id,
     ))
     if row is None:
-        if req.state != "published":
+        if req.state != "published" or not req.publish_to_facebook:
             return None
         row = NetworkFacebookPost(
             org_id=req.org_id, requirement_id=req.id, page_id=cfg.facebook_page_id,
@@ -47,7 +47,8 @@ def enqueue(db: Session, req: NetworkRequirement, *, force=False) -> NetworkFace
     if row.target_version == req.version and not force:
         return row
     row.target_version = req.version
-    row.action = ("update" if row.post_id else "publish") if req.state == "published" else ("delete" if row.post_id else "cancel")
+    should_publish = req.state == "published" and req.publish_to_facebook
+    row.action = ("update" if row.post_id else "publish") if should_publish else ("delete" if row.post_id else "cancel")
     if row.state != "sending":
         row.state = "pending" if row.action != "cancel" else "cancelled"
     row.last_error = None
@@ -64,7 +65,8 @@ def status_view(db: Session, req: NetworkRequirement) -> dict:
     )) if cfg.facebook_autopublish_enabled and cfg.facebook_page_id else None
     return {
         "enabled": cfg.facebook_autopublish_enabled,
-        "state": row.state if row else ("not_queued" if cfg.facebook_autopublish_enabled else "disabled"),
+        "selected": req.publish_to_facebook,
+        "state": row.state if row else ("disabled" if not cfg.facebook_autopublish_enabled else ("not_selected" if not req.publish_to_facebook else "not_queued")),
         "post_url": "https://www.facebook.com/" + row.post_id if row and row.post_id and re.fullmatch(r"[0-9]+_[0-9]+", row.post_id) else None,
         "error": row.last_error if row else None,
     }
@@ -137,7 +139,7 @@ def process_next(session_factory=SessionLocal) -> bool:
             row.state = "failed"
             row.last_error = "El requerimiento ya no existe."
             return True
-        if req.state != "published":
+        if req.state != "published" or not req.publish_to_facebook:
             row.action = "delete" if row.post_id else "cancel"
         if row.action == "cancel":
             row.state = "cancelled"
@@ -184,7 +186,7 @@ def process_next(session_factory=SessionLocal) -> bool:
             row.state = "failed"
         elif row.target_version != revision:
             current = db.get(NetworkRequirement, row.requirement_id)
-            row.action = ("update" if row.post_id else "publish") if current and current.state == "published" else ("delete" if row.post_id else "cancel")
+            row.action = ("update" if row.post_id else "publish") if current and current.state == "published" and current.publish_to_facebook else ("delete" if row.post_id else "cancel")
             row.state = "pending" if row.action != "cancel" else "cancelled"
         else:
             row.state = "deleted" if action == "delete" else "published"
