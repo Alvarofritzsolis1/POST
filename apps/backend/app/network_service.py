@@ -333,6 +333,7 @@ def award_view(db, user, award, with_clearance=True):
 
 
 def requirement_view(db, user, req, detailed=False):
+    from .network_facebook import status_view
     own = manages(db, user, req.site_id)
     editable = own and (user.role != "resident" or req.created_by == user.id)
     items = list(
@@ -406,6 +407,7 @@ def requirement_view(db, user, req, detailed=False):
             or bool((m := db.get(NetworkMember, user.id)) and m.can_award)
         ),
         "version": req.version,
+        "facebook": status_view(db, req) if detailed and own else None,
         "items": parts,
         "item_count": len(parts),
         "covered_items": covered,
