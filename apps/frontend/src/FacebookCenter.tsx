@@ -96,6 +96,20 @@ export default function FacebookCenter({ catalog }: { catalog: Catalog }) {
     setReply("");
     setOnboarding(null);
   }, [selectedId, refreshDetail]);
+  // Desde la campana de GALANT: abrir directamente el contacto que pidió ayuda.
+  useEffect(() => {
+    const openLinked = () => {
+      const [prefix, kind, leadId] = window.location.hash.slice(1).split("/");
+      if (prefix === "red" && kind === "facebook" && leadId) {
+        setSelectedId(leadId);
+        setTab("inbox");
+      }
+    };
+    openLinked();
+    window.addEventListener("hashchange", openLinked);
+    return () => window.removeEventListener("hashchange", openLinked);
+  }, []);
+
   useEffect(() => {
     if (tab === "guides") void net<Guide[]>("/facebook/guides")
       .then(setGuides).catch((e) => setError(errorText(e)));
