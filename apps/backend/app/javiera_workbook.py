@@ -865,39 +865,72 @@ def matrix_records(raw: bytes, role: str, kind: str) -> list[dict]:
         return rows
 
 
-# Localizaciones reales de los 12 primeros riesgos en el IRL de GALANT.
-# Las filas pares 40, 42, 44, 46, etc., contienen encabezados y NUNCA
-# deben ser sobrescritas por actividades ni medidas preventivas.
+# Las versiones históricas del Excel IRL distribuyen los doce espacios de
+# impresión en filas distintas. No imponer una numeración fija: identificar
+# por las CUATRO fórmulas de matriz de cada riesgo, sin tocar encabezados.
 IRL_PRINT_RISK_ROWS = (39, 41, 43, 45, 47, 49, 52, 54, 56, 63, 65, 67)
 
 
 def irl_risk_print_rows(root: ET.Element) -> tuple[tuple[int, ...], bool]:
-    """Identifica la maqueta IRL real sin adivinar posiciones de filas.
+    """Detectar 12 filas completas A:D vinculadas a MATRIZ IRL.
 
-    Se conserva compatibilidad con las plantillas sintéticas antiguas en que
-    sólo se usa A45. En una plantilla real parcialmente alterada se bloquea
-    en lugar de imprimir la matriz desfasada.
+    El Excel original y sus revisiones tienen geometrías diferentes. Una
+    coincidencia de filas no basta: cada espacio debe contener sus cuatro
+    fórmulas de matriz, sin celdas combinadas que impidan conservar campos.
+    Un diseño parcial se bloquea para evitar imprimir riesgos desfasados.
     """
-    detected: list[int] = []
+    columns_by_row: dict[int, set[str]] = {}
     for cell in root.findall(".//" + Q("c")):
         address = cell.get("r", "")
-        match = re.fullmatch(r"A([1-9]\d*)", address)
+        match = re.fullmatch(r"([A-D])([1-9]\d*)", address)
         formula = cell.find(Q("f"))
-        if (match and formula is not None and
-                "MATRIZ IRL" in (formula.text or "").upper() and
-                35 <= int(match[1]) <= 70):
-            detected.append(int(match[1]))
-    if sorted(set(detected)) == list(IRL_PRINT_RISK_ROWS):
-        return IRL_PRINT_RISK_ROWS, True
-    if detected == [45]:
-        # Fixtures legados: sólo A45 enlaza a la matriz; no tienen la maqueta
-        # completa del archivo original. Nunca aplicar este camino al libro real.
+        if not match or formula is None or "MATRIZ IRL" not in (formula.text or "").upper():
+            continue
+        row_number = int(match[2])
+        if 35 <= row_number <= 70:
+            columns_by_row.setdefault(row_number, set()).add(match[1])
+
+    risk_rows = tuple(sorted(row for row, cols in columns_by_row.items() if "A" in cols))
+    if columns_by_row == {45: {"A"}}:
+        # Compatibilidad exclusiva con fixtures sintéticos antiguos.
         return tuple(45 + 2 * i for i in range(12)), False
-    if detected:
+
+    complete = (
+        len(risk_rows) == 12
+        and len(columns_by_row) == 12
+        and all(columns_by_row[row] == set("ABCD") for row in risk_rows)
+    )
+    if complete:
+        # Rechazar maquetas dañadas en las que escribir A:D invadiría una
+        # combinación de celdas, aunque las doce filas tengan fórmulas.
+        for merged in root.findall(".//" + Q("mergeCell")):
+            ref = merged.get("ref", "")
+            bounds = re.fullmatch(r"([A-Z]+)(\d+):([A-Z]+)(\d+)", ref)
+            if not bounds:
+                continue
+            left, top, right, bottom = bounds.groups()
+            if (left <= "D" and right >= "A"
+                    and any(int(top) <= row <= int(bottom) for row in risk_rows)):
+                raise LayoutError(
+                    "La plantilla IRL tiene celdas combinadas sobre las filas "
+                    f"de riesgos ({ref}). Revisa la geometría antes de imprimir."
+                )
+        return risk_rows, True
+
+    if columns_by_row:
+        detail = ", ".join(
+            f"{row}: faltan {''.join(sorted(set('ABCD') - columns_by_row[row]))}"
+            for row in sorted(columns_by_row)
+            if columns_by_row[row] != set("ABCD")
+        )
         raise LayoutError(
             "La plantilla IRL tiene filas de riesgos incompletas o desordenadas "
-            f"({sorted(set(detected))}). Corrige la distribución original antes de imprimir."
+            f"({list(risk_rows)}). "
+            + (f"Columnas sin fórmula: {detail}. " if detail else "Se requieren 12 filas completas. ")
+            + "Corrige la distribución original antes de imprimir."
         )
+    # Plantilla de ensayo sin fórmulas de riesgos: mantener la compatibilidad
+    # legada sin confundirla con una maqueta real validada.
     return tuple(45 + 2 * i for i in range(12)), False
 
 
