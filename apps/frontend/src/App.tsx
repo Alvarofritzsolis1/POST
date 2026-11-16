@@ -28,6 +28,7 @@ import BulkImport from "./BulkImport";
 import ContractAlerts from "./ContractAlerts";
 import Settings from "./Settings";
 const GeneralConfiguration = lazy(() => import("./GeneralConfiguration"));
+const Ine = lazy(() => import("./Ine"));
 const Javiera = lazy(() => import("./Javiera"));
 const JavieraReviewerV17 = lazy(() => import("./JavieraReviewerV17"));
 import RedDeObras, { ResidentNetwork } from "./Network";
@@ -49,6 +50,7 @@ const nav = [
   ["workers", "Trabajadores", Users],
   ["contract_alerts", "Alertas contractuales", Bell],
   ["attendance", "Control de asistencia", CalendarDays],
+  ["ine", "INE · Contratistas activos", FileSpreadsheet],
   ["evaluations", "Evaluación administrativa", BarChart3],
   ["documents", "Control documental", FileCheck2],
   ["contributions", "Cotizaciones y pagos", CalendarDays],
@@ -59,7 +61,7 @@ const nav = [
 ] as const;
 const navGroups = [
   { title: "PRINCIPAL", ids: ["home", "network", "javiera"] },
-  { title: "GESTIÓN OPERATIVA", ids: ["contractors", "workers", "contract_alerts", "attendance"] },
+  { title: "GESTIÓN OPERATIVA", ids: ["contractors", "workers", "contract_alerts", "attendance", "ine"] },
   { title: "CUMPLIMIENTO", ids: ["documents", "contributions", "evaluations"] },
   { title: "ADMINISTRACIÓN", ids: ["administration", "imports", "reports", "settings"] },
 ] as const;
@@ -70,6 +72,7 @@ function sectionFromLocation(): string {
   if (pathname.startsWith("/proyecto-javiera")) return "javiera";
   if (pathname.startsWith("/admin/configuracion")) return "configuration";
   if (pathname.startsWith("/contratistas")) return "contractors";
+  if (pathname.startsWith("/ine")) return "ine";
   const saved = window.history.state?.galantSection;
   if (typeof saved === "string" && nav.some(([id]) => id === saved)) return saved;
   return new URLSearchParams(window.location.search).has("attendance_contractor") ? "attendance" : "home";
@@ -402,6 +405,7 @@ function App() {
   </ErrorBoundary>;
   if (section === "javiera_config" && user.role !== "admin") return <main className="panel"><h1>Acceso restringido</h1><button onClick={() => go("home")}>Volver</button></main>;
   if (section === "configuration" && user.role !== "admin") return <main className="panel" style={{ margin: "40px auto", maxWidth: 620 }}><h1>Acceso restringido</h1><p>Configuración General está disponible exclusivamente para administradores.</p><button type="button" onClick={() => { window.history.replaceState({}, "", "/"); setSection("home"); }}>← Volver</button></main>;
+  if (user.role === "ine_supervisor") return <ErrorBoundary name="Control INE"><Suspense fallback={<div className="app-loading">Cargando INE…</div>}><Ine user={user} version={version} logout={() => void logout()}/></Suspense></ErrorBoundary>;
   if (user.role === "resident") return <ResidentNetwork user={user} version={version} logout={() => void logout()} />;
   if (user.role === "administrative") return <AdministrativeWorkspace user={user} version={version} logout={() => void logout()} />;
   if (section === "javiera_config" && user.role === "admin") return <ErrorBoundary name="Configuración de automatización"><Suspense fallback={<div className="app-loading">Cargando JAVIERA…</div>}><Javiera configuration onBack={() => go(automationReturnRef.current)} /></Suspense></ErrorBoundary>;
@@ -519,7 +523,7 @@ function App() {
               {!nav.some(([,label])=>label.toLocaleLowerCase("es-CL").includes(quickNav.trim().toLocaleLowerCase("es-CL")))&&<p>Sin módulos coincidentes</p>}
             </div>}
           </div>
-          {section !== "network" && <div className="global-filters">
+          {section !== "network" && section !== "ine" && <div className="global-filters">
             <label className="global-filter">
               <span>Obra</span>
               <select
@@ -577,7 +581,7 @@ function App() {
           </div>
         </header>
         <div className="page">
-          {section !== "network" && section !== "javiera" && section !== "settings" && <div className="intro">
+          {section !== "network" && section !== "javiera" && section !== "ine" && section !== "settings" && <div className="intro">
             <div>
               <span className="eyebrow">
                 {profile?.organization} /{" "}
@@ -591,6 +595,7 @@ function App() {
 
           </div>}
           {section === "network" && <RedDeObras user={user} />}
+          {section === "ine" && <ErrorBoundary name="Control INE"><Suspense fallback={<div className="app-loading">Cargando INE…</div>}><Ine user={user} version={version} onBack={() => go("home")}/></Suspense></ErrorBoundary>}
           {section === "javiera" && <ErrorBoundary name="Proyecto JAVIERA"><Suspense fallback={<div className="app-loading">Cargando JAVIERA…</div>}><Javiera onBack={() => go("home")} onConfig={user.role === "admin" ? () => go("javiera_config") : undefined} /></Suspense></ErrorBoundary>}
           {error && (
             <div role="alert" className="alert danger">
