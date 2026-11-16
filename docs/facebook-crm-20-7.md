@@ -83,3 +83,20 @@ Ejecutar compilación TypeScript, backend completo, pruebas de webhook HMAC, ais
 por organización, no duplicados, ventana de 24h, consentimientos y navegación real.
 Crear respaldo verificado antes de migrar tablas aditivas. Probar contra Meta en
 una página administrada, nunca contra personas reales sin autorización.
+
+
+## Regla adicional: simplificar cuando el interesado pide ayuda
+Cuando una persona expresamente dice "no entiendo", "no sé cómo sacar papeles",
+"qué documentos necesito" o envía un mensaje de voz, GALANT:
+1. No infiere escolaridad ni capacidad por faltas de ortografía.
+2. Marca **Necesita orientación** y envía una notificación interna a administradores,
+   enlazada a la conversación; no alerta a residentes ni expone contenido privado.
+3. No le manda seis documentos de golpe. Hace una pregunta sencilla y espera respuesta.
+4. Verifica paso a paso si trabaja con sociedad o a nombre propio, y si tiene empleados.
+5. La revisión documental se conserva y se solicita después, por un canal seguro.
+6. En un independiente sin trabajadores no pide constitución de sociedad ni
+   contratos de trabajadores inexistentes, y orienta el F-30 según su rol.
+7. Da ejemplos preventivos apropiados al oficio, sin inventar habilitaciones,
+   ni afirmar que es suficiente para entrar a obra.
+8. Permite que administración cierre la alerta después de ayudar.
+9. Una señal de ayuda prevalece sobre la respuesta automática de IA externa.
