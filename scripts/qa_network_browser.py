@@ -253,7 +253,8 @@ def main():
         expect(drawer.get_by_label("¿Qué contratista necesitas?", exact=True)).to_have_value(title)
         drawer.get_by_role("button", name="Crear necesidad", exact=True).click()
         expect(drawer.get_by_role("heading", name=title, exact=True)).to_be_visible()
-        expect(a.get_by_text("Necesidad publicada solo en GALANT.", exact=True)).to_be_visible()
+        # El aviso se muestra detrás del diálogo modal (es intencional: fondo inerte).
+        assert "Necesidad publicada solo en GALANT." in (a.locator(".nw-success").text_content() or "")
         assert drawer.locator(".nw-history pre").count() == 0
         drawer.get_by_role("button", name="Cerrar panel").click()
         req = next(r for r in api(a_ctx, "/requirements")["rows"] if r["title"] == title)
