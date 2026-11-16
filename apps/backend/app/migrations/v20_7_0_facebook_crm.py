@@ -8,3 +8,13 @@ def upgrade(connection):
     FacebookLead.__table__.create(bind=connection, checkfirst=True)
     FacebookChatMessage.__table__.create(bind=connection, checkfirst=True)
     FacebookTradeGuide.__table__.create(bind=connection, checkfirst=True)
+    # Also safe if the preview was created before the support columns existed.
+    from sqlalchemy import inspect, text
+    columns = {col["name"] for col in inspect(connection).get_columns("facebook_leads")}
+    if "needs_support" not in columns:
+        connection.execute(text(
+            "ALTER TABLE facebook_leads ADD COLUMN needs_support BOOLEAN NOT NULL DEFAULT FALSE"))
+    if "support_reason" not in columns:
+        connection.execute(text(
+            "ALTER TABLE facebook_leads ADD COLUMN support_reason VARCHAR(250) NOT NULL DEFAULT ''"))
+
