@@ -303,6 +303,8 @@ export default function RedDeObras({ user }: { user: Profile }) {
       } else if (kind === "conversation") {
         setTab("messages");
         setConversationId(id);
+      } else if (kind === "facebook") {
+        setTab("facebook");
       } else {
         setTab("matches");
       }
