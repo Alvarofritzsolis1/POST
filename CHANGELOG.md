@@ -1,3 +1,10 @@
+## 20.6.0-rc1 — Red de Obras: formulario ampliado y publicación simple
+- El formulario ocupa hasta el 94 % de la pantalla; clic fuera no cierra y el cierre con cambios solicita confirmación.
+- Publicación rápida con una fecha visible, resumen breve, dotación y partidas opcionales.
+- Preferencia de Facebook por requerimiento (activada inicialmente en el formulario y desmarcable). Los datos previos NO se publican retroactivamente.
+- Navegación simplificada; acceso al historial de coincidencias, mensajes, adjudicaciones y calendario desde Seguimiento.
+- Cambios en rama de revisión hasta superar CI, migración con respaldo verificado y pruebas de integración.
+
 ## 20.4.0-rc1 — Red de Obras: difusión en Facebook Pages (no desplegada)
 
 - Publicación automática de requerimientos nuevos en una página empresarial autorizada con Graph API v27.
