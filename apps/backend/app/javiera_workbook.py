@@ -42,7 +42,7 @@ CONVERSIONS = threading.BoundedSemaphore(2)
 _locks: weakref.WeakValueDictionary = weakref.WeakValueDictionary()
 _locks_guard = threading.Lock()
 ERRORS = {"#REF!", "#VALUE!", "#NAME?", "#DIV/0!", "#N/A", "#NUM!", "#SPILL!", "#NULL!"}
-IRL_PDF_ENGINE_REVISION = "20.3.4-rc1-letter-sections-96"
+IRL_PDF_ENGINE_REVISION = "20.3.4-rc1-letter-fit-width"
 
 
 def digest(raw: bytes) -> str:
@@ -1069,6 +1069,29 @@ def irl_continuations(raw: bytes, role: str) -> tuple[bytes, list[str]]:
         return pack(z, changes), names
 
 
+def irl_letter_profile(sheet_root: ET.Element) -> None:
+    """Fit each reviewed IRL section to one physical Letter page across Calc versions."""
+    props = sheet_root.find(Q("sheetPr"))
+    if props is None:
+        props = ET.Element(Q("sheetPr"))
+        sheet_root.insert(0, props)
+    setup_pr = props.find(Q("pageSetUpPr"))
+    if setup_pr is None:
+        setup_pr = ET.SubElement(props, Q("pageSetUpPr"))
+    # Calc 25.2 on the private service otherwise treats the 96% scale
+    # as two horizontal Letter pages despite the A:D print area.
+    setup_pr.set("fitToPage", "1")
+    setup = sheet_root.find(Q("pageSetup"))
+    if setup is None:
+        setup = ET.SubElement(sheet_root, Q("pageSetup"))
+    setup.set("paperSize", "1")  # US Letter, as in CORRECTO.pdf
+    setup.set("orientation", "portrait")
+    setup.set("scale", "96")
+    setup.set("usePrinterDefaults", "0")
+    setup.set("fitToWidth", "1")
+    setup.set("fitToHeight", "0")
+
+
 def irl_print_sections(raw: bytes, role: str,
                        continuations: list[str]) -> tuple[bytes, list[str]]:
     """Print the reviewed IRL blocks in order on disposable Letter sheets.
@@ -1109,27 +1132,8 @@ def irl_print_sections(raw: bytes, role: str,
         if area is None or not area.text or "$D$214" not in area.text.upper():
             raise LayoutError("El área de impresión IRL no incluye firmas y secciones finales")
 
-        def letter_profile(sheet_root: ET.Element) -> None:
-            props = sheet_root.find(Q("sheetPr"))
-            if props is None:
-                props = ET.Element(Q("sheetPr"))
-                sheet_root.insert(0, props)
-            setup_pr = props.find(Q("pageSetUpPr"))
-            if setup_pr is None:
-                setup_pr = ET.SubElement(props, Q("pageSetUpPr"))
-            setup_pr.set("fitToPage", "0")
-            setup = sheet_root.find(Q("pageSetup"))
-            if setup is None:
-                setup = ET.SubElement(sheet_root, Q("pageSetup"))
-            setup.set("paperSize", "1")  # US Letter, as in CORRECTO.pdf
-            setup.set("orientation", "portrait")
-            setup.set("scale", "96")
-            setup.set("usePrinterDefaults", "0")
-            setup.attrib.pop("fitToWidth", None)
-            setup.attrib.pop("fitToHeight", None)
-
         front = deepcopy(source)
-        letter_profile(front)
+        irl_letter_profile(front)
         area.text = "'" + name.replace("'", "''") + "'!$A$1:$D$38"
         changes = {source_path: xml(front)}
         print_names: list[str] = []
@@ -1161,7 +1165,7 @@ def irl_print_sections(raw: bytes, role: str,
                     if match and not all(row in kept for row in range(int(match[1]), int(match[2]) + 1)):
                         merges.remove(merged)
                 merges.set("count", str(len(merges)))
-            letter_profile(sheet_root)
+            irl_letter_profile(sheet_root)
             changes[path] = xml(sheet_root)
             if source_rels in z.namelist():
                 changes["xl/worksheets/_rels/galant_irl_print_" + str(index) + ".xml.rels"] = z.read(source_rels)

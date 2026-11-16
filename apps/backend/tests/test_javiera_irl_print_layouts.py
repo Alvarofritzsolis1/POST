@@ -10,13 +10,24 @@ import pytest
 from openpyxl import load_workbook
 
 from app.javiera_excel import LayoutError, Q
-from app.javiera_workbook import irl_risk_print_rows, irl_continuations, read_sheet
+from app.javiera_workbook import irl_risk_print_rows, irl_continuations, irl_letter_profile, read_sheet
 from test_javiera_workbook import master
 
 
 SOURCE_LAYOUT = (40, 42, 44, 46, 48, 50, 52, 54, 56, 63, 65, 67)
 CURRENT_LAYOUT = (39, 41, 43, 45, 47, 49, 52, 54, 56, 63, 65, 67)
 REPORTED_LAYOUT = tuple(range(45, 69, 2))
+
+
+def test_reviewed_irl_letter_profile_fits_width_on_calc_25():
+    # Fixed 96% alone produced two physical pages per section on the private
+    # LibreOffice 25.2 service. The front and every continuation use this profile.
+    page = ET.Element(Q("worksheet"))
+    irl_letter_profile(page)
+    assert page.find(Q("sheetPr") + "/" + Q("pageSetUpPr")).get("fitToPage") == "1"
+    assert page.find(Q("pageSetup")).attrib.items() >= {
+        "paperSize": "1", "orientation": "portrait", "fitToWidth": "1", "fitToHeight": "0"
+    }.items()
 
 
 def sheet_with_risks(rows):
