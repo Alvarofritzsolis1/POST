@@ -14,7 +14,7 @@ from .ops_api import DEFAULT_SITES, INITIAL_PERIOD, ensure_sites
 from .security import hash_password
 from .platform_models import BackupCheckpoint, SchemaVersion
 from .version import VERSION
-from .migrations import v0_6_0, v0_7_0, v8_1_0, v13_1_0, v16_0_0, v16_0_1, v16_6_0, v20_0_0, v20_1_0_facebook
+from .migrations import v0_6_0, v0_7_0, v8_1_0, v13_1_0, v16_0_0, v16_0_1, v16_6_0, v20_0_0, v20_1_0_facebook, v20_2_0_facebook_tests
 from . import v81_models, configuration_models, javiera_models, javiera_v166_models, javiera_workbook_models  # register additive tables
 
 
@@ -62,6 +62,10 @@ def migrate(db):
     if not db.get(SchemaVersion, v20_1_0_facebook.MIGRATION_ID):
         v20_1_0_facebook.upgrade(db.connection())
         db.add(SchemaVersion(version=v20_1_0_facebook.MIGRATION_ID))
+
+    if not db.get(SchemaVersion, v20_2_0_facebook_tests.MIGRATION_ID):
+        v20_2_0_facebook_tests.upgrade(db.connection())
+        db.add(SchemaVersion(version=v20_2_0_facebook_tests.MIGRATION_ID))
 
 
 def find_admin(db, email: str) -> User:
