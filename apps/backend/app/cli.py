@@ -7,7 +7,7 @@ from sqlalchemy import func, select
 from .db import Base, SessionLocal, engine
 from .models import AuditEvent, Document, Organization, User
 from . import platform_models
-from . import ops_models, control_models, network_models  # registrar tablas antes de crear esquema
+from . import ops_models, control_models, network_models, ine_models  # registrar tablas antes de crear esquema
 from .ops_models import AuditPeriod, Contractor, ContractorWorksite, MonthlyDocument, OpsChange, Worker, WorkerAssignment, Worksite
 from .control_models import ContributionControl, MonthlyActivity, ContractRegister, ContractAmendment, ProcessCalendar, WorkTask, OffboardingCase, RequirementApplicability
 from .ops_api import DEFAULT_SITES, INITIAL_PERIOD, ensure_sites
@@ -107,7 +107,7 @@ def main():
         cmd = cmds.add_parser(command, help="Crear o vincular usuario a empresa EXISTENTE")
         cmd.add_argument("--email", required=True)
         cmd.add_argument("--admin-email", required=True, help="Administrador de la empresa que compartirá sus contratistas")
-        cmd.add_argument("--role", choices=("admin", "administrative", "resident", "doc_reviewer"), default="administrative")
+        cmd.add_argument("--role", choices=("admin", "administrative", "resident", "doc_reviewer", "ine_supervisor"), default="administrative")
         if command == "link-user":
             cmd.add_argument("--apply", action="store_true")
             cmd.add_argument("--backup", help="pg_dump custom validado con pg_restore --list")
