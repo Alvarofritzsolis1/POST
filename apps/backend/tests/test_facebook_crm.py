@@ -151,6 +151,16 @@ def test_explicit_document_help_creates_persistent_alert_and_gentle_reply(networ
     assert lead["needs_support"] is True
     assert "trámite" in lead["support_reason"] or "dificultades" in lead["support_reason"]
     assert center.json()["counts"]["support"] == 1
+    notifications = n["admin"].get("/api/v1/network/notifications")
+    assert notifications.status_code == 200
+    support_alerts = [row for row in notifications.json()["rows"]
+                      if row["resource_type"] == "facebook"]
+    assert len(support_alerts) == 1
+    assert support_alerts[0]["resource_id"] == lead["id"]
+    # Los reintentos de Meta no pueden crear más notificaciones.
+    assert incoming(n, text="no entiendo lo del f30", mid="mid-1").status_code == 200
+    notifications = n["admin"].get("/api/v1/network/notifications").json()["rows"]
+    assert len([row for row in notifications if row["resource_type"] == "facebook"]) == 1
     inbox = n["admin"].get("/api/v1/network/facebook/leads/" + lead["id"]).json()
     messages = inbox["messages"]
     assert messages[0]["direction"] == "inbound"
