@@ -1,3 +1,12 @@
+## 20.7.0-rc1 — Facebook: bandeja de contactos, IA para maestros y guías por especialidad
+- La pestaña Facebook es una bandeja de conversación, anuncios pendientes y guías de oficios; no un segundo formulario para publicar.
+- Webhooks de Messenger firmados, control de duplicados, respuestas por cola y conexión privada al token de página.
+- Asistente de lenguaje simple: comprende mensajes con errores y pide una sola cosa a la vez. Puede registrar audio para atención humana; no lo transcribe todavía.
+- Guías editables por especialidad para orientar requisitos documentales sin inventarlos. IA externa opcional y condicionada a consentimiento.
+- Identificación de coincidencias por especialidad, dotación y disponibilidad, siempre con revisión humana.
+- Nuevas tablas y migración aditiva; no altera contratistas históricos ni adjudicaciones.
+- Despliegue protegido por permisos de Meta, configuración privada, CI, pruebas de navegador y respaldo verificado.
+
 ## 20.6.0-rc1 — Red de Obras: formulario ampliado y publicación simple
 - El formulario ocupa hasta el 94 % de la pantalla; clic fuera no cierra y el cierre con cambios solicita confirmación.
 - Publicación rápida con una fecha visible, resumen breve, dotación y partidas opcionales.
