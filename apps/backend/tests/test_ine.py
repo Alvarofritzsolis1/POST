@@ -33,7 +33,9 @@ def fake_source():
     ws["A3"], ws["C3"] = "SUPERVISOR UNO", "OBRA LOMAS VERDES"
     for c, value in zip("DEFGHI", [8, 2, 1, 35, 0, 46]):
         ws[f"{c}3"] = value
+    ws["J3"] = 0.2
     ws["C4"] = "OBRA BRISAS DE JUNQUILLAR"
+    ws["C5"], ws["D5"] = "TOTAL GENERAL", 11
     for c, value in zip("DEFGHI", [None, None, None, None, None, 0]):
         ws[f"{c}4"] = value
     nov = wb.create_sheet("11")
@@ -126,6 +128,7 @@ def test_import_keeps_original_byte_for_byte_and_transcribes_blank_values(contex
     lomas = next(row for row in january if row["source_row"] == 3)
     brisas = next(row for row in january if row["source_row"] == 4)
     assert (lomas["cct"], lomas["cesp"], lomas["ind"], lomas["th"], lomas["tm"]) == (8, 2, 1, 35, 0)
+    assert lomas["source_percent"] == pytest.approx(0.2)
     assert (brisas["cct"], brisas["cesp"], brisas["ind"], brisas["th"], brisas["tm"]) == (None, None, None, None, None)
     assert ctx["call"](ctx["admin"], "POST", "/import", files={
         "file": ("otra.xlsx", ctx["source"], "application/octet-stream"),
