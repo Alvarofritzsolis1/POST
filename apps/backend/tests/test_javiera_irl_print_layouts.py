@@ -38,6 +38,18 @@ def test_full_irl_layouts_are_accepted_from_actual_formula_positions(rows):
     assert irl_risk_print_rows(sheet_with_risks(rows)) == (rows, True)
 
 
+def test_legacy_single_risk_marker_keeps_synthetic_compatibility():
+    # Fixtures v20 only represent one row of a twelve-row original.
+    expected = (tuple(range(45, 69, 2)), False)
+    assert irl_risk_print_rows(sheet_with_risks((45,))) == expected
+    root = sheet_with_risks((45,))
+    row = root.find(".//" + Q("row"))
+    for cell in list(row):
+        if cell.get("r") != "A45":
+            row.remove(cell)
+    assert irl_risk_print_rows(root) == expected
+
+
 def test_incomplete_risk_row_is_rejected_instead_of_misaligned_pdf():
     root = sheet_with_risks(REPORTED_LAYOUT)
     row = root.find(".//" + Q("c") + "[@r='B55']")
