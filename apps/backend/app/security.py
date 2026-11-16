@@ -68,6 +68,7 @@ def authorized_user(request: Request, db: Session = Depends(get_db)) -> User:
         # Solo recursos de revisión. No abrir rutas generales de JAVIERA
         # ni expedientes operativos a este perfil.
         reviewer_read = (
+            (request.method in {"GET", "HEAD"} and path.startswith("/api/v1/ine/")) or
             path.startswith("/api/v1/javiera/v17/review/") or
             (request.method == "GET" and path in {
                 "/api/v1/javiera/admin/reviews/checklists",
