@@ -29,6 +29,8 @@ class FacebookLead(Base):
     ai_consent: Mapped[bool] = mapped_column(Boolean, default=False)
     needs_support: Mapped[bool] = mapped_column(Boolean, nullable=False, default=False, server_default="false")
     support_reason: Mapped[str] = mapped_column(String(250), default="")
+    entity_type: Mapped[str] = mapped_column(String(20), nullable=False, default="unknown", server_default="unknown")
+    has_employees: Mapped[bool | None] = mapped_column(Boolean, nullable=True)
     last_inbound_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow)
     updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow)
