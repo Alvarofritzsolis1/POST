@@ -25,7 +25,7 @@ from .facebook_onboarding import assistance_signal, reply_for_support, onboardin
 from .facebook_crm_models import FacebookLead, FacebookChatMessage, FacebookTradeGuide
 from .models import Organization, User, utcnow
 from .network_facebook import public_message
-from .network_models import NetworkFacebookPost, NetworkRequirement
+from .network_models import NetworkFacebookPost, NetworkRequirement, NetworkNotification
 from .network_service import key
 from .security import administrator
 
@@ -264,8 +264,25 @@ async def webhook(request: Request, db: Session = Depends(get_db)):
             signal = assistance_signal(body, is_audio=audio_received)
             if signal:
                 # Señal explícita de solicitud de ayuda, no juicio sobre capacidades.
+                first_alert = not lead.needs_support
                 lead.needs_support = True
                 lead.support_reason = signal
+                if first_alert:
+                    # Aviso interno solo a administradores habilitados; idempotente.
+                    admin_ids = db.scalars(select(User.id).where(
+                        User.org_id == lead.org_id, User.role == "admin",
+                        User.enabled.is_(True))).all()
+                    for admin_id in admin_ids:
+                        event_key = "facebook_help:" + lead.id
+                        if not db.scalar(select(NetworkNotification.id).where(
+                            NetworkNotification.user_id == admin_id,
+                            NetworkNotification.event_key == event_key)):
+                            db.add(NetworkNotification(
+                                org_id=lead.org_id, user_id=admin_id,
+                                event_key=event_key,
+                                title="Facebook: un interesado necesita ayuda para avanzar",
+                                resource_type="facebook", resource_id=lead.id,
+                            ))
             db.add(FacebookChatMessage(
                 org_id=lead.org_id, lead_id=lead.id, page_id=lead.page_id,
                 remote_id=mid, direction="inbound", state="received", body=body.strip()[:3500],
