@@ -328,10 +328,10 @@ async def import_source(
             if worksheet.max_row > 3000 or worksheet.max_column > 120:
                 raise HTTPException(422, "Una hoja excede el límite de seguridad")
             literal_rows = []
-            for row in worksheet.iter_rows():
+            for row_number, row in enumerate(worksheet.iter_rows(), start=1):
                 values = {cell.column_letter: serialize(cell.value) for cell in row if cell.value is not None}
                 if values:
-                    literal_rows.append({"row": row[0].row, "cells": values})
+                    literal_rows.append({"row": row_number, "cells": values})
             db.add(IneSheet(org_id=user.org_id, original_id=source.id,
                             position=position, sheet_name=worksheet.title, cells=literal_rows))
             if worksheet.title not in {str(i) for i in range(1, 13)}:
@@ -340,14 +340,14 @@ async def import_source(
             cached_sheet = cached[worksheet.title]
             status = serialize(cached_sheet["I1"].value)
             supervisor = ""
-            for line in range(3, cached_sheet.max_row + 1):
-                name = cached_sheet.cell(line, 3).value
-                label = cached_sheet.cell(line, 1).value
+            for line, row_cells in enumerate(cached_sheet.iter_rows(min_row=3, max_col=11), start=3):
+                name = row_cells[2].value
+                label = row_cells[0].value
                 if isinstance(label, str) and label.strip():
                     supervisor = label.strip()
                 if not isinstance(name, str) or not name.strip():
                     continue
-                values = {field: cached_sheet.cell(line, col).value for field, col in zip(FIELDS, range(4, 9))}
+                values = {field: row_cells[col - 1].value for field, col in zip(FIELDS, range(4, 9))}
                 exact = names.get(normalized(name), [])
                 # Nunca se corrige ni se deduce una obra ambigua.
                 site_id = exact[0].id if len(exact) == 1 else None
@@ -360,8 +360,8 @@ async def import_source(
                     source_sheet=worksheet.title, source_row=line,
                     original_values={
                         "status": status,
-                        "total": serialize(cached_sheet.cell(line, 9).value),
-                        "percent": serialize(cached_sheet.cell(line, 11).value),
+                        "total": serialize(row_cells[8].value),
+                        "percent": serialize(row_cells[10].value),
                         "cells": {key: serialize(val) for key, val in values.items()},
                     },
                     **{key: number_or_none(val) for key, val in values.items()},
