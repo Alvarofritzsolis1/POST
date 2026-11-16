@@ -8,6 +8,7 @@ from __future__ import annotations
 import hashlib
 import io
 import json
+import time
 from pathlib import Path
 from uuid import uuid4
 
@@ -25,7 +26,7 @@ from .javiera_layout_api import latest_layout, make_pdf
 from .javiera_logic import DOCUMENTS, DOCUMENT_BY_CODE, eligibility, normalize_cargo, render_tokens
 from .javiera_excel import DOC_SHEETS, LayoutError
 from .javiera_workbook_api import active_workbook, raw_for, original_for, root_for
-from .javiera_workbook import cached_pdf, roles as workbook_roles, resolve_workbook_role, audit_preventive_master
+from .javiera_workbook import cached_pdf, roles as workbook_roles, resolve_workbook_role, audit_preventive_master, IRL_PDF_ENGINE_REVISION
 from .javiera_matrices import latest_approved_matrix
 from .javiera_irl import preventive_matrix_blocker
 from .javiera_models import JavieraExcelLayout, JavieraMatrix, JavieraTemplate, JavieraIssue, JavieraDossier
@@ -712,15 +713,48 @@ def evaluate(ident: str, user: User = Depends(administrator), db: Session = Depe
     return {"documents": docs, "revision": record.revision}
 
 
-def _build_pdf(db, user, record, code, data, preview=False):
+@router.post("/dossiers/{ident}/preflight")
+def preflight(ident: str, user: User = Depends(administrator), db: Session = Depends(get_db)):
+    """Verify the actual PDF for each selected document before enabling actions."""
+    record = _dossier(db, user, ident)
+    docs = []
+    for code in record.selected_codes:
+        item, data, previous = _status(db, user, record, code)
+        row = {**item, "requires_reissue_reason": bool(previous and item["can_issue"]),
+               "last_issue_id": previous.id if previous else None}
+        if row["can_issue"]:
+            try:
+                raw, _, _ = _build_pdf(db, user, record, code, data, preview=False)
+                with fitz.open(stream=raw, filetype="pdf") as document:
+                    if not document.page_count or not any(page.get_text().strip() for page in document):
+                        raise LayoutError("El PDF está vacío")
+            except (HTTPException, LayoutError) as error:
+                detail = error.detail if isinstance(error, HTTPException) else str(error)
+                reason = detail if isinstance(detail, str) else str(
+                    detail.get("reason") or detail.get("error") or "Error de plantilla")
+                row.update(status="BLOQUEADO_PLANTILLA", can_issue=False,
+                           can_preview=False, reason=reason,
+                           blocking_errors=[reason])
+            except Exception:
+                row.update(status="ERROR_TEMPORAL", can_issue=False,
+                           can_preview=False,
+                           reason="No se pudo verificar el PDF. Intenta nuevamente o consulta al administrador.")
+        docs.append(row)
+    return {"documents": docs, "revision": record.revision}
+
+
+def _build_pdf(db, user, record, code, data, preview=False, metrics=None):
     # Único motor Excel publicado para el flujo documental y el sistema:
     # IRL paginado sin sobrescribir encabezados y sin usar filas heredadas.
     master = active_workbook(db, user.org_id, published=True, code=code)
     if master:
         try:
-            pdf, _report = cached_pdf(raw_for(master), code, data, user.org_id,
+            pdf, report = cached_pdf(raw_for(master), code, data, user.org_id,
                                       root_for(user.org_id) / "pdf-cache", preview,
-                                      reference=original_for(db, master))
+                                      reference=original_for(db, master),
+                                      dossier_id=record.id, template_revision=master.revision)
+            if metrics is not None:
+                metrics.update(report)
         except LayoutError as error:
             raise HTTPException(409, {"reason": str(error), "document": code,
                                       "cargo": str(data.get("role") or "")}) from None
@@ -755,9 +789,13 @@ def preview(payload: PreviewInput, user: User = Depends(administrator), db: Sess
     if not item["can_issue"]:
         raise HTTPException(409, {"reason": item["reason"], "missing_fields": item["missing_fields"],
                                   "errors": item["blocking_errors"], "status": item["status"]})
-    raw, _, _ = _build_pdf(db, user, record, payload.code, data, preview=True)
+    started = time.perf_counter()
+    metrics = {}
+    raw, _, _ = _build_pdf(db, user, record, payload.code, data, preview=True, metrics=metrics)
     return Response(content=raw, media_type="application/pdf",
-                    headers={"Cache-Control": "no-store"})
+                    headers={"Cache-Control": "no-store",
+                             "X-Galant-Cache": "hit" if metrics.get("cache_hit") or metrics.get("preview_source_cache_hit") else "miss",
+                             "X-Galant-Elapsed-Ms": str(round((time.perf_counter()-started)*1000, 2))})
 
 
 def _store(db, user, record, code, reason=""):
@@ -782,7 +820,8 @@ def _store(db, user, record, code, reason=""):
         hashlib.sha256(str(template).encode("utf-8")).hexdigest())
     signature = hashlib.sha256(json.dumps(
         {"data": data, "template": revision, "source": source,
-         "source_hash": source_hash},
+         "source_hash": source_hash,
+         "engine_revision": IRL_PDF_ENGINE_REVISION if code == "irl" else None},
         ensure_ascii=False, sort_keys=True, default=str).encode()).hexdigest()
     all_issued = db.scalars(select(JavieraLocalIssue).where(
         JavieraLocalIssue.org_id == user.org_id,
@@ -790,13 +829,16 @@ def _store(db, user, record, code, reason=""):
         JavieraLocalIssue.code == code).order_by(JavieraLocalIssue.issued_at.desc())).all()
     for old in all_issued:
         if old.snapshot.get("signature") == signature:
-            return {"code": code, "ok": True, "id": old.id, "reused": True}
+            return {"code": code, "ok": True, "id": old.id, "reused": True,
+                    "cache_hit": True}
     if all_issued and len(reason.strip()) < 20:
         # No pedir una aprobación adicional para una regeneración cuyo
         # fingerprint ya demuestra datos o formato publicado distintos.
         # El motivo técnico queda registrado sin fingir una firma nueva.
         reason = "Nueva generación por cambios en datos o versión de plantilla publicada"
-    raw, revision, source = _build_pdf(db, user, record, code, data, preview=False)
+    metrics = {}
+    raw, revision, source = _build_pdf(db, user, record, code, data,
+                                       preview=False, metrics=metrics)
     folder = settings().document_dir / user.org_id / "javiera-v166" / record.id
     try:
         folder.mkdir(parents=True, exist_ok=True, mode=0o700)
@@ -814,13 +856,17 @@ def _store(db, user, record, code, reason=""):
         row = JavieraLocalIssue(id=ident, org_id=user.org_id,
             dossier_id=record.id, code=code, dossier_revision=record.revision,
             template_revision=revision,
-            snapshot={"data": data, "signature": signature, "source": source},
+            snapshot={"data": data, "signature": signature, "source": source,
+                      "conversion": {"cache_hit": metrics.get("cache_hit"),
+                                     "elapsed_ms": metrics.get("elapsed_ms"),
+                                     "engine": metrics.get("engine")}},
             sha256=hashlib.sha256(raw).hexdigest(), storage_path=str(path),
             issued_by=user.id, reissue_reason=reason.strip() or None)
         db.add(row)
         audit(db, user, "javiera.local_pdf_issued", ident)
         db.commit()
-        return {"code": code, "ok": True, "id": ident, "reused": False}
+        return {"code": code, "ok": True, "id": ident, "reused": False,
+                "cache_hit": bool(metrics.get("cache_hit"))}
     except OSError:
         db.rollback()
         try:
@@ -847,6 +893,19 @@ def _file(db, user, ident):
     if not path.is_relative_to(safe) or not path.is_file():
         raise HTTPException(404, "PDF privado no disponible")
     return row, path
+
+
+@router.post("/issue")
+def issue_one(payload: PreviewInput, user: User = Depends(administrator), db: Session = Depends(get_db)):
+    record = _dossier(db, user, payload.dossier_id)
+    if payload.code not in record.selected_codes:
+        raise HTTPException(422, "Selecciona el documento primero")
+    result = _store(db, user, record, payload.code)
+    if not result["ok"]:
+        raise HTTPException(409, {"reason": result["reason"],
+                                  "missing_fields": result.get("missing_fields", []),
+                                  "errors": result.get("errors", [])})
+    return result
 
 
 @router.post("/issue/batch")

@@ -74,6 +74,15 @@ def main():
             page.get_by_label("Buscar documento").fill("")
             page.get_by_role("button",name="Guardar ficha y verificar").click()
             expect(page.get_by_text("Ficha guardada.",exact=False)).to_be_visible(timeout=16000)
+            card = page.locator(".jv-doc-card").filter(has_text="IRL")
+            actions = card.locator(".jv-document-actions button")
+            expect(actions).to_have_count(2)
+            expect(actions.nth(0)).to_have_text("Previsualizar")
+            expect(actions.nth(1)).to_have_text("Descargar")
+            assert card.get_by_role("button", name="Documento seleccionado").count() == 0
+            if "Error de plantilla" in (card.inner_text() or ""):
+                assert actions.nth(0).is_disabled() and actions.nth(1).is_disabled()
+            report["scenarios"]["document_actions_direct_and_guarded"] = "PASS"
             report["scenarios"]["techumbre_and_multi_document"] = "PASS"
             # Existing contractor must retrieve the same independent identity.
             page.get_by_role("region",name="Proyecto Javiera").get_by_role("button",name="Proyecto JAVIERA").click()
@@ -98,6 +107,13 @@ def main():
             page.screenshot(path=str(args.output / "javiera-documental-desktop.png"), full_page=True)
             page.set_viewport_size({"width": 390, "height": 844})
             assert page.evaluate("document.documentElement.scrollWidth<=innerWidth+2")
+            buttons = page.locator(".jv-doc-card .jv-document-actions button")
+            expect(buttons).to_have_count(2)
+            left, right = buttons.nth(0).bounding_box(), buttons.nth(1).bounding_box()
+            assert left and right and left["y"] == right["y"]
+            assert left["x"] + left["width"] <= right["x"]
+            assert right["x"] + right["width"] <= 392
+            report["scenarios"]["mobile_actions_aligned"] = "PASS"
             page.screenshot(path=str(args.output / "javiera-documental-mobile.png"), full_page=True)
             report["scenarios"]["mobile_no_horizontal_scroll"] = "PASS"
             page.get_by_role("button", name="Editar Excel maestro y plantillas").click()

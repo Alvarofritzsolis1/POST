@@ -339,9 +339,9 @@ def render_native_pdf(code: str, data: dict, *, matrix: list[str] | None = None,
                             native_intro=native_intro, irl_context=irl_context,
                             original_source=original_source, _compact=True
                         )
-                    raise NativeDocumentError(
-                        "La firma quedó aislada incluso tras optimizar los espacios."
-                    )
+                        raise NativeDocumentError(
+                            "La firma quedó aislada incluso tras optimizar los espacios."
+                        )
                 blocks = [block for block in page.get_text("blocks")
                           if len(block) > 4 and isinstance(block[4], str)
                           and block[4].strip()]

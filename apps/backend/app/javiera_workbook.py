@@ -42,6 +42,7 @@ CONVERSIONS = threading.BoundedSemaphore(2)
 _locks: weakref.WeakValueDictionary = weakref.WeakValueDictionary()
 _locks_guard = threading.Lock()
 ERRORS = {"#REF!", "#VALUE!", "#NAME?", "#DIV/0!", "#N/A", "#NUM!", "#SPILL!", "#NULL!"}
+IRL_PDF_ENGINE_REVISION = "20.3.4-rc1-letter-sections-96"
 
 
 def digest(raw: bytes) -> str:
@@ -897,6 +898,26 @@ def irl_risk_print_rows(root: ET.Element) -> tuple[tuple[int, ...], bool]:
         # maqueta real completa, pero deben conservar su vía legada.
         return tuple(45 + 2 * i for i in range(12)), False
 
+    # The published source has one complete, fixed CARPINTERO record at row
+    # 61 between eleven formula records. Its four fields must be replaced on
+    # the disposable copy for every role; leaving it in place leaks another
+    # specialty. Accept only the exact missing slot between two formula rows.
+    if len(risk_rows) == 11 and len(columns_by_row) == 11:
+        gaps = [(left + 2, right) for left, right in zip(risk_rows, risk_rows[1:])
+                if right - left == 4]
+        if len(gaps) == 1:
+            candidate = gaps[0][0]
+            cells = {cell.get("r"): cell for cell in root.findall(".//" + Q("c"))}
+            previous_header = [cells.get(col + str(candidate - 1)) for col in "ABCD"]
+            ordinary_header = [cells.get(col + str(risk_rows[0] - 1)) for col in "ABCD"]
+            fixed = [cells.get(col + str(candidate)) for col in "ABCD"]
+            if (all(cell is not None and cell.find(Q("f")) is None and
+                    (cell.find(Q("v")) is not None or cell.find(Q("is")) is not None)
+                    for cell in fixed)
+                    and all(a is not None and b is not None and a.get("s") == b.get("s")
+                            for a, b in zip(previous_header, ordinary_header))):
+                columns_by_row[candidate] = set("ABCD")
+                risk_rows = tuple(sorted((*risk_rows, candidate)))
     complete = (
         len(risk_rows) == 12
         and len(columns_by_row) == 12
@@ -1006,9 +1027,13 @@ def irl_continuations(raw: bytes, role: str) -> tuple[bytes, list[str]]:
             page = deepcopy(first)
             put_irl_risks(page, records[offset:offset + count], rows)
             if actual_template:
-                # A37 es el título, D40 es un ENCABEZADO ORIGINAL y no se toca.
-                set_text(page, "A37", "2 - RIESGOS Y MEDIDAS PREVENTIVAS · CONTINUACIÓN " + str(chunk))
-                first_print_row, last_print_row = 34, rows[count - 1]
+                # The title belongs to the detected source block, not a
+                # hard-coded legacy row that can print twice on one page.
+                title_row = 37 if min(rows) == 39 else min(rows) - 3
+                set_text(page, "A" + str(title_row),
+                         "2 - RIESGOS Y MEDIDAS PREVENTIVAS · CONTINUACIÓN " + str(chunk))
+                first_print_row = 34 if min(rows) == 39 else min(rows) - 6
+                last_print_row = rows[count - 1]
             else:
                 # Compatibilidad con fixtures históricos que sólo definen A45.
                 first_print_row, last_print_row = 39, 44 + 2 * count
@@ -1042,6 +1067,175 @@ def irl_continuations(raw: bytes, role: str) -> tuple[bytes, list[str]]:
             "[Content_Types].xml": xml(types)
         })
         return pack(z, changes), names
+
+
+def irl_print_sections(raw: bytes, role: str,
+                       continuations: list[str]) -> tuple[bytes, list[str]]:
+    """Print the reviewed IRL blocks in order on disposable Letter sheets.
+
+    The supplied workbook has six separately drawn headers, but no manual
+    breaks. Calc fits part of the next block onto the preceding physical page
+    and scales all of them down. The risk continuation must also come before
+    the substances and signatures, not after the complete source sheet.
+    Other source geometries retain their existing printing path.
+    """
+    with ZipFile(io.BytesIO(raw)) as z:
+        files = sheet_files(z)
+        name = resolve_sheet(files, "IRL")
+        source_path = files[name]
+        source = ET.fromstring(z.read(source_path))
+        rows, actual = irl_risk_print_rows(source)
+        if not actual or rows != tuple(range(45, 69, 2)):
+            return raw, continuations
+        strings = shared_strings(z)
+        headers = tuple(int(cell.get("r")[1:]) for cell in source.findall(".//" + Q("c"))
+                        if re.fullmatch(r"A\d+", cell.get("r", "")) and
+                        "DEPARTAMENTO DE PREVENCI" in
+                        unicodedata.normalize("NFKD", cell_text(cell, strings)).upper())
+        if headers != (2, 39, 71, 100, 136, 168):
+            raise LayoutError("Los encabezados del IRL no coinciden con la geometría revisada")
+        records = matrix_records(raw, role, "IRL")
+        book = ET.fromstring(z.read("xl/workbook.xml"))
+        rels = ET.fromstring(z.read("xl/_rels/workbook.xml.rels"))
+        types = ET.fromstring(z.read("[Content_Types].xml"))
+        sheets = book.find(Q("sheets"))
+        definitions = book.find(Q("definedNames"))
+        if definitions is None:
+            raise LayoutError("La plantilla IRL carece de área de impresión")
+        source_index = list(files).index(name)
+        area = next((node for node in definitions.findall(Q("definedName"))
+                     if node.get("name") == "_xlnm.Print_Area" and
+                     node.get("localSheetId") == str(source_index)), None)
+        if area is None or not area.text or "$D$214" not in area.text.upper():
+            raise LayoutError("El área de impresión IRL no incluye firmas y secciones finales")
+
+        def letter_profile(sheet_root: ET.Element) -> None:
+            props = sheet_root.find(Q("sheetPr"))
+            if props is None:
+                props = ET.Element(Q("sheetPr"))
+                sheet_root.insert(0, props)
+            setup_pr = props.find(Q("pageSetUpPr"))
+            if setup_pr is None:
+                setup_pr = ET.SubElement(props, Q("pageSetUpPr"))
+            setup_pr.set("fitToPage", "0")
+            setup = sheet_root.find(Q("pageSetup"))
+            if setup is None:
+                setup = ET.SubElement(sheet_root, Q("pageSetup"))
+            setup.set("paperSize", "1")  # US Letter, as in CORRECTO.pdf
+            setup.set("orientation", "portrait")
+            setup.set("scale", "96")
+            setup.set("usePrinterDefaults", "0")
+            setup.attrib.pop("fitToWidth", None)
+            setup.attrib.pop("fitToHeight", None)
+
+        front = deepcopy(source)
+        letter_profile(front)
+        area.text = "'" + name.replace("'", "''") + "'!$A$1:$D$38"
+        changes = {source_path: xml(front)}
+        print_names: list[str] = []
+        max_id = max(int(sheet.get("sheetId")) for sheet in sheets)
+        rel_ns = "http://schemas.openxmlformats.org/package/2006/relationships"
+        type_ns = "http://schemas.openxmlformats.org/package/2006/content-types"
+        source_rels = (posixpath.dirname(source_path) + "/_rels/" +
+                       posixpath.basename(source_path) + ".rels")
+
+        def add_page(sheet_root: ET.Element, first: int, last: int, number: int,
+                     title_rows: tuple[int, int] | None = None) -> None:
+            index = len(print_names) + 1
+            page_name = "IRL impresión " + str(index)
+            path = "xl/worksheets/galant_irl_print_" + str(index) + ".xml"
+            # Only the cells on this physical page need recalculation. Keeping
+            # nine complete copies of the 214-row sheet made the first PDF
+            # slower and needlessly repeated hidden formulas.
+            kept = set(range(first, last + 1))
+            if title_rows is not None:
+                kept.update(range(title_rows[0], title_rows[1] + 1))
+            sheet_data = sheet_root.find(Q("sheetData"))
+            for row in list(sheet_data):
+                if int(row.get("r", "0")) not in kept:
+                    sheet_data.remove(row)
+            merges = sheet_root.find(Q("mergeCells"))
+            if merges is not None:
+                for merged in list(merges):
+                    match = re.fullmatch(r"[A-Z]+(\d+):[A-Z]+(\d+)", merged.get("ref", ""))
+                    if match and not all(row in kept for row in range(int(match[1]), int(match[2]) + 1)):
+                        merges.remove(merged)
+                merges.set("count", str(len(merges)))
+            letter_profile(sheet_root)
+            changes[path] = xml(sheet_root)
+            if source_rels in z.namelist():
+                changes["xl/worksheets/_rels/galant_irl_print_" + str(index) + ".xml.rels"] = z.read(source_rels)
+            rid = "rIdGalantIrlPrint" + str(index)
+            ET.SubElement(sheets, Q("sheet"), {
+                "name": page_name, "sheetId": str(max_id + index),
+                "state": "visible", "{" + R + "}id": rid,
+            })
+            ET.SubElement(rels, "{" + rel_ns + "}Relationship", {
+                "Id": rid, "Type": R + "/worksheet",
+                "Target": "worksheets/galant_irl_print_" + str(index) + ".xml",
+            })
+            ET.SubElement(types, "{" + type_ns + "}Override", {
+                "PartName": "/" + path,
+                "ContentType": "application/vnd.openxmlformats-officedocument.spreadsheetml.worksheet+xml",
+            })
+            ET.SubElement(definitions, Q("definedName"), {
+                "name": "_xlnm.Print_Area",
+                "localSheetId": str(len(files) + len(print_names)),
+            }).text = "'" + page_name + "'!$A$" + str(first) + ":$D$" + str(last)
+            if title_rows is not None:
+                ET.SubElement(definitions, Q("definedName"), {
+                    "name": "_xlnm.Print_Titles",
+                    "localSheetId": str(len(files) + len(print_names)),
+                }).text = ("'" + page_name + "'!$" + str(title_rows[0]) +
+                          ":$" + str(title_rows[1]))
+            print_names.append(page_name)
+
+        # Nine rows fit comfortably at their original height and font size.
+        # The second page receives the actual tenth through thirteenth rows.
+        for offset in range(0, len(records), 9):
+            part = records[offset:offset + 9]
+            page = deepcopy(source)
+            put_irl_risks(page, part, rows)
+            page_number = len(print_names) + 2
+            set_text(page, "D40", "Página: " + str(page_number))
+            if offset:
+                set_text(page, "A42", "2 - RIESGOS Y MEDIDAS PREVENTIVAS · CONTINUACIÓN")
+            add_page(page, 39, rows[len(part) - 1], page_number)
+
+        # The subsequent source blocks have their own original headers and
+        # must follow every risk, including the thirteenth.
+        for first, last, header_row, titles in (
+            (71, 99, 72, None), (100, 135, 101, None),
+            (136, 149, 137, None), (150, 167, 137, (136, 137)),
+            (168, 183, 169, None), (184, 199, 169, (168, 169)),
+            (200, 214, 201, None),
+        ):
+            page = deepcopy(source)
+            if first == 200:
+                data_node = page.find(Q("sheetData"))
+                for src_row, dst_row in ((168, 200), (169, 201)):
+                    old = data_node.find(Q("row") + "[@r='" + str(dst_row) + "']")
+                    copied = deepcopy(data_node.find(Q("row") + "[@r='" + str(src_row) + "']"))
+                    copied.set("r", str(dst_row))
+                    for cell in copied.findall(Q("c")):
+                        cell.set("r", re.sub(r"\d+$", str(dst_row), cell.get("r")))
+                    if old is not None:
+                        position = list(data_node).index(old)
+                        data_node.remove(old)
+                        data_node.insert(position, copied)
+                    else:
+                        data_node.append(copied)
+                merges = page.find(Q("mergeCells"))
+                ET.SubElement(merges, Q("mergeCell"), {"ref": "A200:A201"})
+                merges.set("count", str(len(merges)))
+            page_number = len(print_names) + 2
+            set_text(page, "D" + str(header_row), "Página: " + str(page_number))
+            add_page(page, first, last, page_number, titles)
+
+        changes.update({"xl/workbook.xml": xml(book),
+                        "xl/_rels/workbook.xml.rels": xml(rels),
+                        "[Content_Types].xml": xml(types)})
+        return pack(z, changes), print_names
 
 
 def validate_matrix_results(calculated: bytes, role: str, code: str, continuations: list[str]) -> None:
@@ -1101,7 +1295,7 @@ def validate_matrix_results(calculated: bytes, role: str, code: str, continuatio
                                 )
 
 
-def run_calc(raw: bytes, folder: Path, timeout: int = 70) -> bytes:
+def run_calc(raw: bytes, folder: Path, timeout: int = 120) -> bytes:
     from .config import settings
     if settings().javiera_calc_url:
         return base64.b64decode(warm_convert(raw, [])['calculated'], validate=True)
@@ -1141,7 +1335,7 @@ def warm_convert(raw: bytes, sheets: list[str]) -> dict:
         data=json.dumps({'xlsx': base64.b64encode(raw).decode(), 'sheets': sheets}).encode(),
         headers={'Content-Type': 'application/json', 'Authorization': 'Bearer ' + config.javiera_calc_secret})
     try:
-        with opener.open(request, timeout=90) as response:
+        with opener.open(request, timeout=195) as response:
             result = json.loads(response.read(45 * 1024 * 1024))
         if 'calculated' not in result or sheets and 'pdf' not in result: raise ValueError()
         return result
@@ -1217,7 +1411,9 @@ def select_print_sheet(raw: bytes, selected: str | list[str]) -> bytes:
 
 
 def convert_pdf(raw: bytes, sheet: str, *, preview: bool = False,
-                extra_sheets: list[str] | None = None, role: str = "", code: str = "") -> tuple[bytes, dict]:
+                extra_sheets: list[str] | None = None,
+                matrix_sheets: list[str] | None = None,
+                role: str = "", code: str = "") -> tuple[bytes, dict]:
     started = time.perf_counter()
     if not CONVERSIONS.acquire(timeout=15): raise LayoutError("El motor está ocupado; vuelve a intentarlo")
     try:
@@ -1238,14 +1434,16 @@ def convert_pdf(raw: bytes, sheet: str, *, preview: bool = False,
                 try:
                     p = subprocess.run([binary, "-env:UserInstallation=" + (folder / "profile").as_uri(),
                         "--headless", "--convert-to", "pdf:calc_pdf_Export", "--outdir", str(folder), str(source)],
-                        capture_output=True, timeout=70, check=False)
+                        capture_output=True, timeout=120, check=False)
                 except subprocess.TimeoutExpired:
                     raise LayoutError("La conversión PDF superó el tiempo permitido") from None
                 pdf_path = folder / "document.pdf"
                 if p.returncode or not pdf_path.is_file(): raise LayoutError("No se pudo convertir la hoja seleccionada")
                 pdf = pdf_path.read_bytes()
-            validate_matrix_results(calculated, role, code, extra_sheets or [])
-            validation['continuation_sheets'] = extra_sheets or []
+            validate_matrix_results(calculated, role, code,
+                                    matrix_sheets if matrix_sheets is not None else (extra_sheets or []))
+            validation['continuation_sheets'] = matrix_sheets if matrix_sheets is not None else (extra_sheets or [])
+            validation['print_sheets'] = selected_sheets
             validation['matrix_verified'] = code in {'irl', 'pts', 'pts_receipt'}
             with fitz.open(stream=pdf, filetype="pdf") as doc:
                 if not 1 <= len(doc) <= 120: raise LayoutError("Cantidad de páginas fuera del límite")
@@ -1261,13 +1459,29 @@ def convert_pdf(raw: bytes, sheet: str, *, preview: bool = False,
                 if code == 'irl':
                     normalize = lambda value: re.sub(r'[\W_]+','',unicodedata.normalize('NFKC',value).casefold())
                     printed_content = normalize(' '.join(page.get_text() for page in doc)); checked = 0
-                    for record in matrix_records(calculated,role,'IRL'):
+                    irl_records = matrix_records(calculated,role,'IRL')
+                    for record in irl_records:
                         for column in 'CDEF':
                             value = record['values'].get(column,'')
                             if value and normalize(value) not in printed_content:
                                 raise LayoutError('El PDF no reproduce íntegro el contenido preventivo de la matriz en '+column+str(record['row']))
                             checked += 1
                     validation['printed_matrix_fields'] = checked
+                    if any(name.startswith('IRL impresión ') for name in selected_sheets):
+                        page_texts = [page.get_text() for page in doc]
+                        for number, page_text in enumerate(page_texts, 1):
+                            labels = re.findall(r'Página:\s*(\d+)', page_text)
+                            if labels != [str(number)] or page_text.count('DEPARTAMENTO DE') != 1:
+                                raise LayoutError('Encabezado o número de página IRL duplicado o fuera de orden en página '+str(number))
+                        last_activity = normalize(irl_records[-1]['values']['C'])
+                        risk_pages = [index for index, value in enumerate(page_texts)
+                                      if last_activity in normalize(value)]
+                        substance_pages = [index for index, value in enumerate(page_texts)
+                                           if 'CARACTERÍSTICAS DE PRODUCTOS Y SUSTANCIAS' in value]
+                        if (len(risk_pages) != 1 or len(substance_pages) != 1 or
+                                risk_pages[0] >= substance_pages[0] or
+                                'FIRMA TRABAJADOR' not in page_texts[-1]):
+                            raise LayoutError('El orden de riesgos, sustancias y firmas del IRL no es válido')
                 if code == 'pts':
                     normalize = lambda value: re.sub(
                         r'[\W_]+', '', unicodedata.normalize('NFKC', value).casefold()
@@ -1298,14 +1512,19 @@ def convert_pdf(raw: bytes, sheet: str, *, preview: bool = False,
 
 
 def cached_pdf(raw: bytes, code: str, data: dict, org_id: str, cache: Path, preview: bool,
-               reference: bytes | None = None) -> tuple[bytes, dict]:
+               reference: bytes | None = None, *, dossier_id: str = "",
+               template_revision: int = 0) -> tuple[bytes, dict]:
     from .config import settings
     # Los documentos marcados en pantalla cambian el flujo de emisión, pero
     # no alteran el contenido ni las fórmulas del PDF de un mismo documento.
     # Excluir esa preferencia del hash evita recalcular Calc al cambiar la selección.
     printable_data = {k: v for k, v in data.items() if k != "requested_documents"}
-    key = digest(json.dumps({"org": org_id, "workbook": digest(raw), "code": code,
-        "data": printable_data, "preview": preview, 'reference':digest(reference or raw), "engine": "calc-v20.9-irl-print-map-" + ('uno' if settings().javiera_calc_url else 'cli')}, sort_keys=True, ensure_ascii=False).encode())
+    key = digest(json.dumps({"org": org_id, "dossier": dossier_id,
+        "template_revision": template_revision, "workbook": digest(raw), "code": code,
+        "data": printable_data, "preview": preview, 'reference':digest(reference or raw),
+        "engine": IRL_PDF_ENGINE_REVISION if code == "irl" else "calc-v20.9-irl-print-map",
+        "converter": 'uno' if settings().javiera_calc_url else 'cli'},
+        sort_keys=True, ensure_ascii=False).encode())
     with _locks_guard:
         lock = _locks.setdefault(key, threading.Lock())
     with lock:
@@ -1313,6 +1532,27 @@ def cached_pdf(raw: bytes, code: str, data: dict, org_id: str, cache: Path, prev
         if path.is_file() and meta.is_file():
             report = json.loads(meta.read_text()); pdf = path.read_bytes()
             if report.get("sha256") == digest(pdf): return pdf, {**report, "cache_hit": True}
+        if preview:
+            # A draft is the verified definitive PDF with a visible mark. It
+            # does not require another Calc run or a new issue in the database.
+            started = time.perf_counter()
+            base_pdf, base_report = cached_pdf(
+                raw, code, data, org_id, cache, False, reference,
+                dossier_id=dossier_id, template_revision=template_revision)
+            with fitz.open(stream=base_pdf, filetype="pdf") as document:
+                for page in document:
+                    page.insert_text((12, 12), "BORRADOR - SIN FIRMA - REQUIERE REVISION",
+                                     fontsize=7, color=(0.65, 0.15, 0.1))
+                pdf = document.tobytes(garbage=4, deflate=True)
+            cache.mkdir(parents=True, exist_ok=True, mode=0o700)
+            report = {**base_report, "sha256": digest(pdf), "cache_key": key,
+                      "cache_hit": False, "preview_source_sha256": digest(base_pdf),
+                      "preview_source_cache_hit": base_report["cache_hit"],
+                      "elapsed_ms": round((time.perf_counter() - started) * 1000, 2)}
+            for target, content in ((path, pdf), (meta, json.dumps(report).encode())):
+                temp = target.with_suffix(target.suffix + ".tmp")
+                temp.write_bytes(content); temp.chmod(0o600); temp.replace(target)
+            return pdf, report
         source_data = data
         if code in {"irl", "pts", "pts_receipt"}:
             source_role = resolve_workbook_role(
@@ -1326,9 +1566,14 @@ def cached_pdf(raw: bytes, code: str, data: dict, org_id: str, cache: Path, prev
             filled, continuation_sheets = irl_continuations(
                 filled, source_data.get("role", "")
             )
+            filled, print_sheets = irl_print_sections(
+                filled, source_data.get("role", ""), continuation_sheets
+            )
+        else:
+            print_sheets = continuation_sheets
         pdf, report = convert_pdf(
             filled, DOC_SHEETS[code], preview=preview,
-            extra_sheets=continuation_sheets,
+            extra_sheets=print_sheets, matrix_sheets=continuation_sheets,
             role=source_data.get("role", ""), code=code,
         )
         with fitz.open(stream=pdf,filetype='pdf') as document:

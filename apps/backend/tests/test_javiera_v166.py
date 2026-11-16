@@ -1,5 +1,6 @@
 """Regression: document preparation must never create operational personnel or companies."""
 import fitz
+from fastapi import HTTPException
 from sqlalchemy import func, select, inspect
 from app.javiera_models import JavieraTemplate
 from app.javiera_v166_models import JavieraLocalCompany, JavieraLocalPerson, JavieraLocalIssue
@@ -109,6 +110,43 @@ def test_documentary_multi_issue_packet_reuse_and_immutable_reissue(env):
     assert client.get(BASE + "/issues/" + initial_ids[0] + "/pdf").status_code == 200
     with sessions() as db:
         assert db.scalar(select(func.count(JavieraLocalIssue.id))) == 3
+
+
+def test_single_download_reuses_issue_and_preflight_blocks_bad_pdf(env, monkeypatch):
+    from app import javiera_v166_api as api
+    client, sessions = env
+    headers = login(client, "a@example.cl")
+    _, _, dossier, _ = setup_dossier(client, headers)
+    with sessions.begin() as db:
+        user = db.scalar(select(User).where(User.email == "a@example.cl"))
+        db.add(JavieraTemplate(
+            org_id=user.org_id, code="labor_contract", area="Zona Subcontratos",
+            title="Contrato sintético aprobado",
+            body="Contrato sintético aprobado de {{worker.name}} para {{employer.name}}.",
+            fields=["worker.name", "employer.name"], published_version=1))
+    path = BASE + "/dossiers/" + dossier["id"] + "/preflight"
+    checked = client.post(path, headers=headers)
+    assert checked.status_code == 200, checked.text
+    assert checked.json()["documents"][0]["can_issue"] is True
+    action = {"dossier_id": dossier["id"], "code": "labor_contract"}
+    first = client.post(BASE + "/issue", headers=headers, json=action)
+    second = client.post(BASE + "/issue", headers=headers, json=action)
+    assert first.status_code == second.status_code == 200
+    assert second.json()["reused"] is True
+    assert second.json()["id"] == first.json()["id"]
+    assert client.get(BASE + "/issues/" + first.json()["id"] + "/pdf").content.startswith(b"%PDF-")
+    with sessions() as db:
+        assert db.scalar(select(func.count(JavieraLocalIssue.id))) == 1
+    original = api._build_pdf
+    def broken_pdf(db, user, record, code, data, preview=False):
+        if code == "labor_contract":
+            raise HTTPException(409, {"reason": "La plantilla de prueba no convierte"})
+        return original(db, user, record, code, data, preview)
+    monkeypatch.setattr(api, "_build_pdf", broken_pdf)
+    blocked = client.post(path, headers=headers).json()["documents"][0]
+    assert blocked["status"] == "BLOQUEADO_PLANTILLA"
+    assert blocked["can_issue"] is False and blocked["can_preview"] is False
+    assert "no convierte" in blocked["reason"]
 
 
 def test_declaration_is_company_only_and_requires_real_confirmation(env):

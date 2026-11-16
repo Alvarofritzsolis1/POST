@@ -36,7 +36,7 @@ from .models import AuditEvent, User, utcnow
 from .ops_models import Contractor, ContractorWorksite, Worker, WorkerAssignment, Worksite
 from .security import administrator
 from .javiera_workbook_api import active_workbook, unarchived, raw_for, root_for, head_for, original_for
-from .javiera_workbook import cached_pdf, roles as workbook_roles, resolve_workbook_role, audit_preventive_master
+from .javiera_workbook import cached_pdf, roles as workbook_roles, resolve_workbook_role, audit_preventive_master, IRL_PDF_ENGINE_REVISION
 from .javiera_excel import LayoutError
 from .javiera_workbook_models import JavieraArchive
 from .rut_format import format_rut
@@ -582,7 +582,8 @@ def preflight_documents(payload: BatchIssue, user: User = Depends(administrator)
                 _, validation = cached_pdf(
                     raw_for(source), code, record.data, user.org_id,
                     root_for(user.org_id) / "pdf-cache", False,
-                    reference=original_for(db, source))
+                    reference=original_for(db, source), dossier_id=record.id,
+                    template_revision=source.revision)
                 row["cache_hit"] = bool(validation.get("cache_hit"))
             elif kind == "excel":
                 make_pdf(db, user, source, record.data, preview=False)
@@ -597,13 +598,13 @@ def preflight_documents(payload: BatchIssue, user: User = Depends(administrator)
             explanation = detail if isinstance(detail, str) else str(
                 detail.get("error") or detail.get("reason") or "Error en plantilla"
             ) if isinstance(detail, dict) else "Error de validación documental"
-            row.update(status="BLOQUEADO_PLANTILLA", can_issue=False,
+            row.update(status="BLOQUEADO_PLANTILLA", can_issue=False, can_preview=False,
                        reason=explanation)
         except LayoutError as exc:
-            row.update(status="BLOQUEADO_PLANTILLA", can_issue=False, reason=str(exc))
+            row.update(status="BLOQUEADO_PLANTILLA", can_issue=False, can_preview=False, reason=str(exc))
         # No emitir nunca un archivo cuya conversión no se pudo verificar.
         except Exception:
-            row.update(status="ERROR_TEMPORAL", can_issue=False,
+            row.update(status="ERROR_TEMPORAL", can_issue=False, can_preview=False,
                        reason="No se pudo verificar el PDF. Intenta nuevamente o consulta al administrador.")
         if not row["can_issue"]:
             row["source_cells"] = re.findall(
@@ -657,6 +658,7 @@ def document_source_fingerprint(kind: str, source, record: JavieraDossier,
         "preventive_matrices": preventive_matrices,
         "kind": kind, "version": version, "dossier_id": record.id,
         "dossier_revision": record.revision, "dossier_data": record.data,
+        "engine_revision": IRL_PDF_ENGINE_REVISION if code == "irl" else None,
     }
     return hashlib.sha256(json.dumps(
         payload, sort_keys=True, ensure_ascii=False, default=str
@@ -730,7 +732,8 @@ def preview(data: Action, user: User = Depends(administrator), db: Session = Dep
             raw, _ = cached_pdf(
                 raw_for(source), data.code, record.data, user.org_id,
                 root_for(user.org_id) / "pdf-cache", True,
-                reference=original_for(db, source))
+                reference=original_for(db, source), dossier_id=record.id,
+                template_revision=source.revision)
         except LayoutError as exc:
             raise HTTPException(422, str(exc)) from None
     elif kind == "excel":
@@ -812,7 +815,9 @@ def issue(data: Action, user: User = Depends(administrator), db: Session = Depen
         from .javiera_excel import LayoutError
         try:
             raw, report = cached_pdf(raw_for(master), data.code, record.data, user.org_id,
-                                     root_for(user.org_id) / "pdf-cache", False, reference=original_for(db,master))
+                                     root_for(user.org_id) / "pdf-cache", False,
+                                     reference=original_for(db,master), dossier_id=record.id,
+                                     template_revision=master.revision)
         except LayoutError as exc: raise HTTPException(422, str(exc)) from None
         template_revision = master.revision; source = "workbook"
         snapshot = {"data": record.data, "source": source, "workbook_id": master.id,

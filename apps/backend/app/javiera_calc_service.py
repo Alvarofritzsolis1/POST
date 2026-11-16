@@ -71,15 +71,16 @@ def convert(data):
             if any(n.strip().casefold() not in names for n in wanted): raise ValueError("Hoja no encontrada")
             if wanted:
                 chosen = {names[n.strip().casefold()] for n in wanted}
-                for n in chosen: sheets.getByName(n).IsVisible = True
+                ordered = [n for n in sheets.getElementNames() if n in chosen]
+                for n in ordered: sheets.getByName(n).IsVisible = True
                 for n in sheets.getElementNames():
                     if n not in chosen:
                         sheets.getByName(n).IsVisible = False
                         sheets.getByName(n).setPrintAreas(())
-                doc.getCurrentController().setActiveSheet(sheets.getByName(next(iter(chosen))))
+                doc.getCurrentController().setActiveSheet(sheets.getByName(ordered[0]))
                 selection = doc.createInstance('com.sun.star.sheet.SheetCellRanges')
                 areas = []
-                for n in chosen:
+                for n in ordered:
                     sheet = sheets.getByName(n); ranges = sheet.getPrintAreas()
                     if ranges: areas.extend(ranges)
                     else:
@@ -122,7 +123,9 @@ class Handler(BaseHTTPRequestHandler):
                 try:os.killpg(PROCESS.pid,signal.SIGKILL)
                 except ProcessLookupError:pass
             DESKTOP = None
-        deadline = threading.Timer(70,cancel_job);deadline.daemon=True;deadline.start()
+        # The IRL Letter profile may contain ten physical pages. Keep a hard
+        # cap for a stuck office process while allowing its first recalculation.
+        deadline = threading.Timer(180,cancel_job);deadline.daemon=True;deadline.start()
         try:
             data = json.loads(self.rfile.read(size)); result = convert(data)
             body = json.dumps(result).encode(); self.send_response(200)

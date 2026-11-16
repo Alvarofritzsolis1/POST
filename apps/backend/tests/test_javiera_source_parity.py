@@ -49,7 +49,7 @@ def test_document_preview_uses_exact_published_source_and_issue_rejects_change(
         "missing_fields": [], "blocking_errors": [], "status": "LISTO_PARA_EMITIR",
     }])
 
-    def record_pdf(raw, code, data, org, folder, preview, reference=None):
+    def record_pdf(raw, code, data, org, folder, preview, reference=None, **kwargs):
         seen.append({"sha": digest(raw), "preview": preview, "code": code})
         return b"%PDF-1.4\n%%EOF\n", {"cache_hit": False, "elapsed_ms": 4}
 

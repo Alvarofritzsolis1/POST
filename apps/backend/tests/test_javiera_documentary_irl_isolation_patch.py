@@ -93,18 +93,19 @@ def test_documentary_pdf_uses_published_workbook_engine(monkeypatch, tmp_path):
     monkeypatch.setattr(javiera_v166_api, "raw_for", lambda obj: b"workbook-qa")
     monkeypatch.setattr(javiera_v166_api, "original_for", lambda db, obj: b"source-qa")
     monkeypatch.setattr(javiera_v166_api, "root_for", lambda org: tmp_path)
-    def fake_cache(raw, code, data, org, cache, preview, reference=None):
+    def fake_cache(raw, code, data, org, cache, preview, reference=None, **kwargs):
         paths.update(raw=raw, code=code, role=data["role"],
-                     preview=preview, reference=reference)
+                     preview=preview, reference=reference, **kwargs)
         return expected, {"matrix_verified": True}
     monkeypatch.setattr(javiera_v166_api, "cached_pdf", fake_cache)
     output, revision, engine = javiera_v166_api._build_pdf(
         None, type("User", (), {"org_id": "test"})(),
-        None, "irl", {"role": "TECHUMBRE"}, preview=True)
+        SimpleNamespace(id="dossier-qa"), "irl", {"role": "TECHUMBRE"}, preview=True)
     assert output == expected
     assert engine == "workbook"
     assert paths == {"raw": b"workbook-qa", "code": "irl", "role": "TECHUMBRE",
-                     "preview": True, "reference": b"source-qa"}
+                     "preview": True, "reference": b"source-qa",
+                     "dossier_id": "dossier-qa", "template_revision": 7}
 
 
 

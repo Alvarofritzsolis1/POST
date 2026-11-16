@@ -73,6 +73,26 @@ def test_merges_in_far_columns_are_not_mistaken_for_risk_columns():
     assert irl_risk_print_rows(root) == (REPORTED_LAYOUT, True)
 
 
+def test_fixed_record_between_formula_rows_is_rebound_without_moving_headers():
+    """The supplied Excel has a fixed CARPINTERO row at 61 among 11 formulas."""
+    root = sheet_with_risks(tuple(row for row in REPORTED_LAYOUT if row != 61))
+    data = root.find(Q("sheetData"))
+    for number in (44, 60):
+        heading = ET.SubElement(data, Q("row"), {"r": str(number)})
+        for col in "ABCD":
+            cell = ET.SubElement(heading, Q("c"), {"r": f"{col}{number}", "s": "4", "t": "inlineStr"})
+            ET.SubElement(ET.SubElement(cell, Q("is")), Q("t")).text = "Actividad"
+    fixed = ET.SubElement(data, Q("row"), {"r": "61"})
+    for col in "ABCD":
+        cell = ET.SubElement(fixed, Q("c"), {"r": f"{col}61", "t": "inlineStr"})
+        ET.SubElement(ET.SubElement(cell, Q("is")), Q("t")).text = "Contenido fijo que debe sustituirse"
+    assert irl_risk_print_rows(root) == (REPORTED_LAYOUT, True)
+    fixed.find(Q("c") + "[@r='D61']").remove(
+        fixed.find(Q("c") + "[@r='D61']/" + Q("is")))
+    with pytest.raises(LayoutError, match="incompletas o desordenadas"):
+        irl_risk_print_rows(root)
+
+
 def test_13th_risk_uses_same_detected_rows_in_continuation_sheet():
     workbook = load_workbook(io.BytesIO(master()))
     matrix = workbook["MATRIZ IRL"]
