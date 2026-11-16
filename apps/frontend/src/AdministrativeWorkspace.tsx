@@ -1,10 +1,11 @@
-import { useEffect, useState } from "react";
+import { lazy, Suspense, useEffect, useState } from "react";
 import type { Profile } from "./api";
 import { request } from "./api";
 import { opsApi, type Site } from "./opsApi";
 import AdministrativeControlV92 from "./AdministrativeControlV92";
 import ContractAlerts from "./ContractAlerts";
 import "./administrative.css";
+const IneHistory = lazy(() => import("./Ine"));
 
 type AdministrativeProfile = { name: string; site_ids: string[] };
 const currentPeriod = () => new Intl.DateTimeFormat("sv-SE", {
@@ -22,6 +23,7 @@ export default function AdministrativeWorkspace({ user, version, logout }: {
   const [detailOpen, setDetailOpen] = useState(false);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState("");
+  const [viewIne, setViewIne] = useState(false);
 
   useEffect(() => {
     let active = true;
@@ -40,10 +42,11 @@ export default function AdministrativeWorkspace({ user, version, logout }: {
     return () => { active = false; };
   }, []);
 
+  if (viewIne) return <Suspense fallback={<div className="app-loading">Cargando histórico INE…</div>}><IneHistory user={user} version={version} logout={logout} onBack={() => setViewIne(false)}/></Suspense>;
   return <main className="administrative-app">
     <header className="administrative-topbar">
       <div><strong>GALANT POST</strong><span>Control de Asistencia · v{version || "—"}</span></div>
-      <div className="administrative-user"><span>{name || user.email}</span><button type="button" onClick={logout}>Cerrar sesión</button></div>
+      <div className="administrative-user"><button type="button" onClick={() => setViewIne(true)}>Histórico INE</button><span>{name || user.email}</span><button type="button" onClick={logout}>Cerrar sesión</button></div>
     </header>
     <div className="administrative-content">
       {!detailOpen && <div className="administrative-heading">
