@@ -27,6 +27,8 @@ class FacebookLead(Base):
     requirement_id: Mapped[str | None] = mapped_column(ForeignKey("network_requirements.id"), nullable=True)
     unread: Mapped[bool] = mapped_column(Boolean, default=True)
     ai_consent: Mapped[bool] = mapped_column(Boolean, default=False)
+    needs_support: Mapped[bool] = mapped_column(Boolean, nullable=False, default=False, server_default="false")
+    support_reason: Mapped[str] = mapped_column(String(250), default="")
     last_inbound_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow)
     updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow)
