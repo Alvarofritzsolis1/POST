@@ -44,3 +44,40 @@ No permite enviar publicaciones a grupos de terceros mediante la API oficial.
 - Los administradores tienen un botón de sincronización para requerimientos previos.
 
 **Meta:** https://developers.facebook.com/docs/graph-api/reference/page/feed/
+
+
+## Nuevo apartado superior «Publicar en Facebook» · prueba
+
+Visible exclusivamente para administradores dentro de Red de Obras.
+El modo de ensayo es independiente de los anuncios automáticos. Después de
+fusionar la actualización, completar el respaldo y desplegar el código,
+configura en el archivo PRIVADO /opt/galant-post/.env.preview:
+
+    FACEBOOK_MANUAL_TESTING_ENABLED=true
+    FACEBOOK_AUTOPUBLISH_ENABLED=false
+    FACEBOOK_PAGE_ID=1489275590928529
+    FACEBOOK_PAGE_TOKEN=TOKEN_PRIVADO_DE_PAGINA
+
+Reiniciar API y facebook-publisher mediante el procedimiento de despliegue.
+NO activar la difusión automática para probar un solo anuncio.
+
+Flujo de uso:
+1. Abrir Red de Obras > Publicar en Facebook.
+2. Pulsar **Comprobar conexión**. Esta acción consulta desde el worker el nombre
+   y ID de la página, sin publicar. La identidad del token NO garantiza el
+   permiso para crear publicaciones; eso se comprueba al publicar la prueba.
+3. Completar obra, comuna, región, especialidad, dotación, fechas, partidas,
+   requisitos comerciales y contacto. Se puede precargar un requerimiento
+   existente, pero nunca se copian notas ni documentos privados.
+4. Pulsar **Generar vista previa**. Esta operación valida todos los datos y
+   devuelve el texto exacto SIN publicarlo en Facebook.
+5. Marcar aceptación de visibilidad pública y pulsar **Publicar prueba real**.
+   El sistema solicita confirmación adicional. El post contiene una leyenda
+   inequívoca «PUBLICACIÓN DE PRUEBA — NO ES UNA CONVOCATORIA REAL».
+6. Comprobar el ID y enlace en Historial. Si el resultado es incierto, revisar
+   la página directamente antes de intentar otra operación.
+7. Pulsar **Retirar prueba** para solicitar eliminación y verificar resultado.
+
+La primera versión admite publicaciones de TEXTO, no fotos, carruseles ni
+publicaciones en grupos externos. No pegar el token en el formulario, código,
+GitHub, capturas ni chats. Solo el worker tiene acceso a esa credencial.
