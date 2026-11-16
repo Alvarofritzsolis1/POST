@@ -10,7 +10,7 @@ No permite enviar publicaciones a grupos de terceros mediante la API oficial.
 - Revoca cualquier token que haya quedado visible en capturas o conversaciones.
 - Genera un nuevo token **de página** de la app GALANT; no pegues el token en GitHub,
   código fuente, capturas, comentarios de pull requests ni chats.
-- En el archivo .env PRIVADO del VPS configura:
+- En el archivo .env.preview PRIVADO del VPS configura:
 
     FACEBOOK_AUTOPUBLISH_ENABLED=true
     FACEBOOK_PAGE_ID=ID_NUMERICO_DE_LA_PAGINA
