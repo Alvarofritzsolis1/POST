@@ -21,6 +21,7 @@ from sqlalchemy.orm import Session
 from .config import settings
 from .db import get_db, SessionLocal
 from .facebook_ai import AD_INSTRUCTIONS, REPLY_INSTRUCTIONS, generate_text
+from .facebook_onboarding import assistance_signal, reply_for_support, onboarding_guide
 from .facebook_crm_models import FacebookLead, FacebookChatMessage, FacebookTradeGuide
 from .models import Organization, User, utcnow
 from .network_facebook import public_message
@@ -105,6 +106,8 @@ def _lead_view(db: Session, lead: FacebookLead) -> dict:
         "documents_state": lead.documents_state, "status": lead.status,
         "requirement_id": lead.requirement_id, "unread": lead.unread,
         "ai_consent": lead.ai_consent,
+        "needs_support": lead.needs_support,
+        "support_reason": lead.support_reason,
         "last_inbound_at": lead.last_inbound_at.isoformat() if lead.last_inbound_at else None,
         "can_reply": _in_window(lead), "analysis": _match(db, lead),
     }
@@ -127,6 +130,7 @@ class LeadEdit(BaseModel):
     status: str = Field(default="new", pattern=r"^(new|contacting|pending_review|shortlisted|archived)$")
     requirement_id: str | None = None
     ai_consent: bool = False
+    needs_support: bool = False
 
 
 class TradeGuideInput(BaseModel):
@@ -253,6 +257,11 @@ async def webhook(request: Request, db: Session = Depends(get_db)):
                 db.add(lead)
                 db.flush()
             lead.last_inbound_at, lead.updated_at, lead.unread = utcnow(), utcnow(), True
+            signal = assistance_signal(body, is_audio=audio_received)
+            if signal:
+                # Señal explícita de solicitud de ayuda, no juicio sobre capacidades.
+                lead.needs_support = True
+                lead.support_reason = signal
             db.add(FacebookChatMessage(
                 org_id=lead.org_id, lead_id=lead.id, page_id=lead.page_id,
                 remote_id=mid, direction="inbound", state="received", body=body.strip()[:3500],
@@ -263,18 +272,30 @@ async def webhook(request: Request, db: Session = Depends(get_db)):
                     FacebookChatMessage.direction == "outbound",
                     FacebookChatMessage.created_at >= utcnow() - timedelta(hours=24),
                 ))
-                if not lead.ai_consent and (recent or 0) == 0:
-                    # Mensaje local: ninguna conversación se envía a un proveedor externo.
+                if signal:
+                    # Si pidió ayuda, basta una sola respuesta sencilla, no un listado.
+                    # Limitar el volumen para evitar respuestas repetidas o intrusivas.
+                    if (recent or 0) < 3:
+                        db.add(FacebookChatMessage(
+                            org_id=lead.org_id, lead_id=lead.id, page_id=lead.page_id,
+                            direction="outbound", state="pending",
+                            body=reply_for_support(signal, bool(lead.specialty)),
+                            ai_generated=False,
+                        ))
+                elif not lead.ai_consent and (recent or 0) == 0:
                     intro = ("Hola, soy el asistente virtual de GALANT. "
-                             "Puedes escribir como te salga, sin formularios. "
-                             + ("Recibimos tu audio; una persona lo revisará. "
-                                if audio_received else "")
+                             "Puedes escribir como te salga. "
+                             + ("Recibimos tu audio; una persona lo revisará. " if audio_received else "")
                              + "¿Qué trabajo haces: gasfitería, carpintería, pintura u otro?")
                     db.add(FacebookChatMessage(
                         org_id=lead.org_id, lead_id=lead.id, page_id=lead.page_id,
                         direction="outbound", state="pending", body=intro[:450],
                         ai_generated=False,
                     ))
+                elif lead.needs_support:
+                    # Mantener atención humana preferente en lugar de mandar una
+                    # lista de documentos o procesar automáticamente con IA externa.
+                    pass
                 elif lead.ai_consent and (recent or 0) < 5 and cfg.facebook_ai_enabled and cfg.facebook_ai_api_key:
                     db.add(FacebookChatMessage(
                         org_id=lead.org_id, lead_id=lead.id, page_id=lead.page_id,
@@ -331,7 +352,8 @@ def center(user: User = Depends(administrator), db: Session = Depends(get_db)):
                 FacebookTradeGuide.approved.is_(True))) or 0,
             "counts": {"pending_ads": len(ads), "contacts": len(leads),
                        "unread": sum(bool(lead.unread) for lead in leads),
-                       "review": sum(lead.status == "pending_review" for lead in leads)}}
+                       "review": sum(lead.status == "pending_review" for lead in leads),
+                       "support": sum(bool(lead.needs_support) for lead in leads)}}
 
 
 @router.get("/leads/{lead_id}")
@@ -407,6 +429,11 @@ def suggest_reply(lead_id: str, user: User = Depends(administrator),
                 "\nDotación: " + str(lead.workers or "sin informar") +
                 "\nDisponibilidad: " + lead.availability[:120] +
                 "\nConversación reciente:\n" + latest)
+    if lead.needs_support:
+        return {"draft": reply_for_support(lead.support_reason or "Solicitó ayuda",
+                                           bool(lead.specialty)),
+                "source": "help_first", "requires_review": True,
+                "alert_admin": True}
     if settings().facebook_ai_enabled and lead.ai_consent:
         guide = _guide_for(db, lead)
         if guide:
@@ -434,6 +461,19 @@ def suggest_reply(lead_id: str, user: User = Depends(administrator),
                       "con faltas: te entiendo. Si prefieres un audio, una persona lo "
                       "puede revisar. " + question),
             "source": "template", "requires_review": True}
+
+
+@router.get("/leads/{lead_id}/onboarding")
+def lead_onboarding(lead_id: str, user: User = Depends(administrator),
+                    db: Session = Depends(get_db)):
+    lead = _lead(db, user, lead_id)
+    # No publicar una lista al contacto: es herramienta interna y gradual.
+    return onboarding_guide(
+        entity_type="unknown",
+        has_employees=None,
+        trade=lead.specialty,
+        needs_support=lead.needs_support,
+    )
 
 
 @router.post("/requirements/{requirement_id}/ad-draft")
