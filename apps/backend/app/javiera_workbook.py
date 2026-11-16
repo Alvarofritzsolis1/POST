@@ -891,8 +891,10 @@ def irl_risk_print_rows(root: ET.Element) -> tuple[tuple[int, ...], bool]:
             columns_by_row.setdefault(row_number, set()).add(match[1])
 
     risk_rows = tuple(sorted(row for row, cols in columns_by_row.items() if "A" in cols))
-    if columns_by_row == {45: {"A"}}:
-        # Compatibilidad exclusiva con fixtures sintéticos antiguos.
+    if len(columns_by_row) == 1 and risk_rows == (45,):
+        # Los fixtures antiguos representan los 12 espacios con un único
+        # marcador A45; algunos contienen también B45:D45. No son una
+        # maqueta real completa, pero deben conservar su vía legada.
         return tuple(45 + 2 * i for i in range(12)), False
 
     complete = (
