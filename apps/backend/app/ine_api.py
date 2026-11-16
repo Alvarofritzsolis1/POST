@@ -325,7 +325,7 @@ async def import_source(
     count = 0
     try:
         for position, worksheet in enumerate(workbook.worksheets):
-            if worksheet.max_row > 3000 or worksheet.max_column > 120:
+            if (worksheet.max_row or 0) > 3000 or (worksheet.max_column or 0) > 120:
                 raise HTTPException(422, "Una hoja excede el límite de seguridad")
             literal_rows = []
             for row_number, row in enumerate(worksheet.iter_rows(), start=1):
