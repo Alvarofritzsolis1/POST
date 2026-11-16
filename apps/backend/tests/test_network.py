@@ -740,8 +740,11 @@ def test_migration_from_existing_schema_is_additive_and_reopen_preserves_data(ne
             (u.id, u.email, u.password_hash, u.role) for u in db.scalars(select(User))
         }
         original_sites = {(s.id, s.name) for s in db.scalars(select(Worksite))}
+    # Desde la versión CRM, Facebook referencia un requerimiento de Red de Obras.
+    # Al simular un esquema antiguo se deben retirar también esas tablas hijas.
     future_tables = [
-        t for t in Base.metadata.sorted_tables if t.name.startswith("network_")
+        t for t in Base.metadata.sorted_tables
+        if t.name.startswith("network_") or t.name.startswith("facebook_")
     ]
     Base.metadata.drop_all(n["engine"], tables=list(reversed(future_tables)))
     for _ in range(2):
