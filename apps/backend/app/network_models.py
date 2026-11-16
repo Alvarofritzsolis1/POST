@@ -265,3 +265,21 @@ class NetworkAttachment(Record, Base):
     mime: Mapped[str] = mapped_column(String(80))
     size: Mapped[int] = mapped_column(Integer)
     sha256: Mapped[str] = mapped_column(String(64))
+
+
+class NetworkFacebookPost(Record, Base):
+    """Un envío remoto por requerimiento y página, con estado duradero."""
+    __tablename__ = "network_facebook_posts"
+    __table_args__ = (
+        UniqueConstraint("org_id", "requirement_id", "page_id", name="uq_network_fb_req_page"),
+        Index("ix_network_fb_pending", "page_id", "state"),
+    )
+    requirement_id: Mapped[str] = mapped_column(ForeignKey("network_requirements.id"), index=True)
+    page_id: Mapped[str] = mapped_column(String(40))
+    post_id: Mapped[str | None] = mapped_column(String(120), nullable=True)
+    target_version: Mapped[int] = mapped_column(Integer, default=1)
+    action: Mapped[str] = mapped_column(String(16), default="publish")
+    state: Mapped[str] = mapped_column(String(20), default="pending")
+    last_error: Mapped[str | None] = mapped_column(Text, nullable=True)
+    attempts: Mapped[int] = mapped_column(Integer, default=0)
+    updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow)
