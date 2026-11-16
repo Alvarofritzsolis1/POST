@@ -29,11 +29,12 @@ type Center = {
 type Chat = { id: string; direction: "inbound" | "outbound"; state: string; body: string;
   ai_generated: boolean; created_at: string; error: string | null };
 type Detail = { lead: Lead; messages: Chat[] };
-type Guide = { id: string; trade: string; aliases: string[]; explanation: string;
+type Guide = { id: string; slug: string; trade: string; aliases: string[]; explanation: string;
   document_guidance: string[]; approved: boolean };
 const statuses: Record<string, string> = {
   new: "Nuevo", contacting: "En conversación", pending_review: "Por revisar",
   shortlisted: "Posible candidato", archived: "Archivado", pending: "Pendiente",
+  disabled: "Conexión desactivada", not_queued: "Sin sincronizar",
   failed: "Error", sending: "Enviando", uncertain: "Revisar en Meta",
 };
 const freshGuide = () => ({
@@ -56,6 +57,7 @@ export default function FacebookCenter({ catalog }: { catalog: Catalog }) {
   const [notice, setNotice] = useState("");
   const [filter, setFilter] = useState("");
   const [guides, setGuides] = useState<Guide[]>([]);
+  const [adDraft, setAdDraft] = useState<{id: string; title: string; draft: string; source: string} | null>(null);
   const [guide, setGuide] = useState(freshGuide);
 
   const refresh = useCallback(async () => {
@@ -88,14 +90,15 @@ export default function FacebookCenter({ catalog }: { catalog: Catalog }) {
       .then(setGuides).catch((e) => setError(errorText(e)));
   }, [tab]);
 
-  async function mutate(label: string, run: () => Promise<unknown>, message: string) {
+  async function mutate(label: string, run: () => Promise<unknown>, message: string): Promise<boolean> {
     setSaving(label); setError(""); setNotice("");
     try {
       await run();
       setNotice(message);
       await refresh();
       if (selectedId) await refreshDetail(selectedId);
-    } catch (e) { setError(errorText(e)); }
+      return true;
+    } catch (e) { setError(errorText(e)); return false; }
     finally { setSaving(""); }
   }
   function patchLead(patch: Partial<Lead>) {
@@ -118,7 +121,7 @@ export default function FacebookCenter({ catalog }: { catalog: Catalog }) {
     if (!reply.trim() || !selectedId) return;
     void mutate("send", () => change("/facebook/leads/" + selectedId + "/reply", { message: reply }),
       "Respuesta guardada en la cola de envío. Confirma el estado enviado.")
-      .then(() => setReply(""));
+      .then((success) => { if (success) setReply(""); });
   }
   function saveGuide(e: FormEvent) {
     e.preventDefault();
@@ -131,9 +134,11 @@ export default function FacebookCenter({ catalog }: { catalog: Catalog }) {
       document_guidance: guide.documents.split("\n").map((x) => x.trim()).filter(Boolean),
       approved: guide.approved,
     }, "PUT"), "Guía guardada para la IA y el administrador.")
-      .then(async () => {
-        setGuides(await net<Guide[]>("/facebook/guides"));
-        setGuide(freshGuide());
+      .then(async (success) => {
+        if (success) {
+          setGuides(await net<Guide[]>("/facebook/guides"));
+          setGuide(freshGuide());
+        }
       }).catch((e) => setError(errorText(e)));
   }
   const lead = detail?.lead ?? null;
@@ -260,7 +265,7 @@ export default function FacebookCenter({ catalog }: { catalog: Catalog }) {
           </label>
           <label className="fbc-check"><input type="checkbox" checked={lead.ai_consent}
             onChange={(e) => setDetail((old) => old ? {...old, lead: {...old.lead, ai_consent: e.target.checked}} : old)} />
-            El contacto autorizó procesar sus mensajes con IA</label>
+            Confirmé que el contacto autorizó usar IA externa para sus mensajes</label>
           <button type="button" disabled={!!saving} className="nw-btn nw-primary"
             onClick={() => patchLead({
               company: lead.company, specialty: lead.specialty,
@@ -289,20 +294,38 @@ export default function FacebookCenter({ catalog }: { catalog: Catalog }) {
       {center?.pending_ads.map((ad) => <article key={ad.id} className="fbc-ad">
         <div><strong>{ad.title}</strong><small>{ad.specialty} · {statuses[ad.state] || ad.state}</small>
           {ad.error && <p>{ad.error}</p>}</div>
-        {ad.state === "failed" && <button className="nw-btn" disabled={!!saving}
-          onClick={() => void mutate(ad.id, () => change("/requirements/" + ad.requirement_id + "/facebook/sync"), "Sincronización solicitada.")}>
-          <RefreshCcw size={15} /> Reintentar</button>}
+        <div className="fbc-ad-actions">
+          <button className="nw-btn" disabled={!!saving}
+            onClick={() => void mutate("ad-draft", async () => {
+              const draft = await change<{draft: string; source: string}>(
+                "/facebook/requirements/" + ad.requirement_id + "/ad-draft");
+              setAdDraft({id: ad.id, title: ad.title, ...draft});
+            }, "Borrador de anuncio preparado para revisión.")}>
+            <Sparkles size={15} /> Ver texto sugerido</button>
+          {["failed", "not_queued"].includes(ad.state) && <button className="nw-btn"
+            disabled={!!saving || !center?.automatic_enabled}
+            onClick={() => void mutate(ad.id, () => change("/requirements/" + ad.requirement_id + "/facebook/sync"),
+              "Se solicitó sincronización. Verifica el estado antes de repetir.")}>
+            <RefreshCcw size={15} /> {ad.state === "failed" ? "Reintentar" : "Sincronizar"}</button>}
+        </div>
         {ad.state === "uncertain" && <small>Comprueba primero en Facebook para no duplicar el anuncio.</small>}
       </article>)}
+      {adDraft && <div className="fbc-ad-draft"><div className="fbc-ad-draft-header">
+        <b>Texto propuesto: {adDraft.title}</b>
+        <button className="nw-btn" onClick={() => setAdDraft(null)}>Cerrar</button></div>
+        <pre>{adDraft.draft}</pre>
+        <small>{adDraft.source === "ai" ? "Borrador generado por IA" : "Texto del requerimiento"}.
+          Revisa los datos antes de publicar; la vista previa no publica nada.</small>
+      </div>}
       {!center?.automatic_enabled && <div className="fbc-alert"><AlertTriangle size={18} /> El VPS tiene desactivado el envío automático. Hay que habilitar el publicador y verificar el token de página.</div>}
     </section>}
     {tab === "guides" && <div className="fbc-guides">
       <section>
-        <h3>Conocimiento que aprende a usar GALANT</h3>
+        <h3>Guías aprobadas: {center?.guides_approved || 0} / 26 oficios</h3>
         <p>Agrega los oficios de tu empresa, incluidos los 26 que necesitas. Las guías solo se utilizan cuando el administrador las marca como aprobadas; no son requisitos legales automáticos.</p>
         <div className="fbc-guide-list">
           {guides.map((item) => <button key={item.id} type="button" onClick={() => setGuide({
-            slug: item.trade.normalize("NFD").replace(/[\u0300-\u036f]/g,"").toLowerCase().replace(/[^a-z0-9]+/g,"-").replace(/^-|-$/g,""),
+            slug: item.slug,
             trade: item.trade, aliases: item.aliases.join("\n"),
             explanation: item.explanation, documents: item.document_guidance.join("\n"),
             approved: item.approved,
@@ -311,7 +334,8 @@ export default function FacebookCenter({ catalog }: { catalog: Catalog }) {
       </section>
       <form onSubmit={saveGuide}>
         <h3>Editar o agregar oficio</h3>
-        <label>Nombre del oficio<input required value={guide.trade} onChange={(e) => setGuide({...guide, trade: e.target.value})} placeholder="Ej.: Gasfitería" /></label>
+        <label>Nombre del oficio<input required list="fbc-trade-guide-list" value={guide.trade} onChange={(e) => setGuide({...guide, trade: e.target.value})} placeholder="Ej.: Gasfitería" /></label>
+        <datalist id="fbc-trade-guide-list">{catalog.specialties.map((x) => <option key={x} value={x}/>)}</datalist>
         <label>Palabras que usan los maestros (una por línea)<textarea value={guide.aliases} rows={3} onChange={(e) => setGuide({...guide, aliases: e.target.value})} placeholder={"gasfiter\nmaestro sanitario\ninstalador"} /></label>
         <label>Qué hace este oficio (palabras simples)<textarea value={guide.explanation} rows={3} onChange={(e) => setGuide({...guide, explanation: e.target.value})} placeholder="Ej.: Instala o repara cañerías, llaves de agua y desagües." /></label>
         <label>Documentos que administración confirmará (uno por línea)<textarea value={guide.documents} rows={4} onChange={(e) => setGuide({...guide, documents: e.target.value})} placeholder="No inventar documentos. Indica solo los revisados para esta especialidad." /></label>
