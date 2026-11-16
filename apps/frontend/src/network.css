@@ -2004,3 +2004,9 @@
   cursor: pointer;
 }
 [data-theme="dark"] .nw-form .nw-facebook-edit label.nw-quick-facebook-heading { color: #87b9ff; }
+
+/* Lectura INE desde la vista exclusiva de residentes */
+.nw-resident-extra{display:flex;gap:12px;align-items:center;min-width:0;flex-wrap:wrap}
+.nw-ine-history-link{border:1px solid #c7ddec;background:#eff8fc;color:#1b5e86;padding:10px 13px;border-radius:10px;display:inline-flex;align-items:center;gap:8px;font-size:12px;font-weight:800;white-space:nowrap}
+.nw-ine-history-link:hover{background:#dff1fa;border-color:#a2cee8}
+@media(max-width:640px){.nw-resident-extra{gap:7px}.nw-ine-history-link{padding:9px 10px;font-size:11px}}
