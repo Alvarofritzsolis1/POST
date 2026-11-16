@@ -184,11 +184,15 @@ def rows(period: str, user: User = Depends(authorized_user), db: Session = Depen
     # La autorización para escribir sigue siendo por rol, mes y asignación.
     result = [row_view(r, user, allowed) for r in items]
     known_ids = {r.site_id for r in items if r.site_id}
+    known_names = {normalized(r.site_name) for r in items}
     site_query = select(Worksite).where(Worksite.org_id == user.org_id).order_by(Worksite.name)
-    for site in db.scalars(site_query):
-        if site.id in known_ids:
+    # La lista oficial de cada mes histórico es la que proviene del Excel.
+    # No inventar pendientes de obras que no figuren en esa hoja.
+    if period in {current_month(), previous_month()}:
+      for site in db.scalars(site_query):
+        if site.id in known_ids or normalized(site.name) in known_names:
             continue
-        if user.role != "admin" and not (user.role == "ine_supervisor" and site.id in allowed and period in {current_month(), previous_month()}):
+        if user.role != "admin" and not (user.role == "ine_supervisor" and site.id in allowed):
             continue
         result.append({
             "id": None, "period": period, "site_id": site.id, "site_name": site.name,
