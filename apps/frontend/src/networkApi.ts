@@ -95,6 +95,12 @@ export type Requirement = {
   editable: boolean;
   can_award: boolean;
   version: number;
+  facebook?: {
+    enabled: boolean;
+    state: string;
+    post_url: string | null;
+    error: string | null;
+  } | null;
   items: Item[];
   item_count: number;
   covered_items: number;

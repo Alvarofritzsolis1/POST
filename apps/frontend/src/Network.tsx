@@ -15,6 +15,7 @@ import {
   CircleHelp,
   Clock3,
   FileCheck2,
+  Facebook,
   LayoutDashboard,
   LayoutGrid,
   List,
@@ -54,6 +55,7 @@ import {
   RequirementForm,
 } from "./NetworkForms";
 import { NetworkAccountMenu } from "./NetworkAccounts";
+import NetworkFacebook from "./NetworkFacebook";
 import {
   Badge,
   dateText,
@@ -69,6 +71,7 @@ import "./network.css";
 
 const tabs = [
   ["home", "Inicio", LayoutDashboard],
+  ["facebook", "Publicar en Facebook", Facebook],
   ["requirements", "Necesito contratista", Building2],
   ["capacities", "Contratistas con capacidad", Users],
   ["matches", "Coincidencias", Sparkles],
@@ -591,7 +594,7 @@ export default function RedDeObras({ user }: { user: Profile }) {
         )}
       </div>
       <nav className="nw-tabs" aria-label="Red de Obras">
-        {tabs.map(([id, label, Icon]) => (
+        {tabs.filter(([id]) => id !== "facebook" || user.role === "admin").map(([id, label, Icon]) => (
           <button
             key={id}
             aria-current={tab === id ? "page" : undefined}
@@ -606,7 +609,7 @@ export default function RedDeObras({ user }: { user: Profile }) {
           </button>
         ))}
       </nav>
-      <div className="nw-filters">
+      <div className="nw-filters" style={{ display: tab === "facebook" ? "none" : undefined }}>
         <label>
           <Building2 size={16} />
           <select
@@ -722,6 +725,9 @@ export default function RedDeObras({ user }: { user: Profile }) {
           </div>
         )}
       </div>
+      {tab === "facebook" && user.role === "admin" && (
+        <NetworkFacebook catalog={catalog} />
+      )}
       {error && (
         <div role="alert" className="nw-error">
           {error}
@@ -1228,6 +1234,51 @@ export default function RedDeObras({ user }: { user: Profile }) {
                 <Badge value={selectedReq.state} />
                 <Badge value={selectedReq.allocation_state} />
               </div>
+              {selectedReq.facebook && (
+                <div className="nw-surface" aria-label="Publicación de Facebook">
+                  <div className="nw-row nw-wrap">
+                    <b>Difusión en Facebook</b>
+                    <Badge value={
+                      selectedReq.facebook.state === "published" ? "confirmed" :
+                      selectedReq.facebook.state === "failed" || selectedReq.facebook.state === "uncertain" ? "urgent" :
+                      "pending"
+                    } />
+                  </div>
+                  <p className="nw-muted">
+                    {{
+                      disabled: "Desactivada en el servidor. No se publicará automáticamente.",
+                      not_queued: "Aún sin aviso externo. Solo se envían automáticamente los nuevos requerimientos.",
+                      pending: "En cola para publicarse en la página.",
+                      sending: "Enviando a Meta. Evita repetir la operación.",
+                      published: "Publicado en la página de Facebook.",
+                      failed: "Meta rechazó la solicitud. Revisa la configuración.",
+                      uncertain: "No se confirmó el resultado. Comprueba Facebook antes de reintentar.",
+                      deleted: "Se retiró el aviso de Facebook.",
+                      cancelled: "No se publicó el aviso.",
+                    }[selectedReq.facebook.state] || selectedReq.facebook.state}
+                  </p>
+                  {selectedReq.facebook.error && (
+                    <p className="nw-muted">{selectedReq.facebook.error}</p>
+                  )}
+                  {selectedReq.facebook.post_url && (
+                    <a href={selectedReq.facebook.post_url} target="_blank" rel="noopener noreferrer">
+                      Ver publicación en Facebook
+                    </a>
+                  )}
+                  {user.role === "admin" && selectedReq.facebook.enabled &&
+                    selectedReq.state === "published" &&
+                    ["not_queued", "failed", "deleted", "cancelled"].includes(selectedReq.facebook.state) && (
+                    <button className="nw-btn" onClick={() => {
+                      void change("/requirements/" + selectedReq.id + "/facebook/sync")
+                        .then(() => net<Requirement>("/requirements/" + selectedReq.id))
+                        .then((req) => { setSelectedReq(req); setNotice("Se solicitó la sincronización con Facebook."); })
+                        .catch((err) => setError(errorText(err)));
+                    }}>
+                      Sincronizar con Facebook
+                    </button>
+                  )}
+                </div>
+              )}
               <h2>{selectedReq.title}</h2>
               <p className="nw-muted">
                 {selectedReq.site} · {selectedReq.specialty} ·{" "}

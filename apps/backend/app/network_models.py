@@ -265,3 +265,42 @@ class NetworkAttachment(Record, Base):
     mime: Mapped[str] = mapped_column(String(80))
     size: Mapped[int] = mapped_column(Integer)
     sha256: Mapped[str] = mapped_column(String(64))
+
+
+class NetworkFacebookPost(Record, Base):
+    """Un envío remoto por requerimiento y página, con estado duradero."""
+    __tablename__ = "network_facebook_posts"
+    __table_args__ = (
+        UniqueConstraint("org_id", "requirement_id", "page_id", name="uq_network_fb_req_page"),
+        Index("ix_network_fb_pending", "page_id", "state"),
+    )
+    requirement_id: Mapped[str] = mapped_column(ForeignKey("network_requirements.id"), index=True)
+    page_id: Mapped[str] = mapped_column(String(40))
+    post_id: Mapped[str | None] = mapped_column(String(120), nullable=True)
+    target_version: Mapped[int] = mapped_column(Integer, default=1)
+    action: Mapped[str] = mapped_column(String(16), default="publish")
+    state: Mapped[str] = mapped_column(String(20), default="pending")
+    last_error: Mapped[str | None] = mapped_column(Text, nullable=True)
+    attempts: Mapped[int] = mapped_column(Integer, default=0)
+    updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow)
+
+
+class NetworkFacebookManual(Record, Base):
+    """Auditoría de pruebas manuales; nunca confundir con requerimientos internos."""
+    __tablename__ = "network_facebook_manual"
+    __table_args__ = (
+        UniqueConstraint("org_id", "client_key", name="uq_network_fb_manual_client"),
+        Index("ix_network_fb_manual_queue", "page_id", "state"),
+    )
+    created_by: Mapped[str] = mapped_column(ForeignKey("users.id"), index=True)
+    page_id: Mapped[str] = mapped_column(String(40))
+    client_key: Mapped[str] = mapped_column(String(80))
+    action: Mapped[str] = mapped_column(String(16))  # verify, publish, delete
+    state: Mapped[str] = mapped_column(String(20), default="pending")
+    title: Mapped[str] = mapped_column(String(180), default="")
+    message: Mapped[str] = mapped_column(Text, default="")
+    post_id: Mapped[str | None] = mapped_column(String(120), nullable=True)
+    page_name: Mapped[str | None] = mapped_column(String(180), nullable=True)
+    last_error: Mapped[str | None] = mapped_column(String(250), nullable=True)
+    attempts: Mapped[int] = mapped_column(Integer, default=0)
+    updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow)

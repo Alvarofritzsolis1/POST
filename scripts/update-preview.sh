@@ -42,6 +42,10 @@ previous_has_calc=0
 configure_compose() {
     compose=(docker compose --env-file .env.preview)
     calc_services=()
+    facebook_services=()
+    if grep -q "^  facebook-publisher:" docker-compose.preview.yml; then
+        facebook_services=(facebook-publisher)
+    fi
     if [[ -f docker-compose.javiera20.yml ]]; then
         python3 scripts/prepare-javiera20-env.py .env.javiera20
         compose+=(--env-file .env.javiera20 -f docker-compose.preview.yml -f docker-compose.javiera20.yml)
@@ -72,6 +76,10 @@ rollback() {
     trap - EXIT ERR
     if (( status != 0 && switched )); then
         echo "La actualización falló; restaurando ${previous_ref}." >&2
+        # Detener el publicador nuevo antes de restaurar un Compose anterior.
+        if (( ${#facebook_services[@]} )); then
+            "${compose[@]}" stop "${facebook_services[@]}" || true
+        fi
         if (( ! previous_has_calc && ${#calc_services[@]} )); then
             "${compose[@]}" stop javiera-calc || true
         fi
@@ -79,7 +87,7 @@ rollback() {
         if git checkout --detach "$previous_ref" \
             && configure_compose \
             && "${compose[@]}" config --quiet \
-            && COMPOSE_PARALLEL_LIMIT=1 "${compose[@]}" up -d --build db api worker frontend proxy \
+            && COMPOSE_PARALLEL_LIMIT=1 "${compose[@]}" up -d --build db api worker "${facebook_services[@]}" frontend proxy \
             && "${compose[@]}" exec -T api python -m app.cli init-db \
             && wait_for_health; then
             echo "Se restauró la versión anterior." >&2
@@ -110,12 +118,12 @@ fi
 bash scripts/verify-restore-preview.sh "$backup_path"
 backup_sha256="$(sha256sum "$backup_path/postgres.dump" | cut -d' ' -f1)"
 export SOURCE_COMMIT="$target_ref"
-COMPOSE_PARALLEL_LIMIT=1 "${compose[@]}" build api worker frontend "${calc_services[@]}"
+COMPOSE_PARALLEL_LIMIT=1 "${compose[@]}" build api worker "${facebook_services[@]}" frontend "${calc_services[@]}"
 # Freeze writers before reprojecting legacy attendance. Old rows remain intact.
 # On failure the EXIT trap restores the previous containers; no volumes are removed.
-"${compose[@]}" stop api worker
+"${compose[@]}" stop api worker "${facebook_services[@]}"
 "${compose[@]}" run --rm --no-deps api python -m app.cli migrate-db --verified-backup-sha256 "$backup_sha256"
-COMPOSE_PARALLEL_LIMIT=1 "${compose[@]}" up -d --no-build db "${calc_services[@]}" api worker frontend proxy
+COMPOSE_PARALLEL_LIMIT=1 "${compose[@]}" up -d --no-build db "${calc_services[@]}" api worker "${facebook_services[@]}" frontend proxy
 wait_for_health "$target_ref"
 # Check the exact build and additive migration, and exercise the authenticated
 # Calc transport with a disposable workbook. No production dossier is created.
