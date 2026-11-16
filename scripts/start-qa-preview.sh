@@ -69,7 +69,7 @@ print("QA isolation verified")
 PY
 
 # En QA se arranca un worker administrativo liviano y no el motor OCR.
-COMPOSE_PARALLEL_LIMIT=1 "${compose[@]}" up -d --build db api worker frontend proxy
+COMPOSE_PARALLEL_LIMIT=1 "${compose[@]}" up -d --build db api worker facebook-publisher frontend proxy
 "${compose[@]}" exec -T api python -m app.cli init-db
 
 expected_version="$("${compose[@]}" exec -T api python -c 'from app.version import VERSION; print(VERSION)')"
