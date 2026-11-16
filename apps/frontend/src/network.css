@@ -1991,3 +1991,16 @@
 .nw .nw-kpis { grid-template-columns: repeat(4, minmax(0, 1fr)); }
 @media (max-width: 990px) { .nw .nw-kpis { grid-template-columns: repeat(2, minmax(0, 1fr)); } }
 @media (max-width: 540px) { .nw .nw-kpis { grid-template-columns: 1fr 1fr; } }
+
+
+/* Facebook al editar una necesidad existente, sin crear un segundo flujo de publicación. */
+.nw-form .nw-facebook-edit label.nw-quick-facebook-heading {
+  display: flex;
+  flex-direction: row;
+  align-items: center;
+  gap: 10px;
+  font-size: 14px;
+  color: #125ccc;
+  cursor: pointer;
+}
+[data-theme="dark"] .nw-form .nw-facebook-edit label.nw-quick-facebook-heading { color: #87b9ff; }
