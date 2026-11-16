@@ -607,9 +607,6 @@ export default function RedDeObras({ user }: { user: Profile }) {
           >
             <Icon size={16} />
             {label}
-            {id === "messages" && !!overview?.unread_messages && (
-              <span className="nw-tab-count">{overview.unread_messages}</span>
-            )}
           </button>
         ))}
       </nav>
