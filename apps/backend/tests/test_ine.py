@@ -256,6 +256,11 @@ def test_admin_can_create_unlinked_worksite_edit_all_and_preserve_source(context
     assert sha256(original.content).hexdigest() == sha256(ctx["source"]).hexdigest()
     assert ctx["call"](ctx["admin"], "POST", "/rows/manual",
         json={"version": 0, "period": "2023-03", "site_name": "OBRA RENOMBRADA"}).status_code == 409
+    second = ctx["call"](ctx["admin"], "POST", "/rows/manual", json={
+        "version": 0, "period": "2023-03", "site_name": "OBRA ADICIONAL",
+        "cct": 0, "cesp": 1, "ind": 1, "th": 3, "tm": 0})
+    assert second.status_code == 201, second.text
+    assert second.json()["id"] != row["id"]
     assert ctx["call"](ctx["supervisor"], "PUT", "/rows/" + row["id"], json={
         "version": 3, "cct": 6, "cesp": 0, "ind": 1, "th": 20, "tm": 2,
     }).status_code == 403
