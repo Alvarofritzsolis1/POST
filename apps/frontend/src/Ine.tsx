@@ -127,6 +127,8 @@ export default function Ine({ user, version, onBack, logout }: {
   const [error, setError] = useState("");
   const [notice, setNotice] = useState("");
   const [showNew, setShowNew] = useState(false);
+  const [expandedRow, setExpandedRow] = useState("");
+  const [moreCharts, setMoreCharts] = useState(false);
   const [newName, setNewName] = useState("");
   const [newSiteId, setNewSiteId] = useState("");
   const [newCounts, setNewCounts] = useState<Record<Field, string>>(emptyFields);
