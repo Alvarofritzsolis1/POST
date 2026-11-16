@@ -23,3 +23,7 @@
 .contribution-preview p{margin:0;font-size:12px}
 .contribution-preview .status{justify-self:start}
 .contribution-preview small{font-size:11px;color:#745d39}
+
+/* Acceso inmediato al histórico INE para el revisor documental */
+.ine-reviewer-entry{position:fixed;right:19px;top:17px;z-index:999;border:1px solid #aecde5;border-radius:11px;background:#e9f5fe;color:#1d658d;font-size:12px;font-weight:800;padding:11px 14px;box-shadow:0 5px 18px #17436d21;cursor:pointer}
+.ine-reviewer-entry:hover{background:#d5edf9}

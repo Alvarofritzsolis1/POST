@@ -68,6 +68,7 @@ def authorized_user(request: Request, db: Session = Depends(get_db)) -> User:
         # Solo recursos de revisión. No abrir rutas generales de JAVIERA
         # ni expedientes operativos a este perfil.
         reviewer_read = (
+            (request.method in {"GET", "HEAD"} and path.startswith("/api/v1/ine/")) or
             path.startswith("/api/v1/javiera/v17/review/") or
             (request.method == "GET" and path in {
                 "/api/v1/javiera/admin/reviews/checklists",
@@ -86,12 +87,14 @@ def authorized_user(request: Request, db: Session = Depends(get_db)) -> User:
     if user.role == "ine_supervisor" and not (request.url.path.startswith("/api/v1/ine/") or
             request.url.path in {"/api/v1/auth/me", "/api/v1/auth/logout"}):
         raise HTTPException(403, "Supervisor INE: acceso limitado al módulo INE")
-    if user.role == "resident" and not (request.url.path.startswith("/api/v1/network/") or
+    if user.role == "resident" and not ((request.method in {"GET", "HEAD"} and request.url.path.startswith("/api/v1/ine/")) or
+            request.url.path.startswith("/api/v1/network/") or
             request.url.path in {"/api/v1/auth/me", "/api/v1/auth/logout"}):
         raise HTTPException(403, "El residente solo tiene acceso a Red de Obras")
     if user.role == "administrative":
         path = request.url.path
-        allowed = (path.startswith("/api/v1/attendance/") or
+        allowed = ((request.method in {"GET", "HEAD"} and path.startswith("/api/v1/ine/")) or
+                   path.startswith("/api/v1/attendance/") or
                    path.startswith("/api/v1/attendance-v81/") or
                    path in {"/api/v1/ops/sites", "/api/v1/network/profile",
                             "/api/v1/labor/contract-alerts",
