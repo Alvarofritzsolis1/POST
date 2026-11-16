@@ -35,7 +35,7 @@ chown 10001:10001 preview-storage
 compose=(docker compose --env-file .env.preview -f docker-compose.preview.yml)
 "${compose[@]}" config --quiet
 COMPOSE_PARALLEL_LIMIT=1 "${compose[@]}" build
-"${compose[@]}" up -d db api worker frontend proxy
+"${compose[@]}" up -d db api worker facebook-publisher frontend proxy
 "${compose[@]}" exec -T api python -m app.cli init-db
 ok=0
 for i in {1..35}; do
