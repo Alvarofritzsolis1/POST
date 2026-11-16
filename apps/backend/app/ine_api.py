@@ -12,6 +12,7 @@ from zoneinfo import ZoneInfo
 from fastapi import APIRouter, Depends, File, Form, HTTPException, UploadFile
 from fastapi.responses import Response
 from openpyxl import Workbook, load_workbook
+from openpyxl.utils import get_column_letter
 from pydantic import BaseModel, ConfigDict, Field
 from sqlalchemy import func, select
 from sqlalchemy.orm import Session
@@ -47,6 +48,19 @@ class LinkSite(BaseModel):
     site_id: str | None = None
 
 
+class RowDetails(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+    version: int = Field(ge=1)
+    site_name: str = Field(min_length=2, max_length=200)
+    supervisor: str = Field(default="", max_length=180)
+
+
+class ManualRow(SheetEdit):
+    period: str
+    site_name: str = Field(min_length=2, max_length=200)
+    site_id: str | None = None
+
+
 def period_of(value: str) -> str:
     if not re.fullmatch(r"(19|20|21)\d{2}-(0[1-9]|1[0-2])", value):
         raise HTTPException(422, "Mes no válido. Usa AAAA-MM")
@@ -70,8 +84,8 @@ def can_edit(user: User, period: str, site_id: str | None, assigned: set[str]) -
 
 
 def access(user: User) -> None:
-    if user.role not in {"admin", "ine_supervisor"}:
-        raise HTTPException(403, "Solo administradores y supervisores INE")
+    if user.role not in {"admin", "ine_supervisor", "resident", "administrative"}:
+        raise HTTPException(403, "No tienes acceso al histórico INE")
 
 
 def assigned_sites(db: Session, user: User) -> set[str]:
@@ -149,11 +163,13 @@ def config(user: User = Depends(authorized_user), db: Session = Depends(get_db))
     allowed = assigned_sites(db, user)
     sites = db.scalars(select(Worksite).where(Worksite.org_id == user.org_id).order_by(Worksite.name)).all()
     original = db.scalar(select(IneOriginal).where(IneOriginal.org_id == user.org_id).order_by(IneOriginal.created_at.desc()))
+    available_periods = db.scalars(select(IneRow.period).where(IneRow.org_id == user.org_id).distinct().order_by(IneRow.period.desc())).all()
     return {
         "role": user.role, "current_month": current_month(), "previous_month": previous_month(),
+        "available_periods": list(available_periods),
         "sites": [{"id": s.id, "name": s.name} for s in sites if user.role == "admin" or s.id in allowed],
         "source": ({"name": original.filename, "sha256": original.sha256, "id": original.id}
-                   if original and user.role == "admin" else None),
+                   if original else None),
     }
 
 
@@ -164,13 +180,15 @@ def rows(period: str, user: User = Depends(authorized_user), db: Session = Depen
     allowed = assigned_sites(db, user)
     items = db.scalars(select(IneRow).where(IneRow.org_id == user.org_id, IneRow.period == period)
                        .order_by(IneRow.source_row, IneRow.site_name)).all()
-    if user.role != "admin":
-        items = [r for r in items if r.site_id in allowed]
+    # Todos los perfiles INE pueden consultar las cifras históricas de todas las obras.
+    # La autorización para escribir sigue siendo por rol, mes y asignación.
     result = [row_view(r, user, allowed) for r in items]
     known_ids = {r.site_id for r in items if r.site_id}
     site_query = select(Worksite).where(Worksite.org_id == user.org_id).order_by(Worksite.name)
     for site in db.scalars(site_query):
-        if site.id in known_ids or (user.role != "admin" and site.id not in allowed):
+        if site.id in known_ids:
+            continue
+        if user.role != "admin" and not (user.role == "ine_supervisor" and site.id in allowed and period in {current_month(), previous_month()}):
             continue
         result.append({
             "id": None, "period": period, "site_id": site.id, "site_name": site.name,
@@ -250,6 +268,58 @@ def link_row(row_id: str, body: LinkSite, user: User = Depends(administrator), d
     return row_view(row, user, assigned_sites(db, user))
 
 
+@router.post("/rows/manual", status_code=201)
+def manual_row(body: ManualRow, user: User = Depends(administrator), db: Session = Depends(get_db)):
+    period = period_of(body.period)
+    name = body.site_name.strip()
+    site_id = body.site_id
+    if site_id and not db.scalar(select(Worksite.id).where(
+            Worksite.id == site_id, Worksite.org_id == user.org_id)):
+        raise HTTPException(404, "Obra GALANT inexistente")
+    exists = db.scalar(select(IneRow.id).where(
+        IneRow.org_id == user.org_id, IneRow.period == period,
+        func.lower(IneRow.site_name) == name.lower()))
+    if exists:
+        raise HTTPException(409, "Ya existe un registro con ese nombre en el mes")
+    if site_id and db.scalar(select(IneRow.id).where(
+            IneRow.org_id == user.org_id, IneRow.period == period, IneRow.site_id == site_id)):
+        raise HTTPException(409, "Esta obra ya tiene datos para el mes")
+    row = IneRow(
+        org_id=user.org_id, period=period, site_name=name, site_id=site_id,
+        supervisor="", source_sheet="APP:MANUAL", source_row=0,
+        **{field: getattr(body, field) for field in FIELDS},
+    )
+    db.add(row)
+    db.flush()
+    db.add(IneChange(org_id=user.org_id, row_id=row.id, user_id=user.id,
+                     actor_name=actor(db, user), action="create",
+                     previous={}, current={**snapshot(row), "site_name": name}))
+    db.commit()
+    return row_view(row, user, assigned_sites(db, user))
+
+
+@router.put("/rows/{row_id}/details")
+def edit_details(row_id: str, body: RowDetails, user: User = Depends(administrator),
+                 db: Session = Depends(get_db)):
+    row = db.scalar(select(IneRow).where(
+        IneRow.id == row_id, IneRow.org_id == user.org_id).with_for_update())
+    if not row:
+        raise HTTPException(404, "Fila no encontrada")
+    if row.version != body.version:
+        raise HTTPException(409, "La fila cambió. Actualiza antes de guardar")
+    name = body.site_name.strip()
+    if db.scalar(select(IneRow.id).where(
+        IneRow.org_id == user.org_id, IneRow.period == row.period,
+        func.lower(IneRow.site_name) == name.lower(), IneRow.id != row.id)):
+        raise HTTPException(409, "Ya existe otra obra con este nombre en el mes")
+    before = {"site_name": row.site_name, "supervisor": row.supervisor}
+    row.site_name, row.supervisor = name, body.supervisor.strip()
+    save_changes(db, row, user, before, {"site_name": row.site_name,
+                                          "supervisor": row.supervisor}, "details")
+    db.commit()
+    return row_view(row, user, assigned_sites(db, user))
+
+
 @router.get("/history")
 def history(period: str | None = None, limit: int = 100, user: User = Depends(administrator),
             db: Session = Depends(get_db)):
@@ -275,8 +345,7 @@ def summary(year: int, user: User = Depends(authorized_user), db: Session = Depe
     data = db.scalars(select(IneRow).where(IneRow.org_id == user.org_id,
                                            IneRow.period >= f"{year}-01", IneRow.period <= f"{year}-12")).all()
     for row in data:
-        if user.role == "admin" or row.site_id in allowed:
-            by_month[row.period].append(row)
+        by_month[row.period].append(row)
     items = []
     for month in range(1, 13):
         period = f"{year}-{month:02d}"
@@ -286,6 +355,7 @@ def summary(year: int, user: User = Depends(authorized_user), db: Session = Depe
             "period": period, **sums, "rows": len(records),
             "complete": sum(all(getattr(r, k) is not None for k in FIELDS) for r in records),
             "pending": sum(any(getattr(r, k) is None for k in FIELDS) for r in records),
+            "reported": sum(any(getattr(r, k) is not None for k in FIELDS) for r in records),
         })
     return {"year": year, "months": items}
 
@@ -397,7 +467,8 @@ def original(user: User = Depends(administrator), db: Session = Depends(get_db))
 
 
 @router.get("/archive")
-def archive(user: User = Depends(administrator), db: Session = Depends(get_db)):
+def archive(user: User = Depends(authorized_user), db: Session = Depends(get_db)):
+    access(user)
     source = db.scalar(select(IneOriginal).where(IneOriginal.org_id == user.org_id)
                        .order_by(IneOriginal.created_at.desc()))
     if not source:
@@ -409,11 +480,37 @@ def archive(user: User = Depends(administrator), db: Session = Depends(get_db)):
 
 
 @router.get("/archive/{sheet_id}")
-def archive_sheet(sheet_id: str, user: User = Depends(administrator), db: Session = Depends(get_db)):
+def archive_sheet(sheet_id: str, user: User = Depends(authorized_user), db: Session = Depends(get_db)):
+    access(user)
     sheet = db.scalar(select(IneSheet).where(IneSheet.id == sheet_id, IneSheet.org_id == user.org_id))
     if not sheet:
         raise HTTPException(404, "Hoja no encontrada")
-    return {"name": sheet.sheet_name, "rows": sheet.cells}
+    source = db.scalar(select(IneOriginal).where(IneOriginal.id == sheet.original_id, IneOriginal.org_id == user.org_id))
+    if not source:
+        raise HTTPException(404, "Excel original no encontrado")
+    # Mostrar el resultado cacheado cuando la celda es fórmula, conservando
+    # también la fórmula exacta para la vista histórica de solo lectura.
+    cache = {}
+    workbook = load_workbook(BytesIO(source.content), data_only=True, read_only=True, keep_links=False)
+    try:
+        cached_sheet = workbook.worksheets[sheet.position]
+        for row_number, cells in enumerate(cached_sheet.iter_rows(), start=1):
+            for column, cell in enumerate(cells, start=1):
+                if cell.value is not None:
+                    cache[(row_number, get_column_letter(column))] = serialize(cell.value)
+    finally:
+        workbook.close()
+    lines = []
+    for line in sheet.cells:
+        display, formulas = {}, {}
+        for column, value in line["cells"].items():
+            if isinstance(value, str) and value.startswith("="):
+                formulas[column] = value
+                display[column] = cache.get((line["row"], column), value)
+            else:
+                display[column] = value
+        lines.append({"row": line["row"], "cells": display, "formulas": formulas})
+    return {"name": sheet.sheet_name, "rows": lines}
 
 
 @router.get("/export")
