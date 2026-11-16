@@ -61,6 +61,7 @@ export const labels: Record<string, string> = {
   resident: "Residente",
   admin: "Administrador",
   administrative: "Administrativo",
+  ine_supervisor: "Supervisor INE",
   doc_reviewer: "Revisor documental",
 };
 export function Badge({ value }: { value: string }) {
