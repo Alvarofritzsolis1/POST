@@ -25,6 +25,10 @@ class Settings(BaseSettings):
     smtp_from: str = ""
     javiera_calc_url: str = ""
     javiera_calc_secret: str = ""
+    # Facebook: activación explícita por entorno; el token solo vive en el worker.
+    facebook_autopublish_enabled: bool = False
+    facebook_page_id: str = ""
+    facebook_page_token: str = ""
 
 
 @lru_cache
