@@ -129,6 +129,7 @@ export default function NetworkFacebook({ catalog }: { catalog: Catalog }) {
       });
       setNotice("Envío solicitado. Revisa el historial para confirmar si Meta publicó el anuncio.");
       setAcknowledged(false);
+      setPreview(null); // Nueva vista previa obligatoria antes de otro anuncio.
       key.current = crypto.randomUUID();
       await reload();
     } catch (err) { setError(errorText(err)); }
