@@ -292,7 +292,9 @@ export default function Ine({user, version, onBack, logout}: {
           <div className="ine-site-footer">
             <div>{row.source_sheet ? <span>Origen: hoja {row.source_sheet}, fila {row.source_row}</span> :
               <span>Nuevo registro de GALANT</span>}
-              {row.source_status && <span>Estado original: {row.source_status}</span>}</div>
+              {row.source_status && <span>Estado original: {row.source_status}</span>}
+              {row.source_sheet && row.source_total !== null && <span>Total original Excel: {String(row.source_total)}</span>}
+              {row.source_sheet && row.source_percent !== null && <span>% independiente original: {String(row.source_percent)}</span>}</div>
             {row.editable && <button type="button" className="ine-save" disabled={!dirty(row) || !!busy}
               onClick={() => void save(row)}><Save size={16}/>{busy === rowKey(row) ? "Guardando…" : "Guardar"}</button>}
           </div>
