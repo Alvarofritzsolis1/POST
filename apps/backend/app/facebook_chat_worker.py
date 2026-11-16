@@ -77,6 +77,9 @@ def process_chat_next(session_factory=SessionLocal) -> bool:
         if not _within_24h(lead):
             job.state, job.error = "failed", "Fuera de la ventana estándar de 24 horas"
             return True
+        if job.state == "ai_pending" and lead.needs_support:
+            job.state, job.error = "cancelled", "El contacto pidió apoyo: revisión humana prioritaria"
+            return True
         if job.state == "ai_pending" and not lead.ai_consent:
             job.state, job.error = "cancelled", "El contacto no autorizó el procesamiento con IA"
             return True
