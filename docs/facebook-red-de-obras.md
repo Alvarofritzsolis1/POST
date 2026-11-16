@@ -30,7 +30,9 @@ No permite enviar publicaciones a grupos de terceros mediante la API oficial.
 ## Funcionamiento
 
 - Por defecto el sistema está desactivado. No hace publicaciones retroactivas.
-- Al crear un requerimiento publicado, se guarda una tarea en PostgreSQL.
+- Al crear un requerimiento publicado con la casilla «Publicar también en Facebook» activada, se guarda una tarea en PostgreSQL. La casilla aparece marcada por defecto en el nuevo formulario, pero el usuario puede desmarcarla; el servidor debe estar habilitado.
+- Los requerimientos previos a la migración tienen la preferencia desactivada y NO se difunden retroactivamente.
+- Si se desmarca Facebook al editar una necesidad ya difundida, el worker solicita retirar la publicación de la página conectada.
 - El worker publica texto acotado: obra, especialidad, título, dotación y partidas.
 - Se excluyen notas internas, descripciones detalladas, adjuntos y datos de trabajadores.
 - Si cambia el requerimiento, se actualiza el post existente.
