@@ -84,7 +84,7 @@ def can_edit(user: User, period: str, site_id: str | None, assigned: set[str]) -
 
 
 def access(user: User) -> None:
-    if user.role not in {"admin", "ine_supervisor", "resident", "administrative"}:
+    if user.role not in {"admin", "ine_supervisor", "resident", "administrative", "doc_reviewer"}:
         raise HTTPException(403, "No tienes acceso al histórico INE")
 
 
