@@ -55,6 +55,7 @@ import {
   RequirementForm,
 } from "./NetworkForms";
 import { NetworkAccountMenu } from "./NetworkAccounts";
+import { NetworkQuickForm } from "./NetworkQuickForm";
 import NetworkFacebook from "./NetworkFacebook";
 import {
   Badge,
@@ -70,10 +71,13 @@ import {
 import "./network.css";
 
 const tabs = [
-  ["home", "Inicio", LayoutDashboard],
-  ["facebook", "Publicar en Facebook", Facebook],
-  ["requirements", "Necesito contratista", Building2],
-  ["capacities", "Contratistas con capacidad", Users],
+  ["home", "Resumen", LayoutDashboard],
+  ["requirements", "Necesidades", Building2],
+  ["capacities", "Disponibles", Users],
+  ["matches", "Seguimiento", Sparkles],
+  ["facebook", "Facebook", Facebook],
+] as const;
+const trackingTabs = [
   ["matches", "Coincidencias", Sparkles],
   ["awards", "Adjudicaciones", FileCheck2],
   ["messages", "Mensajes", MessageSquare],
@@ -597,8 +601,8 @@ export default function RedDeObras({ user }: { user: Profile }) {
         {tabs.filter(([id]) => id !== "facebook" || user.role === "admin").map(([id, label, Icon]) => (
           <button
             key={id}
-            aria-current={tab === id ? "page" : undefined}
-            className={tab === id ? "active" : ""}
+            aria-current={(tab === id || (id === "matches" && ["awards", "messages", "calendar"].includes(tab))) ? "page" : undefined}
+            className={(tab === id || (id === "matches" && ["awards", "messages", "calendar"].includes(tab)) ? "active " : "") + (id === "facebook" ? "nw-facebook-tab" : "")}
             onClick={() => go(id)}
           >
             <Icon size={16} />
@@ -609,6 +613,19 @@ export default function RedDeObras({ user }: { user: Profile }) {
           </button>
         ))}
       </nav>
+      {["matches", "awards", "messages", "calendar"].includes(tab) && (
+        <nav className="nw-tracking-tabs" aria-label="Seguimiento de las necesidades">
+          {trackingTabs.map(([id, label, Icon]) => (
+            <button key={id} type="button" onClick={() => go(id)}
+              className={tab === id ? "active" : ""} aria-current={tab === id ? "page" : undefined}>
+              <Icon size={16} /> {label}
+              {id === "messages" && !!overview?.unread_messages && (
+                <span className="nw-tab-count">{overview.unread_messages}</span>
+              )}
+            </button>
+          ))}
+        </nav>
+      )}
       <div className="nw-filters" style={{ display: tab === "facebook" ? "none" : undefined }}>
         <label>
           <Building2 size={16} />
@@ -760,12 +777,6 @@ export default function RedDeObras({ user }: { user: Profile }) {
                   "Requerimientos abiertos",
                   overview.requirements,
                   Building2,
-                ],
-                [
-                  "requirements",
-                  "Partidas pendientes",
-                  overview.pending_items,
-                  Workflow,
                 ],
                 [
                   "urgent",
@@ -1173,13 +1184,13 @@ export default function RedDeObras({ user }: { user: Profile }) {
                           : "Coordinación entre obras"
           }
           onClose={() => setPanel("")}
+          wide={panel === "request-form"}
+          protectUnsaved={panel === "request-form" || panel === "capacity-form"}
         >
           {panel === "request-form" && (
-            <RequirementForm
-              catalog={catalog}
-              current={selectedReq || undefined}
-              done={saved}
-            />
+            selectedReq
+              ? <RequirementForm catalog={catalog} current={selectedReq} done={saved} />
+              : <NetworkQuickForm catalog={catalog} done={saved} />
           )}
           {panel === "capacity-form" && (
             <CapacityForm

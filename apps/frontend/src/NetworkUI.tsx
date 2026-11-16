@@ -91,12 +91,22 @@ export function Drawer({
   title,
   onClose,
   children,
+  wide = false,
+  protectUnsaved = false,
 }: {
   title: string;
   onClose: () => void;
   children: ReactNode;
+  wide?: boolean;
+  protectUnsaved?: boolean;
 }) {
   const ref = useRef<HTMLDialogElement>(null);
+  const dirty = useRef(false);
+  function safeClose() {
+    if (protectUnsaved && dirty.current &&
+      !window.confirm("Hay cambios sin guardar. ¿Quieres salir y descartarlos?")) return;
+    onClose();
+  }
   const previous = useRef<HTMLElement | null>(null);
   useEffect(() => {
     previous.current = document.activeElement as HTMLElement | null;
@@ -108,19 +118,19 @@ export function Drawer({
   }, []);
   return (
     <dialog
-      className="nw nw-drawer"
+      className={"nw nw-drawer" + (wide ? " nw-drawer--wide" : "")}
       ref={ref}
       aria-label={title}
+      onInputCapture={() => { dirty.current = true; }}
+      onChangeCapture={() => { dirty.current = true; }}
+      onClickCapture={(event) => {
+        if ((event.target as HTMLElement).closest(".nw-quick-chip-row button, .nw-quick-priority-btn")) {
+          dirty.current = true;
+        }
+      }}
       onCancel={(e) => {
         e.preventDefault();
-        onClose();
-      }}
-      onClick={(e) => {
-        if (
-          e.target === e.currentTarget &&
-          e.clientX < e.currentTarget.getBoundingClientRect().left
-        )
-          onClose();
+        safeClose();
       }}
     >
       <div className="nw-drawer-heading">
@@ -132,7 +142,7 @@ export function Drawer({
           type="button"
           className="nw-icon"
           aria-label="Cerrar panel"
-          onClick={onClose}
+          onClick={safeClose}
         >
           <X />
         </button>

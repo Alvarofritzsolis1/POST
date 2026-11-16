@@ -20,6 +20,7 @@ def test_facebook_publishes_once_updates_and_deletes(network, monkeypatch):
     n = network
     _enable(monkeypatch)
     body = request_body(n, items=2)
+    body["publish_to_facebook"] = True
     created = n["send"](n["a"], "/requirements", body)
     assert created.status_code == 201, created.text
     req = created.json()
@@ -45,6 +46,7 @@ def test_facebook_publishes_once_updates_and_deletes(network, monkeypatch):
     assert calls[-1][:2] == ("POST", "/1489275590928529_99887766")
 
     edit = request_body(n, items=2)
+    edit["publish_to_facebook"] = True
     edit.update({"version": current["version"], "reason": "Cambio de fecha",
                  "title": "Carpinteros para terminaciones, segunda etapa"})
     updated = n["send"](n["a"], "/requirements/" + req["id"], edit, "PUT")
@@ -55,6 +57,7 @@ def test_facebook_publishes_once_updates_and_deletes(network, monkeypatch):
     assert "segunda etapa" in calls[-1][2]
 
     cancel = request_body(n, items=2)
+    cancel["publish_to_facebook"] = True
     cancel.update({"state": "cancelled", "version": updated.json()["version"],
                    "reason": "Partida cancelada"})
     response = n["send"](n["a"], "/requirements/" + req["id"], cancel, "PUT")
@@ -68,6 +71,7 @@ def test_facebook_ambiguous_response_requires_manual_review(network, monkeypatch
     n = network
     _enable(monkeypatch)
     body = request_body(n)
+    body["publish_to_facebook"] = True
     created = n["send"](n["a"], "/requirements", body)
     assert created.status_code == 201
     req_id = created.json()["id"]
@@ -94,3 +98,50 @@ def test_facebook_off_by_default(network):
     assert req.json()["facebook"]["state"] == "disabled"
     with n["Session"]() as db:
         assert db.query(NetworkFacebookPost).count() == 0
+
+
+def test_facebook_opt_out_never_creates_external_job(network, monkeypatch):
+    n = network
+    _enable(monkeypatch)
+    body = request_body(n)
+    # Omitido por API = no consentimiento; la casilla del formulario nuevo sí envía True.
+    created = n["send"](n["a"], "/requirements", body)
+    assert created.status_code == 201, created.text
+    data = created.json()
+    assert data["publish_to_facebook"] is False
+    assert data["facebook"]["state"] == "not_selected"
+    with n["Session"]() as db:
+        assert db.query(NetworkFacebookPost).count() == 0
+    assert process_next(n["Session"]) is False
+
+
+def test_facebook_can_be_disabled_on_an_existing_post(network, monkeypatch):
+    n = network
+    _enable(monkeypatch)
+    body = request_body(n)
+    body["publish_to_facebook"] = True
+    created = n["send"](n["a"], "/requirements", body)
+    assert created.status_code == 201, created.text
+    req_id = created.json()["id"]
+    calls = []
+
+    def graph(method, path, token, message=None):
+        calls.append((method, path))
+        return {"id": "1489275590928529_445566"} if path.endswith("/feed") else {"success": True}
+
+    monkeypatch.setattr("app.network_facebook.graph_request", graph)
+    assert process_next(n["Session"])
+    current = n["a"].get("/api/v1/network/requirements/" + req_id).json()
+    edit = request_body(n)
+    edit.update({
+        "publish_to_facebook": False,
+        "version": current["version"],
+        "reason": "Desactivar difusión externa",
+    })
+    updated = n["send"](n["a"], "/requirements/" + req_id, edit, "PUT")
+    assert updated.status_code == 200, updated.text
+    assert process_next(n["Session"])
+    assert calls == [
+        ("POST", "/1489275590928529/feed"),
+        ("DELETE", "/1489275590928529_445566"),
+    ]

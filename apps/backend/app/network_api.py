@@ -376,6 +376,8 @@ def sync_facebook_requirement(
     row = requirement_for(db, user, record_id, detail=True)
     if row.state != "published":
         raise HTTPException(409, "Solo se difunden requerimientos publicados")
+    if not row.publish_to_facebook:
+        raise HTTPException(409, "Activa la difusión en Facebook antes de sincronizar")
     task = enqueue(db, row, force=True)
     if task is None:
         raise HTTPException(409, "Facebook no está habilitado o falta el ID de página")

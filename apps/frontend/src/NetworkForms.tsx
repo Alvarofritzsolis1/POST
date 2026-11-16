@@ -100,6 +100,7 @@ export function RequirementForm({
         end_date: end,
         deadline: dataText(data, "deadline"),
         items: parts,
+        publish_to_facebook: current?.publish_to_facebook ?? false,
         state,
         client_key: clientKey.current,
         ...(current

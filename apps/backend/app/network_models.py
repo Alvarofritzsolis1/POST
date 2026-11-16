@@ -77,6 +77,7 @@ class NetworkRequirement(Record, Base):
     end_date: Mapped[date] = mapped_column(Date)
     deadline: Mapped[date] = mapped_column(Date)
     state: Mapped[str] = mapped_column(String(16), default="published")
+    publish_to_facebook: Mapped[bool] = mapped_column(Boolean, nullable=False, default=False, server_default="false")
     client_key: Mapped[str] = mapped_column(String(80))
     version: Mapped[int] = mapped_column(Integer, default=1)
     updated_at: Mapped[datetime] = mapped_column(
