@@ -1,3 +1,13 @@
+## 20.4.0-rc1 — Red de Obras: difusión en Facebook Pages (no desplegada)
+
+- Publicación automática de requerimientos nuevos en una página empresarial autorizada con Graph API v27.
+- Cola transaccional, seguimiento por requerimiento, actualización, eliminación y control de duplicados.
+- Procesador Docker aislado con token únicamente en el backend y configuración desactivada por defecto.
+- Publicación externa limitada a datos de convocatoria; no revela documentos ni descripciones internas.
+- Pruebas sintéticas de éxito, edición, cancelación y estado indeterminado.
+- **Pendiente**: CI, respaldo/migración de pruebas, token NUEVO de página en el VPS y validación real antes de fusionar o desplegar.
+- No publica en grupos de terceros mediante API de Meta. Ver docs/facebook-red-de-obras.md.
+
 ## 20.0.0-rc1 — Javiera / candidata Excel
 
 - Maestro XLSX privado con original verificado, revisión limpia, edición de celdas/cláusulas, historial y concurrencia.
