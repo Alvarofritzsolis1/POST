@@ -347,6 +347,12 @@ async def import_source(
                     supervisor = label.strip()
                 if not isinstance(name, str) or not name.strip():
                     continue
+                # Las filas de resumen están fuera del listado de obras.
+                # En el Excel original las obras tienen total en columna I;
+                # las tablas de totales generales no tienen ese campo.
+                original_total = row_cells[8].value
+                if not isinstance(original_total, (int, float)) or isinstance(original_total, bool):
+                    continue
                 values = {field: row_cells[col - 1].value for field, col in zip(FIELDS, range(4, 9))}
                 exact = names.get(normalized(name), [])
                 # Nunca se corrige ni se deduce una obra ambigua.
@@ -361,7 +367,7 @@ async def import_source(
                     original_values={
                         "status": status,
                         "total": serialize(row_cells[8].value),
-                        "percent": serialize(row_cells[10].value),
+                        "percent": serialize(row_cells[9].value),
                         "cells": {key: serialize(val) for key, val in values.items()},
                     },
                     **{key: number_or_none(val) for key, val in values.items()},
