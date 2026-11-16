@@ -1229,7 +1229,7 @@ export default function RedDeObras({ user }: { user: Profile }) {
                 <Badge value={selectedReq.allocation_state} />
               </div>
               {selectedReq.facebook && (
-                <div className="nw-detail-item" aria-label="Publicación de Facebook">
+                <div className="nw-surface" aria-label="Publicación de Facebook">
                   <div className="nw-row nw-wrap">
                     <b>Difusión en Facebook</b>
                     <Badge value={
