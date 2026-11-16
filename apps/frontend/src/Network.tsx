@@ -569,7 +569,7 @@ export default function RedDeObras({ user }: { user: Profile }) {
             Red de Obras<span>.</span>
           </h1>
           <p>
-            Conecta necesidades, comparte capacidad y coordina cada partida.
+            Solicita apoyo, comparte contratistas y coordina necesidades entre obras.
           </p>
         </div>
         {canPublish && (
@@ -582,7 +582,7 @@ export default function RedDeObras({ user }: { user: Profile }) {
               }}
             >
               <Users size={16} />
-              Tengo contratista con capacidad
+              Tengo contratista disponible
             </button>
             <button
               className="nw-btn nw-primary"
@@ -592,7 +592,7 @@ export default function RedDeObras({ user }: { user: Profile }) {
               }}
             >
               <Plus size={17} />
-              Necesito contratista
+              Nueva necesidad
             </button>
           </div>
         )}
