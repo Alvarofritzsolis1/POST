@@ -30,6 +30,18 @@ class Settings(BaseSettings):
     facebook_autopublish_enabled: bool = False
     facebook_page_id: str = ""
     facebook_page_token: str = ""
+    # Mensajería: requiere Webhook firmado, permiso pages_messaging y organización explícita.
+    facebook_messaging_enabled: bool = False
+    facebook_org_id: str = ""
+    facebook_app_secret: str = ""
+    facebook_webhook_verify_token: str = ""
+    # La IA requiere configuración privada; conversaciones y propuestas nunca se envían
+    # a modelos externos cuando esta opción está desactivada.
+    facebook_ai_enabled: bool = False
+    facebook_ai_auto_reply_enabled: bool = False
+    facebook_ai_ad_enabled: bool = False
+    facebook_ai_api_key: str = ""
+    facebook_ai_model: str = "gpt-4.1-mini"
 
 
 @lru_cache
