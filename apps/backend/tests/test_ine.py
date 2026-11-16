@@ -42,6 +42,7 @@ def fake_source():
     nov["C1"], nov["I1"] = "NOVIEMBRE", "POR TERMINAR"
     nov["C2"], nov["D2"], nov["E2"], nov["F2"], nov["G2"], nov["H2"] = "Obras", "CCT", "CESP", "IND", "TH", "TM"
     nov["C3"] = "OBRA LOMAS VERDES"
+    nov["I3"] = 0  # Como el Excel original: obra sin datos, total visual igual a cero.
     buf = BytesIO()
     wb.save(buf)
     return buf.getvalue()
