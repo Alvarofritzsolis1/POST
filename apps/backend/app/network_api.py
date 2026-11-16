@@ -1053,6 +1053,11 @@ def create_award(
         return award_view(db, user, prior)
     if req.state != "published":
         raise HTTPException(409, "Solo se puede adjudicar un requerimiento publicado")
+    if item.notes.startswith("Partida global preliminar;"):
+        raise HTTPException(
+            409,
+            "Esta partida es preliminar: completa fechas, unidad y cantidad reales antes de adjudicar",
+        )
     record_for(db, Contractor, user, body.contractor_id)
     _, awarded, _, _, _ = allocation(db, item)
     if body.quantity > item.quantity - awarded:
