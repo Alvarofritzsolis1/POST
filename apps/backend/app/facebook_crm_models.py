@@ -1,6 +1,6 @@
 """Facebook inbox: org-scoped leads and durable Messenger message delivery."""
 from datetime import datetime
-from sqlalchemy import Boolean, DateTime, ForeignKey, Index, Integer, String, Text, UniqueConstraint
+from sqlalchemy import Boolean, DateTime, ForeignKey, Index, Integer, JSON, String, Text, UniqueConstraint
 from sqlalchemy.orm import Mapped, mapped_column
 from .db import Base
 from .models import uid, utcnow
@@ -49,4 +49,22 @@ class FacebookChatMessage(Base):
     operator_id: Mapped[str | None] = mapped_column(ForeignKey("users.id"), nullable=True)
     error: Mapped[str | None] = mapped_column(Text, nullable=True)
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow)
+    updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow)
+
+
+class FacebookTradeGuide(Base):
+    """Aprobada/editable por administración; nunca confundir con requisitos legales."""
+    __tablename__ = "facebook_trade_guides"
+    __table_args__ = (
+        UniqueConstraint("org_id", "slug", name="uq_facebook_trade_org_slug"),
+    )
+    id: Mapped[str] = mapped_column(String(36), primary_key=True, default=uid)
+    org_id: Mapped[str] = mapped_column(ForeignKey("organizations.id"), index=True)
+    slug: Mapped[str] = mapped_column(String(100))
+    trade: Mapped[str] = mapped_column(String(140))
+    aliases: Mapped[list] = mapped_column(JSON, default=list)
+    explanation: Mapped[str] = mapped_column(Text, default="")
+    document_guidance: Mapped[list] = mapped_column(JSON, default=list)
+    approved: Mapped[bool] = mapped_column(Boolean, default=False)
+    updated_by: Mapped[str | None] = mapped_column(ForeignKey("users.id"), nullable=True)
     updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow)
