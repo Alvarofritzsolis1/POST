@@ -909,7 +909,12 @@ def irl_risk_print_rows(root: ET.Element) -> tuple[tuple[int, ...], bool]:
             if not bounds:
                 continue
             left, top, right, bottom = bounds.groups()
-            if (left <= "D" and right >= "A"
+            def column_number(letters: str) -> int:
+                number = 0
+                for letter in letters:
+                    number = number * 26 + ord(letter) - ord("A") + 1
+                return number
+            if (column_number(left) <= 4 and column_number(right) >= 1
                     and any(int(top) <= row <= int(bottom) for row in risk_rows)):
                 raise LayoutError(
                     "La plantilla IRL tiene celdas combinadas sobre las filas "
