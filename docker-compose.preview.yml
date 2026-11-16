@@ -39,6 +39,8 @@ services:
       SMTP_USER: ${SMTP_USER:-}
       SMTP_PASSWORD: ${SMTP_PASSWORD:-}
       SMTP_FROM: ${SMTP_FROM:-}
+      FACEBOOK_AUTOPUBLISH_ENABLED: ${FACEBOOK_AUTOPUBLISH_ENABLED:-false}
+      FACEBOOK_PAGE_ID: ${FACEBOOK_PAGE_ID:-}
     volumes: ["./preview-storage:/data/private"]
     depends_on: {db: {condition: service_healthy}}
     networks: [internal]
@@ -66,6 +68,20 @@ services:
     mem_limit: 950m
     cpus: 1.0
     pids_limit: 100
+    logging: *logs
+  facebook-publisher:
+    build: {context: ., dockerfile: apps/backend/Dockerfile, args: {SOURCE_COMMIT: "${SOURCE_COMMIT:-unknown}"}}
+    restart: unless-stopped
+    command: ["python", "-m", "app.network_facebook"]
+    environment:
+      <<: *backend
+      FACEBOOK_PAGE_TOKEN: ${FACEBOOK_PAGE_TOKEN:-}
+    depends_on: {db: {condition: service_healthy}}
+    networks: [internal, frontend-network]
+    security_opt: [no-new-privileges:true]
+    cap_drop: [ALL]
+    mem_limit: 150m
+    pids_limit: 50
     logging: *logs
   frontend:
     build: {context: ., dockerfile: apps/frontend/Dockerfile}
