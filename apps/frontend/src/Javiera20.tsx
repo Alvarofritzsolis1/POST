@@ -189,7 +189,7 @@ export default function Javiera({configuration=false,onBack,onConfig}:{configura
   useEffect(()=>{setIssueFailures({});},[fingerprint]);
   const cards=allCards.map(item=>{
     if(batchMode||!chosenCodes.includes(item.code))return item;
-    if(issueFailures[item.code])return {...item,status:"BLOQUEADO_PLANTILLA",can_issue:false,
+    if(issueFailures[item.code])return {...item,status:"BLOQUEADO_PLANTILLA",can_issue:false,can_preview:false,
       reason:issueFailures[item.code]};
     if(!item.can_issue)return item;
     if(unsaved||!dossierId)return {...item,status:"GUARDAR_FICHA",can_issue:false,
@@ -612,7 +612,7 @@ export default function Javiera({configuration=false,onBack,onConfig}:{configura
              ["BLOQUEADO_PLANTILLA","ERROR_TEMPORAL"].includes(c.status)?"jv-card-danger":
              c.status==="FALTAN_DATOS"?"jv-card-warning":
              c.can_issue?"jv-card-ok":"")} key={c.code}>
-            <div className="jv-doc-title"><input type="checkbox" aria-label={"Seleccionar "+c.title} checked={chosenCodes.includes(c.code)} disabled={busy} onChange={()=>toggleDocument(c.code)}/><FileText size={17}/><b>{c.title}</b><span className={"jv-state jv-"+c.status.toLowerCase()}>{statusText[c.status]||c.status}</span></div>
+            <div className="jv-doc-title"><FileText size={17}/><b>{c.title}</b><span className={"jv-state jv-"+c.status.toLowerCase()}>{statusText[c.status]||c.status}</span></div>
             {!["BLOQUEADO_PLANTILLA","ERROR_TEMPORAL","VALIDANDO_PDF"].includes(c.status)&&
               <div className="jv-progress"><span style={{width:String(c.completion_percent)+"%"}}/></div>}
             {["BLOQUEADO_PLANTILLA","ERROR_TEMPORAL"].includes(c.status)?
@@ -637,8 +637,10 @@ export default function Javiera({configuration=false,onBack,onConfig}:{configura
                 {!!c.blocking_errors.length&&<p>{c.blocking_errors.join("; ")}</p>}
               </div>:c.reason&&<p>{c.reason}</p>}
             <div className="jv-card-actions">
-              <button disabled={!c.can_preview||unsaved||busy} onClick={()=>void openPreview(c.code)}>Vista previa</button>
-              <button disabled={!c.can_issue||unsaved||busy} onClick={()=>void issue(c.code)}><Download size={14}/> PDF</button>
+              <div className="jv-document-actions">
+                <button disabled={!c.can_preview||unsaved||busy} onClick={()=>void openPreview(c.code)}>Previsualizar</button>
+                <button disabled={!c.can_issue||unsaved||busy} onClick={()=>void issue(c.code)}><Download size={14}/> Descargar</button>
+              </div>
               {c.status==="EXISTENTE_POR_VERIFICAR"&&c.can_preview&&<div className="jv-reissue">
                 <label>Motivo de nueva emisión
                   <textarea rows={2} placeholder="Describe qué cambió y por qué es necesario emitir otra versión"

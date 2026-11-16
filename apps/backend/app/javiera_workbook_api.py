@@ -406,7 +406,9 @@ def preview(ident: str, payload: PreviewInput, user: User = Depends(administrato
         raise HTTPException(409, check['reason'] or 'Completa los antecedentes obligatorios del documento')
     try:
         raw, report = cached_pdf(raw_for(obj), payload.code, data, user.org_id,
-                                root_for(user.org_id) / "pdf-cache", True, reference=original_for(db,obj))
+                                root_for(user.org_id) / "pdf-cache", True,
+                                reference=original_for(db,obj), dossier_id=payload.dossier_id,
+                                template_revision=obj.revision)
     except LayoutError as e: raise HTTPException(422, str(e)) from None
     existing = db.scalar(select(JavieraWorkbookValidation).where(
         JavieraWorkbookValidation.workbook_id == obj.id, JavieraWorkbookValidation.code == payload.code))
