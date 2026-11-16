@@ -16,7 +16,7 @@ from sqlalchemy.orm import Session
 from .config import settings
 from .db import SessionLocal
 from .models import utcnow
-from .network_models import NetworkFacebookPost, NetworkItem, NetworkRequirement
+from .network_models import NetworkFacebookPost, NetworkFacebookManual, NetworkItem, NetworkRequirement
 from .ops_models import Worksite
 
 log = logging.getLogger("galant.facebook")
@@ -103,8 +103,12 @@ _NO_REDIRECT = build_opener(_NoRedirect)
 def graph_request(method: str, path: str, token: str, message: str | None = None) -> dict:
     if not re.fullmatch(r"/[0-9_]+(?:/feed)?", path):
         raise ValueError("Ruta de Graph API no permitida")
+    if method not in {"POST", "GET", "DELETE"}:
+        raise ValueError("Método no permitido")
+    # Campos de verificación acotados; no permite URLs externas o arbitrarias.
+    endpoint = path + ("?fields=id,name" if method == "GET" else "")
     req = Request(
-        "https://graph.facebook.com/v27.0" + path,
+        "https://graph.facebook.com/v27.0" + endpoint,
         method=method,
         data=urlencode({"message": message}).encode() if message is not None else None,
         headers={"Authorization": "Bearer " + token,
@@ -188,6 +192,77 @@ def process_next(session_factory=SessionLocal) -> bool:
     return True
 
 
+def process_manual_next(session_factory=SessionLocal) -> bool:
+    """Ejecuta SOLO acciones manuales confirmadas y registradas por administrador."""
+    cfg = settings()
+    if not (cfg.facebook_manual_testing_enabled and
+            re.fullmatch(r"[0-9]{5,30}", cfg.facebook_page_id or "") and
+            cfg.facebook_page_token):
+        return False
+    with session_factory.begin() as db:
+        row = db.scalar(select(NetworkFacebookManual).where(
+            NetworkFacebookManual.page_id == cfg.facebook_page_id,
+            NetworkFacebookManual.state == "pending",
+        ).order_by(NetworkFacebookManual.created_at, NetworkFacebookManual.id)
+            .with_for_update(skip_locked=True))
+        if not row:
+            return False
+        action, row_id, post_id, message = row.action, row.id, row.post_id, row.message
+        if action in ("publish", "delete") and action == "delete" and not post_id:
+            row.state, row.last_error = "failed", "No hay ID de Facebook para retirar la prueba"
+            return True
+        if action == "publish" and not message.startswith("🧪 PUBLICACIÓN DE PRUEBA"):
+            row.state, row.last_error = "failed", "Contenido sin marca de prueba; envío bloqueado"
+            return True
+        row.state = "sending"
+        row.attempts += 1
+        row.updated_at = utcnow()
+
+    confirmed_id, page_name, error, uncertain = None, None, None, False
+    try:
+        if action == "verify":
+            result = graph_request("GET", "/" + cfg.facebook_page_id, cfg.facebook_page_token)
+            if str(result.get("id")) != cfg.facebook_page_id:
+                error = "El token no identifica la página configurada."
+            else:
+                page_name = str(result.get("name") or "Página de Facebook")[:180]
+        elif action == "publish":
+            result = graph_request("POST", "/" + cfg.facebook_page_id + "/feed", cfg.facebook_page_token, message)
+            confirmed_id = result.get("id")
+            if not isinstance(confirmed_id, str) or not re.fullmatch(r"[0-9]+_[0-9]+", confirmed_id):
+                error, uncertain = "Meta no devolvió un ID válido; comprueba el muro antes de repetir.", True
+            elif not confirmed_id.startswith(cfg.facebook_page_id + "_"):
+                error, uncertain = "El ID recibido corresponde a otra página; revisión manual.", True
+        elif action == "delete":
+            result = graph_request("DELETE", "/" + post_id, cfg.facebook_page_token)
+            if result.get("success") is not True:
+                error, uncertain = "Meta no confirmó el retiro. Revisa la página.", True
+        else:
+            error = "Acción no permitida"
+    except HTTPError as exc:
+        error = "Meta rechazó la solicitud (HTTP " + str(exc.code) + "). Revisa permisos y token."
+    except (URLError, TimeoutError, OSError, ValueError, json.JSONDecodeError) as exc:
+        error = "No se confirmó la respuesta (" + type(exc).__name__ + "); revisa Facebook."
+        uncertain = action in ("publish", "delete")
+
+    with session_factory.begin() as db:
+        row = db.get(NetworkFacebookManual, row_id, with_for_update=True)
+        if row is None:
+            return True
+        if confirmed_id:
+            row.post_id = confirmed_id
+        if page_name:
+            row.page_name = page_name
+        if uncertain:
+            row.state = "uncertain"  # No reintentar automáticamente.
+        elif error:
+            row.state = "failed"
+        else:
+            row.state = {"verify": "verified", "publish": "published", "delete": "deleted"}[action]
+        row.last_error, row.updated_at = error, utcnow()
+    return True
+
+
 def stop(*_):
     global stopping
     stopping = True
@@ -200,6 +275,8 @@ def main() -> None:
     log.info("Worker de Facebook iniciado; sin publicación retroactiva.")
     while not stopping:
         try:
+            if process_manual_next():
+                continue
             if process_next():
                 continue
         except Exception:
