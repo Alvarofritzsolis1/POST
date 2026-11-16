@@ -1868,3 +1868,10 @@
 @media (max-width: 1200px) { .nw-kpis { grid-template-columns: repeat(3, minmax(0, 1fr)); } }
 @media (max-width: 850px) { .nw-kpis { grid-template-columns: repeat(2, minmax(0, 1fr)); } .nw-tabs > button { min-width: 112px; } }
 @media (max-width: 550px) { .nw-kpis { grid-template-columns: repeat(2, minmax(0, 1fr)); } .nw-kpi { padding: 12px; } .nw-kpi > strong { font-size: 24px; } .nw-history-content { padding-right: 11px; } }
+
+
+/* Lectura INE desde la vista exclusiva de residentes */
+.nw-resident-extra{display:flex;gap:12px;align-items:center;min-width:0;flex-wrap:wrap}
+.nw-ine-history-link{border:1px solid #c7ddec;background:#eff8fc;color:#1b5e86;padding:10px 13px;border-radius:10px;display:inline-flex;align-items:center;gap:8px;font-size:12px;font-weight:800;white-space:nowrap}
+.nw-ine-history-link:hover{background:#dff1fa;border-color:#a2cee8}
+@media(max-width:640px){.nw-resident-extra{gap:7px}.nw-ine-history-link{padding:9px 10px;font-size:11px}}
