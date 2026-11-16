@@ -42,7 +42,7 @@ CONVERSIONS = threading.BoundedSemaphore(2)
 _locks: weakref.WeakValueDictionary = weakref.WeakValueDictionary()
 _locks_guard = threading.Lock()
 ERRORS = {"#REF!", "#VALUE!", "#NAME?", "#DIV/0!", "#N/A", "#NUM!", "#SPILL!", "#NULL!"}
-IRL_PDF_ENGINE_REVISION = "20.3.4-rc1-letter-fit-width"
+IRL_PDF_ENGINE_REVISION = "20.3.4-rc2-letter-fit-width"
 
 
 def digest(raw: bytes) -> str:
