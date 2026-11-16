@@ -344,8 +344,6 @@ export default function Ine({ user, version, onBack, logout }: {
   const sheetGroups = ["Todas", ...new Set((archive?.sheets || []).map(sheet => sheetGroup(sheet.name)))];
   const columns = [...new Set((preview?.rows || []).flatMap(line => Object.keys(line.cells)))]
     .sort((a, b) => columnIndex(a) - columnIndex(b));
-  const canEditThisPeriod = admin || (supervisor && config &&
-    (period === config.current_month || period === config.previous_month));
   const selectedMonthHasData = tally.totalReported > 0;
   const currentDateLabel = period ? monthLabel(period) : "mes seleccionado";
 
