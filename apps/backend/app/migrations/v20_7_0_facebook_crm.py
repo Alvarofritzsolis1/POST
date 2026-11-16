@@ -1,5 +1,5 @@
 """Additive Facebook CRM migration: no existing records or posts are changed."""
-from ..facebook_crm_models import FacebookLead, FacebookChatMessage
+from ..facebook_crm_models import FacebookLead, FacebookChatMessage, FacebookTradeGuide
 
 MIGRATION_ID = "20.7.0_facebook_crm"
 
@@ -7,3 +7,4 @@ MIGRATION_ID = "20.7.0_facebook_crm"
 def upgrade(connection):
     FacebookLead.__table__.create(bind=connection, checkfirst=True)
     FacebookChatMessage.__table__.create(bind=connection, checkfirst=True)
+    FacebookTradeGuide.__table__.create(bind=connection, checkfirst=True)
