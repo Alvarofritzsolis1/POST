@@ -21,7 +21,7 @@ from sqlalchemy.orm import Session
 from .config import settings
 from .db import get_db, SessionLocal
 from .facebook_ai import AD_INSTRUCTIONS, REPLY_INSTRUCTIONS, generate_text
-from .facebook_crm_models import FacebookLead, FacebookChatMessage
+from .facebook_crm_models import FacebookLead, FacebookChatMessage, FacebookTradeGuide
 from .models import Organization, User, utcnow
 from .network_facebook import public_message
 from .network_models import NetworkFacebookPost, NetworkRequirement
@@ -104,6 +104,7 @@ def _lead_view(db: Session, lead: FacebookLead) -> dict:
         "availability": lead.availability, "experience": lead.experience,
         "documents_state": lead.documents_state, "status": lead.status,
         "requirement_id": lead.requirement_id, "unread": lead.unread,
+        "ai_consent": lead.ai_consent,
         "last_inbound_at": lead.last_inbound_at.isoformat() if lead.last_inbound_at else None,
         "can_reply": _in_window(lead), "analysis": _match(db, lead),
     }
@@ -125,6 +126,55 @@ class LeadEdit(BaseModel):
     documents_state: str = Field(default="unverified", pattern=r"^(unverified|declared|verified)$")
     status: str = Field(default="new", pattern=r"^(new|contacting|pending_review|shortlisted|archived)$")
     requirement_id: str | None = None
+    ai_consent: bool = False
+
+
+class TradeGuideInput(BaseModel):
+    trade: str = Field(min_length=2, max_length=140)
+    aliases: list[str] = Field(default_factory=list, max_length=15)
+    explanation: str = Field(default="", max_length=1500)
+    document_guidance: list[str] = Field(default_factory=list, max_length=20)
+    approved: bool = False
+
+
+def _guide_for(db: Session, lead: FacebookLead) -> FacebookTradeGuide | None:
+    term = key(lead.specialty)
+    if not term:
+        return None
+    guides = db.scalars(select(FacebookTradeGuide).where(
+        FacebookTradeGuide.org_id == lead.org_id,
+        FacebookTradeGuide.approved.is_(True))).all()
+    return next((guide for guide in guides if
+        term in {key(guide.trade), *(key(alias) for alias in (guide.aliases or []))}), None)
+
+
+@router.get("/guides")
+def list_trade_guides(user: User = Depends(administrator), db: Session = Depends(get_db)):
+    guides = list(db.scalars(select(FacebookTradeGuide).where(
+        FacebookTradeGuide.org_id == user.org_id).order_by(FacebookTradeGuide.trade)))
+    return [{"id": g.id, "trade": g.trade, "aliases": g.aliases or [],
+             "explanation": g.explanation, "document_guidance": g.document_guidance or [],
+             "approved": g.approved} for g in guides]
+
+
+@router.put("/guides/{slug}")
+def update_trade_guide(slug: str, body: TradeGuideInput,
+                       user: User = Depends(administrator),
+                       db: Session = Depends(get_db)):
+    if not re.fullmatch(r"[a-z0-9-]{2,100}", slug):
+        raise HTTPException(422, "Identificador de especialidad inválido")
+    row = db.scalar(select(FacebookTradeGuide).where(
+        FacebookTradeGuide.org_id == user.org_id, FacebookTradeGuide.slug == slug))
+    if row is None:
+        row = FacebookTradeGuide(org_id=user.org_id, slug=slug)
+        db.add(row)
+    row.trade, row.aliases = body.trade.strip(), [x.strip() for x in body.aliases if x.strip()]
+    row.explanation = body.explanation.strip()
+    row.document_guidance = [x.strip() for x in body.document_guidance if x.strip()]
+    row.approved = body.approved
+    row.updated_by, row.updated_at = user.id, utcnow()
+    db.commit()
+    return {"id": row.id, "trade": row.trade, "approved": row.approved}
 
 
 class ReplyInput(BaseModel):
@@ -241,6 +291,9 @@ def center(user: User = Depends(administrator), db: Session = Depends(get_db)):
             "auto_reply_enabled": cfg.facebook_ai_auto_reply_enabled,
             "page_id": cfg.facebook_page_id,
             "pending_ads": ads, "leads": [_lead_view(db, lead) for lead in leads],
+            "guides_approved": db.scalar(select(func.count(FacebookTradeGuide.id)).where(
+                FacebookTradeGuide.org_id == user.org_id,
+                FacebookTradeGuide.approved.is_(True))) or 0,
             "counts": {"pending_ads": len(ads), "contacts": len(leads),
                        "unread": sum(bool(lead.unread) for lead in leads),
                        "review": sum(lead.status == "pending_review" for lead in leads)}}
@@ -275,7 +328,7 @@ def update_lead(lead_id: str, body: LeadEdit, user: User = Depends(administrator
         NetworkRequirement.org_id == user.org_id,
     )):
         raise HTTPException(422, "La necesidad no pertenece a tu organización")
-    for field, value in body.model_dump().items():
+    for field, value in body.model_dump(exclude_unset=True).items():
         if field == "name":
             lead.display_name = value.strip() or "Interesado de Facebook"
         elif field == "company":
@@ -319,17 +372,32 @@ def suggest_reply(lead_id: str, user: User = Depends(administrator),
                 "\nDotación: " + str(lead.workers or "sin informar") +
                 "\nDisponibilidad: " + lead.availability[:120] +
                 "\nConversación reciente:\n" + latest)
-    if settings().facebook_ai_enabled:
+    if settings().facebook_ai_enabled and lead.ai_consent:
+        guide = _guide_for(db, lead)
+        if guide:
+            supplied += ("\nGuía aprobada para el oficio: " + guide.trade
+                         + "\nExplicación simple: " + guide.explanation
+                         + "\nDocumentación a orientar, no solicitar al inicio: "
+                         + "; ".join(guide.document_guidance or []))
+        else:
+            supplied += "\nNo hay guía documental aprobada para esta especialidad."
         try:
-            drafted = generate_text(REPLY_INSTRUCTIONS, supplied, 550)
+            drafted = generate_text(REPLY_INSTRUCTIONS, supplied, 450)
         except RuntimeError as err:
             raise HTTPException(503, str(err)) from None
         if drafted:
             return {"draft": drafted, "source": "ai", "requires_review": True}
-    return {"draft": ("Hola, soy el asistente virtual de GALANT. "
-                      "Gracias por contactarnos. ¿Podrías indicarnos la razón social "
-                      "de tu empresa, especialidad, dotación disponible y fecha desde "
-                      "la que puedes comenzar? Un administrador revisará los antecedentes."),
+    if not lead.specialty:
+        question = "¿Qué trabajo haces? Por ejemplo, gasfitería, carpintería o pintura."
+    elif lead.workers is None:
+        question = "¿Trabajas solo o con cuántas personas?"
+    elif not lead.availability:
+        question = "¿Desde cuándo puedes empezar a trabajar?"
+    else:
+        question = "¿En qué comuna puedes trabajar?"
+    return {"draft": ("Hola, soy el asistente virtual de GALANT. No importa si escribes "
+                      "con faltas: te entiendo. Si prefieres un audio, una persona lo "
+                      "puede revisar. " + question),
             "source": "template", "requires_review": True}
 
 
