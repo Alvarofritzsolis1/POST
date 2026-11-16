@@ -8,7 +8,7 @@ import signal
 import time
 from urllib.error import HTTPError, URLError
 from urllib.parse import urlencode
-from urllib.request import Request, urlopen
+from urllib.request import HTTPRedirectHandler, Request, build_opener
 
 from sqlalchemy import select
 from sqlalchemy.orm import Session
@@ -92,6 +92,14 @@ def public_message(db: Session, req: NetworkRequirement) -> str:
     return "\n".join(lines)[:3900]
 
 
+class _NoRedirect(HTTPRedirectHandler):
+    def redirect_request(self, req, fp, code, msg, headers, newurl):
+        raise URLError("Meta intentó redirigir una petición autenticada")
+
+
+_NO_REDIRECT = build_opener(_NoRedirect)
+
+
 def graph_request(method: str, path: str, token: str, message: str | None = None) -> dict:
     if not re.fullmatch(r"/[0-9_]+(?:/feed)?", path):
         raise ValueError("Ruta de Graph API no permitida")
@@ -102,7 +110,7 @@ def graph_request(method: str, path: str, token: str, message: str | None = None
         headers={"Authorization": "Bearer " + token,
                  "Content-Type": "application/x-www-form-urlencoded"},
     )
-    with urlopen(req, timeout=15) as response:
+    with _NO_REDIRECT.open(req, timeout=15) as response:
         value = json.loads(response.read(16384).decode("utf-8"))
     if not isinstance(value, dict):
         raise ValueError("Respuesta inesperada de Meta")
