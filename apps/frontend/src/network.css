@@ -1874,7 +1874,7 @@
 .nw-drawer--wide {
   inset: 0;
   margin: auto;
-  width: min(1160px, 94vw);
+  width: min(1540px, 94vw);
   max-width: 94vw;
   height: min(900px, 94dvh);
   max-height: 94dvh;
