@@ -1,4 +1,6 @@
 import {
+  lazy,
+  Suspense,
   useCallback,
   useEffect,
   useRef,
@@ -15,6 +17,7 @@ import {
   CircleHelp,
   Clock3,
   FileCheck2,
+  FileSpreadsheet,
   Facebook,
   LayoutDashboard,
   LayoutGrid,
@@ -69,6 +72,7 @@ import {
   todayISO,
 } from "./NetworkUI";
 import "./network.css";
+const IneHistory = lazy(() => import("./Ine"));
 
 const tabs = [
   ["home", "Resumen", LayoutDashboard],
@@ -114,6 +118,8 @@ export function ResidentNetwork({
   version: string | null;
   logout: () => void;
 }) {
+  const [viewIne, setViewIne] = useState(false);
+  if (viewIne) return <Suspense fallback={<div className="app-loading">Cargando histórico INE…</div>}><IneHistory user={user} version={version} logout={logout} onBack={() => setViewIne(false)}/></Suspense>;
   return (
     <div className="nw nw-resident-shell">
       <header className="nw-resident-header">
@@ -126,7 +132,7 @@ export function ResidentNetwork({
             <small>Red de Obras</small>
           </div>
         </div>
-        <NetworkAccountMenu user={user} logout={logout} />
+        <div className="nw-resident-extra"><button type="button" className="nw-ine-history-link" onClick={() => setViewIne(true)}><FileSpreadsheet size={16}/> Histórico INE</button><NetworkAccountMenu user={user} logout={logout} /></div>
       </header>
       <main>
         <RedDeObras user={user} />
