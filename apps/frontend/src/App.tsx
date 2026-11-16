@@ -398,11 +398,9 @@ function App() {
   if (hash.startsWith("#establecer-clave=") || hash === "#recuperar-clave") return <NetworkPasswordScreen hash={hash} done={() => { window.history.replaceState(null, "", window.location.pathname); setHash(""); setUser(null); }} />;
   if (!ready) return <div className="app-loading">Cargando GALANT…</div>;
   if (!user) return <Login onLogin={setUser} version={version} />;
-  if (user.role === "doc_reviewer") return <ErrorBoundary name="Revisión documental JAVIERA">
-    <Suspense fallback={<div className="app-loading">Cargando mesa documental…</div>}>
-      <JavieraReviewerV17 onLogout={() => void logout()} />
-    </Suspense>
-  </ErrorBoundary>;
+  if (user.role === "doc_reviewer") return section === "ine"
+    ? <ErrorBoundary name="Histórico INE"><Suspense fallback={<div className="app-loading">Cargando histórico INE…</div>}><Ine user={user} version={version} onBack={() => setSection("home")}/></Suspense></ErrorBoundary>
+    : <div><button className="ine-reviewer-entry" type="button" onClick={() => setSection("ine")}>Consultar histórico INE · solo lectura</button><ErrorBoundary name="Revisión documental JAVIERA"><Suspense fallback={<div className="app-loading">Cargando mesa documental…</div>}><JavieraReviewerV17 onLogout={() => void logout()} /></Suspense></ErrorBoundary></div>;
   if (section === "javiera_config" && user.role !== "admin") return <main className="panel"><h1>Acceso restringido</h1><button onClick={() => go("home")}>Volver</button></main>;
   if (section === "configuration" && user.role !== "admin") return <main className="panel" style={{ margin: "40px auto", maxWidth: 620 }}><h1>Acceso restringido</h1><p>Configuración General está disponible exclusivamente para administradores.</p><button type="button" onClick={() => { window.history.replaceState({}, "", "/"); setSection("home"); }}>← Volver</button></main>;
   if (user.role === "ine_supervisor") return <ErrorBoundary name="Control INE"><Suspense fallback={<div className="app-loading">Cargando INE…</div>}><Ine user={user} version={version} logout={() => void logout()}/></Suspense></ErrorBoundary>;
