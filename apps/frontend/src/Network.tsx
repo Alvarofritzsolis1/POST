@@ -59,7 +59,7 @@ import {
 } from "./NetworkForms";
 import { NetworkAccountMenu } from "./NetworkAccounts";
 import { NetworkQuickForm } from "./NetworkQuickForm";
-import NetworkFacebook from "./NetworkFacebook";
+import FacebookCenter from "./FacebookCenter";
 import {
   Badge,
   dateText,
@@ -746,7 +746,7 @@ export default function RedDeObras({ user }: { user: Profile }) {
         )}
       </div>
       {tab === "facebook" && user.role === "admin" && (
-        <NetworkFacebook catalog={catalog} />
+        <FacebookCenter catalog={catalog} />
       )}
       {error && (
         <div role="alert" className="nw-error">
