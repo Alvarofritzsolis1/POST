@@ -19,7 +19,7 @@ from sqlalchemy.orm import Session
 
 from .db import get_db
 from .ine_models import IneChange, IneOriginal, IneRow, IneSheet
-from .models import User, utcnow
+from .models import User, uid, utcnow
 from .network_models import NetworkMember, NetworkMembership
 from .ops_models import Worksite
 from .security import administrator, authorized_user
@@ -290,7 +290,7 @@ def manual_row(body: ManualRow, user: User = Depends(administrator), db: Session
         raise HTTPException(409, "Esta obra ya tiene datos para el mes")
     row = IneRow(
         org_id=user.org_id, period=period, site_name=name, site_id=site_id,
-        supervisor="", source_sheet="APP:MANUAL", source_row=0,
+        supervisor="", source_sheet="APP:" + uid(), source_row=0,
         **{field: getattr(body, field) for field in FIELDS},
     )
     db.add(row)
