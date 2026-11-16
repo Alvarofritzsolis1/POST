@@ -14,8 +14,9 @@ from sqlalchemy import select
 from .config import settings
 from .db import SessionLocal
 from .facebook_ai import REPLY_INSTRUCTIONS, generate_text
-from .facebook_crm_models import FacebookLead, FacebookChatMessage
+from .facebook_crm_models import FacebookLead, FacebookChatMessage, FacebookTradeGuide
 from .models import utcnow
+from .network_service import key
 
 class NoRedirect(HTTPRedirectHandler):
     def redirect_request(self, req, fp, code, msg, headers, newurl):
@@ -76,6 +77,9 @@ def process_chat_next(session_factory=SessionLocal) -> bool:
         if not _within_24h(lead):
             job.state, job.error = "failed", "Fuera de la ventana estándar de 24 horas"
             return True
+        if job.state == "ai_pending" and not lead.ai_consent:
+            job.state, job.error = "cancelled", "El contacto no autorizó el procesamiento con IA"
+            return True
         if job.state == "ai_pending" and not (
             cfg.facebook_ai_enabled and cfg.facebook_ai_auto_reply_enabled and cfg.facebook_ai_api_key
         ):
@@ -89,6 +93,18 @@ def process_chat_next(session_factory=SessionLocal) -> bool:
             ).order_by(FacebookChatMessage.created_at.desc()).limit(5)))
             context = "\n".join("Contacto: " + msg.body[:500] for msg in reversed(recent))
             context = "Empresa: " + lead.company + "\nEspecialidad: " + lead.specialty + "\n" + context
+            guides = list(db.scalars(select(FacebookTradeGuide).where(
+                FacebookTradeGuide.org_id == lead.org_id,
+                FacebookTradeGuide.approved.is_(True))))
+            term = key(lead.specialty)
+            guide = next((g for g in guides if term and
+                term in {key(g.trade), *(key(a) for a in (g.aliases or []))}), None)
+            if guide:
+                context += ("\nGuía administrativa validada: " + guide.explanation[:1000]
+                            + "\nDocumentos que se explican solo si pregunta: "
+                            + "; ".join(guide.document_guidance or [])[:700])
+            else:
+                context += "\nNo hay guía documental validada: derivar esas dudas al administrador."
         else:
             context = ""
         job.state, job.updated_at = "sending", utcnow()
