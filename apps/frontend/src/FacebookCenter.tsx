@@ -16,6 +16,9 @@ type Lead = {
   id: string; name: string; company: string; specialty: string; workers: number | null;
   availability: string; experience: string; documents_state: string; status: string;
   requirement_id: string | null; ai_consent: boolean; unread: boolean;
+  needs_support: boolean; support_reason: string;
+  entity_type: "unknown" | "company" | "individual";
+  has_employees: boolean | null;
   last_inbound_at: string | null; can_reply: boolean; analysis: Analysis;
 };
 type Post = { id: string; requirement_id: string; title: string; specialty: string;
@@ -24,7 +27,13 @@ type Center = {
   automatic_enabled: boolean; messaging_enabled: boolean; ai_enabled: boolean;
   auto_reply_enabled: boolean; page_id: string; pending_ads: Post[]; leads: Lead[];
   guides_approved: number;
-  counts: { pending_ads: number; contacts: number; unread: number; review: number };
+  counts: { pending_ads: number; contacts: number; unread: number; review: number; support: number };
+};
+type Onboarding = {
+  phase: string; next_question: string | null;
+  required_for_review: string[]; conditional: string[];
+  not_applicable: string[]; prevention_examples: string[];
+  notice: string; ask_for_files_now: boolean; human_followup: boolean;
 };
 type Chat = { id: string; direction: "inbound" | "outbound"; state: string; body: string;
   ai_generated: boolean; created_at: string; error: string | null };
@@ -52,6 +61,7 @@ export default function FacebookCenter({ catalog }: { catalog: Catalog }) {
   const [detail, setDetail] = useState<Detail | null>(null);
   const [requirements, setRequirements] = useState<Requirement[]>([]);
   const [reply, setReply] = useState("");
+  const [onboarding, setOnboarding] = useState<Onboarding | null>(null);
   const [saving, setSaving] = useState("");
   const [error, setError] = useState("");
   const [notice, setNotice] = useState("");
@@ -84,6 +94,7 @@ export default function FacebookCenter({ catalog }: { catalog: Catalog }) {
   useEffect(() => {
     void refreshDetail(selectedId).catch((e) => setError(errorText(e)));
     setReply("");
+    setOnboarding(null);
   }, [selectedId, refreshDetail]);
   useEffect(() => {
     if (tab === "guides") void net<Guide[]>("/facebook/guides")
@@ -160,7 +171,7 @@ export default function FacebookCenter({ catalog }: { catalog: Catalog }) {
       {[
         ["Por responder", center?.counts.unread ?? 0, "blue"],
         ["Interesados", center?.counts.contacts ?? 0, "teal"],
-        ["Por evaluar", center?.counts.review ?? 0, "amber"],
+        ["Necesitan orientación", center?.counts.support ?? 0, "amber"],
         ["Anuncios pendientes", center?.counts.pending_ads ?? 0, "navy"],
       ].map(([title, value, color]) => <div key={title} className={"fbc-stat " + color}>
         <span>{title}</span><strong>{value}</strong>
@@ -195,7 +206,8 @@ export default function FacebookCenter({ catalog }: { catalog: Catalog }) {
             <div className="fbc-avatar">{(item.name || "?").charAt(0).toUpperCase()}</div>
             <div><strong>{item.company || item.name}</strong>
               <small>{item.specialty || "Oficio por confirmar"}</small>
-              <small>{statuses[item.status] || item.status}</small></div>
+              <small>{statuses[item.status] || item.status}</small>
+              {item.needs_support && <small className="fbc-support-mini">Necesita orientación</small>}</div>
             {item.unread && <span className="fbc-unread" aria-label="Sin leer" />}
           </button>)}
         </div>
@@ -237,6 +249,16 @@ export default function FacebookCenter({ catalog }: { catalog: Catalog }) {
       <aside className="fbc-analysis">
         <div className="fbc-pane-title"><ShieldCheck size={17} /><b>Ficha y compatibilidad</b></div>
         {!lead ? <p className="fbc-empty">Selecciona una conversación.</p> : <>
+          {lead.needs_support && <div className="fbc-support-alert" role="status">
+            <AlertTriangle size={18}/>
+            <div><b>Necesita orientación paso a paso</b>
+              <p>{lead.support_reason || "La persona solicitó ayuda para avanzar."}</p>
+              <small>No enviar una lista larga de documentos. Mantener revisión humana.</small>
+            </div>
+          </div>}
+          <label className="fbc-check"><input type="checkbox" checked={lead.needs_support}
+             onChange={(e) => setDetail((old) => old ? {...old, lead: {...old.lead, needs_support:e.target.checked}} : old)} />
+             Mantener alerta de apoyo (administración puede desactivarla después de ayudar)</label>
           <label>Empresa o nombre comercial<input value={lead.company} onChange={(e) => setDetail((old) => old ? {...old, lead: {...old.lead, company: e.target.value}} : old)} /></label>
           <label>Oficio o especialidad<input list="fbc-trades" value={lead.specialty} onChange={(e) => setDetail((old) => old ? {...old, lead: {...old.lead, specialty: e.target.value}} : old)} /></label>
           <datalist id="fbc-trades">{catalog.specialties.map((x) => <option value={x} key={x}/>)}</datalist>
@@ -257,6 +279,28 @@ export default function FacebookCenter({ catalog }: { catalog: Catalog }) {
             <select value={lead.status} onChange={(e) => setDetail((old) => old ? {...old, lead: {...old.lead, status: e.target.value}} : old)}>
               {["new","contacting","pending_review","shortlisted","archived"].map(x => <option key={x} value={x}>{statuses[x]}</option>)}
             </select></label>
+          <label>¿Cómo trabaja?
+            <select value={lead.entity_type} onChange={(e) => {
+              setOnboarding(null);
+              setDetail((old) => old ? {...old, lead: {...old.lead, entity_type:e.target.value as Lead["entity_type"]}} : old);
+            }}>
+              <option value="unknown">Aún no lo sabemos</option>
+              <option value="company">Tiene sociedad / empresa</option>
+              <option value="individual">Persona natural, a su nombre</option>
+            </select>
+          </label>
+          <label>¿Tiene trabajadores contratados?
+            <select value={lead.has_employees === null ? "unknown" : String(lead.has_employees)}
+              onChange={(e) => {
+                setOnboarding(null);
+                setDetail((old) => old ? {...old, lead: {...old.lead,
+                  has_employees: e.target.value === "unknown" ? null : e.target.value === "true"}} : old);
+              }}>
+              <option value="unknown">No se sabe todavía</option>
+              <option value="true">Sí, tiene trabajadores</option>
+              <option value="false">No, trabaja solo</option>
+            </select>
+          </label>
           <label>Documentación (revisión humana)
             <select value={lead.documents_state} onChange={(e) => setDetail((old) => old ? {...old, lead: {...old.lead, documents_state: e.target.value}} : old)}>
               <option value="unverified">No revisada</option><option value="declared">Declarada, no comprobada</option>
@@ -272,8 +316,28 @@ export default function FacebookCenter({ catalog }: { catalog: Catalog }) {
               workers: lead.workers, availability: lead.availability,
               experience: lead.experience, status: lead.status,
               documents_state: lead.documents_state, ai_consent: lead.ai_consent,
+              needs_support: lead.needs_support,
+              entity_type: lead.entity_type, has_employees: lead.has_employees,
               requirement_id: lead.requirement_id,
             })}>Guardar ficha</button>
+          <button type="button" className="nw-btn" disabled={!!saving}
+            onClick={() => void mutate("guide", async () => {
+              const guidance = await net<Onboarding>("/facebook/leads/" + lead.id + "/onboarding");
+              setOnboarding(guidance);
+            }, "Orientación interna cargada.")}>Ver requisitos aplicables (solo administración)</button>
+          {onboarding && <div className="fbc-onboarding">
+            <b>Orientación interna · no enviar toda la lista al maestro</b>
+            {onboarding.next_question && <p>Primera pregunta: {onboarding.next_question}</p>}
+            {!!onboarding.required_for_review.length && <><strong>Revisar más adelante</strong>
+              {onboarding.required_for_review.map((x) => <small key={x}>• {x}</small>)}</>}
+            {!!onboarding.conditional.length && <><strong>Según la situación</strong>
+              {onboarding.conditional.map((x) => <small key={x}>• {x}</small>)}</>}
+            {!!onboarding.not_applicable.length && <><strong>No corresponde automáticamente</strong>
+              {onboarding.not_applicable.map((x) => <small key={x}>• {x}</small>)}</>}
+            <strong>Ejemplos preventivos, no obligaciones definitivas</strong>
+            {onboarding.prevention_examples.map((x) => <small key={x}>• {x}</small>)}
+            <small>{onboarding.notice}</small>
+          </div>}
           <div className="fbc-match">
             <b>{lead.analysis.label}</b>
             {lead.analysis.checks.map((c) => <p key={c.criterion}>
