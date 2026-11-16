@@ -27,6 +27,7 @@ from .network_models import (
     NetworkRequirement,
 )
 from .network_history import history_view
+from .network_facebook import enqueue, status_view
 from .network_schemas import (
     AmendmentInput,
     AwardEdit,
@@ -297,6 +298,7 @@ def create_requirement(
             row.id,
         )
     rebuild_matches(db, user)
+    enqueue(db, row)
     db.commit()
     return requirement_view(db, user, row, True)
 
@@ -355,8 +357,32 @@ def update_requirement(
         "requirement",
         row.id,
     )
+    enqueue(db, row)
     db.commit()
     return requirement_view(db, user, row, True)
+
+
+@router.post("/requirements/{record_id}/facebook/sync")
+def sync_facebook_requirement(
+    record_id: str,
+    user: User = Depends(administrator),
+    db: Session = Depends(get_db),
+):
+    """Un administrador puede publicar uno existente o reintentar errores confirmados.
+
+    En resultados de red inciertos NO se repite para evitar duplicaciones.
+    """
+    lock_org(db, user)
+    row = requirement_for(db, user, record_id, detail=True)
+    if row.state != "published":
+        raise HTTPException(409, "Solo se difunden requerimientos publicados")
+    task = enqueue(db, row, force=True)
+    if task is None:
+        raise HTTPException(409, "Facebook no está habilitado o falta el ID de página")
+    if task.state == "uncertain":
+        raise HTTPException(409, "Meta pudo haber publicado el aviso. Verifícalo manualmente antes de reintentar")
+    db.commit()
+    return status_view(db, row)
 
 
 @router.get("/capacities")
