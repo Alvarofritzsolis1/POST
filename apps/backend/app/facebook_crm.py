@@ -108,6 +108,8 @@ def _lead_view(db: Session, lead: FacebookLead) -> dict:
         "ai_consent": lead.ai_consent,
         "needs_support": lead.needs_support,
         "support_reason": lead.support_reason,
+        "entity_type": lead.entity_type,
+        "has_employees": lead.has_employees,
         "last_inbound_at": lead.last_inbound_at.isoformat() if lead.last_inbound_at else None,
         "can_reply": _in_window(lead), "analysis": _match(db, lead),
     }
@@ -131,6 +133,8 @@ class LeadEdit(BaseModel):
     requirement_id: str | None = None
     ai_consent: bool = False
     needs_support: bool = False
+    entity_type: str = Field(default="unknown", pattern=r"^(unknown|company|individual)$")
+    has_employees: bool | None = None
 
 
 class TradeGuideInput(BaseModel):
@@ -394,6 +398,8 @@ def update_lead(lead_id: str, body: LeadEdit, user: User = Depends(administrator
             setattr(lead, field, value.strip())
         else:
             setattr(lead, field, value)
+    if body.model_fields_set.intersection({"needs_support"}) and not lead.needs_support:
+        lead.support_reason = ""
     lead.updated_at = utcnow()
     db.commit()
     return _lead_view(db, lead)
@@ -469,8 +475,8 @@ def lead_onboarding(lead_id: str, user: User = Depends(administrator),
     lead = _lead(db, user, lead_id)
     # No publicar una lista al contacto: es herramienta interna y gradual.
     return onboarding_guide(
-        entity_type="unknown",
-        has_employees=None,
+        entity_type=lead.entity_type,
+        has_employees=lead.has_employees,
         trade=lead.specialty,
         needs_support=lead.needs_support,
     )
