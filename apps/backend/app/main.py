@@ -41,6 +41,7 @@ from .network_accounts import router as network_accounts_router
 from .network_api import router as network_router
 from .network_facebook_manual import router as network_facebook_manual_router
 from .network_files import router as network_files_router
+from .ine_api import router as ine_router
 from .configuration_api import router as configuration_router
 from .javiera_api import router as javiera_router
 from .javiera_v166_api import router as javiera_v166_router
@@ -86,6 +87,7 @@ app.include_router(network_accounts_router)
 app.include_router(network_router)
 app.include_router(network_facebook_manual_router)
 app.include_router(network_files_router)
+app.include_router(ine_router)
 @app.middleware("http")
 async def private_cache_policy(request, call_next):
     response = await call_next(request)

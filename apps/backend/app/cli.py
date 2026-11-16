@@ -7,14 +7,14 @@ from sqlalchemy import func, select
 from .db import Base, SessionLocal, engine
 from .models import AuditEvent, Document, Organization, User
 from . import platform_models
-from . import ops_models, control_models, network_models  # registrar tablas antes de crear esquema
+from . import ops_models, control_models, network_models, ine_models  # registrar tablas antes de crear esquema
 from .ops_models import AuditPeriod, Contractor, ContractorWorksite, MonthlyDocument, OpsChange, Worker, WorkerAssignment, Worksite
 from .control_models import ContributionControl, MonthlyActivity, ContractRegister, ContractAmendment, ProcessCalendar, WorkTask, OffboardingCase, RequirementApplicability
 from .ops_api import DEFAULT_SITES, INITIAL_PERIOD, ensure_sites
 from .security import hash_password
 from .platform_models import BackupCheckpoint, SchemaVersion
 from .version import VERSION
-from .migrations import v0_6_0, v0_7_0, v8_1_0, v13_1_0, v16_0_0, v16_0_1, v16_6_0, v20_0_0, v20_1_0_facebook, v20_2_0_facebook_tests
+from .migrations import v0_6_0, v0_7_0, v8_1_0, v13_1_0, v16_0_0, v16_0_1, v16_6_0, v20_0_0, v20_1_0_facebook, v20_2_0_facebook_tests, v20_5_0_ine
 from . import v81_models, configuration_models, javiera_models, javiera_v166_models, javiera_workbook_models  # register additive tables
 
 
@@ -67,6 +67,10 @@ def migrate(db):
         v20_2_0_facebook_tests.upgrade(db.connection())
         db.add(SchemaVersion(version=v20_2_0_facebook_tests.MIGRATION_ID))
 
+    if not db.get(SchemaVersion, v20_5_0_ine.MIGRATION_ID):
+        v20_5_0_ine.upgrade(db.connection())
+        db.add(SchemaVersion(version=v20_5_0_ine.MIGRATION_ID))
+
 
 def find_admin(db, email: str) -> User:
     admin = db.scalar(select(User).where(User.email == email.strip().lower()))
@@ -107,7 +111,7 @@ def main():
         cmd = cmds.add_parser(command, help="Crear o vincular usuario a empresa EXISTENTE")
         cmd.add_argument("--email", required=True)
         cmd.add_argument("--admin-email", required=True, help="Administrador de la empresa que compartirá sus contratistas")
-        cmd.add_argument("--role", choices=("admin", "administrative", "resident", "doc_reviewer"), default="administrative")
+        cmd.add_argument("--role", choices=("admin", "administrative", "resident", "doc_reviewer", "ine_supervisor"), default="administrative")
         if command == "link-user":
             cmd.add_argument("--apply", action="store_true")
             cmd.add_argument("--backup", help="pg_dump custom validado con pg_restore --list")

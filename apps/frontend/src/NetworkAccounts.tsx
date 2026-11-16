@@ -527,7 +527,7 @@ function AccountForm({
           Cuenta activa
         </label>
         <div className="nw-role-options">
-          {["admin", "doc_reviewer", "administrative", "resident"].map((r) => (
+          {["admin", "doc_reviewer", "administrative", "resident", "ine_supervisor"].map((r) => (
             <button
               type="button"
               className={"nw-role-card " + (role === r ? "selected" : "")}
@@ -538,7 +538,7 @@ function AccountForm({
               {r === "resident" ? <Network /> : r === "administrative" ? <Users /> : r === "doc_reviewer" ? <Check /> : <Settings />}
               <b>{labels[r]}</b>
               <small>
-                {r === "resident" ? "Solo Red de Obras"
+                {r === "ine_supervisor" ? "Solo control INE: mes actual y anterior en obras asignadas" : r === "resident" ? "Solo Red de Obras"
                   : r === "administrative" ? "Asistencia semanal y contratos de trabajo"
                   : r === "doc_reviewer" ? "Solo revisión de plantillas autorizadas, sin acceso a trabajadores ni contratistas"
                   : "Acceso completo de Administrador"}
@@ -546,13 +546,13 @@ function AccountForm({
             </button>
           ))}
         </div>
-        {target && !["admin", "administrative", "resident", "doc_reviewer"].includes(target.role) && (
+        {target && !["admin", "administrative", "resident", "doc_reviewer", "ine_supervisor"].includes(target.role) && (
           <p className="nw-callout">
             Esta cuenta tiene un perfil antiguo. Selecciona uno de los perfiles vigentes
             para habilitar nuevamente su acceso.
           </p>
         )}
-        {["resident","administrative"].includes(role) ? (
+        {["resident","administrative","ine_supervisor"].includes(role) ? (
           <>
             <b>Obras asignadas</b>
             {catalog.sites.map((s) => (
@@ -587,7 +587,7 @@ function AccountForm({
         )}
         <button
           className="nw-btn nw-primary"
-          disabled={busy || (["resident","administrative"].includes(role) && !sites.length)}
+          disabled={busy || (["resident","administrative","ine_supervisor"].includes(role) && !sites.length)}
         >
           {busy
             ? "Guardando…"

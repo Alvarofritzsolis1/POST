@@ -60,7 +60,7 @@ def authorized_user(request: Request, db: Session = Depends(get_db)) -> User:
     if payload.get("ver", 0) != (member.session_version if member else 0):
         raise HTTPException(401, "La sesión fue revocada. Inicia sesión nuevamente")
     db.info["network_auth"] = (user.id, payload.get("ver", 0))
-    if user.role not in {"admin", "administrative", "resident", "doc_reviewer"}:
+    if user.role not in {"admin", "administrative", "resident", "doc_reviewer", "ine_supervisor"}:
         raise HTTPException(403, "Perfil anterior: un administrador debe asignarte uno de los tres perfiles vigentes")
     if user.role == "doc_reviewer":
         # Restrict reviewers to the explicitly-scoped document review API.
@@ -83,6 +83,9 @@ def authorized_user(request: Request, db: Session = Depends(get_db)) -> User:
         if not (reviewer_read or reviewer_write or
                 path in {"/api/v1/auth/me", "/api/v1/auth/logout"}):
             raise HTTPException(403, "El revisor solo puede acceder a la revisión documental")
+    if user.role == "ine_supervisor" and not (request.url.path.startswith("/api/v1/ine/") or
+            request.url.path in {"/api/v1/auth/me", "/api/v1/auth/logout"}):
+        raise HTTPException(403, "Supervisor INE: acceso limitado al módulo INE")
     if user.role == "resident" and not (request.url.path.startswith("/api/v1/network/") or
             request.url.path in {"/api/v1/auth/me", "/api/v1/auth/logout"}):
         raise HTTPException(403, "El residente solo tiene acceso a Red de Obras")

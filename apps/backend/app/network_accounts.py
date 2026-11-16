@@ -123,7 +123,7 @@ def account_view(db, target):
 
 
 def assign(db, actor, target, body):
-    if body.role in {"resident", "administrative"} and not body.site_ids:
+    if body.role in {"resident", "administrative", "ine_supervisor"} and not body.site_ids:
         raise HTTPException(422, "Asigna al menos una obra al residente o administrativo")
     if len(body.site_ids) != len(set(body.site_ids)):
         raise HTTPException(422, "Obras repetidas")

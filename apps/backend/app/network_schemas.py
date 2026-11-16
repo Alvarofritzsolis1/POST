@@ -21,7 +21,7 @@ class AccountInput(Input):
     name: str = Field(min_length=2, max_length=180)
     email: EmailStr
     title: str = Field(default="", max_length=180)
-    role: Literal["admin", "administrative", "resident", "doc_reviewer"] = "resident"
+    role: Literal["admin", "administrative", "resident", "doc_reviewer", "ine_supervisor"] = "resident"
     enabled: bool = True
     site_ids: list[str] = Field(default_factory=list, max_length=100)
     can_award: bool = False
@@ -33,8 +33,8 @@ class AccountInput(Input):
 
     @model_validator(mode="after")
     def assigned(self):
-        if self.role in {"resident", "administrative"} and not self.site_ids:
-            raise ValueError("Asigna al menos una obra al residente o administrativo")
+        if self.role in {"resident", "administrative", "ine_supervisor"} and not self.site_ids:
+            raise ValueError("Asigna al menos una obra al usuario operativo")
         if len(self.site_ids) != len(set(self.site_ids)):
             raise ValueError("Las obras no se pueden repetir")
         return self
@@ -43,15 +43,15 @@ class AccountInput(Input):
 class AccountEdit(Input):
     name: str = Field(min_length=2, max_length=180)
     title: str = Field(default="", max_length=180)
-    role: Literal["admin", "administrative", "resident", "doc_reviewer"]
+    role: Literal["admin", "administrative", "resident", "doc_reviewer", "ine_supervisor"]
     enabled: bool
     site_ids: list[str] = Field(default_factory=list, max_length=100)
     can_award: bool = False
 
     @model_validator(mode="after")
     def assigned(self):
-        if self.role in {"resident", "administrative"} and not self.site_ids:
-            raise ValueError("Asigna al menos una obra al residente o administrativo")
+        if self.role in {"resident", "administrative", "ine_supervisor"} and not self.site_ids:
+            raise ValueError("Asigna al menos una obra al usuario operativo")
         if len(self.site_ids) != len(set(self.site_ids)):
             raise ValueError("Las obras no se pueden repetir")
         return self
