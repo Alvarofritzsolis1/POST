@@ -137,3 +137,55 @@ def test_reply_worker_without_actual_message_delivery(network, monkeypatch):
     detail = n["admin"].get("/api/v1/network/facebook/leads/" + lead_id).json()
     assert detail["messages"][-1]["state"] == "sent"
     assert n["admin"].get("/api/v1/network/facebook/center").json()["counts"]["contacts"] == 1
+
+
+def test_explicit_document_help_creates_persistent_alert_and_gentle_reply(network, monkeypatch):
+    n = network
+    enable_messaging(n, monkeypatch)
+    monkeypatch.setenv("FACEBOOK_AI_AUTO_REPLY_ENABLED", "true")
+    settings.cache_clear()
+    assert incoming(n, text="no entiendo lo del f30, no se como sacar los papeles").status_code == 200
+    center = n["admin"].get("/api/v1/network/facebook/center")
+    assert center.status_code == 200, center.text
+    lead = center.json()["leads"][0]
+    assert lead["needs_support"] is True
+    assert "trámite" in lead["support_reason"] or "dificultades" in lead["support_reason"]
+    assert center.json()["counts"]["support"] == 1
+    inbox = n["admin"].get("/api/v1/network/facebook/leads/" + lead["id"]).json()
+    messages = inbox["messages"]
+    assert messages[0]["direction"] == "inbound"
+    assert messages[-1]["direction"] == "outbound"
+    assert messages[-1]["state"] == "pending"
+    assert messages[-1]["body"].count("?") <= 1
+    assert "F-30" not in messages[-1]["body"]
+    assert n["send"](n["a"], "/facebook/leads/" + lead["id"] + "/onboarding",
+                     method="GET").status_code == 403
+    draft = n["send"](n["admin"], "/facebook/leads/" + lead["id"] + "/suggest")
+    assert draft.status_code == 200
+    assert draft.json()["source"] == "help_first"
+    assert draft.json()["alert_admin"] is True
+    guide = n["admin"].get("/api/v1/network/facebook/leads/" + lead["id"] + "/onboarding")
+    assert guide.status_code == 200
+    assert guide.json()["human_followup"] is True
+    assert guide.json()["ask_for_files_now"] is False
+
+    edited = n["send"](n["admin"], "/facebook/leads/" + lead["id"],
+        {"entity_type": "individual", "has_employees": False}, "PATCH")
+    assert edited.status_code == 200, edited.text
+    guide = n["admin"].get("/api/v1/network/facebook/leads/" + lead["id"] + "/onboarding").json()
+    assert not any("Constitución" in s for s in guide["required_for_review"])
+    assert not any("Contratos de trabajo" in s for s in guide["required_for_review"])
+    # Only the admin may remove the alert once human assistance is provided.
+    cleared = n["send"](n["admin"], "/facebook/leads/" + lead["id"],
+        {"needs_support": False}, "PATCH")
+    assert cleared.status_code == 200
+    assert cleared.json()["needs_support"] is False
+    assert cleared.json()["support_reason"] == ""
+
+
+def test_bad_spelling_alone_does_not_trigger_support_alert(network, monkeypatch):
+    n = network
+    enable_messaging(n, monkeypatch)
+    assert incoming(n, text="ola soy gasfite tengo do ayudantes").status_code == 200
+    lead = n["admin"].get("/api/v1/network/facebook/center").json()["leads"][0]
+    assert lead["needs_support"] is False
