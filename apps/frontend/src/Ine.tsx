@@ -347,401 +347,404 @@ export default function Ine({ user, version, onBack, logout }: {
   const selectedMonthHasData = tally.totalReported > 0;
   const currentDateLabel = period ? monthLabel(period) : "mes seleccionado";
 
-  return <div className="ine ine-v2051">
-    <section className="ine-hero ine-new-hero">
-      <div className="ine-hero-left">
+  const pendingRows = rows.filter(row => !row.complete)
+    .sort((a, b) => Number(reported(a)) - Number(reported(b)) ||
+      a.site_name.localeCompare(b.site_name, "es-CL"));
+  const missingCount = rows.reduce((sum, row) =>
+    sum + fields.filter(col => row[col.key] === null).length, 0);
+  const filledCount = rows.length * fields.length - missingCount;
+  const fieldProgress = percent(filledCount, rows.length * fields.length);
+  const completedPercent = percent(tally.complete, rows.length);
+  const noStarted = rows.filter(row => !reported(row)).length;
+  const chosen = rows.find(row => rowKey(row) === expandedRow);
+  const assignedNames = [...new Set(rows.map(row => row.supervisor.trim() || "Sin responsable definido"))];
+  const responsible = assignedNames.map(name => {
+    const data = rows.filter(row => (row.supervisor.trim() || "Sin responsable definido") === name);
+    const complete = data.filter(row => row.complete).length;
+    return { name, count: data.length, complete, pending: data.length - complete,
+      progress: percent(complete, data.length) };
+  }).sort((a, b) => b.pending - a.pending || a.name.localeCompare(b.name, "es-CL"));
+  const annualRows = graph.filter(item => item.rows > 0);
+  const annualProgress = Math.round(
+    annualRows.reduce((sum, item) => sum + item.complete, 0) /
+    Math.max(1, annualRows.reduce((sum, item) => sum + item.rows, 0)) * 100);
+  const openRow = (row: SheetRow) => {
+    if (!row.editable) return;
+    setExpandedRow(rowKey(row));
+    setEditingDetails("");
+    window.setTimeout(() => document.getElementById("ine-quick-editor")
+      ?.scrollIntoView({ behavior: "smooth", block: "center" }), 50);
+  };
+  const gotoMonth = (next: string) => { if (next) { setPeriod(next); setExpandedRow(""); } };
+
+  return <main className="ine ine-v2051 ine-simplified">
+    <header className="ine-simple-header">
+      <div className="ine-simple-heading">
         {onBack && <button className="ine-back" type="button" onClick={onBack}>
-          <ArrowLeft size={16}/> Volver a GALANT
-        </button>}
-        <div className="ine-kicker"><FileSpreadsheet size={17}/> GALANT / CONTROL INE
+          <ArrowLeft size={15}/> Volver a GALANT</button>}
+        <div className="ine-simple-caption"><FileSpreadsheet size={16}/> GALANT / INE
           <span>v{version || "20.5.1"}</span></div>
-        <h1>Control de contratistas por obra</h1>
-        <p>Consulta todos los meses y el histórico original. Registra las cifras por obra con permisos claros y trazabilidad.</p>
+        <h1>Control general</h1>
+        <p>Avance de las obras, responsables y registros mensuales en un solo lugar.</p>
       </div>
-      <div className="ine-hero-right">
-        <span className="ine-role">
-          {admin ? <ShieldCheck size={16}/> : <LockKeyhole size={16}/>}
-          {admin ? "Administrador · edición completa" : supervisor ? "Supervisor · edición limitada" : "Consulta histórica"}
-        </span>
-        {logout && <button type="button" className="ine-light-btn" onClick={logout}>Cerrar sesión</button>}
+      <div className="ine-simple-user">
+        <span>{admin ? <ShieldCheck size={15}/> : <LockKeyhole size={15}/>}
+          {admin ? "Administrador" : supervisor ? "Supervisor INE" : "Consulta"}</span>
+        {logout && <button type="button" onClick={logout}>Cerrar sesión</button>}
       </div>
-    </section>
+    </header>
 
     {error && <div className="ine-alert ine-error" role="alert">{error}
       <button type="button" onClick={() => setError("")} aria-label="Cerrar error"><X size={16}/></button></div>}
     {notice && <div className="ine-alert ine-success" role="status">{notice}
       <button type="button" onClick={() => setNotice("")} aria-label="Cerrar aviso"><X size={16}/></button></div>}
 
-    {!config?.source && !loading && <div className="ine-source-banner">
-      <div><Info size={21}/><span><strong>Histórico original pendiente de importar.</strong>
-        {admin ? " Carga el Excel 2026 una sola vez para consultar las hojas antiguas y editar sus registros."
-          : " El administrador debe importar el Excel para que puedas consultar todas las hojas históricas."}</span></div>
-      {admin && <button type="button" onClick={() => setTab("respaldo")}>Importar Excel <ChevronRight size={16}/></button>}
-    </div>}
-
-    <div className="ine-control ine-new-control">
-      <label className="ine-month"><span>Período seleccionado</span>
-        <input type="month" aria-label="Seleccionar cualquier mes del histórico" value={period}
-          onChange={event => { if (event.target.value) setPeriod(event.target.value); }}/>
-      </label>
-      <div className="ine-quick-months">
-        {config && [config.current_month, config.previous_month].map((month, index) =>
-          <button type="button" key={month} className={period === month ? "selected" : ""}
-            onClick={() => setPeriod(month)}>{index === 0 ? "Mes actual" : "Mes anterior"}</button>)}
-        <button type="button" onClick={() => setTab("historico")}><BookOpenText size={15}/> Histórico original</button>
-      </div>
-      <button type="button" className="ine-refresh" disabled={loading || !period}
+    <div className="ine-simple-toolbar">
+      <label>Mes que deseas consultar
+        <input aria-label="Seleccionar mes" type="month" value={period}
+          onChange={event => gotoMonth(event.target.value)}/></label>
+      {config && <div className="ine-simple-date-actions">
+        <button type="button" className={period === config.current_month ? "selected" : ""}
+          onClick={() => gotoMonth(config.current_month)}>Mes actual</button>
+        <button type="button" className={period === config.previous_month ? "selected" : ""}
+          onClick={() => gotoMonth(config.previous_month)}>Mes anterior</button>
+      </div>}
+      <button type="button" className="ine-simple-refresh" disabled={!period || loading}
         onClick={() => void Promise.all([loadMonth(period), loadSummary(period)])}>
-        <RefreshCw size={16}/> Actualizar
-      </button>
+        <RefreshCw size={15}/> Actualizar</button>
     </div>
-    <div className="ine-policy-line">
-      <span className="ine-policy-pill"><LockKeyhole size={14}/>
-        {admin ? "Puedes editar cualquier obra y mes" : supervisor
-          ? "Editas solo tus obras del mes actual y anterior" : "Todos los registros son de solo lectura"}
-      </span>
-      <span>El Excel original nunca se modifica.</span>
-    </div>
-
-    <div className="ine-kpis">
-      <div className="ine-kpi ine-kpi-blue"><span>Contratistas del mes</span>
-        <strong>{sumLabel(tally.contractors, tally.totalReported)}</strong>
-        <small>CCT + CESP + IND · {currentDateLabel}</small></div>
-      <div className="ine-kpi ine-kpi-teal"><span>Trabajadores del mes</span>
-        <strong>{sumLabel(tally.workers, tally.totalReported)}</strong>
-        <small>TH + TM · {currentDateLabel}</small></div>
-      <div className="ine-kpi ine-kpi-green"><span>Obras completadas</span>
-        <strong>{tally.complete}<em> / {rows.length}</em></strong>
-        <small>{rows.length ? percent(tally.complete, rows.length) + "% de las obras del período" : "Sin obras registradas"}</small></div>
-      <div className={"ine-kpi " + (tally.pending ? "ine-kpi-amber" : "ine-kpi-neutral")}>
-        <span>Obras pendientes</span><strong>{tally.pending}</strong>
-        <small>Casillas sin información, no ceros</small></div>
-    </div>
-
-    <nav className="ine-tabs" aria-label="Secciones del control INE">
-      <button type="button" aria-current={tab === "registro" ? "page" : undefined}
-        className={tab === "registro" ? "selected" : ""} onClick={() => setTab("registro")}>
-        <Pencil size={16}/> Registro mensual</button>
-      <button type="button" aria-current={tab === "analisis" ? "page" : undefined}
-        className={tab === "analisis" ? "selected" : ""} onClick={() => setTab("analisis")}>
-        <BarChart3 size={16}/> Análisis y gráficos</button>
-      <button type="button" aria-current={tab === "historico" ? "page" : undefined}
-        className={tab === "historico" ? "selected" : ""} onClick={() => setTab("historico")}>
-        <BookOpenText size={16}/> Histórico completo <span className="ine-tab-count">{archive?.sheets.length ?? "…"}</span></button>
-      {admin && <button type="button" aria-current={tab === "auditoria" ? "page" : undefined}
-        className={tab === "auditoria" ? "selected" : ""} onClick={() => setTab("auditoria")}>
-        <History size={16}/> Auditoría privada</button>}
-      {admin && <button type="button" aria-current={tab === "respaldo" ? "page" : undefined}
-        className={tab === "respaldo" ? "selected" : ""} onClick={() => setTab("respaldo")}>
-        <Download size={16}/> Excel y respaldo</button>}
+    <nav className="ine-simple-tabs" aria-label="Secciones INE">
+      <button type="button" className={tab === "registro" ? "selected" : ""}
+        onClick={() => setTab("registro")}><BarChart3 size={16}/> Control general</button>
+      <button type="button" className={tab === "historico" ? "selected" : ""}
+        onClick={() => setTab("historico")}><BookOpenText size={16}/> Histórico del Excel</button>
+      {admin && <button type="button" className={tab === "auditoria" ? "selected" : ""}
+        onClick={() => setTab("auditoria")}><History size={16}/> Registro de cambios</button>}
+      {admin && <button type="button" className={tab === "respaldo" ? "selected" : ""}
+        onClick={() => setTab("respaldo")}><Download size={16}/> Respaldos</button>}
     </nav>
 
-    {tab === "registro" && <section className="ine-register">
-      <div className="ine-section-head">
-        <div><span className="ine-eyebrow">CIFRAS POR OBRA</span>
-          <h2>Registro de {currentDateLabel}</h2>
-          <p>Se muestran las cifras originales y las últimas actualizaciones. El administrador puede editar cualquier período.</p>
+    {tab === "registro" && <>
+      {!config?.source && !loading && <div className="ine-source-banner">
+        <div><Info size={18}/><span><strong>El Excel original aún no se ha importado.</strong>
+          {" "}Solo aparecen las obras ya registradas en GALANT.</span></div>
+        {admin && <button type="button" onClick={() => setTab("respaldo")}>
+          Importar Excel <ChevronRight size={15}/></button>}
+      </div>}
+
+      <section className="ine-summary-card">
+        <div className="ine-summary-primary">
+          <span className="ine-overline">AVANCE DEL MES · {monthLabel(period)}</span>
+          <div className="ine-summary-percent">{rows.length ? fieldProgress + "%" : "—"}</div>
+          <strong>Información completada</strong>
+          <div className="ine-progress-track">
+            <div style={{width: fieldProgress + "%"}}/>
+          </div>
+          <p>{rows.length ? filledCount + " de " + rows.length * 5 + " campos informados" :
+            "Todavía no hay datos para este período"}</p>
         </div>
-        {admin && <button className="ine-primary-action" type="button" onClick={() => setShowNew(!showNew)}>
-          {showNew ? <X size={16}/> : <Plus size={16}/>}
-          {showNew ? "Cerrar formulario" : "Agregar obra o registro"}</button>}
+        <div className="ine-summary-metrics">
+          <div className="ine-stat"><span>Obras del mes</span><strong>{rows.length}</strong><small>Registros para controlar</small></div>
+          <div className="ine-stat ine-stat-green"><span>Completas</span><strong>{tally.complete}</strong><small>{completedPercent}% de las obras</small></div>
+          <div className="ine-stat ine-stat-amber"><span>Faltan completar</span><strong>{tally.pending}</strong><small>{missingCount} casillas pendientes</small></div>
+          <div className="ine-stat ine-stat-red"><span>Sin comenzar</span><strong>{noStarted}</strong><small>Sin ninguna cifra informada</small></div>
+        </div>
+      </section>
+
+      <div className="ine-simple-insight">
+        <Info size={15}/>{admin ? "Puedes editar cualquier mes y obra." :
+          supervisor ? "Puedes revisar todos los meses, pero editar solo tus obras del mes actual y anterior." :
+            "Consulta de solo lectura para tu perfil."}
+        {" "}Las casillas vacías no se cuentan como cero.
       </div>
-      {admin && showNew && <section className="ine-new-record" aria-label="Crear registro INE">
-        <div className="ine-inline-heading"><h3>Nuevo registro del mes</h3>
-          <span>Disponible para el administrador en cualquier período</span></div>
-        <div className="ine-new-grid">
-          <label>Vincular a obra GALANT (opcional)
-            <select value={newSiteId} onChange={event => {
-              const id = event.target.value;
-              setNewSiteId(id);
-              const existing = config?.sites.find(site => site.id === id);
-              if (existing) setNewName(existing.name);
-            }}>
-              <option value="">Sin vincular · escribir nombre manual</option>
-              {config?.sites.map(site => <option value={site.id} key={site.id}>{site.name}</option>)}
-            </select></label>
-          <label>Nombre de la obra
-            <input type="text" value={newName} maxLength={200} placeholder="Ej.: OBRA LOMAS VERDES"
-              onChange={event => setNewName(event.target.value)}/></label>
+
+      {chosen && chosen.editable && <section id="ine-quick-editor" className="ine-simple-editor">
+        <div className="ine-section-head">
+          <div><span className="ine-eyebrow">EDICIÓN RÁPIDA</span>
+            <h2>{chosen.site_name}</h2><p>Modifica las cifras y presiona Guardar. El Excel original no cambia.</p></div>
+          <button type="button" className="ine-simple-close" onClick={() => setExpandedRow("")}><X size={16}/> Cerrar</button>
         </div>
-        <div className="ine-new-counts">{fields.map(col => <label key={col.key}>
-          <span>{col.label}</span><input type="number" min="0" max="1000000" step="1" placeholder="Vacío"
-            value={newCounts[col.key]} onChange={event => setNewCounts(prev => ({ ...prev, [col.key]: event.target.value }))}/></label>)}</div>
-        <div className="ine-new-actions"><small>Deja la cifra en blanco si aún no está informada.</small>
-          <button className="ine-save" type="button" disabled={!!busy || !newName.trim()}
-            onClick={() => void createManual()}>
-            <Plus size={16}/> {busy === "new" ? "Creando…" : "Crear registro"}</button></div>
+        {admin && chosen.id && <div className="ine-details-access">
+          <button type="button" className="ine-text-action" onClick={() => {
+            if (editingDetails === chosen.id) setEditingDetails("");
+            else { setDetailName(chosen.site_name); setDetailSupervisor(chosen.supervisor); setEditingDetails(chosen.id || ""); }
+          }}><Pencil size={14}/> Editar nombre, supervisor o vínculo</button>
+          {editingDetails === chosen.id && <div className="ine-details-editor">
+            <label>Nombre de la obra<input value={detailName} maxLength={200}
+              onChange={event => setDetailName(event.target.value)}/></label>
+            <label>Supervisor<input value={detailSupervisor} maxLength={180}
+              onChange={event => setDetailSupervisor(event.target.value)}/></label>
+            <label>Vincular a GALANT<select value={chosen.site_id || ""}
+              onChange={event => void linkRow(chosen, event.target.value)}>
+              <option value="">Sin vincular</option>{config?.sites.map(site =>
+                <option value={site.id} key={site.id}>{site.name}</option>)}</select></label>
+            <button type="button" className="ine-save" disabled={!!busy || !detailName.trim()}
+              onClick={() => void saveDetails(chosen)}><Save size={15}/> Guardar</button>
+          </div>}
+        </div>}
+        <div className="ine-simple-fields">{fields.map(col => <label key={col.key}>
+          <span>{col.label}</span><small>{col.hint}</small>
+          <input type="number" min={0} max={1000000} step={1} placeholder="Pendiente"
+            aria-label={col.hint + " de " + chosen.site_name} disabled={!!busy}
+            value={value(chosen, col.key)} onChange={event => setValue(chosen, col.key, event.target.value)}/>
+        </label>)}</div>
+        <div className="ine-simple-save">
+          <span>{dirty(chosen) ? "Cambios sin guardar" : "Sin cambios pendientes"}</span>
+          <button type="button" className="ine-save" disabled={!dirty(chosen) || !!busy}
+            onClick={() => void saveRow(chosen)}><Save size={16}/>
+              {busy === rowKey(chosen) ? "Guardando…" : "Guardar cifras"}</button>
+        </div>
       </section>}
 
-      <div className="ine-filters">
-        <label className="ine-search"><Search size={17}/>
-          <input type="search" aria-label="Buscar obra o supervisor" placeholder="Buscar por obra o supervisor"
-            value={search} onChange={event => setSearch(event.target.value)}/></label>
-        <select aria-label="Filtrar estado de obras" value={rowFilter} onChange={event => setRowFilter(event.target.value)}>
-          <option value="all">Todas las obras</option><option value="pending">Pendientes</option>
-          <option value="complete">Completas</option><option value="editable">Puedo editar</option>
-        </select>
-        <span className="ine-row-count">{filteredRows.length} obras</span>
-      </div>
-
-      {loading && <p className="ine-loading" role="status">Cargando registros del mes…</p>}
-      {!loading && filteredRows.length === 0 && <div className="ine-empty">
-        <FileSpreadsheet size={33}/><h3>No hay registros para mostrar</h3>
-        <p>{rows.length ? "Prueba otro filtro o nombre de obra." :
-          admin ? "Puedes agregar tu primera obra con el botón «Agregar obra o registro», o importar el Excel original para transcribir sus hojas." :
-          "Todavía no hay cifras cargadas para este mes. Puedes consultar otros períodos y el histórico original."}</p>
-        {admin && !rows.length && <button type="button" className="ine-primary-action" onClick={() => setShowNew(true)}><Plus size={16}/> Crear registro ahora</button>}
-      </div>}
-      <div className="ine-row-list">{filteredRows.map(row => <article
-        className={"ine-site " + (row.editable ? "ine-site-editable" : "ine-site-readonly")}
-        key={rowKey(row)}>
-        <div className="ine-site-title">
-          <div className="ine-site-names">
-            <span className={"ine-status " + (row.complete ? "complete" : "pending")}>
-              {row.complete ? <CheckCircle2 size={14}/> : <Clock3 size={14}/>}
-              {row.complete ? "Completo" : "Pendiente"}
-            </span>
-            <h3>{row.site_name}</h3>
-            <small>{row.supervisor ? "Supervisor del Excel: " + row.supervisor :
-              row.site_id ? "Obra vinculada a GALANT" : "Obra del registro INE"}</small>
-          </div>
-          <div className="ine-site-actions">
-            <span className={row.editable ? "ine-allowed" : "ine-locked"}>
-              {row.editable ? <Check size={14}/> : <LockKeyhole size={14}/>}
-              {row.editable ? "Editable" : "Solo lectura"}</span>
-            {admin && row.id && <button type="button" className="ine-text-action"
-              onClick={() => {
-                if (editingDetails === row.id) setEditingDetails("");
-                else {
-                  setDetailName(row.site_name); setDetailSupervisor(row.supervisor);
-                  setEditingDetails(row.id || "");
-                }
-              }}><Pencil size={13}/> Editar datos de obra</button>}
-          </div>
+      {admin && showNew && <section className="ine-new-record ine-simple-new">
+        <div className="ine-section-head"><div><span className="ine-eyebrow">ADMINISTRADOR</span>
+          <h2>Agregar una obra</h2><p>También puedes crear registros de meses anteriores.</p></div>
+          <button type="button" className="ine-simple-close" onClick={() => setShowNew(false)}><X size={15}/> Cerrar</button></div>
+        <div className="ine-new-grid">
+          <label>Obra GALANT (opcional)<select value={newSiteId} onChange={event => {
+            const id = event.target.value; setNewSiteId(id);
+            const site = config?.sites.find(item => item.id === id);
+            if (site) setNewName(site.name);
+          }}><option value="">Sin vincular</option>
+            {config?.sites.map(site => <option value={site.id} key={site.id}>{site.name}</option>)}</select></label>
+          <label>Nombre de la obra<input value={newName} maxLength={200}
+            placeholder="Nombre de la obra" onChange={event => setNewName(event.target.value)}/></label>
         </div>
-        {admin && row.id && editingDetails === row.id && <div className="ine-details-editor">
-          <label>Nombre en GALANT
-            <input type="text" value={detailName} maxLength={200}
-              onChange={event => setDetailName(event.target.value)}/></label>
-          <label>Supervisor
-            <input type="text" value={detailSupervisor} maxLength={180}
-              onChange={event => setDetailSupervisor(event.target.value)}/></label>
-          <label>Vincular obra
-            <select value={row.site_id || ""} disabled={!!busy} onChange={event => void linkRow(row, event.target.value)}>
-              <option value="">Sin vincular</option>
-              {config?.sites.map(site => <option key={site.id} value={site.id}>{site.name}</option>)}
-            </select></label>
-          <button type="button" className="ine-save" disabled={!!busy || !detailName.trim()}
-            onClick={() => void saveDetails(row)}><Save size={15}/> Guardar datos</button>
-        </div>}
-        <div className="ine-fields">{fields.map(col => <label key={col.key} className={"ine-field-" + col.color} title={col.hint}>
-          <span>{col.label}</span>
-          <input aria-label={col.hint + " · " + row.site_name} inputMode="numeric"
-            type="number" min={0} max={1000000} step={1} placeholder="Sin dato"
-            disabled={!row.editable || !!busy} value={value(row, col.key)}
-            onChange={event => setValue(row, col.key, event.target.value)}/>
-          <small>{col.hint}</small>
+        <div className="ine-new-counts">{fields.map(col => <label key={col.key}>
+          <span>{col.label}</span><input type="number" min={0} max={1000000} step={1}
+            value={newCounts[col.key]} placeholder="Pendiente"
+            onChange={event => setNewCounts(previous => ({...previous, [col.key]: event.target.value}))}/>
         </label>)}</div>
-        <div className="ine-site-footer">
-          <div className="ine-source-tags">
-            <span>{row.source_sheet && row.source_row ? "Excel: hoja " + row.source_sheet + " · fila " + row.source_row :
-              "Registro de GALANT"}</span>
-            {row.source_status && <span>Estado original: {row.source_status}</span>}
-            {row.source_total !== null && <span>Total original: {String(row.source_total)}</span>}
-            {row.source_percent !== null && <span>% original: {String(row.source_percent)}</span>}
-          </div>
-          {row.editable && <div className="ine-save-area">
-            {dirty(row) && <span>Hay cambios sin guardar</span>}
-            <button type="button" className="ine-save" disabled={!dirty(row) || !!busy}
-              onClick={() => void saveRow(row)}><Save size={16}/>{busy === rowKey(row) ? "Guardando…" : "Guardar cambios"}</button>
-          </div>}
-        </div>
-      </article>)}</div>
-    </section>}
+        <div className="ine-new-actions"><small>Los valores sin información se dejan vacíos.</small>
+          <button type="button" className="ine-save" disabled={!newName.trim() || !!busy}
+            onClick={() => void createManual()}><Plus size={15}/> Crear obra</button></div>
+      </section>}
 
-    {tab === "analisis" && <section className="ine-analytics">
-      <div className="ine-section-head"><div>
-        <span className="ine-eyebrow">DATOS Y ANÁLISIS</span>
-        <h2>Indicadores del año {period.slice(0, 4)}</h2>
-        <p>Los gráficos se calculan con los registros mensuales de GALANT; no alteran el Excel original.</p>
-      </div></div>
-      <div className="ine-analytic-grid">
-        <div className="ine-analytic-card">
-          <div className="ine-card-title"><div><strong>Contratistas por mes</strong>
-            <span>CCT + CESP + IND</span></div><span className="ine-dot ine-dot-blue"/></div>
-          <div className="ine-bars">{graph.map((item, index) => {
-            const n = sumFields(item, ["cct", "cesp", "ind"]);
-            return <div className="ine-bar-column" key={item.period} title={monthLabel(item.period) + ": " + (item.reported ? n : "sin datos")}>
-              <div className="ine-bar-area"><div className={item.reported ? "ine-bar-fill ine-bar-blue" : "ine-bar-none"}
-                style={{ height: item.reported ? Math.max(3, n / maxContract * 100) + "%" : "3px" }}/></div>
-              <small>{monthsShort[index]}</small>
+      <section className="ine-dashboard-main">
+        <div className="ine-dashboard-section-head">
+          <div><span className="ine-eyebrow">PRIORIDADES</span><h2>¿Quiénes faltan?</h2>
+            <p>Obras que necesitan completar o informar datos de {monthLabel(period)}.</p></div>
+          <span className="ine-pending-count">{pendingRows.length} pendientes</span>
+        </div>
+        {loading ? <p className="ine-loading" role="status">Cargando obras…</p> : pendingRows.length ? <div className="ine-missing-list">
+          {pendingRows.slice(0, 8).map(row => {
+            const missing = fields.filter(col => row[col.key] === null);
+            const filled = 5 - missing.length;
+            return <div className="ine-missing-item" key={rowKey(row)}>
+              <div className={"ine-missing-dot " + (!reported(row) ? "urgent" : "")}/>
+              <div className="ine-missing-body">
+                <strong>{row.site_name}</strong>
+                <small>{row.supervisor || "Responsable no indicado en el Excel"}</small>
+                <div className="ine-missing-tags">{missing.map(col =>
+                  <span key={col.key}>{col.label}</span>)}</div>
+              </div>
+              <div className="ine-missing-progress"><strong>{filled}/5</strong>
+                <div className="ine-mini-progress"><span style={{width:(filled / 5 * 100)+"%"}}/></div></div>
+              {row.editable ? <button type="button" className="ine-list-edit"
+                onClick={() => openRow(row)}>Completar <ChevronRight size={14}/></button> :
+                <span className="ine-readonly-pill"><LockKeyhole size={12}/> Lectura</span>}
             </div>;
-          })}</div>
-          <p className="ine-chart-note">Los meses sin reportes se muestran sin barra, no como cero.</p>
-        </div>
-        <div className="ine-analytic-card">
-          <div className="ine-card-title"><div><strong>Trabajadores por mes</strong>
-            <span>TH + TM</span></div><span className="ine-dot ine-dot-teal"/></div>
-          <div className="ine-bars">{graph.map((item, index) => {
-            const n = sumFields(item, ["th", "tm"]);
-            return <div className="ine-bar-column" key={item.period} title={monthLabel(item.period) + ": " + (item.reported ? n : "sin datos")}>
-              <div className="ine-bar-area"><div className={item.reported ? "ine-bar-fill ine-bar-teal" : "ine-bar-none"}
-                style={{ height: item.reported ? Math.max(3, n / maxWorkers * 100) + "%" : "3px" }}/></div>
-              <small>{monthsShort[index]}</small>
-            </div>;
-          })}</div>
-          <p className="ine-chart-note">Escala independiente de la gráfica de contratistas.</p>
-        </div>
-        <div className="ine-analytic-card">
-          <div className="ine-card-title"><div><strong>Distribución de contratistas</strong>
-            <span>{currentDateLabel}</span></div></div>
-          {selectedMonthHasData ? <div className="ine-segment-stack">
-            {contractorSplit.map(item => <div key={item.key} className={"ine-stack-" + item.color}
-              style={{ width: (tally.contractors ? item.value / tally.contractors * 100 : 0) + "%" }}/>)}
-          </div> : <p className="ine-no-stat">No hay cifras informadas para este período.</p>}
-          {contractorSplit.map(item => <div key={item.key} className="ine-key-value">
-            <span><i className={"ine-key-" + item.color}/>{item.hint}</span>
-            <strong>{numOrDash(item.value, selectedMonthHasData)}</strong></div>)}
-        </div>
-        <div className="ine-analytic-card">
-          <div className="ine-card-title"><div><strong>Distribución de trabajadores</strong>
-            <span>{currentDateLabel}</span></div></div>
-          {selectedMonthHasData ? <div className="ine-segment-stack">
-            {workerSplit.map(item => <div key={item.key} className={"ine-stack-" + item.color}
-              style={{ width: (tally.workers ? item.value / tally.workers * 100 : 0) + "%" }}/>)}
-          </div> : <p className="ine-no-stat">No hay cifras informadas para este período.</p>}
-          {workerSplit.map(item => <div key={item.key} className="ine-key-value">
-            <span><i className={"ine-key-" + item.color}/>{item.hint}</span>
-            <strong>{numOrDash(item.value, selectedMonthHasData)}</strong></div>)}
-        </div>
-        <div className="ine-analytic-card ine-analytic-wide">
-          <div className="ine-card-title"><div><strong>Obras con mayor registro de contratistas</strong>
-            <span>{currentDateLabel} · comparación descriptiva, no clasificación de desempeño</span></div></div>
-          {topSites.length ? <div className="ine-top-list">{topSites.map(site =>
-            <div className="ine-top-item" key={site.name}>
-              <span title={site.name}>{site.name}</span>
-              <div><span style={{ width: (site.amount / maxSite * 100) + "%" }}/></div>
-              <strong>{fmtNumber(site.amount)}</strong></div>)}</div> :
-            <p className="ine-no-stat">Selecciona un mes con información para comparar sus obras.</p>}
-        </div>
+          })}</div> :
+          <div className="ine-simple-empty"><CheckCircle2 size={24}/>
+            <strong>{rows.length ? "Todas las obras están completas" : "Sin registros de este mes"}</strong>
+            <span>{rows.length ? "No hay campos pendientes." : "Elige otro mes o carga el Excel original."}</span></div>}
+        {pendingRows.length > 8 && <button type="button" className="ine-show-rest" onClick={() => {
+          setRowFilter("pending");
+          document.getElementById("ine-all-rows")?.scrollIntoView({behavior:"smooth"});
+        }}>Ver todas las {pendingRows.length} obras pendientes <ChevronRight size={15}/></button>}
+      </section>
+
+      <div className="ine-dashboard-charts">
+        <section className="ine-simple-chart">
+          <div className="ine-chart-head"><span className="ine-eyebrow">EVOLUCIÓN</span>
+            <h3>Progreso por mes</h3><p>Porcentaje de obras con los cinco datos completos.</p></div>
+          <div className="ine-annual-bars">
+            {graph.map((item, index) => {
+              const progress = percent(item.complete, item.rows);
+              return <div className="ine-annual-col" key={item.period}
+                title={monthLabel(item.period) + " · " + (item.rows ? progress + "% de obras completas" : "sin datos")}>
+                <span>{item.rows ? progress + "%" : "—"}</span>
+                <div className="ine-annual-track"><i className={item.rows ? "filled" : ""}
+                  style={{height: item.rows ? Math.max(3, progress) + "%" : "0%"}}/></div>
+                <small>{monthsShort[index]}</small>
+              </div>;
+            })}
+          </div>
+          <p className="ine-chart-bottom">Promedio ponderado anual: <strong>{annualRows.length ? annualProgress + "%" : "Sin datos"}</strong></p>
+        </section>
+        <section className="ine-simple-chart">
+          <div className="ine-chart-head"><span className="ine-eyebrow">RESPONSABLES</span>
+            <h3>Avance por supervisor</h3><p>Comparación de las obras agrupadas por el supervisor indicado en el Excel.</p></div>
+          {responsible.length ? <div className="ine-responsible-list">{responsible.slice(0, 7).map(item =>
+            <div className="ine-responsible-row" key={item.name}>
+              <div><strong title={item.name}>{item.name}</strong>
+                <small>{item.pending ? item.pending + " pendiente(s)" : "Completo"}</small></div>
+              <div className="ine-responsible-track"><span style={{width:item.progress+"%"}}/></div>
+              <b>{item.progress}%</b>
+            </div>)}</div> :
+            <div className="ine-simple-empty"><Info size={23}/><span>No hay responsables para mostrar.</span></div>}
+        </section>
       </div>
-      <div className="ine-panel ine-analytics-table">
-        <div className="ine-section-head"><div><h3>Resumen mensual</h3>
-          <p>Las casillas sin informar no deben interpretarse como actividad cero.</p></div></div>
-        <div className="ine-table-scroll"><table className="ine-stats">
-          <thead><tr><th>Mes</th>{fields.map(col => <th key={col.key}>{col.label}</th>)}
-            <th>Obras informadas</th><th>Completas</th><th>Pendientes</th></tr></thead>
-          <tbody>{graph.map(item => <tr key={item.period}>
-            <th>{monthLabel(item.period)}</th>
-            {fields.map(col => <td key={col.key}>{item.reported ? fmtNumber(item[col.key] || 0) : "—"}</td>)}
-            <td>{item.reported ? item.reported : "—"}</td>
-            <td>{item.rows ? item.complete : "—"}</td>
-            <td>{item.rows ? item.pending : "—"}</td>
-          </tr>)}</tbody></table></div>
-        <p className="ine-footnote"><Info size={15}/> Los históricos anteriores a 2026 tienen estructuras distintas y pueden consultarse literalmente en «Histórico completo» sin forzar categorías incorrectas.</p>
-      </div>
-    </section>}
+
+      <section className="ine-chart-disclosure">
+        <button type="button" onClick={() => setMoreCharts(previous => !previous)}>
+          <BarChart3 size={17}/>{moreCharts ? "Ocultar" : "Ver"} más gráficos de contratistas y trabajadores
+          <ChevronRight size={16} className={moreCharts ? "ine-rotated" : ""}/></button>
+        {moreCharts && <div className="ine-extra-charts">
+          <section className="ine-simple-chart">
+            <div className="ine-chart-head"><h3>Contratistas por mes</h3><p>CCT + CESP + IND.</p></div>
+            <div className="ine-volume-bars">{graph.map((item, index) => {
+              const total = sumFields(item, ["cct", "cesp", "ind"]);
+              return <div className="ine-volume-col" key={item.period} title={monthLabel(item.period)+": "+(item.reported? total : "sin cifras")}>
+                <span>{item.reported ? fmtNumber(total) : "—"}</span><div><i style={{height:item.reported ? Math.max(3,total/maxContract*100)+"%" : "0%"}}/></div>
+                <small>{monthsShort[index]}</small>
+              </div>;
+            })}</div>
+          </section>
+          <section className="ine-simple-chart">
+            <div className="ine-chart-head"><h3>Trabajadores por mes</h3><p>TH + TM (escala independiente).</p></div>
+            <div className="ine-volume-bars ine-workers-bars">{graph.map((item,index) => {
+              const total = sumFields(item,["th","tm"]);
+              return <div className="ine-volume-col" key={item.period} title={monthLabel(item.period)+": "+(item.reported?total:"sin cifras")}>
+                <span>{item.reported?fmtNumber(total):"—"}</span><div><i style={{height:item.reported?Math.max(3,total/maxWorkers*100)+"%":"0%"}}/></div>
+                <small>{monthsShort[index]}</small>
+              </div>;
+            })}</div>
+          </section>
+          <section className="ine-simple-chart ine-extra-full">
+            <div className="ine-chart-head"><h3>Composición de las cifras del mes</h3>
+              <p>Desglose por categoría para {monthLabel(period)}.</p></div>
+            <div className="ine-split-categories">
+              {fields.map(col => {
+                const total = rows.reduce((sum, row) => sum + (row[col.key] || 0),0);
+                const maxTotal = Math.max(1, ...fields.map(c => rows.reduce((sum,row)=>sum+(row[c.key]||0),0)));
+                return <div className={"ine-category-row ine-category-"+col.color} key={col.key}>
+                  <span>{col.hint}</span><div><i style={{width:(total/maxTotal*100)+"%"}}/></div>
+                  <strong>{rows.some(reported) ? fmtNumber(total) : "—"}</strong>
+                </div>;
+              })}
+            </div>
+          </section>
+        </div>}
+      </section>
+
+      <section id="ine-all-rows" className="ine-all-rows">
+        <div className="ine-dashboard-section-head">
+          <div><span className="ine-eyebrow">REGISTRO MENSUAL</span><h2>Todas las obras</h2>
+            <p>Revisa el estado y usa «Editar» solo cuando necesites cambiar una obra.</p></div>
+          {admin && <button type="button" className="ine-primary-action" onClick={() => {
+            setShowNew(true);
+            window.setTimeout(() => document.querySelector(".ine-simple-new")?.scrollIntoView({behavior:"smooth"}), 50);
+          }}><Plus size={15}/> Agregar obra</button>}
+        </div>
+        <div className="ine-all-filters">
+          <label className="ine-search"><Search size={16}/>
+            <input type="search" value={search} onChange={event => setSearch(event.target.value)}
+              placeholder="Buscar obra o supervisor" aria-label="Buscar obra o supervisor"/></label>
+          <div className="ine-filter-buttons">
+            {[["all","Todas"],["pending","Pendientes"],["complete","Completas"]].map(([key,label]) =>
+              <button type="button" key={key} className={rowFilter===key?"selected":""}
+                onClick={()=>setRowFilter(key)}>{label}</button>)}
+          </div>
+          <span className="ine-table-count">{filteredRows.length} obras</span>
+        </div>
+        <div className="ine-table-wrap"><table className="ine-control-table">
+          <thead><tr><th>Obra / responsable</th><th>Estado</th><th>Avance</th>
+            {fields.map(col=><th key={col.key} title={col.hint}>{col.label}</th>)}<th></th></tr></thead>
+          <tbody>{filteredRows.map(row=>{
+            const filled=fields.filter(col=>row[col.key]!==null).length;
+            return <tr key={rowKey(row)} className={!reported(row)?"ine-row-empty":""}>
+              <td><strong>{row.site_name}</strong><small>{row.supervisor || "Sin responsable definido"}</small></td>
+              <td><span className={"ine-table-status "+(row.complete?"done":reported(row)?"part":"empty")}>
+                {row.complete?"Completa":reported(row)?"Incompleta":"Sin informar"}</span></td>
+              <td><div className="ine-table-progress"><span style={{width:(filled/5*100)+"%"}}/></div><small>{filled}/5</small></td>
+              {fields.map(col=><td className={row[col.key]===null?"ine-null":""} key={col.key}>
+                {row[col.key]===null?"—":fmtNumber(row[col.key]||0)}</td>)}
+              <td>{row.editable?<button type="button" className="ine-table-edit" onClick={()=>openRow(row)}>
+                Editar <Pencil size={13}/></button>:<LockKeyhole size={14} color="#94a3b8"/>}</td>
+            </tr>;
+          })}</tbody></table>
+          {!filteredRows.length && <div className="ine-simple-empty"><Info size={22}/>
+            <span>No hay obras que coincidan con esta búsqueda.</span></div>}
+        </div>
+      </section>
+    </>}
 
     {tab === "historico" && <section className="ine-panel ine-history-library">
-      <div className="ine-section-head"><div><span className="ine-eyebrow">ARCHIVO HISTÓRICO ORIGINAL</span>
-        <h2>Consulta de todas las hojas</h2>
-        <p>Disponible para todos los usuarios INE. Se leen los valores originales y las fórmulas sin modificarlas.</p></div>
-        <span className="ine-history-lock"><LockKeyhole size={14}/> Solo lectura</span>
-      </div>
+      <div className="ine-section-head"><div><span className="ine-eyebrow">CONSULTA DE SOLO LECTURA</span>
+        <h2>Histórico del Excel</h2><p>Consulta cualquier hoja original. No se modifican sus cifras ni fórmulas.</p></div>
+        <span className="ine-history-lock"><LockKeyhole size={14}/> Solo lectura</span></div>
       {archive?.sheets.length ? <div className="ine-archive-layout">
         <aside className="ine-archive-sidebar">
-          <div className="ine-archive-search"><Search size={15}/>
-            <input type="search" aria-label="Buscar hoja histórica" value={archiveSearch}
-              onChange={event => setArchiveSearch(event.target.value)} placeholder="Buscar mes u hoja…"/></div>
-          <select aria-label="Filtrar año del Excel" value={archiveFilter} onChange={event => setArchiveFilter(event.target.value)}>
-            {sheetGroups.map(group => <option key={group} value={group}>{group}</option>)}
-          </select>
-          <p>{archive.sheets.length} hojas originales · {sheets.length} visibles</p>
-          <div className="ine-sheet-list">{sheets.map(sheet =>
-            <button key={sheet.id} type="button" className={selectedSheet === sheet.id ? "selected" : ""}
-              onClick={() => setSelectedSheet(sheet.id)}>
-              <span><BookOpenText size={14}/>{sheet.name}</span><small>{sheetGroup(sheet.name)}</small>
-            </button>)}
-          </div>
+          <div className="ine-archive-search"><Search size={15}/><input type="search"
+            value={archiveSearch} onChange={event=>setArchiveSearch(event.target.value)}
+            placeholder="Buscar hoja" aria-label="Buscar hoja"/></div>
+          <select aria-label="Filtrar año" value={archiveFilter} onChange={event=>setArchiveFilter(event.target.value)}>
+            {sheetGroups.map(group=><option key={group} value={group}>{group}</option>)}</select>
+          <p>{archive.sheets.length} hojas disponibles</p>
+          <div className="ine-sheet-list">{sheets.map(sheet=><button type="button" key={sheet.id}
+            className={selectedSheet===sheet.id?"selected":""} onClick={()=>setSelectedSheet(sheet.id)}>
+            <span><BookOpenText size={13}/>{sheet.name}</span></button>)}</div>
         </aside>
         <div className="ine-archive-main">
-          {busy === "sheet" || !preview ? <div className="ine-loading">Cargando hoja original…</div> :
-            <>
-              <div className="ine-archive-heading"><div><span>VISTA HISTÓRICA</span>
-                <h3>{preview.name}</h3><p>Valores originales · {preview.rows.length} filas con contenido</p></div>
-                <span><LockKeyhole size={14}/> Protegido</span></div>
-              <div className="ine-table-scroll ine-historic-scroll">
-                <table className="ine-original-table"><thead><tr><th>Fila</th>
-                  {columns.map(column => <th key={column}>{column}</th>)}</tr></thead>
-                  <tbody>{preview.rows.map(line => <tr key={line.row}><th>{line.row}</th>
-                    {columns.map(col => {
-                      const value = line.cells[col];
-                      const display = value == null ? "" : String(value);
-                      return <td key={col}
-                        className={(display.startsWith("#") ? "ine-error-cell " : "") +
-                          (line.formulas?.[col] ? "ine-formula-cell" : "")}
-                        title={line.formulas?.[col] || display}>{display}</td>;
-                    })}</tr>)}</tbody>
-                </table>
-              </div>
-              <p className="ine-footnote"><Info size={15}/> Una fórmula puede mostrar un error presente en el Excel original. La consulta no recalcula ni corrige el archivo.</p>
-            </>}
+          {busy==="sheet"||!preview?<div className="ine-loading">Cargando hoja…</div>:<>
+            <div className="ine-archive-heading"><div><span>EXCEL ORIGINAL</span><h3>{preview.name}</h3>
+              <p>{preview.rows.length} filas con contenido</p></div><span><LockKeyhole size={14}/> Protegido</span></div>
+            <div className="ine-table-scroll ine-historic-scroll"><table className="ine-original-table">
+              <thead><tr><th>Fila</th>{columns.map(col=><th key={col}>{col}</th>)}</tr></thead>
+              <tbody>{preview.rows.map(line=><tr key={line.row}><th>{line.row}</th>
+                {columns.map(col=>{
+                  const val=line.cells[col],display=val==null?"":String(val);
+                  return <td key={col} title={line.formulas?.[col]||display}
+                    className={(display.startsWith("#")?"ine-error-cell ":"")+
+                    (line.formulas?.[col]?"ine-formula-cell":"")}>{display}</td>;
+                })}</tr>)}</tbody></table></div>
+            <p className="ine-footnote"><Info size={14}/> Las fórmulas del Excel se conservan. Puede haber errores presentes en el archivo original.</p>
+          </>}
         </div>
-      </div> : <div className="ine-empty"><BookOpenText size={32}/>
-        <h3>No hay hojas históricas cargadas</h3>
-        <p>El administrador debe importar «02 INE 2026.xlsx» en Excel y respaldo. El archivo se conservará sin cambios.</p>
-        {admin && <button type="button" className="ine-primary-action" onClick={() => setTab("respaldo")}>
-          <UploadCloud size={16}/> Ir a importar Excel</button>}
+      </div>:<div className="ine-simple-empty"><BookOpenText size={26}/>
+        <strong>Histórico pendiente de cargar</strong><span>El administrador debe importar el Excel original una vez.</span>
+        {admin&&<button type="button" className="ine-primary-action" onClick={()=>setTab("respaldo")}>Ir a importar</button>}
       </div>}
     </section>}
 
     {tab === "auditoria" && admin && <section className="ine-panel">
-      <div className="ine-section-head"><div><span className="ine-eyebrow">ACCESO EXCLUSIVO ADMIN</span>
-        <h2>Auditoría de modificaciones</h2>
-        <p>A diferencia del histórico de datos, esta lista registra quién cambió cada valor y cuándo.</p></div>
-        <span className="ine-history-lock"><ShieldCheck size={15}/> Privado</span>
-      </div>
-      {audit.length ? <div className="ine-history">{audit.map(log => <article key={log.id}>
-        <div><b>{log.actor_name}</b>
-          <time>{new Date(log.created_at).toLocaleString("es-CL", { timeZone: "America/Santiago" })}</time></div>
-        <p>{log.site_name} · {monthLabel(log.period)} · {log.action === "create" ? "Registro nuevo" :
-          log.action === "link" ? "Vinculación" : log.action === "details" ? "Datos de la obra" : "Modificación"}</p>
-        {changedFields(log).map(field => <div className="ine-diff" key={field}>
-          <strong>{field.toUpperCase()}</strong><span>{String(log.previous[field] ?? "Vacío")}</span>
-          <ChevronRight size={13}/><b>{String(log.current[field] ?? "Vacío")}</b></div>)}
-      </article>)}</div> : <div className="ine-empty"><ShieldCheck size={32}/>
-        <h3>Sin cambios registrados</h3><p>Las próximas modificaciones aparecerán con el nombre real del usuario.</p></div>}
+      <div className="ine-section-head"><div><span className="ine-eyebrow">SOLO ADMINISTRADORES</span>
+        <h2>Registro de cambios</h2><p>Quién modificó una obra, cuándo y qué cifras cambiaron.</p></div>
+        <span className="ine-history-lock"><ShieldCheck size={14}/> Privado</span></div>
+      {audit.length?<div className="ine-history">{audit.map(log=><article key={log.id}>
+        <div><b>{log.actor_name}</b><time>{new Date(log.created_at).toLocaleString("es-CL",{timeZone:"America/Santiago"})}</time></div>
+        <p>{log.site_name} · {monthLabel(log.period)} · {log.action==="create"?"Nuevo registro":log.action==="link"?"Vinculación":log.action==="details"?"Datos de obra":"Modificación"}</p>
+        {changedFields(log).map(field=><div className="ine-diff" key={field}>
+          <strong>{field.toUpperCase()}</strong><span>{String(log.previous[field]??"Vacío")}</span>
+          <ChevronRight size={13}/><b>{String(log.current[field]??"Vacío")}</b></div>)}</article>)}</div>:
+        <div className="ine-simple-empty"><Info size={23}/><span>Todavía no se registran cambios.</span></div>}
     </section>}
 
     {tab === "respaldo" && admin && <section className="ine-panel ine-backup-panel">
-      <div className="ine-section-head"><div><span className="ine-eyebrow">SEGURIDAD DOCUMENTAL</span>
-        <h2>Excel original y respaldos</h2><p>El archivo de origen se conserva exactamente como fue recibido. GALANT trabaja sobre una copia de sus registros.</p></div></div>
+      <div className="ine-section-head"><div><span className="ine-eyebrow">ARCHIVOS</span>
+        <h2>Excel original y respaldo</h2><p>El archivo original se conserva intacto. Los cambios se guardan en GALANT.</p></div></div>
       <div className="ine-archive-actions">
-        <div className="ine-archive-card"><BookOpenText size={24}/><h3>Original sin modificaciones</h3>
-          <p>{config?.source ? config.source.name : "Todavía no existe un archivo original importado."}</p>
-          {config?.source && <button type="button" onClick={() => void downloadFile("/ine/original", "INE-original-sin-modificaciones.xlsx").catch(e => setError(errText(e)))}>
-            <Download size={16}/> Descargar archivo original</button>}
-        </div>
-        <div className="ine-archive-card"><Download size={24}/><h3>Respaldo actualizado</h3>
-          <p>Exportación de los registros editados de {period.slice(0, 4)}, sin cambiar el Excel fuente.</p>
-          <button type="button" onClick={() => void downloadFile("/ine/export?year=" + period.slice(0, 4),
-            "GALANT-INE-respaldo-" + period.slice(0, 4) + ".xlsx").catch(e => setError(errText(e)))}>
-            <Download size={16}/> Descargar respaldo {period.slice(0, 4)}</button>
-        </div>
+        <div className="ine-archive-card"><BookOpenText size={24}/><h3>Excel original</h3>
+          <p>{config?.source?.name || "Todavía no se ha importado."}</p>
+          {config?.source&&<button type="button" onClick={()=>void downloadFile("/ine/original","INE-original-sin-modificaciones.xlsx").catch(e=>setError(errText(e)))}>
+            <Download size={15}/> Descargar original</button>}</div>
+        <div className="ine-archive-card"><Download size={24}/><h3>Respaldo de GALANT</h3>
+          <p>Descarga las cifras registradas del año {period.slice(0,4)}.</p>
+          <button type="button" onClick={()=>void downloadFile("/ine/export?year="+period.slice(0,4),
+            "GALANT-INE-respaldo-"+period.slice(0,4)+".xlsx").catch(e=>setError(errText(e)))}>
+            <Download size={15}/> Descargar respaldo</button></div>
       </div>
-      {!config?.source && <section className="ine-import">
-        <h3>Transcribir el Excel histórico</h3>
-        <p>Importación única y sin correcciones. Se conservará el archivo binario original, y todas sus hojas quedarán disponibles para consulta.</p>
+      {!config?.source&&<section className="ine-import"><h3>Importar el Excel original</h3>
+        <p>Solo una vez. El archivo original se conserva sin modificaciones y todas sus hojas podrán consultarse.</p>
         <div className="ine-import-form">
-          <label>Año de las 12 hojas mensuales
-            <input type="number" min="1900" max="2199" value={uploadYear} onChange={event => setUploadYear(Number(event.target.value))}/></label>
-          <label>Seleccionar archivo Excel
-            <input type="file" accept=".xlsx" onChange={event => setUpload(event.target.files?.[0] || null)}/></label>
-          <button type="button" disabled={!upload || !!busy} onClick={() => void importExcel()}>
-            <UploadCloud size={16}/>{busy === "import" ? "Transcribiendo…" : "Transcribir sin modificar"}</button>
-        </div>
-      </section>}
-      <p className="ine-footnote"><LockKeyhole size={15}/> Los usuarios pueden consultar el histórico; solo los administradores descargan el original, gestionan respaldos y consultan la auditoría.</p>
+          <label>Año<input type="number" min={1900} max={2199} value={uploadYear}
+            onChange={event=>setUploadYear(Number(event.target.value))}/></label>
+          <label>Archivo .xlsx<input type="file" accept=".xlsx"
+            onChange={event=>setUpload(event.target.files?.[0]||null)}/></label>
+          <button type="button" disabled={!upload||!!busy} onClick={()=>void importExcel()}>
+            <UploadCloud size={15}/>{busy==="import"?"Transcribiendo…":"Transcribir sin modificar"}</button>
+        </div></section>}
     </section>}
-  </div>;
+  </main>;
 }
