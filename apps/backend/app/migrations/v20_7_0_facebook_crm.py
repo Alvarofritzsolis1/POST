@@ -17,4 +17,10 @@ def upgrade(connection):
     if "support_reason" not in columns:
         connection.execute(text(
             "ALTER TABLE facebook_leads ADD COLUMN support_reason VARCHAR(250) NOT NULL DEFAULT ''"))
+    if "entity_type" not in columns:
+        connection.execute(text(
+            "ALTER TABLE facebook_leads ADD COLUMN entity_type VARCHAR(20) NOT NULL DEFAULT 'unknown'"))
+    if "has_employees" not in columns:
+        connection.execute(text(
+            "ALTER TABLE facebook_leads ADD COLUMN has_employees BOOLEAN"))
 
