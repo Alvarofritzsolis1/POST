@@ -226,6 +226,13 @@ async def webhook(request: Request, db: Session = Depends(get_db)):
             psid = str((event.get("sender") or {}).get("id") or "")
             mid = str(meta_message.get("mid") or "")
             body = meta_message.get("text")
+            attachments = meta_message.get("attachments") or []
+            audio_received = any(isinstance(part, dict) and part.get("type") == "audio"
+                                 for part in attachments[:10]) if isinstance(attachments, list) else False
+            if audio_received and not (isinstance(body, str) and body.strip()):
+                # No almacenar URLs de adjuntos sin un mecanismo privado de audio;
+                # el humano puede escuchar el audio en la bandeja de Meta.
+                body = "[Mensaje de voz recibido: revisar audio en Meta Business Suite]"
             if not (re.fullmatch(r"[0-9]{5,90}", psid) and
                     3 <= len(mid) <= 180 and isinstance(body, str) and body.strip()):
                 continue
@@ -248,15 +255,25 @@ async def webhook(request: Request, db: Session = Depends(get_db)):
                 org_id=lead.org_id, lead_id=lead.id, page_id=lead.page_id,
                 remote_id=mid, direction="inbound", state="received", body=body.strip()[:3500],
             ))
-            if (cfg.facebook_ai_auto_reply_enabled and cfg.facebook_ai_enabled and
-                    cfg.facebook_ai_api_key):
+            if cfg.facebook_ai_auto_reply_enabled:
                 recent = db.scalar(select(func.count(FacebookChatMessage.id)).where(
                     FacebookChatMessage.lead_id == lead.id,
                     FacebookChatMessage.direction == "outbound",
-                    FacebookChatMessage.ai_generated.is_(True),
                     FacebookChatMessage.created_at >= utcnow() - timedelta(hours=24),
                 ))
-                if (recent or 0) < 5:
+                if not lead.ai_consent and (recent or 0) == 0:
+                    # Mensaje local: ninguna conversación se envía a un proveedor externo.
+                    intro = ("Hola, soy el asistente virtual de GALANT. "
+                             "Puedes escribir como te salga, sin formularios. "
+                             + ("Recibimos tu audio; una persona lo revisará. "
+                                if audio_received else "")
+                             + "¿Qué trabajo haces: gasfitería, carpintería, pintura u otro?")
+                    db.add(FacebookChatMessage(
+                        org_id=lead.org_id, lead_id=lead.id, page_id=lead.page_id,
+                        direction="outbound", state="pending", body=intro[:450],
+                        ai_generated=False,
+                    ))
+                elif lead.ai_consent and (recent or 0) < 5 and cfg.facebook_ai_enabled and cfg.facebook_ai_api_key:
                     db.add(FacebookChatMessage(
                         org_id=lead.org_id, lead_id=lead.id, page_id=lead.page_id,
                         direction="outbound", state="ai_pending", body="", ai_generated=True,
