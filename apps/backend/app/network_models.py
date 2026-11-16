@@ -283,3 +283,24 @@ class NetworkFacebookPost(Record, Base):
     last_error: Mapped[str | None] = mapped_column(Text, nullable=True)
     attempts: Mapped[int] = mapped_column(Integer, default=0)
     updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow)
+
+
+class NetworkFacebookManual(Record, Base):
+    """Auditoría de pruebas manuales; nunca confundir con requerimientos internos."""
+    __tablename__ = "network_facebook_manual"
+    __table_args__ = (
+        UniqueConstraint("org_id", "client_key", name="uq_network_fb_manual_client"),
+        Index("ix_network_fb_manual_queue", "page_id", "state"),
+    )
+    created_by: Mapped[str] = mapped_column(ForeignKey("users.id"), index=True)
+    page_id: Mapped[str] = mapped_column(String(40))
+    client_key: Mapped[str] = mapped_column(String(80))
+    action: Mapped[str] = mapped_column(String(16))  # verify, publish, delete
+    state: Mapped[str] = mapped_column(String(20), default="pending")
+    title: Mapped[str] = mapped_column(String(180), default="")
+    message: Mapped[str] = mapped_column(Text, default="")
+    post_id: Mapped[str | None] = mapped_column(String(120), nullable=True)
+    page_name: Mapped[str | None] = mapped_column(String(180), nullable=True)
+    last_error: Mapped[str | None] = mapped_column(String(250), nullable=True)
+    attempts: Mapped[int] = mapped_column(Integer, default=0)
+    updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow)
