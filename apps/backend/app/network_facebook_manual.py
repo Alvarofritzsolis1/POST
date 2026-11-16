@@ -13,7 +13,7 @@ from typing import Literal
 from uuid import uuid4
 
 from fastapi import APIRouter, Depends, HTTPException
-from pydantic import EmailStr, Field, model_validator
+from pydantic import Field, model_validator
 from sqlalchemy import select
 from sqlalchemy.orm import Session
 
@@ -24,7 +24,7 @@ from .network_models import NetworkFacebookManual
 from .network_schemas import Input
 from .ops_models import Worksite
 from .security import administrator
-from .network_service import lock_org
+from .network_service import lock_org, today
 
 router = APIRouter(prefix="/api/v1/network/facebook", tags=["Facebook · pruebas"])
 
@@ -48,7 +48,7 @@ class ManualAd(Input):
     def validate_ad(self):
         if self.end_date < self.start_date or self.deadline > self.end_date:
             raise ValueError("Verifica fechas de inicio, término y plazo de recepción")
-        if self.deadline < date.today():
+        if self.deadline < today():
             raise ValueError("El plazo de postulación no puede estar en el pasado")
         if any(not 2 <= len(part.strip()) <= 120 for part in self.items):
             raise ValueError("Cada partida debe contener entre 2 y 120 caracteres")
