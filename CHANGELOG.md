@@ -1,3 +1,12 @@
+## 20.7.4-rc1 — Galancito: anuncios, seguimiento y categorización de Red de Obras
+- Galancito local Qwen3 1.7B redacta introducciones para anuncios de las necesidades registradas, preservando literalmente obra, oficio, dotación, fechas y partidas. Solo genera borradores administrados y no publica ni adjudica por sí mismo.
+- Red de Obras muestra al administrador un tablero de interesados por oficio, prioridad de atención, etapa, obra, necesidades y seguimiento vencido.
+- Clasificación automática conservadora: oficio registrado tiene prioridad, los mensajes solo se analizan cuando el interesado dio consentimiento; categorías sugeridas nunca reemplazan el registro confirmado.
+- Ficha de Facebook incorpora fecha y nota de próximo seguimiento, guardadas con responsable administrativo.
+- Botón de análisis de Galancito por contacto que genera sugerencias locales, sujeto a consentimiento y sin cambios de estado.
+- Asesor de Red de Obras con contexto resumido de necesidades, capacidades, coordinaciones y adjudicaciones de la organización, sin información privada de otras áreas.
+- Los controles no conceden autorización de ingreso, validación documental ni decisiones de contratación. La prioridad es de *atención operativa*, no nota de idoneidad personal.
+
 ## 20.7.3-rc1 — Galancito local gratuito: solo Messenger + Red de Obras
 - Qwen3 1.7B (Ollama), modelo privado de aproximadamente 1,4 GB de descarga; sin API de pago.
 - Un único contenedor opcional con máximo 3 GB de RAM, 1,5 CPU, una inferencia simultánea, cola corta y descarga de memoria tras 20 s de inactividad.
