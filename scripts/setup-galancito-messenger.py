@@ -99,8 +99,10 @@ def write_env_atomically(path: Path, changes: dict[str, str]) -> Path:
 
 
 def graph(method: str, path: str, token: str, fields: dict[str, str] | None = None) -> dict:
-    if not re.fullmatch(r"/[0-9]{5,30}(?:/subscriptions|/subscribed_apps)?", path):
+    if not re.fullmatch(r"/(?:me|[0-9]{5,30}(?:/subscriptions|/subscribed_apps)?)", path):
         raise SetupError("Ruta Meta no permitida")
+    if path == "/me" and method != "GET":
+        raise SetupError("La consulta de identidad de página debe ser de solo lectura")
     fields = fields or {}
     if method == "GET":
         uri = GRAPH + path + ("?" + urlencode(fields) if fields else "")
@@ -218,11 +220,11 @@ def run() -> None:
     print("No mostrará ni enviará al chat tus tokens o claves.\n")
 
     app_id = prompt_value("el ID de la aplicación de Meta", old.get("FACEBOOK_APP_ID", ""))
-    page_id = prompt_value("el ID de la página", old.get("FACEBOOK_PAGE_ID", ""))
     app_secret = prompt_value("el App Secret de Meta", old.get("FACEBOOK_APP_SECRET", ""), secret=True)
     page_token = prompt_value("el Page Access Token", old.get("FACEBOOK_PAGE_TOKEN", ""), secret=True)
-    if not APP_PATTERN.fullmatch(app_id) or not PAGE_PATTERN.fullmatch(page_id):
-        raise SetupError("ID de aplicación o página inválido")
+    page_id = old.get("FACEBOOK_PAGE_ID", "")
+    if not APP_PATTERN.fullmatch(app_id):
+        raise SetupError("ID de aplicación de Meta inválido")
     if len(app_secret) < 12 or len(page_token) < 20:
         raise SetupError("App Secret o Page Token vacío/inválido")
     domain = old.get("PUBLIC_URL", "") or DEFAULT_DOMAIN
@@ -235,9 +237,13 @@ def run() -> None:
         verify_token = secrets.token_urlsafe(40)
 
     print("\n1/5 Verificando que el token tiene acceso a la página…")
-    page = graph("GET", "/" + page_id, page_token, {"fields": "id,name"})
-    if str(page.get("id")) != page_id:
-        raise SetupError("El token de Meta pertenece a otra página")
+    page = graph("GET", "/me", page_token, {"fields": "id,name"})
+    actual_page_id = str(page.get("id") or "")
+    if not PAGE_PATTERN.fullmatch(actual_page_id):
+        raise SetupError("El token no corresponde a una página de Facebook válida")
+    if page_id and page_id != actual_page_id:
+        raise SetupError("El token corresponde a una página distinta de la configurada")
+    page_id = actual_page_id
     print("   ✓ Página confirmada: " + str(page.get("name") or "Página Meta")[:120])
 
     print("2/5 Detectando tu organización GALANT…")
