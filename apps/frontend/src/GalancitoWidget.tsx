@@ -1,5 +1,6 @@
 import { useEffect, useRef, useState, type FormEvent } from "react";
 import { Bot, MessageCircle, Send, ShieldCheck, Sparkles, X } from "lucide-react";
+import { request } from "./api";
 import { change, net } from "./networkApi";
 import "./galancito.css";
 
@@ -46,19 +47,26 @@ export default function GalancitoWidget({ area = "red_obras" }: { area?: Area })
     setError("");
     setHistory((prev) => [...prev, {role: "user", text: question}]);
     setBusy(true);
+    const controller = new AbortController();
+    // Leave a margin for rendering the safe alternative within 10 seconds.
+    const deadline = window.setTimeout(() => controller.abort(), 9000);
     try {
-      const reply = await change<Reply>("/galancito/chat", {
+      const reply = await request<Reply>("/network/galancito/chat", {
+        method: "POST", signal: controller.signal, body: JSON.stringify({
         message: question, area,
         allow_external_ai: consent && !!status?.external_ai_available,
+        }),
       });
       setHistory((prev) => [...prev, {role: "assistant", runId: reply.run_id, question,
         text: reply.answer + (reply.references?.length ? "\nReferencia: " + reply.references.map(r => `${r.title} (v${r.version})`).join(", ") : "") +
         (reply.notice ? "\n" + reply.notice : "")}]);
     } catch {
       setHistory((prev) => [...prev, {role: "assistant", text:
-        "Soy Galancito. No pude conectar con GALANT ahora. Puedes seguir trabajando; tu consulta no modificó ningún registro."}]);
+        controller.signal.aborted
+          ? "Soy Galancito. Esta consulta tardó más de lo previsto. Puedes intentar con una pregunta más breve o solicitar atención humana."
+          : "Soy Galancito. No pude conectar con GALANT ahora. Puedes seguir trabajando; tu consulta no modificó ningún registro."}]);
       setError("No se pudo consultar el asistente.");
-    } finally { setBusy(false); }
+    } finally { window.clearTimeout(deadline); setBusy(false); }
   }
 
   async function rate(index: number, rating: "useful" | "incorrect", proposed?: string) {

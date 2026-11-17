@@ -1,3 +1,11 @@
+## 20.7.7-rc1 — Respuesta rápida a saludos y espera acotada
+- Espera del chat de hasta 10 segundos en la interfaz, con alternativa segura; inferencia local acotada a 8 segundos incluso con configuración heredada de 24.
+- Cinco ejemplos adicionales de trato respetuoso, orientación y atención humana, pendientes de aprobación.
+- Messenger revisa trabajos nuevos cada segundo cuando está inactivo; elimina la espera fija anterior de 20 segundos.
+- Intervalo configurable con FACEBOOK_WORKER_POLL_SECONDS, entre 0,1 y 5 segundos; conserva apagado controlado y prioridades.
+- El chat interno resuelve saludos antes de consultar conocimientos, guías e indicadores; mantiene autenticación y métricas sin contenido privado.
+- No cambia modelos, límites de CPU/RAM, consentimiento ni permisos de publicación. Las solicitudes externas y trabajos ya en ejecución pueden añadir latencia.
+
 ## 20.7.6-rc1 — Facebook Red de Obras: publicación y seguimiento
 - Diagnóstico de errores Graph API con código y subcódigo de Meta, sin exponer tokens ni mensajes privados.
 - Centro Facebook con listado de publicaciones, estados reales de la cola y enlaces de posts confirmados.

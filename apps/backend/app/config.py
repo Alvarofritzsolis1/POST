@@ -42,6 +42,7 @@ class Settings(BaseSettings):
     facebook_ai_enabled: bool = False
     facebook_ai_auto_reply_enabled: bool = False
     facebook_ai_ad_enabled: bool = False
+    facebook_worker_poll_seconds: float = Field(default=1.0, ge=0.1, le=5)
     facebook_ai_api_key: str = ""
     facebook_ai_model: str = "gpt-4.1-mini"
     facebook_ai_provider: str = "openai"
@@ -57,7 +58,7 @@ class Settings(BaseSettings):
     galancito_num_predict: int = Field(default=140, ge=40, le=140)
     galancito_num_ctx: int = Field(default=2048, ge=1024, le=4096)
     galancito_num_thread: int = Field(default=1, ge=1, le=4)
-    galancito_timeout_seconds: float = Field(default=24, ge=1, le=24)
+    galancito_timeout_seconds: float = Field(default=8, ge=1, le=24)
     galancito_memory_reserve_mb: int = Field(default=1536, ge=512, le=8192)
 
 

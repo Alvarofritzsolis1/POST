@@ -351,10 +351,11 @@ def main() -> None:
                 continue
         except Exception:
             log.exception("Fallo de worker Facebook; credenciales no registradas.")
-        for _ in range(20):
+        # A 20s idle sleep delayed greetings even without model inference.
+        for _ in range(10):
             if stopping:
                 break
-            time.sleep(1)
+            time.sleep(settings().facebook_worker_poll_seconds / 10)
 
 
 if __name__ == "__main__":
