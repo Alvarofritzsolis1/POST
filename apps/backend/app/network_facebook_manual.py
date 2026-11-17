@@ -126,6 +126,7 @@ def _view(row: NetworkFacebookManual) -> dict:
             if row.post_id and re.fullmatch(r"[0-9]+_[0-9]+", row.post_id) else None
         ),
         "error": row.last_error, "created_at": row.created_at.isoformat(),
+        "updated_at": row.updated_at.isoformat(),
     }
 
 
@@ -144,12 +145,15 @@ def list_manual_tests(user: User = Depends(administrator), db: Session = Depends
     rows = list(db.scalars(select(NetworkFacebookManual).where(
         NetworkFacebookManual.org_id == user.org_id,
     ).order_by(NetworkFacebookManual.created_at.desc(), NetworkFacebookManual.id.desc()).limit(30)))
-    verified = next((r for r in rows if r.action == "verify" and r.state == "verified"), None)
+    last_verify = next((r for r in sorted(rows, key=lambda row: (row.updated_at, row.id), reverse=True)
+                        if r.action == "verify" and r.page_id == cfg.facebook_page_id), None)
+    verified = last_verify if last_verify and last_verify.state == "verified" else None
     return {
         "manual_enabled": cfg.facebook_manual_testing_enabled,
         "automatic_enabled": cfg.facebook_autopublish_enabled,
         "page_id": cfg.facebook_page_id,
         "verified_page_name": verified.page_name if verified else None,
+        "verification": _view(last_verify) if last_verify else None,
         "history": [_view(r) for r in rows],
     }
 
@@ -162,7 +166,12 @@ def preview_manual_test(ad: ManualAd, user: User = Depends(administrator), db: S
 
 @router.post("/tests/verify", status_code=202)
 def verify_page(user: User = Depends(administrator), db: Session = Depends(get_db)):
-    cfg = _assert_enabled()
+    cfg = settings()
+    # La verificación solo hace GET de la página; no exige habilitar publicaciones de prueba.
+    if not (cfg.facebook_manual_testing_enabled or cfg.facebook_autopublish_enabled):
+        raise HTTPException(409, "Activa el canal Facebook antes de comprobar la conexión")
+    if not re.fullmatch(r"[0-9]{5,30}", cfg.facebook_page_id):
+        raise HTTPException(409, "Falta configurar el ID de la página")
     lock_org(db, user)
     running = db.scalar(select(NetworkFacebookManual).where(
         NetworkFacebookManual.org_id == user.org_id,
