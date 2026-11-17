@@ -7,6 +7,7 @@ import { change, net, type Catalog, type Page, type Requirement } from "./networ
 import { errorText } from "./NetworkUI";
 import "./facebook-center.css";
 import GalancitoKnowledgeCenter from "./GalancitoKnowledgeCenter";
+import NetworkFacebook from "./NetworkFacebook";
 
 type Check = { criterion: string; state: "match" | "verify"; detail: string };
 type Analysis = {
@@ -78,7 +79,7 @@ const dateText = (v: string) => {
 
 export default function FacebookCenter({ catalog }: { catalog: Catalog }) {
   const [center, setCenter] = useState<Center | null>(null);
-  const [tab, setTab] = useState<"summary" | "tracking" | "inbox" | "pending" | "publications" | "guides" | "knowledge" | "performance">("publications");
+  const [tab, setTab] = useState<"summary" | "tracking" | "inbox" | "pending" | "publications" | "testing" | "guides" | "knowledge" | "performance">("publications");
   const [selectedId, setSelectedId] = useState("");
   const [detail, setDetail] = useState<Detail | null>(null);
   const [requirements, setRequirements] = useState<Requirement[]>([]);
@@ -283,6 +284,7 @@ export default function FacebookCenter({ catalog }: { catalog: Catalog }) {
       <button className={tab === "performance" ? "selected" : ""} onClick={() => setTab("performance")}>Rendimiento</button>
       <button className={tab === "publications" ? "selected" : ""} onClick={() => setTab("publications")}><Facebook size={16} /> Publicaciones y estados</button>
       <button className={tab === "pending" ? "selected" : ""} onClick={() => setTab("pending")}><Clock3 size={16} /> Anuncios pendientes</button>
+      <button className={tab === "testing" ? "selected" : ""} onClick={() => setTab("testing")}><ShieldCheck size={16} /> Probar conexión</button>
       <button className={tab === "guides" ? "selected" : ""} onClick={() => setTab("guides")}><BookOpen size={16} /> Guías de oficios</button>
       <button className={tab === "tracking" ? "selected" : ""} onClick={() => setTab("tracking")}><ShieldCheck size={16} /> Seguimiento Galancito</button>
     </nav>
@@ -590,6 +592,7 @@ export default function FacebookCenter({ catalog }: { catalog: Catalog }) {
       </article>)}
       {!center?.automatic_enabled && <div className="fbc-alert"><AlertTriangle size={18} /> El envío automático está desactivado en el VPS. Ninguna sincronización llegará a Facebook hasta habilitarlo y validar el token de página.</div>}
     </section>}
+    {tab === "testing" && <NetworkFacebook catalog={catalog} />}
     {tab === "pending" && <section className="fbc-pending">
       <h3>Publicaciones que necesitan atención</h3>
       <p>Las necesidades se publican desde Red de Obras. Aquí solo revisas anuncios en cola, errores o envíos inciertos.</p>
