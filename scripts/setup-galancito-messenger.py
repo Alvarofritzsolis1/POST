@@ -100,6 +100,50 @@ def write_env_atomically(path: Path, changes: dict[str, str]) -> Path:
     return backup
 
 
+def meta_error(exc: HTTPError, action: str) -> SetupError:
+    """Only safe machine-readable metadata, never tokens nor Meta's echoed body text."""
+    code = str(exc.code)
+    meta_code = ""
+    subcode = ""
+    try:
+        details = json.loads(exc.read(65536).decode("utf-8"))
+        error = details.get("error") or {}
+        if isinstance(error, dict):
+            if isinstance(error.get("code"), int):
+                meta_code = " · Meta " + str(error["code"])
+            if isinstance(error.get("error_subcode"), int):
+                subcode = "/" + str(error["error_subcode"])
+    except (OSError, ValueError, UnicodeDecodeError):
+        pass
+    return SetupError(action + ": HTTP " + code + meta_code + subcode +
+                      ". Se conservaron privados los tokens y secretos.")
+
+
+def app_access_token(app_id: str, app_secret: str) -> str:
+    """Ask Meta for a real application token instead of assuming ID|secret is accepted."""
+    fields = urlencode({
+        "client_id": app_id,
+        "client_secret": app_secret,
+        "grant_type": "client_credentials",
+    }).encode("utf-8")
+    request = Request(GRAPH + "/oauth/access_token",
+                      data=fields, method="POST",
+                      headers={"Content-Type": "application/x-www-form-urlencoded"})
+    try:
+        with opener.open(request, timeout=18) as response:
+            payload = json.loads(response.read(65536).decode("utf-8"))
+    except HTTPError as exc:
+        raise meta_error(
+            exc, "Meta no aceptó el App ID o App Secret para crear el token de aplicación"
+        ) from None
+    except (URLError, TimeoutError, OSError, UnicodeDecodeError, ValueError):
+        raise SetupError("No se pudo comprobar App ID + App Secret con Meta") from None
+    token = payload.get("access_token") if isinstance(payload, dict) else None
+    if not isinstance(token, str) or len(token) < 15:
+        raise SetupError("Meta no entregó un token de aplicación válido")
+    return token
+
+
 def graph(method: str, path: str, token: str, fields: dict[str, str] | None = None) -> dict:
     if not re.fullmatch(r"/(?:me|[0-9]{5,30}(?:/subscriptions|/subscribed_apps)?)", path):
         raise SetupError("Ruta Meta no permitida")
@@ -120,10 +164,10 @@ def graph(method: str, path: str, token: str, fields: dict[str, str] | None = No
         with opener.open(req, timeout=18) as response:
             value = json.loads(response.read(65536).decode("utf-8"))
     except HTTPError as exc:
-        raise SetupError(
-            "Meta rechazó la acción (HTTP " + str(exc.code) +
-            "). Verifica permisos, App Review y token de la página."
-        ) from None
+        stage = ("Registro del webhook de la aplicación" if path.endswith("/subscriptions")
+                 else "Suscripción de la página" if path.endswith("/subscribed_apps")
+                 else "Comprobación del token de página")
+        raise meta_error(exc, stage) from None
     except (URLError, TimeoutError, OSError, ValueError):
         raise SetupError("No se pudo contactar a Meta de manera segura") from None
     if not isinstance(value, dict) or "error" in value:
@@ -266,9 +310,11 @@ def run() -> None:
     test_webhook(callback, verify_token)
     print("   ✓ GALANT respondió correctamente a la verificación HTTPS")
 
-    print("4/5 Registrando el webhook en Meta…")
-    subscription = graph("POST", "/" + app_id + "/subscriptions",
-                         app_id + "|" + app_secret, {
+    print("4/5 Comprobando autenticación de la aplicación y registrando webhook…")
+    # No es el token de página. Meta necesita un token de aplicación para este paso.
+    app_token = app_access_token(app_id, app_secret)
+    print("   ✓ App ID y App Secret verificados por Meta")
+    subscription = graph("POST", "/" + app_id + "/subscriptions", app_token, {
         "object": "page", "callback_url": callback,
         "verify_token": verify_token, "fields": "messages",
     })
