@@ -179,16 +179,22 @@ def galancito_chat(body: ChatInput, user: User = Depends(authorized_user),
     use_model = (available and not private_pattern and
                  (cfg.galancito_ai_provider == "ollama" or body.allow_external_ai))
     if use_model:
+        # Keep the facts and the actual question at the front: Ollama
+        # limits the request to 3,000 chars, so all 26 long trade guides
+        # would otherwise hide the current tracking and priorities.
+        named = [g for g in guides
+                 if key(g.trade) in key(text) or
+                 any(key(a) in key(text) for a in (g.aliases or []))]
+        selected_guides = (named or guides)[:4]
         context = (
-            "Contexto de área: " + body.area + ".\n" +
-            ("Necesidades publicadas (títulos): " + "; ".join(titles) + "\n"
-             if titles else "") +
-            ("Guías de oficios aprobadas (orientación, no habilitación):\n" +
-             "\n".join(g.trade[:80] + ": " + g.explanation[:140]
-                       for g in guides) + "\n" if guides else "") +
-            "Indicadores actuales (no dar datos personales): " +
-            ", ".join(name + "=" + str(value) for name, value in stats.items()) +
-            "\nConsulta del usuario:\n" + text
+            "Área: Red de Obras.\n" +
+            "Indicadores comprobables: " +
+            "; ".join(name + "=" + str(value) for name, value in stats.items()) +
+            "\nNecesidades publicadas (títulos): " + "; ".join(titles) +
+            "\nConsulta: " + text +
+            ("\nGuías aprobadas orientativas, no habilitación:\n" +
+             "\n".join(g.trade[:70] + ": " + g.explanation[:120]
+                       for g in selected_guides) if selected_guides else "")
         )
         try:
             generated = generate_internal_text(INSTRUCTIONS, context, 800)
