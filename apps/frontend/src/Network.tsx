@@ -357,7 +357,8 @@ export default function RedDeObras({ user }: { user: Profile }) {
     setPanel("");
     void refresh();
     window.dispatchEvent(new Event("galant-network-changed"));
-    if (req) void openReq(req.id);
+    // La publicación nueva confirma el resultado en el feed, sin abrir otro panel.
+    if (req && selectedReq) void openReq(req.id);
   }
   async function interest(m: Match, contact = true) {
     try {
