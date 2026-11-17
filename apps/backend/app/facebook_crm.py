@@ -22,6 +22,8 @@ from .config import settings
 from .db import get_db, SessionLocal
 from .facebook_ai import AD_INSTRUCTIONS, REPLY_INSTRUCTIONS, generate_text
 from .facebook_onboarding import assistance_signal, reply_for_support, onboarding_guide
+from .galancito_flow import (AI_PERMISSION_QUESTION, AI_PERMISSION_REASK,
+                             AI_PERMISSION_DECLINED, consent_decision)
 from .facebook_crm_models import FacebookLead, FacebookChatMessage, FacebookTradeGuide
 from .models import Organization, User, utcnow
 from .network_facebook import public_message
@@ -106,6 +108,8 @@ def _lead_view(db: Session, lead: FacebookLead) -> dict:
         "documents_state": lead.documents_state, "status": lead.status,
         "requirement_id": lead.requirement_id, "unread": lead.unread,
         "ai_consent": lead.ai_consent,
+        "ai_consent_state": lead.ai_consent_state,
+        "ai_paused": lead.ai_paused,
         "needs_support": lead.needs_support,
         "support_reason": lead.support_reason,
         "entity_type": lead.entity_type,
@@ -131,7 +135,7 @@ class LeadEdit(BaseModel):
     documents_state: str = Field(default="unverified", pattern=r"^(unverified|declared|verified)$")
     status: str = Field(default="new", pattern=r"^(new|contacting|pending_review|shortlisted|archived)$")
     requirement_id: str | None = None
-    ai_consent: bool = False
+    ai_paused: bool = False
     needs_support: bool = False
     entity_type: str = Field(default="unknown", pattern=r"^(unknown|company|individual)$")
     has_employees: bool | None = None
@@ -261,14 +265,23 @@ async def webhook(request: Request, db: Session = Depends(get_db)):
                 db.add(lead)
                 db.flush()
             lead.last_inbound_at, lead.updated_at, lead.unread = utcnow(), utcnow(), True
-            signal = assistance_signal(body, is_audio=audio_received)
+            consent = (consent_decision(body)
+                       if lead.ai_consent_state == "requested" and not audio_received
+                       else None)
+            if consent is True:
+                lead.ai_consent, lead.ai_consent_state = True, "accepted"
+            elif consent is False:
+                lead.ai_consent, lead.ai_consent_state = False, "declined"
+            signal = (assistance_signal(body, is_audio=audio_received)
+                      if consent is None else None)
+            if consent is False:
+                signal = "Prefirió atención humana y no autorizó IA externa"
             if signal:
-                # Señal explícita de solicitud de ayuda, no juicio sobre capacidades.
+                # No inferir escolaridad ni rechazar por errores ortográficos.
                 first_alert = not lead.needs_support
                 lead.needs_support = True
                 lead.support_reason = signal
                 if first_alert:
-                    # Aviso interno solo a administradores habilitados; idempotente.
                     admin_ids = db.scalars(select(User.id).where(
                         User.org_id == lead.org_id, User.role == "admin",
                         User.enabled.is_(True))).all()
@@ -285,42 +298,60 @@ async def webhook(request: Request, db: Session = Depends(get_db)):
                             ))
             db.add(FacebookChatMessage(
                 org_id=lead.org_id, lead_id=lead.id, page_id=lead.page_id,
-                remote_id=mid, direction="inbound", state="received", body=body.strip()[:3500],
+                remote_id=mid, direction="inbound", state="received",
+                body=body.strip()[:3500],
             ))
-            if cfg.facebook_ai_auto_reply_enabled:
+            # El mensaje entrante más reciente desplaza cualquier respuesta AI
+            # que todavía no haya salido: nunca responder a una consulta antigua.
+            for previous in db.scalars(select(FacebookChatMessage).where(
+                FacebookChatMessage.lead_id == lead.id,
+                FacebookChatMessage.direction == "outbound",
+                FacebookChatMessage.state == "ai_pending",
+            )):
+                previous.state = "cancelled"
+            if cfg.facebook_ai_auto_reply_enabled and not lead.ai_paused:
                 recent = db.scalar(select(func.count(FacebookChatMessage.id)).where(
                     FacebookChatMessage.lead_id == lead.id,
                     FacebookChatMessage.direction == "outbound",
                     FacebookChatMessage.created_at >= utcnow() - timedelta(hours=24),
-                ))
+                )) or 0
+                reply, use_ai = None, False
                 if signal:
-                    # Si pidió ayuda, basta una sola respuesta sencilla, no un listado.
-                    # Limitar el volumen para evitar respuestas repetidas o intrusivas.
-                    if (recent or 0) < 3:
-                        db.add(FacebookChatMessage(
-                            org_id=lead.org_id, lead_id=lead.id, page_id=lead.page_id,
-                            direction="outbound", state="pending",
-                            body=reply_for_support(signal, bool(lead.specialty)),
-                            ai_generated=False,
-                        ))
-                elif not lead.ai_consent and (recent or 0) == 0:
-                    intro = ("Hola, soy el asistente virtual de GALANT. "
-                             "Puedes escribir como te salga. "
-                             + ("Recibimos tu audio; una persona lo revisará. " if audio_received else "")
-                             + "¿Qué trabajo haces: gasfitería, carpintería, pintura u otro?")
-                    db.add(FacebookChatMessage(
-                        org_id=lead.org_id, lead_id=lead.id, page_id=lead.page_id,
-                        direction="outbound", state="pending", body=intro[:450],
-                        ai_generated=False,
-                    ))
+                    if recent < 3:
+                        reply = (AI_PERMISSION_DECLINED if consent is False else
+                                 reply_for_support(signal, bool(lead.specialty)))
+                elif consent is True and not lead.needs_support:
+                    use_ai = True
+                elif lead.ai_consent_state == "declined":
+                    # No insistir con IA a quien ya la rechazó.
+                    reply = None
                 elif lead.needs_support:
-                    # Mantener atención humana preferente en lugar de mandar una
-                    # lista de documentos o procesar automáticamente con IA externa.
-                    pass
-                elif lead.ai_consent and (recent or 0) < 5 and cfg.facebook_ai_enabled and cfg.facebook_ai_api_key:
+                    # Conversaciones difíciles pasan a revisión humana.
+                    reply = None
+                elif lead.ai_consent and lead.ai_consent_state == "accepted":
+                    use_ai = True
+                elif (cfg.facebook_ai_enabled and cfg.facebook_ai_api_key and
+                      lead.ai_consent_state == "not_requested"):
+                    lead.ai_consent_state = "requested"
+                    reply = AI_PERMISSION_QUESTION
+                elif lead.ai_consent_state == "requested" and recent < 2:
+                    reply = AI_PERMISSION_REASK
+                elif recent == 0:
+                    # Sin IA configurada: orientación básica, sin enviar
+                    # datos personales a un servicio externo.
+                    reply = ("Hola, soy Galancito, asistente virtual de GALANT. "
+                             "Puedes escribir como te salga. ¿Qué trabajo haces?")
+                if use_ai and recent < 5 and cfg.facebook_ai_enabled and cfg.facebook_ai_api_key:
                     db.add(FacebookChatMessage(
                         org_id=lead.org_id, lead_id=lead.id, page_id=lead.page_id,
-                        direction="outbound", state="ai_pending", body="", ai_generated=True,
+                        direction="outbound", state="ai_pending",
+                        body="", ai_generated=True,
+                    ))
+                elif reply and recent < 5:
+                    db.add(FacebookChatMessage(
+                        org_id=lead.org_id, lead_id=lead.id, page_id=lead.page_id,
+                        direction="outbound", state="pending", body=reply[:550],
+                        ai_generated=False,
                     ))
     db.commit()
     return {"received": True}
@@ -430,6 +461,14 @@ def queue_reply(lead_id: str, body: ReplyInput, user: User = Depends(administrat
         raise HTTPException(409, "Habilita y verifica Messenger en el servidor")
     if not _in_window(lead):
         raise HTTPException(409, "La ventana estándar de respuesta de 24 horas finalizó")
+    # When a person replies, Galancito pauses to prevent competing messages.
+    lead.ai_paused = True
+    for old in db.scalars(select(FacebookChatMessage).where(
+        FacebookChatMessage.lead_id == lead.id,
+        FacebookChatMessage.direction == "outbound",
+        FacebookChatMessage.state.in_(["pending", "ai_pending"]),
+    )):
+        old.state = "cancelled"
     message = FacebookChatMessage(org_id=user.org_id, lead_id=lead.id, page_id=lead.page_id,
                                   direction="outbound", state="pending",
                                   operator_id=user.id, body=body.message.strip())
