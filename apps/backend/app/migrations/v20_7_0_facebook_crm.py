@@ -23,4 +23,11 @@ def upgrade(connection):
     if "has_employees" not in columns:
         connection.execute(text(
             "ALTER TABLE facebook_leads ADD COLUMN has_employees BOOLEAN"))
+    if "ai_consent_state" not in columns:
+        connection.execute(text(
+            "ALTER TABLE facebook_leads ADD COLUMN ai_consent_state VARCHAR(20) NOT NULL DEFAULT 'not_requested'"))
+    if "ai_paused" not in columns:
+        connection.execute(text(
+            "ALTER TABLE facebook_leads ADD COLUMN ai_paused BOOLEAN NOT NULL DEFAULT FALSE"))
+
 
