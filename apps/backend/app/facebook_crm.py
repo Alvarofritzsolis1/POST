@@ -542,6 +542,7 @@ def center(user: User = Depends(administrator), db: Session = Depends(get_db)):
         FacebookLead.org_id == user.org_id).order_by(
         FacebookLead.last_inbound_at.desc(), FacebookLead.id).limit(100)))
     return {"automatic_enabled": cfg.facebook_autopublish_enabled,
+            "manual_enabled": cfg.facebook_manual_testing_enabled,
             "messaging_enabled": cfg.facebook_messaging_enabled,
             "ai_enabled": facebook_reply_ai_available(cfg),
             "ai_provider": cfg.facebook_ai_provider if facebook_reply_ai_available(cfg) else "disabled",
