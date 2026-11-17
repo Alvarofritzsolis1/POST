@@ -100,3 +100,66 @@ Cuando una persona expresamente dice "no entiendo", "no sé cómo sacar papeles"
    ni afirmar que es suficiente para entrar a obra.
 8. Permite que administración cierre la alerta después de ayudar.
 9. Una señal de ayuda prevalece sobre la respuesta automática de IA externa.
+
+
+## Galancito 20.7.1 — un asistente para todo GALANT
+
+**Nombre oficial:** Galancito. Se identifica como asistente virtual tanto dentro de
+GALANT como al conversar con pequeños contratistas desde la página de Facebook.
+
+### Respuestas automáticas de Messenger (solo si están habilitadas)
+
+1. La página recibe un mensaje nuevo por un webhook de Meta firmado.
+2. Galancito responde localmente con una sola pregunta informada: explica
+   que puede utilizar IA de OpenAI y solicita SÍ o NO. No envía contenido del
+   chat a OpenAI antes de la aceptación expresa.
+3. Si la persona responde **SÍ**, registra el consentimiento y las respuestas
+   posteriores se generan con IA, incluyendo la guía de especialidad
+   aprobada cuando corresponda, con límite diario de respuestas y ventana
+   estándar de mensajería.
+4. Si dice **NO**, no utiliza IA externa, informa que será atendida por una
+   persona y envía una notificación interna de seguimiento.
+5. Si solicita ayuda documental, expresa confusión o envía una nota de voz,
+   pasa a apoyo humano con una respuesta breve. Nunca presenta la lista
+   completa de documentos al primer contacto.
+6. El administrador puede pausar Galancito desde el contacto; cualquier
+   respuesta manual también lo pausa automáticamente.
+7. Mensajes de resultado incierto no se reintentan sin inspección humana.
+
+La bandeja de Facebook se actualiza cada diez segundos mientras está visible,
+sin borrar los campos de la ficha del contacto que el administrador esté editando.
+
+### Galancito dentro de GALANT y Red de Obras
+
+La ayuda es de solo lectura y está disponible con sesión iniciada. En la
+pantalla principal muestra guías sencillas sobre las funciones de GALANT;
+en Red de Obras utiliza solo títulos de requerimientos **publicados** en la
+organización del usuario. No transmite descripciones privadas, documentos
+subidos, historial de Messenger, RUT ni datos de otro cliente.
+
+El usuario debe marcar expresamente la casilla de IA externa antes de que se
+envíe su consulta a un proveedor; de otro modo Galancito ofrece una guía
+local sin envío de datos.
+
+### Variables privadas para habilitar servicio real
+
+```env
+FACEBOOK_AUTOPUBLISH_ENABLED=true
+FACEBOOK_MESSAGING_ENABLED=true
+FACEBOOK_AI_ENABLED=true
+FACEBOOK_AI_AUTO_REPLY_ENABLED=true
+FACEBOOK_AI_API_KEY=<clave privada de OpenAI>
+GALANCITO_AI_ENABLED=true
+GALANCITO_AI_API_KEY=<clave privada separada para Galancito interno>
+```
+
+**NO activar por defecto.** Confirmar antes App Review y permisos
+`pages_messaging`, Webhooks `messages`, Meta Page ID, App Secret,
+verificación del webhook HTTPS, token de página válido y organización GALANT.
+El VPS debe recibir las variables en un archivo privado. Es un cambio
+operativo que no ejecuta GitHub por sí mismo.
+
+El contenedor API tiene una red de salida HTTPS independiente
+(`galancito-egress`) para consultas explícitas de IA. El publicador conserva
+su propia salida para mensajes Messenger y anuncios; nunca exponer las claves
+en frontend, logs, repositorio ni capturas.
