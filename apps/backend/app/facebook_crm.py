@@ -521,6 +521,21 @@ def center(user: User = Depends(administrator), db: Session = Depends(get_db)):
             publications.append(item)
             if row.state in ("pending", "sending", "failed", "uncertain"):
                 ads.append(item)
+    # Último resultado REAL de Messenger. Un modelo activo NO significa que
+    # Meta aceptó su respuesta: el operador debe verlo sin abrir cada chat.
+    last_outbound = db.scalar(select(FacebookChatMessage).where(
+        FacebookChatMessage.org_id == user.org_id,
+        FacebookChatMessage.page_id == cfg.facebook_page_id,
+        FacebookChatMessage.direction == "outbound",
+        FacebookChatMessage.state.in_(["sent", "failed", "uncertain"]),
+    ).order_by(FacebookChatMessage.updated_at.desc(),
+               FacebookChatMessage.id.desc()).limit(1))
+    messenger_delivery = {
+        "state": last_outbound.state if last_outbound else "untested",
+        "error": last_outbound.error if last_outbound and
+                 last_outbound.state in ("failed", "uncertain") else None,
+        "updated_at": last_outbound.updated_at.isoformat() if last_outbound else None,
+    }
     # Comprobación REAL del token por el worker, independiente del historial de posts.
     # La API no recibe ni devuelve el Page Access Token.
     verify = db.scalar(select(NetworkFacebookManual).where(
@@ -550,6 +565,7 @@ def center(user: User = Depends(administrator), db: Session = Depends(get_db)):
             "page_id": cfg.facebook_page_id,
             "pending_ads": ads, "publications": publications,
             "connection": connection,
+            "messenger_delivery": messenger_delivery,
             "leads": [_lead_view(db, lead) for lead in leads],
             "guides_approved": db.scalar(select(func.count(FacebookTradeGuide.id)).where(
                 FacebookTradeGuide.org_id == user.org_id,
