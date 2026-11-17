@@ -131,7 +131,7 @@ def test_examples_are_pending_idempotent_and_privacy_checked(network):
     n = network
     result = n["send"](n["admin"], "/galancito/knowledge-examples")
     assert result.status_code == 201, result.text
-    assert result.json()["created"] == 12
+    assert result.json()["created"] == 17
     assert n["send"](n["admin"], "/galancito/knowledge-examples").json()["created"] == 0
     rows = n["admin"].get("/api/v1/network/galancito/knowledge").json()
     assert all(r["status"] == "pending" for r in rows)

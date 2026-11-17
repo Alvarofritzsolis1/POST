@@ -46,3 +46,27 @@ def test_greeting_does_not_read_business_data_or_infer(network, monkeypatch):
     assert not any(table in sql for sql in statements for table in (
         "network_requirements", "network_capacities", "network_coordinations",
         "network_awards", "facebook_trade_guides", "galancito_knowledge", "facebook_leads"))
+
+
+def test_legacy_timeout_setting_cannot_extend_inference_beyond_eight_seconds(monkeypatch):
+    from app import galancito_local
+    monkeypatch.setenv("GALANCITO_TIMEOUT_SECONDS", "24")
+    settings.cache_clear()
+    monkeypatch.setattr(galancito_local, "available_memory_mb", lambda: 8000)
+    timeouts = []
+    def offline(request, timeout):
+        timeouts.append(timeout)
+        raise TimeoutError()
+    monkeypatch.setattr(galancito_local._opener, "open", offline)
+    try:
+        with pytest.raises(RuntimeError):
+            galancito_local.generate_local_text("Galancito", "consulta")
+        assert timeouts == [8]
+    finally:
+        settings.cache_clear()
+
+
+def test_administrative_help_does_not_turn_into_unsupplied_loan_advice():
+    from app.galancito_flow import grounded_reply
+    assert grounded_reply("La administración te da el préstamo si cumples las condiciones.",
+                          "Explica cómo pedir ayuda a administración de la obra") is None

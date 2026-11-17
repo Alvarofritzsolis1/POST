@@ -109,7 +109,7 @@ def _generate(instructions, data, max_chars, cfg):
     )
     started = time.perf_counter()
     try:
-        with _opener.open(request, timeout=cfg.galancito_timeout_seconds) as response:
+        with _opener.open(request, timeout=min(cfg.galancito_timeout_seconds, 8)) as response:
             result = json.loads(response.read(100000).decode("utf-8"))
     except (HTTPError, URLError, TimeoutError, OSError, ValueError):
         # No incluir mensajes de trabajadores, secretos o direcciones internas en logs.

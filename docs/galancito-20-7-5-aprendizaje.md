@@ -22,7 +22,7 @@ respuesta que evitar o criterio de atención humana.
 5. Corregir o desactivar cuando corresponda. Editar revoca la aprobación.
    Desactivar excluye el contenido de consultas futuras, sin borrar historial.
 
-**Cargar 12 ejemplos iniciales** agrega material pendiente e idempotente.
+**Cargar 17 ejemplos iniciales** agrega material pendiente e idempotente.
 Incluye «ola soy gasfite», búsqueda de pega como trabajador, empresa de pintura,
 dotación de cuatro trabajadores, documentos según situación y atención humana.
 Los ejemplos no son ofertas de trabajo reales ni requisitos legales.
@@ -187,3 +187,12 @@ comprobar exclusión; también rendimiento y móvil sin desbordamiento.
 El actualizador conserva su reversión automática ante errores de salud. Esta
 sesión no tiene evidencia de respaldo/restauración ni commit del VPS y, por
 tanto, **no declara la versión desplegada**.
+
+## Límite de espera en 20.7.7
+
+El saludo interno evita consultas de negocio y el worker de Messenger consulta cada segundo.
+La inferencia local se limita a 8 segundos, incluso si una configuración anterior indica 24.
+El chat interno cancela su espera a los 10 segundos y ofrece una alternativa segura.
+Esto no garantiza el tiempo de entrega de Meta ni elimina la espera detrás de trabajos
+ya en ejecución. Los 17 ejemplos iniciales incluyen cinco nuevos de trato y atención
+humana; requieren aprobación. La práctica no modifica pesos ni utiliza chats privados.

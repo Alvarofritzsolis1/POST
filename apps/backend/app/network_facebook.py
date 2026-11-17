@@ -125,6 +125,53 @@ def graph_request(method: str, path: str, token: str, message: str | None = None
     return value
 
 
+def meta_http_error(exc: HTTPError) -> str:
+    """Explain Meta failures using only structured, non-secret diagnostic codes.
+
+    Never persist Meta's raw error.message: it can include request parameters.
+    The Graph API's numeric code/subcode and sanitized trace are sufficient
+    for an administrator to identify the next corrective step.
+    """
+    hints = {
+        4: "Meta está limitando solicitudes; revisa cuotas antes de reintentar.",
+        10: "La aplicación no tiene autorización para esta acción.",
+        17: "Meta está limitando solicitudes; inténtalo más tarde.",
+        32: "Meta está limitando solicitudes; inténtalo más tarde.",
+        100: "Revisa el ID de página y los campos del anuncio.",
+        102: "Token inválido o vencido. Genera un token de página nuevo.",
+        190: "Token inválido o vencido. Genera un token de página nuevo.",
+        200: "Faltan permisos para publicar. Revisa pages_manage_posts, pages_read_engagement, pages_show_list y CREATE_CONTENT.",
+        283: "Faltan permisos de la aplicación o de la página.",
+        368: "Meta restringió temporalmente esta acción en la página.",
+        492: "La cuenta vinculada no tiene el rol necesario en la página.",
+        506: "Meta detectó una publicación duplicada. Comprueba primero el muro de Facebook.",
+        613: "Se alcanzó un límite de solicitudes de Meta.",
+    }
+    error_code = None
+    error_subcode = None
+    trace = None
+    try:
+        payload = json.loads(exc.read(8192).decode("utf-8"))
+        details = payload.get("error", {}) if isinstance(payload, dict) else {}
+        if isinstance(details, dict):
+            if type(details.get("code")) is int and 0 < details["code"] < 1000000:
+                error_code = details["code"]
+            if type(details.get("error_subcode")) is int and 0 < details["error_subcode"] < 1000000:
+                error_subcode = details["error_subcode"]
+            identifier = details.get("fbtrace_id")
+            if isinstance(identifier, str) and re.fullmatch(r"[A-Za-z0-9_-]{1,80}", identifier):
+                trace = identifier
+    except (OSError, UnicodeError, ValueError, TypeError):
+        pass
+    code_part = (" · código Meta " + str(error_code)) if error_code is not None else ""
+    if error_subcode is not None:
+        code_part += " / subcódigo " + str(error_subcode)
+    hint = hints.get(error_code, "Comprueba el ID de página, la autorización y los permisos en Meta.")
+    if trace:
+        code_part += " · referencia " + trace
+    return "Meta rechazó la solicitud (HTTP " + str(exc.code) + code_part + "). " + hint
+
+
 def process_next(session_factory=SessionLocal) -> bool:
     cfg = settings()
     if not (cfg.facebook_autopublish_enabled and cfg.facebook_page_id and cfg.facebook_page_token):
@@ -186,7 +233,7 @@ def process_next(session_factory=SessionLocal) -> bool:
         else:
             error = "Acción de publicación desconocida."
     except HTTPError as exc:
-        error = "Meta rechazó la solicitud (HTTP " + str(exc.code) + "). Verifica permisos y token."
+        error = meta_http_error(exc)
     except (URLError, TimeoutError, OSError, ValueError) as exc:
         error, uncertain = "No se confirmó el envío (" + type(exc).__name__ + "); revisar Facebook.", True
 
@@ -260,7 +307,7 @@ def process_manual_next(session_factory=SessionLocal) -> bool:
         else:
             error = "Acción no permitida"
     except HTTPError as exc:
-        error = "Meta rechazó la solicitud (HTTP " + str(exc.code) + "). Revisa permisos y token."
+        error = meta_http_error(exc)
     except (URLError, TimeoutError, OSError, ValueError, json.JSONDecodeError) as exc:
         error = "No se confirmó la respuesta (" + type(exc).__name__ + "); revisa Facebook."
         uncertain = action in ("publish", "delete")
