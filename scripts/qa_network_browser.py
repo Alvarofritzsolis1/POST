@@ -222,9 +222,7 @@ def main():
         ).isoformat()
         end = (datetime.fromisoformat(start).date() + timedelta(days=10)).isoformat()
         title = "Carpintería para terminaciones · " + run
-        a.locator(".nw-heading").get_by_role(
-            "button", name="Nueva necesidad", exact=True
-        ).click()
+        a.locator(".nw-publish-need").click()
         drawer = a.get_by_role("dialog")
         expect(drawer.get_by_role("heading", name="Nueva necesidad")).to_be_visible()
         # La ventana amplia debe ocupar gran parte de la pantalla.
@@ -232,11 +230,12 @@ def main():
         # Una sola obra asignada: se muestra la obra sin permitir cambiar el origen.
         expect(drawer.get_by_text(destination["name"], exact=True)).to_be_visible()
         assert drawer.get_by_role("combobox", name="Obra", exact=True).count() == 0
-        drawer.get_by_label("Especialidad", exact=True).fill("Carpintería")
-        drawer.get_by_label("¿Qué contratista necesitas?", exact=True).fill(title)
+        drawer.get_by_label("Oficio o especialidad", exact=True).fill("Carpintería")
+        drawer.locator(".nw-quick-more summary").click()
+        drawer.get_by_label("Título personalizado", exact=True).fill(title)
         drawer.get_by_label("Trabajadores aprox.", exact=True).fill("3")
         drawer.get_by_label("Inicio estimado", exact=True).fill(start)
-        drawer.get_by_label("Describe brevemente lo que se necesita", exact=True).fill(
+        drawer.get_by_label("¿Qué labores se realizarán?", exact=True).fill(
             "Instalación de puertas, guardapolvos y terminaciones interiores."
         )
         fb = drawer.get_by_role("checkbox", name="Publicar también en Facebook")
@@ -245,16 +244,21 @@ def main():
         assert not fb.is_checked()
         # Un clic fuera del panel no debe cerrar ni perder el formulario.
         a.mouse.click(3, 3)
-        expect(drawer.get_by_label("¿Qué contratista necesitas?", exact=True)).to_have_value(title)
+        expect(drawer.get_by_label("Título personalizado", exact=True)).to_have_value(title)
         # Cerrar con cambios requiere confirmación; rechazarla mantiene lo escrito.
         a.once("dialog", lambda prompt: prompt.dismiss())
         drawer.get_by_role("button", name="Cerrar panel").click()
         expect(drawer).to_be_visible()
-        expect(drawer.get_by_label("¿Qué contratista necesitas?", exact=True)).to_have_value(title)
-        drawer.get_by_role("button", name="Crear necesidad", exact=True).click()
+        expect(drawer.get_by_label("Título personalizado", exact=True)).to_have_value(title)
+        drawer.get_by_role("button", name="Publicar necesidad", exact=True).click()
+        # La publicación vuelve al feed, sin abrir otro diálogo.
+        expect(drawer).to_have_count(0)
+        expect(a.locator(".nw-success")).to_contain_text("Necesidad publicada solo en GALANT.")
+        card = a.locator(".nw-feed-card").filter(has_text=title)
+        expect(card).to_be_visible()
+        card.get_by_role("button", name="Ver solicitud").click()
+        drawer = a.get_by_role("dialog")
         expect(drawer.get_by_role("heading", name=title, exact=True)).to_be_visible()
-        # El aviso se muestra detrás del diálogo modal (es intencional: fondo inerte).
-        assert "Necesidad publicada solo en GALANT." in (a.locator(".nw-success").text_content() or "")
         assert drawer.locator(".nw-history pre").count() == 0
         drawer.get_by_role("button", name="Cerrar panel").click()
         req = next(r for r in api(a_ctx, "/requirements")["rows"] if r["title"] == title)
@@ -390,12 +394,12 @@ def main():
         admin.screenshot(path=str(args.output / "adjudicacion.png"), full_page=True)
         admin.get_by_role("dialog").get_by_role("button", name="Cerrar panel").click()
         admin.get_by_role("navigation", name="Red de Obras", exact=True).get_by_role(
-            "button", name="Resumen", exact=True
+            "button", name="Feed", exact=True
         ).click()
         expect(admin.locator(".nw-kpis")).to_be_visible()
         admin.screenshot(path=str(args.output / "administrador.png"), full_page=True)
         a.get_by_role("navigation", name="Red de Obras", exact=True).get_by_role(
-            "button", name="Resumen", exact=True
+            "button", name="Feed", exact=True
         ).click()
         a.screenshot(path=str(args.output / "residente.png"), full_page=True)
         a.set_viewport_size({"width": 390, "height": 844})
