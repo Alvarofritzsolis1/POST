@@ -264,7 +264,7 @@ export default function FacebookCenter({ catalog }: { catalog: Catalog }) {
       {[
         ["Por responder", center?.counts.unread ?? 0, "blue"],
         ["Interesados", center?.counts.contacts ?? 0, "teal"],
-        ["Pendientes", center?.counts.pending_ads ?? 0, "amber"],
+        ["Por revisar", center?.counts.pending_ads ?? 0, "amber"],
         ["Publicados", center?.counts.published_ads ?? 0, "teal"],
       ].map(([title, value, color]) => <div key={title} className={"fbc-stat " + color}>
         <span>{title}</span><strong>{value}</strong>
