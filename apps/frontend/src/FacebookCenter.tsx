@@ -243,8 +243,12 @@ export default function FacebookCenter({ catalog }: { catalog: Catalog }) {
   const visible = center?.leads.filter((r) =>
     [r.name, r.company, r.specialty].some((x) => x.toLowerCase().includes(filter.toLowerCase()))) || [];
 
-  const tokenInvalid = (center?.publications || []).some((post) =>
-    /190|token.*(?:invalid|expired|inv[aá]lido|vencid)/i.test(post.error || ""));
+  // Un error histórico no debe bloquear envíos si ya existe otro envío confirmado después.
+  const lastResolvedPost = [...(center?.publications || [])]
+    .filter((post) => post.state === "failed" || post.state === "published")
+    .sort((a, b) => (b.updated_at || "").localeCompare(a.updated_at || ""))[0];
+  const tokenInvalid = lastResolvedPost?.state === "failed" &&
+    /190|token.*(?:invalid|expired|inv[aá]lido|vencid)/i.test(lastResolvedPost.error || "");
   return <div className="fbc">
     <header className="fbc-header">
       <div>
