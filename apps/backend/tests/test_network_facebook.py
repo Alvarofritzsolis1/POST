@@ -1,8 +1,9 @@
 """Pruebas de seguridad, idempotencia y publicación sin contacto real con Meta."""
-from urllib.error import URLError
+from io import BytesIO
+from urllib.error import HTTPError, URLError
 
 from app.config import settings
-from app.network_facebook import process_next
+from app.network_facebook import meta_http_error, process_next
 from app.network_models import NetworkFacebookPost
 from app.network_service import today
 
@@ -195,3 +196,73 @@ def test_galancito_local_auto_ad_falls_back_without_hallucinations(network, monk
     assert content[0].startswith("CONVOCATORIA PARA EMPRESAS CONTRATISTAS")
     assert "$2000000" not in content[0]
     settings.cache_clear()
+
+
+def test_meta_400_shows_safe_permission_diagnostic_without_leaking_tokens():
+    body = (b'{"error":{"code":200,"error_subcode":123,'
+            b'"message":"access_token=private_secret_should_never_appear",'
+            b'"fbtrace_id":"Trace_abcd123"}}')
+    exc = HTTPError("https://graph.facebook.com/ignored", 400, "Bad Request",
+                    {}, BytesIO(body))
+    message = meta_http_error(exc)
+    assert "HTTP 400" in message
+    assert "código Meta 200" in message
+    assert "pages_manage_posts" in message
+    assert "Trace_abcd123" in message
+    assert "private_secret_should_never_appear" not in message
+
+
+def test_meta_token_expired_has_specific_recovery_hint():
+    exc = HTTPError("https://graph.facebook.com/ignored", 400, "Bad Request",
+                    {}, BytesIO(b'{"error":{"code":190,"message":"secret"}}'))
+    message = meta_http_error(exc)
+    assert "Token inválido o vencido" in message
+    assert "secret" not in message
+
+
+def test_facebook_center_shows_confirmed_publications_not_false_not_queued(network, monkeypatch):
+    n = network
+    _enable(monkeypatch)
+    body = request_body(n)
+    body["publish_to_facebook"] = True
+    created = n["send"](n["a"], "/requirements", body)
+    assert created.status_code == 201
+    req_id = created.json()["id"]
+
+    def graph(method, path, token, message=None):
+        return {"id": "1489275590928529_321987"} if method == "POST" else {"success": True}
+
+    monkeypatch.setattr("app.network_facebook.graph_request", graph)
+    assert process_next(n["Session"])
+    result = n["send"](n["admin"], "/facebook/center", method="GET")
+    assert result.status_code == 200, result.text
+    payload = result.json()
+    published = [r for r in payload["publications"] if r["requirement_id"] == req_id]
+    assert len(published) == 1
+    assert published[0]["state"] == "published"
+    assert published[0]["post_url"] == "https://www.facebook.com/1489275590928529_321987"
+    assert payload["counts"]["published_ads"] >= 1
+    assert not [r for r in payload["pending_ads"] if r["requirement_id"] == req_id]
+    assert n["send"](n["a"], "/facebook/center", method="GET").status_code == 403
+
+
+def test_meta_400_in_worker_sets_actionable_failed_status(network, monkeypatch):
+    n = network
+    _enable(monkeypatch)
+    body = request_body(n)
+    body["publish_to_facebook"] = True
+    created = n["send"](n["a"], "/requirements", body)
+    assert created.status_code == 201
+
+    def denied(*args, **kwargs):
+        raise HTTPError("https://graph.facebook.com/ignored", 400, "Bad Request",
+                        {}, BytesIO(b'{"error":{"code":200,"message":"private"}}'))
+
+    monkeypatch.setattr("app.network_facebook.graph_request", denied)
+    assert process_next(n["Session"])
+    requirement = n["send"](n["admin"], "/requirements/" + created.json()["id"], method="GET")
+    assert requirement.status_code == 200
+    status = requirement.json()["facebook"]
+    assert status["state"] == "failed"
+    assert "pages_manage_posts" in status["error"]
+    assert "private" not in status["error"]

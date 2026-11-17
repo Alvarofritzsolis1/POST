@@ -1,3 +1,11 @@
+## 20.7.6-rc1 — Facebook Red de Obras: publicación y seguimiento
+- Diagnóstico de errores Graph API con código y subcódigo de Meta, sin exponer tokens ni mensajes privados.
+- Centro Facebook con listado de publicaciones, estados reales de la cola y enlaces de posts confirmados.
+- Se restaura la verificación manual de la página desde el mismo Centro Facebook.
+- Corrección del falso «sin sincronizar» para publicaciones ya confirmadas.
+- No se publican anuncios antiguos automáticamente; los reintentos de resultados inciertos se bloquean para evitar duplicados.
+- Despliegue supeditado a CI, aprobación y configuración privada de Meta en el VPS.
+
 ## 20.7.5-rc1 — Galancito: conocimientos aprobados y respuesta híbrida
 - Centro de conocimientos con aprobación explícita, historial, importación de PDF/DOCX/TXT y desactivación inmediata.
 - Doce ejemplos pendientes y correcciones administrables; recuperación local por organización y canal, sin reentrenar pesos ni incorporar chats automáticamente.
