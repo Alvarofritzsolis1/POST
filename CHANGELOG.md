@@ -1,3 +1,12 @@
+## 20.7.3-rc1 — Galancito local gratuito: solo Messenger + Red de Obras
+- Qwen3 1.7B (Ollama), modelo privado de aproximadamente 1,4 GB de descarga; sin API de pago.
+- Un único contenedor opcional con máximo 3 GB de RAM, 1,5 CPU, una inferencia simultánea, cola corta y descarga de memoria tras 20 s de inactividad.
+- No publica ningún puerto de Ollama ni cambia permisos o información de contratistas, nóminas, documentos, pagos, IRL ni INE.
+- En Messenger, presenta consentimiento específico para procesamiento de IA local antes de generar respuestas; derivación humana si faltan datos o falla el modelo.
+- En la plataforma, Galancito se presenta exclusivamente dentro de Red de Obras y consulta solo títulos de necesidades publicadas y guías de oficios aprobadas.
+- Instalación manual protegida de Ollama, prueba de respuesta y activación opcional de Messenger; jamás se inicia el modelo durante el despliegue.
+- Respuestas sin conexión: orientación básica local y mensajes de respaldo, sin bloquear el resto de GALANT.
+
 ## 20.7.2-rc1 — Conexión simplificada de Galancito a Meta Messenger
 - Instalador interactivo de una sola ejecución en el VPS: `sudo python3 scripts/setup-galancito-messenger.py`.
 - Genera token webhook privado, identifica automáticamente la organización, verifica el token de página ante Meta, configura solo los servicios afectados y confirma el callback HTTPS.
