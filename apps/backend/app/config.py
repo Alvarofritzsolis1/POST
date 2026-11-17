@@ -42,10 +42,14 @@ class Settings(BaseSettings):
     facebook_ai_ad_enabled: bool = False
     facebook_ai_api_key: str = ""
     facebook_ai_model: str = "gpt-4.1-mini"
-    # GALANCITO interno. Separado del acceso externo a conversaciones de Messenger.
+    facebook_ai_provider: str = "openai"
+    # Exclusivamente Facebook Messenger y asesor de Red de Obras.
     galancito_ai_enabled: bool = False
     galancito_ai_api_key: str = ""
     galancito_ai_model: str = "gpt-4.1-mini"
+    galancito_ai_provider: str = "openai"
+    # Ollama se habilita solo después de descargar y probar Qwen3 1.7B en el VPS.
+    galancito_local_ai_enabled: bool = False
 
 
 
