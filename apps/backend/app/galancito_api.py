@@ -16,9 +16,9 @@ from .db import get_db
 from .facebook_ai import generate_internal_text, galancito_red_ai_available
 from .facebook_onboarding import onboarding_guide
 from .facebook_crm_models import FacebookTradeGuide, FacebookLead
-from .network_service import key
+from .network_service import key, today
 from .models import User
-from .network_models import NetworkRequirement, NetworkCapacity, NetworkCoordination, NetworkAward
+from .network_models import NetworkRequirement, NetworkCapacity, NetworkCoordination, NetworkAward, NetworkMatch
 from .security import authorized_user
 
 router = APIRouter(prefix="/api/v1/network/galancito", tags=["Galancito"])
@@ -102,7 +102,7 @@ def _local_reply(message: str, area: str, titles: list[str], guides: list[Facebo
 
 @router.get("/status")
 def galancito_status(user: User = Depends(authorized_user)):
-    # Contexto general de Red de Obras: únicamente datos operativos autorizados.
+    # Indicadores globales de la organización, sin nombres ni datos privados.
     stats = {
         "needs": db.scalar(select(func.count(NetworkRequirement.id)).where(
             NetworkRequirement.org_id == user.org_id,
@@ -120,7 +120,27 @@ def galancito_status(user: User = Depends(authorized_user)):
         "awards": db.scalar(select(func.count(NetworkAward.id)).where(
             NetworkAward.org_id == user.org_id,
             NetworkAward.state != "revoked")) or 0,
+        "matches": db.scalar(select(func.count(NetworkMatch.id)).where(
+            NetworkMatch.org_id == user.org_id,
+            NetworkMatch.active.is_(True))) or 0,
     }
+    top_trades = db.execute(select(
+        NetworkRequirement.specialty, func.count(NetworkRequirement.id)
+    ).where(
+        NetworkRequirement.org_id == user.org_id,
+        NetworkRequirement.state == "published",
+    ).group_by(NetworkRequirement.specialty).order_by(
+        func.count(NetworkRequirement.id).desc()).limit(6)).all()
+    stats["by_specialty"] = "; ".join(
+        name[:50] + ": " + str(count) for name, count in top_trades)
+    if user.role == "admin":
+        # Solo cantidades agregadas: ningún historial de Messenger en asesoría.
+        stats["interested"] = db.scalar(select(func.count(FacebookLead.id)).where(
+            FacebookLead.org_id == user.org_id)) or 0
+        stats["followups_due"] = db.scalar(select(func.count(FacebookLead.id)).where(
+            FacebookLead.org_id == user.org_id,
+            FacebookLead.follow_up_on <= today(),
+            FacebookLead.status != "archived")) or 0
     cfg = settings()
     available = galancito_red_ai_available(cfg)
     return {"name": "Galancito",
