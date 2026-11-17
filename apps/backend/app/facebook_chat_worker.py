@@ -13,7 +13,7 @@ from sqlalchemy import select
 
 from .config import settings
 from .db import SessionLocal
-from .facebook_ai import REPLY_INSTRUCTIONS, generate_text
+from .facebook_ai import ASSISTANT_NAME, REPLY_INSTRUCTIONS, generate_text
 from .facebook_crm_models import FacebookLead, FacebookChatMessage, FacebookTradeGuide
 from .models import utcnow
 from .network_service import key
@@ -80,6 +80,9 @@ def process_chat_next(session_factory=SessionLocal) -> bool:
         if job.state == "ai_pending" and lead.needs_support:
             job.state, job.error = "cancelled", "El contacto pidió apoyo: revisión humana prioritaria"
             return True
+        if job.state == "ai_pending" and (lead.ai_paused or lead.ai_consent_state == "declined"):
+            job.state, job.error = "cancelled", "Galancito pausado para este contacto"
+            return True
         if job.state == "ai_pending" and not lead.ai_consent:
             job.state, job.error = "cancelled", "El contacto no autorizó el procesamiento con IA"
             return True
@@ -120,8 +123,8 @@ def process_chat_next(session_factory=SessionLocal) -> bool:
             if not generated:
                 raise ValueError("IA no conectada")
             body = generated
-            if "asistente virtual" not in body.lower():
-                body = "Soy el asistente virtual de GALANT. " + body
+            if "galancito" not in body.lower():
+                body = "Soy Galancito, asistente virtual de GALANT. " + body
         result_id = graph_send(cfg.facebook_page_id, psid, body, cfg.facebook_page_token)
     except HTTPError as exc:
         problem = "Meta rechazó el mensaje (HTTP " + str(exc.code) + ")."
