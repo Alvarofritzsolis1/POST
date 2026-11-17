@@ -1,0 +1,25 @@
+.gkc { padding:20px; color:var(--text,#183d4d); }
+.gkc-heading,.gkc-tools { display:flex; gap:12px; align-items:center; justify-content:space-between; flex-wrap:wrap; }
+.gkc h3,.gkc h4 { margin:0 0 8px; }
+.gkc p { line-height:1.5; }
+.gkc label { display:grid; gap:6px; font-size:13px; font-weight:650; }
+.gkc input,.gkc select,.gkc textarea { box-sizing:border-box; width:100%; min-height:38px; border:1px solid #acc5ca; border-radius:7px; padding:9px; font:inherit; background:var(--surface,#fff); color:inherit; }
+.gkc input:focus-visible,.gkc textarea:focus-visible,.gkc select:focus-visible,.gkc button:focus-visible { outline:3px solid #168a80; outline-offset:2px; }
+.gkc-metrics { display:grid; grid-template-columns:repeat(4,minmax(0,1fr)); gap:12px; }
+.gkc-metrics article { display:grid; gap:12px; padding:18px; background:var(--surface,#f0f7f6); border:1px solid #bad8d4; border-radius:10px; }
+.gkc-tools { justify-content:flex-start; }
+.gkc-upload input { max-width:250px; }
+.gkc-note,.gkc small { font-size:12px; line-height:1.5; }
+.gkc-layout { display:grid; grid-template-columns:minmax(210px,1fr) minmax(0,2fr); gap:24px; }
+.gkc-layout aside,.gkc-layout form { display:grid; gap:13px; align-content:start; min-width:0; }
+.gkc-item { display:grid; gap:5px; text-align:left; background:var(--surface,#fff); color:inherit; padding:12px; border:1px solid #b9cece; border-radius:8px; cursor:pointer; }
+.gkc-item.selected { border-color:#078474; box-shadow:inset 3px 0 #078474; }
+.gkc-fields { display:grid; grid-template-columns:1fr 1fr; gap:12px; }
+.gkc-review { border-top:1px solid #bed1d3; padding-top:12px; }
+.gkc-review button { margin:4px; }
+.gkc pre { white-space:pre-wrap; overflow-wrap:anywhere; }
+.gkc table { width:100%; border-collapse:collapse; text-align:left; }
+.gkc th,.gkc td { padding:10px; border-bottom:1px solid #bed1d3; }
+.gkc caption { text-align:left; padding:8px 0; }
+@media(max-width:800px) { .gkc-layout { grid-template-columns:1fr; }.gkc-metrics { grid-template-columns:1fr 1fr; }.gkc { padding:12px; } }
+@media(max-width:430px) { .gkc-fields,.gkc-metrics { grid-template-columns:1fr; } }

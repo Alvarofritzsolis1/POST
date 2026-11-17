@@ -19,6 +19,9 @@ class FacebookLead(Base):
     display_name: Mapped[str] = mapped_column(String(160), default="Interesado de Facebook")
     company: Mapped[str] = mapped_column(String(180), default="")
     specialty: Mapped[str] = mapped_column(String(100), default="")
+    # Preserve manual classification when messages mention a different trade.
+    specialty_source: Mapped[str] = mapped_column(String(16), nullable=False,
+                                                 default="manual", server_default="manual")
     workers: Mapped[int | None] = mapped_column(Integer, nullable=True)
     availability: Mapped[str] = mapped_column(String(120), default="")
     experience: Mapped[str] = mapped_column(Text, default="")

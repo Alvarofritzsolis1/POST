@@ -78,6 +78,8 @@ def wants_human(message: str) -> bool:
         "hablar con humano", "atencion humana", "deten el bot",
         "detener bot", "parar bot", "deja de responder", "no mas bot",
         "retirar consentimiento", "revoco mi autorizacion",
+        "quiero hablar con una persona", "hablar con administracion",
+        "quiero hablar con administracion", "quiero un humano", "humano",
     }
     return any(value == phrase or value.startswith(phrase + " ") for phrase in phrases)
 
@@ -93,6 +95,20 @@ def safe_ai_reply(draft: str) -> str:
     )
     if not clean or clean.count("?") > 1 or any(re.search(p, normalized) for p in forbidden):
         return ("Soy Galancito, asistente virtual de GALANT. "
-                "Para revisar esos datos te puede orientar una persona. "
-                "¿Qué trabajo haces?")
+                "Para revisar esos datos, solicita orientación de administración por un canal seguro.")
     return galancito_prefix(clean)
+
+
+def grounded_reply(draft: str, supplied: str) -> str | None:
+    """Bounded guard, not a general proof of factuality: reject new numbers/URLs."""
+    text = _plain(draft)
+    if re.search(r"\b(?:ya estas contratado|te contratamos|te adjudicamos|contratacion garantizada|ingreso garantizado)\b", text):
+        return None
+    if set(re.findall(r"\d+", draft)) - set(re.findall(r"\d+", supplied)):
+        return None
+    if any(url not in supplied for url in re.findall(r"https?://\S+", draft)):
+        return None
+    if re.search(r"\b(?:envia|manda|adjunta|sube|entrega)(?:me|nos)?\s+(?:tu |una |el |la )?"
+                 r"(?:rut|cedula|contrasena|clave unica|documento de identidad)\b", text):
+        return None
+    return safe_ai_reply(draft)

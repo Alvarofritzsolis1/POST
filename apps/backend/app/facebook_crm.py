@@ -15,7 +15,7 @@ from urllib.request import HTTPRedirectHandler, Request as HTTPRequest, build_op
 from fastapi import APIRouter, Depends, HTTPException, Query, Request
 from fastapi.responses import PlainTextResponse
 from pydantic import BaseModel, ConfigDict, Field
-from sqlalchemy import func, select
+from sqlalchemy import func, select, text as sql_text
 from sqlalchemy.orm import Session
 
 from .config import settings
@@ -33,6 +33,10 @@ from .network_models import NetworkFacebookPost, NetworkRequirement, NetworkNoti
 from .network_service import key, today
 from .galancito_triage import classify_lead, dashboard
 from .security import administrator
+from .galancito_triage import analyze, private_data, quick_reply
+from .galancito_knowledge import retrieve, exact_answer, evidence_context
+from .galancito_runtime import infer
+from .galancito_flow import grounded_reply
 
 router = APIRouter(prefix="/api/v1/network/facebook", tags=["Facebook CRM"])
 
@@ -106,7 +110,7 @@ def _match(db: Session, lead: FacebookLead) -> dict:
 def _lead_view(db: Session, lead: FacebookLead) -> dict:
     return {
         "id": lead.id, "name": lead.display_name, "company": lead.company,
-        "specialty": lead.specialty, "workers": lead.workers,
+        "specialty": lead.specialty, "specialty_source": lead.specialty_source, "workers": lead.workers,
         "availability": lead.availability, "experience": lead.experience,
         "documents_state": lead.documents_state, "status": lead.status,
         "requirement_id": lead.requirement_id, "unread": lead.unread,
@@ -281,6 +285,31 @@ async def webhook(request: Request, db: Session = Depends(get_db)):
                 lead.ai_consent, lead.ai_consent_state = True, "accepted"
             elif consent is False:
                 lead.ai_consent, lead.ai_consent_state = False, "declined"
+                # A refusal can arrive before the permission question leaves
+                # the durable queue. Do not send that obsolete question later.
+                for pending in db.scalars(select(FacebookChatMessage).where(
+                    FacebookChatMessage.lead_id == lead.id,
+                    FacebookChatMessage.operator_id.is_(None),
+                    FacebookChatMessage.direction == "outbound",
+                    FacebookChatMessage.state.in_(["pending", "ai_pending"]),
+                )):
+                    pending.state = "cancelled"
+            if consent is None and not audio_received and not private_data(body):
+                approved_trades = {g.trade: (g.trade, *(g.aliases or [])) for g in db.scalars(
+                    select(FacebookTradeGuide).where(FacebookTradeGuide.org_id == lead.org_id,
+                                                    FacebookTradeGuide.approved.is_(True)).limit(100))}
+                facts = analyze(body, approved_trades)
+                if facts.specialty and (not lead.specialty or lead.specialty_source == "message"):
+                    lead.specialty = facts.specialty
+                    lead.specialty_source = "message"
+                if facts.entity_type != "unknown":
+                    lead.entity_type = facts.entity_type
+                if facts.workers is not None:
+                    lead.workers = facts.workers
+                if facts.availability:
+                    lead.availability = facts.availability
+                if "trabajo solo" in key(body):
+                    lead.has_employees = False
             signal = (assistance_signal(body, is_audio=audio_received)
                       if consent is None else None)
             if consent is False:
@@ -351,11 +380,20 @@ async def webhook(request: Request, db: Session = Depends(get_db)):
                     reply = ("Hola, soy Galancito, asistente virtual de GALANT. "
                              "Puedes escribir como te salga. ¿Qué trabajo haces?")
                 if use_ai and recent < 5 and facebook_reply_ai_available(cfg):
-                    db.add(FacebookChatMessage(
-                        org_id=lead.org_id, lead_id=lead.id, page_id=lead.page_id,
-                        direction="outbound", state="ai_pending",
-                        body="", ai_generated=True,
-                    ))
+                    queue_locked = (db.bind.dialect.name != "postgresql" or db.scalar(
+                        sql_text("SELECT pg_try_advisory_xact_lock(2075002)")))
+                    queued = db.scalar(select(func.count(FacebookChatMessage.id)).where(
+                        FacebookChatMessage.org_id == lead.org_id,
+                        FacebookChatMessage.state == "ai_pending")) or 0
+                    if queue_locked and queued < 2:
+                        db.add(FacebookChatMessage(
+                            org_id=lead.org_id, lead_id=lead.id, page_id=lead.page_id,
+                            direction="outbound", state="ai_pending",
+                            body="", ai_generated=True,
+                        ))
+                    else:
+                        lead.needs_support = True
+                        lead.support_reason = "Cola del asistente ocupada; requiere revisión humana"
                 elif reply and recent < 5:
                     db.add(FacebookChatMessage(
                         org_id=lead.org_id, lead_id=lead.id, page_id=lead.page_id,
@@ -428,7 +466,7 @@ def galancito_analyze_lead(lead_id: str, user: User = Depends(administrator),
                    "\nEtapa: " + summary["stage"] +
                    "\nMensajes: " + " | ".join(m.body[:220] for m in reversed(recent)))
         try:
-            note = generate_triage_note(context) or ""
+            note = infer(db, lambda: generate_triage_note(context)) or ""
         except RuntimeError:
             pass
         if note:
@@ -526,6 +564,8 @@ def update_lead(lead_id: str, body: LeadEdit, user: User = Depends(administrator
             lead.company = value.strip()
         elif field in {"specialty", "experience", "availability"}:
             setattr(lead, field, value.strip())
+            if field == "specialty":
+                lead.specialty_source = "manual"
         else:
             setattr(lead, field, value)
     if body.model_fields_set.intersection({"follow_up_on", "follow_up_note"}):
@@ -591,7 +631,19 @@ def suggest_reply(lead_id: str, user: User = Depends(administrator),
                                            bool(lead.specialty)),
                 "source": "help_first", "requires_review": True,
                 "alert_admin": True}
-    if facebook_reply_ai_available() and lead.ai_consent:
+    latest_inbound = next((m.body for m in messages if m.direction == "inbound"
+                           and consent_decision(m.body) is None), "")
+    facts = {"specialty": lead.specialty, "workers": lead.workers,
+             "availability": lead.availability, "entity_type": lead.entity_type,
+             "has_employees": lead.has_employees}
+    evidence = retrieve(db, lead.org_id, latest_inbound, "messenger") if not private_data(latest_inbound) else []
+    fast = quick_reply(latest_inbound, known=facts)
+    if analyze(latest_inbound).intent not in {"human", "restricted", "requirements"} and not private_data(latest_inbound):
+        fast = exact_answer(evidence) or fast
+    if fast:
+        return {"draft": fast, "source": "template", "requires_review": True}
+    supplied = "Consulta actual: " + latest_inbound[:800] + "\nHechos: " + json.dumps(facts, ensure_ascii=False) + "\nReferencias: " + evidence_context(evidence)
+    if facebook_reply_ai_available() and lead.ai_consent and not private_data(supplied):
         guide = _guide_for(db, lead)
         if guide:
             supplied += ("\nGuía aprobada para el oficio: " + guide.trade
@@ -601,9 +653,11 @@ def suggest_reply(lead_id: str, user: User = Depends(administrator),
         else:
             supplied += "\nNo hay guía documental aprobada para esta especialidad."
         try:
-            drafted = generate_text(REPLY_INSTRUCTIONS, supplied, 450)
-        except RuntimeError as err:
-            raise HTTPException(503, str(err)) from None
+            drafted = infer(db, lambda: generate_text(REPLY_INSTRUCTIONS, supplied, 450))
+        except RuntimeError:
+            drafted = None
+        if drafted:
+            drafted = grounded_reply(drafted, supplied)
         if drafted:
             return {"draft": drafted, "source": "ai", "requires_review": True}
     if not lead.specialty:
@@ -642,7 +696,10 @@ def suggest_ad(requirement_id: str, user: User = Depends(administrator),
     if not req:
         raise HTTPException(404, "Necesidad no encontrada")
     original = public_message(db, req)
-    draft, generated = verified_ad_copy(original, req.title, req.specialty)
+    try:
+        draft, generated = infer(db, lambda: verified_ad_copy(original, req.title, req.specialty))
+    except RuntimeError:
+        draft, generated = original, False
     if generated:
         return {"draft": draft, "source": "ia_local", "requires_review": True,
                 "published": False}

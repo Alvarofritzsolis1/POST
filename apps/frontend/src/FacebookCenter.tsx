@@ -6,6 +6,7 @@ import {
 import { change, net, type Catalog, type Page, type Requirement } from "./networkApi";
 import { errorText } from "./NetworkUI";
 import "./facebook-center.css";
+import GalancitoKnowledgeCenter from "./GalancitoKnowledgeCenter";
 
 type Check = { criterion: string; state: "match" | "verify"; detail: string };
 type Analysis = {
@@ -72,7 +73,7 @@ const dateText = (v: string) => {
 
 export default function FacebookCenter({ catalog }: { catalog: Catalog }) {
   const [center, setCenter] = useState<Center | null>(null);
-  const [tab, setTab] = useState<"inbox" | "tracking" | "pending" | "guides">("inbox");
+  const [tab, setTab] = useState<"summary" | "tracking" | "inbox" | "pending" | "guides" | "knowledge" | "performance">("inbox");
   const [selectedId, setSelectedId] = useState("");
   const [detail, setDetail] = useState<Detail | null>(null);
   const [requirements, setRequirements] = useState<Requirement[]>([]);
@@ -270,11 +271,17 @@ export default function FacebookCenter({ catalog }: { catalog: Catalog }) {
     {error && <p role="alert" className="fbc-error">{error}</p>}
     {notice && <p role="status" className="fbc-notice">{notice}</p>}
     <nav aria-label="Centro Facebook" className="fbc-tabs">
+      <button className={tab === "summary" ? "selected" : ""} onClick={() => setTab("summary")}>Resumen</button>
       <button className={tab === "inbox" ? "selected" : ""} onClick={() => setTab("inbox")}><Inbox size={16} /> Conversaciones</button>
-      <button className={tab === "tracking" ? "selected" : ""} onClick={() => setTab("tracking")}><ShieldCheck size={16} /> Seguimiento Galancito</button>
+      <button className={tab === "knowledge" ? "selected" : ""} onClick={() => setTab("knowledge")}><BookOpen size={16} /> Conocimientos</button>
+      <button className={tab === "performance" ? "selected" : ""} onClick={() => setTab("performance")}>Rendimiento</button>
       <button className={tab === "pending" ? "selected" : ""} onClick={() => setTab("pending")}><Clock3 size={16} /> Anuncios pendientes</button>
       <button className={tab === "guides" ? "selected" : ""} onClick={() => setTab("guides")}><BookOpen size={16} /> Guías de oficios</button>
+      <button className={tab === "tracking" ? "selected" : ""} onClick={() => setTab("tracking")}><ShieldCheck size={16} /> Seguimiento Galancito</button>
     </nav>
+    {tab === "summary" && <GalancitoKnowledgeCenter mode="summary" />}
+    {tab === "knowledge" && <GalancitoKnowledgeCenter />}
+    {tab === "performance" && <GalancitoKnowledgeCenter mode="performance" />}
     {tab === "tracking" && <section className="fbc-tracking" aria-label="Seguimiento Galancito">
       <div className="fbc-tracking-head">
         <div>

@@ -121,6 +121,9 @@ def test_trade_guide_explains_documents_without_requiring_formality(network, mon
     assert consent.status_code == 200
     lead = n["admin"].get("/api/v1/network/facebook/leads/" + lead_id).json()["lead"]
     assert lead["ai_consent"] is True and lead["ai_consent_state"] == "accepted"
+    # Simple intake stays deterministic; a nuanced explanation uses the
+    # approved trade guide after the contact has explicitly consented.
+    assert incoming(n, text="Explica cómo orientar este oficio sin aplicar requisitos de otro", mid="nuanced").status_code == 200
     reply = n["send"](n["admin"], "/facebook/leads/" + lead_id + "/suggest")
     assert reply.status_code == 200
     assert reply.json()["source"] == "ai"

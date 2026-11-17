@@ -20,3 +20,4 @@ coverage/
 *.log
 .DS_Store
 qa-storage/
+work/

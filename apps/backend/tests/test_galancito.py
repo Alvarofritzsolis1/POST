@@ -37,14 +37,14 @@ def test_galancito_restricts_external_ai_to_explicit_consent(network, monkeypatc
     def mocked(instructions, context, limit):
         calls.append(context)
         assert "Galancito" in instructions
-        assert "Necesidades publicadas" not in context
+        assert "Necesidades publicadas (títulos): []" in context
         return "Soy Galancito. ¿En qué puedo ayudarte?"
     monkeypatch.setattr("app.galancito_api.generate_internal_text", mocked)
     local = n["send"](n["admin"], "/galancito/chat",
         {"message": "hola", "allow_external_ai": False})
     assert local.status_code == 200 and not calls
     external = n["send"](n["admin"], "/galancito/chat",
-        {"message": "hola", "allow_external_ai": True})
+        {"message": "Explica cómo organizar una coordinación de servicios", "allow_external_ai": True})
     assert external.status_code == 200
     assert external.json()["source"] == "ai" and len(calls) == 1
     private = n["send"](n["admin"], "/galancito/chat",
