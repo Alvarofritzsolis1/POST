@@ -1,3 +1,22 @@
+## 20.7.1-rc1 — Galancito: nombre único, orientación y respuestas automáticas controladas
+- Galancito aparece en GALANT y Red de Obras como asistente de orientación de solo lectura; no crea registros, no habilita contratistas ni adjudica.
+- La IA interna es opcional y requiere aceptación del usuario en la propia interfaz, con credenciales y salida HTTPS separadas.
+- Galancito de Messenger presenta el uso de IA de OpenAI, pregunta por consentimiento explícito SÍ/NO y solamente envía mensajes a IA externa tras aceptación.
+- Permite pausa por contacto; los mensajes manuales del administrador detienen las respuestas automáticas para evitar duplicaciones.
+- Guías simples para maestros con fallas de escritura, antecedentes incompletos y solicitudes de orientación humana.
+- Mensajes de Facebook se actualizan sin borrar formularios de ficha sin guardar.
+- Protecciones: límite de respuestas, ventana de Messenger, cola idempotente, aislamiento por organización, webhook firmado, sin solicitud de documentos personales en chat.
+- La activación en producción queda sujeta a permisos de Meta, configuración privada y validación completa.
+
+## 20.7.0-rc1 — Facebook: bandeja de contactos, IA para maestros y guías por especialidad
+- La pestaña Facebook es una bandeja de conversación, anuncios pendientes y guías de oficios; no un segundo formulario para publicar.
+- Webhooks de Messenger firmados, control de duplicados, respuestas por cola y conexión privada al token de página.
+- Asistente de lenguaje simple: comprende mensajes con errores y pide una sola cosa a la vez. Puede registrar audio para atención humana; no lo transcribe todavía.
+- Guías editables por especialidad para orientar requisitos documentales sin inventarlos. IA externa opcional y condicionada a consentimiento.
+- Identificación de coincidencias por especialidad, dotación y disponibilidad, siempre con revisión humana.
+- Nuevas tablas y migración aditiva; no altera contratistas históricos ni adjudicaciones.
+- Despliegue protegido por permisos de Meta, configuración privada, CI, pruebas de navegador y respaldo verificado.
+
 ## 20.6.0-rc1 — Red de Obras: formulario ampliado y publicación simple
 - El formulario ocupa hasta el 94 % de la pantalla; clic fuera no cierra y el cierre con cambios solicita confirmación.
 - Publicación rápida con una fecha visible, resumen breve, dotación y partidas opcionales.

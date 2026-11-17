@@ -42,9 +42,22 @@ services:
       FACEBOOK_MANUAL_TESTING_ENABLED: ${FACEBOOK_MANUAL_TESTING_ENABLED:-false}
       FACEBOOK_AUTOPUBLISH_ENABLED: ${FACEBOOK_AUTOPUBLISH_ENABLED:-false}
       FACEBOOK_PAGE_ID: ${FACEBOOK_PAGE_ID:-}
+      FACEBOOK_MESSAGING_ENABLED: ${FACEBOOK_MESSAGING_ENABLED:-false}
+      FACEBOOK_ORG_ID: ${FACEBOOK_ORG_ID:-}
+      FACEBOOK_APP_SECRET: ${FACEBOOK_APP_SECRET:-}
+      FACEBOOK_WEBHOOK_VERIFY_TOKEN: ${FACEBOOK_WEBHOOK_VERIFY_TOKEN:-}
+      FACEBOOK_AI_ENABLED: ${FACEBOOK_AI_ENABLED:-false}
+      FACEBOOK_AI_AUTO_REPLY_ENABLED: ${FACEBOOK_AI_AUTO_REPLY_ENABLED:-false}
+      FACEBOOK_AI_AD_ENABLED: ${FACEBOOK_AI_AD_ENABLED:-false}
+      FACEBOOK_AI_MODEL: ${FACEBOOK_AI_MODEL:-gpt-4.1-mini}
+      FACEBOOK_AI_API_KEY: ${FACEBOOK_AI_API_KEY:-}
+      GALANCITO_AI_ENABLED: ${GALANCITO_AI_ENABLED:-false}
+      GALANCITO_AI_MODEL: ${GALANCITO_AI_MODEL:-gpt-4.1-mini}
+      GALANCITO_AI_API_KEY: ${GALANCITO_AI_API_KEY:-}
+
     volumes: ["./preview-storage:/data/private"]
     depends_on: {db: {condition: service_healthy}}
-    networks: [internal]
+    networks: [internal, galancito-egress]
     healthcheck:
       test: ["CMD", "python", "-c", "import urllib.request;urllib.request.urlopen('http://127.0.0.1:8000/api/v1/health',timeout=5)"]
       interval: 15s
@@ -106,5 +119,7 @@ services:
 networks:
   internal: {internal: true}
   frontend-network: {}
+  # Outbound HTTPS for explicit Galancito AI, without exposing an API port.
+  galancito-egress: {}
 volumes:
   post_db: {}

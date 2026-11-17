@@ -18,6 +18,7 @@ from .db import SessionLocal
 from .models import utcnow
 from .network_models import NetworkFacebookPost, NetworkFacebookManual, NetworkItem, NetworkRequirement
 from .ops_models import Worksite
+from .facebook_ai import generate_text, AD_INSTRUCTIONS
 
 log = logging.getLogger("galant.facebook")
 stopping = False
@@ -155,6 +156,12 @@ def process_next(session_factory=SessionLocal) -> bool:
         row.updated_at = utcnow()
 
     outcome_id, error, uncertain = None, None, False
+    # Opt-in, solo desde datos comerciales públicos, sin demorar la transacción SQL.
+    if message and cfg.facebook_ai_ad_enabled and cfg.facebook_ai_enabled and cfg.facebook_ai_api_key:
+        try:
+            message = generate_text(AD_INSTRUCTIONS, message, 1200) or message
+        except RuntimeError:
+            pass  # Mantener anuncio factual y seguro si falla el modelo.
     try:
         if action == "publish":
             response = graph_request("POST", "/" + cfg.facebook_page_id + "/feed", cfg.facebook_page_token, message)
@@ -275,8 +282,11 @@ def main() -> None:
     signal.signal(signal.SIGTERM, stop)
     signal.signal(signal.SIGINT, stop)
     log.info("Worker de Facebook iniciado; sin publicación retroactiva.")
+    from .facebook_chat_worker import process_chat_next
     while not stopping:
         try:
+            if process_chat_next():
+                continue
             if process_manual_next():
                 continue
             if process_next():

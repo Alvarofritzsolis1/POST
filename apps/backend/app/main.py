@@ -40,6 +40,8 @@ from . import platform_models
 from .network_accounts import router as network_accounts_router
 from .network_api import router as network_router
 from .network_facebook_manual import router as network_facebook_manual_router
+from .facebook_crm import router as facebook_crm_router
+from .galancito_api import router as galancito_router
 from .network_files import router as network_files_router
 from .ine_api import router as ine_router
 from .configuration_api import router as configuration_router
@@ -86,6 +88,8 @@ app.include_router(ops_import_router)
 app.include_router(network_accounts_router)
 app.include_router(network_router)
 app.include_router(network_facebook_manual_router)
+app.include_router(facebook_crm_router)
+app.include_router(galancito_router)
 app.include_router(network_files_router)
 app.include_router(ine_router)
 @app.middleware("http")

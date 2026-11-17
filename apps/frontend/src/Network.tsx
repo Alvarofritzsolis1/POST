@@ -59,7 +59,8 @@ import {
 } from "./NetworkForms";
 import { NetworkAccountMenu } from "./NetworkAccounts";
 import { NetworkQuickForm } from "./NetworkQuickForm";
-import NetworkFacebook from "./NetworkFacebook";
+import FacebookCenter from "./FacebookCenter";
+import GalancitoWidget from "./GalancitoWidget";
 import {
   Badge,
   dateText,
@@ -137,6 +138,7 @@ export function ResidentNetwork({
       <main>
         <RedDeObras user={user} />
       </main>
+      <GalancitoWidget area="red_obras" />
       <footer>GALANT POST · Red de Obras · v{version}</footer>
     </div>
   );
@@ -303,6 +305,8 @@ export default function RedDeObras({ user }: { user: Profile }) {
       } else if (kind === "conversation") {
         setTab("messages");
         setConversationId(id);
+      } else if (kind === "facebook") {
+        setTab("facebook");
       } else {
         setTab("matches");
       }
@@ -746,7 +750,7 @@ export default function RedDeObras({ user }: { user: Profile }) {
         )}
       </div>
       {tab === "facebook" && user.role === "admin" && (
-        <NetworkFacebook catalog={catalog} />
+        <FacebookCenter catalog={catalog} />
       )}
       {error && (
         <div role="alert" className="nw-error">
