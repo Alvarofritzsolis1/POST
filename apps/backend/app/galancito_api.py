@@ -133,6 +133,13 @@ def galancito_chat(body: ChatInput, user: User = Depends(authorized_user),
     if not text:
         raise HTTPException(422, "Ingresa una consulta")
     info = analyze(text)
+    if info.intent == "greeting":
+        # Greetings do not need requirements, guides, knowledge or tracking KPIs.
+        run = record_run(db, org_id=user.org_id, user_id=user.id, channel="red_obras",
+                         source="local", intent="greeting", started=started)
+        db.commit()
+        return {"name": "Galancito", "answer": quick_reply(text), "source": "local",
+                "read_only": True, "run_id": run.id, "references": [], "notice": None}
     # Los datos se obtienen solo del módulo Red de Obras de la organización.
     titles: list[str] = []
     live: dict = {}

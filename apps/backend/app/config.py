@@ -42,6 +42,7 @@ class Settings(BaseSettings):
     facebook_ai_enabled: bool = False
     facebook_ai_auto_reply_enabled: bool = False
     facebook_ai_ad_enabled: bool = False
+    facebook_worker_poll_seconds: float = Field(default=1.0, ge=0.1, le=5)
     facebook_ai_api_key: str = ""
     facebook_ai_model: str = "gpt-4.1-mini"
     facebook_ai_provider: str = "openai"

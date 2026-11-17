@@ -1,3 +1,9 @@
+## 20.7.6-rc1 — Respuesta rápida a saludos
+- Messenger revisa trabajos nuevos cada segundo cuando está inactivo; elimina la espera fija anterior de 20 segundos.
+- Intervalo configurable con FACEBOOK_WORKER_POLL_SECONDS, entre 0,1 y 5 segundos; conserva apagado controlado y prioridades.
+- El chat interno resuelve saludos antes de consultar conocimientos, guías e indicadores; mantiene autenticación y métricas sin contenido privado.
+- No cambia modelos, límites de CPU/RAM, consentimiento ni permisos de publicación. Las solicitudes externas y trabajos ya en ejecución pueden añadir latencia.
+
 ## 20.7.5-rc1 — Galancito: conocimientos aprobados y respuesta híbrida
 - Centro de conocimientos con aprobación explícita, historial, importación de PDF/DOCX/TXT y desactivación inmediata.
 - Doce ejemplos pendientes y correcciones administrables; recuperación local por organización y canal, sin reentrenar pesos ni incorporar chats automáticamente.
