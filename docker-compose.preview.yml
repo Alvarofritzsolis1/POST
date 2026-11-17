@@ -50,10 +50,13 @@ services:
       FACEBOOK_AI_AUTO_REPLY_ENABLED: ${FACEBOOK_AI_AUTO_REPLY_ENABLED:-false}
       FACEBOOK_AI_AD_ENABLED: ${FACEBOOK_AI_AD_ENABLED:-false}
       FACEBOOK_AI_MODEL: ${FACEBOOK_AI_MODEL:-gpt-4.1-mini}
+      FACEBOOK_AI_PROVIDER: ${FACEBOOK_AI_PROVIDER:-openai}
       FACEBOOK_AI_API_KEY: ${FACEBOOK_AI_API_KEY:-}
       GALANCITO_AI_ENABLED: ${GALANCITO_AI_ENABLED:-false}
       GALANCITO_AI_MODEL: ${GALANCITO_AI_MODEL:-gpt-4.1-mini}
+      GALANCITO_AI_PROVIDER: ${GALANCITO_AI_PROVIDER:-openai}
       GALANCITO_AI_API_KEY: ${GALANCITO_AI_API_KEY:-}
+      GALANCITO_LOCAL_AI_ENABLED: ${GALANCITO_LOCAL_AI_ENABLED:-false}
 
     volumes: ["./preview-storage:/data/private"]
     depends_on: {db: {condition: service_healthy}}
@@ -97,6 +100,31 @@ services:
     mem_limit: 150m
     pids_limit: 50
     logging: *logs
+  # Opcional: solo mensajes Facebook y orientación Red de Obras.
+  # Se habilita con --profile local-ai y NUNCA expone el puerto 11434 en el VPS.
+  galancito-ollama:
+    image: ollama/ollama:latest
+    profiles: [local-ai]
+    restart: unless-stopped
+    environment:
+      OLLAMA_HOST: 0.0.0.0:11434
+      OLLAMA_NO_CLOUD: "1"
+      OLLAMA_NUM_PARALLEL: "1"
+      OLLAMA_MAX_LOADED_MODELS: "1"
+      OLLAMA_MAX_QUEUE: "2"
+      OLLAMA_KEEP_ALIVE: "20s"
+      OLLAMA_CONTEXT_LENGTH: "2048"
+    volumes:
+      - galancito_models:/root/.ollama
+    networks: [internal, galancito-egress]
+    mem_limit: 3g
+    mem_reservation: 1500m
+    cpus: 1.5
+    cpu_shares: 128
+    pids_limit: 180
+    security_opt: [no-new-privileges:true]
+    cap_drop: [ALL]
+    logging: *logs
   frontend:
     build: {context: ., dockerfile: apps/frontend/Dockerfile}
     restart: unless-stopped
@@ -123,3 +151,4 @@ networks:
   galancito-egress: {}
 volumes:
   post_db: {}
+  galancito_models: {}
