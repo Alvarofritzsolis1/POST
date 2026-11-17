@@ -25,7 +25,7 @@ type Post = { id: string; requirement_id: string; title: string; specialty: stri
   state: string; error: string | null; post_url: string | null };
 type Center = {
   automatic_enabled: boolean; messaging_enabled: boolean; ai_enabled: boolean;
-  auto_reply_enabled: boolean; page_id: string; pending_ads: Post[]; leads: Lead[];
+  auto_reply_enabled: boolean; ai_provider?: string; page_id: string; pending_ads: Post[]; leads: Lead[];
   guides_approved: number;
   counts: { pending_ads: number; contacts: number; unread: number; review: number; support: number };
 };
@@ -225,7 +225,7 @@ export default function FacebookCenter({ catalog }: { catalog: Catalog }) {
       <span className={center?.automatic_enabled ? "good" : "warning"}>
         <Facebook size={15} /> Publicación automática {center?.automatic_enabled ? "activa" : "desactivada"}
       </span>
-      <span className={center?.ai_enabled ? "good" : ""}><Bot size={15} /> Galancito IA {center?.ai_enabled ? "disponible" : "sin configurar"}</span>
+      <span className={center?.ai_enabled ? "good" : ""}><Bot size={15} /> Galancito {center?.ai_enabled ? (center?.ai_provider === "ollama" ? "local · sin API de pago" : "IA disponible") : "sin configurar"}</span>
       <span className={center?.auto_reply_enabled ? "good" : "warning"}><Sparkles size={15} /> Respuestas automáticas {center?.auto_reply_enabled ? "habilitadas" : "desactivadas"}</span>
     </div>
     {error && <p role="alert" className="fbc-error">{error}</p>}
