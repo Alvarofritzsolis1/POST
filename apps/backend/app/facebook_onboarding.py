@@ -49,16 +49,16 @@ def assistance_signal(message: str, is_audio: bool = False) -> str | None:
 
 def reply_for_support(reason: str, trade_known: bool = False) -> str:
     if "audio" in reason:
-        return ("Hola, soy el asistente virtual de GALANT. Recibimos tu audio. "
+        return ("Hola, soy Galancito, asistente virtual de GALANT. Recibimos tu audio. "
                 "Una persona de nuestro equipo lo revisará para ayudarte. "
                 "No necesitas enviar documentos por aquí.")
     if "documentación" in reason or "trámite" in reason:
-        return ("Hola, soy el asistente virtual de GALANT. "
+        return ("Hola, soy Galancito, asistente virtual de GALANT. "
                 "No necesitas juntar todos los papeles ahora. "
                 "Te ayudaremos de a poco. "
                 + ("¿Trabajas solo o tienes ayudantes?" if trade_known else
                    "¿Qué trabajo haces, por ejemplo gasfitería o carpintería?"))
-    return ("Hola, soy el asistente virtual de GALANT. "
+    return ("Hola, soy Galancito, asistente virtual de GALANT. "
             "No te preocupes por escribir perfecto. Te ayudaremos paso a paso. "
             + ("¿Trabajas solo o con ayudantes?" if trade_known else
                "¿Qué trabajo haces?"))
