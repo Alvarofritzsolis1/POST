@@ -432,101 +432,55 @@ export default function RedDeObras({ user }: { user: Profile }) {
       </button>
     </div>
   );
-  const reqCard = (r: Requirement) => (
-    <article className="nw-card" key={r.id}>
-      <div className="nw-row">
-        <span className="nw-site">
-          <Building2 size={13} />
-          {r.site}
-        </span>
-        <Badge value={r.priority} />
-      </div>
-      <span className="nw-specialty">{r.specialty}</span>
-      <h3>
-        <button className="nw-text-button" onClick={() => void openReq(r.id)}>
-          {r.title}
-        </button>
-      </h3>
-      <div className="nw-card-meta">
-        <span>
-          <CalendarDays size={14} />
-          {dateText(r.start_date)}
-        </span>
-        <span>
-          <Users size={14} />
-          {r.workers} trabajadores
-        </span>
-        <span>{r.item_count} partidas</span>
-      </div>
-      <div className="nw-progress-heading">
-        <span>{r.coverage}% adjudicado</span>
-        <Badge value={r.state === "draft" ? "draft" : r.allocation_state} />
-      </div>
-      <progress
-        max={100}
-        value={r.coverage}
-        aria-label="Porcentaje adjudicado"
-      />
-      {r.items.flatMap((i) => i.awards).length > 0 && (
-        <p className="nw-awarded-label">
-          Adjudicado a:{" "}
-          {[
-            ...new Set(
-              r.items.flatMap((i) => i.awards.map((a) => a.contractor)),
-            ),
-          ].join(", ")}
-        </p>
-      )}
-      <div className="nw-card-footer">
-        <span>{r.resident}</span>
-        <button className="nw-text-button" onClick={() => void openReq(r.id)}>
-          Ver detalle <ArrowRight size={14} />
-        </button>
-      </div>
-    </article>
-  );
+  const reqCard = (r: Requirement) => {
+    const fb = r.facebook;
+    const fbError = fb?.state === "failed" || fb?.state === "uncertain";
+    return (
+      <article className="nw-card nw-feed-card" key={r.id}>
+        <div className="nw-feed-card-top">
+          <span className="nw-site"><Building2 size={14} /> {r.site}</span>
+          <Badge value={r.priority} />
+        </div>
+        <span className="nw-specialty">{r.specialty}</span>
+        <h3><button className="nw-text-button" onClick={() => void openReq(r.id)}>{r.title}</button></h3>
+        <div className="nw-feed-meta">
+          <span><Users size={15} /> {r.workers} {r.workers === 1 ? "trabajador" : "trabajadores"}</span>
+          <span><CalendarDays size={15} /> {dateText(r.start_date)}</span>
+        </div>
+        <div className="nw-feed-flags">
+          {r.state === "draft" && <Badge value="draft" />}
+          {r.coverage > 0 && <span className="nw-feed-progress">{r.coverage}% adjudicado</span>}
+          {fb?.enabled && (
+            <span className={"nw-fb-mini " + (fbError ? "error" : fb.state === "published" ? "success" : "waiting")}>
+              <Facebook size={13} /> {fbError ? "Revisar Facebook" : fb.state === "published" ? "Enviado a Facebook" : "Facebook pendiente"}
+            </span>
+          )}
+        </div>
+        <div className="nw-card-footer">
+          <span>{r.coverage > 0 ? "En proceso de adjudicación" : "Solicitud de contratista"}</span>
+          <button className="nw-text-button" onClick={() => void openReq(r.id)}>
+            Ver solicitud <ArrowRight size={15} />
+          </button>
+        </div>
+      </article>
+    );
+  };
   const capCard = (c: Capacity) => (
-    <article className="nw-card nw-capacity-card" key={c.id}>
-      <div className="nw-row">
-        <span className="nw-site">
-          <Building2 size={13} />
-          {c.site}
-        </span>
-        {c.expired ? (
-          <Badge value="Caducada" />
-        ) : c.stale ? (
-          <Badge value="Requiere actualización" />
-        ) : (
-          <Badge value={c.availability} />
-        )}
+    <article className="nw-card nw-feed-card nw-capacity-card" key={c.id}>
+      <div className="nw-feed-card-top">
+        <span className="nw-site"><Building2 size={14} /> {c.site}</span>
+        <Badge value={c.expired ? "Caducada" : c.stale ? "Requiere actualización" : c.availability} />
       </div>
       <span className="nw-specialty">{c.specialty}</span>
-      <h3>
-        <button className="nw-text-button" onClick={() => void openCap(c.id)}>
-          {c.contractor}
-        </button>
-      </h3>
-      <p className="nw-muted">
-        {labels[c.situation]} · {labels[c.mode]}
-      </p>
-      <div className="nw-capacity-number">
-        <strong>{c.workers}</strong>
-        <span>
-          trabajadores estimados
-          <br />
-          <b>Desde {dateText(c.available_date)}</b>
-        </span>
+      <h3><button className="nw-text-button" onClick={() => void openCap(c.id)}>{c.contractor}</button></h3>
+      <div className="nw-feed-meta">
+        <span><Users size={15} /> {c.workers} {c.workers === 1 ? "trabajador" : "trabajadores"}</span>
+        <span><CalendarDays size={15} /> Desde {dateText(c.available_date)}</span>
       </div>
-      <p className="nw-muted">
-        Vigencia hasta {dateText(c.expires_on)}
-        {c.confirmed_at
-          ? " · Última confirmación " + dateText(c.confirmed_at)
-          : " · Sujeta a confirmación"}
-      </p>
       <div className="nw-card-footer">
-        <span>{c.resident}</span>
+        <span>Contratista disponible</span>
         <button className="nw-text-button" onClick={() => void contactCap(c)}>
-          Contactar residente <ArrowRight size={14} />
+          Contactar <ArrowRight size={15} />
         </button>
       </div>
     </article>
@@ -834,6 +788,19 @@ export default function RedDeObras({ user }: { user: Profile }) {
               contratista registrado.
             </Empty>
           )}
+          <div className="nw-section-title">
+            <h2>Contratistas disponibles</h2>
+            <button className="nw-text-button" onClick={() => go("capacities")}>
+              Ver todos <ArrowRight size={15} />
+            </button>
+          </div>
+          {caps.rows.length ? (
+            <div className="nw-cards nw-feed-cards">{caps.rows.slice(0, 3).map(capCard)}</div>
+          ) : (
+            <Empty title="Sin contratistas disponibles por ahora" />
+          )}
+          <details className="nw-feed-insights">
+            <summary>Ver indicadores y oportunidades</summary>
           <div className="nw-dashboard-grid">
             <div className="nw-surface">
               <h3>Necesidades por especialidad</h3>
@@ -879,6 +846,7 @@ export default function RedDeObras({ user }: { user: Profile }) {
               </div>
             </>
           )}
+          </details>
         </>
       )}
       {tab === "requirements" && (
