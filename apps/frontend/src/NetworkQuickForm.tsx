@@ -34,8 +34,9 @@ export function NetworkQuickForm({
   async function submit(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
     const intent = (event.nativeEvent as SubmitEvent).submitter?.getAttribute("value") || "published";
-    if (!siteId || !specialty.trim() || title.trim().length < 3 || summary.trim().length < 3 || !start) {
-      setError("Completa la obra, especialidad, título, resumen y fecha de inicio.");
+    const suggestedTitle = (title.trim() || `Se necesita contratista de ${specialty.trim()}`).slice(0, 180);
+    if (!siteId || specialty.trim().length < 2 || suggestedTitle.length < 3 || summary.trim().length < 3 || !start || !Number.isFinite(workers) || workers < 1) {
+      setError("Completa el oficio, la descripción, la fecha y los trabajadores.");
       return;
     }
     setBusy(true);
@@ -45,7 +46,7 @@ export function NetworkQuickForm({
       const response = await change<Requirement>("/requirements", {
         site_id: siteId,
         specialty: specialty.trim(),
-        title: title.trim(),
+        title: suggestedTitle,
         description: summary.trim(),
         priority,
         workers,
@@ -78,11 +79,9 @@ export function NetworkQuickForm({
 
   return (
     <form className="nw-form nw-quick-form" onSubmit={(e) => void submit(e)}>
-      <div className="nw-quick-intro">
-        <p>Completa lo esencial. La programación y las cantidades específicas se pueden definir después.</p>
-      </div>
+      <div className="nw-quick-intro"><p>Indica el oficio y el trabajo. Completa los detalles después.</p></div>
       <section className="nw-quick-fields" aria-label="Datos de la necesidad">
-        <h3>Datos de la necesidad</h3>
+        <h3>1. ¿Qué necesitas?</h3>
         <label>Obra
           {sites.length === 1 ? (
             <span className="nw-site-locked">{sites[0].name}</span>
@@ -93,13 +92,9 @@ export function NetworkQuickForm({
             </select>
           )}
         </label>
-        <label>Especialidad
+        <label>Oficio o especialidad
           <input list="network-specialties" value={specialty} onChange={(e) => setSpecialty(e.target.value)}
             minLength={2} maxLength={100} placeholder="Ej. Gasfitería" required />
-        </label>
-        <label>¿Qué contratista necesitas?
-          <input value={title} onChange={(e) => setTitle(e.target.value)}
-            minLength={3} maxLength={180} placeholder="Ej. Gasfiter para terminaciones interiores" required />
         </label>
         <div className="nw-form-grid">
           <label><span className="nw-quick-label"><CalendarDays size={16} /> Inicio estimado</span>
@@ -124,13 +119,19 @@ export function NetworkQuickForm({
         </div>
       </section>
       <section className="nw-quick-details" aria-label="Alcance y difusión">
-        <h3><BriefcaseBusiness size={18} /> Resumen del trabajo</h3>
-        <label>Describe brevemente lo que se necesita
+        <h3><BriefcaseBusiness size={18} /> 2. Describe el trabajo</h3>
+        <label>¿Qué labores se realizarán?
           <textarea value={summary} onChange={(e) => setSummary(e.target.value)}
-            required minLength={3} maxLength={2500} rows={5}
+            required minLength={3} maxLength={2500} rows={3}
             placeholder="Ej. Instalación de redes sanitarias en departamentos, etapa terminaciones." />
         </label>
-        <div className="nw-quick-chips">
+        <details className="nw-quick-more">
+          <summary>Más opciones (opcional)</summary>
+          <label>Título personalizado
+            <input value={title} onChange={(e) => setTitle(e.target.value)}
+              minLength={3} maxLength={180} placeholder={`Se necesita contratista de ${specialty || "tu oficio"}`} />
+          </label>
+          <div className="nw-quick-chips">
           <span>Partidas clave <small>(opcional)</small></span>
           <div className="nw-quick-chip-row">
             {QUICK_PARTS.map((part) => (
@@ -141,29 +142,33 @@ export function NetworkQuickForm({
             ))}
           </div>
         </div>
+        </details>
         <div className="nw-quick-facebook">
           <label className="nw-quick-facebook-heading">
             <input type="checkbox" checked={publishFacebook} onChange={(e) => setPublishFacebook(e.target.checked)} />
             <Facebook size={24} aria-hidden="true" />
             <strong>Publicar también en Facebook</strong>
           </label>
-          <p>Activado por defecto. Puedes desmarcarlo. El anuncio solo se enviará si la página está autorizada y la conexión está habilitada.</p>
+          <small>Se enviará al conectar Facebook.</small>
           {publishFacebook && (
-            <div className="nw-quick-facebook-preview">
-              <b><Facebook size={16} /> Vista previa de la difusión</b>
-              <span>{title || "Tu necesidad de contratista"} · {specialty || "Especialidad"}</span>
-              <small>{sites.find((site) => site.id === siteId)?.name || "Obra"} · Inicio: {start} · {workers} trabajador(es)</small>
-              <small>Solo se publican datos del anuncio, sin notas privadas ni documentos.</small>
-            </div>
+            <details className="nw-quick-preview">
+              <summary>Vista previa del anuncio</summary>
+              <div className="nw-quick-facebook-preview">
+                <b><Facebook size={16} /> Facebook</b>
+                <span>{title.trim() || `Se necesita contratista de ${specialty || "tu oficio"}`}</span>
+                <small>{sites.find((site) => site.id === siteId)?.name || "Obra"} · Inicio: {start} · {workers} {workers === 1 ? "trabajador" : "trabajadores"}</small>
+                <small>Sin notas privadas ni documentos.</small>
+              </div>
+            </details>
           )}
         </div>
       </section>
       {error && <p className="nw-error nw-quick-error" role="alert">{error}</p>}
       <div className="nw-form-actions nw-quick-actions">
-        <p><Send size={15} /> Los detalles de programación y las cantidades se confirman antes de adjudicar.</p>
+        <p><Send size={15} /> Puedes editar la necesidad después.</p>
         <button type="submit" value="draft" className="nw-btn" disabled={busy}>Guardar borrador</button>
         <button type="submit" value="published" className="nw-btn nw-primary" disabled={busy || !sites.length}>
-          {busy ? "Guardando..." : "Crear necesidad"}
+          {busy ? "Publicando..." : "Publicar necesidad"}
         </button>
       </div>
     </form>
