@@ -145,3 +145,45 @@
 .fbc-triage-note small { color:var(--nw-muted); }
 @media(max-width:950px) { .fbc-tracking-counters { grid-template-columns:repeat(3,minmax(0,1fr)); } .fbc-tracking-item { grid-template-columns:1fr 1fr; } .fbc-tracking-summaries { grid-template-columns:1fr; } }
 @media(max-width:560px) { .fbc-tracking { padding:12px; } .fbc-tracking-counters { grid-template-columns:repeat(2,minmax(0,1fr)); } .fbc-tracking-item { grid-template-columns:1fr; } }
+
+
+/* Facebook operativo simple — navegación corta y estados visibles. */
+.fbc-tabs-simple { overflow: visible; flex-wrap: wrap; gap: 8px; border: none; }
+.fbc-tabs-simple button {
+  border: 1px solid var(--nw-border); border-radius: 9px; background: var(--nw-paper);
+  padding: 10px 13px; white-space: normal; font-size: 12px;
+}
+.fbc-tabs-simple button.selected { color: #1d5bc2; border: 1px solid #9dc4ff; background: #eff6ff; }
+.fbc-stats-simple { grid-template-columns: repeat(4,minmax(0,1fr)); }
+.fbc-stats-simple .fbc-stat { padding: 12px 15px; gap: 4px; min-height: 76px; }
+.fbc-stats-simple .fbc-stat strong { font-size: 25px; }
+.fbc-state-row { gap: 7px; }
+.fbc-state-row span { padding: 6px 10px; }
+.fbc-state-row span.warning { border-color: #f5d09b; background: #fffbeb; color: #9a570d; }
+.fbc-tools { border: 1px solid var(--nw-border); border-radius: 9px; padding: 9px 13px; background: var(--nw-paper); }
+.fbc-tools > summary { font-size: 12px; color: var(--nw-muted); cursor: pointer; font-weight: 650; }
+.fbc-tools > div { display: flex; flex-wrap: wrap; gap: 8px; margin-top: 11px; }
+.fbc-token-alert { flex-wrap: wrap; border: 1px solid #f3c079; font-weight: 600; }
+.fbc-token-alert > span { flex: 1; min-width: 200px; }
+.fbc-token-alert button { background: #fff; color: #975b12; border-color: #ecc28d; }
+.fbc-pending .fbc-ad { padding: 12px 14px; gap: 12px; min-width: 0; }
+.fbc-ad > div:first-child { min-width: 0; flex: 1; }
+.fbc-ad strong { font-size: 14px; }
+.fbc-ad small { font-size: 12px; }
+.fbc-post-state { display: inline-flex; align-items: center; width: fit-content; padding: 5px 8px; border-radius: 7px; font-weight: 650; }
+.fbc-post-state.published { background: #d1fae5; color: #047857; }
+.fbc-post-state.pending { background: #fef3c7; color: #9a580c; }
+.fbc-post-state.failed { background: #fee2e2; color: #b91c1c; }
+.fbc-post-error { margin-top: 4px; border-left: 3px solid #dc2626; padding: 3px 9px; }
+.fbc-post-error summary { color: #b91c1c; cursor: pointer; font-size: 12px; font-weight: 700; }
+.fbc-post-error p { margin: 8px 0 0; overflow-wrap: anywhere; line-height: 1.5; }
+[data-theme="dark"] .fbc-tabs-simple button.selected { background: #19385a; color: #93c5fd; border-color: #3874ab; }
+[data-theme="dark"] .fbc-state-row span.warning { background: #4e3917; color: #fde68a; border-color: #87611e; }
+[data-theme="dark"] .fbc-post-state.published { background: #174c3b; color: #a7f3d0; }
+[data-theme="dark"] .fbc-post-state.pending { background: #534016; color: #fde68a; }
+[data-theme="dark"] .fbc-post-state.failed { background: #542720; color: #fecaca; }
+@media(max-width:740px) {
+  .fbc-stats-simple { grid-template-columns: repeat(2,minmax(0,1fr)); }
+  .fbc-ad { flex-direction: column; align-items: stretch; }
+  .fbc-ad-actions { justify-content: flex-start; }
+}
