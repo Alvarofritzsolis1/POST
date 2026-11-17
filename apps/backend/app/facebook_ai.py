@@ -61,12 +61,10 @@ privado a la página. Sin datos personales ni promesas laborales. Devuelve solo 
 """
 
 
-def generate_text(instructions: str, supplied_data: str, max_chars: int = 1200) -> str | None:
-    cfg = settings()
-    if not (cfg.facebook_ai_enabled and cfg.facebook_ai_api_key):
-        return None
+def _generate(instructions: str, supplied_data: str, max_chars: int,
+              model: str, api_key: str) -> str:
     payload = json.dumps({
-        "model": cfg.facebook_ai_model,
+        "model": model,
         "instructions": instructions,
         "input": supplied_data[:6500],
         "max_output_tokens": 450,
@@ -77,7 +75,7 @@ def generate_text(instructions: str, supplied_data: str, max_chars: int = 1200) 
         data=payload,
         method="POST",
         headers={
-            "Authorization": "Bearer " + cfg.facebook_ai_api_key,
+            "Authorization": "Bearer " + api_key,
             "Content-Type": "application/json",
         },
     )
@@ -98,3 +96,22 @@ def generate_text(instructions: str, supplied_data: str, max_chars: int = 1200) 
     if not text:
         raise RuntimeError("La IA no devolvió texto utilizable.")
     return text[:max_chars]
+
+
+def generate_text(instructions: str, supplied_data: str, max_chars: int = 1200) -> str | None:
+    """External Facebook Messenger or Page ad AI, governed by Facebook flags."""
+    cfg = settings()
+    if not (cfg.facebook_ai_enabled and cfg.facebook_ai_api_key):
+        return None
+    return _generate(instructions, supplied_data, max_chars,
+                     cfg.facebook_ai_model, cfg.facebook_ai_api_key)
+
+
+def generate_internal_text(instructions: str, supplied_data: str,
+                           max_chars: int = 900) -> str | None:
+    """Separate, opt-in GALANT user AI; never receives Messenger history."""
+    cfg = settings()
+    if not (cfg.galancito_ai_enabled and cfg.galancito_ai_api_key):
+        return None
+    return _generate(instructions, supplied_data, max_chars,
+                     cfg.galancito_ai_model, cfg.galancito_ai_api_key)
