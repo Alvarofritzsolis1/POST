@@ -76,6 +76,8 @@ def write_env_atomically(path: Path, changes: dict[str, str]) -> Path:
         if not KEY_PATTERN.fullmatch(name) or "\n" in val or "\r" in val:
             raise SetupError("Variable de entorno inválida")
         if name not in keys_seen:
+            if edited and not edited[-1].endswith("\n"):
+                edited.append("\n")
             edited.append(name + "=" + val + "\n")
     # Copia previa protegida, de la que se puede restaurar la configuración.
     timestamp = datetime.now(timezone.utc).strftime("%Y%m%dT%H%M%SZ")
