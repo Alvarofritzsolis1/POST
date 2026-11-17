@@ -121,3 +121,18 @@ docker compose --env-file .env.preview -f docker-compose.preview.yml exec -T fac
 La publicación real requiere autorización de Meta y el VPS configurado. Subir el código de este parche a GitHub no vincula por sí solo un token ni publica los anuncios antiguos.
 
 **Historias / estados de 24 horas:** no se publican mediante el endpoint de texto `/{page-id}/feed`. Necesitan material gráfico propio (foto o video) y el flujo independiente de Page Stories; no deben etiquetarse como publicadas por el éxito de un post normal.
+
+
+## Messenger: página verificada pero envíos HTTP 401
+
+**Página verificada** solo confirma que el Page Access Token reconoce esa página. No demuestra que el token y la aplicación estén habilitados para enviar mensajes a un destinatario concreto. El envío de GALANT usa el endpoint oficial `POST /{page-id}/messages`, con `messaging_type=RESPONSE` y el PSID recibido del webhook. No cambiar a `/me` por un error genérico.
+
+Si un envío falla, **Red de Obras > Facebook > Conversaciones** muestra el último estado de Messenger por separado de Galancito, más `HTTP`, `código Meta`, `subcódigo` y una referencia de soporte si Meta los entrega. El sistema no almacena mensajes de error crudos ni reenvía automáticamente una respuesta fallida.
+
+Guía según código de **Meta**, no únicamente estado HTTP:
+- `190` o `102`: token de página inválido, revocado o vencido. Renovarlo en `.env.preview` y recrear `facebook-publisher`; nunca copiarlo al navegador/soporte.
+- `10`, `200`, `230` o `283`: revisar autorización `pages_messaging` realmente concedida al token y a la aplicación, la tarea **MESSAGING** de la página para quien lo generó, acceso avanzado/App Review y los roles o usuarios de prueba permitidos por Meta.
+- Sin código de Meta: revisar el permiso de envío y aportar únicamente la **referencia** de Meta a soporte; no asumir que un token de página válido garantiza autorización.
+- `551` o límites: revisar si ese destinatario acepta respuestas y las restricciones de Meta.
+
+Si entra un mensaje y falla la respuesta, el webhook y la generación de Galancito ya funcionaron; la falla está en la solicitud de salida a Meta. La ventana de 24 horas se valida por separado. Probar únicamente con un usuario autorizado que haya enviado un mensaje reciente y **sin enviar publicaciones de prueba ni repetir automáticamente mensajes fallidos**.
