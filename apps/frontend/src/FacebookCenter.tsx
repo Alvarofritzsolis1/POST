@@ -24,12 +24,15 @@ type Lead = {
   follow_up_on: string | null; follow_up_note: string;
 };
 type Post = { id: string; requirement_id: string; title: string; specialty: string;
-  state: string; error: string | null; post_url: string | null };
+  state: string; error: string | null; post_url: string | null;
+  updated_at?: string; attempts?: number };
 type Center = {
   automatic_enabled: boolean; messaging_enabled: boolean; ai_enabled: boolean;
-  auto_reply_enabled: boolean; ai_provider?: string; page_id: string; pending_ads: Post[]; leads: Lead[];
+  auto_reply_enabled: boolean; ai_provider?: string; page_id: string;
+  pending_ads: Post[]; publications: Post[]; leads: Lead[];
   guides_approved: number;
-  counts: { pending_ads: number; contacts: number; unread: number; review: number; support: number };
+  counts: { pending_ads: number; published_ads: number; failed_ads: number;
+    total_ads: number; contacts: number; unread: number; review: number; support: number };
 };
 type Onboarding = {
   phase: string; next_question: string | null;
@@ -61,7 +64,9 @@ const statuses: Record<string, string> = {
   new: "Nuevo", contacting: "En conversación", pending_review: "Por revisar",
   shortlisted: "Posible candidato", archived: "Archivado", pending: "Pendiente",
   disabled: "Conexión desactivada", not_queued: "Sin sincronizar",
-  failed: "Error", sending: "Enviando", uncertain: "Revisar en Meta",
+  failed: "Rechazado por Meta", sending: "Enviando", uncertain: "Revisar en Meta",
+  published: "Publicado en Facebook", deleted: "Retirado de Facebook",
+  cancelled: "Cancelado", verified: "Identidad comprobada",
 };
 const freshGuide = () => ({
   slug: "", trade: "", aliases: "", explanation: "", documents: "", approved: false,
@@ -73,7 +78,7 @@ const dateText = (v: string) => {
 
 export default function FacebookCenter({ catalog }: { catalog: Catalog }) {
   const [center, setCenter] = useState<Center | null>(null);
-  const [tab, setTab] = useState<"summary" | "tracking" | "inbox" | "pending" | "guides" | "knowledge" | "performance">("inbox");
+  const [tab, setTab] = useState<"summary" | "tracking" | "inbox" | "pending" | "publications" | "guides" | "knowledge" | "performance">("publications");
   const [selectedId, setSelectedId] = useState("");
   const [detail, setDetail] = useState<Detail | null>(null);
   const [requirements, setRequirements] = useState<Requirement[]>([]);
@@ -254,6 +259,7 @@ export default function FacebookCenter({ catalog }: { catalog: Catalog }) {
         ["Interesados", center?.counts.contacts ?? 0, "teal"],
         ["Necesitan orientación", center?.counts.support ?? 0, "amber"],
         ["Anuncios pendientes", center?.counts.pending_ads ?? 0, "navy"],
+        ["Publicados en Facebook", center?.counts.published_ads ?? 0, "teal"],
       ].map(([title, value, color]) => <div key={title} className={"fbc-stat " + color}>
         <span>{title}</span><strong>{value}</strong>
       </div>)}
@@ -275,6 +281,7 @@ export default function FacebookCenter({ catalog }: { catalog: Catalog }) {
       <button className={tab === "inbox" ? "selected" : ""} onClick={() => setTab("inbox")}><Inbox size={16} /> Conversaciones</button>
       <button className={tab === "knowledge" ? "selected" : ""} onClick={() => setTab("knowledge")}><BookOpen size={16} /> Conocimientos</button>
       <button className={tab === "performance" ? "selected" : ""} onClick={() => setTab("performance")}>Rendimiento</button>
+      <button className={tab === "publications" ? "selected" : ""} onClick={() => setTab("publications")}><Facebook size={16} /> Publicaciones y estados</button>
       <button className={tab === "pending" ? "selected" : ""} onClick={() => setTab("pending")}><Clock3 size={16} /> Anuncios pendientes</button>
       <button className={tab === "guides" ? "selected" : ""} onClick={() => setTab("guides")}><BookOpen size={16} /> Guías de oficios</button>
       <button className={tab === "tracking" ? "selected" : ""} onClick={() => setTab("tracking")}><ShieldCheck size={16} /> Seguimiento Galancito</button>
@@ -550,6 +557,39 @@ export default function FacebookCenter({ catalog }: { catalog: Catalog }) {
         </>}
       </aside>
     </div>}
+    {tab === "publications" && <section className="fbc-pending" aria-label="Publicaciones de Red de Obras en Facebook">
+      <div className="fbc-tracking-head">
+        <div>
+          <h3>Publicaciones y estados de Facebook</h3>
+          <p>Control de los anuncios enviados desde Red de Obras. «Publicado» significa que Meta confirmó la creación; no verifica en tiempo real que el post siga visible.</p>
+        </div>
+        <button type="button" className="nw-btn" onClick={() => void refresh().catch((e) => setError(errorText(e)))} disabled={!!saving}>
+          <RefreshCcw size={16} /> Actualizar estados
+        </button>
+      </div>
+      {!center?.publications?.length && <p className="fbc-empty">Aún no hay publicaciones vinculadas con Red de Obras. Crea una necesidad y activa «Publicar también en Facebook».</p>}
+      {(center?.publications || []).map((ad) => <article key={ad.id} className="fbc-ad">
+        <div>
+          <strong>{ad.title}</strong>
+          <small>{ad.specialty} · {statuses[ad.state] || ad.state}</small>
+          {ad.updated_at && <small>Último cambio: {dateText(ad.updated_at)}</small>}
+          {ad.error && <p role="alert">{ad.error}</p>}
+          {ad.state === "uncertain" && <small>El resultado de Meta no se confirmó. Revisa la página antes de hacer otro envío.</small>}
+          {ad.state === "published" && <small>Envío confirmado por Meta. Abre el enlace para comprobar su visibilidad actual.</small>}
+        </div>
+        <div className="fbc-ad-actions">
+          {ad.post_url && <a className="nw-btn" href={ad.post_url} target="_blank" rel="noopener noreferrer"><Facebook size={15} /> Ver en Facebook</a>}
+          {["failed", "not_queued"].includes(ad.state) && <button className="nw-btn"
+            disabled={!!saving || !center?.automatic_enabled}
+            onClick={() => void mutate(ad.id,
+              () => change("/requirements/" + ad.requirement_id + "/facebook/sync"),
+              "Solicitud enviada al publicador. Revisa el estado para confirmar la publicación.")}>
+            <RefreshCcw size={15} /> {saving === ad.id ? "Solicitando…" : "Sincronizar"}
+          </button>}
+        </div>
+      </article>)}
+      {!center?.automatic_enabled && <div className="fbc-alert"><AlertTriangle size={18} /> El envío automático está desactivado en el VPS. Ninguna sincronización llegará a Facebook hasta habilitarlo y validar el token de página.</div>}
+    </section>}
     {tab === "pending" && <section className="fbc-pending">
       <h3>Publicaciones que necesitan atención</h3>
       <p>Las necesidades se publican desde Red de Obras. Aquí solo revisas anuncios en cola, errores o envíos inciertos.</p>
