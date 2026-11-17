@@ -111,6 +111,33 @@ export default function FacebookCenter({ catalog }: { catalog: Catalog }) {
   }, []);
 
   useEffect(() => {
+    if (!selectedId || tab !== "inbox") return;
+    const refreshMessages = async () => {
+      if (document.hidden) return;
+      try {
+        const update = await net<Detail>("/facebook/leads/" + selectedId);
+        setDetail((previous) => {
+          if (!previous || previous.lead.id !== selectedId) return update;
+          // El polling no debe borrar ediciones del administrador aún sin guardar.
+          return {...previous, messages: update.messages, lead: {
+            ...previous.lead,
+            ai_consent: update.lead.ai_consent,
+            ai_consent_state: update.lead.ai_consent_state,
+            ai_paused: update.lead.ai_paused,
+            needs_support: update.lead.needs_support,
+            support_reason: update.lead.support_reason,
+            unread: update.lead.unread,
+            can_reply: update.lead.can_reply,
+            last_inbound_at: update.lead.last_inbound_at,
+          }};
+        });
+      } catch { /* No borrar la conversación si hay un fallo temporal de red. */ }
+    };
+    const interval = window.setInterval(() => { void refreshMessages(); }, 10000);
+    return () => window.clearInterval(interval);
+  }, [selectedId, tab]);
+
+  useEffect(() => {
     if (tab === "guides") void net<Guide[]>("/facebook/guides")
       .then(setGuides).catch((e) => setError(errorText(e)));
   }, [tab]);
