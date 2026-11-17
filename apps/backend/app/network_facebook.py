@@ -262,15 +262,21 @@ def process_next(session_factory=SessionLocal) -> bool:
 def process_manual_next(session_factory=SessionLocal) -> bool:
     """Ejecuta SOLO acciones manuales confirmadas y registradas por administrador."""
     cfg = settings()
-    if not (cfg.facebook_manual_testing_enabled and
+    # La verificación de conexión es lectura segura aunque el modo de pruebas
+    # esté apagado; publicar/eliminar manualmente sigue requiriendo permiso explícito.
+    if not ((cfg.facebook_manual_testing_enabled or cfg.facebook_autopublish_enabled) and
             re.fullmatch(r"[0-9]{5,30}", cfg.facebook_page_id or "") and
             cfg.facebook_page_token):
         return False
     with session_factory.begin() as db:
-        row = db.scalar(select(NetworkFacebookManual).where(
+        conditions = [
             NetworkFacebookManual.page_id == cfg.facebook_page_id,
             NetworkFacebookManual.state == "pending",
-        ).order_by(NetworkFacebookManual.created_at, NetworkFacebookManual.id)
+        ]
+        if not cfg.facebook_manual_testing_enabled:
+            conditions.append(NetworkFacebookManual.action == "verify")
+        row = db.scalar(select(NetworkFacebookManual).where(*conditions)
+            .order_by(NetworkFacebookManual.created_at, NetworkFacebookManual.id)
             .with_for_update(skip_locked=True))
         if not row:
             return False
