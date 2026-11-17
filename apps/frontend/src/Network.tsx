@@ -60,6 +60,7 @@ import {
 import { NetworkAccountMenu } from "./NetworkAccounts";
 import { NetworkQuickForm } from "./NetworkQuickForm";
 import FacebookCenter from "./FacebookCenter";
+import GalancitoWidget from "./GalancitoWidget";
 import {
   Badge,
   dateText,
@@ -137,6 +138,7 @@ export function ResidentNetwork({
       <main>
         <RedDeObras user={user} />
       </main>
+      <GalancitoWidget area="red_obras" />
       <footer>GALANT POST · Red de Obras · v{version}</footer>
     </div>
   );
