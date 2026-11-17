@@ -102,3 +102,13 @@
 .fbc-onboarding strong { font-size:12px; margin-top:3px; }
 .fbc-onboarding p, .fbc-onboarding small { font-size:11px; color:var(--nw-ink); line-height:1.55; overflow-wrap:anywhere; }
 [data-theme="dark"] .fbc-support-alert { background:#503b22; border-color:#b99051; color:#ffe4b5; }
+
+
+/* Galancito: the human operator controls live AI replies per conversation. */
+.fbc-galancito-status { display:flex; gap:10px; padding:13px; border-radius:10px; background:#eaf8f5;
+  border:1px solid #a8dbcf; color:#105c54; }
+.fbc-galancito-status > svg { flex:none; }
+.fbc-galancito-status > div { display:grid; gap:5px; min-width:0; }
+.fbc-galancito-status strong { font-size:12px; }
+.fbc-galancito-status small { font-size:11px; line-height:1.5; }
+[data-theme="dark"] .fbc-galancito-status { background:#163e3a; color:#b3eee3; border-color:#427c74; }
