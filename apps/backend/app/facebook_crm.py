@@ -20,10 +20,11 @@ from sqlalchemy.orm import Session
 
 from .config import settings
 from .db import get_db, SessionLocal
-from .facebook_ai import AD_INSTRUCTIONS, REPLY_INSTRUCTIONS, generate_text
+from .facebook_ai import (AD_INSTRUCTIONS, REPLY_INSTRUCTIONS, generate_text,
+                          facebook_reply_ai_available)
 from .facebook_onboarding import assistance_signal, reply_for_support, onboarding_guide
 from .galancito_flow import (AI_PERMISSION_QUESTION, AI_PERMISSION_REASK,
-                             AI_PERMISSION_DECLINED, consent_decision, wants_human)
+                             AI_PERMISSION_DECLINED, consent_decision, wants_human, permission_question)
 from .facebook_crm_models import FacebookLead, FacebookChatMessage, FacebookTradeGuide
 from .models import Organization, User, utcnow
 from .network_facebook import public_message
@@ -332,18 +333,18 @@ async def webhook(request: Request, db: Session = Depends(get_db)):
                     reply = None
                 elif lead.ai_consent and lead.ai_consent_state == "accepted":
                     use_ai = True
-                elif (cfg.facebook_ai_enabled and cfg.facebook_ai_api_key and
+                elif (facebook_reply_ai_available(cfg) and
                       lead.ai_consent_state == "not_requested"):
                     lead.ai_consent_state = "requested"
-                    reply = AI_PERMISSION_QUESTION
+                    reply = permission_question(cfg.facebook_ai_provider)
                 elif lead.ai_consent_state == "requested" and recent < 2:
-                    reply = AI_PERMISSION_REASK
+                    reply = permission_question(cfg.facebook_ai_provider, repeat=True)
                 elif recent == 0:
                     # Sin IA configurada: orientación básica, sin enviar
                     # datos personales a un servicio externo.
                     reply = ("Hola, soy Galancito, asistente virtual de GALANT. "
                              "Puedes escribir como te salga. ¿Qué trabajo haces?")
-                if use_ai and recent < 5 and cfg.facebook_ai_enabled and cfg.facebook_ai_api_key:
+                if use_ai and recent < 5 and facebook_reply_ai_available(cfg):
                     db.add(FacebookChatMessage(
                         org_id=lead.org_id, lead_id=lead.id, page_id=lead.page_id,
                         direction="outbound", state="ai_pending",
@@ -397,7 +398,8 @@ def center(user: User = Depends(administrator), db: Session = Depends(get_db)):
         FacebookLead.last_inbound_at.desc(), FacebookLead.id).limit(100)))
     return {"automatic_enabled": cfg.facebook_autopublish_enabled,
             "messaging_enabled": cfg.facebook_messaging_enabled,
-            "ai_enabled": cfg.facebook_ai_enabled and bool(cfg.facebook_ai_api_key),
+            "ai_enabled": facebook_reply_ai_available(cfg),
+            "ai_provider": cfg.facebook_ai_provider if facebook_reply_ai_available(cfg) else "disabled",
             "auto_reply_enabled": cfg.facebook_ai_auto_reply_enabled,
             "page_id": cfg.facebook_page_id,
             "pending_ads": ads, "leads": [_lead_view(db, lead) for lead in leads],
@@ -509,7 +511,7 @@ def suggest_reply(lead_id: str, user: User = Depends(administrator),
                                            bool(lead.specialty)),
                 "source": "help_first", "requires_review": True,
                 "alert_admin": True}
-    if settings().facebook_ai_enabled and lead.ai_consent:
+    if facebook_reply_ai_available() and lead.ai_consent:
         guide = _guide_for(db, lead)
         if guide:
             supplied += ("\nGuía aprobada para el oficio: " + guide.trade
@@ -561,7 +563,10 @@ def suggest_ad(requirement_id: str, user: User = Depends(administrator),
         raise HTTPException(404, "Necesidad no encontrada")
     original = public_message(db, req)
     try:
-        improvement = generate_text(AD_INSTRUCTIONS, original, 1200) if settings().facebook_ai_enabled else None
+        improvement = (generate_text(AD_INSTRUCTIONS, original, 1200)
+                   if settings().facebook_ai_provider == "openai" and
+                   settings().facebook_ai_ad_enabled and settings().facebook_ai_enabled
+                   else None)
     except RuntimeError as err:
         raise HTTPException(503, str(err)) from None
     return {"draft": improvement or original, "source": "ai" if improvement else "template",
