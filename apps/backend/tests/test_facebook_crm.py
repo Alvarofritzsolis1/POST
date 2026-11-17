@@ -278,3 +278,8 @@ def test_galancito_opt_in_parser_is_deliberately_narrow():
     assert consent_decision("prefiero persona") is False
     assert consent_decision("si puedo trabajar mañana") is None
     assert "Galancito" in galancito_prefix("¿Qué oficio haces?")
+    from app.galancito_flow import safe_ai_reply
+    assert "Galancito" in safe_ai_reply("¡Hola! ¿Qué oficio haces?")
+    assert "documento de identidad" not in safe_ai_reply("envía tu documento de identidad")
+    assert "contratamos" not in safe_ai_reply("Ya estas contratado")
+    assert safe_ai_reply("¿Qué haces? ¿Cuándo puedes?").count("?") <= 1
