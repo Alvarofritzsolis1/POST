@@ -14,6 +14,7 @@ from sqlalchemy import select
 from .config import settings
 from .db import SessionLocal
 from .facebook_ai import ASSISTANT_NAME, REPLY_INSTRUCTIONS, generate_text
+from .galancito_flow import safe_ai_reply
 from .facebook_crm_models import FacebookLead, FacebookChatMessage, FacebookTradeGuide
 from .models import utcnow
 from .network_service import key
@@ -122,9 +123,7 @@ def process_chat_next(session_factory=SessionLocal) -> bool:
             generated = generate_text(REPLY_INSTRUCTIONS, context, 550)
             if not generated:
                 raise ValueError("IA no conectada")
-            body = generated
-            if "galancito" not in body.lower():
-                body = "Soy Galancito, asistente virtual de GALANT. " + body
+            body = safe_ai_reply(generated)
         result_id = graph_send(cfg.facebook_page_id, psid, body, cfg.facebook_page_token)
     except HTTPError as exc:
         problem = "Meta rechazó el mensaje (HTTP " + str(exc.code) + ")."
