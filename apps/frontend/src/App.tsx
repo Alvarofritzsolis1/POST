@@ -32,6 +32,7 @@ const Ine = lazy(() => import("./Ine"));
 const Javiera = lazy(() => import("./Javiera"));
 const JavieraReviewerV17 = lazy(() => import("./JavieraReviewerV17"));
 import RedDeObras, { ResidentNetwork } from "./Network";
+import GalancitoWidget from "./GalancitoWidget";
 import { NetworkAccountMenu, NetworkPasswordScreen } from "./NetworkAccounts";
 import {
   read,
@@ -1426,6 +1427,7 @@ function App() {
               </section>
             </div>
           )}
+          <GalancitoWidget area={section === "network" ? "red_obras" : "galant"}/>
           <footer className="footer">
             GALANT POST v{version} · {profile?.organization}
             <span>
