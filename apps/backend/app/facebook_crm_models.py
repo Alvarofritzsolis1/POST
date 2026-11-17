@@ -27,6 +27,8 @@ class FacebookLead(Base):
     requirement_id: Mapped[str | None] = mapped_column(ForeignKey("network_requirements.id"), nullable=True)
     unread: Mapped[bool] = mapped_column(Boolean, default=True)
     ai_consent: Mapped[bool] = mapped_column(Boolean, default=False)
+    ai_consent_state: Mapped[str] = mapped_column(String(20), nullable=False, default="not_requested", server_default="not_requested")
+    ai_paused: Mapped[bool] = mapped_column(Boolean, nullable=False, default=False, server_default="false")
     needs_support: Mapped[bool] = mapped_column(Boolean, nullable=False, default=False, server_default="false")
     support_reason: Mapped[str] = mapped_column(String(250), default="")
     entity_type: Mapped[str] = mapped_column(String(20), nullable=False, default="unknown", server_default="unknown")
