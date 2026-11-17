@@ -20,6 +20,7 @@ type Lead = {
   entity_type: "unknown" | "company" | "individual";
   has_employees: boolean | null;
   last_inbound_at: string | null; can_reply: boolean; analysis: Analysis;
+  follow_up_on: string | null; follow_up_note: string;
 };
 type Post = { id: string; requirement_id: string; title: string; specialty: string;
   state: string; error: string | null; post_url: string | null };
@@ -40,6 +41,21 @@ type Chat = { id: string; direction: "inbound" | "outbound"; state: string; body
 type Detail = { lead: Lead; messages: Chat[] };
 type Guide = { id: string; slug: string; trade: string; aliases: string[]; explanation: string;
   document_guidance: string[]; approved: boolean };
+type Triage = {
+  id: string; name: string; company: string; category: string;
+  category_source: string; category_evidence: string; status: string; stage: string;
+  urgency: "high" | "normal" | "none"; next_action: string;
+  requirement_id: string | null; requirement_title: string | null;
+  follow_up_on: string | null; follow_up_note: string;
+  needs_support: boolean; unread: boolean; human_review_required: boolean;
+};
+type Tracking = {
+  total: number; urgent: number; needs_human: number; unlinked: number;
+  overdue: number; by_category: Record<string,number>;
+  by_stage: Record<string,number>; by_requirement: Record<string,number>;
+  rows: Triage[]; limited: boolean; disclaimer: string;
+};
+type TriageNote = { triage: Triage; ai_note: string; source: string; changes_applied: boolean };
 const statuses: Record<string, string> = {
   new: "Nuevo", contacting: "En conversación", pending_review: "Por revisar",
   shortlisted: "Posible candidato", archived: "Archivado", pending: "Pendiente",
@@ -56,7 +72,7 @@ const dateText = (v: string) => {
 
 export default function FacebookCenter({ catalog }: { catalog: Catalog }) {
   const [center, setCenter] = useState<Center | null>(null);
-  const [tab, setTab] = useState<"inbox" | "pending" | "guides">("inbox");
+  const [tab, setTab] = useState<"inbox" | "tracking" | "pending" | "guides">("inbox");
   const [selectedId, setSelectedId] = useState("");
   const [detail, setDetail] = useState<Detail | null>(null);
   const [requirements, setRequirements] = useState<Requirement[]>([]);
@@ -69,12 +85,19 @@ export default function FacebookCenter({ catalog }: { catalog: Catalog }) {
   const [guides, setGuides] = useState<Guide[]>([]);
   const [adDraft, setAdDraft] = useState<{id: string; title: string; draft: string; source: string} | null>(null);
   const [guide, setGuide] = useState(freshGuide);
+  const [tracking, setTracking] = useState<Tracking | null>(null);
+  const [triageNote, setTriageNote] = useState<TriageNote | null>(null);
+  const [triageFilter, setTriageFilter] = useState<"all"|"high"|"unlinked"|"due">("all");
 
   const refresh = useCallback(async () => {
     const current = await net<Center>("/facebook/center");
     setCenter(current);
     setSelectedId((prev) =>
       prev && current.leads.some((lead) => lead.id === prev) ? prev : (current.leads[0]?.id || ""));
+  }, []);
+  const refreshTracking = useCallback(async () => {
+    const data = await net<Tracking>("/facebook/galancito/seguimiento");
+    setTracking(data);
   }, []);
   const refreshDetail = useCallback(async (id: string) => {
     if (!id) { setDetail(null); return; }
@@ -95,6 +118,7 @@ export default function FacebookCenter({ catalog }: { catalog: Catalog }) {
     void refreshDetail(selectedId).catch((e) => setError(errorText(e)));
     setReply("");
     setOnboarding(null);
+    setTriageNote(null);
   }, [selectedId, refreshDetail]);
   // Desde la campana de GALANT: abrir directamente el contacto que pidió ayuda.
   useEffect(() => {
@@ -138,6 +162,10 @@ export default function FacebookCenter({ catalog }: { catalog: Catalog }) {
   }, [selectedId, tab]);
 
   useEffect(() => {
+    if (tab === "tracking") void refreshTracking().catch((e) => setError(errorText(e)));
+  }, [tab, refreshTracking]);
+
+  useEffect(() => {
     if (tab === "guides") void net<Guide[]>("/facebook/guides")
       .then(setGuides).catch((e) => setError(errorText(e)));
   }, [tab]);
@@ -148,6 +176,7 @@ export default function FacebookCenter({ catalog }: { catalog: Catalog }) {
       await run();
       setNotice(message);
       await refresh();
+      if (tab === "tracking") await refreshTracking();
       if (selectedId) await refreshDetail(selectedId);
       return true;
     } catch (e) { setError(errorText(e)); return false; }
@@ -157,6 +186,16 @@ export default function FacebookCenter({ catalog }: { catalog: Catalog }) {
     if (!selectedId) return;
     void mutate("lead", () => change("/facebook/leads/" + selectedId, patch, "PATCH"),
       "Ficha del interesado actualizada.");
+  }
+  async function analyzeLead() {
+    if (!selectedId) return;
+    setSaving("triage"); setError("");
+    try {
+      const data = await change<TriageNote>("/facebook/leads/" + selectedId + "/galancito/analyze");
+      setTriageNote(data);
+      setNotice("Análisis orientativo actualizado; no se cambió la ficha.");
+    } catch (e) { setError(errorText(e)); }
+    finally { setSaving(""); }
   }
   async function suggest() {
     if (!selectedId) return;
@@ -232,9 +271,86 @@ export default function FacebookCenter({ catalog }: { catalog: Catalog }) {
     {notice && <p role="status" className="fbc-notice">{notice}</p>}
     <nav aria-label="Centro Facebook" className="fbc-tabs">
       <button className={tab === "inbox" ? "selected" : ""} onClick={() => setTab("inbox")}><Inbox size={16} /> Conversaciones</button>
+      <button className={tab === "tracking" ? "selected" : ""} onClick={() => setTab("tracking")}><ShieldCheck size={16} /> Seguimiento Galancito</button>
       <button className={tab === "pending" ? "selected" : ""} onClick={() => setTab("pending")}><Clock3 size={16} /> Anuncios pendientes</button>
       <button className={tab === "guides" ? "selected" : ""} onClick={() => setTab("guides")}><BookOpen size={16} /> Guías de oficios</button>
     </nav>
+    {tab === "tracking" && <section className="fbc-tracking" aria-label="Seguimiento Galancito">
+      <div className="fbc-tracking-head">
+        <div>
+          <h3>Seguimiento de interesados</h3>
+          <p>Organiza conversaciones y necesidades por oficio. Galancito sugiere próximos pasos,
+            pero ningún candidato queda aprobado o rechazado automáticamente.</p>
+        </div>
+        <button className="nw-btn" disabled={!!saving} onClick={() => void refreshTracking().catch((e) => setError(errorText(e)))}>
+          <RefreshCcw size={16}/> Actualizar seguimiento
+        </button>
+      </div>
+      {!tracking ? <p className="fbc-empty">Cargando seguimiento…</p> : <>
+        <div className="fbc-tracking-counters">
+          {[
+            ["Interesados", tracking.total],
+            ["Requieren atención", tracking.urgent],
+            ["Apoyo humano", tracking.needs_human],
+            ["Sin necesidad", tracking.unlinked],
+            ["Seguimientos vencidos", tracking.overdue],
+          ].map(([title, value]) => <div key={title} className="fbc-tracking-counter">
+            <small>{title}</small><strong>{value}</strong>
+          </div>)}
+        </div>
+        <div className="fbc-tracking-summaries">
+          <section>
+            <h4>Por especialidad</h4>
+            {!Object.keys(tracking.by_category).length && <small>Sin datos para categorizar.</small>}
+            {Object.entries(tracking.by_category).slice(0,10).map(([name,count]) =>
+              <div key={name} className="fbc-tracking-line">
+                <span>{name}</span><b>{count}</b>
+              </div>)}
+          </section>
+          <section>
+            <h4>Estado del seguimiento</h4>
+            {Object.entries(tracking.by_stage).map(([name,count]) =>
+              <div key={name} className="fbc-tracking-line">
+                <span>{name}</span><b>{count}</b>
+              </div>)}
+          </section>
+          <section>
+            <h4>Necesidades relacionadas</h4>
+            {Object.entries(tracking.by_requirement).slice(0,8).map(([name,count]) =>
+              <div key={name} className="fbc-tracking-line">
+                <span>{name}</span><b>{count}</b>
+              </div>)}
+          </section>
+        </div>
+        <div className="fbc-tracking-filters">
+          {[
+            ["all", "Todos"], ["high", "Prioritarios"], ["unlinked", "Sin necesidad"], ["due", "Seguimiento vencido"],
+          ].map(([value,label]) => <button key={value} type="button"
+            className={triageFilter === value ? "selected" : ""}
+            onClick={() => setTriageFilter(value as typeof triageFilter)}>{label}</button>)}
+        </div>
+        <div className="fbc-tracking-table">
+          {tracking.rows.filter((r) =>
+            triageFilter === "all" ||
+            (triageFilter === "high" && r.urgency === "high") ||
+            (triageFilter === "unlinked" && !r.requirement_id) ||
+            (triageFilter === "due" && r.stage === "Seguimiento vencido")
+          ).map((r) => <article className="fbc-tracking-item" key={r.id}>
+            <div><strong>{r.company || r.name}</strong>
+              <small>{r.category} · {r.category_source === "sugerida" ? "oficio sugerido, por confirmar" :
+                r.category_source === "declarada" ? "oficio registrado" : "oficio pendiente"}</small></div>
+            <div><b>{r.stage}</b><small>{r.requirement_title || "Sin necesidad vinculada"}</small></div>
+            <div><span>{r.next_action}</span><small>{r.follow_up_on ? "Seguimiento: " + r.follow_up_on : "Sin fecha de seguimiento"}</small></div>
+            <button className="nw-btn" type="button" onClick={() => {
+              setSelectedId(r.id); setTab("inbox");
+            }}>Ver conversación</button>
+          </article>)}
+          {!tracking.rows.length && <p className="fbc-empty">Aún no hay interesados. El seguimiento aparecerá cuando lleguen mensajes.</p>}
+        </div>
+        {tracking.limited && <small>Se muestran 200 contactos recientes; los totales corresponden a esta vista.</small>}
+        <small className="fbc-tracking-disclaimer">{tracking.disclaimer}</small>
+      </>}
+    </section>}
     {tab === "inbox" && <div className="fbc-inbox">
       <aside className="fbc-contacts">
         <div className="fbc-pane-title"><Users size={16} /><b>Personas que escribieron</b></div>
@@ -317,6 +433,17 @@ export default function FacebookCenter({ catalog }: { catalog: Catalog }) {
           </label>
           <label>Experiencia declarada<textarea value={lead.experience} rows={2}
             onChange={(e) => setDetail((old) => old ? {...old, lead: {...old.lead, experience: e.target.value}} : old)} /></label>
+          <div className="fbc-pair">
+            <label>Próximo seguimiento
+              <input type="date" value={lead.follow_up_on || ""} onChange={(e) => setDetail((old) =>
+                old ? {...old, lead: {...old.lead, follow_up_on: e.target.value || null}} : old)} />
+            </label>
+            <label>Nota de seguimiento
+              <input maxLength={240} value={lead.follow_up_note || ""} placeholder="Ej.: llamar al residente"
+                onChange={(e) => setDetail((old) => old ? {...old, lead: {...old.lead,
+                  follow_up_note: e.target.value}} : old)} />
+            </label>
+          </div>
           <label>Etapa
             <select value={lead.status} onChange={(e) => setDetail((old) => old ? {...old, lead: {...old.lead, status: e.target.value}} : old)}>
               {["new","contacting","pending_review","shortlisted","archived"].map(x => <option key={x} value={x}>{statuses[x]}</option>)}
@@ -371,7 +498,20 @@ export default function FacebookCenter({ catalog }: { catalog: Catalog }) {
               needs_support: lead.needs_support,
               entity_type: lead.entity_type, has_employees: lead.has_employees,
               requirement_id: lead.requirement_id,
-            })}>Guardar ficha</button>
+              follow_up_on: lead.follow_up_on, follow_up_note: lead.follow_up_note,
+            })}>Guardar ficha y seguimiento</button>
+          <button type="button" className="nw-btn" disabled={!!saving}
+            onClick={() => void analyzeLead()}>
+            <Sparkles size={15}/> {saving === "triage" ? "Analizando…" : "Galancito: analizar seguimiento"}
+          </button>
+          {triageNote && <div className="fbc-triage-note">
+            <b>Recomendación de Galancito (no cambia ningún estado)</b>
+            <small>Oficio: {triageNote.triage.category} · {triageNote.triage.category_source === "sugerida" ? "sugerido" : "registrado o pendiente"}</small>
+            <small>Etapa: {triageNote.triage.stage}</small>
+            <p>{triageNote.triage.next_action}</p>
+            {triageNote.ai_note && <p>{triageNote.ai_note}</p>}
+            <small>Las decisiones y verificaciones documentales corresponden a administración.</small>
+          </div>}
           <button type="button" className="nw-btn" disabled={!!saving}
             onClick={() => void mutate("guide", async () => {
               const guidance = await net<Onboarding>("/facebook/leads/" + lead.id + "/onboarding");
@@ -430,7 +570,8 @@ export default function FacebookCenter({ catalog }: { catalog: Catalog }) {
         <b>Texto propuesto: {adDraft.title}</b>
         <button className="nw-btn" onClick={() => setAdDraft(null)}>Cerrar</button></div>
         <pre>{adDraft.draft}</pre>
-        <small>{adDraft.source === "ai" ? "Borrador generado por IA" : "Texto del requerimiento"}.
+        <small>{adDraft.source === "ia_local" ? "Introducción redactada por Galancito local; datos provenientes de la necesidad" :
+          adDraft.source === "ai" ? "Borrador de IA" : "Texto del requerimiento"}.
           Revisa los datos antes de publicar; la vista previa no publica nada.</small>
       </div>}
       {!center?.automatic_enabled && <div className="fbc-alert"><AlertTriangle size={18} /> El VPS tiene desactivado el envío automático. Hay que habilitar el publicador y verificar el token de página.</div>}
