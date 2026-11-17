@@ -42,6 +42,11 @@ class Settings(BaseSettings):
     facebook_ai_ad_enabled: bool = False
     facebook_ai_api_key: str = ""
     facebook_ai_model: str = "gpt-4.1-mini"
+    # GALANCITO interno. Separado del acceso externo a conversaciones de Messenger.
+    galancito_ai_enabled: bool = False
+    galancito_ai_api_key: str = ""
+    galancito_ai_model: str = "gpt-4.1-mini"
+
 
 
 @lru_cache
