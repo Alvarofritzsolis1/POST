@@ -22,6 +22,7 @@ type Trial = {
 type Status = {
   manual_enabled: boolean; automatic_enabled: boolean;
   page_id: string; verified_page_name: string | null; history: Trial[];
+  verification?: Trial | null;
 };
 const stages: Record<string, string> = {
   pending: "En cola", sending: "Enviando a Meta", verified: "Identidad comprobada",
@@ -146,6 +147,7 @@ export default function NetworkFacebook({ catalog }: { catalog: Catalog }) {
     finally { setWorking(""); }
   }
   const disabled = !!working;
+  const latestVerification = status?.verification;
   return (
     <div className="nwf">
       <div className="nwf-head">
@@ -155,8 +157,8 @@ export default function NetworkFacebook({ catalog }: { catalog: Catalog }) {
           <p>Prepara un anuncio de contratistas, revisa exactamente qué verá el público y realiza una prueba controlada.</p>
         </div>
         <div className="nwf-connected">
-          <span className={"nwf-status-dot " + (status?.verified_page_name ? "good" : "")} />
-          <span><strong>{status?.verified_page_name || "Identidad sin comprobar"}</strong><small>Página {status?.page_id || "no configurada"} · publicación de prueba</small></span>
+          <span className={"nwf-status-dot " + (latestVerification?.state === "verified" ? "good" : "")} />
+          <span><strong>{latestVerification?.state === "verified" ? status?.verified_page_name : latestVerification?.state === "failed" ? "Error de autorización" : "Identidad sin comprobar"}</strong><small>Página {status?.page_id || "no configurada"} · comprobación de token</small></span>
         </div>
       </div>
       <div className="nwf-notice nwf-notice-info">
@@ -169,15 +171,19 @@ export default function NetworkFacebook({ catalog }: { catalog: Catalog }) {
         <div className="nwf-connection-main">
           <ShieldCheck size={22} />
           <div><b>Conexión con Facebook</b>
-            <p>{status?.manual_enabled
-              ? (status.verified_page_name
-                ? "Identidad del token y página confirmada. El permiso para publicar se comprueba al enviar una prueba."
-                : "Puedes comprobar la identidad de tu página sin publicar contenido.")
-              : "El modo de pruebas está apagado en el VPS. Puedes preparar y previsualizar, pero no enviar."}</p>
+            <p>{latestVerification?.state === "verified"
+              ? "Token válido para esta página en la última comprobación. La autorización para publicar se prueba por separado."
+              : latestVerification?.state === "failed"
+                ? "La última comprobación fue rechazada por Meta. Reemplaza el token de página en el VPS y vuelve a comprobar."
+                : (status?.manual_enabled || status?.automatic_enabled)
+                  ? "Puedes comprobar el token sin crear una publicación en Facebook."
+                  : "El canal Facebook está desactivado en el VPS."}</p>
+            {latestVerification?.state === "failed" && latestVerification.error &&
+              <small role="alert">{latestVerification.error}</small>}
             {status?.automatic_enabled && <small>La difusión automática también está activada: revisa su configuración antes de publicar.</small>}
           </div>
         </div>
-        <button className="nw-btn" type="button" disabled={disabled || !status?.manual_enabled} onClick={() => void verify()}>
+        <button className="nw-btn" type="button" disabled={disabled || !(status?.manual_enabled || status?.automatic_enabled) || latestVerification?.state === "pending" || latestVerification?.state === "sending"} onClick={() => void verify()}>
           {working === "verify" ? <LoaderCircle size={16} className="nwf-spin" /> : <ShieldCheck size={16} />}
           Comprobar conexión
         </button>
