@@ -83,3 +83,41 @@ Flujo de uso:
 La primera versión admite publicaciones de TEXTO, no fotos, carruseles ni
 publicaciones en grupos externos. No pegar el token en el formulario, código,
 GitHub, capturas ni chats. Solo el worker tiene acceso a esa credencial.
+
+
+## Diagnóstico seguro HTTP 400 y listado de publicaciones
+
+En **Red de Obras > Facebook > Publicaciones y estados**, el administrador ve:
+- Pendiente / Enviando: trabajo de la cola, **aún no confirmado por Meta**.
+- Publicado en Facebook: Meta devolvió un ID de publicación y GALANT guardó su enlace.
+- Rechazado por Meta: error confirmado, con código numérico y recomendación segura.
+- Revisar en Meta: resultado incierto; verificar la página antes de intentar de nuevo.
+- Retirado: GALANT registró el borrado solicitado; las historias de 24 horas no son parte de esta integración.
+
+El enlace de cada anuncio publicado abre Facebook. El estado mostrado representa la última acción de GALANT; no verifica en tiempo real si una publicación fue retirada directamente desde Facebook. La bandeja no debe presentar publicaciones confirmadas como «Sin sincronizar».
+
+Para investigar un **HTTP 400**, revisar el código **Meta** incluido en la nueva descripción:
+- **190 / 102**: token inválido o caducado. Renovar el token **de página**.
+- **200 / 10 / 283**: revisar `pages_manage_posts`, `pages_read_engagement`, `pages_show_list`, tarea `CREATE_CONTENT`, rol en página y acceso de la app.
+- **100**: ID, destino o parámetros inválidos.
+- **368**: restricción de la página; no forzar reintentos.
+- **506**: publicación duplicada; comprobar la página antes de otra acción.
+- Otros códigos: usar el `fbtrace_id` seguro para soporte de Meta, nunca el token.
+
+Operación privada en el VPS, **sin copiar secretos en la conversación ni GitHub**:
+
+```sh
+cd /opt/galant-post
+# Revisar manualmente el archivo privado .env.preview:
+# FACEBOOK_AUTOPUBLISH_ENABLED=true
+# FACEBOOK_PAGE_ID=<ID numérico de tu página>
+# FACEBOOK_PAGE_TOKEN=<token privado de página>
+# Reiniciar SOLO mediante el procedimiento habitual de despliegue.
+docker compose --env-file .env.preview -f docker-compose.preview.yml ps facebook-publisher
+# Comprobar presencia, NUNCA imprimir el token.
+docker compose --env-file .env.preview -f docker-compose.preview.yml exec -T facebook-publisher sh -c 'if [ -n "$FACEBOOK_PAGE_TOKEN" ]; then echo "Token presente"; else echo "Token faltante"; fi'
+```
+
+La publicación real requiere autorización de Meta y el VPS configurado. Subir el código de este parche a GitHub no vincula por sí solo un token ni publica los anuncios antiguos.
+
+**Historias / estados de 24 horas:** no se publican mediante el endpoint de texto `/{page-id}/feed`. Necesitan material gráfico propio (foto o video) y el flujo independiente de Page Stories; no deben etiquetarse como publicadas por el éxito de un post normal.
