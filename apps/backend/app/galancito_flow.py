@@ -54,6 +54,19 @@ def galancito_prefix(message: str) -> str:
     return line[:650]
 
 
+
+def wants_human(message: str) -> bool:
+    """Explicit stop requests are honored even after prior AI consent."""
+    value = _plain(message)
+    phrases = {
+        "no quiero ia", "sin ia", "no usar ia", "no mas ia",
+        "prefiero persona", "quiero una persona", "quiero hablar con alguien",
+        "hablar con humano", "atencion humana", "deten el bot",
+        "detener bot", "parar bot", "deja de responder", "no mas bot",
+        "retirar consentimiento", "revoco mi autorizacion",
+    }
+    return any(value == phrase or value.startswith(phrase + " ") for phrase in phrases)
+
 def safe_ai_reply(draft: str) -> str:
     """Reject unsafe external output before it reaches a contractor in Messenger."""
     clean = draft.strip()[:550]
