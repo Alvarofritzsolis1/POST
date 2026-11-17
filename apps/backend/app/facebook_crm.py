@@ -449,6 +449,17 @@ def update_lead(lead_id: str, body: LeadEdit, user: User = Depends(administrator
             setattr(lead, field, value)
     if body.model_fields_set.intersection({"needs_support"}) and not lead.needs_support:
         lead.support_reason = ""
+    if ((body.model_fields_set.intersection({"ai_paused"}) and lead.ai_paused) or
+            (body.model_fields_set.intersection({"needs_support"}) and lead.needs_support)):
+        # El operador toma el control: cancelar respuestas del bot que no
+        # hayan salido, sin tocar mensajes redactados por una persona.
+        for pending in db.scalars(select(FacebookChatMessage).where(
+            FacebookChatMessage.lead_id == lead.id,
+            FacebookChatMessage.operator_id.is_(None),
+            FacebookChatMessage.direction == "outbound",
+            FacebookChatMessage.state.in_(["pending", "ai_pending"]),
+        )):
+            pending.state = "cancelled"
     lead.updated_at = utcnow()
     db.commit()
     return _lead_view(db, lead)
