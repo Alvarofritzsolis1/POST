@@ -14,7 +14,7 @@ from urllib.request import HTTPRedirectHandler, Request as HTTPRequest, build_op
 
 from fastapi import APIRouter, Depends, HTTPException, Query, Request
 from fastapi.responses import PlainTextResponse
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, ConfigDict, Field
 from sqlalchemy import func, select
 from sqlalchemy.orm import Session
 
@@ -126,6 +126,7 @@ def _message_view(m: FacebookChatMessage) -> dict:
 
 
 class LeadEdit(BaseModel):
+    model_config = ConfigDict(extra="forbid")
     name: str = Field(default="", max_length=160)
     company: str = Field(default="", max_length=180)
     specialty: str = Field(default="", max_length=100)
@@ -519,7 +520,7 @@ def suggest_reply(lead_id: str, user: User = Depends(administrator),
         question = "¿Desde cuándo puedes empezar a trabajar?"
     else:
         question = "¿En qué comuna puedes trabajar?"
-    return {"draft": ("Hola, soy el asistente virtual de GALANT. No importa si escribes "
+    return {"draft": ("Hola, soy Galancito, asistente virtual de GALANT. No importa si escribes "
                       "con faltas: te entiendo. Si prefieres un audio, una persona lo "
                       "puede revisar. " + question),
             "source": "template", "requires_review": True}
