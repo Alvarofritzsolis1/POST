@@ -28,7 +28,7 @@ type Post = { id: string; requirement_id: string; title: string; specialty: stri
   state: string; error: string | null; post_url: string | null;
   updated_at?: string; attempts?: number };
 type Center = {
-  automatic_enabled: boolean; messaging_enabled: boolean; ai_enabled: boolean;
+  automatic_enabled: boolean; manual_enabled?: boolean; messaging_enabled: boolean; ai_enabled: boolean;
   auto_reply_enabled: boolean; ai_provider?: string; page_id: string;
   connection?: { state: string; checked_at: string | null; error: string | null; page_name: string | null };
   pending_ads: Post[]; publications: Post[]; leads: Lead[];
@@ -298,7 +298,7 @@ export default function FacebookCenter({ catalog }: { catalog: Catalog }) {
       <span className={center?.ai_enabled && center?.auto_reply_enabled ? "good" : "warning"}>
         <Bot size={15} /> {center?.ai_enabled && center?.auto_reply_enabled ? "Galancito activo" : "Galancito requiere revisión"}
       </span>
-      <button type="button" className="nw-btn fbc-verify-btn" disabled={!!saving || checkingConnection || !center?.automatic_enabled}
+      <button type="button" className="nw-btn fbc-verify-btn" disabled={!!saving || checkingConnection || !(center?.automatic_enabled || center?.manual_enabled)}
         onClick={() => void mutate("verify-connection", () => change("/facebook/tests/verify", {}),
           "Comprobación solicitada. El resultado aparecerá automáticamente.")}>
         <RefreshCcw size={15} /> {checkingConnection || saving === "verify-connection" ? "Comprobando..." : "Comprobar conexión"}
