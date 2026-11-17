@@ -1,6 +1,6 @@
 """Facebook inbox: org-scoped leads and durable Messenger message delivery."""
-from datetime import datetime
-from sqlalchemy import Boolean, DateTime, ForeignKey, Index, Integer, JSON, String, Text, UniqueConstraint
+from datetime import date, datetime
+from sqlalchemy import Boolean, Date, DateTime, ForeignKey, Index, Integer, JSON, String, Text, UniqueConstraint
 from sqlalchemy.orm import Mapped, mapped_column
 from .db import Base
 from .models import uid, utcnow
@@ -19,6 +19,9 @@ class FacebookLead(Base):
     display_name: Mapped[str] = mapped_column(String(160), default="Interesado de Facebook")
     company: Mapped[str] = mapped_column(String(180), default="")
     specialty: Mapped[str] = mapped_column(String(100), default="")
+    # Preserve manual classification when messages mention a different trade.
+    specialty_source: Mapped[str] = mapped_column(String(16), nullable=False,
+                                                 default="manual", server_default="manual")
     workers: Mapped[int | None] = mapped_column(Integer, nullable=True)
     availability: Mapped[str] = mapped_column(String(120), default="")
     experience: Mapped[str] = mapped_column(Text, default="")
@@ -33,6 +36,9 @@ class FacebookLead(Base):
     support_reason: Mapped[str] = mapped_column(String(250), default="")
     entity_type: Mapped[str] = mapped_column(String(20), nullable=False, default="unknown", server_default="unknown")
     has_employees: Mapped[bool | None] = mapped_column(Boolean, nullable=True)
+    follow_up_on: Mapped[date | None] = mapped_column(Date, nullable=True)
+    follow_up_note: Mapped[str] = mapped_column(String(240), default="")
+    follow_up_by: Mapped[str | None] = mapped_column(String(36), nullable=True)
     last_inbound_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow)
     updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow)

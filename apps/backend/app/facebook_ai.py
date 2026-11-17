@@ -26,6 +26,22 @@ Ejemplos: "ola soy gasfite" = gasfitería, empresa aún no confirmada.
 "busco pega de carpintero" = trabajador; pregunta comuna, no papeles de empresa.
 "pintura, empresa, 4 personas, desde mañana" = pregunta comuna, no repitas dotación.
 """
+
+AD_OPENING_INSTRUCTIONS = """Eres Galancito, redactor de anuncios de Red de Obras (Chile).
+Devuelve SOLO una primera línea breve para un anuncio de búsqueda de contratistas.
+Incluye el oficio tal como aparece en los datos, sin cambiarlo.
+No agregues cifras, sueldo, dirección, contratación garantizada, certificados,
+requisitos legales, fechas, nombres, teléfonos ni datos no entregados.
+No inventes nada. Máximo 100 caracteres. No uses comillas ni emojis.
+"""
+TRIAGE_INSTRUCTIONS = """Eres Galancito, asesor interno de Red de Obras en Chile.
+Resume brevemente lo que administración debería verificar para dar seguimiento.
+Máximo dos frases en español simple. No juzgues escolaridad, ortografía ni
+idoneidad personal. No descalifiques ni prometas contrato o habilitación.
+Si faltan datos, pide que los confirme una persona. No solicites RUT,
+contraseñas, fotos ni documentos por Messenger. No realices cambios.
+"""
+
 AD_INSTRUCTIONS = """Redacta en español chileno un anuncio de búsqueda de empresas contratistas,
 profesional, claro, de máximo 1200 caracteres. Mantén exactamente los datos
 comerciales suministrados; no agregues plazos, certificaciones, sueldos, direcciones,
@@ -72,7 +88,7 @@ def _generate(instructions: str, supplied_data: str, max_chars: int,
 
 
 def facebook_reply_ai_available(cfg=None) -> bool:
-    """Only Messenger reply generation; public ad writing is not local-model scope."""
+    """Messenger reply availability; Red de Obras ads use their dedicated local writer."""
     cfg = cfg or settings()
     if not cfg.facebook_ai_enabled:
         return False
@@ -91,7 +107,7 @@ def galancito_red_ai_available(cfg=None) -> bool:
 
 
 def generate_text(instructions: str, supplied_data: str, max_chars: int = 1200) -> str | None:
-    """Facebook Messenger. Ollama is never used for ads or other GALANT modules."""
+    """Messenger replies; Red de Obras ads use the separate fact-preserving helper."""
     cfg = settings()
     if cfg.facebook_ai_provider == "ollama":
         if instructions != REPLY_INSTRUCTIONS or not facebook_reply_ai_available(cfg):
@@ -117,3 +133,50 @@ def generate_internal_text(instructions: str, supplied_data: str,
         return None
     return _generate(instructions, supplied_data, max_chars,
                      cfg.galancito_ai_model, cfg.galancito_ai_api_key)
+
+
+def generate_ad_opening(title: str, specialty: str) -> str | None:
+    """Local drafting ONLY, admin-initiated. Never return a complete made-up advert."""
+    cfg = settings()
+    if cfg.facebook_ai_provider == "ollama" and cfg.galancito_local_ai_enabled:
+        return generate_local_text(AD_OPENING_INSTRUCTIONS,
+                                   "Oficio: " + specialty[:100] + "\nTítulo: " + title[:150], 150)
+    return None
+
+
+
+def verified_ad_copy(original: str, title: str, specialty: str) -> tuple[str, bool]:
+    """Never alter the factual requirement: only prepend a strictly checked hook."""
+    import re
+    import unicodedata
+
+    def plain(text: str) -> str:
+        return "".join(c for c in unicodedata.normalize("NFKD", text.lower())
+                       if not unicodedata.combining(c))
+
+    if not settings().galancito_local_ai_enabled:
+        return original, False
+    try:
+        opening = generate_ad_opening(title, specialty)
+    except RuntimeError:
+        return original, False
+    if not opening:
+        return original, False
+    opening = opening.replace("\n", " ").strip(' "\'')
+    normalized = plain(opening)
+    trade = plain(specialty.strip())
+    forbidden = r"\d|https?://|@|\b(sueldo|bono|contratamos|garantizado|requisitos?|promocion)\b"
+    if (not trade or len(opening) > 100 or len(opening) < 12 or
+            not re.search(r"(?<!\w)" + re.escape(trade) + r"(?!\w)", normalized) or
+            re.search(forbidden, normalized)):
+        return original, False
+    return opening + "\n\n" + original, True
+
+
+def generate_triage_note(context: str) -> str | None:
+    """Only local IA on consented Messenger leads, no OpenAI or external services."""
+    cfg = settings()
+    if not (cfg.facebook_ai_provider == "ollama" and cfg.galancito_local_ai_enabled and
+            cfg.facebook_ai_enabled):
+        return None
+    return generate_local_text(TRIAGE_INSTRUCTIONS, context[:2000], 360)

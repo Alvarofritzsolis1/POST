@@ -21,7 +21,8 @@ from sqlalchemy.orm import Session
 from .config import settings
 from .db import get_db, SessionLocal
 from .facebook_ai import (AD_INSTRUCTIONS, REPLY_INSTRUCTIONS, generate_text,
-                          facebook_reply_ai_available)
+                          facebook_reply_ai_available, verified_ad_copy,
+                          generate_triage_note)
 from .facebook_onboarding import assistance_signal, reply_for_support, onboarding_guide
 from .galancito_flow import (AI_PERMISSION_QUESTION, AI_PERMISSION_REASK,
                              AI_PERMISSION_DECLINED, consent_decision, wants_human, permission_question)
@@ -29,7 +30,8 @@ from .facebook_crm_models import FacebookLead, FacebookChatMessage, FacebookTrad
 from .models import Organization, User, utcnow
 from .network_facebook import public_message
 from .network_models import NetworkFacebookPost, NetworkRequirement, NetworkNotification
-from .network_service import key
+from .network_service import key, today
+from .galancito_triage import classify_lead, dashboard
 from .security import administrator
 from .galancito_triage import analyze, private_data, quick_reply
 from .galancito_knowledge import retrieve, exact_answer, evidence_context
@@ -108,7 +110,7 @@ def _match(db: Session, lead: FacebookLead) -> dict:
 def _lead_view(db: Session, lead: FacebookLead) -> dict:
     return {
         "id": lead.id, "name": lead.display_name, "company": lead.company,
-        "specialty": lead.specialty, "workers": lead.workers,
+        "specialty": lead.specialty, "specialty_source": lead.specialty_source, "workers": lead.workers,
         "availability": lead.availability, "experience": lead.experience,
         "documents_state": lead.documents_state, "status": lead.status,
         "requirement_id": lead.requirement_id, "unread": lead.unread,
@@ -119,6 +121,8 @@ def _lead_view(db: Session, lead: FacebookLead) -> dict:
         "support_reason": lead.support_reason,
         "entity_type": lead.entity_type,
         "has_employees": lead.has_employees,
+        "follow_up_on": lead.follow_up_on.isoformat() if lead.follow_up_on else None,
+        "follow_up_note": lead.follow_up_note or "",
         "last_inbound_at": lead.last_inbound_at.isoformat() if lead.last_inbound_at else None,
         "can_reply": _in_window(lead), "analysis": _match(db, lead),
     }
@@ -145,6 +149,8 @@ class LeadEdit(BaseModel):
     needs_support: bool = False
     entity_type: str = Field(default="unknown", pattern=r"^(unknown|company|individual)$")
     has_employees: bool | None = None
+    follow_up_on: date | None = None
+    follow_up_note: str = Field(default="", max_length=240)
 
 
 class TradeGuideInput(BaseModel):
@@ -293,8 +299,9 @@ async def webhook(request: Request, db: Session = Depends(get_db)):
                     select(FacebookTradeGuide).where(FacebookTradeGuide.org_id == lead.org_id,
                                                     FacebookTradeGuide.approved.is_(True)).limit(100))}
                 facts = analyze(body, approved_trades)
-                if facts.specialty:
+                if facts.specialty and (not lead.specialty or lead.specialty_source == "message"):
                     lead.specialty = facts.specialty
+                    lead.specialty_source = "message"
                 if facts.entity_type != "unknown":
                     lead.entity_type = facts.entity_type
                 if facts.workers is not None:
@@ -397,6 +404,78 @@ async def webhook(request: Request, db: Session = Depends(get_db)):
     return {"received": True}
 
 
+@router.get("/galancito/seguimiento")
+def galancito_seguimiento(user: User = Depends(administrator),
+                          db: Session = Depends(get_db)):
+    """Transparent categories and priority work queue; not hiring decisions."""
+    total = db.scalar(select(func.count(FacebookLead.id)).where(
+        FacebookLead.org_id == user.org_id)) or 0
+    leads = list(db.scalars(select(FacebookLead).where(
+        FacebookLead.org_id == user.org_id,
+    ).order_by(FacebookLead.last_inbound_at.desc(), FacebookLead.id).limit(200)))
+    reqs = list(db.scalars(select(NetworkRequirement).where(
+        NetworkRequirement.org_id == user.org_id,
+        NetworkRequirement.state == "published",
+    ).order_by(NetworkRequirement.created_at.desc()).limit(200)))
+    guides = list(db.scalars(select(FacebookTradeGuide).where(
+        FacebookTradeGuide.org_id == user.org_id,
+        FacebookTradeGuide.approved.is_(True),
+    ).limit(60)))
+    by_id = {lead.id: [] for lead in leads}
+    if by_id:
+        msgs = db.scalars(select(FacebookChatMessage).where(
+            FacebookChatMessage.org_id == user.org_id,
+            FacebookChatMessage.lead_id.in_(list(by_id)),
+            FacebookChatMessage.direction == "inbound",
+        ).order_by(FacebookChatMessage.created_at.desc()).limit(1000))
+        for msg in msgs:
+            if len(by_id[msg.lead_id]) < 4:
+                by_id[msg.lead_id].append(msg)
+    result = dashboard([
+        classify_lead(lead, guides, reqs, by_id[lead.id], today=today())
+        for lead in leads
+    ])
+    result["limited"] = total > len(leads)
+    return result
+
+
+@router.post("/leads/{lead_id}/galancito/analyze")
+def galancito_analyze_lead(lead_id: str, user: User = Depends(administrator),
+                          db: Session = Depends(get_db)):
+    """Local advisory note, consent-gated; never modifies classification fields."""
+    lead = _lead(db, user, lead_id)
+    reqs = list(db.scalars(select(NetworkRequirement).where(
+        NetworkRequirement.org_id == user.org_id,
+        NetworkRequirement.state == "published",
+    ).limit(200)))
+    guides = list(db.scalars(select(FacebookTradeGuide).where(
+        FacebookTradeGuide.org_id == user.org_id,
+        FacebookTradeGuide.approved.is_(True),
+    ).limit(60)))
+    recent = list(db.scalars(select(FacebookChatMessage).where(
+        FacebookChatMessage.org_id == user.org_id,
+        FacebookChatMessage.lead_id == lead.id,
+        FacebookChatMessage.direction == "inbound",
+    ).order_by(FacebookChatMessage.created_at.desc()).limit(4)))
+    summary = classify_lead(lead, guides, reqs, recent, today=today())
+    note, source = "", "reglas"
+    if lead.ai_consent and not lead.ai_paused and not lead.needs_support:
+        context = ("Oficio: " + lead.specialty[:100] +
+                   "\nTrabajadores declarados: " + str(lead.workers or "sin informar") +
+                   "\nNecesidad vinculada: " + (summary["requirement_title"] or "ninguna")[:150] +
+                   "\nEtapa: " + summary["stage"] +
+                   "\nMensajes: " + " | ".join(m.body[:220] for m in reversed(recent)))
+        try:
+            note = infer(db, lambda: generate_triage_note(context)) or ""
+        except RuntimeError:
+            pass
+        if note:
+            source = "ia_local"
+    return {"triage": summary, "ai_note": note[:360],
+            "source": source, "human_review_required": True,
+            "changes_applied": False}
+
+
 @router.get("/center")
 def center(user: User = Depends(administrator), db: Session = Depends(get_db)):
     cfg = settings()
@@ -485,8 +564,12 @@ def update_lead(lead_id: str, body: LeadEdit, user: User = Depends(administrator
             lead.company = value.strip()
         elif field in {"specialty", "experience", "availability"}:
             setattr(lead, field, value.strip())
+            if field == "specialty":
+                lead.specialty_source = "manual"
         else:
             setattr(lead, field, value)
+    if body.model_fields_set.intersection({"follow_up_on", "follow_up_note"}):
+        lead.follow_up_by = user.id
     if body.model_fields_set.intersection({"needs_support"}) and not lead.needs_support:
         lead.support_reason = ""
     if ((body.model_fields_set.intersection({"ai_paused"}) and lead.ai_paused) or
@@ -614,11 +697,11 @@ def suggest_ad(requirement_id: str, user: User = Depends(administrator),
         raise HTTPException(404, "Necesidad no encontrada")
     original = public_message(db, req)
     try:
-        improvement = (generate_text(AD_INSTRUCTIONS, original, 1200)
-                   if settings().facebook_ai_provider == "openai" and
-                   settings().facebook_ai_ad_enabled and settings().facebook_ai_enabled
-                   else None)
-    except RuntimeError as err:
-        raise HTTPException(503, str(err)) from None
-    return {"draft": improvement or original, "source": "ai" if improvement else "template",
-            "requires_review": True}
+        draft, generated = infer(db, lambda: verified_ad_copy(original, req.title, req.specialty))
+    except RuntimeError:
+        draft, generated = original, False
+    if generated:
+        return {"draft": draft, "source": "ia_local", "requires_review": True,
+                "published": False}
+    return {"draft": original, "source": "template",
+            "requires_review": True, "published": False}

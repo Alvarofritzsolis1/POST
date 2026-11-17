@@ -322,3 +322,42 @@ def test_refusal_cancels_permission_question_that_has_not_been_sent(network, mon
     assert process_chat_next(n["Session"])
     assert len(sent) == 1 and "autorizas" not in sent[0]
     assert "no usaré IA" in sent[0]
+
+
+def test_tracking_preserves_manual_trade_when_new_messages_offer_another(network, monkeypatch):
+    n = network
+    enable_messaging(n, monkeypatch)
+    assert incoming(n, text="soy carpintero", mid="message-trade").status_code == 200
+    lead = n["admin"].get("/api/v1/network/facebook/center").json()["leads"][0]
+    assert lead["specialty"] == "Carpintería" and lead["specialty_source"] == "message"
+    pending = n["admin"].get("/api/v1/network/facebook/galancito/seguimiento").json()
+    assert pending["rows"][0]["category_source"] == "sin_datos"
+    update = n["send"](n["admin"], "/facebook/leads/" + lead["id"], {
+        "specialty": "Gasfitería", "follow_up_on": "2026-11-18",
+        "follow_up_note": "Confirmar con el residente",
+    }, "PATCH")
+    assert update.status_code == 200, update.text
+    assert incoming(n, text="soy pintor", mid="another-trade").status_code == 200
+    saved = n["admin"].get("/api/v1/network/facebook/leads/" + lead["id"]).json()["lead"]
+    assert saved["specialty"] == "Gasfitería" and saved["specialty_source"] == "manual"
+    assert saved["follow_up_note"] == "Confirmar con el residente"
+    tracking = n["admin"].get("/api/v1/network/facebook/galancito/seguimiento").json()
+    assert tracking["rows"][0]["category_source"] == "declarada"
+
+
+def test_learning_migration_adds_trade_origin_to_20_7_4_records(network, monkeypatch):
+    n = network
+    enable_messaging(n, monkeypatch)
+    assert incoming(n, text="hola", mid="old-contact").status_code == 200
+    lead = n["admin"].get("/api/v1/network/facebook/center").json()["leads"][0]
+    assert n["send"](n["admin"], "/facebook/leads/" + lead["id"], {
+        "specialty": "Pintura", "follow_up_note": "Seguimiento histórico",
+    }, "PATCH").status_code == 200
+    from app.migrations.v20_7_5_galancito_learning import upgrade
+    with n["engine"].begin() as conn:
+        conn.execute(text("ALTER TABLE facebook_leads DROP COLUMN specialty_source"))
+        upgrade(conn)
+        upgrade(conn)
+    saved = n["admin"].get("/api/v1/network/facebook/leads/" + lead["id"]).json()["lead"]
+    assert saved["specialty"] == "Pintura" and saved["specialty_source"] == "manual"
+    assert saved["follow_up_note"] == "Seguimiento histórico"

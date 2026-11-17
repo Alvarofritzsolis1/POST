@@ -18,7 +18,8 @@ from .db import SessionLocal
 from .models import utcnow
 from .network_models import NetworkFacebookPost, NetworkFacebookManual, NetworkItem, NetworkRequirement
 from .ops_models import Worksite
-from .facebook_ai import generate_text, AD_INSTRUCTIONS
+from .facebook_ai import generate_text, AD_INSTRUCTIONS, verified_ad_copy
+from .galancito_runtime import infer
 
 log = logging.getLogger("galant.facebook")
 stopping = False
@@ -156,6 +157,15 @@ def process_next(session_factory=SessionLocal) -> bool:
         row.updated_at = utcnow()
 
     outcome_id, error, uncertain = None, None, False
+    # Generar solo una introducción breve local; los datos oficiales nunca
+    # se reemplazan. Esta opción requiere selección Facebook + permiso de anuncio.
+    if (message and cfg.facebook_ai_provider == "ollama" and
+            cfg.galancito_local_ai_enabled and cfg.facebook_ai_ad_enabled):
+        try:
+            with session_factory.begin() as db:
+                message, _generated = infer(db, lambda: verified_ad_copy(message, req.title, req.specialty))
+        except RuntimeError:
+            pass  # Keep the verified original when the shared inference slot is busy.
     # Opt-in, solo desde datos comerciales públicos, sin demorar la transacción SQL.
     if (message and cfg.facebook_ai_provider == "openai" and cfg.facebook_ai_ad_enabled
             and cfg.facebook_ai_enabled and cfg.facebook_ai_api_key):

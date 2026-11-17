@@ -6,7 +6,16 @@
 - Permanencia configurable con valor inicial de 2 minutos tras comparar 20 s, 2 y 5 min; se conservan Qwen3 1.7B y límites de 3 GiB/1,5 CPU.
 - Límite compartido de inferencia y cola acotada; revalidación de consentimiento y atención humana antes de enviar.
 - 64 casos sintéticos de comprensión y pruebas del ciclo de aprendizaje, aislamiento, privacidad y degradación; migración aditiva.
-- Base real disponible: 20.7.3-rc1. El despliegue requiere el flujo seguro existente y verificar el commit del VPS.
+- Integrada con 20.7.4-rc1: conserva anuncios locales y seguimiento. Las mediciones iniciales usan 20.7.3 como referencia; el despliegue requiere verificar el commit del VPS.
+
+## 20.7.4-rc1 — Galancito: anuncios, seguimiento y categorización de Red de Obras
+- Galancito local Qwen3 1.7B redacta introducciones para anuncios de las necesidades registradas, preservando literalmente obra, oficio, dotación, fechas y partidas. Solo genera borradores administrados y no publica ni adjudica por sí mismo.
+- Red de Obras muestra al administrador un tablero de interesados por oficio, prioridad de atención, etapa, obra, necesidades y seguimiento vencido.
+- Clasificación automática conservadora: oficio registrado tiene prioridad, los mensajes solo se analizan cuando el interesado dio consentimiento; categorías sugeridas nunca reemplazan el registro confirmado.
+- Ficha de Facebook incorpora fecha y nota de próximo seguimiento, guardadas con responsable administrativo.
+- Botón de análisis de Galancito por contacto que genera sugerencias locales, sujeto a consentimiento y sin cambios de estado.
+- Asesor de Red de Obras con contexto resumido de necesidades, capacidades, coordinaciones y adjudicaciones de la organización, sin información privada de otras áreas.
+- Los controles no conceden autorización de ingreso, validación documental ni decisiones de contratación. La prioridad es de *atención operativa*, no nota de idoneidad personal.
 
 ## 20.7.3-rc1 — Galancito local gratuito: solo Messenger + Red de Obras
 - Qwen3 1.7B (Ollama), modelo privado de aproximadamente 1,4 GB de descarga; sin API de pago.

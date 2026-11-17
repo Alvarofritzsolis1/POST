@@ -1,8 +1,10 @@
 # Galancito 20.7.5-rc1: enseñanza administrada y respuesta híbrida
 
-La base real disponible es `b4feea3`, GALANT **20.7.3-rc1**. No se recibió una
-20.7.4 verificable, por lo que las comparaciones no se atribuyen a esa versión.
-Esta entrega cambia código y esquema; no acredita despliegue en el VPS.
+La implementación inicial partió de `b4feea3`, GALANT **20.7.3-rc1**. Después
+se integró `653e7e2`, **20.7.4-rc1**, desde `main`, conservando anuncios locales,
+categorías, fechas, notas y responsables de seguimiento. Las mediciones iniciales
+siguen comparándose con 20.7.3; no se atribuyen a 20.7.4. Esta entrega no acredita
+despliegue en el VPS.
 
 ## Qué aprende y cómo enseñarle
 
@@ -45,6 +47,11 @@ Se guarda solo el texto extraído como pendiente. Los archivos originales y
 documentos históricos de contratistas no se modifican. Cada revisión registra
 versión, responsable, estado y fecha. El contenido se limita por organización
 y canal. Las APIs administrativas exigen rol administrador y protección CSRF.
+
+La especialidad detectada en mensajes mantiene su origen como sugerencia: antes
+del consentimiento no se usa para clasificar el seguimiento, y nunca sobrescribe
+el oficio confirmado por administración. La migración agrega `specialty_source`
+con valor `manual` para conservar la interpretación de los contactos históricos.
 
 ## Arquitectura y diagnóstico
 
