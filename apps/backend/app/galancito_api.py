@@ -15,6 +15,8 @@ from .config import settings
 from .db import get_db
 from .facebook_ai import generate_internal_text
 from .facebook_onboarding import onboarding_guide
+from .facebook_crm_models import FacebookTradeGuide
+from .network_service import key
 from .models import User
 from .network_models import NetworkRequirement
 from .security import authorized_user
@@ -43,7 +45,7 @@ class ChatInput(BaseModel):
     allow_external_ai: bool = False
 
 
-def _local_reply(message: str, area: str, titles: list[str]) -> str:
+def _local_reply(message: str, area: str, titles: list[str], guides: list[FacebookTradeGuide]) -> str:
     text = message.casefold()
     if any(word in text for word in ["documento", "papel", "f30", "mutual", "ingreso", "prevencion"]):
         guide = onboarding_guide()
@@ -51,6 +53,15 @@ def _local_reply(message: str, area: str, titles: list[str]) -> str:
                 "Los documentos dependen de si tienes una empresa y trabajadores; "
                 "por eso no te pediré una lista completa de inmediato. "
                 + (guide["next_question"] or "¿Qué trabajo haces?"))
+    matching = next((g for g in guides if any(
+        key(alias) and key(alias) in key(message)
+        for alias in [g.trade, *(g.aliases or [])]
+    )), None)
+    if matching and not any(word in text for word in ["documento", "papel", "f30", "mutual", "ingreso"]):
+        return ("Soy Galancito. " + matching.trade + ": " +
+                matching.explanation[:240] +
+                " Los documentos y requisitos de seguridad se revisan según la obra. " +
+                "¿Qué necesitas saber de ese trabajo?")
     if any(word in text for word in ["facebook", "mensaje", "anuncio"]):
         return ("Soy Galancito. Las necesidades se crean desde Red de Obras. "
                 "Facebook permite revisar anuncios pendientes y mensajes cuando "
@@ -97,6 +108,12 @@ def galancito_chat(body: ChatInput, user: User = Depends(authorized_user),
         ).order_by(NetworkRequirement.created_at.desc()).limit(4)))
         # Solo títulos publicados; nunca descripciones, documentos ni datos privados.
         titles = [r.title[:100] for r in reqs]
+    # Ambos canales comparten únicamente guías de especialidad
+    # aprobadas para esta organización. No comparten chats privados.
+    guides = list(db.scalars(select(FacebookTradeGuide).where(
+        FacebookTradeGuide.org_id == user.org_id,
+        FacebookTradeGuide.approved.is_(True),
+    ).order_by(FacebookTradeGuide.trade).limit(26)))
     cfg = settings()
     available = bool(cfg.galancito_ai_enabled and cfg.galancito_ai_api_key)
     # Datos de identidad/documentación involuntarios se mantienen locales.
@@ -108,6 +125,9 @@ def galancito_chat(body: ChatInput, user: User = Depends(authorized_user),
             "Contexto de área: " + body.area + ".\n" +
             ("Necesidades publicadas (títulos): " + "; ".join(titles) + "\n"
              if titles else "") +
+            ("Guías de oficios aprobadas (orientación, no habilitación):\n" +
+             "\n".join(g.trade[:80] + ": " + g.explanation[:140]
+                       for g in guides) + "\n" if guides else "") +
             "Consulta del usuario:\n" + text
         )
         try:
@@ -117,7 +137,7 @@ def galancito_chat(body: ChatInput, user: User = Depends(authorized_user),
         if generated:
             return {"name": "Galancito", "answer": generated,
                     "source": "ai", "read_only": True}
-    return {"name": "Galancito", "answer": _local_reply(text, body.area, titles),
+    return {"name": "Galancito", "answer": _local_reply(text, body.area, titles, guides),
             "source": "local", "read_only": True,
             "notice": ("Consulta tratada sin IA externa por posible dato privado."
                        if private_pattern and body.allow_external_ai else None)}
