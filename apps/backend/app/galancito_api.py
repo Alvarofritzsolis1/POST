@@ -102,6 +102,35 @@ def _local_reply(message: str, area: str, titles: list[str], guides: list[Facebo
 
 @router.get("/status")
 def galancito_status(user: User = Depends(authorized_user)):
+    cfg = settings()
+    available = galancito_red_ai_available(cfg)
+    return {"name": "Galancito",
+            "local_ai_available": available and cfg.galancito_ai_provider == "ollama",
+            "external_ai_available": available and cfg.galancito_ai_provider == "openai",
+            "scope": "red_obras",
+            "read_only": True}
+
+
+@router.post("/chat")
+def galancito_chat(body: ChatInput, user: User = Depends(authorized_user),
+                   db: Session = Depends(get_db)):
+    text = body.message.strip()
+    if not text:
+        raise HTTPException(422, "Ingresa una consulta")
+    # Los datos se obtienen solo del módulo Red de Obras de la organización.
+    titles: list[str] = []
+    if user.role in {"admin", "resident", "supervisor", "analyst", "administrative"}:
+        reqs = list(db.scalars(select(NetworkRequirement).where(
+            NetworkRequirement.org_id == user.org_id,
+            NetworkRequirement.state == "published",
+        ).order_by(NetworkRequirement.created_at.desc()).limit(4)))
+        titles = [r.title[:100] for r in reqs]
+    # Ambos canales comparten únicamente guías de especialidad
+    # aprobadas para esta organización. No comparten chats privados.
+    guides = list(db.scalars(select(FacebookTradeGuide).where(
+        FacebookTradeGuide.org_id == user.org_id,
+        FacebookTradeGuide.approved.is_(True),
+    ).order_by(FacebookTradeGuide.trade).limit(26)))
     # Indicadores globales de la organización, sin nombres ni datos privados.
     stats = {
         "needs": db.scalar(select(func.count(NetworkRequirement.id)).where(
@@ -141,35 +170,6 @@ def galancito_status(user: User = Depends(authorized_user)):
             FacebookLead.org_id == user.org_id,
             FacebookLead.follow_up_on <= today(),
             FacebookLead.status != "archived")) or 0
-    cfg = settings()
-    available = galancito_red_ai_available(cfg)
-    return {"name": "Galancito",
-            "local_ai_available": available and cfg.galancito_ai_provider == "ollama",
-            "external_ai_available": available and cfg.galancito_ai_provider == "openai",
-            "scope": "red_obras",
-            "read_only": True}
-
-
-@router.post("/chat")
-def galancito_chat(body: ChatInput, user: User = Depends(authorized_user),
-                   db: Session = Depends(get_db)):
-    text = body.message.strip()
-    if not text:
-        raise HTTPException(422, "Ingresa una consulta")
-    # Los datos se obtienen solo del módulo Red de Obras de la organización.
-    titles: list[str] = []
-    if user.role in {"admin", "resident", "supervisor", "analyst", "administrative"}:
-        reqs = list(db.scalars(select(NetworkRequirement).where(
-            NetworkRequirement.org_id == user.org_id,
-            NetworkRequirement.state == "published",
-        ).order_by(NetworkRequirement.created_at.desc()).limit(4)))
-        titles = [r.title[:100] for r in reqs]
-    # Ambos canales comparten únicamente guías de especialidad
-    # aprobadas para esta organización. No comparten chats privados.
-    guides = list(db.scalars(select(FacebookTradeGuide).where(
-        FacebookTradeGuide.org_id == user.org_id,
-        FacebookTradeGuide.approved.is_(True),
-    ).order_by(FacebookTradeGuide.trade).limit(26)))
     cfg = settings()
     available = galancito_red_ai_available(cfg)
     # Datos de identidad/documentación involuntarios se mantienen locales.
