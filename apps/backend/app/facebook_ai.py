@@ -4,6 +4,7 @@ from urllib.error import HTTPError, URLError
 from urllib.request import Request, urlopen
 
 from .config import settings
+from .galancito_local import generate_local_text
 
 ASSISTANT_NAME = "Galancito"
 
@@ -98,10 +99,34 @@ def _generate(instructions: str, supplied_data: str, max_chars: int,
     return text[:max_chars]
 
 
+def facebook_reply_ai_available(cfg=None) -> bool:
+    """Only Messenger reply generation; public ad writing is not local-model scope."""
+    cfg = cfg or settings()
+    if not cfg.facebook_ai_enabled:
+        return False
+    if cfg.facebook_ai_provider == "ollama":
+        return bool(cfg.galancito_local_ai_enabled)
+    return bool(cfg.facebook_ai_provider == "openai" and cfg.facebook_ai_api_key)
+
+
+def galancito_red_ai_available(cfg=None) -> bool:
+    cfg = cfg or settings()
+    if not cfg.galancito_ai_enabled:
+        return False
+    if cfg.galancito_ai_provider == "ollama":
+        return bool(cfg.galancito_local_ai_enabled)
+    return bool(cfg.galancito_ai_provider == "openai" and cfg.galancito_ai_api_key)
+
+
 def generate_text(instructions: str, supplied_data: str, max_chars: int = 1200) -> str | None:
-    """External Facebook Messenger or Page ad AI, governed by Facebook flags."""
+    """Facebook Messenger. Ollama is never used for ads or other GALANT modules."""
     cfg = settings()
-    if not (cfg.facebook_ai_enabled and cfg.facebook_ai_api_key):
+    if cfg.facebook_ai_provider == "ollama":
+        if instructions != REPLY_INSTRUCTIONS or not facebook_reply_ai_available(cfg):
+            return None
+        return generate_local_text(instructions, supplied_data, min(max_chars, 1200))
+    if not (cfg.facebook_ai_provider == "openai" and cfg.facebook_ai_enabled and
+            cfg.facebook_ai_api_key):
         return None
     return _generate(instructions, supplied_data, max_chars,
                      cfg.facebook_ai_model, cfg.facebook_ai_api_key)
@@ -109,9 +134,14 @@ def generate_text(instructions: str, supplied_data: str, max_chars: int = 1200) 
 
 def generate_internal_text(instructions: str, supplied_data: str,
                            max_chars: int = 900) -> str | None:
-    """Separate, opt-in GALANT user AI; never receives Messenger history."""
+    """Only Red de Obras advising; Messenger conversations are never included."""
     cfg = settings()
-    if not (cfg.galancito_ai_enabled and cfg.galancito_ai_api_key):
+    if cfg.galancito_ai_provider == "ollama":
+        if not galancito_red_ai_available(cfg):
+            return None
+        return generate_local_text(instructions, supplied_data, min(max_chars, 1200))
+    if not (cfg.galancito_ai_provider == "openai" and cfg.galancito_ai_enabled and
+            cfg.galancito_ai_api_key):
         return None
     return _generate(instructions, supplied_data, max_chars,
                      cfg.galancito_ai_model, cfg.galancito_ai_api_key)

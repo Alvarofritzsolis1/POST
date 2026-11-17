@@ -157,7 +157,8 @@ def process_next(session_factory=SessionLocal) -> bool:
 
     outcome_id, error, uncertain = None, None, False
     # Opt-in, solo desde datos comerciales públicos, sin demorar la transacción SQL.
-    if message and cfg.facebook_ai_ad_enabled and cfg.facebook_ai_enabled and cfg.facebook_ai_api_key:
+    if (message and cfg.facebook_ai_provider == "openai" and cfg.facebook_ai_ad_enabled
+            and cfg.facebook_ai_enabled and cfg.facebook_ai_api_key):
         try:
             message = generate_text(AD_INSTRUCTIONS, message, 1200) or message
         except RuntimeError:

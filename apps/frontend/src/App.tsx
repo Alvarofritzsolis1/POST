@@ -1427,7 +1427,7 @@ function App() {
               </section>
             </div>
           )}
-          <GalancitoWidget area={section === "network" ? "red_obras" : "galant"}/>
+          {section === "network" && <GalancitoWidget />}
           <footer className="footer">
             GALANT POST v{version} · {profile?.organization}
             <span>

@@ -12,11 +12,15 @@ def test_galancito_is_available_without_external_ai(network, monkeypatch):
     assert status.json()["name"] == "Galancito"
     assert status.json()["external_ai_available"] is False
     response = n["send"](n["admin"], "/galancito/chat",
-        {"message": "hola", "area": "galant", "allow_external_ai": False})
+        {"message": "hola", "area": "red_obras", "allow_external_ai": False})
     assert response.status_code == 200, response.text
     data = response.json()
     assert data["source"] == "local" and data["read_only"] is True
     assert "Galancito" in data["answer"]
+    # Galancito no se puede invocar para módulos ajenos a Red de Obras.
+    denied = n["send"](n["admin"], "/galancito/chat",
+        {"message": "hola", "area": "galant"})
+    assert denied.status_code == 422
     docs = n["send"](n["a"], "/galancito/chat",
         {"message": "qué papeles para entrar a obra", "area": "red_obras"})
     assert docs.status_code == 200, docs.text

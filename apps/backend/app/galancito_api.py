@@ -13,7 +13,7 @@ from sqlalchemy.orm import Session
 
 from .config import settings
 from .db import get_db
-from .facebook_ai import generate_internal_text
+from .facebook_ai import generate_internal_text, galancito_red_ai_available
 from .facebook_onboarding import onboarding_guide
 from .facebook_crm_models import FacebookTradeGuide
 from .network_service import key
@@ -41,7 +41,8 @@ Si desconoces el dato, dilo y sugiere revisión humana. Identifícate como Galan
 
 class ChatInput(BaseModel):
     message: str = Field(min_length=2, max_length=800)
-    area: Literal["galant", "red_obras"] = "galant"
+    # No acceso a módulos fuera de Red de Obras.
+    area: Literal["red_obras"] = "red_obras"
     allow_external_ai: bool = False
 
 
@@ -87,8 +88,11 @@ def _local_reply(message: str, area: str, titles: list[str], guides: list[Facebo
 @router.get("/status")
 def galancito_status(user: User = Depends(authorized_user)):
     cfg = settings()
+    available = galancito_red_ai_available(cfg)
     return {"name": "Galancito",
-            "external_ai_available": bool(cfg.galancito_ai_enabled and cfg.galancito_ai_api_key),
+            "local_ai_available": available and cfg.galancito_ai_provider == "ollama",
+            "external_ai_available": available and cfg.galancito_ai_provider == "openai",
+            "scope": "red_obras",
             "read_only": True}
 
 
@@ -98,15 +102,13 @@ def galancito_chat(body: ChatInput, user: User = Depends(authorized_user),
     text = body.message.strip()
     if not text:
         raise HTTPException(422, "Ingresa una consulta")
+    # Los datos se obtienen solo del módulo Red de Obras de la organización.
     titles: list[str] = []
-    if body.area == "red_obras" and user.role in {
-        "admin", "resident", "supervisor", "analyst", "administrative"
-    }:
+    if user.role in {"admin", "resident", "supervisor", "analyst", "administrative"}:
         reqs = list(db.scalars(select(NetworkRequirement).where(
             NetworkRequirement.org_id == user.org_id,
             NetworkRequirement.state == "published",
         ).order_by(NetworkRequirement.created_at.desc()).limit(4)))
-        # Solo títulos publicados; nunca descripciones, documentos ni datos privados.
         titles = [r.title[:100] for r in reqs]
     # Ambos canales comparten únicamente guías de especialidad
     # aprobadas para esta organización. No comparten chats privados.
@@ -115,12 +117,14 @@ def galancito_chat(body: ChatInput, user: User = Depends(authorized_user),
         FacebookTradeGuide.approved.is_(True),
     ).order_by(FacebookTradeGuide.trade).limit(26)))
     cfg = settings()
-    available = bool(cfg.galancito_ai_enabled and cfg.galancito_ai_api_key)
+    available = galancito_red_ai_available(cfg)
     # Datos de identidad/documentación involuntarios se mantienen locales.
     private_pattern = re.search(
         r"\b\d{1,2}[.]?\d{3}[.]?\d{3}-?[0-9kK]\b|"
         r"(?i:clave\s*unica|contrase(?:ña|na)|password)\s*[:=]", text)
-    if body.allow_external_ai and available and not private_pattern:
+    use_model = (available and not private_pattern and
+                 (cfg.galancito_ai_provider == "ollama" or body.allow_external_ai))
+    if use_model:
         context = (
             "Contexto de área: " + body.area + ".\n" +
             ("Necesidades publicadas (títulos): " + "; ".join(titles) + "\n"
@@ -140,4 +144,4 @@ def galancito_chat(body: ChatInput, user: User = Depends(authorized_user),
     return {"name": "Galancito", "answer": _local_reply(text, body.area, titles, guides),
             "source": "local", "read_only": True,
             "notice": ("Consulta tratada sin IA externa por posible dato privado."
-                       if private_pattern and body.allow_external_ai else None)}
+                       if private_pattern and available else None)}

@@ -13,7 +13,7 @@ from sqlalchemy import select
 
 from .config import settings
 from .db import SessionLocal
-from .facebook_ai import ASSISTANT_NAME, REPLY_INSTRUCTIONS, generate_text
+from .facebook_ai import ASSISTANT_NAME, REPLY_INSTRUCTIONS, generate_text, facebook_reply_ai_available
 from .galancito_flow import safe_ai_reply
 from .facebook_crm_models import FacebookLead, FacebookChatMessage, FacebookTradeGuide
 from .models import utcnow
@@ -88,7 +88,7 @@ def process_chat_next(session_factory=SessionLocal) -> bool:
             job.state, job.error = "cancelled", "El contacto no autorizó el procesamiento con IA"
             return True
         if job.state == "ai_pending" and not (
-            cfg.facebook_ai_enabled and cfg.facebook_ai_auto_reply_enabled and cfg.facebook_ai_api_key
+            cfg.facebook_ai_auto_reply_enabled and facebook_reply_ai_available(cfg)
         ):
             job.state, job.error = "cancelled", "El asistente automático está deshabilitado"
             return True
@@ -120,10 +120,18 @@ def process_chat_next(session_factory=SessionLocal) -> bool:
     result_id, problem = None, None
     try:
         if state == "ai_pending":
-            generated = generate_text(REPLY_INSTRUCTIONS, context, 550)
-            if not generated:
-                raise ValueError("IA no conectada")
-            body = safe_ai_reply(generated)
+            try:
+                generated = generate_text(REPLY_INSTRUCTIONS, context, 550)
+            except (RuntimeError, ValueError):
+                generated = None
+            if generated:
+                body = safe_ai_reply(generated)
+            else:
+                # Si Ollama está saturado o apagado, Messenger continúa
+                # funcionando y la persona puede recibir apoyo humano.
+                body = ("Soy Galancito, asistente virtual de GALANT. "
+                        "Ahora no puedo responder bien. Una persona de nuestro equipo "
+                        "puede ayudarte. ¿Qué trabajo haces?")
         result_id = graph_send(cfg.facebook_page_id, psid, body, cfg.facebook_page_token)
     except HTTPError as exc:
         problem = "Meta rechazó el mensaje (HTTP " + str(exc.code) + ")."
