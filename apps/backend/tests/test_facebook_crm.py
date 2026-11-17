@@ -308,3 +308,79 @@ def test_galancito_revocation_halts_ai_after_prior_consent(network, monkeypatch)
     assert lead["needs_support"] is True
     messages = n["admin"].get("/api/v1/network/facebook/leads/" + lead["id"]).json()["messages"]
     assert not any(m["state"] == "ai_pending" for m in messages)
+
+
+def test_messenger_meta_rejection_preserves_codes_not_private_fields(network, monkeypatch):
+    """Meta 401 ya no se reduce a HTTP 401; conserva solo información segura."""
+    from io import BytesIO
+    from urllib.error import HTTPError
+    from app.facebook_chat_worker import meta_messenger_error
+
+    secret = "SUPER-PRIVATE-TOKEN-MUST-NEVER-BE-SAVED"
+    payload = {"error": {
+        "code": 200, "error_subcode": 2018001,
+        "fbtrace_id": "Aa_bb-0123",
+        "message": "Denied: token=" + secret + " sender=123456789012345",
+        "error_user_msg": "Private message with " + secret,
+    }}
+    exc = HTTPError("https://graph.facebook.com/v27.0/secret?access_token=" + secret,
+                    401, "Unauthorized", {},
+                    BytesIO(json.dumps(payload).encode("utf-8")))
+    formatted = meta_messenger_error(exc)
+    assert "HTTP 401" in formatted
+    assert "código Meta 200" in formatted
+    assert "subcódigo 2018001" in formatted
+    assert "Aa_bb-0123" in formatted
+    assert "pages_messaging" in formatted
+    assert secret not in formatted and "sender=123" not in formatted
+    assert "graph.facebook.com" not in formatted
+    assert "Private message" not in formatted
+
+    unknown = HTTPError("https://example.invalid/private", 401,
+                        "Unauthorized", {}, BytesIO(b"not json"))
+    safe = meta_messenger_error(unknown)
+    assert "HTTP 401" in safe and "autorización" in safe.lower()
+    assert "example.invalid" not in safe
+
+
+def test_messenger_failed_delivery_is_visible_without_replaying(network, monkeypatch):
+    """La IA puede estar activa pero el último mensaje no está entregado."""
+    from io import BytesIO
+    from urllib.error import HTTPError
+
+    n = network
+    enable_messaging(n, monkeypatch)
+    assert incoming(n, text="Hola", mid="messenger-error-1").status_code == 200
+    lead_id = n["admin"].get("/api/v1/network/facebook/center").json()["leads"][0]["id"]
+    reply = n["send"](n["admin"], "/facebook/leads/" + lead_id + "/reply",
+                      {"message": "Hola, ¿en qué puedo ayudarte?"})
+    assert reply.status_code == 202
+    calls = []
+
+    def deny(*args):
+        calls.append(1)
+        raise HTTPError("https://graph.facebook.com/v27.0/messages", 401, "Denied", {},
+                        BytesIO(json.dumps({"error": {"code": 200, "error_subcode": 2018001}}).encode()))
+
+    monkeypatch.setattr("app.facebook_chat_worker.graph_send", deny)
+    assert process_chat_next(n["Session"])
+    assert not process_chat_next(n["Session"])
+    assert len(calls) == 1
+    overview = n["admin"].get("/api/v1/network/facebook/center").json()
+    assert overview["messenger_delivery"]["state"] == "failed"
+    assert "código Meta 200" in overview["messenger_delivery"]["error"]
+    detail = n["admin"].get("/api/v1/network/facebook/leads/" + lead_id).json()
+    failed = detail["messages"][-1]
+    assert failed["state"] == "failed"
+    assert "subcódigo 2018001" in failed["error"]
+
+    # Un mensaje nuevo y confirmado limpia el estado global sin borrar el error histórico.
+    reply = n["send"](n["admin"], "/facebook/leads/" + lead_id + "/reply",
+                      {"message": "Nueva respuesta manual de prueba"})
+    assert reply.status_code == 202
+    monkeypatch.setattr("app.facebook_chat_worker.graph_send",
+                        lambda page, psid, msg, token: "mid-synthetic-recovered")
+    assert process_chat_next(n["Session"])
+    recovered = n["admin"].get("/api/v1/network/facebook/center").json()
+    assert recovered["messenger_delivery"]["state"] == "sent"
+    assert recovered["messenger_delivery"]["error"] is None

@@ -53,6 +53,53 @@ def graph_send(page_id: str, psid: str, message: str, token: str) -> str:
     return mid[:180]
 
 
+def meta_messenger_error(exc: HTTPError) -> str:
+    """Conservar solo códigos estructurados; jamás el texto libre o credenciales de Meta.
+
+    La respuesta puede contener URLs, PSID, tokens y parámetros privados.
+    El código, subcódigo y fbtrace_id seguro bastan para diagnóstico.
+    """
+    code, subcode, trace = None, None, None
+    try:
+        response = json.loads(exc.read(8192).decode("utf-8"))
+        details = response.get("error") if isinstance(response, dict) else None
+        if isinstance(details, dict):
+            raw_code = details.get("code")
+            raw_subcode = details.get("error_subcode")
+            if type(raw_code) is int and 0 < raw_code < 1000000:
+                code = raw_code
+            if type(raw_subcode) is int and 0 < raw_subcode < 10000000:
+                subcode = raw_subcode
+            raw_trace = details.get("fbtrace_id")
+            if isinstance(raw_trace, str) and re.fullmatch(r"[A-Za-z0-9_-]{1,80}", raw_trace):
+                trace = raw_trace
+    except (OSError, UnicodeError, ValueError, TypeError):
+        pass
+    status = exc.code if type(exc.code) is int and 100 <= exc.code <= 599 else 0
+    markers = [f"HTTP {status}"]
+    if code is not None:
+        markers.append(f"código Meta {code}")
+    if subcode is not None:
+        markers.append(f"subcódigo {subcode}")
+    if trace:
+        markers.append("referencia " + trace)
+    if code in {190, 102}:
+        hint = "Token rechazado. Renueva el token de página en el VPS y reinicia facebook-publisher."
+    elif code in {10, 200, 230, 283}:
+        hint = ("Permiso de Messenger denegado. Revisa pages_messaging, el acceso MESSAGING "
+                "a la página, los roles de prueba y App Review de Meta.")
+    elif code in {551, 613}:
+        hint = ("Meta no permite entregar este mensaje. Revisa la disponibilidad del destinatario "
+                "y las restricciones de mensajería de la página.")
+    elif status == 401:
+        hint = ("Meta rechazó la autorización de envío. Comprueba pages_messaging, "
+                "rol MESSAGING del token, destinatario y estado de la aplicación.")
+    else:
+        hint = ("Meta rechazó el envío. Comprueba los permisos de Messenger, "
+                "la suscripción de página y la ventana de respuesta.")
+    return "Meta rechazó el mensaje (" + " · ".join(markers) + "). " + hint
+
+
 def _within_24h(lead: FacebookLead) -> bool:
     incoming = lead.last_inbound_at
     if incoming and incoming.tzinfo is None:
@@ -183,7 +230,7 @@ def process_chat_next(session_factory=SessionLocal) -> bool:
                 return True
         result_id = graph_send(cfg.facebook_page_id, psid, body, cfg.facebook_page_token)
     except HTTPError as exc:
-        problem = "Meta rechazó el mensaje (HTTP " + str(exc.code) + ")."
+        problem = meta_messenger_error(exc)
     except (URLError, TimeoutError, OSError, RuntimeError, ValueError) as exc:
         problem = "No se confirmó el envío (" + type(exc).__name__ + "). Verifica Messenger."
         uncertain = isinstance(exc, (URLError, TimeoutError, OSError))

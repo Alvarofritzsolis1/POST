@@ -198,3 +198,19 @@
 [data-theme="dark"] .fbc-connected { background:#173c31; color:#bcf7d6; border-color:#376d53; }
 [data-theme="dark"] .fbc-token-alert small { color:#ffdfb2; }
 @media (max-width:650px) { .fbc-state-row .fbc-verify-btn { margin-left:0; width:100%; justify-content:center; } }
+
+
+/* La identidad verificada y la autorización para responder son estados independientes. */
+.fbc-messenger-alert {
+  display: flex; align-items: flex-start; flex-wrap: wrap; gap: 10px;
+  border: 1px solid #f0be82; background: #fff7ed; color: #92400e;
+  border-radius: 11px; padding: 12px 14px;
+}
+.fbc-messenger-alert > svg { flex: none; margin-top: 2px; }
+.fbc-messenger-alert > div { flex: 1; min-width: 200px; display: grid; gap: 5px; }
+.fbc-messenger-alert strong { font-size: 13px; }
+.fbc-messenger-alert p { margin: 0; overflow-wrap: anywhere; font-size: 12px; line-height: 1.5; }
+.fbc-messenger-alert small { font-size: 11px; line-height: 1.5; }
+.fbc-messenger-alert button { background: #fff; border-color: #e7b77e; }
+[data-theme="dark"] .fbc-messenger-alert { background: #452b18; border-color: #946339; color: #fed7aa; }
+[data-theme="dark"] .fbc-messenger-alert button { background: #492a18; border-color: #946339; }

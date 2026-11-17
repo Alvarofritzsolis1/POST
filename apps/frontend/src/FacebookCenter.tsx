@@ -31,6 +31,7 @@ type Center = {
   automatic_enabled: boolean; manual_enabled?: boolean; messaging_enabled: boolean; ai_enabled: boolean;
   auto_reply_enabled: boolean; ai_provider?: string; page_id: string;
   connection?: { state: string; checked_at: string | null; error: string | null; page_name: string | null };
+  messenger_delivery?: { state: string; error: string | null; updated_at: string | null };
   pending_ads: Post[]; publications: Post[]; leads: Lead[];
   guides_approved: number;
   counts: { pending_ads: number; published_ads: number; failed_ads: number;
@@ -267,6 +268,8 @@ export default function FacebookCenter({ catalog }: { catalog: Catalog }) {
   const tokenInvalid = (lastFailedToken && !verifiedAfterFailure) || (failedCheck && failedCheckIsNewer);
   const checkingConnection = connection?.state === "pending" || connection?.state === "sending";
   const connectionVerified = connection?.state === "verified" && !tokenInvalid;
+  const messengerBlocked = center?.messenger_delivery?.state === "failed";
+  const messengerUncertain = center?.messenger_delivery?.state === "uncertain";
   return <div className="fbc">
     <header className="fbc-header">
       <div>
@@ -295,8 +298,10 @@ export default function FacebookCenter({ catalog }: { catalog: Catalog }) {
           tokenInvalid ? "Conexión por revisar" :
           center?.automatic_enabled ? "Publicador habilitado · sin verificar" : "Publicador desactivado"}
       </span>
-      <span className={center?.ai_enabled && center?.auto_reply_enabled ? "good" : "warning"}>
-        <Bot size={15} /> {center?.ai_enabled && center?.auto_reply_enabled ? "Galancito activo" : "Galancito requiere revisión"}
+      <span className={messengerBlocked || messengerUncertain || !(center?.ai_enabled && center?.auto_reply_enabled) ? "warning" : "good"}>
+        <Bot size={15} /> {messengerBlocked ? "Galancito · envío rechazado" :
+          messengerUncertain ? "Messenger sin confirmar" :
+          center?.ai_enabled && center?.auto_reply_enabled ? "Galancito activo" : "Galancito requiere revisión"}
       </span>
       <button type="button" className="nw-btn fbc-verify-btn" disabled={!!saving || checkingConnection || !(center?.automatic_enabled || center?.manual_enabled)}
         onClick={() => void mutate("verify-connection", () => change("/facebook/tests/verify", {}),
@@ -312,6 +317,15 @@ export default function FacebookCenter({ catalog }: { catalog: Catalog }) {
         <small>Si la comprobación confirma el error 190, reemplaza FACEBOOK_PAGE_TOKEN en el VPS.</small>
       </span>
       <button type="button" className="nw-btn" onClick={() => setTab("testing")}>Ver detalles</button>
+    </div>}
+    {(messengerBlocked || messengerUncertain) && <div className="fbc-messenger-alert" role="alert">
+      <AlertTriangle size={18} />
+      <div>
+        <strong>{messengerBlocked ? "Messenger rechazó la última respuesta" : "Messenger no confirmó la entrega"}</strong>
+        <p>{center?.messenger_delivery?.error || "Revisa los permisos de Messenger en Meta."}</p>
+        <small>La página verificada no garantiza envíos. No se reintentará automáticamente el mensaje fallido.</small>
+      </div>
+      <button type="button" className="nw-btn" onClick={() => setTab("inbox")}>Ver conversación</button>
     </div>}
     {connectionVerified && <p className="fbc-connected" role="status">
       <CheckCircle2 size={16} /> Token verificado para {connection?.page_name || "la página configurada"}.
