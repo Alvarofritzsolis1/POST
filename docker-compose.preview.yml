@@ -51,6 +51,10 @@ services:
       FACEBOOK_AI_AD_ENABLED: ${FACEBOOK_AI_AD_ENABLED:-false}
       FACEBOOK_AI_MODEL: ${FACEBOOK_AI_MODEL:-gpt-4.1-mini}
       FACEBOOK_AI_API_KEY: ${FACEBOOK_AI_API_KEY:-}
+      GALANCITO_AI_ENABLED: ${GALANCITO_AI_ENABLED:-false}
+      GALANCITO_AI_MODEL: ${GALANCITO_AI_MODEL:-gpt-4.1-mini}
+      GALANCITO_AI_API_KEY: ${GALANCITO_AI_API_KEY:-}
+
     volumes: ["./preview-storage:/data/private"]
     depends_on: {db: {condition: service_healthy}}
     networks: [internal]
