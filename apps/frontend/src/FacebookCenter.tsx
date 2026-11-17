@@ -30,6 +30,7 @@ type Post = { id: string; requirement_id: string; title: string; specialty: stri
 type Center = {
   automatic_enabled: boolean; messaging_enabled: boolean; ai_enabled: boolean;
   auto_reply_enabled: boolean; ai_provider?: string; page_id: string;
+  connection?: { state: string; checked_at: string | null; error: string | null; page_name: string | null };
   pending_ads: Post[]; publications: Post[]; leads: Lead[];
   guides_approved: number;
   counts: { pending_ads: number; published_ads: number; failed_ads: number;
@@ -102,6 +103,14 @@ export default function FacebookCenter({ catalog }: { catalog: Catalog }) {
     setSelectedId((prev) =>
       prev && current.leads.some((lead) => lead.id === prev) ? prev : (current.leads[0]?.id || ""));
   }, []);
+  // Estado fresco del worker; al finalizar la comprobación desaparece el estado pendiente.
+  useEffect(() => {
+    if (!["pending", "sending"].includes(center?.connection?.state || "")) return;
+    const timer = window.setInterval(() => {
+      if (!document.hidden) void refresh().catch(() => {});
+    }, 1500);
+    return () => window.clearInterval(timer);
+  }, [center?.connection?.state, refresh]);
   const refreshTracking = useCallback(async () => {
     const data = await net<Tracking>("/facebook/galancito/seguimiento");
     setTracking(data);
@@ -243,12 +252,21 @@ export default function FacebookCenter({ catalog }: { catalog: Catalog }) {
   const visible = center?.leads.filter((r) =>
     [r.name, r.company, r.specialty].some((x) => x.toLowerCase().includes(filter.toLowerCase()))) || [];
 
-  // Un error histórico no debe bloquear envíos si ya existe otro envío confirmado después.
+  // Nunca inferir validez en tiempo real de un error antiguo. Un GET verificado
+  // en el worker puede resolverlo sin borrar ni reintentar publicaciones históricas.
+  const connection = center?.connection;
   const lastResolvedPost = [...(center?.publications || [])]
     .filter((post) => post.state === "failed" || post.state === "published")
     .sort((a, b) => (b.updated_at || "").localeCompare(a.updated_at || ""))[0];
-  const tokenInvalid = lastResolvedPost?.state === "failed" &&
-    /190|token.*(?:invalid|expired|inv[aá]lido|vencid)/i.test(lastResolvedPost.error || "");
+  const tokenError = (value?: string | null) => /c[oó]digo Meta 190|HTTP 400.*190|token.*(?:invalid|expired|inv[aá]lido|vencid)/i.test(value || "");
+  const verifiedAfterFailure = connection?.state === "verified" &&
+    (connection.checked_at || "") >= (lastResolvedPost?.updated_at || "");
+  const lastFailedToken = lastResolvedPost?.state === "failed" && tokenError(lastResolvedPost.error);
+  const failedCheck = connection?.state === "failed";
+  const failedCheckIsNewer = failedCheck && (connection?.checked_at || "") >= (lastResolvedPost?.updated_at || "");
+  const tokenInvalid = (lastFailedToken && !verifiedAfterFailure) || (failedCheck && failedCheckIsNewer);
+  const checkingConnection = connection?.state === "pending" || connection?.state === "sending";
+  const connectionVerified = connection?.state === "verified" && !tokenInvalid;
   return <div className="fbc">
     <header className="fbc-header">
       <div>
@@ -271,18 +289,34 @@ export default function FacebookCenter({ catalog }: { catalog: Catalog }) {
       </div>)}
     </div>
     <div className="fbc-state-row">
-      <span className={tokenInvalid || !center?.automatic_enabled ? "warning" : "good"}>
-        <Facebook size={15} /> {tokenInvalid ? "Facebook requiere atención" : center?.automatic_enabled ? "Publicador habilitado" : "Publicador desactivado"}
+      <span className={connectionVerified ? "good" : "warning"}>
+        <Facebook size={15} /> {checkingConnection ? "Comprobando Facebook" :
+          connectionVerified ? "Página verificada" :
+          tokenInvalid ? "Conexión por revisar" :
+          center?.automatic_enabled ? "Publicador habilitado · sin verificar" : "Publicador desactivado"}
       </span>
       <span className={center?.ai_enabled && center?.auto_reply_enabled ? "good" : "warning"}>
         <Bot size={15} /> {center?.ai_enabled && center?.auto_reply_enabled ? "Galancito activo" : "Galancito requiere revisión"}
       </span>
+      <button type="button" className="nw-btn fbc-verify-btn" disabled={!!saving || checkingConnection || !center?.automatic_enabled}
+        onClick={() => void mutate("verify-connection", () => change("/facebook/tests/verify", {}),
+          "Comprobación solicitada. El resultado aparecerá automáticamente.")}>
+        <RefreshCcw size={15} /> {checkingConnection || saving === "verify-connection" ? "Comprobando..." : "Comprobar conexión"}
+      </button>
     </div>
     {tokenInvalid && <div className="fbc-alert fbc-token-alert" role="alert">
       <AlertTriangle size={18} />
-      <span>Facebook rechazó la conexión. Revisa el token de página antes de publicar.</span>
-      <button type="button" className="nw-btn" onClick={() => setTab("testing")}>Revisar conexión</button>
+      <span>{failedCheckIsNewer
+        ? "No se pudo verificar Facebook. " + (connection?.error || "Revisa el token del publicador.")
+        : "El último anuncio falló por un token inválido. Comprueba la conexión antes de reintentar."}
+        <small>Si la comprobación confirma el error 190, reemplaza FACEBOOK_PAGE_TOKEN en el VPS.</small>
+      </span>
+      <button type="button" className="nw-btn" onClick={() => setTab("testing")}>Ver detalles</button>
     </div>}
+    {connectionVerified && <p className="fbc-connected" role="status">
+      <CheckCircle2 size={16} /> Token verificado para {connection?.page_name || "la página configurada"}.
+      Esto comprueba la identidad, no garantiza el permiso para publicar.
+    </p>}
     {error && <p role="alert" className="fbc-error">{error}</p>}
     {notice && <p role="status" className="fbc-notice">{notice}</p>}
     <nav aria-label="Centro Facebook" className="fbc-tabs fbc-tabs-simple">
