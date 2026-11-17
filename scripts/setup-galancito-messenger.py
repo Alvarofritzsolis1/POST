@@ -259,7 +259,11 @@ def run() -> None:
         "FACEBOOK_ORG_ID": org_id,
         "FACEBOOK_WEBHOOK_VERIFY_TOKEN": verify_token,
         "FACEBOOK_MESSAGING_ENABLED": "true",
-        "FACEBOOK_AI_AUTO_REPLY_ENABLED": "false",  # empezar sin enviar mensajes automáticos
+        "FACEBOOK_AI_AUTO_REPLY_ENABLED": (
+            old.get("FACEBOOK_AI_AUTO_REPLY_ENABLED", "false")
+            if old.get("GALANCITO_LOCAL_AI_ENABLED", "false").lower() == "true"
+            and old.get("FACEBOOK_AI_PROVIDER") == "ollama" else "false"
+        ),
     })
     print("   ✓ Copia privada anterior: " + backup.name)
     compose("up", "-d", "--no-deps", "--force-recreate", "api", "facebook-publisher")
@@ -290,19 +294,9 @@ def run() -> None:
 
     print("\n✓ Meta está enlazado a GALANT para mensajes nuevos.")
     print("Para probar Galancito, escribe desde un usuario de prueba autorizado en Meta.")
-    print("La IA automática sigue apagada hasta configurar una clave y elegir activarla.")
-    key = old.get("FACEBOOK_AI_API_KEY", "")
-    if yes("¿Quieres activar respuestas automáticas con IA (API de OpenAI con costo)?"):
-        key = prompt_value("tu clave privada de OpenAI", key, secret=True)
-        if len(key) < 20:
-            raise SetupError("Falta clave OpenAI; la respuesta automática no se activó")
-        write_env_atomically(ENV_FILE, {
-            "FACEBOOK_AI_API_KEY": key,
-            "FACEBOOK_AI_ENABLED": "true",
-            "FACEBOOK_AI_AUTO_REPLY_ENABLED": "true",
-        })
-        compose("up", "-d", "--no-deps", "--force-recreate", "api", "facebook-publisher")
-        print("   ✓ Galancito activado. Solicita permiso antes de usar IA con una persona.")
+    print("Para activar Galancito con IA gratuita en tu VPS, ejecuta:")
+    print("  sudo python3 scripts/setup-galancito-local.py")
+    print("No se requiere ninguna clave de OpenAI ni hay costo por mensaje de API.")
     print("\nLa autorización para el público general depende de los permisos y App Review de Meta.")
     print("Los contactos antiguos no se importan automáticamente.\n")
 
