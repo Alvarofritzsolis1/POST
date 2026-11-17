@@ -4,6 +4,7 @@ No user's private Messenger content is sent to an external AI before clear conse
 Text parsing is intentionally narrow to avoid treating casual phrases as permission.
 """
 import unicodedata
+import re
 
 ASSISTANT_NAME = "Galancito"
 AI_PERMISSION_QUESTION = (
@@ -51,3 +52,20 @@ def galancito_prefix(message: str) -> str:
     if "galancito" not in line.lower():
         return ("Soy Galancito, asistente virtual de GALANT. " + line)[:650]
     return line[:650]
+
+
+def safe_ai_reply(draft: str) -> str:
+    """Reject unsafe external output before it reaches a contractor in Messenger."""
+    clean = draft.strip()[:550]
+    normalized = _plain(clean)
+    forbidden = (
+        r"(envia|manda|adjunta|sube|entrega)(me|nos)? (tu |una |el |la )?"
+        r"(rut|cedula|contrasena|clave unica|documento de identidad)",
+        r"(ya estas contratado|te contratamos|ya estas habilitado|te adjudicamos)",
+        r"(paga primero|paga una comision|depositame)",
+    )
+    if not clean or clean.count("?") > 1 or any(re.search(p, normalized) for p in forbidden):
+        return ("Soy Galancito, asistente virtual de GALANT. "
+                "Para revisar esos datos te puede orientar una persona. "
+                "¿Qué trabajo haces?")
+    return galancito_prefix(clean)
