@@ -162,3 +162,93 @@ def test_validation_does_not_allow_false_contact_or_bad_dates(network):
     ad = _ad(n)
     ad["site_id"] = "nonexistent"
     assert n["send"](n["admin"], ROOT + "/preview", ad).status_code == 422
+
+
+def test_automatic_channel_can_verify_without_enabling_manual_posts(network, monkeypatch):
+    """Una verificación GET es segura y funciona sin permitir anuncios de prueba."""
+    n = network
+    _enable(monkeypatch)
+    monkeypatch.setenv("FACEBOOK_MANUAL_TESTING_ENABLED", "false")
+    monkeypatch.setenv("FACEBOOK_AUTOPUBLISH_ENABLED", "true")
+    settings.cache_clear()
+    calls = []
+
+    def graph(method, path, token, message=None):
+        calls.append((method, path))
+        assert method == "GET" and message is None
+        assert path == "/" + PAGE_ID
+        return {"id": PAGE_ID, "name": "Página de pruebas sintética"}
+
+    monkeypatch.setattr("app.network_facebook.graph_request", graph)
+    queued = n["send"](n["admin"], ROOT + "/verify", {})
+    assert queued.status_code == 202, queued.text
+    assert queued.json()["state"] == "pending"
+    assert n["send"](n["a"], ROOT + "/verify", {}).status_code == 403
+    assert process_manual_next(n["Session"])
+    assert not process_manual_next(n["Session"])
+    assert calls == [("GET", "/" + PAGE_ID)]
+
+    status = n["admin"].get("/api/v1/network/facebook/center").json()
+    assert status["connection"]["state"] == "verified"
+    assert status["connection"]["page_name"] == "Página de pruebas sintética"
+    assert status["connection"]["checked_at"]
+    assert "FACEBOOK_PAGE_TOKEN" not in str(status)
+    tests = n["admin"].get("/api/v1/network/facebook/tests").json()
+    assert tests["verification"]["state"] == "verified"
+    assert tests["verified_page_name"] == "Página de pruebas sintética"
+    assert not tests["manual_enabled"] and tests["automatic_enabled"]
+    ad = _ad(n)
+    preview = n["send"](n["admin"], ROOT + "/preview", ad).json()
+    assert n["send"](n["admin"], ROOT + "/publish", {
+        "ad": ad, "preview_hash": preview["preview_hash"],
+        "confirmation": "PUBLICAR PRUEBA", "client_key": str(uuid4()),
+    }).status_code == 409
+
+
+def test_token_error_190_is_reported_and_can_be_reverified(network, monkeypatch):
+    """El error 190 no se confunde con un token activo después de una verificación."""
+    import io
+    import json
+    from urllib.error import HTTPError
+
+    n = network
+    _enable(monkeypatch)
+    monkeypatch.setenv("FACEBOOK_MANUAL_TESTING_ENABLED", "false")
+    monkeypatch.setenv("FACEBOOK_AUTOPUBLISH_ENABLED", "true")
+    settings.cache_clear()
+
+    def expired(method, path, token, message=None):
+        raise HTTPError("https://graph.facebook.com/", 400, "Bad Request", {},
+                        io.BytesIO(json.dumps({"error": {"code": 190, "error_subcode": 463}}).encode()))
+
+    monkeypatch.setattr("app.network_facebook.graph_request", expired)
+    assert n["send"](n["admin"], ROOT + "/verify", {}).status_code == 202
+    assert process_manual_next(n["Session"])
+    failed = n["admin"].get("/api/v1/network/facebook/center").json()["connection"]
+    assert failed["state"] == "failed"
+    assert "190" in failed["error"] and "463" in failed["error"]
+    assert "token_sintetico" not in str(failed)
+
+    monkeypatch.setattr("app.network_facebook.graph_request",
+                        lambda method, path, token, message=None: {"id": PAGE_ID, "name": "Página recuperada"})
+    assert n["send"](n["admin"], ROOT + "/verify", {}).status_code == 202
+    assert process_manual_next(n["Session"])
+    verified = n["admin"].get("/api/v1/network/facebook/center").json()["connection"]
+    assert verified["state"] == "verified"
+    assert verified["error"] is None
+    assert verified["page_name"] == "Página recuperada"
+
+
+def test_missing_worker_token_fails_verification_without_secrets(network, monkeypatch):
+    n = network
+    _enable(monkeypatch)
+    monkeypatch.setenv("FACEBOOK_MANUAL_TESTING_ENABLED", "false")
+    monkeypatch.setenv("FACEBOOK_AUTOPUBLISH_ENABLED", "true")
+    monkeypatch.setenv("FACEBOOK_PAGE_TOKEN", "")
+    settings.cache_clear()
+    assert n["send"](n["admin"], ROOT + "/verify", {}).status_code == 202
+    assert process_manual_next(n["Session"])
+    data = n["admin"].get("/api/v1/network/facebook/center").json()["connection"]
+    assert data["state"] == "failed"
+    assert "FACEBOOK_PAGE_TOKEN" in data["error"]
+    assert not process_manual_next(n["Session"])
