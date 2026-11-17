@@ -387,7 +387,7 @@ def galancito_seguimiento(user: User = Depends(administrator),
     if by_id:
         msgs = db.scalars(select(FacebookChatMessage).where(
             FacebookChatMessage.org_id == user.org_id,
-            FacebookChatMessage.lead_id.in_(by_id),
+            FacebookChatMessage.lead_id.in_(list(by_id)),
             FacebookChatMessage.direction == "inbound",
         ).order_by(FacebookChatMessage.created_at.desc()).limit(1000))
         for msg in msgs:
@@ -654,8 +654,9 @@ def suggest_ad(requirement_id: str, user: User = Depends(administrator),
         opening = opening.replace("\n", " ").strip(" \"'")
         banned = r"\d|https?://|@|\b(sueldo|bono|contratamos|garantizado|requisitos?)\b"
         if (not re.search(banned, key(opening)) and
-                key(req.specialty) in key(opening) and len(opening) <= 100):
-            return {"draft": (opening + "\n\n" + original)[:1200],
+                key(req.specialty) in key(opening) and len(opening) <= 100 and
+                len(opening) + len(original) + 2 <= 1200):
+            return {"draft": opening + "\n\n" + original,
                     "source": "ia_local", "requires_review": True,
                     "published": False}
     return {"draft": original, "source": "template",
