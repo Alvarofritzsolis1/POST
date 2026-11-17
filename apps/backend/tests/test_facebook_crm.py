@@ -74,9 +74,15 @@ def test_webhook_requires_signed_meta_event_and_deduplicates(network, monkeypatc
 def test_trade_guide_explains_documents_without_requiring_formality(network, monkeypatch):
     n = network
     enable_messaging(n, monkeypatch)
+    # Galancito solicita permiso por Messenger; un administrador no puede inventarlo.
+    monkeypatch.setenv("FACEBOOK_AI_ENABLED", "true")
+    monkeypatch.setenv("FACEBOOK_AI_AUTO_REPLY_ENABLED", "true")
+    monkeypatch.setenv("FACEBOOK_AI_API_KEY", "synthetic-key-never-used")
+    settings.cache_clear()
     assert incoming(n).status_code == 200
     leads = n["admin"].get("/api/v1/network/facebook/center").json()["leads"]
     lead_id = leads[0]["id"]
+    assert leads[0]["ai_consent_state"] == "requested"
     guide = {"trade": "Gasfitería", "aliases": ["gasfiter", "maestro sanitario"],
              "explanation": "Repara tuberías y desagües.",
              "document_guidance": ["Mutualidad: protección ante accidentes en obra, confirmar según contrato."],
@@ -108,9 +114,13 @@ def test_trade_guide_explains_documents_without_requiring_formality(network, mon
         assert "una sola pregunta" in instructions.lower() or "UNA sola pregunta" in instructions
         return "Hola maestro, soy el asistente virtual. ¿Cuándo puedes empezar?"
     monkeypatch.setattr("app.facebook_crm.generate_text", fake_ai)
-    consent = n["send"](n["admin"], "/facebook/leads/" + lead_id,
+    forged = n["send"](n["admin"], "/facebook/leads/" + lead_id,
         {"ai_consent": True}, "PATCH")
+    assert forged.status_code == 422
+    consent = incoming(n, text="sí", mid="mid-authorized")
     assert consent.status_code == 200
+    lead = n["admin"].get("/api/v1/network/facebook/leads/" + lead_id).json()["lead"]
+    assert lead["ai_consent"] is True and lead["ai_consent_state"] == "accepted"
     reply = n["send"](n["admin"], "/facebook/leads/" + lead_id + "/suggest")
     assert reply.status_code == 200
     assert reply.json()["source"] == "ai"
@@ -199,3 +209,72 @@ def test_bad_spelling_alone_does_not_trigger_support_alert(network, monkeypatch)
     assert incoming(n, text="ola soy gasfite tengo do ayudantes").status_code == 200
     lead = n["admin"].get("/api/v1/network/facebook/center").json()["leads"][0]
     assert lead["needs_support"] is False
+
+
+def test_galancito_conversation_auto_reply_only_after_messenger_consent(network, monkeypatch):
+    n = network
+    enable_messaging(n, monkeypatch)
+    monkeypatch.setenv("FACEBOOK_AI_AUTO_REPLY_ENABLED", "true")
+    monkeypatch.setenv("FACEBOOK_AI_ENABLED", "true")
+    monkeypatch.setenv("FACEBOOK_AI_API_KEY", "synthetic-key")
+    settings.cache_clear()
+    assert incoming(n, text="hola necesito trabajos", mid="first").status_code == 200
+    lead = n["admin"].get("/api/v1/network/facebook/center").json()["leads"][0]
+    assert lead["ai_consent"] is False and lead["ai_consent_state"] == "requested"
+    pending = n["admin"].get("/api/v1/network/facebook/leads/" + lead["id"]).json()["messages"]
+    assert len(pending) == 2
+    assert "Galancito" in pending[-1]["body"] and "autorizas" in pending[-1]["body"]
+    calls, ai_calls = [], []
+
+    def send_mock(page_id, psid, msg, token):
+        calls.append(msg)
+        return "mid-synthetic-" + str(len(calls))
+    def generate_mock(instructions, context, maximum):
+        ai_calls.append(context)
+        assert "Galancito" in instructions
+        return "¡Hola! ¿Qué oficio haces?"
+    monkeypatch.setattr("app.facebook_chat_worker.graph_send", send_mock)
+    monkeypatch.setattr("app.facebook_chat_worker.generate_text", generate_mock)
+    assert process_chat_next(n["Session"]) is True
+    assert len(calls) == 1 and not ai_calls
+    assert incoming(n, text="Sí", mid="consent-yes").status_code == 200
+    assert process_chat_next(n["Session"]) is True
+    assert len(calls) == 2 and len(ai_calls) == 1
+    assert calls[-1].startswith("Soy Galancito")
+    assert n["admin"].get("/api/v1/network/facebook/center").json()["leads"][0]["ai_consent_state"] == "accepted"
+    # Cuando responde una persona, el asistente deja de competir por la conversación.
+    reply = n["send"](n["admin"], "/facebook/leads/" + lead["id"] + "/reply",
+                      {"message": "Te atiendo yo desde ahora."})
+    assert reply.status_code == 202
+    status = n["admin"].get("/api/v1/network/facebook/leads/" + lead["id"]).json()["lead"]
+    assert status["ai_paused"] is True
+    assert incoming(n, text="tengo dos ayudantes", mid="later").status_code == 200
+    messages = n["admin"].get("/api/v1/network/facebook/leads/" + lead["id"]).json()["messages"]
+    assert not any(msg["state"] == "ai_pending" for msg in messages)
+
+
+def test_galancito_respects_refusal_without_external_ai(network, monkeypatch):
+    n = network
+    enable_messaging(n, monkeypatch)
+    monkeypatch.setenv("FACEBOOK_AI_AUTO_REPLY_ENABLED", "true")
+    monkeypatch.setenv("FACEBOOK_AI_ENABLED", "true")
+    monkeypatch.setenv("FACEBOOK_AI_API_KEY", "synthetic-key")
+    settings.cache_clear()
+    assert incoming(n, text="Hola, soy maestro", mid="intro").status_code == 200
+    assert incoming(n, text="no", mid="declined").status_code == 200
+    lead = n["admin"].get("/api/v1/network/facebook/center").json()["leads"][0]
+    assert lead["ai_consent_state"] == "declined" and lead["ai_consent"] is False
+    assert lead["needs_support"] is True
+    msgs = n["admin"].get("/api/v1/network/facebook/leads/" + lead["id"]).json()["messages"]
+    assert not any(m["state"] == "ai_pending" for m in msgs)
+    assert any("una persona" in m["body"].lower() for m in msgs if m["direction"] == "outbound")
+
+
+def test_galancito_opt_in_parser_is_deliberately_narrow():
+    from app.galancito_flow import consent_decision, galancito_prefix
+    assert consent_decision("sí") is True
+    assert consent_decision("autorizo") is True
+    assert consent_decision("NO") is False
+    assert consent_decision("prefiero persona") is False
+    assert consent_decision("si puedo trabajar mañana") is None
+    assert "Galancito" in galancito_prefix("¿Qué oficio haces?")
