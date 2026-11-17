@@ -76,7 +76,7 @@ import "./network.css";
 const IneHistory = lazy(() => import("./Ine"));
 
 const tabs = [
-  ["home", "Resumen", LayoutDashboard],
+  ["home", "Feed", LayoutDashboard],
   ["requirements", "Necesidades", Building2],
   ["capacities", "Disponibles", Users],
   ["matches", "Seguimiento", Sparkles],
@@ -582,7 +582,7 @@ export default function RedDeObras({ user }: { user: Profile }) {
             Solicita apoyo, comparte contratistas y coordina necesidades entre obras.
           </p>
         </div>
-        {canPublish && (
+        {canPublish && tab !== "home" && (
           <div className="nw-row nw-wrap">
             <button
               className="nw-btn"
@@ -620,6 +620,32 @@ export default function RedDeObras({ user }: { user: Profile }) {
           </button>
         ))}
       </nav>
+      {tab === "home" && canPublish && (
+        <section className="nw-publish-hub" aria-label="Publicación rápida">
+          <div className="nw-publish-hub-heading">
+            <strong>¿Qué necesitas hacer?</strong>
+            <span>Publica en pocos pasos</span>
+          </div>
+          <div className="nw-publish-choices">
+            <button type="button" className="nw-publish-choice nw-publish-need" onClick={() => {
+              setSelectedReq(null);
+              setPanel("request-form");
+            }}>
+              <span className="nw-publish-choice-icon"><Plus size={22} /></span>
+              <span><b>Necesito contratista</b><small>Publicar una necesidad</small></span>
+              <ArrowRight size={18} />
+            </button>
+            <button type="button" className="nw-publish-choice nw-publish-available" onClick={() => {
+              setSelectedCap(null);
+              setPanel("capacity-form");
+            }}>
+              <span className="nw-publish-choice-icon"><Users size={22} /></span>
+              <span><b>Tengo contratista disponible</b><small>Compartir disponibilidad</small></span>
+              <ArrowRight size={18} />
+            </button>
+          </div>
+        </section>
+      )}
       {["matches", "awards", "messages", "calendar"].includes(tab) && (
         <nav className="nw-tracking-tabs" aria-label="Seguimiento de las necesidades">
           {trackingTabs.map(([id, label, Icon]) => (
@@ -668,7 +694,7 @@ export default function RedDeObras({ user }: { user: Profile }) {
             ))}
           </select>
         </label>
-        {["requirements", "capacities"].includes(tab) && (
+        {["home", "requirements", "capacities"].includes(tab) && (
           <label className="nw-search">
             <Search size={16} />
             <input
@@ -776,58 +802,23 @@ export default function RedDeObras({ user }: { user: Profile }) {
       )}
       {tab === "home" && overview && (
         <>
-          <div className="nw-kpis">
-            {(
-              [
-                [
-                  "requirements",
-                  "Requerimientos abiertos",
-                  overview.requirements,
-                  Building2,
-                ],
-                [
-                  "urgent",
-                  "Requerimientos prioritarios",
-                  overview.urgent,
-                  Clock3,
-                ],
-                [
-                  "capacities",
-                  "Contratistas con capacidad",
-                  overview.capacities,
-                  Users,
-                ],
-                [
-                  "messages",
-                  "Mensajes sin leer",
-                  overview.unread_messages,
-                  MessageSquare,
-                ],
-              ] as const
-            ).map(([destination, label, value, Icon]) => (
-              <button
-                className="nw-kpi"
-                key={label}
-                onClick={() => {
-                  if (destination === "urgent") {
-                    setPriority("attention");
-                    go("requirements");
-                  } else go(destination);
-                }}
-              >
-                <span>
-                  <Icon size={18} />
-                  {label}
-                </span>
-                <strong>{number(value)}</strong>
-                <small>
-                  Ver registros <ArrowRight size={13} />
-                </small>
-              </button>
-            ))}
+          <div className="nw-kpis nw-feed-kpis">
+            <button className="nw-kpi nw-feed-kpi nw-feed-kpi-blue" onClick={() => go("requirements")}>
+              <span><Building2 size={17} /> Necesidades</span>
+              <strong>{number(overview.requirements)}</strong>
+              {overview.urgent > 0 && <small>{number(overview.urgent)} urgentes</small>}
+            </button>
+            <button className="nw-kpi nw-feed-kpi nw-feed-kpi-green" onClick={() => go("capacities")}>
+              <span><Users size={17} /> Disponibles</span>
+              <strong>{number(overview.capacities)}</strong>
+            </button>
+            <button className="nw-kpi nw-feed-kpi nw-feed-kpi-amber" onClick={() => go("messages")}>
+              <span><MessageSquare size={17} /> Mensajes nuevos</span>
+              <strong>{number(overview.unread_messages)}</strong>
+            </button>
           </div>
           <div className="nw-section-title">
-            <h2>Necesidades que conectan obras</h2>
+            <h2>Necesidades recientes</h2>
             <button
               className="nw-text-button"
               onClick={() => go("requirements")}
@@ -836,7 +827,7 @@ export default function RedDeObras({ user }: { user: Profile }) {
             </button>
           </div>
           {reqs.rows.length ? (
-            <div className="nw-cards">{reqs.rows.slice(0, 6).map(reqCard)}</div>
+            <div className="nw-cards nw-feed-cards">{reqs.rows.slice(0, 6).map(reqCard)}</div>
           ) : (
             <Empty title="La red está lista para conectar tus obras">
               Publica el primer requerimiento o comparte la capacidad de un
