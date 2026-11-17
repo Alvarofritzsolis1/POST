@@ -190,7 +190,8 @@ def galancito_chat(body: ChatInput, user: User = Depends(authorized_user),
             "Área: Red de Obras.\n" +
             "Indicadores comprobables: " +
             "; ".join(name + "=" + str(value) for name, value in stats.items()) +
-            "\nNecesidades publicadas (títulos): " + "; ".join(titles) +
+            ("\nNecesidades publicadas (títulos): " + "; ".join(titles)
+             if titles else "") +
             "\nConsulta: " + text +
             ("\nGuías aprobadas orientativas, no habilitación:\n" +
              "\n".join(g.trade[:70] + ": " + g.explanation[:120]
