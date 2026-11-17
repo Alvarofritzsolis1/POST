@@ -187,3 +187,14 @@
   .fbc-ad { flex-direction: column; align-items: stretch; }
   .fbc-ad-actions { justify-content: flex-start; }
 }
+
+
+/* Facebook: comprobación segura sin exponer tokens ni confundir habilitado con verificado. */
+.fbc-state-row .fbc-verify-btn { margin-left:auto; display:inline-flex; align-items:center; gap:7px; padding:7px 11px; font-size:12px; }
+.fbc-token-alert > span { display:grid; gap:5px; }
+.fbc-token-alert small { color:#92541a; font-size:11px; font-weight:400; line-height:1.4; }
+.fbc-connected { display:flex; align-items:center; gap:8px; border:1px solid #a1d8bf; background:#effcf5; padding:9px 12px; border-radius:9px; color:#086443; font-size:12px; line-height:1.5; }
+.fbc-connected svg { flex:none; }
+[data-theme="dark"] .fbc-connected { background:#173c31; color:#bcf7d6; border-color:#376d53; }
+[data-theme="dark"] .fbc-token-alert small { color:#ffdfb2; }
+@media (max-width:650px) { .fbc-state-row .fbc-verify-btn { margin-left:0; width:100%; justify-content:center; } }

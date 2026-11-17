@@ -29,7 +29,7 @@ from .galancito_flow import (AI_PERMISSION_QUESTION, AI_PERMISSION_REASK,
 from .facebook_crm_models import FacebookLead, FacebookChatMessage, FacebookTradeGuide
 from .models import Organization, User, utcnow
 from .network_facebook import public_message
-from .network_models import NetworkFacebookPost, NetworkRequirement, NetworkNotification
+from .network_models import NetworkFacebookPost, NetworkFacebookManual, NetworkRequirement, NetworkNotification
 from .network_service import key, today
 from .galancito_triage import classify_lead, dashboard
 from .security import administrator
@@ -521,6 +521,20 @@ def center(user: User = Depends(administrator), db: Session = Depends(get_db)):
             publications.append(item)
             if row.state in ("pending", "sending", "failed", "uncertain"):
                 ads.append(item)
+    # Comprobación REAL del token por el worker, independiente del historial de posts.
+    # La API no recibe ni devuelve el Page Access Token.
+    verify = db.scalar(select(NetworkFacebookManual).where(
+        NetworkFacebookManual.org_id == user.org_id,
+        NetworkFacebookManual.page_id == cfg.facebook_page_id,
+        NetworkFacebookManual.action == "verify",
+    ).order_by(NetworkFacebookManual.updated_at.desc(),
+               NetworkFacebookManual.id.desc()).limit(1))
+    connection = {
+        "state": verify.state if verify else "unchecked",
+        "checked_at": verify.updated_at.isoformat() if verify else None,
+        "error": verify.last_error if verify else None,
+        "page_name": verify.page_name if verify and verify.state == "verified" else None,
+    }
     # Evitar mezclar el éxito confirmado por Meta con los envíos aún en cola.
     published_count = sum(item["state"] == "published" for item in publications)
     failed_count = sum(item["state"] == "failed" for item in publications)
@@ -528,12 +542,14 @@ def center(user: User = Depends(administrator), db: Session = Depends(get_db)):
         FacebookLead.org_id == user.org_id).order_by(
         FacebookLead.last_inbound_at.desc(), FacebookLead.id).limit(100)))
     return {"automatic_enabled": cfg.facebook_autopublish_enabled,
+            "manual_enabled": cfg.facebook_manual_testing_enabled,
             "messaging_enabled": cfg.facebook_messaging_enabled,
             "ai_enabled": facebook_reply_ai_available(cfg),
             "ai_provider": cfg.facebook_ai_provider if facebook_reply_ai_available(cfg) else "disabled",
             "auto_reply_enabled": cfg.facebook_ai_auto_reply_enabled,
             "page_id": cfg.facebook_page_id,
             "pending_ads": ads, "publications": publications,
+            "connection": connection,
             "leads": [_lead_view(db, lead) for lead in leads],
             "guides_approved": db.scalar(select(func.count(FacebookTradeGuide.id)).where(
                 FacebookTradeGuide.org_id == user.org_id,
