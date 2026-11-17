@@ -1,3 +1,12 @@
+## 20.7.2-rc1 — Conexión simplificada de Galancito a Meta Messenger
+- Instalador interactivo de una sola ejecución en el VPS: `sudo python3 scripts/setup-galancito-messenger.py`.
+- Genera token webhook privado, identifica automáticamente la organización, verifica el token de página ante Meta, configura solo los servicios afectados y confirma el callback HTTPS.
+- Registra por Graph API la suscripción al campo `messages` y activa la conexión de la página sin introducir el token de verificación manualmente.
+- Mantiene copias privadas y ediciones atómicas de `.env.preview`; no imprime secretos.
+- Ofrece activar difusión automática de necesidades seleccionadas y respuestas IA con confirmación expresa y clave privada.
+- Respeta los permisos de Meta y App Review; no los elude ni afirma éxito sin confirmación.
+- Pruebas unitarias sin credenciales externas para evitar fuga de secretos y modificaciones accidentales.
+
 ## 20.7.1-rc1 — Galancito: nombre único, orientación y respuestas automáticas controladas
 - Galancito aparece en GALANT y Red de Obras como asistente de orientación de solo lectura; no crea registros, no habilita contratistas ni adjudica.
 - La IA interna es opcional y requiere aceptación del usuario en la propia interfaz, con credenciales y salida HTTPS separadas.
