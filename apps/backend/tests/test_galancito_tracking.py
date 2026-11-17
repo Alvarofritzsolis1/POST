@@ -129,7 +129,7 @@ def test_local_ad_draft_grounded_in_real_requirement_not_auto_published(network,
     rid = made.json()["id"]
     monkeypatch.setenv("GALANCITO_LOCAL_AI_ENABLED", "true")
     settings.cache_clear()
-    monkeypatch.setattr("app.facebook_crm.generate_ad_opening",
+    monkeypatch.setattr("app.facebook_ai.generate_ad_opening",
                         lambda title, trade: "Buscamos especialistas en Carpintería")
     draft = n["send"](n["admin"], "/facebook/requirements/" + rid + "/ad-draft")
     assert draft.status_code == 200, draft.text
@@ -140,7 +140,7 @@ def test_local_ad_draft_grounded_in_real_requirement_not_auto_published(network,
     assert draft.json()["published"] is False
     assert draft.json()["requires_review"] is True
     unsafe = lambda title, trade: "Carpintería, sueldo $999999 asegurado"
-    monkeypatch.setattr("app.facebook_crm.generate_ad_opening", unsafe)
+    monkeypatch.setattr("app.facebook_ai.generate_ad_opening", unsafe)
     rejected = n["send"](n["admin"], "/facebook/requirements/" + rid + "/ad-draft")
     assert rejected.status_code == 200 and rejected.json()["source"] == "template"
     assert "$999999" not in rejected.json()["draft"]
