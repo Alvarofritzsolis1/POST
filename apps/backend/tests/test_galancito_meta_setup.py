@@ -70,6 +70,10 @@ def test_meta_graph_uses_header_token_not_url(monkeypatch):
     assert parse_qs(req.data.decode()) == {"subscribed_fields": ["messages"]}
     with pytest.raises(setup.SetupError):
         setup.graph("POST", "/1234567890/feed", "secret-page-token", {})
+    assert setup.graph("GET", "/me", "secret-page-token", {"fields": "id,name"}) == {"success": True}
+    with pytest.raises(setup.SetupError):
+        setup.graph("POST", "/me", "secret-page-token", {})
+
 
 
 def test_local_webhook_verification_matches_meta_protocol(monkeypatch):
