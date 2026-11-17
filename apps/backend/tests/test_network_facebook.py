@@ -145,3 +145,53 @@ def test_facebook_can_be_disabled_on_an_existing_post(network, monkeypatch):
         ("POST", "/1489275590928529/feed"),
         ("DELETE", "/1489275590928529_445566"),
     ]
+
+
+def test_galancito_local_writes_only_hook_for_selected_automatic_ad(network, monkeypatch):
+    n = network
+    _enable(monkeypatch)
+    monkeypatch.setenv("FACEBOOK_AI_PROVIDER", "ollama")
+    monkeypatch.setenv("GALANCITO_LOCAL_AI_ENABLED", "true")
+    monkeypatch.setenv("FACEBOOK_AI_AD_ENABLED", "true")
+    settings.cache_clear()
+    body = request_body(n)
+    body["publish_to_facebook"] = True
+    made = n["send"](n["a"], "/requirements", body)
+    assert made.status_code == 201, made.text
+    calls, generated = [], []
+    monkeypatch.setattr("app.facebook_ai.generate_ad_opening",
+                        lambda title, trade: generated.append((title, trade)) or
+                        "Buscamos especialistas en " + trade)
+    def send(method, path, token, message=None):
+        calls.append(message or "")
+        return {"id": "1489275590928529_909090"} if method == "POST" and path.endswith("/feed") else {"success": True}
+    monkeypatch.setattr("app.network_facebook.graph_request", send)
+    assert process_next(n["Session"]) is True
+    assert len(generated) == 1 and len(calls) == 1
+    assert calls[0].startswith("Buscamos especialistas en")
+    assert "Dotación estimada:" in calls[0]
+    assert "Inicio estimado:" in calls[0]
+    assert "Convocatoria sujeta a evaluación" in calls[0]
+    settings.cache_clear()
+
+
+def test_galancito_local_auto_ad_falls_back_without_hallucinations(network, monkeypatch):
+    n = network
+    _enable(monkeypatch)
+    monkeypatch.setenv("FACEBOOK_AI_PROVIDER", "ollama")
+    monkeypatch.setenv("GALANCITO_LOCAL_AI_ENABLED", "true")
+    monkeypatch.setenv("FACEBOOK_AI_AD_ENABLED", "true")
+    settings.cache_clear()
+    body = request_body(n)
+    body["publish_to_facebook"] = True
+    assert n["send"](n["a"], "/requirements", body).status_code == 201
+    monkeypatch.setattr("app.facebook_ai.generate_ad_opening",
+                        lambda *_: "Carpintería con sueldo garantizado $2000000")
+    content = []
+    monkeypatch.setattr("app.network_facebook.graph_request",
+                        lambda method, path, token, msg=None:
+                        content.append(msg or "") or {"id": "1489275590928529_737373"})
+    assert process_next(n["Session"]) is True
+    assert content[0].startswith("CONVOCATORIA PARA EMPRESAS CONTRATISTAS")
+    assert "$2000000" not in content[0]
+    settings.cache_clear()

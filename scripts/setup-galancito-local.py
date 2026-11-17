@@ -96,6 +96,8 @@ def install() -> None:
 
     fb = (input("¿Activar respuestas automáticas locales en Messenger? [s/N]: ")
           .strip().lower() in {"s", "si", "sí"})
+    ads = (input("¿Agregar textos de Galancito a anuncios automáticos de Red de Obras? [s/N]: ")
+           .strip().lower() in {"s", "si", "sí"})
     changes = {
         "GALANCITO_LOCAL_AI_ENABLED": "true",
         "GALANCITO_AI_PROVIDER": "ollama",
@@ -103,7 +105,7 @@ def install() -> None:
         "FACEBOOK_AI_PROVIDER": "ollama",
         "FACEBOOK_AI_ENABLED": "true" if fb else "false",
         "FACEBOOK_AI_AUTO_REPLY_ENABLED": "true" if fb else "false",
-        "FACEBOOK_AI_AD_ENABLED": "false",
+        "FACEBOOK_AI_AD_ENABLED": "true" if ads else "false",
         # API keys previas, si existen, se conservan sin usarlas.
     }
     print("4/4. Guardando configuración privada y reiniciando solo API y Facebook…")
@@ -119,10 +121,13 @@ def install() -> None:
             "GALANCITO_AI_ENABLED": "false",
             "FACEBOOK_AI_ENABLED": "false",
             "FACEBOOK_AI_AUTO_REPLY_ENABLED": "false",
+            "FACEBOOK_AI_AD_ENABLED": "false",
         })
         raise
     print("\n✓ Galancito local habilitado solamente para Red de Obras" +
           (" y Messenger" if fb else ""))
+    if ads:
+        print("✓ Redacción local activada para necesidades que ya tengan Facebook seleccionado.")
     print("Sin costo por mensaje de API; sí usa los recursos de tu VPS.")
     print("Para detener Ollama sin detener GALANT:")
     print("  docker compose --profile local-ai --env-file .env.preview "
