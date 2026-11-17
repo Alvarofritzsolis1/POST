@@ -15,7 +15,7 @@ type Analysis = {
 type Lead = {
   id: string; name: string; company: string; specialty: string; workers: number | null;
   availability: string; experience: string; documents_state: string; status: string;
-  requirement_id: string | null; ai_consent: boolean; unread: boolean;
+  requirement_id: string | null; ai_consent: boolean; ai_consent_state: string; ai_paused: boolean; unread: boolean;
   needs_support: boolean; support_reason: string;
   entity_type: "unknown" | "company" | "individual";
   has_employees: boolean | null;
@@ -174,7 +174,7 @@ export default function FacebookCenter({ catalog }: { catalog: Catalog }) {
     <header className="fbc-header">
       <div>
         <span className="fbc-eyebrow"><Facebook size={16} /> FACEBOOK · CENTRO DE CONTACTOS</span>
-        <h2>Contratistas e interesados</h2>
+        <h2>Galancito · Contratistas e interesados</h2>
         <p>Una bandeja simple para conversar, orientar a maestros y encontrar apoyo para las obras.</p>
       </div>
       <button className="nw-btn" type="button" onClick={() => void refresh()} disabled={!!saving}>
@@ -198,7 +198,8 @@ export default function FacebookCenter({ catalog }: { catalog: Catalog }) {
       <span className={center?.automatic_enabled ? "good" : "warning"}>
         <Facebook size={15} /> Publicación automática {center?.automatic_enabled ? "activa" : "desactivada"}
       </span>
-      <span className={center?.ai_enabled ? "good" : ""}><Bot size={15} /> IA {center?.ai_enabled ? "disponible" : "sin configurar"}</span>
+      <span className={center?.ai_enabled ? "good" : ""}><Bot size={15} /> Galancito IA {center?.ai_enabled ? "disponible" : "sin configurar"}</span>
+      <span className={center?.auto_reply_enabled ? "good" : "warning"}><Sparkles size={15} /> Respuestas automáticas {center?.auto_reply_enabled ? "habilitadas" : "desactivadas"}</span>
     </div>
     {error && <p role="alert" className="fbc-error">{error}</p>}
     {notice && <p role="status" className="fbc-notice">{notice}</p>}
@@ -240,7 +241,7 @@ export default function FacebookCenter({ catalog }: { catalog: Catalog }) {
             <div className="fbc-chat-stream">
               {detail?.messages.map((msg) => <div key={msg.id} className={"fbc-bubble " + msg.direction}>
                 <p>{msg.body || "Procesando respuesta…"}</p>
-                <small>{msg.ai_generated ? "IA · " : ""}{dateText(msg.created_at)} · {msg.state === "sent" ? "Enviado" : msg.direction === "inbound" ? "Recibido" : msg.state}</small>
+                <small>{msg.ai_generated ? "Galancito IA · " : ""}{dateText(msg.created_at)} · {msg.state === "sent" ? "Enviado" : msg.direction === "inbound" ? "Recibido" : msg.state}</small>
                 {msg.error && <small>{msg.error}</small>}
               </div>)}
             </div>
@@ -321,15 +322,25 @@ export default function FacebookCenter({ catalog }: { catalog: Catalog }) {
               <option value="verified">Verificada por administración</option>
             </select>
           </label>
-          <label className="fbc-check"><input type="checkbox" checked={lead.ai_consent}
-            onChange={(e) => setDetail((old) => old ? {...old, lead: {...old.lead, ai_consent: e.target.checked}} : old)} />
-            Confirmé que el contacto autorizó usar IA externa para sus mensajes</label>
+          <div className="fbc-galancito-status">
+            <Bot size={18}/><div>
+              <strong>Galancito · Respuestas automáticas</strong>
+              <small>Permiso de IA: {lead.ai_consent_state === "accepted" ? "Aceptado por Messenger" :
+                lead.ai_consent_state === "requested" ? "Se solicitó permiso" :
+                lead.ai_consent_state === "declined" ? "Prefiere atención humana" :
+                "Sin solicitar"}</small>
+              <small>El administrador puede pausar o reactivar al asistente; no puede otorgar consentimiento en nombre del contacto.</small>
+            </div>
+          </div>
+          <label className="fbc-check"><input type="checkbox" checked={lead.ai_paused}
+            onChange={(e) => setDetail((old) => old ? {...old, lead: {...old.lead, ai_paused: e.target.checked}} : old)} />
+            Atención humana: Galancito en pausa para este contacto</label>
           <button type="button" disabled={!!saving} className="nw-btn nw-primary"
             onClick={() => patchLead({
               company: lead.company, specialty: lead.specialty,
               workers: lead.workers, availability: lead.availability,
               experience: lead.experience, status: lead.status,
-              documents_state: lead.documents_state, ai_consent: lead.ai_consent,
+              documents_state: lead.documents_state, ai_paused: lead.ai_paused,
               needs_support: lead.needs_support,
               entity_type: lead.entity_type, has_employees: lead.has_employees,
               requirement_id: lead.requirement_id,
