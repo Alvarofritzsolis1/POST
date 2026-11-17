@@ -279,7 +279,29 @@ def test_galancito_opt_in_parser_is_deliberately_narrow():
     assert consent_decision("si puedo trabajar mañana") is None
     assert "Galancito" in galancito_prefix("¿Qué oficio haces?")
     from app.galancito_flow import safe_ai_reply
+    from app.galancito_flow import wants_human
+    assert wants_human("prefiero persona") is True
+    assert wants_human("no quiero IA") is True
+    assert wants_human("no estoy seguro") is False
     assert "Galancito" in safe_ai_reply("¡Hola! ¿Qué oficio haces?")
     assert "documento de identidad" not in safe_ai_reply("envía tu documento de identidad")
     assert "contratamos" not in safe_ai_reply("Ya estas contratado")
     assert safe_ai_reply("¿Qué haces? ¿Cuándo puedes?").count("?") <= 1
+
+
+def test_galancito_revocation_halts_ai_after_prior_consent(network, monkeypatch):
+    n = network
+    enable_messaging(n, monkeypatch)
+    monkeypatch.setenv("FACEBOOK_AI_ENABLED", "true")
+    monkeypatch.setenv("FACEBOOK_AI_AUTO_REPLY_ENABLED", "true")
+    monkeypatch.setenv("FACEBOOK_AI_API_KEY", "synthetic-key")
+    settings.cache_clear()
+    assert incoming(n, text="hola", mid="intro").status_code == 200
+    assert incoming(n, text="sí", mid="accept").status_code == 200
+    assert incoming(n, text="no quiero IA", mid="withdraw").status_code == 200
+    lead = n["admin"].get("/api/v1/network/facebook/center").json()["leads"][0]
+    assert lead["ai_consent_state"] == "declined"
+    assert lead["ai_consent"] is False
+    assert lead["needs_support"] is True
+    messages = n["admin"].get("/api/v1/network/facebook/leads/" + lead["id"]).json()["messages"]
+    assert not any(m["state"] == "ai_pending" for m in messages)
