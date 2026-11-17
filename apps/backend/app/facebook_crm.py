@@ -23,7 +23,7 @@ from .db import get_db, SessionLocal
 from .facebook_ai import AD_INSTRUCTIONS, REPLY_INSTRUCTIONS, generate_text
 from .facebook_onboarding import assistance_signal, reply_for_support, onboarding_guide
 from .galancito_flow import (AI_PERMISSION_QUESTION, AI_PERMISSION_REASK,
-                             AI_PERMISSION_DECLINED, consent_decision)
+                             AI_PERMISSION_DECLINED, consent_decision, wants_human)
 from .facebook_crm_models import FacebookLead, FacebookChatMessage, FacebookTradeGuide
 from .models import Organization, User, utcnow
 from .network_facebook import public_message
@@ -266,9 +266,10 @@ async def webhook(request: Request, db: Session = Depends(get_db)):
                 db.add(lead)
                 db.flush()
             lead.last_inbound_at, lead.updated_at, lead.unread = utcnow(), utcnow(), True
-            consent = (consent_decision(body)
-                       if lead.ai_consent_state == "requested" and not audio_received
-                       else None)
+            consent = (False if (lead.ai_consent_state == "accepted" and
+                                 wants_human(body)) else
+                       consent_decision(body) if lead.ai_consent_state == "requested"
+                       and not audio_received else None)
             if consent is True:
                 lead.ai_consent, lead.ai_consent_state = True, "accepted"
             elif consent is False:
