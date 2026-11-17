@@ -744,7 +744,7 @@ def test_migration_from_existing_schema_is_additive_and_reopen_preserves_data(ne
     # Al simular un esquema antiguo se deben retirar también esas tablas hijas.
     future_tables = [
         t for t in Base.metadata.sorted_tables
-        if t.name.startswith("network_") or t.name.startswith("facebook_")
+        if t.name.startswith(("network_", "facebook_", "galancito_"))
     ]
     Base.metadata.drop_all(n["engine"], tables=list(reversed(future_tables)))
     for _ in range(2):
@@ -756,7 +756,7 @@ def test_migration_from_existing_schema_is_additive_and_reopen_preserves_data(ne
             (u.id, u.email, u.password_hash, u.role) for u in db.scalars(select(User))
         } == original_users
         assert {(s.id, s.name) for s in db.scalars(select(Worksite))} == original_sites
-        assert set(db.scalars(select(SchemaVersion.version))) == {"0.6.0-rc1", "0.7.0", "8.1.0", "13.1.0_documentary_configuration", "16.0.0", "16.0.1_excel_pdf_reviews", "16.6.0_independent_documental", "20.0.0_excel_master_workspace", "20.1.0_network_facebook", "20.2.0_network_facebook_tests", "20.3.0_network_facebook_optin", "20.5.0-ine", "20.7.0_facebook_crm", "20.7.1_galancito_consent"}
+        assert set(db.scalars(select(SchemaVersion.version))) == {"0.6.0-rc1", "0.7.0", "8.1.0", "13.1.0_documentary_configuration", "16.0.0", "16.0.1_excel_pdf_reviews", "16.6.0_independent_documental", "20.0.0_excel_master_workspace", "20.1.0_network_facebook", "20.2.0_network_facebook_tests", "20.3.0_network_facebook_optin", "20.5.0-ine", "20.7.0_facebook_crm", "20.7.1_galancito_consent", "20.7.5_galancito_learning"}
     assert n["admin"].get(ROOT + "/overview").status_code == 200
 
 

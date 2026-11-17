@@ -37,6 +37,7 @@ def main():
     parser.add_argument("--repeats", type=int, default=2, choices=range(1, 6))
     parser.add_argument("--idle", action="store_true", help="Compare residency after 21 seconds idle for 20s, 2m and 5m")
     parser.add_argument("--compare-only", action="store_true", help="Compare baseline and final prompts on the main model, no matrices")
+    parser.add_argument("--grouped", action="store_true", help="With --compare-only, warm each profile separately so its prompt cache can be reused")
     args = parser.parse_args()
     raw = subprocess.check_output(["git", "show", args.baseline + ":apps/backend/app/facebook_ai.py"], cwd=ROOT, text=True)
     tree = ast.parse(raw)
@@ -73,7 +74,7 @@ def main():
             return None
 
     def chat(model, prompt, question, label, *, tokens=140, keep="20s", threads=None):
-        opts = {"num_ctx": 2048, "num_predict": tokens, "temperature": .3 if label == "baseline" else .2, "seed": 42}
+        opts = {"num_ctx": 2048, "num_predict": tokens, "temperature": .3 if label.startswith("baseline") else .2, "seed": 42}
         if threads:
             opts["num_thread"] = threads
         payload = {"model": model, "messages": [{"role": "system", "content": prompt},
@@ -92,6 +93,10 @@ def main():
             item["error"] = type(exc).__name__
         elapsed = time.perf_counter() - started
         item["elapsed_ms"], item["resources"] = round(elapsed * 1000, 2), resources()
+        try:
+            item["resident_models"] = request("/api/ps", timeout=2).get("models", [])
+        except (OSError, ValueError):
+            item["resident_models"] = None
         if before and item["resources"]:
             item["cpu_percent"] = round((item["resources"]["cpu_usec"] - before["cpu_usec"]) / (elapsed * 1_000_000) * 100, 1)
         report["runs"].append(item)
@@ -112,6 +117,17 @@ def main():
         info = request("/api/show", {"model": model})
         report["model_info"][model] = info.get("details")
         unload(model)
+        if args.compare_only and args.grouped:
+            report["notes"].append("Grouped profiles; cold warmup excluded from steady-state median. Run without other QA workloads for comparison.")
+            for label, prompt, threads, keep in (("baseline", old, None, "20s"),
+                                                  ("candidate", REPLY_INSTRUCTIONS, 1, "2m")):
+                unload(model)
+                chat(model, prompt, QUESTIONS[0], label + "_cold", threads=threads, keep=keep)
+                for repeat in range(args.repeats):
+                    for question in QUESTIONS:
+                        chat(model, prompt, question, label, threads=threads, keep=keep)
+            unload(model)
+            continue
         if not args.compare_only:
             chat(model, REPLY_INSTRUCTIONS, QUESTIONS[0], "cold", tokens=80, threads=1)
         for repeat in range(args.repeats):
