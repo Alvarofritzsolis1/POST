@@ -18,8 +18,9 @@ insuficientes, pero no puede otorgarlos.
    sudo python3 scripts/setup-galancito-messenger.py
    ```
 3. El asistente buscará automáticamente los datos previamente guardados.
-   Solo preguntará lo que falte: **ID de app de Meta**, **ID de la página**,
-   **App Secret** y **token de acceso de página**. Los campos secretos se
+   Solo preguntará lo que falte: **ID de app de Meta**,
+   **App Secret** y **token de acceso de página**. El ID de la página
+   se detecta automáticamente a partir del token. Los campos secretos se
    escriben ocultos en consola; **no debes enviarlos a ChatGPT**.
 4. Se genera una contraseña webhook aleatoria, se guarda con permisos de
    archivo privado, se enlaza a GALANT y se registra el webhook y el campo
