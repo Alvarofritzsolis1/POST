@@ -243,51 +243,63 @@ export default function FacebookCenter({ catalog }: { catalog: Catalog }) {
   const visible = center?.leads.filter((r) =>
     [r.name, r.company, r.specialty].some((x) => x.toLowerCase().includes(filter.toLowerCase()))) || [];
 
+  const tokenInvalid = (center?.publications || []).some((post) =>
+    /190|token.*(?:invalid|expired|inv[aá]lido|vencid)/i.test(post.error || ""));
   return <div className="fbc">
     <header className="fbc-header">
       <div>
         <span className="fbc-eyebrow"><Facebook size={16} /> FACEBOOK · CENTRO DE CONTACTOS</span>
-        <h2>Galancito · Contratistas e interesados</h2>
-        <p>Una bandeja simple para conversar, orientar a maestros y encontrar apoyo para las obras.</p>
+        <h2>Facebook e interesados</h2>
+        <p>Mensajes y publicaciones en un solo lugar.</p>
       </div>
       <button className="nw-btn" type="button" onClick={() => void refresh()} disabled={!!saving}>
         <RefreshCcw size={16} /> Actualizar
       </button>
     </header>
-    <div className="fbc-stats">
+    <div className="fbc-stats fbc-stats-simple">
       {[
         ["Por responder", center?.counts.unread ?? 0, "blue"],
         ["Interesados", center?.counts.contacts ?? 0, "teal"],
-        ["Necesitan orientación", center?.counts.support ?? 0, "amber"],
-        ["Anuncios pendientes", center?.counts.pending_ads ?? 0, "navy"],
-        ["Publicados en Facebook", center?.counts.published_ads ?? 0, "teal"],
+        ["Pendientes", center?.counts.pending_ads ?? 0, "amber"],
+        ["Publicados", center?.counts.published_ads ?? 0, "teal"],
       ].map(([title, value, color]) => <div key={title} className={"fbc-stat " + color}>
         <span>{title}</span><strong>{value}</strong>
       </div>)}
     </div>
     <div className="fbc-state-row">
-      <span className={center?.messaging_enabled ? "good" : "warning"}>
-        <MessageCircle size={15} /> Messenger {center?.messaging_enabled ? "configurado" : "sin configurar"}
+      <span className={tokenInvalid || !center?.automatic_enabled ? "warning" : "good"}>
+        <Facebook size={15} /> {tokenInvalid ? "Facebook requiere atención" : center?.automatic_enabled ? "Publicador habilitado" : "Publicador desactivado"}
       </span>
-      <span className={center?.automatic_enabled ? "good" : "warning"}>
-        <Facebook size={15} /> Publicación automática {center?.automatic_enabled ? "activa" : "desactivada"}
+      <span className={center?.ai_enabled && center?.auto_reply_enabled ? "good" : "warning"}>
+        <Bot size={15} /> {center?.ai_enabled && center?.auto_reply_enabled ? "Galancito activo" : "Galancito requiere revisión"}
       </span>
-      <span className={center?.ai_enabled ? "good" : ""}><Bot size={15} /> Galancito {center?.ai_enabled ? (center?.ai_provider === "ollama" ? "local · sin API de pago" : "IA disponible") : "sin configurar"}</span>
-      <span className={center?.auto_reply_enabled ? "good" : "warning"}><Sparkles size={15} /> Respuestas automáticas {center?.auto_reply_enabled ? "habilitadas" : "desactivadas"}</span>
     </div>
+    {tokenInvalid && <div className="fbc-alert fbc-token-alert" role="alert">
+      <AlertTriangle size={18} />
+      <span>Facebook rechazó la conexión. Revisa el token de página antes de publicar.</span>
+      <button type="button" className="nw-btn" onClick={() => setTab("testing")}>Revisar conexión</button>
+    </div>}
     {error && <p role="alert" className="fbc-error">{error}</p>}
     {notice && <p role="status" className="fbc-notice">{notice}</p>}
-    <nav aria-label="Centro Facebook" className="fbc-tabs">
-      <button className={tab === "summary" ? "selected" : ""} onClick={() => setTab("summary")}>Resumen</button>
-      <button className={tab === "inbox" ? "selected" : ""} onClick={() => setTab("inbox")}><Inbox size={16} /> Conversaciones</button>
-      <button className={tab === "knowledge" ? "selected" : ""} onClick={() => setTab("knowledge")}><BookOpen size={16} /> Conocimientos</button>
-      <button className={tab === "performance" ? "selected" : ""} onClick={() => setTab("performance")}>Rendimiento</button>
-      <button className={tab === "publications" ? "selected" : ""} onClick={() => setTab("publications")}><Facebook size={16} /> Publicaciones y estados</button>
-      <button className={tab === "pending" ? "selected" : ""} onClick={() => setTab("pending")}><Clock3 size={16} /> Anuncios pendientes</button>
-      <button className={tab === "testing" ? "selected" : ""} onClick={() => setTab("testing")}><ShieldCheck size={16} /> Probar conexión</button>
-      <button className={tab === "guides" ? "selected" : ""} onClick={() => setTab("guides")}><BookOpen size={16} /> Guías de oficios</button>
-      <button className={tab === "tracking" ? "selected" : ""} onClick={() => setTab("tracking")}><ShieldCheck size={16} /> Seguimiento Galancito</button>
+    <nav aria-label="Centro Facebook" className="fbc-tabs fbc-tabs-simple">
+      <button className={tab === "publications" || tab === "pending" ? "selected" : ""} onClick={() => setTab("publications")}>
+        <Facebook size={16} /> Publicaciones
+      </button>
+      <button className={tab === "inbox" ? "selected" : ""} onClick={() => setTab("inbox")}>
+        <Inbox size={16} /> Conversaciones
+      </button>
+      <button className={tab === "tracking" ? "selected" : ""} onClick={() => setTab("tracking")}>
+        <ShieldCheck size={16} /> Seguimiento
+      </button>
     </nav>
+    <details className="fbc-tools">
+      <summary>Más herramientas</summary>
+      <div>
+        <button type="button" className="nw-btn" onClick={() => setTab("summary")}>Resumen IA</button>
+        <button type="button" className="nw-btn" onClick={() => setTab("performance")}>Rendimiento</button>
+        <button type="button" className="nw-btn" onClick={() => setTab("testing")}>Comprobar conexión</button>
+      </div>
+    </details>
     {tab === "summary" && <GalancitoKnowledgeCenter mode="summary" />}
     {tab === "knowledge" && <GalancitoKnowledgeCenter />}
     {tab === "performance" && <GalancitoKnowledgeCenter mode="performance" />}
@@ -562,8 +574,8 @@ export default function FacebookCenter({ catalog }: { catalog: Catalog }) {
     {tab === "publications" && <section className="fbc-pending" aria-label="Publicaciones de Red de Obras en Facebook">
       <div className="fbc-tracking-head">
         <div>
-          <h3>Publicaciones y estados de Facebook</h3>
-          <p>Control de los anuncios enviados desde Red de Obras. «Publicado» significa que Meta confirmó la creación; no verifica en tiempo real que el post siga visible.</p>
+          <h3>Estado de publicaciones</h3>
+          <p>Revisa envíos, errores y enlaces a Facebook.</p>
         </div>
         <button type="button" className="nw-btn" onClick={() => void refresh().catch((e) => setError(errorText(e)))} disabled={!!saving}>
           <RefreshCcw size={16} /> Actualizar estados
@@ -573,16 +585,21 @@ export default function FacebookCenter({ catalog }: { catalog: Catalog }) {
       {(center?.publications || []).map((ad) => <article key={ad.id} className="fbc-ad">
         <div>
           <strong>{ad.title}</strong>
-          <small>{ad.specialty} · {statuses[ad.state] || ad.state}</small>
-          {ad.updated_at && <small>Último cambio: {dateText(ad.updated_at)}</small>}
-          {ad.error && <p role="alert">{ad.error}</p>}
-          {ad.state === "uncertain" && <small>El resultado de Meta no se confirmó. Revisa la página antes de hacer otro envío.</small>}
-          {ad.state === "published" && <small>Envío confirmado por Meta. Abre el enlace para comprobar su visibilidad actual.</small>}
+          <small className={"fbc-post-state " + (ad.state === "published" ? "published" : ad.state === "failed" ? "failed" : "pending")}>
+            {ad.specialty} · {statuses[ad.state] || ad.state}
+          </small>
+          {ad.updated_at && <small>{dateText(ad.updated_at)}</small>}
+          {ad.error && <details className="fbc-post-error">
+            <summary>{/190|token/i.test(ad.error) ? "Error de conexión de Facebook" : "Meta rechazó la publicación"}</summary>
+            <p role="alert">{ad.error}</p>
+          </details>}
+          {ad.state === "uncertain" && <small>Verifica en Facebook antes de reintentar.</small>}
+          
         </div>
         <div className="fbc-ad-actions">
           {ad.post_url && <a className="nw-btn" href={ad.post_url} target="_blank" rel="noopener noreferrer"><Facebook size={15} /> Ver en Facebook</a>}
           {["failed", "not_queued"].includes(ad.state) && <button className="nw-btn"
-            disabled={!!saving || !center?.automatic_enabled}
+            disabled={!!saving || !center?.automatic_enabled || tokenInvalid}
             onClick={() => void mutate(ad.id,
               () => change("/requirements/" + ad.requirement_id + "/facebook/sync"),
               "Solicitud enviada al publicador. Revisa el estado para confirmar la publicación.")}>
