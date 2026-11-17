@@ -172,6 +172,35 @@ def generate_ad_opening(title: str, specialty: str) -> str | None:
     return None
 
 
+
+def verified_ad_copy(original: str, title: str, specialty: str) -> tuple[str, bool]:
+    """Never alter the factual requirement: only prepend a strictly checked hook."""
+    import re
+    import unicodedata
+
+    def plain(text: str) -> str:
+        return "".join(c for c in unicodedata.normalize("NFKD", text.lower())
+                       if not unicodedata.combining(c))
+
+    if not settings().galancito_local_ai_enabled:
+        return original, False
+    try:
+        opening = generate_ad_opening(title, specialty)
+    except RuntimeError:
+        return original, False
+    if not opening:
+        return original, False
+    opening = opening.replace("\n", " ").strip(' "\'')
+    normalized = plain(opening)
+    trade = plain(specialty.strip())
+    forbidden = r"\d|https?://|@|\b(sueldo|bono|contratamos|garantizado|requisitos?|promocion)\b"
+    if (not trade or len(opening) > 100 or len(opening) < 12 or
+            not re.search(r"(?<!\w)" + re.escape(trade) + r"(?!\w)", normalized) or
+            re.search(forbidden, normalized)):
+        return original, False
+    return opening + "\n\n" + original, True
+
+
 def generate_triage_note(context: str) -> str | None:
     """Only local IA on consented Messenger leads, no OpenAI or external services."""
     cfg = settings()
