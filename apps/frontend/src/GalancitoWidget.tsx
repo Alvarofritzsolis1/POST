@@ -4,9 +4,10 @@ import { change, net } from "./networkApi";
 import "./galancito.css";
 
 type Area = "red_obras";
-type ChatLine = { role: "user" | "assistant"; text: string };
-type Reply = { name: string; answer: string; source: "ai" | "local"; notice?: string };
-type Status = { name: string; local_ai_available: boolean; external_ai_available: boolean; read_only: boolean };
+type ChatLine = { role: "user" | "assistant"; text: string; runId?: string; question?: string; rated?: boolean };
+type Reply = { name: string; answer: string; source: string; notice?: string; run_id?: string;
+  references?: {id: string; version: number; title: string}[] };
+type Status = { name: string; local_ai_available: boolean; external_ai_available: boolean; read_only: boolean; can_teach?: boolean };
 const EXAMPLES = [
   "¿Cómo publicar una necesidad?",
   "¿Qué documentos necesita un contratista?",
@@ -21,6 +22,10 @@ export default function GalancitoWidget({ area = "red_obras" }: { area?: Area })
   const [consent, setConsent] = useState(false);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState("");
+  const [correcting, setCorrecting] = useState<number | null>(null);
+  const [correction, setCorrection] = useState("");
+  const [feedbackBusy, setFeedbackBusy] = useState(false);
+  const [feedbackNotice, setFeedbackNotice] = useState("");
   const end = useRef<HTMLDivElement | null>(null);
 
   useEffect(() => {
@@ -46,13 +51,30 @@ export default function GalancitoWidget({ area = "red_obras" }: { area?: Area })
         message: question, area,
         allow_external_ai: consent && !!status?.external_ai_available,
       });
-      setHistory((prev) => [...prev, {role: "assistant", text: reply.answer +
+      setHistory((prev) => [...prev, {role: "assistant", runId: reply.run_id, question,
+        text: reply.answer + (reply.references?.length ? "\nReferencia: " + reply.references.map(r => `${r.title} (v${r.version})`).join(", ") : "") +
         (reply.notice ? "\n" + reply.notice : "")}]);
     } catch {
       setHistory((prev) => [...prev, {role: "assistant", text:
         "Soy Galancito. No pude conectar con GALANT ahora. Puedes seguir trabajando; tu consulta no modificó ningún registro."}]);
       setError("No se pudo consultar el asistente.");
     } finally { setBusy(false); }
+  }
+
+  async function rate(index: number, rating: "useful" | "incorrect", proposed?: string) {
+    const line = history[index]; if (!line?.runId) return;
+    setFeedbackBusy(true); setFeedbackNotice("");
+    try {
+      await change(`/galancito/runs/${line.runId}/feedback`, {rating, ...(proposed ? {correction: {
+        title: "Corrección: " + (line.question || "Consulta").slice(0, 80), category: "Correcciones",
+        kind: "correction", scope: "red_obras", content: proposed,
+        phrases: line.question && line.question.length <= 180 ? [line.question] : [],
+      }} : {})});
+      setHistory(prev => prev.map((row, i) => i === index ? {...row, rated: true} : row));
+      setCorrecting(null); setCorrection("");
+      setFeedbackNotice(proposed ? "Corrección guardada como pendiente. Apruébala en Conocimientos." : "Evaluación guardada.");
+    } catch { setFeedbackNotice("No se pudo guardar. Revisa que la corrección no incluya datos privados."); }
+    finally { setFeedbackBusy(false); }
   }
 
   function askExample(value: string) { setMessage(value); setOpen(true); }
@@ -78,7 +100,17 @@ export default function GalancitoWidget({ area = "red_obras" }: { area?: Area })
         {history.map((entry,i) => <div key={i} className={"galancito-bubble " + entry.role}>
           <span>{entry.role === "assistant" ? "Galancito" : "Tú"}</span>
           <p>{entry.text}</p>
+          {entry.runId && <div className="galancito-feedback" aria-label="Evaluar respuesta">
+            <button type="button" disabled={feedbackBusy || entry.rated} onClick={() => void rate(i, "useful")}>Útil</button>
+            <button type="button" disabled={feedbackBusy || entry.rated} onClick={() => void rate(i, "incorrect")}>Incorrecta</button>
+            {status?.can_teach && <button type="button" disabled={feedbackBusy} onClick={() => { setCorrecting(i); setCorrection(""); }}>Proponer corrección</button>}
+            {correcting === i && <><label>Respuesta correcta (sin datos privados)<textarea value={correction} maxLength={24000}
+              onChange={e => setCorrection(e.target.value)} /></label>
+              <button type="button" disabled={feedbackBusy || correction.trim().length < 2} onClick={() => void rate(i, "incorrect", correction.trim())}>Guardar para aprobación</button>
+              <button type="button" onClick={() => setCorrecting(null)}>Cancelar</button></>}
+          </div>}
         </div>)}
+        {feedbackNotice && <p role="status" className="galancito-feedback-notice">{feedbackNotice}</p>}
         {busy && <p className="galancito-thinking"><Sparkles size={14}/> Galancito está preparando una respuesta…</p>}
         <div ref={end}/>
       </div>

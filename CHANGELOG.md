@@ -1,3 +1,13 @@
+## 20.7.5-rc1 — Galancito: conocimientos aprobados y respuesta híbrida
+- Centro de conocimientos con aprobación explícita, historial, importación de PDF/DOCX/TXT y desactivación inmediata.
+- Doce ejemplos pendientes y correcciones administrables; recuperación local por organización y canal, sin reentrenar pesos ni incorporar chats automáticamente.
+- Comprensión de expresiones chilenas, oficios y datos explícitos; consultas frecuentes sin cargar Ollama.
+- Prompts breves, referencias pertinentes y datos vigentes de Red de Obras; métricas sin texto privado y benchmark reproducible.
+- Permanencia configurable con valor inicial de 2 minutos tras comparar 20 s, 2 y 5 min; se conservan Qwen3 1.7B y límites de 3 GiB/1,5 CPU.
+- Límite compartido de inferencia y cola acotada; revalidación de consentimiento y atención humana antes de enviar.
+- 64 casos sintéticos de comprensión y pruebas del ciclo de aprendizaje, aislamiento, privacidad y degradación; migración aditiva.
+- Base real disponible: 20.7.3-rc1. El despliegue requiere el flujo seguro existente y verificar el commit del VPS.
+
 ## 20.7.3-rc1 — Galancito local gratuito: solo Messenger + Red de Obras
 - Qwen3 1.7B (Ollama), modelo privado de aproximadamente 1,4 GB de descarga; sin API de pago.
 - Un único contenedor opcional con máximo 3 GB de RAM, 1,5 CPU, una inferencia simultánea, cola corta y descarga de memoria tras 20 s de inactividad.

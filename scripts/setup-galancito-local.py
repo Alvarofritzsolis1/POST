@@ -60,7 +60,7 @@ def preflight() -> None:
         raise RuntimeError("Necesitas al menos 6 GB libres para el modelo y las capas de Docker")
     print("✓ Memoria, CPU y disco suficientes para una prueba limitada")
     print("✓ Ollama tendrá un límite estricto de 3 GB RAM y 1,5 CPU")
-    print("✓ Una conversación de IA a la vez. Modelo descargado tras 20 s de inactividad")
+    print("✓ Una inferencia a la vez. Permanencia configurable (20 s, 2 min o 5 min)")
 
 
 def install() -> None:

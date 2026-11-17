@@ -34,7 +34,7 @@ def test_ollama_private_endpoint_bounded_and_no_thinking(monkeypatch):
     payload = json.loads(req.data)
     assert payload["model"] == "qwen3:1.7b"
     assert payload["think"] is False and payload["stream"] is False
-    assert payload["keep_alive"] == "20s"
+    assert payload["keep_alive"] == "2m"
     assert payload["options"]["num_ctx"] <= 2048
     assert payload["options"]["num_predict"] <= 140
 
@@ -105,7 +105,9 @@ def test_facebook_uses_local_ollama_after_explicit_consent(network, monkeypatch)
     assert len(sent) == 1 and not generated
     assert incoming(n, text="sí", mid="local-2").status_code == 200
     assert process_chat_next(n["Session"])
-    assert len(generated) == 1 and len(sent) == 2
+    # A recognized trade offer is answered without loading the LLM.
+    assert not generated and len(sent) == 2
+    assert "empleo" in sent[-1]
     assert "Galancito" in sent[-1]
     settings.cache_clear()
 
@@ -123,7 +125,7 @@ def test_red_de_obras_local_ai_without_external_api(network, monkeypatch):
     assert state["local_ai_available"] is True
     assert state["external_ai_available"] is False
     response = n["send"](n["admin"], "/galancito/chat",
-        {"message": "¿Qué necesidades hay?", "area": "red_obras", "allow_external_ai": False})
+        {"message": "Explica cómo organizar una coordinación de servicios", "area": "red_obras", "allow_external_ai": False})
     assert response.status_code == 200
     assert response.json()["source"] == "ai" and len(calls) == 1
     blocked = n["send"](n["admin"], "/galancito/chat",
@@ -138,6 +140,6 @@ def test_compose_optional_memory_cpu_and_no_published_port():
     section = text.split("  galancito-ollama:\n",1)[1].split("\n  frontend:",1)[0]
     for expected in ['profiles: [local-ai]', 'mem_limit: 3g', 'cpus: 1.5',
                      'OLLAMA_NUM_PARALLEL: "1"', 'OLLAMA_MAX_QUEUE: "2"',
-                     'OLLAMA_KEEP_ALIVE: "20s"', 'galancito_models:/root/.ollama']:
+                     'OLLAMA_KEEP_ALIVE: ${GALANCITO_KEEP_ALIVE:-2m}', 'galancito_models:/root/.ollama']:
         assert expected in section
     assert "ports:" not in section

@@ -1,6 +1,8 @@
 from functools import lru_cache
 from pathlib import Path
 from pydantic_settings import BaseSettings, SettingsConfigDict
+from pydantic import Field
+from typing import Literal
 
 
 class Settings(BaseSettings):
@@ -50,6 +52,13 @@ class Settings(BaseSettings):
     galancito_ai_provider: str = "openai"
     # Ollama se habilita solo después de descargar y probar Qwen3 1.7B en el VPS.
     galancito_local_ai_enabled: bool = False
+    # 2m preserves warm service after 20s idle; generation limits stay bounded.
+    galancito_keep_alive: Literal["20s", "2m", "5m"] = "2m"
+    galancito_num_predict: int = Field(default=140, ge=40, le=140)
+    galancito_num_ctx: int = Field(default=2048, ge=1024, le=4096)
+    galancito_num_thread: int = Field(default=1, ge=1, le=4)
+    galancito_timeout_seconds: float = Field(default=24, ge=1, le=24)
+    galancito_memory_reserve_mb: int = Field(default=1536, ge=512, le=8192)
 
 
 

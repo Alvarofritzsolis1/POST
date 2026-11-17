@@ -1,0 +1,130 @@
+[
+  {
+    "title": "Oficio sin empresa confirmada",
+    "category": "Ejemplos iniciales",
+    "kind": "example",
+    "scope": "both",
+    "phrases": [
+      "ola soy gasfite",
+      "soy maestro sanitario"
+    ],
+    "content": "Usuario: ola soy gasfite\nGalancito: Entiendo, gasfitería. ¿Buscas empleo como trabajador o ofreces un servicio por tu cuenta?"
+  },
+  {
+    "title": "Trabajador que busca empleo",
+    "category": "Ejemplos iniciales",
+    "kind": "example",
+    "scope": "both",
+    "phrases": [
+      "busco pega de carpintero",
+      "busco trabajo"
+    ],
+    "content": "Usuario: busco pega de carpintero\nGalancito: Recibo tu interés como trabajador, sin garantizar un puesto. ¿En qué comuna buscas trabajo?\nNo clasificarlo como empresa contratista."
+  },
+  {
+    "title": "Empresa que ofrece servicios",
+    "category": "Ejemplos iniciales",
+    "kind": "example",
+    "scope": "both",
+    "phrases": [
+      "tengo una empresa de pintura"
+    ],
+    "content": "Usuario: tengo una empresa de pintura\nGalancito: Gracias por informar tu especialidad. ¿Desde cuándo tienen disponibilidad?"
+  },
+  {
+    "title": "Dotación informada sin especialidad",
+    "category": "Ejemplos iniciales",
+    "kind": "example",
+    "scope": "both",
+    "phrases": [
+      "tengo 4 trabajadores disponibles"
+    ],
+    "content": "Usuario: tengo 4 trabajadores disponibles\nGalancito: Gracias. ¿Qué especialidad ofrecen?\nConservar la cantidad cuatro. No volver a pedirla."
+  },
+  {
+    "title": "Sin cupos confirmados",
+    "category": "Ejemplos iniciales",
+    "kind": "faq",
+    "scope": "both",
+    "phrases": [
+      "qué obras tienen pega",
+      "que obras tienen pega"
+    ],
+    "content": "Soy Galancito. Las necesidades vigentes deben consultarse en Red de Obras. No tengo un cupo confirmado para ofrecerte; administración puede revisar tu interés."
+  },
+  {
+    "title": "Atención humana",
+    "category": "Ejemplos iniciales",
+    "kind": "handoff",
+    "scope": "both",
+    "phrases": [
+      "quiero hablar con administración",
+      "no entiendo los papeles"
+    ],
+    "content": "Si una persona solicita ayuda humana, detener las respuestas automáticas y marcar la conversación para revisión. No asegurar que ya fue contactada por un operador."
+  },
+  {
+    "title": "Documentos según situación",
+    "category": "Ejemplos iniciales",
+    "kind": "procedure",
+    "scope": "both",
+    "phrases": [
+      "no tengo todos los papeles",
+      "documentos para ingresar"
+    ],
+    "content": "Primero confirmar si trabaja con empresa o a su propio nombre. Después consultar si tiene empleados. Administración determina los requisitos de la obra; no pedir todos los documentos ni archivos privados por Messenger."
+  },
+  {
+    "title": "Individual sin empleados",
+    "category": "Ejemplos iniciales",
+    "kind": "example",
+    "scope": "both",
+    "phrases": [
+      "trabajo solo",
+      "no tengo empresa"
+    ],
+    "content": "Usuario: trabajo solo y no tengo empresa\nGalancito: Podemos recibir tu interés para revisión. No corresponde pedir constitución de sociedad ni contratos de empleados inexistentes. ¿Qué trabajo haces?"
+  },
+  {
+    "title": "Evitar promesas de empleo",
+    "category": "Ejemplos iniciales",
+    "kind": "avoid",
+    "scope": "both",
+    "phrases": [
+      "contratación",
+      "sueldos",
+      "cupos"
+    ],
+    "content": "No afirmar contratación, adjudicación, habilitación, sueldo o vacantes sin un registro vigente autorizado. No inventar fechas ni exigir pagos por postular."
+  },
+  {
+    "title": "Publicar necesidad",
+    "category": "Ejemplos iniciales",
+    "kind": "procedure",
+    "scope": "both",
+    "phrases": [
+      "quiero publicar una necesidad"
+    ],
+    "content": "En Red de Obras, registrar especialidad, resumen y fechas conocidas. Revisar los datos antes de solicitar publicación con los permisos actuales. Generar un borrador no equivale a publicarlo."
+  },
+  {
+    "title": "No repetir datos confirmados",
+    "category": "Ejemplos iniciales",
+    "kind": "example",
+    "scope": "both",
+    "phrases": [
+      "empresa de pintura con cuatro trabajadores"
+    ],
+    "content": "Hechos confirmados: empresa de pintura, cuatro trabajadores, disponibilidad desde mañana.\nGalancito: Gracias. ¿En qué comuna pueden trabajar?\nNo volver a preguntar oficio, dotación ni disponibilidad."
+  },
+  {
+    "title": "Corrección de clasificación",
+    "category": "Ejemplos iniciales",
+    "kind": "correction",
+    "scope": "both",
+    "phrases": [
+      "soy carpintero y busco empleo"
+    ],
+    "content": "Soy Galancito. Recibo tu interés como trabajador; no necesitas presentarte como empresa para consultar. ¿En qué comuna buscas empleo?"
+  }
+]

@@ -6,6 +6,7 @@ automatically; an ambiguous network outcome must be checked in Meta first.
 from datetime import timedelta, timezone
 import json
 import re
+from time import perf_counter
 from urllib.error import HTTPError, URLError
 from urllib.request import HTTPRedirectHandler, Request, build_opener
 
@@ -13,11 +14,15 @@ from sqlalchemy import select
 
 from .config import settings
 from .db import SessionLocal
-from .facebook_ai import ASSISTANT_NAME, REPLY_INSTRUCTIONS, generate_text, facebook_reply_ai_available
-from .galancito_flow import safe_ai_reply
+from .facebook_ai import REPLY_INSTRUCTIONS, generate_text, facebook_reply_ai_available
+from .galancito_flow import safe_ai_reply, consent_decision, grounded_reply
 from .facebook_crm_models import FacebookLead, FacebookChatMessage, FacebookTradeGuide
 from .models import utcnow
 from .network_service import key
+from .galancito_triage import analyze, quick_reply, private_data
+from .galancito_knowledge import retrieve, exact_answer, evidence_context
+from .galancito_runtime import infer, record_run
+from .galancito_local import last_timings
 
 class NoRedirect(HTTPRedirectHandler):
     def redirect_request(self, req, fp, code, msg, headers, newurl):
@@ -56,6 +61,7 @@ def _within_24h(lead: FacebookLead) -> bool:
 
 
 def process_chat_next(session_factory=SessionLocal) -> bool:
+    started = perf_counter()
     cfg = settings()
     if not (cfg.facebook_messaging_enabled and cfg.facebook_page_token and
             cfg.facebook_page_id and cfg.facebook_org_id):
@@ -78,6 +84,10 @@ def process_chat_next(session_factory=SessionLocal) -> bool:
         if not _within_24h(lead):
             job.state, job.error = "failed", "Fuera de la ventana estándar de 24 horas"
             return True
+        if (job.state == "pending" and job.operator_id is None and
+                "autorizas" in job.body.casefold() and lead.ai_consent_state != "requested"):
+            job.state, job.error = "cancelled", "Solicitud de consentimiento superada"
+            return True
         if job.state == "ai_pending" and lead.needs_support:
             job.state, job.error = "cancelled", "El contacto pidió apoyo: revisión humana prioritaria"
             return True
@@ -92,14 +102,30 @@ def process_chat_next(session_factory=SessionLocal) -> bool:
         ):
             job.state, job.error = "cancelled", "El asistente automático está deshabilitado"
             return True
-        job_id, psid, state, body = job.id, lead.psid, job.state, job.body
+        job_id, lead_id, org_id, psid, state, body = job.id, lead.id, lead.org_id, lead.psid, job.state, job.body
+        inbound_at = lead.last_inbound_at
+        fast, intent, fast_source = None, "unknown", "local"
         if state == "ai_pending":
             recent = list(db.scalars(select(FacebookChatMessage).where(
                 FacebookChatMessage.lead_id == lead.id,
                 FacebookChatMessage.direction == "inbound",
             ).order_by(FacebookChatMessage.created_at.desc()).limit(5)))
-            context = "\n".join("Contacto: " + msg.body[:500] for msg in reversed(recent))
-            context = "Empresa: " + lead.company + "\nEspecialidad: " + lead.specialty + "\n" + context
+            # Consent's "sí" is not a new business query; respond to the
+            # preceding message without sending private fields to the model.
+            latest = next((m.body for m in recent if consent_decision(m.body) is None), "")
+            facts = {"specialty": lead.specialty, "entity_type": lead.entity_type,
+                     "workers": lead.workers, "availability": lead.availability,
+                     "has_employees": lead.has_employees}
+            intent = analyze(latest).intent
+            evidence = retrieve(db, lead.org_id, latest, "messenger") if not private_data(latest) else []
+            fast = quick_reply(latest, known=facts)
+            if not private_data(latest) and intent not in {"human", "restricted"}:
+                learned = exact_answer(evidence)
+                if learned:
+                    fast, fast_source = learned, "knowledge"
+            context = ("Consulta actual: " + latest[:800] + "\nHechos confirmados: " +
+                       json.dumps(facts, ensure_ascii=False) + "\nReferencias aprobadas: " +
+                       evidence_context(evidence))
             guides = list(db.scalars(select(FacebookTradeGuide).where(
                 FacebookTradeGuide.org_id == lead.org_id,
                 FacebookTradeGuide.approved.is_(True))))
@@ -114,24 +140,47 @@ def process_chat_next(session_factory=SessionLocal) -> bool:
                 context += "\nNo hay guía documental validada: derivar esas dudas al administrador."
         else:
             context = ""
+        db_ms = (perf_counter() - started) * 1000
         job.state, job.updated_at = "sending", utcnow()
 
     uncertain = False
     result_id, problem = None, None
+    source, timings, failed_ai = fast_source, {}, False
     try:
         if state == "ai_pending":
-            try:
-                generated = generate_text(REPLY_INSTRUCTIONS, context, 550)
-            except (RuntimeError, ValueError):
-                generated = None
+            generated = fast
+            if not fast:
+                try:
+                    with session_factory.begin() as db:
+                        generated = infer(db, lambda: generate_text(REPLY_INSTRUCTIONS, context, 550))
+                        timings = last_timings.get()
+                    if generated:
+                        generated = grounded_reply(generated, context)
+                    source = "ai" if generated else "fallback"
+                except (RuntimeError, ValueError):
+                    generated, source, timings = None, "fallback", last_timings.get()
             if generated:
                 body = safe_ai_reply(generated)
             else:
                 # Si Ollama está saturado o apagado, Messenger continúa
                 # funcionando y la persona puede recibir apoyo humano.
                 body = ("Soy Galancito, asistente virtual de GALANT. "
-                        "Ahora no puedo responder bien. Una persona de nuestro equipo "
-                        "puede ayudarte. ¿Qué trabajo haces?")
+                        "Ahora no tengo una respuesta confirmada. "
+                        "Tu consulta queda pendiente de revisión humana.")
+                failed_ai = True
+        # Re-check after slow inference: a human may have taken over or the
+        # contact may have revoked permission/sent a newer question meanwhile.
+        with session_factory.begin() as db:
+            current = db.get(FacebookLead, lead_id)
+            current_job = db.get(FacebookChatMessage, job_id)
+            if (current is None or not _within_24h(current) or
+                    current_job is None or current_job.state != "sending" or
+                    (state == "ai_pending" and (current.ai_paused or current.needs_support or
+                     not current.ai_consent or current.ai_consent_state != "accepted" or
+                     current.last_inbound_at != inbound_at))):
+                if current_job:
+                    current_job.state, current_job.error = "cancelled", "La conversación cambió antes del envío"
+                return True
         result_id = graph_send(cfg.facebook_page_id, psid, body, cfg.facebook_page_token)
     except HTTPError as exc:
         problem = "Meta rechazó el mensaje (HTTP " + str(exc.code) + ")."
@@ -146,4 +195,12 @@ def process_chat_next(session_factory=SessionLocal) -> bool:
         row.remote_id = result_id
         row.state = "sent" if result_id else ("uncertain" if uncertain else "failed")
         row.error, row.updated_at = problem, utcnow()
+        if state == "ai_pending":
+            record_run(db, org_id=org_id, channel="messenger", source=source,
+                       intent=intent, started=started, db_ms=db_ms, timings=timings)
+            if failed_ai:
+                contact = db.get(FacebookLead, lead_id)
+                if contact:
+                    contact.needs_support = True
+                    contact.support_reason = "Galancito no obtuvo una respuesta confirmada; revisión pendiente"
     return True
