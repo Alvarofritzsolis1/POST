@@ -21,7 +21,7 @@ from sqlalchemy.orm import Session
 from .config import settings
 from .db import get_db, SessionLocal
 from .facebook_ai import (AD_INSTRUCTIONS, REPLY_INSTRUCTIONS, generate_text,
-                          facebook_reply_ai_available, generate_ad_opening,
+                          facebook_reply_ai_available, verified_ad_copy,
                           generate_triage_note)
 from .facebook_onboarding import assistance_signal, reply_for_support, onboarding_guide
 from .galancito_flow import (AI_PERMISSION_QUESTION, AI_PERMISSION_REASK,
@@ -642,22 +642,9 @@ def suggest_ad(requirement_id: str, user: User = Depends(administrator),
     if not req:
         raise HTTPException(404, "Necesidad no encontrada")
     original = public_message(db, req)
-    opening = None
-    if settings().galancito_local_ai_enabled:
-        try:
-            opening = generate_ad_opening(req.title, req.specialty)
-        except RuntimeError:
-            opening = None
-    # The AI may only introduce the approved, authoritative requirement.
-    # It must never replace terms, dates, prices, worksite or contact details.
-    if opening:
-        opening = opening.replace("\n", " ").strip(" \"'")
-        banned = r"\d|https?://|@|\b(sueldo|bono|contratamos|garantizado|requisitos?)\b"
-        if (not re.search(banned, key(opening)) and
-                key(req.specialty) in key(opening) and len(opening) <= 100 and
-                len(opening) + len(original) + 2 <= 1200):
-            return {"draft": opening + "\n\n" + original,
-                    "source": "ia_local", "requires_review": True,
-                    "published": False}
+    draft, generated = verified_ad_copy(original, req.title, req.specialty)
+    if generated:
+        return {"draft": draft, "source": "ia_local", "requires_review": True,
+                "published": False}
     return {"draft": original, "source": "template",
             "requires_review": True, "published": False}
