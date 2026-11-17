@@ -18,9 +18,23 @@ AI_PERMISSION_REASK = (
     "También puedes hablar con una persona."
 )
 AI_PERMISSION_DECLINED = (
-    "Entendido. Soy Galancito y no usaré IA externa con tus mensajes. "
+    "Entendido. Soy Galancito y no usaré IA con tus mensajes. "
     "Una persona de GALANT podrá ayudarte. No necesitas enviar documentos por aquí."
 )
+
+
+def permission_question(provider: str, repeat: bool = False) -> str:
+    """Explain where messages are processed before seeking explicit consent."""
+    if provider == "ollama":
+        if repeat:
+            return ("Soy Galancito. ¿Me autorizas a usar IA local de GALANT "
+                    "para responderte? Tu mensaje se procesa en nuestro servidor. "
+                    "Escribe SÍ o NO. Si prefieres, te atiende una persona.")
+        return ("Hola, soy Galancito, asistente virtual de GALANT. "
+                "¿Me autorizas a utilizar IA local para responderte? "
+                "Tus mensajes se procesan en nuestro servidor, sin OpenAI. "
+                "Responde SÍ o NO; también puedes hablar con una persona.")
+    return AI_PERMISSION_REASK if repeat else AI_PERMISSION_QUESTION
 
 
 def _plain(message: str) -> str:
