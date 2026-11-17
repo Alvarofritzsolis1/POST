@@ -479,36 +479,51 @@ def galancito_analyze_lead(lead_id: str, user: User = Depends(administrator),
 @router.get("/center")
 def center(user: User = Depends(administrator), db: Session = Depends(get_db)):
     cfg = settings()
+    # Historial de TODOS los envíos (no solo errores). Mostrar la confirmación
+    # real de Meta cuando existe un ID remoto; no confundirlo con el estado GALANT.
     rows = list(db.scalars(select(NetworkFacebookPost).where(
         NetworkFacebookPost.org_id == user.org_id,
-        NetworkFacebookPost.state.in_(["pending", "sending", "failed", "uncertain"]),
-    ).order_by(NetworkFacebookPost.created_at.desc()).limit(100)))
+    ).order_by(NetworkFacebookPost.updated_at.desc(), NetworkFacebookPost.id.desc()).limit(200)))
+    known_ids = {row.requirement_id for row in rows}
+    publications = []
     ads = []
-    queued_ids = {row.requirement_id for row in rows}
-    # Mostrar también requerimientos seleccionados antes de habilitar el VPS.
+    # Un requerimiento que ya tiene publicación confirmada nunca debe reaparecer
+    # como "sin sincronizar" (error anterior de la bandeja).
     selected_needs = list(db.scalars(select(NetworkRequirement).where(
         NetworkRequirement.org_id == user.org_id,
         NetworkRequirement.publish_to_facebook.is_(True),
         NetworkRequirement.state == "published",
     ).order_by(NetworkRequirement.created_at.desc()).limit(100)))
     for req in selected_needs:
-        if req.id not in queued_ids:
-            ads.append({"id": "not-queued-" + req.id, "requirement_id": req.id,
-                        "title": req.title, "specialty": req.specialty,
-                        "state": "not_queued" if cfg.facebook_autopublish_enabled else "disabled",
-                        "error": ("La conexión debe activarse en el VPS."
-                                  if not cfg.facebook_autopublish_enabled else
-                                  "La solicitud todavía no está en cola."),
-                        "post_url": None})
+        if req.id not in known_ids:
+            pending = {"id": "not-queued-" + req.id, "requirement_id": req.id,
+                       "title": req.title, "specialty": req.specialty,
+                       "state": "not_queued" if cfg.facebook_autopublish_enabled else "disabled",
+                       "error": ("La conexión debe activarse en el VPS."
+                                 if not cfg.facebook_autopublish_enabled else
+                                 "La solicitud todavía no está en cola."),
+                       "post_url": None, "updated_at": req.updated_at.isoformat(),
+                       "attempts": 0}
+            publications.append(pending)
+            ads.append(pending)
     for row in rows:
         req = db.scalar(select(NetworkRequirement).where(
             NetworkRequirement.id == row.requirement_id,
             NetworkRequirement.org_id == user.org_id))
         if req:
-            ads.append({"id": row.id, "requirement_id": req.id, "title": req.title,
-                        "specialty": req.specialty, "state": row.state,
-                        "error": row.last_error, "post_url": (
-                            "https://www.facebook.com/" + row.post_id if row.post_id else None)})
+            item = {"id": row.id, "requirement_id": req.id, "title": req.title,
+                    "specialty": req.specialty, "state": row.state,
+                    "error": row.last_error,
+                    "post_url": ("https://www.facebook.com/" + row.post_id
+                                 if row.post_id and re.fullmatch(r"[0-9]+_[0-9]+", row.post_id) else None),
+                    "updated_at": row.updated_at.isoformat(),
+                    "attempts": row.attempts}
+            publications.append(item)
+            if row.state in ("pending", "sending", "failed", "uncertain"):
+                ads.append(item)
+    # Evitar mezclar el éxito confirmado por Meta con los envíos aún en cola.
+    published_count = sum(item["state"] == "published" for item in publications)
+    failed_count = sum(item["state"] == "failed" for item in publications)
     leads = list(db.scalars(select(FacebookLead).where(
         FacebookLead.org_id == user.org_id).order_by(
         FacebookLead.last_inbound_at.desc(), FacebookLead.id).limit(100)))
@@ -518,11 +533,14 @@ def center(user: User = Depends(administrator), db: Session = Depends(get_db)):
             "ai_provider": cfg.facebook_ai_provider if facebook_reply_ai_available(cfg) else "disabled",
             "auto_reply_enabled": cfg.facebook_ai_auto_reply_enabled,
             "page_id": cfg.facebook_page_id,
-            "pending_ads": ads, "leads": [_lead_view(db, lead) for lead in leads],
+            "pending_ads": ads, "publications": publications,
+            "leads": [_lead_view(db, lead) for lead in leads],
             "guides_approved": db.scalar(select(func.count(FacebookTradeGuide.id)).where(
                 FacebookTradeGuide.org_id == user.org_id,
                 FacebookTradeGuide.approved.is_(True))) or 0,
-            "counts": {"pending_ads": len(ads), "contacts": len(leads),
+            "counts": {"pending_ads": len(ads), "published_ads": published_count,
+                       "failed_ads": failed_count, "total_ads": len(publications),
+                       "contacts": len(leads),
                        "unread": sum(bool(lead.unread) for lead in leads),
                        "review": sum(lead.status == "pending_review" for lead in leads),
                        "support": sum(bool(lead.needs_support) for lead in leads)}}
