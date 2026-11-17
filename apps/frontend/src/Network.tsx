@@ -450,7 +450,7 @@ export default function RedDeObras({ user }: { user: Profile }) {
         <div className="nw-feed-flags">
           {r.state === "draft" && <Badge value="draft" />}
           {r.coverage > 0 && <span className="nw-feed-progress">{r.coverage}% adjudicado</span>}
-          {fb?.enabled && (
+          {r.publish_to_facebook && fb?.enabled && (
             <span className={"nw-fb-mini " + (fbError ? "error" : fb.state === "published" ? "success" : "waiting")}>
               <Facebook size={13} /> {fbError ? "Revisar Facebook" : fb.state === "published" ? "Enviado a Facebook" : "Facebook pendiente"}
             </span>
