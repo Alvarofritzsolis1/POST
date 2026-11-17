@@ -17,6 +17,7 @@ import stat
 import subprocess
 import sys
 import tempfile
+import time
 from datetime import datetime, timezone
 from pathlib import Path
 from urllib.error import HTTPError, URLError
@@ -78,7 +79,7 @@ def write_env_atomically(path: Path, changes: dict[str, str]) -> Path:
             edited.append(name + "=" + val + "\n")
     # Copia previa protegida, de la que se puede restaurar la configuración.
     timestamp = datetime.now(timezone.utc).strftime("%Y%m%dT%H%M%SZ")
-    backup = path.with_name(path.name + ".backup-messenger-" + timestamp)
+    backup = path.with_name(path.name + ".backup-messenger-" + timestamp + "-" + secrets.token_hex(3))
     if backup.exists():
         raise SetupError("El respaldo de configuración ya existe; reintenta")
     shutil.copy2(path, backup)
@@ -183,16 +184,19 @@ def test_webhook(callback: str, verify_token: str) -> None:
         "hub.challenge": challenge,
     })
     req = Request(uri, method="GET")
-    try:
-        with opener.open(req, timeout=15) as response:
-            actual = response.read(2000).decode("utf-8")
-    except (URLError, HTTPError, TimeoutError, OSError, ValueError):
-        raise SetupError(
-            "El webhook todavía no verificó en HTTPS. "
-            "Comprueba el despliegue de GALANT, el dominio y HTTPS."
-        ) from None
-    if actual != challenge:
-        raise SetupError("El webhook no devolvió el código esperado")
+    for attempt in range(20):
+        try:
+            with opener.open(req, timeout=12) as response:
+                actual = response.read(2000).decode("utf-8")
+            if actual == challenge:
+                return
+        except (URLError, HTTPError, TimeoutError, OSError, ValueError):
+            pass  # Esperar el arranque del API después de recrear contenedores.
+        if attempt < 19:
+            time.sleep(2)
+    raise SetupError(
+        "El webhook no respondió correctamente en HTTPS. "
+        "Comprueba el despliegue de GALANT, el dominio y el token de verificación.")
 
 
 def yes(label: str, default: bool = False) -> bool:
@@ -270,6 +274,11 @@ def run() -> None:
     if subscribed.get("success") is not True:
         raise SetupError("Meta no confirmó la suscripción de la página")
     print("   ✓ Suscripción de página aceptada por Meta")
+
+    if yes("¿Publicar automáticamente en Facebook las NUEVAS necesidades seleccionadas?"):
+        write_env_atomically(ENV_FILE, {"FACEBOOK_AUTOPUBLISH_ENABLED": "true"})
+        compose("up", "-d", "--no-deps", "--force-recreate", "api", "facebook-publisher")
+        print("   ✓ Nuevas necesidades seleccionadas se podrán difundir automáticamente.")
 
     print("\n✓ Meta está enlazado a GALANT para mensajes nuevos.")
     print("Para probar Galancito, escribe desde un usuario de prueba autorizado en Meta.")
