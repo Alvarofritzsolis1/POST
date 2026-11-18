@@ -533,3 +533,15 @@ def test_reviewer_must_use_a_different_underlying_model(ai_env, monkeypatch):
     })
     assert response.status_code == 422
     assert "modelo diferente" in response.text
+
+
+def test_ai_gateway_refuses_redirects_to_another_host():
+    from urllib.request import Request
+    handler = ai_gateway._NoExternalRedirects()
+    target = handler.redirect_request(
+        Request("https://integrate.api.nvidia.com/v1/chat/completions",
+                headers={"Authorization": "Bearer secret-synthetic"}),
+        None, 307, "Temporary Redirect", {},
+        "https://attacker.example.invalid/collect",
+    )
+    assert target is None
