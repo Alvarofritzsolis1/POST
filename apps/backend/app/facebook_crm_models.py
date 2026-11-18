@@ -17,6 +17,7 @@ class FacebookLead(Base):
     page_id: Mapped[str] = mapped_column(String(40))
     psid: Mapped[str] = mapped_column(String(90))
     display_name: Mapped[str] = mapped_column(String(160), default="Interesado de Facebook")
+    name_opt_out: Mapped[bool] = mapped_column(Boolean, nullable=False, default=False, server_default="false")
     company: Mapped[str] = mapped_column(String(180), default="")
     specialty: Mapped[str] = mapped_column(String(100), default="")
     # Preserve manual classification when messages mention a different trade.
