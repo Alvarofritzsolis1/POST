@@ -28,7 +28,7 @@ TRADES = {
     "Aseo": ("aseo", "limpieza"),
     "Soldadura": ("soldador", "soldadura", "soldadoro", "sodador"),
     "Cerámica": ("ceramista", "ceramica", "ceramico", "seramista"),
-    "Tabiquería": ("tabique", "tabiquero", "tabiqueria", "volcanita"),
+    "Tabiquería": ("tabique", "tabiques", "tabiquero", "tabiqueria", "volcanita"),
     "Impermeabilización": ("impermeabilizacion", "impermeabilizar", "impermiabilizacion"),
     "Enfierradura": ("enfierrador", "enfierradura", "enfierador", "fierrero"),
     "Hormigonado": ("hormigon", "hormigonado", "hormigonero"),
