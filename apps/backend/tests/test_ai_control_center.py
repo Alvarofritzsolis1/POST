@@ -514,3 +514,22 @@ def test_private_primary_output_never_reaches_secondary_provider(ai_env, monkeyp
                                    max_output_tokens=100)
         assert result is None
     assert reached[before:] == [primary["model"]]
+
+
+def test_reviewer_must_use_a_different_underlying_model(ai_env, monkeypatch):
+    client = ai_env["client"]
+    headers = signin(client)
+    first = add(client, headers, name="DeepSeek A")
+    duplicate = add(client, headers, name="DeepSeek B", key="nvapi-synthetic-another")
+    monkeypatch.setattr(ai_gateway, "urlopen", lambda *_args, **_kwargs:
+                        FakeResponse({"choices": [{"message": {"content": "OK"}}],
+                                      "usage": {"prompt_tokens": 7, "completion_tokens": 2}}))
+    for item in (first, duplicate):
+        assert client.post(ROOT + "/connections/" + item["id"] + "/test",
+                           headers=headers).json()["ok"]
+    response = client.put(ROOT + "/policy", headers=headers, json={
+        "enabled": True, "review_enabled": True,
+        "task_routes": {"red_obras": first["id"], "review": duplicate["id"]},
+    })
+    assert response.status_code == 422
+    assert "modelo diferente" in response.text
