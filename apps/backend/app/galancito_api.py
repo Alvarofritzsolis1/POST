@@ -4,6 +4,8 @@ No side effects, private documents or Messenger histories. AI use is separately
 enabled by administrators and expressly opted into by the requesting user.
 """
 from typing import Literal
+from datetime import datetime, time, timedelta, timezone
+from zoneinfo import ZoneInfo
 from time import perf_counter
 import json
 
@@ -22,7 +24,7 @@ from .models import User
 from .network_models import (NetworkRequirement, NetworkCapacity, NetworkCoordination,
                              NetworkAward, NetworkFacebookPost, NetworkMatch)
 from .security import authorized_user
-from .galancito_triage import analyze, quick_reply, private_data
+from .galancito_triage import analyze, quick_reply, private_data, plain
 from .galancito_knowledge import retrieve, exact_answer, evidence_context, public_sources
 from .galancito_local import last_timings
 from .galancito_runtime import infer, record_run
@@ -116,6 +118,53 @@ def _local_reply(message: str, area: str, titles: list[str], guides: list[Facebo
             "¿Qué necesitas resolver?")
 
 
+def _asks_today_contacts(message: str) -> bool:
+    """Fast intent: private inbox facts are never inferred by the language model."""
+    normalized = plain(message)
+    return any(phrase in normalized for phrase in (
+        "quien me hablo hoy", "quienes me hablaron hoy",
+        "quien me escribio hoy", "quienes me escribieron hoy",
+        "quien me mando mensajes hoy", "quienes me mandaron mensajes hoy",
+        "que contactos escribieron hoy", "que personas me escribieron hoy",
+        "cuantos contactos me escribieron hoy", "cuantos me hablaron hoy",
+        "mensajes recibidos hoy", "quien me contacto hoy",
+    ))
+
+
+def _today_contacts(db: Session, user: User) -> str:
+    """Only admin-visible lead names/times, not private message bodies or PSIDs."""
+    if user.role != "admin":
+        return ("Soy Galancito. El detalle de personas que escribieron por Messenger "
+                "es visible solo para administración autorizada.")
+    chile = ZoneInfo("America/Santiago")
+    local_date = datetime.now(chile).date()
+    start = datetime.combine(local_date, time.min, tzinfo=chile).astimezone(timezone.utc)
+    end = datetime.combine(local_date + timedelta(days=1), time.min,
+                           tzinfo=chile).astimezone(timezone.utc)
+    scope = (FacebookLead.org_id == user.org_id,
+             FacebookLead.last_inbound_at >= start,
+             FacebookLead.last_inbound_at < end)
+    total = db.scalar(select(func.count(FacebookLead.id)).where(*scope)) or 0
+    if total == 0:
+        return ("Soy Galancito. No encuentro contactos con mensajes entrantes "
+                "sincronizados hoy en la bandeja de Facebook. Si esperabas mensajes, "
+                "revisa el estado de sincronización.")
+    leads = db.scalars(select(FacebookLead).where(*scope).order_by(
+        FacebookLead.last_inbound_at.desc()).limit(5)).all()
+    names = [
+        (lead.display_name or "").strip()
+        if (lead.display_name or "").strip() not in {
+            "Interesado de Facebook", "Contacto sin nombre"
+        } else "Contacto sin nombre"
+        for lead in leads
+    ]
+    listed = "; ".join(names)
+    more = f"; y {total - len(leads)} contacto(s) más" if total > len(leads) else ""
+    return (f"Soy Galancito. Hoy hay {total} contacto(s) con mensajes entrantes "
+            f"registrados en Facebook: {listed}{more}. "
+            "Muestro solo nombres disponibles; no invento identidades.")
+
+
 @router.get("/status")
 def galancito_status(user: User = Depends(authorized_user), db: Session = Depends(get_db)):
     if sync_org_global_lightning(db, user.org_id):
@@ -145,6 +194,14 @@ def galancito_chat(body: ChatInput, user: User = Depends(authorized_user),
     if not text:
         raise HTTPException(422, "Ingresa una consulta")
     info = analyze(text)
+    if _asks_today_contacts(text):
+        # Responder desde metadatos reales, sin enviar nombres ni mensajes a proveedores de IA.
+        answer = _today_contacts(db, user)
+        run = record_run(db, org_id=user.org_id, user_id=user.id, channel="red_obras",
+                         source="live", intent="today_contacts", started=started)
+        db.commit()
+        return {"name": "Galancito", "answer": answer, "source": "live",
+                "read_only": True, "run_id": run.id, "references": [], "notice": None}
     if info.intent == "greeting":
         # Greetings do not need requirements, guides, knowledge or tracking KPIs.
         run = record_run(db, org_id=user.org_id, user_id=user.id, channel="red_obras",
