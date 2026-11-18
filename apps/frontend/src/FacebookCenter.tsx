@@ -23,6 +23,7 @@ type Lead = {
   has_employees: boolean | null;
   last_inbound_at: string | null; can_reply: boolean; analysis: Analysis;
   follow_up_on: string | null; follow_up_note: string;
+  last_message?: { text: string; direction: "inbound" | "outbound" } | null;
 };
 type Post = { id: string; requirement_id: string; title: string; specialty: string;
   state: string; error: string | null; post_url: string | null;
@@ -108,8 +109,10 @@ export default function FacebookCenter({ catalog }: { catalog: Catalog }) {
   const [mobilePane, setMobilePane] = useState<"chat" | "profile">("chat");
   const [showProfile, setShowProfile] = useState(false);
   const chatRef = useRef<HTMLDivElement | null>(null);
+  const selectedIdRef = useRef("");
   const nearBottomRef = useRef(true);
   const [triageFilter, setTriageFilter] = useState<"all"|"high"|"unlinked"|"due">("all");
+  selectedIdRef.current = selectedId;
 
   const refresh = useCallback(async () => {
     const current = await net<Center>("/facebook/center");
@@ -160,7 +163,7 @@ export default function FacebookCenter({ catalog }: { catalog: Catalog }) {
   }, [selectedId, refreshDetail, refreshInsights]);
   useEffect(() => {
     if (chatRef.current && nearBottomRef.current) chatRef.current.scrollTop = chatRef.current.scrollHeight;
-  }, [selectedId, detail?.messages.length]);
+  }, [selectedId, detail?.lead.id, detail?.messages.length]);
   // Desde la campana de GALANT: abrir directamente el contacto que pidió ayuda.
   useEffect(() => {
     const openLinked = () => {
@@ -254,10 +257,10 @@ export default function FacebookCenter({ catalog }: { catalog: Catalog }) {
   function sendMessage() {
     const text = reply.trim();
     const contactId = selectedId;
-    if (!text || !contactId || saving || !detail?.lead.can_reply) return;
+    if (!text || !contactId || saving || !detail?.lead.can_reply || detail.lead.id !== contactId) return;
     void mutate("send", () => change("/facebook/leads/" + contactId + "/reply", { message: text }), "")
       .then((success) => {
-        if (success) {
+        if (success && selectedIdRef.current === contactId) {
           setReply((current) => current.trim() === text ? "" : current);
           nearBottomRef.current = true;
         }
@@ -269,7 +272,7 @@ export default function FacebookCenter({ catalog }: { catalog: Catalog }) {
   }
   function composerKeyDown(e: KeyboardEvent<HTMLTextAreaElement>) {
     // Enter sends; Shift+Enter is a newline. Respect composing keyboards.
-    if (e.key === "Enter" && !e.shiftKey && !e.nativeEvent.isComposing) {
+    if (e.key === "Enter" && !e.shiftKey && !e.altKey && !e.metaKey && !e.nativeEvent.isComposing) {
       e.preventDefault();
       sendMessage();
     }
@@ -322,7 +325,7 @@ export default function FacebookCenter({ catalog }: { catalog: Catalog }) {
         <h2>Facebook</h2>
         <p>Conversaciones y publicaciones</p>
       </div>
-      <span className="fbc-header-live" role="status"><CheckCircle2 size={15} /> Actualización automática</span>
+
     </header>
     <div className="fbc-stats fbc-stats-simple">
       {[
@@ -342,7 +345,6 @@ export default function FacebookCenter({ catalog }: { catalog: Catalog }) {
         {messengerBlocked || messengerUncertain || tokenInvalid ? "Revisar" :
           checkingConnection ? "Comprobando" : connectionVerified && center?.messaging_enabled ? "Vigente" : "Sin verificar"}
       </span>
-      <span className="fbc-status-subtitle">Sincronización automática activa</span>
       <details className="fbc-connection-details">
         <summary>Diagnóstico</summary>
         <div className="fbc-connection-content">
@@ -484,7 +486,8 @@ export default function FacebookCenter({ catalog }: { catalog: Catalog }) {
             <div className="fbc-avatar">{(item.name || "?").charAt(0).toUpperCase()}</div>
             <div><strong>{item.name && item.name !== "Interesado de Facebook" ? item.name : "Contacto sin nombre"}</strong>
               {item.company && <small>{item.company}</small>}
-              <small>{item.specialty || "Oficio por confirmar"}</small>
+              {item.last_message?.text ? <small className="fbc-contact-preview">{item.last_message.direction === "outbound" ? "Tú: " : ""}{item.last_message.text}</small> :
+                <small>{item.specialty || "Oficio por confirmar"}</small>}
               {item.follow_up_on && <small>Seguimiento: {item.follow_up_on}</small>}
               {item.needs_support && <small className="fbc-support-mini">Necesita orientación</small>}</div>
             {item.unread && <span className="fbc-unread" aria-label="Sin leer" />}
