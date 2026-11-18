@@ -50,3 +50,19 @@ class AIUsage(Base):
     estimated_cost_usd: Mapped[float | None] = mapped_column(Numeric(14, 8), nullable=True)
     duration_ms: Mapped[int] = mapped_column(Integer, default=0, nullable=False)
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow)
+
+
+class AIGlobalCredential(Base):
+    """One encrypted, server-owned NVIDIA connection shared across organizations.
+
+    Never returned by admin API or accessible from the browser. Each organization
+    receives its own AIConnection row for scoped routing, permissions and usage.
+    """
+    __tablename__ = "ai_global_credentials"
+    id: Mapped[str] = mapped_column(String(80), primary_key=True)
+    provider: Mapped[str] = mapped_column(String(30))
+    model: Mapped[str] = mapped_column(String(160))
+    encrypted_key: Mapped[str] = mapped_column(Text)
+    enabled: Mapped[bool] = mapped_column(Boolean, default=False, nullable=False)
+    verified_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow)
