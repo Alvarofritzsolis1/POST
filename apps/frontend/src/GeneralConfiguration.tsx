@@ -7,6 +7,7 @@ import {
 } from "react";
 import {
   Activity,
+  Bot,
   ArrowLeft,
   ArrowUpRight,
   Building2,
@@ -39,6 +40,7 @@ import {
   type RulePreview,
 } from "./configurationApi";
 import "./configuration.css";
+import AIConfiguration from "./AIConfiguration";
 
 const ROOT = "/admin/configuracion";
 const sections = [
@@ -48,6 +50,7 @@ const sections = [
   ["periodos", "Configuración por períodos", CalendarRange],
   ["obras", "Configuración de obras", ListChecks],
   ["alertas", "Alertas y vencimientos", Activity],
+  ["ia", "Inteligencia artificial", Bot],
   ["usuarios", "Usuarios y permisos", Users],
   ["auditoria", "Auditoría y trazabilidad", History],
 ] as const;
@@ -522,6 +525,7 @@ export default function GeneralConfiguration({
     };
   }, [revision]);
   useEffect(() => {
+    if (section === "ia") { setLoading(false); return; }
     let active = true;
     setLoading(true);
     setError("");
@@ -545,7 +549,7 @@ export default function GeneralConfiguration({
     return () => {
       active = false;
     };
-  }, [associationId, requestQuery, revision, refreshTick]);
+  }, [associationId, requestQuery, revision, refreshTick, section]);
   useEffect(() => {
     const update = () => {
       if (!document.hidden) setRefreshTick((value) => value + 1);
@@ -1349,7 +1353,9 @@ export default function GeneralConfiguration({
                         ? "Activo"
                         : "Inactivo",
                     ].join(" · ")
-                  : "Administra exigencias, consulta períodos y conserva el historial de cada obra."}
+                  : section === "ia"
+                    ? "Vincula modelos externos, asigna funciones y controla el consumo desde un solo lugar."
+                    : "Administra exigencias, consulta períodos y conserva el historial de cada obra."}
               </p>
             </div>
             <button
@@ -1360,7 +1366,7 @@ export default function GeneralConfiguration({
               <RefreshCcw size={16} /> Actualizar
             </button>
           </div>
-          <section
+          {section !== "ia" && (<section
             className="gc-period-selector"
             aria-label="Consulta de varios períodos"
           >
@@ -1512,8 +1518,8 @@ export default function GeneralConfiguration({
                   " hasta " +
                   selectedPeriods.at(-1)}
             </p>
-          </section>
-          {!associationId && (
+          </section>)}
+          {!associationId && section !== "ia" && (
             <div className="gc-filters">
               <label>
                 Obra de consulta
@@ -1596,7 +1602,7 @@ export default function GeneralConfiguration({
               {notice}
             </div>
           )}
-          {loading && (
+          {loading && section !== "ia" && (
             <p className="gc-loading" role="status">
               Consultando información compartida…
             </p>
@@ -1627,6 +1633,7 @@ export default function GeneralConfiguration({
               ))}
             </nav>
           )}
+          {section === "ia" && <AIConfiguration />}
           {data &&
             ((!section && !associationId) ||
               (associationId && tab === "resumen")) && (
