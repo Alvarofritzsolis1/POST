@@ -30,10 +30,10 @@ export default function GalancitoWidget({ area = "red_obras" }: { area?: Area })
   const end = useRef<HTMLDivElement | null>(null);
 
   useEffect(() => {
-    if (!open || status) return;
+    if (!open) return;
     void net<Status>("/galancito/status").then(setStatus)
       .catch(() => setStatus({name: "Galancito", local_ai_available: false, external_ai_available: false, read_only: true}));
-  }, [open, status]);
+  }, [open]);
 
   useEffect(() => {
     if (open) end.current?.scrollIntoView({behavior: "smooth", block: "nearest"});
