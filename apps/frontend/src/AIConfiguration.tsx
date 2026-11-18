@@ -48,17 +48,13 @@ const MODEL_OPTIONS: Record<string, Array<{ id: string; label: string }>> = {
     { id: "glm-4.7", label: "GLM-4.7 · respuesta rápida" },
     { id: "glm-5.3-flash", label: "GLM-5.3 Flash · razonamiento" },
   ],
-  zai_coding: [
-    { id: "glm-4.7", label: "GLM-4.7 · Coding Plan" },
-    { id: "glm-5.3-flash", label: "GLM-5.3 Flash · Coding Plan" },
-  ],
   nvidia: [{ id: "deepseek-ai/deepseek-v4.1-flash", label: "DeepSeek V4.1 Flash" }],
   openai: [{ id: "gpt-4.1-mini", label: "GPT-4.1 Mini" }],
   mistral: [{ id: "mistral-small-latest", label: "Mistral Small" }],
   openrouter: [{ id: "openai/gpt-4o-mini", label: "GPT-4o Mini vía OpenRouter" }],
 };
 const defaultModel = (provider: string) => MODEL_OPTIONS[provider]?.[0]?.id || "";
-const CAN_RECOVER = new Set(["gemini", "groq", "zai", "zai_coding"]);
+const CAN_RECOVER = new Set(["gemini", "groq", "zai"]);
 const recoverableError = (message: string) =>
   /(HTTP 400|HTTP 404|respondió sin texto|sin texto utilizable)/i.test(message);
 const empty: Editor = {
@@ -327,11 +323,8 @@ export default function AIConfiguration() {
                 onChange={e => { const next = e.target.value; setManualModel(false); setForm({ ...form, provider: next, model: defaultModel(next), api_key: "" }); }}>
                 {data?.providers.map(p => <option key={p.id} value={p.id}>{p.name}</option>)}
               </select>
-              {form.provider.startsWith("zai") && <small className="ai-provider-hint">
-                {form.provider === "zai"
-                  ? "API estándar: puede consumir saldo o paquetes de Z.ai."
-                  : "Coding Plan: utiliza una clave de ese plan y su cuota, si está activa."}
-                No cambiaremos de modalidad automáticamente.
+              {form.provider === "zai" && <small className="ai-provider-hint">
+                Utiliza una clave de API estándar. Puede consumir saldo o paquetes; el Coding Plan no se conecta a Galancito.
               </small>}
             </label>
             <label>2. Selecciona el modelo
