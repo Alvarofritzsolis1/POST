@@ -281,3 +281,84 @@
   .fbc-chat-stream { max-height:420px; }
   .fbc-simple-followup .fbc-pair { grid-template-columns:1fr; }
 }
+
+/* v20.8.3 — Messenger-first: one state, fixed-width contacts, full-width chat.
+   Diagnostics stay behind one control; the profile opens on demand. */
+.fbc { min-width:0; gap:11px; }
+.fbc-header h2 { font-size:clamp(21px,2.1vw,26px); }
+.fbc-header p { margin:2px 0 0; }
+.fbc-header-live { display:inline-flex; align-items:center; gap:6px; font-size:11px; color:var(--nw-muted); }
+.fbc-stats-simple { gap:8px; }
+.fbc-stats-simple .fbc-stat { padding:10px 13px; gap:4px; }
+.fbc-stats-simple .fbc-stat strong { font-size:23px; }
+.fbc-status-line { position:relative; display:flex; gap:10px; align-items:center; flex-wrap:wrap; min-height:38px; }
+.fbc-connection-square { display:inline-flex; align-items:center; justify-content:center; gap:7px; padding:8px 14px; border-radius:9px;
+  border:1px solid var(--nw-border); color:var(--nw-ink); background:var(--nw-paper); font-size:12px; font-weight:750; min-width:93px; }
+.fbc-connection-square.good { color:#087658; background:#effaf4; border-color:#a8dcc3; }
+.fbc-connection-square.pending { color:#9a6107; background:#fffbeb; border-color:#e5d6a3; }
+.fbc-connection-square.problem { color:#b42318; background:#fff1ef; border-color:#edb7b1; }
+.fbc-status-subtitle { font-size:11px; color:var(--nw-muted); }
+.fbc-connection-details { margin-left:auto; color:var(--nw-muted); font-size:11px; }
+.fbc-connection-details > summary { padding:7px 10px; border-radius:8px; border:1px solid var(--nw-border); cursor:pointer; background:var(--nw-paper); }
+.fbc-connection-details[open] > summary { color:var(--nw-ink); }
+.fbc-connection-content { position:absolute; z-index:25; right:0; top:calc(100% + 5px); width:min(420px,calc(100vw - 35px));
+  border:1px solid var(--nw-border); border-radius:11px; background:var(--nw-paper); box-shadow:0 12px 30px rgba(15,23,42,.15);
+  padding:14px; display:grid; gap:9px; color:var(--nw-ink); }
+.fbc-connection-content p { margin:0; font-size:12px; line-height:1.5; overflow-wrap:anywhere; }
+.fbc-diagnostic-actions { display:flex; align-items:center; gap:8px; flex-wrap:wrap; }
+.fbc-diagnostic-actions button { display:inline-flex; align-items:center; gap:6px; }
+.fbc-tabs-simple { display:flex; align-items:center; flex-wrap:wrap; gap:5px; overflow:visible; }
+.fbc-tools { width:auto; margin-left:auto; padding:0; background:transparent; border:0; }
+.fbc-tools > summary { padding:9px 12px; border:1px solid var(--nw-border); background:var(--nw-paper); border-radius:8px; font-size:11px; }
+.fbc-tools > div { display:flex; flex-wrap:wrap; gap:6px; padding:8px; }
+.fbc-inbox { position:relative; display:grid; grid-template-columns:clamp(220px,25%,290px) minmax(0,1fr);
+  height:clamp(500px,72vh,760px); min-height:0; overflow:hidden; }
+.fbc-inbox > .fbc-contacts,.fbc-inbox > .fbc-conversation { min-height:0; max-height:100%; overflow:hidden; }
+.fbc-inbox > .fbc-conversation { border-right:0; }
+.fbc-inbox > .fbc-contacts { border-right:1px solid var(--nw-border); }
+.fbc-contacts-list { flex:1; min-height:0; max-height:none; overflow-y:auto; }
+.fbc-search { margin:10px; }
+.fbc-contact { padding:12px 11px; }
+.fbc-conversation .fbc-pane-title { gap:8px; padding:12px; min-height:64px; }
+.fbc-conversation .fbc-pane-title > div { min-width:0; }
+.fbc-conversation .fbc-pane-title small { overflow-wrap:anywhere; }
+.fbc-profile-toggle { display:inline-flex; gap:6px; align-items:center; white-space:nowrap; }
+.fbc-inbox > .fbc-analysis { position:absolute; z-index:8; top:0; right:0; bottom:0; width:min(390px,46%);
+  display:flex; min-width:0; overflow-y:auto; background:var(--nw-paper); box-shadow:-8px 0 24px rgba(12,25,46,.12);
+  border-left:1px solid var(--nw-border); border-top:0; }
+.fbc-inbox:not(.profile-open) > .fbc-analysis { display:none; }
+.fbc-profile-close { align-self:flex-end; border:0; background:transparent; color:var(--nw-accent);
+  font-size:12px; font-weight:700; cursor:pointer; padding:10px 13px; }
+.fbc-chat-stream { flex:1; min-height:0; max-height:none; overflow-y:auto; padding:14px; }
+.fbc-bubble { max-width:min(82%,570px); padding:9px 12px; }
+.fbc-bubble p { margin:0; white-space:pre-wrap; }
+.fbc-composer { flex:0 0 auto; margin-top:0; gap:8px; padding:11px 14px; border-top:1px solid var(--nw-border); }
+.fbc-composer textarea { min-height:54px; max-height:150px; padding:10px 12px; resize:vertical; }
+.fbc-composer-actions { justify-content:flex-end; gap:9px; align-items:center; }
+.fbc-composer-actions .nw-btn:first-child { margin-right:auto; }
+.fbc-compose-hint { font-size:10px; color:var(--nw-muted); white-space:nowrap; }
+.fbc-quick-replies > summary { cursor:pointer; color:var(--nw-muted); font-size:11px; width:max-content; padding:3px 0; }
+.fbc-quick-replies .fbc-reply-chips { margin-top:8px; }
+[data-theme="dark"] .fbc-connection-square.good { background:#163d31; border-color:#2d7257; color:#b0e8ce; }
+[data-theme="dark"] .fbc-connection-square.problem { background:#43201d; border-color:#99534f; color:#ffc0bd; }
+@media(max-width:920px) {
+  .fbc-inbox { grid-template-columns:220px minmax(0,1fr); }
+  .fbc-status-subtitle { display:none; }
+  .fbc-inbox > .fbc-analysis { width:min(390px,58%); }
+}
+@media(max-width:740px) {
+  .fbc-inbox { grid-template-columns:minmax(0,1fr); height:auto; min-height:0; overflow:visible; }
+  .fbc-inbox > .fbc-contacts { max-height:240px; border-right:0; border-bottom:1px solid var(--nw-border); }
+  .fbc-inbox > .fbc-conversation { min-height:485px; height:clamp(485px,68vh,650px); }
+  .fbc-inbox > .fbc-analysis { position:static; z-index:auto; display:none; width:100%; min-height:0; max-height:none;
+    overflow:visible; box-shadow:none; border-left:0; border-top:1px solid var(--nw-border); }
+  .fbc-inbox.show-profile > .fbc-analysis { display:flex; }
+  .fbc-inbox.show-chat > .fbc-analysis { display:none; }
+  .fbc-inbox.show-profile > .fbc-conversation { display:none; }
+  .fbc-contacts-list { max-height:166px; }
+  .fbc-tabs-simple { overflow-x:auto; flex-wrap:nowrap; }
+  .fbc-tabs-simple button { padding:10px 8px; font-size:11px; }
+  .fbc-tools { margin-left:0; flex:0 0 auto; }
+  .fbc-composer-actions { gap:7px; }
+  .fbc-compose-hint { display:none; }
+}
