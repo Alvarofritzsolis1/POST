@@ -165,7 +165,7 @@ def invoke(connection: AIConnection, *, instructions: str, prompt: str,
     except (TypeError, ValueError, AttributeError, IndexError, OverflowError):
         raise AIServiceError("El proveedor respondió con un formato inválido.") from None
     if not text.strip():
-        if provider["mode"] == "chat" and connection.provider in ("groq", "zai")
+        if provider["mode"] == "chat" and connection.provider in ("groq", "zai"):
             raise AIServiceError("El modelo respondió sin texto. Puede haber consumido los tokens de salida razonando; prueba otro modelo o aumenta el límite de tokens.")
         raise AIServiceError("El proveedor respondió sin texto utilizable.")
     return text.strip(), max(0, input_tokens), max(0, output_tokens)
