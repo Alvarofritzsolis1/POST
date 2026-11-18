@@ -17,6 +17,7 @@ type Policy = {
 type Bootstrap = {
   providers: Provider[]; tasks: Task[]; connections: Connection[];
   policy: Policy; monthly_tokens: number; server_ready: boolean;
+  messenger_ready: { messaging_enabled: boolean; ai_enabled: boolean; auto_reply_enabled: boolean; page_configured: boolean };
   learning: { approved: number; pending: number; disabled: number; feedback: Record<string, number>; method: string };
 };
 type UsageGroup = {
@@ -256,6 +257,12 @@ export default function AIConfiguration() {
   }
 
   const availableForRouting = (data?.connections || []).filter(c => c.enabled && c.has_key && c.status === "verified");
+  const missingMessengerSettings = data?.messenger_ready ? [
+    !data.messenger_ready.page_configured && "página y organización de Facebook",
+    !data.messenger_ready.messaging_enabled && "FACEBOOK_MESSAGING_ENABLED",
+    !data.messenger_ready.ai_enabled && "FACEBOOK_AI_ENABLED",
+    !data.messenger_ready.auto_reply_enabled && "FACEBOOK_AI_AUTO_REPLY_ENABLED",
+  ].filter(Boolean) : [];
   const shownUsage = [...(usage?.groups || [])].sort((a, b) => b.total_tokens - a.total_tokens);
   const providerName = (id: string) => data?.providers.find(p => p.id === id)?.name || id;
 
@@ -397,7 +404,9 @@ export default function AIConfiguration() {
             <label className="ai-check"><input type="checkbox" checked={policy.review_enabled} onChange={e => setPolicy({ ...policy, review_enabled: e.target.checked })} /> Verificación por una segunda IA (opcional: consume tokens)</label>
             <label>Tope de tokens mensuales <small>(0 = sin tope propio)</small><input type="number" min={0} max={1000000000} value={policy.monthly_token_limit} onChange={e => setPolicy({ ...policy, monthly_token_limit: Math.max(0, Number(e.target.value || 0)) })} /></label>
           </div>
-          <p className="ai-help"><CircleHelp size={15} /> En esta versión se ejecutan las consultas de Red de Obras y, si lo habilitas, una segunda IA valida la respuesta antes de mostrarla. La revisión requiere otro modelo, más tiempo y consumo adicional. Las demás funciones siguen siendo planificación. El aprendizaje compartido utiliza guías aprobadas en GALANT. Las IA no se entrenan unas a otras ni reciben conversaciones privadas automáticamente. Los mensajes externos requieren autorización del usuario y pasan por los controles de privacidad actuales.</p>
+          {policy.task_routes.messenger && missingMessengerSettings.length > 0 &&
+            <p className="ai-help" role="status">Para responder automáticamente por Messenger falta configurar en el servidor {missingMessengerSettings.join(", ")}. La asignación del modelo queda guardada.</p>}
+          <p className="ai-help"><CircleHelp size={15} /> Las consultas de Red de Obras y las respuestas de Messenger pueden usar las conexiones asignadas. Messenger requiere que la mensajería y las respuestas con IA estén activadas, además del consentimiento del contacto para los proveedores externos. La segunda IA puede revisar ambas respuestas y consume tokens adicionales. La clasificación automática con modelos y el seguimiento siguen pendientes. Las coincidencias de interesados se calculan con reglas locales y requieren revisión humana.</p>
           <button type="submit" className="gc-primary" disabled={Boolean(busy)}>Guardar funciones y límites</button>
         </form>
       </section>

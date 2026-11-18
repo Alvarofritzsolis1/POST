@@ -33,6 +33,7 @@ PROVIDERS = {
 }
 TASKS = {
     "red_obras": "Consultas de Red de Obras",
+    "messenger": "Respuestas de Messenger",
     "ads": "Redacción de anuncios",
     "classification": "Clasificación y especialidades",
     "followup": "Seguimiento de interesados",
@@ -233,7 +234,7 @@ def within_budget(db: Session, policy: AIOrchestration, org_id: str,
 
 def orchestration_available(db: Session, org_id: str, task: str) -> bool:
     policy = db.get(AIOrchestration, org_id)
-    if not policy or not policy.enabled or task != "red_obras":
+    if not policy or not policy.enabled or task not in ("red_obras", "messenger"):
         return False
     conn = db.get(AIConnection, (policy.task_routes or {}).get(task, ""))
     if not (conn and conn.org_id == org_id and conn.enabled and conn.encrypted_key
@@ -251,6 +252,11 @@ def orchestration_available(db: Session, org_id: str, task: str) -> bool:
     return True
 
 
+def orchestration_selected(db: Session, org_id: str, task: str) -> bool:
+    policy = db.get(AIOrchestration, org_id)
+    return bool(policy and policy.enabled and (policy.task_routes or {}).get(task))
+
+
 def orchestrated_text(db: Session, org_id: str, *, task: str, instructions: str,
                       prompt: str, max_output_tokens: int = 300) -> str | None:
     """Opt-in multi-provider routing; optional independent review, not weight training.
@@ -259,7 +265,7 @@ def orchestrated_text(db: Session, org_id: str, *, task: str, instructions: str,
     galancito_runtime.infer BEFORE this method to serialize budget checks.
     """
     policy = db.get(AIOrchestration, org_id)
-    if not policy or not policy.enabled or task != "red_obras":
+    if not policy or not policy.enabled or task not in ("red_obras", "messenger"):
         return None
     if not within_budget(db, policy, org_id, instructions, prompt, max_output_tokens):
         return None

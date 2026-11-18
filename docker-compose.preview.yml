@@ -86,10 +86,11 @@ services:
     command: ["python", "-m", "app.worker"]
     environment:
       <<: *backend
-      AI_CREDENTIAL_ENCRYPTION_KEY: ""  # API-only; worker never decrypts provider keys
+      AI_CREDENTIAL_ENCRYPTION_KEY: ${AI_CREDENTIAL_ENCRYPTION_KEY:-}  # Messenger puede usar el equipo IA configurado
+      FACEBOOK_PAGE_TOKEN: ${FACEBOOK_PAGE_TOKEN:-}
     volumes: ["./preview-storage:/data/private"]
     depends_on: {db: {condition: service_healthy}}
-    networks: [internal]
+    networks: [internal, galancito-egress]
     security_opt: [no-new-privileges:true]
     cap_drop: [ALL]
     mem_limit: 950m

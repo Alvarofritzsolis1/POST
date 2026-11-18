@@ -25,6 +25,11 @@ AI_PERMISSION_DECLINED = (
 
 def permission_question(provider: str, repeat: bool = False) -> str:
     """Explain where messages are processed before seeking explicit consent."""
+    if provider == "team":
+        opening = "Soy Galancito. " if repeat else "Hola, soy Galancito, asistente virtual de GALANT. "
+        return (opening + "¿Me autorizas a enviar tus mensajes a los proveedores de IA externos "
+                "configurados por GALANT para responderte? Responde SÍ o NO. "
+                "También puedes hablar con una persona.")
     if provider == "ollama":
         if repeat:
             return ("Soy Galancito. ¿Me autorizas a usar IA local de GALANT "

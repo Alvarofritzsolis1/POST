@@ -16,6 +16,7 @@ from .ai_gateway import (
     run_connection,
 )
 from .ai_models import AIConnection, AIOrchestration, AIUsage
+from .config import settings
 from .ai_model_recovery import recover_gemini
 from .ai_provider_recovery import recover_provider
 from .galancito_knowledge_models import Knowledge, AssistantRun
@@ -126,6 +127,7 @@ def existing(db: Session, user: User, connection_id: str) -> AIConnection:
 
 @router.get("/bootstrap")
 def bootstrap(user: User = Depends(administrator), db: Session = Depends(get_db)):
+    cfg = settings()
     connections = list(db.scalars(select(AIConnection).where(
         AIConnection.org_id == user.org_id).order_by(AIConnection.name)))
     policy = db.get(AIOrchestration, user.org_id)
@@ -143,11 +145,17 @@ def bootstrap(user: User = Depends(administrator), db: Session = Depends(get_db)
             "method": "curated_retrieval_no_weight_training",
         },
         "providers": [{"id": key, **value} for key, value in PROVIDERS.items()],
-        "tasks": [{"id": key, "name": value, "active": key in {"red_obras", "review"}} for key, value in TASKS.items()],
+        "tasks": [{"id": key, "name": value, "active": key in {"red_obras", "messenger", "review"}} for key, value in TASKS.items()],
         "connections": [connection_view(c) for c in connections],
         "policy": policy_view(policy),
         "monthly_tokens": monthly_tokens(db, user.org_id),
         "server_ready": encryption_ready(),
+        "messenger_ready": {
+            "messaging_enabled": cfg.facebook_messaging_enabled,
+            "ai_enabled": cfg.facebook_ai_enabled,
+            "auto_reply_enabled": cfg.facebook_ai_auto_reply_enabled,
+            "page_configured": bool(cfg.facebook_page_id and cfg.facebook_org_id),
+        },
     }
 
 
@@ -336,6 +344,13 @@ def update_policy(body: PolicyPatch, user: User = Depends(administrator),
         first, second = db.get(AIConnection, primary), db.get(AIConnection, reviewer)
         if first and second and (first.provider, first.model) == (second.provider, second.model):
             raise HTTPException(422, "El revisor debe utilizar un modelo diferente al principal")
+        messenger = body.task_routes.get("messenger")
+        if messenger:
+            reply_model = db.get(AIConnection, messenger)
+            if messenger == reviewer or (reply_model and second and
+                                         (reply_model.provider, reply_model.model) ==
+                                         (second.provider, second.model)):
+                raise HTTPException(422, "El revisor de Messenger debe utilizar un modelo diferente")
     policy = db.get(AIOrchestration, user.org_id)
     if policy is None:
         policy = AIOrchestration(org_id=user.org_id)
