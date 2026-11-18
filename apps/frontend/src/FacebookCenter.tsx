@@ -370,6 +370,12 @@ export default function FacebookCenter({ catalog }: { catalog: Catalog }) {
         {messengerBlocked || messengerUncertain || tokenInvalid ? "Revisar" :
           checkingConnection ? "Comprobando" : connectionVerified && center?.messaging_enabled ? "Vigente" : "Sin verificar"}
       </span>
+      <span className={"fbc-auto-status " + (center?.auto_reply?.configured ? "configured" : "inactive")}
+        role="status" title="La configuración no sustituye una prueba real de entrega en Meta">
+        <Bot size={14} /> {center?.auto_reply?.configured
+          ? "Respuestas IA configuradas · falta probar"
+          : "Respuestas IA sin activar"}
+      </span>
       <details className="fbc-connection-details">
         <summary>Diagnóstico</summary>
         <div className="fbc-connection-content">
