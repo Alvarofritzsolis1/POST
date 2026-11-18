@@ -49,7 +49,11 @@ const MODEL_OPTIONS: Record<string, Array<{ id: string; label: string }>> = {
     { id: "glm-4.7", label: "GLM-4.7 · respuesta rápida" },
     { id: "glm-5.3-flash", label: "GLM-5.3 Flash · razonamiento" },
   ],
-  nvidia: [{ id: "nvidia/nemotron-3.5-bolt-e4b", label: "Nemotron 3.5 Bolt" }],
+  nvidia: [
+    { id: "deepseek-ai/deepseek-v4.1-flash", label: "DeepSeek V4.1 Flash · recomendado" },
+    { id: "deepseek-ai/deepseek-v4-flash", label: "DeepSeek V4 Flash" },
+    { id: "nvidia/nemotron-3.5-bolt-e4b", label: "Nemotron 3.5 Bolt · alternativa" },
+  ],
   openai: [{ id: "gpt-4.1-mini", label: "GPT-4.1 Mini" }],
   mistral: [{ id: "mistral-small-latest", label: "Mistral Small" }],
   openrouter: [{ id: "openai/gpt-4o-mini", label: "GPT-4o Mini vía OpenRouter" }],
