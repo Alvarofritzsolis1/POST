@@ -74,3 +74,25 @@
 .ai-center .ai-learning-stats b { font-size:25px; line-height:1.2; color:#1a453d; }
 .ai-center .ai-learning-stats span { font-size:12px; color:#5b727b; }
 @media(max-width:620px) { .ai-center .ai-learning-stats { grid-template-columns:1fr; } }
+
+
+/* Guided connection: the common path is three fields and one action. */
+.ai-center .ai-quick-form { background: #f8fcfb; gap: 19px; }
+.ai-center .ai-quick-form .ai-editor-heading p { margin: 5px 0 0; color: #607780; font-size: 12px; }
+.ai-center .ai-simple-fields { align-items: start; }
+.ai-center .ai-simple-fields .ai-key-input,
+.ai-center .ai-simple-fields .ai-manual-model { grid-column: 1 / -1; }
+.ai-center .ai-simple-fields label { font-size: 13px; gap: 8px; }
+.ai-center .ai-simple-fields select,
+.ai-center .ai-simple-fields input { min-height: 46px; font-size: 14px; }
+.ai-center .ai-quick-form .ai-help a { color: #116e63; font-weight: 750; text-decoration: underline; }
+.ai-center .ai-advanced { padding: 11px 15px; border: 1px solid #d7e8e3; border-radius: 10px; background: white; }
+.ai-center .ai-advanced summary { cursor: pointer; font-size: 12px; font-weight: 750; color: #526d76; }
+.ai-center .ai-advanced[open] > .ai-form-grid { margin-top: 15px; }
+.ai-center .ai-advanced p { margin-top: 12px; }
+.ai-center .ai-quick-form .ai-editor-footer { align-items: center; }
+.ai-center .ai-quick-form .gc-primary { padding: 11px 20px; min-height: 46px; }
+@media (max-width: 620px) {
+  .ai-center .ai-simple-fields .ai-key-input,
+  .ai-center .ai-simple-fields .ai-manual-model { grid-column: auto; }
+}
