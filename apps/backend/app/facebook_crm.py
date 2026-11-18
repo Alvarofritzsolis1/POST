@@ -37,6 +37,7 @@ from .galancito_triage import classify_lead, dashboard
 from .security import administrator
 from .galancito_triage import analyze, private_data, quick_reply
 from .galancito_intake import apply_intake, next_intake_reply
+from .galancito_contact_profile import contact_profile
 from .facebook_lead_insights import ranked_needs, suggestions_for_lead
 from .ops_models import Worksite
 from .galancito_knowledge import retrieve, exact_answer, evidence_context
@@ -129,6 +130,7 @@ def _lead_view(db: Session, lead: FacebookLead) -> dict:
         "team_available": lead.team_available,
         "interest_type": lead.interest_type,
         "work_area": lead.work_area,
+        "profile": contact_profile(lead),
         "follow_up_on": lead.follow_up_on.isoformat() if lead.follow_up_on else None,
         "follow_up_note": lead.follow_up_note or "",
         "last_inbound_at": lead.last_inbound_at.isoformat() if lead.last_inbound_at else None,
