@@ -21,7 +21,7 @@ from .facebook_crm_models import FacebookLead, FacebookChatMessage, FacebookTrad
 from .models import utcnow
 from .network_service import key
 from .galancito_triage import analyze, quick_reply, private_data
-from .galancito_intake import next_intake_reply, natural_messenger_reply
+from .galancito_intake import next_intake_reply, natural_messenger_reply, needs_deeper_response
 from .galancito_knowledge import retrieve, exact_answer, evidence_context
 from .galancito_runtime import infer, record_run
 from .galancito_local import last_timings
@@ -296,10 +296,17 @@ def process_chat_next(session_factory=SessionLocal) -> bool:
     try:
         if state == "ai_pending":
             generated = fast
-            if not fast and not private_data(context):
+            # Short guided answers use local reasoning. Nuanced questions get a
+            # fuller model response after the contact's explicit consent.
+            should_model = not fast or needs_deeper_response(latest)
+            if should_model and not private_data(context):
+                if fast:
+                    context += ("\nOrientación breve disponible como alternativa: " +
+                                fast[:450] + "\nRespeta sus hechos; explica la duda "
+                                "antes de avanzar con una pregunta.")
                 try:
                     with session_factory.begin() as db:
-                        generated = infer(db, lambda: (
+                        drafted = infer(db, lambda: (
                             orchestrated_text(db, org_id, task="messenger",
                                               instructions=REPLY_INSTRUCTIONS, prompt=context,
                                               max_output_tokens=230)
@@ -307,11 +314,16 @@ def process_chat_next(session_factory=SessionLocal) -> bool:
                             generate_text(REPLY_INSTRUCTIONS, context, 550)),
                             org_id=org_id if ai_source == "team" else None)
                         timings = last_timings.get()
-                    if generated:
-                        generated = grounded_reply(generated, context)
-                    source = "ai" if generated else "fallback"
+                    if drafted:
+                        drafted = grounded_reply(drafted, context)
+                    if drafted:
+                        generated, source = drafted, "ai"
+                    elif not fast:
+                        generated, source = None, "fallback"
                 except (RuntimeError, ValueError):
-                    generated, source, timings = None, "fallback", last_timings.get()
+                    if not fast:
+                        generated, source = None, "fallback"
+                    timings = last_timings.get()
             if generated:
                 body = natural_messenger_reply(safe_ai_reply(generated), prior_ai_replies)
             else:
