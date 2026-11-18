@@ -123,12 +123,13 @@ export default function GalancitoWidget({ area = "red_obras" }: { area?: Area })
         <div ref={end}/>
       </div>
       <form className="galancito-compose" onSubmit={(e) => void send(e)}>
-        {status?.local_ai_available ? <div className="galancito-safety">
-          <ShieldCheck size={14}/> Qwen3 local · sin cobro por mensaje de API · recursos limitados
-        </div> : <label className="galancito-privacy"><input type="checkbox" checked={consent}
+        {status?.local_ai_available && <div className="galancito-safety">
+          <ShieldCheck size={14}/> Modelo local disponible · sin consumo de API externa
+        </div>}
+        <label className="galancito-privacy"><input type="checkbox" checked={consent}
           onChange={(e) => setConsent(e.target.checked)} disabled={!status?.external_ai_available}/>
-          <span>IA externa {status?.external_ai_available ? "(opcional)" : "(no habilitada)"}</span>
-        </label>}
+          <span>Utilizar equipo IA externo {status?.external_ai_available ? "(requiere consentimiento)" : "(no habilitado)"}</span>
+        </label>
         <small>{status?.local_ai_available
           ? "Los mensajes se procesan dentro del VPS. No ingreses RUT, contraseñas ni documentos personales."
           : "Cuando el modelo local no está activo, Galancito ofrece ayuda básica. No compartas información privada."}</small>
