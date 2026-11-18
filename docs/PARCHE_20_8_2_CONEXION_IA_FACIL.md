@@ -1,4 +1,4 @@
-# GALANT 20.8.2-rc1 — Conectar IA sin entrar al VPS
+# GALANT 20.8.3-rc1 — Conectar IA sin entrar al VPS
 
 ## Qué se corrigió
 
@@ -25,7 +25,7 @@ Esta versión hace la configuración por el flujo de despliegue **seguro y respa
 
 ## Pasos para el administrador
 
-Una vez desplegado `20.8.2-rc1`:
+Una vez desplegado `20.8.3-rc1`:
 
 1. Abre **Configuración general → Inteligencia artificial → Agregar IA**.
 2. Selecciona Google Gemini, Groq o NVIDIA.
