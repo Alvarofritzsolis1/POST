@@ -251,12 +251,28 @@ export default function FacebookCenter({ catalog }: { catalog: Catalog }) {
     } catch (e) { setError(errorText(e)); }
     finally { setSaving(""); }
   }
+  function sendMessage() {
+    const text = reply.trim();
+    const contactId = selectedId;
+    if (!text || !contactId || saving || !detail?.lead.can_reply) return;
+    void mutate("send", () => change("/facebook/leads/" + contactId + "/reply", { message: text }), "")
+      .then((success) => {
+        if (success) {
+          setReply((current) => current.trim() === text ? "" : current);
+          nearBottomRef.current = true;
+        }
+      });
+  }
   function send(e: FormEvent) {
     e.preventDefault();
-    if (!reply.trim() || !selectedId) return;
-    void mutate("send", () => change("/facebook/leads/" + selectedId + "/reply", { message: reply }),
-      "Respuesta guardada en la cola de envío. Confirma el estado enviado.")
-      .then((success) => { if (success) setReply(""); });
+    sendMessage();
+  }
+  function composerKeyDown(e: KeyboardEvent<HTMLTextAreaElement>) {
+    // Enter sends; Shift+Enter is a newline. Respect composing keyboards.
+    if (e.key === "Enter" && !e.shiftKey && !e.nativeEvent.isComposing) {
+      e.preventDefault();
+      sendMessage();
+    }
   }
   function saveGuide(e: FormEvent) {
     e.preventDefault();
@@ -490,10 +506,16 @@ export default function FacebookCenter({ catalog }: { catalog: Catalog }) {
             {lead.unread && <button type="button" className="nw-btn fbc-read-btn" onClick={() =>
               void mutate("read", () => change("/facebook/leads/" + lead.id + "/read"), "")} disabled={!!saving}>Leído</button>}
             <button type="button" className="nw-btn fbc-profile-toggle" aria-expanded={showProfile}
-              onClick={() => { setShowProfile((old) => !old); setMobilePane("profile"); }}>
+              onClick={() => setShowProfile((old) => {
+                setMobilePane(old ? "chat" : "profile");
+                return !old;
+              })}>
               <Users size={15} /> {showProfile ? "Cerrar ficha" : "Ver ficha"}
             </button></div>
-            <div className="fbc-chat-stream">
+            <div className="fbc-chat-stream" ref={chatRef} onScroll={(e) => {
+              const element = e.currentTarget;
+              nearBottomRef.current = element.scrollHeight - element.scrollTop - element.clientHeight < 100;
+            }}>
               {detail?.messages.map((msg) => <div key={msg.id} className={"fbc-bubble " + msg.direction}>
                 <p>{msg.body || "Procesando respuesta…"}</p>
                 <small>{msg.ai_generated ? "Galancito IA · " : ""}{dateText(msg.created_at)} · {msg.state === "sent" ? "Enviado" : msg.direction === "inbound" ? "Recibido" : msg.state}</small>
@@ -502,9 +524,11 @@ export default function FacebookCenter({ catalog }: { catalog: Catalog }) {
             </div>
             <form className="fbc-composer" onSubmit={send}>
               <textarea aria-label="Respuesta para el contratista" value={reply}
-                onChange={(e) => setReply(e.target.value)} rows={3}
-                placeholder="Escribe simple. Ej.: Hola, gracias. ¿Qué trabajo haces?" />
-              <div className="fbc-reply-chips" aria-label="Respuestas rápidas">
+                onChange={(e) => setReply(e.target.value)} onKeyDown={composerKeyDown} rows={2}
+                placeholder="Escribe un mensaje..." />
+              <details className="fbc-quick-replies">
+                <summary>Respuestas rápidas</summary>
+                <div className="fbc-reply-chips" aria-label="Respuestas rápidas">
                 {[
                   ["Preguntar oficio", "Hola, gracias por escribirnos. ¿En qué oficio te especializas?"],
                   ["Disponibilidad", "¿Desde qué fecha podrías comenzar a trabajar?"],
@@ -512,13 +536,15 @@ export default function FacebookCenter({ catalog }: { catalog: Catalog }) {
                   ["Experiencia", "¿En qué tipo de obras has trabajado anteriormente?"],
                 ].map(([label, text]) => <button key={label} type="button" disabled={!!saving}
                   onClick={() => setReply(text)}>{label}</button>)}
-              </div>
+                </div>
+              </details>
               <div className="fbc-composer-actions">
                 <button className="nw-btn" type="button" disabled={!!saving}
                   onClick={() => void suggest()}><Sparkles size={16} /> {saving === "draft" ? "Preparando…" : "Sugerir respuesta"}</button>
+                <span className="fbc-compose-hint">Enter envía · Shift+Enter nueva línea</span>
                 <button className="nw-btn nw-primary" type="submit"
                   disabled={!!saving || !reply.trim() || !lead.can_reply}>
-                  <Send size={16} /> Responder
+                  <Send size={16} /> {saving === "send" ? "Encolando..." : "Enviar"}
                 </button>
               </div>
               {!lead.can_reply && <small>La ventana normal de Messenger terminó. Espera un nuevo mensaje o utiliza herramientas autorizadas por Meta.</small>}
