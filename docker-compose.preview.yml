@@ -84,7 +84,9 @@ services:
     build: {context: ., dockerfile: apps/backend/Dockerfile, args: {SOURCE_COMMIT: "${SOURCE_COMMIT:-unknown}"}}
     restart: unless-stopped
     command: ["python", "-m", "app.worker"]
-    environment: *backend
+    environment:
+      <<: *backend
+      AI_CREDENTIAL_ENCRYPTION_KEY: ""  # API-only; worker never decrypts provider keys
     volumes: ["./preview-storage:/data/private"]
     depends_on: {db: {condition: service_healthy}}
     networks: [internal]
@@ -100,6 +102,7 @@ services:
     command: ["python", "-m", "app.network_facebook"]
     environment:
       <<: *backend
+      AI_CREDENTIAL_ENCRYPTION_KEY: ""  # Publisher does not need provider credentials
       FACEBOOK_PAGE_TOKEN: ${FACEBOOK_PAGE_TOKEN:-}
     depends_on: {db: {condition: service_healthy}}
     networks: [internal, frontend-network]
