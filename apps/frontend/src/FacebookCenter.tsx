@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useState, type FormEvent } from "react";
+import { useCallback, useEffect, useRef, useState, type FormEvent, type KeyboardEvent } from "react";
 import {
   AlertTriangle, BookOpen, Bot, CheckCircle2, Clock3, Facebook, Inbox,
   MessageCircle, RefreshCcw, Send, ShieldCheck, Sparkles, Users,
@@ -106,6 +106,9 @@ export default function FacebookCenter({ catalog }: { catalog: Catalog }) {
   const [triageNote, setTriageNote] = useState<TriageNote | null>(null);
   const [insights, setInsights] = useState<LeadInsights | null>(null);
   const [mobilePane, setMobilePane] = useState<"chat" | "profile">("chat");
+  const [showProfile, setShowProfile] = useState(false);
+  const chatRef = useRef<HTMLDivElement | null>(null);
+  const nearBottomRef = useRef(true);
   const [triageFilter, setTriageFilter] = useState<"all"|"high"|"unlinked"|"due">("all");
 
   const refresh = useCallback(async () => {
@@ -144,7 +147,7 @@ export default function FacebookCenter({ catalog }: { catalog: Catalog }) {
       .catch(() => {});
     const interval = window.setInterval(() => {
       if (!document.hidden) void refresh().catch(() => {});
-    }, 12000);
+    }, 6000);
     return () => window.clearInterval(interval);
   }, [refresh]);
   useEffect(() => {
@@ -155,6 +158,9 @@ export default function FacebookCenter({ catalog }: { catalog: Catalog }) {
     setOnboarding(null);
     setTriageNote(null);
   }, [selectedId, refreshDetail, refreshInsights]);
+  useEffect(() => {
+    if (chatRef.current && nearBottomRef.current) chatRef.current.scrollTop = chatRef.current.scrollHeight;
+  }, [selectedId, detail?.messages.length]);
   // Desde la campana de GALANT: abrir directamente el contacto que pidió ayuda.
   useEffect(() => {
     const openLinked = () => {
@@ -192,7 +198,7 @@ export default function FacebookCenter({ catalog }: { catalog: Catalog }) {
         });
       } catch { /* No borrar la conversación si hay un fallo temporal de red. */ }
     };
-    const interval = window.setInterval(() => { void refreshMessages(); }, 10000);
+    const interval = window.setInterval(() => { void refreshMessages(); }, 5000);
     return () => window.clearInterval(interval);
   }, [selectedId, tab]);
 
@@ -209,7 +215,7 @@ export default function FacebookCenter({ catalog }: { catalog: Catalog }) {
     setSaving(label); setError(""); setNotice("");
     try {
       await run();
-      setNotice(message);
+      if (message) setNotice(message);
       await refresh();
       if (tab === "tracking") await refreshTracking();
       if (selectedId) {
@@ -314,61 +320,38 @@ export default function FacebookCenter({ catalog }: { catalog: Catalog }) {
         <span>{title}</span><strong>{value}</strong>
       </div>)}
     </div>
-    <div className="fbc-state-row">
-      <span className={connectionVerified ? "good" : "warning"}>
-        <Facebook size={15} /> {checkingConnection ? "Comprobando Facebook" :
-          connectionVerified ? "Página verificada" :
-          tokenInvalid ? "Conexión por revisar" :
-          center?.automatic_enabled ? "Publicador habilitado · sin verificar" : "Publicador desactivado"}
+    <div className="fbc-status-line">
+      <span className={"fbc-connection-square " + (messengerBlocked || messengerUncertain || tokenInvalid ? "problem" :
+        connectionVerified && center?.messaging_enabled ? "good" : "pending")} role="status"
+        title={connectionVerified ? "Token de página verificado" : "Conexión sin confirmar"}>
+        {messengerBlocked || messengerUncertain || tokenInvalid ? <AlertTriangle size={15} /> : <CheckCircle2 size={15} />}
+        {messengerBlocked || messengerUncertain || tokenInvalid ? "Revisar" :
+          checkingConnection ? "Comprobando" : connectionVerified && center?.messaging_enabled ? "Vigente" : "Sin verificar"}
       </span>
-      <span className={messengerBlocked || messengerUncertain || !(center?.ai_enabled && center?.auto_reply_enabled) ? "warning" : "good"}>
-        <Bot size={15} /> {messengerBlocked ? "Galancito · envío rechazado" :
-          messengerUncertain ? "Messenger sin confirmar" :
-          center?.ai_enabled && center?.auto_reply_enabled ? "Galancito activo" : "Galancito requiere revisión"}
-      </span>
-      <button type="button" className="nw-btn fbc-verify-btn" disabled={!!saving || checkingConnection || !(center?.automatic_enabled || center?.manual_enabled)}
-        onClick={() => void mutate("verify-connection", () => change("/facebook/tests/verify", {}),
-          "Comprobación solicitada. El resultado aparecerá automáticamente.")}>
-        <RefreshCcw size={15} /> {checkingConnection || saving === "verify-connection" ? "Comprobando..." : "Comprobar conexión"}
-      </button>
-      <button type="button" className="nw-btn" disabled={!!saving || syncingInbox || !center?.messaging_enabled}
-        onClick={() => void mutate("inbox-sync", () => change("/facebook/inbox/sync", {}),
-          "Recuperación solicitada: GALANT consultará a Meta sin enviar respuestas automáticas.")}>
-        <RefreshCcw size={15} /> {syncingInbox ? "Recuperando chats..." : "Recuperar mensajes"}
-      </button>
+      <span className="fbc-status-subtitle">Sincronización automática activa</span>
+      <details className="fbc-connection-details">
+        <summary>Diagnóstico</summary>
+        <div className="fbc-connection-content">
+          <p>Facebook: {connectionVerified ? "Token verificado" : connection?.state === "failed" ? "Error de autenticación" : "Pendiente de comprobación"}.</p>
+          <p>Messenger: {center?.messaging_enabled ? "Habilitado" : "Deshabilitado"}.
+            {center?.ai_enabled && center?.auto_reply_enabled ? " · Galancito habilitado" : " · Galancito sin respuestas automáticas"}.</p>
+          {center?.inbox_sync?.state === "synced" && <p>{center.inbox_sync.summary}</p>}
+          {center?.inbox_sync?.state === "failed" && <p role="alert">{center.inbox_sync.error || "Fallo al recuperar conversaciones"}</p>}
+          {tokenInvalid && <p role="alert">Revisar token de página en el VPS.</p>}
+          {(messengerBlocked || messengerUncertain) && <p role="alert">{center?.messenger_delivery?.error || "No se confirmó el envío."}</p>}
+          <div className="fbc-diagnostic-actions">
+            <button type="button" className="nw-btn" disabled={!!saving || checkingConnection || !(center?.automatic_enabled || center?.manual_enabled)}
+              onClick={() => void mutate("verify-connection", () => change("/facebook/tests/verify", {}), "")}>
+              <RefreshCcw size={14}/> Verificar token
+            </button>
+            <button type="button" className="nw-btn" disabled={!!saving || syncingInbox || !center?.messaging_enabled}
+              onClick={() => void mutate("inbox-sync", () => change("/facebook/inbox/sync", {}), "")}>
+              <RefreshCcw size={14}/> {syncingInbox ? "Recuperando..." : "Recuperación puntual"}
+            </button>
+          </div>
+        </div>
+      </details>
     </div>
-    {center?.inbox_sync?.state === "failed" && <div className="fbc-messenger-alert" role="alert">
-      <AlertTriangle size={18} />
-      <div><strong>No se pudieron recuperar los mensajes</strong>
-        <p>{center.inbox_sync.error || "Meta no autorizó la consulta a Messenger."}</p>
-        <small>El acceso a conversaciones de cuentas externas depende de los permisos autorizados por Meta.</small>
-      </div>
-    </div>}
-    {center?.inbox_sync?.state === "synced" && <p className="fbc-connected" role="status">
-      <CheckCircle2 size={16} /> {center.inbox_sync.summary || "Recuperación de Messenger terminada."}
-    </p>}
-    {tokenInvalid && <div className="fbc-alert fbc-token-alert" role="alert">
-      <AlertTriangle size={18} />
-      <span>{failedCheckIsNewer
-        ? "No se pudo verificar Facebook. " + (connection?.error || "Revisa el token del publicador.")
-        : "El último anuncio falló por un token inválido. Comprueba la conexión antes de reintentar."}
-        <small>Si la comprobación confirma el error 190, reemplaza FACEBOOK_PAGE_TOKEN en el VPS.</small>
-      </span>
-      <button type="button" className="nw-btn" onClick={() => setTab("testing")}>Ver detalles</button>
-    </div>}
-    {(messengerBlocked || messengerUncertain) && <div className="fbc-messenger-alert" role="alert">
-      <AlertTriangle size={18} />
-      <div>
-        <strong>{messengerBlocked ? "Messenger rechazó la última respuesta" : "Messenger no confirmó la entrega"}</strong>
-        <p>{center?.messenger_delivery?.error || "Revisa los permisos de Messenger en Meta."}</p>
-        <small>La página verificada no garantiza envíos. No se reintentará automáticamente el mensaje fallido.</small>
-      </div>
-      <button type="button" className="nw-btn" onClick={() => setTab("inbox")}>Ver conversación</button>
-    </div>}
-    {connectionVerified && <p className="fbc-connected" role="status">
-      <CheckCircle2 size={16} /> Token verificado para {connection?.page_name || "la página configurada"}.
-      Esto comprueba la identidad, no garantiza el permiso para publicar.
-    </p>}
     {error && <p role="alert" className="fbc-error">{error}</p>}
     {notice && <p role="status" className="fbc-notice">{notice}</p>}
     <nav aria-label="Centro Facebook" className="fbc-tabs fbc-tabs-simple">
@@ -474,11 +457,11 @@ export default function FacebookCenter({ catalog }: { catalog: Catalog }) {
       <button type="button" className={mobilePane === "chat" ? "active" : ""} onClick={() => setMobilePane("chat")}>Conversación</button>
       <button type="button" className={mobilePane === "profile" ? "active" : ""} onClick={() => setMobilePane("profile")}>Ficha inteligente</button>
     </div>
-    <div className={"fbc-inbox " + (mobilePane === "profile" ? "show-profile" : "show-chat")}>
+    <div className={"fbc-inbox " + (mobilePane === "profile" ? "show-profile" : "show-chat") + (showProfile ? " profile-open" : "")}>
       <aside className="fbc-contacts">
         <div className="fbc-pane-title"><Users size={16} /><b>Personas que escribieron</b></div>
         <input className="fbc-search" aria-label="Buscar interesados" value={filter}
-          onChange={(e) => setFilter(e.target.value)} placeholder="Buscar por oficio o empresa..." />
+          onChange={(e) => setFilter(e.target.value)} placeholder="Buscar persona, empresa u oficio..." />
         <div className="fbc-contacts-list">
           {!visible.length && <p className="fbc-empty">Aún no hay mensajes sincronizados. Los contactos aparecerán cuando escriban a la página conectada.</p>}
           {visible.map((item) => <button key={item.id}
@@ -488,7 +471,7 @@ export default function FacebookCenter({ catalog }: { catalog: Catalog }) {
             <div><strong>{item.name && item.name !== "Interesado de Facebook" ? item.name : "Contacto sin nombre"}</strong>
               {item.company && <small>{item.company}</small>}
               <small>{item.specialty || "Oficio por confirmar"}</small>
-              <small>{statuses[item.status] || item.status}</small>
+              {item.follow_up_on && <small>Seguimiento: {item.follow_up_on}</small>}
               {item.needs_support && <small className="fbc-support-mini">Necesita orientación</small>}</div>
             {item.unread && <span className="fbc-unread" aria-label="Sin leer" />}
           </button>)}
@@ -501,10 +484,15 @@ export default function FacebookCenter({ catalog }: { catalog: Catalog }) {
           <>
             <div className="fbc-pane-title"><MessageCircle size={17} /><div>
               <b>{lead.name && lead.name !== "Interesado de Facebook" ? lead.name : "Contacto sin nombre"}</b>
-              <small>{lead.company ? lead.company + " · " : ""}{lead.specialty ? lead.specialty + " · " : ""}Messenger · {lead.can_reply ? "Disponible para responder" : "Ventana vencida"}</small>
-            </div><button className="nw-btn" onClick={() =>
-              void mutate("read", () => change("/facebook/leads/" + lead.id + "/read"),
-                "Marcado como leído.")} disabled={!!saving}>Leído</button></div>
+              <small>{lead.company ? lead.company + " · " : ""}{lead.specialty ? lead.specialty + " · " : ""}
+                {lead.can_reply ? "Puedes responder" : "Fuera de la ventana de respuesta"}</small>
+            </div>
+            {lead.unread && <button type="button" className="nw-btn fbc-read-btn" onClick={() =>
+              void mutate("read", () => change("/facebook/leads/" + lead.id + "/read"), "")} disabled={!!saving}>Leído</button>}
+            <button type="button" className="nw-btn fbc-profile-toggle" aria-expanded={showProfile}
+              onClick={() => { setShowProfile((old) => !old); setMobilePane("profile"); }}>
+              <Users size={15} /> {showProfile ? "Cerrar ficha" : "Ver ficha"}
+            </button></div>
             <div className="fbc-chat-stream">
               {detail?.messages.map((msg) => <div key={msg.id} className={"fbc-bubble " + msg.direction}>
                 <p>{msg.body || "Procesando respuesta…"}</p>
@@ -537,7 +525,10 @@ export default function FacebookCenter({ catalog }: { catalog: Catalog }) {
             </form>
           </>}
       </section>
-      <aside className="fbc-analysis">
+      <aside className="fbc-analysis" aria-label="Ficha del contacto">
+        <button type="button" className="fbc-profile-close" onClick={() => {
+          setShowProfile(false); setMobilePane("chat");
+        }} aria-label="Cerrar ficha">Cerrar ficha ×</button>
         <div className="fbc-pane-title"><ShieldCheck size={17} /><b>Ficha inteligente</b></div>
         {!lead ? <p className="fbc-empty">Selecciona una conversación.</p> : <>
           {lead.needs_support && <div className="fbc-support-alert" role="status">
