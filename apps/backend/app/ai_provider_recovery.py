@@ -71,6 +71,9 @@ def groq_models(conn: AIConnection) -> list[str]:
 def recover_provider(db: Session, conn: AIConnection) -> dict:
     if not conn.encrypted_key or conn.provider not in ("groq", "zai"):
         raise AIServiceError("No hay una conexión Groq o Z.ai recuperable.")
+    # Model discovery is not proof of a working credential; fail closed.
+    conn.enabled = False
+    conn.last_status = "error"
     if conn.provider == "groq":
         candidates = groq_models(conn)[:MAX_PROBES]
         if not candidates:
