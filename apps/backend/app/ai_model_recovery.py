@@ -13,6 +13,7 @@ from urllib.error import HTTPError, URLError
 from urllib.parse import urlencode
 from urllib.request import Request
 
+from sqlalchemy import select
 from sqlalchemy.orm import Session
 
 from . import ai_gateway
@@ -131,7 +132,17 @@ def recover_gemini(db: Session, conn: AIConnection) -> dict:
         conn.enabled = True
         # Only adjust the generated automatic name, never override a custom name.
         if conn.name == "Google Gemini · " + old_model:
-            conn.name = "Google Gemini · " + model
+            preferred_name = "Google Gemini · " + model
+            used = set(db.scalars(select(AIConnection.name).where(
+                AIConnection.org_id == conn.org_id, AIConnection.id != conn.id)))
+            if preferred_name not in used:
+                conn.name = preferred_name
+            else:
+                conn.name = next(
+                    (preferred_name[:69] + " #" + str(n) for n in range(2, 100)
+                     if preferred_name[:69] + " #" + str(n) not in used),
+                    conn.name,
+                )
         return {"ok": True, "model": model,
                 "message": "Gemini conectado con el modelo compatible " + model + ".",
                 "attempts": checked}
