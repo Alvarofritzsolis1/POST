@@ -208,6 +208,7 @@ def orchestration_available(db: Session, org_id: str, task: str) -> bool:
     if policy.review_enabled:
         reviewer = db.get(AIConnection, (policy.task_routes or {}).get("review", ""))
         if not (reviewer and reviewer.id != conn.id and reviewer.org_id == org_id
+                and (reviewer.provider, reviewer.model) != (conn.provider, conn.model)
                 and reviewer.enabled and reviewer.encrypted_key
                 and reviewer.last_status == "verified"):
             return False
@@ -236,7 +237,9 @@ def orchestrated_text(db: Session, org_id: str, *, task: str, instructions: str,
                      c.encrypted_key and c.last_status == "verified"), None) if review_id else None
     ordered = [c for c in connections if c.id == primary_id and
                c.encrypted_key and c.last_status == "verified"]
-    if policy.review_enabled and (not reviewer or reviewer.id == primary_id):
+    if policy.review_enabled and (not reviewer or reviewer.id == primary_id or
+                                  (ordered and (reviewer.provider, reviewer.model) ==
+                                   (ordered[0].provider, ordered[0].model))):
         return None
     if policy.fallback_enabled and ordered:
         ordered += [c for c in connections if c.id not in {primary_id, review_id}
