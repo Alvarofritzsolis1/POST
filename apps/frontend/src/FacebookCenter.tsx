@@ -695,7 +695,7 @@ export default function FacebookCenter({ catalog }: { catalog: Catalog }) {
           <div className="fbc-pair">
             <label>Personas disponibles<input type="number" min={1} value={lead.workers ?? ""}
               onChange={(e) => setDetail((old) => old ? {...old, lead: {...old.lead, workers: e.target.value ? Number(e.target.value) : null}} : old)} /></label>
-            <label>Disponible desde<input type="date" value={lead.availability} onChange={(e) => setDetail((old) => old ? {...old, lead: {...old.lead, availability: e.target.value}} : old)} /></label>
+            <label>Disponible desde<input type="text" placeholder="Ej.: mañana, próxima semana o AAAA-MM-DD" value={lead.availability} onChange={(e) => setDetail((old) => old ? {...old, lead: {...old.lead, availability: e.target.value}} : old)} /></label>
           </div>
           <label>Comuna en la que puede trabajar
             <input maxLength={120} value={lead.work_area} placeholder="Por confirmar"
@@ -746,7 +746,7 @@ export default function FacebookCenter({ catalog }: { catalog: Catalog }) {
               }}>
               <option value="unknown">No se sabe todavía</option>
               <option value="true">Sí, tiene trabajadores</option>
-              <option value="false">No, trabaja solo</option>
+              <option value="false">No declara trabajadores contratados</option>
             </select>
           </label>
           <label>Documentación (revisión humana)
