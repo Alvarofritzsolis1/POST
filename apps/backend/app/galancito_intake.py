@@ -172,8 +172,34 @@ def apply_intake(lead, message: str, prior_prompt: str = "") -> None:
             lead.availability = message.strip()[:100]
 
 
+def _friendly_ack(message: str, facts: dict, question: str) -> str:
+    """Brief, grounded acknowledgement, not a repetitive scripted self-introduction."""
+    norm = plain(message)
+    trade = (facts.get("specialty") or "").strip()
+    if norm in {"hola", "ola", "buenas", "buen dia", "buenos dias", "buenas tardes"}:
+        return "¡Hola! Cuéntame un poquito."
+    if "trabajas solo" in plain(question) and facts.get("interest_type") == "service_offer":
+        return "Perfecto, entonces ofreces tus servicios."
+    if "cuantas personas" in plain(question):
+        return "Ya, entiendo que puedes venir con otras personas."
+    if "cuanto tiempo llevas" in plain(question) and facts.get("workers") is not None:
+        return "Gracias, me queda clara la cantidad de personas."
+    if "en que comuna" in plain(question) and facts.get("experience"):
+        return "Gracias, también tengo anotada tu experiencia."
+    if "desde cuando" in plain(question) and facts.get("work_area"):
+        return "Bien, ya sé en qué comuna puedes trabajar."
+    if "ofreces trabajos" in plain(question) and trade:
+        return "Entiendo que trabajas en " + trade.lower() + "."
+    if "que trabajo realizas" in plain(question):
+        return "Cuéntame a qué te dedicas."
+    return "Gracias por contarme."
+
+
 def next_intake_reply(message: str, facts: dict, prior_prompt: str = "") -> str | None:
-    """Guide service providers through short questions without repeating known facts."""
+    """Respond conversationally, then ask one relevant missing question.
+
+    No fake thinking delay, and no guessed work, hiring, wages or promises.
+    """
     info = analyze(message)
     if info.intent in {"human", "restricted", "documents", "requirements", "about",
                        "contractor_request", "publish"} or private_data(message):
@@ -203,7 +229,32 @@ def next_intake_reply(message: str, facts: dict, prior_prompt: str = "") -> str 
         question = "¿En qué comuna puedes trabajar?"
     elif not facts.get("availability"):
         question = "¿Desde cuándo podrías comenzar?"
+    elif facts.get("display_name") in {"", "Interesado de Facebook", "Contacto sin nombre", None} and not facts.get("name_opt_out"):
+        question = "¿Cómo prefieres que te llamemos? Si prefieres no decirlo, escribe paso."
     else:
-        return ("Soy Galancito. Gracias, registré los datos profesionales que me contaste. "
-                "El equipo revisará tu interés cuando corresponda; no hay contratación confirmada.")
-    return "Soy Galancito. " + question
+        return ("Gracias por contarme sobre tu trabajo. Ya quedó registrada la información "
+                "que me diste para que administración pueda revisarla si corresponde. "
+                "Esto todavía no significa que exista una contratación confirmada.")
+    return (_friendly_ack(message, facts, question) + " " + question)[:540]
+
+
+def natural_messenger_reply(text: str, prior_ai_replies: int = 0) -> str:
+    """Identify as the virtual assistant initially, then avoid repeated bot branding."""
+    clean = text.strip()
+    if prior_ai_replies <= 0:
+        # Keep the first reply unmistakably from an assistant.
+        if not plain(clean).startswith("soy galancito"):
+            clean = "Soy Galancito, el asistente virtual de GALANT. " + clean
+        return clean[:550]
+    # Every conversation started with the separate, explicit virtual-assistant
+    # disclosure/consent prompt. Dropping repeated branding does not impersonate
+    # a human or conceal the use of automation.
+    for beginning in (
+        "Soy Galancito, asistente virtual de GALANT. ",
+        "Soy Galancito, el asistente virtual de GALANT. ",
+        "Soy Galancito. ",
+    ):
+        if clean.lower().startswith(beginning.lower()):
+            clean = clean[len(beginning):]
+            break
+    return clean[:550]
