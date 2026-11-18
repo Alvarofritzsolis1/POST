@@ -476,3 +476,41 @@ def test_selected_team_quota_does_not_fall_back_to_paid_legacy_provider(ai_env, 
     assert answer.status_code == 200, answer.text
     assert answer.json()["source"] in ("local", "fallback")
     assert len(calls) == 1  # Never contacted either paid provider after the quota.
+
+
+def test_private_primary_output_never_reaches_secondary_provider(ai_env, monkeypatch):
+    client = ai_env["client"]
+    headers = signin(client)
+    primary = add(client, headers, name="Modelo confidencial")
+    reviewer = add(client, headers, name="Revisor confidencial", provider="groq",
+                   model="llama-3.3-70b-versatile", key="gsk-fake-second")
+    phase = {"test": True}
+    reached = []
+    def fake_open(request, timeout):
+        model = json.loads(request.data)["model"]
+        reached.append(model)
+        if phase["test"]:
+            answer = "OK"
+        elif model == primary["model"]:
+            answer = "Secreto inesperado nvapi-1234567890abcdef"
+        else:
+            raise AssertionError("Never send private output to review model")
+        return FakeResponse({"choices": [{"message": {"content": answer}}],
+                             "usage": {"prompt_tokens": 9, "completion_tokens": 4}})
+    monkeypatch.setattr(ai_gateway, "urlopen", fake_open)
+    for connection in (primary, reviewer):
+        assert client.post(ROOT + "/connections/" + connection["id"] + "/test",
+                           headers=headers).json()["ok"]
+    assert client.put(ROOT + "/policy", headers=headers, json={
+        "enabled": True, "fallback_enabled": False, "review_enabled": True,
+        "monthly_token_limit": 10000,
+        "task_routes": {"red_obras": primary["id"], "review": reviewer["id"]},
+    }).status_code == 200
+    phase["test"] = False
+    before = len(reached)
+    with ai_env["sessions"].begin() as db:
+        result = orchestrated_text(db, ai_env["org_id"], task="red_obras",
+                                   instructions="Asesoría", prompt="Pregunta pública",
+                                   max_output_tokens=100)
+        assert result is None
+    assert reached[before:] == [primary["model"]]
