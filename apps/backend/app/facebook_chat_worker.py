@@ -21,6 +21,7 @@ from .facebook_crm_models import FacebookLead, FacebookChatMessage, FacebookTrad
 from .models import utcnow
 from .network_service import key
 from .galancito_triage import analyze, quick_reply, private_data
+from .galancito_intake import next_intake_reply
 from .galancito_knowledge import retrieve, exact_answer, evidence_context
 from .galancito_runtime import infer, record_run
 from .galancito_local import last_timings
@@ -241,13 +242,22 @@ def process_chat_next(session_factory=SessionLocal) -> bool:
             latest = next((m.body for m in recent if consent_decision(m.body) is None), "")
             facts = {"specialty": lead.specialty, "entity_type": lead.entity_type,
                      "workers": lead.workers, "availability": lead.availability,
-                     "has_employees": lead.has_employees}
+                     "has_employees": lead.has_employees,
+                     "team_available": lead.team_available, "work_area": lead.work_area,
+                     "experience": lead.experience}
+            prior_question = db.scalar(select(FacebookChatMessage.body).where(
+                FacebookChatMessage.lead_id == lead.id,
+                FacebookChatMessage.direction == "outbound",
+                FacebookChatMessage.state == "sent",
+            ).order_by(FacebookChatMessage.created_at.desc(),
+                       FacebookChatMessage.id.desc()).limit(1)) or ""
+            intake = next_intake_reply(latest, facts, prior_question)
             intent = analyze(latest).intent
             evidence = retrieve(db, lead.org_id, latest, "messenger") if not private_data(latest) else []
-            fast = quick_reply(latest, known=facts)
+            fast = intake or quick_reply(latest, known=facts)
             if not private_data(latest) and intent not in {"human", "restricted"}:
                 learned = exact_answer(evidence)
-                if learned:
+                if learned and not intake:
                     fast, fast_source = learned, "knowledge"
             context = ("Consulta actual: " + latest[:800] + "\nHechos confirmados: " +
                        json.dumps(facts, ensure_ascii=False) + "\nReferencias aprobadas: " +
