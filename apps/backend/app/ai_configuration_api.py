@@ -126,7 +126,7 @@ def bootstrap(user: User = Depends(administrator), db: Session = Depends(get_db)
     policy = db.get(AIOrchestration, user.org_id)
     return {
         "providers": [{"id": key, **value} for key, value in PROVIDERS.items()],
-        "tasks": [{"id": key, "name": value} for key, value in TASKS.items()],
+        "tasks": [{"id": key, "name": value, "active": key == "red_obras"} for key, value in TASKS.items()],
         "connections": [connection_view(c) for c in connections],
         "policy": policy_view(policy),
         "monthly_tokens": monthly_tokens(db, user.org_id),
@@ -278,8 +278,8 @@ def update_policy(body: PolicyPatch, user: User = Depends(administrator),
         record = db.get(AIConnection, connection_id)
         if not record or record.org_id != user.org_id or not record.encrypted_key:
             raise HTTPException(422, "La IA asignada a " + task + " no está vinculada")
-    if body.enabled and not body.task_routes:
-        raise HTTPException(422, "Asigna al menos una función antes de activar el equipo")
+    if body.enabled and not body.task_routes.get("red_obras"):
+        raise HTTPException(422, "Asigna la IA de Consultas de Red de Obras antes de activar el equipo")
     policy = db.get(AIOrchestration, user.org_id)
     if policy is None:
         policy = AIOrchestration(org_id=user.org_id)
