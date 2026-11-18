@@ -91,10 +91,10 @@ export default function AIConfiguration() {
     setNotice("");
     try {
       await fn();
-      await refresh();
     } catch (e) {
       setError(errorMessage(e));
     } finally {
+      try { await refresh(); } catch (e) { setError(errorMessage(e)); }
       setBusy(null);
     }
   }
@@ -157,7 +157,10 @@ export default function AIConfiguration() {
     if (!window.confirm("¿Desvincular " + conn.name + "? Su clave se eliminará y se conservarán las estadísticas históricas.")) return;
     await perform("disconnect:" + conn.id, async () => {
       await request(base + "/connections/" + encodeURIComponent(conn.id) + "/disconnect", { method: "POST" });
-      setPolicy(p => ({ ...p, task_routes: Object.fromEntries(Object.entries(p.task_routes).filter(([, id]) => id !== conn.id)) }));
+      setPolicy(p => {
+        const routes = Object.fromEntries(Object.entries(p.task_routes).filter(([, id]) => id !== conn.id));
+        return { ...p, enabled: Boolean(routes.red_obras) && p.enabled, task_routes: routes };
+      });
       setNotice("Credencial desvinculada. No se eliminaron los registros de consumo.");
     });
   }
