@@ -39,7 +39,9 @@ def private_data(text: str) -> bool:
     return bool(re.search(
         r"\b\d{1,2}\.?\d{3}\.?\d{3}-?[0-9kK]\b|"
         r"(?i:clave\s*[úu]nica|contrase[ñn]a|password|token|api[_ ]?key)\s*[:=]|"
-        r"[\w.+-]+@[\w.-]+\.[a-zA-Z]{2,}", text))
+        r"[\w.+-]+@[\w.-]+\.[a-zA-Z]{2,}|" 
+        r"(?<!\d)(?:\+?56[\s.-]?)?9[\s.-]?\d{4}[\s.-]?\d{4}(?!\d)|"
+        r"(?i:(?:nvapi-|gsk_|sk-|AIza)[a-z0-9_\-]{8,})", text))
 
 
 @dataclass(frozen=True)

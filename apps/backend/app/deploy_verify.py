@@ -17,6 +17,8 @@ from .config import settings
 from .db import SessionLocal, engine
 from .javiera_workbook import warm_convert
 from .migrations.v20_0_0 import MIGRATION_ID
+from .migrations.v20_8_0_ai_control_center import MIGRATION_ID as AI_MIGRATION_ID
+from .migrations.v20_8_1_ai_collaboration import MIGRATION_ID as AI_REVIEW_MIGRATION_ID
 from .platform_models import SchemaVersion
 from .version import SOURCE_COMMIT, VERSION
 
@@ -30,12 +32,17 @@ def verify(expected_commit: str):
     expected_tables = {
         "javiera_workbooks", "javiera_workbook_heads", "javiera_workbook_validations",
         "javiera_resets", "javiera_archives",
+        "ai_connections", "ai_orchestration", "ai_usage",
     }
     if not expected_tables <= tables:
-        raise RuntimeError("Faltan tablas del espacio Excel")
+        raise RuntimeError("Faltan tablas de GALANT (JAVIERA o Centro IA)")
+    columns = {column["name"] for column in inspect(engine).get_columns("ai_orchestration")}
+    if "review_enabled" not in columns:
+        raise RuntimeError("El Centro IA no tiene la migración de colaboración")
     with SessionLocal() as db:
-        if not db.get(SchemaVersion, MIGRATION_ID):
-            raise RuntimeError("No consta la migración verificada de GALANT 20")
+        for required in (MIGRATION_ID, AI_MIGRATION_ID, AI_REVIEW_MIGRATION_ID):
+            if not db.get(SchemaVersion, required):
+                raise RuntimeError("Falta una migración verificada: " + required)
     private = Path(settings().document_dir)
     private.mkdir(mode=0o700, parents=True, exist_ok=True)
     with tempfile.TemporaryFile(dir=private) as stream:
@@ -43,7 +50,8 @@ def verify(expected_commit: str):
         stream.seek(0)
         if stream.read() != b"galant-private-storage-check":
             raise RuntimeError("El almacenamiento privado no permite lectura y escritura")
-    for path in ("/api/v1/javiera/workbook", "/api/v1/javiera/dossiers"):
+    for path in ("/api/v1/javiera/workbook", "/api/v1/javiera/dossiers",
+                 "/api/v1/admin/ai/bootstrap"):
         try:
             with urlopen("http://127.0.0.1:8000" + path, timeout=5):
                 raise RuntimeError("Una ruta privada permite acceso anónimo")
@@ -74,6 +82,7 @@ def verify(expected_commit: str):
         if "PRIVATE_INPUT_MUST_NOT_BE_EXPORTED" in text:
             raise RuntimeError("Calc exportó una hoja no seleccionada")
     return {"version": VERSION, "commit": SOURCE_COMMIT, "migration": MIGRATION_ID,
+            "ai_migration": AI_MIGRATION_ID, "ai_review_migration": AI_REVIEW_MIGRATION_ID,
             "private_storage": "ok", "anonymous_access": "blocked",
             "calc_recalculation": "ok", "selected_sheet_pdf": "ok",
             "calc_engine_ms": result.get("engine_ms")}
