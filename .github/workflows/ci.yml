@@ -111,6 +111,20 @@ jobs:
           name: galant-javiera-v19-print
           path: ${{ runner.temp }}/javiera-v19-print
           if-no-files-found: warn
+  galancito_messenger:
+    name: Galancito — entrevistas, Messenger y permisos
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    defaults: {run: {working-directory: apps/backend}}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with: {python-version: "3.12"}
+      - name: Instalar dependencias del backend
+        run: python -m pip install -r requirements-dev.txt
+      - name: Verificar aprendizaje, fichas, consentimiento y respuestas Meta
+        run: python -m pytest -q tests/test_galancito_curriculum_20.py tests/test_facebook_crm.py tests/test_galancito_meta_setup.py
+
   backend_irl:
     name: Backend IRL independiente — fórmulas, roles y firmas
     runs-on: ubuntu-24.04
