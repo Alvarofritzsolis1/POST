@@ -7,6 +7,7 @@ import re
 from datetime import date
 
 from .network_service import key
+from .galancito_triage import TRADES
 
 # La extracción de nombres es conservadora: solo frases de presentación explícita.
 _NAME = re.compile(
@@ -59,9 +60,18 @@ def suggestions_for_lead(lead, messages) -> list[dict]:
     return result
 
 
+def _trade_group(value: str) -> str:
+    normalized = key(value)
+    for canonical, aliases in TRADES.items():
+        if normalized in {key(canonical), *(key(alias) for alias in aliases)}:
+            return key(canonical)
+    return normalized
+
+
 def ranked_needs(lead, requirements, site_names: dict, limit: int = 3) -> list[dict]:
     """Clasificación orientativa basada en HECHOS, no probabilidad de contratación."""
     specialty = key(lead.specialty or "")
+    specialty_group = _trade_group(lead.specialty or "")
     if not specialty:
         return []
     recommendations = []
@@ -71,7 +81,7 @@ def ranked_needs(lead, requirements, site_names: dict, limit: int = 3) -> list[d
         wanted = key(req.specialty)
         if not wanted:
             continue
-        exact = wanted == specialty
+        exact = wanted == specialty or _trade_group(req.specialty) == specialty_group
         # Coincidencias parciales tienen que compartir una palabra informativa.
         tokens = {x for x in specialty.split() if len(x) >= 5}
         related = bool(tokens.intersection(x for x in wanted.split() if len(x) >= 5))
