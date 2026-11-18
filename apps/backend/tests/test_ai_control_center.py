@@ -736,15 +736,11 @@ def test_groq_recovers_from_active_models_using_saved_key(ai_env, monkeypatch):
     assert client.get(ROOT + "/usage").json()["total_tokens"] == 14
 
 
-@pytest.mark.parametrize("provider, expected_url", [
-    ("zai", "https://api.z.ai/api/paas/v4/chat/completions"),
-    ("zai_coding", "https://api.z.ai/api/coding/paas/v4/chat/completions"),
-])
-def test_zai_selected_billing_endpoint_and_thinking(ai_env, monkeypatch, provider, expected_url):
+def test_zai_standard_endpoint_and_thinking(ai_env, monkeypatch):
     client = ai_env["client"]
     headers = signin(client)
-    item = add(client, headers, name="Z.ai " + provider,
-               provider=provider, model="glm-4.7", key="zai-test-only")
+    item = add(client, headers, name="Z.ai estándar",
+               provider="zai", model="glm-4.7", key="zai-test-only")
     calls = []
     def fake(req, timeout):
         calls.append((req.full_url, req.get_header("Authorization"), json.loads(req.data)))
@@ -755,16 +751,16 @@ def test_zai_selected_billing_endpoint_and_thinking(ai_env, monkeypatch, provide
     assert result.status_code == 200 and result.json()["ok"] is True, result.text
     assert len(calls) == 1
     url, auth, body = calls[0]
-    assert url == expected_url and auth == "Bearer zai-test-only"
+    assert url == "https://api.z.ai/api/paas/v4/chat/completions" and auth == "Bearer zai-test-only"
     assert body["thinking"] == {"type": "disabled"} and body["model"] == "glm-4.7"
     assert "zai-test-only" not in result.text
 
 
-def test_zai_coding_plan_recovery_never_moves_to_standard_billing(ai_env, monkeypatch):
+def test_zai_standard_recovery_never_uses_coding_plan(ai_env, monkeypatch):
     from urllib.error import HTTPError
     client = ai_env["client"]
     headers = signin(client)
-    item = add(client, headers, name="Z.ai Coding", provider="zai_coding", model="glm-4.7")
+    item = add(client, headers, name="Z.ai estándar", provider="zai", model="glm-4.7")
     urls = []
     def fake(req, timeout):
         urls.append(req.full_url)
@@ -780,7 +776,7 @@ def test_zai_coding_plan_recovery_never_moves_to_standard_billing(ai_env, monkey
     assert r.status_code == 200 and r.json()["ok"] is True, r.text
     assert r.json()["model"] == "glm-5.3-flash" and r.json()["attempts"] == 2
     assert len(urls) == 2
-    assert all(url == "https://api.z.ai/api/coding/paas/v4/chat/completions" for url in urls)
+    assert all(url == "https://api.z.ai/api/paas/v4/chat/completions" for url in urls)
 
 
 def test_groq_and_zai_auth_errors_do_not_retry_or_expose_secrets(ai_env, monkeypatch):
@@ -811,3 +807,15 @@ def test_recovery_providers_are_org_scoped(ai_env):
         outsider = signin(client, "outside")
         assert client.post(ROOT + "/connections/" + row["id"] + "/recover", headers=outsider).status_code == 404
         headers = signin(client)
+
+
+def test_zai_coding_plan_not_supported_for_multiuser_application(ai_env):
+    client = ai_env["client"]
+    headers = signin(client)
+    response = client.post(ROOT + "/connections", headers=headers, json={
+        "name": "Coding Plan inappropriate for Red de Obras",
+        "provider": "zai_coding", "model": "glm-5.3-flash",
+        "api_key": "fake-nonproduction-only",
+    })
+    assert response.status_code == 422
+    assert "fake-nonproduction-only" not in response.text
