@@ -18,6 +18,7 @@ from .galancito_triage import analyze, quick_reply
 from .galancito_contractor_conversation import (
     employer_question, employer_response, protect_outgoing,
     sanitized_titles, known_from_history, contractor_followup,
+    private_company_names, contains_confidential_name,
 )
 
 MODULE = Path(__file__).parent
@@ -56,6 +57,11 @@ def _tests() -> list[tuple[str, str, bool]]:
           not employer_question("Soy maestro pintor"))
     check("Confidencialidad", "Respuesta sin identidad",
           "constructora ejemplo" not in employer_response().casefold())
+    private_list = private_company_names()
+    check("Confidencialidad", "Nombres privados configurados en VPS",
+          bool(private_list) and contains_confidential_name(
+              "Consulta sobre " + private_list[0])
+          and not contains_confidential_name("Trabajo de pintura"))
 
     check("Atención a contratistas", "Trabajador no es empresa",
           analyze("busco pega de carpintero").intent == "job_seeker")
@@ -127,6 +133,8 @@ def learning_progress(db: Session, org_id: str) -> dict:
              for group, v in sorted(suites.items())]
     privacy = suites["Confidencialidad"]
     gaps = []
+    if not private_company_names():
+        gaps.append("Configurar en el VPS las empresas cuyos nombres no pueden divulgarse")
     if second_installed < len(second):
         gaps.append("Activar la segunda ronda de conversaciones con contratistas")
     if installed < len(entries):
