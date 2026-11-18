@@ -180,8 +180,6 @@ def apply_intake(lead, message: str, prior_prompt: str = "") -> None:
                 and not re.search(r"\d|@|http|\b(?:calle|pasaje|avenida|direccion|numero|rut)\b", plain(commune))
                 and plain(commune) not in {"no se", "no", "si"}):
             lead.work_area = commune
-    if not lead.availability and facts.availability:
-        lead.availability = facts.availability
     if not lead.availability and (_AVAILABILITY_QUESTION in prev or
                                   value in {"desde hoy", "desde manana", "inmediato", "inmediata"}):
         common = {"hoy", "desde hoy", "manana", "desde manana", "inmediata",
@@ -192,6 +190,8 @@ def apply_intake(lead, message: str, prior_prompt: str = "") -> None:
                 r"\b(?:lunes|martes|miercoles|jueves|viernes|sabado|domingo|semana|mes)\b", value)
         ):
             lead.availability = message.strip()[:100]
+    if not lead.availability and facts.availability:
+        lead.availability = facts.availability
 
 
 def _friendly_ack(message: str, facts: dict, question: str) -> str:
