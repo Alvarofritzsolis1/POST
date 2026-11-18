@@ -170,8 +170,10 @@ jobs:
         run: python3 scripts/test_auto_release.py
       - name: Test automatic protected AI-key bootstrap (no real credentials)
         run: python3 scripts/test_ai_key_setup.py
+      - name: Test automatic protected AI-key bootstrap (no real credentials)
+        run: python3 scripts/test_ai_key_setup.py
       - name: Compile auto-release scripts
-        run: python3 -m py_compile scripts/check_auto_release.py scripts/test_auto_release.py scripts/ensure-ai-key.py scripts/test_ai_key_setup.py
+        run: python3 -m py_compile scripts/check_auto_release.py scripts/test_auto_release.py scripts/ensure-ai-key.py scripts/backup-ai-key.py scripts/test_ai_key_setup.py scripts/ensure-ai-key.py scripts/test_ai_key_setup.py
       - name: Reproduce temporary PostgreSQL startup race (deterministic)
         run: python3 scripts/test_wait_for_final_postgres.py
       - name: Validate isolated Docker preview config
@@ -260,9 +262,11 @@ jobs:
         run: |
           set -Eeuo pipefail
           export GALANT_BACKUP_DIR="$RUNNER_TEMP/galant-ci-backups"
+          python3 scripts/ensure-ai-key.py .env.preview
           bash scripts/backup-preview.sh | tee "$RUNNER_TEMP/galant-backup.log"
           backup_path="$(sed -n 's/^BACKUP_PATH=//p' "$RUNNER_TEMP/galant-backup.log" | tail -1)"
           test -d "$backup_path"
+          test -s "$backup_path/ai-key.env"
           bash scripts/verify-restore-preview.sh "$backup_path"
           # Repetir contra el mismo respaldo para detectar fallos intermitentes de initdb.
           bash scripts/verify-restore-preview.sh "$backup_path"
