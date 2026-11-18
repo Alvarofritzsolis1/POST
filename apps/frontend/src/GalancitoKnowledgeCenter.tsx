@@ -109,7 +109,19 @@ export default function GalancitoKnowledgeCenter({mode = "knowledge"}: {mode?: "
         <button className="nw-btn" type="button" onClick={() => select(null)}>Nuevo conocimiento</button>
         <button className="nw-btn" type="button" disabled={busy} onClick={() => void act(async () => {
           await change("/galancito/knowledge-examples");
-        }, "Ejemplos cargados como pendientes. Revisa su contenido y aprueba los que correspondan.")}>Cargar 17 ejemplos iniciales</button>
+        }, "Ejemplos cargados como pendientes. Revisa su contenido y aprueba los que correspondan.")}>Cargar 17 ejemplos básicos</button>
+        <button className="nw-btn" type="button" disabled={busy} onClick={() => void act(async () => {
+          await change("/galancito/knowledge-curriculum", {});
+        }, "20 unidades del currículo cargadas como pendientes. Revisa y aprueba su contenido.")}>
+          Cargar 20 aprendizajes
+        </button>
+        {rows.filter(r => r.title.startsWith("Época ")).length >= 20 &&
+          <button className="nw-btn" type="button" disabled={busy} onClick={() => {
+            if (!window.confirm("¿Revisaste el contenido de las 20 unidades y autorizas su aprobación?")) return;
+            void act(async () => {
+              await change("/galancito/knowledge-curriculum/approve", {confirm: true});
+            }, "Currículo aprobado. Galancito ya puede consultar los 20 aprendizajes.");
+          }}>Aprobar las 20 revisadas</button>}
         <label className="gkc-upload">Importar documento<input type="file" accept=".pdf,.docx,.txt" disabled={busy}
           onChange={e => {
             const file = e.target.files?.[0]; e.target.value = ""; if (!file) return;
