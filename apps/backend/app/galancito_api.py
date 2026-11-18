@@ -252,12 +252,17 @@ def galancito_chat(body: ChatInput, user: User = Depends(authorized_user),
                    json.dumps(live, ensure_ascii=False) + "\nReferencias aprobadas:\n" +
                    evidence_context(evidence) + "\nGuías pertinentes:\n" +
                    "\n".join(g.trade + ": " + g.explanation[:180] for g in matching))
+        # Public titles/approved historical guides may still contain private data.
+        # A safe current question is not consent to disclose an unsafe reference.
+        if private_data(context) and (use_team or cfg.galancito_ai_provider != "ollama"):
+            return result(_local_reply(text, body.area, titles, guides, stats), "local")
         try:
             generated = infer(db, lambda: (
                 orchestrated_text(db, user.org_id, task="red_obras",
                                   instructions=INSTRUCTIONS, prompt=context,
                                   max_output_tokens=240)
-                if use_team else generate_internal_text(INSTRUCTIONS, context, 650)))
+                if use_team else generate_internal_text(INSTRUCTIONS, context, 650)),
+                org_id=user.org_id if use_team else None)
         except RuntimeError:
             generated = None
         if generated:
