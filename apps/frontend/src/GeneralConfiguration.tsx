@@ -506,6 +506,7 @@ export default function GeneralConfiguration({
     }
   }
   useEffect(() => {
+    if (section === "ia") return;
     let active = true;
     void cfg
       .bootstrap()
@@ -523,7 +524,7 @@ export default function GeneralConfiguration({
     return () => {
       active = false;
     };
-  }, [revision]);
+  }, [revision, section]);
   useEffect(() => {
     if (section === "ia") { setLoading(false); return; }
     let active = true;
@@ -1358,13 +1359,13 @@ export default function GeneralConfiguration({
                     : "Administra exigencias, consulta períodos y conserva el historial de cada obra."}
               </p>
             </div>
-            <button
+            {section !== "ia" && <button
               type="button"
               disabled={loading || busy}
               onClick={() => setRefreshTick((value) => value + 1)}
             >
               <RefreshCcw size={16} /> Actualizar
-            </button>
+            </button>}
           </div>
           {section !== "ia" && (<section
             className="gc-period-selector"
