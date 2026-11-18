@@ -248,7 +248,7 @@ def test_connection(connection_id: str, user: User = Depends(administrator),
         answer = run_connection(db, conn, task="connection_test",
                                 instructions="Responde brevemente en español.",
                                 prompt="Prueba de conexión. Responde OK.",
-                                max_output_tokens=(512 if (conn.provider.startswith("zai") or "gpt-oss" in conn.model) else 128))
+                                max_output_tokens=(512 if (conn.provider == "zai" or "gpt-oss" in conn.model) else 128))
         log_change(db, user, "connection.test", conn.id)
         db.commit()
     except AIServiceError as exc:
@@ -264,7 +264,7 @@ def recover_connection(connection_id: str, user: User = Depends(administrator),
                        db: Session = Depends(get_db)):
     """One-click repair for Gemini/Groq/Z.ai; never returns a key."""
     conn = existing(db, user, connection_id)
-    if conn.provider not in ("gemini", "groq", "zai", "zai_coding"):
+    if conn.provider not in ("gemini", "groq", "zai"):
         raise HTTPException(422, "La recuperación automática no está disponible para este proveedor")
     if not conn.encrypted_key:
         raise HTTPException(422, "Primero guarda una API Key de este proveedor")
