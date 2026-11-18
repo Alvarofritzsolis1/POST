@@ -115,18 +115,23 @@ def invoke(connection: AIConnection, *, instructions: str, prompt: str,
         raise AIServiceError("Proveedor rechazó la solicitud (HTTP " + str(exc.code) + ").") from None
     except (URLError, TimeoutError, OSError, ValueError, UnicodeError):
         raise AIServiceError("No se pudo contactar al proveedor de IA.") from None
-    if provider["mode"] == "gemini":
-        text = "\n".join(str(part.get("text", "")) for candidate in result.get("candidates", [])
-                         for part in candidate.get("content", {}).get("parts", []) if isinstance(part, dict))
-        usage = result.get("usageMetadata") or {}
-        input_tokens = int(usage.get("promptTokenCount") or 0)
-        output_tokens = int(usage.get("candidatesTokenCount") or 0)
-    else:
-        choices = result.get("choices") or []
-        text = str((choices[0].get("message") or {}).get("content") or "") if choices else ""
-        usage = result.get("usage") or {}
-        input_tokens = int(usage.get("prompt_tokens") or 0)
-        output_tokens = int(usage.get("completion_tokens") or 0)
+    if not isinstance(result, dict):
+        raise AIServiceError("El proveedor respondió con un formato inválido.")
+    try:
+        if provider["mode"] == "gemini":
+            text = "\n".join(str(part.get("text", "")) for candidate in result.get("candidates", [])
+                             for part in candidate.get("content", {}).get("parts", []) if isinstance(part, dict))
+            usage = result.get("usageMetadata") or {}
+            input_tokens = int(usage.get("promptTokenCount") or 0)
+            output_tokens = int(usage.get("candidatesTokenCount") or 0)
+        else:
+            choices = result.get("choices") or []
+            text = str((choices[0].get("message") or {}).get("content") or "") if choices else ""
+            usage = result.get("usage") or {}
+            input_tokens = int(usage.get("prompt_tokens") or 0)
+            output_tokens = int(usage.get("completion_tokens") or 0)
+    except (TypeError, ValueError, AttributeError, IndexError, OverflowError):
+        raise AIServiceError("El proveedor respondió con un formato inválido.") from None
     if not text.strip():
         raise AIServiceError("El proveedor respondió sin texto utilizable.")
     return text.strip(), max(0, input_tokens), max(0, output_tokens)
