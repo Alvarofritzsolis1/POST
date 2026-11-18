@@ -170,7 +170,7 @@ export default function AIConfiguration() {
     });
   }
 
-  const availableForRouting = (data?.connections || []).filter(c => c.enabled && c.has_key);
+  const availableForRouting = (data?.connections || []).filter(c => c.enabled && c.has_key && c.status === "verified");
   const shownUsage = [...(usage?.groups || [])].sort((a, b) => b.total_tokens - a.total_tokens);
   const providerName = (id: string) => data?.providers.find(p => p.id === id)?.name || id;
 
@@ -228,7 +228,7 @@ export default function AIConfiguration() {
         </div>
 
         {editing && <form className="ai-editor" onSubmit={(event) => void saveConnection(event)}>
-          <div className="ai-editor-heading"><h4>{editing === "new" ? "Nueva conexión" : "Editar conexión"}</h4><button type="button" onClick={() => setEditing(null)}>Cerrar</button></div>
+          <div className="ai-editor-heading"><h4>{editing === "new" ? "Nueva conexión" : "Editar conexión"}</h4><button type="button" onClick={() => { setEditing(null); setForm({ ...empty }); }}>Cerrar</button></div>
           <div className="ai-form-grid">
             <label>Nombre para identificarla<input required maxLength={80} value={form.name} onChange={e => setForm({ ...form, name: e.target.value })} placeholder="Ej. NVIDIA · DeepSeek" /></label>
             <label>Proveedor<select disabled={editing !== "new"} value={form.provider} onChange={e => setForm({ ...form, provider: e.target.value })}>{data?.providers.map(p => <option key={p.id} value={p.id}>{p.name}</option>)}</select></label>
