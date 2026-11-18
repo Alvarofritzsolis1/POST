@@ -1,19 +1,28 @@
 """Shared, bounded inference gate and content-free measurements."""
 from time import perf_counter
+from zlib import crc32
 from sqlalchemy import text
 from .galancito_local import last_timings
 from .galancito_knowledge_models import AssistantRun
 
 
-def infer(db, generate):
+def infer(db, generate, *, org_id: str | None = None):
     last_timings.set({})
     # Shared by API and Messenger containers. No unbounded Python/DB queue.
     # Ollama remains limited to one inference and two queued requests as a
     # second boundary. A busy request uses the deterministic fallback.
-    if db.bind.dialect.name == "postgresql" and not db.scalar(
-        text("SELECT pg_try_advisory_xact_lock(2075001)")):
-        last_timings.set({"queue_ms": 0, "busy": True})
-        raise RuntimeError("Galancito está ocupado")
+    if db.bind.dialect.name == "postgresql":
+        # Keep the original global local-Ollama gate, but isolate external AI
+        # requests by organization so one tenant does not block another.
+        if org_id:
+            lane = crc32(org_id.encode("utf-8")) & 0x7fffffff
+            query = text("SELECT pg_try_advisory_xact_lock(2075002, :lane)")
+            acquired = db.scalar(query, {"lane": lane})
+        else:
+            acquired = db.scalar(text("SELECT pg_try_advisory_xact_lock(2075001)"))
+        if not acquired:
+            last_timings.set({"queue_ms": 0, "busy": True})
+            raise RuntimeError("Galancito está ocupado")
     return generate()
 
 
