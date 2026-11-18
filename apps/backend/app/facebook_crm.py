@@ -22,8 +22,9 @@ from sqlalchemy.orm import Session
 from .config import settings
 from .db import get_db, SessionLocal
 from .facebook_ai import (AD_INSTRUCTIONS, REPLY_INSTRUCTIONS, generate_text,
-                          facebook_reply_ai_available, verified_ad_copy,
+                          messenger_ai_source, verified_ad_copy,
                           generate_triage_note)
+from .ai_gateway import orchestrated_text
 from .facebook_onboarding import assistance_signal, reply_for_support, onboarding_guide
 from .galancito_flow import (AI_PERMISSION_QUESTION, AI_PERMISSION_REASK,
                              AI_PERMISSION_DECLINED, consent_decision, wants_human, permission_question)
@@ -284,12 +285,14 @@ async def webhook(request: Request, db: Session = Depends(get_db)):
                 db.add(lead)
                 db.flush()
             lead.last_inbound_at, lead.updated_at, lead.unread = utcnow(), utcnow(), True
-            consent = (False if (lead.ai_consent_state == "accepted" and
+            consent = (False if (lead.ai_consent_state in ("accepted", "accepted_team") and
                                  wants_human(body)) else
-                       consent_decision(body) if lead.ai_consent_state == "requested"
+                       consent_decision(body) if lead.ai_consent_state in ("requested", "requested_team")
                        and not audio_received else None)
             if consent is True:
-                lead.ai_consent, lead.ai_consent_state = True, "accepted"
+                lead.ai_consent = True
+                lead.ai_consent_state = ("accepted_team" if lead.ai_consent_state == "requested_team"
+                                         else "accepted")
             elif consent is False:
                 lead.ai_consent, lead.ai_consent_state = False, "declined"
                 # A refusal can arrive before the permission question leaves
@@ -355,6 +358,7 @@ async def webhook(request: Request, db: Session = Depends(get_db)):
             )):
                 previous.state = "cancelled"
             if cfg.facebook_ai_auto_reply_enabled and not lead.ai_paused:
+                ai_source = messenger_ai_source(db, lead.org_id, cfg)
                 recent = db.scalar(select(func.count(FacebookChatMessage.id)).where(
                     FacebookChatMessage.lead_id == lead.id,
                     FacebookChatMessage.direction == "outbound",
@@ -365,7 +369,8 @@ async def webhook(request: Request, db: Session = Depends(get_db)):
                     if recent < 3:
                         reply = (AI_PERMISSION_DECLINED if consent is False else
                                  reply_for_support(signal, bool(lead.specialty)))
-                elif consent is True and not lead.needs_support:
+                elif (consent is True and not lead.needs_support and
+                      lead.ai_consent_state == ("accepted_team" if ai_source == "team" else "accepted")):
                     use_ai = True
                 elif lead.ai_consent_state == "declined":
                     # No insistir con IA a quien ya la rechazó.
@@ -373,20 +378,28 @@ async def webhook(request: Request, db: Session = Depends(get_db)):
                 elif lead.needs_support:
                     # Conversaciones difíciles pasan a revisión humana.
                     reply = None
-                elif lead.ai_consent and lead.ai_consent_state == "accepted":
+                elif lead.ai_consent and lead.ai_consent_state == (
+                        "accepted_team" if ai_source == "team" else "accepted"):
                     use_ai = True
-                elif (facebook_reply_ai_available(cfg) and
-                      lead.ai_consent_state == "not_requested"):
-                    lead.ai_consent_state = "requested"
-                    reply = permission_question(cfg.facebook_ai_provider)
-                elif lead.ai_consent_state == "requested" and recent < 2:
-                    reply = permission_question(cfg.facebook_ai_provider, repeat=True)
+                elif ai_source != "disabled" and lead.ai_consent_state in (
+                        "not_requested", "accepted", "accepted_team"):
+                    lead.ai_consent_state = "requested_team" if ai_source == "team" else "requested"
+                    lead.ai_consent = False
+                    reply = permission_question(ai_source)
+                elif (ai_source != "disabled" and lead.ai_consent_state in
+                      ("requested", "requested_team") and lead.ai_consent_state !=
+                      ("requested_team" if ai_source == "team" else "requested")):
+                    lead.ai_consent_state = "requested_team" if ai_source == "team" else "requested"
+                    reply = permission_question(ai_source)
+                elif (ai_source != "disabled" and lead.ai_consent_state in
+                      ("requested", "requested_team") and recent < 2):
+                    reply = permission_question(ai_source, repeat=True)
                 elif recent == 0:
                     # Sin IA configurada: orientación básica, sin enviar
                     # datos personales a un servicio externo.
                     reply = ("Hola, soy Galancito, asistente virtual de GALANT. "
                              "Puedes escribir como te salga. ¿Qué trabajo haces?")
-                if use_ai and recent < 5 and facebook_reply_ai_available(cfg):
+                if use_ai and recent < 5 and ai_source != "disabled":
                     queue_locked = (db.bind.dialect.name != "postgresql" or db.scalar(
                         sql_text("SELECT pg_try_advisory_xact_lock(2075002)")))
                     queued = db.scalar(select(func.count(FacebookChatMessage.id)).where(
@@ -598,11 +611,12 @@ def center(user: User = Depends(administrator), db: Session = Depends(get_db)):
             last_previews[lead_id] = {
                 "text": (body or "")[:115], "direction": direction,
             }
+    ai_source = messenger_ai_source(db, user.org_id, cfg)
     return {"automatic_enabled": cfg.facebook_autopublish_enabled,
             "manual_enabled": cfg.facebook_manual_testing_enabled,
             "messaging_enabled": cfg.facebook_messaging_enabled,
-            "ai_enabled": facebook_reply_ai_available(cfg),
-            "ai_provider": cfg.facebook_ai_provider if facebook_reply_ai_available(cfg) else "disabled",
+            "ai_enabled": ai_source != "disabled",
+            "ai_provider": ai_source,
             "auto_reply_enabled": cfg.facebook_ai_auto_reply_enabled,
             "page_id": cfg.facebook_page_id,
             "pending_ads": ads, "publications": publications,
@@ -818,7 +832,9 @@ def suggest_reply(lead_id: str, user: User = Depends(administrator),
     if fast:
         return {"draft": fast, "source": "template", "requires_review": True}
     supplied = "Consulta actual: " + latest_inbound[:800] + "\nHechos: " + json.dumps(facts, ensure_ascii=False) + "\nReferencias: " + evidence_context(evidence)
-    if facebook_reply_ai_available() and lead.ai_consent and not private_data(supplied):
+    ai_source = messenger_ai_source(db, lead.org_id)
+    consent_state = "accepted_team" if ai_source == "team" else "accepted"
+    if ai_source != "disabled" and lead.ai_consent and lead.ai_consent_state == consent_state and not private_data(supplied):
         guide = _guide_for(db, lead)
         if guide:
             supplied += ("\nGuía aprobada para el oficio: " + guide.trade
@@ -828,7 +844,14 @@ def suggest_reply(lead_id: str, user: User = Depends(administrator),
         else:
             supplied += "\nNo hay guía documental aprobada para esta especialidad."
         try:
-            drafted = infer(db, lambda: generate_text(REPLY_INSTRUCTIONS, supplied, 450))
+            if private_data(supplied):
+                raise RuntimeError("El contexto requiere revisión humana")
+            drafted = infer(db, lambda: (
+                orchestrated_text(db, lead.org_id, task="messenger",
+                                  instructions=REPLY_INSTRUCTIONS, prompt=supplied,
+                                  max_output_tokens=160)
+                if ai_source == "team" else generate_text(REPLY_INSTRUCTIONS, supplied, 450)),
+                org_id=lead.org_id if ai_source == "team" else None)
         except RuntimeError:
             drafted = None
         if drafted:

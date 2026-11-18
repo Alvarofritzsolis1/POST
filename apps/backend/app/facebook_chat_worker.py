@@ -14,7 +14,8 @@ from sqlalchemy import select
 
 from .config import settings
 from .db import SessionLocal
-from .facebook_ai import REPLY_INSTRUCTIONS, generate_text, facebook_reply_ai_available
+from .facebook_ai import REPLY_INSTRUCTIONS, generate_text, messenger_ai_source
+from .ai_gateway import orchestrated_text
 from .galancito_flow import safe_ai_reply, consent_decision, grounded_reply
 from .facebook_crm_models import FacebookLead, FacebookChatMessage, FacebookTradeGuide
 from .models import utcnow
@@ -203,8 +204,12 @@ def process_chat_next(session_factory=SessionLocal) -> bool:
         if not _within_24h(lead):
             job.state, job.error = "failed", "Fuera de la ventana estándar de 24 horas"
             return True
+        ai_source = messenger_ai_source(db, lead.org_id, cfg)
         if (job.state == "pending" and job.operator_id is None and
-                "autorizas" in job.body.casefold() and lead.ai_consent_state != "requested"):
+                "autorizas" in job.body.casefold() and
+                (lead.ai_consent_state not in ("requested", "requested_team") or
+                 ("proveedores de IA externos" in job.body) !=
+                 (lead.ai_consent_state == "requested_team"))):
             job.state, job.error = "cancelled", "Solicitud de consentimiento superada"
             return True
         if job.state == "ai_pending" and lead.needs_support:
@@ -213,11 +218,13 @@ def process_chat_next(session_factory=SessionLocal) -> bool:
         if job.state == "ai_pending" and (lead.ai_paused or lead.ai_consent_state == "declined"):
             job.state, job.error = "cancelled", "Galancito pausado para este contacto"
             return True
-        if job.state == "ai_pending" and not lead.ai_consent:
+        if job.state == "ai_pending" and (
+                not lead.ai_consent or lead.ai_consent_state != (
+                    "accepted_team" if ai_source == "team" else "accepted")):
             job.state, job.error = "cancelled", "El contacto no autorizó el procesamiento con IA"
             return True
         if job.state == "ai_pending" and not (
-            cfg.facebook_ai_auto_reply_enabled and facebook_reply_ai_available(cfg)
+            cfg.facebook_ai_auto_reply_enabled and ai_source != "disabled"
         ):
             job.state, job.error = "cancelled", "El asistente automático está deshabilitado"
             return True
@@ -268,10 +275,16 @@ def process_chat_next(session_factory=SessionLocal) -> bool:
     try:
         if state == "ai_pending":
             generated = fast
-            if not fast:
+            if not fast and not private_data(context):
                 try:
                     with session_factory.begin() as db:
-                        generated = infer(db, lambda: generate_text(REPLY_INSTRUCTIONS, context, 550))
+                        generated = infer(db, lambda: (
+                            orchestrated_text(db, org_id, task="messenger",
+                                              instructions=REPLY_INSTRUCTIONS, prompt=context,
+                                              max_output_tokens=160)
+                            if ai_source == "team" else
+                            generate_text(REPLY_INSTRUCTIONS, context, 550)),
+                            org_id=org_id if ai_source == "team" else None)
                         timings = last_timings.get()
                     if generated:
                         generated = grounded_reply(generated, context)
@@ -295,8 +308,10 @@ def process_chat_next(session_factory=SessionLocal) -> bool:
             if (current is None or not _within_24h(current) or
                     current_job is None or current_job.state != "sending" or
                     (state == "ai_pending" and (current.ai_paused or current.needs_support or
-                     not current.ai_consent or current.ai_consent_state != "accepted" or
-                     current.last_inbound_at != inbound_at))):
+                     not current.ai_consent or current.ai_consent_state != (
+                         "accepted_team" if ai_source == "team" else "accepted") or
+                     current.last_inbound_at != inbound_at or
+                     messenger_ai_source(db, org_id, cfg) != ai_source))):
                 if current_job:
                     current_job.state, current_job.error = "cancelled", "La conversación cambió antes del envío"
                 return True

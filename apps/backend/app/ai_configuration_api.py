@@ -143,7 +143,7 @@ def bootstrap(user: User = Depends(administrator), db: Session = Depends(get_db)
             "method": "curated_retrieval_no_weight_training",
         },
         "providers": [{"id": key, **value} for key, value in PROVIDERS.items()],
-        "tasks": [{"id": key, "name": value, "active": key in {"red_obras", "review"}} for key, value in TASKS.items()],
+        "tasks": [{"id": key, "name": value, "active": key in {"red_obras", "messenger", "review"}} for key, value in TASKS.items()],
         "connections": [connection_view(c) for c in connections],
         "policy": policy_view(policy),
         "monthly_tokens": monthly_tokens(db, user.org_id),
@@ -336,6 +336,13 @@ def update_policy(body: PolicyPatch, user: User = Depends(administrator),
         first, second = db.get(AIConnection, primary), db.get(AIConnection, reviewer)
         if first and second and (first.provider, first.model) == (second.provider, second.model):
             raise HTTPException(422, "El revisor debe utilizar un modelo diferente al principal")
+        messenger = body.task_routes.get("messenger")
+        if messenger:
+            reply_model = db.get(AIConnection, messenger)
+            if messenger == reviewer or (reply_model and second and
+                                         (reply_model.provider, reply_model.model) ==
+                                         (second.provider, second.model)):
+                raise HTTPException(422, "El revisor de Messenger debe utilizar un modelo diferente")
     policy = db.get(AIOrchestration, user.org_id)
     if policy is None:
         policy = AIOrchestration(org_id=user.org_id)

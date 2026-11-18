@@ -273,6 +273,118 @@ def test_galancito_respects_refusal_without_external_ai(network, monkeypatch):
     assert any("una persona" in m["body"].lower() for m in msgs if m["direction"] == "outbound")
 
 
+def test_verified_ai_team_answers_messenger_only_after_new_consent(network, monkeypatch):
+    from cryptography.fernet import Fernet
+    from app import ai_gateway
+    from app.ai_models import AIConnection, AIOrchestration, AIUsage
+
+    n = network
+    org_id = enable_messaging(n, monkeypatch)
+    monkeypatch.setenv("FACEBOOK_AI_ENABLED", "true")
+    monkeypatch.setenv("FACEBOOK_AI_AUTO_REPLY_ENABLED", "true")
+    monkeypatch.setenv("AI_CREDENTIAL_ENCRYPTION_KEY", Fernet.generate_key().decode())
+    settings.cache_clear()
+    with n["Session"].begin() as db:
+        admin_id = db.scalar(select(User.id).where(User.email == "admin@network.example.cl"))
+        connection = AIConnection(
+            org_id=org_id, updated_by=admin_id, name="Modelo de Messenger",
+            provider="groq", model="llama-3.1-8b-instant",
+            encrypted_key=ai_gateway.encrypt_key("synthetic-groq-key"),
+            enabled=True, last_status="verified",
+        )
+        db.add(connection)
+        db.flush()
+        db.add(AIOrchestration(
+            org_id=org_id, enabled=True, updated_by=admin_id,
+            task_routes={"red_obras": connection.id, "messenger": connection.id},
+        ))
+
+    calls = []
+
+    class Response:
+        def __enter__(self):
+            return self
+
+        def __exit__(self, *_args):
+            return False
+
+        def read(self, *_args):
+            return json.dumps({
+                "choices": [{"message": {"content": "¿En qué comuna puedes trabajar?"}}],
+                "usage": {"prompt_tokens": 12, "completion_tokens": 7},
+            }).encode()
+
+    def generate(request, timeout):
+        calls.append(request)
+        assert request.get_header("Authorization") == "Bearer synthetic-groq-key"
+        return Response()
+
+    sent = []
+    monkeypatch.setattr(ai_gateway, "urlopen", generate)
+    def send(page, psid, body, token):
+        sent.append(body)
+        return "sent-" + str(len(sent))
+
+    monkeypatch.setattr("app.facebook_chat_worker.graph_send", send)
+    monkeypatch.setattr("app.facebook_chat_worker.quick_reply", lambda *_args, **_kwargs: None)
+    monkeypatch.setattr("app.facebook_chat_worker.exact_answer", lambda *_args, **_kwargs: None)
+
+    assert incoming(n, text="Necesito orientación para preparar una oferta", mid="team-1").status_code == 200
+    lead = n["admin"].get("/api/v1/network/facebook/center").json()["leads"][0]
+    assert lead["ai_consent_state"] == "requested_team"
+    assert process_chat_next(n["Session"]) is True
+    assert "proveedores de IA externos" in sent[0]
+    assert calls == []
+    assert incoming(n, text="sí", mid="team-consent").status_code == 200
+    lead = n["admin"].get("/api/v1/network/facebook/center").json()["leads"][0]
+    assert lead["ai_consent_state"] == "accepted_team"
+    assert process_chat_next(n["Session"]) is True
+    assert len(calls) == 1
+    assert "comuna" in sent[-1]
+    with n["Session"]() as db:
+        assert db.scalar(select(AIUsage).where(AIUsage.task == "messenger")).total_tokens == 19
+
+
+def test_messenger_reasks_when_legacy_consent_precedes_team_assignment(network, monkeypatch):
+    from cryptography.fernet import Fernet
+    from app import ai_gateway
+    from app.ai_models import AIConnection, AIOrchestration
+
+    n = network
+    org_id = enable_messaging(n, monkeypatch)
+    monkeypatch.setenv("FACEBOOK_AI_ENABLED", "true")
+    monkeypatch.setenv("FACEBOOK_AI_AUTO_REPLY_ENABLED", "true")
+    monkeypatch.setenv("FACEBOOK_AI_API_KEY", "synthetic-openai-key")
+    monkeypatch.setenv("AI_CREDENTIAL_ENCRYPTION_KEY", Fernet.generate_key().decode())
+    settings.cache_clear()
+    assert incoming(n, text="Busco trabajo", mid="old-1").status_code == 200
+    assert incoming(n, text="sí", mid="old-consent").status_code == 200
+    lead = n["admin"].get("/api/v1/network/facebook/center").json()["leads"][0]
+    assert lead["ai_consent_state"] == "accepted"
+
+    with n["Session"].begin() as db:
+        admin_id = db.scalar(select(User.id).where(User.email == "admin@network.example.cl"))
+        connection = AIConnection(
+            org_id=org_id, updated_by=admin_id, name="Modelo nuevo",
+            provider="gemini", model="gemini-2.5-flash",
+            encrypted_key=ai_gateway.encrypt_key("synthetic-gemini-key"),
+            enabled=True, last_status="verified",
+        )
+        db.add(connection)
+        db.flush()
+        db.add(AIOrchestration(
+            org_id=org_id, enabled=True, updated_by=admin_id,
+            task_routes={"red_obras": connection.id, "messenger": connection.id},
+        ))
+
+    assert incoming(n, text="¿Qué necesito para ofrecer servicios?", mid="new-2").status_code == 200
+    detail = n["admin"].get("/api/v1/network/facebook/leads/" + lead["id"]).json()
+    assert detail["lead"]["ai_consent_state"] == "requested_team"
+    assert detail["lead"]["ai_consent"] is False
+    assert any("proveedores de IA externos" in message["body"] for message in detail["messages"])
+    assert not any(message["state"] == "ai_pending" for message in detail["messages"])
+
+
 def test_galancito_opt_in_parser_is_deliberately_narrow():
     from app.galancito_flow import consent_decision, galancito_prefix
     assert consent_decision("sí") is True

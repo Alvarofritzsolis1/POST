@@ -4,6 +4,7 @@ from urllib.error import HTTPError, URLError
 from urllib.request import Request, urlopen
 
 from .config import settings
+from .ai_gateway import orchestration_available, orchestration_selected
 from .galancito_local import generate_local_text
 
 ASSISTANT_NAME = "Galancito"
@@ -87,6 +88,15 @@ def _generate(instructions: str, supplied_data: str, max_chars: int,
     if not text:
         raise RuntimeError("La IA no devolvió texto utilizable.")
     return text[:max_chars]
+
+
+def messenger_ai_source(db, org_id: str, cfg=None) -> str:
+    cfg = cfg or settings()
+    if not cfg.facebook_ai_enabled:
+        return "disabled"
+    if orchestration_selected(db, org_id, "messenger"):
+        return "team" if orchestration_available(db, org_id, "messenger") else "disabled"
+    return cfg.facebook_ai_provider if facebook_reply_ai_available(cfg) else "disabled"
 
 
 def facebook_reply_ai_available(cfg=None) -> bool:
