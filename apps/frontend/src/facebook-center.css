@@ -386,3 +386,12 @@
 .fbc-profile-pending summary {cursor:pointer;font-size:12px}
 .fbc-profile-pending p {font-size:12px;line-height:1.5;margin:8px 0 0}
 @media(max-width:390px) {.fbc-person-fields {grid-template-columns:1fr}}
+
+
+/* Messenger status must remain distinct from the Facebook token's "Vigente" pill. */
+.fbc-auto-status { display:inline-flex;align-items:center;gap:6px;max-width:100%;padding:6px 9px;border-radius:7px;border:1px solid var(--nw-border,#dbe5e6);font-size:11px;font-weight:600;line-height:1.4;white-space:normal; }
+.fbc-auto-status.configured { color:#087568;background:rgba(11,139,124,.07); }
+.fbc-auto-status.inactive { color:var(--nw-muted,#6b7780);background:var(--nw-paper,#fff); }
+.fbc-auto-check {display:grid;gap:7px;border-top:1px solid var(--nw-border,#dbe5e6);padding-top:10px;}
+.fbc-auto-check ul {margin:0;padding-left:18px;display:grid;gap:5px;}
+.fbc-auto-check small,.fbc-auto-confirm {font-size:12px;line-height:1.5;}
