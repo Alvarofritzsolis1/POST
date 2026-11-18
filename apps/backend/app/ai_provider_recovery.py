@@ -24,8 +24,10 @@ NVIDIA_MODELS_URL = "https://integrate.api.nvidia.com/v1/models"
 MAX_PROBES = 3
 ZAI_MODELS = ("glm-4.7", "glm-5.3-flash")
 NVIDIA_MODELS = (
-    "nvidia/nemotron-3.5-bolt-e4b",
     "nvidia/nemotron-3.5-lightning-30b-a3b",
+    "nvidia/nemotron-3.5-bolt-e4b",
+    "deepseek-ai/deepseek-v4-flash",
+    "deepseek-ai/deepseek-v4-flash-0731",
     "google/gemma-3-4b-it",
 )
 
@@ -97,7 +99,13 @@ def nvidia_models(conn: AIConnection) -> list[str]:
         raise AIServiceError("NVIDIA devolvió un listado de modelos inválido.")
     listed = {entry["id"] for entry in payload["data"] if isinstance(entry, dict)
               and isinstance(entry.get("id"), str)}
-    return [model for model in NVIDIA_MODELS if model in listed]
+    # Use the API catalogue, not an outdated static list. Prioritize curated
+    # DeepSeek chat models, then other DeepSeek IDs, while never probing embeddings.
+    curated = [model for model in NVIDIA_MODELS if model in listed]
+    extra_deepseek = sorted(model for model in listed if
+                            model.startswith("deepseek-ai/deepseek-v4")
+                            and MODEL_RE.fullmatch(model) and model not in curated)
+    return curated + extra_deepseek
 
 
 def recover_provider(db: Session, conn: AIConnection) -> dict:
@@ -112,10 +120,18 @@ def recover_provider(db: Session, conn: AIConnection) -> dict:
             return {"ok": False, "attempts": 0,
                     "message": "Tu cuenta Groq no informa modelos compatibles. Revisa tus permisos en Groq Console."}
     elif conn.provider == "nvidia":
-        candidates = nvidia_models(conn)[:MAX_PROBES]
+        available = nvidia_models(conn)
+        # A request for DeepSeek must not silently switch providers/models to Nemotron.
+        if conn.model.startswith("deepseek-ai/"):
+            available = [model for model in available if model.startswith("deepseek-ai/")]
+        candidates = list(dict.fromkeys(
+            ([conn.model] if conn.model in available else []) + available
+        ))[:MAX_PROBES]
         if not candidates:
-            return {"ok": False, "attempts": 0,
-                    "message": "NVIDIA no informó modelos de chat compatibles para esta cuenta."}
+            detail = ("DeepSeek no aparece entre los modelos habilitados para esta clave NVIDIA."
+                      if conn.model.startswith("deepseek-ai/") else
+                      "NVIDIA no informó modelos de chat compatibles para esta cuenta.")
+            return {"ok": False, "attempts": 0, "message": detail}
     else:
         # Never send a Standard API key to Coding Plan endpoints.
         candidates = list(dict.fromkeys(

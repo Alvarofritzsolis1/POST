@@ -49,7 +49,10 @@ const MODEL_OPTIONS: Record<string, Array<{ id: string; label: string }>> = {
     { id: "glm-4.7", label: "GLM-4.7 · respuesta rápida" },
     { id: "glm-5.3-flash", label: "GLM-5.3 Flash · razonamiento" },
   ],
-  nvidia: [{ id: "nvidia/nemotron-3.5-bolt-e4b", label: "Nemotron 3.5 Bolt" }],
+  nvidia: [
+    { id: "nvidia/nemotron-3.5-lightning-30b-a3b", label: "Nemotron 3.5 Lightning · recomendado" },
+    { id: "nvidia/nemotron-3.5-bolt-e4b", label: "Nemotron 3.5 Bolt · alternativa" },
+  ],
   openai: [{ id: "gpt-4.1-mini", label: "GPT-4.1 Mini" }],
   mistral: [{ id: "mistral-small-latest", label: "Mistral Small" }],
   openrouter: [{ id: "openai/gpt-4o-mini", label: "GPT-4o Mini vía OpenRouter" }],
@@ -57,7 +60,7 @@ const MODEL_OPTIONS: Record<string, Array<{ id: string; label: string }>> = {
 const defaultModel = (provider: string) => MODEL_OPTIONS[provider]?.[0]?.id || "";
 const CAN_RECOVER = new Set(["gemini", "groq", "nvidia", "zai"]);
 const recoverableError = (message: string) =>
-  /(HTTP 400|HTTP 404|respondió sin texto|sin texto utilizable)/i.test(message);
+  /(HTTP 400|HTTP 404|HTTP 410|respondió sin texto|sin texto utilizable)/i.test(message);
 const shouldRecover = (provider: string, message: string) =>
   CAN_RECOVER.has(provider) &&
   (recoverableError(message) || (provider === "nvidia" && /HTTP 503/i.test(message)));
