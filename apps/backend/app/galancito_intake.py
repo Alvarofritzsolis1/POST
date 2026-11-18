@@ -274,6 +274,19 @@ def needs_deeper_response(message: str) -> bool:
     if text in {"si", "no", "1", "2", "uno", "dos", "hola", "ola",
                 "solito", "solo", "sola", "gracias"}:
         return False
+    # A short, misspelled question still deserves an informed answer rather
+    # than a form-like follow-up. This does not imply confirmed job openings.
+    short_questions = (
+        "hay pega", "tienen pega", "tienen trabajo", "tienen cupos",
+        "buscan maestros", "necesitan maestros", "puedo postular",
+        "como postulo", "cuanto pagan", "cuanto se paga", "hay obras",
+        "que requisitos", "que papeles", "me sirve", "que hago ahora",
+        "a que obra", "como funciona", "donde postulo",
+    )
+    if ("?" in message or "¿" in message) and any(
+        phrase in text for phrase in short_questions
+    ):
+        return True
     if len(text.split()) >= 15:
         return True
     questions = ("como puedo", "que necesito", "me explicas", "como funciona",
