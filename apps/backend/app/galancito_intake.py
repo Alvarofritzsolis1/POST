@@ -262,6 +262,28 @@ def next_intake_reply(message: str, facts: dict, prior_prompt: str = "") -> str 
     return (_friendly_ack(message, facts, question) + " " + question)[:540]
 
 
+def needs_deeper_response(message: str) -> bool:
+    """Prefer the configured AI for real questions; keep one-word replies local.
+
+    Avoid wasting tokens or passing short yes/no or numbered choices to a model.
+    This is about answer quality, never an artificial waiting timer.
+    """
+    if private_data(message):
+        return False
+    text = plain(message)
+    if text in {"si", "no", "1", "2", "uno", "dos", "hola", "ola",
+                "solito", "solo", "sola", "gracias"}:
+        return False
+    if len(text.split()) >= 15:
+        return True
+    questions = ("como puedo", "que necesito", "me explicas", "como funciona",
+                 "tengo dudas", "que pasa si", "quiero saber", "me puedes contar",
+                 "hay alguna obra", "que obras", "que papeles", "que documentos",
+                 "puedo postular", "como postulo", "necesito orientacion")
+    return any(q in text for q in questions) or (
+        ("?" in message or "¿" in message) and len(text.split()) >= 6)
+
+
 def natural_messenger_reply(text: str, prior_ai_replies: int = 0) -> str:
     """Identify as the virtual assistant initially, then avoid repeated bot branding."""
     clean = text.strip()
