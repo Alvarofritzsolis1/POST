@@ -34,6 +34,8 @@ from .network_service import key, today
 from .galancito_triage import classify_lead, dashboard
 from .security import administrator
 from .galancito_triage import analyze, private_data, quick_reply
+from .facebook_lead_insights import ranked_needs, suggestions_for_lead
+from .ops_models import Worksite
 from .galancito_knowledge import retrieve, exact_answer, evidence_context
 from .galancito_runtime import infer
 from .galancito_flow import grounded_reply
@@ -587,6 +589,55 @@ def get_lead(lead_id: str, user: User = Depends(administrator),
         FacebookChatMessage.lead_id == lead.id,
     ).order_by(FacebookChatMessage.created_at, FacebookChatMessage.id).limit(200)))
     return {"lead": _lead_view(db, lead), "messages": [_message_view(m) for m in msgs]}
+
+
+@router.get("/leads/{lead_id}/insights")
+def lead_insights(lead_id: str, user: User = Depends(administrator),
+                  db: Session = Depends(get_db)):
+    """Resumen y sugerencias explicables, sin cambios ni adjudicaciones automáticas."""
+    lead = _lead(db, user, lead_id)
+    messages = list(db.scalars(select(FacebookChatMessage).where(
+        FacebookChatMessage.org_id == user.org_id,
+        FacebookChatMessage.lead_id == lead.id,
+        FacebookChatMessage.direction == "inbound",
+    ).order_by(FacebookChatMessage.created_at.desc()).limit(8)))
+    needs = list(db.scalars(select(NetworkRequirement).where(
+        NetworkRequirement.org_id == user.org_id,
+        NetworkRequirement.state == "published",
+    ).order_by(NetworkRequirement.start_date, NetworkRequirement.id).limit(200)))
+    sites = {site.id: site.name for site in db.scalars(select(Worksite).where(
+        Worksite.org_id == user.org_id
+    ))}
+    suggestions = suggestions_for_lead(lead, messages)
+    matches = ranked_needs(lead, needs, sites)
+    triage = classify_lead(lead, [], needs, messages, today=today())
+    missing = []
+    if lead.display_name == "Interesado de Facebook":
+        missing.append("Confirmar nombre")
+    if not lead.specialty:
+        missing.append("Oficio")
+    if lead.workers is None:
+        missing.append("Personas disponibles")
+    if not lead.availability:
+        missing.append("Fecha de disponibilidad")
+    return {
+        "contact_id": lead.id,
+        "summary": {
+            "name": lead.display_name,
+            "company": lead.company,
+            "specialty": lead.specialty,
+            "workers": lead.workers,
+            "availability": lead.availability,
+            "stage": triage["stage"],
+        },
+        "next_action": triage["next_action"],
+        "missing": missing,
+        "suggestions": suggestions,
+        "matches": matches,
+        "source": "reglas_locales",
+        "review_required": True,
+        "changes_applied": False,
+    }
 
 
 @router.post("/leads/{lead_id}/read")
