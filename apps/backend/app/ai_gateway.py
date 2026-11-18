@@ -127,6 +127,10 @@ def invoke(connection: AIConnection, *, instructions: str, prompt: str,
                 body["thinking"] = {"type": "disabled"}
             if connection.model.startswith("glm-5.3"):
                 body["temperature"] = 1.0
+        if connection.provider == "nvidia" and connection.model.startswith("deepseek-ai/"):
+            # NVIDIA's DeepSeek-V4 Flash API recommends these sampling values.
+            body["temperature"] = 1.0
+            body["top_p"] = 0.95
         headers = {"Authorization": "Bearer " + token}
     headers["Content-Type"] = "application/json"
     request = Request(url, data=json.dumps(body).encode("utf-8"),
