@@ -141,7 +141,8 @@ def _lead_view(db: Session, lead: FacebookLead) -> dict:
 def _message_view(m: FacebookChatMessage) -> dict:
     return {"id": m.id, "direction": m.direction, "state": m.state,
             "body": m.body, "ai_generated": m.ai_generated,
-            "error": m.error, "created_at": m.created_at.isoformat()}
+            "error": m.error, "created_at": m.created_at.isoformat(),
+            "updated_at": m.updated_at.isoformat() if m.updated_at else m.created_at.isoformat()}
 
 
 class LeadEdit(BaseModel):
