@@ -470,3 +470,91 @@ def test_local_name_extractor_rejects_ambiguous_job_titles():
     assert name("Me llamo Carlos")["value"] == "Carlos"
     assert name("soy maestro carpintero") is None
     assert name("hola necesito trabajo") is None
+
+
+def test_recover_external_message_missing_from_webhook(network, monkeypatch):
+    """Missed messages become inbox leads, without auto-sending old replies."""
+    from app.network_facebook import process_manual_next
+    from app import facebook_inbox_sync as recovery
+
+    n = network
+    enable_messaging(n, monkeypatch)
+    monkeypatch.setenv("FACEBOOK_AI_AUTO_REPLY_ENABLED", "true")
+    settings.cache_clear()
+    requests = []
+
+    def fake_meta(token, resource, edge, fields, limit):
+        requests.append(edge)
+        assert token == "synthetic-page-token"
+        if edge == "conversations":
+            return {"data": [{"id": "t_synthetic_external_001"}]}
+        return {"data": [
+            {"id": "m_test_external_001", "message": "Hola, soy carpintero",
+             "from": {"id": "987654321098765"},
+             "created_time": "2026-11-18T13:50:00+0000"},
+            {"id": "m_test_echo_002", "message": "Respuesta de la página",
+             "from": {"id": "1489275590928529"},
+             "created_time": "2026-11-18T13:51:00+0000"},
+        ]}
+
+    monkeypatch.setattr(recovery, "_graph_get", fake_meta)
+    assert n["send"](n["a"], "/facebook/inbox/sync").status_code == 403
+    queued = n["send"](n["admin"], "/facebook/inbox/sync")
+    assert queued.status_code == 202 and queued.json()["queued"]
+    assert process_manual_next(n["Session"])
+    center = n["admin"].get("/api/v1/network/facebook/center").json()
+    assert center["inbox_sync"]["state"] == "synced"
+    assert "1 mensajes" in center["inbox_sync"]["summary"]
+    assert center["counts"]["contacts"] == 1
+    detail = n["admin"].get(
+        "/api/v1/network/facebook/leads/" + center["leads"][0]["id"]).json()
+    assert [x["body"] for x in detail["messages"]] == ["Hola, soy carpintero"]
+    assert detail["messages"][0]["direction"] == "inbound"
+    assert requests == ["conversations", "messages"]
+    # Within the rate limit, a repeated click never schedules duplicate work.
+    repeated = n["send"](n["admin"], "/facebook/inbox/sync")
+    assert repeated.status_code == 202 and not repeated.json()["queued"]
+
+
+def test_recovery_deduplicates_webhook_messages(network, monkeypatch):
+    from app import facebook_inbox_sync as recovery
+
+    n = network
+    org_id = enable_messaging(n, monkeypatch)
+    assert incoming(n, text="Mensaje existente", mid="m_same_remote_1").status_code == 200
+    monkeypatch.setattr(recovery, "_graph_get", lambda token, resource, edge, fields, limit:
+        {"data": [{"id": "t_synthetic_external_001"}]} if edge == "conversations" else
+        {"data": [{"id": "m_same_remote_1", "message": "Mensaje existente",
+                   "from": {"id": "123456789012345"},
+                   "created_time": "2026-11-18T13:50:00+0000"}]})
+    first = recovery.sync_page_inbox(
+        page_id="1489275590928529", page_token="synthetic-page-token",
+        org_id=org_id, session_factory=n["Session"])
+    assert first["messages_imported"] == 0
+    assert first["new_contacts"] == 0
+    lead = n["admin"].get("/api/v1/network/facebook/center").json()["leads"][0]
+    detail = n["admin"].get("/api/v1/network/facebook/leads/" + lead["id"]).json()
+    assert len(detail["messages"]) == 1
+
+
+def test_recovery_meta_190_is_sanitized_and_visible(network, monkeypatch):
+    from io import BytesIO
+    from urllib.error import HTTPError
+    from app import facebook_inbox_sync as recovery
+    from app.network_facebook import process_manual_next
+
+    n = network
+    enable_messaging(n, monkeypatch)
+    secret = "NOT-TO-BE-STORED-SECRET"
+    def deny(token, resource, edge, fields, limit):
+        raise HTTPError("https://graph.facebook.com/?access_token=" + secret,
+                        401, "Unauthorized", {},
+                        BytesIO(json.dumps({"error": {"code": 190,
+                            "message": "token " + secret}}).encode()))
+    monkeypatch.setattr(recovery, "_graph_get", deny)
+    assert n["send"](n["admin"], "/facebook/inbox/sync").status_code == 202
+    assert process_manual_next(n["Session"])
+    result = n["admin"].get("/api/v1/network/facebook/center").json()["inbox_sync"]
+    assert result["state"] == "failed"
+    assert "190" in result["error"]
+    assert secret not in str(result)

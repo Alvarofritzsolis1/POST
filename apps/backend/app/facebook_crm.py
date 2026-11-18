@@ -8,6 +8,7 @@ import hashlib
 import hmac
 import json
 import re
+from uuid import uuid4
 from datetime import date, datetime, timedelta, timezone
 from urllib.error import HTTPError, URLError
 from urllib.request import HTTPRedirectHandler, Request as HTTPRequest, build_opener
@@ -238,10 +239,14 @@ async def webhook(request: Request, db: Session = Depends(get_db)):
         payload = json.loads(data)
     except (ValueError, UnicodeDecodeError):
         raise HTTPException(400, "Evento inválido") from None
+    if not isinstance(payload, dict):
+        raise HTTPException(400, "Evento inválido")
     if payload.get("object") != "page":
         return {"received": True}
     if not db.get(Organization, cfg.facebook_org_id):
         raise HTTPException(503, "Organización de Facebook no configurada")
+    if db.bind.dialect.name == "postgresql":
+        db.execute(sql_text("SELECT pg_advisory_xact_lock(2075003)"))
     for entry in payload.get("entry", [])[:20]:
         if str(entry.get("id")) != cfg.facebook_page_id:
             continue
@@ -555,6 +560,18 @@ def center(user: User = Depends(administrator), db: Session = Depends(get_db)):
     # Evitar mezclar el éxito confirmado por Meta con los envíos aún en cola.
     published_count = sum(item["state"] == "published" for item in publications)
     failed_count = sum(item["state"] == "failed" for item in publications)
+    last_sync = db.scalar(select(NetworkFacebookManual).where(
+        NetworkFacebookManual.org_id == user.org_id,
+        NetworkFacebookManual.page_id == cfg.facebook_page_id,
+        NetworkFacebookManual.action == "sync_inbox",
+    ).order_by(NetworkFacebookManual.updated_at.desc(),
+               NetworkFacebookManual.id.desc()).limit(1))
+    inbox_sync = {
+        "state": last_sync.state if last_sync else "not_checked",
+        "checked_at": last_sync.updated_at.isoformat() if last_sync else None,
+        "error": last_sync.last_error if last_sync and last_sync.state == "failed" else None,
+        "summary": last_sync.message if last_sync and last_sync.state == "synced" else None,
+    }
     leads = list(db.scalars(select(FacebookLead).where(
         FacebookLead.org_id == user.org_id).order_by(
         FacebookLead.last_inbound_at.desc(), FacebookLead.id).limit(100)))
@@ -568,6 +585,7 @@ def center(user: User = Depends(administrator), db: Session = Depends(get_db)):
             "pending_ads": ads, "publications": publications,
             "connection": connection,
             "messenger_delivery": messenger_delivery,
+            "inbox_sync": inbox_sync,
             "leads": [_lead_view(db, lead) for lead in leads],
             "guides_approved": db.scalar(select(func.count(FacebookTradeGuide.id)).where(
                 FacebookTradeGuide.org_id == user.org_id,
@@ -578,6 +596,38 @@ def center(user: User = Depends(administrator), db: Session = Depends(get_db)):
                        "unread": sum(bool(lead.unread) for lead in leads),
                        "review": sum(lead.status == "pending_review" for lead in leads),
                        "support": sum(bool(lead.needs_support) for lead in leads)}}
+
+
+@router.post("/inbox/sync", status_code=202)
+def request_inbox_sync(user: User = Depends(administrator),
+                       db: Session = Depends(get_db)):
+    """Queue a bounded Page API recovery; never handles or exposes page tokens."""
+    cfg = settings()
+    if not (cfg.facebook_messaging_enabled and cfg.facebook_page_id and
+            cfg.facebook_org_id == user.org_id):
+        raise HTTPException(409, "Configura Messenger y su organización antes de recuperar mensajes")
+    in_progress = db.scalar(select(NetworkFacebookManual).where(
+        NetworkFacebookManual.org_id == user.org_id,
+        NetworkFacebookManual.page_id == cfg.facebook_page_id,
+        NetworkFacebookManual.action == "sync_inbox",
+        NetworkFacebookManual.state.in_(["pending", "sending"]),
+    ).order_by(NetworkFacebookManual.created_at).limit(1))
+    if in_progress:
+        return {"state": in_progress.state, "queued": False}
+    previous = db.scalar(select(NetworkFacebookManual).where(
+        NetworkFacebookManual.org_id == user.org_id,
+        NetworkFacebookManual.page_id == cfg.facebook_page_id,
+        NetworkFacebookManual.action == "sync_inbox",
+    ).order_by(NetworkFacebookManual.updated_at.desc()).limit(1))
+    if previous and _aware(previous.updated_at) >= utcnow() - timedelta(seconds=30):
+        return {"state": previous.state, "queued": False}
+    db.add(NetworkFacebookManual(
+        org_id=user.org_id, created_by=user.id, page_id=cfg.facebook_page_id,
+        client_key=str(uuid4()), action="sync_inbox", state="pending",
+        title="Recuperación de mensajes de Messenger", message="",
+    ))
+    db.commit()
+    return {"state": "pending", "queued": True}
 
 
 @router.get("/leads/{lead_id}")

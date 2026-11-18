@@ -32,6 +32,7 @@ type Center = {
   auto_reply_enabled: boolean; ai_provider?: string; page_id: string;
   connection?: { state: string; checked_at: string | null; error: string | null; page_name: string | null };
   messenger_delivery?: { state: string; error: string | null; updated_at: string | null };
+  inbox_sync?: { state: string; checked_at: string | null; error: string | null; summary: string | null };
   pending_ads: Post[]; publications: Post[]; leads: Lead[];
   guides_approved: number;
   counts: { pending_ads: number; published_ads: number; failed_ads: number;
@@ -115,12 +116,13 @@ export default function FacebookCenter({ catalog }: { catalog: Catalog }) {
   }, []);
   // Estado fresco del worker; al finalizar la comprobación desaparece el estado pendiente.
   useEffect(() => {
-    if (!["pending", "sending"].includes(center?.connection?.state || "")) return;
+    if (!["pending", "sending"].includes(center?.connection?.state || "") &&
+        !["pending", "sending"].includes(center?.inbox_sync?.state || "")) return;
     const timer = window.setInterval(() => {
       if (!document.hidden) void refresh().catch(() => {});
     }, 1500);
     return () => window.clearInterval(timer);
-  }, [center?.connection?.state, refresh]);
+  }, [center?.connection?.state, center?.inbox_sync?.state, refresh]);
   const refreshTracking = useCallback(async () => {
     const data = await net<Tracking>("/facebook/galancito/seguimiento");
     setTracking(data);
@@ -287,6 +289,7 @@ export default function FacebookCenter({ catalog }: { catalog: Catalog }) {
   const failedCheckIsNewer = failedCheck && (connection?.checked_at || "") >= (lastResolvedPost?.updated_at || "");
   const tokenInvalid = (lastFailedToken && !verifiedAfterFailure) || (failedCheck && failedCheckIsNewer);
   const checkingConnection = connection?.state === "pending" || connection?.state === "sending";
+  const syncingInbox = ["pending", "sending"].includes(center?.inbox_sync?.state || "");
   const connectionVerified = connection?.state === "verified" && !tokenInvalid;
   const messengerBlocked = center?.messenger_delivery?.state === "failed";
   const messengerUncertain = center?.messenger_delivery?.state === "uncertain";
@@ -328,7 +331,22 @@ export default function FacebookCenter({ catalog }: { catalog: Catalog }) {
           "Comprobación solicitada. El resultado aparecerá automáticamente.")}>
         <RefreshCcw size={15} /> {checkingConnection || saving === "verify-connection" ? "Comprobando..." : "Comprobar conexión"}
       </button>
+      <button type="button" className="nw-btn" disabled={!!saving || syncingInbox || !center?.messaging_enabled}
+        onClick={() => void mutate("inbox-sync", () => change("/facebook/inbox/sync", {}),
+          "Recuperación solicitada: GALANT consultará a Meta sin enviar respuestas automáticas.")}>
+        <RefreshCcw size={15} /> {syncingInbox ? "Recuperando chats..." : "Recuperar mensajes"}
+      </button>
     </div>
+    {center?.inbox_sync?.state === "failed" && <div className="fbc-messenger-alert" role="alert">
+      <AlertTriangle size={18} />
+      <div><strong>No se pudieron recuperar los mensajes</strong>
+        <p>{center.inbox_sync.error || "Meta no autorizó la consulta a Messenger."}</p>
+        <small>El acceso a conversaciones de cuentas externas depende de los permisos autorizados por Meta.</small>
+      </div>
+    </div>}
+    {center?.inbox_sync?.state === "synced" && <p className="fbc-connected" role="status">
+      <CheckCircle2 size={16} /> {center.inbox_sync.summary || "Recuperación de Messenger terminada."}
+    </p>}
     {tokenInvalid && <div className="fbc-alert fbc-token-alert" role="alert">
       <AlertTriangle size={18} />
       <span>{failedCheckIsNewer

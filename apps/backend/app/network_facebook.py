@@ -6,6 +6,7 @@ import logging
 import re
 import signal
 import time
+import threading
 from urllib.error import HTTPError, URLError
 from urllib.parse import urlencode
 from urllib.request import HTTPRedirectHandler, Request, build_opener
@@ -264,7 +265,7 @@ def process_manual_next(session_factory=SessionLocal) -> bool:
     cfg = settings()
     # La verificación de conexión es lectura segura aunque el modo de pruebas
     # esté apagado; publicar/eliminar manualmente sigue requiriendo permiso explícito.
-    if not ((cfg.facebook_manual_testing_enabled or cfg.facebook_autopublish_enabled) and
+    if not ((cfg.facebook_manual_testing_enabled or cfg.facebook_autopublish_enabled or cfg.facebook_messaging_enabled) and
             re.fullmatch(r"[0-9]{5,30}", cfg.facebook_page_id or "")):
         return False
     if not cfg.facebook_page_token:
@@ -273,7 +274,7 @@ def process_manual_next(session_factory=SessionLocal) -> bool:
         with session_factory.begin() as db:
             missing = db.scalar(select(NetworkFacebookManual).where(
                 NetworkFacebookManual.page_id == cfg.facebook_page_id,
-                NetworkFacebookManual.action == "verify",
+                NetworkFacebookManual.action.in_(["verify", "sync_inbox"]),
                 NetworkFacebookManual.state == "pending",
             ).order_by(NetworkFacebookManual.created_at).with_for_update(skip_locked=True))
             if missing is not None:
@@ -288,7 +289,7 @@ def process_manual_next(session_factory=SessionLocal) -> bool:
             NetworkFacebookManual.state == "pending",
         ]
         if not cfg.facebook_manual_testing_enabled:
-            conditions.append(NetworkFacebookManual.action == "verify")
+            conditions.append(NetworkFacebookManual.action.in_(["verify", "sync_inbox"]))
         row = db.scalar(select(NetworkFacebookManual).where(*conditions)
             .order_by(NetworkFacebookManual.created_at, NetworkFacebookManual.id)
             .with_for_update(skip_locked=True))
@@ -306,6 +307,7 @@ def process_manual_next(session_factory=SessionLocal) -> bool:
         row.updated_at = utcnow()
 
     confirmed_id, page_name, error, uncertain = None, None, None, False
+    summary = None
     try:
         if action == "verify":
             result = graph_request("GET", "/" + cfg.facebook_page_id, cfg.facebook_page_token)
@@ -313,6 +315,14 @@ def process_manual_next(session_factory=SessionLocal) -> bool:
                 error = "El token no identifica la página configurada."
             else:
                 page_name = str(result.get("name") or "Página de Facebook")[:180]
+        elif action == "sync_inbox":
+            from .facebook_inbox_sync import sync_page_inbox
+            counts = sync_page_inbox(
+                page_id=cfg.facebook_page_id, page_token=cfg.facebook_page_token,
+                org_id=cfg.facebook_org_id, session_factory=session_factory)
+            summary = ("Revisadas " + str(counts["conversations_checked"]) +
+                       " conversaciones; importados " + str(counts["messages_imported"]) +
+                       " mensajes y " + str(counts["new_contacts"]) + " contactos nuevos.")
         elif action == "publish":
             result = graph_request("POST", "/" + cfg.facebook_page_id + "/feed", cfg.facebook_page_token, message)
             confirmed_id = result.get("id")
@@ -340,12 +350,14 @@ def process_manual_next(session_factory=SessionLocal) -> bool:
             row.post_id = confirmed_id
         if page_name:
             row.page_name = page_name
+        if summary is not None:
+            row.message = summary
         if uncertain:
             row.state = "uncertain"  # No reintentar automáticamente.
         elif error:
             row.state = "failed"
         else:
-            row.state = {"verify": "verified", "publish": "published", "delete": "deleted"}[action]
+            row.state = {"verify": "verified", "sync_inbox": "synced", "publish": "published", "delete": "deleted"}[action]
         row.last_error, row.updated_at = error, utcnow()
     return True
 
@@ -361,6 +373,12 @@ def main() -> None:
     signal.signal(signal.SIGINT, stop)
     log.info("Worker de Facebook iniciado; sin publicación retroactiva.")
     from .facebook_chat_worker import process_chat_next, process_profile_next
+    from .facebook_inbox_sync import periodic_recovery
+    recovery_stop = threading.Event()
+    recovery_thread = threading.Thread(
+        target=periodic_recovery, args=(recovery_stop,),
+        name="facebook-inbox-recovery", daemon=True)
+    recovery_thread.start()
     while not stopping:
         try:
             if process_chat_next():
@@ -378,6 +396,8 @@ def main() -> None:
             if stopping:
                 break
             time.sleep(settings().facebook_worker_poll_seconds / 10)
+    recovery_stop.set()
+    recovery_thread.join(timeout=2)
 
 
 if __name__ == "__main__":
