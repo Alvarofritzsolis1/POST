@@ -143,6 +143,10 @@ def invoke(connection: AIConnection, *, instructions: str, prompt: str,
             404: "El modelo elegido no está disponible en esta cuenta.",
             422: "Revisa el modelo seleccionado y vuelve a probar.",
             429: "Se alcanzó el límite de uso del proveedor. Vuelve a probar luego.",
+            500: "El proveedor tuvo un error temporal. Vuelve a probar luego.",
+            502: "El proveedor tuvo un error temporal. Vuelve a probar luego.",
+            503: "El proveedor está temporalmente no disponible. Vuelve a probar luego.",
+            504: "El proveedor tardó demasiado en responder. Vuelve a probar luego.",
         }.get(exc.code, "El proveedor no pudo completar la prueba.")
         raise AIServiceError(help_text + " (HTTP " + str(exc.code) + ").") from None
     except (URLError, TimeoutError, OSError, ValueError, UnicodeError):

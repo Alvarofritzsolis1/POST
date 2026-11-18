@@ -23,7 +23,7 @@ from .models import utcnow
 
 MODELS_URL = "https://generativelanguage.googleapis.com/v1beta/models"
 MAX_PAGES = 3
-MAX_PROBES = 3
+MAX_PROBES = 6
 SUPPORTED = "generatecontent"
 
 
@@ -63,6 +63,7 @@ def listed_models(conn: AIConnection) -> list[str]:
                 401: "Google rechazó la API Key. Revisa la clave de Google AI Studio.",
                 403: "La clave no tiene permisos para consultar modelos de Google.",
                 429: "Google alcanzó el límite de consultas de modelos.",
+                503: "El catálogo de Google está temporalmente no disponible (HTTP 503). Vuelve a probar luego.",
             }
             raise AIServiceError(messages.get(
                 exc.code, "Google no pudo entregar el catálogo de modelos."
@@ -126,7 +127,8 @@ def recover_gemini(db: Session, conn: AIConnection) -> dict:
             final_error = str(exc)
             if "(HTTP 404)" in final_error:
                 continue
-            # Bad credentials, billing, permissions and quota should not be retried.
+            # Provider outages, bad credentials, billing, permissions and quota
+            # cannot be repaired by changing the model.
             break
         old_model = conn.model
         conn.model = model
@@ -151,6 +153,8 @@ def recover_gemini(db: Session, conn: AIConnection) -> dict:
                 "attempts": checked}
     conn.last_status = "error"
     conn.last_checked_at = utcnow()
+    if any("(HTTP " + str(code) + ")" in final_error for code in (500, 502, 503, 504)):
+        return {"ok": False, "message": final_error, "attempts": checked}
     return {"ok": False, "message": (
         "No se encontró un modelo que responda con esta clave. "
         + (final_error or "Revisa disponibilidad en Google AI Studio.")

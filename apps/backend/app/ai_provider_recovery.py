@@ -1,4 +1,4 @@
-"""Recover Groq and Z.ai connections without ever returning or logging API Keys.
+"""Recover Groq, NVIDIA and Z.ai connections without exposing API Keys.
 
 Groq: ask the official account model catalog, then test actual Chat Completions.
 Z.ai: no assumption about a catalog endpoint; test a small documented allowlist
@@ -20,8 +20,14 @@ from .ai_models import AIConnection
 from .models import utcnow
 
 GROQ_MODELS_URL = "https://api.groq.com/openai/v1/models"
+NVIDIA_MODELS_URL = "https://integrate.api.nvidia.com/v1/models"
 MAX_PROBES = 3
 ZAI_MODELS = ("glm-4.7", "glm-5.3-flash")
+NVIDIA_MODELS = (
+    "nvidia/nemotron-3.5-bolt-e4b",
+    "nvidia/nemotron-3.5-lightning-30b-a3b",
+    "google/gemma-3-4b-it",
+)
 
 
 def _priority(model: str) -> tuple[int, str]:
@@ -68,9 +74,35 @@ def groq_models(conn: AIConnection) -> list[str]:
     return sorted(ids, key=_priority)
 
 
+def nvidia_models(conn: AIConnection) -> list[str]:
+    """Choose only text chat models actually listed by NVIDIA for this key."""
+    token = decrypt_key(conn.encrypted_key)
+    req = Request(NVIDIA_MODELS_URL, headers={
+        "Authorization": "Bearer " + token, "Accept": "application/json",
+    }, method="GET")
+    try:
+        with ai_gateway.urlopen(req, timeout=8) as response:
+            payload = json.loads(response.read(250000).decode("utf-8"))
+    except HTTPError as exc:
+        messages = {
+            401: "NVIDIA rechazó la API Key.",
+            403: "Esta clave NVIDIA no tiene permiso para consultar modelos.",
+            429: "NVIDIA limitó las consultas; vuelve a intentar más tarde.",
+            503: "El catálogo de NVIDIA está temporalmente no disponible (HTTP 503).",
+        }
+        raise AIServiceError(messages.get(exc.code, "NVIDIA no pudo entregar la lista de modelos.")) from None
+    except (URLError, TimeoutError, OSError, ValueError, UnicodeError):
+        raise AIServiceError("No se pudo consultar la lista de modelos de NVIDIA.") from None
+    if not isinstance(payload, dict) or not isinstance(payload.get("data"), list):
+        raise AIServiceError("NVIDIA devolvió un listado de modelos inválido.")
+    listed = {entry["id"] for entry in payload["data"] if isinstance(entry, dict)
+              and isinstance(entry.get("id"), str)}
+    return [model for model in NVIDIA_MODELS if model in listed]
+
+
 def recover_provider(db: Session, conn: AIConnection) -> dict:
-    if not conn.encrypted_key or conn.provider not in ("groq", "zai"):
-        raise AIServiceError("No hay una conexión Groq o Z.ai recuperable.")
+    if not conn.encrypted_key or conn.provider not in ("groq", "nvidia", "zai"):
+        raise AIServiceError("No hay una conexión recuperable con clave protegida.")
     # Model discovery is not proof of a working credential; fail closed.
     conn.enabled = False
     conn.last_status = "error"
@@ -79,6 +111,11 @@ def recover_provider(db: Session, conn: AIConnection) -> dict:
         if not candidates:
             return {"ok": False, "attempts": 0,
                     "message": "Tu cuenta Groq no informa modelos compatibles. Revisa tus permisos en Groq Console."}
+    elif conn.provider == "nvidia":
+        candidates = nvidia_models(conn)[:MAX_PROBES]
+        if not candidates:
+            return {"ok": False, "attempts": 0,
+                    "message": "NVIDIA no informó modelos de chat compatibles para esta cuenta."}
     else:
         # Never send a Standard API key to Coding Plan endpoints.
         candidates = list(dict.fromkeys(
@@ -96,7 +133,7 @@ def recover_provider(db: Session, conn: AIConnection) -> dict:
             last_status="not_tested", last_checked_at=None,
         )
         # Reasoning models may need more tokens to emit visible text.
-        limit = 512 if (conn.provider == "zai" or "gpt-oss" in model) else 128
+        limit = 512 if (conn.provider in ("zai", "nvidia") or "gpt-oss" in model) else 128
         try:
             run_connection(db, target, task="connection_test",
                            instructions="Responde solo OK.",
@@ -104,10 +141,11 @@ def recover_provider(db: Session, conn: AIConnection) -> dict:
                            max_output_tokens=limit, timeout=11)
         except AIServiceError as exc:
             last_error = str(exc)
-            # 401/403/402/429 and network failures do not justify spending
+            # Provider outages, 401/403/402/429 and network failures do not justify spending
             # another call on a different model with the same credential.
             if any(code in last_error for code in (
                 "HTTP 401", "HTTP 402", "HTTP 403", "HTTP 429",
+                "HTTP 500", "HTTP 502", "HTTP 503", "HTTP 504",
                 "rechazada", "permiso", "facturación",
                 "límite de uso", "No se pudo contactar",
             )):
@@ -132,9 +170,11 @@ def recover_provider(db: Session, conn: AIConnection) -> dict:
         }
     conn.last_checked_at = utcnow()
     conn.last_status = "error"
+    if any("(HTTP " + str(code) + ")" in last_error for code in (500, 502, 503, 504)):
+        return {"ok": False, "attempts": attempted, "message": last_error}
     hint = ("Revisa si tienes una clave del tipo correcto y saldo o plan activo."
             if conn.provider == "zai" else
-            "Revisa los modelos habilitados en Groq Console.")
+            "Revisa los modelos habilitados en la cuenta del proveedor.")
     return {
         "ok": False, "attempts": attempted,
         "message": ("No fue posible verificar un modelo con esta cuenta. "

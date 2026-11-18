@@ -673,8 +673,8 @@ def test_recovery_is_admin_only_and_org_scoped(ai_env):
 def test_recovery_non_gemini_refused(ai_env):
     client = ai_env["client"]
     headers = signin(client)
-    saved = add(client, headers, name="Proveedor no recuperable", provider="nvidia",
-                model="deepseek-ai/deepseek-v4.1-flash")
+    saved = add(client, headers, name="Proveedor no recuperable", provider="openai",
+                model="gpt-4.1-mini")
     result = client.post(ROOT + "/connections/" + saved["id"] + "/recover", headers=headers)
     assert result.status_code == 422
 
@@ -700,12 +700,98 @@ def test_gemini_probes_are_bounded(ai_env, monkeypatch):
     response = client.post(ROOT + "/connections/" + saved["id"] + "/recover", headers=headers)
     assert response.status_code == 200
     assert response.json()["ok"] is False
-    assert response.json()["attempts"] == 3
-    assert len(hits) == 3
+    assert response.json()["attempts"] == 4
+    assert len(hits) == 4
     with ai_env["sessions"]() as db:
         conn = db.get(AIConnection, saved["id"])
         assert conn.model == "gemini-2.5-flash" and not conn.enabled
-    assert client.get(ROOT + "/usage").json()["total_calls"] == 3
+    assert client.get(ROOT + "/usage").json()["total_calls"] == 4
+
+
+def test_gemini_503_reports_provider_outage_without_claiming_model_failure(ai_env, monkeypatch):
+    from urllib.error import HTTPError
+
+    client = ai_env["client"]
+    headers = signin(client)
+    saved = add(client, headers, name="Gemini temporal", provider="gemini",
+                model="gemini-2.5-flash")
+    probes = []
+
+    def unavailable(request, timeout):
+        if request.get_method() == "GET":
+            return FakeResponse({"models": [
+                {"name": "models/gemini-3.8-flash", "supportedGenerationMethods": ["generateContent"]},
+                {"name": "models/gemini-2.5-flash", "supportedGenerationMethods": ["generateContent"]},
+            ]})
+        probes.append(request.full_url)
+        raise HTTPError(request.full_url, 503, "private provider details", None, None)
+
+    monkeypatch.setattr(ai_gateway, "urlopen", unavailable)
+    result = client.post(ROOT + "/connections/" + saved["id"] + "/recover", headers=headers)
+    assert result.status_code == 200
+    assert result.json()["ok"] is False
+    assert result.json()["attempts"] == 1
+    assert "temporalmente no disponible" in result.json()["message"]
+    assert "No se encontró un modelo" not in result.text
+    assert "private provider details" not in result.text
+    assert len(probes) == 1
+
+
+def test_gemini_recovery_checks_later_listed_models(ai_env, monkeypatch):
+    from urllib.error import HTTPError
+
+    client = ai_env["client"]
+    headers = signin(client)
+    saved = add(client, headers, name="Gemini catálogo", provider="gemini",
+                model="gemini-2.5-flash")
+
+    def later_model(request, timeout):
+        if request.get_method() == "GET":
+            return FakeResponse({"models": [
+                {"name": "models/gemini-3.8-flash", "supportedGenerationMethods": ["generateContent"]},
+                {"name": "models/gemini-3.7-flash", "supportedGenerationMethods": ["generateContent"]},
+                {"name": "models/gemini-3.6-flash", "supportedGenerationMethods": ["generateContent"]},
+                {"name": "models/gemini-2.5-flash", "supportedGenerationMethods": ["generateContent"]},
+            ]})
+        if "gemini-2.5-flash:" in request.full_url:
+            return FakeResponse({"candidates": [{"content": {"parts": [{"text": "OK"}]}}]})
+        raise HTTPError(request.full_url, 404, "unavailable", None, None)
+
+    monkeypatch.setattr(ai_gateway, "urlopen", later_model)
+    result = client.post(ROOT + "/connections/" + saved["id"] + "/recover", headers=headers)
+    assert result.status_code == 200
+    assert result.json()["ok"] is True
+    assert result.json()["model"] == "gemini-2.5-flash"
+    assert result.json()["attempts"] == 4
+
+
+def test_nvidia_recovery_replaces_unlisted_model_after_real_probe(ai_env, monkeypatch):
+    client = ai_env["client"]
+    headers = signin(client)
+    saved = add(client, headers, name="NVIDIA Build · deepseek-ai/deepseek-v4.1-flash")
+    requests = []
+
+    def nvidia_response(request, timeout):
+        requests.append(request)
+        assert request.get_header("Authorization") == "Bearer nvapi-example-secret"
+        if request.get_method() == "GET":
+            return FakeResponse({"data": [
+                {"id": "nvidia/nemotron-3.5-bolt-e4b"},
+                {"id": "nvidia/nemotron-3.5-embed-1b"},
+            ]})
+        assert json.loads(request.data)["model"] == "nvidia/nemotron-3.5-bolt-e4b"
+        return FakeResponse({"choices": [{"message": {"content": "OK"}}],
+                             "usage": {"prompt_tokens": 8, "completion_tokens": 2}})
+
+    monkeypatch.setattr(ai_gateway, "urlopen", nvidia_response)
+    result = client.post(ROOT + "/connections/" + saved["id"] + "/recover", headers=headers)
+    assert result.status_code == 200
+    assert result.json()["ok"] is True
+    assert result.json()["model"] == "nvidia/nemotron-3.5-bolt-e4b"
+    assert result.json()["connection"]["enabled"] is True
+    assert result.json()["connection"]["status"] == "verified"
+    assert len(requests) == 2
+    assert "nvapi-example-secret" not in result.text
 
 
 def test_groq_recovers_from_active_models_using_saved_key(ai_env, monkeypatch):
