@@ -51,8 +51,16 @@ def _cipher() -> Fernet:
         raise AIServiceError("La clave de cifrado del servidor es inválida.") from None
 
 
+def encryption_ready() -> bool:
+    try:
+        _cipher()
+        return True
+    except AIServiceError:
+        return False
+
+
 def encrypt_key(value: str) -> str:
-    if not value or len(value) > 4096 or any(c in value for c in "\r\n\x00"):
+    if not value or not value.strip() or len(value) > 4096 or any(c in value for c in "\r\n\x00"):
         raise AIServiceError("La clave API es inválida.")
     return _cipher().encrypt(value.strip().encode()).decode("ascii")
 
@@ -171,7 +179,8 @@ def orchestration_available(db: Session, org_id: str, task: str) -> bool:
     if not policy or not policy.enabled or task not in TASKS:
         return False
     conn = db.get(AIConnection, (policy.task_routes or {}).get(task, ""))
-    return bool(conn and conn.org_id == org_id and conn.enabled and conn.encrypted_key)
+    return bool(conn and conn.org_id == org_id and conn.enabled and conn.encrypted_key
+                and conn.last_status == "verified")
 
 
 def orchestrated_text(db: Session, org_id: str, *, task: str, instructions: str,
@@ -186,9 +195,9 @@ def orchestrated_text(db: Session, org_id: str, *, task: str, instructions: str,
     connections = list(db.scalars(select(AIConnection).where(
         AIConnection.org_id == org_id, AIConnection.enabled.is_(True))))
     primary_id = (policy.task_routes or {}).get(task)
-    ordered = [c for c in connections if c.id == primary_id]
+    ordered = [c for c in connections if c.id == primary_id and c.last_status == "verified"]
     if policy.fallback_enabled and ordered:
-        ordered += [c for c in connections if c.id != primary_id]
+        ordered += [c for c in connections if c.id != primary_id and c.last_status == "verified"]
     for conn in ordered:
         if not conn.encrypted_key:
             continue
