@@ -545,3 +545,164 @@ def test_ai_gateway_refuses_redirects_to_another_host():
         "https://attacker.example.invalid/collect",
     )
     assert target is None
+
+
+
+def test_gemini_404_recovers_using_list_and_actual_generate(ai_env, monkeypatch):
+    """A list entry is not proof; the new model must really generate text."""
+    from urllib.error import HTTPError
+    from app import ai_model_recovery
+    client = ai_env["client"]
+    headers = signin(client)
+    saved = add(client, headers, name="Google Gemini · gemini-2.5-flash",
+                provider="gemini", model="gemini-2.5-flash", key="AIza-synthetic-not-real")
+    calls = []
+
+    def fake_open(request, timeout):
+        calls.append((request.get_method(), request.full_url, request.get_header("X-goog-api-key")))
+        assert "AIza-synthetic-not-real" not in request.full_url
+        if request.get_method() == "GET":
+            return FakeResponse({"models": [
+                {"name": "models/gemini-2.5-flash", "supportedGenerationMethods": ["generateContent"]},
+                {"name": "models/gemini-3.8-flash", "supportedGenerationMethods": ["generateContent"]},
+                {"name": "models/text-embedding-004", "supportedGenerationMethods": ["embedContent"]},
+            ]})
+        if "gemini-2.5-flash:generateContent" in request.full_url:
+            raise HTTPError(request.full_url, 404, "Cannot access restricted old model", None, None)
+        if "gemini-3.8-flash:generateContent" in request.full_url:
+            return FakeResponse({"candidates": [{"content": {"parts": [{"text": "OK"}]}}],
+                                 "usageMetadata": {"promptTokenCount": 11, "candidatesTokenCount": 5}})
+        raise AssertionError("Unexpected API path")
+
+    monkeypatch.setattr(ai_gateway, "urlopen", fake_open)
+    previous = client.post(ROOT + "/connections/" + saved["id"] + "/test", headers=headers)
+    assert previous.json()["ok"] is False
+    assert "(HTTP 404)" in previous.json()["message"]
+
+    recovered = client.post(ROOT + "/connections/" + saved["id"] + "/recover", headers=headers)
+    assert recovered.status_code == 200, recovered.text
+    result = recovered.json()
+    assert result["ok"] is True
+    assert result["model"] == "gemini-3.8-flash"
+    assert result["attempts"] == 1
+    assert result["connection"]["enabled"] is True
+    assert result["connection"]["status"] == "verified"
+    assert result["connection"]["name"] == "Google Gemini · gemini-3.8-flash"
+    assert "api_key" not in recovered.text and "AIza-synthetic-not-real" not in recovered.text
+    assert calls[0][2] == "AIza-synthetic-not-real"
+    with ai_env["sessions"]() as db:
+        record = db.get(AIConnection, saved["id"])
+        assert ai_gateway.decrypt_key(record.encrypted_key) == "AIza-synthetic-not-real"
+        assert record.model == "gemini-3.8-flash"
+    report = client.get(ROOT + "/usage").json()
+    assert report["total_calls"] == 2  # 404 and successful candidate
+    assert report["total_tokens"] == 16
+
+
+def test_gemini_catalog_may_list_inaccessible_model_then_try_next(ai_env, monkeypatch):
+    """A listed 3.8 that returns 404 must not be reported as verified."""
+    from urllib.error import HTTPError
+    client = ai_env["client"]
+    headers = signin(client)
+    saved = add(client, headers, name="Primario Gemini",
+                provider="gemini", model="gemini-2.5-flash")
+    paths = []
+
+    def fake_open(request, timeout):
+        paths.append(request.full_url)
+        if request.get_method() == "GET":
+            return FakeResponse({"models": [
+                {"name": "models/gemini-3.8-flash", "supportedGenerationMethods": ["generateContent"]},
+                {"name": "models/gemini-3.5-flash-lite", "supportedGenerationMethods": ["generateContent"]},
+                {"name": "models/gemini-2.5-flash", "supportedGenerationMethods": ["generateContent"]},
+                {"name": "models/gemini-pro", "supportedGenerationMethods": ["generateContent"]},
+            ]})
+        if "gemini-3.8-flash:" in request.full_url:
+            raise HTTPError(request.full_url, 404, "restricted", None, None)
+        if "gemini-3.5-flash-lite:" in request.full_url:
+            return FakeResponse({"candidates": [{"content": {"parts": [{"text": "OK Lite"}]}}],
+                                 "usageMetadata": {"promptTokenCount": 3, "candidatesTokenCount": 1}})
+        raise AssertionError("Unexpected model probe")
+
+    monkeypatch.setattr(ai_gateway, "urlopen", fake_open)
+    r = client.post(ROOT + "/connections/" + saved["id"] + "/recover", headers=headers)
+    assert r.status_code == 200 and r.json()["ok"] is True
+    assert r.json()["model"] == "gemini-3.5-flash-lite"
+    assert r.json()["attempts"] == 2
+    assert sum("generateContent" in p for p in paths) == 2
+    assert all("gemini-pro" not in p for p in paths)
+    usage = client.get(ROOT + "/usage").json()
+    assert usage["total_calls"] == 2
+    assert usage["total_tokens"] == 4
+
+
+def test_gemini_catalog_failure_does_not_erase_key_or_model(ai_env, monkeypatch):
+    """Invalid credentials stop recovery without altering existing encrypted key."""
+    from urllib.error import HTTPError
+    client = ai_env["client"]
+    headers = signin(client)
+    saved = add(client, headers, name="Recuperación fallida",
+                provider="gemini", model="gemini-2.5-flash", key="AIza-example-private")
+    def invalid(request, timeout):
+        raise HTTPError(request.full_url, 401, "secret remote details", None, None)
+    monkeypatch.setattr(ai_gateway, "urlopen", invalid)
+    result = client.post(ROOT + "/connections/" + saved["id"] + "/recover", headers=headers)
+    assert result.status_code == 200
+    assert result.json()["ok"] is False
+    assert result.json()["attempts"] == 0
+    assert "AIza-example-private" not in result.text
+    with ai_env["sessions"]() as db:
+        record = db.get(AIConnection, saved["id"])
+        assert record.model == "gemini-2.5-flash"
+        assert record.encrypted_key
+    assert client.get(ROOT + "/usage").json()["total_calls"] == 0
+
+
+def test_recovery_is_admin_only_and_org_scoped(ai_env):
+    client = ai_env["client"]
+    headers = signin(client)
+    saved = add(client, headers, name="Conexión protegida", provider="gemini",
+                model="gemini-2.5-flash")
+    assert client.post(ROOT + "/connections/" + saved["id"] + "/recover").status_code in (401, 403)
+    signin(client, "resident")
+    assert client.post(ROOT + "/connections/" + saved["id"] + "/recover").status_code == 403
+    outsider = signin(client, "outside")
+    assert client.post(ROOT + "/connections/" + saved["id"] + "/recover", headers=outsider).status_code == 404
+
+
+def test_recovery_non_gemini_refused(ai_env):
+    client = ai_env["client"]
+    headers = signin(client)
+    saved = add(client, headers, name="Proveedor no Gemini", provider="groq",
+                model="llama-3.3-70b-versatile")
+    result = client.post(ROOT + "/connections/" + saved["id"] + "/recover", headers=headers)
+    assert result.status_code == 422
+
+
+def test_gemini_probes_are_bounded(ai_env, monkeypatch):
+    from urllib.error import HTTPError
+    client = ai_env["client"]
+    headers = signin(client)
+    saved = add(client, headers, name="Gemini sin acceso",
+                provider="gemini", model="gemini-2.5-flash")
+    hits = []
+    def no_access(request, timeout):
+        if request.get_method() == "GET":
+            return FakeResponse({"models": [
+                {"name": "models/gemini-3.8-flash", "supportedGenerationMethods": ["generateContent"]},
+                {"name": "models/gemini-3.7-flash", "supportedGenerationMethods": ["generateContent"]},
+                {"name": "models/gemini-3.6-flash", "supportedGenerationMethods": ["generateContent"]},
+                {"name": "models/gemini-3.5-flash-lite", "supportedGenerationMethods": ["generateContent"]},
+            ]})
+        hits.append(request.full_url)
+        raise HTTPError(request.full_url, 404, "model unavailable", None, None)
+    monkeypatch.setattr(ai_gateway, "urlopen", no_access)
+    response = client.post(ROOT + "/connections/" + saved["id"] + "/recover", headers=headers)
+    assert response.status_code == 200
+    assert response.json()["ok"] is False
+    assert response.json()["attempts"] == 3
+    assert len(hits) == 3
+    with ai_env["sessions"]() as db:
+        conn = db.get(AIConnection, saved["id"])
+        assert conn.model == "gemini-2.5-flash" and not conn.enabled
+    assert client.get(ROOT + "/usage").json()["total_calls"] == 3
