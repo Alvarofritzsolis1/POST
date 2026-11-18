@@ -347,8 +347,8 @@ async def webhook(request: Request, db: Session = Depends(get_db)):
                     lead.workers = facts.workers
                 if facts.availability:
                     lead.availability = facts.availability
-                if "trabajo solo" in key(body):
-                    lead.has_employees = False
+                # Trabajar solo no demuestra que no existan dependientes
+                # formalmente contratados: nunca inferir has_employees.
             signal = (assistance_signal(body, is_audio=audio_received)
                       if consent is None else None)
             if consent is False:
