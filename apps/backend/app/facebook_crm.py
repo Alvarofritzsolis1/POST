@@ -127,6 +127,7 @@ def _lead_view(db: Session, lead: FacebookLead) -> dict:
         "entity_type": lead.entity_type,
         "has_employees": lead.has_employees,
         "team_available": lead.team_available,
+        "interest_type": lead.interest_type,
         "work_area": lead.work_area,
         "follow_up_on": lead.follow_up_on.isoformat() if lead.follow_up_on else None,
         "follow_up_note": lead.follow_up_note or "",
@@ -157,6 +158,7 @@ class LeadEdit(BaseModel):
     entity_type: str = Field(default="unknown", pattern=r"^(unknown|company|individual)$")
     has_employees: bool | None = None
     team_available: bool | None = None
+    interest_type: str = Field(default="unknown", pattern="^(unknown|service_offer|employment)$")
     work_area: str = Field(default="", max_length=120)
     follow_up_on: date | None = None
     follow_up_note: str = Field(default="", max_length=240)
@@ -839,7 +841,7 @@ def suggest_reply(lead_id: str, user: User = Depends(administrator),
     facts = {"specialty": lead.specialty, "workers": lead.workers,
              "availability": lead.availability, "entity_type": lead.entity_type,
              "has_employees": lead.has_employees, "team_available": lead.team_available,
-             "work_area": lead.work_area, "experience": lead.experience}
+             "interest_type": lead.interest_type, "work_area": lead.work_area, "experience": lead.experience}
     previous_question = next((m.body for m in messages if m.direction == "outbound"
                               and m.state == "sent"), "")
     intake = next_intake_reply(latest_inbound, facts, previous_question)
