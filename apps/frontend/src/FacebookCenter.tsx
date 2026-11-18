@@ -110,6 +110,7 @@ export default function FacebookCenter({ catalog }: { catalog: Catalog }) {
   const [showProfile, setShowProfile] = useState(false);
   const chatRef = useRef<HTMLDivElement | null>(null);
   const selectedIdRef = useRef("");
+  const latestInboundRef = useRef<Record<string, string>>({});
   const nearBottomRef = useRef(true);
   const [triageFilter, setTriageFilter] = useState<"all"|"high"|"unlinked"|"due">("all");
   selectedIdRef.current = selectedId;
@@ -141,7 +142,8 @@ export default function FacebookCenter({ catalog }: { catalog: Catalog }) {
   const refreshDetail = useCallback(async (id: string) => {
     if (!id) { setDetail(null); return; }
     const result = await net<Detail>("/facebook/leads/" + id);
-    setDetail(result);
+    latestInboundRef.current[id] = [...result.messages].reverse().find((m) => m.direction === "inbound")?.id || "";
+    if (selectedIdRef.current === id) setDetail(result);
   }, []);
   useEffect(() => {
     void refresh().catch((e) => setError(errorText(e)));
@@ -184,6 +186,12 @@ export default function FacebookCenter({ catalog }: { catalog: Catalog }) {
       if (document.hidden) return;
       try {
         const update = await net<Detail>("/facebook/leads/" + selectedId);
+        const newestInbound = [...update.messages].reverse().find((m) => m.direction === "inbound")?.id || "";
+        const previousInbound = latestInboundRef.current[selectedId];
+        if (newestInbound !== previousInbound) {
+          latestInboundRef.current[selectedId] = newestInbound;
+          if (previousInbound && newestInbound) void refreshInsights(selectedId).catch(() => {});
+        }
         setDetail((previous) => {
           if (!previous || previous.lead.id !== selectedId) return update;
           // El polling no debe borrar ediciones del administrador aún sin guardar.
@@ -203,10 +211,15 @@ export default function FacebookCenter({ catalog }: { catalog: Catalog }) {
     };
     const interval = window.setInterval(() => { void refreshMessages(); }, 5000);
     return () => window.clearInterval(interval);
-  }, [selectedId, tab]);
+  }, [selectedId, tab, refreshInsights]);
 
   useEffect(() => {
-    if (tab === "tracking") void refreshTracking().catch((e) => setError(errorText(e)));
+    if (tab !== "tracking") return;
+    void refreshTracking().catch((e) => setError(errorText(e)));
+    const interval = window.setInterval(() => {
+      if (!document.hidden) void refreshTracking().catch(() => {});
+    }, 15000);
+    return () => window.clearInterval(interval);
   }, [tab, refreshTracking]);
 
   useEffect(() => {
@@ -504,6 +517,13 @@ export default function FacebookCenter({ catalog }: { catalog: Catalog }) {
               <small>{lead.company ? lead.company + " · " : ""}{lead.specialty ? lead.specialty + " · " : ""}
                 {lead.can_reply ? "Puedes responder" : "Fuera de la ventana de respuesta"}</small>
             </div>
+            {lead.name === "Interesado de Facebook" &&
+              currentInsights?.suggestions.filter((item) => item.field === "name").slice(0,1).map((item) =>
+                <button type="button" className="nw-btn fbc-name-confirm" key="name-suggestion" disabled={!!saving}
+                  title="Nombre declarado por la persona; requiere tu confirmación"
+                  onClick={() => patchLead({name: String(item.value)})}>
+                  <CheckCircle2 size={14}/> Guardar: {String(item.value)}
+                </button>)}
             {lead.unread && <button type="button" className="nw-btn fbc-read-btn" onClick={() =>
               void mutate("read", () => change("/facebook/leads/" + lead.id + "/read"), "")} disabled={!!saving}>Leído</button>}
             <button type="button" className="nw-btn fbc-profile-toggle" aria-expanded={showProfile}
