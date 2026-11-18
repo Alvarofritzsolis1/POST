@@ -100,6 +100,78 @@ def meta_messenger_error(exc: HTTPError) -> str:
     return "Meta rechazó el mensaje (" + " · ".join(markers) + "). " + hint
 
 
+def messenger_profile_name(psid: str, token: str) -> str | None:
+    """Obtener el nombre permitido por el perfil PSID, sin exponer token o URL.
+
+    Meta puede denegar datos del perfil incluso con pages_messaging. En ese caso
+    el administrador puede confirmar el nombre declarado en el chat.
+    """
+    if not re.fullmatch(r"[0-9]{5,90}", psid):
+        return None
+    request = Request(
+        "https://graph.facebook.com/v27.0/" + psid +
+        "?fields=id%2Cname%2Cfirst_name%2Clast_name",
+        headers={"Authorization": "Bearer " + token}, method="GET",
+    )
+    with _opener.open(request, timeout=5) as response:
+        payload = json.loads(response.read(8192).decode("utf-8"))
+    if not isinstance(payload, dict) or str(payload.get("id")) != psid:
+        return None
+    first, last = payload.get("first_name"), payload.get("last_name")
+    full = payload.get("name")
+    value = (full if isinstance(full, str) else
+             (str(first or "") + " " + str(last or "")).strip())
+    value = " ".join(value.split())[:155]
+    if len(value) < 2 or not all(char.isprintable() for char in value):
+        return None
+    return value
+
+
+# Cada instancia del worker intenta un perfil por contacto, no en cada sondeo.
+# No hay credenciales ni nombres privados en logs o el frontend hasta que
+# el servicio de Meta responde y se valida el ID de página.
+_profile_attempted: set[str] = set()
+_profile_auth_denied = False
+
+
+def process_profile_next(session_factory=SessionLocal) -> bool:
+    """Mejor esfuerzo, aislado de la cola de mensajes y sin migrar tablas."""
+    global _profile_auth_denied
+    cfg = settings()
+    if _profile_auth_denied or not (cfg.facebook_messaging_enabled and
+            cfg.facebook_page_token and cfg.facebook_page_id and cfg.facebook_org_id):
+        return False
+    with session_factory() as db:
+        candidates = list(db.scalars(select(FacebookLead).where(
+            FacebookLead.org_id == cfg.facebook_org_id,
+            FacebookLead.page_id == cfg.facebook_page_id,
+            FacebookLead.display_name == "Interesado de Facebook",
+            FacebookLead.last_inbound_at.is_not(None),
+        ).order_by(FacebookLead.last_inbound_at.desc()).limit(300)))
+        lead = next((x for x in candidates if x.id not in _profile_attempted), None)
+        if lead is None:
+            return False
+        lead_id, psid = lead.id, lead.psid
+    _profile_attempted.add(lead_id)
+    try:
+        name = messenger_profile_name(psid, cfg.facebook_page_token)
+    except HTTPError as exc:
+        if exc.code in (401, 403):
+            _profile_auth_denied = True
+        return True
+    except (URLError, TimeoutError, OSError, ValueError, TypeError):
+        return True
+    if name:
+        with session_factory.begin() as db:
+            lead = db.get(FacebookLead, lead_id, with_for_update=True)
+            if (lead and lead.org_id == cfg.facebook_org_id and
+                    lead.page_id == cfg.facebook_page_id and
+                    lead.display_name == "Interesado de Facebook"):
+                lead.display_name = name
+                lead.updated_at = utcnow()
+    return True
+
+
 def _within_24h(lead: FacebookLead) -> bool:
     incoming = lead.last_inbound_at
     if incoming and incoming.tzinfo is None:
