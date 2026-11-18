@@ -575,6 +575,29 @@ def center(user: User = Depends(administrator), db: Session = Depends(get_db)):
     leads = list(db.scalars(select(FacebookLead).where(
         FacebookLead.org_id == user.org_id).order_by(
         FacebookLead.last_inbound_at.desc(), FacebookLead.id).limit(100)))
+    # Single window-function query, not one query per contact. Makes multiple
+    # anonymous contacts distinguishable without guessing a person's name.
+    last_previews = {}
+    if leads:
+        latest = select(
+            FacebookChatMessage.lead_id.label("lead_id"),
+            FacebookChatMessage.body.label("body"),
+            FacebookChatMessage.direction.label("direction"),
+            func.row_number().over(
+                partition_by=FacebookChatMessage.lead_id,
+                order_by=(FacebookChatMessage.created_at.desc(),
+                          FacebookChatMessage.id.desc()),
+            ).label("row_number"),
+        ).where(
+            FacebookChatMessage.org_id == user.org_id,
+            FacebookChatMessage.lead_id.in_([lead.id for lead in leads]),
+        ).subquery()
+        for lead_id, body, direction in db.execute(select(
+            latest.c.lead_id, latest.c.body, latest.c.direction,
+        ).where(latest.c.row_number == 1)):
+            last_previews[lead_id] = {
+                "text": (body or "")[:115], "direction": direction,
+            }
     return {"automatic_enabled": cfg.facebook_autopublish_enabled,
             "manual_enabled": cfg.facebook_manual_testing_enabled,
             "messaging_enabled": cfg.facebook_messaging_enabled,
@@ -586,7 +609,8 @@ def center(user: User = Depends(administrator), db: Session = Depends(get_db)):
             "connection": connection,
             "messenger_delivery": messenger_delivery,
             "inbox_sync": inbox_sync,
-            "leads": [_lead_view(db, lead) for lead in leads],
+            "leads": [{**_lead_view(db, lead),
+                       "last_message": last_previews.get(lead.id)} for lead in leads],
             "guides_approved": db.scalar(select(func.count(FacebookTradeGuide.id)).where(
                 FacebookTradeGuide.org_id == user.org_id,
                 FacebookTradeGuide.approved.is_(True))) or 0,

@@ -1,3 +1,11 @@
+## 20.8.4-rc1 — Messenger automático y bandeja simplificada
+- Webhook en tiempo real y recuperación de respaldo automática cada 75 segundos (inicio tras 15 segundos), con espera creciente ante errores o límites de Meta. No requiere botón para uso normal.
+- Estado compacto «Vigente» cuando la página está verificada y Messenger habilitado; diagnóstico técnico y recuperaciones puntuales ocultos tras menú. Eliminación de avisos verdes redundantes.
+- Chat principal de dos columnas sin recortes; ficha inteligente opcional, herramientas compactas, mensajes con desplazamiento y respuestas rápidas desplegables.
+- Enter envía, Shift+Enter crea nueva línea; estado de cola por mensaje, sin aviso global que sugiera falsamente entrega confirmada.
+- Lista de contactos con vista previa del último mensaje, para distinguir contactos sin nombre; sugerencias de nombre expresamente declarado con confirmación humana y seguimiento actualizado cuando llegan mensajes.
+- Pruebas de cadencia automática, retroceso frente a errores Meta y lectura eficiente del último mensaje; conserva consentimiento de IA, permisos y límites de Messenger.
+
 ## 20.8.2-rc1 — Messenger: recuperación de conversaciones externas
 - Recuperación de mensajes entrantes cuando Meta no entregó o GALANT no procesó el webhook; botón de recuperación y sondeo de respaldo de bajo consumo.
 - Solo API oficial de conversaciones y mensajes, con token privado en facebook-publisher; no se crean respuestas automáticas retrospectivas ni se cambian fichas confirmadas.
