@@ -256,7 +256,7 @@ def test_connection(connection_id: str, user: User = Depends(administrator),
         answer = run_connection(db, conn, task="connection_test",
                                 instructions="Responde brevemente en español.",
                                 prompt="Prueba de conexión. Responde OK.",
-                                max_output_tokens=(512 if (conn.provider == "zai" or "gpt-oss" in conn.model) else 128))
+                                max_output_tokens=(512 if (conn.provider in ("zai", "nvidia") or "gpt-oss" in conn.model) else 128))
         log_change(db, user, "connection.test", conn.id)
         db.commit()
     except AIServiceError as exc:
