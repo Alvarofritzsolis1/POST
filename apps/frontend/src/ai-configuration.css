@@ -99,3 +99,15 @@
 
 .ai-center .ai-actions .ai-repair-button { background: #e8f7f2; border: 1px solid #91d4be; color:#12664f; font-weight: 750; }
 .ai-center .ai-actions .ai-repair-button:hover:not(:disabled) { background: #d3f1e6; }
+
+
+/* Galancito: clear learning coverage without a technical dashboard. */
+.ai-curriculum { border:1px solid var(--border,#d9e5e5); padding:16px; border-radius:12px; display:grid; gap:12px; margin-top:14px; }
+.ai-curriculum-title { display:flex; align-items:center; gap:14px; justify-content:space-between; flex-wrap:wrap; }
+.ai-curriculum-title div { display:flex; gap:10px; align-items:center; flex-wrap:wrap; }
+.ai-curriculum-title b { font-size:1.6rem; }
+.ai-curriculum-title span,.ai-curriculum small { color:var(--muted,#657779); }
+.ai-curriculum progress { display:block; width:100%; height:12px; accent-color:#08796e; }
+.ai-curriculum details { border-top:1px solid var(--border,#d9e5e5); padding-top:12px; }
+.ai-curriculum summary { cursor:pointer; font-weight:600; }
+.ai-curriculum ul { margin:10px 0 0 18px; padding:0; display:grid; gap:6px; }
