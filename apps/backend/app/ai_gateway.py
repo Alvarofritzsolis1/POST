@@ -16,6 +16,7 @@ from sqlalchemy import func, select
 from sqlalchemy.orm import Session
 
 from .ai_models import AIConnection, AIOrchestration, AIUsage
+from .ai_review import REVIEW_INSTRUCTIONS, review_prompt, accepted_review
 from .models import utcnow
 
 # Adding a provider means registering a known HTTPS host, not accepting arbitrary URLs.
@@ -179,41 +180,97 @@ def monthly_tokens(db: Session, org_id: str) -> int:
         AIUsage.org_id == org_id, AIUsage.created_at >= start)) or 0)
 
 
+
+def estimated_tokens(instructions: str, prompt: str, output_limit: int) -> int:
+    """Conservative preflight, NOT an exact tokenizer or provider spending guarantee."""
+    return max(1, (len(instructions) + len(prompt) + 2) // 3) + max(8, output_limit)
+
+
+def within_budget(db: Session, policy: AIOrchestration, org_id: str,
+                  instructions: str, prompt: str, max_output_tokens: int) -> bool:
+    if not policy.monthly_token_limit:
+        return True
+    estimated = estimated_tokens(instructions, prompt, max_output_tokens)
+    return monthly_tokens(db, org_id) + estimated <= policy.monthly_token_limit
+
+
 def orchestration_available(db: Session, org_id: str, task: str) -> bool:
     policy = db.get(AIOrchestration, org_id)
-    if not policy or not policy.enabled or task not in TASKS:
+    if not policy or not policy.enabled or task != "red_obras":
         return False
     conn = db.get(AIConnection, (policy.task_routes or {}).get(task, ""))
-    return bool(conn and conn.org_id == org_id and conn.enabled and conn.encrypted_key
-                and conn.last_status == "verified")
+    if not (conn and conn.org_id == org_id and conn.enabled and conn.encrypted_key
+            and conn.last_status == "verified"):
+        return False
+    if policy.monthly_token_limit and monthly_tokens(db, org_id) >= policy.monthly_token_limit:
+        return False
+    if policy.review_enabled:
+        reviewer = db.get(AIConnection, (policy.task_routes or {}).get("review", ""))
+        if not (reviewer and reviewer.id != conn.id and reviewer.org_id == org_id
+                and reviewer.enabled and reviewer.encrypted_key
+                and reviewer.last_status == "verified"):
+            return False
+    return True
 
 
 def orchestrated_text(db: Session, org_id: str, *, task: str, instructions: str,
                       prompt: str, max_output_tokens: int = 300) -> str | None:
-    """Opt-in sequential routing; no fan-out or autonomous training."""
+    """Opt-in multi-provider routing; optional independent review, not weight training.
+
+    The transaction-level organizational inference lock is acquired by
+    galancito_runtime.infer BEFORE this method to serialize budget checks.
+    """
     policy = db.get(AIOrchestration, org_id)
-    if not policy or not policy.enabled or task not in TASKS:
+    if not policy or not policy.enabled or task != "red_obras":
         return None
-    if policy.monthly_token_limit and monthly_tokens(db, org_id) >= policy.monthly_token_limit:
+    if not within_budget(db, policy, org_id, instructions, prompt, max_output_tokens):
         return None
     started = time.perf_counter()
+    routes = policy.task_routes or {}
     connections = list(db.scalars(select(AIConnection).where(
         AIConnection.org_id == org_id, AIConnection.enabled.is_(True))))
-    primary_id = (policy.task_routes or {}).get(task)
-    ordered = [c for c in connections if c.id == primary_id and c.last_status == "verified"]
+    primary_id = routes.get(task)
+    review_id = routes.get("review") if policy.review_enabled else None
+    reviewer = next((c for c in connections if c.id == review_id and
+                     c.encrypted_key and c.last_status == "verified"), None) if review_id else None
+    ordered = [c for c in connections if c.id == primary_id and
+               c.encrypted_key and c.last_status == "verified"]
+    if policy.review_enabled and (not reviewer or reviewer.id == primary_id):
+        return None
     if policy.fallback_enabled and ordered:
-        ordered += [c for c in connections if c.id != primary_id and c.last_status == "verified"]
+        ordered += [c for c in connections if c.id not in {primary_id, review_id}
+                    and c.encrypted_key and c.last_status == "verified"]
     for conn in ordered:
-        if not conn.encrypted_key:
-            continue
-        # Bound the whole attempt chain to the chat timeout.
+        # Bound the whole attempt chain to the browser's response deadline.
         remaining = 7.5 - (time.perf_counter() - started)
-        if remaining < 1:
+        if remaining < (3 if policy.review_enabled else 1):
+            break
+        timeout = min(remaining - 2.2, 4.8) if policy.review_enabled else min(remaining, 6.0)
+        if timeout < 0.7:
+            break
+        if not within_budget(db, policy, org_id, instructions, prompt, max_output_tokens):
             break
         try:
-            return run_connection(db, conn, task=task, instructions=instructions,
-                                  prompt=prompt, max_output_tokens=max_output_tokens,
-                                  timeout=min(remaining, 6.0))
+            answer = run_connection(db, conn, task=task, instructions=instructions,
+                                    prompt=prompt, max_output_tokens=max_output_tokens,
+                                    timeout=timeout)
         except AIServiceError:
             continue
+        if not policy.review_enabled:
+            return answer
+        context = review_prompt(prompt, answer)
+        review_output = 64
+        if not within_budget(db, policy, org_id, REVIEW_INSTRUCTIONS, context, review_output):
+            return None
+        remaining = 7.5 - (time.perf_counter() - started)
+        if remaining < 0.8:
+            return None
+        try:
+            verdict = run_connection(db, reviewer, task="review",
+                                     instructions=REVIEW_INSTRUCTIONS,
+                                     prompt=context, max_output_tokens=review_output,
+                                     timeout=min(remaining, 2.7))
+        except AIServiceError:
+            return None
+        return answer if accepted_review(verdict) else None
     return None
