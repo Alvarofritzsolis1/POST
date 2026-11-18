@@ -128,9 +128,12 @@ def invoke(connection: AIConnection, *, instructions: str, prompt: str,
             if connection.model.startswith("glm-5.3"):
                 body["temperature"] = 1.0
         if connection.provider == "nvidia" and connection.model.startswith("deepseek-ai/"):
-            # NVIDIA's DeepSeek-V4 Flash API recommends these sampling values.
+            # Use NVIDIA's documented defaults for DeepSeek V4 Flash.
             body["temperature"] = 1.0
             body["top_p"] = 0.95
+            if connection.model == "deepseek-ai/deepseek-v4-flash":
+                # Fast, visible replies for GALANT's short synchronous requests.
+                body["reasoning_effort"] = "none"
         headers = {"Authorization": "Bearer " + token}
     headers["Content-Type"] = "application/json"
     request = Request(url, data=json.dumps(body).encode("utf-8"),
@@ -146,6 +149,7 @@ def invoke(connection: AIConnection, *, instructions: str, prompt: str,
             402: "La cuenta del proveedor requiere saldo o facturación.",
             403: "Esta cuenta no tiene permiso para utilizar el modelo.",
             404: "El modelo elegido no está disponible en esta cuenta.",
+            410: "Este modelo fue retirado por el proveedor. Selecciona uno vigente o recupera la conexión.",
             422: "Revisa el modelo seleccionado y vuelve a probar.",
             429: "Se alcanzó el límite de uso del proveedor. Vuelve a probar luego.",
             500: "El proveedor tuvo un error temporal. Vuelve a probar luego.",
