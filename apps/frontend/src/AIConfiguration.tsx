@@ -11,7 +11,7 @@ type Connection = {
   price_input_per_million: number | null; price_output_per_million: number | null;
 };
 type Policy = {
-  enabled: boolean; fallback_enabled: boolean; monthly_token_limit: number;
+  enabled: boolean; fallback_enabled: boolean; review_enabled: boolean; monthly_token_limit: number;
   task_routes: Record<string, string>;
 };
 type Bootstrap = {
@@ -45,7 +45,7 @@ const errorMessage = (error: unknown) => error instanceof Error ? error.message 
 export default function AIConfiguration() {
   const [data, setData] = useState<Bootstrap | null>(null);
   const [usage, setUsage] = useState<Usage | null>(null);
-  const [policy, setPolicy] = useState<Policy>({ enabled: false, fallback_enabled: false, monthly_token_limit: 0, task_routes: {} });
+  const [policy, setPolicy] = useState<Policy>({ enabled: false, fallback_enabled: false, review_enabled: false, monthly_token_limit: 0, task_routes: {} });
   const [days, setDays] = useState(30);
   const [editing, setEditing] = useState<string | "new" | null>(null);
   const [form, setForm] = useState<Editor>(empty);
@@ -159,7 +159,7 @@ export default function AIConfiguration() {
       await request(base + "/connections/" + encodeURIComponent(conn.id) + "/disconnect", { method: "POST" });
       setPolicy(p => {
         const routes = Object.fromEntries(Object.entries(p.task_routes).filter(([, id]) => id !== conn.id));
-        return { ...p, enabled: Boolean(routes.red_obras) && p.enabled, task_routes: routes };
+        return { ...p, enabled: Boolean(routes.red_obras) && p.enabled, review_enabled: Boolean(routes.review) && p.review_enabled, task_routes: routes };
       });
       setNotice("Credencial desvinculada. No se eliminaron los registros de consumo.");
     });
@@ -267,9 +267,10 @@ export default function AIConfiguration() {
           <div className="ai-policy-controls">
             <label className="ai-check"><input type="checkbox" checked={policy.enabled} onChange={e => setPolicy({ ...policy, enabled: e.target.checked })} /> Activar equipo IA de Red de Obras</label>
             <label className="ai-check"><input type="checkbox" checked={policy.fallback_enabled} onChange={e => setPolicy({ ...policy, fallback_enabled: e.target.checked })} /> Usar otra IA habilitada si la principal falla</label>
+            <label className="ai-check"><input type="checkbox" checked={policy.review_enabled} onChange={e => setPolicy({ ...policy, review_enabled: e.target.checked })} /> Verificación por una segunda IA (opcional: consume tokens)</label>
             <label>Tope de tokens mensuales <small>(0 = sin tope propio)</small><input type="number" min={0} max={1000000000} value={policy.monthly_token_limit} onChange={e => setPolicy({ ...policy, monthly_token_limit: Math.max(0, Number(e.target.value || 0)) })} /></label>
           </div>
-          <p className="ai-help"><CircleHelp size={15} /> En esta versión solo se ejecuta la función Consultas de Red de Obras. Las otras funciones aparecen como planificación y no envían datos todavía. El aprendizaje compartido utiliza guías aprobadas en GALANT. Las IA no se entrenan unas a otras ni reciben conversaciones privadas automáticamente. Los mensajes externos requieren autorización del usuario y pasan por los controles de privacidad actuales.</p>
+          <p className="ai-help"><CircleHelp size={15} /> En esta versión se ejecutan las consultas de Red de Obras y, si lo habilitas, una segunda IA valida la respuesta antes de mostrarla. La revisión requiere otro modelo, más tiempo y consumo adicional. Las demás funciones siguen siendo planificación. El aprendizaje compartido utiliza guías aprobadas en GALANT. Las IA no se entrenan unas a otras ni reciben conversaciones privadas automáticamente. Los mensajes externos requieren autorización del usuario y pasan por los controles de privacidad actuales.</p>
           <button type="submit" className="gc-primary" disabled={Boolean(busy)}>Guardar funciones y límites</button>
         </form>
       </section>
