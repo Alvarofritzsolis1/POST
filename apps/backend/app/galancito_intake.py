@@ -228,13 +228,18 @@ def next_intake_reply(message: str, facts: dict, prior_prompt: str = "") -> str 
     No fake thinking delay, and no guessed work, hiring, wages or promises.
     """
     info = analyze(message)
-    if info.intent in {"human", "restricted", "documents", "requirements", "about",
-                       "contractor_request", "publish"} or private_data(message):
+    capacity_statement = any(p in plain(message) for p in (
+        "puedo traer gente", "puedo llevar gente", "tengo cuadrilla",
+        "puedo ir con gente", "trabajamos varios"
+    ))
+    if (info.intent in {"human", "restricted", "documents", "requirements",
+                        "about", "publish"} or private_data(message)
+            or (info.intent == "contractor_request" and not capacity_statement)):
         return None
     norm = plain(message)
     engaged = (
         info.intent in {"greeting", "job_seeker", "company_offer", "capacity", "trade_offer", "apply"} or
-        is_intake_prompt(prior_prompt) or
+        capacity_statement or is_intake_prompt(prior_prompt) or
         any(p in norm for p in ("ofrezco servicios", "ofresco servicios", "soy contratista",
                                "busco pega", "busco trabajo", "hago trabajos",
                                "trabajo por mi cuenta", "tengo una cuadrilla", "quiero postular"))
