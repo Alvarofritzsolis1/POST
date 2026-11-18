@@ -19,6 +19,7 @@ from .ai_models import AIConnection, AIOrchestration, AIUsage
 from .config import settings
 from .ai_model_recovery import recover_gemini
 from .ai_provider_recovery import recover_provider
+from .ai_global_lightning import sync_org as sync_org_global_lightning
 from .galancito_knowledge_models import Knowledge, AssistantRun
 from .db import get_db
 from .models import AuditEvent, User, utcnow
@@ -127,6 +128,8 @@ def existing(db: Session, user: User, connection_id: str) -> AIConnection:
 
 @router.get("/bootstrap")
 def bootstrap(user: User = Depends(administrator), db: Session = Depends(get_db)):
+    if sync_org_global_lightning(db, user.org_id):
+        db.commit()
     cfg = settings()
     connections = list(db.scalars(select(AIConnection).where(
         AIConnection.org_id == user.org_id).order_by(AIConnection.name)))
