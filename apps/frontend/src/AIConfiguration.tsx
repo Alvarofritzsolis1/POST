@@ -4,7 +4,7 @@ import { request } from "./api";
 import "./ai-configuration.css";
 
 type Provider = { id: string; name: string; mode: string; docs: string };
-type Task = { id: string; name: string };
+type Task = { id: string; name: string; active: boolean };
 type Connection = {
   id: string; name: string; provider: string; model: string; enabled: boolean;
   has_key: boolean; status: string; last_checked_at: string | null;
@@ -250,8 +250,8 @@ export default function AIConfiguration() {
         <form onSubmit={(event) => void savePolicy(event)}>
           <div className="ai-task-grid">
             {data?.tasks.map(task => <label key={task.id} className="ai-task">
-              <span>{task.name}</span>
-              <select value={policy.task_routes[task.id] || ""} onChange={e => setPolicy(p => {
+              <span>{task.name}{!task.active && " · integración pendiente"}</span>
+              <select disabled={!task.active} value={policy.task_routes[task.id] || ""} onChange={e => setPolicy(p => {
                 const next = { ...p.task_routes };
                 if (e.target.value) next[task.id] = e.target.value; else delete next[task.id];
                 return { ...p, task_routes: next };
@@ -266,7 +266,7 @@ export default function AIConfiguration() {
             <label className="ai-check"><input type="checkbox" checked={policy.fallback_enabled} onChange={e => setPolicy({ ...policy, fallback_enabled: e.target.checked })} /> Usar otra IA habilitada si la principal falla</label>
             <label>Tope de tokens mensuales <small>(0 = sin tope propio)</small><input type="number" min={0} max={1000000000} value={policy.monthly_token_limit} onChange={e => setPolicy({ ...policy, monthly_token_limit: Math.max(0, Number(e.target.value || 0)) })} /></label>
           </div>
-          <p className="ai-help"><CircleHelp size={15} /> El aprendizaje compartido utiliza guías aprobadas en GALANT. Las IA no se entrenan unas a otras ni reciben conversaciones privadas automáticamente. Los mensajes externos requieren autorización del usuario y pasan por los controles de privacidad actuales.</p>
+          <p className="ai-help"><CircleHelp size={15} /> En esta versión solo se ejecuta la función Consultas de Red de Obras. Las otras funciones aparecen como planificación y no envían datos todavía. El aprendizaje compartido utiliza guías aprobadas en GALANT. Las IA no se entrenan unas a otras ni reciben conversaciones privadas automáticamente. Los mensajes externos requieren autorización del usuario y pasan por los controles de privacidad actuales.</p>
           <button type="submit" className="gc-primary" disabled={Boolean(busy)}>Guardar funciones y límites</button>
         </form>
       </section>
