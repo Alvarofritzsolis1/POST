@@ -12,7 +12,7 @@ from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
 
 from .ai_gateway import (
-    AIServiceError, MODEL_RE, PROVIDERS, TASKS, encrypt_key, monthly_tokens,
+    AIServiceError, MODEL_RE, PROVIDERS, TASKS, encrypt_key, encryption_ready, monthly_tokens,
     run_connection,
 )
 from .ai_models import AIConnection, AIOrchestration, AIUsage
@@ -130,7 +130,7 @@ def bootstrap(user: User = Depends(administrator), db: Session = Depends(get_db)
         "connections": [connection_view(c) for c in connections],
         "policy": policy_view(policy),
         "monthly_tokens": monthly_tokens(db, user.org_id),
-        "server_ready": bool(__import__("os").environ.get("AI_CREDENTIAL_ENCRYPTION_KEY")),
+        "server_ready": encryption_ready(),
     }
 
 
@@ -207,6 +207,13 @@ def disconnect(connection_id: str, user: User = Depends(administrator),
     conn.encrypted_key, conn.enabled = None, False
     conn.last_status, conn.last_checked_at = "not_tested", None
     conn.updated_by, conn.updated_at = user.id, utcnow()
+    policy = db.get(AIOrchestration, user.org_id)
+    if policy:
+        policy.task_routes = {task: ident for task, ident in (policy.task_routes or {}).items()
+                              if ident != conn.id}
+        if not policy.task_routes.get("red_obras"):
+            policy.enabled = False
+        policy.updated_by, policy.updated_at = user.id, utcnow()
     log_change(db, user, "connection.disconnect", conn.id)
     db.commit()
     return connection_view(conn)
@@ -278,6 +285,8 @@ def update_policy(body: PolicyPatch, user: User = Depends(administrator),
         record = db.get(AIConnection, connection_id)
         if not record or record.org_id != user.org_id or not record.encrypted_key:
             raise HTTPException(422, "La IA asignada a " + task + " no está vinculada")
+        if body.enabled and (not record.enabled or record.last_status != "verified"):
+            raise HTTPException(422, "Primero habilita y verifica la conexión asignada a " + task)
     if body.enabled and not body.task_routes.get("red_obras"):
         raise HTTPException(422, "Asigna la IA de Consultas de Red de Obras antes de activar el equipo")
     policy = db.get(AIOrchestration, user.org_id)
