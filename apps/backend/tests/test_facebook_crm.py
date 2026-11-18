@@ -384,3 +384,89 @@ def test_messenger_failed_delivery_is_visible_without_replaying(network, monkeyp
     recovered = n["admin"].get("/api/v1/network/facebook/center").json()
     assert recovered["messenger_delivery"]["state"] == "sent"
     assert recovered["messenger_delivery"]["error"] is None
+
+
+def test_lead_insights_proposes_name_without_editing_and_ranks_needs(network, monkeypatch):
+    from datetime import timedelta
+    from uuid import uuid4
+    from app.network_models import NetworkRequirement
+    from app.network_service import today
+
+    n = network
+    enable_messaging(n, monkeypatch)
+    response = incoming(n, "Hola, me llamo Juan Pérez, soy gasfiter. Tengo 3 trabajadores",
+                        mid="juan-profile-1")
+    assert response.status_code == 200
+    lead = n["admin"].get("/api/v1/network/facebook/center").json()["leads"][0]
+    with n["Session"].begin() as db:
+        org_id = db.get(FacebookLead, lead["id"]).org_id
+        requirement = NetworkRequirement(
+            org_id=org_id, site_id=n["sites"][0], created_by=n["a_user"]["id"],
+            specialty="Gasfitería", specialty_key="gasfiteria",
+            title="Instalaciones sanitarias", description="Redes de agua",
+            workers=2, priority="normal", state="published",
+            start_date=today()+timedelta(days=5),
+            end_date=today()+timedelta(days=20),
+            deadline=today()+timedelta(days=4),
+            client_key=uuid4().hex,
+        )
+        db.add(requirement)
+        db.flush()
+        target_id = requirement.id
+    insights = n["admin"].get("/api/v1/network/facebook/leads/"+lead["id"]+"/insights")
+    assert insights.status_code == 200, insights.text
+    payload = insights.json()
+    assert payload["changes_applied"] is False
+    assert payload["review_required"] is True
+    assert payload["matches"][0]["id"] == target_id
+    assert payload["matches"][0]["site"] == "Brisas de Junquillar"
+    assert payload["matches"][0]["review_required"]
+    assert any(item["field"] == "name" and item["value"] == "Juan Pérez"
+               for item in payload["suggestions"])
+    unchanged = n["admin"].get("/api/v1/network/facebook/leads/"+lead["id"]).json()
+    assert unchanged["lead"]["name"] == "Interesado de Facebook"
+    assert unchanged["lead"]["requirement_id"] is None
+    assert n["send"](n["a"], "/facebook/leads/"+lead["id"]+"/insights",
+                     method="GET").status_code == 403
+    confirmed = n["send"](n["admin"], "/facebook/leads/"+lead["id"],
+                          {"name": "Juan Pérez", "requirement_id": target_id}, "PATCH")
+    assert confirmed.status_code == 200
+    assert confirmed.json()["name"] == "Juan Pérez"
+    assert confirmed.json()["requirement_id"] == target_id
+
+
+def test_messenger_profile_name_is_optional_and_does_not_override_manual_name(network, monkeypatch):
+    from app import facebook_chat_worker as worker
+    n = network
+    enable_messaging(n, monkeypatch)
+    assert incoming(n, "Hola", mid="profile-1").status_code == 200
+    lead_id = n["admin"].get("/api/v1/network/facebook/center").json()["leads"][0]["id"]
+    called = []
+    def resolved(psid, token):
+        called.append((psid, token))
+        return "María Fernández"
+    monkeypatch.setattr(worker, "messenger_profile_name", resolved)
+    worker._profile_attempted.clear()
+    monkeypatch.setattr(worker, "_profile_auth_denied", False)
+    assert worker.process_profile_next(n["Session"]) is True
+    assert worker.process_profile_next(n["Session"]) is False
+    assert len(called) == 1
+    assert called[0][1] == "synthetic-page-token"
+    got = n["admin"].get("/api/v1/network/facebook/leads/" + lead_id).json()["lead"]
+    assert got["name"] == "María Fernández"
+    assert n["send"](n["admin"], "/facebook/leads/"+lead_id,
+                     {"name": "María Fernanda"}, "PATCH").status_code == 200
+    worker._profile_attempted.clear()
+    assert worker.process_profile_next(n["Session"]) is False
+    again = n["admin"].get("/api/v1/network/facebook/leads/" + lead_id).json()["lead"]
+    assert again["name"] == "María Fernanda"
+
+
+def test_local_name_extractor_rejects_ambiguous_job_titles():
+    from types import SimpleNamespace
+    from app.facebook_lead_insights import name_from_conversation
+    name = lambda body: name_from_conversation([SimpleNamespace(direction="inbound", body=body)])
+    assert name("Soy Juan Pérez y trabajo en obra")["value"] == "Juan Pérez"
+    assert name("Me llamo Carlos")["value"] == "Carlos"
+    assert name("soy maestro carpintero") is None
+    assert name("hola necesito trabajo") is None
