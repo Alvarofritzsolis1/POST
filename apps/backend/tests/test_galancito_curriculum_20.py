@@ -10,6 +10,7 @@ from sqlalchemy import select
 
 from app.facebook_crm_models import FacebookLead
 from app.galancito_intake import apply_intake, next_intake_reply
+from app.galancito_contact_profile import contact_profile
 from app.galancito_triage import analyze, private_data
 from app.models import User
 from test_network import network
@@ -156,3 +157,45 @@ def test_live_today_contacts_only_for_authorized_admin(network):
     restricted = n["send"](n["a"], "/galancito/chat", {"message": "quien me hablo hoy"})
     assert restricted.status_code == 200
     assert "Empresa de prueba" not in restricted.json()["answer"]
+
+
+def test_each_contact_has_own_progress_and_summary():
+    first = blank_lead()
+    second = blank_lead()
+    assert contact_profile(first)["percent"] == 0
+    prompt = next_intake_reply("hola", vars(first)) or ""
+    assert "Qué trabajo" in prompt
+    prompt = respond(first, prompt, "soi carpintero")
+    assert first.specialty == "Carpintería"
+    assert contact_profile(first)["percent"] > 0
+    assert contact_profile(second)["percent"] == 0
+    prompt = respond(first, prompt, "1")
+    prompt = respond(first, prompt, "2")
+    assert "Personas que pueden acudir" in contact_profile(first)["missing"]
+    assert contact_profile(first)["total"] == 7
+    prompt = respond(first, prompt, "3")
+    assert first.workers == 3
+    summary = contact_profile(first)["summary"]
+    assert "Carpintería" in summary and "3 persona" in summary
+    assert "Pendiente de validación" in summary
+    assert contact_profile(second)["summary"] != summary
+
+
+def test_chat_questions_do_not_fabricate_a_trade():
+    lead = blank_lead()
+    apply_intake(lead, "¿buscan pintores?")
+    assert lead.specialty == ""
+    apply_intake(lead, "soy pintor, ¿tienen pega?")
+    assert lead.specialty == "Pintura"
+    assert lead.interest_type == "unknown"
+
+
+def test_local_profile_progress_is_not_employment_approval():
+    lead = blank_lead(
+        interest_type="service_offer", specialty="Pintura", team_available=False,
+        workers=1, experience="4 años", work_area="Coronel", availability="mañana")
+    profile = contact_profile(lead)
+    assert profile["percent"] == 100
+    assert profile["completed"] == profile["total"]
+    assert "validación" in profile["summary"]
+    assert not hasattr(lead, "documents_state")
