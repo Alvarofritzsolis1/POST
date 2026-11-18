@@ -24,7 +24,12 @@ else
 fi
 test -s "$target/preview-storage.tar.gz"
 tar --list --gzip --file "$target/preview-storage.tar.gz" >/dev/null
-(cd "$target" && sha256sum postgres.dump preview-storage.tar.gz > SHA256SUMS && sha256sum --check SHA256SUMS)
+# A restored database needs the same master key to unlock saved API credentials.
+# Store only that key inside the existing restricted backup directory (mode 0700).
+python3 scripts/backup-ai-key.py "$target"
+backup_files=(postgres.dump preview-storage.tar.gz)
+if [[ -s "$target/ai-key.env" ]]; then backup_files+=(ai-key.env); fi
+(cd "$target" && sha256sum "${backup_files[@]}" > SHA256SUMS && sha256sum --check SHA256SUMS)
 chmod 600 "$target"/*
 echo "RESPALDO GENERADO Y ARCHIVOS VALIDOS: $target"
 printf "BACKUP_PATH=%s\n" "$target"
