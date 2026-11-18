@@ -2,6 +2,7 @@
 import hashlib
 import hmac
 import json
+import pytest
 
 from sqlalchemy import select
 
@@ -10,6 +11,13 @@ from app.facebook_crm_models import FacebookChatMessage, FacebookLead, FacebookT
 from app.facebook_chat_worker import process_chat_next
 from app.models import User
 from test_network import network
+
+
+@pytest.fixture(autouse=True)
+def no_real_meta_sender_actions(monkeypatch):
+    """Synthetic CI must never mark a real person's Messenger thread seen."""
+    monkeypatch.setattr("app.facebook_chat_worker.graph_sender_action",
+                        lambda page_id, psid, action, token: None)
 
 
 def enable_messaging(n, monkeypatch):
@@ -823,3 +831,28 @@ def test_messenger_reports_real_drafting_and_sending_stages(network, monkeypatch
     messages = n["admin"].get("/api/v1/network/facebook/leads/" + detail["id"]).json()["messages"]
     assert messages[-1]["state"] == "sent"
     assert messages[-1]["updated_at"]
+
+
+def test_messenger_typing_dots_match_meta_sender_actions(network, monkeypatch):
+    """Real processing triggers seen -> typing -> off; no fake idle animation."""
+    n = network
+    enable_messaging(n, monkeypatch)
+    monkeypatch.setenv("FACEBOOK_AI_AUTO_REPLY_ENABLED", "true")
+    monkeypatch.setenv("FACEBOOK_AI_ENABLED", "true")
+    monkeypatch.setenv("FACEBOOK_AI_API_KEY", "synthetic-test-key")
+    settings.cache_clear()
+    actions = []
+    monkeypatch.setattr(
+        "app.facebook_chat_worker.graph_sender_action",
+        lambda page_id, psid, action, token: actions.append(action))
+    monkeypatch.setattr(
+        "app.facebook_chat_worker.graph_send",
+        lambda page_id, psid, body, token: "mid-synthetic-typing")
+    assert incoming(n, text="Hola, quiero ofrecer carpintería", mid="typing-1").status_code == 200
+    # Consent question is the only output before the person authorizes the AI.
+    assert process_chat_next(n["Session"]) is True
+    assert actions == ["mark_seen", "typing_on", "typing_off"]
+    lead = n["admin"].get("/api/v1/network/facebook/center").json()["leads"][0]
+    detail = n["admin"].get("/api/v1/network/facebook/leads/" + lead["id"]).json()
+    assert detail["messages"][-1]["state"] == "sent"
+    assert detail["lead"]["ai_consent"] is False
