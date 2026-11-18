@@ -24,6 +24,8 @@ NVIDIA_MODELS_URL = "https://integrate.api.nvidia.com/v1/models"
 MAX_PROBES = 3
 ZAI_MODELS = ("glm-4.7", "glm-5.3-flash")
 NVIDIA_MODELS = (
+    "deepseek-ai/deepseek-v4.1-flash",
+    "deepseek-ai/deepseek-v4-flash",
     "nvidia/nemotron-3.5-bolt-e4b",
     "nvidia/nemotron-3.5-lightning-30b-a3b",
     "google/gemma-3-4b-it",
@@ -112,10 +114,18 @@ def recover_provider(db: Session, conn: AIConnection) -> dict:
             return {"ok": False, "attempts": 0,
                     "message": "Tu cuenta Groq no informa modelos compatibles. Revisa tus permisos en Groq Console."}
     elif conn.provider == "nvidia":
-        candidates = nvidia_models(conn)[:MAX_PROBES]
+        available = nvidia_models(conn)
+        # A request for DeepSeek must not silently switch providers/models to Nemotron.
+        if conn.model.startswith("deepseek-ai/"):
+            available = [model for model in available if model.startswith("deepseek-ai/")]
+        candidates = list(dict.fromkeys(
+            ([conn.model] if conn.model in available else []) + available
+        ))[:MAX_PROBES]
         if not candidates:
-            return {"ok": False, "attempts": 0,
-                    "message": "NVIDIA no informó modelos de chat compatibles para esta cuenta."}
+            detail = ("DeepSeek no aparece entre los modelos habilitados para esta clave NVIDIA."
+                      if conn.model.startswith("deepseek-ai/") else
+                      "NVIDIA no informó modelos de chat compatibles para esta cuenta.")
+            return {"ok": False, "attempts": 0, "message": detail}
     else:
         # Never send a Standard API key to Coding Plan endpoints.
         candidates = list(dict.fromkeys(
