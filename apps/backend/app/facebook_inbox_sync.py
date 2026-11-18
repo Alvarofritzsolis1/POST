@@ -136,19 +136,21 @@ def sync_page_inbox(*, page_id: str, page_token: str, org_id: str,
             "new_contacts": created_leads}
 
 
-def periodic_recovery(stop_event, *, interval_seconds: int = 600) -> None:
+def periodic_recovery(stop_event, *, interval_seconds: int = 75, startup_delay: int = 15) -> None:
     """Lightweight safety net for missed webhooks, isolated from reply worker queue.
 
     Webhooks remain the real-time source. This thread reconciles a bounded recent
-    window every ten minutes, never auto-replies to messages recovered this way.
+    window about every minute, never auto-replies to old messages. Failures
+    automatically back off to protect Meta's request quota.
     """
     import logging
     from urllib.error import URLError
     from .config import settings
 
     logger = logging.getLogger("galant.facebook.inbox")
-    if stop_event.wait(45):
+    if stop_event.wait(startup_delay):
         return
+    retry_delay = interval_seconds
     while not stop_event.is_set():
         cfg = settings()
         if (cfg.facebook_messaging_enabled and cfg.facebook_page_token and
@@ -157,13 +159,17 @@ def periodic_recovery(stop_event, *, interval_seconds: int = 600) -> None:
                 sync_page_inbox(
                     page_id=cfg.facebook_page_id, page_token=cfg.facebook_page_token,
                     org_id=cfg.facebook_org_id, conversation_limit=10, message_limit=15)
+                retry_delay = interval_seconds
             except HTTPError as exc:
-                # Never log exception strings: URLs/request bodies may contain secrets.
+                # Avoid hammering Meta for expired token, missing permissions or limits.
                 logger.warning("Recuperación Messenger: Meta HTTP %d", exc.code)
+                retry_delay = min(max(retry_delay * 2, 300), 1800)
             except (URLError, TimeoutError, OSError, ValueError, UnicodeError) as exc:
                 logger.warning("Recuperación Messenger: error %s", type(exc).__name__)
+                retry_delay = min(max(retry_delay * 2, 180), 900)
             except Exception:
-                # The sender loop must not crash if a reconciliation fails.
+                # The sender loop must not crash if reconciliation fails.
                 logger.error("Recuperación Messenger: error interno sin datos privados")
-        if stop_event.wait(interval_seconds):
+                retry_delay = min(max(retry_delay * 2, 180), 900)
+        if stop_event.wait(retry_delay):
             return
