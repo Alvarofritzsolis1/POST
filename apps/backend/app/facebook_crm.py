@@ -641,12 +641,36 @@ def center(user: User = Depends(administrator), db: Session = Depends(get_db)):
                 "text": (body or "")[:115], "direction": direction,
             }
     ai_source = messenger_ai_source(db, user.org_id, cfg)
+    # This reports *configuration*, never fabricates a confirmed Meta delivery.
+    reply_blockers = []
+    if not cfg.facebook_messaging_enabled:
+        reply_blockers.append("Mensajería de Facebook deshabilitada en el VPS")
+    if not cfg.facebook_page_id or cfg.facebook_org_id != user.org_id:
+        reply_blockers.append("Página u organización de Messenger sin asociar")
+    if not cfg.facebook_app_secret or not cfg.facebook_webhook_verify_token:
+        reply_blockers.append("Webhook de Meta incompleto")
+    if not cfg.facebook_ai_auto_reply_enabled:
+        reply_blockers.append("Respuestas automáticas deshabilitadas en el VPS")
+    if not cfg.facebook_ai_enabled:
+        reply_blockers.append("Asistente de Facebook deshabilitado en el VPS")
+    if ai_source == "disabled":
+        reply_blockers.append("No hay un modelo de IA verificado y asignado a Messenger")
+    # Token is only exposed to the sender container. Its actual permission
+    # and delivery must still be verified against Meta from an external account.
+    auto_reply = {
+        "configured": not reply_blockers,
+        "missing": reply_blockers,
+        "verification": ("Comprobar enviando un mensaje desde una cuenta externa. "
+                         "Las respuestas requieren consentimiento y confirmación de Meta."),
+        "last_delivery": messenger_delivery["state"],
+    }
     return {"automatic_enabled": cfg.facebook_autopublish_enabled,
             "manual_enabled": cfg.facebook_manual_testing_enabled,
             "messaging_enabled": cfg.facebook_messaging_enabled,
             "ai_enabled": ai_source != "disabled",
             "ai_provider": ai_source,
             "auto_reply_enabled": cfg.facebook_ai_auto_reply_enabled,
+            "auto_reply": auto_reply,
             "page_id": cfg.facebook_page_id,
             "pending_ads": ads, "publications": publications,
             "connection": connection,
