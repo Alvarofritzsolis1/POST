@@ -82,6 +82,7 @@ def test_second_round_privacy_and_progress(ai_env, monkeypatch, tmp_path):
     assert "disponibilidad" in reply.lower()
 
     monkeypatch.setenv("DOCUMENT_DIR", str(tmp_path / "private"))
+    monkeypatch.setenv("GALANCITO_PRIVATE_COMPANY_NAMES", "Constructora Ejemplo")
     settings.cache_clear()
     try:
         client = ai_env["client"]
