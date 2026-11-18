@@ -262,6 +262,45 @@ def curriculum_progress(user: User = Depends(administrator), db: Session = Depen
             "metric": "Cobertura de conocimientos aprobados, no épocas de ajuste del modelo"}
 
 
+class ConfirmCurriculum(BaseModel):
+    """A deliberate administrator action, never an automatic deployment approval."""
+    confirm: Literal[True]
+
+
+@router.post("/knowledge-curriculum/approve")
+def approve_curriculum_20(body: ConfirmCurriculum, user: User = Depends(administrator),
+                          db: Session = Depends(get_db)):
+    """Approve all twenty ONLY when every text matches the reviewed bundled curriculum."""
+    units = _curriculum_20()
+    titles = [item["title"] for item in units]
+    rows = list(db.scalars(select(Knowledge).where(
+        Knowledge.org_id == user.org_id, Knowledge.title.in_(titles)).with_for_update()))
+    by_title = {row.title: row for row in rows}
+    if len(rows) != 20 or set(by_title) != set(titles):
+        raise HTTPException(409, "Carga primero las veinte unidades y revisa su contenido")
+    for unit in units:
+        row = by_title[unit["title"]]
+        expected = {k: v for k, v in unit.items() if k != "epoch"}
+        actual = {key: getattr(row, key) for key in expected}
+        if actual != expected or row.status == "disabled":
+            raise HTTPException(409, "Una unidad fue editada o desactivada; requiere revisión individual")
+    approved = 0
+    for item in units:
+        row = by_title[item["title"]]
+        if row.status == "approved":
+            continue
+        row.status, row.approved_by = "approved", user.id
+        row.updated_by, row.updated_at = user.id, utcnow()
+        db.flush()
+        snapshot = {k: v for k, v in view(row).items() if k not in {"created_at", "updated_at"}}
+        db.add(KnowledgeVersion(org_id=user.org_id, knowledge_id=row.id, version=row.version,
+                                snapshot=snapshot, responsible_id=user.id))
+        approved += 1
+    db.commit()
+    return {"approved_now": approved, "total": len(units), "percent": 100,
+            "message": "Las veinte unidades aprobadas ya están disponibles para consultas."}
+
+
 class FeedbackInput(BaseModel):
     model_config = ConfigDict(extra="forbid")
     rating: Literal["useful", "incorrect"]
