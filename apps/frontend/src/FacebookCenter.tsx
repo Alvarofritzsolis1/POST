@@ -37,6 +37,7 @@ type Post = { id: string; requirement_id: string; title: string; specialty: stri
 type Center = {
   automatic_enabled: boolean; manual_enabled?: boolean; messaging_enabled: boolean; ai_enabled: boolean;
   auto_reply_enabled: boolean; ai_provider?: string; page_id: string;
+  auto_reply?: { configured: boolean; missing: string[]; verification: string; last_delivery: string };
   connection?: { state: string; checked_at: string | null; error: string | null; page_name: string | null };
   messenger_delivery?: { state: string; error: string | null; updated_at: string | null };
   inbox_sync?: { state: string; checked_at: string | null; error: string | null; summary: string | null };
@@ -374,7 +375,15 @@ export default function FacebookCenter({ catalog }: { catalog: Catalog }) {
         <div className="fbc-connection-content">
           <p>Facebook: {connectionVerified ? "Token verificado" : connection?.state === "failed" ? "Error de autenticación" : "Pendiente de comprobación"}.</p>
           <p>Messenger: {center?.messaging_enabled ? "Habilitado" : "Deshabilitado"}.
-            {center?.ai_enabled && center?.auto_reply_enabled ? " · Galancito habilitado" : " · Galancito sin respuestas automáticas"}.</p>
+            {center?.auto_reply?.configured ? " · Respuestas automáticas configuradas" : " · Respuestas automáticas pendientes"}.</p>
+          {!center?.auto_reply?.configured && !!center?.auto_reply?.missing?.length &&
+            <div className="fbc-auto-check" role="status">
+              <b>Qué falta para que Galancito responda solo</b>
+              <ul>{center.auto_reply.missing.map(item => <li key={item}>{item}</li>)}</ul>
+              <small>Se corrige en la configuración de IA y Messenger; no basta con que Facebook diga «Vigente».</small>
+            </div>}
+          {center?.auto_reply?.configured &&
+            <p className="fbc-auto-confirm">Respuestas automáticas listas para una prueba externa. La conexión de Meta y el envío real deben confirmarse.</p>}
           {center?.inbox_sync?.state === "synced" && <p>{center.inbox_sync.summary}</p>}
           {center?.inbox_sync?.state === "failed" && <p role="alert">{center.inbox_sync.error || "Fallo al recuperar conversaciones"}</p>}
           {tokenInvalid && <p role="alert">Revisar token de página en el VPS.</p>}
