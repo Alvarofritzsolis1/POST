@@ -156,6 +156,7 @@ export default function FacebookCenter({ catalog }: { catalog: Catalog }) {
     return () => window.clearInterval(interval);
   }, [refresh]);
   useEffect(() => {
+    nearBottomRef.current = true;
     void refreshDetail(selectedId).catch((e) => setError(errorText(e)));
     setInsights(null);
     void refreshInsights(selectedId).catch((e) => setError(errorText(e)));
@@ -527,10 +528,10 @@ export default function FacebookCenter({ catalog }: { catalog: Catalog }) {
             {lead.unread && <button type="button" className="nw-btn fbc-read-btn" onClick={() =>
               void mutate("read", () => change("/facebook/leads/" + lead.id + "/read"), "")} disabled={!!saving}>Leído</button>}
             <button type="button" className="nw-btn fbc-profile-toggle" aria-expanded={showProfile}
-              onClick={() => setShowProfile((old) => {
-                setMobilePane(old ? "chat" : "profile");
-                return !old;
-              })}>
+              onClick={() => {
+                setMobilePane(showProfile ? "chat" : "profile");
+                setShowProfile(!showProfile);
+              }}>
               <Users size={15} /> {showProfile ? "Cerrar ficha" : "Ver ficha"}
             </button></div>
             <div className="fbc-chat-stream" ref={chatRef} onScroll={(e) => {
