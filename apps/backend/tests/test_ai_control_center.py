@@ -797,10 +797,11 @@ def test_nvidia_recovery_never_substitutes_nemotron_for_deepseek(ai_env, monkeyp
 
 
 def test_nvidia_deepseek_recovery_and_sampling_use_real_model(ai_env, monkeypatch):
-    """Recovery verifies the requested DeepSeek model with a genuine chat probe."""
+    """Recovery verifies an actual current DeepSeek model with a chat probe."""
     client = ai_env["client"]
     headers = signin(client)
-    saved = add(client, headers, name="NVIDIA DeepSeek")
+    saved = add(client, headers, name="NVIDIA DeepSeek V4",
+                model="deepseek-ai/deepseek-v4-flash")
     calls = []
 
     def nvidia_response(request, timeout):
@@ -808,13 +809,14 @@ def test_nvidia_deepseek_recovery_and_sampling_use_real_model(ai_env, monkeypatc
         assert request.get_header("Authorization") == "Bearer nvapi-example-secret"
         if request.get_method() == "GET":
             return FakeResponse({"data": [
-                {"id": "deepseek-ai/deepseek-v4.1-flash"},
+                {"id": "deepseek-ai/deepseek-v4-flash"},
                 {"id": "nvidia/nemotron-3.5-bolt-e4b"},
             ]})
         body = json.loads(request.data)
-        assert body["model"] == "deepseek-ai/deepseek-v4.1-flash"
+        assert body["model"] == "deepseek-ai/deepseek-v4-flash"
         assert body["temperature"] == 1.0
         assert body["top_p"] == 0.95
+        assert body["reasoning_effort"] == "none"
         assert body["max_tokens"] == 512
         return FakeResponse({"choices": [{"message": {"content": "OK"}}],
                              "usage": {"prompt_tokens": 8, "completion_tokens": 2}})
@@ -823,12 +825,52 @@ def test_nvidia_deepseek_recovery_and_sampling_use_real_model(ai_env, monkeypatc
     result = client.post(ROOT + "/connections/" + saved["id"] + "/recover", headers=headers)
     assert result.status_code == 200
     assert result.json()["ok"] is True
-    assert result.json()["model"] == "deepseek-ai/deepseek-v4.1-flash"
+    assert result.json()["model"] == "deepseek-ai/deepseek-v4-flash"
     assert result.json()["connection"]["enabled"] is True
     assert result.json()["connection"]["status"] == "verified"
     assert len(calls) == 2
     assert client.get(ROOT + "/usage").json()["total_tokens"] == 10
     assert "nvapi-example-secret" not in result.text
+
+
+def test_nvidia_410_retired_model_can_recover_without_changing_key(ai_env, monkeypatch):
+    """A retired V4.1 model gets a safe error, then a verified V4 replacement."""
+    from urllib.error import HTTPError
+    client = ai_env["client"]
+    headers = signin(client)
+    saved = add(client, headers, name="Modelo retirado")
+    seen = []
+
+    def nvidia_response(req, timeout):
+        if req.get_method() == "GET":
+            return FakeResponse({"data": [
+                {"id": "deepseek-ai/deepseek-v4-flash"},
+                {"id": "nvidia/nemotron-3.5-bolt-e4b"},
+            ]})
+        body = json.loads(req.data)
+        seen.append(body["model"])
+        if body["model"] == "deepseek-ai/deepseek-v4.1-flash":
+            raise HTTPError(req.full_url, 410, "retired model private body", None, None)
+        assert body["model"] == "deepseek-ai/deepseek-v4-flash"
+        return FakeResponse({"choices": [{"message": {"content": "OK"}}],
+                             "usage": {"prompt_tokens": 5, "completion_tokens": 2}})
+
+    monkeypatch.setattr(ai_gateway, "urlopen", nvidia_response)
+    first = client.post(ROOT + "/connections/" + saved["id"] + "/test", headers=headers)
+    assert first.status_code == 200
+    assert first.json()["ok"] is False
+    assert "HTTP 410" in first.json()["message"]
+    assert "private body" not in first.text
+    fixed = client.post(ROOT + "/connections/" + saved["id"] + "/recover", headers=headers)
+    assert fixed.status_code == 200
+    assert fixed.json()["ok"] is True
+    assert fixed.json()["model"] == "deepseek-ai/deepseek-v4-flash"
+    assert fixed.json()["connection"]["status"] == "verified"
+    assert fixed.json()["connection"]["enabled"] is True
+    assert seen == ["deepseek-ai/deepseek-v4.1-flash", "deepseek-ai/deepseek-v4-flash"]
+    with ai_env["sessions"]() as db:
+        from app.ai_gateway import decrypt_key
+        assert decrypt_key(db.get(AIConnection, saved["id"]).encrypted_key) == "nvapi-example-secret"
 
 def test_groq_recovers_from_active_models_using_saved_key(ai_env, monkeypatch):
     client = ai_env["client"]
