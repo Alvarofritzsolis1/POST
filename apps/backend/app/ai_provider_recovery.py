@@ -24,8 +24,8 @@ NVIDIA_MODELS_URL = "https://integrate.api.nvidia.com/v1/models"
 MAX_PROBES = 3
 ZAI_MODELS = ("glm-4.7", "glm-5.3-flash")
 NVIDIA_MODELS = (
-    "deepseek-ai/deepseek-v4.1-flash",
     "deepseek-ai/deepseek-v4-flash",
+    "deepseek-ai/deepseek-v4-flash-0731",
     "nvidia/nemotron-3.5-bolt-e4b",
     "nvidia/nemotron-3.5-lightning-30b-a3b",
     "google/gemma-3-4b-it",
@@ -99,7 +99,13 @@ def nvidia_models(conn: AIConnection) -> list[str]:
         raise AIServiceError("NVIDIA devolvió un listado de modelos inválido.")
     listed = {entry["id"] for entry in payload["data"] if isinstance(entry, dict)
               and isinstance(entry.get("id"), str)}
-    return [model for model in NVIDIA_MODELS if model in listed]
+    # Use the API catalogue, not an outdated static list. Prioritize curated
+    # DeepSeek chat models, then other DeepSeek IDs, while never probing embeddings.
+    curated = [model for model in NVIDIA_MODELS if model in listed]
+    extra_deepseek = sorted(model for model in listed if
+                            model.startswith("deepseek-ai/deepseek-v4")
+                            and MODEL_RE.fullmatch(model) and model not in curated)
+    return curated + extra_deepseek
 
 
 def recover_provider(db: Session, conn: AIConnection) -> dict:
