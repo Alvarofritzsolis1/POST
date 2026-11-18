@@ -740,3 +740,27 @@ def test_inbox_preview_disambiguates_multiple_unknown_contacts(network, monkeypa
     assert overview["leads"][0]["last_message"] == {
         "text": "Hola, soy maestro", "direction": "inbound"}
     assert "psid" not in overview["leads"][0]  # Keep identifiers out of the UI.
+
+
+
+def test_messenger_automatic_reply_readiness_explains_missing_configuration(network, monkeypatch):
+    n = network
+    enable_messaging(n, monkeypatch)
+    monkeypatch.setenv("FACEBOOK_AI_ENABLED", "false")
+    monkeypatch.setenv("FACEBOOK_AI_AUTO_REPLY_ENABLED", "false")
+    settings.cache_clear()
+    result = n["admin"].get("/api/v1/network/facebook/center")
+    assert result.status_code == 200, result.text
+    auto = result.json()["auto_reply"]
+    assert auto["configured"] is False
+    assert any("deshabilitadas" in item for item in auto["missing"])
+    assert any("modelo" in item for item in auto["missing"])
+    assert "token" not in str(auto).lower()
+    monkeypatch.setenv("FACEBOOK_AI_ENABLED", "true")
+    monkeypatch.setenv("FACEBOOK_AI_AUTO_REPLY_ENABLED", "true")
+    settings.cache_clear()
+    response = n["admin"].get("/api/v1/network/facebook/center")
+    assert response.status_code == 200, response.text
+    # Flags alone never claim that Messenger is ready without a verified AI.
+    assert response.json()["auto_reply"]["configured"] is False
+    assert any("modelo" in item for item in response.json()["auto_reply"]["missing"])
