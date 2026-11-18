@@ -63,6 +63,13 @@ type Tracking = {
   rows: Triage[]; limited: boolean; disclaimer: string;
 };
 type TriageNote = { triage: Triage; ai_note: string; source: string; changes_applied: boolean };
+type LeadInsights = {
+  contact_id: string; source: string; next_action: string; review_required: boolean;
+  summary: { name: string; specialty: string; company: string; workers: number | null; availability: string; stage: string };
+  missing: string[];
+  suggestions: { field: string; value: string | number; evidence: string; source: string; confirmed: boolean }[];
+  matches: { id: string; title: string; site: string; specialty: string; score: number; workers: number; start_date: string; reasons: string[]; review_required: boolean }[];
+};
 const statuses: Record<string, string> = {
   new: "Nuevo", contacting: "En conversación", pending_review: "Por revisar",
   shortlisted: "Posible candidato", archived: "Archivado", pending: "Pendiente",
@@ -81,7 +88,7 @@ const dateText = (v: string) => {
 
 export default function FacebookCenter({ catalog }: { catalog: Catalog }) {
   const [center, setCenter] = useState<Center | null>(null);
-  const [tab, setTab] = useState<"summary" | "tracking" | "inbox" | "pending" | "publications" | "testing" | "guides" | "knowledge" | "performance">("publications");
+  const [tab, setTab] = useState<"summary" | "tracking" | "inbox" | "pending" | "publications" | "testing" | "guides" | "knowledge" | "performance">("inbox");
   const [selectedId, setSelectedId] = useState("");
   const [detail, setDetail] = useState<Detail | null>(null);
   const [requirements, setRequirements] = useState<Requirement[]>([]);
@@ -96,6 +103,8 @@ export default function FacebookCenter({ catalog }: { catalog: Catalog }) {
   const [guide, setGuide] = useState(freshGuide);
   const [tracking, setTracking] = useState<Tracking | null>(null);
   const [triageNote, setTriageNote] = useState<TriageNote | null>(null);
+  const [insights, setInsights] = useState<LeadInsights | null>(null);
+  const [mobilePane, setMobilePane] = useState<"chat" | "profile">("chat");
   const [triageFilter, setTriageFilter] = useState<"all"|"high"|"unlinked"|"due">("all");
 
   const refresh = useCallback(async () => {
@@ -116,6 +125,11 @@ export default function FacebookCenter({ catalog }: { catalog: Catalog }) {
     const data = await net<Tracking>("/facebook/galancito/seguimiento");
     setTracking(data);
   }, []);
+  const refreshInsights = useCallback(async (id: string) => {
+    if (!id) { setInsights(null); return; }
+    const response = await net<LeadInsights>("/facebook/leads/" + id + "/insights");
+    setInsights(response.contact_id === id ? response : null);
+  }, []);
   const refreshDetail = useCallback(async (id: string) => {
     if (!id) { setDetail(null); return; }
     const result = await net<Detail>("/facebook/leads/" + id);
@@ -133,10 +147,12 @@ export default function FacebookCenter({ catalog }: { catalog: Catalog }) {
   }, [refresh]);
   useEffect(() => {
     void refreshDetail(selectedId).catch((e) => setError(errorText(e)));
+    setInsights(null);
+    void refreshInsights(selectedId).catch((e) => setError(errorText(e)));
     setReply("");
     setOnboarding(null);
     setTriageNote(null);
-  }, [selectedId, refreshDetail]);
+  }, [selectedId, refreshDetail, refreshInsights]);
   // Desde la campana de GALANT: abrir directamente el contacto que pidió ayuda.
   useEffect(() => {
     const openLinked = () => {
@@ -194,7 +210,10 @@ export default function FacebookCenter({ catalog }: { catalog: Catalog }) {
       setNotice(message);
       await refresh();
       if (tab === "tracking") await refreshTracking();
-      if (selectedId) await refreshDetail(selectedId);
+      if (selectedId) {
+        await refreshDetail(selectedId);
+        await refreshInsights(selectedId);
+      }
       return true;
     } catch (e) { setError(errorText(e)); return false; }
     finally { setSaving(""); }
@@ -250,6 +269,7 @@ export default function FacebookCenter({ catalog }: { catalog: Catalog }) {
       }).catch((e) => setError(errorText(e)));
   }
   const lead = detail?.lead ?? null;
+  const currentInsights = insights?.contact_id === selectedId ? insights : null;
   const visible = center?.leads.filter((r) =>
     [r.name, r.company, r.specialty].some((x) => x.toLowerCase().includes(filter.toLowerCase()))) || [];
 
@@ -431,7 +451,12 @@ export default function FacebookCenter({ catalog }: { catalog: Catalog }) {
         <small className="fbc-tracking-disclaimer">{tracking.disclaimer}</small>
       </>}
     </section>}
-    {tab === "inbox" && <div className="fbc-inbox">
+    {tab === "inbox" && <>
+    <div className="fbc-mobile-tabs" role="group" aria-label="Vista de conversación">
+      <button type="button" className={mobilePane === "chat" ? "active" : ""} onClick={() => setMobilePane("chat")}>Conversación</button>
+      <button type="button" className={mobilePane === "profile" ? "active" : ""} onClick={() => setMobilePane("profile")}>Ficha inteligente</button>
+    </div>
+    <div className={"fbc-inbox " + (mobilePane === "profile" ? "show-profile" : "show-chat")}>
       <aside className="fbc-contacts">
         <div className="fbc-pane-title"><Users size={16} /><b>Personas que escribieron</b></div>
         <input className="fbc-search" aria-label="Buscar interesados" value={filter}
@@ -439,10 +464,11 @@ export default function FacebookCenter({ catalog }: { catalog: Catalog }) {
         <div className="fbc-contacts-list">
           {!visible.length && <p className="fbc-empty">Aún no hay mensajes sincronizados. Los contactos aparecerán cuando escriban a la página conectada.</p>}
           {visible.map((item) => <button key={item.id}
-            onClick={() => setSelectedId(item.id)}
+            onClick={() => { setSelectedId(item.id); setMobilePane("chat"); }}
             className={"fbc-contact " + (item.id === selectedId ? "selected" : "")}>
             <div className="fbc-avatar">{(item.name || "?").charAt(0).toUpperCase()}</div>
-            <div><strong>{item.company || item.name}</strong>
+            <div><strong>{item.name && item.name !== "Interesado de Facebook" ? item.name : "Contacto sin nombre"}</strong>
+              {item.company && <small>{item.company}</small>}
               <small>{item.specialty || "Oficio por confirmar"}</small>
               <small>{statuses[item.status] || item.status}</small>
               {item.needs_support && <small className="fbc-support-mini">Necesita orientación</small>}</div>
@@ -456,8 +482,8 @@ export default function FacebookCenter({ catalog }: { catalog: Catalog }) {
           <p>Aquí podrás responder sin cambiar a Facebook.</p></div> :
           <>
             <div className="fbc-pane-title"><MessageCircle size={17} /><div>
-              <b>{lead.company || lead.name}</b>
-              <small>Messenger · {lead.can_reply ? "Respuestas habilitadas" : "Ventana de respuesta vencida"}</small>
+              <b>{lead.name && lead.name !== "Interesado de Facebook" ? lead.name : "Contacto sin nombre"}</b>
+              <small>{lead.company ? lead.company + " · " : ""}{lead.specialty ? lead.specialty + " · " : ""}Messenger · {lead.can_reply ? "Disponible para responder" : "Ventana vencida"}</small>
             </div><button className="nw-btn" onClick={() =>
               void mutate("read", () => change("/facebook/leads/" + lead.id + "/read"),
                 "Marcado como leído.")} disabled={!!saving}>Leído</button></div>
@@ -472,6 +498,15 @@ export default function FacebookCenter({ catalog }: { catalog: Catalog }) {
               <textarea aria-label="Respuesta para el contratista" value={reply}
                 onChange={(e) => setReply(e.target.value)} rows={3}
                 placeholder="Escribe simple. Ej.: Hola, gracias. ¿Qué trabajo haces?" />
+              <div className="fbc-reply-chips" aria-label="Respuestas rápidas">
+                {[
+                  ["Preguntar oficio", "Hola, gracias por escribirnos. ¿En qué oficio te especializas?"],
+                  ["Disponibilidad", "¿Desde qué fecha podrías comenzar a trabajar?"],
+                  ["Cantidad de personas", "¿Cuántas personas integran tu cuadrilla?"],
+                  ["Experiencia", "¿En qué tipo de obras has trabajado anteriormente?"],
+                ].map(([label, text]) => <button key={label} type="button" disabled={!!saving}
+                  onClick={() => setReply(text)}>{label}</button>)}
+              </div>
               <div className="fbc-composer-actions">
                 <button className="nw-btn" type="button" disabled={!!saving}
                   onClick={() => void suggest()}><Sparkles size={16} /> {saving === "draft" ? "Preparando…" : "Sugerir respuesta"}</button>
@@ -485,7 +520,7 @@ export default function FacebookCenter({ catalog }: { catalog: Catalog }) {
           </>}
       </section>
       <aside className="fbc-analysis">
-        <div className="fbc-pane-title"><ShieldCheck size={17} /><b>Ficha y compatibilidad</b></div>
+        <div className="fbc-pane-title"><ShieldCheck size={17} /><b>Ficha inteligente</b></div>
         {!lead ? <p className="fbc-empty">Selecciona una conversación.</p> : <>
           {lead.needs_support && <div className="fbc-support-alert" role="status">
             <AlertTriangle size={18}/>
@@ -494,6 +529,69 @@ export default function FacebookCenter({ catalog }: { catalog: Catalog }) {
               <small>No enviar una lista larga de documentos. Mantener revisión humana.</small>
             </div>
           </div>}
+          <section className="fbc-lead-overview" aria-label="Resumen del contacto">
+            <div className="fbc-lead-identity">
+              <div className="fbc-avatar">{lead.name && lead.name !== "Interesado de Facebook" ? lead.name.slice(0,1).toUpperCase() : "?"}</div>
+              <div><strong>{lead.name && lead.name !== "Interesado de Facebook" ? lead.name : "Contacto sin nombre"}</strong>
+                <small>{lead.company || lead.specialty || "Información por confirmar"}</small></div>
+              <span className="fbc-stage">{statuses[lead.status] || lead.status}</span>
+            </div>
+            <label>Nombre de la persona
+              <input aria-label="Nombre de la persona" value={lead.name === "Interesado de Facebook" ? "" : lead.name}
+                placeholder="Escribir o confirmar nombre" maxLength={160}
+                onChange={(e) => setDetail((old) => old ? {...old, lead: {...old.lead, name: e.target.value}} : old)} />
+            </label>
+            {currentInsights?.suggestions.filter((item) => item.field === "name").map((item) => <div className="fbc-suggestion" key="name">
+              <span><Sparkles size={14} /> El contacto dijo: <b>{item.value}</b></span>
+              <button type="button" className="nw-btn" disabled={!!saving}
+                onClick={() => patchLead({name: String(item.value)})}>Confirmar nombre</button>
+            </div>)}
+            <div className="fbc-summary-data">
+              <div><small>Oficio</small><strong>{lead.specialty || "Por confirmar"}</strong></div>
+              <div><small>Personas</small><strong>{lead.workers ?? "Sin dato"}</strong></div>
+              <div><small>Disponible desde</small><strong>{lead.availability || "Sin confirmar"}</strong></div>
+            </div>
+            <div className="fbc-next-action">
+              <span><Sparkles size={15} /> Próximo paso sugerido</span>
+              <p>{currentInsights?.next_action || "Confirmar oficio y disponibilidad del contacto."}</p>
+            </div>
+          </section>
+          <section className="fbc-smart-matches" aria-label="Coincidencias sugeridas">
+            <div className="fbc-section-head"><b>Necesidades compatibles</b><small>Revisión humana</small></div>
+            {!currentInsights?.matches.length && <p className="fbc-hint">Sin coincidencias confirmables. Registra el oficio para buscar necesidades activas.</p>}
+            {currentInsights?.matches.map((item) => <article key={item.id} className="fbc-smart-match">
+              <div className="fbc-smart-match-top"><strong>{item.title}</strong>
+                <span>{item.score} pts.</span></div>
+              <small>{item.site} · {item.specialty}</small>
+              <p>{item.reasons.slice(0,2).join(" · ")}</p>
+              <button type="button" className="nw-btn" disabled={!!saving || lead.requirement_id === item.id}
+                onClick={() => patchLead({requirement_id: item.id})}>
+                {lead.requirement_id === item.id ? "Vinculada" : "Vincular necesidad"}
+              </button>
+            </article>)}
+            <small>El puntaje es orientativo, no una probabilidad de contratación ni una adjudicación.</small>
+          </section>
+          <section className="fbc-simple-followup" aria-label="Seguimiento">
+            <div className="fbc-section-head"><b>Seguimiento</b></div>
+            <div className="fbc-pair">
+              <label>Próxima fecha
+                <input type="date" value={lead.follow_up_on || ""}
+                  onChange={(e) => setDetail((old) => old ? {...old, lead: {...old.lead, follow_up_on: e.target.value || null}} : old)} />
+              </label>
+              <label>Etapa
+                <select value={lead.status} onChange={(e) => setDetail((old) => old ? {...old, lead: {...old.lead, status: e.target.value}} : old)}>
+                  {["new","contacting","pending_review","shortlisted","archived"].map(x => <option key={x} value={x}>{statuses[x]}</option>)}
+                </select>
+              </label>
+            </div>
+            <label>Nota de seguimiento
+              <input maxLength={240} value={lead.follow_up_note || ""} placeholder="Ej.: confirmar fecha con residente"
+                onChange={(e) => setDetail((old) => old ? {...old, lead: {...old.lead, follow_up_note: e.target.value}} : old)} />
+            </label>
+          </section>
+          <details className="fbc-advanced">
+            <summary>Más datos y opciones</summary>
+            <div className="fbc-advanced-content">
           <label className="fbc-check"><input type="checkbox" checked={lead.needs_support}
              onChange={(e) => setDetail((old) => old ? {...old, lead: {...old.lead, needs_support:e.target.checked}} : old)} />
              Mantener alerta de apoyo (administración puede desactivarla después de ayudar)</label>
@@ -513,21 +611,6 @@ export default function FacebookCenter({ catalog }: { catalog: Catalog }) {
           </label>
           <label>Experiencia declarada<textarea value={lead.experience} rows={2}
             onChange={(e) => setDetail((old) => old ? {...old, lead: {...old.lead, experience: e.target.value}} : old)} /></label>
-          <div className="fbc-pair">
-            <label>Próximo seguimiento
-              <input type="date" value={lead.follow_up_on || ""} onChange={(e) => setDetail((old) =>
-                old ? {...old, lead: {...old.lead, follow_up_on: e.target.value || null}} : old)} />
-            </label>
-            <label>Nota de seguimiento
-              <input maxLength={240} value={lead.follow_up_note || ""} placeholder="Ej.: llamar al residente"
-                onChange={(e) => setDetail((old) => old ? {...old, lead: {...old.lead,
-                  follow_up_note: e.target.value}} : old)} />
-            </label>
-          </div>
-          <label>Etapa
-            <select value={lead.status} onChange={(e) => setDetail((old) => old ? {...old, lead: {...old.lead, status: e.target.value}} : old)}>
-              {["new","contacting","pending_review","shortlisted","archived"].map(x => <option key={x} value={x}>{statuses[x]}</option>)}
-            </select></label>
           <label>¿Cómo trabaja?
             <select value={lead.entity_type} onChange={(e) => {
               setOnboarding(null);
@@ -569,9 +652,11 @@ export default function FacebookCenter({ catalog }: { catalog: Catalog }) {
           <label className="fbc-check"><input type="checkbox" checked={lead.ai_paused}
             onChange={(e) => setDetail((old) => old ? {...old, lead: {...old.lead, ai_paused: e.target.checked}} : old)} />
             Atención humana: Galancito en pausa para este contacto</label>
-          <button type="button" disabled={!!saving} className="nw-btn nw-primary"
+            </div>
+          </details>
+          <button type="button" disabled={!!saving} className="nw-btn nw-primary fbc-save-lead"
             onClick={() => patchLead({
-              company: lead.company, specialty: lead.specialty,
+              name: lead.name, company: lead.company, specialty: lead.specialty,
               workers: lead.workers, availability: lead.availability,
               experience: lead.experience, status: lead.status,
               documents_state: lead.documents_state, ai_paused: lead.ai_paused,
@@ -580,6 +665,8 @@ export default function FacebookCenter({ catalog }: { catalog: Catalog }) {
               requirement_id: lead.requirement_id,
               follow_up_on: lead.follow_up_on, follow_up_note: lead.follow_up_note,
             })}>Guardar ficha y seguimiento</button>
+          <details className="fbc-deep-review">
+            <summary>Orientación y validaciones</summary>
           <button type="button" className="nw-btn" disabled={!!saving}
             onClick={() => void analyzeLead()}>
             <Sparkles size={15}/> {saving === "triage" ? "Analizando…" : "Galancito: analizar seguimiento"}
@@ -620,9 +707,10 @@ export default function FacebookCenter({ catalog }: { catalog: Catalog }) {
               {lead.analysis.missing.map(x => <small key={x}>· {x}</small>)}</>}
             <small>La IA no habilita contratistas ni decide adjudicaciones.</small>
           </div>
+          </details>
         </>}
       </aside>
-    </div>}
+    </div></>}
     {tab === "publications" && <section className="fbc-pending" aria-label="Publicaciones de Red de Obras en Facebook">
       <div className="fbc-tracking-head">
         <div>
