@@ -17,7 +17,7 @@ from sqlalchemy import select
 from sqlalchemy.orm import Session
 
 from . import ai_gateway
-from .ai_gateway import AIServiceError, MODEL_RE, decrypt_key, run_connection
+from .ai_gateway import AIServiceError, MODEL_RE, decrypt_key, run_connection, transient_provider_failure
 from .ai_models import AIConnection
 from .models import utcnow
 
@@ -97,12 +97,21 @@ def recover_gemini(db: Session, conn: AIConnection) -> dict:
     Existing model is preserved on error. Only a proven successful model is saved,
     with a connection_test usage row and an admin audit event by the API layer.
     """
-    # A failed recovery must never leave an old unverified model enabled.
-    conn.enabled = False
-    conn.last_status = "error"
-    models = listed_models(conn)
+    # Preserve a previously verified credential on transient catalog outages.
+    was_verified = conn.enabled and conn.last_status in ("verified", "degraded")
+    try:
+        models = listed_models(conn)
+    except AIServiceError as exc:
+        conn.last_status = "degraded" if was_verified and transient_provider_failure(exc) else "error"
+        if conn.last_status == "error":
+            conn.enabled = False
+        conn.last_checked_at = utcnow()
+        raise
     candidates = [model for model in models if _score(model)[0] < 99]
     if not candidates:
+        if not was_verified:
+            conn.enabled = False
+            conn.last_status = "error"
         return {"ok": False, "message": "Google no informó modelos Flash compatibles. Revisa tu cuenta en AI Studio.",
                 "attempts": 0}
     checked = 0
@@ -151,9 +160,12 @@ def recover_gemini(db: Session, conn: AIConnection) -> dict:
         return {"ok": True, "model": model,
                 "message": "Gemini conectado con el modelo compatible " + model + ".",
                 "attempts": checked}
-    conn.last_status = "error"
+    is_transient = transient_provider_failure(AIServiceError(final_error))
+    conn.last_status = "degraded" if was_verified and is_transient else "error"
+    if conn.last_status == "error":
+        conn.enabled = False
     conn.last_checked_at = utcnow()
-    if any("(HTTP " + str(code) + ")" in final_error for code in (500, 502, 503, 504)):
+    if is_transient:
         return {"ok": False, "message": final_error, "attempts": checked}
     return {"ok": False, "message": (
         "No se encontró un modelo que responda con esta clave. "

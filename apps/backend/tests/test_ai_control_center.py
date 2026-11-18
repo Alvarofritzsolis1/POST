@@ -766,140 +766,21 @@ def test_gemini_recovery_checks_later_listed_models(ai_env, monkeypatch):
     assert result.json()["attempts"] == 4
 
 
-
-def test_global_nvidia_lightning_is_linked_to_every_organization(ai_env):
-    """One encrypted key links all user orgs and never joins their business data."""
-    from app.ai_global_lightning import GLOBAL_ID, MODEL, sync_all, sync_org
-    from app.ai_models import AIGlobalCredential, AIOrchestration
-    from app.models import Organization, User
-    _, sessions = ai_env["client"], ai_env["sessions"]
-    encrypted = ai_gateway.encrypt_key("nvapi-test-shared-key")
-    with sessions.begin() as db:
-        db.add(AIGlobalCredential(
-            id=GLOBAL_ID, provider="nvidia", model=MODEL,
-            encrypted_key=encrypted, enabled=True, verified_at=__import__("datetime").datetime.now(
-                __import__("datetime").timezone.utc
-            ),
-        ))
-        db.flush()
-        linked, total = sync_all(db, force=True)
-        assert (linked, total) == (2, 2)
-    with sessions() as db:
-        orgs = list(db.scalars(select(Organization.id)))
-        assert len(orgs) == 2
-        connections = list(db.scalars(select(AIConnection).where(
-            AIConnection.model == MODEL
-        )))
-        assert len(connections) == 2
-        assert len({c.id for c in connections}) == 2
-        assert all(ai_gateway.decrypt_key(c.encrypted_key) == "nvapi-test-shared-key"
-                   for c in connections)
-        for org_id in orgs:
-            policy = db.get(AIOrchestration, org_id)
-            conn = next(c for c in connections if c.org_id == org_id)
-            assert policy.enabled
-            assert policy.task_routes.get("red_obras") == conn.id
-            assert not policy.task_routes.get("messenger")
-            assert policy.monthly_token_limit == 100000
-
-    # A user joining a new org later inherits the provider, with no second key.
-    with sessions.begin() as db:
-        new_org = Organization(name="Obra nueva")
-        db.add(new_org)
-        db.flush()
-        db.add(User(org_id=new_org.id, email="later@example.cl",
-                    role="resident", enabled=True, password_hash="test-only"))
-        db.flush()
-        assert sync_org(db, new_org.id)
-        assert not sync_org(db, new_org.id)
-    with sessions() as db:
-        conn = db.scalar(select(AIConnection).where(
-            AIConnection.org_id == new_org.id, AIConnection.model == MODEL
-        ))
-        assert conn and conn.enabled
-        assert ai_gateway.decrypt_key(conn.encrypted_key) == "nvapi-test-shared-key"
-
-
-def test_global_nvidia_only_activates_after_verified_credential(ai_env):
-    from app.ai_global_lightning import GLOBAL_ID, MODEL, sync_all
-    from app.ai_models import AIGlobalCredential
-    with ai_env["sessions"].begin() as db:
-        db.add(AIGlobalCredential(id=GLOBAL_ID, provider="nvidia",
-                                  model=MODEL, enabled=False,
-                                  encrypted_key=ai_gateway.encrypt_key("nvapi-demo")))
-        db.flush()
-        assert sync_all(db, force=True) == (0, 2)
-
-
-def test_nvidia_lightning_disables_reasoning_for_quick_replies(ai_env, monkeypatch):
+def test_nvidia_recovery_replaces_unlisted_model_after_real_probe(ai_env, monkeypatch):
     client = ai_env["client"]
     headers = signin(client)
-    record = add(client, headers, name="Lightning rápido",
-                 model="nvidia/nemotron-3.5-lightning-30b-a3b")
-    def fake_open(request, timeout):
-        body = json.loads(request.data)
-        assert body["model"] == "nvidia/nemotron-3.5-lightning-30b-a3b"
-        assert body["chat_template_kwargs"] == {"enable_thinking": False}
-        assert body["temperature"] == 1.0
-        return FakeResponse({"choices": [{"message": {"content": "OK"}}],
-                             "usage": {"prompt_tokens": 6, "completion_tokens": 1}})
-    monkeypatch.setattr(ai_gateway, "urlopen", fake_open)
-    result = client.post(ROOT + "/connections/" + record["id"] + "/test", headers=headers)
-    assert result.status_code == 200 and result.json()["ok"] is True
-
-
-def test_nvidia_recovery_never_substitutes_nemotron_for_deepseek(ai_env, monkeypatch):
-    """A DeepSeek connection must not pass a test using another model."""
-    client = ai_env["client"]
-    headers = signin(client)
-    saved = add(client, headers, name="NVIDIA DeepSeek")
+    saved = add(client, headers, name="NVIDIA Build · deepseek-ai/deepseek-v4.1-flash")
     requests = []
 
     def nvidia_response(request, timeout):
         requests.append(request)
         assert request.get_header("Authorization") == "Bearer nvapi-example-secret"
-        assert request.get_method() == "GET"
-        return FakeResponse({"data": [
-            {"id": "nvidia/nemotron-3.5-bolt-e4b"},
-            {"id": "nvidia/nemotron-3.5-embed-1b"},
-        ]})
-
-    monkeypatch.setattr(ai_gateway, "urlopen", nvidia_response)
-    result = client.post(ROOT + "/connections/" + saved["id"] + "/recover", headers=headers)
-    assert result.status_code == 200
-    assert result.json()["ok"] is False
-    assert result.json()["attempts"] == 0
-    assert "DeepSeek" in result.json()["message"]
-    assert len(requests) == 1
-    with ai_env["sessions"]() as db:
-        record = db.get(AIConnection, saved["id"])
-        assert record.model == "deepseek-ai/deepseek-v4.1-flash"
-        assert not record.enabled
-    assert "nvapi-example-secret" not in result.text
-
-
-def test_nvidia_deepseek_recovery_and_sampling_use_real_model(ai_env, monkeypatch):
-    """Recovery verifies an actual current DeepSeek model with a chat probe."""
-    client = ai_env["client"]
-    headers = signin(client)
-    saved = add(client, headers, name="NVIDIA DeepSeek V4",
-                model="deepseek-ai/deepseek-v4-flash")
-    calls = []
-
-    def nvidia_response(request, timeout):
-        calls.append(request)
-        assert request.get_header("Authorization") == "Bearer nvapi-example-secret"
         if request.get_method() == "GET":
             return FakeResponse({"data": [
-                {"id": "deepseek-ai/deepseek-v4-flash"},
                 {"id": "nvidia/nemotron-3.5-bolt-e4b"},
+                {"id": "nvidia/nemotron-3.5-embed-1b"},
             ]})
-        body = json.loads(request.data)
-        assert body["model"] == "deepseek-ai/deepseek-v4-flash"
-        assert body["temperature"] == 1.0
-        assert body["top_p"] == 0.95
-        assert body["reasoning_effort"] == "none"
-        assert body["max_tokens"] == 512
+        assert json.loads(request.data)["model"] == "nvidia/nemotron-3.5-bolt-e4b"
         return FakeResponse({"choices": [{"message": {"content": "OK"}}],
                              "usage": {"prompt_tokens": 8, "completion_tokens": 2}})
 
@@ -907,52 +788,12 @@ def test_nvidia_deepseek_recovery_and_sampling_use_real_model(ai_env, monkeypatc
     result = client.post(ROOT + "/connections/" + saved["id"] + "/recover", headers=headers)
     assert result.status_code == 200
     assert result.json()["ok"] is True
-    assert result.json()["model"] == "deepseek-ai/deepseek-v4-flash"
+    assert result.json()["model"] == "nvidia/nemotron-3.5-bolt-e4b"
     assert result.json()["connection"]["enabled"] is True
     assert result.json()["connection"]["status"] == "verified"
-    assert len(calls) == 2
-    assert client.get(ROOT + "/usage").json()["total_tokens"] == 10
+    assert len(requests) == 2
     assert "nvapi-example-secret" not in result.text
 
-
-def test_nvidia_410_retired_model_can_recover_without_changing_key(ai_env, monkeypatch):
-    """A retired V4.1 model gets a safe error, then a verified V4 replacement."""
-    from urllib.error import HTTPError
-    client = ai_env["client"]
-    headers = signin(client)
-    saved = add(client, headers, name="Modelo retirado")
-    seen = []
-
-    def nvidia_response(req, timeout):
-        if req.get_method() == "GET":
-            return FakeResponse({"data": [
-                {"id": "deepseek-ai/deepseek-v4-flash"},
-                {"id": "nvidia/nemotron-3.5-bolt-e4b"},
-            ]})
-        body = json.loads(req.data)
-        seen.append(body["model"])
-        if body["model"] == "deepseek-ai/deepseek-v4.1-flash":
-            raise HTTPError(req.full_url, 410, "retired model private body", None, None)
-        assert body["model"] == "deepseek-ai/deepseek-v4-flash"
-        return FakeResponse({"choices": [{"message": {"content": "OK"}}],
-                             "usage": {"prompt_tokens": 5, "completion_tokens": 2}})
-
-    monkeypatch.setattr(ai_gateway, "urlopen", nvidia_response)
-    first = client.post(ROOT + "/connections/" + saved["id"] + "/test", headers=headers)
-    assert first.status_code == 200
-    assert first.json()["ok"] is False
-    assert "HTTP 410" in first.json()["message"]
-    assert "private body" not in first.text
-    fixed = client.post(ROOT + "/connections/" + saved["id"] + "/recover", headers=headers)
-    assert fixed.status_code == 200
-    assert fixed.json()["ok"] is True
-    assert fixed.json()["model"] == "deepseek-ai/deepseek-v4-flash"
-    assert fixed.json()["connection"]["status"] == "verified"
-    assert fixed.json()["connection"]["enabled"] is True
-    assert seen == ["deepseek-ai/deepseek-v4.1-flash", "deepseek-ai/deepseek-v4-flash"]
-    with ai_env["sessions"]() as db:
-        from app.ai_gateway import decrypt_key
-        assert decrypt_key(db.get(AIConnection, saved["id"]).encrypted_key) == "nvapi-example-secret"
 
 def test_groq_recovers_from_active_models_using_saved_key(ai_env, monkeypatch):
     client = ai_env["client"]
@@ -1065,3 +906,163 @@ def test_zai_coding_plan_not_supported_for_multiuser_application(ai_env):
     })
     assert response.status_code == 422
     assert "fake-nonproduction-only" not in response.text
+
+
+def test_verified_gemini_503_keeps_shared_agent_available(ai_env, monkeypatch):
+    """A temporary outage must not deactivate the shared organization route."""
+    from urllib.error import HTTPError
+
+    client, sessions = ai_env["client"], ai_env["sessions"]
+    headers = signin(client)
+    record = add(client, headers, name="Gemini VPS", provider="gemini",
+                 model="gemini-3.5-flash-lite", key="test-gemini-key")
+
+    def success(*_args, **_kwargs):
+        return FakeResponse({
+            "candidates": [{"content": {"parts": [{"text": "OK"}]}}],
+            "usageMetadata": {"promptTokenCount": 5, "candidatesTokenCount": 1},
+        })
+
+    monkeypatch.setattr(ai_gateway, "urlopen", success)
+    verified = client.post(ROOT + "/connections/" + record["id"] + "/test", headers=headers)
+    assert verified.json()["ok"] is True
+
+    saved = client.put(ROOT + "/policy", headers=headers, json={
+        "enabled": True, "fallback_enabled": False, "monthly_token_limit": 20000,
+        "task_routes": {"red_obras": record["id"]},
+    })
+    assert saved.status_code == 200, saved.text
+
+    # Resident shares the same organization policy; no separate API key.
+    signin(client, "resident")
+    status = client.get("/api/v1/network/galancito/status")
+    assert status.status_code == 200
+    assert status.json()["external_ai_available"] is True
+
+    headers = signin(client, "admin")
+    def temporary_failure(*_args, **_kwargs):
+        raise HTTPError("https://example.invalid", 503, "synthetic unavailable", None, None)
+
+    monkeypatch.setattr(ai_gateway, "urlopen", temporary_failure)
+    failed = client.post(ROOT + "/connections/" + record["id"] + "/test", headers=headers)
+    assert failed.status_code == 200 and failed.json()["ok"] is False
+    assert failed.json()["connection"]["status"] == "degraded"
+    assert failed.json()["connection"]["enabled"] is True
+    with sessions.begin() as db:
+        assert orchestration_available(db, ai_env["org_id"], "red_obras")
+
+    signin(client, "resident")
+    assert client.get("/api/v1/network/galancito/status").json()["external_ai_available"] is True
+    headers = signin(client, "admin")
+
+    # Repeated successful requests automatically heal the banner.
+    monkeypatch.setattr(ai_gateway, "urlopen", success)
+    healed = client.post(ROOT + "/connections/" + record["id"] + "/test", headers=headers)
+    assert healed.json()["connection"]["status"] == "verified"
+
+
+def test_verified_gemini_invalid_key_blocks_route(ai_env, monkeypatch):
+    from urllib.error import HTTPError
+
+    client = ai_env["client"]
+    headers = signin(client)
+    record = add(client, headers, name="Gemini VPS", provider="gemini",
+                 model="gemini-3.5-flash-lite", key="synthetic")
+    monkeypatch.setattr(ai_gateway, "urlopen", lambda *_args, **_kwargs: FakeResponse({
+        "candidates": [{"content": {"parts": [{"text": "OK"}]}}]
+    }))
+    assert client.post(ROOT + "/connections/" + record["id"] + "/test",
+                       headers=headers).json()["ok"] is True
+    assert client.put(ROOT + "/policy", headers=headers, json={
+        "enabled": True, "task_routes": {"red_obras": record["id"]},
+    }).status_code == 200
+
+    def unauthorized(*_args, **_kwargs):
+        raise HTTPError("https://example.invalid", 401, "synthetic", None, None)
+
+    monkeypatch.setattr(ai_gateway, "urlopen", unauthorized)
+    failed = client.post(ROOT + "/connections/" + record["id"] + "/test", headers=headers)
+    assert failed.json()["connection"]["status"] == "error"
+    with ai_env["sessions"].begin() as db:
+        assert not orchestration_available(db, ai_env["org_id"], "red_obras")
+
+
+
+
+def test_ai_teacher_proposes_pending_lessons_for_shared_organization(ai_env, monkeypatch):
+    client = ai_env["client"]
+    admin_headers = signin(client)
+    record = add(client, admin_headers, name="Gemini teacher",
+                 provider="gemini", model="gemini-3.5-flash-lite",
+                 key="synthetic-secret")
+    lesson = {
+        "lessons": [{
+            "title": "Cómo orientar necesidades",
+            "category": "Red de Obras",
+            "kind": "procedure",
+            "content": "Registra la especialidad, la fecha estimada y la dotación conocida. La revisión corresponde a administración.",
+            "phrases": ["Cómo registrar una necesidad"],
+        }]
+    }
+
+    def fake_open(req, timeout):
+        return FakeResponse({
+            "candidates": [{"content": {"parts": [{"text": json.dumps(lesson)}]}}],
+            "usageMetadata": {"promptTokenCount": 24, "candidatesTokenCount": 68},
+        })
+
+    monkeypatch.setattr(ai_gateway, "urlopen", fake_open)
+    verified = client.post(ROOT + "/connections/" + record["id"] + "/test",
+                           headers=admin_headers)
+    assert verified.json()["ok"] is True
+    assert client.put(ROOT + "/policy", headers=admin_headers, json={
+        "enabled": True, "monthly_token_limit": 20000,
+        "task_routes": {"red_obras": record["id"]},
+    }).status_code == 200
+
+    url = "/api/v1/network/galancito/knowledge-ai-propose"
+    payload = {"source_text": "La necesidad se registra con especialidad, fecha estimada y dotación. Administración revisa antes de publicar."}
+    response = client.post(url, headers=admin_headers, json=payload)
+    assert response.status_code == 201, response.text
+    assert response.json()["created"] == 1
+    assert response.json()["status"] == "pending"
+    assert response.json()["provider"] == "gemini"
+    repeat = client.post(url, headers=admin_headers, json=payload)
+    assert repeat.status_code == 201
+    assert repeat.json()["created"] == 0
+    assert repeat.json()["skipped"] == 1
+    result = client.get("/api/v1/network/galancito/knowledge").json()
+    assert len(result) == 1
+    assert result[0]["status"] == "pending"
+    assert result[0]["scope"] == "red_obras"
+    assert "synthetic-secret" not in response.text
+
+    signin(client, "resident")
+    assert client.post(url, headers={"X-CSRF-Token": client.cookies["galant_post_csrf"]},
+                       json=payload).status_code == 403
+    assert client.get("/api/v1/network/galancito/status").json()["external_ai_available"] is True
+    signin(client, "outside")
+    assert client.get("/api/v1/network/galancito/knowledge").json() == []
+
+
+def test_ai_teacher_never_accepts_private_data_or_unverified_model(ai_env, monkeypatch):
+    client = ai_env["client"]
+    h = signin(client)
+    url = "/api/v1/network/galancito/knowledge-ai-propose"
+    valid = {"source_text": "Cuando una obra necesita un contratista se registra la especialidad y se revisa antes de publicar."}
+    assert client.post(url, headers=h, json=valid).status_code == 409
+    conn = add(client, h, name="Gemini teacher", provider="gemini",
+               model="gemini-3.5-flash-lite")
+    assert client.put(ROOT + "/policy", headers=h, json={
+        "enabled": False, "task_routes": {"red_obras": conn["id"]},
+    }).status_code == 200
+    assert client.post(url, headers=h, json=valid).status_code == 409
+    from app.ai_models import AIOrchestration
+    with ai_env["sessions"].begin() as db:
+        policy = db.get(AIOrchestration, ai_env["org_id"])
+        policy.enabled = True
+    assert client.post(url, headers=h, json=valid).status_code == 409
+    assert client.post(url, headers=h, json={
+        "source_text": "Contactar al contratista con este RUT: 12.345.678-5; enviar los antecedentes de la empresa.",
+    }).status_code == 409
+

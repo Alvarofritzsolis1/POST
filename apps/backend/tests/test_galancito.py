@@ -65,3 +65,38 @@ def test_galancito_only_shows_published_titles_in_its_organization(network):
     assert response.status_code == 200, response.text
     assert "Borrador privado Junto a Los Pinos" not in response.json()["answer"]
     assert response.json()["read_only"] is True
+
+
+def test_unknown_contractor_cannot_confirm_confidential_employer(network, monkeypatch):
+    """An unknown contractor cannot infer a mandante through the assistant."""
+    n = network
+
+    def forbidden(*args, **kwargs):
+        raise AssertionError("No debe consultarse IA externa en esta pregunta")
+
+    monkeypatch.setattr("app.galancito_api.generate_internal_text", forbidden)
+    monkeypatch.setattr("app.galancito_api.orchestrated_text", forbidden)
+    for message in ("¿Para qué empresa es?", "¿Quién contrata?", "¿Esto es para Constructora Ejemplo?"):
+        response = n["send"](n["admin"], "/galancito/chat", {
+            "message": message, "allow_external_ai": True,
+        })
+        assert response.status_code == 200, response.text
+        body = response.json()
+        assert body["source"] == "local"
+        assert "constructora ejemplo" not in body["answer"].casefold()
+        assert "no tengo autorización" in body["answer"].casefold()
+
+
+def test_contractor_chat_uses_declared_last_turn(network):
+    n = network
+    response = n["send"](n["admin"], "/galancito/chat", {
+        "message": "somos de Coronel",
+        "previous_user_messages": [
+            "tengo una empresa de pintura",
+            "tengo 4 trabajadores",
+        ],
+        "allow_external_ai": False,
+    })
+    assert response.status_code == 200, response.text
+    assert response.json()["source"] == "local"
+    assert "disponibilidad" in response.json()["answer"].casefold()

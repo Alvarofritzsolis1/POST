@@ -14,11 +14,20 @@ type Policy = {
   enabled: boolean; fallback_enabled: boolean; review_enabled: boolean; monthly_token_limit: number;
   task_routes: Record<string, string>;
 };
+type LearningProgress = {
+  knowledge: {percent: number};
+  round2: {percent: number};
+  conversation_tests: {percent: number};
+  privacy_tests: {percent: number};
+  missing: string[];
+  note: string;
+};
 type Bootstrap = {
   providers: Provider[]; tasks: Task[]; connections: Connection[];
   policy: Policy; monthly_tokens: number; server_ready: boolean;
   messenger_ready: { messaging_enabled: boolean; ai_enabled: boolean; auto_reply_enabled: boolean; page_configured: boolean };
   learning: { approved: number; pending: number; disabled: number; feedback: Record<string, number>; method: string };
+  galancito_progress: LearningProgress;
 };
 type UsageGroup = {
   connection_id: string; provider: string; name: string; task: string;
@@ -49,10 +58,7 @@ const MODEL_OPTIONS: Record<string, Array<{ id: string; label: string }>> = {
     { id: "glm-4.7", label: "GLM-4.7 · respuesta rápida" },
     { id: "glm-5.3-flash", label: "GLM-5.3 Flash · razonamiento" },
   ],
-  nvidia: [
-    { id: "nvidia/nemotron-3.5-lightning-30b-a3b", label: "Nemotron 3.5 Lightning · recomendado" },
-    { id: "nvidia/nemotron-3.5-bolt-e4b", label: "Nemotron 3.5 Bolt · alternativa" },
-  ],
+  nvidia: [{ id: "nvidia/nemotron-3.5-bolt-e4b", label: "Nemotron 3.5 Bolt" }],
   openai: [{ id: "gpt-4.1-mini", label: "GPT-4.1 Mini" }],
   mistral: [{ id: "mistral-small-latest", label: "Mistral Small" }],
   openrouter: [{ id: "openai/gpt-4o-mini", label: "GPT-4o Mini vía OpenRouter" }],
@@ -60,7 +66,7 @@ const MODEL_OPTIONS: Record<string, Array<{ id: string; label: string }>> = {
 const defaultModel = (provider: string) => MODEL_OPTIONS[provider]?.[0]?.id || "";
 const CAN_RECOVER = new Set(["gemini", "groq", "nvidia", "zai"]);
 const recoverableError = (message: string) =>
-  /(HTTP 400|HTTP 404|HTTP 410|respondió sin texto|sin texto utilizable)/i.test(message);
+  /(HTTP 400|HTTP 404|respondió sin texto|sin texto utilizable)/i.test(message);
 const shouldRecover = (provider: string, message: string) =>
   CAN_RECOVER.has(provider) &&
   (recoverableError(message) || (provider === "nvidia" && /HTTP 503/i.test(message)));
@@ -114,7 +120,7 @@ export default function AIConfiguration() {
   }, [days]);
 
   const summary = useMemo(() => ({
-    verified: data?.connections.filter(c => c.has_key && c.status === "verified" && c.enabled).length || 0,
+    verified: data?.connections.filter(c => c.has_key && ["verified", "degraded"].includes(c.status) && c.enabled).length || 0,
     total: data?.connections.length || 0,
   }), [data]);
 
@@ -259,7 +265,7 @@ export default function AIConfiguration() {
     });
   }
 
-  const availableForRouting = (data?.connections || []).filter(c => c.enabled && c.has_key && c.status === "verified");
+  const availableForRouting = (data?.connections || []).filter(c => c.enabled && c.has_key && ["verified", "degraded"].includes(c.status));
   const missingMessengerSettings = data?.messenger_ready ? [
     !data.messenger_ready.page_configured && "página y organización de Facebook",
     !data.messenger_ready.messaging_enabled && "FACEBOOK_MESSAGING_ENABLED",
@@ -304,19 +310,19 @@ export default function AIConfiguration() {
         <div className="ai-connections">
           {data?.connections.length === 0 && <div className="ai-empty">Aún no has agregado proveedores. Comienza con Gemini, Groq, NVIDIA o Z.ai.</div>}
           {data?.connections.map(conn => {
-            const state = !conn.has_key ? "Sin clave" : conn.status === "verified" ? (conn.enabled ? "Conectada" : "Verificada · pausada") : conn.status === "error" ? "Con error" : "Sin verificar";
+            const state = !conn.has_key ? "Sin clave" : conn.status === "verified" ? (conn.enabled ? "Conectada" : "Verificada · pausada") : conn.status === "degraded" ? (conn.enabled ? "Intermitencia temporal" : "En pausa") : conn.status === "error" ? "Con error" : "Sin verificar";
             return <article className="ai-connection" key={conn.id}>
               <div className="ai-connection-title">
-                <span className={"ai-dot " + (conn.enabled && conn.status === "verified" ? "ok" : conn.status === "error" ? "bad" : "")} />
+                <span className={"ai-dot " + (conn.enabled && conn.status === "verified" ? "ok" : conn.status === "degraded" ? "warn" : conn.status === "error" ? "bad" : "")} />
                 <div><h4>{conn.name}</h4><small>{providerName(conn.provider)} · {conn.model}</small></div>
                 <span className="ai-state">{state}</span>
               </div>
               <div className="ai-connection-meta"><span><KeyRound size={14} /> {conn.has_key ? "Clave protegida" : "Clave pendiente"}</span><span><Activity size={14} /> {displayDate(conn.last_checked_at)}</span></div>
               <div className="ai-actions">
                 <button type="button" disabled={Boolean(busy) || !conn.has_key} onClick={() => void testConnection(conn)}>Probar conexión</button>
-                {CAN_RECOVER.has(conn.provider) && conn.has_key && conn.status !== "verified" && <button type="button" className="ai-repair-button" disabled={Boolean(busy)} onClick={() => void recoverModel(conn.id)}>{busy === "recover:" + conn.id ? "Buscando…" : "Buscar modelo compatible"}</button>}
+                {CAN_RECOVER.has(conn.provider) && conn.has_key && !["verified", "degraded"].includes(conn.status) && <button type="button" className="ai-repair-button" disabled={Boolean(busy)} onClick={() => void recoverModel(conn.id)}>{busy === "recover:" + conn.id ? "Buscando…" : "Buscar modelo compatible"}</button>}
                 <button type="button" disabled={Boolean(busy)} onClick={() => edit(conn)}>Configurar</button>
-                <button type="button" disabled={Boolean(busy) || !conn.has_key || (!conn.enabled && conn.status !== "verified")} onClick={() => void toggleConnection(conn)}>{conn.enabled ? "Pausar" : "Habilitar"}</button>
+                <button type="button" disabled={Boolean(busy) || !conn.has_key || (!conn.enabled && !["verified", "degraded"].includes(conn.status))} onClick={() => void toggleConnection(conn)}>{conn.enabled ? "Pausar" : "Habilitar"}</button>
                 <button type="button" disabled={Boolean(busy) || !conn.has_key} onClick={() => void disconnect(conn)} aria-label={"Desvincular " + conn.name}><Trash2 size={16} /></button>
               </div>
             </article>;
@@ -414,14 +420,32 @@ export default function AIConfiguration() {
         </form>
       </section>
 
-      <section className="ai-panel">
-        <div className="ai-panel-head"><div><h3>3. Aprendizaje compartido</h3><p>Las IA consultan información validada. No se reentrenan ni comparten sus respuestas automáticamente.</p></div><span className="ai-secure"><ShieldCheck size={16} /> Con aprobación humana</span></div>
-        <div className="ai-learning-stats">
-          <div><b>{nice(data?.learning.approved || 0)}</b><span>Guías aprobadas</span></div>
-          <div><b>{nice(data?.learning.pending || 0)}</b><span>Propuestas por revisar</span></div>
-          <div><b>{nice(data?.learning.feedback.incorrect || 0)}</b><span>Respuestas reportadas como incorrectas</span></div>
+      <section className="ai-panel ai-progress-panel" aria-label="Avance de aprendizaje de Galancito">
+        <div className="ai-panel-head">
+          <div><h3>3. Avance de Galancito</h3><p>Porcentaje de conocimientos activados y pruebas locales superadas.</p></div>
         </div>
-        <p className="ai-help"><CircleHelp size={15} /> Una corrección crea una propuesta pendiente. Solo un administrador puede aprobarla antes de que otras IA la utilicen. La segunda IA verifica respuestas, pero no modifica la base de conocimiento.</p>
+        <div className="ai-progress-grid">
+          {[
+            {label: "Conocimientos activos", value: data?.galancito_progress?.knowledge.percent ?? 0},
+            {label: "Segunda ronda", value: data?.galancito_progress?.round2.percent ?? 0},
+            {label: "Conversación", value: data?.galancito_progress?.conversation_tests.percent ?? 0},
+            {label: "Confidencialidad", value: data?.galancito_progress?.privacy_tests.percent ?? 0},
+          ].map(item => <div className="ai-progress-metric" key={item.label}>
+            <div className="ai-progress-metric-head"><span>{item.label}</span><strong>{item.value}%</strong></div>
+            <div className="ai-progress-track" role="progressbar" aria-label={item.label}
+              aria-valuenow={item.value} aria-valuemin={0} aria-valuemax={100}>
+              <div className="ai-progress-fill" style={{width: item.value + "%"}}/>
+            </div>
+          </div>)}
+        </div>
+        <div className="ai-learning-pending">
+          <strong>Qué le falta aprender</strong>
+          <ul>
+            {(data?.galancito_progress?.missing || ["Todavía no hay una evaluación disponible."]).map(item =>
+              <li key={item}>{item}</li>)}
+          </ul>
+        </div>
+        <p className="ai-help"><CircleHelp size={15}/> Las pruebas de conversación se ejecutan sin consumir tokens. Estos porcentajes no representan la inteligencia de Gemini ni garantizan respuestas correctas en todos los casos.</p>
       </section>
 
       <section className="ai-panel">

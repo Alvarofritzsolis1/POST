@@ -127,18 +127,6 @@ def invoke(connection: AIConnection, *, instructions: str, prompt: str,
                 body["thinking"] = {"type": "disabled"}
             if connection.model.startswith("glm-5.3"):
                 body["temperature"] = 1.0
-        if (connection.provider == "nvidia"
-                and connection.model == "nvidia/nemotron-3.5-lightning-30b-a3b"):
-            # NVIDIA's documented fast path: avoid spending output on reasoning.
-            body["temperature"] = 1.0
-            body["chat_template_kwargs"] = {"enable_thinking": False}
-        if connection.provider == "nvidia" and connection.model.startswith("deepseek-ai/"):
-            # Use NVIDIA's documented defaults for DeepSeek V4 Flash.
-            body["temperature"] = 1.0
-            body["top_p"] = 0.95
-            if connection.model == "deepseek-ai/deepseek-v4-flash":
-                # Fast, visible replies for GALANT's short synchronous requests.
-                body["reasoning_effort"] = "none"
         headers = {"Authorization": "Bearer " + token}
     headers["Content-Type"] = "application/json"
     request = Request(url, data=json.dumps(body).encode("utf-8"),
@@ -154,7 +142,6 @@ def invoke(connection: AIConnection, *, instructions: str, prompt: str,
             402: "La cuenta del proveedor requiere saldo o facturación.",
             403: "Esta cuenta no tiene permiso para utilizar el modelo.",
             404: "El modelo elegido no está disponible en esta cuenta.",
-            410: "Este modelo fue retirado por el proveedor. Selecciona uno vigente o recupera la conexión.",
             422: "Revisa el modelo seleccionado y vuelve a probar.",
             429: "Se alcanzó el límite de uso del proveedor. Vuelve a probar luego.",
             500: "El proveedor tuvo un error temporal. Vuelve a probar luego.",
@@ -205,16 +192,33 @@ def record_usage(db: Session, conn: AIConnection, task: str, *, status: str,
     return row
 
 
+def transient_provider_failure(error: AIServiceError) -> bool:
+    """Retryable provider outage must not invalidate a previously verified key."""
+    message = str(error)
+    return (
+        bool(re.search(r"\(HTTP (?:429|500|502|503|504)\)", message))
+        or message == "No se pudo contactar al proveedor de IA."
+    )
+
+
 def run_connection(db: Session, conn: AIConnection, *, task: str, instructions: str,
                    prompt: str, max_output_tokens: int = 300, timeout: float = 10) -> str:
     started = time.perf_counter()
     try:
         generated, inp, out = invoke(conn, instructions=instructions, prompt=prompt,
                                     max_output_tokens=max_output_tokens, timeout=timeout)
-    except AIServiceError:
+    except AIServiceError as exc:
         record_usage(db, conn, task, status="error",
                      duration_ms=round((time.perf_counter() - started) * 1000))
-        conn.last_status = "error"
+        # A timeout/503/429 can happen even with a valid, previously verified API
+        # key. Preserve the route and let the next authorized request retry it.
+        # Invalid credentials / unavailable models still require re-verification.
+        conn.last_status = (
+            "degraded"
+            if conn.last_status in ("verified", "degraded")
+            and transient_provider_failure(exc)
+            else "error"
+        )
         conn.last_checked_at = utcnow()
         raise
     record_usage(db, conn, task, status="success", input_tokens=inp, output_tokens=out,
@@ -251,7 +255,7 @@ def orchestration_available(db: Session, org_id: str, task: str) -> bool:
         return False
     conn = db.get(AIConnection, (policy.task_routes or {}).get(task, ""))
     if not (conn and conn.org_id == org_id and conn.enabled and conn.encrypted_key
-            and conn.last_status == "verified"):
+            and conn.last_status in ("verified", "degraded")):
         return False
     if policy.monthly_token_limit and monthly_tokens(db, org_id) >= policy.monthly_token_limit:
         return False
@@ -260,7 +264,7 @@ def orchestration_available(db: Session, org_id: str, task: str) -> bool:
         if not (reviewer and reviewer.id != conn.id and reviewer.org_id == org_id
                 and (reviewer.provider, reviewer.model) != (conn.provider, conn.model)
                 and reviewer.enabled and reviewer.encrypted_key
-                and reviewer.last_status == "verified"):
+                and reviewer.last_status in ("verified", "degraded")):
             return False
     return True
 
@@ -289,16 +293,16 @@ def orchestrated_text(db: Session, org_id: str, *, task: str, instructions: str,
     primary_id = routes.get(task)
     review_id = routes.get("review") if policy.review_enabled else None
     reviewer = next((c for c in connections if c.id == review_id and
-                     c.encrypted_key and c.last_status == "verified"), None) if review_id else None
+                     c.encrypted_key and c.last_status in ("verified", "degraded")), None) if review_id else None
     ordered = [c for c in connections if c.id == primary_id and
-               c.encrypted_key and c.last_status == "verified"]
+               c.encrypted_key and c.last_status in ("verified", "degraded")]
     if policy.review_enabled and (not reviewer or reviewer.id == primary_id or
                                   (ordered and (reviewer.provider, reviewer.model) ==
                                    (ordered[0].provider, ordered[0].model))):
         return None
     if policy.fallback_enabled and ordered:
         ordered += [c for c in connections if c.id not in {primary_id, review_id}
-                    and c.encrypted_key and c.last_status == "verified"]
+                    and c.encrypted_key and c.last_status in ("verified", "degraded")]
     for conn in ordered:
         # Bound the whole attempt chain to the browser's response deadline.
         remaining = 7.5 - (time.perf_counter() - started)

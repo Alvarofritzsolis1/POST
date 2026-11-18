@@ -5,7 +5,7 @@ import { change, net } from "./networkApi";
 import "./galancito.css";
 
 type Area = "red_obras";
-type ChatLine = { role: "user" | "assistant"; text: string; runId?: string; question?: string; rated?: boolean };
+type ChatLine = { role: "user" | "assistant"; text: string; source?: string; runId?: string; question?: string; rated?: boolean };
 type Reply = { name: string; answer: string; source: string; notice?: string; run_id?: string;
   references?: {id: string; version: number; title: string}[] };
 type Status = { name: string; local_ai_available: boolean; external_ai_available: boolean; read_only: boolean; can_teach?: boolean };
@@ -48,16 +48,18 @@ export default function GalancitoWidget({ area = "red_obras" }: { area?: Area })
     setHistory((prev) => [...prev, {role: "user", text: question}]);
     setBusy(true);
     const controller = new AbortController();
-    // Leave a margin for rendering the safe alternative within 10 seconds.
-    const deadline = window.setTimeout(() => controller.abort(), 9000);
+    // Allow time for the server to collect facts and query the selected model.
+    const deadline = window.setTimeout(() => controller.abort(), 18000);
     try {
       const reply = await request<Reply>("/network/galancito/chat", {
         method: "POST", signal: controller.signal, body: JSON.stringify({
         message: question, area,
+        previous_user_messages: history.filter(line => line.role === "user")
+          .slice(-4).map(line => line.text.slice(0, 250)),
         allow_external_ai: consent && !!status?.external_ai_available,
         }),
       });
-      setHistory((prev) => [...prev, {role: "assistant", runId: reply.run_id, question,
+      setHistory((prev) => [...prev, {role: "assistant", source: reply.source, runId: reply.run_id, question,
         text: reply.answer + (reply.references?.length ? "\nReferencia: " + reply.references.map(r => `${r.title} (v${r.version})`).join(", ") : "") +
         (reply.notice ? "\n" + reply.notice : "")}]);
     } catch {
@@ -106,7 +108,7 @@ export default function GalancitoWidget({ area = "red_obras" }: { area?: Area })
             <button type="button" key={x} onClick={() => askExample(x)}>{x}</button>)}</div>
         </div>}
         {history.map((entry,i) => <div key={i} className={"galancito-bubble " + entry.role}>
-          <span>{entry.role === "assistant" ? "Galancito" : "Tú"}</span>
+          <span>{entry.role === "assistant" ? ("Galancito · " + (entry.source === "ai" ? "IA externa" : entry.source === "fallback" ? "orientación local (IA no disponible)" : "orientación local")) : "Tú"}</span>
           <p>{entry.text}</p>
           {entry.runId && <div className="galancito-feedback" aria-label="Evaluar respuesta">
             <button type="button" disabled={feedbackBusy || entry.rated} onClick={() => void rate(i, "useful")}>Útil</button>
@@ -123,8 +125,11 @@ export default function GalancitoWidget({ area = "red_obras" }: { area?: Area })
         <div ref={end}/>
       </div>
       <form className="galancito-compose" onSubmit={(e) => void send(e)}>
-        {status?.local_ai_available && <div className="galancito-safety">
+        {status?.local_ai_available && !consent && <div className="galancito-safety">
           <ShieldCheck size={14}/> Modelo local disponible · sin consumo de API externa
+        </div>}
+        {consent && status?.external_ai_available && <div className="galancito-safety">
+          <Sparkles size={14}/> IA externa autorizada · se indicará el origen de cada respuesta
         </div>}
         <label className="galancito-privacy"><input type="checkbox" checked={consent}
           onChange={(e) => setConsent(e.target.checked)} disabled={!status?.external_ai_available}/>

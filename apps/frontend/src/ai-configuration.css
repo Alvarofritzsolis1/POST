@@ -23,6 +23,7 @@
 .ai-center .ai-dot { display:block; width:10px; height:10px; background:#a5b2bb; border-radius:50%; margin-top:6px; flex-shrink:0; }
 .ai-center .ai-dot.ok { background:#0b9d73; box-shadow:0 0 0 4px #d5f8e9; }
 .ai-center .ai-dot.bad { background:#d34e50; box-shadow:0 0 0 4px #ffe4e6; }
+.ai-center .ai-dot.warn { background:#d59b25; box-shadow:0 0 0 4px #fff2d2; }
 .ai-center .ai-state { color:#4d6672; background:#eff3f5; padding:5px 8px; border-radius:7px; font-size:11px; font-weight:750; white-space:nowrap; }
 .ai-center .ai-connection-meta { display:flex; flex-wrap:wrap; gap:12px; font-size:12px; color:#536c79; }
 .ai-center .ai-connection-meta span { display:inline-flex; align-items:center; gap:6px; }
@@ -99,3 +100,16 @@
 
 .ai-center .ai-actions .ai-repair-button { background: #e8f7f2; border: 1px solid #91d4be; color:#12664f; font-weight: 750; }
 .ai-center .ai-actions .ai-repair-button:hover:not(:disabled) { background: #d3f1e6; }
+
+
+/* Galancito progress: quiet, factual percentages with no artificial gamification. */
+.ai-center .ai-progress-grid { display:grid; grid-template-columns:repeat(2,minmax(0,1fr)); gap:16px; }
+.ai-center .ai-progress-metric { background:#f7faf9; border:1px solid #e2eae7; border-radius:11px; padding:15px; min-width:0; }
+.ai-center .ai-progress-metric-head { display:flex; align-items:center; justify-content:space-between; gap:14px; color:#304955; font-size:13px; font-weight:650; }
+.ai-center .ai-progress-metric-head strong { color:#146c59; font-size:19px; font-variant-numeric:tabular-nums; }
+.ai-center .ai-progress-track { width:100%; height:7px; border-radius:100px; background:#e3ecea; overflow:hidden; margin-top:10px; }
+.ai-center .ai-progress-fill { height:100%; border-radius:100px; background:#15856e; transition:width 180ms ease; }
+.ai-center .ai-learning-pending { border-top:1px solid #e7ecea; padding-top:15px; color:#334e58; display:grid; gap:7px; }
+.ai-center .ai-learning-pending strong { font-size:14px; }
+.ai-center .ai-learning-pending ul { padding-left:19px; margin:0; display:grid; gap:5px; font-size:13px; line-height:1.4; }
+@media(max-width:640px) { .ai-center .ai-progress-grid { grid-template-columns:1fr; } }

@@ -51,6 +51,8 @@ class Settings(BaseSettings):
     galancito_ai_api_key: str = ""
     galancito_ai_model: str = "gpt-4.1-mini"
     galancito_ai_provider: str = "openai"
+    # The names never belong in public source control; configure only in the VPS env.
+    galancito_private_company_names: str = ""
     # Ollama se habilita solo después de descargar y probar Qwen3 1.7B en el VPS.
     galancito_local_ai_enabled: bool = False
     # 2m preserves warm service after 20s idle; generation limits stay bounded.

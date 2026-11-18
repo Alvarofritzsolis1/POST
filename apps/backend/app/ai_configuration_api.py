@@ -19,8 +19,8 @@ from .ai_models import AIConnection, AIOrchestration, AIUsage
 from .config import settings
 from .ai_model_recovery import recover_gemini
 from .ai_provider_recovery import recover_provider
-from .ai_global_lightning import sync_org as sync_org_global_lightning
 from .galancito_knowledge_models import Knowledge, AssistantRun
+from .galancito_learning_progress import learning_progress
 from .db import get_db
 from .models import AuditEvent, User, utcnow
 from .security import administrator
@@ -128,8 +128,6 @@ def existing(db: Session, user: User, connection_id: str) -> AIConnection:
 
 @router.get("/bootstrap")
 def bootstrap(user: User = Depends(administrator), db: Session = Depends(get_db)):
-    if sync_org_global_lightning(db, user.org_id):
-        db.commit()
     cfg = settings()
     connections = list(db.scalars(select(AIConnection).where(
         AIConnection.org_id == user.org_id).order_by(AIConnection.name)))
@@ -140,6 +138,7 @@ def bootstrap(user: User = Depends(administrator), db: Session = Depends(get_db)
         AssistantRun.org_id == user.org_id, AssistantRun.feedback.is_not(None))
         .group_by(AssistantRun.feedback)).all()
     return {
+        "galancito_progress": learning_progress(db, user.org_id),
         "learning": {
             "approved": knowledge_counts.get("approved", 0),
             "pending": knowledge_counts.get("pending", 0),
@@ -259,7 +258,7 @@ def test_connection(connection_id: str, user: User = Depends(administrator),
         answer = run_connection(db, conn, task="connection_test",
                                 instructions="Responde brevemente en español.",
                                 prompt="Prueba de conexión. Responde OK.",
-                                max_output_tokens=(512 if (conn.provider in ("zai", "nvidia") or "gpt-oss" in conn.model) else 128))
+                                max_output_tokens=(512 if (conn.provider == "zai" or "gpt-oss" in conn.model) else 128))
         log_change(db, user, "connection.test", conn.id)
         db.commit()
     except AIServiceError as exc:
@@ -335,7 +334,7 @@ def update_policy(body: PolicyPatch, user: User = Depends(administrator),
         record = db.get(AIConnection, connection_id)
         if not record or record.org_id != user.org_id or not record.encrypted_key:
             raise HTTPException(422, "La IA asignada a " + task + " no está vinculada")
-        if body.enabled and (not record.enabled or record.last_status != "verified"):
+        if body.enabled and (not record.enabled or record.last_status not in ("verified", "degraded")):
             raise HTTPException(422, "Primero habilita y verifica la conexión asignada a " + task)
     if body.enabled and not body.task_routes.get("red_obras"):
         raise HTTPException(422, "Asigna la IA de Consultas de Red de Obras antes de activar el equipo")
