@@ -311,6 +311,9 @@ def update_policy(body: PolicyPatch, user: User = Depends(administrator),
         reviewer = body.task_routes.get("review")
         if not reviewer or reviewer == primary:
             raise HTTPException(422, "Asigna una segunda IA distinta para revisar las respuestas")
+        first, second = db.get(AIConnection, primary), db.get(AIConnection, reviewer)
+        if first and second and (first.provider, first.model) == (second.provider, second.model):
+            raise HTTPException(422, "El revisor debe utilizar un modelo diferente al principal")
     policy = db.get(AIOrchestration, user.org_id)
     if policy is None:
         policy = AIOrchestration(org_id=user.org_id)
