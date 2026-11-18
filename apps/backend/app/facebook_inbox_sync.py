@@ -34,7 +34,10 @@ def _graph_get(token: str, resource_id: str, edge: str, fields: str, limit: int)
         raise ValueError("Identificador de Messenger inválido")
     if edge not in {"conversations", "messages"}:
         raise ValueError("Ruta de Messenger no permitida")
-    query = urlencode({"fields": fields, "limit": limit})
+    params = {"fields": fields, "limit": limit}
+    if edge == "conversations":
+        params["platform"] = "MESSENGER"
+    query = urlencode(params)
     url = f"https://graph.facebook.com/v27.0/{resource_id}/{edge}?{query}"
     request = Request(url, headers={"Authorization": "Bearer " + token}, method="GET")
     with _OPENER.open(request, timeout=8) as response:
@@ -87,7 +90,7 @@ def sync_page_inbox(*, page_id: str, page_token: str, org_id: str,
             body = m.get("message")
             if (not re.fullmatch(r"[0-9]{5,90}", psid) or psid == page_id or
                     not isinstance(body, str) or not body.strip() or
-                    not 3 <= len(mid) <= 180 or not re.fullmatch(r"[A-Za-z0-9_:-]{3,180}", mid)):
+                    not 3 <= len(mid) <= 180):
                 continue
             collected.append((mid, psid, body.strip()[:3500], _created_at(m.get("created_time"))))
 
