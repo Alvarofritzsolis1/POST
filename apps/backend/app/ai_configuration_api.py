@@ -16,6 +16,7 @@ from .ai_gateway import (
     run_connection,
 )
 from .ai_models import AIConnection, AIOrchestration, AIUsage
+from .config import settings
 from .ai_model_recovery import recover_gemini
 from .ai_provider_recovery import recover_provider
 from .galancito_knowledge_models import Knowledge, AssistantRun
@@ -126,6 +127,7 @@ def existing(db: Session, user: User, connection_id: str) -> AIConnection:
 
 @router.get("/bootstrap")
 def bootstrap(user: User = Depends(administrator), db: Session = Depends(get_db)):
+    cfg = settings()
     connections = list(db.scalars(select(AIConnection).where(
         AIConnection.org_id == user.org_id).order_by(AIConnection.name)))
     policy = db.get(AIOrchestration, user.org_id)
@@ -148,6 +150,12 @@ def bootstrap(user: User = Depends(administrator), db: Session = Depends(get_db)
         "policy": policy_view(policy),
         "monthly_tokens": monthly_tokens(db, user.org_id),
         "server_ready": encryption_ready(),
+        "messenger_ready": {
+            "messaging_enabled": cfg.facebook_messaging_enabled,
+            "ai_enabled": cfg.facebook_ai_enabled,
+            "auto_reply_enabled": cfg.facebook_ai_auto_reply_enabled,
+            "page_configured": bool(cfg.facebook_page_id and cfg.facebook_org_id),
+        },
     }
 
 

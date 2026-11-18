@@ -87,6 +87,7 @@ services:
     environment:
       <<: *backend
       AI_CREDENTIAL_ENCRYPTION_KEY: ${AI_CREDENTIAL_ENCRYPTION_KEY:-}  # Messenger puede usar el equipo IA configurado
+      FACEBOOK_PAGE_TOKEN: ${FACEBOOK_PAGE_TOKEN:-}
     volumes: ["./preview-storage:/data/private"]
     depends_on: {db: {condition: service_healthy}}
     networks: [internal, galancito-egress]

@@ -104,6 +104,7 @@ def test_admin_access_encryption_and_disconnect(ai_env):
     headers = signin(client)
     listing = client.get(ROOT + "/bootstrap").json()
     assert listing["server_ready"] is True
+    assert {"messaging_enabled", "ai_enabled", "auto_reply_enabled", "page_configured"} <= listing["messenger_ready"].keys()
     assert {"gemini", "groq", "nvidia"}.issubset({p["id"] for p in listing["providers"]})
     record = add(client, headers)
     assert record["has_key"] is True and "api_key" not in record
