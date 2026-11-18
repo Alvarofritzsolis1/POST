@@ -444,3 +444,35 @@ def test_review_migration_is_additive_and_idempotent_for_existing_database(tmp_p
         assert saved[0] == 2500
         assert saved[1] in (False, 0)
     engine.dispose()
+
+
+def test_selected_team_quota_does_not_fall_back_to_paid_legacy_provider(ai_env, monkeypatch):
+    client = ai_env["client"]
+    headers = signin(client)
+    conn = add(client, headers, name="Proveedor con límite")
+    calls = []
+    def fake_open(request, timeout):
+        calls.append(request)
+        return FakeResponse({"choices": [{"message": {"content": "OK"}}],
+                             "usage": {"prompt_tokens": 8, "completion_tokens": 5}})
+    monkeypatch.setattr(ai_gateway, "urlopen", fake_open)
+    assert client.post(ROOT + "/connections/" + conn["id"] + "/test",
+                       headers=headers).json()["ok"] is True
+    assert client.put(ROOT + "/policy", headers=headers, json={
+        "enabled": True, "fallback_enabled": True, "review_enabled": False,
+        "monthly_token_limit": 1, "task_routes": {"red_obras": conn["id"]},
+    }).status_code == 200
+    monkeypatch.setenv("GALANCITO_AI_ENABLED", "true")
+    monkeypatch.setenv("GALANCITO_AI_PROVIDER", "openai")
+    monkeypatch.setenv("GALANCITO_AI_API_KEY", "legacy-not-for-use")
+    settings.cache_clear()
+    status = client.get("/api/v1/network/galancito/status")
+    assert status.status_code == 200, status.text
+    assert status.json()["external_ai_available"] is False
+    answer = client.post("/api/v1/network/galancito/chat",
+                         headers=headers,
+                         json={"message": "Explica cómo resolver una coordinación compleja entre obras",
+                               "allow_external_ai": True})
+    assert answer.status_code == 200, answer.text
+    assert answer.json()["source"] in ("local", "fallback")
+    assert len(calls) == 1  # Never contacted either paid provider after the quota.
