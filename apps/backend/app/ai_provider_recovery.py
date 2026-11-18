@@ -24,10 +24,10 @@ NVIDIA_MODELS_URL = "https://integrate.api.nvidia.com/v1/models"
 MAX_PROBES = 3
 ZAI_MODELS = ("glm-4.7", "glm-5.3-flash")
 NVIDIA_MODELS = (
+    "nvidia/nemotron-3.5-lightning-30b-a3b",
+    "nvidia/nemotron-3.5-bolt-e4b",
     "deepseek-ai/deepseek-v4-flash",
     "deepseek-ai/deepseek-v4-flash-0731",
-    "nvidia/nemotron-3.5-bolt-e4b",
-    "nvidia/nemotron-3.5-lightning-30b-a3b",
     "google/gemma-3-4b-it",
 )
 
