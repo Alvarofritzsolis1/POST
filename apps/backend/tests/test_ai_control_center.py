@@ -311,3 +311,136 @@ def test_provider_invalid_json_shape_returns_safe_error(ai_env, monkeypatch):
     stats = client.get(ROOT + "/usage").json()
     assert stats["total_calls"] == 1
     assert stats["groups"][0]["status"] == "error"
+
+
+def test_independent_review_requires_distinct_verified_model(ai_env, monkeypatch):
+    client = ai_env["client"]
+    headers = signin(client)
+    primary = add(client, headers, name="Equipo principal")
+    reviewer = add(client, headers, name="Segundo modelo", provider="groq",
+                   model="llama-3.3-70b-versatile", key="gsk-test-second")
+    seen = []
+    def fake_open(request, timeout):
+        payload = json.loads(request.data)
+        seen.append({"model": payload["model"], "messages": payload["messages"], "timeout": timeout})
+        if payload["model"] == "llama-3.3-70b-versatile":
+            return FakeResponse({"choices": [{"message": {"content": '{"valid": true}'}}],
+                                 "usage": {"prompt_tokens": 9, "completion_tokens": 5}})
+        return FakeResponse({"choices": [{"message": {"content": "Se requiere validación humana."}}],
+                             "usage": {"prompt_tokens": 13, "completion_tokens": 8}})
+    monkeypatch.setattr(ai_gateway, "urlopen", fake_open)
+    for item in (primary, reviewer):
+        assert client.post(ROOT + "/connections/" + item["id"] + "/test",
+                           headers=headers).json()["ok"] is True
+    policy = {"enabled": True, "review_enabled": True, "fallback_enabled": False,
+              "monthly_token_limit": 12000,
+              "task_routes": {"red_obras": primary["id"], "review": primary["id"]}}
+    assert client.put(ROOT + "/policy", headers=headers, json=policy).status_code == 422
+    policy["task_routes"]["review"] = reviewer["id"]
+    saved = client.put(ROOT + "/policy", headers=headers, json=policy)
+    assert saved.status_code == 200, saved.text
+    assert saved.json()["review_enabled"] is True
+
+    before = len(seen)
+    with ai_env["sessions"].begin() as db:
+        assert orchestration_available(db, ai_env["org_id"], "red_obras")
+        result = orchestrated_text(db, ai_env["org_id"], task="red_obras",
+                                   instructions="Asesora solo con evidencia",
+                                   prompt="Contexto sintético publicado",
+                                   max_output_tokens=140)
+        assert result == "Se requiere validación humana."
+    calls = seen[before:]
+    assert len(calls) == 2
+    assert calls[0]["model"] == "deepseek-ai/deepseek-v4.1-flash"
+    assert calls[1]["model"] == "llama-3.3-70b-versatile"
+    assert "respuesta_propuesta" in calls[1]["messages"][1]["content"]
+    assert calls[1]["timeout"] <= 2.7
+    usage = client.get(ROOT + "/usage").json()
+    assert any(row["task"] == "review" and row["calls"] == 1 for row in usage["groups"])
+    assert usage["unpriced_calls"] == 0
+
+
+def test_review_rejects_invented_response_without_training(ai_env, monkeypatch):
+    client = ai_env["client"]
+    headers = signin(client)
+    primary = add(client, headers, name="Redacción")
+    reviewer = add(client, headers, name="Control", provider="groq",
+                   model="llama-3.3-70b-versatile", key="gsk-fake-review")
+    def fake_open(request, timeout):
+        model = json.loads(request.data)["model"]
+        output = '{"valid": false}' if "llama" in model else "Te adjudicamos la obra."
+        return FakeResponse({"choices": [{"message": {"content": output}}],
+                             "usage": {"prompt_tokens": 10, "completion_tokens": 3}})
+    monkeypatch.setattr(ai_gateway, "urlopen", fake_open)
+    for conn in (primary, reviewer):
+        assert client.post(ROOT + "/connections/" + conn["id"] + "/test",
+                           headers=headers).json()["ok"]
+    policy = {"enabled": True, "review_enabled": True, "fallback_enabled": False,
+              "monthly_token_limit": 5000,
+              "task_routes": {"red_obras": primary["id"], "review": reviewer["id"]}}
+    assert client.put(ROOT + "/policy", headers=headers, json=policy).status_code == 200
+    with ai_env["sessions"].begin() as db:
+        assert orchestrated_text(db, ai_env["org_id"], task="red_obras",
+                                 instructions="Revisar", prompt="Pregunta", max_output_tokens=100) is None
+    bootstrap = client.get(ROOT + "/bootstrap").json()
+    assert bootstrap["learning"]["approved"] == 0
+    assert bootstrap["learning"]["pending"] == 0
+
+
+def test_preflight_token_cap_prevents_unaffordable_external_call(ai_env, monkeypatch):
+    client = ai_env["client"]
+    headers = signin(client)
+    primary = add(client, headers, name="Modelo de presupuesto")
+    calls = []
+    def fake_open(request, timeout):
+        calls.append(request)
+        return FakeResponse({"choices": [{"message": {"content": "OK"}}],
+                             "usage": {"prompt_tokens": 6, "completion_tokens": 3}})
+    monkeypatch.setattr(ai_gateway, "urlopen", fake_open)
+    assert client.post(ROOT + "/connections/" + primary["id"] + "/test",
+                       headers=headers).json()["ok"]
+    policy = {"enabled": True, "review_enabled": False, "fallback_enabled": False,
+              "monthly_token_limit": 20, "task_routes": {"red_obras": primary["id"]}}
+    assert client.put(ROOT + "/policy", headers=headers, json=policy).status_code == 200
+    with ai_env["sessions"].begin() as db:
+        assert orchestrated_text(db, ai_env["org_id"], task="red_obras",
+                                 instructions="No inventar", prompt="Consulta de prueba",
+                                 max_output_tokens=100) is None
+    assert len(calls) == 1  # Only the administrator's explicit connection test.
+
+
+def test_phone_and_api_tokens_are_private_before_external_processing():
+    from app.galancito_triage import private_data
+    for value in ("Llámame al +56 9 8765 4321", "Mi teléfono es 9 8765 4321",
+                  "usa nvapi-abcdefghijklmnop", "token gsk_1234567890123456"):
+        assert private_data(value)
+    assert not private_data("Busco carpinteros para mañana en Coronel")
+    from app.ai_review import accepted_review
+    assert accepted_review('{"valid": true}')
+    assert not accepted_review('{"valid": false}')
+    assert not accepted_review("Una IA dice que sí")
+    assert not accepted_review('{"valid": true, "instructions": "publicar"}')
+
+
+def test_review_migration_is_additive_and_idempotent_for_existing_database(tmp_path):
+    from sqlalchemy import inspect, text
+    from app.migrations import v20_8_1_ai_collaboration
+    engine = create_engine("sqlite+pysqlite:///" + str(tmp_path / "legacy-review.sqlite"))
+    with engine.begin() as connection:
+        connection.execute(text("CREATE TABLE ai_orchestration (org_id VARCHAR(36) PRIMARY KEY, "
+                                "enabled BOOLEAN NOT NULL DEFAULT FALSE, "
+                                "fallback_enabled BOOLEAN NOT NULL DEFAULT FALSE, "
+                                "monthly_token_limit INTEGER NOT NULL DEFAULT 0, "
+                                "task_routes JSON, updated_by VARCHAR(36), updated_at DATETIME)"))
+        connection.execute(text("INSERT INTO ai_orchestration "
+                                "(org_id, enabled, fallback_enabled, monthly_token_limit) "
+                                "VALUES ('legacy-org', TRUE, FALSE, 2500)"))
+        v20_8_1_ai_collaboration.upgrade(connection)
+        v20_8_1_ai_collaboration.upgrade(connection)
+        cols = {c["name"] for c in inspect(connection).get_columns("ai_orchestration")}
+        assert "review_enabled" in cols
+        saved = connection.execute(text("SELECT monthly_token_limit, review_enabled "
+                                        "FROM ai_orchestration WHERE org_id='legacy-org'")).one()
+        assert saved[0] == 2500
+        assert saved[1] in (False, 0)
+    engine.dispose()
