@@ -127,6 +127,8 @@ COMPOSE_PARALLEL_LIMIT=1 "${compose[@]}" build api worker "${facebook_services[@
 "${compose[@]}" stop api worker "${facebook_services[@]}"
 "${compose[@]}" run --rm --no-deps api python -m app.cli migrate-db --verified-backup-sha256 "$backup_sha256"
 COMPOSE_PARALLEL_LIMIT=1 "${compose[@]}" up -d --no-build db "${calc_services[@]}" api worker "${facebook_services[@]}" frontend proxy
+# Fail the release if the actual running API cannot encrypt stored credentials.
+"${compose[@]}" exec -T api python -c "from app.ai_gateway import encryption_ready; assert encryption_ready(), 'Cifrado IA sin inicializar'"
 wait_for_health "$target_ref"
 # Check the exact build and additive migration, and exercise the authenticated
 # Calc transport with a disposable workbook. No production dossier is created.
