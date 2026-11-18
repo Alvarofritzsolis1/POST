@@ -1,8 +1,8 @@
 """Recover Groq and Z.ai connections without ever returning or logging API Keys.
 
 Groq: ask the official account model catalog, then test actual Chat Completions.
-Z.ai: no assumption about a catalog endpoint; test a small, documented allowlist
-on the user's selected billing endpoint ONLY. No automatic switch of key plans.
+Z.ai: no assumption about a catalog endpoint; test a small documented allowlist
+on the Standard API endpoint ONLY. Coding Plan is not supported for GALANT.
 """
 from __future__ import annotations
 
@@ -69,7 +69,7 @@ def groq_models(conn: AIConnection) -> list[str]:
 
 
 def recover_provider(db: Session, conn: AIConnection) -> dict:
-    if not conn.encrypted_key or conn.provider not in ("groq", "zai", "zai_coding"):
+    if not conn.encrypted_key or conn.provider not in ("groq", "zai"):
         raise AIServiceError("No hay una conexión Groq o Z.ai recuperable.")
     if conn.provider == "groq":
         candidates = groq_models(conn)[:MAX_PROBES]
@@ -77,8 +77,7 @@ def recover_provider(db: Session, conn: AIConnection) -> dict:
             return {"ok": False, "attempts": 0,
                     "message": "Tu cuenta Groq no informa modelos compatibles. Revisa tus permisos en Groq Console."}
     else:
-        # Z.ai documents separate standard/coding-plan keys. Never silently
-        # move to the other billing URL. Restrict tests to two model choices.
+        # Never send a Standard API key to Coding Plan endpoints.
         candidates = list(dict.fromkeys(
             ([conn.model] if conn.model in ZAI_MODELS else []) + list(ZAI_MODELS)
         ))[:MAX_PROBES]
@@ -94,7 +93,7 @@ def recover_provider(db: Session, conn: AIConnection) -> dict:
             last_status="not_tested", last_checked_at=None,
         )
         # Reasoning models may need more tokens to emit visible text.
-        limit = 512 if (conn.provider.startswith("zai") or "gpt-oss" in model) else 128
+        limit = 512 if (conn.provider == "zai" or "gpt-oss" in model) else 128
         try:
             run_connection(db, target, task="connection_test",
                            instructions="Responde solo OK.",
@@ -131,7 +130,7 @@ def recover_provider(db: Session, conn: AIConnection) -> dict:
     conn.last_checked_at = utcnow()
     conn.last_status = "error"
     hint = ("Revisa si tienes una clave del tipo correcto y saldo o plan activo."
-            if conn.provider.startswith("zai") else
+            if conn.provider == "zai" else
             "Revisa los modelos habilitados en Groq Console.")
     return {
         "ok": False, "attempts": attempted,
