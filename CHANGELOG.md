@@ -1,3 +1,9 @@
+## 20.8.2-rc1 — Messenger: recuperación de conversaciones externas
+- Recuperación de mensajes entrantes cuando Meta no entregó o GALANT no procesó el webhook; botón de recuperación y sondeo de respaldo de bajo consumo.
+- Solo API oficial de conversaciones y mensajes, con token privado en facebook-publisher; no se crean respuestas automáticas retrospectivas ni se cambian fichas confirmadas.
+- Deduplicación por página y mensaje, bloqueo transaccional con el webhook, registro de errores seguro y pruebas sintéticas para cuentas externas.
+- La recuperación requiere credenciales vigentes y permisos autorizados por Meta; el código no puede eludir la revisión de aplicaciones ni renovar credenciales revocadas.
+
 ## 20.7.7-rc1 — Respuesta rápida a saludos y espera acotada
 - Espera del chat de hasta 10 segundos en la interfaz, con alternativa segura; inferencia local acotada a 8 segundos incluso con configuración heredada de 24.
 - Cinco ejemplos adicionales de trato respetuoso, orientación y atención humana, pendientes de aprobación.
