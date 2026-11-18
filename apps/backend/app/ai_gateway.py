@@ -127,6 +127,11 @@ def invoke(connection: AIConnection, *, instructions: str, prompt: str,
                 body["thinking"] = {"type": "disabled"}
             if connection.model.startswith("glm-5.3"):
                 body["temperature"] = 1.0
+        if (connection.provider == "nvidia"
+                and connection.model == "nvidia/nemotron-3.5-lightning-30b-a3b"):
+            # NVIDIA's documented fast path: avoid spending output on reasoning.
+            body["temperature"] = 1.0
+            body["chat_template_kwargs"] = {"enable_thinking": False}
         if connection.provider == "nvidia" and connection.model.startswith("deepseek-ai/"):
             # Use NVIDIA's documented defaults for DeepSeek V4 Flash.
             body["temperature"] = 1.0
