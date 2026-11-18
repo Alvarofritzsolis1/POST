@@ -19,7 +19,7 @@ from . import v81_models, configuration_models, javiera_models, javiera_v166_mod
 from . import facebook_crm_models  # isolated inbox data; no modifications to historical contractor records
 from . import galancito_knowledge_models
 from . import ai_models
-from .migrations import v20_7_5_galancito_learning, v20_8_0_ai_control_center, v20_8_1_ai_collaboration, v20_8_7_global_lightning
+from .migrations import v20_7_5_galancito_learning, v20_8_0_ai_control_center, v20_8_1_ai_collaboration, v20_8_7_global_lightning, v20_8_8_galancito_intake
 from .ai_global_lightning import sync_org as sync_org_global_lightning
 
 
@@ -101,6 +101,9 @@ def migrate(db):
     if not db.get(SchemaVersion, v20_8_7_global_lightning.MIGRATION_ID):
         v20_8_7_global_lightning.upgrade(db.connection())
         db.add(SchemaVersion(version=v20_8_7_global_lightning.MIGRATION_ID))
+    if not db.get(SchemaVersion, v20_8_8_galancito_intake.MIGRATION_ID):
+        v20_8_8_galancito_intake.upgrade(db.connection())
+        db.add(SchemaVersion(version=v20_8_8_galancito_intake.MIGRATION_ID))
 
 
 def find_admin(db, email: str) -> User:
