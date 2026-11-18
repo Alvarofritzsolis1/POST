@@ -275,6 +275,8 @@ def galancito_chat(body: ChatInput, user: User = Depends(authorized_user),
                 org_id=user.org_id if use_team else None)
         except RuntimeError:
             generated = None
+        if generated and private_data(generated):
+            generated = None
         if generated:
             generated = grounded_reply(generated, context)
         if generated:
