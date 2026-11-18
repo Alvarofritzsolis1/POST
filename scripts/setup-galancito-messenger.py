@@ -259,10 +259,10 @@ def run() -> None:
         "FACEBOOK_ORG_ID": org_id,
         "FACEBOOK_WEBHOOK_VERIFY_TOKEN": verify_token,
         "FACEBOOK_MESSAGING_ENABLED": "true",
-        "FACEBOOK_AI_AUTO_REPLY_ENABLED": (
-            old.get("FACEBOOK_AI_AUTO_REPLY_ENABLED", "false")
-            if old.get("GALANCITO_LOCAL_AI_ENABLED", "false").lower() == "true"
-            and old.get("FACEBOOK_AI_PROVIDER") == "ollama" else "false"
+        # Never silently disable an existing, consent-gated Messenger assistant.
+        # A verified external team also works; model choice is not tied to Ollama.
+        "FACEBOOK_AI_AUTO_REPLY_ENABLED": old.get(
+            "FACEBOOK_AI_AUTO_REPLY_ENABLED", "false"
         ),
     })
     print("   ✓ Copia privada anterior: " + backup.name)
