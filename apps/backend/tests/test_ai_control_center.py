@@ -766,21 +766,56 @@ def test_gemini_recovery_checks_later_listed_models(ai_env, monkeypatch):
     assert result.json()["attempts"] == 4
 
 
-def test_nvidia_recovery_replaces_unlisted_model_after_real_probe(ai_env, monkeypatch):
+def test_nvidia_recovery_never_substitutes_nemotron_for_deepseek(ai_env, monkeypatch):
+    """A DeepSeek connection must not pass a test using another model."""
     client = ai_env["client"]
     headers = signin(client)
-    saved = add(client, headers, name="NVIDIA Build · deepseek-ai/deepseek-v4.1-flash")
+    saved = add(client, headers, name="NVIDIA DeepSeek")
     requests = []
 
     def nvidia_response(request, timeout):
         requests.append(request)
         assert request.get_header("Authorization") == "Bearer nvapi-example-secret"
+        assert request.get_method() == "GET"
+        return FakeResponse({"data": [
+            {"id": "nvidia/nemotron-3.5-bolt-e4b"},
+            {"id": "nvidia/nemotron-3.5-embed-1b"},
+        ]})
+
+    monkeypatch.setattr(ai_gateway, "urlopen", nvidia_response)
+    result = client.post(ROOT + "/connections/" + saved["id"] + "/recover", headers=headers)
+    assert result.status_code == 200
+    assert result.json()["ok"] is False
+    assert result.json()["attempts"] == 0
+    assert "DeepSeek" in result.json()["message"]
+    assert len(requests) == 1
+    with ai_env["sessions"]() as db:
+        record = db.get(AIConnection, saved["id"])
+        assert record.model == "deepseek-ai/deepseek-v4.1-flash"
+        assert not record.enabled
+    assert "nvapi-example-secret" not in result.text
+
+
+def test_nvidia_deepseek_recovery_and_sampling_use_real_model(ai_env, monkeypatch):
+    """Recovery verifies the requested DeepSeek model with a genuine chat probe."""
+    client = ai_env["client"]
+    headers = signin(client)
+    saved = add(client, headers, name="NVIDIA DeepSeek")
+    calls = []
+
+    def nvidia_response(request, timeout):
+        calls.append(request)
+        assert request.get_header("Authorization") == "Bearer nvapi-example-secret"
         if request.get_method() == "GET":
             return FakeResponse({"data": [
+                {"id": "deepseek-ai/deepseek-v4.1-flash"},
                 {"id": "nvidia/nemotron-3.5-bolt-e4b"},
-                {"id": "nvidia/nemotron-3.5-embed-1b"},
             ]})
-        assert json.loads(request.data)["model"] == "nvidia/nemotron-3.5-bolt-e4b"
+        body = json.loads(request.data)
+        assert body["model"] == "deepseek-ai/deepseek-v4.1-flash"
+        assert body["temperature"] == 1.0
+        assert body["top_p"] == 0.95
+        assert body["max_tokens"] == 512
         return FakeResponse({"choices": [{"message": {"content": "OK"}}],
                              "usage": {"prompt_tokens": 8, "completion_tokens": 2}})
 
@@ -788,12 +823,12 @@ def test_nvidia_recovery_replaces_unlisted_model_after_real_probe(ai_env, monkey
     result = client.post(ROOT + "/connections/" + saved["id"] + "/recover", headers=headers)
     assert result.status_code == 200
     assert result.json()["ok"] is True
-    assert result.json()["model"] == "nvidia/nemotron-3.5-bolt-e4b"
+    assert result.json()["model"] == "deepseek-ai/deepseek-v4.1-flash"
     assert result.json()["connection"]["enabled"] is True
     assert result.json()["connection"]["status"] == "verified"
-    assert len(requests) == 2
+    assert len(calls) == 2
+    assert client.get(ROOT + "/usage").json()["total_tokens"] == 10
     assert "nvapi-example-secret" not in result.text
-
 
 def test_groq_recovers_from_active_models_using_saved_key(ai_env, monkeypatch):
     client = ai_env["client"]
