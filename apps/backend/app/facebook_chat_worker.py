@@ -341,7 +341,8 @@ def process_chat_next(session_factory=SessionLocal) -> bool:
             current = db.get(FacebookLead, lead_id)
             current_job = db.get(FacebookChatMessage, job_id)
             if (current is None or not _within_24h(current) or
-                    current_job is None or current_job.state != "sending" or
+                    current_job is None or current_job.state != (
+                        "drafting" if state == "ai_pending" else "sending") or
                     (state == "ai_pending" and (current.ai_paused or current.needs_support or
                      not current.ai_consent or current.ai_consent_state != (
                          "accepted_team" if ai_source == "team" else "accepted") or
