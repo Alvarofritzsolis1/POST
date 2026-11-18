@@ -766,6 +766,66 @@ def test_gemini_recovery_checks_later_listed_models(ai_env, monkeypatch):
     assert result.json()["attempts"] == 4
 
 
+
+def test_nvidia_lightning_vps_provision_is_org_scoped_and_reuses_connection(ai_env, monkeypatch):
+    """VPS setup writes an encrypted org-wide connection and does not touch Messenger."""
+    from app.ai_nvidia_setup import MODEL, provision, select_admin
+    from app.ai_models import AIOrchestration
+    client, sessions = ai_env["client"], ai_env["sessions"]
+    headers = signin(client)
+    ciphertext = ai_gateway.encrypt_key("nvapi-test-lightning")
+
+    with sessions.begin() as db:
+        # Two organizations require the administrator email to identify the target.
+        with pytest.raises(RuntimeError):
+            select_admin(db, None)
+        admin = select_admin(db, "admin@example.cl")
+        provision(db, admin, ciphertext, (11, 3), 120)
+    with sessions() as db:
+        records = list(db.scalars(select(AIConnection).where(
+            AIConnection.org_id == ai_env["org_id"], AIConnection.model == MODEL
+        )))
+        assert len(records) == 1
+        conn = records[0]
+        assert conn.enabled and conn.last_status == "verified"
+        assert ai_gateway.decrypt_key(conn.encrypted_key) == "nvapi-test-lightning"
+        policy = db.get(AIOrchestration, ai_env["org_id"])
+        assert policy.enabled and policy.task_routes["red_obras"] == conn.id
+        assert "messenger" not in policy.task_routes
+        assert policy.monthly_token_limit == 100000
+
+    with sessions.begin() as db:
+        admin = select_admin(db, "admin@example.cl")
+        provision(db, admin, ciphertext, (13, 4), 210)
+    with sessions() as db:
+        assert db.scalar(select(AIConnection).where(
+            AIConnection.org_id == ai_env["org_id"], AIConnection.model == MODEL
+        )) is not None
+        assert len(list(db.scalars(select(AIConnection).where(
+            AIConnection.org_id == ai_env["org_id"], AIConnection.model == MODEL
+        )))) == 1
+    bootstrap = client.get(ROOT + "/bootstrap").json()
+    assert len([x for x in bootstrap["connections"] if x["model"] == MODEL]) == 1
+    assert "nvapi-test-lightning" not in json.dumps(bootstrap)
+
+
+def test_nvidia_lightning_disables_reasoning_for_quick_replies(ai_env, monkeypatch):
+    client = ai_env["client"]
+    headers = signin(client)
+    record = add(client, headers, name="Lightning rápido",
+                 model="nvidia/nemotron-3.5-lightning-30b-a3b")
+    def fake_open(request, timeout):
+        body = json.loads(request.data)
+        assert body["model"] == "nvidia/nemotron-3.5-lightning-30b-a3b"
+        assert body["chat_template_kwargs"] == {"enable_thinking": False}
+        assert body["temperature"] == 1.0
+        return FakeResponse({"choices": [{"message": {"content": "OK"}}],
+                             "usage": {"prompt_tokens": 6, "completion_tokens": 1}})
+    monkeypatch.setattr(ai_gateway, "urlopen", fake_open)
+    result = client.post(ROOT + "/connections/" + record["id"] + "/test", headers=headers)
+    assert result.status_code == 200 and result.json()["ok"] is True
+
+
 def test_nvidia_recovery_never_substitutes_nemotron_for_deepseek(ai_env, monkeypatch):
     """A DeepSeek connection must not pass a test using another model."""
     client = ai_env["client"]
