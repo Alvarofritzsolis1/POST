@@ -82,10 +82,17 @@ def _team_from_message(text: str, previous: str) -> bool | None:
 
 def apply_intake(lead, message: str, prior_prompt: str = "") -> None:
     """Store only volunteered operational facts; never overwrite a manually verified trade."""
-    if private_data(message) or len(message) > 400 or "?" in message:
+    if private_data(message) or len(message) > 400:
         return
     value, prev = plain(message), plain(prior_prompt)
     if not value:
+        return
+    declares_own_work = bool(re.search(
+        r"\\b(?:soy|soi|trabajo|trabajamos|hago|hacemos|tengo|tenemos|somos|"
+        r"ofrezco|ofresco|busco|postulo|me dedico|puedo empezar|puedo ir)\\b", value))
+    # A question about painters does not make the sender a painter. However,
+    # 'soy pintor, ¿hay pega?' still supplies a useful explicit declaration.
+    if ("?" in message or "¿" in message) and not declares_own_work:
         return
     intent = _intent_from_message(message, prior_prompt)
     if intent and getattr(lead, "interest_type", "unknown") == "unknown":
@@ -99,7 +106,12 @@ def apply_intake(lead, message: str, prior_prompt: str = "") -> None:
         "tengo empresa", "tengo una empresa", "somos una empresa", "represento una empresa"
     )):
         lead.entity_type = "company"
-    if facts.specialty and (not lead.specialty or lead.specialty_source == "message"):
+    declared_trade = declares_own_work or (
+        len(value.split()) <= 2 and "?" not in message) or (
+        is_intake_prompt(prior_prompt) and any(s in prev for s in
+        (_TRADE_QUESTION, "que oficio", "que servicio", "a que oficio")))
+    if facts.specialty and declared_trade and (
+        not lead.specialty or lead.specialty_source == "message"):
         lead.specialty, lead.specialty_source = facts.specialty, "message"
     # An unfamiliar trade may still be self-declared. Keep it marked as
     # unverified; never treat it as an approved official specialty.
@@ -127,7 +139,9 @@ def apply_intake(lead, message: str, prior_prompt: str = "") -> None:
             m = re.fullmatch(r"(\d{1,3})\s*(?:personas|maestros|trabajadores|gente)?", value)
         if m and 1 <= int(m.group(1)) <= 500:
             lead.workers = int(m.group(1))
-    if not lead.experience and any(s in prev for s in (_EXPERIENCE_QUESTION, "cuanta experiencia", "cuantos anos")):
+    if not lead.experience and (any(s in prev for s in (
+        _EXPERIENCE_QUESTION, "cuanta experiencia", "cuantos anos")) or
+        ("experiencia" in value and re.search(r"\\b\\d{1,2}\\s+(?:anos?|mes(?:es)?)\\b", value))):
         if value in {"ninguna", "no tengo", "sin experiencia", "no tengo experiencia",
                      "recién comienzo", "recien comienzo", "nuevo", "nuevo en esto"}:
             lead.experience = "Sin experiencia declarada"
@@ -144,6 +158,8 @@ def apply_intake(lead, message: str, prior_prompt: str = "") -> None:
                 and not re.search(r"\d|@|http|\b(?:calle|pasaje|avenida|direccion|numero|rut)\b", plain(commune))
                 and plain(commune) not in {"no se", "no", "si"}):
             lead.work_area = commune
+    if not lead.availability and facts.availability:
+        lead.availability = facts.availability
     if not lead.availability and (_AVAILABILITY_QUESTION in prev or
                                   value in {"desde hoy", "desde manana", "inmediato", "inmediata"}):
         common = {"hoy", "desde hoy", "manana", "desde manana", "inmediata",
@@ -164,7 +180,7 @@ def next_intake_reply(message: str, facts: dict, prior_prompt: str = "") -> str 
         return None
     norm = plain(message)
     engaged = (
-        info.intent in {"job_seeker", "company_offer", "capacity", "trade_offer", "apply"} or
+        info.intent in {"greeting", "job_seeker", "company_offer", "capacity", "trade_offer", "apply"} or
         is_intake_prompt(prior_prompt) or
         any(p in norm for p in ("ofrezco servicios", "ofresco servicios", "soy contratista",
                                "busco pega", "busco trabajo", "hago trabajos",
@@ -173,10 +189,10 @@ def next_intake_reply(message: str, facts: dict, prior_prompt: str = "") -> str 
     if not engaged:
         return None
     intent = facts.get("interest_type", "unknown")
-    if intent == "unknown":
-        question = "¿Ofreces trabajos por tu cuenta (1) o buscas empleo (2)?"
-    elif not facts.get("specialty"):
+    if not facts.get("specialty"):
         question = "¿Qué trabajo realizas? Por ejemplo, pintura o carpintería."
+    elif intent == "unknown":
+        question = "¿Ofreces trabajos por tu cuenta (1) o buscas empleo (2)?"
     elif facts.get("team_available") is None:
         question = "¿Trabajas solo (1) o puedes venir con otras personas (2)?"
     elif facts.get("team_available") is True and facts.get("workers") is None:
