@@ -16,6 +16,8 @@ from .ai_gateway import (
     run_connection,
 )
 from .ai_models import AIConnection, AIOrchestration, AIUsage
+from .ai_model_recovery import recover_gemini
+from .ai_provider_recovery import recover_provider
 from .galancito_knowledge_models import Knowledge, AssistantRun
 from .db import get_db
 from .models import AuditEvent, User, utcnow
@@ -245,7 +247,8 @@ def test_connection(connection_id: str, user: User = Depends(administrator),
     try:
         answer = run_connection(db, conn, task="connection_test",
                                 instructions="Responde brevemente en español.",
-                                prompt="Prueba de conexión. Responde OK.", max_output_tokens=128)
+                                prompt="Prueba de conexión. Responde OK.",
+                                max_output_tokens=(512 if (conn.provider == "zai" or "gpt-oss" in conn.model) else 128))
         log_change(db, user, "connection.test", conn.id)
         db.commit()
     except AIServiceError as exc:
@@ -254,6 +257,25 @@ def test_connection(connection_id: str, user: User = Depends(administrator),
         return {"ok": False, "message": str(exc), "connection": connection_view(conn)}
     return {"ok": True, "message": "Conexión verificada: " + answer[:60],
             "connection": connection_view(conn)}
+
+
+@router.post("/connections/{connection_id}/recover")
+def recover_connection(connection_id: str, user: User = Depends(administrator),
+                       db: Session = Depends(get_db)):
+    """One-click repair for Gemini/Groq/Z.ai; never returns a key."""
+    conn = existing(db, user, connection_id)
+    if conn.provider not in ("gemini", "groq", "zai"):
+        raise HTTPException(422, "La recuperación automática no está disponible para este proveedor")
+    if not conn.encrypted_key:
+        raise HTTPException(422, "Primero guarda una API Key de este proveedor")
+    try:
+        outcome = recover_gemini(db, conn) if conn.provider == "gemini" else recover_provider(db, conn)
+    except AIServiceError as exc:
+        # Credential, network or listing errors are safe to display, not the API body.
+        outcome = {"ok": False, "message": str(exc), "attempts": 0}
+    log_change(db, user, "connection.auto_recover" if outcome["ok"] else "connection.auto_recover_failed", conn.id)
+    db.commit()
+    return {**outcome, "connection": connection_view(conn)}
 
 
 @router.get("/usage")

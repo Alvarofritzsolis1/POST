@@ -545,3 +545,277 @@ def test_ai_gateway_refuses_redirects_to_another_host():
         "https://attacker.example.invalid/collect",
     )
     assert target is None
+
+
+
+def test_gemini_404_recovers_using_list_and_actual_generate(ai_env, monkeypatch):
+    """A list entry is not proof; the new model must really generate text."""
+    from urllib.error import HTTPError
+    from app import ai_model_recovery
+    client = ai_env["client"]
+    headers = signin(client)
+    saved = add(client, headers, name="Google Gemini · gemini-2.5-flash",
+                provider="gemini", model="gemini-2.5-flash", key="AIza-synthetic-not-real")
+    calls = []
+
+    def fake_open(request, timeout):
+        calls.append((request.get_method(), request.full_url, request.get_header("X-goog-api-key")))
+        assert "AIza-synthetic-not-real" not in request.full_url
+        if request.get_method() == "GET":
+            return FakeResponse({"models": [
+                {"name": "models/gemini-2.5-flash", "supportedGenerationMethods": ["generateContent"]},
+                {"name": "models/gemini-3.8-flash", "supportedGenerationMethods": ["generateContent"]},
+                {"name": "models/text-embedding-004", "supportedGenerationMethods": ["embedContent"]},
+            ]})
+        if "gemini-2.5-flash:generateContent" in request.full_url:
+            raise HTTPError(request.full_url, 404, "Cannot access restricted old model", None, None)
+        if "gemini-3.8-flash:generateContent" in request.full_url:
+            return FakeResponse({"candidates": [{"content": {"parts": [{"text": "OK"}]}}],
+                                 "usageMetadata": {"promptTokenCount": 11, "candidatesTokenCount": 5}})
+        raise AssertionError("Unexpected API path")
+
+    monkeypatch.setattr(ai_gateway, "urlopen", fake_open)
+    previous = client.post(ROOT + "/connections/" + saved["id"] + "/test", headers=headers)
+    assert previous.json()["ok"] is False
+    assert "(HTTP 404)" in previous.json()["message"]
+
+    recovered = client.post(ROOT + "/connections/" + saved["id"] + "/recover", headers=headers)
+    assert recovered.status_code == 200, recovered.text
+    result = recovered.json()
+    assert result["ok"] is True
+    assert result["model"] == "gemini-3.8-flash"
+    assert result["attempts"] == 1
+    assert result["connection"]["enabled"] is True
+    assert result["connection"]["status"] == "verified"
+    assert result["connection"]["name"] == "Google Gemini · gemini-3.8-flash"
+    assert "api_key" not in recovered.text and "AIza-synthetic-not-real" not in recovered.text
+    assert calls[0][2] == "AIza-synthetic-not-real"
+    with ai_env["sessions"]() as db:
+        record = db.get(AIConnection, saved["id"])
+        assert ai_gateway.decrypt_key(record.encrypted_key) == "AIza-synthetic-not-real"
+        assert record.model == "gemini-3.8-flash"
+    report = client.get(ROOT + "/usage").json()
+    assert report["total_calls"] == 2  # 404 and successful candidate
+    assert report["total_tokens"] == 16
+
+
+def test_gemini_catalog_may_list_inaccessible_model_then_try_next(ai_env, monkeypatch):
+    """A listed 3.8 that returns 404 must not be reported as verified."""
+    from urllib.error import HTTPError
+    client = ai_env["client"]
+    headers = signin(client)
+    saved = add(client, headers, name="Primario Gemini",
+                provider="gemini", model="gemini-2.5-flash")
+    paths = []
+
+    def fake_open(request, timeout):
+        paths.append(request.full_url)
+        if request.get_method() == "GET":
+            return FakeResponse({"models": [
+                {"name": "models/gemini-3.8-flash", "supportedGenerationMethods": ["generateContent"]},
+                {"name": "models/gemini-3.5-flash-lite", "supportedGenerationMethods": ["generateContent"]},
+                {"name": "models/gemini-2.5-flash", "supportedGenerationMethods": ["generateContent"]},
+                {"name": "models/gemini-pro", "supportedGenerationMethods": ["generateContent"]},
+            ]})
+        if "gemini-3.8-flash:" in request.full_url:
+            raise HTTPError(request.full_url, 404, "restricted", None, None)
+        if "gemini-3.5-flash-lite:" in request.full_url:
+            return FakeResponse({"candidates": [{"content": {"parts": [{"text": "OK Lite"}]}}],
+                                 "usageMetadata": {"promptTokenCount": 3, "candidatesTokenCount": 1}})
+        raise AssertionError("Unexpected model probe")
+
+    monkeypatch.setattr(ai_gateway, "urlopen", fake_open)
+    r = client.post(ROOT + "/connections/" + saved["id"] + "/recover", headers=headers)
+    assert r.status_code == 200 and r.json()["ok"] is True
+    assert r.json()["model"] == "gemini-3.5-flash-lite"
+    assert r.json()["attempts"] == 2
+    assert sum("generateContent" in p for p in paths) == 2
+    assert all("gemini-pro" not in p for p in paths)
+    usage = client.get(ROOT + "/usage").json()
+    assert usage["total_calls"] == 2
+    assert usage["total_tokens"] == 4
+
+
+def test_gemini_catalog_failure_does_not_erase_key_or_model(ai_env, monkeypatch):
+    """Invalid credentials stop recovery without altering existing encrypted key."""
+    from urllib.error import HTTPError
+    client = ai_env["client"]
+    headers = signin(client)
+    saved = add(client, headers, name="Recuperación fallida",
+                provider="gemini", model="gemini-2.5-flash", key="AIza-example-private")
+    def invalid(request, timeout):
+        raise HTTPError(request.full_url, 401, "secret remote details", None, None)
+    monkeypatch.setattr(ai_gateway, "urlopen", invalid)
+    result = client.post(ROOT + "/connections/" + saved["id"] + "/recover", headers=headers)
+    assert result.status_code == 200
+    assert result.json()["ok"] is False
+    assert result.json()["attempts"] == 0
+    assert "AIza-example-private" not in result.text
+    with ai_env["sessions"]() as db:
+        record = db.get(AIConnection, saved["id"])
+        assert record.model == "gemini-2.5-flash"
+        assert record.encrypted_key
+    assert client.get(ROOT + "/usage").json()["total_calls"] == 0
+
+
+def test_recovery_is_admin_only_and_org_scoped(ai_env):
+    client = ai_env["client"]
+    headers = signin(client)
+    saved = add(client, headers, name="Conexión protegida", provider="gemini",
+                model="gemini-2.5-flash")
+    assert client.post(ROOT + "/connections/" + saved["id"] + "/recover").status_code in (401, 403)
+    signin(client, "resident")
+    assert client.post(ROOT + "/connections/" + saved["id"] + "/recover").status_code == 403
+    outsider = signin(client, "outside")
+    assert client.post(ROOT + "/connections/" + saved["id"] + "/recover", headers=outsider).status_code == 404
+
+
+def test_recovery_non_gemini_refused(ai_env):
+    client = ai_env["client"]
+    headers = signin(client)
+    saved = add(client, headers, name="Proveedor no recuperable", provider="nvidia",
+                model="deepseek-ai/deepseek-v4.1-flash")
+    result = client.post(ROOT + "/connections/" + saved["id"] + "/recover", headers=headers)
+    assert result.status_code == 422
+
+
+def test_gemini_probes_are_bounded(ai_env, monkeypatch):
+    from urllib.error import HTTPError
+    client = ai_env["client"]
+    headers = signin(client)
+    saved = add(client, headers, name="Gemini sin acceso",
+                provider="gemini", model="gemini-2.5-flash")
+    hits = []
+    def no_access(request, timeout):
+        if request.get_method() == "GET":
+            return FakeResponse({"models": [
+                {"name": "models/gemini-3.8-flash", "supportedGenerationMethods": ["generateContent"]},
+                {"name": "models/gemini-3.7-flash", "supportedGenerationMethods": ["generateContent"]},
+                {"name": "models/gemini-3.6-flash", "supportedGenerationMethods": ["generateContent"]},
+                {"name": "models/gemini-3.5-flash-lite", "supportedGenerationMethods": ["generateContent"]},
+            ]})
+        hits.append(request.full_url)
+        raise HTTPError(request.full_url, 404, "model unavailable", None, None)
+    monkeypatch.setattr(ai_gateway, "urlopen", no_access)
+    response = client.post(ROOT + "/connections/" + saved["id"] + "/recover", headers=headers)
+    assert response.status_code == 200
+    assert response.json()["ok"] is False
+    assert response.json()["attempts"] == 3
+    assert len(hits) == 3
+    with ai_env["sessions"]() as db:
+        conn = db.get(AIConnection, saved["id"])
+        assert conn.model == "gemini-2.5-flash" and not conn.enabled
+    assert client.get(ROOT + "/usage").json()["total_calls"] == 3
+
+
+def test_groq_recovers_from_active_models_using_saved_key(ai_env, monkeypatch):
+    client = ai_env["client"]
+    headers = signin(client)
+    item = add(client, headers, name="Groq recuperación", provider="groq",
+               model="llama-3.3-70b-versatile", key="gsk-synthetic-only")
+    seen = []
+    def fake(req, timeout):
+        seen.append((req.get_method(), req.full_url, req.get_header("Authorization")))
+        if req.get_method() == "GET":
+            return FakeResponse({"data": [
+                {"id": "whisper-large-v3", "active": True},
+                {"id": "llama-3.3-70b-versatile", "active": False},
+                {"id": "llama-3.1-8b-instant", "active": True}]})
+        assert json.loads(req.data)["model"] == "llama-3.1-8b-instant"
+        return FakeResponse({"choices": [{"message": {"content": "OK"}}],
+                             "usage": {"prompt_tokens": 10, "completion_tokens": 4}})
+    monkeypatch.setattr(ai_gateway, "urlopen", fake)
+    result = client.post(ROOT + "/connections/" + item["id"] + "/recover", headers=headers)
+    assert result.status_code == 200 and result.json()["ok"] is True, result.text
+    assert result.json()["model"] == "llama-3.1-8b-instant"
+    assert result.json()["connection"]["enabled"] is True
+    assert result.json()["connection"]["status"] == "verified"
+    assert len(seen) == 2
+    assert all(x[2] == "Bearer gsk-synthetic-only" for x in seen)
+    assert "gsk-synthetic-only" not in result.text
+    assert client.get(ROOT + "/usage").json()["total_tokens"] == 14
+
+
+def test_zai_standard_endpoint_and_thinking(ai_env, monkeypatch):
+    client = ai_env["client"]
+    headers = signin(client)
+    item = add(client, headers, name="Z.ai estándar",
+               provider="zai", model="glm-4.7", key="zai-test-only")
+    calls = []
+    def fake(req, timeout):
+        calls.append((req.full_url, req.get_header("Authorization"), json.loads(req.data)))
+        return FakeResponse({"choices": [{"message": {"content": "OK"}}],
+                             "usage": {"prompt_tokens": 13, "completion_tokens": 6}})
+    monkeypatch.setattr(ai_gateway, "urlopen", fake)
+    result = client.post(ROOT + "/connections/" + item["id"] + "/test", headers=headers)
+    assert result.status_code == 200 and result.json()["ok"] is True, result.text
+    assert len(calls) == 1
+    url, auth, body = calls[0]
+    assert url == "https://api.z.ai/api/paas/v4/chat/completions" and auth == "Bearer zai-test-only"
+    assert body["thinking"] == {"type": "disabled"} and body["model"] == "glm-4.7"
+    assert "zai-test-only" not in result.text
+
+
+def test_zai_standard_recovery_never_uses_coding_plan(ai_env, monkeypatch):
+    from urllib.error import HTTPError
+    client = ai_env["client"]
+    headers = signin(client)
+    item = add(client, headers, name="Z.ai estándar", provider="zai", model="glm-4.7")
+    urls = []
+    def fake(req, timeout):
+        urls.append(req.full_url)
+        payload = json.loads(req.data)
+        if payload["model"] == "glm-4.7":
+            raise HTTPError(req.full_url, 404, "not permitted", None, None)
+        assert payload["model"] == "glm-5.3-flash"
+        assert "thinking" not in payload and payload["temperature"] == 1.0
+        return FakeResponse({"choices": [{"message": {"content": "OK"}}],
+                             "usage": {"prompt_tokens": 30, "completion_tokens": 100}})
+    monkeypatch.setattr(ai_gateway, "urlopen", fake)
+    r = client.post(ROOT + "/connections/" + item["id"] + "/recover", headers=headers)
+    assert r.status_code == 200 and r.json()["ok"] is True, r.text
+    assert r.json()["model"] == "glm-5.3-flash" and r.json()["attempts"] == 2
+    assert len(urls) == 2
+    assert all(url == "https://api.z.ai/api/paas/v4/chat/completions" for url in urls)
+
+
+def test_groq_and_zai_auth_errors_do_not_retry_or_expose_secrets(ai_env, monkeypatch):
+    from urllib.error import HTTPError
+    client = ai_env["client"]
+    headers = signin(client)
+    groq = add(client, headers, name="Groq bad key", provider="groq",
+               model="llama-3.1-8b-instant")
+    zai = add(client, headers, name="Zai bad key", provider="zai",
+              model="glm-4.7")
+    seen = []
+    def fake(req, timeout):
+        seen.append(req.full_url)
+        raise HTTPError(req.full_url, 401, "raw-secret-payload", None, None)
+    monkeypatch.setattr(ai_gateway, "urlopen", fake)
+    for obj in (groq, zai):
+        r = client.post(ROOT + "/connections/" + obj["id"] + "/recover", headers=headers)
+        assert r.status_code == 200 and r.json()["ok"] is False
+        assert "raw-secret-payload" not in r.text
+    assert len(seen) == 2
+
+
+def test_recovery_providers_are_org_scoped(ai_env):
+    client = ai_env["client"]
+    headers = signin(client)
+    for provider, model in (("groq", "llama-3.1-8b-instant"), ("zai", "glm-4.7")):
+        row = add(client, headers, name="Scoped " + provider, provider=provider, model=model)
+        outsider = signin(client, "outside")
+        assert client.post(ROOT + "/connections/" + row["id"] + "/recover", headers=outsider).status_code == 404
+        headers = signin(client)
+
+
+def test_zai_coding_plan_not_supported_for_multiuser_application(ai_env):
+    client = ai_env["client"]
+    headers = signin(client)
+    response = client.post(ROOT + "/connections", headers=headers, json={
+        "name": "Coding Plan inappropriate for Red de Obras",
+        "provider": "zai_coding", "model": "glm-5.3-flash",
+        "api_key": "fake-nonproduction-only",
+    })
+    assert response.status_code == 422
+    assert "fake-nonproduction-only" not in response.text

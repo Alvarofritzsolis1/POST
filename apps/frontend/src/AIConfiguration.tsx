@@ -35,10 +35,18 @@ type Editor = {
 };
 const base = "/admin/ai";
 const MODEL_OPTIONS: Record<string, Array<{ id: string; label: string }>> = {
-  gemini: [{ id: "gemini-2.5-flash", label: "Gemini 2.5 Flash · rápido" }],
+  gemini: [
+    { id: "gemini-3.8-flash", label: "Gemini 3.8 Flash · recomendado" },
+    { id: "gemini-3.5-flash-lite", label: "Gemini 3.5 Flash Lite · económico" },
+  ],
   groq: [
+    { id: "llama-3.1-8b-instant", label: "Llama 3.1 8B · rápido y ligero" },
+    { id: "openai/gpt-oss-20b", label: "GPT-OSS 20B · razonamiento" },
     { id: "llama-3.3-70b-versatile", label: "Llama 3.3 70B · conversaciones" },
-    { id: "openai/gpt-oss-120b", label: "GPT-OSS 120B · razonamiento" },
+  ],
+  zai: [
+    { id: "glm-4.7", label: "GLM-4.7 · respuesta rápida" },
+    { id: "glm-5.3-flash", label: "GLM-5.3 Flash · razonamiento" },
   ],
   nvidia: [{ id: "deepseek-ai/deepseek-v4.1-flash", label: "DeepSeek V4.1 Flash" }],
   openai: [{ id: "gpt-4.1-mini", label: "GPT-4.1 Mini" }],
@@ -46,6 +54,9 @@ const MODEL_OPTIONS: Record<string, Array<{ id: string; label: string }>> = {
   openrouter: [{ id: "openai/gpt-4o-mini", label: "GPT-4o Mini vía OpenRouter" }],
 };
 const defaultModel = (provider: string) => MODEL_OPTIONS[provider]?.[0]?.id || "";
+const CAN_RECOVER = new Set(["gemini", "groq", "zai"]);
+const recoverableError = (message: string) =>
+  /(HTTP 400|HTTP 404|respondió sin texto|sin texto utilizable)/i.test(message);
 const empty: Editor = {
   name: "", provider: "gemini", model: defaultModel("gemini"), api_key: "", enabled: false,
   price_input: "", price_output: "",
@@ -164,10 +175,18 @@ export default function AIConfiguration() {
       } catch (err) {
         outcome = { ok: false, message: errorMessage(err) };
       }
+      if (!outcome.ok && CAN_RECOVER.has(form.provider) && recoverableError(outcome.message)) {
+        const recovered = await request<{ ok: boolean; message: string; model?: string }>(
+          base + "/connections/" + encodeURIComponent(saved.id) + "/recover", { method: "POST" });
+        outcome = recovered;
+      }
       if (outcome.ok) {
-        await request(base + "/connections/" + encodeURIComponent(saved.id), {
-          method: "PATCH", body: JSON.stringify({ enabled: true }),
-        });
+        // Auto-recovery already enables its verified model; regular tests still need enabling.
+        if (!("model" in outcome)) {
+          await request(base + "/connections/" + encodeURIComponent(saved.id), {
+            method: "PATCH", body: JSON.stringify({ enabled: true }),
+          });
+        }
         setNotice("Conectada y verificada. Ya puedes asignarla a Galancito en Equipo de IA.");
       } else {
         // Keep encrypted credential to allow fixing/retrying without asking for VPS access.
@@ -179,10 +198,26 @@ export default function AIConfiguration() {
     });
   }
 
-  async function testConnection(id: string) {
-    await perform("test:" + id, async () => {
+  async function recoverModel(id: string) {
+    await perform("recover:" + id, async () => {
+      const result = await request<{ ok: boolean; message: string; model?: string }>(
+        base + "/connections/" + encodeURIComponent(id) + "/recover", { method: "POST" });
+      if (!result.ok) throw new Error(result.message);
+      setNotice(result.message);
+    });
+  }
+
+  async function testConnection(conn: Connection) {
+    await perform("test:" + conn.id, async () => {
       const result = await request<{ ok: boolean; message: string }>(
-        base + "/connections/" + encodeURIComponent(id) + "/test", { method: "POST" });
+        base + "/connections/" + encodeURIComponent(conn.id) + "/test", { method: "POST" });
+      if (!result.ok && CAN_RECOVER.has(conn.provider) && recoverableError(result.message)) {
+        const recovered = await request<{ ok: boolean; message: string }>(
+          base + "/connections/" + encodeURIComponent(conn.id) + "/recover", { method: "POST" });
+        if (!recovered.ok) throw new Error(recovered.message);
+        setNotice(recovered.message);
+        return;
+      }
       if (!result.ok) throw new Error(result.message);
       setNotice(result.message);
     });
@@ -254,7 +289,7 @@ export default function AIConfiguration() {
           </button>
         </div>
         <div className="ai-connections">
-          {data?.connections.length === 0 && <div className="ai-empty">Aún no has agregado proveedores. Comienza con Gemini, Groq o NVIDIA.</div>}
+          {data?.connections.length === 0 && <div className="ai-empty">Aún no has agregado proveedores. Comienza con Gemini, Groq, NVIDIA o Z.ai.</div>}
           {data?.connections.map(conn => {
             const state = !conn.has_key ? "Sin clave" : conn.status === "verified" ? (conn.enabled ? "Conectada" : "Verificada · pausada") : conn.status === "error" ? "Con error" : "Sin verificar";
             return <article className="ai-connection" key={conn.id}>
@@ -265,9 +300,10 @@ export default function AIConfiguration() {
               </div>
               <div className="ai-connection-meta"><span><KeyRound size={14} /> {conn.has_key ? "Clave protegida" : "Clave pendiente"}</span><span><Activity size={14} /> {displayDate(conn.last_checked_at)}</span></div>
               <div className="ai-actions">
-                <button type="button" disabled={Boolean(busy) || !conn.has_key} onClick={() => void testConnection(conn.id)}>Probar conexión</button>
+                <button type="button" disabled={Boolean(busy) || !conn.has_key} onClick={() => void testConnection(conn)}>Probar conexión</button>
+                {CAN_RECOVER.has(conn.provider) && conn.has_key && conn.status !== "verified" && <button type="button" className="ai-repair-button" disabled={Boolean(busy)} onClick={() => void recoverModel(conn.id)}>{busy === "recover:" + conn.id ? "Buscando…" : "Buscar modelo compatible"}</button>}
                 <button type="button" disabled={Boolean(busy)} onClick={() => edit(conn)}>Configurar</button>
-                <button type="button" disabled={Boolean(busy) || !conn.has_key} onClick={() => void toggleConnection(conn)}>{conn.enabled ? "Pausar" : "Habilitar"}</button>
+                <button type="button" disabled={Boolean(busy) || !conn.has_key || (!conn.enabled && conn.status !== "verified")} onClick={() => void toggleConnection(conn)}>{conn.enabled ? "Pausar" : "Habilitar"}</button>
                 <button type="button" disabled={Boolean(busy) || !conn.has_key} onClick={() => void disconnect(conn)} aria-label={"Desvincular " + conn.name}><Trash2 size={16} /></button>
               </div>
             </article>;
@@ -287,6 +323,9 @@ export default function AIConfiguration() {
                 onChange={e => { const next = e.target.value; setManualModel(false); setForm({ ...form, provider: next, model: defaultModel(next), api_key: "" }); }}>
                 {data?.providers.map(p => <option key={p.id} value={p.id}>{p.name}</option>)}
               </select>
+              {form.provider === "zai" && <small className="ai-provider-hint">
+                Utiliza una clave de API estándar. Puede consumir saldo o paquetes; el Coding Plan no se conecta a Galancito.
+              </small>}
             </label>
             <label>2. Selecciona el modelo
               <select value={manualModel ? "__manual__" : form.model}

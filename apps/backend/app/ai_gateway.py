@@ -24,6 +24,8 @@ from .models import utcnow
 PROVIDERS = {
     "gemini": {"name": "Google Gemini", "mode": "gemini", "url": None, "docs": "https://aistudio.google.com/apikey"},
     "groq": {"name": "Groq", "mode": "chat", "url": "https://api.groq.com/openai/v1/chat/completions", "docs": "https://console.groq.com/keys"},
+    # Coding Plan is licensed for supported development tools, not multi-user GALANT.
+    "zai": {"name": "Z.ai · API estándar", "mode": "chat", "url": "https://api.z.ai/api/paas/v4/chat/completions", "docs": "https://z.ai/manage-apikey/apikey-list"},
     "nvidia": {"name": "NVIDIA Build", "mode": "chat", "url": "https://integrate.api.nvidia.com/v1/chat/completions", "docs": "https://build.nvidia.com/settings/api-keys"},
     "openai": {"name": "OpenAI", "mode": "chat", "url": "https://api.openai.com/v1/chat/completions", "docs": "https://platform.openai.com/api-keys"},
     "mistral": {"name": "Mistral", "mode": "chat", "url": "https://api.mistral.ai/v1/chat/completions", "docs": "https://console.mistral.ai/"},
@@ -117,6 +119,13 @@ def invoke(connection: AIConnection, *, instructions: str, prompt: str,
             "temperature": 0.2,
             "stream": False,
         }
+        # GLM-4.7 supports non-thinking mode, suitable for short connectivity checks.
+        # GLM-5.3 Flash uses forced thinking: do NOT send thinking=disabled.
+        if connection.provider == "zai":
+            if connection.model.startswith(("glm-4.7", "glm-4.6", "glm-5.2")):
+                body["thinking"] = {"type": "disabled"}
+            if connection.model.startswith("glm-5.3"):
+                body["temperature"] = 1.0
         headers = {"Authorization": "Bearer " + token}
     headers["Content-Type"] = "application/json"
     request = Request(url, data=json.dumps(body).encode("utf-8"),
@@ -156,6 +165,8 @@ def invoke(connection: AIConnection, *, instructions: str, prompt: str,
     except (TypeError, ValueError, AttributeError, IndexError, OverflowError):
         raise AIServiceError("El proveedor respondió con un formato inválido.") from None
     if not text.strip():
+        if provider["mode"] == "chat" and connection.provider in ("groq", "zai"):
+            raise AIServiceError("El modelo respondió sin texto. Puede haber consumido los tokens de salida razonando; prueba otro modelo o aumenta el límite de tokens.")
         raise AIServiceError("El proveedor respondió sin texto utilizable.")
     return text.strip(), max(0, input_tokens), max(0, output_tokens)
 
