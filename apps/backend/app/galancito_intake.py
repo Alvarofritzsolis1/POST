@@ -146,9 +146,14 @@ def apply_intake(lead, message: str, prior_prompt: str = "") -> None:
             lead.specialty, lead.specialty_source = message.strip(), "message"
     team = _team_from_message(message, prior_prompt)
     if team is not None:
-        lead.team_available = team
-        if not team and lead.workers is None:
-            lead.workers = 1
+        # Explicit corrections take precedence over an old crew estimate.
+        # Capacity to bring people is not proof of employees.
+        if team is False:
+            lead.team_available, lead.workers = False, 1
+        else:
+            if lead.team_available is False and lead.workers == 1:
+                lead.workers = None
+            lead.team_available = True
     if facts.workers is not None:
         lead.workers = facts.workers
         if facts.workers > 1:
