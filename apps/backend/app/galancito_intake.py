@@ -88,8 +88,8 @@ def apply_intake(lead, message: str, prior_prompt: str = "") -> None:
     if not value:
         return
     declares_own_work = bool(re.search(
-        r"\\b(?:soy|soi|trabajo|trabajamos|hago|hacemos|tengo|tenemos|somos|"
-        r"ofrezco|ofresco|busco|postulo|me dedico|puedo empezar|puedo ir)\\b", value))
+        r"\b(?:soy|soi|trabajo|trabajamos|hago|hacemos|tengo|tenemos|somos|"
+        r"ofrezco|ofresco|busco|postulo|me dedico|puedo empezar|puedo ir)\b", value))
     # A question about painters does not make the sender a painter. However,
     # 'soy pintor, ¿hay pega?' still supplies a useful explicit declaration.
     if ("?" in message or "¿" in message) and not declares_own_work:
@@ -141,7 +141,7 @@ def apply_intake(lead, message: str, prior_prompt: str = "") -> None:
             lead.workers = int(m.group(1))
     if not lead.experience and (any(s in prev for s in (
         _EXPERIENCE_QUESTION, "cuanta experiencia", "cuantos anos")) or
-        ("experiencia" in value and re.search(r"\\b\\d{1,2}\\s+(?:anos?|mes(?:es)?)\\b", value))):
+        ("experiencia" in value and re.search(r"\b\d{1,2}\s+(?:anos?|mes(?:es)?)\b", value))):
         if value in {"ninguna", "no tengo", "sin experiencia", "no tengo experiencia",
                      "recién comienzo", "recien comienzo", "nuevo", "nuevo en esto"}:
             lead.experience = "Sin experiencia declarada"
