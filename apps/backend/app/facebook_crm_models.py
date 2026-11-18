@@ -36,6 +36,9 @@ class FacebookLead(Base):
     support_reason: Mapped[str] = mapped_column(String(250), default="")
     entity_type: Mapped[str] = mapped_column(String(20), nullable=False, default="unknown", server_default="unknown")
     has_employees: Mapped[bool | None] = mapped_column(Boolean, nullable=True)
+    # Volunteered professional intake, distinct from legal employment status.
+    team_available: Mapped[bool | None] = mapped_column(Boolean, nullable=True)
+    work_area: Mapped[str] = mapped_column(String(120), default="", server_default="")
     follow_up_on: Mapped[date | None] = mapped_column(Date, nullable=True)
     follow_up_note: Mapped[str] = mapped_column(String(240), default="")
     follow_up_by: Mapped[str | None] = mapped_column(String(36), nullable=True)
