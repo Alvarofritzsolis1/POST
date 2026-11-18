@@ -55,6 +55,29 @@ def graph_send(page_id: str, psid: str, message: str, token: str) -> str:
     return mid[:180]
 
 
+def graph_sender_action(page_id: str, psid: str, action: str, token: str) -> None:
+    """Show real Messenger read/typing indicators when the sender begins work.
+
+    These Meta actions are best-effort and never replace a confirmed message.
+    No token or page-scoped user identifier is logged.
+    """
+    if (action not in {"mark_seen", "typing_on", "typing_off"} or
+            not re.fullmatch(r"[0-9]{5,30}", page_id) or
+            not re.fullmatch(r"[0-9]{5,90}", psid)):
+        raise ValueError("Acción o identificador de Meta no válido")
+    payload = json.dumps({
+        "recipient": {"id": psid},
+        "sender_action": action,
+    }).encode("utf-8")
+    request = Request(
+        "https://graph.facebook.com/v27.0/" + page_id + "/messages",
+        data=payload, method="POST",
+        headers={"Authorization": "Bearer " + token, "Content-Type": "application/json"},
+    )
+    with _opener.open(request, timeout=3) as response:
+        response.read(2048)
+
+
 def meta_messenger_error(exc: HTTPError) -> str:
     """Conservar solo códigos estructurados; jamás el texto libre o credenciales de Meta.
 
@@ -230,6 +253,7 @@ def process_chat_next(session_factory=SessionLocal) -> bool:
             job.state, job.error = "cancelled", "El asistente automático está deshabilitado"
             return True
         job_id, lead_id, org_id, psid, state, body = job.id, lead.id, lead.org_id, lead.psid, job.state, job.body
+        automated_reply = job.operator_id is None
         inbound_at = lead.last_inbound_at
         prior_ai_replies = db.scalar(select(func.count(FacebookChatMessage.id)).where(
             FacebookChatMessage.lead_id == lead.id,
@@ -295,7 +319,18 @@ def process_chat_next(session_factory=SessionLocal) -> bool:
     uncertain = False
     result_id, problem = None, None
     source, timings, failed_ai = fast_source, {}, False
+    typing_started = False
     try:
+        if automated_reply:
+            # The worker is actively handling this contact now. Do not claim
+            # "seen" when a webhook merely stores a message or the bot is paused.
+            try:
+                graph_sender_action(cfg.facebook_page_id, psid, "mark_seen", cfg.facebook_page_token)
+                graph_sender_action(cfg.facebook_page_id, psid, "typing_on", cfg.facebook_page_token)
+                typing_started = True
+            except (HTTPError, URLError, TimeoutError, OSError, RuntimeError, ValueError):
+                # Indicators are cosmetic; never block the actual reply.
+                pass
         if state == "ai_pending":
             generated = fast
             # Short guided answers use local reasoning. Nuanced questions get a
@@ -359,6 +394,12 @@ def process_chat_next(session_factory=SessionLocal) -> bool:
     except (URLError, TimeoutError, OSError, RuntimeError, ValueError) as exc:
         problem = "No se confirmó el envío (" + type(exc).__name__ + "). Verifica Messenger."
         uncertain = isinstance(exc, (URLError, TimeoutError, OSError))
+    finally:
+        if typing_started:
+            try:
+                graph_sender_action(cfg.facebook_page_id, psid, "typing_off", cfg.facebook_page_token)
+            except (HTTPError, URLError, TimeoutError, OSError, RuntimeError, ValueError):
+                pass
     with session_factory.begin() as db:
         row = db.get(FacebookChatMessage, job_id, with_for_update=True)
         if row is None:
