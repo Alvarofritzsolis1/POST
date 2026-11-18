@@ -18,7 +18,8 @@ from .migrations import v0_6_0, v0_7_0, v8_1_0, v13_1_0, v16_0_0, v16_0_1, v16_6
 from . import v81_models, configuration_models, javiera_models, javiera_v166_models, javiera_workbook_models  # register additive tables
 from . import facebook_crm_models  # isolated inbox data; no modifications to historical contractor records
 from . import galancito_knowledge_models
-from .migrations import v20_7_5_galancito_learning
+from . import ai_models
+from .migrations import v20_7_5_galancito_learning, v20_8_0_ai_control_center
 
 
 def record_verified_backup(db, sha256: str):
@@ -90,6 +91,9 @@ def migrate(db):
     if not db.get(SchemaVersion, v20_7_5_galancito_learning.MIGRATION_ID):
         v20_7_5_galancito_learning.upgrade(db.connection())
         db.add(SchemaVersion(version=v20_7_5_galancito_learning.MIGRATION_ID))
+    if not db.get(SchemaVersion, v20_8_0_ai_control_center.MIGRATION_ID):
+        v20_8_0_ai_control_center.upgrade(db.connection())
+        db.add(SchemaVersion(version=v20_8_0_ai_control_center.MIGRATION_ID))
 
 
 def find_admin(db, email: str) -> User:
