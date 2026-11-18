@@ -88,7 +88,7 @@ const dateText = (v: string) => {
 
 export default function FacebookCenter({ catalog }: { catalog: Catalog }) {
   const [center, setCenter] = useState<Center | null>(null);
-  const [tab, setTab] = useState<"summary" | "tracking" | "inbox" | "pending" | "publications" | "testing" | "guides" | "knowledge" | "performance">("publications");
+  const [tab, setTab] = useState<"summary" | "tracking" | "inbox" | "pending" | "publications" | "testing" | "guides" | "knowledge" | "performance">("inbox");
   const [selectedId, setSelectedId] = useState("");
   const [detail, setDetail] = useState<Detail | null>(null);
   const [requirements, setRequirements] = useState<Requirement[]>([]);
