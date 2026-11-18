@@ -673,8 +673,8 @@ def test_recovery_is_admin_only_and_org_scoped(ai_env):
 def test_recovery_non_gemini_refused(ai_env):
     client = ai_env["client"]
     headers = signin(client)
-    saved = add(client, headers, name="Proveedor no Gemini", provider="groq",
-                model="llama-3.3-70b-versatile")
+    saved = add(client, headers, name="Proveedor no recuperable", provider="nvidia",
+                model="deepseek-ai/deepseek-v4.1-flash")
     result = client.post(ROOT + "/connections/" + saved["id"] + "/recover", headers=headers)
     assert result.status_code == 422
 
@@ -706,3 +706,108 @@ def test_gemini_probes_are_bounded(ai_env, monkeypatch):
         conn = db.get(AIConnection, saved["id"])
         assert conn.model == "gemini-2.5-flash" and not conn.enabled
     assert client.get(ROOT + "/usage").json()["total_calls"] == 3
+
+
+def test_groq_recovers_from_active_models_using_saved_key(ai_env, monkeypatch):
+    client = ai_env["client"]
+    headers = signin(client)
+    item = add(client, headers, name="Groq recuperación", provider="groq",
+               model="llama-3.3-70b-versatile", key="gsk-synthetic-only")
+    seen = []
+    def fake(req, timeout):
+        seen.append((req.get_method(), req.full_url, req.get_header("Authorization")))
+        if req.get_method() == "GET":
+            return FakeResponse({"data": [
+                {"id": "whisper-large-v3", "active": True},
+                {"id": "llama-3.3-70b-versatile", "active": False},
+                {"id": "llama-3.1-8b-instant", "active": True}]})
+        assert json.loads(req.data)["model"] == "llama-3.1-8b-instant"
+        return FakeResponse({"choices": [{"message": {"content": "OK"}}],
+                             "usage": {"prompt_tokens": 10, "completion_tokens": 4}})
+    monkeypatch.setattr(ai_gateway, "urlopen", fake)
+    result = client.post(ROOT + "/connections/" + item["id"] + "/recover", headers=headers)
+    assert result.status_code == 200 and result.json()["ok"] is True, result.text
+    assert result.json()["model"] == "llama-3.1-8b-instant"
+    assert result.json()["connection"]["enabled"] is True
+    assert result.json()["connection"]["status"] == "verified"
+    assert len(seen) == 2
+    assert all(x[2] == "Bearer gsk-synthetic-only" for x in seen)
+    assert "gsk-synthetic-only" not in result.text
+    assert client.get(ROOT + "/usage").json()["total_tokens"] == 14
+
+
+@pytest.mark.parametrize("provider, expected_url", [
+    ("zai", "https://api.z.ai/api/paas/v4/chat/completions"),
+    ("zai_coding", "https://api.z.ai/api/coding/paas/v4/chat/completions"),
+])
+def test_zai_selected_billing_endpoint_and_thinking(ai_env, monkeypatch, provider, expected_url):
+    client = ai_env["client"]
+    headers = signin(client)
+    item = add(client, headers, name="Z.ai " + provider,
+               provider=provider, model="glm-4.7", key="zai-test-only")
+    calls = []
+    def fake(req, timeout):
+        calls.append((req.full_url, req.get_header("Authorization"), json.loads(req.data)))
+        return FakeResponse({"choices": [{"message": {"content": "OK"}}],
+                             "usage": {"prompt_tokens": 13, "completion_tokens": 6}})
+    monkeypatch.setattr(ai_gateway, "urlopen", fake)
+    result = client.post(ROOT + "/connections/" + item["id"] + "/test", headers=headers)
+    assert result.status_code == 200 and result.json()["ok"] is True, result.text
+    assert len(calls) == 1
+    url, auth, body = calls[0]
+    assert url == expected_url and auth == "Bearer zai-test-only"
+    assert body["thinking"] == {"type": "disabled"} and body["model"] == "glm-4.7"
+    assert "zai-test-only" not in result.text
+
+
+def test_zai_coding_plan_recovery_never_moves_to_standard_billing(ai_env, monkeypatch):
+    from urllib.error import HTTPError
+    client = ai_env["client"]
+    headers = signin(client)
+    item = add(client, headers, name="Z.ai Coding", provider="zai_coding", model="glm-4.7")
+    urls = []
+    def fake(req, timeout):
+        urls.append(req.full_url)
+        payload = json.loads(req.data)
+        if payload["model"] == "glm-4.7":
+            raise HTTPError(req.full_url, 404, "not permitted", None, None)
+        assert payload["model"] == "glm-5.3-flash"
+        assert "thinking" not in payload and payload["temperature"] == 1.0
+        return FakeResponse({"choices": [{"message": {"content": "OK"}}],
+                             "usage": {"prompt_tokens": 30, "completion_tokens": 100}})
+    monkeypatch.setattr(ai_gateway, "urlopen", fake)
+    r = client.post(ROOT + "/connections/" + item["id"] + "/recover", headers=headers)
+    assert r.status_code == 200 and r.json()["ok"] is True, r.text
+    assert r.json()["model"] == "glm-5.3-flash" and r.json()["attempts"] == 2
+    assert len(urls) == 2
+    assert all(url == "https://api.z.ai/api/coding/paas/v4/chat/completions" for url in urls)
+
+
+def test_groq_and_zai_auth_errors_do_not_retry_or_expose_secrets(ai_env, monkeypatch):
+    from urllib.error import HTTPError
+    client = ai_env["client"]
+    headers = signin(client)
+    groq = add(client, headers, name="Groq bad key", provider="groq",
+               model="llama-3.1-8b-instant")
+    zai = add(client, headers, name="Zai bad key", provider="zai",
+              model="glm-4.7")
+    seen = []
+    def fake(req, timeout):
+        seen.append(req.full_url)
+        raise HTTPError(req.full_url, 401, "raw-secret-payload", None, None)
+    monkeypatch.setattr(ai_gateway, "urlopen", fake)
+    for obj in (groq, zai):
+        r = client.post(ROOT + "/connections/" + obj["id"] + "/recover", headers=headers)
+        assert r.status_code == 200 and r.json()["ok"] is False
+        assert "raw-secret-payload" not in r.text
+    assert len(seen) == 2
+
+
+def test_recovery_providers_are_org_scoped(ai_env):
+    client = ai_env["client"]
+    headers = signin(client)
+    for provider, model in (("groq", "llama-3.1-8b-instant"), ("zai", "glm-4.7")):
+        row = add(client, headers, name="Scoped " + provider, provider=provider, model=model)
+        outsider = signin(client, "outside")
+        assert client.post(ROOT + "/connections/" + row["id"] + "/recover", headers=outsider).status_code == 404
+        headers = signin(client)
