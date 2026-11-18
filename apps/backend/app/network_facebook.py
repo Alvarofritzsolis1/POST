@@ -6,6 +6,7 @@ import logging
 import re
 import signal
 import time
+import threading
 from urllib.error import HTTPError, URLError
 from urllib.parse import urlencode
 from urllib.request import HTTPRedirectHandler, Request, build_opener
@@ -372,6 +373,12 @@ def main() -> None:
     signal.signal(signal.SIGINT, stop)
     log.info("Worker de Facebook iniciado; sin publicación retroactiva.")
     from .facebook_chat_worker import process_chat_next, process_profile_next
+    from .facebook_inbox_sync import periodic_recovery
+    recovery_stop = threading.Event()
+    recovery_thread = threading.Thread(
+        target=periodic_recovery, args=(recovery_stop,),
+        name="facebook-inbox-recovery", daemon=True)
+    recovery_thread.start()
     while not stopping:
         try:
             if process_chat_next():
@@ -389,6 +396,8 @@ def main() -> None:
             if stopping:
                 break
             time.sleep(settings().facebook_worker_poll_seconds / 10)
+    recovery_stop.set()
+    recovery_thread.join(timeout=2)
 
 
 if __name__ == "__main__":
