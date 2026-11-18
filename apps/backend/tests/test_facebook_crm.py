@@ -705,7 +705,7 @@ def test_automatic_messenger_recovery_does_not_need_manual_click(network, monkey
     monkeypatch.setattr(recovery, "sync_page_inbox", fake_sync)
     signal = StopAfterFirstCycle()
     recovery.periodic_recovery(signal)
-    assert signal.waits == [15, 75]
+    assert signal.waits == [5, 30]
     assert len(observed) == 1
     assert observed[0]["org_id"] == org_id
     assert observed[0]["conversation_limit"] == 10
@@ -736,7 +736,7 @@ def test_automatic_messenger_recovery_backs_off_on_unauthorized(network, monkeyp
     monkeypatch.setattr(recovery, "sync_page_inbox", deny)
     signal = StopAfterFirstCycle()
     recovery.periodic_recovery(signal)
-    assert signal.waits == [15, 300]
+    assert signal.waits == [5, 300]
 
 
 def test_inbox_preview_disambiguates_multiple_unknown_contacts(network, monkeypatch):
