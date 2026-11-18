@@ -21,7 +21,7 @@ from .facebook_crm_models import FacebookLead, FacebookChatMessage, FacebookTrad
 from .models import utcnow
 from .network_service import key
 from .galancito_triage import analyze, quick_reply, private_data
-from .galancito_intake import next_intake_reply
+from .galancito_intake import next_intake_reply, natural_messenger_reply
 from .galancito_knowledge import retrieve, exact_answer, evidence_context
 from .galancito_runtime import infer, record_run
 from .galancito_local import last_timings
@@ -231,6 +231,12 @@ def process_chat_next(session_factory=SessionLocal) -> bool:
             return True
         job_id, lead_id, org_id, psid, state, body = job.id, lead.id, lead.org_id, lead.psid, job.state, job.body
         inbound_at = lead.last_inbound_at
+        prior_ai_replies = db.scalar(select(func.count(FacebookChatMessage.id)).where(
+            FacebookChatMessage.lead_id == lead.id,
+            FacebookChatMessage.direction == "outbound",
+            FacebookChatMessage.ai_generated.is_(True),
+            FacebookChatMessage.state == "sent",
+        )) or 0
         fast, intent, fast_source = None, "unknown", "local"
         if state == "ai_pending":
             recent = list(db.scalars(select(FacebookChatMessage).where(
@@ -260,8 +266,12 @@ def process_chat_next(session_factory=SessionLocal) -> bool:
                 learned = exact_answer(evidence)
                 if learned and not intake:
                     fast, fast_source = learned, "knowledge"
-            context = ("Consulta actual: " + latest[:800] + "\nHechos confirmados: " +
-                       json.dumps(facts, ensure_ascii=False) + "\nReferencias aprobadas: " +
+            professional_facts = {k: v for k, v in facts.items()
+                                  if k not in {"display_name", "name_opt_out"}}
+            context = ("Consulta actual: " + latest[:800] +
+                       "\nDatos profesionales declarados, no comprobados: " +
+                       json.dumps(professional_facts, ensure_ascii=False) +
+                       "\nReferencias aprobadas: " +
                        evidence_context(evidence))
             guides = list(db.scalars(select(FacebookTradeGuide).where(
                 FacebookTradeGuide.org_id == lead.org_id,
@@ -292,7 +302,7 @@ def process_chat_next(session_factory=SessionLocal) -> bool:
                         generated = infer(db, lambda: (
                             orchestrated_text(db, org_id, task="messenger",
                                               instructions=REPLY_INSTRUCTIONS, prompt=context,
-                                              max_output_tokens=160)
+                                              max_output_tokens=230)
                             if ai_source == "team" else
                             generate_text(REPLY_INSTRUCTIONS, context, 550)),
                             org_id=org_id if ai_source == "team" else None)
@@ -303,7 +313,7 @@ def process_chat_next(session_factory=SessionLocal) -> bool:
                 except (RuntimeError, ValueError):
                     generated, source, timings = None, "fallback", last_timings.get()
             if generated:
-                body = safe_ai_reply(generated)
+                body = natural_messenger_reply(safe_ai_reply(generated), prior_ai_replies)
             else:
                 # Si Ollama está saturado o apagado, Messenger continúa
                 # funcionando y la persona puede recibir apoyo humano.
