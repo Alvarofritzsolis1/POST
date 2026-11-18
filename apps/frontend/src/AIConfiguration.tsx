@@ -50,8 +50,7 @@ const MODEL_OPTIONS: Record<string, Array<{ id: string; label: string }>> = {
     { id: "glm-5.3-flash", label: "GLM-5.3 Flash · razonamiento" },
   ],
   nvidia: [
-    { id: "deepseek-ai/deepseek-v4-flash", label: "DeepSeek V4 Flash · recomendado" },
-    { id: "deepseek-ai/deepseek-v4-flash-0731", label: "DeepSeek V4 Flash 0731 · alternativa" },
+    { id: "nvidia/nemotron-3.5-lightning-30b-a3b", label: "Nemotron 3.5 Lightning · recomendado" },
     { id: "nvidia/nemotron-3.5-bolt-e4b", label: "Nemotron 3.5 Bolt · alternativa" },
   ],
   openai: [{ id: "gpt-4.1-mini", label: "GPT-4.1 Mini" }],
