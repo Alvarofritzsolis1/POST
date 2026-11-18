@@ -362,3 +362,9 @@
   .fbc-composer-actions { gap:7px; }
   .fbc-compose-hint { display:none; }
 }
+
+.fbc-contact-preview { display:block; overflow:hidden; white-space:nowrap; text-overflow:ellipsis; max-width:100%; }
+.fbc-name-confirm { max-width:175px; min-width:0; overflow:hidden; text-overflow:ellipsis; white-space:nowrap;
+  display:inline-flex; align-items:center; gap:5px; color:#086443; border-color:#bbdacb; font-size:11px; }
+.fbc-name-confirm svg { flex:none; }
+@media(max-width:1080px) { .fbc-name-confirm { display:none; } }
