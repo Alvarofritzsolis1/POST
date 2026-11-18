@@ -27,6 +27,7 @@ from .galancito_knowledge import retrieve, exact_answer, evidence_context, publi
 from .galancito_local import last_timings
 from .galancito_runtime import infer, record_run
 from .ai_gateway import orchestration_available, orchestrated_text
+from .ai_global_lightning import sync_org as sync_org_global_lightning
 from .ai_models import AIOrchestration
 from .galancito_flow import safe_ai_reply, grounded_reply
 
@@ -117,6 +118,8 @@ def _local_reply(message: str, area: str, titles: list[str], guides: list[Facebo
 
 @router.get("/status")
 def galancito_status(user: User = Depends(authorized_user), db: Session = Depends(get_db)):
+    if sync_org_global_lightning(db, user.org_id):
+        db.commit()
     cfg = settings()
     available = galancito_red_ai_available(cfg)
     team_available = orchestration_available(db, user.org_id, "red_obras")
@@ -136,6 +139,8 @@ def galancito_status(user: User = Depends(authorized_user), db: Session = Depend
 def galancito_chat(body: ChatInput, user: User = Depends(authorized_user),
                    db: Session = Depends(get_db)):
     started = perf_counter()
+    if sync_org_global_lightning(db, user.org_id):
+        db.commit()
     text = body.message.strip()
     if not text:
         raise HTTPException(422, "Ingresa una consulta")
