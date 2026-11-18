@@ -182,6 +182,7 @@ def orchestrated_text(db: Session, org_id: str, *, task: str, instructions: str,
         return None
     if policy.monthly_token_limit and monthly_tokens(db, org_id) >= policy.monthly_token_limit:
         return None
+    started = time.perf_counter()
     connections = list(db.scalars(select(AIConnection).where(
         AIConnection.org_id == org_id, AIConnection.enabled.is_(True))))
     primary_id = (policy.task_routes or {}).get(task)
@@ -191,9 +192,14 @@ def orchestrated_text(db: Session, org_id: str, *, task: str, instructions: str,
     for conn in ordered:
         if not conn.encrypted_key:
             continue
+        # Bound the whole attempt chain to the chat timeout.
+        remaining = 7.5 - (time.perf_counter() - started)
+        if remaining < 1:
+            break
         try:
             return run_connection(db, conn, task=task, instructions=instructions,
-                                  prompt=prompt, max_output_tokens=max_output_tokens)
+                                  prompt=prompt, max_output_tokens=max_output_tokens,
+                                  timeout=min(remaining, 6.0))
         except AIServiceError:
             continue
     return None
