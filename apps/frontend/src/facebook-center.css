@@ -368,3 +368,21 @@
   display:inline-flex; align-items:center; gap:5px; color:#086443; border-color:#bbdacb; font-size:11px; }
 .fbc-name-confirm svg { flex:none; }
 @media(max-width:1080px) { .fbc-name-confirm { display:none; } }
+
+
+/* Ficha progresiva: compacta, sin degradar la lectura del chat. */
+.fbc-person-profile { display:grid; gap:10px; padding:13px; border:1px solid var(--nw-border,#dce5e8); border-radius:12px; background:var(--nw-paper,#fff); }
+.fbc-person-profile-heading {display:flex;align-items:center;justify-content:space-between;gap:10px}
+.fbc-person-profile-heading b {font-size:13px}
+.fbc-person-profile-heading strong {font-size:20px;color:#086b61}
+.fbc-person-profile progress {display:block;width:100%;height:9px;accent-color:#08796e}
+.fbc-person-summary {font-size:12.5px;line-height:1.55;margin:0;overflow-wrap:anywhere}
+.fbc-person-profile > small {font-size:11px;color:var(--nw-muted,#68777c);line-height:1.45}
+.fbc-person-fields {display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:7px}
+.fbc-person-fields > div {display:grid;gap:3px;padding:8px 9px;border:1px solid var(--nw-border,#dce5e8);border-radius:8px;min-width:0}
+.fbc-person-fields small {color:var(--nw-muted,#68777c);font-size:10px}
+.fbc-person-fields strong {font-size:12px;line-height:1.4;overflow-wrap:anywhere}
+.fbc-profile-pending {border-top:1px solid var(--nw-border,#dce5e8);padding-top:8px}
+.fbc-profile-pending summary {cursor:pointer;font-size:12px}
+.fbc-profile-pending p {font-size:12px;line-height:1.5;margin:8px 0 0}
+@media(max-width:390px) {.fbc-person-fields {grid-template-columns:1fr}}
