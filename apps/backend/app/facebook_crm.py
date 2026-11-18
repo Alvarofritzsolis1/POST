@@ -141,7 +141,8 @@ def _lead_view(db: Session, lead: FacebookLead) -> dict:
 def _message_view(m: FacebookChatMessage) -> dict:
     return {"id": m.id, "direction": m.direction, "state": m.state,
             "body": m.body, "ai_generated": m.ai_generated,
-            "error": m.error, "created_at": m.created_at.isoformat()}
+            "error": m.error, "created_at": m.created_at.isoformat(),
+            "updated_at": m.updated_at.isoformat() if m.updated_at else m.created_at.isoformat()}
 
 
 class LeadEdit(BaseModel):
@@ -730,6 +731,32 @@ def get_lead(lead_id: str, user: User = Depends(administrator),
         FacebookChatMessage.lead_id == lead.id,
     ).order_by(FacebookChatMessage.created_at, FacebookChatMessage.id).limit(200)))
     return {"lead": _lead_view(db, lead), "messages": [_message_view(m) for m in msgs]}
+
+
+@router.post("/leads/{lead_id}/refresh-profile")
+def refresh_declared_profile(lead_id: str, user: User = Depends(administrator),
+                             db: Session = Depends(get_db)):
+    """Idempotent, local replay of recorded declarations; no outside AI call.
+
+    Recovers short names given to an older question like "¿Cuál es tu nombre?"
+    while respecting names already set by an operator or Meta.
+    """
+    lead = _lead(db, user, lead_id)
+    messages = list(db.scalars(select(FacebookChatMessage).where(
+        FacebookChatMessage.org_id == user.org_id,
+        FacebookChatMessage.lead_id == lead.id,
+    ).order_by(FacebookChatMessage.created_at, FacebookChatMessage.id).limit(200)))
+    previous_question = ""
+    for item in messages:
+        if item.direction == "outbound":
+            if item.state == "sent":
+                previous_question = item.body or ""
+        elif item.direction == "inbound":
+            apply_intake(lead, item.body or "", previous_question)
+            previous_question = ""
+    lead.updated_at = utcnow()
+    db.commit()
+    return _lead_view(db, lead)
 
 
 @router.get("/leads/{lead_id}/insights")

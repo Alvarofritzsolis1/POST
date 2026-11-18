@@ -140,11 +140,11 @@ def sync_page_inbox(*, page_id: str, page_token: str, org_id: str,
             "new_contacts": created_leads}
 
 
-def periodic_recovery(stop_event, *, interval_seconds: int = 75, startup_delay: int = 15) -> None:
+def periodic_recovery(stop_event, *, interval_seconds: int = 30, startup_delay: int = 5) -> None:
     """Lightweight safety net for missed webhooks, isolated from reply worker queue.
 
     Webhooks remain the real-time source. This thread reconciles a bounded recent
-    window about every minute, never auto-replies to old messages. Failures
+    window about every 30 seconds, never auto-replies to old messages. Failures
     automatically back off to protect Meta's request quota.
     """
     import logging

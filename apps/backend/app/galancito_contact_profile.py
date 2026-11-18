@@ -23,6 +23,9 @@ def contact_profile(lead) -> dict:
         "availability": bool(lead.availability and lead.availability.strip()),
     }
     missing = [label for key, label in fields if not counts[key]]
+    name_missing = getattr(lead, "display_name", "") in ("", "Interesado de Facebook", "Contacto sin nombre", None)
+    if name_missing and not getattr(lead, "name_opt_out", False):
+        missing.append("Nombre de la persona (opcional)")
     answered = sum(bool(counts[key]) for key, _ in fields)
     choice = getattr(lead, "interest_type", "unknown")
     if choice == "service_offer":
@@ -32,6 +35,9 @@ def contact_profile(lead) -> dict:
     else:
         intro = "Tipo de interés por aclarar"
     narrative = [intro]
+    name = getattr(lead, "display_name", "") or ""
+    if name not in {"", "Interesado de Facebook", "Contacto sin nombre"}:
+        narrative.insert(0, "Nombre registrado: " + name.strip()[:70])
     if lead.specialty:
         narrative.append("oficio: " + lead.specialty.strip()[:100])
     team = getattr(lead, "team_available", None)

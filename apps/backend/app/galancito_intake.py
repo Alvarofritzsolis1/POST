@@ -21,6 +21,8 @@ _PROMPTS = (
     "que oficio", "que servicio", "a que oficio", "cuantas personas",
     "cuantos anos", "desde cuando puedes", "puedes venir con", "representas una empresa",
     "buscas empleo como trabajador", "como prefieres que te llamemos",
+    "cual es tu nombre", "como te llamas", "dime tu nombre",
+    "me dices tu nombre", "me puedes decir tu nombre", "tu nombre por favor",
 )
 
 
@@ -100,22 +102,31 @@ def apply_intake(lead, message: str, prior_prompt: str = "") -> None:
     if getattr(lead, "display_name", "Interesado de Facebook") in {
         "Interesado de Facebook", "Contacto sin nombre"
     } and not getattr(lead, "name_opt_out", False):
-        name_prompt = "como prefieres que te llamemos" in prev
+        name_prompt = any(question in prev for question in (
+            "como prefieres que te llamemos", "cual es tu nombre",
+            "como te llamas", "dime tu nombre", "me dices tu nombre",
+            "me puedes decir tu nombre", "tu nombre por favor",
+        ))
         declared = re.fullmatch(
-            r"(?:me llamo|mi nombre es)\s+(.+)", message.strip(), re.I)
+            r"(?:me llamo|mi nombre es|soy)\s+(.+)", message.strip(), re.I)
         name_candidate = declared.group(1).strip() if declared else (
             message.strip() if name_prompt else "")
         if name_prompt and value in {"paso", "prefiero no decir",
                                      "prefiero no", "no quiero", "no"}:
             lead.name_opt_out = True
         elif name_candidate and re.fullmatch(r"[A-Za-zÁÉÍÓÚÜÑáéíóúüñ. '-]{2,70}", name_candidate):
-            invalid = plain(name_candidate) in {
+            normalized = plain(name_candidate)
+            invalid = (normalized in {
                 "si", "no", "gracias", "pintor", "pintora", "carpintero",
                 "carpinteria", "electricista", "gasfite", "gasfitero",
-                "albanil", "soldador", "no se", "soy yo",
-            }
+                "albanil", "soldador", "no se", "soy yo", "contratista",
+                "maestro", "maestra", "de carpintero", "de pintor",
+            } or normalized.startswith((
+                "quiero ", "busco ", "trabajo ", "tengo ", "necesito ",
+                "soy de ", "somos ", "un ", "una ", "de ", "hola ",
+            )) or bool(analyze("soy " + name_candidate).specialty))
             if 1 <= len(name_candidate.split()) <= 5 and not invalid:
-                lead.display_name = name_candidate
+                lead.display_name = " ".join(name_candidate.split())[:70]
     intent = _intent_from_message(message, prior_prompt)
     if intent and getattr(lead, "interest_type", "unknown") == "unknown":
         lead.interest_type = intent
@@ -199,12 +210,15 @@ def apply_intake(lead, message: str, prior_prompt: str = "") -> None:
         lead.availability = facts.availability
 
 
-def _friendly_ack(message: str, facts: dict, question: str) -> str:
+def _friendly_ack(message: str, facts: dict, question: str, prior: str = "") -> str:
     """Brief, grounded acknowledgement, not a repetitive scripted self-introduction."""
     norm = plain(message)
     trade = (facts.get("specialty") or "").strip()
     if norm in {"hola", "ola", "buenas", "buen dia", "buenos dias", "buenas tardes"}:
         return "¡Hola! Cuéntame un poquito."
+    if any(q in plain(prior) for q in ("cual es tu nombre", "como te llamas", "como prefieres que te llamemos")):
+        if facts.get("display_name") not in (None, "", "Interesado de Facebook", "Contacto sin nombre"):
+            return "Un gusto, " + facts["display_name"].split()[0].title() + "."
     if "trabajas solo" in plain(question) and facts.get("interest_type") == "service_offer":
         return "Perfecto, entonces ofreces tus servicios."
     if "cuantas personas" in plain(question):
@@ -269,7 +283,7 @@ def next_intake_reply(message: str, facts: dict, prior_prompt: str = "") -> str 
         return ("Gracias por contarme sobre tu trabajo. Ya registré lo que me dijiste "
                 "para que el equipo pueda revisarlo si corresponde. "
                 "Esto todavía no significa que exista una contratación confirmada.")
-    return (_friendly_ack(message, facts, question) + " " + question)[:540]
+    return (_friendly_ack(message, facts, question, prior_prompt) + " " + question)[:540]
 
 
 def needs_deeper_response(message: str) -> bool:

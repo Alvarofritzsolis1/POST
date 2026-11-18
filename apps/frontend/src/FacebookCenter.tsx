@@ -53,7 +53,20 @@ type Onboarding = {
   notice: string; ask_for_files_now: boolean; human_followup: boolean;
 };
 type Chat = { id: string; direction: "inbound" | "outbound"; state: string; body: string;
-  ai_generated: boolean; created_at: string; error: string | null };
+  ai_generated: boolean; created_at: string; updated_at?: string; error: string | null };
+const replyStages: Record<string, {percent: number; label: string}> = {
+  pending: {percent: 15, label: "Respuesta en cola"},
+  ai_pending: {percent: 30, label: "Galancito prepara su respuesta"},
+  drafting: {percent: 65, label: "Galancito está redactando"},
+  sending: {percent: 90, label: "Enviando a Messenger"},
+  sent: {percent: 100, label: "Meta confirmó el envío"},
+};
+const progressFor = (message: Chat) => {
+  if (message.direction !== "outbound") return null;
+  if (message.state === "sent" &&
+      Date.now() - Date.parse(message.updated_at || message.created_at) > 45000) return null;
+  return replyStages[message.state] || null;
+};
 type Detail = { lead: Lead; messages: Chat[] };
 type Guide = { id: string; slug: string; trade: string; aliases: string[]; explanation: string;
   document_guidance: string[]; approved: boolean };
@@ -118,6 +131,7 @@ export default function FacebookCenter({ catalog }: { catalog: Catalog }) {
   const chatRef = useRef<HTMLDivElement | null>(null);
   const selectedIdRef = useRef("");
   const latestInboundRef = useRef<Record<string, string>>({});
+  const recheckedProfilesRef = useRef<Set<string>>(new Set());
   const nearBottomRef = useRef(true);
   const [triageFilter, setTriageFilter] = useState<"all"|"high"|"unlinked"|"due">("all");
   selectedIdRef.current = selectedId;
@@ -148,7 +162,19 @@ export default function FacebookCenter({ catalog }: { catalog: Catalog }) {
   }, []);
   const refreshDetail = useCallback(async (id: string) => {
     if (!id) { setDetail(null); return; }
-    const result = await net<Detail>("/facebook/leads/" + id);
+    let result = await net<Detail>("/facebook/leads/" + id);
+    // Re-evaluate older names declared in chat without an operator copying text.
+    if (result.lead.name === "Interesado de Facebook" &&
+        result.messages.some((msg) => msg.direction === "inbound") &&
+        !recheckedProfilesRef.current.has(id)) {
+      recheckedProfilesRef.current.add(id);
+      try {
+        const updated = await change<Lead>("/facebook/leads/" + id + "/refresh-profile", {});
+        result = {...result, lead: updated};
+      } catch {
+        // Keep the inbox readable even when optional profile reconciliation fails.
+      }
+    }
     latestInboundRef.current[id] = [...result.messages].reverse().find((m) => m.direction === "inbound")?.id || "";
     if (selectedIdRef.current === id) setDetail(result);
   }, []);
@@ -159,7 +185,7 @@ export default function FacebookCenter({ catalog }: { catalog: Catalog }) {
       .catch(() => {});
     const interval = window.setInterval(() => {
       if (!document.hidden) void refresh().catch(() => {});
-    }, 6000);
+    }, 3000);
     return () => window.clearInterval(interval);
   }, [refresh]);
   useEffect(() => {
@@ -205,6 +231,9 @@ export default function FacebookCenter({ catalog }: { catalog: Catalog }) {
           // El polling no debe borrar ediciones del administrador aún sin guardar.
           return {...previous, messages: update.messages, lead: {
             ...previous.lead,
+            name: previous.lead.name === "Interesado de Facebook" ||
+              previous.lead.name === "Contacto sin nombre" ? update.lead.name : previous.lead.name,
+            specialty: previous.lead.specialty || update.lead.specialty,
             ai_consent: update.lead.ai_consent,
             ai_consent_state: update.lead.ai_consent_state,
             ai_paused: update.lead.ai_paused,
@@ -221,7 +250,7 @@ export default function FacebookCenter({ catalog }: { catalog: Catalog }) {
         });
       } catch { /* No borrar la conversación si hay un fallo temporal de red. */ }
     };
-    const interval = window.setInterval(() => { void refreshMessages(); }, 5000);
+    const interval = window.setInterval(() => { void refreshMessages(); }, 1800);
     return () => window.clearInterval(interval);
   }, [selectedId, tab, refreshInsights]);
 
@@ -559,15 +588,50 @@ export default function FacebookCenter({ catalog }: { catalog: Catalog }) {
               }}>
               <Users size={15} /> {showProfile ? "Cerrar ficha" : "Ver ficha"}
             </button></div>
+            {lead.ai_paused && <div className="fbc-bot-paused">
+              <Bot size={16}/><span>Galancito está pausado porque intervino un operador.</span>
+              <button type="button" className="nw-btn" disabled={!!saving}
+                onClick={() => patchLead({ai_paused: false, needs_support: false})}>
+                Reactivar
+              </button>
+            </div>}
             <div className="fbc-chat-stream" ref={chatRef} onScroll={(e) => {
               const element = e.currentTarget;
               nearBottomRef.current = element.scrollHeight - element.scrollTop - element.clientHeight < 100;
             }}>
-              {detail?.messages.map((msg) => <div key={msg.id} className={"fbc-bubble " + msg.direction}>
-                <p>{msg.body || "Procesando respuesta…"}</p>
-                <small>{msg.ai_generated ? "Galancito IA · " : ""}{dateText(msg.created_at)} · {msg.state === "sent" ? "Enviado" : msg.direction === "inbound" ? "Recibido" : msg.state}</small>
-                {msg.error && <small>{msg.error}</small>}
-              </div>)}
+              {detail?.messages.map((msg) => {
+                const stage = progressFor(msg);
+                return <div key={msg.id} className={"fbc-bubble " + msg.direction}>
+                  {msg.ai_generated && ["ai_pending", "drafting"].includes(msg.state) ?
+                    <div className="fbc-typing" role="status" aria-label={msg.state === "drafting" ? "Galancito está escribiendo" : "Galancito prepara la respuesta"}>
+                      <span className="fbc-typing-avatar"><Bot size={17}/></span>
+                      <span className="fbc-typing-content">
+                        <span className="fbc-typing-dots" aria-hidden="true"><i/><i/><i/></span>
+                        <small>{msg.state === "drafting" ? "Galancito está escribiendo…" : "Galancito va a responder…"}</small>
+                      </span>
+                    </div> :
+                    <p>{msg.body || (msg.state === "sending" ? "Enviando respuesta…" : "Preparando respuesta…")}</p>}
+                  {stage && <div className={"fbc-reply-progress " + msg.state} role="status"
+                    aria-label={stage.label + ": " + stage.percent + "%"}>
+                    <div className="fbc-reply-progress-heading">
+                      <span><Bot size={13} /> {stage.label}</span>
+                      <strong>{stage.percent}%</strong>
+                    </div>
+                    <div className="fbc-reply-track" role="progressbar"
+                      aria-label="Etapa de envío de respuesta" aria-valuemin={0}
+                      aria-valuemax={100} aria-valuenow={stage.percent}>
+                      <span style={{width: stage.percent + "%"}} />
+                    </div>
+                  </div>}
+                  <small>{msg.ai_generated ? "Galancito IA · " : ""}{dateText(msg.created_at)} · {
+                    msg.state === "sent" ? "Envío confirmado por Meta" :
+                    msg.direction === "inbound" ? "Recibido" :
+                    msg.state === "ai_pending" ? "En cola IA" :
+                    msg.state === "drafting" ? "Redactando" :
+                    msg.state === "sending" ? "Enviando" : msg.state}</small>
+                  {msg.error && <small className="fbc-send-error">{msg.error}</small>}
+                </div>;
+              })}
             </div>
             <form className="fbc-composer" onSubmit={send}>
               <textarea aria-label="Respuesta para el contratista" value={reply}
@@ -621,6 +685,7 @@ export default function FacebookCenter({ catalog }: { catalog: Catalog }) {
             <p className="fbc-person-summary">{lead.profile.summary}</p>
             <small>{lead.profile.evidence}</small>
             <div className="fbc-person-fields">
+              <div><small>Nombre</small><strong>{lead.name && lead.name !== "Interesado de Facebook" ? lead.name : "Por registrar"}</strong></div>
               <div><small>Interés</small><strong>{lead.interest_type === "service_offer" ? "Ofrece servicios" :
                 lead.interest_type === "employment" ? "Busca empleo" : "Por aclarar"}</strong></div>
               <div><small>Oficio / trabajo</small><strong>{lead.specialty || "Por confirmar"}</strong></div>

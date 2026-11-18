@@ -2,6 +2,7 @@
 import hashlib
 import hmac
 import json
+import pytest
 
 from sqlalchemy import select
 
@@ -10,6 +11,13 @@ from app.facebook_crm_models import FacebookChatMessage, FacebookLead, FacebookT
 from app.facebook_chat_worker import process_chat_next
 from app.models import User
 from test_network import network
+
+
+@pytest.fixture(autouse=True)
+def no_real_meta_sender_actions(monkeypatch):
+    """Synthetic CI must never mark a real person's Messenger thread seen."""
+    monkeypatch.setattr("app.facebook_chat_worker.graph_sender_action",
+                        lambda page_id, psid, action, token: None)
 
 
 def enable_messaging(n, monkeypatch):
@@ -697,7 +705,7 @@ def test_automatic_messenger_recovery_does_not_need_manual_click(network, monkey
     monkeypatch.setattr(recovery, "sync_page_inbox", fake_sync)
     signal = StopAfterFirstCycle()
     recovery.periodic_recovery(signal)
-    assert signal.waits == [15, 75]
+    assert signal.waits == [5, 30]
     assert len(observed) == 1
     assert observed[0]["org_id"] == org_id
     assert observed[0]["conversation_limit"] == 10
@@ -728,7 +736,7 @@ def test_automatic_messenger_recovery_backs_off_on_unauthorized(network, monkeyp
     monkeypatch.setattr(recovery, "sync_page_inbox", deny)
     signal = StopAfterFirstCycle()
     recovery.periodic_recovery(signal)
-    assert signal.waits == [15, 300]
+    assert signal.waits == [5, 300]
 
 
 def test_inbox_preview_disambiguates_multiple_unknown_contacts(network, monkeypatch):
@@ -764,3 +772,87 @@ def test_messenger_automatic_reply_readiness_explains_missing_configuration(netw
     # Flags alone never claim that Messenger is ready without a verified AI.
     assert response.json()["auto_reply"]["configured"] is False
     assert any("modelo" in item for item in response.json()["auto_reply"]["missing"])
+
+
+def test_facebook_name_fills_on_arrival_and_history_reconciles(network, monkeypatch):
+    n = network
+    enable_messaging(n, monkeypatch)
+    assert incoming(n, text="hola soy carpintero", mid="name-first").status_code == 200
+    current = n["admin"].get("/api/v1/network/facebook/center").json()["leads"][0]
+    with n["Session"].begin() as db:
+        lead = db.get(FacebookLead, current["id"])
+        db.add(FacebookChatMessage(
+            org_id=lead.org_id, lead_id=lead.id, page_id=lead.page_id,
+            direction="outbound", state="sent", body="¿Cuál es tu nombre?",
+        ))
+    assert incoming(n, text="ALVARO", mid="name-declared").status_code == 200
+    detail = n["admin"].get("/api/v1/network/facebook/leads/" + current["id"]).json()
+    assert detail["lead"]["name"] == "ALVARO"
+    assert "ALVARO" in detail["lead"]["profile"]["summary"]
+    assert n["send"](n["admin"], "/facebook/leads/" + current["id"],
+                     {"name": ""}, "PATCH").status_code == 200
+    restored = n["send"](n["admin"], "/facebook/leads/" + current["id"] + "/refresh-profile")
+    assert restored.status_code == 200, restored.text
+    assert restored.json()["name"] == "ALVARO"
+    assert n["send"](n["a"], "/facebook/leads/" + current["id"] + "/refresh-profile").status_code == 403
+
+
+def test_messenger_reports_real_drafting_and_sending_stages(network, monkeypatch):
+    n = network
+    enable_messaging(n, monkeypatch)
+    monkeypatch.setenv("FACEBOOK_AI_ENABLED", "true")
+    monkeypatch.setenv("FACEBOOK_AI_AUTO_REPLY_ENABLED", "true")
+    monkeypatch.setenv("FACEBOOK_AI_API_KEY", "fake-synthetic-key")
+    settings.cache_clear()
+    assert incoming(n, text="Quiero ser contratista de carpintería, ¿cómo postulo?", mid="staged-1").status_code == 200
+    calls = []
+    def mock_send(page_id, psid, body, token):
+        with n["Session"]() as db:
+            state = db.scalar(select(FacebookChatMessage.state).where(
+                FacebookChatMessage.direction == "outbound",
+            ).order_by(FacebookChatMessage.created_at.desc()).limit(1))
+            calls.append(("meta", state))
+        return "mid-state-" + str(len(calls))
+    monkeypatch.setattr("app.facebook_chat_worker.graph_send", mock_send)
+    assert process_chat_next(n["Session"])
+    assert incoming(n, text="Sí", mid="staged-2").status_code == 200
+    def fake_generation(instructions, prompt, max_chars):
+        with n["Session"]() as db:
+            state = db.scalar(select(FacebookChatMessage.state).where(
+                FacebookChatMessage.direction == "outbound",
+            ).order_by(FacebookChatMessage.created_at.desc()).limit(1))
+            calls.append(("model", state))
+        return "Puedes contarme tu experiencia. ¿En qué comuna trabajas?"
+    monkeypatch.setattr("app.facebook_chat_worker.generate_text", fake_generation)
+    assert process_chat_next(n["Session"])
+    assert ("model", "drafting") in calls
+    assert ("meta", "sending") in calls
+    detail = n["admin"].get("/api/v1/network/facebook/center").json()["leads"][0]
+    messages = n["admin"].get("/api/v1/network/facebook/leads/" + detail["id"]).json()["messages"]
+    assert messages[-1]["state"] == "sent"
+    assert messages[-1]["updated_at"]
+
+
+def test_messenger_typing_dots_match_meta_sender_actions(network, monkeypatch):
+    """Real processing triggers seen -> typing -> off; no fake idle animation."""
+    n = network
+    enable_messaging(n, monkeypatch)
+    monkeypatch.setenv("FACEBOOK_AI_AUTO_REPLY_ENABLED", "true")
+    monkeypatch.setenv("FACEBOOK_AI_ENABLED", "true")
+    monkeypatch.setenv("FACEBOOK_AI_API_KEY", "synthetic-test-key")
+    settings.cache_clear()
+    actions = []
+    monkeypatch.setattr(
+        "app.facebook_chat_worker.graph_sender_action",
+        lambda page_id, psid, action, token: actions.append(action))
+    monkeypatch.setattr(
+        "app.facebook_chat_worker.graph_send",
+        lambda page_id, psid, body, token: "mid-synthetic-typing")
+    assert incoming(n, text="Hola, quiero ofrecer carpintería", mid="typing-1").status_code == 200
+    # Consent question is the only output before the person authorizes the AI.
+    assert process_chat_next(n["Session"]) is True
+    assert actions == ["mark_seen", "typing_on", "typing_off"]
+    lead = n["admin"].get("/api/v1/network/facebook/center").json()["leads"][0]
+    detail = n["admin"].get("/api/v1/network/facebook/leads/" + lead["id"]).json()
+    assert detail["messages"][-1]["state"] == "sent"
+    assert detail["lead"]["ai_consent"] is False

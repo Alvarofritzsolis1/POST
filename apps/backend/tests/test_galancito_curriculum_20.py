@@ -263,3 +263,27 @@ def test_contractor_can_correct_old_team_answer_without_fabricating_employees():
     assert lead.workers is None  # Must ask quantity instead of retaining solo=1
     question = next_intake_reply("ahora puedo traer gente", vars(lead))
     assert "Cuántas personas" in question
+
+
+def test_name_declared_after_natural_question_fills_person_profile():
+    lead = blank_lead(display_name="Interesado de Facebook", name_opt_out=False)
+    apply_intake(lead, "ALVARO", "¿CUÁL ES TU NOMBRE?")
+    assert lead.display_name == "ALVARO"
+    assert "ALVARO" in contact_profile(lead)["summary"]
+    assert "Nombre de la persona (opcional)" not in contact_profile(lead)["missing"]
+
+
+def test_name_guard_never_uses_a_job_title_as_person_name():
+    for text in ("DE CARPINTERO", "soy carpintero", "QUIERO SER CONTRATISTA", "tengo equipo"):
+        lead = blank_lead(display_name="Interesado de Facebook", name_opt_out=False)
+        apply_intake(lead, text, "¿Cuál es tu nombre?")
+        assert lead.display_name == "Interesado de Facebook", text
+
+
+def test_name_answer_continues_natural_intake():
+    lead = blank_lead(display_name="Interesado de Facebook", name_opt_out=False,
+                      specialty="Carpintería", interest_type="service_offer")
+    reply = respond(lead, "¿Cómo te llamas?", "Alvaro")
+    assert lead.display_name == "Alvaro"
+    assert "Un gusto, Alvaro" in reply
+    assert "Trabajas solo" in reply

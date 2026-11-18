@@ -8,9 +8,9 @@ import re
 
 ASSISTANT_NAME = "Galancito"
 AI_PERMISSION_QUESTION = (
-    "Hola, soy Galancito, asistente virtual de GALANT. "
-    "Puedo ayudarte con IA de OpenAI, que procesará tus mensajes para responderte. "
-    "¿Me autorizas? Responde SÍ o NO. Si no, te atiende una persona."
+    "¡Hola! Soy Galancito, asistente virtual de Red de Obras. "
+    "Para orientarte con IA de OpenAI necesito procesar tus mensajes. "
+    "¿Me autorizas? Responde sí o no; si prefieres, te atiende una persona."
 )
 AI_PERMISSION_REASK = (
     "Soy Galancito. Para responderte usando IA necesito tu permiso. "
@@ -26,10 +26,10 @@ AI_PERMISSION_DECLINED = (
 def permission_question(provider: str, repeat: bool = False) -> str:
     """Explain where messages are processed before seeking explicit consent."""
     if provider == "team":
-        opening = "Soy Galancito. " if repeat else "Hola, soy Galancito, asistente virtual de GALANT. "
-        return (opening + "¿Me autorizas a enviar tus mensajes a los proveedores de IA externos "
-                "configurados por GALANT para responderte? Responde SÍ o NO. "
-                "También puedes hablar con una persona.")
+        opening = "Soy Galancito. " if repeat else "¡Hola! Soy Galancito, asistente virtual de Red de Obras. "
+        return (opening + "Puedo orientarte usando los proveedores de IA externos "
+                "configurados para este servicio. ¿Me autorizas a procesar allí "
+                "tus mensajes? Responde sí o no. También puede atenderte una persona.")
     if provider == "ollama":
         if repeat:
             return ("Soy Galancito. ¿Me autorizas a usar IA local de GALANT "
