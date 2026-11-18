@@ -26,6 +26,7 @@ from .galancito_triage import analyze, quick_reply, private_data
 from .galancito_knowledge import retrieve, exact_answer, evidence_context, public_sources
 from .galancito_local import last_timings
 from .galancito_runtime import infer, record_run
+from .ai_gateway import orchestration_available, orchestrated_text
 from .galancito_flow import safe_ai_reply, grounded_reply
 
 router = APIRouter(prefix="/api/v1/network/galancito", tags=["Galancito"])
@@ -114,12 +115,14 @@ def _local_reply(message: str, area: str, titles: list[str], guides: list[Facebo
 
 
 @router.get("/status")
-def galancito_status(user: User = Depends(authorized_user)):
+def galancito_status(user: User = Depends(authorized_user), db: Session = Depends(get_db)):
     cfg = settings()
     available = galancito_red_ai_available(cfg)
+    team_available = orchestration_available(db, user.org_id, "red_obras")
     return {"name": "Galancito",
             "local_ai_available": available and cfg.galancito_ai_provider == "ollama",
-            "external_ai_available": available and cfg.galancito_ai_provider == "openai",
+            "external_ai_available": (available and cfg.galancito_ai_provider == "openai") or team_available,
+            "ai_team_available": team_available,
             "scope": "red_obras",
             "can_teach": user.role == "admin",
             "read_only": True}
@@ -214,6 +217,7 @@ def galancito_chat(body: ChatInput, user: User = Depends(authorized_user),
     db_ms = (perf_counter() - started) * 1000
     cfg = settings()
     available = galancito_red_ai_available(cfg)
+    team_available = orchestration_available(db, user.org_id, "red_obras")
     # Datos de identidad/documentación involuntarios se mantienen locales.
     private_pattern = private_data(text)
     def result(answer, source, timings=None):
@@ -234,7 +238,8 @@ def galancito_chat(body: ChatInput, user: User = Depends(authorized_user),
         return result(safe_ai_reply(learned), "knowledge")
     if fast:
         return result(fast, "local")
-    use_model = (available and not private_pattern and
+    use_team = team_available and body.allow_external_ai and not private_pattern
+    use_model = use_team or (available and not private_pattern and
                  (cfg.galancito_ai_provider == "ollama" or body.allow_external_ai))
     if use_model:
         # The latest query is first: truncating context must never lose it.
@@ -248,7 +253,11 @@ def galancito_chat(body: ChatInput, user: User = Depends(authorized_user),
                    evidence_context(evidence) + "\nGuías pertinentes:\n" +
                    "\n".join(g.trade + ": " + g.explanation[:180] for g in matching))
         try:
-            generated = infer(db, lambda: generate_internal_text(INSTRUCTIONS, context, 650))
+            generated = infer(db, lambda: (
+                orchestrated_text(db, user.org_id, task="red_obras",
+                                  instructions=INSTRUCTIONS, prompt=context,
+                                  max_output_tokens=240)
+                if use_team else generate_internal_text(INSTRUCTIONS, context, 650)))
         except RuntimeError:
             generated = None
         if generated:
