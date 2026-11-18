@@ -244,7 +244,8 @@ def process_chat_next(session_factory=SessionLocal) -> bool:
                      "workers": lead.workers, "availability": lead.availability,
                      "has_employees": lead.has_employees,
                      "team_available": lead.team_available, "interest_type": lead.interest_type,
-                     "work_area": lead.work_area, "experience": lead.experience}
+                     "work_area": lead.work_area, "experience": lead.experience,
+                     "display_name": lead.display_name, "name_opt_out": lead.name_opt_out}
             prior_question = db.scalar(select(FacebookChatMessage.body).where(
                 FacebookChatMessage.lead_id == lead.id,
                 FacebookChatMessage.direction == "outbound",
