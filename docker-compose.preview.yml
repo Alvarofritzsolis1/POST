@@ -103,13 +103,16 @@ services:
     command: ["python", "-m", "app.network_facebook"]
     environment:
       <<: *backend
-      AI_CREDENTIAL_ENCRYPTION_KEY: ""  # Publisher does not need provider credentials
+      # This process also handles Messenger and must decrypt explicitly
+      # configured, verified AI-team keys. Never expose keys to the frontend.
+      AI_CREDENTIAL_ENCRYPTION_KEY: ${AI_CREDENTIAL_ENCRYPTION_KEY:-}
       FACEBOOK_PAGE_TOKEN: ${FACEBOOK_PAGE_TOKEN:-}
     depends_on: {db: {condition: service_healthy}}
-    networks: [internal, frontend-network]
+    # Meta via frontend-network; approved external models/Ollama via galancito-egress.
+    networks: [internal, frontend-network, galancito-egress]
     security_opt: [no-new-privileges:true]
     cap_drop: [ALL]
-    mem_limit: 150m
+    mem_limit: 350m
     pids_limit: 50
     logging: *logs
   # Opcional: solo mensajes Facebook y orientación Red de Obras.
