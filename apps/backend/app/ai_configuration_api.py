@@ -78,6 +78,7 @@ class ConnectionPatch(Strict):
 class PolicyPatch(Strict):
     enabled: bool = False
     fallback_enabled: bool = False
+    review_enabled: bool = False
     monthly_token_limit: int = Field(default=0, ge=0, le=1000000000)
     task_routes: dict[str, str] = Field(default_factory=dict)
 
@@ -102,6 +103,7 @@ def policy_view(record: AIOrchestration | None) -> dict:
     return {
         "enabled": bool(record and record.enabled),
         "fallback_enabled": bool(record and record.fallback_enabled),
+        "review_enabled": bool(record and record.review_enabled),
         "monthly_token_limit": record.monthly_token_limit if record else 0,
         "task_routes": (record.task_routes or {}) if record else {},
     }
@@ -126,7 +128,7 @@ def bootstrap(user: User = Depends(administrator), db: Session = Depends(get_db)
     policy = db.get(AIOrchestration, user.org_id)
     return {
         "providers": [{"id": key, **value} for key, value in PROVIDERS.items()],
-        "tasks": [{"id": key, "name": value, "active": key == "red_obras"} for key, value in TASKS.items()],
+        "tasks": [{"id": key, "name": value, "active": key in {"red_obras", "review"}} for key, value in TASKS.items()],
         "connections": [connection_view(c) for c in connections],
         "policy": policy_view(policy),
         "monthly_tokens": monthly_tokens(db, user.org_id),
@@ -213,6 +215,8 @@ def disconnect(connection_id: str, user: User = Depends(administrator),
                               if ident != conn.id}
         if not policy.task_routes.get("red_obras"):
             policy.enabled = False
+        if not policy.task_routes.get("review"):
+            policy.review_enabled = False
         policy.updated_by, policy.updated_at = user.id, utcnow()
     log_change(db, user, "connection.disconnect", conn.id)
     db.commit()
@@ -289,12 +293,18 @@ def update_policy(body: PolicyPatch, user: User = Depends(administrator),
             raise HTTPException(422, "Primero habilita y verifica la conexión asignada a " + task)
     if body.enabled and not body.task_routes.get("red_obras"):
         raise HTTPException(422, "Asigna la IA de Consultas de Red de Obras antes de activar el equipo")
+    if body.enabled and body.review_enabled:
+        primary = body.task_routes.get("red_obras")
+        reviewer = body.task_routes.get("review")
+        if not reviewer or reviewer == primary:
+            raise HTTPException(422, "Asigna una segunda IA distinta para revisar las respuestas")
     policy = db.get(AIOrchestration, user.org_id)
     if policy is None:
         policy = AIOrchestration(org_id=user.org_id)
         db.add(policy)
     policy.enabled = body.enabled
     policy.fallback_enabled = body.fallback_enabled
+    policy.review_enabled = body.review_enabled
     policy.monthly_token_limit = body.monthly_token_limit
     policy.task_routes = body.task_routes
     policy.updated_by, policy.updated_at = user.id, utcnow()
