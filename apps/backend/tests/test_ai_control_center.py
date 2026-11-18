@@ -217,3 +217,65 @@ def test_no_encryption_key_refuses_secret_storage(ai_env, monkeypatch):
     })
     assert response.status_code == 503
     assert "private-key" not in response.text
+
+
+def test_routing_requires_real_successful_verification(ai_env, monkeypatch):
+    client = ai_env["client"]
+    headers = signin(client)
+    row = add(client, headers, name="Sin verificar", provider="groq",
+              model="llama-3.3-70b-versatile", key="gsk-dummy")
+    policy = {"enabled": True, "fallback_enabled": False,
+              "monthly_token_limit": 2000, "task_routes": {"red_obras": row["id"]}}
+    denied = client.put(ROOT + "/policy", headers=headers, json=policy)
+    assert denied.status_code == 422
+
+    monkeypatch.setattr(ai_gateway, "urlopen", lambda *_args, **_kwargs:
+                        FakeResponse({"choices": [{"message": {"content": "OK"}}],
+                                      "usage": {"prompt_tokens": 5, "completion_tokens": 3}}))
+    assert client.post(ROOT + "/connections/" + row["id"] + "/test",
+                       headers=headers).json()["ok"] is True
+    assert client.put(ROOT + "/policy", headers=headers, json=policy).status_code == 200
+    paused = client.patch(ROOT + "/connections/" + row["id"], headers=headers,
+                          json={"enabled": False})
+    assert paused.status_code == 200
+    with ai_env["sessions"]() as db:
+        assert not orchestration_available(db, ai_env["org_id"], "red_obras")
+        assert orchestrated_text(db, ai_env["org_id"], task="red_obras",
+                                 instructions="Prueba", prompt="No enviar") is None
+    assert client.put(ROOT + "/policy", headers=headers, json=policy).status_code == 422
+
+
+def test_disconnect_clears_stale_routing_without_losing_usage(ai_env, monkeypatch):
+    client = ai_env["client"]
+    headers = signin(client)
+    row = add(client, headers, name="Modelo temporal")
+    monkeypatch.setattr(ai_gateway, "urlopen", lambda *_args, **_kwargs:
+                        FakeResponse({"choices": [{"message": {"content": "OK"}}],
+                                      "usage": {"prompt_tokens": 11, "completion_tokens": 2}}))
+    assert client.post(ROOT + "/connections/" + row["id"] + "/test",
+                       headers=headers).json()["ok"] is True
+    policy = {"enabled": True, "fallback_enabled": False,
+              "monthly_token_limit": 0, "task_routes": {"red_obras": row["id"]}}
+    assert client.put(ROOT + "/policy", headers=headers, json=policy).status_code == 200
+    removed = client.post(ROOT + "/connections/" + row["id"] + "/disconnect",
+                          headers=headers)
+    assert removed.status_code == 200 and not removed.json()["has_key"]
+    after = client.get(ROOT + "/bootstrap").json()
+    assert after["policy"]["enabled"] is False
+    assert after["policy"]["task_routes"] == {}
+    assert client.get(ROOT + "/usage").json()["total_tokens"] == 13
+    with ai_env["sessions"]() as db:
+        assert not orchestration_available(db, ai_env["org_id"], "red_obras")
+
+
+def test_invalid_encryption_key_is_not_reported_ready(ai_env, monkeypatch):
+    client = ai_env["client"]
+    headers = signin(client)
+    monkeypatch.setenv("AI_CREDENTIAL_ENCRYPTION_KEY", "not-a-valid-fernet-key")
+    assert client.get(ROOT + "/bootstrap").json()["server_ready"] is False
+    result = client.post(ROOT + "/connections", headers=headers, json={
+        "name": "Groq inseguro", "provider": "groq",
+        "model": "llama-3.3-70b-versatile", "api_key": "gsk-hidden",
+    })
+    assert result.status_code == 503
+    assert "gsk-hidden" not in result.text
