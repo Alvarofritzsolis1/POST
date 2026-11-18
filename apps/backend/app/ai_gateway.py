@@ -17,6 +17,7 @@ from sqlalchemy.orm import Session
 
 from .ai_models import AIConnection, AIOrchestration, AIUsage
 from .ai_review import REVIEW_INSTRUCTIONS, review_prompt, accepted_review
+from .galancito_triage import private_data
 from .models import utcnow
 
 # Adding a provider means registering a known HTTPS host, not accepting arbitrary URLs.
@@ -256,6 +257,10 @@ def orchestrated_text(db: Session, org_id: str, *, task: str, instructions: str,
                                     timeout=timeout)
         except AIServiceError:
             continue
+        # Even a generated response might accidentally include a private datum.
+        # Do not forward it to another external model (or return it to the user).
+        if private_data(answer):
+            return None
         if not policy.review_enabled:
             return answer
         context = review_prompt(prompt, answer)
