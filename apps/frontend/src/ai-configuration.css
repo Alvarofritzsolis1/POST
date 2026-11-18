@@ -96,3 +96,6 @@
   .ai-center .ai-simple-fields .ai-key-input,
   .ai-center .ai-simple-fields .ai-manual-model { grid-column: auto; }
 }
+
+.ai-center .ai-actions .ai-repair-button { background: #e8f7f2; border: 1px solid #91d4be; color:#12664f; font-weight: 750; }
+.ai-center .ai-actions .ai-repair-button:hover:not(:disabled) { background: #d3f1e6; }
