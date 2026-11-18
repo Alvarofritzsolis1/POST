@@ -558,3 +558,73 @@ def test_recovery_meta_190_is_sanitized_and_visible(network, monkeypatch):
     assert result["state"] == "failed"
     assert "190" in result["error"]
     assert secret not in str(result)
+
+
+def test_automatic_messenger_recovery_does_not_need_manual_click(network, monkeypatch):
+    """Worker polls the Page API automatically, but not repeatedly on Meta failures."""
+    from app import facebook_inbox_sync as recovery
+    n = network
+    org_id = enable_messaging(n, monkeypatch)
+    observed = []
+
+    class StopAfterFirstCycle:
+        def __init__(self):
+            self.waits = []
+
+        def wait(self, seconds):
+            self.waits.append(seconds)
+            return len(self.waits) == 2
+
+        def is_set(self):
+            return False
+
+    def fake_sync(**kwargs):
+        observed.append(kwargs)
+        return {"messages_imported": 1}
+
+    monkeypatch.setattr(recovery, "sync_page_inbox", fake_sync)
+    signal = StopAfterFirstCycle()
+    recovery.periodic_recovery(signal)
+    assert signal.waits == [15, 75]
+    assert len(observed) == 1
+    assert observed[0]["org_id"] == org_id
+    assert observed[0]["conversation_limit"] == 10
+    assert observed[0]["message_limit"] == 15
+
+
+def test_automatic_messenger_recovery_backs_off_on_unauthorized(network, monkeypatch):
+    from io import BytesIO
+    from urllib.error import HTTPError
+    from app import facebook_inbox_sync as recovery
+    enable_messaging(network, monkeypatch)
+
+    class StopAfterFirstCycle:
+        def __init__(self):
+            self.waits = []
+
+        def wait(self, seconds):
+            self.waits.append(seconds)
+            return len(self.waits) == 2
+
+        def is_set(self):
+            return False
+
+    def deny(**kwargs):
+        raise HTTPError("https://graph.facebook.com/v27.0/123",
+                        401, "Unauthorized", {}, BytesIO(b"{}"))
+
+    monkeypatch.setattr(recovery, "sync_page_inbox", deny)
+    signal = StopAfterFirstCycle()
+    recovery.periodic_recovery(signal)
+    assert signal.waits == [15, 300]
+
+
+def test_inbox_preview_disambiguates_multiple_unknown_contacts(network, monkeypatch):
+    """Contact cards should show the latest text rather than duplicate Nuevo labels."""
+    n = network
+    enable_messaging(n, monkeypatch)
+    assert incoming(n, text="Hola, soy maestro", mid="preview-a-1").status_code == 200
+    overview = n["admin"].get("/api/v1/network/facebook/center").json()
+    assert overview["leads"][0]["last_message"] == {
+        "text": "Hola, soy maestro", "direction": "inbound"}
+    assert "psid" not in overview["leads"][0]  # Keep identifiers out of the UI.
