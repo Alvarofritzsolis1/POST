@@ -328,7 +328,17 @@ async def webhook(request: Request, db: Session = Depends(get_db)):
                     select(FacebookTradeGuide).where(FacebookTradeGuide.org_id == lead.org_id,
                                                     FacebookTradeGuide.approved.is_(True)).limit(100))}
                 facts = analyze(body, approved_trades)
-                if facts.specialty and (not lead.specialty or lead.specialty_source == "message"):
+                # Asking about a trade is NOT a declaration of doing that trade.
+                # Allow short one-word answers because many small contractors
+                # type only a word or two.
+                casual = key(body)
+                declares_trade = bool(re.search(
+                    r"\b(?:soy|soi|trabajo|trabajamos|hago|hacemos|ofrezco|ofresco|"
+                    r"tengo|tenemos|somos|me dedico|busco)\b", casual))
+                declares_trade = declares_trade or (
+                    len(casual.split()) <= 2 and "?" not in body and "¿" not in body)
+                if facts.specialty and declares_trade and (
+                    not lead.specialty or lead.specialty_source == "message"):
                     lead.specialty = facts.specialty
                     lead.specialty_source = "message"
                 if facts.entity_type != "unknown":
@@ -418,7 +428,7 @@ async def webhook(request: Request, db: Session = Depends(get_db)):
                     # datos personales a un servicio externo.
                     reply = ("Hola, soy Galancito, asistente virtual de GALANT. "
                              "Puedes escribir como te salga. ¿Qué trabajo haces?")
-                if use_ai and recent < 5 and ai_source != "disabled":
+                if use_ai and recent < 30 and ai_source != "disabled":
                     queue_locked = (db.bind.dialect.name != "postgresql" or db.scalar(
                         sql_text("SELECT pg_try_advisory_xact_lock(2075002)")))
                     queued = db.scalar(select(func.count(FacebookChatMessage.id)).where(
@@ -433,7 +443,7 @@ async def webhook(request: Request, db: Session = Depends(get_db)):
                     else:
                         lead.needs_support = True
                         lead.support_reason = "Cola del asistente ocupada; requiere revisión humana"
-                elif reply and recent < 5:
+                elif reply and recent < 30:
                     db.add(FacebookChatMessage(
                         org_id=lead.org_id, lead_id=lead.id, page_id=lead.page_id,
                         direction="outbound", state="pending", body=reply[:550],
