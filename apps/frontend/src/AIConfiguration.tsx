@@ -34,8 +34,20 @@ type Editor = {
   enabled: boolean; price_input: string; price_output: string;
 };
 const base = "/admin/ai";
+const MODEL_OPTIONS: Record<string, Array<{ id: string; label: string }>> = {
+  gemini: [{ id: "gemini-2.5-flash", label: "Gemini 2.5 Flash · rápido" }],
+  groq: [
+    { id: "llama-3.3-70b-versatile", label: "Llama 3.3 70B · conversaciones" },
+    { id: "openai/gpt-oss-120b", label: "GPT-OSS 120B · razonamiento" },
+  ],
+  nvidia: [{ id: "deepseek-ai/deepseek-v4.1-flash", label: "DeepSeek V4.1 Flash" }],
+  openai: [{ id: "gpt-4.1-mini", label: "GPT-4.1 Mini" }],
+  mistral: [{ id: "mistral-small-latest", label: "Mistral Small" }],
+  openrouter: [{ id: "openai/gpt-4o-mini", label: "GPT-4o Mini vía OpenRouter" }],
+};
+const defaultModel = (provider: string) => MODEL_OPTIONS[provider]?.[0]?.id || "";
 const empty: Editor = {
-  name: "", provider: "gemini", model: "", api_key: "", enabled: false,
+  name: "", provider: "gemini", model: defaultModel("gemini"), api_key: "", enabled: false,
   price_input: "", price_output: "",
 };
 const nice = (value: number) => value.toLocaleString("es-CL");
@@ -50,6 +62,7 @@ export default function AIConfiguration() {
   const [days, setDays] = useState(30);
   const [editing, setEditing] = useState<string | "new" | null>(null);
   const [form, setForm] = useState<Editor>(empty);
+  const [manualModel, setManualModel] = useState(false);
   const [busy, setBusy] = useState<string | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState("");
@@ -105,9 +118,11 @@ export default function AIConfiguration() {
     setError("");
     if (!conn) {
       setEditing("new");
+      setManualModel(false);
       setForm({ ...empty });
       return;
     }
+    setManualModel(!(MODEL_OPTIONS[conn.provider] || []).some(option => option.id === conn.model));
     setEditing(conn.id);
     setForm({
       name: conn.name, provider: conn.provider, model: conn.model, api_key: "",
@@ -119,21 +134,48 @@ export default function AIConfiguration() {
   async function saveConnection(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
     const id = editing;
-    if (!id) return;
+    if (!id || !form.model.trim()) return;
+    const providedName = form.name.trim();
+    const fallbackName = (providerName(form.provider) + " · " + form.model).slice(0, 72);
+    let name = providedName || fallbackName;
+    if (id === "new") {
+      const existingNames = new Set((data?.connections || []).map(conn => conn.name.toLowerCase()));
+      let count = 2;
+      while (existingNames.has(name.toLowerCase())) {
+        name = fallbackName.slice(0, 64) + " #" + count++;
+      }
+    }
     const payload = {
-      name: form.name.trim(), model: form.model.trim(),
-      enabled: form.enabled, ...(id === "new" ? { provider: form.provider } : {}),
+      name, model: form.model.trim(),
+      ...(id === "new" ? { provider: form.provider, enabled: false } : {}),
       ...(form.api_key.trim() ? { api_key: form.api_key.trim() } : {}),
       price_input_per_million: form.price_input.trim() ? Number(form.price_input) : null,
       price_output_per_million: form.price_output.trim() ? Number(form.price_output) : null,
     };
     await perform("save", async () => {
-      await request(base + (id === "new" ? "/connections" : "/connections/" + encodeURIComponent(id)), {
+      const saved = await request<Connection>(base + (id === "new" ? "/connections" : "/connections/" + encodeURIComponent(id)), {
         method: id === "new" ? "POST" : "PATCH", body: JSON.stringify(payload),
       });
+      // One visible action: save safely, perform a real API probe and enable ONLY on success.
+      let outcome: { ok: boolean; message: string };
+      try {
+        outcome = await request<{ ok: boolean; message: string }>(
+          base + "/connections/" + encodeURIComponent(saved.id) + "/test", { method: "POST" });
+      } catch (err) {
+        outcome = { ok: false, message: errorMessage(err) };
+      }
+      if (outcome.ok) {
+        await request(base + "/connections/" + encodeURIComponent(saved.id), {
+          method: "PATCH", body: JSON.stringify({ enabled: true }),
+        });
+        setNotice("Conectada y verificada. Ya puedes asignarla a Galancito en Equipo de IA.");
+      } else {
+        // Keep encrypted credential to allow fixing/retrying without asking for VPS access.
+        setNotice("Se guardó la conexión, pero no se verificó: " + outcome.message + " Revisa la clave o el modelo y vuelve a probar.");
+      }
       setEditing(null);
+      setManualModel(false);
       setForm({ ...empty });
-      setNotice("Configuración guardada. Prueba la conexión antes de asignarla a Galancito.");
     });
   }
 
@@ -195,7 +237,7 @@ export default function AIConfiguration() {
       {error && <p role="alert" className="ai-error">{error}</p>}
       {notice && <p role="status" className="ai-notice"><CheckCircle2 size={16} /> {notice}</p>}
       {data && !data.server_ready && (
-        <p role="alert" className="ai-warning"><KeyRound size={17} /> Para almacenar API Keys falta definir AI_CREDENTIAL_ENCRYPTION_KEY en el entorno privado del servidor. No introduzcas claves hasta completar este paso.</p>
+        <p role="alert" className="ai-warning"><KeyRound size={17} /> La protección de claves del servidor aún no está lista. Se prepara automáticamente con la siguiente actualización de GALANT. No pegues claves hasta que desaparezca este aviso.</p>
       )}
       <div className="ai-kpis">
         <div><span>IA habilitadas y verificadas</span><strong>{summary.verified} <small>/ {summary.total}</small></strong><small>La verificación se realiza con una prueba real</small></div>
@@ -232,21 +274,62 @@ export default function AIConfiguration() {
           })}
         </div>
 
-        {editing && <form className="ai-editor" onSubmit={(event) => void saveConnection(event)}>
-          <div className="ai-editor-heading"><h4>{editing === "new" ? "Nueva conexión" : "Editar conexión"}</h4><button type="button" onClick={() => { setEditing(null); setForm({ ...empty }); }}>Cerrar</button></div>
-          <div className="ai-form-grid">
-            <label>Nombre para identificarla<input required maxLength={80} value={form.name} onChange={e => setForm({ ...form, name: e.target.value })} placeholder="Ej. NVIDIA · DeepSeek" /></label>
-            <label>Proveedor<select disabled={editing !== "new"} value={form.provider} onChange={e => setForm({ ...form, provider: e.target.value })}>{data?.providers.map(p => <option key={p.id} value={p.id}>{p.name}</option>)}</select></label>
-            <label>Modelo (ID exacto)<input required value={form.model} onChange={e => setForm({ ...form, model: e.target.value })} placeholder={form.provider === "nvidia" ? "deepseek-ai/deepseek-v4.1-flash" : form.provider === "groq" ? "modelo-de-groq" : "modelo-de-gemini"} /></label>
-            <label>API Key {editing !== "new" && <small>Dejar vacío mantiene la actual</small>}<input type="password" autoComplete="off" value={form.api_key} onChange={e => setForm({ ...form, api_key: e.target.value })} placeholder="Se guarda cifrada en el servidor" /></label>
-            <label>USD / 1M tokens de entrada (opcional)<input type="number" min={0} step="any" value={form.price_input} onChange={e => setForm({ ...form, price_input: e.target.value })} placeholder="Tarifa contratada" /></label>
-            <label>USD / 1M tokens de salida (opcional)<input type="number" min={0} step="any" value={form.price_output} onChange={e => setForm({ ...form, price_output: e.target.value })} placeholder="Tarifa contratada" /></label>
+        {editing && <form className="ai-editor ai-quick-form" onSubmit={(event) => void saveConnection(event)}>
+          <div className="ai-editor-heading">
+            <div><h4>{editing === "new" ? "Conectar una inteligencia artificial" : "Actualizar conexión"}</h4>
+              <p>Solo necesitas la clave API. GALANT se encarga de la configuración técnica.</p>
+            </div>
+            <button type="button" onClick={() => { setEditing(null); setManualModel(false); setForm({ ...empty }); }}>Cerrar</button>
           </div>
+          <div className="ai-form-grid ai-simple-fields">
+            <label>1. ¿Qué IA quieres conectar?
+              <select disabled={editing !== "new"} value={form.provider}
+                onChange={e => { const next = e.target.value; setManualModel(false); setForm({ ...form, provider: next, model: defaultModel(next), api_key: "" }); }}>
+                {data?.providers.map(p => <option key={p.id} value={p.id}>{p.name}</option>)}
+              </select>
+            </label>
+            <label>2. Selecciona el modelo
+              <select value={manualModel ? "__manual__" : form.model}
+                onChange={e => { setManualModel(e.target.value === "__manual__"); setForm({ ...form, model: e.target.value === "__manual__" ? "" : e.target.value }); }}>
+                {(MODEL_OPTIONS[form.provider] || []).map(option =>
+                  <option key={option.id} value={option.id}>{option.label}</option>)}
+                <option value="__manual__">Otro modelo (configuración avanzada)</option>
+              </select>
+            </label>
+            {manualModel && <label className="ai-manual-model">ID exacto del modelo
+              <input required value={form.model} onChange={e => setForm({ ...form, model: e.target.value })}
+                placeholder="Pega el identificador del proveedor" />
+            </label>}
+            <label className="ai-key-input">3. Pega tu API Key {editing !== "new" && <small>Dejar vacío conserva la clave guardada</small>}
+              <input type="password" autoComplete="new-password" required={editing === "new"}
+                value={form.api_key} onChange={e => setForm({ ...form, api_key: e.target.value })}
+                placeholder="Pega aquí tu clave privada. Nadie podrá verla después." />
+            </label>
+          </div>
+          <p className="ai-help"><KeyRound size={15} /> ¿No tienes una clave? <a href={data?.providers.find(p => p.id === form.provider)?.docs}
+            target="_blank" rel="noopener noreferrer">Abrir el portal oficial de {providerName(form.provider)}</a>.
+            No compartas la clave por WhatsApp ni por este chat.</p>
+          <details className="ai-advanced">
+            <summary>Opciones avanzadas (opcionales)</summary>
+            <div className="ai-form-grid">
+              <label>Nombre para identificarla<input maxLength={80} value={form.name}
+                onChange={e => setForm({ ...form, name: e.target.value })}
+                placeholder="Se asigna automáticamente si lo dejas vacío" /></label>
+              <label>USD / millón de tokens de entrada<input type="number" min={0} step="any"
+                value={form.price_input} onChange={e => setForm({ ...form, price_input: e.target.value })}
+                placeholder="Sin tarifa configurada" /></label>
+              <label>USD / millón de tokens de salida<input type="number" min={0} step="any"
+                value={form.price_output} onChange={e => setForm({ ...form, price_output: e.target.value })}
+                placeholder="Sin tarifa configurada" /></label>
+            </div>
+            <p className="ai-help">Las tarifas son opcionales. No escribirlas no significa que el proveedor sea gratis.</p>
+          </details>
           <div className="ai-editor-footer">
-            <label className="ai-check"><input type="checkbox" checked={form.enabled} onChange={e => setForm({ ...form, enabled: e.target.checked })} /> Habilitar para usar en Galancito</label>
-            <button className="gc-primary" disabled={Boolean(busy) || !data?.server_ready}>Guardar conexión</button>
+            <span className="ai-help"><ShieldCheck size={15} /> Clave cifrada en GALANT. Una prueba real puede consumir cuota.</span>
+            <button className="gc-primary" type="submit" disabled={Boolean(busy) || !data?.server_ready || !form.model.trim() || (editing === "new" && !form.api_key.trim())}>
+              <CheckCircle2 size={16} /> {busy === "save" ? "Conectando…" : "Conectar y probar"}
+            </button>
           </div>
-          <p className="ai-help"><ShieldCheck size={15} /> La clave nunca se devuelve al navegador. No se publica en GitHub. Guardar no implica que el modelo esté disponible; usa «Probar conexión».</p>
         </form>}
       </section>
 

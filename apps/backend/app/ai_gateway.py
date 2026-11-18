@@ -126,7 +126,16 @@ def invoke(connection: AIConnection, *, instructions: str, prompt: str,
             result = json.loads(response.read(250000).decode("utf-8"))
     except HTTPError as exc:
         # Never include the remote error body, headers or full exception message.
-        raise AIServiceError("Proveedor rechazó la solicitud (HTTP " + str(exc.code) + ").") from None
+        help_text = {
+            400: "El proveedor no acepta este modelo o sus parámetros.",
+            401: "La API Key fue rechazada. Genera o copia una clave válida.",
+            402: "La cuenta del proveedor requiere saldo o facturación.",
+            403: "Esta cuenta no tiene permiso para utilizar el modelo.",
+            404: "El modelo elegido no está disponible en esta cuenta.",
+            422: "Revisa el modelo seleccionado y vuelve a probar.",
+            429: "Se alcanzó el límite de uso del proveedor. Vuelve a probar luego.",
+        }.get(exc.code, "El proveedor no pudo completar la prueba.")
+        raise AIServiceError(help_text + " (HTTP " + str(exc.code) + ").") from None
     except (URLError, TimeoutError, OSError, ValueError, UnicodeError):
         raise AIServiceError("No se pudo contactar al proveedor de IA.") from None
     if not isinstance(result, dict):
