@@ -20,7 +20,7 @@ _PROMPTS = (
     _EXPERIENCE_QUESTION, _COMMUNE_QUESTION, _AVAILABILITY_QUESTION,
     "que oficio", "que servicio", "a que oficio", "cuantas personas",
     "cuantos anos", "desde cuando puedes", "puedes venir con", "representas una empresa",
-    "buscas empleo como trabajador",
+    "buscas empleo como trabajador", "como prefieres que te llamemos",
 )
 
 
@@ -94,6 +94,28 @@ def apply_intake(lead, message: str, prior_prompt: str = "") -> None:
     # 'soy pintor, ¿hay pega?' still supplies a useful explicit declaration.
     if ("?" in message or "¿" in message) and not declares_own_work:
         return
+
+    # A name can be volunteered or entered in response to a clear optional
+    # question; never guess a person's identity from their trade or PSID.
+    if getattr(lead, "display_name", "Interesado de Facebook") in {
+        "Interesado de Facebook", "Contacto sin nombre"
+    } and not getattr(lead, "name_opt_out", False):
+        name_prompt = "como prefieres que te llamemos" in prev
+        declared = re.fullmatch(
+            r"(?:me llamo|mi nombre es)\s+(.+)", message.strip(), re.I)
+        name_candidate = declared.group(1).strip() if declared else (
+            message.strip() if name_prompt else "")
+        if name_prompt and value in {"paso", "prefiero no decir",
+                                     "prefiero no", "no quiero", "no"}:
+            lead.name_opt_out = True
+        elif name_candidate and re.fullmatch(r"[A-Za-zÁÉÍÓÚÜÑáéíóúüñ. '-]{2,70}", name_candidate):
+            invalid = plain(name_candidate) in {
+                "si", "no", "gracias", "pintor", "pintora", "carpintero",
+                "carpinteria", "electricista", "gasfite", "gasfitero",
+                "albanil", "soldador", "no se", "soy yo",
+            }
+            if 1 <= len(name_candidate.split()) <= 5 and not invalid:
+                lead.display_name = name_candidate
     intent = _intent_from_message(message, prior_prompt)
     if intent and getattr(lead, "interest_type", "unknown") == "unknown":
         lead.interest_type = intent
@@ -229,11 +251,13 @@ def next_intake_reply(message: str, facts: dict, prior_prompt: str = "") -> str 
         question = "¿En qué comuna puedes trabajar?"
     elif not facts.get("availability"):
         question = "¿Desde cuándo podrías comenzar?"
-    elif facts.get("display_name") in {"", "Interesado de Facebook", "Contacto sin nombre", None} and not facts.get("name_opt_out"):
+    elif ("display_name" in facts and facts.get("display_name") in {
+        "", "Interesado de Facebook", "Contacto sin nombre", None
+    } and not facts.get("name_opt_out")):
         question = "¿Cómo prefieres que te llamemos? Si prefieres no decirlo, escribe paso."
     else:
-        return ("Gracias por contarme sobre tu trabajo. Ya quedó registrada la información "
-                "que me diste para que administración pueda revisarla si corresponde. "
+        return ("Gracias por contarme sobre tu trabajo. Ya registré lo que me dijiste "
+                "para que el equipo pueda revisarlo si corresponde. "
                 "Esto todavía no significa que exista una contratación confirmada.")
     return (_friendly_ack(message, facts, question) + " " + question)[:540]
 
