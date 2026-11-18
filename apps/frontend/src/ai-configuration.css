@@ -68,3 +68,9 @@
   .ai-center .ai-banner { padding:18px; }
   .ai-center .ai-state { white-space:normal; }
 }
+
+.ai-center .ai-learning-stats { display:grid; grid-template-columns:repeat(3,minmax(0,1fr)); gap:12px; }
+.ai-center .ai-learning-stats > div { background:#f6faf9; border:1px solid #e2ede8; border-radius:12px; padding:16px; display:flex; flex-direction:column; gap:5px; }
+.ai-center .ai-learning-stats b { font-size:25px; line-height:1.2; color:#1a453d; }
+.ai-center .ai-learning-stats span { font-size:12px; color:#5b727b; }
+@media(max-width:620px) { .ai-center .ai-learning-stats { grid-template-columns:1fr; } }
