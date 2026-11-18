@@ -10,7 +10,7 @@ from time import perf_counter
 from urllib.error import HTTPError, URLError
 from urllib.request import HTTPRedirectHandler, Request, build_opener
 
-from sqlalchemy import select
+from sqlalchemy import select, func
 
 from .config import settings
 from .db import SessionLocal
