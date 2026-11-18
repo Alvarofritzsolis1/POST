@@ -29,6 +29,7 @@ class AIOrchestration(Base):
     org_id: Mapped[str] = mapped_column(ForeignKey("organizations.id"), primary_key=True)
     enabled: Mapped[bool] = mapped_column(Boolean, default=False, nullable=False)
     fallback_enabled: Mapped[bool] = mapped_column(Boolean, default=False, nullable=False)
+    review_enabled: Mapped[bool] = mapped_column(Boolean, default=False, nullable=False)
     monthly_token_limit: Mapped[int] = mapped_column(Integer, default=0, nullable=False)
     task_routes: Mapped[dict] = mapped_column(JSON, default=dict)
     updated_by: Mapped[str | None] = mapped_column(ForeignKey("users.id"), nullable=True)
