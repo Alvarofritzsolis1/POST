@@ -1,4 +1,4 @@
-# GALANT 20.8.4-rc1 — Solución Gemini HTTP 404 sin volver a ingresar API Key
+# GALANT 20.8.5-rc1 — Solución Gemini HTTP 404 sin volver a ingresar API Key
 
 ## Diagnóstico confirmado
 
