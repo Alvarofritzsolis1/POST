@@ -103,6 +103,9 @@ git fetch --no-tags --depth=1 origin "$target_ref"
 git cat-file -e "${target_ref}^{commit}"
 git checkout --detach "$target_ref"
 switched=1
+# The secret is generated once on the VPS, before recreating the API container.
+# The existing value is never overwritten and no key is printed in Actions logs.
+python3 scripts/ensure-ai-key.py .env.preview
 configure_compose
 "${compose[@]}" config --quiet
 # Antes de sustituir contenedores, restaurar el respaldo en PostgreSQL aislado.
