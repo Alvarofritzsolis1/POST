@@ -287,6 +287,20 @@ def run() -> None:
         raise SetupError("Meta no confirmó la suscripción de la página")
     print("   ✓ Suscripción de página aceptada por Meta")
 
+    # An intentional opt-in enables both controls; privacy and per-contact
+    # consent remain mandatory. If no verified model is assigned, the backend
+    # still refuses to generate automatic replies and explains why.
+    if yes("¿Activar respuestas automáticas de Galancito para nuevos mensajes, solicitando primero autorización al contacto?",
+           default=old.get("FACEBOOK_AI_AUTO_REPLY_ENABLED", "false").lower() == "true"):
+        write_env_atomically(ENV_FILE, {
+            "FACEBOOK_AI_ENABLED": "true",
+            "FACEBOOK_AI_AUTO_REPLY_ENABLED": "true",
+        })
+        compose("up", "-d", "--no-deps", "--force-recreate", "api", "facebook-publisher")
+        print("   ✓ Respuestas automáticas solicitadas; se usarán solo con una IA disponible y permiso del contacto.")
+    else:
+        print("   ✓ No se habilitaron nuevas respuestas automáticas.")
+
     if yes("¿Publicar automáticamente en Facebook las NUEVAS necesidades seleccionadas?"):
         write_env_atomically(ENV_FILE, {"FACEBOOK_AUTOPUBLISH_ENABLED": "true"})
         compose("up", "-d", "--no-deps", "--force-recreate", "api", "facebook-publisher")
