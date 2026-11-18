@@ -520,7 +520,7 @@ export default function FacebookCenter({ catalog }: { catalog: Catalog }) {
           </>}
       </section>
       <aside className="fbc-analysis">
-        <div className="fbc-pane-title"><ShieldCheck size={17} /><b>Ficha y compatibilidad</b></div>
+        <div className="fbc-pane-title"><ShieldCheck size={17} /><b>Ficha inteligente</b></div>
         {!lead ? <p className="fbc-empty">Selecciona una conversación.</p> : <>
           {lead.needs_support && <div className="fbc-support-alert" role="status">
             <AlertTriangle size={18}/>
@@ -529,6 +529,69 @@ export default function FacebookCenter({ catalog }: { catalog: Catalog }) {
               <small>No enviar una lista larga de documentos. Mantener revisión humana.</small>
             </div>
           </div>}
+          <section className="fbc-lead-overview" aria-label="Resumen del contacto">
+            <div className="fbc-lead-identity">
+              <div className="fbc-avatar">{lead.name && lead.name !== "Interesado de Facebook" ? lead.name.slice(0,1).toUpperCase() : "?"}</div>
+              <div><strong>{lead.name && lead.name !== "Interesado de Facebook" ? lead.name : "Contacto sin nombre"}</strong>
+                <small>{lead.company || lead.specialty || "Información por confirmar"}</small></div>
+              <span className="fbc-stage">{statuses[lead.status] || lead.status}</span>
+            </div>
+            <label>Nombre de la persona
+              <input aria-label="Nombre de la persona" value={lead.name === "Interesado de Facebook" ? "" : lead.name}
+                placeholder="Escribir o confirmar nombre" maxLength={160}
+                onChange={(e) => setDetail((old) => old ? {...old, lead: {...old.lead, name: e.target.value}} : old)} />
+            </label>
+            {currentInsights?.suggestions.filter((item) => item.field === "name").map((item) => <div className="fbc-suggestion" key="name">
+              <span><Sparkles size={14} /> El contacto dijo: <b>{item.value}</b></span>
+              <button type="button" className="nw-btn" disabled={!!saving}
+                onClick={() => patchLead({name: String(item.value)})}>Confirmar nombre</button>
+            </div>)}
+            <div className="fbc-summary-data">
+              <div><small>Oficio</small><strong>{lead.specialty || "Por confirmar"}</strong></div>
+              <div><small>Personas</small><strong>{lead.workers ?? "Sin dato"}</strong></div>
+              <div><small>Disponible desde</small><strong>{lead.availability || "Sin confirmar"}</strong></div>
+            </div>
+            <div className="fbc-next-action">
+              <span><Sparkles size={15} /> Próximo paso sugerido</span>
+              <p>{currentInsights?.next_action || "Confirmar oficio y disponibilidad del contacto."}</p>
+            </div>
+          </section>
+          <section className="fbc-smart-matches" aria-label="Coincidencias sugeridas">
+            <div className="fbc-section-head"><b>Necesidades compatibles</b><small>Revisión humana</small></div>
+            {!currentInsights?.matches.length && <p className="fbc-hint">Sin coincidencias confirmables. Registra el oficio para buscar necesidades activas.</p>}
+            {currentInsights?.matches.map((item) => <article key={item.id} className="fbc-smart-match">
+              <div className="fbc-smart-match-top"><strong>{item.title}</strong>
+                <span>{item.score} pts.</span></div>
+              <small>{item.site} · {item.specialty}</small>
+              <p>{item.reasons.slice(0,2).join(" · ")}</p>
+              <button type="button" className="nw-btn" disabled={!!saving || lead.requirement_id === item.id}
+                onClick={() => patchLead({requirement_id: item.id})}>
+                {lead.requirement_id === item.id ? "Vinculada" : "Vincular necesidad"}
+              </button>
+            </article>)}
+            <small>El puntaje es orientativo, no una probabilidad de contratación ni una adjudicación.</small>
+          </section>
+          <section className="fbc-simple-followup" aria-label="Seguimiento">
+            <div className="fbc-section-head"><b>Seguimiento</b></div>
+            <div className="fbc-pair">
+              <label>Próxima fecha
+                <input type="date" value={lead.follow_up_on || ""}
+                  onChange={(e) => setDetail((old) => old ? {...old, lead: {...old.lead, follow_up_on: e.target.value || null}} : old)} />
+              </label>
+              <label>Etapa
+                <select value={lead.status} onChange={(e) => setDetail((old) => old ? {...old, lead: {...old.lead, status: e.target.value}} : old)}>
+                  {["new","contacting","pending_review","shortlisted","archived"].map(x => <option key={x} value={x}>{statuses[x]}</option>)}
+                </select>
+              </label>
+            </div>
+            <label>Nota de seguimiento
+              <input maxLength={240} value={lead.follow_up_note || ""} placeholder="Ej.: confirmar fecha con residente"
+                onChange={(e) => setDetail((old) => old ? {...old, lead: {...old.lead, follow_up_note: e.target.value}} : old)} />
+            </label>
+          </section>
+          <details className="fbc-advanced">
+            <summary>Más datos y opciones</summary>
+            <div className="fbc-advanced-content">
           <label className="fbc-check"><input type="checkbox" checked={lead.needs_support}
              onChange={(e) => setDetail((old) => old ? {...old, lead: {...old.lead, needs_support:e.target.checked}} : old)} />
              Mantener alerta de apoyo (administración puede desactivarla después de ayudar)</label>
@@ -548,21 +611,6 @@ export default function FacebookCenter({ catalog }: { catalog: Catalog }) {
           </label>
           <label>Experiencia declarada<textarea value={lead.experience} rows={2}
             onChange={(e) => setDetail((old) => old ? {...old, lead: {...old.lead, experience: e.target.value}} : old)} /></label>
-          <div className="fbc-pair">
-            <label>Próximo seguimiento
-              <input type="date" value={lead.follow_up_on || ""} onChange={(e) => setDetail((old) =>
-                old ? {...old, lead: {...old.lead, follow_up_on: e.target.value || null}} : old)} />
-            </label>
-            <label>Nota de seguimiento
-              <input maxLength={240} value={lead.follow_up_note || ""} placeholder="Ej.: llamar al residente"
-                onChange={(e) => setDetail((old) => old ? {...old, lead: {...old.lead,
-                  follow_up_note: e.target.value}} : old)} />
-            </label>
-          </div>
-          <label>Etapa
-            <select value={lead.status} onChange={(e) => setDetail((old) => old ? {...old, lead: {...old.lead, status: e.target.value}} : old)}>
-              {["new","contacting","pending_review","shortlisted","archived"].map(x => <option key={x} value={x}>{statuses[x]}</option>)}
-            </select></label>
           <label>¿Cómo trabaja?
             <select value={lead.entity_type} onChange={(e) => {
               setOnboarding(null);
@@ -604,9 +652,11 @@ export default function FacebookCenter({ catalog }: { catalog: Catalog }) {
           <label className="fbc-check"><input type="checkbox" checked={lead.ai_paused}
             onChange={(e) => setDetail((old) => old ? {...old, lead: {...old.lead, ai_paused: e.target.checked}} : old)} />
             Atención humana: Galancito en pausa para este contacto</label>
-          <button type="button" disabled={!!saving} className="nw-btn nw-primary"
+            </div>
+          </details>
+          <button type="button" disabled={!!saving} className="nw-btn nw-primary fbc-save-lead"
             onClick={() => patchLead({
-              company: lead.company, specialty: lead.specialty,
+              name: lead.name, company: lead.company, specialty: lead.specialty,
               workers: lead.workers, availability: lead.availability,
               experience: lead.experience, status: lead.status,
               documents_state: lead.documents_state, ai_paused: lead.ai_paused,
@@ -615,6 +665,8 @@ export default function FacebookCenter({ catalog }: { catalog: Catalog }) {
               requirement_id: lead.requirement_id,
               follow_up_on: lead.follow_up_on, follow_up_note: lead.follow_up_note,
             })}>Guardar ficha y seguimiento</button>
+          <details className="fbc-deep-review">
+            <summary>Orientación y validaciones</summary>
           <button type="button" className="nw-btn" disabled={!!saving}
             onClick={() => void analyzeLead()}>
             <Sparkles size={15}/> {saving === "triage" ? "Analizando…" : "Galancito: analizar seguimiento"}
@@ -655,6 +707,7 @@ export default function FacebookCenter({ catalog }: { catalog: Catalog }) {
               {lead.analysis.missing.map(x => <small key={x}>· {x}</small>)}</>}
             <small>La IA no habilita contratistas ni decide adjudicaciones.</small>
           </div>
+          </details>
         </>}
       </aside>
     </div></>}
