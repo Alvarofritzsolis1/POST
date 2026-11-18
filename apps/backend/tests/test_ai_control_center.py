@@ -767,46 +767,68 @@ def test_gemini_recovery_checks_later_listed_models(ai_env, monkeypatch):
 
 
 
-def test_nvidia_lightning_vps_provision_is_org_scoped_and_reuses_connection(ai_env, monkeypatch):
-    """VPS setup writes an encrypted org-wide connection and does not touch Messenger."""
-    from app.ai_nvidia_setup import MODEL, provision, select_admin
-    from app.ai_models import AIOrchestration
-    client, sessions = ai_env["client"], ai_env["sessions"]
-    headers = signin(client)
-    ciphertext = ai_gateway.encrypt_key("nvapi-test-lightning")
-
+def test_global_nvidia_lightning_is_linked_to_every_organization(ai_env):
+    """One encrypted key links all user orgs and never joins their business data."""
+    from app.ai_global_lightning import GLOBAL_ID, MODEL, sync_all, sync_org
+    from app.ai_models import AIGlobalCredential, AIOrchestration
+    from app.models import Organization, User
+    _, sessions = ai_env["client"], ai_env["sessions"]
+    encrypted = ai_gateway.encrypt_key("nvapi-test-shared-key")
     with sessions.begin() as db:
-        # Two organizations require the administrator email to identify the target.
-        with pytest.raises(RuntimeError):
-            select_admin(db, None)
-        admin = select_admin(db, "admin@example.cl")
-        provision(db, admin, ciphertext, (11, 3), 120)
+        db.add(AIGlobalCredential(
+            id=GLOBAL_ID, provider="nvidia", model=MODEL,
+            encrypted_key=encrypted, enabled=True, verified_at=__import__("datetime").datetime.now(
+                __import__("datetime").timezone.utc
+            ),
+        ))
+        db.flush()
+        linked, total = sync_all(db, force=True)
+        assert (linked, total) == (2, 2)
     with sessions() as db:
-        records = list(db.scalars(select(AIConnection).where(
-            AIConnection.org_id == ai_env["org_id"], AIConnection.model == MODEL
+        orgs = list(db.scalars(select(Organization.id)))
+        assert len(orgs) == 2
+        connections = list(db.scalars(select(AIConnection).where(
+            AIConnection.model == MODEL
         )))
-        assert len(records) == 1
-        conn = records[0]
-        assert conn.enabled and conn.last_status == "verified"
-        assert ai_gateway.decrypt_key(conn.encrypted_key) == "nvapi-test-lightning"
-        policy = db.get(AIOrchestration, ai_env["org_id"])
-        assert policy.enabled and policy.task_routes["red_obras"] == conn.id
-        assert "messenger" not in policy.task_routes
-        assert policy.monthly_token_limit == 100000
+        assert len(connections) == 2
+        assert len({c.id for c in connections}) == 2
+        assert all(ai_gateway.decrypt_key(c.encrypted_key) == "nvapi-test-shared-key"
+                   for c in connections)
+        for org_id in orgs:
+            policy = db.get(AIOrchestration, org_id)
+            conn = next(c for c in connections if c.org_id == org_id)
+            assert policy.enabled
+            assert policy.task_routes.get("red_obras") == conn.id
+            assert not policy.task_routes.get("messenger")
+            assert policy.monthly_token_limit == 100000
 
+    # A user joining a new org later inherits the provider, with no second key.
     with sessions.begin() as db:
-        admin = select_admin(db, "admin@example.cl")
-        provision(db, admin, ciphertext, (13, 4), 210)
+        new_org = Organization(name="Obra nueva")
+        db.add(new_org)
+        db.flush()
+        db.add(User(org_id=new_org.id, email="later@example.cl",
+                    role="resident", enabled=True, password_hash="test-only"))
+        db.flush()
+        assert sync_org(db, new_org.id)
+        assert not sync_org(db, new_org.id)
     with sessions() as db:
-        assert db.scalar(select(AIConnection).where(
-            AIConnection.org_id == ai_env["org_id"], AIConnection.model == MODEL
-        )) is not None
-        assert len(list(db.scalars(select(AIConnection).where(
-            AIConnection.org_id == ai_env["org_id"], AIConnection.model == MODEL
-        )))) == 1
-    bootstrap = client.get(ROOT + "/bootstrap").json()
-    assert len([x for x in bootstrap["connections"] if x["model"] == MODEL]) == 1
-    assert "nvapi-test-lightning" not in json.dumps(bootstrap)
+        conn = db.scalar(select(AIConnection).where(
+            AIConnection.org_id == new_org.id, AIConnection.model == MODEL
+        ))
+        assert conn and conn.enabled
+        assert ai_gateway.decrypt_key(conn.encrypted_key) == "nvapi-test-shared-key"
+
+
+def test_global_nvidia_only_activates_after_verified_credential(ai_env):
+    from app.ai_global_lightning import GLOBAL_ID, MODEL, sync_all
+    from app.ai_models import AIGlobalCredential
+    with ai_env["sessions"].begin() as db:
+        db.add(AIGlobalCredential(id=GLOBAL_ID, provider="nvidia",
+                                  model=MODEL, enabled=False,
+                                  encrypted_key=ai_gateway.encrypt_key("nvapi-demo")))
+        db.flush()
+        assert sync_all(db, force=True) == (0, 2)
 
 
 def test_nvidia_lightning_disables_reasoning_for_quick_replies(ai_env, monkeypatch):
