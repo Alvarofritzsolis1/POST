@@ -115,7 +115,7 @@ def _match(db: Session, lead: FacebookLead) -> dict:
 
 def _lead_view(db: Session, lead: FacebookLead) -> dict:
     return {
-        "id": lead.id, "name": lead.display_name, "company": lead.company,
+        "id": lead.id, "name": lead.display_name, "name_opt_out": lead.name_opt_out, "company": lead.company,
         "specialty": lead.specialty, "specialty_source": lead.specialty_source, "workers": lead.workers,
         "availability": lead.availability, "experience": lead.experience,
         "documents_state": lead.documents_state, "status": lead.status,
@@ -147,6 +147,7 @@ def _message_view(m: FacebookChatMessage) -> dict:
 class LeadEdit(BaseModel):
     model_config = ConfigDict(extra="forbid")
     name: str = Field(default="", max_length=160)
+    name_opt_out: bool = False
     company: str = Field(default="", max_length=180)
     specialty: str = Field(default="", max_length=100)
     workers: int | None = Field(default=None, ge=1, le=5000)
@@ -843,7 +844,8 @@ def suggest_reply(lead_id: str, user: User = Depends(administrator),
     facts = {"specialty": lead.specialty, "workers": lead.workers,
              "availability": lead.availability, "entity_type": lead.entity_type,
              "has_employees": lead.has_employees, "team_available": lead.team_available,
-             "interest_type": lead.interest_type, "work_area": lead.work_area, "experience": lead.experience}
+             "interest_type": lead.interest_type, "work_area": lead.work_area, "experience": lead.experience,
+             "display_name": lead.display_name, "name_opt_out": lead.name_opt_out}
     previous_question = next((m.body for m in messages if m.direction == "outbound"
                               and m.state == "sent"), "")
     intake = next_intake_reply(latest_inbound, facts, previous_question)
