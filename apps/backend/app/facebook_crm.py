@@ -36,6 +36,7 @@ from .network_service import key, today
 from .galancito_triage import classify_lead, dashboard
 from .security import administrator
 from .galancito_triage import analyze, private_data, quick_reply
+from .galancito_intake import apply_intake, next_intake_reply
 from .facebook_lead_insights import ranked_needs, suggestions_for_lead
 from .ops_models import Worksite
 from .galancito_knowledge import retrieve, exact_answer, evidence_context
@@ -125,6 +126,8 @@ def _lead_view(db: Session, lead: FacebookLead) -> dict:
         "support_reason": lead.support_reason,
         "entity_type": lead.entity_type,
         "has_employees": lead.has_employees,
+        "team_available": lead.team_available,
+        "work_area": lead.work_area,
         "follow_up_on": lead.follow_up_on.isoformat() if lead.follow_up_on else None,
         "follow_up_note": lead.follow_up_note or "",
         "last_inbound_at": lead.last_inbound_at.isoformat() if lead.last_inbound_at else None,
@@ -153,6 +156,8 @@ class LeadEdit(BaseModel):
     needs_support: bool = False
     entity_type: str = Field(default="unknown", pattern=r"^(unknown|company|individual)$")
     has_employees: bool | None = None
+    team_available: bool | None = None
+    work_area: str = Field(default="", max_length=120)
     follow_up_on: date | None = None
     follow_up_note: str = Field(default="", max_length=240)
 
@@ -305,6 +310,15 @@ async def webhook(request: Request, db: Session = Depends(get_db)):
                 )):
                     pending.state = "cancelled"
             if consent is None and not audio_received and not private_data(body):
+                previous_question = db.scalar(select(FacebookChatMessage.body).where(
+                    FacebookChatMessage.lead_id == lead.id,
+                    FacebookChatMessage.direction == "outbound",
+                    FacebookChatMessage.state == "sent",
+                ).order_by(FacebookChatMessage.created_at.desc(),
+                           FacebookChatMessage.id.desc()).limit(1)) or ""
+                # Only self-declared professional details, never an employment inference
+                # from ability to bring people; no third-party model receives these fields.
+                apply_intake(lead, body, previous_question)
                 approved_trades = {g.trade: (g.trade, *(g.aliases or [])) for g in db.scalars(
                     select(FacebookTradeGuide).where(FacebookTradeGuide.org_id == lead.org_id,
                                                     FacebookTradeGuide.approved.is_(True)).limit(100))}
@@ -824,9 +838,13 @@ def suggest_reply(lead_id: str, user: User = Depends(administrator),
                            and consent_decision(m.body) is None), "")
     facts = {"specialty": lead.specialty, "workers": lead.workers,
              "availability": lead.availability, "entity_type": lead.entity_type,
-             "has_employees": lead.has_employees}
+             "has_employees": lead.has_employees, "team_available": lead.team_available,
+             "work_area": lead.work_area, "experience": lead.experience}
+    previous_question = next((m.body for m in messages if m.direction == "outbound"
+                              and m.state == "sent"), "")
+    intake = next_intake_reply(latest_inbound, facts, previous_question)
     evidence = retrieve(db, lead.org_id, latest_inbound, "messenger") if not private_data(latest_inbound) else []
-    fast = quick_reply(latest_inbound, known=facts)
+    fast = intake or quick_reply(latest_inbound, known=facts)
     if analyze(latest_inbound).intent not in {"human", "restricted", "requirements"} and not private_data(latest_inbound):
         fast = exact_answer(evidence) or fast
     if fast:
@@ -860,8 +878,10 @@ def suggest_reply(lead_id: str, user: User = Depends(administrator),
             return {"draft": drafted, "source": "ai", "requires_review": True}
     if not lead.specialty:
         question = "¿Qué trabajo haces? Por ejemplo, gasfitería, carpintería o pintura."
-    elif lead.workers is None:
-        question = "¿Trabajas solo o con cuántas personas?"
+    elif lead.team_available is None:
+        question = "¿Trabajas solo o puedes venir con otras personas?"
+    elif lead.team_available and lead.workers is None:
+        question = "¿Con cuántas personas puedes venir en total?"
     elif not lead.availability:
         question = "¿Desde cuándo puedes empezar a trabajar?"
     else:
