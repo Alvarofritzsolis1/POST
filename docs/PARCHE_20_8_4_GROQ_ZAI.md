@@ -1,4 +1,4 @@
-# GALANT 20.8.4 — Corrección de conexiones Groq, Gemini y Z.ai
+# GALANT 20.8.5 — Corrección de conexiones Groq, Gemini y Z.ai
 
 ## Causa y alcance
 
