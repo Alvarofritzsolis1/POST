@@ -23,7 +23,7 @@ def contact_profile(lead) -> dict:
         "availability": bool(lead.availability and lead.availability.strip()),
     }
     missing = [label for key, label in fields if not counts[key]]
-    answered = sum(counts.values())
+    answered = sum(bool(counts[key]) for key, _ in fields)
     choice = getattr(lead, "interest_type", "unknown")
     if choice == "service_offer":
         intro = "Ofrece servicios por su cuenta"
