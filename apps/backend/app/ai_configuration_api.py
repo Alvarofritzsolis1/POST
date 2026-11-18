@@ -150,9 +150,9 @@ def create_connection(body: ConnectionCreate, user: User = Depends(administrator
         price_output_per_million=body.price_output_per_million,
     )
     db.add(conn)
-    db.flush()
-    log_change(db, user, "connection.create", conn.id)
     try:
+        db.flush()
+        log_change(db, user, "connection.create", conn.id)
         db.commit()
     except IntegrityError:
         db.rollback()
@@ -228,7 +228,7 @@ def test_connection(connection_id: str, user: User = Depends(administrator),
     try:
         answer = run_connection(db, conn, task="connection_test",
                                 instructions="Responde brevemente en español.",
-                                prompt="Prueba de conexión. Responde OK.", max_output_tokens=32)
+                                prompt="Prueba de conexión. Responde OK.", max_output_tokens=128)
         log_change(db, user, "connection.test", conn.id)
         db.commit()
     except AIServiceError as exc:
