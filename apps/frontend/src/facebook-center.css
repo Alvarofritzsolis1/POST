@@ -413,3 +413,16 @@
 .fbc-auto-check {display:grid;gap:7px;border-top:1px solid var(--nw-border,#dbe5e6);padding-top:10px;}
 .fbc-auto-check ul {margin:0;padding-left:18px;display:grid;gap:5px;}
 .fbc-auto-check small,.fbc-auto-confirm {font-size:12px;line-height:1.5;}
+
+
+/* Live typing dots only when the backend persisted queued/drafting stages. */
+.fbc-typing { display:flex;align-items:center;gap:10px;min-width:175px;padding:3px 0; }
+.fbc-typing-avatar { display:grid;place-items:center;flex:none;width:32px;height:32px;border-radius:50%;color:#fff;background:linear-gradient(145deg,#0d4e99,#2485ed); }
+.fbc-typing-content { display:grid;gap:4px;min-width:0; }
+.fbc-typing-content small { display:block;margin:0;font-size:11px;color:#406286;font-weight:600; }
+.fbc-typing-dots {display:inline-flex;gap:5px;align-items:center;width:fit-content;border-radius:18px;padding:8px 11px;background:#e7f0ff;}
+.fbc-typing-dots i {display:block;width:7px;height:7px;border-radius:50%;background:#2a6fc3;animation:fbc-dot-bounce 1.15s ease-in-out infinite;}
+.fbc-typing-dots i:nth-child(2) {animation-delay:.16s;}
+.fbc-typing-dots i:nth-child(3) {animation-delay:.32s;}
+@keyframes fbc-dot-bounce {0%,60%,100%{opacity:.4;transform:translateY(0)}30%{opacity:1;transform:translateY(-5px)}}
+@media(prefers-reduced-motion:reduce){.fbc-typing-dots i{animation:none;opacity:.75}}
