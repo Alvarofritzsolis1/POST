@@ -360,7 +360,7 @@ def main() -> None:
     signal.signal(signal.SIGTERM, stop)
     signal.signal(signal.SIGINT, stop)
     log.info("Worker de Facebook iniciado; sin publicación retroactiva.")
-    from .facebook_chat_worker import process_chat_next
+    from .facebook_chat_worker import process_chat_next, process_profile_next
     while not stopping:
         try:
             if process_chat_next():
@@ -368,6 +368,8 @@ def main() -> None:
             if process_manual_next():
                 continue
             if process_next():
+                continue
+            if process_profile_next():
                 continue
         except Exception:
             log.exception("Fallo de worker Facebook; credenciales no registradas.")
