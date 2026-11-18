@@ -9,7 +9,7 @@ import pytest
 from sqlalchemy import select
 
 from app.facebook_crm_models import FacebookLead
-from app.galancito_intake import apply_intake, next_intake_reply
+from app.galancito_intake import apply_intake, next_intake_reply, natural_messenger_reply
 from app.galancito_contact_profile import contact_profile
 from app.galancito_triage import analyze, private_data
 from app.models import User
@@ -199,3 +199,41 @@ def test_local_profile_progress_is_not_employment_approval():
     assert profile["completed"] == profile["total"]
     assert "validación" in profile["summary"]
     assert not hasattr(lead, "documents_state")
+
+
+def test_human_conversational_style_without_repeated_bot_introductions():
+    lead = blank_lead()
+    answer = respond(lead, "", "ola soi gasfite")
+    assert "gasfitería" in answer.lower()
+    assert answer.count("?") == 1
+    assert "Soy Galancito" not in answer
+    first = natural_messenger_reply(answer, 0)
+    second = natural_messenger_reply(answer, 1)
+    assert first.startswith("Soy Galancito")
+    assert "Soy Galancito" not in second
+    assert len(second) < 550
+
+
+def test_optional_name_does_not_block_or_fake_identity():
+    lead = blank_lead(display_name="Interesado de Facebook", name_opt_out=False)
+    lead.interest_type = "service_offer"
+    lead.specialty = "Pintura"
+    lead.team_available = False
+    lead.workers = 1
+    lead.experience = "2 años"
+    lead.work_area = "Coronel"
+    lead.availability = "desde mañana"
+    question = next_intake_reply("mañana", vars(lead), "¿Desde cuándo podrías comenzar?")
+    assert "prefieres" in question
+    final = respond(lead, question, "paso")
+    assert lead.name_opt_out is True
+    assert lead.display_name == "Interesado de Facebook"
+    assert "registré" in final
+
+
+def test_opt_in_name_and_professional_data_are_separate():
+    lead = blank_lead(display_name="Interesado de Facebook", name_opt_out=False)
+    apply_intake(lead, "me llamo Luis", "")
+    assert lead.display_name == "Luis"
+    apply_intake(lead, "¿hay electricistas?")
+    assert lead.specialty == ""
