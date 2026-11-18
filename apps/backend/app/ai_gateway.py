@@ -9,7 +9,7 @@ from datetime import datetime, timezone
 from decimal import Decimal
 from urllib.error import HTTPError, URLError
 from urllib.parse import quote
-from urllib.request import Request, urlopen
+from urllib.request import Request, HTTPRedirectHandler, build_opener
 
 from cryptography.fernet import Fernet, InvalidToken
 from sqlalchemy import func, select
@@ -37,6 +37,18 @@ TASKS = {
     "review": "Segunda opinión / calidad",
 }
 MODEL_RE = re.compile(r"^[a-zA-Z0-9][a-zA-Z0-9._:/-]{1,159}$")
+
+
+class _NoExternalRedirects(HTTPRedirectHandler):
+    """Prevent credential-bearing requests from following redirects to other hosts."""
+
+    def redirect_request(self, request, fp, code, msg, headers, newurl):
+        return None
+
+
+# Endpoint hosts are allowlisted and redirects are never followed.
+# Keep a replaceable module-local callable for deterministic synthetic tests.
+urlopen = build_opener(_NoExternalRedirects).open
 
 
 class AIServiceError(Exception):
