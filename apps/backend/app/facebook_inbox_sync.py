@@ -131,3 +131,36 @@ def sync_page_inbox(*, page_id: str, page_token: str, org_id: str,
         # No AI follow-up: recovery is not a fresh user-initiated conversation.
     return {"conversations_checked": len(conversations), "messages_imported": imported,
             "new_contacts": created_leads}
+
+
+def periodic_recovery(stop_event, *, interval_seconds: int = 600) -> None:
+    """Lightweight safety net for missed webhooks, isolated from reply worker queue.
+
+    Webhooks remain the real-time source. This thread reconciles a bounded recent
+    window every ten minutes, never auto-replies to messages recovered this way.
+    """
+    import logging
+    from urllib.error import URLError
+    from .config import settings
+
+    logger = logging.getLogger("galant.facebook.inbox")
+    if stop_event.wait(45):
+        return
+    while not stop_event.is_set():
+        cfg = settings()
+        if (cfg.facebook_messaging_enabled and cfg.facebook_page_token and
+                cfg.facebook_page_id and cfg.facebook_org_id):
+            try:
+                sync_page_inbox(
+                    page_id=cfg.facebook_page_id, page_token=cfg.facebook_page_token,
+                    org_id=cfg.facebook_org_id, conversation_limit=10, message_limit=15)
+            except HTTPError as exc:
+                # Never log exception strings: URLs/request bodies may contain secrets.
+                logger.warning("Recuperación Messenger: Meta HTTP %d", exc.code)
+            except (URLError, TimeoutError, OSError, ValueError, UnicodeError) as exc:
+                logger.warning("Recuperación Messenger: error %s", type(exc).__name__)
+            except Exception:
+                # The sender loop must not crash if a reconciliation fails.
+                logger.error("Recuperación Messenger: error interno sin datos privados")
+        if stop_event.wait(interval_seconds):
+            return
