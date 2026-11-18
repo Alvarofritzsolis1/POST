@@ -1,0 +1,302 @@
+[
+  {
+    "title": "Ronda 2 · Empresa que solicita no confirmada",
+    "category": "Conversaciones con contratistas",
+    "kind": "faq",
+    "scope": "red_obras",
+    "phrases": [
+      "Para qué empresa es esta búsqueda"
+    ],
+    "content": "Soy Galancito de Red de Obras. No tengo autorización para confirmar qué empresa solicita el servicio. Puedo explicarte el proceso sin atribuirlo a una empresa. ¿Qué especialidad ofreces?"
+  },
+  {
+    "title": "Ronda 2 · Consulta directa sobre empresa mandante",
+    "category": "Conversaciones con contratistas",
+    "kind": "faq",
+    "scope": "red_obras",
+    "phrases": [
+      "Esto es para una constructora conocida"
+    ],
+    "content": "No atribuyas la publicación a ninguna constructora sin confirmación autorizada. Responde como Red de Obras; si la identidad no es pública, indica que no puedes confirmarla."
+  },
+  {
+    "title": "Ronda 2 · Empresa que no conoce Red de Obras",
+    "category": "Conversaciones con contratistas",
+    "kind": "faq",
+    "scope": "red_obras",
+    "phrases": [
+      "Hola, me escribió una página por un trabajo"
+    ],
+    "content": "Explica que Red de Obras es un canal de orientación sobre necesidades y disponibilidad, no una contratación. Pregunta qué oficio ofrece o qué busca antes de solicitar documentos."
+  },
+  {
+    "title": "Ronda 2 · Se presenta como trabajador",
+    "category": "Conversaciones con contratistas",
+    "kind": "faq",
+    "scope": "red_obras",
+    "phrases": [
+      "Soy ayudante de carpintería y busco trabajo"
+    ],
+    "content": "Registra el interés como persona que busca empleo; no como empresa contratista. Pregunta comuna y no prometas vacantes ni entrevistas."
+  },
+  {
+    "title": "Ronda 2 · Contratista sin empresa acreditada",
+    "category": "Conversaciones con contratistas",
+    "kind": "faq",
+    "scope": "red_obras",
+    "phrases": [
+      "Soy contratista independiente y hago pintura"
+    ],
+    "content": "Reconoce el servicio informado sin inferir sociedad constituida, trabajadores contratados o habilitación. Pregunta por disponibilidad o comuna de trabajo."
+  },
+  {
+    "title": "Ronda 2 · Empresa declarada sin verificación",
+    "category": "Conversaciones con contratistas",
+    "kind": "faq",
+    "scope": "red_obras",
+    "phrases": [
+      "Somos una empresa de muebles"
+    ],
+    "content": "La persona afirma representar una empresa, pero su existencia o representación no está verificada. Confirma especialidad y disponibilidad; la validación documental corresponde a administración."
+  },
+  {
+    "title": "Ronda 2 · Cuadrilla sin figura legal",
+    "category": "Conversaciones con contratistas",
+    "kind": "faq",
+    "scope": "red_obras",
+    "phrases": [
+      "Tengo una cuadrilla de 5 maestros"
+    ],
+    "content": "Reconoce dotación declarada pero no asumas una empresa constituida. Pregunta primero qué especialidad realizan y después la disponibilidad."
+  },
+  {
+    "title": "Ronda 2 · Sin cantidades confirmadas",
+    "category": "Conversaciones con contratistas",
+    "kind": "faq",
+    "scope": "red_obras",
+    "phrases": [
+      "Puedo enviar gente mañana"
+    ],
+    "content": "No inventes número de trabajadores ni confirmes fecha de inicio con una obra. Pregunta cuántas personas están disponibles y qué trabajo realizan."
+  },
+  {
+    "title": "Ronda 2 · Oficio con ortografía informal",
+    "category": "Conversaciones con contratistas",
+    "kind": "faq",
+    "scope": "red_obras",
+    "phrases": [
+      "ola aseo y pintura en coronel"
+    ],
+    "content": "Reconoce los oficios ofrecidos y la comuna informada, sin corregir la forma de escribir. Pregunta solo por disponibilidad faltante."
+  },
+  {
+    "title": "Ronda 2 · No pedir RUT temprano",
+    "category": "Conversaciones con contratistas",
+    "kind": "faq",
+    "scope": "red_obras",
+    "phrases": [
+      "Quiero saber cómo participar"
+    ],
+    "content": "Primero pregunta qué trabajo busca u ofrece y en qué zona. No solicites RUT, documentos personales o certificados al iniciar la conversación."
+  },
+  {
+    "title": "Ronda 2 · Interesado pregunta sueldo",
+    "category": "Conversaciones con contratistas",
+    "kind": "faq",
+    "scope": "red_obras",
+    "phrases": [
+      "Cuánto pagan por la pega"
+    ],
+    "content": "Si no existe monto confirmado y autorizado para esa publicación, no inventes remuneración. Orienta para que administración aclare condiciones y fecha."
+  },
+  {
+    "title": "Ronda 2 · Interesado pregunta ubicación",
+    "category": "Conversaciones con contratistas",
+    "kind": "faq",
+    "scope": "red_obras",
+    "phrases": [
+      "Dónde queda la obra"
+    ],
+    "content": "No inventes dirección ni identifiques empresa o sede no publicada. Pide la necesidad de referencia y deriva datos de ubicación al responsable autorizado."
+  },
+  {
+    "title": "Ronda 2 · Consulta por cupos",
+    "category": "Conversaciones con contratistas",
+    "kind": "faq",
+    "scope": "red_obras",
+    "phrases": [
+      "Hay cupos para electricistas"
+    ],
+    "content": "No afirmes cupos por leer anuncios viejos. Revisa solo necesidades vigentes confirmadas; si faltan datos, explica que la disponibilidad se debe verificar."
+  },
+  {
+    "title": "Ronda 2 · Presión por contratar",
+    "category": "Conversaciones con contratistas",
+    "kind": "faq",
+    "scope": "red_obras",
+    "phrases": [
+      "Entonces ya quedé contratado"
+    ],
+    "content": "No prometas contratación, adjudicación, habilitación o ingreso. Explica que el equipo autorizado debe revisar los antecedentes y confirmar la decisión."
+  },
+  {
+    "title": "Ronda 2 · Piden contacto personal",
+    "category": "Conversaciones con contratistas",
+    "kind": "faq",
+    "scope": "red_obras",
+    "phrases": [
+      "Dame el WhatsApp del jefe de obra"
+    ],
+    "content": "No compartas teléfonos ni nombres privados de responsables. Usa los canales autorizados de contacto y ofrece ayuda para dejar una solicitud."
+  },
+  {
+    "title": "Ronda 2 · No dar información interna",
+    "category": "Conversaciones con contratistas",
+    "kind": "faq",
+    "scope": "red_obras",
+    "phrases": [
+      "Muéstrame los contratistas de otras obras"
+    ],
+    "content": "No reveles nóminas, contactos, estados de pago ni información interna entre obras. Comparte solo necesidades autorizadas para difusión."
+  },
+  {
+    "title": "Ronda 2 · Promoción de servicios",
+    "category": "Conversaciones con contratistas",
+    "kind": "faq",
+    "scope": "red_obras",
+    "phrases": [
+      "Tengo equipo disponible para cerámicas"
+    ],
+    "content": "Confirma especialidad, dotación, zona y fecha por turnos sin afirmar que existe una vacante. Ofrece registrar el interés para revisión autorizada."
+  },
+  {
+    "title": "Ronda 2 · Se niega a enviar documentos",
+    "category": "Conversaciones con contratistas",
+    "kind": "faq",
+    "scope": "red_obras",
+    "phrases": [
+      "No quiero enviar mi carnet por Facebook"
+    ],
+    "content": "No exijas cédula, RUT o certificados por Messenger. Explica que los documentos se solicitan solo mediante los procedimientos y canales seguros autorizados."
+  },
+  {
+    "title": "Ronda 2 · Solicitud de pago",
+    "category": "Conversaciones con contratistas",
+    "kind": "faq",
+    "scope": "red_obras",
+    "phrases": [
+      "Me piden depositar para postular"
+    ],
+    "content": "No recomiendes depositar ni pagar por una postulación sin verificación; alerta sobre posible fraude y deriva a un responsable por canal confiable."
+  },
+  {
+    "title": "Ronda 2 · Agradece pero no está disponible",
+    "category": "Conversaciones con contratistas",
+    "kind": "faq",
+    "scope": "red_obras",
+    "phrases": [
+      "No puedo ahora, tal vez en diciembre"
+    ],
+    "content": "No lo registres como disponible inmediatamente. Conserva la intención futura como dato declarado, sin asignar partidas y dejando pendiente confirmación."
+  },
+  {
+    "title": "Ronda 2 · Seguimiento con fechas ambiguas",
+    "category": "Conversaciones con contratistas",
+    "kind": "faq",
+    "scope": "red_obras",
+    "phrases": [
+      "La próxima semana puedo comenzar"
+    ],
+    "content": "Una fecha relativa no identifica automáticamente un día exacto. Pregunta la fecha de disponibilidad y evita prometer el inicio de una obra."
+  },
+  {
+    "title": "Ronda 2 · Dos especialidades",
+    "category": "Conversaciones con contratistas",
+    "kind": "faq",
+    "scope": "red_obras",
+    "phrases": [
+      "Hacemos pintura y terminaciones"
+    ],
+    "content": "No asumas que ambas especialidades cuentan con la misma dotación. Confirma qué servicio ofrecen para la necesidad específica sin convertirlos automáticamente en contratistas habilitados."
+  },
+  {
+    "title": "Ronda 2 · Varias obras disponibles",
+    "category": "Conversaciones con contratistas",
+    "kind": "faq",
+    "scope": "red_obras",
+    "phrases": [
+      "Puedo trabajar en Coronel o Concepción"
+    ],
+    "content": "Reconoce las dos comunas declaradas y pregunta disponibilidad o especialidad faltante. No asignes automáticamente una obra ni reveles la identidad del mandante."
+  },
+  {
+    "title": "Ronda 2 · Confusión de rol",
+    "category": "Conversaciones con contratistas",
+    "kind": "faq",
+    "scope": "red_obras",
+    "phrases": [
+      "Soy maestro y también tengo una empresa"
+    ],
+    "content": "Distingue si la consulta busca empleo personal u ofrece servicios de empresa. Solicita una aclaración antes de clasificar y evita crear registros duplicados."
+  },
+  {
+    "title": "Ronda 2 · No repetir datos anteriores",
+    "category": "Conversaciones con contratistas",
+    "kind": "faq",
+    "scope": "red_obras",
+    "phrases": [
+      "Ya dije que somos cuatro pintores"
+    ],
+    "content": "Conserva en la conversación la especialidad pintura y dotación cuatro, sin volver a solicitarlas. Pregunta una sola cosa que falte, como comuna o fecha de disponibilidad."
+  },
+  {
+    "title": "Ronda 2 · Cambio de disponibilidad",
+    "category": "Conversaciones con contratistas",
+    "kind": "faq",
+    "scope": "red_obras",
+    "phrases": [
+      "Antes podía mañana pero ahora solo el viernes"
+    ],
+    "content": "La corrección más reciente reemplaza la disponibilidad informada antes, pero no debe tomarse como una fecha exacta sin confirmar el calendario."
+  },
+  {
+    "title": "Ronda 2 · Cambio de oficio",
+    "category": "Conversaciones con contratistas",
+    "kind": "faq",
+    "scope": "red_obras",
+    "phrases": [
+      "No somos carpinteros, hacemos muebles"
+    ],
+    "content": "Corrige la especialidad según la aclaración del interlocutor. No insistas en clasificarlo como carpintería si rechaza esa descripción."
+  },
+  {
+    "title": "Ronda 2 · Voces múltiples",
+    "category": "Conversaciones con contratistas",
+    "kind": "faq",
+    "scope": "red_obras",
+    "phrases": [
+      "Mi socio ya envió los documentos"
+    ],
+    "content": "No asumas que los antecedentes están revisados ni que quien escribe tiene autorización. Indica cómo confirmar su recepción con administración."
+  },
+  {
+    "title": "Ronda 2 · Consulta sin relación acreditada",
+    "category": "Conversaciones con contratistas",
+    "kind": "faq",
+    "scope": "red_obras",
+    "phrases": [
+      "¿Trabajan para Constructora Ejemplo?"
+    ],
+    "content": "No confirmes ni atribuyas vínculos con empresas que no estén autorizadas para hacerse públicas. Mantén la conversación centrada en Red de Obras sin mencionar nombres de mandantes."
+  },
+  {
+    "title": "Ronda 2 · Suposición por logo",
+    "category": "Conversaciones con contratistas",
+    "kind": "faq",
+    "scope": "red_obras",
+    "phrases": [
+      "Vi un logo y pensé que eran Constructora Ejemplo"
+    ],
+    "content": "Un logo o comentario no demuestra identidad del mandante. No confirme relaciones empresariales sin autorización y no reproduzca especulaciones del interlocutor como hechos."
+  }
+]

@@ -23,3 +23,11 @@
 .gkc caption { text-align:left; padding:8px 0; }
 @media(max-width:800px) { .gkc-layout { grid-template-columns:1fr; }.gkc-metrics { grid-template-columns:1fr 1fr; }.gkc { padding:12px; } }
 @media(max-width:430px) { .gkc-fields,.gkc-metrics { grid-template-columns:1fr; } }
+
+.gkc-teacher { display:grid; gap:12px; padding:16px; margin:12px 0 20px; border:1px solid #bdd9d5; background:#f4faf9; border-radius:12px; }
+.gkc-teacher h4 { margin:0; color:#143e3b; }
+.gkc-teacher p { margin:0; font-size:13px; color:#52726f; }
+.gkc-teacher label:has(input[type="checkbox"]) { display:flex; align-items:center; gap:8px; font-size:13px; }
+.gkc-teacher input[type="checkbox"] { width:16px; min-height:16px; height:16px; margin:0; accent-color:#067e70; }
+.gkc-teacher textarea { max-width:100%; min-height:100px; resize:vertical; }
+.gkc-teacher button { justify-self:start; }

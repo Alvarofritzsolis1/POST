@@ -36,6 +36,9 @@ export default function GalancitoKnowledgeCenter({mode = "knowledge"}: {mode?: "
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState("");
   const [notice, setNotice] = useState("");
+  const [teacherSource, setTeacherSource] = useState("");
+  const [teacherApproved, setTeacherApproved] = useState(false);
+  const [offlineReport, setOfflineReport] = useState<{created:number; already_present:number; training_epochs:number; holdout_accuracy:number} | null>(null);
   const refresh = useCallback(async () => {
     const [stats, knowledge] = await Promise.all([
       mode === "knowledge" ? Promise.resolve(null) : net<Performance>("/galancito/performance"),
@@ -105,6 +108,44 @@ export default function GalancitoKnowledgeCenter({mode = "knowledge"}: {mode?: "
       </div>}
     </>}
     {mode === "knowledge" && <>
+      <section className="gkc-teacher" aria-label="Conocimientos locales gratuitos">
+        <h4>Enseñar sin gastar tokens</h4>
+        <p>102 ejemplos anonimizados (72 de gestión documental y 30 conversaciones con contratistas) de nuestra gestión de contratistas: documentos, asistencia, contratos, prevención, obras y seguimiento. Se comparten con todos los usuarios autorizados de esta organización.</p>
+        <button className="nw-btn nw-primary" type="button" disabled={busy}
+          onClick={() => {
+            if (!window.confirm("¿Activar 102 casos anonimizados para toda esta organización y entrenar un pequeño clasificador local durante 40 épocas? No se envían datos a servicios externos ni se modifican documentos.")) return;
+            void act(async () => {
+              const result = await change<{created:number;already_present:number;training_epochs:number;holdout_accuracy:number}>("/galancito/knowledge-curriculum");
+              setOfflineReport(result);
+              setFilter("approved");
+            }, "Casos cargados y clasificador temático entrenado sin usar APIs.");
+          }}>Activar 102 casos · 0 tokens API</button>
+        {offlineReport && <p role="status">Casos nuevos: {offlineReport.created}. Ya existentes: {offlineReport.already_present}. Clasificador auxiliar: {offlineReport.training_epochs} épocas, {Math.round(offlineReport.holdout_accuracy * 100)}% de aciertos en evaluación. Si la precisión es baja, no se utiliza para decidir; las respuestas se basan en guías.</p>}
+        <small>Las 40 épocas entrenan un clasificador auxiliar de temas, no los pesos del modelo generativo Gemini. Las guías autorizadas se recuperan localmente.</small>
+      </section>
+      <details className="gkc-teacher">
+        <summary>Opcional: preparar nuevas lecciones con Gemini (consume tokens)</summary>
+        <p>La IA principal de Red de Obras transforma una fuente administrativa en propuestas pendientes de revisión. Este paso consume tokens y no es necesario para utilizar las 102 guías.</p>
+        <label><input type="checkbox" checked={teacherApproved} disabled={busy}
+          onChange={e => setTeacherApproved(e.target.checked)}/> Aprender desde las guías ya aprobadas</label>
+        {!teacherApproved && <label>Texto de un procedimiento autorizado
+          <textarea rows={4} maxLength={4000} value={teacherSource}
+            onChange={e => setTeacherSource(e.target.value)}
+            placeholder="Describe un procedimiento de Red de Obras, sin datos personales, RUT ni contraseñas." />
+        </label>}
+        <button className="nw-btn nw-primary" type="button"
+          disabled={busy || (!teacherApproved && teacherSource.trim().length < 50)}
+          onClick={() => void act(async () => {
+            await change("/galancito/knowledge-ai-propose", {
+              source_text: teacherApproved ? "" : teacherSource,
+              from_approved: teacherApproved,
+            });
+            setFilter("pending");
+            setTeacherSource("");
+          }, "La IA preparó propuestas pendientes. Revísalas y aprueba únicamente las correctas.")}>
+          {busy ? "Preparando propuestas…" : "Generar propuestas con IA"}
+        </button>
+      </details>
       <div className="gkc-tools">
         <button className="nw-btn" type="button" onClick={() => select(null)}>Nuevo conocimiento</button>
         <button className="nw-btn" type="button" disabled={busy} onClick={() => void act(async () => {

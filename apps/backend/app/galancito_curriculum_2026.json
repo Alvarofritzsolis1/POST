@@ -1,0 +1,794 @@
+[
+  {
+    "title": "Caso · Contratista nuevo",
+    "category": "Identificación del contratista",
+    "kind": "faq",
+    "scope": "red_obras",
+    "phrases": [
+      "cómo registrar un contratista nuevo",
+      "registro de contratista nuevo"
+    ],
+    "content": "Primero verifica si el contratista ya existe y su obra. Si es nuevo, solicita únicamente los datos de empresa necesarios para su ficha; separa registro de empresa y trabajadores. No dupliques registros."
+  },
+  {
+    "title": "Caso · Contratista existente",
+    "category": "Identificación del contratista",
+    "kind": "faq",
+    "scope": "red_obras",
+    "phrases": [
+      "cómo registrar un contratista que ya existe",
+      "contratista ya registrado"
+    ],
+    "content": "Selecciona la ficha existente y confirma la obra. Reutiliza los datos válidos, permite corregirlos con trazabilidad y evita crear una segunda empresa por diferencias de escritura."
+  },
+  {
+    "title": "Caso · Varias obras",
+    "category": "Identificación del contratista",
+    "kind": "faq",
+    "scope": "red_obras",
+    "phrases": [
+      "qué pasa si un contratista trabaja en varias obras",
+      "mismo contratista en dos obras"
+    ],
+    "content": "Una empresa puede participar en varias obras. Mantén la identidad única de la empresa y registra por separado asignaciones, especialidad, estado, documentación y cumplimiento de cada obra."
+  },
+  {
+    "title": "Caso · Diferencia de razón social",
+    "category": "Identificación del contratista",
+    "kind": "faq",
+    "scope": "red_obras",
+    "phrases": [
+      "qué hago si la razón social no coincide",
+      "razón social diferente"
+    ],
+    "content": "Una diferencia de razón social requiere revisar el respaldo oficial y los datos de la ficha. No la corrijas silenciosamente ni acredites cumplimiento mientras exista discrepancia."
+  },
+  {
+    "title": "Caso · Contratista sin movimientos",
+    "category": "Identificación del contratista",
+    "kind": "faq",
+    "scope": "red_obras",
+    "phrases": [
+      "qué hacer con un contratista sin movimientos",
+      "empresa sin movimientos este mes"
+    ],
+    "content": "Registra el período sin movimientos con su respaldo. No crees automáticamente obligaciones mensuales como si hubiese trabajadores activos; verifica las reglas aplicables a la obra."
+  },
+  {
+    "title": "Caso · Contratista esporádico",
+    "category": "Identificación del contratista",
+    "kind": "faq",
+    "scope": "red_obras",
+    "phrases": [
+      "cómo controlar un contratista esporádico",
+      "contratista esporádico en obra"
+    ],
+    "content": "Identifica obra, período y días reales de actividad. No trates un servicio esporádico como presencia permanente y revisa sus documentos según el trabajo efectivo."
+  },
+  {
+    "title": "Caso · Independiente",
+    "category": "Identificación del contratista",
+    "kind": "faq",
+    "scope": "red_obras",
+    "phrases": [
+      "qué hago con un trabajador independiente",
+      "soy independiente sin empleados"
+    ],
+    "content": "Primero confirma si trabaja a nombre propio y si tiene trabajadores a cargo. Los requisitos cambian según su situación; no pidas documentos de sociedad ni contratos de empleados que no existen."
+  },
+  {
+    "title": "Caso · Alta y baja",
+    "category": "Identificación del contratista",
+    "kind": "faq",
+    "scope": "red_obras",
+    "phrases": [
+      "cómo dar de baja un contratista",
+      "terminar actividades del contratista"
+    ],
+    "content": "Registra la fecha y el motivo operativo sustentado, conserva el historial y solicita la carta de término cuando corresponda. No elimines registros históricos ni ejecutes bajas solo por una sugerencia de IA."
+  },
+  {
+    "title": "Caso · F30 y F30-1",
+    "category": "Documentación mensual",
+    "kind": "faq",
+    "scope": "red_obras",
+    "phrases": [
+      "qué diferencia hay entre F30 y F30-1",
+      "diferencia entre F30 y F30-1"
+    ],
+    "content": "Trata F30 y F30-1 como documentos distintos. Identifica empresa, período y contenido. No uses la presencia de uno para dar por presentado el otro."
+  },
+  {
+    "title": "Caso · F30-1 y cotizaciones",
+    "category": "Documentación mensual",
+    "kind": "faq",
+    "scope": "red_obras",
+    "phrases": [
+      "el F30-1 demuestra que pagó las cotizaciones",
+      "F30-1 reemplaza previred"
+    ],
+    "content": "El F30-1 y los comprobantes de cotizaciones se revisan por separado. Un certificado no reemplaza automáticamente la evidencia de pago; cruza empresa, trabajador y período antes de concluir."
+  },
+  {
+    "title": "Caso · Cotizaciones sin pago acreditado",
+    "category": "Documentación mensual",
+    "kind": "faq",
+    "scope": "red_obras",
+    "phrases": [
+      "qué hacer si las cotizaciones aparecen declaradas",
+      "cotizaciones declaradas no pagadas"
+    ],
+    "content": "Distingue declaración de pago efectivo. Registra la evidencia disponible y marca el estado como pendiente de confirmar cuando no exista comprobante suficiente; no afirmes impago solo por falta de verificación."
+  },
+  {
+    "title": "Caso · Documento ilegible",
+    "category": "Documentación mensual",
+    "kind": "faq",
+    "scope": "red_obras",
+    "phrases": [
+      "qué hago con un pdf de cotizaciones borroso",
+      "pdf escaneado ilegible"
+    ],
+    "content": "Marca el documento como ilegible o pendiente de revisión, conserva el original y solicita una copia legible. No interpretes texto dudoso como incumplimiento laboral comprobado."
+  },
+  {
+    "title": "Caso · Documento incorrecto",
+    "category": "Documentación mensual",
+    "kind": "faq",
+    "scope": "red_obras",
+    "phrases": [
+      "qué pasa si subieron el documento equivocado",
+      "subí documento equivocado"
+    ],
+    "content": "Diferencia documento incorrecto de no presentado. Registra el error concreto, período y tipo esperado; solicita reemplazo sin borrar el historial."
+  },
+  {
+    "title": "Caso · Liquidaciones firmadas",
+    "category": "Documentación mensual",
+    "kind": "faq",
+    "scope": "red_obras",
+    "phrases": [
+      "se necesitan liquidaciones firmadas",
+      "liquidaciones de sueldo sin firma"
+    ],
+    "content": "Revisa las liquidaciones del período según el control exigido por la obra y sus firmas o respaldos. Un archivo presentado sin validación suficiente debe quedar observado o pendiente, no aprobado automáticamente."
+  },
+  {
+    "title": "Caso · Pagos desalineados",
+    "category": "Documentación mensual",
+    "kind": "faq",
+    "scope": "red_obras",
+    "phrases": [
+      "liquidaciones no cuadran con la asistencia",
+      "diferencias entre liquidación y libro"
+    ],
+    "content": "Compara trabajador, período, días y firmas entre liquidaciones, asistencia y antecedentes de cotizaciones. Describe la diferencia específica; deriva discrepancias de pago a administración."
+  },
+  {
+    "title": "Caso · Informe portería",
+    "category": "Documentación mensual",
+    "kind": "faq",
+    "scope": "red_obras",
+    "phrases": [
+      "para qué sirve el informe de portería",
+      "revisar portería mensual"
+    ],
+    "content": "El informe de portería complementa el control de presencia e ingresos. Debe asociarse a obra y período; no reemplaza por sí solo el libro de asistencia ni la documentación laboral."
+  },
+  {
+    "title": "Caso · Documentación por especialidad",
+    "category": "Documentación mensual",
+    "kind": "faq",
+    "scope": "red_obras",
+    "phrases": [
+      "todos los contratistas entregan los mismos documentos",
+      "documentos obligatorios por oficio"
+    ],
+    "content": "No. Aplica la matriz configurada por empresa, especialidad, trabajadores, obra y período. Requisitos distintos pueden corresponder a independientes o tareas de riesgo específicas."
+  },
+  {
+    "title": "Caso · Estado no aplica",
+    "category": "Documentación mensual",
+    "kind": "faq",
+    "scope": "red_obras",
+    "phrases": [
+      "cuándo poner no aplica a un documento",
+      "documento no aplica"
+    ],
+    "content": "Usa No aplica solo con fundamento basado en la situación y regla configurada. No equivale a documento correcto ni a cumplimiento comprobado."
+  },
+  {
+    "title": "Caso · Diferenciar estados",
+    "category": "Documentación mensual",
+    "kind": "faq",
+    "scope": "red_obras",
+    "phrases": [
+      "diferencia entre incompleto y no entregado",
+      "estados de revisión documental"
+    ],
+    "content": "No entregado significa que no existe carga para el requisito. Incompleto significa que hay antecedente, pero le falta información. Observado o pendiente de revisión también deben mantenerse diferenciados."
+  },
+  {
+    "title": "Caso · Historial mensual",
+    "category": "Documentación mensual",
+    "kind": "faq",
+    "scope": "red_obras",
+    "phrases": [
+      "puedo modificar documentación de meses anteriores",
+      "histórico de documentación mensual"
+    ],
+    "content": "Conserva el histórico por obra, empresa y mes. Los cambios deben respetar permisos y trazabilidad; nunca reemplaces evidencia antigua sin registro de la modificación."
+  },
+  {
+    "title": "Caso · Sábado y domingo",
+    "category": "Asistencia",
+    "kind": "faq",
+    "scope": "red_obras",
+    "phrases": [
+      "por qué no cuenta sábado y domingo en asistencia",
+      "asistencia fin de semana"
+    ],
+    "content": "En la matriz semanal estándar configurada para GALANT no se cuentan sábados ni domingos como días exigibles. Si una obra tiene jornada excepcional, administración debe establecer esa regla expresamente."
+  },
+  {
+    "title": "Caso · Domingo primero",
+    "category": "Asistencia",
+    "kind": "faq",
+    "scope": "red_obras",
+    "phrases": [
+      "qué pasa si el mes empieza domingo primero",
+      "primera semana domingo 1"
+    ],
+    "content": "Al calcular la primera semana, no consideres el domingo 1 como día hábil exigible en la matriz estándar. Conserva fechas reales y permite verificar excepciones."
+  },
+  {
+    "title": "Caso · Faltan firmas",
+    "category": "Asistencia",
+    "kind": "faq",
+    "scope": "red_obras",
+    "phrases": [
+      "el libro de asistencia no tiene firmas",
+      "libro de asistencia incompleto"
+    ],
+    "content": "No inventes asistencia. Identifica días, turnos y trabajadores sin firma; solicita aclaración y mantiene el estado pendiente de revisión antes de recomendar pagos."
+  },
+  {
+    "title": "Caso · Turnos nocturnos",
+    "category": "Asistencia",
+    "kind": "faq",
+    "scope": "red_obras",
+    "phrases": [
+      "qué hago con guardias de turno noche sin firma",
+      "guardias sin firmas en la noche"
+    ],
+    "content": "Separa turnos diurnos y nocturnos, identifica las fechas sin firma y compara con el informe de portería. Comunica la diferencia y deriva su validación a la persona responsable."
+  },
+  {
+    "title": "Caso · Diferencias de días",
+    "category": "Asistencia",
+    "kind": "faq",
+    "scope": "red_obras",
+    "phrases": [
+      "cómo calcular días faltantes de asistencia",
+      "diferencia de días firmados"
+    ],
+    "content": "Compara los días exigibles con las firmas y otros respaldos admisibles. No infieras que hubo inasistencia solo porque falta una firma. Cualquier retención sugerida requiere regla y autorización humanas."
+  },
+  {
+    "title": "Caso · Retención referencial",
+    "category": "Asistencia",
+    "kind": "faq",
+    "scope": "red_obras",
+    "phrases": [
+      "cuánto se retiene por un día sin firma",
+      "retención 4950 por día"
+    ],
+    "content": "El valor histórico de ejemplo de GALANT es $4.950 por día, pero no es una regla universal ni una retención automática. Verifica el criterio vigente, la evidencia y la autorización antes de proponer un monto."
+  },
+  {
+    "title": "Caso · Comparación contratista",
+    "category": "Asistencia",
+    "kind": "faq",
+    "scope": "red_obras",
+    "phrases": [
+      "cómo ver porcentaje de asistencia por contratista",
+      "porcentaje de cumplimiento libro"
+    ],
+    "content": "Filtra por obra, período y contratista; calcula el cumplimiento a partir de días exigibles y respaldos revisados. Muestra las diferencias y no atribuyas cero a datos faltantes sin revisar."
+  },
+  {
+    "title": "Caso · Revisión de libros",
+    "category": "Asistencia",
+    "kind": "faq",
+    "scope": "red_obras",
+    "phrases": [
+      "cómo pedir el libro de asistencia a un contratista",
+      "solicitar libro asistencia"
+    ],
+    "content": "Solicita libro del período y obra precisos. Indica qué trabajadores, días o turnos requieren aclaración y evita mensajes genéricos que impidan corregir el problema."
+  },
+  {
+    "title": "Caso · Contrato que vence",
+    "category": "Contratos y trabajadores",
+    "kind": "faq",
+    "scope": "red_obras",
+    "phrases": [
+      "contrato de trabajo pronto a vencer",
+      "aviso de vencimiento contrato"
+    ],
+    "content": "Registra fecha de término y comunica la alerta al responsable. Una alerta no significa que el trabajador esté desvinculado; confirma prórroga, anexo o continuidad."
+  },
+  {
+    "title": "Caso · Contrato indefinido",
+    "category": "Contratos y trabajadores",
+    "kind": "faq",
+    "scope": "red_obras",
+    "phrases": [
+      "cómo cargar contrato indefinido",
+      "INDEFINIDO en Excel"
+    ],
+    "content": "Admite INDEFINIDO como modalidad o fecha de término no determinada según el formato. No inventes una fecha de fin y permite corregir la ficha con trazabilidad."
+  },
+  {
+    "title": "Caso · COD trabajadores",
+    "category": "Contratos y trabajadores",
+    "kind": "faq",
+    "scope": "red_obras",
+    "phrases": [
+      "qué significan TH TM y F",
+      "código TH TM F trabajadores"
+    ],
+    "content": "En la carga masiva de trabajadores, TH y TM clasifican según el catálogo y F señala una baja operativa. F no es prueba de finiquito ni acredita por sí sola el término de la relación laboral."
+  },
+  {
+    "title": "Caso · Finiquito faltante",
+    "category": "Contratos y trabajadores",
+    "kind": "faq",
+    "scope": "red_obras",
+    "phrases": [
+      "qué hacer si falta el finiquito",
+      "contratista sin finiquito"
+    ],
+    "content": "Identifica trabajador, empresa, obra y antecedente de término. Solicita el documento faltante y deja pendiente su revisión; no declares terminado el vínculo solo por una fecha escrita."
+  },
+  {
+    "title": "Caso · Continuidad laboral",
+    "category": "Contratos y trabajadores",
+    "kind": "faq",
+    "scope": "red_obras",
+    "phrases": [
+      "finiquito pero el trabajador siguió trabajando",
+      "finiquito con continuidad"
+    ],
+    "content": "Si el trabajador continuó prestando servicios después de la fecha indicada, solicita aclaración de continuidad y respaldo válido. No apruebes automáticamente el finiquito sin revisión de antecedentes."
+  },
+  {
+    "title": "Caso · Firma de representante",
+    "category": "Contratos y trabajadores",
+    "kind": "faq",
+    "scope": "red_obras",
+    "phrases": [
+      "estado de pago firmado por alguien no autorizado",
+      "firma distinta representante legal"
+    ],
+    "content": "Verifica que quien firma tenga representación o autorización acreditada. Si no se acredita, observa el documento y solicita revisión administrativa antes de cursar el pago."
+  },
+  {
+    "title": "Caso · Falta de contrato",
+    "category": "Contratos y trabajadores",
+    "kind": "faq",
+    "scope": "red_obras",
+    "phrases": [
+      "qué hago si falta contrato de un trabajador",
+      "contrato de trabajador faltante"
+    ],
+    "content": "Identifica el trabajador y empresa, informa cuál contrato o anexo falta y registra el pendiente. No infieras informalidad o infracción definitiva sin verificar los antecedentes."
+  },
+  {
+    "title": "Caso · Trabajador nuevo",
+    "category": "Contratos y trabajadores",
+    "kind": "faq",
+    "scope": "red_obras",
+    "phrases": [
+      "cómo incorporar trabajador nuevo",
+      "ingreso de nuevo trabajador"
+    ],
+    "content": "Confirma si ya existe en la base, su empresa, obra y fecha de ingreso. Agrega solo la información necesaria y conserva el historial de modificaciones; evita duplicados."
+  },
+  {
+    "title": "Caso · Trabajador extranjero",
+    "category": "Contratos y trabajadores",
+    "kind": "faq",
+    "scope": "red_obras",
+    "phrases": [
+      "documentación de trabajador extranjero",
+      "documentación migratoria de trabajador"
+    ],
+    "content": "Solicita orientación al área responsable sobre los requisitos migratorios y laborales aplicables. No pidas datos sensibles por chat ni concluyas irregularidad sin revisión documental."
+  },
+  {
+    "title": "Caso · Inducción obra",
+    "category": "Prevención",
+    "kind": "faq",
+    "scope": "red_obras",
+    "phrases": [
+      "qué debe hacer el trabajador antes de ingresar",
+      "inducción antes de entrar"
+    ],
+    "content": "Coordina el ingreso con prevención según la obra, labor y fecha. Verifica la inducción exigida y la habilitación por el responsable, sin prometer acceso automático."
+  },
+  {
+    "title": "Caso · Trabajo en altura",
+    "category": "Prevención",
+    "kind": "faq",
+    "scope": "red_obras",
+    "phrases": [
+      "qué documentos para trabajo en altura",
+      "exámenes para altura"
+    ],
+    "content": "Informa la especialidad y la tarea en altura a prevención. El responsable determina exámenes, capacitación y controles exigidos; no uses una lista genérica como aprobación."
+  },
+  {
+    "title": "Caso · Afiliación mutualidad",
+    "category": "Prevención",
+    "kind": "faq",
+    "scope": "red_obras",
+    "phrases": [
+      "qué pasa con certificado de mutualidad",
+      "certificado de afiliación mutual"
+    ],
+    "content": "Verifica el certificado de afiliación o cobertura aplicable a la empresa o independiente. No confundas afiliación con certificación de accidentabilidad o con aprobación preventiva completa."
+  },
+  {
+    "title": "Caso · Accidentabilidad y siniestralidad",
+    "category": "Prevención",
+    "kind": "faq",
+    "scope": "red_obras",
+    "phrases": [
+      "qué son certificados de accidentabilidad y siniestralidad",
+      "siniestralidad y accidentabilidad"
+    ],
+    "content": "Son antecedentes preventivos distintos que pueden solicitarse según política de obra. Identifica vigencia y entidad emisora; su presentación no sustituye otras obligaciones."
+  },
+  {
+    "title": "Caso · Independiente ISL",
+    "category": "Prevención",
+    "kind": "faq",
+    "scope": "red_obras",
+    "phrases": [
+      "cómo orientar a un independiente para adherirse al ISL",
+      "adhesión ISL independientes"
+    ],
+    "content": "Explica el trámite oficial paso a paso y remite al canal del ISL correspondiente. No solicites ClaveÚnica ni afirmes afiliación completada sin confirmación oficial."
+  },
+  {
+    "title": "Caso · Ingreso no coordinado",
+    "category": "Prevención",
+    "kind": "faq",
+    "scope": "red_obras",
+    "phrases": [
+      "entró un trabajador sin avisar a prevención",
+      "trabajador ingresó sin informar"
+    ],
+    "content": "Registra el ingreso informado y solicita aclaración a la coordinación de obra y prevención. No alteres retroactivamente los registros ni habilites por tu cuenta."
+  },
+  {
+    "title": "Caso · Control de portería",
+    "category": "Prevención",
+    "kind": "faq",
+    "scope": "red_obras",
+    "phrases": [
+      "cómo verificar ingreso por portería",
+      "registro de acceso a obra"
+    ],
+    "content": "Cruza registro de portería y autorizaciones operativas con la asistencia; identifica fechas o turnos sin respaldo. La IA orienta, pero la decisión de acceso corresponde al equipo autorizado."
+  },
+  {
+    "title": "Caso · Necesidad de especialidad",
+    "category": "Red de Obras",
+    "kind": "faq",
+    "scope": "red_obras",
+    "phrases": [
+      "cómo crear necesidad de carpintería",
+      "necesito carpinteros para obra"
+    ],
+    "content": "Registra obra de origen, especialidad, partida, dotación si se conoce, fechas y breve descripción. Publica solo con autorización y permisos del usuario."
+  },
+  {
+    "title": "Caso · Publicación entre obras",
+    "category": "Red de Obras",
+    "kind": "faq",
+    "scope": "red_obras",
+    "phrases": [
+      "necesidad creada en otra obra aparece con obra equivocada",
+      "obra de origen de publicación"
+    ],
+    "content": "La publicación debe conservar su obra de origen. Los residentes pueden consultar la red compartida, pero crean y editan solo para su obra asignada; no cambies el origen automáticamente."
+  },
+  {
+    "title": "Caso · Disponibilidad compartida",
+    "category": "Red de Obras",
+    "kind": "faq",
+    "scope": "red_obras",
+    "phrases": [
+      "contratista tiene pocas partidas disponibles",
+      "contratista disponible para otra obra"
+    ],
+    "content": "Permite informar la disponibilidad de una cuadrilla por especialidad, fechas y obra de origen. Otros residentes pueden consultar y coordinar sin que ello implique adjudicación."
+  },
+  {
+    "title": "Caso · Adjudicación responsable",
+    "category": "Red de Obras",
+    "kind": "faq",
+    "scope": "red_obras",
+    "phrases": [
+      "qué registrar al asignar una partida",
+      "asignar contratista a partida"
+    ],
+    "content": "Una asignación aprobada debe registrar contratista, partida, obra, responsable y fecha. Galancito puede orientar, pero no adjudica ni modifica estados por conversación."
+  },
+  {
+    "title": "Caso · Consulta de vacantes",
+    "category": "Red de Obras",
+    "kind": "faq",
+    "scope": "red_obras",
+    "phrases": [
+      "hay trabajo disponible para pintores",
+      "pega para pintor"
+    ],
+    "content": "Consulta necesidades vigentes y confirmadas; si no existen datos confiables, no inventes vacantes. Diferencia buscar empleo de ofrecer servicios como empresa."
+  },
+  {
+    "title": "Caso · Carpintero sin empresa",
+    "category": "Red de Obras",
+    "kind": "faq",
+    "scope": "red_obras",
+    "phrases": [
+      "soy carpintero y busco pega",
+      "busco trabajo de carpintero"
+    ],
+    "content": "Recibe el interés como trabajador, no lo conviertas en empresa contratista. Pregunta una sola cosa: en qué comuna busca trabajo."
+  },
+  {
+    "title": "Caso · Empresa con trabajadores",
+    "category": "Red de Obras",
+    "kind": "faq",
+    "scope": "red_obras",
+    "phrases": [
+      "tengo una empresa de pintura con 4 trabajadores",
+      "tengo cuatro trabajadores pintura"
+    ],
+    "content": "Reconoce la empresa, su especialidad y la dotación informada. Pregunta solo por disponibilidad o comuna que falte; no pidas nuevamente los datos ya recibidos."
+  },
+  {
+    "title": "Caso · Oficio informal",
+    "category": "Red de Obras",
+    "kind": "faq",
+    "scope": "red_obras",
+    "phrases": [
+      "ola soy gasfite",
+      "soy gasfiter"
+    ],
+    "content": "Interpreta de forma respetuosa la especialidad como gasfitería y pregunta si busca empleo o si ofrece servicios. No corrijas su ortografía ni infieras que tiene empresa."
+  },
+  {
+    "title": "Caso · Consulta sin experiencia",
+    "category": "Red de Obras",
+    "kind": "faq",
+    "scope": "red_obras",
+    "phrases": [
+      "no entiendo los papeles de la obra",
+      "no cacho los trámites"
+    ],
+    "content": "Explica un paso a la vez y ofrece ayuda humana cuando corresponda. No enumeres todos los documentos sin conocer si trabaja con empresa o como independiente."
+  },
+  {
+    "title": "Caso · Publicar anuncio",
+    "category": "Red de Obras",
+    "kind": "faq",
+    "scope": "red_obras",
+    "phrases": [
+      "cómo publicar anuncio de contratistas en Facebook",
+      "anuncio Red de Obras"
+    ],
+    "content": "Prepara un texto basado únicamente en la necesidad real; comprueba permisos de la página y revisión humana. Un borrador no significa que Facebook lo publicó."
+  },
+  {
+    "title": "Caso · Seguimiento interesados",
+    "category": "Red de Obras",
+    "kind": "faq",
+    "scope": "red_obras",
+    "phrases": [
+      "cómo dar seguimiento a interesados",
+      "seguimiento de postulantes"
+    ],
+    "content": "Registra estado de contacto, especialidad y próximo paso con permisos adecuados. No reveles chats privados entre usuarios ni prometas respuesta o contratación no confirmada."
+  },
+  {
+    "title": "Caso · Categorizar oficio",
+    "category": "Red de Obras",
+    "kind": "faq",
+    "scope": "red_obras",
+    "phrases": [
+      "cómo clasificar persona que ofrece servicios",
+      "categorizar interesados por especialidad"
+    ],
+    "content": "Identifica primero si busca empleo o presta servicios. Luego confirma oficio, zona y disponibilidad. Una palabra suelta no demuestra que exista empresa ni que tenga cupos."
+  },
+  {
+    "title": "Caso · Mensajes externos",
+    "category": "Red de Obras",
+    "kind": "faq",
+    "scope": "red_obras",
+    "phrases": [
+      "no aparecen mensajes de Facebook de personas externas",
+      "Messenger usuarios externos"
+    ],
+    "content": "Revisa permisos de Meta, suscripción webhook, página conectada y límites de la aplicación. No atribuyas el problema a una persona ni declares recuperados mensajes no recibidos."
+  },
+  {
+    "title": "Caso · Facebook grupos",
+    "category": "Red de Obras",
+    "kind": "faq",
+    "scope": "red_obras",
+    "phrases": [
+      "puede la IA publicar automáticamente en grupos externos",
+      "publicar en grupos de Facebook"
+    ],
+    "content": "No prometas publicación automática en grupos externos; depende de permisos, políticas y herramientas disponibles. Como alternativa puede preparar borradores para compartir manualmente."
+  },
+  {
+    "title": "Caso · Permiso de mensaje",
+    "category": "Red de Obras",
+    "kind": "faq",
+    "scope": "red_obras",
+    "phrases": [
+      "usar IA para responder Facebook",
+      "respuestas IA Messenger"
+    ],
+    "content": "Antes de enviar mensajes a un proveedor externo, verifica consentimiento del contacto y permisos de Meta. La IA no puede usar conversaciones privadas fuera del alcance autorizado."
+  },
+  {
+    "title": "Caso · No inventar cupos",
+    "category": "Red de Obras",
+    "kind": "faq",
+    "scope": "red_obras",
+    "phrases": [
+      "me aseguras que tengo el trabajo",
+      "me aseguras la pega"
+    ],
+    "content": "No prometas contratación, pago, adjudicación, cupos ni fecha de ingreso sin confirmación humana. Orienta al usuario y ofrece derivación al responsable."
+  },
+  {
+    "title": "Caso · Estado de pago retenido",
+    "category": "Control administrativo",
+    "kind": "faq",
+    "scope": "red_obras",
+    "phrases": [
+      "puedo aprobar pago con documentos pendientes",
+      "autorizar estado de pago"
+    ],
+    "content": "El pago requiere revisión de respaldos, firmas y autorizaciones por el responsable. Galancito no aprueba ni rechaza pagos; solo resume pendientes comprobados."
+  },
+  {
+    "title": "Caso · Respaldo económico",
+    "category": "Control administrativo",
+    "kind": "faq",
+    "scope": "red_obras",
+    "phrases": [
+      "cómo informar retenciones y avances de un contratista",
+      "respaldo económico de contratista"
+    ],
+    "content": "Separa retenciones acumuladas, avance estimado y retenciones del período. Explica supuestos y fechas; no presentes una estimación como dinero disponible ni decidas pagos."
+  },
+  {
+    "title": "Caso · Regla de ausencia de datos",
+    "category": "Control administrativo",
+    "kind": "faq",
+    "scope": "red_obras",
+    "phrases": [
+      "cómo tratar datos sin respaldo",
+      "datos faltantes en revisión"
+    ],
+    "content": "Cuando falten antecedentes, indica pendiente o sin verificar. No fabriques porcentajes, presencia, pagos, aprobación ni incumplimientos definitivos."
+  },
+  {
+    "title": "Caso · Roles y permisos",
+    "category": "Control administrativo",
+    "kind": "faq",
+    "scope": "red_obras",
+    "phrases": [
+      "quién puede editar historial en GALANT",
+      "permisos de residentes y admin"
+    ],
+    "content": "Administra permisos por rol y obra. Los usuarios autorizados pueden consultar su alcance; las modificaciones históricas requieren perfil habilitado y trazabilidad."
+  },
+  {
+    "title": "Caso · INE histórico",
+    "category": "Control administrativo",
+    "kind": "faq",
+    "scope": "red_obras",
+    "phrases": [
+      "cómo funciona el control INE",
+      "histórico INE por obra"
+    ],
+    "content": "El registro INE mantiene los contratistas activos por obra y mes. El histórico es visible según permisos; el supervisor edita períodos permitidos y el administrador revisa todo. No transformes los datos del Excel."
+  },
+  {
+    "title": "Caso · Cambios auditados",
+    "category": "Control administrativo",
+    "kind": "faq",
+    "scope": "red_obras",
+    "phrases": [
+      "quién modificó un dato en INE",
+      "auditoría modificaciones INE"
+    ],
+    "content": "Conserva autor, fecha y cambio. La auditoría detallada corresponde al administrador; no permitas que el chat altere o suprima registros."
+  },
+  {
+    "title": "Caso · Carga masiva",
+    "category": "Control administrativo",
+    "kind": "faq",
+    "scope": "red_obras",
+    "phrases": [
+      "cómo importar contratistas desde Excel",
+      "cargar contratistas Excel"
+    ],
+    "content": "Valida columnas, obra, especialidad, RUT, empresa y duplicados antes de confirmar. Presenta errores por fila y permite corregir sin modificar silenciosamente los datos originales."
+  },
+  {
+    "title": "Caso · Corrección documental",
+    "category": "Control administrativo",
+    "kind": "faq",
+    "scope": "red_obras",
+    "phrases": [
+      "hay documento presentado pero con error",
+      "archivo con observaciones"
+    ],
+    "content": "Debe aparecer observado, incompleto o incorrecto según la causa, nunca como no entregado. Indica el error visible y conserva evidencia y versión anterior."
+  },
+  {
+    "title": "Caso · Revisión OCR",
+    "category": "Control administrativo",
+    "kind": "faq",
+    "scope": "red_obras",
+    "phrases": [
+      "el OCR indica que las cotizaciones están pagadas",
+      "OCR detectó pago"
+    ],
+    "content": "El OCR extrae texto, pero no acredita pago ante la entidad emisora. Diferencia lectura automática, evidencia documental y verificación oficial; los casos dudosos necesitan revisión."
+  },
+  {
+    "title": "Caso · Confidencialidad",
+    "category": "Control administrativo",
+    "kind": "faq",
+    "scope": "red_obras",
+    "phrases": [
+      "puedo enviar datos de trabajadores a Gemini",
+      "usar RUT en IA"
+    ],
+    "content": "No envíes RUT, contraseñas, documentación laboral privada ni datos personales sin autorización y controles adecuados. En entrenamiento usa casos anonimizados y guías autorizadas."
+  },
+  {
+    "title": "Caso · Aprendizaje compartido",
+    "category": "Control administrativo",
+    "kind": "faq",
+    "scope": "red_obras",
+    "phrases": [
+      "qué significa enseñar a Galancito",
+      "Galancito aprender sin API"
+    ],
+    "content": "Las guías validadas quedan disponibles para consultas de Red de Obras dentro de la organización, sin configurar una API Key por persona. No se modifican los pesos de Gemini."
+  },
+  {
+    "title": "Caso · 40 épocas",
+    "category": "Control administrativo",
+    "kind": "faq",
+    "scope": "red_obras",
+    "phrases": [
+      "qué significa entrenar Galancito 40 épocas",
+      "entrenamiento 40 epocas"
+    ],
+    "content": "Cuarenta épocas significan cuarenta recorridos de entrenamiento sobre ejemplos para ajustar un modelo entrenable. Repetir preguntas o importar una guía no ajusta automáticamente los pesos de Gemini."
+  }
+]
