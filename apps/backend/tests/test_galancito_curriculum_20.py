@@ -250,3 +250,16 @@ def test_short_informal_questions_get_deeper_answers(question):
 @pytest.mark.parametrize("reply", ["1", "2", "sí", "no", "hola"])
 def test_simple_intake_choices_do_not_consume_external_model(reply):
     assert not needs_deeper_response(reply)
+
+
+def test_contractor_can_correct_old_team_answer_without_fabricating_employees():
+    lead = blank_lead(interest_type="service_offer", specialty="Carpintería",
+                      team_available=True, workers=4)
+    apply_intake(lead, "no, trabajo solo")
+    assert lead.team_available is False and lead.workers == 1
+    assert lead.has_employees is None
+    apply_intake(lead, "ahora puedo traer gente")
+    assert lead.team_available is True
+    assert lead.workers is None  # Must ask quantity instead of retaining solo=1
+    question = next_intake_reply("ahora puedo traer gente", vars(lead))
+    assert "Cuántas personas" in question
