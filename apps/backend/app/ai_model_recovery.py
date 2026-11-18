@@ -96,6 +96,9 @@ def recover_gemini(db: Session, conn: AIConnection) -> dict:
     Existing model is preserved on error. Only a proven successful model is saved,
     with a connection_test usage row and an admin audit event by the API layer.
     """
+    # A failed recovery must never leave an old unverified model enabled.
+    conn.enabled = False
+    conn.last_status = "error"
     models = listed_models(conn)
     candidates = [model for model in models if _score(model)[0] < 99]
     if not candidates:
