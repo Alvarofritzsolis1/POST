@@ -9,7 +9,7 @@ import pytest
 from sqlalchemy import select
 
 from app.facebook_crm_models import FacebookLead
-from app.galancito_intake import apply_intake, next_intake_reply, natural_messenger_reply
+from app.galancito_intake import apply_intake, next_intake_reply, natural_messenger_reply, needs_deeper_response
 from app.galancito_contact_profile import contact_profile
 from app.galancito_triage import analyze, private_data
 from app.models import User
@@ -237,3 +237,16 @@ def test_opt_in_name_and_professional_data_are_separate():
     assert lead.display_name == "Luis"
     apply_intake(lead, "¿hay electricistas?")
     assert lead.specialty == ""
+
+
+@pytest.mark.parametrize("question", [
+    "¿tienen pega?", "¿cuanto pagan?", "¿puedo postular?",
+    "¿necesitan maestros?", "¿que papeles?",
+])
+def test_short_informal_questions_get_deeper_answers(question):
+    assert needs_deeper_response(question)
+
+
+@pytest.mark.parametrize("reply", ["1", "2", "sí", "no", "hola"])
+def test_simple_intake_choices_do_not_consume_external_model(reply):
+    assert not needs_deeper_response(reply)
