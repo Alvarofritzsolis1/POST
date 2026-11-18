@@ -288,7 +288,9 @@ def process_chat_next(session_factory=SessionLocal) -> bool:
         else:
             context = ""
         db_ms = (perf_counter() - started) * 1000
-        job.state, job.updated_at = "sending", utcnow()
+        # A separate persisted drafting state lets the UI show real stages.
+        # Do not claim to be sending before the AI has generated its reply.
+        job.state, job.updated_at = ("drafting" if state == "ai_pending" else "sending"), utcnow()
 
     uncertain = False
     result_id, problem = None, None
