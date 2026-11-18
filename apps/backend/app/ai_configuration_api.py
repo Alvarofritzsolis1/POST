@@ -16,6 +16,7 @@ from .ai_gateway import (
     run_connection,
 )
 from .ai_models import AIConnection, AIOrchestration, AIUsage
+from .galancito_knowledge_models import Knowledge, AssistantRun
 from .db import get_db
 from .models import AuditEvent, User, utcnow
 from .security import administrator
@@ -126,7 +127,19 @@ def bootstrap(user: User = Depends(administrator), db: Session = Depends(get_db)
     connections = list(db.scalars(select(AIConnection).where(
         AIConnection.org_id == user.org_id).order_by(AIConnection.name)))
     policy = db.get(AIOrchestration, user.org_id)
+    knowledge_counts = dict(db.execute(select(Knowledge.status, func.count(Knowledge.id)).where(
+        Knowledge.org_id == user.org_id).group_by(Knowledge.status)).all())
+    feedback_rows = db.execute(select(AssistantRun.feedback, func.count(AssistantRun.id)).where(
+        AssistantRun.org_id == user.org_id, AssistantRun.feedback.is_not(None))
+        .group_by(AssistantRun.feedback)).all()
     return {
+        "learning": {
+            "approved": knowledge_counts.get("approved", 0),
+            "pending": knowledge_counts.get("pending", 0),
+            "disabled": knowledge_counts.get("disabled", 0),
+            "feedback": dict(feedback_rows),
+            "method": "curated_retrieval_no_weight_training",
+        },
         "providers": [{"id": key, **value} for key, value in PROVIDERS.items()],
         "tasks": [{"id": key, "name": value, "active": key in {"red_obras", "review"}} for key, value in TASKS.items()],
         "connections": [connection_view(c) for c in connections],
