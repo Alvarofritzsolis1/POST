@@ -351,6 +351,8 @@ def process_chat_next(session_factory=SessionLocal) -> bool:
                 if current_job:
                     current_job.state, current_job.error = "cancelled", "La conversación cambió antes del envío"
                 return True
+            if state == "ai_pending":
+                current_job.state, current_job.updated_at = "sending", utcnow()
         result_id = graph_send(cfg.facebook_page_id, psid, body, cfg.facebook_page_token)
     except HTTPError as exc:
         problem = meta_messenger_error(exc)
