@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useState, type FormEvent } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState, type FormEvent } from "react";
 import { Activity, CheckCircle2, CircleHelp, KeyRound, Plus, RefreshCw, ShieldCheck, Trash2, Zap } from "lucide-react";
 import { request } from "./api";
 import "./ai-configuration.css";
@@ -17,6 +17,7 @@ type Policy = {
 type Bootstrap = {
   providers: Provider[]; tasks: Task[]; connections: Connection[];
   policy: Policy; monthly_tokens: number; server_ready: boolean;
+  learning: { approved: number; pending: number; disabled: number; feedback: Record<string, number>; method: string };
 };
 type UsageGroup = {
   connection_id: string; provider: string; name: string; task: string;
@@ -53,6 +54,7 @@ export default function AIConfiguration() {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState("");
   const [notice, setNotice] = useState("");
+  const initializedPolicy = useRef(false);
 
   const refresh = useCallback(async (resetPolicy = false) => {
     const [b, u] = await Promise.all([
@@ -74,7 +76,7 @@ export default function AIConfiguration() {
       if (cancelled) return;
       setData(b);
       setUsage(u);
-      setPolicy(b.policy);
+      if (!initializedPolicy.current) { setPolicy(b.policy); initializedPolicy.current = true; }
     }).catch((e) => { if (!cancelled) setError(errorMessage(e)); })
       .finally(() => { if (!cancelled) setLoading(false); });
     return () => { cancelled = true; };
@@ -199,7 +201,7 @@ export default function AIConfiguration() {
         <div><span>IA habilitadas y verificadas</span><strong>{summary.verified} <small>/ {summary.total}</small></strong><small>La verificación se realiza con una prueba real</small></div>
         <div><span>Tokens · mes en curso</span><strong>{nice(data?.monthly_tokens || 0)}</strong><small>Contador de solicitudes registradas en GALANT</small></div>
         <div><span>Solicitudes · últimos {days} días</span><strong>{nice(usage?.total_calls || 0)}</strong><small>Incluye pruebas de conexión y fallos</small></div>
-        <div><span>Costo estimado · últimos {days} días</span><strong>{dollars(usage?.estimated_cost_usd || 0)}</strong><small>{usage?.unpriced_calls ? nice(usage.unpriced_calls) + " llamadas sin tarifa configurada" : "Solo según tarifas ingresadas"}</small></div>
+        <div><span>Costo estimado · últimos {days} días</span><strong>{usage?.unpriced_calls && usage.unpriced_calls === usage.total_calls ? "No calculado" : dollars(usage?.estimated_cost_usd || 0)}</strong><small>{usage?.unpriced_calls ? nice(usage.unpriced_calls) + " llamadas sin tarifa configurada" : "Solo según tarifas ingresadas"}</small></div>
       </div>
 
       <section className="ai-panel">
@@ -276,7 +278,17 @@ export default function AIConfiguration() {
       </section>
 
       <section className="ai-panel">
-        <div className="ai-panel-head"><div><h3>3. Consumo de tokens</h3><p>Uso registrado por esta aplicación; no equivale al saldo completo de cada proveedor.</p></div><label className="ai-days">Período<select value={days} onChange={e => setDays(Number(e.target.value))}><option value={7}>7 días</option><option value={30}>30 días</option><option value={90}>90 días</option><option value={365}>1 año</option></select></label></div>
+        <div className="ai-panel-head"><div><h3>3. Aprendizaje compartido</h3><p>Las IA consultan información validada. No se reentrenan ni comparten sus respuestas automáticamente.</p></div><span className="ai-secure"><ShieldCheck size={16} /> Con aprobación humana</span></div>
+        <div className="ai-learning-stats">
+          <div><b>{nice(data?.learning.approved || 0)}</b><span>Guías aprobadas</span></div>
+          <div><b>{nice(data?.learning.pending || 0)}</b><span>Propuestas por revisar</span></div>
+          <div><b>{nice(data?.learning.feedback.incorrect || 0)}</b><span>Respuestas reportadas como incorrectas</span></div>
+        </div>
+        <p className="ai-help"><CircleHelp size={15} /> Una corrección crea una propuesta pendiente. Solo un administrador puede aprobarla antes de que otras IA la utilicen. La segunda IA verifica respuestas, pero no modifica la base de conocimiento.</p>
+      </section>
+
+      <section className="ai-panel">
+        <div className="ai-panel-head"><div><h3>4. Consumo de tokens</h3><p>Uso registrado por esta aplicación; no equivale al saldo completo de cada proveedor.</p></div><label className="ai-days">Período<select value={days} onChange={e => setDays(Number(e.target.value))}><option value={7}>7 días</option><option value={30}>30 días</option><option value={90}>90 días</option><option value={365}>1 año</option></select></label></div>
         <div className="ai-usage-head"><span>Entrada: <b>{nice(usage?.input_tokens || 0)}</b></span><span>Salida: <b>{nice(usage?.output_tokens || 0)}</b></span><span>Total: <b>{nice(usage?.total_tokens || 0)}</b></span></div>
         <div className="ai-table-scroll"><table className="ai-table"><thead><tr><th>IA</th><th>Función</th><th>Estado</th><th>Llamadas</th><th>Tokens</th><th>Estimación USD</th></tr></thead><tbody>
           {shownUsage.map((item, i) => <tr key={item.connection_id + item.task + item.status + i}>
