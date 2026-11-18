@@ -25,6 +25,10 @@ type UsageGroup = {
   status: string; calls: number; input_tokens: number; output_tokens: number;
   total_tokens: number; estimated_cost_usd: number | null; priced_calls: number;
 };
+type LearningProgress = {
+  total: number; approved: number; pending: number; percent: number;
+  remaining: string[]; metric: string;
+};
 type Usage = {
   days: number; groups: UsageGroup[]; total_calls: number;
   total_tokens: number; input_tokens: number; output_tokens: number;
@@ -75,6 +79,7 @@ const errorMessage = (error: unknown) => error instanceof Error ? error.message 
 
 export default function AIConfiguration() {
   const [data, setData] = useState<Bootstrap | null>(null);
+  const [learningProgress, setLearningProgress] = useState<LearningProgress | null>(null);
   const [usage, setUsage] = useState<Usage | null>(null);
   const [policy, setPolicy] = useState<Policy>({ enabled: false, fallback_enabled: false, review_enabled: false, monthly_token_limit: 0, task_routes: {} });
   const [days, setDays] = useState(30);
@@ -88,12 +93,15 @@ export default function AIConfiguration() {
   const initializedPolicy = useRef(false);
 
   const refresh = useCallback(async (resetPolicy = false) => {
-    const [b, u] = await Promise.all([
+    const [b, u, learning] = await Promise.all([
       request<Bootstrap>(base + "/bootstrap"),
       request<Usage>(base + "/usage?days=" + days),
+      request<LearningProgress>("/network/galancito/knowledge-curriculum/progress")
+        .catch(() => null),
     ]);
     setData(b);
     setUsage(u);
+    setLearningProgress(learning);
     if (resetPolicy) setPolicy(b.policy);
   }, [days]);
 
@@ -103,10 +111,13 @@ export default function AIConfiguration() {
     Promise.all([
       request<Bootstrap>(base + "/bootstrap"),
       request<Usage>(base + "/usage?days=" + days),
-    ]).then(([b, u]) => {
+      request<LearningProgress>("/network/galancito/knowledge-curriculum/progress")
+        .catch(() => null),
+    ]).then(([b, u, learning]) => {
       if (cancelled) return;
       setData(b);
       setUsage(u);
+      setLearningProgress(learning);
       if (!initializedPolicy.current) { setPolicy(b.policy); initializedPolicy.current = true; }
     }).catch((e) => { if (!cancelled) setError(errorMessage(e)); })
       .finally(() => { if (!cancelled) setLoading(false); });
@@ -421,7 +432,23 @@ export default function AIConfiguration() {
           <div><b>{nice(data?.learning.pending || 0)}</b><span>Propuestas por revisar</span></div>
           <div><b>{nice(data?.learning.feedback.incorrect || 0)}</b><span>Respuestas reportadas como incorrectas</span></div>
         </div>
-        <p className="ai-help"><CircleHelp size={15} /> Una corrección crea una propuesta pendiente. Solo un administrador puede aprobarla antes de que otras IA la utilicen. La segunda IA verifica respuestas, pero no modifica la base de conocimiento.</p>
+        <div className="ai-curriculum">
+          <div className="ai-curriculum-title">
+            <div><b>{learningProgress?.percent ?? "—"}%</b><span>Conocimiento validado de Galancito · {learningProgress?.approved ?? 0} de 20 unidades</span></div>
+            <button type="button" disabled={Boolean(busy)} onClick={() => void perform("curriculum", async () => {
+              const result = await request<{created: number}>("/network/galancito/knowledge-curriculum", {method: "POST", body: JSON.stringify({})});
+              setNotice(result.created ? result.created + " unidades añadidas para revisar y aprobar en Conocimientos." :
+                "Las 20 unidades ya están cargadas. Revisa cuáles faltan aprobar.");
+            })}>{busy === "curriculum" ? "Cargando…" : "Cargar 20 aprendizajes"}</button>
+          </div>
+          <progress max={100} value={learningProgress?.percent ?? 0} aria-label="Porcentaje de guías validadas de Galancito" />
+          <small>El porcentaje mide guías aprobadas y disponibles, no entrenamiento de pesos de un modelo.</small>
+          {!!learningProgress?.remaining.length && <details>
+            <summary>Qué le falta aprender ({learningProgress.remaining.length})</summary>
+            <ul>{learningProgress.remaining.map(title => <li key={title}>{title}</li>)}</ul>
+          </details>}
+        </div>
+        <p className="ai-help"><CircleHelp size={15} /> Las nuevas guías se guardan pendientes y necesitan aprobación administrativa en Red de Obras → Facebook → Conocimientos. No se comparten mensajes privados ni se reentrenan modelos externos.</p>
       </section>
 
       <section className="ai-panel">

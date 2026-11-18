@@ -19,6 +19,7 @@ from .javiera_workbook import warm_convert
 from .migrations.v20_0_0 import MIGRATION_ID
 from .migrations.v20_8_0_ai_control_center import MIGRATION_ID as AI_MIGRATION_ID
 from .migrations.v20_8_1_ai_collaboration import MIGRATION_ID as AI_REVIEW_MIGRATION_ID
+from .migrations.v20_8_8_galancito_intake import MIGRATION_ID as GALANCITO_INTAKE_MIGRATION_ID
 from .platform_models import SchemaVersion
 from .version import SOURCE_COMMIT, VERSION
 
@@ -39,8 +40,15 @@ def verify(expected_commit: str):
     columns = {column["name"] for column in inspect(engine).get_columns("ai_orchestration")}
     if "review_enabled" not in columns:
         raise RuntimeError("El Centro IA no tiene la migración de colaboración")
+    # Verify the conversational CRM fields before exposing the new UI to users.
+    if "facebook_leads" not in tables:
+        raise RuntimeError("Falta la tabla de contactos de Facebook")
+    lead_columns = {column["name"] for column in inspect(engine).get_columns("facebook_leads")}
+    if not {"interest_type", "team_available", "work_area", "name_opt_out"} <= lead_columns:
+        raise RuntimeError("Falta aplicar la migración de fichas Galancito")
     with SessionLocal() as db:
-        for required in (MIGRATION_ID, AI_MIGRATION_ID, AI_REVIEW_MIGRATION_ID):
+        for required in (MIGRATION_ID, AI_MIGRATION_ID, AI_REVIEW_MIGRATION_ID,
+                         GALANCITO_INTAKE_MIGRATION_ID):
             if not db.get(SchemaVersion, required):
                 raise RuntimeError("Falta una migración verificada: " + required)
     private = Path(settings().document_dir)

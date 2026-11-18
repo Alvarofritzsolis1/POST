@@ -10,7 +10,7 @@ from time import perf_counter
 from urllib.error import HTTPError, URLError
 from urllib.request import HTTPRedirectHandler, Request, build_opener
 
-from sqlalchemy import select
+from sqlalchemy import select, func
 
 from .config import settings
 from .db import SessionLocal
@@ -21,6 +21,7 @@ from .facebook_crm_models import FacebookLead, FacebookChatMessage, FacebookTrad
 from .models import utcnow
 from .network_service import key
 from .galancito_triage import analyze, quick_reply, private_data
+from .galancito_intake import next_intake_reply, natural_messenger_reply, needs_deeper_response
 from .galancito_knowledge import retrieve, exact_answer, evidence_context
 from .galancito_runtime import infer, record_run
 from .galancito_local import last_timings
@@ -230,6 +231,12 @@ def process_chat_next(session_factory=SessionLocal) -> bool:
             return True
         job_id, lead_id, org_id, psid, state, body = job.id, lead.id, lead.org_id, lead.psid, job.state, job.body
         inbound_at = lead.last_inbound_at
+        prior_ai_replies = db.scalar(select(func.count(FacebookChatMessage.id)).where(
+            FacebookChatMessage.lead_id == lead.id,
+            FacebookChatMessage.direction == "outbound",
+            FacebookChatMessage.ai_generated.is_(True),
+            FacebookChatMessage.state == "sent",
+        )) or 0
         fast, intent, fast_source = None, "unknown", "local"
         if state == "ai_pending":
             recent = list(db.scalars(select(FacebookChatMessage).where(
@@ -241,16 +248,30 @@ def process_chat_next(session_factory=SessionLocal) -> bool:
             latest = next((m.body for m in recent if consent_decision(m.body) is None), "")
             facts = {"specialty": lead.specialty, "entity_type": lead.entity_type,
                      "workers": lead.workers, "availability": lead.availability,
-                     "has_employees": lead.has_employees}
+                     "has_employees": lead.has_employees,
+                     "team_available": lead.team_available, "interest_type": lead.interest_type,
+                     "work_area": lead.work_area, "experience": lead.experience,
+                     "display_name": lead.display_name, "name_opt_out": lead.name_opt_out}
+            prior_question = db.scalar(select(FacebookChatMessage.body).where(
+                FacebookChatMessage.lead_id == lead.id,
+                FacebookChatMessage.direction == "outbound",
+                FacebookChatMessage.state == "sent",
+            ).order_by(FacebookChatMessage.created_at.desc(),
+                       FacebookChatMessage.id.desc()).limit(1)) or ""
+            intake = next_intake_reply(latest, facts, prior_question)
             intent = analyze(latest).intent
             evidence = retrieve(db, lead.org_id, latest, "messenger") if not private_data(latest) else []
-            fast = quick_reply(latest, known=facts)
+            fast = intake or quick_reply(latest, known=facts)
             if not private_data(latest) and intent not in {"human", "restricted"}:
                 learned = exact_answer(evidence)
-                if learned:
+                if learned and not intake:
                     fast, fast_source = learned, "knowledge"
-            context = ("Consulta actual: " + latest[:800] + "\nHechos confirmados: " +
-                       json.dumps(facts, ensure_ascii=False) + "\nReferencias aprobadas: " +
+            professional_facts = {k: v for k, v in facts.items()
+                                  if k not in {"display_name", "name_opt_out"}}
+            context = ("Consulta actual: " + latest[:800] +
+                       "\nDatos profesionales declarados, no comprobados: " +
+                       json.dumps(professional_facts, ensure_ascii=False) +
+                       "\nReferencias aprobadas: " +
                        evidence_context(evidence))
             guides = list(db.scalars(select(FacebookTradeGuide).where(
                 FacebookTradeGuide.org_id == lead.org_id,
@@ -275,24 +296,36 @@ def process_chat_next(session_factory=SessionLocal) -> bool:
     try:
         if state == "ai_pending":
             generated = fast
-            if not fast and not private_data(context):
+            # Short guided answers use local reasoning. Nuanced questions get a
+            # fuller model response after the contact's explicit consent.
+            should_model = not fast or needs_deeper_response(latest)
+            if should_model and not private_data(context):
+                if fast:
+                    context += ("\nOrientación breve disponible como alternativa: " +
+                                fast[:450] + "\nRespeta sus hechos; explica la duda "
+                                "antes de avanzar con una pregunta.")
                 try:
                     with session_factory.begin() as db:
-                        generated = infer(db, lambda: (
+                        drafted = infer(db, lambda: (
                             orchestrated_text(db, org_id, task="messenger",
                                               instructions=REPLY_INSTRUCTIONS, prompt=context,
-                                              max_output_tokens=160)
+                                              max_output_tokens=230)
                             if ai_source == "team" else
                             generate_text(REPLY_INSTRUCTIONS, context, 550)),
                             org_id=org_id if ai_source == "team" else None)
                         timings = last_timings.get()
-                    if generated:
-                        generated = grounded_reply(generated, context)
-                    source = "ai" if generated else "fallback"
+                    if drafted:
+                        drafted = grounded_reply(drafted, context)
+                    if drafted:
+                        generated, source = drafted, "ai"
+                    elif not fast:
+                        generated, source = None, "fallback"
                 except (RuntimeError, ValueError):
-                    generated, source, timings = None, "fallback", last_timings.get()
+                    if not fast:
+                        generated, source = None, "fallback"
+                    timings = last_timings.get()
             if generated:
-                body = safe_ai_reply(generated)
+                body = natural_messenger_reply(safe_ai_reply(generated), prior_ai_replies)
             else:
                 # Si Ollama está saturado o apagado, Messenger continúa
                 # funcionando y la persona puede recibir apoyo humano.

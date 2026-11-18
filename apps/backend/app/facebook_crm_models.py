@@ -17,6 +17,7 @@ class FacebookLead(Base):
     page_id: Mapped[str] = mapped_column(String(40))
     psid: Mapped[str] = mapped_column(String(90))
     display_name: Mapped[str] = mapped_column(String(160), default="Interesado de Facebook")
+    name_opt_out: Mapped[bool] = mapped_column(Boolean, nullable=False, default=False, server_default="false")
     company: Mapped[str] = mapped_column(String(180), default="")
     specialty: Mapped[str] = mapped_column(String(100), default="")
     # Preserve manual classification when messages mention a different trade.
@@ -36,6 +37,10 @@ class FacebookLead(Base):
     support_reason: Mapped[str] = mapped_column(String(250), default="")
     entity_type: Mapped[str] = mapped_column(String(20), nullable=False, default="unknown", server_default="unknown")
     has_employees: Mapped[bool | None] = mapped_column(Boolean, nullable=True)
+    # Volunteered professional intake, distinct from legal employment status.
+    interest_type: Mapped[str] = mapped_column(String(20), default="unknown", server_default="unknown")
+    team_available: Mapped[bool | None] = mapped_column(Boolean, nullable=True)
+    work_area: Mapped[str] = mapped_column(String(120), default="", server_default="")
     follow_up_on: Mapped[date | None] = mapped_column(Date, nullable=True)
     follow_up_note: Mapped[str] = mapped_column(String(240), default="")
     follow_up_by: Mapped[str | None] = mapped_column(String(36), nullable=True)

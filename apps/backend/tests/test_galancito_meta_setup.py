@@ -108,3 +108,23 @@ def test_script_cannot_print_meta_secrets_by_error_message(monkeypatch):
                     "1234567890|test-app-secret", {"object": "page"})
     assert "test-app-secret" not in str(exc.value)
     assert "token=" not in str(exc.value)
+
+
+
+def test_facebook_sender_uses_decryption_key_and_ai_egress_network():
+    """Sender runs the Messenger AI; it cannot inherit an empty encryption key."""
+    compose = (SCRIPT.parents[1] / "docker-compose.preview.yml").read_text()
+    sender = compose.split("  facebook-publisher:", 1)[1].split("  galancito-ollama:", 1)[0]
+    assert 'AI_CREDENTIAL_ENCRYPTION_KEY: ${AI_CREDENTIAL_ENCRYPTION_KEY:-}' in sender
+    assert 'AI_CREDENTIAL_ENCRYPTION_KEY: ""' not in sender
+    assert "networks: [internal, frontend-network, galancito-egress]" in sender
+    assert "command: [\"python\", \"-m\", \"app.network_facebook\"]" in sender
+
+
+def test_messenger_setup_keeps_existing_auto_reply_even_for_external_ai():
+    """Linking the Page must not silently disable already authorized responses."""
+    source = SCRIPT.read_text()
+    assert 'old.get("FACEBOOK_AI_AUTO_REPLY_ENABLED", "false")' in source
+    assert '"FACEBOOK_AI_PROVIDER") == "ollama" else "false"' not in source
+    assert '"FACEBOOK_AI_ENABLED": "true"' in source
+    assert '"FACEBOOK_AI_AUTO_REPLY_ENABLED": "true"' in source

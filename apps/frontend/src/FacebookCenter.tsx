@@ -14,6 +14,10 @@ type Analysis = {
   label: string; state: string; requirement?: string; checks: Check[];
   missing: string[]; human_review_required: boolean;
 };
+type ContactProfile = {
+  summary: string; completed: number; total: number; percent: number;
+  missing: string[]; next_field: string | null; evidence: string; specialty_origin: string;
+};
 type Lead = {
   id: string; name: string; company: string; specialty: string; workers: number | null;
   availability: string; experience: string; documents_state: string; status: string;
@@ -21,6 +25,8 @@ type Lead = {
   needs_support: boolean; support_reason: string;
   entity_type: "unknown" | "company" | "individual";
   has_employees: boolean | null;
+  interest_type: "unknown" | "service_offer" | "employment";
+  team_available: boolean | null; work_area: string; profile: ContactProfile;
   last_inbound_at: string | null; can_reply: boolean; analysis: Analysis;
   follow_up_on: string | null; follow_up_note: string;
   last_message?: { text: string; direction: "inbound" | "outbound" } | null;
@@ -31,6 +37,7 @@ type Post = { id: string; requirement_id: string; title: string; specialty: stri
 type Center = {
   automatic_enabled: boolean; manual_enabled?: boolean; messaging_enabled: boolean; ai_enabled: boolean;
   auto_reply_enabled: boolean; ai_provider?: string; page_id: string;
+  auto_reply?: { configured: boolean; missing: string[]; verification: string; last_delivery: string };
   connection?: { state: string; checked_at: string | null; error: string | null; page_name: string | null };
   messenger_delivery?: { state: string; error: string | null; updated_at: string | null };
   inbox_sync?: { state: string; checked_at: string | null; error: string | null; summary: string | null };
@@ -206,6 +213,10 @@ export default function FacebookCenter({ catalog }: { catalog: Catalog }) {
             unread: update.lead.unread,
             can_reply: update.lead.can_reply,
             last_inbound_at: update.lead.last_inbound_at,
+            interest_type: update.lead.interest_type,
+            team_available: update.lead.team_available,
+            work_area: update.lead.work_area,
+            profile: update.lead.profile,
           }};
         });
       } catch { /* No borrar la conversación si hay un fallo temporal de red. */ }
@@ -359,12 +370,26 @@ export default function FacebookCenter({ catalog }: { catalog: Catalog }) {
         {messengerBlocked || messengerUncertain || tokenInvalid ? "Revisar" :
           checkingConnection ? "Comprobando" : connectionVerified && center?.messaging_enabled ? "Vigente" : "Sin verificar"}
       </span>
+      <span className={"fbc-auto-status " + (center?.auto_reply?.configured ? "configured" : "inactive")}
+        role="status" title="La configuración no sustituye una prueba real de entrega en Meta">
+        <Bot size={14} /> {center?.auto_reply?.configured
+          ? "Respuestas IA configuradas · falta probar"
+          : "Respuestas IA sin activar"}
+      </span>
       <details className="fbc-connection-details">
         <summary>Diagnóstico</summary>
         <div className="fbc-connection-content">
           <p>Facebook: {connectionVerified ? "Token verificado" : connection?.state === "failed" ? "Error de autenticación" : "Pendiente de comprobación"}.</p>
           <p>Messenger: {center?.messaging_enabled ? "Habilitado" : "Deshabilitado"}.
-            {center?.ai_enabled && center?.auto_reply_enabled ? " · Galancito habilitado" : " · Galancito sin respuestas automáticas"}.</p>
+            {center?.auto_reply?.configured ? " · Respuestas automáticas configuradas" : " · Respuestas automáticas pendientes"}.</p>
+          {!center?.auto_reply?.configured && !!center?.auto_reply?.missing?.length &&
+            <div className="fbc-auto-check" role="status">
+              <b>Qué falta para que Galancito responda solo</b>
+              <ul>{center.auto_reply.missing.map(item => <li key={item}>{item}</li>)}</ul>
+              <small>Se corrige en la configuración de IA y Messenger; no basta con que Facebook diga «Vigente».</small>
+            </div>}
+          {center?.auto_reply?.configured &&
+            <p className="fbc-auto-confirm">Respuestas automáticas listas para una prueba externa. La conexión de Meta y el envío real deben confirmarse.</p>}
           {center?.inbox_sync?.state === "synced" && <p>{center.inbox_sync.summary}</p>}
           {center?.inbox_sync?.state === "failed" && <p role="alert">{center.inbox_sync.error || "Fallo al recuperar conversaciones"}</p>}
           {tokenInvalid && <p role="alert">Revisar token de página en el VPS.</p>}
@@ -586,6 +611,33 @@ export default function FacebookCenter({ catalog }: { catalog: Catalog }) {
               <small>No enviar una lista larga de documentos. Mantener revisión humana.</small>
             </div>
           </div>}
+          <section className="fbc-person-profile" aria-label="Resumen progresivo de la persona">
+            <div className="fbc-person-profile-heading">
+              <b>Ficha que Galancito va completando</b>
+              <strong>{lead.profile.percent}%</strong>
+            </div>
+            <progress value={lead.profile.completed} max={lead.profile.total}
+              aria-label="Progreso de información profesional declarada" />
+            <p className="fbc-person-summary">{lead.profile.summary}</p>
+            <small>{lead.profile.evidence}</small>
+            <div className="fbc-person-fields">
+              <div><small>Interés</small><strong>{lead.interest_type === "service_offer" ? "Ofrece servicios" :
+                lead.interest_type === "employment" ? "Busca empleo" : "Por aclarar"}</strong></div>
+              <div><small>Oficio / trabajo</small><strong>{lead.specialty || "Por confirmar"}</strong></div>
+              <div><small>Modalidad</small><strong>{lead.team_available == null ? "Sin dato" :
+                lead.team_available ? "Puede venir con equipo" : "Trabaja solo/a"}</strong></div>
+              <div><small>Personas</small><strong>{lead.workers ?? "Sin dato"}</strong></div>
+              <div><small>Experiencia</small><strong>{lead.experience || "Por consultar"}</strong></div>
+              <div><small>Comuna</small><strong>{lead.work_area || "Por consultar"}</strong></div>
+              <div><small>Disponibilidad</small><strong>{lead.availability || "Por consultar"}</strong></div>
+              <div><small>Trabajo vinculado</small><strong>{requirements.find(r => r.id === lead.requirement_id)?.title || "Por vincular"}</strong></div>
+            </div>
+            <small>Oficio: {lead.profile.specialty_origin}</small>
+            {!!lead.profile.missing.length && <details className="fbc-profile-pending">
+              <summary>Falta conocer ({lead.profile.missing.length})</summary>
+              <p>{lead.profile.missing.join(" · ")}</p>
+            </details>}
+          </section>
           <section className="fbc-lead-overview" aria-label="Resumen del contacto">
             <div className="fbc-lead-identity">
               <div className="fbc-avatar">{lead.name && lead.name !== "Interesado de Facebook" ? lead.name.slice(0,1).toUpperCase() : "?"}</div>
@@ -658,8 +710,30 @@ export default function FacebookCenter({ catalog }: { catalog: Catalog }) {
           <div className="fbc-pair">
             <label>Personas disponibles<input type="number" min={1} value={lead.workers ?? ""}
               onChange={(e) => setDetail((old) => old ? {...old, lead: {...old.lead, workers: e.target.value ? Number(e.target.value) : null}} : old)} /></label>
-            <label>Disponible desde<input type="date" value={lead.availability} onChange={(e) => setDetail((old) => old ? {...old, lead: {...old.lead, availability: e.target.value}} : old)} /></label>
+            <label>Disponible desde<input type="text" placeholder="Ej.: mañana, próxima semana o AAAA-MM-DD" value={lead.availability} onChange={(e) => setDetail((old) => old ? {...old, lead: {...old.lead, availability: e.target.value}} : old)} /></label>
           </div>
+          <label>Comuna en la que puede trabajar
+            <input maxLength={120} value={lead.work_area} placeholder="Por confirmar"
+              onChange={(e) => setDetail((old) => old ? {...old, lead: {...old.lead, work_area:e.target.value}} : old)} />
+          </label>
+          <label>Tipo de interés
+            <select value={lead.interest_type} onChange={(e) =>
+              setDetail((old) => old ? {...old, lead: {...old.lead,
+                interest_type:e.target.value as Lead["interest_type"]}} : old)}>
+              <option value="unknown">Aún no lo sabemos</option>
+              <option value="service_offer">Ofrece servicios</option>
+              <option value="employment">Busca trabajo como empleado</option>
+            </select>
+          </label>
+          <label>¿Puede venir con otras personas?
+            <select value={lead.team_available === null ? "unknown" : String(lead.team_available)}
+              onChange={(e) => setDetail((old) => old ? {...old, lead: {...old.lead,
+                team_available:e.target.value === "unknown" ? null : e.target.value === "true"}} : old)}>
+              <option value="unknown">Aún no confirmado</option>
+              <option value="true">Sí, puede venir con equipo</option>
+              <option value="false">Trabaja solo/a</option>
+            </select>
+          </label>
           <label>Relacionar con necesidad
             <select value={lead.requirement_id || ""} onChange={(e) => setDetail((old) => old ? {...old, lead: {...old.lead, requirement_id: e.target.value || null}} : old)}>
               <option value="">Aún no asignada</option>
@@ -687,7 +761,7 @@ export default function FacebookCenter({ catalog }: { catalog: Catalog }) {
               }}>
               <option value="unknown">No se sabe todavía</option>
               <option value="true">Sí, tiene trabajadores</option>
-              <option value="false">No, trabaja solo</option>
+              <option value="false">No declara trabajadores contratados</option>
             </select>
           </label>
           <label>Documentación (revisión humana)
@@ -719,6 +793,8 @@ export default function FacebookCenter({ catalog }: { catalog: Catalog }) {
               documents_state: lead.documents_state, ai_paused: lead.ai_paused,
               needs_support: lead.needs_support,
               entity_type: lead.entity_type, has_employees: lead.has_employees,
+              interest_type: lead.interest_type, team_available: lead.team_available,
+              work_area: lead.work_area,
               requirement_id: lead.requirement_id,
               follow_up_on: lead.follow_up_on, follow_up_note: lead.follow_up_note,
             })}>Guardar ficha y seguimiento</button>

@@ -17,6 +17,7 @@ from sqlalchemy import select, text as sql_text
 
 from .db import SessionLocal
 from .facebook_crm_models import FacebookChatMessage, FacebookLead
+from .galancito_intake import apply_intake
 from .models import Organization, utcnow
 
 
@@ -127,6 +128,9 @@ def sync_page_inbox(*, page_id: str, page_token: str, org_id: str,
                 lead.last_inbound_at = timestamp
             lead.updated_at = utcnow()
             lead.unread = True
+            # Recovered messages complete the same professional profile as signed
+            # webhook messages. This stays local and does not trigger AI replies.
+            apply_intake(lead, body)
             db.add(FacebookChatMessage(
                 org_id=org_id, lead_id=lead.id, page_id=page_id, remote_id=mid,
                 direction="inbound", state="received", body=body, created_at=timestamp))

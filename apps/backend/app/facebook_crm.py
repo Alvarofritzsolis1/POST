@@ -36,6 +36,8 @@ from .network_service import key, today
 from .galancito_triage import classify_lead, dashboard
 from .security import administrator
 from .galancito_triage import analyze, private_data, quick_reply
+from .galancito_intake import apply_intake, next_intake_reply
+from .galancito_contact_profile import contact_profile
 from .facebook_lead_insights import ranked_needs, suggestions_for_lead
 from .ops_models import Worksite
 from .galancito_knowledge import retrieve, exact_answer, evidence_context
@@ -113,7 +115,7 @@ def _match(db: Session, lead: FacebookLead) -> dict:
 
 def _lead_view(db: Session, lead: FacebookLead) -> dict:
     return {
-        "id": lead.id, "name": lead.display_name, "company": lead.company,
+        "id": lead.id, "name": lead.display_name, "name_opt_out": lead.name_opt_out, "company": lead.company,
         "specialty": lead.specialty, "specialty_source": lead.specialty_source, "workers": lead.workers,
         "availability": lead.availability, "experience": lead.experience,
         "documents_state": lead.documents_state, "status": lead.status,
@@ -125,6 +127,10 @@ def _lead_view(db: Session, lead: FacebookLead) -> dict:
         "support_reason": lead.support_reason,
         "entity_type": lead.entity_type,
         "has_employees": lead.has_employees,
+        "team_available": lead.team_available,
+        "interest_type": lead.interest_type,
+        "work_area": lead.work_area,
+        "profile": contact_profile(lead),
         "follow_up_on": lead.follow_up_on.isoformat() if lead.follow_up_on else None,
         "follow_up_note": lead.follow_up_note or "",
         "last_inbound_at": lead.last_inbound_at.isoformat() if lead.last_inbound_at else None,
@@ -141,6 +147,7 @@ def _message_view(m: FacebookChatMessage) -> dict:
 class LeadEdit(BaseModel):
     model_config = ConfigDict(extra="forbid")
     name: str = Field(default="", max_length=160)
+    name_opt_out: bool = False
     company: str = Field(default="", max_length=180)
     specialty: str = Field(default="", max_length=100)
     workers: int | None = Field(default=None, ge=1, le=5000)
@@ -153,6 +160,9 @@ class LeadEdit(BaseModel):
     needs_support: bool = False
     entity_type: str = Field(default="unknown", pattern=r"^(unknown|company|individual)$")
     has_employees: bool | None = None
+    team_available: bool | None = None
+    interest_type: str = Field(default="unknown", pattern="^(unknown|service_offer|employment)$")
+    work_area: str = Field(default="", max_length=120)
     follow_up_on: date | None = None
     follow_up_note: str = Field(default="", max_length=240)
 
@@ -305,11 +315,30 @@ async def webhook(request: Request, db: Session = Depends(get_db)):
                 )):
                     pending.state = "cancelled"
             if consent is None and not audio_received and not private_data(body):
+                previous_question = db.scalar(select(FacebookChatMessage.body).where(
+                    FacebookChatMessage.lead_id == lead.id,
+                    FacebookChatMessage.direction == "outbound",
+                    FacebookChatMessage.state == "sent",
+                ).order_by(FacebookChatMessage.created_at.desc(),
+                           FacebookChatMessage.id.desc()).limit(1)) or ""
+                # Only self-declared professional details, never an employment inference
+                # from ability to bring people; no third-party model receives these fields.
+                apply_intake(lead, body, previous_question)
                 approved_trades = {g.trade: (g.trade, *(g.aliases or [])) for g in db.scalars(
                     select(FacebookTradeGuide).where(FacebookTradeGuide.org_id == lead.org_id,
                                                     FacebookTradeGuide.approved.is_(True)).limit(100))}
                 facts = analyze(body, approved_trades)
-                if facts.specialty and (not lead.specialty or lead.specialty_source == "message"):
+                # Asking about a trade is NOT a declaration of doing that trade.
+                # Allow short one-word answers because many small contractors
+                # type only a word or two.
+                casual = key(body)
+                declares_trade = bool(re.search(
+                    r"\b(?:soy|soi|trabajo|trabajamos|hago|hacemos|ofrezco|ofresco|"
+                    r"tengo|tenemos|somos|me dedico|busco)\b", casual))
+                declares_trade = declares_trade or (
+                    len(casual.split()) <= 2 and "?" not in body and "¿" not in body)
+                if facts.specialty and declares_trade and (
+                    not lead.specialty or lead.specialty_source == "message"):
                     lead.specialty = facts.specialty
                     lead.specialty_source = "message"
                 if facts.entity_type != "unknown":
@@ -318,8 +347,8 @@ async def webhook(request: Request, db: Session = Depends(get_db)):
                     lead.workers = facts.workers
                 if facts.availability:
                     lead.availability = facts.availability
-                if "trabajo solo" in key(body):
-                    lead.has_employees = False
+                # Trabajar solo no demuestra que no existan dependientes
+                # formalmente contratados: nunca inferir has_employees.
             signal = (assistance_signal(body, is_audio=audio_received)
                       if consent is None else None)
             if consent is False:
@@ -399,7 +428,7 @@ async def webhook(request: Request, db: Session = Depends(get_db)):
                     # datos personales a un servicio externo.
                     reply = ("Hola, soy Galancito, asistente virtual de GALANT. "
                              "Puedes escribir como te salga. ¿Qué trabajo haces?")
-                if use_ai and recent < 5 and ai_source != "disabled":
+                if use_ai and recent < 30 and ai_source != "disabled":
                     queue_locked = (db.bind.dialect.name != "postgresql" or db.scalar(
                         sql_text("SELECT pg_try_advisory_xact_lock(2075002)")))
                     queued = db.scalar(select(func.count(FacebookChatMessage.id)).where(
@@ -414,7 +443,7 @@ async def webhook(request: Request, db: Session = Depends(get_db)):
                     else:
                         lead.needs_support = True
                         lead.support_reason = "Cola del asistente ocupada; requiere revisión humana"
-                elif reply and recent < 5:
+                elif reply and recent < 30:
                     db.add(FacebookChatMessage(
                         org_id=lead.org_id, lead_id=lead.id, page_id=lead.page_id,
                         direction="outbound", state="pending", body=reply[:550],
@@ -612,12 +641,36 @@ def center(user: User = Depends(administrator), db: Session = Depends(get_db)):
                 "text": (body or "")[:115], "direction": direction,
             }
     ai_source = messenger_ai_source(db, user.org_id, cfg)
+    # This reports *configuration*, never fabricates a confirmed Meta delivery.
+    reply_blockers = []
+    if not cfg.facebook_messaging_enabled:
+        reply_blockers.append("Mensajería de Facebook deshabilitada en el VPS")
+    if not cfg.facebook_page_id or cfg.facebook_org_id != user.org_id:
+        reply_blockers.append("Página u organización de Messenger sin asociar")
+    if not cfg.facebook_app_secret or not cfg.facebook_webhook_verify_token:
+        reply_blockers.append("Webhook de Meta incompleto")
+    if not cfg.facebook_ai_auto_reply_enabled:
+        reply_blockers.append("Respuestas automáticas deshabilitadas en el VPS")
+    if not cfg.facebook_ai_enabled:
+        reply_blockers.append("Asistente de Facebook deshabilitado en el VPS")
+    if ai_source == "disabled":
+        reply_blockers.append("No hay un modelo de IA verificado y asignado a Messenger")
+    # Token is only exposed to the sender container. Its actual permission
+    # and delivery must still be verified against Meta from an external account.
+    auto_reply = {
+        "configured": not reply_blockers,
+        "missing": reply_blockers,
+        "verification": ("Comprobar enviando un mensaje desde una cuenta externa. "
+                         "Las respuestas requieren consentimiento y confirmación de Meta."),
+        "last_delivery": messenger_delivery["state"],
+    }
     return {"automatic_enabled": cfg.facebook_autopublish_enabled,
             "manual_enabled": cfg.facebook_manual_testing_enabled,
             "messaging_enabled": cfg.facebook_messaging_enabled,
             "ai_enabled": ai_source != "disabled",
             "ai_provider": ai_source,
             "auto_reply_enabled": cfg.facebook_ai_auto_reply_enabled,
+            "auto_reply": auto_reply,
             "page_id": cfg.facebook_page_id,
             "pending_ads": ads, "publications": publications,
             "connection": connection,
@@ -824,9 +877,14 @@ def suggest_reply(lead_id: str, user: User = Depends(administrator),
                            and consent_decision(m.body) is None), "")
     facts = {"specialty": lead.specialty, "workers": lead.workers,
              "availability": lead.availability, "entity_type": lead.entity_type,
-             "has_employees": lead.has_employees}
+             "has_employees": lead.has_employees, "team_available": lead.team_available,
+             "interest_type": lead.interest_type, "work_area": lead.work_area, "experience": lead.experience,
+             "display_name": lead.display_name, "name_opt_out": lead.name_opt_out}
+    previous_question = next((m.body for m in messages if m.direction == "outbound"
+                              and m.state == "sent"), "")
+    intake = next_intake_reply(latest_inbound, facts, previous_question)
     evidence = retrieve(db, lead.org_id, latest_inbound, "messenger") if not private_data(latest_inbound) else []
-    fast = quick_reply(latest_inbound, known=facts)
+    fast = intake or quick_reply(latest_inbound, known=facts)
     if analyze(latest_inbound).intent not in {"human", "restricted", "requirements"} and not private_data(latest_inbound):
         fast = exact_answer(evidence) or fast
     if fast:
@@ -860,8 +918,10 @@ def suggest_reply(lead_id: str, user: User = Depends(administrator),
             return {"draft": drafted, "source": "ai", "requires_review": True}
     if not lead.specialty:
         question = "¿Qué trabajo haces? Por ejemplo, gasfitería, carpintería o pintura."
-    elif lead.workers is None:
-        question = "¿Trabajas solo o con cuántas personas?"
+    elif lead.team_available is None:
+        question = "¿Trabajas solo o puedes venir con otras personas?"
+    elif lead.team_available and lead.workers is None:
+        question = "¿Con cuántas personas puedes venir en total?"
     elif not lead.availability:
         question = "¿Desde cuándo puedes empezar a trabajar?"
     else:

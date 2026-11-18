@@ -210,6 +210,97 @@ def import_examples(user: User = Depends(administrator), db: Session = Depends(g
     return {"created": created, "status": "pending"}
 
 
+def _curriculum_20() -> list[dict]:
+    """Twenty curated, static learning units. Each must pass normal input validation."""
+    path = Path(__file__).with_name("galancito_curriculum_20.json")
+    rows = json.loads(path.read_text(encoding="utf-8"))
+    if len(rows) != 20 or [row["epoch"] for row in rows] != list(range(1, 21)):
+        raise RuntimeError("El currículo Galancito requiere exactamente 20 etapas consecutivas")
+    return rows
+
+
+@router.post("/knowledge-curriculum", status_code=201)
+def import_curriculum_20(user: User = Depends(administrator), db: Session = Depends(get_db)):
+    """Idempotent import: pending until approved; never changes existing teachings."""
+    units = _curriculum_20()
+    existing = set(db.scalars(select(Knowledge.title).where(
+        Knowledge.org_id == user.org_id,
+        Knowledge.title.in_([item["title"] for item in units]))))
+    created = 0
+    for item in units:
+        if item["title"] in existing:
+            continue
+        body = KnowledgeInput(**{k: v for k, v in item.items() if k != "epoch"})
+        create(db, body, user)
+        created += 1
+    return {"created": created, "total": len(units), "status": "pending",
+            "message": "Cada unidad requiere aprobación administrativa antes de utilizarse."}
+
+
+@router.get("/knowledge-curriculum/progress")
+def curriculum_progress(user: User = Depends(administrator), db: Session = Depends(get_db)):
+    """Percentage represents verified, approved knowledge, NOT neural-network training."""
+    units = _curriculum_20()
+    rows = list(db.scalars(select(Knowledge).where(
+        Knowledge.org_id == user.org_id,
+        Knowledge.title.in_([item["title"] for item in units]))))
+    by_title = {row.title: row for row in rows}
+    stages = []
+    for item in units:
+        row = by_title.get(item["title"])
+        state = row.status if row else "missing"
+        if row and row.scope not in {"red_obras", "both"}:
+            state = "out_of_scope"
+        stages.append({"epoch": item["epoch"], "title": item["title"],
+                       "state": state})
+    approved = sum(stage["state"] == "approved" for stage in stages)
+    pending = sum(stage["state"] == "pending" for stage in stages)
+    return {"total": len(stages), "approved": approved, "pending": pending,
+            "percent": round(approved * 100 / len(stages)),
+            "remaining": [stage["title"] for stage in stages if stage["state"] != "approved"],
+            "stages": stages,
+            "metric": "Cobertura de conocimientos aprobados, no épocas de ajuste del modelo"}
+
+
+class ConfirmCurriculum(BaseModel):
+    """A deliberate administrator action, never an automatic deployment approval."""
+    confirm: Literal[True]
+
+
+@router.post("/knowledge-curriculum/approve")
+def approve_curriculum_20(body: ConfirmCurriculum, user: User = Depends(administrator),
+                          db: Session = Depends(get_db)):
+    """Approve all twenty ONLY when every text matches the reviewed bundled curriculum."""
+    units = _curriculum_20()
+    titles = [item["title"] for item in units]
+    rows = list(db.scalars(select(Knowledge).where(
+        Knowledge.org_id == user.org_id, Knowledge.title.in_(titles)).with_for_update()))
+    by_title = {row.title: row for row in rows}
+    if len(rows) != 20 or set(by_title) != set(titles):
+        raise HTTPException(409, "Carga primero las veinte unidades y revisa su contenido")
+    for unit in units:
+        row = by_title[unit["title"]]
+        expected = {k: v for k, v in unit.items() if k != "epoch"}
+        actual = {key: getattr(row, key) for key in expected}
+        if actual != expected or row.status == "disabled":
+            raise HTTPException(409, "Una unidad fue editada o desactivada; requiere revisión individual")
+    approved = 0
+    for item in units:
+        row = by_title[item["title"]]
+        if row.status == "approved":
+            continue
+        row.status, row.approved_by = "approved", user.id
+        row.updated_by, row.updated_at = user.id, utcnow()
+        db.flush()
+        snapshot = {k: v for k, v in view(row).items() if k not in {"created_at", "updated_at"}}
+        db.add(KnowledgeVersion(org_id=user.org_id, knowledge_id=row.id, version=row.version,
+                                snapshot=snapshot, responsible_id=user.id))
+        approved += 1
+    db.commit()
+    return {"approved_now": approved, "total": len(units), "percent": 100,
+            "message": "Las veinte unidades aprobadas ya están disponibles para consultas."}
+
+
 class FeedbackInput(BaseModel):
     model_config = ConfigDict(extra="forbid")
     rating: Literal["useful", "incorrect"]

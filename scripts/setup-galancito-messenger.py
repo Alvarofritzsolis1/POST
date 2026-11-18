@@ -259,10 +259,10 @@ def run() -> None:
         "FACEBOOK_ORG_ID": org_id,
         "FACEBOOK_WEBHOOK_VERIFY_TOKEN": verify_token,
         "FACEBOOK_MESSAGING_ENABLED": "true",
-        "FACEBOOK_AI_AUTO_REPLY_ENABLED": (
-            old.get("FACEBOOK_AI_AUTO_REPLY_ENABLED", "false")
-            if old.get("GALANCITO_LOCAL_AI_ENABLED", "false").lower() == "true"
-            and old.get("FACEBOOK_AI_PROVIDER") == "ollama" else "false"
+        # Never silently disable an existing, consent-gated Messenger assistant.
+        # A verified external team also works; model choice is not tied to Ollama.
+        "FACEBOOK_AI_AUTO_REPLY_ENABLED": old.get(
+            "FACEBOOK_AI_AUTO_REPLY_ENABLED", "false"
         ),
     })
     print("   ✓ Copia privada anterior: " + backup.name)
@@ -286,6 +286,20 @@ def run() -> None:
     if subscribed.get("success") is not True:
         raise SetupError("Meta no confirmó la suscripción de la página")
     print("   ✓ Suscripción de página aceptada por Meta")
+
+    # An intentional opt-in enables both controls; privacy and per-contact
+    # consent remain mandatory. If no verified model is assigned, the backend
+    # still refuses to generate automatic replies and explains why.
+    if yes("¿Activar respuestas automáticas de Galancito para nuevos mensajes, solicitando primero autorización al contacto?",
+           default=old.get("FACEBOOK_AI_AUTO_REPLY_ENABLED", "false").lower() == "true"):
+        write_env_atomically(ENV_FILE, {
+            "FACEBOOK_AI_ENABLED": "true",
+            "FACEBOOK_AI_AUTO_REPLY_ENABLED": "true",
+        })
+        compose("up", "-d", "--no-deps", "--force-recreate", "api", "facebook-publisher")
+        print("   ✓ Respuestas automáticas solicitadas; se usarán solo con una IA disponible y permiso del contacto.")
+    else:
+        print("   ✓ No se habilitaron nuevas respuestas automáticas.")
 
     if yes("¿Publicar automáticamente en Facebook las NUEVAS necesidades seleccionadas?"):
         write_env_atomically(ENV_FILE, {"FACEBOOK_AUTOPUBLISH_ENABLED": "true"})

@@ -20,14 +20,22 @@ def plain(text: str) -> str:
 
 
 TRADES = {
-    "Gasfitería": ("gasfite", "gasfiter", "gasfiteria", "gasfitero", "maestro sanitario"),
-    "Carpintería": ("carpintero", "carpinteros", "carpinteria", "carpinter", "mueblista"),
-    "Pintura": ("pintor", "pintores", "pintura", "pinturas"),
-    "Albañilería": ("albanil", "albaniles", "albanileria"),
-    "Electricidad": ("electrico", "electricista", "electricidad"),
+    "Gasfitería": ("gasfite", "gasfiter", "gasfiteria", "gasfitero", "gasfitero", "gafiter", "maestro sanitario"),
+    "Carpintería": ("carpintero", "carpinteros", "carpinteria", "carpinter", "carpintreo", "carpinterio", "mueblista", "mueblero"),
+    "Pintura": ("pintor", "pintores", "pintura", "pinturas", "pinturero", "pintur"),
+    "Albañilería": ("albanil", "albaniles", "albanileria", "albanir", "pandereta"),
+    "Electricidad": ("electrico", "electricista", "electricidad", "electricito", "eletricista", "electrisista"),
     "Aseo": ("aseo", "limpieza"),
-    "Soldadura": ("soldador", "soldadura"),
-    "Cerámica": ("ceramista", "ceramica", "ceramico"),
+    "Soldadura": ("soldador", "soldadura", "soldadoro", "sodador"),
+    "Cerámica": ("ceramista", "ceramica", "ceramico", "seramista"),
+    "Tabiquería": ("tabique", "tabiques", "tabiquero", "tabiqueria", "volcanita"),
+    "Impermeabilización": ("impermeabilizacion", "impermeabilizar", "impermiabilizacion"),
+    "Enfierradura": ("enfierrador", "enfierradura", "enfierador", "fierrero"),
+    "Hormigonado": ("hormigon", "hormigonado", "hormigonero"),
+    "Techumbres": ("techumbre", "techumbres", "techero", "cubiertas", "cubierta"),
+    "Ventanas": ("ventanero", "ventanas", "aluminio", "vidrios", "ventaneria"),
+    "Pavimentación": ("pavimentos", "pavimentacion", "pavimentador"),
+    "Jardinería": ("jardinero", "jardineria", "paisajismo"),
 }
 
 
