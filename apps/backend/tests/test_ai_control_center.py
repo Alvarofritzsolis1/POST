@@ -279,3 +279,35 @@ def test_invalid_encryption_key_is_not_reported_ready(ai_env, monkeypatch):
     })
     assert result.status_code == 503
     assert "gsk-hidden" not in result.text
+
+
+def test_duplicate_provider_name_returns_409_and_keeps_first_key(ai_env):
+    client, sessions = ai_env["client"], ai_env["sessions"]
+    headers = signin(client)
+    original = add(client, headers, name="Misma conexión")
+    duplicate = client.post(ROOT + "/connections", headers=headers, json={
+        "name": "Misma conexión", "provider": "groq", "model": "llama-3.3-70b-versatile",
+        "api_key": "gsk-private-second", "enabled": True,
+    })
+    assert duplicate.status_code == 409, duplicate.text
+    assert "gsk-private-second" not in duplicate.text
+    with sessions() as db:
+        names = list(db.scalars(select(AIConnection).where(AIConnection.org_id == ai_env["org_id"])))
+        assert len(names) == 1 and names[0].id == original["id"]
+        assert ai_gateway.decrypt_key(names[0].encrypted_key) == "nvapi-example-secret"
+
+
+def test_provider_invalid_json_shape_returns_safe_error(ai_env, monkeypatch):
+    client = ai_env["client"]
+    headers = signin(client)
+    record = add(client, headers)
+    monkeypatch.setattr(ai_gateway, "urlopen", lambda *_args, **_kwargs:
+                        FakeResponse({"choices": "private-malformed", "usage": {"prompt_tokens": 12}}))
+    result = client.post(ROOT + "/connections/" + record["id"] + "/test", headers=headers)
+    assert result.status_code == 200, result.text
+    assert result.json()["ok"] is False
+    assert "formato inválido" in result.json()["message"]
+    assert "private-malformed" not in result.text
+    stats = client.get(ROOT + "/usage").json()
+    assert stats["total_calls"] == 1
+    assert stats["groups"][0]["status"] == "error"
