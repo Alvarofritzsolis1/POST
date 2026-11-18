@@ -602,7 +602,15 @@ export default function FacebookCenter({ catalog }: { catalog: Catalog }) {
               {detail?.messages.map((msg) => {
                 const stage = progressFor(msg);
                 return <div key={msg.id} className={"fbc-bubble " + msg.direction}>
-                  <p>{msg.body || (msg.state === "drafting" ? "Galancito está redactando…" : "Preparando respuesta…")}</p>
+                  {msg.ai_generated && ["ai_pending", "drafting"].includes(msg.state) ?
+                    <div className="fbc-typing" role="status" aria-label={msg.state === "drafting" ? "Galancito está escribiendo" : "Galancito prepara la respuesta"}>
+                      <span className="fbc-typing-avatar"><Bot size={17}/></span>
+                      <span className="fbc-typing-content">
+                        <span className="fbc-typing-dots" aria-hidden="true"><i/><i/><i/></span>
+                        <small>{msg.state === "drafting" ? "Galancito está escribiendo…" : "Galancito va a responder…"}</small>
+                      </span>
+                    </div> :
+                    <p>{msg.body || (msg.state === "sending" ? "Enviando respuesta…" : "Preparando respuesta…")}</p>}
                   {stage && <div className={"fbc-reply-progress " + msg.state} role="status"
                     aria-label={stage.label + ": " + stage.percent + "%"}>
                     <div className="fbc-reply-progress-heading">
