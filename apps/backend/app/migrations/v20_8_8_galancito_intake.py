@@ -9,6 +9,8 @@ def upgrade(connection):
     if "facebook_leads" not in inspector.get_table_names():
         return
     names = {col["name"] for col in inspector.get_columns("facebook_leads")}
+    if "interest_type" not in names:
+        connection.execute(text("ALTER TABLE facebook_leads ADD COLUMN interest_type VARCHAR(20) NOT NULL DEFAULT 'unknown'"))
     if "team_available" not in names:
         connection.execute(text("ALTER TABLE facebook_leads ADD COLUMN team_available BOOLEAN"))
     if "work_area" not in names:
