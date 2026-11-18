@@ -48,15 +48,18 @@ const MODEL_OPTIONS: Record<string, Array<{ id: string; label: string }>> = {
     { id: "glm-4.7", label: "GLM-4.7 · respuesta rápida" },
     { id: "glm-5.3-flash", label: "GLM-5.3 Flash · razonamiento" },
   ],
-  nvidia: [{ id: "deepseek-ai/deepseek-v4.1-flash", label: "DeepSeek V4.1 Flash" }],
+  nvidia: [{ id: "nvidia/nemotron-3.5-bolt-e4b", label: "Nemotron 3.5 Bolt" }],
   openai: [{ id: "gpt-4.1-mini", label: "GPT-4.1 Mini" }],
   mistral: [{ id: "mistral-small-latest", label: "Mistral Small" }],
   openrouter: [{ id: "openai/gpt-4o-mini", label: "GPT-4o Mini vía OpenRouter" }],
 };
 const defaultModel = (provider: string) => MODEL_OPTIONS[provider]?.[0]?.id || "";
-const CAN_RECOVER = new Set(["gemini", "groq", "zai"]);
+const CAN_RECOVER = new Set(["gemini", "groq", "nvidia", "zai"]);
 const recoverableError = (message: string) =>
   /(HTTP 400|HTTP 404|respondió sin texto|sin texto utilizable)/i.test(message);
+const shouldRecover = (provider: string, message: string) =>
+  CAN_RECOVER.has(provider) &&
+  (recoverableError(message) || (provider === "nvidia" && /HTTP 503/i.test(message)));
 const empty: Editor = {
   name: "", provider: "gemini", model: defaultModel("gemini"), api_key: "", enabled: false,
   price_input: "", price_output: "",
@@ -175,7 +178,7 @@ export default function AIConfiguration() {
       } catch (err) {
         outcome = { ok: false, message: errorMessage(err) };
       }
-      if (!outcome.ok && CAN_RECOVER.has(form.provider) && recoverableError(outcome.message)) {
+      if (!outcome.ok && shouldRecover(form.provider, outcome.message)) {
         const recovered = await request<{ ok: boolean; message: string; model?: string }>(
           base + "/connections/" + encodeURIComponent(saved.id) + "/recover", { method: "POST" });
         outcome = recovered;
@@ -211,7 +214,7 @@ export default function AIConfiguration() {
     await perform("test:" + conn.id, async () => {
       const result = await request<{ ok: boolean; message: string }>(
         base + "/connections/" + encodeURIComponent(conn.id) + "/test", { method: "POST" });
-      if (!result.ok && CAN_RECOVER.has(conn.provider) && recoverableError(result.message)) {
+      if (!result.ok && shouldRecover(conn.provider, result.message)) {
         const recovered = await request<{ ok: boolean; message: string }>(
           base + "/connections/" + encodeURIComponent(conn.id) + "/recover", { method: "POST" });
         if (!recovered.ok) throw new Error(recovered.message);
