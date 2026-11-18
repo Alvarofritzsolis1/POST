@@ -319,12 +319,10 @@ export default function FacebookCenter({ catalog }: { catalog: Catalog }) {
     <header className="fbc-header">
       <div>
         <span className="fbc-eyebrow"><Facebook size={16} /> FACEBOOK · CENTRO DE CONTACTOS</span>
-        <h2>Facebook e interesados</h2>
-        <p>Mensajes y publicaciones en un solo lugar.</p>
+        <h2>Facebook</h2>
+        <p>Conversaciones y publicaciones</p>
       </div>
-      <button className="nw-btn" type="button" onClick={() => void refresh()} disabled={!!saving}>
-        <RefreshCcw size={16} /> Actualizar
-      </button>
+      <span className="fbc-header-live" role="status"><CheckCircle2 size={15} /> Actualización automática</span>
     </header>
     <div className="fbc-stats fbc-stats-simple">
       {[
@@ -380,7 +378,6 @@ export default function FacebookCenter({ catalog }: { catalog: Catalog }) {
       <button className={tab === "tracking" ? "selected" : ""} onClick={() => setTab("tracking")}>
         <ShieldCheck size={16} /> Seguimiento
       </button>
-    </nav>
     <details className="fbc-tools">
       <summary>Más herramientas</summary>
       <div>
@@ -389,6 +386,7 @@ export default function FacebookCenter({ catalog }: { catalog: Catalog }) {
         <button type="button" className="nw-btn" onClick={() => setTab("testing")}>Comprobar conexión</button>
       </div>
     </details>
+    </nav>
     {tab === "summary" && <GalancitoKnowledgeCenter mode="summary" />}
     {tab === "knowledge" && <GalancitoKnowledgeCenter />}
     {tab === "performance" && <GalancitoKnowledgeCenter mode="performance" />}
