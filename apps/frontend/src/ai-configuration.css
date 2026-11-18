@@ -1,0 +1,70 @@
+.ai-center { max-width: 1280px; margin: 0 auto; display: grid; gap: 20px; }
+.ai-center .ai-banner { display:flex; align-items:flex-start; justify-content:space-between; gap:20px; padding: 24px 27px; border-radius:18px; color:#f6fffd; background: linear-gradient(122deg, #132b34 0%, #164d4a 68%, #176b5b 100%); }
+.ai-center .ai-eyebrow { display:inline-flex; align-items:center; gap:7px; font-size:11px; font-weight:800; letter-spacing:1.1px; color:#a2f0d7; }
+.ai-center .ai-banner h2 { margin: 9px 0; font-size:clamp(20px,2vw,27px); color:#fff; }
+.ai-center .ai-banner p { max-width:630px; color:#d6e8e5; font-size:13px; }
+.ai-center .ai-banner button { flex-shrink:0; }
+.ai-center .ai-kpis { display:grid; grid-template-columns:repeat(4,minmax(0,1fr)); gap:12px; }
+.ai-center .ai-kpis > div { background:#fff; border:1px solid #dce6e8; border-radius:14px; padding:18px 17px; display:flex; flex-direction:column; gap:7px; min-width:0; }
+.ai-center .ai-kpis span { color:#536a78; font-weight:700; font-size:12px; }
+.ai-center .ai-kpis strong { font-size:26px; letter-spacing:-.8px; line-height:1.2; overflow-wrap:anywhere; }
+.ai-center .ai-kpis strong small { font-weight:600; color:#71818c; }
+.ai-center .ai-kpis small { color:#677e88; line-height:1.45; }
+.ai-center .ai-panel { background:#fff; border:1px solid #dce5e8; border-radius:15px; padding:22px; display:grid; gap:17px; }
+.ai-center .ai-panel-head { display:flex; justify-content:space-between; align-items:flex-start; gap:15px; }
+.ai-center .ai-panel-head h3 { color:#1a3643; font-size:19px; margin:0 0 4px; }
+.ai-center .ai-panel-head p { color:#657987; font-size:13px; }
+.ai-center .ai-connections { display:grid; grid-template-columns:repeat(2,minmax(0,1fr)); gap:12px; }
+.ai-center .ai-connection { padding:17px; border:1px solid #e1eaed; border-radius:12px; display:grid; gap:14px; min-width:0; }
+.ai-center .ai-connection-title { display:flex; gap:10px; align-items:flex-start; }
+.ai-center .ai-connection-title > div { flex:1; min-width:0; }
+.ai-center .ai-connection-title h4 { margin:0 0 2px; font-size:15px; overflow-wrap:anywhere; }
+.ai-center .ai-connection-title small { display:block; color:#687d89; overflow-wrap:anywhere; }
+.ai-center .ai-dot { display:block; width:10px; height:10px; background:#a5b2bb; border-radius:50%; margin-top:6px; flex-shrink:0; }
+.ai-center .ai-dot.ok { background:#0b9d73; box-shadow:0 0 0 4px #d5f8e9; }
+.ai-center .ai-dot.bad { background:#d34e50; box-shadow:0 0 0 4px #ffe4e6; }
+.ai-center .ai-state { color:#4d6672; background:#eff3f5; padding:5px 8px; border-radius:7px; font-size:11px; font-weight:750; white-space:nowrap; }
+.ai-center .ai-connection-meta { display:flex; flex-wrap:wrap; gap:12px; font-size:12px; color:#536c79; }
+.ai-center .ai-connection-meta span { display:inline-flex; align-items:center; gap:6px; }
+.ai-center .ai-actions { display:flex; gap:6px; flex-wrap:wrap; }
+.ai-center .ai-actions button { min-height:34px; padding:6px 9px; font-size:12px; }
+.ai-center .ai-empty { color:#6f818b; padding:24px; text-align:center; grid-column:1/-1; background:#f7fafb; border-radius:10px; }
+.ai-center .ai-editor { border:1px solid #b1d9cf; background:#f7fcfa; padding:20px; border-radius:13px; display:grid; gap:16px; }
+.ai-center .ai-editor-heading { display:flex; align-items:center; justify-content:space-between; }
+.ai-center .ai-editor-heading h4 { font-size:16px; margin:0; }
+.ai-center .ai-form-grid, .ai-center .ai-task-grid { display:grid; grid-template-columns: repeat(2,minmax(0,1fr)); gap:13px; }
+.ai-center label { display:flex; flex-direction:column; font-size:12px; font-weight:700; gap:6px; color:#314f60; }
+.ai-center input:not([type="checkbox"]), .ai-center select { width:100%; min-width:0; border-radius:8px; background:#fff; border:1px solid #cddce1; padding:10px; min-height:41px; color:#1c333c; }
+.ai-center label small { font-size:11px; font-weight:400; color:#7a8b94; }
+.ai-center .ai-editor-footer, .ai-center .ai-policy-controls { display:flex; flex-wrap:wrap; align-items:center; gap:16px; justify-content:space-between; }
+.ai-center .ai-check { display:inline-flex; flex-direction:row; align-items:center; gap:8px; font-size:12px; }
+.ai-center .ai-check input { accent-color:#087d75; width:17px; height:17px; }
+.ai-center .ai-policy-controls { justify-content:flex-start; gap:18px 28px; padding:15px 0; }
+.ai-center .ai-policy-controls > label:last-child { min-width:180px; }
+.ai-center .ai-task { border:1px solid #e1ebed; padding:12px; border-radius:10px; background:#fbfdfd; }
+.ai-center .ai-secure { display:inline-flex; gap:6px; align-items:center; color:#0c7a68; white-space:nowrap; font-size:12px; font-weight:750; }
+.ai-center .ai-help { color:#637a85; display:flex; gap:8px; align-items:flex-start; font-size:12px; line-height:1.55; }
+.ai-center .ai-help svg { flex-shrink:0; margin-top:2px; }
+.ai-center .ai-error, .ai-center .ai-warning, .ai-center .ai-notice { border-radius:10px; padding:12px 15px; display:flex; gap:9px; align-items:flex-start; font-size:13px; }
+.ai-center .ai-error { color:#952c2c; background:#fff0ef; border:1px solid #f3c3bf; }
+.ai-center .ai-warning { color:#805412; background:#fff9e5; border:1px solid #ecd79e; }
+.ai-center .ai-notice { color:#126c52; background:#e9f8ef; border:1px solid #c5e8d5; }
+.ai-center .ai-days { min-width:130px; }
+.ai-center .ai-usage-head { display:flex; gap:12px; flex-wrap:wrap; color:#536c79; font-size:13px; }
+.ai-center .ai-usage-head span { padding:8px 12px; background:#f0f5f7; border-radius:9px; }
+.ai-center .ai-table-scroll { overflow-x:auto; }
+.ai-center .ai-table { border-collapse:collapse; width:100%; min-width:600px; font-size:13px; }
+.ai-center .ai-table th { text-align:left; background:#f3f7f8; color:#526a74; font-size:11px; font-weight:800; }
+.ai-center .ai-table td, .ai-center .ai-table th { padding:12px; border-bottom:1px solid #e8eff0; }
+.ai-center .ai-table td small { display:block; color:#7a8e97; }
+@media(max-width:1000px) {
+  .ai-center .ai-kpis { grid-template-columns:repeat(2,minmax(0,1fr)); }
+  .ai-center .ai-connections { grid-template-columns:1fr; }
+}
+@media(max-width:620px) {
+  .ai-center .ai-banner, .ai-center .ai-panel-head { flex-direction:column; }
+  .ai-center .ai-kpis, .ai-center .ai-form-grid, .ai-center .ai-task-grid { grid-template-columns:1fr; }
+  .ai-center .ai-panel { padding:15px; }
+  .ai-center .ai-banner { padding:18px; }
+  .ai-center .ai-state { white-space:normal; }
+}
