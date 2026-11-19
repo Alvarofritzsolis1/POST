@@ -1,0 +1,84 @@
+/* GALANT Red de Obras · ajustes visuales limitados a Facebook Center.
+   Conserva lógica, endpoints y estilos del resto del sistema. */
+.fbc {
+  --fbc-min-ink:#183146;
+  --fbc-min-muted:#677982;
+  --fbc-min-line:#e0e9e6;
+  min-width:0;
+  max-width:100%;
+  gap:15px;
+  color:var(--fbc-min-ink);
+}
+.fbc .fbc-eyebrow {font-size:10px;letter-spacing:.07em;color:#147d68}
+.fbc .fbc-header h2 {font-size:clamp(23px,2.4vw,30px);font-weight:750;letter-spacing:-.65px}
+.fbc .fbc-header p {font-size:12px;color:var(--fbc-min-muted);margin:3px 0 0}
+.fbc .fbc-status-line {order:0;min-height:32px}
+.fbc .fbc-connection-square {padding:6px 11px;font-size:11px;border-radius:8px;min-width:0}
+.fbc .fbc-connection-details > summary {padding:6px 10px;border-radius:8px;font-size:11px}
+.fbc .fbc-tabs-simple {gap:5px;border-bottom:1px solid var(--fbc-min-line);padding-bottom:9px;margin:0 0 4px}
+.fbc .fbc-tabs-simple > button {padding:9px 14px;background:transparent;color:var(--fbc-min-muted);
+ border:1px solid transparent;border-radius:9px;font-size:12px;font-weight:680}
+.fbc .fbc-tabs-simple > button:hover {background:#f0f7f4;color:#176f60}
+.fbc .fbc-tabs-simple > button.selected {background:#e9f8f1;border-color:#c8e8da;color:#096d58}
+.fbc .fbc-tools > summary {background:transparent;border:1px solid var(--fbc-min-line);color:var(--fbc-min-muted)}
+.fbc .fbc-tracking {border-color:var(--fbc-min-line);border-radius:14px;gap:16px;padding:19px}
+.fbc .fbc-tracking-head h3 {font-size:19px;letter-spacing:-.3px}
+.fbc .fbc-tracking-head p {font-size:12px;max-width:620px;line-height:1.55}
+.fbc .fbc-tracking-counters {gap:8px}
+.fbc .fbc-tracking-counter {padding:11px 13px;gap:4px;border-radius:11px;background:var(--nw-paper)}
+.fbc .fbc-tracking-counter strong {font-size:22px}
+.fbc .fbc-tracking-summaries section {border-radius:11px;padding:13px;gap:8px}
+.fbc .fbc-tracking-filters button.selected {background:#e4f7ee;color:#096d58;border-color:#b9dfcc}
+.fbc .fbc-tracking-item {border-radius:11px;padding:14px}
+.fbc .fbc-tracking-item:hover {border-color:#b6dcd0}
+.fbc .fbc-trade-chip {background:#eff8f4;color:#146c57!important;border-color:#cae9db}
+.fbc .fbc-card-more > summary {color:#0c806c}
+.fbc .fbc-pending {border-radius:14px}
+.fbc .fbc-ad {border-radius:11px}
+.fbc .fbc-inbox {border-radius:13px;border:1px solid var(--fbc-min-line);overflow:hidden}
+.fbc .fbc-contacts,.fbc .fbc-conversation {background:var(--nw-paper)}
+.fbc .fbc-contacts .fbc-pane-title,.fbc .fbc-conversation .fbc-pane-title {font-size:12px}
+.fbc .fbc-search {border-radius:9px}
+.fbc .fbc-contact.selected {background:#eaf8f3}
+.fbc .fbc-contact:hover {background:#f4faf7}
+.fbc .fbc-chat-stream {background:#f8fbfa}
+.fbc .fbc-person-profile {gap:10px}
+.fbc .fbc-person-fields {gap:8px}
+.fbc .fbc-person-fields > div {background:#fbfdfc;border-color:#e1ebe7}
+.fbc .fbc-person-fields strong {font-size:12px}
+.fbc .fbc-lead-overview {background:var(--nw-paper)}
+.fbc .fbc-next-action {border-color:#17a084}
+.fbc .fbc-next-action span {color:#087e73}
+.fbc .fbc-quick-replies > summary {font-size:12px}
+.fbmin-inbox-switch {display:flex;align-items:center;gap:5px;margin:10px 10px 0;padding:3px;background:#eff5f3;border-radius:9px}
+.fbmin-inbox-switch button {flex:1;background:transparent;border:1px solid transparent;border-radius:7px;
+ padding:7px 8px;font-size:11px;color:#536b69;cursor:pointer}
+.fbmin-inbox-switch button.selected {background:#fff;color:#087e73;border-color:#d1e5dd;font-weight:750}
+.fbmin-ai-summary {border:1px solid var(--fbc-min-line);border-radius:9px;padding:9px 10px;background:#fbfdfc}
+.fbmin-ai-summary > summary {cursor:pointer;font-size:12px;font-weight:700;color:#0e7666}
+.fbmin-ai-summary p {margin:9px 0;font-size:12px;line-height:1.5}
+.fbmin-ai-summary small {font-size:11px;color:var(--fbc-min-muted)}
+.fbc button:focus-visible,.fbc summary:focus-visible,.fbc input:focus-visible,
+.fbc textarea:focus-visible,.fbc select:focus-visible {outline:2px solid #148d74;outline-offset:2px}
+[data-theme="dark"] .fbc {--fbc-min-ink:var(--nw-ink);--fbc-min-muted:var(--nw-muted);--fbc-min-line:var(--nw-border)}
+[data-theme="dark"] .fbc .fbc-tabs-simple > button.selected,
+[data-theme="dark"] .fbc .fbc-tracking-filters button.selected {background:#20423b;color:#b4f5de;border-color:#416d5e}
+[data-theme="dark"] .fbc .fbc-tabs-simple > button:hover {background:#243e39;color:#b4f5de}
+[data-theme="dark"] .fbc .fbc-contact.selected {background:#1c3e37}
+[data-theme="dark"] .fbc .fbc-contact:hover {background:#233b38}
+[data-theme="dark"] .fbc .fbc-chat-stream {background:#152a2b}
+[data-theme="dark"] .fbc .fbc-trade-chip {background:#183a31;color:#aaf0d1!important;border-color:#375e50}
+[data-theme="dark"] .fbmin-inbox-switch {background:#273d39}
+[data-theme="dark"] .fbmin-inbox-switch button.selected,
+[data-theme="dark"] .fbmin-ai-summary {background:#1a302c;color:#bbf2db;border-color:#426f5f}
+[data-theme="dark"] .fbc .fbc-person-fields > div {background:#1b302d;border-color:#344a43}
+@media(max-width:950px) {.fbc .fbc-tracking {padding:14px}.fbc .fbc-tracking-counters {grid-template-columns:repeat(3,minmax(0,1fr))}}
+@media(max-width:740px) {
+  .fbc .fbc-tabs-simple {overflow-x:auto;flex-wrap:nowrap;scrollbar-width:thin;padding-bottom:9px}
+  .fbc .fbc-tabs-simple > button {flex:none;padding:10px 12px}
+  .fbc .fbc-tools {flex:none}
+  .fbc .fbc-tracking-counters {grid-template-columns:repeat(2,minmax(0,1fr))}
+  .fbc .fbc-tracking-item {grid-template-columns:minmax(0,1fr)}
+  .fbc .fbc-inbox {overflow:visible}
+}
+@media(prefers-reduced-motion:reduce) {.fbc * {scroll-behavior:auto!important;animation:none!important;transition:none!important}}
