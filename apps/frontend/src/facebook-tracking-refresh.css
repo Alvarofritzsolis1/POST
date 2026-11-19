@@ -68,3 +68,14 @@
  .fbtrack-person-actions {grid-column:1/-1;flex-direction:row}.fbtrack-person-actions button {flex:1}
  .fbtrack-controls input {max-width:none}.fbtrack-metric strong {font-size:25px}}
 @media(prefers-reduced-motion:reduce){.fbtrack * {animation:none!important;transition:none!important}}
+
+/* Desgloses clicables y filtros con efecto real. */
+.fbtrack-graph-row {width:100%;border:0;background:transparent;color:inherit;cursor:pointer;text-align:left;border-radius:7px;padding:5px 4px}
+.fbtrack-graph-row:hover {background:#eaf8f1}
+.fbtrack-stages>button {display:flex;align-items:center;gap:7px;padding:6px 10px;border:1px solid transparent;border-radius:8px;background:#f0f5f3;font-size:11px;color:#536a68;cursor:pointer}
+.fbtrack-stages>button:hover {border-color:#9ed2be;background:#e7f8f0}
+.fbtrack-stages button b {color:#086d5a}
+.fbtrack-clear {background:transparent;border:1px solid var(--nw-border,#dce5e3);border-radius:9px;padding:9px 11px;font-size:11px;color:var(--nw-ink,#123);cursor:pointer}
+.fbtrack-graph-row:focus-visible,.fbtrack-stages button:focus-visible,.fbtrack-clear:focus-visible {outline:3px solid #0d8877;outline-offset:2px}
+[data-theme="dark"] .fbtrack-stages>button {background:#283d3a;color:#dae9e4}
+[data-theme="dark"] .fbtrack-graph-row:hover {background:#26453b}
