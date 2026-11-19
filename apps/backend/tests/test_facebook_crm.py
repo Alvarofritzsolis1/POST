@@ -373,7 +373,7 @@ def test_model_failure_notifies_human_instead_of_sending_generic_answer(network,
     monkeypatch.setattr("app.facebook_chat_worker.graph_send",
                         lambda page, psid, body, token: sent.append(body) or "mid-complex-fallback")
     assert process_chat_next(n["Session"])
-    assert len(sent) == 1 and "pendiente de revisión humana" in sent[0]
+    assert len(sent) == 1 and "revise nuestro equipo" in sent[0]
     detail = n["admin"].get("/api/v1/network/facebook/leads/" + lead_id).json()
     assert detail["lead"]["needs_support"] is True
     with n["Session"]() as db:
