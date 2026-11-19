@@ -91,27 +91,27 @@ export default function FacebookOverview({
 
       <div className="fbov-metrics" aria-label="Indicadores de Facebook">
         <button type="button" className="fbov-metric fbov-primary" onClick={onOpenTracking}
-          aria-label={"Ver " + counts.contacts + " contactos registrados en seguimiento"}>
+          aria-label={"Abrir seguimiento de contactos; " + counts.contacts + " contactos en los datos recientes"}>
           <span className="fbov-metric-icon"><Users size={22} /></span>
-          <span className="fbov-metric-copy"><span>Contactos registrados</span>
+          <span className="fbov-metric-copy"><span>Contactos recientes</span>
             <strong>{counts.contacts.toLocaleString("es-CL")}</strong>
-            <small>Personas que han escrito, no necesariamente postulaciones</small></span>
+            <small>Hasta 100 contactos · no equivalen a postulaciones confirmadas</small></span>
           <ArrowRight size={18} className="fbov-arrow" aria-hidden="true" />
         </button>
         <button type="button" className="fbov-metric" onClick={() => onOpenConversations(true)}>
           <Inbox size={22} className="fbov-blue" />
-          <span>Por responder</span><strong>{counts.unread.toLocaleString("es-CL")}</strong>
-          <small>Ver conversaciones pendientes</small>
+          <span>Sin leer</span><strong>{counts.unread.toLocaleString("es-CL")}</strong>
+          <small>Conversaciones sin leer entre los contactos recientes</small>
         </button>
         <button type="button" className="fbov-metric" onClick={onOpenPublications}>
           <Megaphone size={22} className="fbov-purple" />
-          <span>Publicaciones</span><strong>{counts.published_ads.toLocaleString("es-CL")}</strong>
-          <small>Registradas como publicadas</small>
+          <span>Publicadas</span><strong>{counts.published_ads.toLocaleString("es-CL")}</strong>
+          <small>Estado registrado · hasta 200 envíos recientes</small>
         </button>
         <button type="button" className="fbov-metric" onClick={onOpenPending}>
           <Clock3 size={22} className="fbov-amber" />
           <span>Por revisar</span><strong>{counts.pending_ads.toLocaleString("es-CL")}</strong>
-          <small>Anuncios pendientes o con incidencias</small>
+          <small>Anuncios por revisar en los registros consultados</small>
         </button>
       </div>
 
