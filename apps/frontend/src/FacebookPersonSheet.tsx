@@ -122,12 +122,14 @@ export default function FacebookPersonSheet({person,onClose,onChanged,onOpenChat
     return()=>{document.removeEventListener("keydown",keydown);document.body.style.overflow=scroll;oldFocus?.focus();};
   },[onClose]);
   async function reload(){
-    const [detail,insight,history]=await Promise.all([
+    const [detail,insight,history,snapshot]=await Promise.all([
       net<Detail>("/facebook/leads/"+person.id),
       net<Insights>("/facebook/leads/"+person.id+"/insights").catch(()=>null),
       net<Trace[]>("/facebook/leads/"+person.id+"/trace").catch(()=>[]),
+      net<Brief>("/facebook/leads/"+person.id+"/conversation-brief").catch(()=>null),
     ]);
     setData(detail);setInsights(insight);setTrace(history);
+    if(snapshot)setBrief(snapshot);
     setPhone(detail.lead.contact_phone||"");
     setDate(detail.lead.follow_up_on||"");
     setNotes(detail.lead.follow_up_note||"");
@@ -149,7 +151,7 @@ export default function FacebookPersonSheet({person,onClose,onChanged,onOpenChat
   useEffect(()=>{
     let active=true;
     setBrief(null);setBriefLoading(true);setBriefError("");setSummaryBusy(false);
-    net<Brief>("/facebook/leads/"+person.id+"/conversation-brief")
+    const loadSummary = () => net<Brief>("/facebook/leads/"+person.id+"/conversation-brief")
       .then(snapshot=>{
         if(!active)return;
         setBrief(snapshot);setBriefLoading(false);
@@ -165,7 +167,9 @@ export default function FacebookPersonSheet({person,onClose,onChanged,onOpenChat
           .catch(()=>{if(active)setBriefError("No se pudo generar la interpretación IA. Los datos registrados siguen disponibles.");})
           .finally(()=>{if(active)setSummaryBusy(false);});
       }).catch(e=>{if(active){setBriefLoading(false);setBriefError(errorText(e));}});
-    return()=>{active=false;};
+    loadSummary();
+    const timer=window.setInterval(()=>{if(!document.hidden)loadSummary();},15000);
+    return()=>{active=false;window.clearInterval(timer);};
   },[person.id]);
   async function save(e:FormEvent){
     e.preventDefault();
@@ -176,7 +180,7 @@ export default function FacebookPersonSheet({person,onClose,onChanged,onOpenChat
       await change("/facebook/leads/"+person.id,{
         contact_phone:phone.trim(),follow_up_on:date||null,follow_up_note:notes.trim(),
       },"PATCH");
-      await reload();setBrief(null);setEditing(false);setNotice("Ficha actualizada.");onChanged();
+      await reload();setEditing(false);setNotice("Ficha actualizada.");onChanged();
     }catch(e){setError(errorText(e));}
     finally{setSaving(false);}
   }
@@ -184,7 +188,7 @@ export default function FacebookPersonSheet({person,onClose,onChanged,onOpenChat
     if(saving)return;setSaving(true);setError("");setNotice("");
     try{
       await change("/facebook/leads/"+person.id+"/needs/"+id+(unlink?"/unlink":"/link"),{});
-      await reload();setBrief(null);setNotice(unlink?"Vínculo retirado.":"Necesidad vinculada para revisión.");onChanged();
+      await reload();setNotice(unlink?"Vínculo retirado.":"Necesidad vinculada para revisión.");onChanged();
     }catch(e){setError(errorText(e));}finally{setSaving(false);}
   }
   async function requestPhone(){
