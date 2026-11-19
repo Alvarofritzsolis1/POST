@@ -177,6 +177,29 @@ export default function RedDeObras({ user }: { user: Profile }) {
   const [files, setFiles] = useState<Attachment[]>([]),
     [history, setHistory] = useState<History>({ rows: [], total: 0 });
   const generation = useRef(0);
+  // Catalog is nearly static and must not be re-downloaded on every list poll.
+  useEffect(() => {
+    let active = true;
+    let busy = false;
+    const fetchCatalog = async () => {
+      if (!active || busy || document.hidden) return;
+      busy = true;
+      try {
+        const data = await net<Catalog>("/catalog");
+        if (active) setCatalog(old => JSON.stringify(old) === JSON.stringify(data) ? old : data);
+      } catch (err) {
+        if (active) setError(errorText(err));
+      } finally { busy = false; }
+    };
+    void fetchCatalog();
+    const timer = window.setInterval(fetchCatalog, 120000);
+    window.addEventListener("galant-network-changed", fetchCatalog);
+    return () => {
+      active = false;
+      window.clearInterval(timer);
+      window.removeEventListener("galant-network-changed", fetchCatalog);
+    };
+  }, []);
   const canPublish =
     ["admin", "resident", "supervisor", "analyst"].includes(user.role) &&
     catalog.sites.some((s) => s.editable);
@@ -185,12 +208,14 @@ export default function RedDeObras({ user }: { user: Profile }) {
     ...(specialty ? { specialty } : {}),
   }).toString();
   const refresh = useCallback(async () => {
+    // Facebook has its own loading and polling. Never fetch unrelated Network
+    // feeds, contractor lists and matching requests behind the Facebook UI.
+    if (tab === "facebook") return;
     const id = ++generation.current;
     const suffix =
       "?" + query + (query ? "&" : "") + "limit=24&offset=" + page * 24;
     try {
       const data = await Promise.all([
-        net<Catalog>("/catalog"),
         net<Overview>("/overview?" + query + (mine ? "&mine=true" : "")),
         ["home", "requirements"].includes(tab)
           ? net<Page<Requirement>>(
@@ -223,8 +248,7 @@ export default function RedDeObras({ user }: { user: Profile }) {
           : null,
       ]);
       if (id !== generation.current) return;
-      const [cat, o, r, c, m, a, co, conv] = data;
-      setCatalog(cat);
+      const [o, r, c, m, a, co, conv] = data;
       setOverview(o);
       if (r) setReqs(r);
       if (c) setCaps(c);
@@ -248,19 +272,24 @@ export default function RedDeObras({ user }: { user: Profile }) {
         });
     };
     sync();
-    const timer = window.setInterval(sync, 30000);
+    const timer = window.setInterval(sync, 60000);
     return () => {
       active = false;
       clearInterval(timer);
     };
   }, []);
   useEffect(() => {
+    if (tab === "facebook") {
+      generation.current++;
+      setLoading(false);
+      return;
+    }
     setLoading(true);
     void refresh();
     const update = () => {
       if (!document.hidden) void refresh();
     };
-    const timer = window.setInterval(update, 7000);
+    const timer = window.setInterval(update, 15000);
     window.addEventListener("focus", update);
     window.addEventListener("galant-network-changed", update);
     return () => {
@@ -269,7 +298,7 @@ export default function RedDeObras({ user }: { user: Profile }) {
       window.removeEventListener("focus", update);
       window.removeEventListener("galant-network-changed", update);
     };
-  }, [refresh]);
+  }, [refresh, tab]);
   async function openReq(id: string) {
     try {
       setSelectedReq(
