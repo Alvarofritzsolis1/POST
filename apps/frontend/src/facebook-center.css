@@ -340,7 +340,14 @@
 .fbc-conversation .fbc-pane-title { gap:8px; padding:12px; min-height:64px; }
 .fbc-conversation .fbc-pane-title > div { min-width:0; }
 .fbc-conversation .fbc-pane-title small { overflow-wrap:anywhere; }
+.fbc-auto-toggle { display:inline-flex;align-items:center;gap:6px;flex:none;padding:7px 10px;border-radius:999px;border:1px solid #8ccdb6;background:#e8f8ef;color:#126344;font-size:12px;font-weight:650;cursor:pointer; }
+.fbc-auto-toggle strong { padding:3px 7px;border-radius:999px;background:#c5eed8;color:#115638;font-size:11px; }
+.fbc-auto-toggle.is-off { border-color:#e8c49b;background:#fff5e9;color:#925714; }
+.fbc-auto-toggle.is-off strong { background:#ffe3bd;color:#7c490e; }
+.fbc-auto-toggle:disabled { opacity:.55;cursor:not-allowed; }
+.fbc-auto-unavailable { padding:8px 14px;background:#fff8e8;color:#865b17;border-bottom:1px solid #edd6ac;font-size:12px; }
 .fbc-profile-toggle { display:inline-flex; gap:6px; align-items:center; white-space:nowrap; }
+@media(max-width:1050px) { .fbc-conversation .fbc-pane-title { flex-wrap:wrap; } .fbc-conversation .fbc-pane-title > div { flex-basis:55%; } }
 .fbc-inbox > .fbc-analysis { position:absolute; z-index:8; top:0; right:0; bottom:0; width:min(390px,46%);
   display:flex; min-width:0; overflow-y:auto; background:var(--nw-paper); box-shadow:-8px 0 24px rgba(12,25,46,.12);
   border-left:1px solid var(--nw-border); border-top:0; }
