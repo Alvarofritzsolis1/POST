@@ -24,7 +24,7 @@ from .db import get_db, SessionLocal
 from .facebook_ai import (AD_INSTRUCTIONS, REPLY_INSTRUCTIONS, generate_text,
                           messenger_ai_source, verified_ad_copy,
                           generate_triage_note)
-from .ai_gateway import orchestrated_text
+from .ai_gateway import orchestrated_text, AIServiceError
 from .facebook_availability_reply import availability_reply
 from .facebook_worksite_reply import is_worksite_location, worksite_reply
 from .facebook_onboarding import assistance_signal, reply_for_support, onboarding_guide
@@ -49,6 +49,9 @@ from .galancito_memory import (
     prior_delivered_prompt, profile_facts,
 )
 from .galancito_contact_profile import contact_profile
+from .galancito_conversation_summary import (
+    summarize_conversation, safe_model_input, validate_ai_brief,
+)
 from .galancito_phone import (QUESTION as CONTACT_PHONE_QUESTION, normalize_mobile,
                               remember_shared_phone, phone_question_when_agreed,
                               redact_mobile_for_intake)
@@ -919,6 +922,86 @@ def get_lead(lead_id: str, user: User = Depends(administrator),
         )
     )]
     return {"lead": view, "messages": [_message_view(m) for m in msgs]}
+
+
+# Namespaced summary cache in existing profile_sources JSON to avoid a schema change.
+# The cache contains only a short narrative + evidence IDs, never raw messages.
+_BRIEF_CACHE_KEY = "_galancito_conversation_brief_v1"
+_BRIEF_INSTRUCTIONS = """Redacta una síntesis interna breve en español chileno, en dos frases.
+Lee SOLO los hechos y mensajes aportados; nunca inventes datos, contratos,
+ubicaciones, acuerdos, sueldos, validaciones ni promesas.
+Usa expresiones como 'declara' o 'comenta'; no supongas que se contrató.
+No incluyas nombres completos, teléfonos, direcciones, RUT ni datos sensibles.
+Contesta SOLO un JSON válido, sin formato Markdown:
+{"summary":"Qué dice la persona y qué falta para coordinar.","evidence_ids":["ID_RELEVANTE"]}
+Los IDs deben existir en messages. La síntesis requiere al menos un mensaje real.
+"""
+def _conversation_brief(db: Session, lead: FacebookLead) -> dict:
+    messages = list(db.scalars(select(FacebookChatMessage).where(
+        FacebookChatMessage.org_id == lead.org_id,
+        FacebookChatMessage.lead_id == lead.id,
+        FacebookChatMessage.direction == "inbound",
+    ).order_by(FacebookChatMessage.created_at.desc(), FacebookChatMessage.id.desc()).limit(75)))
+    messages.reverse()
+    brief = summarize_conversation(lead, messages)
+    trades = active_trades(db, lead)
+    brief["trades"] = trades
+    source = messenger_ai_source(db, lead.org_id)
+    allowed = source != "disabled" and consented_for(lead, source) and not lead.ai_paused
+    brief["ai_eligible"] = bool(allowed)
+    cache = (lead.profile_sources or {}).get(_BRIEF_CACHE_KEY, {})
+    if (allowed and isinstance(cache, dict) and cache.get("fingerprint") == brief["fingerprint"]
+            and isinstance(cache.get("result"), dict) and
+            cache["result"].get("source") == "ia_con_evidencia"):
+        brief["ai"] = cache["result"]
+    brief["messages_reviewed"] = len(messages)
+    brief["limited"] = len(messages) == 75
+    return brief
+
+
+@router.get("/leads/{lead_id}/conversation-brief")
+def conversation_brief(lead_id: str, user: User = Depends(administrator),
+                       db: Session = Depends(get_db)):
+    """Instant, truthful synthesis; no AI calls or side effects on a GET."""
+    lead = _lead(db, user, lead_id)
+    return _conversation_brief(db, lead)
+
+
+@router.post("/leads/{lead_id}/conversation-brief")
+def generate_conversation_brief(lead_id: str, user: User = Depends(administrator),
+                                db: Session = Depends(get_db)):
+    """Opted-in summary. Cached by real message+fact fingerprint to save tokens."""
+    lead = _lead(db, user, lead_id, lock=True)
+    brief = _conversation_brief(db, lead)
+    if brief["ai"] or not brief["ai_eligible"] or not brief["evidence"]:
+        return brief
+    source = messenger_ai_source(db, lead.org_id)
+    data = safe_model_input(brief)
+    if private_data(data):
+        return brief
+    try:
+        if source == "team":
+            raw = infer(db, lambda: orchestrated_text(
+                db, lead.org_id, task="messenger",
+                instructions=_BRIEF_INSTRUCTIONS, prompt=data,
+                max_output_tokens=260,
+            ), org_id=lead.org_id)
+        elif source == "ollama":
+            from .galancito_local import generate_local_text
+            raw = infer(db, lambda: generate_local_text(_BRIEF_INSTRUCTIONS, data, 650))
+        else:
+            raw = infer(db, lambda: generate_text(_BRIEF_INSTRUCTIONS, data, 650))
+    except (RuntimeError, ValueError, TimeoutError, OSError, HTTPError, URLError, AIServiceError):
+        raw = None
+    accepted = validate_ai_brief(raw, brief) if raw else None
+    if accepted:
+        lead.profile_sources = {
+            **(lead.profile_sources or {}),
+            _BRIEF_CACHE_KEY: {"fingerprint": brief["fingerprint"], "result": accepted},
+        }
+        db.commit()
+        brief["ai"] = accepted
+    return brief
 
 
 @router.post("/leads/{lead_id}/refresh-profile")

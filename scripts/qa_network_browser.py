@@ -441,7 +441,7 @@ def main():
             "phone_opt_out": False, "can_reply": False, "unread": True,
             "profile": {
                 "summary": "Ofrece carpintería, declara experiencia y trabaja con equipo.",
-                "percent": 75, "missing": ["Disponibilidad exacta"],
+                "percent": 75, "completed": 6, "total": 8, "missing": ["Disponibilidad exacta"],
                 "evidence": "Datos sintéticos de QA; requieren confirmación humana."
             },
         }
@@ -484,6 +484,23 @@ def main():
             "summary": {"name":"Contacto QA","specialty":"Carpintería","workers":2,
                         "availability":"Próxima semana","stage":"Responder"}}))
         fb_ctx.route(fb_root + "leads/" + fake_id + "/trace", mock_json([]))
+        fb_ctx.route(fb_root + "leads/" + fake_id + "/conversation-brief", mock_json({
+            "summary": "Ofrece servicios en carpintería. Trabaja con equipo. Experiencia: 3 años.",
+            "facts": [
+                {"key":"specialty", "label":"Oficio principal", "value":"Carpintería",
+                 "source":"chat", "at":None, "source_message_id":"qa-inbound"},
+                {"key":"experience", "label":"Experiencia declarada", "value":"3 años",
+                 "source":"chat", "at":None, "source_message_id":"qa-inbound"}
+            ],
+            "missing":["Disponibilidad exacta"],
+            "evidence":[{"id":"qa-msg-1","text":"Hago carpintería, llevo 3 años y tengo cuadrilla",
+                         "at":None,"source_message_id":"qa-inbound"}],
+            "message_count":1,"messages_reviewed":1,"limited":False,
+            "fingerprint":"qa-stable-brief","ai_eligible":False,"ai":None,
+            "review_required":True,"source":"datos_y_conversacion",
+            "last_inbound_at":None,"trades":["Carpintería","Pintura"],
+        }))
+
         fb_page.get_by_role("button", name="Red de Obras", exact=True).click()
         fb_page.get_by_role("navigation", name="Red de Obras", exact=True).get_by_role(
             "button", name="Facebook", exact=True).click()
@@ -500,7 +517,9 @@ def main():
         sheet = fb_page.get_by_role("dialog", name="Ficha de Contacto QA")
         expect(sheet).to_be_visible()
         expect(sheet.get_by_role("heading", name="Datos generales")).to_be_visible()
-        expect(sheet.get_by_role("heading", name="Resumen de Galancito")).to_be_visible()
+        expect(sheet.get_by_role("heading", name="Galancito · Resumen del chat")).to_be_visible()
+        expect(sheet.get_by_text("Hago carpintería, llevo 3 años y tengo cuadrilla")).to_be_visible()
+        expect(sheet.get_by_role("heading", name="Datos identificados en la conversación")).to_be_visible()
         expect(sheet.get_by_role("button", name="Ver chat")).to_be_visible()
         assert not fb_page.locator(".fbc-inbox").is_visible(), "La ficha no debe navegar al chat"
         fb_page.screenshot(path=str(args.output / "ficha-facebook-qa.png"), full_page=True)

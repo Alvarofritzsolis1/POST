@@ -1,4 +1,5 @@
 import { useEffect, useRef, useState, type FormEvent } from "react";
+import { createPortal } from "react-dom";
 import {
   AlertCircle, ArrowRight, BriefcaseBusiness, CalendarClock, CheckCircle2,
   ClipboardList, Clock3, Link2, MapPin, MessageCircle, Phone, Save,
@@ -24,9 +25,17 @@ type Lead = {
   follow_up_on: string | null; follow_up_note: string; last_inbound_at: string | null;
   contact_phone?: string | null; phone_source?: string | null; phone_requested_at?: string | null;
   phone_opt_out?: boolean; can_reply: boolean;
-  profile: { summary: string; percent: number; missing: string[]; evidence: string };
+  profile: { summary: string; percent: number; completed:number; total:number; missing: string[]; evidence: string };
 };
 type Detail = { lead: Lead };
+type BriefFact = { key:string; label:string; value:string; source:"chat"|"manual"|"registrado";
+  at:string|null; source_message_id:string|null };
+type Brief = { summary:string; facts:BriefFact[]; missing:string[];
+  evidence:{id:string;text:string;at:string|null;source_message_id:string|null}[];
+  message_count:number; messages_reviewed:number; limited:boolean; fingerprint:string;
+  ai_eligible:boolean; ai:{summary:string;evidence_ids:string[];review_required:boolean}|null; };
+const briefAttempts = new Set<string>();
+
 type Match = { id:string; title:string; specialty:string; site?:string; reasons:string[]; linked?:boolean };
 type Insights = { contact_id:string; next_action:string; matches:Match[] };
 type Trace = {event:string; trade:string|null; at:string; source:string};
@@ -66,6 +75,10 @@ export default function FacebookPersonSheet({person,onClose,onChanged,onOpenChat
   const [data,setData]=useState<Detail|null>(null);
   const [insights,setInsights]=useState<Insights|null>(null);
   const [trace,setTrace]=useState<Trace[]>([]);
+  const [brief,setBrief]=useState<Brief|null>(null);
+  const [briefLoading,setBriefLoading]=useState(true);
+  const [summaryBusy,setSummaryBusy]=useState(false);
+  const [briefError,setBriefError]=useState("");
   const [error,setError]=useState("");
   const [notice,setNotice]=useState("");
   const [saving,setSaving]=useState(false);
@@ -109,12 +122,14 @@ export default function FacebookPersonSheet({person,onClose,onChanged,onOpenChat
     return()=>{document.removeEventListener("keydown",keydown);document.body.style.overflow=scroll;oldFocus?.focus();};
   },[onClose]);
   async function reload(){
-    const [detail,insight,history]=await Promise.all([
+    const [detail,insight,history,snapshot]=await Promise.all([
       net<Detail>("/facebook/leads/"+person.id),
       net<Insights>("/facebook/leads/"+person.id+"/insights").catch(()=>null),
       net<Trace[]>("/facebook/leads/"+person.id+"/trace").catch(()=>[]),
+      net<Brief>("/facebook/leads/"+person.id+"/conversation-brief").catch(()=>null),
     ]);
     setData(detail);setInsights(insight);setTrace(history);
+    if(snapshot)setBrief(snapshot);
     setPhone(detail.lead.contact_phone||"");
     setDate(detail.lead.follow_up_on||"");
     setNotes(detail.lead.follow_up_note||"");
@@ -132,6 +147,29 @@ export default function FacebookPersonSheet({person,onClose,onChanged,onOpenChat
       setNotes(detail.lead.follow_up_note||"");
     }).catch(e=>{if(enabled)setError(errorText(e));});
     return()=>{enabled=false;};
+  },[person.id]);
+  useEffect(()=>{
+    let active=true;
+    setBrief(null);setBriefLoading(true);setBriefError("");setSummaryBusy(false);
+    const loadSummary = () => net<Brief>("/facebook/leads/"+person.id+"/conversation-brief")
+      .then(snapshot=>{
+        if(!active)return;
+        setBrief(snapshot);setBriefLoading(false);
+        if(!snapshot.ai_eligible || snapshot.ai || !snapshot.evidence.length)return;
+        const attemptKey=person.id+":"+snapshot.fingerprint;
+        if(briefAttempts.has(attemptKey))return;
+        briefAttempts.add(attemptKey);
+        setSummaryBusy(true);
+        // This is an additional, consent-gated interpretation; the factual
+        // summary is visible immediately without waiting for the provider.
+        change<Brief>("/facebook/leads/"+person.id+"/conversation-brief",{})
+          .then(generated=>{if(active)setBrief(generated);})
+          .catch(()=>{if(active)setBriefError("No se pudo generar la interpretación IA. Los datos registrados siguen disponibles.");})
+          .finally(()=>{if(active)setSummaryBusy(false);});
+      }).catch(e=>{if(active){setBriefLoading(false);setBriefError(errorText(e));}});
+    loadSummary();
+    const timer=window.setInterval(()=>{if(!document.hidden)loadSummary();},15000);
+    return()=>{active=false;window.clearInterval(timer);};
   },[person.id]);
   async function save(e:FormEvent){
     e.preventDefault();
@@ -163,7 +201,7 @@ export default function FacebookPersonSheet({person,onClose,onChanged,onOpenChat
   const lead=data?.lead;
   const linked=new Set(lead?.linked_needs || (lead?.requirement_id?[lead.requirement_id]:[]));
   const matches=insights?.matches||person.matches||[];
-  return <div className="fbps-overlay">
+  return createPortal(<div className="fbps-overlay">
     <div ref={dialog} className="fbps-dialog" role="dialog" aria-modal="true"
       aria-label={"Ficha de "+(lead?nameOf(lead):person.name)}>
       <div className="fbps-titlebar"><span><UserRound size={16}/> Ficha inteligente · Red de Obras</span>
@@ -176,7 +214,7 @@ export default function FacebookPersonSheet({person,onClose,onChanged,onOpenChat
             <span className="fbps-tag trade">{lead.specialty||person.category||"Oficio por confirmar"}</span>
             <span className={"fbps-tag "+(person.needs_support?"amber":person.urgency==="high"?"rose":"mint")}>
               {person.stage}</span>
-            <span className="fbps-tag pale">{lead.profile.percent}% ficha</span>
+            <span className="fbps-tag pale">{lead.profile.completed}/{lead.profile.total} datos básicos</span>
           </div><p>Información declarada · Pendiente de verificación</p></div>
           <div className="fbps-actions">
             <button type="button" className="fbps-button" onClick={()=>{if(editing&&!confirmExit())return;setEditing(v=>!v);}}>
@@ -200,6 +238,50 @@ export default function FacebookPersonSheet({person,onClose,onChanged,onOpenChat
               {saving?"Guardando…":"Guardar"}</button>
           </form>}
           <div className="fbps-grid">
+            <section className="fbps-card fbps-ai fbps-conversation" aria-label="Análisis de la conversación">
+              <div className="fbps-conversation-heading">
+                <h3><Sparkles size={19}/> Galancito · Resumen del chat</h3>
+                <span className="fbps-analysis-label">{brief?.ai ? "Interpretación IA · verificar" :
+                  summaryBusy ? "IA analizando…" : "Síntesis basada en datos"}</span>
+              </div>
+              {briefLoading?<p role="status" className="fbps-muted">Leyendo conversación y datos registrados…</p>:
+                <p className="fbps-chat-summary">{brief?.ai?.summary||brief?.summary||
+                    "Aún no hay suficiente información para elaborar un resumen."}</p>}
+              {brief?.summary && brief.ai &&
+                <p className="fbps-recorded-facts"><b>Datos registrados:</b> {brief.summary}</p>}
+              {briefError&&<small className="fbps-muted" role="status">{briefError}</small>}
+              <div className="fbps-evidence">
+                <b>Qué dijo la persona</b>
+                {brief?.evidence.length?brief.evidence.slice(-3).map(item=>
+                  <blockquote key={item.id}><span>“{item.text}”</span>
+                    <small>{dateText(item.at)} · Messenger</small></blockquote>):
+                  <p className="fbps-muted">No hay declaraciones profesionales recientes que se puedan citar.</p>}
+              </div>
+              <small className="fbps-muted">Información orientativa, sin acreditación laboral ni documental.
+                {brief?.limited?" Se revisaron los últimos 75 mensajes recibidos.":""}</small>
+            </section>
+            <section className="fbps-card fbps-next">
+              <h3><ClipboardList size={18}/> Próximo paso</h3>
+              <p>{insights?.next_action||person.next_action||"Confirmar oficio y disponibilidad."}</p>
+              <div className="fbps-next-pending"><b>Por confirmar</b>
+                {(brief?.missing||lead.profile.missing).slice(0,4).map(item=><span key={item}>
+                  <AlertCircle size={14}/>{item}</span>)}
+                {!(brief?.missing||lead.profile.missing).length&&
+                  <small>Datos básicos registrados. Falta validar antecedentes.</small>}
+              </div>
+            </section>
+            <section className="fbps-card fbps-facts">
+              <h3><ShieldCheck size={18}/> Datos identificados en la conversación</h3>
+              {brief?.facts?.length?<div className="fbps-fact-grid">
+                {brief.facts.map(fact=><div key={fact.key} className="fbps-fact">
+                  <span>{fact.label}</span><strong>{fact.value}</strong>
+                  <small className={"fbps-fact-source "+fact.source}>
+                    {fact.source==="chat"?"Declarado en chat":
+                    fact.source==="manual"?"Ingresado manualmente":"Dato registrado"}</small>
+                </div>)}
+              </div>:<p className="fbps-muted">Sin datos extraídos todavía. La conversación se puede consultar en «Ver chat».</p>}
+            </section>
+
             <section className="fbps-card"><h3><UserRound size={18}/> Datos generales</h3><div className="fbps-fields">
               <Cell title="Nombre" value={lead.name==="Interesado de Facebook"?"Por confirmar":lead.name}/>
               <Cell title="Perfil" value={typeLabel(lead.entity_type)}/>
@@ -235,12 +317,6 @@ export default function FacebookPersonSheet({person,onClose,onChanged,onOpenChat
                 <Cell title="Documentación" value={lead.documents_state==="verified"?"Revisada":
                   lead.documents_state==="declared"?"Declarada":"Sin revisar"}/>
                 <Cell title="Siguiente acción" value={insights?.next_action||person.next_action}/></div></section>
-            <section className="fbps-card fbps-ai"><h3><Sparkles size={19}/> Resumen de Galancito
-                <span>Datos orientativos</span></h3>
-              <p>{lead.profile.summary}</p>
-              <div className="fbps-recommendation"><CheckCircle2 size={17}/>
-                <div><b>Próximo paso</b><p>{insights?.next_action||person.next_action}</p></div></div>
-              <small>{lead.profile.evidence}</small></section>
             <section className="fbps-card"><h3><AlertCircle size={18}/> Por confirmar
               <span className="fbps-count">{lead.profile.missing.length}</span></h3>
               {lead.profile.missing.length?
@@ -273,5 +349,5 @@ export default function FacebookPersonSheet({person,onClose,onChanged,onOpenChat
         </div>
       </>}
     </div>
-  </div>;
+  </div>, document.body);
 }

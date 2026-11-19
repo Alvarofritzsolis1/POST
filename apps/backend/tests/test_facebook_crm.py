@@ -1138,3 +1138,61 @@ def test_contact_sheet_phone_from_messenger_and_optional_manual_request(network,
     trace = n["admin"].get("/api/v1/network/facebook/leads/" + lead_id + "/trace")
     assert trace.status_code == 200
     assert any(x["event"] == "field_contact_phone" for x in trace.json())
+
+
+def test_contact_brief_uses_real_messages_without_outbound_ai_without_consent(network, monkeypatch):
+    """The visible summary is not the old profile field concatenation."""
+    n=network
+    enable_messaging(n,monkeypatch)
+    assert incoming(n,text="hola",mid="brief-hi").status_code==200
+    assert incoming(n,text="hago gasfiteria y pintura, trabajo solo",mid="brief-trades").status_code==200
+    lead_id=n["admin"].get("/api/v1/network/facebook/center").json()["leads"][0]["id"]
+    url="/api/v1/network/facebook/leads/"+lead_id+"/conversation-brief"
+    r=n["admin"].get(url)
+    assert r.status_code==200, r.text
+    brief=r.json()
+    assert brief["source"]=="datos_y_conversacion"
+    assert brief["ai"] is None
+    assert brief["ai_eligible"] is False
+    assert "gasfiter" in str(brief["facts"]).lower()
+    assert any("gasfiteria" in e["text"] for e in brief["evidence"])
+    assert not any(e["text"].lower()=="hola" for e in brief["evidence"])
+    assert n["send"](n["a"], "/facebook/leads/"+lead_id+"/conversation-brief",method="GET").status_code==403
+
+    monkeypatch.setattr("app.facebook_crm.generate_text",
+                        lambda *a,**kw: (_ for _ in ()).throw(AssertionError("AI without consent")))
+    posted=n["send"](n["admin"], "/facebook/leads/"+lead_id+"/conversation-brief")
+    assert posted.status_code==200
+    assert posted.json()["ai"] is None
+
+
+def test_consented_ai_brief_has_existing_evidence_and_is_cached(network, monkeypatch):
+    n=network
+    enable_messaging(n,monkeypatch)
+    assert incoming(n,text="Soy carpintero y trabajo solo",mid="brief-ai-1").status_code==200
+    lead_id=n["admin"].get("/api/v1/network/facebook/center").json()["leads"][0]["id"]
+    url="/api/v1/network/facebook/leads/"+lead_id+"/conversation-brief"
+    with n["Session"].begin() as db:
+        item=db.get(FacebookLead,lead_id)
+        item.ai_consent=True
+        item.ai_consent_state="accepted"
+        item.ai_consent_provider="openai"
+    calls=[]
+    monkeypatch.setattr("app.facebook_crm.messenger_ai_source",lambda *_: "openai")
+    monkeypatch.setattr("app.facebook_crm.consented_for",lambda *_: True)
+    def simulate_model(instructions,prompt,chars):
+        parsed=json.loads(prompt)
+        assert any("carpinter" in x["text"].lower() for x in parsed["messages"])
+        calls.append(prompt)
+        return json.dumps({
+            "summary":"Declara trabajar solo en carpintería y solicita coordinación.",
+            "evidence_ids":[parsed["messages"][0]["id"]],
+        })
+    monkeypatch.setattr("app.facebook_crm.generate_text",simulate_model)
+    result=n["send"](n["admin"], "/facebook/leads/"+lead_id+"/conversation-brief")
+    assert result.status_code==200, result.text
+    assert result.json()["ai"]["source"]=="ia_con_evidencia"
+    assert len(calls)==1
+    assert n["send"](n["admin"], "/facebook/leads/"+lead_id+"/conversation-brief").json()["ai"]["evidence_ids"]
+    assert len(calls)==1
+    assert n["admin"].get(url).json()["ai"]["source"]=="ia_con_evidencia"
