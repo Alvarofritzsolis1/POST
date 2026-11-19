@@ -22,7 +22,8 @@ type Lead = {
   entity_type: string; interest_type: string; team_available: boolean | null;
   has_employees: boolean | null; work_area: string; work_communes?: string[];
   follow_up_on: string | null; follow_up_note: string; last_inbound_at: string | null;
-  contact_phone?: string | null; phone_source?: string | null; can_reply: boolean;
+  contact_phone?: string | null; phone_source?: string | null; phone_requested_at?: string | null;
+  phone_opt_out?: boolean; can_reply: boolean;
   profile: { summary: string; percent: number; missing: string[]; evidence: string };
 };
 type Detail = { lead: Lead };
@@ -47,7 +48,7 @@ const nameOf = (lead:Lead) => lead.name && lead.name !== "Interesado de Facebook
 const interest = (v:string) => ({employment:"Busca empleo",service_offer:"Ofrece servicios",
   both:"Busca empleo y ofrece servicios"} as Record<string,string>)[v] || "Por confirmar");
 const typeLabel = (v:string) => ({company:"Empresa declarada",individual:"Persona natural",
-  unknown:"Por confirmar"}[v] || "Por confirmar");
+  unknown:"Por confirmar"} as Record<string,string>)[v] || "Por confirmar");
 const traceLabel = (value:string) => value==="need_linked" ? "Necesidad vinculada" :
   value==="need_unlinked" ? "Necesidad desvinculada" : value==="trade_added" ?
   "Oficio registrado" : value==="trade_removed" ? "Oficio corregido" : "Ficha actualizada";
@@ -190,9 +191,13 @@ export default function FacebookPersonSheet({person,onClose,onChanged,onOpenChat
               <Cell title="Teléfono" value={lead.contact_phone||"No compartido"}/>
               <Cell title="Origen del número" value={lead.phone_source==="message"?"Enviado voluntariamente":
                 lead.phone_source==="manual"?"Registrado por administración":"Sin dato"}/>
-              {!lead.contact_phone&&lead.can_reply&&
+              {!lead.contact_phone&&!lead.phone_opt_out&&!lead.phone_requested_at&&lead.can_reply&&
                 <button type="button" className="fbps-inline-action" onClick={()=>void requestPhone()} disabled={saving}>
                   <Phone size={15}/> Solicitar número para coordinación</button>}
+              {!lead.contact_phone && lead.phone_requested_at &&
+                <small className="fbps-muted">Número solicitado · {dateText(lead.phone_requested_at)}</small>}
+              {!lead.contact_phone && lead.phone_opt_out &&
+                <small className="fbps-muted">Prefiere continuar sin compartir teléfono</small>}
             </div></section>
             <section className="fbps-card"><h3><BriefcaseBusiness size={18}/> Oficios y experiencia</h3>
               <div className="fbps-tags">{[...new Set(lead.trades?.length?lead.trades:
