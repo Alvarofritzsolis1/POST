@@ -36,7 +36,7 @@ from .network_service import key, today
 from .galancito_triage import classify_lead, dashboard
 from .security import administrator
 from .galancito_triage import analyze, private_data, quick_reply
-from .galancito_intake import apply_intake, next_intake_reply
+from .galancito_intake import apply_intake, next_intake_reply, small_talk_reply, natural_messenger_reply
 from .galancito_contact_profile import contact_profile
 from .galancito_escalation import flag_for_human
 from .facebook_lead_insights import ranked_needs, suggestions_for_lead, link_unique_requirement
@@ -385,10 +385,14 @@ async def webhook(request: Request, db: Session = Depends(get_db)):
                 reply, use_ai = None, False
                 if signal:
                     if recent < 3:
-                        reply = (("Soy Galancito. Ya avisé al equipo para que te atienda una persona. "
+                        reply = (("Ya avisé al equipo para que te atienda una persona. "
                                   "No necesitas enviar documentos por aquí.") if wants_human(body) else
                                  AI_PERMISSION_DECLINED if consent is False else
                                  reply_for_support(signal, bool(lead.specialty)))
+                elif (small_talk_reply(body) and not lead.needs_support and
+                      (lead.ai_consent or lead.ai_consent_state == "declined" or recent > 0)):
+                    # Sin costos de inferencia para cortesías simples.
+                    reply = small_talk_reply(body)
                 elif (consent is True and not lead.needs_support and
                       lead.ai_consent_state == ("accepted_team" if ai_source == "team" else "accepted")):
                     use_ai = True
@@ -437,8 +441,7 @@ async def webhook(request: Request, db: Session = Depends(get_db)):
                             "requested", "requested_team") and recent < 2:
                         reply = permission_question(ai_source, repeat=True)
                     if not reply and recent == 0:
-                        reply = ("Hola, soy Galancito, asistente virtual de GALANT. "
-                                 "Puedes escribir como te salga. ¿Qué trabajo haces?")
+                        reply = "¡Hola! Puedes escribir con confianza. ¿Qué trabajo haces?"
                 if not use_ai and not reply and not lead.needs_support:
                     flag_for_human(db, lead,
                                    "Galancito no encontró una respuesta confirmada; revisión humana pendiente")
@@ -966,7 +969,7 @@ def suggest_reply(lead_id: str, user: User = Depends(administrator),
         if drafted:
             drafted = grounded_reply(drafted, supplied)
         if drafted:
-            return {"draft": drafted, "source": "ai", "requires_review": True}
+            return {"draft": natural_messenger_reply(drafted), "source": "ai", "requires_review": True}
     if not lead.specialty:
         question = "¿Qué trabajo haces? Por ejemplo, gasfitería, carpintería o pintura."
     elif lead.team_available is None:
@@ -977,9 +980,8 @@ def suggest_reply(lead_id: str, user: User = Depends(administrator),
         question = "¿Desde cuándo puedes empezar a trabajar?"
     else:
         question = "¿En qué comuna puedes trabajar?"
-    return {"draft": ("Hola, soy Galancito, asistente virtual de GALANT. No importa si escribes "
-                      "con faltas: te entiendo. Si prefieres un audio, una persona lo "
-                      "puede revisar. " + question),
+    return {"draft": ("Puedes escribir como te salga, sin preocuparte por la ortografía. "
+                      "Si prefieres un audio, una persona lo puede revisar. " + question),
             "source": "template", "requires_review": True}
 
 

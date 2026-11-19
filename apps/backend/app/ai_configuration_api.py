@@ -299,12 +299,13 @@ def usage(days: int = Query(default=30, ge=1, le=365),
         func.sum(AIUsage.output_tokens), func.sum(AIUsage.total_tokens),
         func.sum(AIUsage.estimated_cost_usd),
         func.count(AIUsage.estimated_cost_usd),
+        func.avg(AIUsage.duration_ms),
     ).where(AIUsage.org_id == user.org_id, AIUsage.created_at >= since)
      .group_by(AIUsage.connection_id, AIUsage.task, AIUsage.status)).all()
     connections = {c.id: c for c in db.scalars(select(AIConnection).where(
         AIConnection.org_id == user.org_id))}
     groups = []
-    for id_, task, status, calls, inp, out, total, cost, priced in rows:
+    for id_, task, status, calls, inp, out, total, cost, priced, avg_ms in rows:
         conn = connections.get(id_)
         groups.append({
             "connection_id": id_, "provider": conn.provider if conn else "unknown",
@@ -313,6 +314,7 @@ def usage(days: int = Query(default=30, ge=1, le=365),
             "output_tokens": int(out or 0), "total_tokens": int(total or 0),
             "estimated_cost_usd": round(float(cost), 6) if cost is not None else None,
             "priced_calls": int(priced),
+            "average_duration_ms": round(float(avg_ms or 0)),
         })
     return {
         "days": days,

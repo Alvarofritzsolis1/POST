@@ -228,7 +228,7 @@ def _friendly_ack(message: str, facts: dict, question: str, prior: str = "") -> 
     norm = plain(message)
     trade = (facts.get("specialty") or "").strip()
     if norm in {"hola", "ola", "buenas", "buen dia", "buenos dias", "buenas tardes"}:
-        return "¡Hola! Cuéntame un poquito."
+        return "¡Hola, qué tal!"
     if any(q in plain(prior) for q in ("cual es tu nombre", "como te llamas", "como prefieres que te llamemos")):
         if facts.get("display_name") not in (None, "", "Interesado de Facebook", "Contacto sin nombre"):
             return "Un gusto, " + facts["display_name"].split()[0].title() + "."
@@ -246,7 +246,7 @@ def _friendly_ack(message: str, facts: dict, question: str, prior: str = "") -> 
         return "Entiendo que trabajas en " + trade.lower() + "."
     if "que trabajo realizas" in plain(question):
         return "Cuéntame a qué te dedicas."
-    return "Gracias por contarme."
+    return "Ya, te entiendo."
 
 
 def next_intake_reply(message: str, facts: dict, prior_prompt: str = "") -> str | None:
@@ -335,23 +335,33 @@ def needs_deeper_response(message: str) -> bool:
         ("?" in message or "¿" in message) and len(text.split()) >= 6)
 
 
+def small_talk_reply(message: str) -> str | None:
+    """Respuestas locales inmediatas: no requieren modelo ni consentimiento de IA."""
+    norm = plain(message)
+    if norm in {"hola", "ola", "buenas", "buen dia", "buenos dias", "buenas tardes", "hola galancito"}:
+        return "¡Hola! Cuéntame, ¿en qué te puedo ayudar?"
+    if norm in {"como estas", "hola como estas", "ola como estas", "como estai",
+                "que tal", "hola que tal", "todo bien", "como va"}:
+        return "¡Bien, gracias por preguntar! Cuéntame, ¿en qué te puedo ayudar?"
+    if norm in {"gracias", "muchas gracias", "vale gracias", "te pasaste"}:
+        return "¡De nada! Aquí estamos para ayudarte."
+    return None
+
+
 def natural_messenger_reply(text: str, prior_ai_replies: int = 0) -> str:
-    """Identify as the virtual assistant initially, then avoid repeated bot branding."""
+    """Evita la presentación robótica en cada mensaje, sin hacerse pasar por humano.
+
+    El permiso explícito para usar IA se procesa de forma independiente.
+    """
     clean = text.strip()
-    if prior_ai_replies <= 0:
-        # Keep the first reply unmistakably from an assistant.
-        if not plain(clean).startswith("soy galancito"):
-            clean = "Soy Galancito, el asistente virtual de GALANT. " + clean
-        return clean[:550]
-    # Every conversation started with the separate, explicit virtual-assistant
-    # disclosure/consent prompt. Dropping repeated branding does not impersonate
-    # a human or conceal the use of automation.
     for beginning in (
         "Soy Galancito, asistente virtual de GALANT. ",
         "Soy Galancito, el asistente virtual de GALANT. ",
         "Soy Galancito. ",
     ):
-        if clean.lower().startswith(beginning.lower()):
-            clean = clean[len(beginning):]
+        if clean.casefold().startswith(beginning.casefold()):
+            clean = clean[len(beginning):].strip()
             break
+    # Un proveedor podría ignorar la instrucción y presentarse como bot.
+    clean = re.sub(r"^(?:¡?hola[,!.]?\s+)?soy\s+(?:Galancito(?:,\s*(?:el\s+)?asistente virtual(?: de (?:GALANT|Red de Obras))?)?|(?:el\s+|un\s+)?asistente virtual(?: de (?:GALANT|Red de Obras))?)[.!]?\s*", "", clean, flags=re.I)
     return clean[:550]

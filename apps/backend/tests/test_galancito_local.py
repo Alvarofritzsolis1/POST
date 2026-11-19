@@ -114,7 +114,8 @@ def test_facebook_uses_local_ollama_after_explicit_consent(network, monkeypatch)
     assert incoming(n, text="sí", mid="local-2").status_code == 200
     assert process_chat_next(n["Session"])
     assert generated and len(sent) == 3
-    assert "Galancito" in sent[-1]
+    assert "¿En qué comuna trabajas?" in sent[-1]
+    assert "asistente virtual" not in sent[-1].lower()
     settings.cache_clear()
 
 

@@ -253,7 +253,8 @@ def test_galancito_conversation_auto_reply_only_after_messenger_consent(network,
     assert incoming(n, text="Sí", mid="consent-yes").status_code == 200
     assert process_chat_next(n["Session"]) is True
     assert len(calls) == 2 and len(ai_calls) == 1
-    assert calls[-1].startswith("Soy Galancito")
+    assert "¿Qué oficio haces?" in calls[-1]
+    assert "asistente virtual" not in calls[-1].lower()
     assert n["admin"].get("/api/v1/network/facebook/center").json()["leads"][0]["ai_consent_state"] == "accepted"
     # A manual answer takes this turn, but the next incoming turn is automatic.
     reply = n["send"](n["admin"], "/facebook/leads/" + lead["id"] + "/reply",
@@ -372,7 +373,7 @@ def test_model_failure_notifies_human_instead_of_sending_generic_answer(network,
     monkeypatch.setattr("app.facebook_chat_worker.graph_send",
                         lambda page, psid, body, token: sent.append(body) or "mid-complex-fallback")
     assert process_chat_next(n["Session"])
-    assert len(sent) == 1 and "pendiente de revisión humana" in sent[0]
+    assert len(sent) == 1 and "revise nuestro equipo" in sent[0]
     detail = n["admin"].get("/api/v1/network/facebook/leads/" + lead_id).json()
     assert detail["lead"]["needs_support"] is True
     with n["Session"]() as db:
@@ -539,13 +540,13 @@ def test_galancito_opt_in_parser_is_deliberately_narrow():
     assert consent_decision("NO") is False
     assert consent_decision("prefiero persona") is False
     assert consent_decision("si puedo trabajar mañana") is None
-    assert "Galancito" in galancito_prefix("¿Qué oficio haces?")
+    assert galancito_prefix("¿Qué oficio haces?") == "¿Qué oficio haces?"
     from app.galancito_flow import safe_ai_reply
     from app.galancito_flow import wants_human
     assert wants_human("prefiero persona") is True
     assert wants_human("no quiero IA") is True
     assert wants_human("no estoy seguro") is False
-    assert "Galancito" in safe_ai_reply("¡Hola! ¿Qué oficio haces?")
+    assert safe_ai_reply("¡Hola! ¿Qué oficio haces?") == "¡Hola! ¿Qué oficio haces?"
     assert "documento de identidad" not in safe_ai_reply("envía tu documento de identidad")
     assert "contratamos" not in safe_ai_reply("Ya estas contratado")
     assert safe_ai_reply("¿Qué haces? ¿Cuándo puedes?").count("?") <= 1

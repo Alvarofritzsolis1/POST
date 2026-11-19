@@ -75,7 +75,7 @@ def graph_sender_action(page_id: str, psid: str, action: str, token: str) -> Non
         data=payload, method="POST",
         headers={"Authorization": "Bearer " + token, "Content-Type": "application/json"},
     )
-    with _opener.open(request, timeout=3) as response:
+    with _opener.open(request, timeout=1.0) as response:
         response.read(2048)
 
 
@@ -269,6 +269,17 @@ def process_chat_next(session_factory=SessionLocal) -> bool:
             # Consent's "sí" is not a new business query; respond to the
             # preceding message without sending private fields to the model.
             latest = next((m.body for m in recent if consent_decision(m.body) is None), "")
+            # Aportes de contexto recientes, sin contraseñas ni consentimiento repetido.
+            turns = list(db.scalars(select(FacebookChatMessage).where(
+                FacebookChatMessage.lead_id == lead.id,
+                FacebookChatMessage.state.in_(["received", "sent"]),
+            ).order_by(FacebookChatMessage.created_at.desc()).limit(7)))
+            context_turns = [
+                ("Persona: " if m.direction == "inbound" else "Red de Obras: ") + m.body[:220]
+                for m in reversed(turns)
+                if not private_data(m.body) and "autorizas" not in m.body.casefold()
+                and "autorizo" not in m.body.casefold()
+            ]
             facts = {"specialty": lead.specialty, "entity_type": lead.entity_type,
                      "workers": lead.workers, "availability": lead.availability,
                      "has_employees": lead.has_employees,
@@ -292,6 +303,8 @@ def process_chat_next(session_factory=SessionLocal) -> bool:
             professional_facts = {k: v for k, v in facts.items()
                                   if k not in {"display_name", "name_opt_out"}}
             context = ("Consulta actual: " + latest[:800] +
+                       "\nÚltimos turnos de esta conversación:\n" +
+                       "\n".join(context_turns)[-1100:] +
                        "\nDatos profesionales declarados, no comprobados: " +
                        json.dumps(professional_facts, ensure_ascii=False) +
                        "\nReferencias aprobadas: " +
@@ -368,9 +381,8 @@ def process_chat_next(session_factory=SessionLocal) -> bool:
             else:
                 # Si Ollama está saturado o apagado, Messenger continúa
                 # funcionando y la persona puede recibir apoyo humano.
-                body = ("Soy Galancito, asistente virtual de GALANT. "
-                        "Ahora no tengo una respuesta confirmada. "
-                        "Tu consulta queda pendiente de revisión humana.")
+                body = ("Ahora no tengo una respuesta confirmada. "
+                        "Dejé tu consulta para que la revise nuestro equipo.")
                 failed_ai = True
         # Re-check after slow inference: a human may have taken over or the
         # contact may have revoked permission/sent a newer question meanwhile.
