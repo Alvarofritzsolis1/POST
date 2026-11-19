@@ -13,6 +13,12 @@ type Performance = {
   queries: number; average_ms: number | null; p50_ms: number | null; p95_ms: number | null;
   incorrect: number; model: string; keep_alive: string; num_predict: number;
   sources: Record<string, number>; stages_ms: Record<string, number>;
+  messenger?: {
+    replies: number; p50_ms: number | null; p95_ms: number | null;
+    delivery_errors: number; model_errors: number; graph_calls: number;
+    external_model_calls: number; local_model_calls: number; input_tokens: number;
+    output_tokens: number; replies_with_token_counts: number;
+  };
   health: {state: string; loaded?: boolean; model_ram_bytes: number | null};
 };
 type Revision = {version: number; responsible_id: string; created_at: string;
@@ -96,6 +102,18 @@ export default function GalancitoKnowledgeCenter({mode = "knowledge"}: {mode?: "
       {mode === "performance" && <div className="gkc-performance">
         <p>Modelo: {performance?.model} · Permanencia: {performance?.keep_alive} · Límite de respuesta: {performance?.num_predict} tokens.</p>
         <p>Mediana: {times(performance?.p50_ms)} · Percentil 95: {times(performance?.p95_ms)}.</p>
+        {performance?.messenger && <section aria-label="Rendimiento de Messenger">
+          <h3>Messenger</h3>
+          <p>{performance.messenger.replies} respuestas medidas · p50 {times(performance.messenger.p50_ms)}
+            {" · "}p95 {times(performance.messenger.p95_ms)}</p>
+          <p>{performance.messenger.delivery_errors} errores de entrega · {performance.messenger.model_errors}
+            {" "}respuestas enviadas a revisión por falta de una respuesta confirmada</p>
+          <p>{performance.messenger.graph_calls} llamadas a Meta · {performance.messenger.external_model_calls}
+            {" "}llamadas a IA externa · {performance.messenger.local_model_calls} llamadas a IA local</p>
+          <p>{performance.messenger.replies_with_token_counts
+            ? `${performance.messenger.input_tokens} tokens de entrada y ${performance.messenger.output_tokens} de salida en ${performance.messenger.replies_with_token_counts} respuestas con datos`
+            : "Sin respuestas con consumo de tokens informado"}</p>
+        </section>}
         <p>Memoria de modelos informada por Ollama: {health?.model_ram_bytes == null ? "Sin medición" : `${(health.model_ram_bytes / 1024 ** 3).toFixed(2)} GiB`}.
           El límite del contenedor es 3 GiB y 1,5 CPU; el uso real de CPU se mide con el benchmark en el servidor.</p>
         <table><caption>Promedios por etapa con muestras disponibles</caption><thead><tr><th>Etapa</th><th>Tiempo</th></tr></thead><tbody>

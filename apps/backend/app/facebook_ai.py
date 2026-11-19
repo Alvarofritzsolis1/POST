@@ -5,7 +5,7 @@ from urllib.request import Request, urlopen
 
 from .config import settings
 from .ai_gateway import orchestration_available, orchestration_selected
-from .galancito_local import generate_local_text
+from .galancito_local import generate_local_text, record_model_attempt, record_model_tokens
 
 ASSISTANT_NAME = "Galancito"
 
@@ -35,6 +35,13 @@ No fuerces emojis ni faltas de ortografía. No inventes experiencias personales.
 Respuesta habitual: 2 o 3 frases, no más de 450 caracteres.
 Prefiere precisión y comprensión antes que velocidad aparente.
 No incluyas cadenas de pensamiento, deliberación ni análisis interno.
+
+Una persona puede buscar empleo y además ofrecer servicios. Los oficios y
+las comunas se acumulan salvo que la persona corrija un dato. Respeta la ficha
+más reciente, el contexto del último mensaje y cualquier corrección explícita.
+Si pregunta qué eres, di con claridad que eres el asistente de IA de GALANT.
+Contesta como en Messenger: frases ágiles, tuteo y vocabulario de Chile sin
+forzar modismos. Evita repetir un dato conocido como si fuera una novedad.
 
 La capacidad de venir con gente no prueba que sean empleados contratados;
 tampoco tener oficio implica que se posee una sociedad. Separa ambos datos.
@@ -87,7 +94,7 @@ def _generate(instructions: str, supplied_data: str, max_chars: int,
         "model": model,
         "instructions": instructions,
         "input": supplied_data[:6500],
-        "max_output_tokens": 450,
+        "max_output_tokens": 180 if instructions == REPLY_INSTRUCTIONS else 450,
         "store": False,
     }).encode("utf-8")
     request = Request(
@@ -99,6 +106,7 @@ def _generate(instructions: str, supplied_data: str, max_chars: int,
             "Content-Type": "application/json",
         },
     )
+    record_model_attempt(external=True)
     try:
         # Messenger should fail over or request human review quickly; avoid a
         # 12-second synchronous API wait for every contact question.
@@ -108,10 +116,15 @@ def _generate(instructions: str, supplied_data: str, max_chars: int,
         # Los mensajes, el cuerpo remoto y las credenciales nunca van a los logs.
         raise RuntimeError("El servicio de IA no está disponible ("
                            + type(exc).__name__ + ").") from None
+    if not isinstance(obj, dict):
+        raise RuntimeError("La IA devolvió una respuesta inválida.")
+    usage = obj.get("usage")
+    if isinstance(usage, dict):
+        record_model_tokens(usage.get("input_tokens"), usage.get("output_tokens"))
     pieces = [
-        part.get("text", "") for item in obj.get("output", [])
+        part.get("text", "") for item in (obj.get("output") or [])
         if isinstance(item, dict)
-        for part in item.get("content", [])
+        for part in (item.get("content") or [])
         if isinstance(part, dict) and part.get("type") == "output_text"
     ]
     text = " ".join(pieces).strip()

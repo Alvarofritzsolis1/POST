@@ -317,7 +317,7 @@ def test_refusal_cancels_permission_question_that_has_not_been_sent(network, mon
         monkeypatch.setenv(k,v)
     settings.cache_clear()
     assert incoming(n, text="¿Cuáles son los requisitos para postular?", mid="ask-consent").status_code == 200
-    assert incoming(n, text="no", mid="refuse-immediately").status_code == 200
+    assert incoming(n, text="no autorizo", mid="refuse-immediately").status_code == 200
     sent=[]
     monkeypatch.setattr("app.facebook_chat_worker.graph_send", lambda *args: sent.append(args[2]) or "refused-message")
     assert process_chat_next(n["Session"])

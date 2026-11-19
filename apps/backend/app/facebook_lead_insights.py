@@ -9,6 +9,8 @@ from sqlalchemy import select
 
 from .network_service import key, today as local_today
 from .galancito_triage import TRADES
+from .galancito_links import audit_event, canonical_trade, trade_terms
+from .facebook_crm_models import FacebookLeadTrade, FacebookNeedAssociation
 from .network_models import NetworkRequirement
 
 # La extracción de nombres es conservadora: solo frases de presentación explícita.
@@ -70,11 +72,21 @@ def _trade_group(value: str) -> str:
     return normalized
 
 
-def ranked_needs(lead, requirements, site_names: dict, limit: int = 3) -> list[dict]:
-    """Clasificación orientativa basada en HECHOS, no probabilidad de contratación."""
-    specialty = key(lead.specialty or "")
-    specialty_group = _trade_group(lead.specialty or "")
-    if not specialty:
+def active_trades(db, lead) -> list[str]:
+    rows = db.scalars(select(FacebookLeadTrade.trade).where(
+        FacebookLeadTrade.org_id == lead.org_id, FacebookLeadTrade.lead_id == lead.id,
+        FacebookLeadTrade.active.is_(True),
+    ).order_by(FacebookLeadTrade.first_seen_at, FacebookLeadTrade.id)).all()
+    return list(dict.fromkeys([*rows, *([lead.specialty] if lead.specialty else [])]))
+
+
+def ranked_needs(lead, requirements, site_names: dict, limit: int = 3, *,
+                 trades=None) -> list[dict]:
+    """Compare every registered specialty to the active needs."""
+    specialties = trades if trades is not None else ([lead.specialty] if lead.specialty else [])
+    groups = {_trade_group(specialty) for specialty in specialties}
+    tokens = {token for specialty in specialties for token in key(specialty).split() if len(token) >= 5}
+    if not groups:
         return []
     recommendations = []
     for req in requirements:
@@ -83,9 +95,8 @@ def ranked_needs(lead, requirements, site_names: dict, limit: int = 3) -> list[d
         wanted = key(req.specialty)
         if not wanted:
             continue
-        exact = wanted == specialty or _trade_group(req.specialty) == specialty_group
+        exact = any(_trade_group(trade) in groups for trade in (trade_terms(req.specialty) or [req.specialty]))
         # Coincidencias parciales tienen que compartir una palabra informativa.
-        tokens = {x for x in specialty.split() if len(x) >= 5}
         related = bool(tokens.intersection(x for x in wanted.split() if len(x) >= 5))
         if not exact and not related:
             continue
@@ -128,14 +139,14 @@ def link_unique_requirement(db, lead, *, today: date) -> bool:
     Linking is for follow-up, never an approval, hiring decision or award.
     Ambiguous or incomplete profiles remain unlinked for human review.
     """
-    if (lead.requirement_id or lead.interest_type != "service_offer" or
+    if (lead.requirement_id or lead.interest_type not in {"service_offer", "both"} or
             not lead.specialty or lead.workers is None or not lead.availability):
         return False
     try:
         available = date.fromisoformat(lead.availability)
     except (TypeError, ValueError):
         return False
-    trade = _trade_group(lead.specialty)
+    trades = {key(canonical_trade(trade)) for trade in active_trades(db, lead)}
     needs = db.scalars(select(NetworkRequirement).where(
         NetworkRequirement.org_id == lead.org_id,
         NetworkRequirement.state == "published",
@@ -143,9 +154,32 @@ def link_unique_requirement(db, lead, *, today: date) -> bool:
     ).limit(201)).all()
     if len(needs) > 200:
         return False
-    matches = [req for req in needs if _trade_group(req.specialty) == trade
-               and lead.workers >= req.workers and available <= req.start_date]
+    matches = [
+        req for req in needs if lead.workers >= req.workers and available <= req.start_date
+        and any(key(canonical_trade(trade)) in trades
+                for trade in (trade_terms(req.specialty) or [req.specialty]))
+    ]
     if len(matches) != 1:
         return False
     lead.requirement_id = matches[0].id
     return True
+
+
+
+def trace_unique_requirement(db, lead, *, today: date, remote_id=None) -> None:
+    if not link_unique_requirement(db, lead, today=today):
+        return
+    existing = db.scalar(select(FacebookNeedAssociation).where(
+        FacebookNeedAssociation.lead_id == lead.id,
+        FacebookNeedAssociation.requirement_id == lead.requirement_id,
+    ))
+    if existing:
+        if existing.state == "unlinked":
+            lead.requirement_id = None
+        return
+    db.add(FacebookNeedAssociation(
+        org_id=lead.org_id, lead_id=lead.id, requirement_id=lead.requirement_id,
+        state="linked", reviewed_by=None,
+    ))
+    audit_event(db, lead, "need_auto_linked", source="rule",
+                requirement_id=lead.requirement_id, remote_id=remote_id)

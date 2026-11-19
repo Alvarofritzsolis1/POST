@@ -13,6 +13,8 @@ def test_multi_trade_extraction_and_negation():
     )
     assert set(found) == {"Carpintería", "Gasfitería", "Cerámica"}
     assert extract_declared_trades("¿Buscan carpinteros y gasfíteres?") == []
+    assert extract_declared_trades("¿Soy carpintero si aprendí de mi papá?") == []
+    assert extract_declared_trades("Soy carpintero, tienen pega?") == ["Carpintería"]
     assert extract_declared_trades("No soy carpintero, hago gasfitería") == ["Gasfitería"]
     assert extract_declared_trades("carpintero", "¿Qué oficio realizas?") == ["Carpintería"]
     assert extract_declared_trades("carpintero") == []

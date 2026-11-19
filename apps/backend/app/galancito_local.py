@@ -32,6 +32,20 @@ _opener = build_opener(NoRedirect)
 _slot = BoundedSemaphore(1)
 last_timings: ContextVar[dict] = ContextVar("galancito_timings", default={})
 
+def record_model_attempt(*, external: bool) -> None:
+    stats = last_timings.get()
+    key = "external_model_calls" if external else "local_model_calls"
+    last_timings.set({**stats, key: stats.get(key, 0) + 1})
+
+
+def record_model_tokens(input_tokens, output_tokens) -> None:
+    stats = dict(last_timings.get())
+    for key, count in (("input_tokens", input_tokens), ("output_tokens", output_tokens)):
+        if type(count) is int and count >= 0:
+            stats[key] = stats.get(key, 0) + count
+    last_timings.set(stats)
+
+
 
 def available_memory_mb() -> int | None:
     """Host pressure signal. Ollama has a separate hard container limit."""
@@ -108,6 +122,7 @@ def _generate(instructions, data, max_chars, cfg):
         method="POST", headers={"Content-Type": "application/json"},
     )
     started = time.perf_counter()
+    record_model_attempt(external=False)
     try:
         with _opener.open(request, timeout=min(cfg.galancito_timeout_seconds, 8)) as response:
             result = json.loads(response.read(100000).decode("utf-8"))
@@ -122,10 +137,11 @@ def _generate(instructions, data, max_chars, cfg):
     # Ollama's durations are nanoseconds; transport is a residual, not a claim
     # of independently measured server queue time.
     elapsed = (time.perf_counter() - started) * 1000
-    last_timings.set({"load_ms": ms("load_duration"), "prompt_ms": ms("prompt_eval_duration"),
+    last_timings.set({**last_timings.get(), "load_ms": ms("load_duration"), "prompt_ms": ms("prompt_eval_duration"),
                       "generation_ms": ms("eval_duration"), "ollama_total_ms": ms("total_duration"),
                       "transport_ms": max(0, elapsed - ms("total_duration")), "queue_ms": 0,
                       "eval_count": result.get("eval_count", 0)})
+    record_model_tokens(result.get("prompt_eval_count"), result.get("eval_count"))
     msg = result.get("message")
     content = msg.get("content") if isinstance(msg, dict) else None
     if not isinstance(content, str):

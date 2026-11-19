@@ -123,7 +123,7 @@ jobs:
       - name: Instalar dependencias del backend
         run: python -m pip install -r requirements-dev.txt
       - name: Verificar aprendizaje, fichas, consentimiento y respuestas Meta
-        run: python -m pytest -q tests/test_galancito_curriculum_20.py tests/test_facebook_crm.py tests/test_galancito_meta_setup.py
+        run: python -m pytest -q tests/test_galancito_curriculum_20.py tests/test_galancito_conversation_memory.py tests/test_facebook_crm.py tests/test_galancito_meta_setup.py
 
   backend_irl:
     name: Backend IRL independiente — fórmulas, roles y firmas

@@ -18,6 +18,7 @@ from sqlalchemy.orm import Session
 from .ai_models import AIConnection, AIOrchestration, AIUsage
 from .ai_review import REVIEW_INSTRUCTIONS, review_prompt, accepted_review
 from .galancito_flow import grounded_reply
+from .galancito_local import record_model_attempt, record_model_tokens
 from .galancito_triage import private_data
 from .models import utcnow
 
@@ -148,6 +149,7 @@ def invoke(connection: AIConnection, *, instructions: str, prompt: str,
     headers["Content-Type"] = "application/json"
     request = Request(url, data=json.dumps(body).encode("utf-8"),
                       headers=headers, method="POST")
+    record_model_attempt(external=True)
     try:
         with urlopen(request, timeout=timeout) as response:
             result = json.loads(response.read(250000).decode("utf-8"))
@@ -180,16 +182,20 @@ def invoke(connection: AIConnection, *, instructions: str, prompt: str,
             text = "\n".join(str(part.get("text", "")) for candidate in result.get("candidates", [])
                              for part in candidate.get("content", {}).get("parts", []) if isinstance(part, dict))
             usage = result.get("usageMetadata") or {}
-            input_tokens = int(usage.get("promptTokenCount") or 0)
-            output_tokens = int(usage.get("candidatesTokenCount") or 0)
+            raw_input = usage.get("promptTokenCount")
+            raw_output = usage.get("candidatesTokenCount")
+            input_tokens, output_tokens = int(raw_input or 0), int(raw_output or 0)
         else:
             choices = result.get("choices") or []
             text = str((choices[0].get("message") or {}).get("content") or "") if choices else ""
             usage = result.get("usage") or {}
-            input_tokens = int(usage.get("prompt_tokens") or 0)
-            output_tokens = int(usage.get("completion_tokens") or 0)
+            raw_input = usage.get("prompt_tokens")
+            raw_output = usage.get("completion_tokens")
+            input_tokens, output_tokens = int(raw_input or 0), int(raw_output or 0)
     except (TypeError, ValueError, AttributeError, IndexError, OverflowError):
         raise AIServiceError("El proveedor respondió con un formato inválido.") from None
+    record_model_tokens(input_tokens if raw_input is not None else None,
+                        output_tokens if raw_output is not None else None)
     if not text.strip():
         if provider["mode"] == "chat" and connection.provider in ("groq", "zai"):
             raise AIServiceError("El modelo respondió sin texto. Puede haber consumido los tokens de salida razonando; prueba otro modelo o aumenta el límite de tokens.")

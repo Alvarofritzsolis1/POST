@@ -5,7 +5,7 @@ from app.config import settings
 from app.facebook_crm_models import FacebookLead
 from app.galancito_triage import classify_lead, dashboard
 from app.models import utcnow
-from test_facebook_crm import enable_messaging, incoming
+from test_facebook_crm import deliver_permission, enable_messaging, incoming
 from test_network import network, request_body
 
 
@@ -77,6 +77,7 @@ def test_auto_category_uses_only_consented_messages_and_approved_guides(network,
     assert incoming(n, text="¿Cuáles son los requisitos para postular?", mid="m-cat-permission").status_code == 200
     requested = n["admin"].get("/api/v1/network/facebook/center").json()["leads"][0]
     assert requested["ai_consent_state"] == "requested"
+    deliver_permission(n, monkeypatch)
     assert incoming(n, text="sí", mid="m-cat-2").status_code == 200
     after = n["admin"].get("/api/v1/network/facebook/galancito/seguimiento").json()
     assert after["rows"][0]["category"] == "Gasfitería"
@@ -109,6 +110,7 @@ def test_analisis_no_auto_changes_and_ollama_requires_consent(network, monkeypat
     # The first contact was received before the assistant was enabled.
     # Another message triggers the permission request, then yes grants consent.
     assert incoming(n, text="Hola de nuevo", mid="m-triage-2").status_code == 200
+    deliver_permission(n, monkeypatch)
     assert incoming(n, text="Sí", mid="m-triage-3").status_code == 200
     after = n["send"](n["admin"], "/facebook/leads/" + lead["id"] + "/galancito/analyze")
     assert after.status_code == 200

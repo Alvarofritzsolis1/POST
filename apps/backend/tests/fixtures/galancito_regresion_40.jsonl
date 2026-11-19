@@ -1,0 +1,40 @@
+{"id": "01-oficio_acumulado", "turns": [{"message": "Soy carpintero", "profile": {"trades": ["Carpintería"]}, "reply_contains": ["buscas empleo"]}, {"message": "También hago gasfitería", "profile": {"trades": ["Carpintería", "Gasfitería"]}}]}
+{"id": "02-tres_oficios", "turns": [{"message": "Soy pintora, hago tabiquería y cerámica", "profile": {"trades": ["Pintura", "Tabiquería", "Cerámica"]}}]}
+{"id": "03-oficio_fragments", "turns": [{"message": "Ola soi carpintreo", "profile": {"trades": ["Carpintería"]}, "flush": false}, {"message": "También gasfite y sodador", "profile": {"trades": ["Carpintería", "Gasfitería", "Soldadura"]}}]}
+{"id": "04-oficio_negado", "turns": [{"message": "No soy pintor, soy electricista", "profile": {"trades": ["Electricidad"]}}]}
+{"id": "05-oficio_pregunta", "turns": [{"message": "¿Tienen carpinteros para la obra?", "profile": {}, "reply_excludes": ["registré tu oficio"]}]}
+{"id": "06-oficio_tercero", "turns": [{"message": "Mi hermano es carpintero. Yo hago albañilería", "profile": {"trades": ["Albañilería"]}}]}
+{"id": "07-oficio_retiro", "turns": [{"message": "Soy pintor y carpintero", "profile": {"trades": ["Pintura", "Carpintería"]}}, {"message": "Ya no hago pintura", "profile": {"trades": ["Carpintería"]}}]}
+{"id": "08-oficio_idempotente", "turns": [{"message": "Soy eléctrico y techero", "profile": {"trades": ["Electricidad", "Techumbres"]}, "replay": true}]}
+{"id": "09-oficio_reafirmado", "turns": [{"message": "Soy carpintero", "profile": {"trades": ["Carpintería"]}}, {"message": "Ya no hago carpintería", "profile": {"trades": []}}, {"message": "Volví a trabajar en carpintería", "profile": {"trades": ["Carpintería"]}}]}
+{"id": "10-modismos", "turns": [{"message": "Wena soi enfierador e igual le pego a la cerámica", "profile": {"trades": ["Enfierradura", "Cerámica"]}}]}
+{"id": "11-busca_pega", "turns": [{"message": "Ando buscando pega. Soy gasfíter", "profile": {"interest_type": "employment", "entity_type": "individual", "trades": ["Gasfitería"]}}]}
+{"id": "12-trabajador_no_empresa", "turns": [{"message": "Busco empleo de pintor, no tengo empresa", "profile": {"interest_type": "employment", "entity_type": "individual", "trades": ["Pintura"]}}]}
+{"id": "13-contratista_persona", "turns": [{"message": "Soy independiente y ofresco servicios de sodadura", "profile": {"interest_type": "service_offer", "entity_type": "individual", "trades": ["Soldadura"]}}]}
+{"id": "14-empresa", "turns": [{"message": "Tengo una empresa y hacemos pintura", "profile": {"interest_type": "service_offer", "entity_type": "company", "trades": ["Pintura"]}}]}
+{"id": "15-ambos_explicito", "turns": [{"message": "Trabajo por mi cuenta y busco empleo como electricista", "profile": {"interest_type": "both", "entity_type": "individual", "trades": ["Electricidad"]}}]}
+{"id": "16-ambos_en_turnos", "turns": [{"message": "Busco pega de carpintero", "profile": {"interest_type": "employment", "entity_type": "individual", "trades": ["Carpintería"]}}, {"message": "Además ofrezco servicios por mi cuenta", "profile": {"interest_type": "both", "entity_type": "individual"}}]}
+{"id": "17-ambos_respuesta", "turns": [{"message": "Soy pintor", "profile": {"trades": ["Pintura"]}, "reply_contains": ["las dos cosas"]}, {"message": "ambos", "profile": {"interest_type": "both", "entity_type": "individual"}, "reply_excludes": ["¿Ofreces trabajos"]}]}
+{"id": "18-rol_corregido", "turns": [{"message": "Soy contratista y hago cerámica", "profile": {"interest_type": "service_offer", "entity_type": "unknown", "trades": ["Cerámica"]}}, {"message": "En realidad solo busco pega", "profile": {"interest_type": "employment", "entity_type": "individual"}}]}
+{"id": "19-rol_no_para_mi", "turns": [{"message": "No busco empleo. Hago pintura por mi cuenta", "profile": {"interest_type": "service_offer", "entity_type": "unknown", "trades": ["Pintura"]}}]}
+{"id": "20-rol_numerico_ambiguo", "turns": [{"message": "2", "profile": {}}]}
+{"id": "21-zona_varias", "turns": [{"message": "Soy pintor y trabajo en Coronel y Lota", "profile": {"trades": ["Pintura"], "work_communes": ["Coronel", "Lota"]}}]}
+{"id": "22-zona_corrijo", "turns": [{"message": "Trabajo en Conce y Talcahuano. Hago carpintería", "profile": {"trades": ["Carpintería"], "work_communes": ["Concepción", "Talcahuano"]}}, {"message": "Corrijo, solo en Talcahuano", "profile": {"work_communes": ["Talcahuano"]}}]}
+{"id": "23-zona_nueva", "turns": [{"message": "Soy soldador y trabajo en Valpo", "profile": {"trades": ["Soldadura"], "work_communes": ["Valparaíso"]}}, {"message": "También en Quilpué", "profile": {"work_communes": ["Valparaíso", "Quilpué"]}}]}
+{"id": "24-zona_residencia", "turns": [{"message": "Vivo en Ñuñoa, pero trabajo en La Florida. Hago pintura", "profile": {"trades": ["Pintura"], "work_communes": ["La Florida"]}}]}
+{"id": "25-zona_compuesta", "turns": [{"message": "Hago aseo, me muevo por San Pedro de la Paz y Chiguayante", "profile": {"trades": ["Aseo"], "work_communes": ["San Pedro de la Paz", "Chiguayante"]}}]}
+{"id": "26-zona_consulta", "turns": [{"message": "¿Hay trabajo en San Bernardo? Soy pintor", "profile": {"trades": ["Pintura"]}}]}
+{"id": "27-fecha_iso", "turns": [{"message": "Soy pintor. Puedo partir el 2027-03-06", "profile": {"trades": ["Pintura"], "availability": "2027-03-06"}}]}
+{"id": "28-fecha_cambio", "turns": [{"message": "Soy techera y puedo empezar el 15/03/2027", "profile": {"trades": ["Techumbres"], "availability": "2027-03-15"}}, {"message": "Cambio de fecha. Puedo comenzar el 18/03/2027", "profile": {"availability": "2027-03-18"}}]}
+{"id": "29-fecha_invalida", "turns": [{"message": "Soy gasfíter. Puedo comenzar el 30/02/2027", "profile": {"trades": ["Gasfitería"]}}]}
+{"id": "30-fecha_semana", "turns": [{"message": "Hago pintura, puedo partir la próxima semana", "profile": {"trades": ["Pintura"], "availability": "Desde la próxima semana"}}]}
+{"id": "31-nombre_en_frase", "turns": [{"message": "Me llamo Javiera Soto, trabajo en carpintería", "profile": {"name": "Javiera Soto", "trades": ["Carpintería"]}}]}
+{"id": "32-nombre_corrige", "turns": [{"message": "Me llamo Pablo. Soy soldador", "profile": {"name": "Pablo", "trades": ["Soldadura"]}}, {"message": "Me equivoqué, me llamo Paulo", "profile": {"name": "Paulo"}}]}
+{"id": "33-nombre_privacidad", "turns": [{"message": "Prefiero no dar mi nombre. Hago pintura", "profile": {"name_opt_out": true, "trades": ["Pintura"]}}]}
+{"id": "34-equipo_solo", "turns": [{"message": "Soy soldador. Somos tres", "profile": {"trades": ["Soldadura"], "workers": 3, "team_available": true}}, {"message": "Al final voy solo", "profile": {"workers": 1, "team_available": false}}]}
+{"id": "35-capacidad_no_empleados", "turns": [{"message": "Hago electricidad y puedo llevar dos ayudantes", "profile": {"trades": ["Electricidad"], "workers": 3, "team_available": true}}]}
+{"id": "36-equipo_sin_cifra", "turns": [{"message": "Soy carpintero. Puedo llevar gente", "profile": {"trades": ["Carpintería"], "team_available": true}}]}
+{"id": "37-experiencia_voluntaria", "turns": [{"message": "Soy pintor y llevo 7 años en el oficio", "profile": {"trades": ["Pintura"], "experience": "7 años"}}]}
+{"id": "38-identidad_ia", "turns": [{"message": "¿Eres IA?", "profile": {}, "reply_contains": ["asistente de IA"]}]}
+{"id": "39-dato_privado", "turns": [{"message": "mi RUT es 12.345.678-5 y soy maestro", "profile": {}, "reply_excludes": ["12.345.678"]}]}
+{"id": "40-rafaga_y_replay", "turns": [{"message": "Hola, me llamo Camila", "profile": {"name": "Camila"}, "flush": false}, {"message": "Hago pintura en Puente Alto. Trabajo en Puente Alto", "profile": {"trades": ["Pintura"], "work_communes": ["Puente Alto"]}, "flush": false}, {"message": "Busco pega y puedo empezar desde el 06/04/2027", "profile": {"interest_type": "employment", "entity_type": "individual", "availability": "2027-04-06"}, "reply_excludes": ["¿Qué trabajo", "¿En qué comuna", "¿Desde cuándo"], "replay": true}]}

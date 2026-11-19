@@ -20,7 +20,7 @@ from . import facebook_crm_models  # isolated inbox data; no modifications to hi
 from . import galancito_knowledge_models
 from . import ai_models
 from .migrations import v20_7_5_galancito_learning, v20_8_0_ai_control_center, v20_8_1_ai_collaboration, v20_8_7_global_lightning, v20_8_8_galancito_intake
-from .migrations import v20_9_0_galancito_links
+from .migrations import v20_9_0_galancito_links, v20_9_1_galancito_memory
 from .ai_global_lightning import sync_org as sync_org_global_lightning
 
 
@@ -109,6 +109,9 @@ def migrate(db):
     if not db.get(SchemaVersion, v20_9_0_galancito_links.MIGRATION_ID):
         v20_9_0_galancito_links.upgrade(db.connection())
         db.add(SchemaVersion(version=v20_9_0_galancito_links.MIGRATION_ID))
+    if not db.get(SchemaVersion, v20_9_1_galancito_memory.MIGRATION_ID):
+        v20_9_1_galancito_memory.upgrade(db.connection())
+        db.add(SchemaVersion(version=v20_9_1_galancito_memory.MIGRATION_ID))
 
 
 def find_admin(db, email: str) -> User:

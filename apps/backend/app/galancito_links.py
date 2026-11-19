@@ -7,16 +7,18 @@ No third-party AI call, automatic rejection, or unsolicited Messenger message.
 from __future__ import annotations
 
 import re
-from datetime import date
+from datetime import date, timezone
+from functools import lru_cache
 from sqlalchemy import select
 from sqlalchemy.orm import Session
 
-from .galancito_triage import TRADES, plain, private_data
+from .galancito_triage import TRADES, declaration_text, plain, private_data
 from .models import utcnow
 from .network_service import today
 from .facebook_crm_models import FacebookLeadTrade, FacebookNeedAssociation, FacebookLeadTrace
 
 
+@lru_cache(maxsize=256)
 def canonical_trade(value: str) -> str:
     normalized = plain(value or "")
     for trade, aliases in TRADES.items():
@@ -47,22 +49,65 @@ def trade_terms(value: str) -> list[str]:
     return list(dict.fromkeys(found))
 
 
+_OWN_TRADE = re.compile(
+    r"\b(?:soy|soi|trabajo|trabajamos|hago|hacemos|ofrezco|ofresco|instalo|reparo|"
+    r"me dedico|me manejo|le pego|tengo experiencia|trabajar en|quiero ofrecer|busco (?:pega|empleo|trabajo) (?:de|en|como))\b"
+)
+_TRADE_NEGATIVE = re.compile(r"\b(?:no|dej[eé] de) (?:soy|hago|trabajo|trabajamos|ofrezco|me dedico)?")
+_TRADE_TOPIC = re.compile(r"\b(?:buscan|necesitan|necesito|buscamos|hay|tienen|"
+                          r"mi (?:hermano|amigo|pap[aá]|jefe)|"
+                          r"el (?:maestro|vecino)|mi (?:cuadrilla|equipo) (?:necesita|busca))\b")
+_TRADE_FRAGMENTS = re.compile(r"[,;.!?¿¡\n]+|\b(?:pero|aunque|sino|y(?=\s+(?:no|mi|el|la)\b))\b", re.I)
+
+
+@lru_cache(maxsize=16)
+def _trade_matcher(extra: tuple):
+    by_alias = {plain(alias): trade for trade, aliases in TRADES.items()
+                for alias in (trade, *aliases) if plain(alias)}
+    for trade, aliases in extra:
+        canonical = canonical_trade(trade)
+        for alias in (trade, *aliases):
+            if normalized := plain(alias):
+                by_alias.setdefault(normalized, canonical)
+    pattern = re.compile(r"\b(?:" + "|".join(
+        re.escape(alias) for alias in sorted(by_alias, key=len, reverse=True)
+    ) + r")\b")
+    return by_alias, pattern
+
+
+def trade_declarations(message: str, prior_prompt: str = "", *,
+                       extra: dict | None = None, allow_bare: bool = False) -> dict[str, bool]:
+    """True adds an explicitly stated trade; False corrects an earlier declaration."""
+    if not message or len(message) > 3500 or private_data(message):
+        return {}
+    catalog, matcher = _trade_matcher(tuple((trade, tuple(aliases)) for trade, aliases in (extra or {}).items()))
+    direct = any(p in plain(prior_prompt) for p in ("oficio", "trabajo realizas", "servicio ofreces"))
+    result = {}
+    continuation = False
+    for fragment in _TRADE_FRAGMENTS.split(declaration_text(message)):
+        norm = plain(fragment)
+        if not norm:
+            continue
+        if _TRADE_TOPIC.search(norm) or re.match(r"^(?:como|cuanto|cuando|donde)\b", norm):
+            continuation = False
+            continue
+        mentions = list(dict.fromkeys(catalog[match[0]] for match in matcher.finditer(norm)))
+        own = bool(_OWN_TRADE.search(norm))
+        bare = bool(mentions and len(norm.split()) <= 9 and not re.search(r"[?¿]", message)
+                    and set(matcher.sub(" ", norm).split()) <= {"y", "e", "o", "de", "en", "tambien", "igual", "no"})
+        negative = bool(_TRADE_NEGATIVE.search(norm))
+        if not mentions:
+            continuation = own and not negative
+            continue
+        if own or (bare and (direct or continuation or allow_bare or norm.startswith("tambien "))):
+            for trade in mentions:
+                result[trade] = not negative
+        continuation = own and not negative or bare and continuation and not negative
+    return result
+
+
 def extract_declared_trades(message: str, prior_prompt: str = "") -> list[str]:
-    if not message or len(message) > 400 or private_data(message):
-        return []
-    value = plain(message)
-    affirmative = bool(re.search(
-        r"\b(?:soy|soi|trabajo|trabajamos|hago|hacemos|ofrezco|ofresco|"
-        r"me dedico|me manejo|le pego|tengo experiencia|tambien hago|"
-        r"tambien trabajo)\b", value
-    ))
-    direct_answer = (
-        "?" not in message and "¿" not in message and len(value.split()) <= 3
-        and ("oficio" in plain(prior_prompt) or "trabajo realizas" in plain(prior_prompt))
-    )
-    if not affirmative and not direct_answer:
-        return []
-    return trade_terms(message)
+    return [trade for trade, present in trade_declarations(message, prior_prompt).items() if present]
 
 
 def audit_event(db: Session, lead, event: str, *, source: str = "system",
@@ -76,37 +121,45 @@ def audit_event(db: Session, lead, event: str, *, source: str = "system",
 
 
 def record_declared_trades(db: Session, lead, message: str, *,
-                           remote_id: str | None = None, prior_prompt: str = "") -> list[str]:
-    """Idempotent ingestion; no deletion of prior trades or manual edits."""
-    detected = extract_declared_trades(message, prior_prompt)
+                           remote_id: str | None = None, prior_prompt: str = "",
+                           declarations: dict[str, bool] | None = None,
+                           historical: bool = False, at=None) -> tuple[list[str], bool]:
+    """Keep additions and explicit corrections in the existing trade history."""
+    detected = declarations if declarations is not None else trade_declarations(message, prior_prompt)
     if not detected:
-        return []
+        return [], False
+    changed = False
     existing = list(db.scalars(select(FacebookLeadTrade).where(
         FacebookLeadTrade.org_id == lead.org_id,
         FacebookLeadTrade.lead_id == lead.id,
-    )))
-    by_trade = {plain(item.trade): item for item in existing}
-    result = []
-    for trade in detected:
+    ).order_by(FacebookLeadTrade.first_seen_at, FacebookLeadTrade.id)))
+    by_trade = {plain(canonical_trade(item.trade)): item for item in existing}
+    now = at or utcnow()
+    for trade, present in detected.items():
         stored = by_trade.get(plain(trade))
-        if stored is None and len(existing) < 12:
+        if stored and stored.updated_at and at:
+            stamp = stored.updated_at
+            stamp = stamp.replace(tzinfo=timezone.utc) if stamp.tzinfo is None else stamp
+            if at < stamp:
+                continue
+        if stored is None and present and len(existing) < 40:
             stored = FacebookLeadTrade(
                 org_id=lead.org_id, lead_id=lead.id, trade=trade,
-                source="message", source_remote_id=remote_id,
+                source="message", source_remote_id=remote_id, active=True,
+                first_seen_at=now, updated_at=now,
             )
             db.add(stored)
+            changed = True
             existing.append(stored)
             by_trade[plain(trade)] = stored
-            audit_event(db, lead, "trade_added", trade=trade,
-                        source="message", remote_id=remote_id)
-        elif stored and not stored.active:
-            stored.active, stored.updated_at = True, utcnow()
+            audit_event(db, lead, "trade_added", trade=trade, source="message", remote_id=remote_id)
+        elif stored and stored.source == "message" and stored.active != present and not historical:
+            stored.active, stored.updated_at = present, now
+            changed = True
             stored.source_remote_id = remote_id
-            audit_event(db, lead, "trade_reactivated", trade=trade,
-                        source="message", remote_id=remote_id)
-        if stored and stored.active:
-            result.append(trade)
-    return result
+            audit_event(db, lead, "trade_reactivated" if present else "trade_removed",
+                        trade=trade, source="message", remote_id=remote_id)
+    return [item.trade for item in existing if item.active], changed
 
 
 def record_manual_trade(db: Session, lead, trade: str, actor_id: str) -> None:

@@ -14,9 +14,19 @@ type Analysis = {
   label: string; state: string; requirement?: string; checks: Check[];
   missing: string[]; human_review_required: boolean;
 };
+type Evidence = { source: string; message_id: string | null; at: string };
+const fieldLabels: Record<string, string> = {
+  display_name: "Nombre", name_opt_out: "Preferencia de nombre", specialty: "Oficio principal",
+  entity_type: "Tipo de postulante", interest_type: "Interés", team_available: "Modalidad",
+  workers: "Personas", experience: "Experiencia", work_communes: "Comunas",
+  availability: "Disponibilidad",
+};
+const sourceLabels: Record<string, string> = {
+  message: "Declarado en Messenger", manual: "Registrado por administración", meta: "Perfil de Facebook",
+};
 type ContactProfile = {
   summary: string; completed: number; total: number; percent: number;
-  missing: string[]; next_field: string | null; evidence: string; specialty_origin: string;
+  missing: string[]; next_field: string | null; evidence: string; specialty_origin: string; sources?: Record<string, Evidence>;
 };
 type Lead = {
   id: string; name: string; company: string; specialty: string; workers: number | null;
@@ -25,13 +35,19 @@ type Lead = {
   needs_support: boolean; support_reason: string;
   entity_type: "unknown" | "company" | "individual";
   has_employees: boolean | null;
-  interest_type: "unknown" | "service_offer" | "employment";
+  interest_type: "unknown" | "service_offer" | "employment" | "both";
   team_available: boolean | null; work_area: string; profile: ContactProfile;
   last_inbound_at: string | null; can_reply: boolean; analysis: Analysis;
-  trades?: string[]; linked_needs?: string[];
+  trades?: string[]; linked_needs?: string[]; work_communes?: string[];
+  trade_sources?: (Evidence & { trade: string })[];
   follow_up_on: string | null; follow_up_note: string;
   last_message?: { text: string; direction: "inbound" | "outbound" } | null;
 };
+const editableFields = [
+  "name", "company", "specialty", "workers", "availability", "experience", "status",
+  "documents_state", "ai_paused", "needs_support", "entity_type", "has_employees",
+  "interest_type", "team_available", "work_area", "requirement_id", "follow_up_on", "follow_up_note",
+] as const satisfies readonly (keyof Lead)[];
 type Post = { id: string; requirement_id: string; title: string; specialty: string;
   state: string; error: string | null; post_url: string | null;
   updated_at?: string; attempts?: number };
@@ -53,7 +69,8 @@ type Onboarding = {
   not_applicable: string[]; prevention_examples: string[];
   notice: string; ask_for_files_now: boolean; human_followup: boolean;
 };
-type Chat = { id: string; direction: "inbound" | "outbound"; state: string; body: string;
+type Chat = {
+  source_message_id?: string | null; id: string; direction: "inbound" | "outbound"; state: string; body: string;
   ai_generated: boolean; automated: boolean; created_at: string; updated_at?: string; error: string | null };
 const replyStages: Record<string, {percent: number; label: string}> = {
   pending: {percent: 15, label: "Respuesta en cola"},
@@ -141,6 +158,7 @@ export default function FacebookCenter({ catalog }: { catalog: Catalog }) {
   const [showProfile, setShowProfile] = useState(false);
   const chatRef = useRef<HTMLDivElement | null>(null);
   const selectedIdRef = useRef("");
+  const savedLeadRef = useRef<Lead | null>(null);
   const latestInboundRef = useRef<Record<string, string>>({});
   const recheckedProfilesRef = useRef<Set<string>>(new Set());
   const nearBottomRef = useRef(true);
@@ -182,13 +200,16 @@ export default function FacebookCenter({ catalog }: { catalog: Catalog }) {
       recheckedProfilesRef.current.add(id);
       try {
         const updated = await change<Lead>("/facebook/leads/" + id + "/refresh-profile", {});
-        result = {...result, lead: updated};
+        result = {...result, lead: {...result.lead, ...updated}};
       } catch {
         // Keep the inbox readable even when optional profile reconciliation fails.
       }
     }
     latestInboundRef.current[id] = [...result.messages].reverse().find((m) => m.direction === "inbound")?.id || "";
-    if (selectedIdRef.current === id) setDetail(result);
+    if (selectedIdRef.current === id) {
+      savedLeadRef.current = result.lead;
+      setDetail(result);
+    }
   }, []);
   useEffect(() => {
     void refresh().catch((e) => setError(errorText(e)));
@@ -238,27 +259,16 @@ export default function FacebookCenter({ catalog }: { catalog: Catalog }) {
           latestInboundRef.current[selectedId] = newestInbound;
           if (previousInbound && newestInbound) void refreshInsights(selectedId).catch(() => {});
         }
+        if (selectedIdRef.current !== selectedId) return;
+        const saved = savedLeadRef.current;
+        savedLeadRef.current = update.lead;
         setDetail((previous) => {
-          if (!previous || previous.lead.id !== selectedId) return update;
-          // El polling no debe borrar ediciones del administrador aún sin guardar.
-          return {...previous, messages: update.messages, lead: {
-            ...previous.lead,
-            name: previous.lead.name === "Interesado de Facebook" ||
-              previous.lead.name === "Contacto sin nombre" ? update.lead.name : previous.lead.name,
-            specialty: previous.lead.specialty || update.lead.specialty,
-            ai_consent: update.lead.ai_consent,
-            ai_consent_state: update.lead.ai_consent_state,
-            ai_paused: update.lead.ai_paused,
-            needs_support: update.lead.needs_support,
-            support_reason: update.lead.support_reason,
-            unread: update.lead.unread,
-            can_reply: update.lead.can_reply,
-            last_inbound_at: update.lead.last_inbound_at,
-            interest_type: update.lead.interest_type,
-            team_available: update.lead.team_available,
-            work_area: update.lead.work_area,
-            profile: update.lead.profile,
-          }};
+          if (saved?.id !== selectedId || previous?.lead.id !== selectedId) return update;
+          const lead = {...update.lead};
+          for (const field of editableFields) {
+            if (previous.lead[field] !== saved[field]) Object.assign(lead, {[field]: previous.lead[field]});
+          }
+          return {...update, lead};
         });
       } catch { /* No borrar la conversación si hay un fallo temporal de red. */ }
     };
@@ -299,6 +309,16 @@ export default function FacebookCenter({ catalog }: { catalog: Catalog }) {
     if (!selectedId) return;
     void mutate("lead", () => change("/facebook/leads/" + selectedId, patch, "PATCH"),
       "Ficha del interesado actualizada.");
+  }
+  function openSourceMessage(id: string) {
+    setShowProfile(false);
+    setMobilePane("chat");
+    nearBottomRef.current = false;
+    requestAnimationFrame(() => {
+      const message = document.getElementById("fbc-message-" + id);
+      message?.focus({preventScroll: true});
+      message?.scrollIntoView({block: "nearest"});
+    });
   }
   async function analyzeLead() {
     if (!selectedId) return;
@@ -362,6 +382,13 @@ export default function FacebookCenter({ catalog }: { catalog: Catalog }) {
       }).catch((e) => setError(errorText(e)));
   }
   const lead = detail?.lead ?? null;
+  const messageIds = new Map(detail?.messages.filter(msg => msg.source_message_id)
+    .map(msg => [msg.source_message_id, msg.id]) ?? []);
+  const evidenceRows = [
+    ...Object.entries(lead?.profile.sources ?? {}).filter(([field]) => field in fieldLabels)
+      .map(([field, origin]) => ({key: field, label: fieldLabels[field], origin})),
+    ...(lead?.trade_sources ?? []).map(origin => ({key: origin.trade, label: origin.trade, origin})),
+  ];
   const currentInsights = insights?.contact_id === selectedId ? insights : null;
   const visible = center?.leads.filter((r) =>
     [r.name, r.company, r.specialty].some((x) => x.toLowerCase().includes(filter.toLowerCase()))) || [];
@@ -604,6 +631,8 @@ export default function FacebookCenter({ catalog }: { catalog: Catalog }) {
                   {!r.recent_trace?.length && <small>Aún no hay movimientos registrados en la nueva trazabilidad.</small>}
                   {r.recent_trace?.map((event, i) => <small key={event.at + i}>
                     {event.event === "trade_added" ? "Oficio registrado" :
+                     event.event === "trade_removed" ? "Oficio corregido" :
+                     event.event.startsWith("field_") ? fieldLabels[event.event.slice(6)] || "Dato actualizado" :
                      event.event === "need_linked" ? "Necesidad vinculada" :
                      event.event === "need_unlinked" ? "Necesidad desvinculada" :
                      event.event === "need_auto_linked" ? "Vínculo sugerido por reglas" :
@@ -748,7 +777,7 @@ export default function FacebookCenter({ catalog }: { catalog: Catalog }) {
             }}>
               {detail?.messages.map((msg) => {
                 const stage = progressFor(msg);
-                return <div key={msg.id} className={"fbc-bubble " + msg.direction}>
+                return <div key={msg.id} id={"fbc-message-" + msg.id} tabIndex={-1} className={"fbc-bubble " + msg.direction}>
                   {msg.automated && ["pending", "ai_pending", "drafting"].includes(msg.state) ?
                     <div className="fbc-typing" role="status" aria-label={msg.state === "ai_pending" ? "Galancito está pensando" : "Galancito está escribiendo"}>
                       <span className="fbc-typing-avatar"><Bot size={17}/></span>
@@ -832,17 +861,29 @@ export default function FacebookCenter({ catalog }: { catalog: Catalog }) {
             <div className="fbc-person-fields">
               <div><small>Nombre</small><strong>{lead.name && lead.name !== "Interesado de Facebook" ? lead.name : "Por registrar"}</strong></div>
               <div><small>Interés</small><strong>{lead.interest_type === "service_offer" ? "Ofrece servicios" :
-                lead.interest_type === "employment" ? "Busca empleo" : "Por aclarar"}</strong></div>
+                lead.interest_type === "employment" ? "Busca empleo" :
+                lead.interest_type === "both" ? "Busca empleo y ofrece servicios" : "Por aclarar"}</strong></div>
               <div><small>Oficios / trabajos</small><strong>{lead.trades?.length ? lead.trades.join(" · ") : lead.specialty || "Sin informar"}</strong></div>
               <div><small>Modalidad</small><strong>{lead.team_available == null ? "Sin dato" :
                 lead.team_available ? "Puede venir con equipo" : "Trabaja solo/a"}</strong></div>
               <div><small>Personas</small><strong>{lead.workers ?? "Sin dato"}</strong></div>
               <div><small>Experiencia</small><strong>{lead.experience || "Por consultar"}</strong></div>
-              <div><small>Comuna</small><strong>{lead.work_area || "Por consultar"}</strong></div>
+              <div><small>Comunas</small><strong>{lead.work_communes?.join(" · ") || lead.work_area || "Por consultar"}</strong></div>
               <div><small>Disponibilidad</small><strong>{lead.availability || "Por consultar"}</strong></div>
               <div><small>Necesidades vinculadas</small><strong>{lead.linked_needs?.length ? lead.linked_needs.map(id => requirements.find(r => r.id === id)?.title || "Necesidad histórica").join(" · ") : requirements.find(r => r.id === lead.requirement_id)?.title || "Sin vincular"}</strong></div>
             </div>
-            <small>Oficio: {lead.profile.specialty_origin}</small>
+            <details className="fbc-profile-pending">
+              <summary>Origen de los datos</summary>
+              {evidenceRows.map(({key, label, origin}) => {
+                const messageId = messageIds.get(origin.message_id);
+                return <p key={key}><strong>{label}</strong>
+                  {" · "}{sourceLabels[origin.source] || origin.source}{" · "}{dateText(origin.at)}
+                  {messageId && <>{" · "}<button type="button" className="nw-btn"
+                    onClick={() => openSourceMessage(messageId)}>Ver mensaje</button></>}
+                </p>;
+              })}
+              {!evidenceRows.length && <p>La ficha histórica no tiene un mensaje de origen registrado.</p>}
+            </details>
             {!!lead.profile.missing.length && <details className="fbc-profile-pending">
               <summary>Falta conocer ({lead.profile.missing.length})</summary>
               <p>{lead.profile.missing.join(" · ")}</p>
@@ -922,7 +963,7 @@ export default function FacebookCenter({ catalog }: { catalog: Catalog }) {
               onChange={(e) => setDetail((old) => old ? {...old, lead: {...old.lead, workers: e.target.value ? Number(e.target.value) : null}} : old)} /></label>
             <label>Disponible desde<input type="text" placeholder="Ej.: mañana, próxima semana o AAAA-MM-DD" value={lead.availability} onChange={(e) => setDetail((old) => old ? {...old, lead: {...old.lead, availability: e.target.value}} : old)} /></label>
           </div>
-          <label>Comuna en la que puede trabajar
+          <label>Comunas en las que puede trabajar
             <input maxLength={120} value={lead.work_area} placeholder="Por confirmar"
               onChange={(e) => setDetail((old) => old ? {...old, lead: {...old.lead, work_area:e.target.value}} : old)} />
           </label>
@@ -933,6 +974,7 @@ export default function FacebookCenter({ catalog }: { catalog: Catalog }) {
               <option value="unknown">Aún no lo sabemos</option>
               <option value="service_offer">Ofrece servicios</option>
               <option value="employment">Busca trabajo como empleado</option>
+              <option value="both">Busca empleo y ofrece servicios</option>
             </select>
           </label>
           <label>¿Puede venir con otras personas?
@@ -983,8 +1025,8 @@ export default function FacebookCenter({ catalog }: { catalog: Catalog }) {
           <div className="fbc-galancito-status">
             <Bot size={18}/><div>
               <strong>Galancito · Respuestas automáticas</strong>
-              <small>Permiso de IA: {lead.ai_consent_state === "accepted" ? "Aceptado por Messenger" :
-                lead.ai_consent_state === "requested" ? "Se solicitó permiso" :
+              <small>Permiso de IA: {lead.ai_consent_state.startsWith("accepted") && lead.ai_consent ? "Aceptado por Messenger" :
+                lead.ai_consent_state.startsWith("requested") ? "Se solicitó permiso" :
                 lead.ai_consent_state === "declined" ? "Prefiere atención humana" :
                 "Sin solicitar"}</small>
               <small>El administrador puede pausar o reactivar al asistente; no puede otorgar consentimiento en nombre del contacto.</small>
@@ -996,18 +1038,12 @@ export default function FacebookCenter({ catalog }: { catalog: Catalog }) {
             </div>
           </details>
           <button type="button" disabled={!!saving} className="nw-btn nw-primary fbc-save-lead"
-            onClick={() => patchLead({
-              name: lead.name, company: lead.company, specialty: lead.specialty,
-              workers: lead.workers, availability: lead.availability,
-              experience: lead.experience, status: lead.status,
-              documents_state: lead.documents_state, ai_paused: lead.ai_paused,
-              needs_support: lead.needs_support,
-              entity_type: lead.entity_type, has_employees: lead.has_employees,
-              interest_type: lead.interest_type, team_available: lead.team_available,
-              work_area: lead.work_area,
-              requirement_id: lead.requirement_id,
-              follow_up_on: lead.follow_up_on, follow_up_note: lead.follow_up_note,
-            })}>Guardar ficha y seguimiento</button>
+            onClick={() => {
+              const saved = savedLeadRef.current;
+              const patch = Object.fromEntries(editableFields.filter(field => lead[field] !== saved?.[field])
+                .map(field => [field, lead[field]]));
+              if (Object.keys(patch).length) patchLead(patch);
+            }}>Guardar ficha y seguimiento</button>
           <details className="fbc-deep-review">
             <summary>Orientación y validaciones</summary>
           <button type="button" className="nw-btn" disabled={!!saving}

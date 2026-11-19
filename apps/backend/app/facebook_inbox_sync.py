@@ -1,7 +1,7 @@
 """Recover Messenger conversations missed by the signed Meta webhook.
 
 Uses only the Page token inside facebook-publisher. This is a bounded, read-only
-Graph API reconciliation; it never replies, runs AI, or overwrites human edits.
+Graph API reconciliation. Fresh messages can queue a response through the normal worker.
 Meta permissions and app review still apply. No tokens/PSIDs are written to logs.
 """
 from __future__ import annotations
@@ -19,10 +19,13 @@ from .config import settings
 from .db import SessionLocal
 from .facebook_ai import messenger_ai_source
 from .facebook_crm_models import FacebookChatMessage, FacebookLead
-from .facebook_lead_insights import link_unique_requirement
-from .galancito_flow import consent_decision, permission_question, wants_human
+from .facebook_lead_insights import trace_unique_requirement
+from .galancito_flow import apply_permission_reply, consented_for, set_permission_request, wants_human
 from .galancito_escalation import flag_for_human
-from .galancito_intake import apply_intake, next_intake_reply
+from .galancito_intake import identity_reply, needs_deeper_response, next_intake_reply, small_talk_reply
+from .galancito_memory import (
+    apply_messenger_message, approved_trade_aliases, aware, prior_delivered_prompt, profile_facts,
+)
 from .galancito_triage import private_data, quick_reply
 from .models import Organization, utcnow
 from .network_service import today
@@ -119,6 +122,7 @@ def sync_page_inbox(*, page_id: str, page_token: str, org_id: str,
             db.execute(sql_text("SELECT pg_advisory_xact_lock(2075003)"))
         leads = {}
         latest_new = {}
+        aliases = approved_trade_aliases(db, org_id)
         for mid, psid, body, timestamp, cid in collected:
             if db.scalar(select(FacebookChatMessage.id).where(
                     FacebookChatMessage.page_id == page_id,
@@ -128,53 +132,36 @@ def sync_page_inbox(*, page_id: str, page_token: str, org_id: str,
             if lead is None:
                 lead = db.scalar(select(FacebookLead).where(
                     FacebookLead.org_id == org_id, FacebookLead.page_id == page_id,
-                    FacebookLead.psid == psid))
+                    FacebookLead.psid == psid).with_for_update())
                 if lead is None:
                     lead = FacebookLead(org_id=org_id, page_id=page_id, psid=psid)
                     db.add(lead)
                     db.flush()
                     created_leads += 1
                 leads[psid] = lead
-            previous = lead.last_inbound_at
-            previous_aware = (previous.replace(tzinfo=timezone.utc)
-                              if previous and previous.tzinfo is None else previous)
-            fresh = previous_aware is None or previous_aware <= timestamp
-            if previous_aware is None or previous_aware < timestamp:
+            previous = aware(lead.last_inbound_at)
+            fresh = previous is None or previous <= timestamp
+            if fresh:
                 lead.last_inbound_at = timestamp
             lead.updated_at = utcnow()
             lead.unread = True
-            # Recovered messages complete the same professional profile as signed
-            # webhook messages, including answers to a sent manual question.
-            prior = db.scalar(select(FacebookChatMessage.body).where(
-                FacebookChatMessage.lead_id == lead.id,
-                FacebookChatMessage.direction == "outbound",
-                FacebookChatMessage.state == "sent",
-                FacebookChatMessage.created_at <= timestamp,
-            ).order_by(FacebookChatMessage.created_at.desc(),
-                       FacebookChatMessage.id.desc()).limit(1)) or ""
-            decision = consent_decision(body) if fresh and lead.ai_consent_state in (
-                "requested", "requested_team") else None
-            if fresh and decision is True:
-                lead.ai_consent = True
-                lead.ai_consent_state = ("accepted_team" if lead.ai_consent_state == "requested_team"
-                                         else "accepted")
-            elif fresh and (decision is False or wants_human(body)):
-                lead.ai_consent, lead.ai_consent_state = False, "declined"
+            prior = prior_delivered_prompt(db, lead, at=timestamp, since=previous if fresh else None)
+            decision = apply_permission_reply(lead, body, prior) if fresh else None
+            if decision is False:
                 flag_for_human(db, lead, "Solicitó atención humana" if wants_human(body)
                                else "Prefirió atención humana y no autorizó IA")
-                for pending in db.scalars(select(FacebookChatMessage).where(
-                    FacebookChatMessage.lead_id == lead.id,
-                    FacebookChatMessage.operator_id.is_(None),
-                    FacebookChatMessage.direction == "outbound",
-                    FacebookChatMessage.state.in_(["pending", "ai_pending", "drafting"]),
-                )):
-                    pending.state = "cancelled"
-            if fresh and decision is None and not private_data(body):
-                apply_intake(lead, body, prior)
-                link_unique_requirement(db, lead, today=today())
+            changed = False
+            if decision is None and not private_data(body):
+                changed = apply_messenger_message(
+                    db, lead, body, prior, remote_id=mid, at=timestamp,
+                    historical=not fresh, aliases=aliases,
+                )
+                if fresh and changed:
+                    trace_unique_requirement(db, lead, today=today(), remote_id=mid)
             db.add(FacebookChatMessage(
                 org_id=org_id, lead_id=lead.id, page_id=page_id, remote_id=mid,
-                direction="inbound", state="received", body=body, created_at=timestamp))
+                direction="inbound", state="received", body=body, created_at=timestamp,
+                consent_decision=decision))
             if fresh:
                 for pending in db.scalars(select(FacebookChatMessage).where(
                     FacebookChatMessage.lead_id == lead.id,
@@ -184,11 +171,16 @@ def sync_page_inbox(*, page_id: str, page_token: str, org_id: str,
                     FacebookChatMessage.state.in_(["pending", "ai_pending", "drafting"]),
                 )):
                     pending.state = "cancelled"
-                latest_new[psid] = (lead, body, timestamp, cid, prior)
+                preceding = latest_new.get(psid)
+                if (preceding and decision is None and not identity_reply(body)
+                        and needs_deeper_response(preceding[1]) and not needs_deeper_response(body)):
+                    body, prior = preceding[1], preceding[4]
+                latest_new[psid] = (lead, body, timestamp, cid, prior, decision,
+                                    changed or bool(preceding and preceding[6]))
             imported += 1
         cfg = settings()
         if cfg.facebook_ai_enabled:
-            for lead, body, timestamp, cid, prior in latest_new.values():
+            for lead, body, timestamp, cid, prior, decision, changed in latest_new.values():
                 last_inbound = lead.last_inbound_at
                 if last_inbound and last_inbound.tzinfo is None:
                     last_inbound = last_inbound.replace(tzinfo=timezone.utc)
@@ -210,9 +202,9 @@ def sync_page_inbox(*, page_id: str, page_token: str, org_id: str,
                     continue
                 if lead.needs_support or lead.ai_consent_state == "declined":
                     if wants_human(body):
-                        acknowledgement = ("Soy Galancito. Ya avisé al equipo para que te atienda "
+                        acknowledgement = ("Ya avisé al equipo para que te atienda "
                                            "una persona. No necesitas enviar documentos por aquí.")
-                    elif consent_decision(body) is False:
+                    elif decision is False:
                         acknowledgement = ("Entendido. No usaré IA con tus mensajes. "
                                            "Una persona del equipo podrá ayudarte.")
                     else:
@@ -224,22 +216,16 @@ def sync_page_inbox(*, page_id: str, page_token: str, org_id: str,
                     queued += 1
                     continue
                 source = messenger_ai_source(db, org_id, cfg)
-                consented = (lead.ai_consent and lead.ai_consent_state == (
-                    "accepted_team" if source == "team" else "accepted"))
-                if consented and source != "disabled":
+                if consented_for(lead, source):
                     state, reply = "ai_pending", ""
                 else:
-                    facts = {"specialty": lead.specialty, "workers": lead.workers,
-                             "availability": lead.availability, "team_available": lead.team_available,
-                             "interest_type": lead.interest_type, "experience": lead.experience,
-                             "work_area": lead.work_area, "display_name": lead.display_name,
-                             "name_opt_out": lead.name_opt_out}
-                    reply = next_intake_reply(body, facts, prior)
+                    facts = profile_facts(lead, changed=changed)
+                    reply = small_talk_reply(body) or next_intake_reply(body, facts, prior)
                     if not reply and source == "disabled":
                         reply = quick_reply(body, known=facts)
-                    if not reply and source != "disabled" and lead.ai_consent_state == "not_requested":
-                        lead.ai_consent_state = "requested_team" if source == "team" else "requested"
-                        reply = permission_question(source)
+                    if not reply and source != "disabled":
+                        reply = set_permission_request(
+                            lead, source, repeat=lead.ai_consent_provider == source)
                     state = "pending"
                 if state == "pending" and not reply:
                     flag_for_human(db, lead,
