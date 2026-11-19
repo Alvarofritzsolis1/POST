@@ -22,7 +22,10 @@ def test_support_reply_is_short_and_asks_at_most_one_question():
             assert len(message) < 380
             assert message.count("?") <= 1
             assert "F-30" not in message and "Contrato de trabajo" not in message
-            assert "asistente virtual" in message.lower()
+            assert "asistente virtual" not in message.lower()
+            assert "soy galancito" not in message.lower()
+            if "audio" in reason:
+                assert "audio" in message.lower()
 
 
 def test_conditional_documents_do_not_overwhelm_persona_natural():
