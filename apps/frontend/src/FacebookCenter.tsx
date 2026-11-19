@@ -176,8 +176,9 @@ export default function FacebookCenter({ catalog }: { catalog: Catalog }) {
   const refresh = useCallback(async () => {
     const current = await net<Center>("/facebook/center");
     setCenter(current);
-    setSelectedId((prev) =>
-      prev && current.leads.some((lead) => lead.id === prev) ? prev : (current.leads[0]?.id || ""));
+    // La lista del centro muestra solo contactos recientes; conservar contactos
+    // abiertos desde Seguimiento aunque no aparezcan entre los primeros 100.
+    setSelectedId((prev) => prev || (current.leads[0]?.id || ""));
   }, []);
   // Estado fresco del worker; al finalizar la comprobación desaparece el estado pendiente.
   useEffect(() => {
@@ -535,7 +536,7 @@ export default function FacebookCenter({ catalog }: { catalog: Catalog }) {
             {!Object.keys(tracking.by_category).length&&<small>No hay especialidades registradas.</small>}
             {Object.entries(tracking.by_category).slice(0,5).map(([name,count])=>
               <div className="fbtrack-graph-row" key={name}>
-                <span>{name}</span><div className="fbtrack-track"><span style={{width:(tracking.total?100*count/tracking.total:0)+"%"}}/></div><b>{count}</b>
+                <span>{name}</span><div className="fbtrack-track"><span style={{width:(tracking.rows.length?100*count/tracking.rows.length:0)+"%"}}/></div><b>{count}</b>
               </div>)}
           </section>
           <section><div className="fbtrack-analysis-head"><b>Estado de seguimiento</b><small>Situación actual</small></div>
