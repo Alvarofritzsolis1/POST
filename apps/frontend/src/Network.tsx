@@ -182,29 +182,33 @@ export default function RedDeObras({ user }: { user: Profile }) {
     return () => window.clearTimeout(timer);
   }, [search]);
   const generation = useRef(0);
-  // Catalog is nearly static and must not be re-downloaded on every list poll.
-  useEffect(() => {
-    let active = true;
-    let busy = false;
-    const fetchCatalog = async () => {
-      if (!active || busy || document.hidden) return;
-      busy = true;
-      try {
-        const data = await net<Catalog>("/catalog");
-        if (active) setCatalog(old => JSON.stringify(old) === JSON.stringify(data) ? old : data);
-      } catch (err) {
-        if (active) setError(errorText(err));
-      } finally { busy = false; }
-    };
-    void fetchCatalog();
-    const timer = window.setInterval(fetchCatalog, 120000);
-    window.addEventListener("galant-network-changed", fetchCatalog);
-    return () => {
-      active = false;
-      window.clearInterval(timer);
-      window.removeEventListener("galant-network-changed", fetchCatalog);
-    };
+  const catalogLoaded = useRef(false);
+  const catalogRequest = useRef<Promise<void> | null>(null);
+  const refreshCatalog = useCallback((force = false): Promise<void> => {
+    if (catalogRequest.current) return catalogRequest.current;
+    if (catalogLoaded.current && !force) return Promise.resolve();
+    // Share a single initial request with the dashboard. Forms must not
+    // appear with incomplete contractor options when opened immediately.
+    const task = net<Catalog>("/catalog")
+      .then(data => {
+        catalogLoaded.current = true;
+        setCatalog(old => JSON.stringify(old) === JSON.stringify(data) ? old : data);
+      }).finally(() => { catalogRequest.current = null; });
+    catalogRequest.current = task;
+    return task;
   }, []);
+  useEffect(() => {
+    void refreshCatalog().catch(err => setError(errorText(err)));
+    const update = () => {
+      if (!document.hidden) void refreshCatalog(true).catch(err => setError(errorText(err)));
+    };
+    const timer = window.setInterval(update, 120000);
+    window.addEventListener("galant-network-changed", update);
+    return () => {
+      window.clearInterval(timer);
+      window.removeEventListener("galant-network-changed", update);
+    };
+  }, [refreshCatalog]);
   const canPublish =
     ["admin", "resident", "supervisor", "analyst"].includes(user.role) &&
     catalog.sites.some((s) => s.editable);
@@ -221,6 +225,7 @@ export default function RedDeObras({ user }: { user: Profile }) {
       "?" + query + (query ? "&" : "") + "limit=24&offset=" + page * 24;
     try {
       const data = await Promise.all([
+        refreshCatalog(),
         net<Overview>("/overview?" + query + (mine ? "&mine=true" : "")),
         ["home", "requirements"].includes(tab)
           ? net<Page<Requirement>>(
@@ -253,7 +258,7 @@ export default function RedDeObras({ user }: { user: Profile }) {
           : null,
       ]);
       if (id !== generation.current) return;
-      const [o, r, c, m, a, co, conv] = data;
+      const [, o, r, c, m, a, co, conv] = data;
       setOverview(o);
       if (r) setReqs(r);
       if (c) setCaps(c);
@@ -267,7 +272,7 @@ export default function RedDeObras({ user }: { user: Profile }) {
     } finally {
       if (id === generation.current) setLoading(false);
     }
-  }, [tab, query, page, debouncedSearch, priority, mine]);
+  }, [tab, query, page, debouncedSearch, priority, mine, refreshCatalog]);
   useEffect(() => {
     let active = true;
     const sync = () => {
