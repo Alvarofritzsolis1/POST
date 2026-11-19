@@ -10,6 +10,7 @@ import GalancitoKnowledgeCenter from "./GalancitoKnowledgeCenter";
 import FacebookOverview from "./FacebookOverview";
 import FacebookPersonSheet from "./FacebookPersonSheet";
 import "./facebook-minimal-layout.css";
+import "./facebook-tracking-refresh.css";
 import NetworkFacebook from "./NetworkFacebook";
 
 type Check = { criterion: string; state: "match" | "verify"; detail: string };
