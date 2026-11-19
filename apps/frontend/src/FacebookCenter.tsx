@@ -175,9 +175,11 @@ export default function FacebookCenter({ catalog }: { catalog: Catalog }) {
   const [trackingQuery, setTrackingQuery] = useState("");
   selectedIdRef.current = selectedId;
 
-  const refresh = useCallback(async () => {
-    if (centerPollingRef.current) return;
-    centerPollingRef.current = true;
+  const refresh = useCallback(async (force = false) => {
+    // An operator's explicit refresh must not be skipped just because an
+    // automatic poll is already underway.
+    if (centerPollingRef.current && !force) return;
+    if (!force) centerPollingRef.current = true;
     try {
       const current = await net<Center>("/facebook/center");
       // Reuse the same object when the server returned no changes. This stops
@@ -186,7 +188,7 @@ export default function FacebookCenter({ catalog }: { catalog: Catalog }) {
         ? previous : current);
       setSelectedId(prev => prev || (current.leads[0]?.id || ""));
     } finally {
-      centerPollingRef.current = false;
+      if (!force) centerPollingRef.current = false;
     }
   }, []);
   // Estado fresco del worker; al finalizar la comprobación desaparece el estado pendiente.
@@ -337,7 +339,7 @@ export default function FacebookCenter({ catalog }: { catalog: Catalog }) {
     try {
       await run();
       if (message) setNotice(message);
-      await refresh();
+      await refresh(true);
       if (tab === "tracking") await refreshTracking();
       if (selectedId) {
         await refreshDetail(selectedId);
@@ -1056,7 +1058,7 @@ export default function FacebookCenter({ catalog }: { catalog: Catalog }) {
           <h3>Estado de publicaciones</h3>
           <p>Revisa envíos, errores y enlaces a Facebook.</p>
         </div>
-        <button type="button" className="nw-btn" onClick={() => void refresh().catch((e) => setError(errorText(e)))} disabled={!!saving}>
+        <button type="button" className="nw-btn" onClick={() => void refresh(true).catch((e) => setError(errorText(e)))} disabled={!!saving}>
           <RefreshCcw size={16} /> Actualizar estados
         </button>
       </div>
