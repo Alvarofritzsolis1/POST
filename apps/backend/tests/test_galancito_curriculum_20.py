@@ -218,7 +218,8 @@ def test_human_conversational_style_without_repeated_bot_introductions():
     assert "Soy Galancito" not in answer
     first = natural_messenger_reply(answer, 0)
     second = natural_messenger_reply(answer, 1)
-    assert first.startswith("Soy Galancito")
+    assert first == answer
+    assert "Soy Galancito" not in first
     assert "Soy Galancito" not in second
     assert len(second) < 550
 
