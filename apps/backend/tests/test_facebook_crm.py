@@ -87,7 +87,7 @@ def test_trade_guide_explains_documents_without_requiring_formality(network, mon
     monkeypatch.setenv("FACEBOOK_AI_AUTO_REPLY_ENABLED", "true")
     monkeypatch.setenv("FACEBOOK_AI_API_KEY", "synthetic-key-never-used")
     settings.cache_clear()
-    assert incoming(n).status_code == 200
+    assert incoming(n, text="¿Cuáles son los requisitos para postular?").status_code == 200
     leads = n["admin"].get("/api/v1/network/facebook/center").json()["leads"]
     lead_id = leads[0]["id"]
     assert leads[0]["ai_consent_state"] == "requested"
@@ -229,7 +229,7 @@ def test_galancito_conversation_auto_reply_only_after_messenger_consent(network,
     monkeypatch.setenv("FACEBOOK_AI_ENABLED", "true")
     monkeypatch.setenv("FACEBOOK_AI_API_KEY", "synthetic-key")
     settings.cache_clear()
-    assert incoming(n, text="hola necesito trabajos", mid="first").status_code == 200
+    assert incoming(n, text="¿Cuáles son los requisitos para postular?", mid="first").status_code == 200
     lead = n["admin"].get("/api/v1/network/facebook/center").json()["leads"][0]
     assert lead["ai_consent"] is False and lead["ai_consent_state"] == "requested"
     pending = n["admin"].get("/api/v1/network/facebook/leads/" + lead["id"]).json()["messages"]
@@ -253,15 +253,154 @@ def test_galancito_conversation_auto_reply_only_after_messenger_consent(network,
     assert len(calls) == 2 and len(ai_calls) == 1
     assert calls[-1].startswith("Soy Galancito")
     assert n["admin"].get("/api/v1/network/facebook/center").json()["leads"][0]["ai_consent_state"] == "accepted"
-    # Cuando responde una persona, el asistente deja de competir por la conversación.
+    # A manual answer takes this turn, but the next incoming turn is automatic.
     reply = n["send"](n["admin"], "/facebook/leads/" + lead["id"] + "/reply",
                       {"message": "Te atiendo yo desde ahora."})
     assert reply.status_code == 202
     status = n["admin"].get("/api/v1/network/facebook/leads/" + lead["id"]).json()["lead"]
-    assert status["ai_paused"] is True
+    assert status["ai_paused"] is False
     assert incoming(n, text="tengo dos ayudantes", mid="later").status_code == 200
     messages = n["admin"].get("/api/v1/network/facebook/leads/" + lead["id"]).json()["messages"]
-    assert not any(msg["state"] == "ai_pending" for msg in messages)
+    assert any(msg["state"] == "ai_pending" for msg in messages)
+
+
+def test_manual_trade_question_continues_automatically_and_can_be_paused(network, monkeypatch):
+    n = network
+    enable_messaging(n, monkeypatch)
+    monkeypatch.setenv("FACEBOOK_AI_AUTO_REPLY_ENABLED", "true")
+    monkeypatch.setenv("FACEBOOK_AI_ENABLED", "true")
+    monkeypatch.setenv("FACEBOOK_AI_API_KEY", "synthetic-key")
+    settings.cache_clear()
+    assert incoming(n, text="hola", mid="trade-hello").status_code == 200
+    lead_id = n["admin"].get("/api/v1/network/facebook/center").json()["leads"][0]["id"]
+    sent = n["send"](n["admin"], "/facebook/leads/" + lead_id + "/reply",
+                     {"message": "Hola, gracias por escribirnos. ¿En qué oficio te especializas?"})
+    assert sent.status_code == 202
+    sends = []
+    def send_once(page, psid, body, token):
+        sends.append(body)
+        return "mid-manual-" + str(len(sends))
+    monkeypatch.setattr("app.facebook_chat_worker.graph_send", send_once)
+    assert process_chat_next(n["Session"])
+    assert incoming(n, text="SOY GASFITER", mid="trade-answer").status_code == 200
+    detail = n["admin"].get("/api/v1/network/facebook/leads/" + lead_id).json()
+    assert detail["lead"]["specialty"] == "Gasfitería"
+    assert detail["lead"]["ai_paused"] is False
+    queued = detail["messages"][-1]
+    assert queued["state"] == "pending" and queued["automated"] is True
+    assert "gasfitería" in queued["body"].lower()
+    assert "cuenta" in queued["body"].lower()
+    assert process_chat_next(n["Session"])
+    detail = n["admin"].get("/api/v1/network/facebook/leads/" + lead_id).json()
+    assert detail["messages"][-1]["state"] == "sent"
+    paused = n["send"](n["admin"], "/facebook/leads/" + lead_id,
+                       {"ai_paused": True}, "PATCH")
+    assert paused.status_code == 200 and paused.json()["ai_paused"] is True
+    assert incoming(n, text="trabajo por mi cuenta", mid="trade-paused").status_code == 200
+    assert n["admin"].get("/api/v1/network/facebook/leads/" + lead_id).json()["messages"][-1]["direction"] == "inbound"
+    resumed = n["send"](n["admin"], "/facebook/leads/" + lead_id,
+                        {"ai_paused": False}, "PATCH")
+    assert resumed.status_code == 200 and resumed.json()["ai_paused"] is False
+    assert incoming(n, text="trabajo solo", mid="trade-resumed").status_code == 200
+    assert n["admin"].get("/api/v1/network/facebook/leads/" + lead_id).json()["messages"][-1]["automated"] is True
+
+
+def test_new_inbound_replaces_unsent_automatic_question(network, monkeypatch):
+    n = network
+    enable_messaging(n, monkeypatch)
+    monkeypatch.setenv("FACEBOOK_AI_AUTO_REPLY_ENABLED", "true")
+    settings.cache_clear()
+    assert incoming(n, text="hola", mid="replacement-1").status_code == 200
+    lead_id = n["admin"].get("/api/v1/network/facebook/center").json()["leads"][0]["id"]
+    first = n["admin"].get("/api/v1/network/facebook/leads/" + lead_id).json()["messages"][-1]
+    assert first["state"] == "pending"
+    assert incoming(n, text="soy gasfiter", mid="replacement-2").status_code == 200
+    messages = n["admin"].get("/api/v1/network/facebook/leads/" + lead_id).json()["messages"]
+    assert next(msg for msg in messages if msg["id"] == first["id"])["state"] == "cancelled"
+    assert messages[-1]["state"] == "pending" and "gasfitería" in messages[-1]["body"].lower()
+
+
+def test_explicit_human_request_notifies_administration(network, monkeypatch):
+    from app.network_models import NetworkNotification
+
+    n = network
+    enable_messaging(n, monkeypatch)
+    monkeypatch.setenv("FACEBOOK_AI_AUTO_REPLY_ENABLED", "true")
+    settings.cache_clear()
+    assert incoming(n, text="Quiero hablar con una persona", mid="human-request-1").status_code == 200
+    lead = n["admin"].get("/api/v1/network/facebook/center").json()["leads"][0]
+    assert lead["needs_support"] is True
+    assert "humana" in lead["support_reason"].lower()
+    with n["Session"]() as db:
+        alerts = db.scalars(select(NetworkNotification).where(
+            NetworkNotification.resource_id == lead["id"])).all()
+    assert alerts and all(alert.resource_type == "facebook" for alert in alerts)
+    assert n["send"](n["admin"], "/facebook/leads/" + lead["id"],
+                     {"needs_support": False}, "PATCH").status_code == 200
+    assert incoming(n, text="Quiero hablar con una persona", mid="human-request-2").status_code == 200
+    with n["Session"]() as db:
+        repeated = db.scalars(select(NetworkNotification).where(
+            NetworkNotification.resource_id == lead["id"])).all()
+    assert len(repeated) == 2 * len(alerts)
+
+
+def test_model_failure_notifies_human_instead_of_sending_generic_answer(network, monkeypatch):
+    from app.network_models import NetworkNotification
+
+    n = network
+    enable_messaging(n, monkeypatch)
+    monkeypatch.setenv("FACEBOOK_AI_AUTO_REPLY_ENABLED", "true")
+    monkeypatch.setenv("FACEBOOK_AI_ENABLED", "true")
+    monkeypatch.setenv("FACEBOOK_AI_API_KEY", "synthetic-key")
+    settings.cache_clear()
+    assert incoming(n, text="hola", mid="complex-hello").status_code == 200
+    lead_id = n["admin"].get("/api/v1/network/facebook/center").json()["leads"][0]["id"]
+    with n["Session"].begin() as db:
+        lead = db.get(FacebookLead, lead_id)
+        lead.ai_consent = True
+        lead.ai_consent_state = "accepted"
+        for pending in db.scalars(select(FacebookChatMessage).where(
+                FacebookChatMessage.lead_id == lead_id,
+                FacebookChatMessage.direction == "outbound")):
+            pending.state = "cancelled"
+    assert incoming(n, text="¿Cuánto pagan en una obra?", mid="complex-question").status_code == 200
+    monkeypatch.setattr("app.facebook_chat_worker.generate_text",
+                        lambda *args: (_ for _ in ()).throw(RuntimeError("model unavailable")))
+    sent = []
+    monkeypatch.setattr("app.facebook_chat_worker.graph_send",
+                        lambda page, psid, body, token: sent.append(body) or "mid-complex-fallback")
+    assert process_chat_next(n["Session"])
+    assert len(sent) == 1 and "pendiente de revisión humana" in sent[0]
+    detail = n["admin"].get("/api/v1/network/facebook/leads/" + lead_id).json()
+    assert detail["lead"]["needs_support"] is True
+    with n["Session"]() as db:
+        assert db.scalar(select(NetworkNotification.id).where(
+            NetworkNotification.resource_id == lead_id))
+
+
+def test_automatic_reply_limit_alerts_instead_of_failing_silently(network, monkeypatch):
+    from app.network_models import NetworkNotification
+
+    n = network
+    enable_messaging(n, monkeypatch)
+    monkeypatch.setenv("FACEBOOK_AI_AUTO_REPLY_ENABLED", "true")
+    settings.cache_clear()
+    assert incoming(n, text="hola", mid="limit-hello").status_code == 200
+    lead_id = n["admin"].get("/api/v1/network/facebook/center").json()["leads"][0]["id"]
+    with n["Session"].begin() as db:
+        lead = db.get(FacebookLead, lead_id)
+        for i in range(29):
+            db.add(FacebookChatMessage(org_id=lead.org_id, lead_id=lead.id,
+                                       page_id=lead.page_id, direction="outbound",
+                                       state="sent", body="Respuesta sintética " + str(i)))
+    assert incoming(n, text="SOY GASFITER", mid="limit-trade").status_code == 200
+    detail = n["admin"].get("/api/v1/network/facebook/leads/" + lead_id).json()
+    assert detail["lead"]["needs_support"] is True
+    assert "Límite" in detail["lead"]["support_reason"]
+    assert detail["messages"][-1]["direction"] == "inbound"
+    with n["Session"]() as db:
+        assert db.scalar(select(NetworkNotification.id).where(
+            NetworkNotification.resource_id == lead_id))
 
 
 def test_galancito_respects_refusal_without_external_ai(network, monkeypatch):
@@ -365,7 +504,7 @@ def test_messenger_reasks_when_legacy_consent_precedes_team_assignment(network, 
     monkeypatch.setenv("FACEBOOK_AI_API_KEY", "synthetic-openai-key")
     monkeypatch.setenv("AI_CREDENTIAL_ENCRYPTION_KEY", Fernet.generate_key().decode())
     settings.cache_clear()
-    assert incoming(n, text="Busco trabajo", mid="old-1").status_code == 200
+    assert incoming(n, text="¿Cuáles son los requisitos para postular?", mid="old-1").status_code == 200
     assert incoming(n, text="sí", mid="old-consent").status_code == 200
     lead = n["admin"].get("/api/v1/network/facebook/center").json()["leads"][0]
     assert lead["ai_consent_state"] == "accepted"
@@ -555,6 +694,44 @@ def test_lead_insights_proposes_name_without_editing_and_ranks_needs(network, mo
     assert confirmed.json()["requirement_id"] == target_id
 
 
+def test_profile_links_only_one_compatible_active_requirement(network, monkeypatch):
+    from datetime import timedelta
+    from uuid import uuid4
+    from app.network_models import NetworkRequirement
+    from app.network_service import today
+
+    n = network
+    enable_messaging(n, monkeypatch)
+    assert incoming(n, text="soy gasfiter", mid="link-hello").status_code == 200
+    lead_id = n["admin"].get("/api/v1/network/facebook/center").json()["leads"][0]["id"]
+    with n["Session"].begin() as db:
+        org_id = db.get(FacebookLead, lead_id).org_id
+        reqs = []
+        for index in range(2):
+            req = NetworkRequirement(
+                org_id=org_id, site_id=n["sites"][index], created_by=n["a_user"]["id"],
+                specialty="Gasfitería", specialty_key="gasfiteria",
+                title="Gasfitería obra " + str(index), workers=2,
+                start_date=today() + timedelta(days=8),
+                end_date=today() + timedelta(days=18),
+                deadline=today() + timedelta(days=6),
+                client_key=uuid4().hex, state="published")
+            db.add(req)
+            reqs.append(req)
+        db.flush()
+        target_id = reqs[0].id
+        other_id = reqs[1].id
+    ready = {"interest_type": "service_offer", "specialty": "Gasfitería",
+             "workers": 3, "availability": (today() + timedelta(days=2)).isoformat()}
+    ambiguous = n["send"](n["admin"], "/facebook/leads/" + lead_id, ready, "PATCH")
+    assert ambiguous.status_code == 200 and ambiguous.json()["requirement_id"] is None
+    with n["Session"].begin() as db:
+        db.get(NetworkRequirement, other_id).state = "draft"
+    unique = n["send"](n["admin"], "/facebook/leads/" + lead_id,
+                       {"work_area": "Coronel"}, "PATCH")
+    assert unique.status_code == 200 and unique.json()["requirement_id"] == target_id
+
+
 def test_messenger_profile_name_is_optional_and_does_not_override_manual_name(network, monkeypatch):
     from app import facebook_chat_worker as worker
     n = network
@@ -593,7 +770,7 @@ def test_local_name_extractor_rejects_ambiguous_job_titles():
 
 
 def test_recover_external_message_missing_from_webhook(network, monkeypatch):
-    """Missed messages become inbox leads, without auto-sending old replies."""
+    """Old messages become inbox leads without reopening a stale conversation."""
     from app.network_facebook import process_manual_next
     from app import facebook_inbox_sync as recovery
 
@@ -611,10 +788,10 @@ def test_recover_external_message_missing_from_webhook(network, monkeypatch):
         return {"data": [
             {"id": "m_test_external_001", "message": "Hola, soy carpintero",
              "from": {"id": "987654321098765"},
-             "created_time": "2026-11-18T13:50:00+0000"},
+             "created_time": "2020-11-18T13:50:00+0000"},
             {"id": "m_test_echo_002", "message": "Respuesta de la página",
              "from": {"id": "1489275590928529"},
-             "created_time": "2026-11-18T13:51:00+0000"},
+             "created_time": "2020-11-18T13:51:00+0000"},
         ]}
 
     monkeypatch.setattr(recovery, "_graph_get", fake_meta)
@@ -634,6 +811,58 @@ def test_recover_external_message_missing_from_webhook(network, monkeypatch):
     # Within the rate limit, a repeated click never schedules duplicate work.
     repeated = n["send"](n["admin"], "/facebook/inbox/sync")
     assert repeated.status_code == 202 and not repeated.json()["queued"]
+
+
+def test_recovery_queues_fresh_unanswered_trade_once(network, monkeypatch):
+    from datetime import timezone, datetime
+    from app import facebook_inbox_sync as recovery
+
+    n = network
+    org_id = enable_messaging(n, monkeypatch)
+    monkeypatch.setenv("FACEBOOK_AI_AUTO_REPLY_ENABLED", "true")
+    settings.cache_clear()
+    now = datetime.now(timezone.utc).isoformat()
+    monkeypatch.setattr(recovery, "_graph_get", lambda token, resource, edge, fields, limit:
+        {"data": [{"id": "t_fresh_gasfiter_01"}]} if edge == "conversations" else
+        {"data": [{"id": "m_fresh_gasfiter_01", "message": "SOY GASFITER",
+                   "from": {"id": "987654321098765"}, "created_time": now}]})
+    first = recovery.sync_page_inbox(page_id="1489275590928529",
+                                     page_token="synthetic-page-token",
+                                     org_id=org_id, session_factory=n["Session"])
+    assert first["messages_imported"] == 1 and first["replies_queued"] == 1
+    second = recovery.sync_page_inbox(page_id="1489275590928529",
+                                      page_token="synthetic-page-token",
+                                      org_id=org_id, session_factory=n["Session"])
+    assert second["messages_imported"] == 0 and second["replies_queued"] == 0
+    lead = n["admin"].get("/api/v1/network/facebook/center").json()["leads"][0]
+    assert lead["specialty"] == "Gasfitería"
+    messages = n["admin"].get("/api/v1/network/facebook/leads/" + lead["id"]).json()["messages"]
+    assert len(messages) == 2 and messages[-1]["automated"]
+
+
+def test_recovery_does_not_answer_after_meta_page_reply(network, monkeypatch):
+    from datetime import datetime, timedelta, timezone
+    from app import facebook_inbox_sync as recovery
+
+    n = network
+    org_id = enable_messaging(n, monkeypatch)
+    monkeypatch.setenv("FACEBOOK_AI_AUTO_REPLY_ENABLED", "true")
+    settings.cache_clear()
+    now = datetime.now(timezone.utc)
+    monkeypatch.setattr(recovery, "_graph_get", lambda token, resource, edge, fields, limit:
+        {"data": [{"id": "t_already_answered_01"}]} if edge == "conversations" else
+        {"data": [
+            {"id": "m_answered_in_01", "message": "SOY GASFITER",
+             "from": {"id": "987654321098765"},
+             "created_time": (now - timedelta(minutes=2)).isoformat()},
+            {"id": "m_answered_out_01", "message": "Gracias por responder",
+             "from": {"id": "1489275590928529"},
+             "created_time": (now - timedelta(minutes=1)).isoformat()},
+        ]})
+    result = recovery.sync_page_inbox(page_id="1489275590928529",
+                                      page_token="synthetic-page-token",
+                                      org_id=org_id, session_factory=n["Session"])
+    assert result["messages_imported"] == 1 and result["replies_queued"] == 0
 
 
 def test_recovery_deduplicates_webhook_messages(network, monkeypatch):
@@ -762,16 +991,15 @@ def test_messenger_automatic_reply_readiness_explains_missing_configuration(netw
     auto = result.json()["auto_reply"]
     assert auto["configured"] is False
     assert any("deshabilitadas" in item for item in auto["missing"])
-    assert any("modelo" in item for item in auto["missing"])
     assert "token" not in str(auto).lower()
     monkeypatch.setenv("FACEBOOK_AI_ENABLED", "true")
     monkeypatch.setenv("FACEBOOK_AI_AUTO_REPLY_ENABLED", "true")
     settings.cache_clear()
     response = n["admin"].get("/api/v1/network/facebook/center")
     assert response.status_code == 200, response.text
-    # Flags alone never claim that Messenger is ready without a verified AI.
-    assert response.json()["auto_reply"]["configured"] is False
-    assert any("modelo" in item for item in response.json()["auto_reply"]["missing"])
+    # Local replies do not depend on a verified external model.
+    assert response.json()["auto_reply"]["configured"] is True
+    assert response.json()["ai_provider"] == "disabled"
 
 
 def test_facebook_name_fills_on_arrival_and_history_reconciles(network, monkeypatch):
@@ -804,7 +1032,7 @@ def test_messenger_reports_real_drafting_and_sending_stages(network, monkeypatch
     monkeypatch.setenv("FACEBOOK_AI_AUTO_REPLY_ENABLED", "true")
     monkeypatch.setenv("FACEBOOK_AI_API_KEY", "fake-synthetic-key")
     settings.cache_clear()
-    assert incoming(n, text="Quiero ser contratista de carpintería, ¿cómo postulo?", mid="staged-1").status_code == 200
+    assert incoming(n, text="¿Cuáles son los requisitos para postular?", mid="staged-1").status_code == 200
     calls = []
     def mock_send(page_id, psid, body, token):
         with n["Session"]() as db:
@@ -849,7 +1077,7 @@ def test_messenger_typing_dots_match_meta_sender_actions(network, monkeypatch):
         "app.facebook_chat_worker.graph_send",
         lambda page_id, psid, body, token: "mid-synthetic-typing")
     assert incoming(n, text="Hola, quiero ofrecer carpintería", mid="typing-1").status_code == 200
-    # Consent question is the only output before the person authorizes the AI.
+    # Simple intake can be answered locally before any model authorization.
     assert process_chat_next(n["Session"]) is True
     assert actions == ["mark_seen", "typing_on", "typing_off"]
     lead = n["admin"].get("/api/v1/network/facebook/center").json()["leads"][0]

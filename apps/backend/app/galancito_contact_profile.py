@@ -58,7 +58,7 @@ def contact_profile(lead) -> dict:
     if company:
         narrative.append("nombre comercial registrado: " + company.strip()[:100])
     if getattr(lead, "requirement_id", None):
-        narrative.append("tiene una necesidad vinculada por administración")
+        narrative.append("tiene una necesidad vinculada para revisión")
     return {
         "summary": ". ".join(narrative) + ". Pendiente de validación por administración.",
         "completed": answered, "total": len(fields),

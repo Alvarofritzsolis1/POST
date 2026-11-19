@@ -8,17 +8,24 @@ from __future__ import annotations
 
 import json
 import re
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
 from urllib.error import HTTPError
 from urllib.parse import urlencode
 from urllib.request import HTTPRedirectHandler, Request, build_opener
 
 from sqlalchemy import select, text as sql_text
 
+from .config import settings
 from .db import SessionLocal
+from .facebook_ai import messenger_ai_source
 from .facebook_crm_models import FacebookChatMessage, FacebookLead
-from .galancito_intake import apply_intake
+from .facebook_lead_insights import link_unique_requirement
+from .galancito_flow import consent_decision, permission_question, wants_human
+from .galancito_escalation import flag_for_human
+from .galancito_intake import apply_intake, next_intake_reply
+from .galancito_triage import private_data, quick_reply
 from .models import Organization, utcnow
+from .network_service import today
 
 
 class _NoRedirect(HTTPRedirectHandler):
@@ -74,6 +81,7 @@ def sync_page_inbox(*, page_id: str, page_token: str, org_id: str,
     conversations = _graph_get(page_token, page_id, "conversations", "id,updated_time",
                                conversation_limit)["data"]
     collected = []
+    page_replies: dict[str, datetime] = {}
     for conversation in conversations:
         if not isinstance(conversation, dict):
             continue
@@ -89,13 +97,17 @@ def sync_page_inbox(*, page_id: str, page_token: str, org_id: str,
             sender = m.get("from") or {}
             psid = str(sender.get("id") or "") if isinstance(sender, dict) else ""
             body = m.get("message")
+            timestamp = _created_at(m.get("created_time"))
+            if psid == page_id:
+                page_replies[cid] = max(page_replies.get(cid, timestamp), timestamp)
+                continue
             if (not re.fullmatch(r"[0-9]{5,90}", psid) or psid == page_id or
                     not isinstance(body, str) or not body.strip() or
                     not 3 <= len(mid) <= 180):
                 continue
-            collected.append((mid, psid, body.strip()[:3500], _created_at(m.get("created_time"))))
+            collected.append((mid, psid, body.strip()[:3500], timestamp, cid))
 
-    created_leads, imported = 0, 0
+    created_leads, imported, queued = 0, 0, 0
     # Oldest first avoids clobbering a newer last_inbound_at.
     collected.sort(key=lambda x: x[3])
     with session_factory.begin() as db:
@@ -106,7 +118,8 @@ def sync_page_inbox(*, page_id: str, page_token: str, org_id: str,
         if db.bind.dialect.name == "postgresql":
             db.execute(sql_text("SELECT pg_advisory_xact_lock(2075003)"))
         leads = {}
-        for mid, psid, body, timestamp in collected:
+        latest_new = {}
+        for mid, psid, body, timestamp, cid in collected:
             if db.scalar(select(FacebookChatMessage.id).where(
                     FacebookChatMessage.page_id == page_id,
                     FacebookChatMessage.remote_id == mid)):
@@ -123,21 +136,123 @@ def sync_page_inbox(*, page_id: str, page_token: str, org_id: str,
                     created_leads += 1
                 leads[psid] = lead
             previous = lead.last_inbound_at
-            if previous is None or (previous.replace(tzinfo=timezone.utc)
-                                    if previous.tzinfo is None else previous) < timestamp:
+            previous_aware = (previous.replace(tzinfo=timezone.utc)
+                              if previous and previous.tzinfo is None else previous)
+            fresh = previous_aware is None or previous_aware <= timestamp
+            if previous_aware is None or previous_aware < timestamp:
                 lead.last_inbound_at = timestamp
             lead.updated_at = utcnow()
             lead.unread = True
             # Recovered messages complete the same professional profile as signed
-            # webhook messages. This stays local and does not trigger AI replies.
-            apply_intake(lead, body)
+            # webhook messages, including answers to a sent manual question.
+            prior = db.scalar(select(FacebookChatMessage.body).where(
+                FacebookChatMessage.lead_id == lead.id,
+                FacebookChatMessage.direction == "outbound",
+                FacebookChatMessage.state == "sent",
+                FacebookChatMessage.created_at <= timestamp,
+            ).order_by(FacebookChatMessage.created_at.desc(),
+                       FacebookChatMessage.id.desc()).limit(1)) or ""
+            decision = consent_decision(body) if fresh and lead.ai_consent_state in (
+                "requested", "requested_team") else None
+            if fresh and decision is True:
+                lead.ai_consent = True
+                lead.ai_consent_state = ("accepted_team" if lead.ai_consent_state == "requested_team"
+                                         else "accepted")
+            elif fresh and (decision is False or wants_human(body)):
+                lead.ai_consent, lead.ai_consent_state = False, "declined"
+                flag_for_human(db, lead, "Solicitó atención humana" if wants_human(body)
+                               else "Prefirió atención humana y no autorizó IA")
+                for pending in db.scalars(select(FacebookChatMessage).where(
+                    FacebookChatMessage.lead_id == lead.id,
+                    FacebookChatMessage.operator_id.is_(None),
+                    FacebookChatMessage.direction == "outbound",
+                    FacebookChatMessage.state.in_(["pending", "ai_pending", "drafting"]),
+                )):
+                    pending.state = "cancelled"
+            if fresh and decision is None and not private_data(body):
+                apply_intake(lead, body, prior)
+                link_unique_requirement(db, lead, today=today())
             db.add(FacebookChatMessage(
                 org_id=org_id, lead_id=lead.id, page_id=page_id, remote_id=mid,
                 direction="inbound", state="received", body=body, created_at=timestamp))
+            if fresh:
+                for pending in db.scalars(select(FacebookChatMessage).where(
+                    FacebookChatMessage.lead_id == lead.id,
+                    FacebookChatMessage.operator_id.is_(None),
+                    FacebookChatMessage.direction == "outbound",
+                    FacebookChatMessage.created_at < timestamp,
+                    FacebookChatMessage.state.in_(["pending", "ai_pending", "drafting"]),
+                )):
+                    pending.state = "cancelled"
+                latest_new[psid] = (lead, body, timestamp, cid, prior)
             imported += 1
-        # No AI follow-up: recovery is not a fresh user-initiated conversation.
+        cfg = settings()
+        if cfg.facebook_ai_auto_reply_enabled:
+            for lead, body, timestamp, cid, prior in latest_new.values():
+                last_inbound = lead.last_inbound_at
+                if last_inbound and last_inbound.tzinfo is None:
+                    last_inbound = last_inbound.replace(tzinfo=timezone.utc)
+                if (timestamp < utcnow() - timedelta(hours=24) or
+                        last_inbound != timestamp or
+                        page_replies.get(cid, datetime.min.replace(tzinfo=timezone.utc)) >= timestamp or
+                        lead.ai_paused or private_data(body)):
+                    continue
+                # Do not answer if the operator already replied or a send is
+                # pending/uncertain. Never replay a thread just because it was synced.
+                later = db.scalar(select(FacebookChatMessage.id).where(
+                    FacebookChatMessage.lead_id == lead.id,
+                    FacebookChatMessage.direction == "outbound",
+                    FacebookChatMessage.created_at >= timestamp,
+                    FacebookChatMessage.state.in_([
+                        "pending", "ai_pending", "drafting", "sending", "sent", "uncertain"]),
+                ).limit(1))
+                if later:
+                    continue
+                if lead.needs_support or lead.ai_consent_state == "declined":
+                    if wants_human(body):
+                        acknowledgement = ("Soy Galancito. Ya avisé al equipo para que te atienda "
+                                           "una persona. No necesitas enviar documentos por aquí.")
+                    elif consent_decision(body) is False:
+                        acknowledgement = ("Entendido. No usaré IA con tus mensajes. "
+                                           "Una persona del equipo podrá ayudarte.")
+                    else:
+                        continue
+                    db.add(FacebookChatMessage(
+                        org_id=org_id, lead_id=lead.id, page_id=page_id,
+                        direction="outbound", state="pending", body=acknowledgement,
+                        ai_generated=False))
+                    queued += 1
+                    continue
+                source = messenger_ai_source(db, org_id, cfg)
+                consented = (lead.ai_consent and lead.ai_consent_state == (
+                    "accepted_team" if source == "team" else "accepted"))
+                if consented and source != "disabled":
+                    state, reply = "ai_pending", ""
+                else:
+                    facts = {"specialty": lead.specialty, "workers": lead.workers,
+                             "availability": lead.availability, "team_available": lead.team_available,
+                             "interest_type": lead.interest_type, "experience": lead.experience,
+                             "work_area": lead.work_area, "display_name": lead.display_name,
+                             "name_opt_out": lead.name_opt_out}
+                    reply = next_intake_reply(body, facts, prior)
+                    if not reply and source == "disabled":
+                        reply = quick_reply(body, known=facts)
+                    if not reply and source != "disabled" and lead.ai_consent_state == "not_requested":
+                        lead.ai_consent_state = "requested_team" if source == "team" else "requested"
+                        reply = permission_question(source)
+                    state = "pending"
+                if state == "pending" and not reply:
+                    flag_for_human(db, lead,
+                                   "Galancito no encontró una respuesta confirmada; revisión humana pendiente")
+                    reply = ("No tengo una respuesta confirmada para eso. "
+                             "Avisé al equipo para que pueda ayudarte.")
+                db.add(FacebookChatMessage(
+                    org_id=org_id, lead_id=lead.id, page_id=page_id,
+                    direction="outbound", state=state, body=reply,
+                    ai_generated=state == "ai_pending"))
+                queued += 1
     return {"conversations_checked": len(conversations), "messages_imported": imported,
-            "new_contacts": created_leads}
+            "new_contacts": created_leads, "replies_queued": queued}
 
 
 def periodic_recovery(stop_event, *, interval_seconds: int = 30, startup_delay: int = 5) -> None:

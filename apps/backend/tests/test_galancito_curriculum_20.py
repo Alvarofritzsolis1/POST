@@ -70,6 +70,15 @@ def test_independent_works_alone_without_automatic_company_or_legal_employees():
     assert "experiencia" not in question.lower() or "tiempo" in question.lower()
 
 
+def test_availability_date_is_normalized_for_requirement_matching():
+    lead = blank_lead()
+    apply_intake(lead, "Puedo comenzar desde el 25/11/2026")
+    assert lead.availability == "2026-11-25"
+    other = blank_lead()
+    apply_intake(other, "26/11/2026", "¿Desde cuándo podrías comenzar?")
+    assert other.availability == "2026-11-26"
+
+
 def test_worker_is_not_a_contractor_and_human_requests_interrupt_intake():
     lead = blank_lead()
     question = respond(lead, "", "busco pega de pintor")

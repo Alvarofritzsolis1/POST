@@ -6,6 +6,7 @@ Collect voluntary professional declarations only, never determine eligibility,
 legal employment, suitability, or award work. No external model is required.
 """
 import re
+from datetime import date
 from .galancito_triage import analyze, plain, private_data
 
 _INTEREST_QUESTION = "ofreces trabajos por tu cuenta"
@@ -196,15 +197,27 @@ def apply_intake(lead, message: str, prior_prompt: str = "") -> None:
                 and not re.search(r"\d|@|http|\b(?:calle|pasaje|avenida|direccion|numero|rut)\b", plain(commune))
                 and plain(commune) not in {"no se", "no", "si"}):
             lead.work_area = commune
-    if not lead.availability and (_AVAILABILITY_QUESTION in prev or
+    date_declaration = re.search(
+        r"\b(?:desde(?:\s+el)?|comenzar(?:\s+el)?|disponible\s+desde(?:\s+el)?)\s+"
+        r"(\d{1,2}/\d{1,2}/20\d{2}|20\d{2}-\d{2}-\d{2})\b",
+        message, flags=re.I)
+    if not lead.availability and (_AVAILABILITY_QUESTION in prev or date_declaration or
                                   value in {"desde hoy", "desde manana", "inmediato", "inmediata"}):
+        stated_date = date_declaration.group(1) if date_declaration else message.strip()
+        day_first = re.fullmatch(r"(\d{1,2})/(\d{1,2})/(20\d{2})", stated_date)
+        if day_first:
+            stated_date = f"{day_first[3]}-{int(day_first[2]):02d}-{int(day_first[1]):02d}"
+        try:
+            lead.availability = date.fromisoformat(stated_date).isoformat()
+        except ValueError:
+            pass
         common = {"hoy", "desde hoy", "manana", "desde manana", "inmediata",
                   "inmediato", "proxima semana", "la proxima semana", "en dos semanas",
                   "despues de dos semanas", "cuando me necesiten"}
-        if value in common or (
+        if not lead.availability and (value in common or (
             len(value) < 65 and re.search(
                 r"\b(?:lunes|martes|miercoles|jueves|viernes|sabado|domingo|semana|mes)\b", value)
-        ):
+        )):
             lead.availability = message.strip()[:100]
     if not lead.availability and facts.availability:
         lead.availability = facts.availability
@@ -274,7 +287,7 @@ def next_intake_reply(message: str, facts: dict, prior_prompt: str = "") -> str 
     elif not facts.get("work_area"):
         question = "¿En qué comuna puedes trabajar?"
     elif not facts.get("availability"):
-        question = "¿Desde cuándo podrías comenzar?"
+        question = "¿Desde cuándo podrías comenzar? Puedes decir mañana o una fecha en formato día/mes/año."
     elif ("display_name" in facts and facts.get("display_name") in {
         "", "Interesado de Facebook", "Contacto sin nombre", None
     } and not facts.get("name_opt_out")):

@@ -17,6 +17,7 @@ from sqlalchemy.orm import Session
 
 from .ai_models import AIConnection, AIOrchestration, AIUsage
 from .ai_review import REVIEW_INSTRUCTIONS, review_prompt, accepted_review
+from .galancito_flow import grounded_reply
 from .galancito_triage import private_data
 from .models import utcnow
 
@@ -250,17 +251,26 @@ def orchestration_available(db: Session, org_id: str, task: str) -> bool:
     if not policy or not policy.enabled or task not in ("red_obras", "messenger"):
         return False
     conn = db.get(AIConnection, (policy.task_routes or {}).get(task, ""))
-    if not (conn and conn.org_id == org_id and conn.enabled and conn.encrypted_key
-            and conn.last_status == "verified"):
+    candidates = [conn] if (conn and conn.org_id == org_id and conn.enabled
+                            and conn.encrypted_key and conn.last_status == "verified") else []
+    if policy.fallback_enabled:
+        candidates += [item for item in db.scalars(select(AIConnection).where(
+            AIConnection.org_id == org_id, AIConnection.enabled.is_(True),
+            AIConnection.last_status == "verified",
+            AIConnection.id != (policy.task_routes or {}).get("review", ""),
+        )) if item.encrypted_key]
+    if not candidates:
         return False
     if policy.monthly_token_limit and monthly_tokens(db, org_id) >= policy.monthly_token_limit:
         return False
     if policy.review_enabled:
         reviewer = db.get(AIConnection, (policy.task_routes or {}).get("review", ""))
-        if not (reviewer and reviewer.id != conn.id and reviewer.org_id == org_id
-                and (reviewer.provider, reviewer.model) != (conn.provider, conn.model)
-                and reviewer.enabled and reviewer.encrypted_key
-                and reviewer.last_status == "verified"):
+        if not (reviewer and reviewer.org_id == org_id and reviewer.enabled
+                and reviewer.encrypted_key and reviewer.last_status == "verified"):
+            return False
+        if not any(candidate.id != reviewer.id and
+                   (candidate.provider, candidate.model) != (reviewer.provider, reviewer.model)
+                   for candidate in candidates):
             return False
     return True
 
@@ -283,6 +293,7 @@ def orchestrated_text(db: Session, org_id: str, *, task: str, instructions: str,
     if not within_budget(db, policy, org_id, instructions, prompt, max_output_tokens):
         return None
     started = time.perf_counter()
+    deadline_seconds = 18.0 if task == "messenger" else 7.5
     routes = policy.task_routes or {}
     connections = list(db.scalars(select(AIConnection).where(
         AIConnection.org_id == org_id, AIConnection.enabled.is_(True))))
@@ -296,12 +307,17 @@ def orchestrated_text(db: Session, org_id: str, *, task: str, instructions: str,
                                   (ordered and (reviewer.provider, reviewer.model) ==
                                    (ordered[0].provider, ordered[0].model))):
         return None
-    if policy.fallback_enabled and ordered:
+    if policy.fallback_enabled:
         ordered += [c for c in connections if c.id not in {primary_id, review_id}
-                    and c.encrypted_key and c.last_status == "verified"]
+                    and c.encrypted_key and c.last_status == "verified"
+                    and (not ordered or (c.provider, c.model) !=
+                         (ordered[0].provider, ordered[0].model))]
     for conn in ordered:
-        # Bound the whole attempt chain to the browser's response deadline.
-        remaining = 7.5 - (time.perf_counter() - started)
+        if reviewer and (conn.provider, conn.model) == (reviewer.provider, reviewer.model):
+            continue
+        # Messenger runs in a worker, so it can try another approved provider.
+        # Synchronous Red de Obras requests retain their shorter deadline.
+        remaining = deadline_seconds - (time.perf_counter() - started)
         if remaining < (3 if policy.review_enabled else 1):
             break
         timeout = min(remaining - 2.2, 4.8) if policy.review_enabled else min(remaining, 6.0)
@@ -317,7 +333,10 @@ def orchestrated_text(db: Session, org_id: str, *, task: str, instructions: str,
             continue
         # Even a generated response might accidentally include a private datum.
         # Do not forward it to another external model (or return it to the user).
-        if private_data(answer):
+        if private_data(answer) or (task == "messenger" and
+                                    grounded_reply(answer, prompt) is None):
+            if policy.fallback_enabled:
+                continue
             return None
         if not policy.review_enabled:
             return answer
@@ -325,7 +344,7 @@ def orchestrated_text(db: Session, org_id: str, *, task: str, instructions: str,
         review_output = 64
         if not within_budget(db, policy, org_id, REVIEW_INSTRUCTIONS, context, review_output):
             return None
-        remaining = 7.5 - (time.perf_counter() - started)
+        remaining = deadline_seconds - (time.perf_counter() - started)
         if remaining < 0.8:
             return None
         try:
@@ -334,6 +353,13 @@ def orchestrated_text(db: Session, org_id: str, *, task: str, instructions: str,
                                      prompt=context, max_output_tokens=review_output,
                                      timeout=min(remaining, 2.7))
         except AIServiceError:
+            if policy.fallback_enabled:
+                continue
             return None
-        return answer if accepted_review(verdict) else None
+        if accepted_review(verdict):
+            return answer
+        # A rejected answer may be retried with another administrator-approved
+        # provider. Only the original user question and approved context are sent.
+        if not policy.fallback_enabled:
+            return None
     return None
