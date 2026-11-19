@@ -28,6 +28,7 @@ type Lead = {
   interest_type: "unknown" | "service_offer" | "employment";
   team_available: boolean | null; work_area: string; profile: ContactProfile;
   last_inbound_at: string | null; can_reply: boolean; analysis: Analysis;
+  trades?: string[]; linked_needs?: string[];
   follow_up_on: string | null; follow_up_note: string;
   last_message?: { text: string; direction: "inbound" | "outbound" } | null;
 };
@@ -70,6 +71,14 @@ const progressFor = (message: Chat) => {
 type Detail = { lead: Lead; messages: Chat[] };
 type Guide = { id: string; slug: string; trade: string; aliases: string[]; explanation: string;
   document_guidance: string[]; approved: boolean };
+type NeedCoincidence = {
+  id: string; title: string; specialty: string; matched_trades: string[];
+  coincidence_percent: number; coverage_percent: number;
+  reasons: string[]; missing: string[]; linked: boolean; review_required: boolean;
+};
+type NeedLink = { id: string; title: string; specialty: string };
+type TraceItem = { event: string; trade: string | null; requirement_id: string | null;
+  source: string; at: string };
 type Triage = {
   id: string; name: string; company: string; category: string;
   category_source: string; category_evidence: string; status: string; stage: string;
@@ -77,6 +86,8 @@ type Triage = {
   requirement_id: string | null; requirement_title: string | null;
   follow_up_on: string | null; follow_up_note: string;
   needs_support: boolean; unread: boolean; human_review_required: boolean;
+  trades?: string[]; links?: NeedLink[]; matches?: NeedCoincidence[];
+  recent_trace?: TraceItem[]; profile_state?: string; profile_pending?: string[];
 };
 type Tracking = {
   total: number; urgent: number; needs_human: number; unlinked: number;
@@ -518,17 +529,79 @@ export default function FacebookCenter({ catalog }: { catalog: Catalog }) {
           {tracking.rows.filter((r) =>
             triageFilter === "all" ||
             (triageFilter === "high" && r.urgency === "high") ||
-            (triageFilter === "unlinked" && !r.requirement_id) ||
+            (triageFilter === "unlinked" && !(r.links?.length || r.requirement_id)) ||
             (triageFilter === "due" && r.stage === "Seguimiento vencido")
-          ).map((r) => <article className="fbc-tracking-item" key={r.id}>
-            <div><strong>{r.company || r.name}</strong>
-              <small>{r.category} · {r.category_source === "sugerida" ? "oficio sugerido, por confirmar" :
-                r.category_source === "declarada" ? "oficio registrado" : "oficio pendiente"}</small></div>
-            <div><b>{r.stage}</b><small>{r.requirement_title || "Sin necesidad vinculada"}</small></div>
-            <div><span>{r.next_action}</span><small>{r.follow_up_on ? "Seguimiento: " + r.follow_up_on : "Sin fecha de seguimiento"}</small></div>
+          ).map((r) => <article className="fbc-tracking-item fbc-linked-card" key={r.id}>
+            <div className="fbc-linked-person">
+              <strong>{r.company || r.name}</strong>
+              <small>{r.profile_state || "Ficha progresiva"} · {r.stage}</small>
+              <div className="fbc-trade-chips">
+                {(r.trades?.length ? r.trades : [r.category]).map((trade) =>
+                  <span className="fbc-trade-chip" key={trade}>{trade}</span>)}
+              </div>
+            </div>
+            <div className="fbc-linked-status">
+              <b>{r.links?.length ? r.links.length + " necesidad(es) vinculada(s)" : "Sin necesidad vinculada"}</b>
+              <small>{r.links?.map((need) => need.title).join(" · ") || "Vínculo pendiente de revisar"}</small>
+              {!!r.profile_pending?.length && <small>Por conocer: {r.profile_pending.join(" y ")}</small>}
+            </div>
+            <div className="fbc-linked-next">
+              <span>{r.next_action}</span>
+              <small>{r.follow_up_on ? "Seguimiento: " + r.follow_up_on : "Sin fecha de seguimiento"}</small>
+              {!!r.matches?.length && <strong>
+                {r.matches.length} necesidad(es) con oficio coincidente
+              </strong>}
+            </div>
             <button className="nw-btn" type="button" onClick={() => {
-              setSelectedId(r.id); setTab("inbox");
-            }}>Ver conversación</button>
+              setSelectedId(r.id); setShowProfile(true); setMobilePane("profile"); setTab("inbox");
+            }}>Ver ficha</button>
+            <details className="fbc-card-more">
+              <summary>Ver coincidencias y trazabilidad</summary>
+              <div className="fbc-card-more-body">
+                <div className="fbc-card-need-list">
+                  <b>Necesidades relacionadas</b>
+                  {!r.matches?.length && <small>No hay oficios coincidentes en necesidades vigentes. No significa que esta persona no pueda trabajar.</small>}
+                  {r.matches?.map((match) => <div className="fbc-card-need" key={match.id}>
+                    <div>
+                      <strong>{match.title}</strong>
+                      <small>{match.specialty} · Coinciden: {match.matched_trades.join(", ")}</small>
+                      <div className="fbc-match-numbers">
+                        <span><b>{match.coincidence_percent}%</b> coincidencia de datos declarados</span>
+                        <span><b>{match.coverage_percent}%</b> información comparable</span>
+                      </div>
+                      <small>{match.reasons.join(" · ")}</small>
+                      {!!match.missing.length && <small>Útil por confirmar: {match.missing.join(", ")}</small>}
+                    </div>
+                    <button type="button" className="nw-btn" disabled={!!saving}
+                      onClick={() => void mutate("need-link", () => change(
+                        "/facebook/leads/" + r.id + "/needs/" + match.id +
+                        (match.linked ? "/unlink" : "/link"), {}
+                      ), match.linked ? "Vínculo retirado; historial conservado." :
+                        "Necesidad vinculada para revisión humana.")}>
+                      {match.linked ? "Desvincular" : "Vincular"}
+                    </button>
+                  </div>)}
+                  {!!r.links?.filter((link) => !r.matches?.some((m) => m.id === link.id)).length &&
+                    <small>También existen vínculos históricos o necesidades que ya no coinciden:
+                      {r.links.filter((link) => !r.matches?.some((m) => m.id === link.id))
+                        .map((link) => " " + link.title).join(",")}. Requieren revisión.</small>}
+                </div>
+                <div className="fbc-card-trace">
+                  <b>Últimos movimientos</b>
+                  {!r.recent_trace?.length && <small>Aún no hay movimientos registrados en la nueva trazabilidad.</small>}
+                  {r.recent_trace?.map((event, i) => <small key={event.at + i}>
+                    {event.event === "trade_added" ? "Oficio registrado" :
+                     event.event === "need_linked" ? "Necesidad vinculada" :
+                     event.event === "need_unlinked" ? "Necesidad desvinculada" :
+                     event.event === "need_auto_linked" ? "Vínculo sugerido por reglas" :
+                     event.event === "legacy_link_imported" ? "Vínculo anterior importado" :
+                     "Ficha actualizada"}
+                    {event.trade ? ": " + event.trade : ""}
+                    {" · "}{dateText(event.at)}
+                  </small>)}
+                </div>
+              </div>
+            </details>
           </article>)}
           {!tracking.rows.length && <p className="fbc-empty">Aún no hay interesados. El seguimiento aparecerá cuando lleguen mensajes.</p>}
         </div>
@@ -693,24 +766,22 @@ export default function FacebookCenter({ catalog }: { catalog: Catalog }) {
           <section className="fbc-person-profile" aria-label="Resumen progresivo de la persona">
             <div className="fbc-person-profile-heading">
               <b>Ficha que Galancito va completando</b>
-              <strong>{lead.profile.percent}%</strong>
+              <span className="fbc-profile-ready">{lead.trades?.length || lead.specialty ? "Perfil básico" : "Por conocer oficio"}</span>
             </div>
-            <progress value={lead.profile.completed} max={lead.profile.total}
-              aria-label="Progreso de información profesional declarada" />
             <p className="fbc-person-summary">{lead.profile.summary}</p>
             <small>{lead.profile.evidence}</small>
             <div className="fbc-person-fields">
               <div><small>Nombre</small><strong>{lead.name && lead.name !== "Interesado de Facebook" ? lead.name : "Por registrar"}</strong></div>
               <div><small>Interés</small><strong>{lead.interest_type === "service_offer" ? "Ofrece servicios" :
                 lead.interest_type === "employment" ? "Busca empleo" : "Por aclarar"}</strong></div>
-              <div><small>Oficio / trabajo</small><strong>{lead.specialty || "Por confirmar"}</strong></div>
+              <div><small>Oficios / trabajos</small><strong>{lead.trades?.length ? lead.trades.join(" · ") : lead.specialty || "Sin informar"}</strong></div>
               <div><small>Modalidad</small><strong>{lead.team_available == null ? "Sin dato" :
                 lead.team_available ? "Puede venir con equipo" : "Trabaja solo/a"}</strong></div>
               <div><small>Personas</small><strong>{lead.workers ?? "Sin dato"}</strong></div>
               <div><small>Experiencia</small><strong>{lead.experience || "Por consultar"}</strong></div>
               <div><small>Comuna</small><strong>{lead.work_area || "Por consultar"}</strong></div>
               <div><small>Disponibilidad</small><strong>{lead.availability || "Por consultar"}</strong></div>
-              <div><small>Trabajo vinculado</small><strong>{requirements.find(r => r.id === lead.requirement_id)?.title || "Por vincular"}</strong></div>
+              <div><small>Necesidades vinculadas</small><strong>{lead.linked_needs?.length ? lead.linked_needs.map(id => requirements.find(r => r.id === id)?.title || "Necesidad histórica").join(" · ") : requirements.find(r => r.id === lead.requirement_id)?.title || "Sin vincular"}</strong></div>
             </div>
             <small>Oficio: {lead.profile.specialty_origin}</small>
             {!!lead.profile.missing.length && <details className="fbc-profile-pending">
