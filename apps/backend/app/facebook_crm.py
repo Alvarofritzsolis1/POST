@@ -50,7 +50,8 @@ from .galancito_memory import (
 )
 from .galancito_contact_profile import contact_profile
 from .galancito_phone import (QUESTION as CONTACT_PHONE_QUESTION, normalize_mobile,
-                              remember_shared_phone, phone_question_when_agreed)
+                              remember_shared_phone, phone_question_when_agreed,
+                              redact_mobile_for_intake)
 from .galancito_communes import find_communes
 from .galancito_links import (record_manual_trade,
                               suggest_requirements, link_requirement,
@@ -351,11 +352,12 @@ async def webhook(request: Request, db: Session = Depends(get_db)):
             note_profile_sources(lead, ["contact_phone"], source="message", at=event_at, remote_id=mid)
             audit_event(db, lead, "field_contact_phone", source="message", remote_id=mid)
         changed = False
-        if consent is None and not audio_received and not private_data(body):
+        intake_body = redact_mobile_for_intake(body) if phone_saved else body
+        if consent is None and not audio_received and not private_data(intake_body):
             if aliases is None:
                 aliases = approved_trade_aliases(db, lead.org_id)
             changed = apply_messenger_message(
-                db, lead, body, previous_question, remote_id=mid, at=event_at,
+                db, lead, intake_body, previous_question, remote_id=mid, at=event_at,
                 historical=historical, aliases=aliases,
             )
         lead.updated_at, lead.unread = received_at, True
