@@ -5,7 +5,7 @@ A verified database backup remains mandatory through CLI migrate-db.
 """
 from datetime import datetime, timezone
 from uuid import uuid4
-from sqlalchemy import inspect, select
+from sqlalchemy import inspect, select, text
 
 from ..facebook_crm_models import FacebookLeadTrade, FacebookNeedAssociation, FacebookLeadTrace
 
@@ -20,14 +20,8 @@ def upgrade(connection):
     if "facebook_leads" not in inspect(connection).get_table_names():
         return
 
-    leads = connection.execute(select(
-        __import__("sqlalchemy").table("facebook_leads",
-            __import__("sqlalchemy").column("id"),
-            __import__("sqlalchemy").column("org_id"),
-            __import__("sqlalchemy").column("specialty"),
-            __import__("sqlalchemy").column("specialty_source"),
-            __import__("sqlalchemy").column("requirement_id"),
-        )
+    leads = connection.execute(text(
+        "SELECT id, org_id, specialty, specialty_source, requirement_id FROM facebook_leads"
     )).all()
     now = datetime.now(timezone.utc)
     for row in leads:
