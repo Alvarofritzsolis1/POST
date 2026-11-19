@@ -532,16 +532,18 @@ export default function FacebookCenter({ catalog }: { catalog: Catalog }) {
             </button>)}
         </div>
         <div className="fbtrack-analysis">
-          <section><div className="fbtrack-analysis-head"><b>Por especialidad</b><small>Contactos clasificados</small></div>
+          <section><div className="fbtrack-analysis-head"><b>Por especialidad</b><small>Selecciona un oficio</small></div>
             {!Object.keys(tracking.by_category).length&&<small>No hay especialidades registradas.</small>}
             {Object.entries(tracking.by_category).slice(0,5).map(([name,count])=>
-              <div className="fbtrack-graph-row" key={name}>
+              <button className="fbtrack-graph-row" type="button" key={name}
+                onClick={()=>{setTrackingQuery(name);setTriageFilter("all");}} aria-label={"Ver contactos de "+name}>
                 <span>{name}</span><div className="fbtrack-track"><span style={{width:(tracking.rows.length?100*count/tracking.rows.length:0)+"%"}}/></div><b>{count}</b>
-              </div>)}
+              </button>)}
           </section>
-          <section><div className="fbtrack-analysis-head"><b>Estado de seguimiento</b><small>Situación actual</small></div>
+          <section><div className="fbtrack-analysis-head"><b>Estado de seguimiento</b><small>Selecciona un estado</small></div>
             <div className="fbtrack-stages">{Object.entries(tracking.by_stage).slice(0,6).map(([name,count])=>
-              <span key={name}>{name}<b>{count}</b></span>)}
+              <button key={name} type="button" onClick={()=>{setTrackingQuery(name);setTriageFilter("all");}}
+                aria-label={"Filtrar seguimiento: "+name}>{name}<b>{count}</b></button>)}
               {!Object.keys(tracking.by_stage).length&&<small>Sin información todavía.</small>}
             </div></section>
         </div>
@@ -553,12 +555,14 @@ export default function FacebookCenter({ catalog }: { catalog: Catalog }) {
                 className={triageFilter===key?"active":""} key={key}
                 onClick={()=>setTriageFilter(key)}>{label}</button>)}
           </div>
+          {(trackingQuery||triageFilter!=="all")&&<button type="button" className="fbtrack-clear"
+            onClick={()=>{setTrackingQuery("");setTriageFilter("all");}}>Limpiar filtros</button>}
           <input type="search" aria-label="Buscar personas u oficios" placeholder="Buscar persona, oficio o necesidad…"
             value={trackingQuery} onChange={e=>setTrackingQuery(e.target.value)}/>
         </div>
         <div className="fbtrack-list" aria-label="Fichas de interesados">
           {tracking.rows.filter(r=>(
-            !trackingQuery.trim()||[r.name,r.company,r.category,...(r.trades||[]),
+            !trackingQuery.trim()||[r.name,r.company,r.category,r.stage,r.next_action,...(r.trades||[]),
               ...(r.links||[]).map(l=>l.title),...(r.matches||[]).map(m=>m.title)].join(" ")
               .toLocaleLowerCase("es-CL").includes(trackingQuery.trim().toLocaleLowerCase("es-CL"))
           )).filter(r=>triageFilter==="all"||
@@ -593,7 +597,7 @@ export default function FacebookCenter({ catalog }: { catalog: Catalog }) {
           </article>)}
           {!tracking.rows.length&&<p className="fbc-empty">Aún no hay contactos para mostrar.</p>}
           {!!tracking.rows.length&&!tracking.rows.some(r=>
-            (!trackingQuery.trim()||[r.name,r.company,r.category,...(r.trades||[]),
+            (!trackingQuery.trim()||[r.name,r.company,r.category,r.stage,r.next_action,...(r.trades||[]),
               ...(r.links||[]).map(l=>l.title),...(r.matches||[]).map(m=>m.title)].join(" ")
               .toLocaleLowerCase("es-CL").includes(trackingQuery.trim().toLocaleLowerCase("es-CL"))) &&
             (triageFilter==="all"||(triageFilter==="high"&&r.urgency==="high")||
