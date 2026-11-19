@@ -13,6 +13,7 @@ from sqlalchemy.orm import Session
 
 from .galancito_triage import TRADES, plain, private_data
 from .models import utcnow
+from .network_service import today
 from .facebook_crm_models import FacebookLeadTrade, FacebookNeedAssociation, FacebookLeadTrace
 
 
@@ -77,6 +78,8 @@ def record_declared_trades(db: Session, lead, message: str, *,
                            remote_id: str | None = None, prior_prompt: str = "") -> list[str]:
     """Idempotent ingestion; no deletion of prior trades or manual edits."""
     detected = extract_declared_trades(message, prior_prompt)
+    if not detected:
+        return []
     existing = list(db.scalars(select(FacebookLeadTrade).where(
         FacebookLeadTrade.org_id == lead.org_id,
         FacebookLeadTrade.lead_id == lead.id,
@@ -183,7 +186,7 @@ def suggest_requirements(lead, trades: list[str], requirements,
     for need in requirements:
         if need.org_id != lead.org_id or need.state != "published":
             continue
-        if need.deadline and need.deadline < date.today():
+        if need.deadline and need.deadline < today():
             continue
         req_trades = trade_terms(need.specialty)
         if not req_trades:
