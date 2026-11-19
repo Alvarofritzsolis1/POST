@@ -49,6 +49,9 @@ from .galancito_memory import (
     prior_delivered_prompt, profile_facts,
 )
 from .galancito_contact_profile import contact_profile
+from .galancito_phone import (QUESTION as CONTACT_PHONE_QUESTION, normalize_mobile,
+                              remember_shared_phone, phone_question_when_agreed,
+                              redact_mobile_for_intake)
 from .galancito_communes import find_communes
 from .galancito_links import (record_manual_trade,
                               suggest_requirements, link_requirement,
@@ -148,6 +151,9 @@ def _lead_view(db: Session, lead: FacebookLead) -> dict:
         "team_available": lead.team_available,
         "interest_type": lead.interest_type,
         "work_area": lead.work_area, "work_communes": lead.work_communes,
+        "contact_phone": lead.contact_phone, "phone_source": lead.phone_source,
+        "phone_requested_at": lead.phone_requested_at.isoformat() if lead.phone_requested_at else None,
+        "phone_opt_out": lead.phone_opt_out,
         "profile": contact_profile(lead),
         "follow_up_on": lead.follow_up_on.isoformat() if lead.follow_up_on else None,
         "follow_up_note": lead.follow_up_note or "",
@@ -186,6 +192,7 @@ class LeadEdit(BaseModel):
     work_area: str = Field(default="", max_length=120)
     follow_up_on: date | None = None
     follow_up_note: str = Field(default="", max_length=240)
+    contact_phone: str = Field(default="", max_length=26)
 
 
 class TradeGuideInput(BaseModel):
@@ -339,12 +346,18 @@ async def webhook(request: Request, db: Session = Depends(get_db)):
         ) if not audio_received else "")
         consent = (apply_permission_reply(lead, body, previous_question)
                    if not historical and not audio_received else None)
+        phone_saved = (remember_shared_phone(lead, body, previous_question, at=event_at)
+                       if not historical and not audio_received else False)
+        if phone_saved:
+            note_profile_sources(lead, ["contact_phone"], source="message", at=event_at, remote_id=mid)
+            audit_event(db, lead, "field_contact_phone", source="message", remote_id=mid)
         changed = False
-        if consent is None and not audio_received and not private_data(body):
+        intake_body = redact_mobile_for_intake(body) if phone_saved else body
+        if consent is None and not audio_received and not private_data(intake_body):
             if aliases is None:
                 aliases = approved_trade_aliases(db, lead.org_id)
             changed = apply_messenger_message(
-                db, lead, body, previous_question, remote_id=mid, at=event_at,
+                db, lead, intake_body, previous_question, remote_id=mid, at=event_at,
                 historical=historical, aliases=aliases,
             )
         lead.updated_at, lead.unread = received_at, True
@@ -373,9 +386,10 @@ async def webhook(request: Request, db: Session = Depends(get_db)):
             body, previous_question = earlier[1], earlier[2]
         reply_turns[lead.id] = (lead, body, previous_question, changed or bool(earlier and earlier[3]),
                                signal or (earlier[4] if earlier else None), mid,
-                               consent is True or bool(earlier and earlier[6]))
+                               consent is True or bool(earlier and earlier[6]),
+                               phone_saved or bool(earlier and earlier[7]))
 
-    for lead, body, previous_question, changed, signal, mid, consent_reply in reply_turns.values():
+    for lead, body, previous_question, changed, signal, mid, consent_reply, phone_saved in reply_turns.values():
         if changed and not signal:
             trace_unique_requirement(db, lead, today=today(), remote_id=mid)
         # El mensaje entrante más reciente desplaza cualquier respuesta
@@ -396,6 +410,13 @@ async def webhook(request: Request, db: Session = Depends(get_db)):
             direct = location or (explain_permission(lead, body, previous_question) or
                                   availability_reply(db, lead, body, previous_question, lead.last_inbound_at)
                                   if not signal and lead.ai_consent_state != "declined" else None)
+            if not signal and not direct and not lead.needs_support:
+                phone_prompt = phone_question_when_agreed(lead, body)
+                if phone_prompt:
+                    direct = phone_prompt
+                    lead.phone_requested_at = utcnow()
+            if phone_saved and not signal:
+                direct = "Gracias, registré el número que compartiste para coordinación. No confirma contratación."
             ai_source = "disabled" if direct else messenger_ai_source(db, lead.org_id, cfg)
             recent = db.scalar(select(func.count(FacebookChatMessage.id)).where(
                 FacebookChatMessage.lead_id == lead.id,
@@ -1008,6 +1029,17 @@ def update_lead(lead_id: str, body: LeadEdit, user: User = Depends(administrator
             lead.display_name = value.strip() or "Interesado de Facebook"
         elif field == "company":
             lead.company = value.strip()
+        elif field == "contact_phone":
+            normalized = normalize_mobile(value) if value.strip() else ""
+            if value.strip() and normalized is None:
+                raise HTTPException(422, "Número de celular chileno inválido")
+            if lead.contact_phone != normalized:
+                lead.contact_phone = normalized
+                lead.phone_source = "manual" if normalized else ""
+                lead.phone_shared_at = utcnow() if normalized else None
+                lead.phone_opt_out = False
+                note_profile_sources(lead, ["contact_phone"], source="manual", at=utcnow())
+                audit_event(db, lead, "field_contact_phone", source="manual", actor_id=user.id)
         elif field == "work_area" and value != lead.work_area:
             lead.work_area = value.strip()
             lead.work_communes = find_communes(value)
@@ -1054,6 +1086,40 @@ def update_lead(lead_id: str, body: LeadEdit, user: User = Depends(administrator
     return _lead_view(db, lead)
 
 
+@router.post("/leads/{lead_id}/request-phone", status_code=202)
+def request_contact_phone(lead_id: str, user: User = Depends(administrator),
+                          db: Session = Depends(get_db)):
+    """Operator-confirmed, optional phone request. No automated offer or award."""
+    lead = _lead(db, user, lead_id, lock=True)
+    if not settings().facebook_messaging_enabled or not _in_window(lead):
+        raise HTTPException(409, "Mensajería fuera de la ventana permitida")
+    if lead.contact_phone:
+        raise HTTPException(409, "El contacto ya compartió un teléfono")
+    if lead.phone_opt_out:
+        raise HTTPException(409, "La persona prefirió no compartir el número")
+    last = _aware(lead.phone_requested_at)
+    if last and last >= utcnow() - timedelta(days=7):
+        raise HTTPException(409, "El número ya se solicitó recientemente")
+    # The human request supersedes unfinished automated drafts.
+    for old in db.scalars(select(FacebookChatMessage).where(
+        FacebookChatMessage.lead_id == lead.id,
+        FacebookChatMessage.direction == "outbound",
+        FacebookChatMessage.operator_id.is_(None),
+        FacebookChatMessage.state.in_(["pending", "ai_pending", "drafting"]),
+    )):
+        old.state = "cancelled"
+    message = FacebookChatMessage(
+        org_id=user.org_id, lead_id=lead.id, page_id=lead.page_id,
+        direction="outbound", state="pending",
+        operator_id=user.id, body=CONTACT_PHONE_QUESTION,
+    )
+    db.add(message)
+    lead.phone_requested_at = utcnow()
+    lead.updated_at = utcnow()
+    db.commit()
+    return {"queued": True, "state": "pending", "phone_requested_at": lead.phone_requested_at.isoformat()}
+
+
 @router.post("/leads/{lead_id}/reply", status_code=202)
 def queue_reply(lead_id: str, body: ReplyInput, user: User = Depends(administrator),
                 db: Session = Depends(get_db)):
@@ -1087,7 +1153,8 @@ def suggest_reply(lead_id: str, user: User = Depends(administrator),
         FacebookChatMessage.lead_id == lead.id,
         FacebookChatMessage.org_id == user.org_id).order_by(
         FacebookChatMessage.created_at.desc()).limit(8)))
-    latest = "\n".join(m.direction + ": " + m.body[:500] for m in reversed(messages))
+    latest = "\n".join(m.direction + ": " + m.body[:500] for m in reversed(messages)
+                       if not private_data(m.body))
     supplied = ("Empresa: " + lead.company[:150] +
                 "\nEspecialidad declarada: " + lead.specialty[:100] +
                 "\nDotación: " + str(lead.workers or "sin informar") +

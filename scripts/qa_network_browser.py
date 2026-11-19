@@ -419,6 +419,111 @@ def main():
         assert a.locator(".nw-calendar-day").count() == 7
         assert not errors, errors
         assert not failures, failures
+        # GALANT 20.9.4: synthetic visual/interaction test only, no Meta tokens.
+        fb_ctx, fb_page = context()
+        login(fb_page, email)
+        fake_id = "qa-facebook-contact-visual"
+        fake_lead = {
+            "id": fake_id, "name": "Contacto QA", "company": "",
+            "specialty": "Carpintería", "trades": ["Carpintería", "Pintura"],
+            "workers": 2, "availability": "Próxima semana", "experience": "3 años",
+            "documents_state": "unverified", "status": "contacting",
+            "requirement_id": None, "linked_needs": [],
+            "entity_type": "individual", "interest_type": "service_offer",
+            "team_available": True, "has_employees": False,
+            "work_area": "Coronel", "work_communes": ["Coronel"],
+            "follow_up_on": None, "follow_up_note": "", "last_inbound_at": None,
+            "contact_phone": "", "phone_source": "", "phone_requested_at": None,
+            "ai_consent": False, "ai_consent_state": "not_requested",
+            "ai_paused": False, "support_reason": "", "last_message": None,
+            "analysis": {"label":"Sin necesidad","state":"unlinked",
+                "requirement": None,"checks":[],"missing":[],"human_review_required":True},
+            "phone_opt_out": False, "can_reply": False, "unread": True,
+            "profile": {
+                "summary": "Ofrece carpintería, declara experiencia y trabaja con equipo.",
+                "percent": 75, "missing": ["Disponibilidad exacta"],
+                "evidence": "Datos sintéticos de QA; requieren confirmación humana."
+            },
+        }
+        fake_tracking = {
+            "total": 1, "urgent": 1, "needs_human": 0, "unlinked": 1,
+            "overdue": 0, "by_category": {"Carpintería": 1},
+            "by_stage": {"Responder": 1}, "by_requirement": {}, "limited": False,
+            "disclaimer": "Datos de prueba", "rows": [{
+                "id": fake_id, "name": "Contacto QA", "company": "",
+                "category": "Carpintería", "stage": "Responder",
+                "urgency": "high", "next_action": "Confirmar disponibilidad",
+                "trades": ["Carpintería", "Pintura"], "links": [], "matches": [],
+                "needs_support": False, "unread": True, "requirement_id": None,
+                "follow_up_on": None, "profile_state": "Ficha parcial"
+            }]
+        }
+        fake_center = {
+            "automatic_enabled": False, "manual_enabled": False,
+            "messaging_enabled": True, "ai_enabled": False,
+            "auto_reply_enabled": False, "page_id": "qa-only",
+            "pending_ads": [], "publications": [], "leads": [fake_lead],
+            "guides_approved": 0,
+            "counts": {"pending_ads": 0, "published_ads": 0,
+                "failed_ads": 0, "total_ads": 0, "contacts": 1,
+                "unread": 1, "review": 0, "support": 0}
+        }
+        def mock_json(payload):
+            def respond(route):
+                route.fulfill(status=200, content_type="application/json",
+                              body=json.dumps(payload, ensure_ascii=False))
+            return respond
+        fb_root = "**/api/v1/network/facebook/"
+        fb_ctx.route(fb_root + "center", mock_json(fake_center))
+        fb_ctx.route(fb_root + "galancito/seguimiento", mock_json(fake_tracking))
+        fb_ctx.route(fb_root + "leads/" + fake_id, mock_json({"lead":fake_lead,"messages":[]}))
+        fb_ctx.route(fb_root + "leads/" + fake_id + "/insights", mock_json({
+            "contact_id":fake_id, "next_action":"Confirmar disponibilidad","matches":[],
+            "suggestions": [], "missing": [], "source": "reglas_locales",
+            "review_required": True, "changes_applied": False,
+            "summary": {"name":"Contacto QA","specialty":"Carpintería","workers":2,
+                        "availability":"Próxima semana","stage":"Responder"}}))
+        fb_ctx.route(fb_root + "leads/" + fake_id + "/trace", mock_json([]))
+        fb_page.get_by_role("button", name="Red de Obras", exact=True).click()
+        fb_page.get_by_role("navigation", name="Red de Obras", exact=True).get_by_role(
+            "button", name="Facebook", exact=True).click()
+        fb_page.get_by_role("navigation", name="Centro Facebook").get_by_role(
+            "button", name="Seguimiento", exact=True).click()
+        expect(fb_page.get_by_role("button", name="Ver ficha").first).to_be_visible()
+        fb_page.get_by_role("button", name="Ver contactos de Carpintería").click()
+        expect(fb_page.get_by_role("searchbox", name="Buscar personas u oficios")).to_have_value("Carpintería")
+        fb_page.get_by_role("button", name="Limpiar filtros").click()
+        fb_page.get_by_role("button", name="Filtrar seguimiento: Responder").click()
+        expect(fb_page.get_by_role("searchbox", name="Buscar personas u oficios")).to_have_value("Responder")
+        fb_page.get_by_role("button", name="Limpiar filtros").click()
+        fb_page.get_by_role("button", name="Ver ficha").first.click()
+        sheet = fb_page.get_by_role("dialog", name="Ficha de Contacto QA")
+        expect(sheet).to_be_visible()
+        expect(sheet.get_by_role("heading", name="Datos generales")).to_be_visible()
+        expect(sheet.get_by_role("heading", name="Resumen de Galancito")).to_be_visible()
+        expect(sheet.get_by_role("button", name="Ver chat")).to_be_visible()
+        assert not fb_page.locator(".fbc-inbox").is_visible(), "La ficha no debe navegar al chat"
+        fb_page.screenshot(path=str(args.output / "ficha-facebook-qa.png"), full_page=True)
+        # Los datos editados no se descartan al abrir el chat sin confirmación.
+        sheet.get_by_role("button", name="Editar seguimiento").click()
+        sheet.get_by_role("textbox", name="Nota interna").fill("Nota sintética sin guardar")
+        fb_page.once("dialog", lambda prompt: prompt.dismiss())
+        sheet.get_by_role("button", name="Ver chat").click()
+        expect(sheet).to_be_visible()
+        fb_page.once("dialog", lambda prompt: prompt.accept())
+        sheet.get_by_role("button", name="Ver chat").click()
+        expect(sheet).not_to_be_visible()
+        expect(fb_page.locator(".fbc-inbox")).to_be_visible()
+        fb_page.set_viewport_size({"width":390,"height":844})
+        fb_page.get_by_role("navigation", name="Centro Facebook").get_by_role(
+            "button", name="Seguimiento", exact=True).click()
+        fb_page.get_by_role("button", name="Ver ficha").first.click()
+        expect(fb_page.get_by_role("dialog", name="Ficha de Contacto QA")).to_be_visible()
+        assert fb_page.evaluate("document.documentElement.scrollWidth <= window.innerWidth"), (
+            "Ficha Facebook: desbordamiento horizontal en móvil")
+        fb_page.screenshot(path=str(args.output / "ficha-facebook-movil-qa.png"), full_page=True)
+        fb_page.get_by_role("button", name="Cerrar ficha").click()
+        fb_ctx.close()
         report = {
             "result": "PASS",
             "version": "0.7.0",

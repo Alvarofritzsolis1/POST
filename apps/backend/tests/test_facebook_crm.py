@@ -1104,3 +1104,37 @@ def test_messenger_local_reply_skips_cosmetic_meta_calls(network, monkeypatch):
     detail = n["admin"].get("/api/v1/network/facebook/leads/" + lead["id"]).json()
     assert detail["messages"][-1]["state"] == "sent"
     assert detail["lead"]["ai_consent"] is False
+
+
+def test_contact_sheet_phone_from_messenger_and_optional_manual_request(network, monkeypatch):
+    """A phone shared for coordination is kept in the admin card, not invented."""
+    n = network
+    enable_messaging(n, monkeypatch)
+    assert incoming(n, text="soy carpintero", mid="phone-intake-1").status_code == 200
+    lead_id = n["admin"].get("/api/v1/network/facebook/center").json()["leads"][0]["id"]
+    url = "/facebook/leads/" + lead_id + "/request-phone"
+    # Only an administrator may request it and only once in the cooldown window.
+    assert n["send"](n["a"], url).status_code == 403
+    requested = n["send"](n["admin"], url)
+    assert requested.status_code == 202, requested.text
+    assert requested.json()["queued"] is True
+    assert n["send"](n["admin"], url).status_code == 409
+    assert incoming(n, text="mi celular es +56 9 8765 4321", mid="phone-intake-2").status_code == 200
+    lead = n["admin"].get("/api/v1/network/facebook/leads/" + lead_id).json()["lead"]
+    assert lead["contact_phone"] == "+56987654321"
+    assert lead["phone_source"] == "message"
+    assert lead["phone_requested_at"] is not None
+    assert "987654321" not in lead["profile"]["summary"]
+    assert n["send"](n["admin"], url).status_code == 409
+    # Bad edits are refused; a manual correction is separately attributed.
+    invalid = n["send"](n["admin"], "/facebook/leads/" + lead_id,
+                        {"contact_phone": "123456"}, "PATCH")
+    assert invalid.status_code == 422
+    changed = n["send"](n["admin"], "/facebook/leads/" + lead_id,
+                        {"contact_phone": "+56 9 1234 5678"}, "PATCH")
+    assert changed.status_code == 200, changed.text
+    assert changed.json()["contact_phone"] == "+56912345678"
+    assert changed.json()["phone_source"] == "manual"
+    trace = n["admin"].get("/api/v1/network/facebook/leads/" + lead_id + "/trace")
+    assert trace.status_code == 200
+    assert any(x["event"] == "field_contact_phone" for x in trace.json())

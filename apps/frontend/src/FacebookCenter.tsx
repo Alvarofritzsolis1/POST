@@ -8,7 +8,9 @@ import { errorText } from "./NetworkUI";
 import "./facebook-center.css";
 import GalancitoKnowledgeCenter from "./GalancitoKnowledgeCenter";
 import FacebookOverview from "./FacebookOverview";
+import FacebookPersonSheet from "./FacebookPersonSheet";
 import "./facebook-minimal-layout.css";
+import "./facebook-tracking-refresh.css";
 import NetworkFacebook from "./NetworkFacebook";
 
 type Check = { criterion: string; state: "match" | "verify"; detail: string };
@@ -155,6 +157,8 @@ export default function FacebookCenter({ catalog }: { catalog: Catalog }) {
   const [adDraft, setAdDraft] = useState<{id: string; title: string; draft: string; source: string} | null>(null);
   const [guide, setGuide] = useState(freshGuide);
   const [tracking, setTracking] = useState<Tracking | null>(null);
+  const [sheetPerson, setSheetPerson] = useState<Triage | null>(null);
+  const closeSheet = useCallback(() => setSheetPerson(null), []);
   const [triageNote, setTriageNote] = useState<TriageNote | null>(null);
   const [insights, setInsights] = useState<LeadInsights | null>(null);
   const [mobilePane, setMobilePane] = useState<"chat" | "profile">("chat");
@@ -165,15 +169,16 @@ export default function FacebookCenter({ catalog }: { catalog: Catalog }) {
   const latestInboundRef = useRef<Record<string, string>>({});
   const recheckedProfilesRef = useRef<Set<string>>(new Set());
   const nearBottomRef = useRef(true);
-  const [triageFilter, setTriageFilter] = useState<"all"|"high"|"unlinked"|"due">("all");
+  const [triageFilter, setTriageFilter] = useState<"all"|"high"|"support"|"unlinked"|"due">("all");
   const [trackingQuery, setTrackingQuery] = useState("");
   selectedIdRef.current = selectedId;
 
   const refresh = useCallback(async () => {
     const current = await net<Center>("/facebook/center");
     setCenter(current);
-    setSelectedId((prev) =>
-      prev && current.leads.some((lead) => lead.id === prev) ? prev : (current.leads[0]?.id || ""));
+    // La lista del centro muestra solo contactos recientes; conservar contactos
+    // abiertos desde Seguimiento aunque no aparezcan entre los primeros 100.
+    setSelectedId((prev) => prev || (current.leads[0]?.id || ""));
   }, []);
   // Estado fresco del worker; al finalizar la comprobación desaparece el estado pendiente.
   useEffect(() => {
@@ -502,204 +507,111 @@ export default function FacebookCenter({ catalog }: { catalog: Catalog }) {
     {tab === "summary" && <GalancitoKnowledgeCenter mode="summary" />}
     {tab === "knowledge" && <GalancitoKnowledgeCenter />}
     {tab === "performance" && <GalancitoKnowledgeCenter mode="performance" />}
-    {tab === "tracking" && <section className="fbc-tracking" aria-label="Seguimiento Galancito">
-      <div className="fbc-tracking-head">
-        <div>
-          <h3>Seguimiento de interesados</h3>
-          <p>Organiza conversaciones y necesidades por oficio. Galancito sugiere próximos pasos,
-            pero ningún candidato queda aprobado o rechazado automáticamente.</p>
-        </div>
-        <button className="nw-btn" disabled={!!saving} onClick={() => void refreshTracking().catch((e) => setError(errorText(e)))}>
-          <RefreshCcw size={16}/> Actualizar seguimiento
+    {tab === "tracking" && <section className="fbc-tracking fbtrack" aria-label="Seguimiento Galancito">
+      <div className="fbtrack-heading">
+        <div><h3>Seguimiento de interesados</h3><p>Revisa contactos, prioridades y necesidades de obra.</p></div>
+        <button className="nw-btn" type="button" disabled={!!saving}
+          onClick={() => void refreshTracking().catch((e) => setError(errorText(e)))}>
+          <RefreshCcw size={16}/> Actualizar
         </button>
       </div>
-      {!tracking ? <p className="fbc-empty">Cargando seguimiento…</p> : <>
-        <div className="fbc-tracking-counters">
-          {[
-            ["Interesados", tracking.total],
-            ["Requieren atención", tracking.urgent],
-            ["Apoyo humano", tracking.needs_human],
-            ["Sin necesidad", tracking.unlinked],
-            ["Seguimientos vencidos", tracking.overdue],
-          ].map(([title, value]) => <div key={title} className="fbc-tracking-counter">
-            <small>{title}</small><strong>{value}</strong>
-          </div>)}
+      {!tracking?<p className="fbc-empty" role="status">Cargando seguimiento…</p>:<>
+        <div className="fbtrack-metrics" aria-label="Indicadores, selecciona para filtrar">
+          {([
+            ["all","Interesados",tracking.total,"normal",<Users size={19}/>],
+            ["high","Requieren atención",tracking.urgent,"warning",<AlertTriangle size={19}/>],
+            ["support","Apoyo humano",tracking.needs_human,"info",<MessageCircle size={19}/>],
+            ["unlinked","Sin necesidad",tracking.unlinked,"mint",<ShieldCheck size={19}/>],
+            ["due","Seguimientos vencidos",tracking.overdue,"danger",<Clock3 size={19}/>],
+          ] as const).map(([key,label,value,tone,icon])=>
+            <button key={key} type="button" aria-pressed={triageFilter===key}
+              className={"fbtrack-metric "+tone+(triageFilter===key?" active":"")}
+              onClick={()=>setTriageFilter(key)}>
+              <span className="fbtrack-metric-heading">{icon}<span>{label}</span></span>
+              <strong>{value}</strong>
+            </button>)}
         </div>
-        <div className="fbc-tracking-summaries">
-          <section>
-            <h4>Por especialidad</h4>
-            {!Object.keys(tracking.by_category).length && <small>Sin datos para categorizar.</small>}
-            {Object.entries(tracking.by_category).slice(0,10).map(([name,count]) =>
-              <div key={name} className="fbc-tracking-line">
-                <span>{name}</span><b>{count}</b>
-              </div>)}
+        <div className="fbtrack-analysis">
+          <section><div className="fbtrack-analysis-head"><b>Por especialidad</b><small>Selecciona un oficio</small></div>
+            {!Object.keys(tracking.by_category).length&&<small>No hay especialidades registradas.</small>}
+            {Object.entries(tracking.by_category).slice(0,5).map(([name,count])=>
+              <button className="fbtrack-graph-row" type="button" key={name}
+                onClick={()=>{setTrackingQuery(name);setTriageFilter("all");}} aria-label={"Ver contactos de "+name}>
+                <span>{name}</span><div className="fbtrack-track"><span style={{width:(tracking.rows.length?100*count/tracking.rows.length:0)+"%"}}/></div><b>{count}</b>
+              </button>)}
           </section>
-          <section>
-            <h4>Estado del seguimiento</h4>
-            {Object.entries(tracking.by_stage).map(([name,count]) =>
-              <div key={name} className="fbc-tracking-line">
-                <span>{name}</span><b>{count}</b>
-              </div>)}
-          </section>
-          <section>
-            <h4>Necesidades relacionadas</h4>
-            {Object.entries(tracking.by_requirement).slice(0,8).map(([name,count]) =>
-              <div key={name} className="fbc-tracking-line">
-                <span>{name}</span><b>{count}</b>
-              </div>)}
-          </section>
+          <section><div className="fbtrack-analysis-head"><b>Estado de seguimiento</b><small>Selecciona un estado</small></div>
+            <div className="fbtrack-stages">{Object.entries(tracking.by_stage).slice(0,6).map(([name,count])=>
+              <button key={name} type="button" onClick={()=>{setTrackingQuery(name);setTriageFilter("all");}}
+                aria-label={"Filtrar seguimiento: "+name}>{name}<b>{count}</b></button>)}
+              {!Object.keys(tracking.by_stage).length&&<small>Sin información todavía.</small>}
+            </div></section>
         </div>
-        <div className="fbc-tracking-filters">
-          {[
-            ["all", "Todos"], ["high", "Prioritarios"], ["unlinked", "Sin necesidad"], ["due", "Seguimiento vencido"],
-          ].map(([value,label]) => <button key={value} type="button"
-            className={triageFilter === value ? "selected" : ""}
-            onClick={() => setTriageFilter(value as typeof triageFilter)}>{label}</button>)}
-        </div>
-        <div className="fbc-tracking-search">
-          <input type="search" aria-label="Buscar fichas por nombre, oficio o necesidad"
-            placeholder="Buscar persona, oficio o necesidad de obra…"
-            value={trackingQuery} onChange={(e) => setTrackingQuery(e.target.value)} />
-          <small>Coincidencias orientativas; revisar antecedentes con cada persona.</small>
-        </div>
-        <div className="fbc-tracking-table">
-          {tracking.rows.filter((r) =>
-            !trackingQuery.trim() || [r.name, r.company, r.category,
-              ...(r.trades || []), ...(r.links || []).map((x) => x.title),
-              ...(r.matches || []).map((x) => x.title)]
-              .join(" ").toLocaleLowerCase("es-CL")
-              .includes(trackingQuery.trim().toLocaleLowerCase("es-CL"))
-          ).filter((r) =>
-            triageFilter === "all" ||
-            (triageFilter === "high" && r.urgency === "high") ||
-            (triageFilter === "unlinked" && !(r.links?.length || r.requirement_id)) ||
-            (triageFilter === "due" && r.stage === "Seguimiento vencido")
-          ).map((r) => <article className="fbc-tracking-item fbc-linked-card" key={r.id}>
-            <div className="fbc-linked-person">
-              <strong>{r.company || r.name}</strong>
-              <small>{r.profile_state || "Ficha progresiva"} · {r.stage}</small>
-              <div className="fbc-trade-chips">
-                {(r.trades?.length ? r.trades : [r.category]).map((trade) =>
-                  <span className="fbc-trade-chip" key={trade}>{trade}</span>)}
-              </div>
-            </div>
-            <div className="fbc-linked-status">
-              <b>{r.links?.length ? r.links.length + " necesidad(es) vinculada(s)" : "Sin necesidad vinculada"}</b>
-              <small>{r.links?.map((need) => need.title).join(" · ") || "Vínculo pendiente de revisar"}</small>
-              {!!r.profile_pending?.length && <small>Por conocer: {r.profile_pending.join(" y ")}</small>}
-            </div>
-            <div className="fbc-linked-next">
-              <span>{r.next_action}</span>
-              <small>{r.follow_up_on ? "Seguimiento: " + r.follow_up_on : "Sin fecha de seguimiento"}</small>
-              {!!r.matches?.length && <strong>
-                {r.matches.length} necesidad(es) con oficio coincidente
-              </strong>}
-            </div>
-            <button className="nw-btn" type="button" onClick={() => {
-              setSelectedId(r.id); setShowProfile(true); setMobilePane("profile"); setTab("inbox");
-            }}>Ver ficha</button>
-            <details className="fbc-card-more">
-              <summary>Ver coincidencias y trazabilidad</summary>
-              <div className="fbc-card-more-body">
-                <div className="fbc-card-need-list">
-                  <b>Necesidades relacionadas</b>
-                  {!r.matches?.length && <small>No hay oficios coincidentes en necesidades vigentes. No significa que esta persona no pueda trabajar.</small>}
-                  {r.matches?.map((match) => <div className="fbc-card-need" key={match.id}>
-                    <div>
-                      <strong>{match.title}</strong>
-                      <small>{match.specialty} · Coinciden: {match.matched_trades.join(", ")}</small>
-                      <div className="fbc-match-numbers">
-                        <span><b>{match.coincidence_percent}%</b> coincidencia de datos declarados</span>
-                        <span><b>{match.coverage_percent}%</b> información comparable</span>
-                      </div>
-                      <small>{match.reasons.join(" · ")}</small>
-                      {!!match.missing.length && <small>Útil por confirmar: {match.missing.join(", ")}</small>}
-                    </div>
-                    <button type="button" className="nw-btn" disabled={!!saving}
-                      onClick={() => void mutate("need-link", () => change(
-                        "/facebook/leads/" + r.id + "/needs/" + match.id +
-                        (match.linked ? "/unlink" : "/link"), {}
-                      ), match.linked ? "Vínculo retirado; historial conservado." :
-                        "Necesidad vinculada para revisión humana.")}>
-                      {match.linked ? "Desvincular" : "Vincular"}
-                    </button>
-                  </div>)}
-                  {!!r.links?.filter((link) => !r.matches?.some((m) => m.id === link.id)).length &&
-                    <small>También existen vínculos históricos o necesidades que ya no coinciden:
-                      {r.links.filter((link) => !r.matches?.some((m) => m.id === link.id))
-                        .map((link) => " " + link.title).join(",")}. Requieren revisión.</small>}
-                </div>
-                <div className="fbc-card-trace">
-                  <b>Últimos movimientos</b>
-                  {!r.recent_trace?.length && <small>Aún no hay movimientos registrados en la nueva trazabilidad.</small>}
-                  {r.recent_trace?.map((event, i) => <small key={event.at + i}>
-                    {event.event === "trade_added" ? "Oficio registrado" :
-                     event.event === "trade_removed" ? "Oficio corregido" :
-                     event.event.startsWith("field_") ? fieldLabels[event.event.slice(6)] || "Dato actualizado" :
-                     event.event === "need_linked" ? "Necesidad vinculada" :
-                     event.event === "need_unlinked" ? "Necesidad desvinculada" :
-                     event.event === "need_auto_linked" ? "Vínculo sugerido por reglas" :
-                     event.event === "legacy_link_imported" ? "Vínculo anterior importado" :
-                     "Ficha actualizada"}
-                    {event.trade ? ": " + event.trade : ""}
-                    {" · "}{dateText(event.at)}
-                  </small>)}
-                </div>
-              </div>
-            </details>
-          </article>)}
-          {!tracking.rows.length && <p className="fbc-empty">Aún no hay interesados. El seguimiento aparecerá cuando lleguen mensajes.</p>}
-        </div>
-        <details className="fbc-need-overview">
-          <summary>Ver por necesidad de obra · personas y oficios relacionados</summary>
-          <div className="fbc-need-groups">
-            {!requirements.length && <small>No hay necesidades publicadas en la consulta actual.</small>}
-            {requirements.map((need) => {
-              const related = tracking.rows.filter((r) =>
-                r.links?.some((link) => link.id === need.id) ||
-                r.matches?.some((match) => match.id === need.id)
-              );
-              return <section className="fbc-need-group" key={need.id}>
-                <div className="fbc-need-group-head">
-                  <strong>{need.title}</strong>
-                  <small>{need.site} · {need.specialty}</small>
-                  <b>{related.length} persona(s) con oficio relacionado o vínculo existente</b>
-                </div>
-                {!related.length && <small>Aún no se identifican oficios declarados que coincidan. No descarta otras personas.</small>}
-                {related.map((candidate) => {
-                  const match = candidate.matches?.find((item) => item.id === need.id);
-                  const linked = !!candidate.links?.some((item) => item.id === need.id);
-                  return <div className="fbc-need-person" key={candidate.id}>
-                    <div><b>{candidate.company || candidate.name}</b>
-                      <small>{(candidate.trades || [candidate.category]).join(" · ")}</small>
-                    </div>
-                    <div>
-                      {match ? <>
-                        <strong>{match.coincidence_percent}% coincidencia declarada</strong>
-                        <small>{match.coverage_percent}% de información comparable</small>
-                      </> : <small>Vínculo histórico, sin coincidencia vigente verificable</small>}
-                    </div>
-                    <button className="nw-btn" type="button"
-                      onClick={() => { setSelectedId(candidate.id); setShowProfile(true); setMobilePane("profile"); setTab("inbox"); }}>
-                      Ver ficha
-                    </button>
-                    <button className="nw-btn" type="button" disabled={!!saving}
-                      onClick={() => void mutate("need-link", () => change(
-                        "/facebook/leads/" + candidate.id + "/needs/" + need.id +
-                        (linked ? "/unlink" : "/link"), {}
-                      ), linked ? "Vínculo retirado, historial conservado." : "Necesidad vinculada para revisión humana.")}>
-                      {linked ? "Desvincular" : "Vincular"}
-                    </button>
-                  </div>;
-                })}
-              </section>;
-            })}
+        <div className="fbtrack-controls">
+          <div className="fbtrack-filters" role="group" aria-label="Filtrar seguimiento">
+            {([["all","Todos"],["high","Prioritarios"],["support","Apoyo humano"],
+              ["unlinked","Sin necesidad"],["due","Vencidos"]] as const).map(([key,label])=>
+              <button type="button" aria-pressed={triageFilter===key}
+                className={triageFilter===key?"active":""} key={key}
+                onClick={()=>setTriageFilter(key)}>{label}</button>)}
           </div>
-        </details>
-        {tracking.limited && <small>Se muestran 200 contactos recientes; los totales corresponden a esta vista.</small>}
-        <small className="fbc-tracking-disclaimer">{tracking.disclaimer}</small>
+          {(trackingQuery||triageFilter!=="all")&&<button type="button" className="fbtrack-clear"
+            onClick={()=>{setTrackingQuery("");setTriageFilter("all");}}>Limpiar filtros</button>}
+          <input type="search" aria-label="Buscar personas u oficios" placeholder="Buscar persona, oficio o necesidad…"
+            value={trackingQuery} onChange={e=>setTrackingQuery(e.target.value)}/>
+        </div>
+        <div className="fbtrack-list" aria-label="Fichas de interesados">
+          {tracking.rows.filter(r=>(
+            !trackingQuery.trim()||[r.name,r.company,r.category,r.stage,r.next_action,...(r.trades||[]),
+              ...(r.links||[]).map(l=>l.title),...(r.matches||[]).map(m=>m.title)].join(" ")
+              .toLocaleLowerCase("es-CL").includes(trackingQuery.trim().toLocaleLowerCase("es-CL"))
+          )).filter(r=>triageFilter==="all"||
+            (triageFilter==="high"&&r.urgency==="high")||
+            (triageFilter==="support"&&r.needs_support)||
+            (triageFilter==="unlinked"&&!(r.links?.length||r.requirement_id))||
+            (triageFilter==="due"&&r.stage==="Seguimiento vencido")
+          ).map(r=><article className="fbtrack-person" key={r.id}>
+            <span className="fbtrack-avatar" aria-hidden="true">{(r.name&&r.name!=="Interesado de Facebook"?
+              r.name:r.company||"?").slice(0,1).toUpperCase()}</span>
+            <div className="fbtrack-person-main">
+              <strong>{r.name&&r.name!=="Interesado de Facebook"?r.name:r.company||"Contacto sin nombre"}</strong>
+              <div className="fbtrack-person-tags">
+                {(r.trades?.length?r.trades:[r.category]).filter(Boolean).slice(0,3).map(t=>
+                  <span className="trade" key={t}>{t}</span>)}
+                <span className={r.needs_support?"amber":r.urgency==="high"?"red":"mint"}>{r.stage}</span>
+              </div>
+            </div>
+            <div className="fbtrack-work">
+              <b>{r.links?.length?r.links.length+" necesidad(es) vinculada(s)":"Sin necesidad vinculada"}</b>
+              <small>{r.links?.length?r.links.map(x=>x.title).join(" · "):"Pendiente de relacionar"}</small>
+            </div>
+            <div className="fbtrack-next"><b>Próximo paso</b>
+              <small>{r.next_action}</small>
+            </div>
+            <div className="fbtrack-person-actions">
+              <button className="fbtrack-open" type="button" onClick={()=>setSheetPerson(r)}>Ver ficha</button>
+              <button className="fbtrack-chat" type="button" onClick={()=>{
+                setSelectedId(r.id);setShowProfile(false);setMobilePane("chat");setTab("inbox");
+              }}>Ver chat</button>
+            </div>
+          </article>)}
+          {!tracking.rows.length&&<p className="fbc-empty">Aún no hay contactos para mostrar.</p>}
+          {!!tracking.rows.length&&!tracking.rows.some(r=>
+            (!trackingQuery.trim()||[r.name,r.company,r.category,r.stage,r.next_action,...(r.trades||[]),
+              ...(r.links||[]).map(l=>l.title),...(r.matches||[]).map(m=>m.title)].join(" ")
+              .toLocaleLowerCase("es-CL").includes(trackingQuery.trim().toLocaleLowerCase("es-CL"))) &&
+            (triageFilter==="all"||(triageFilter==="high"&&r.urgency==="high")||
+            (triageFilter==="support"&&r.needs_support)||
+            (triageFilter==="unlinked"&&!(r.links?.length||r.requirement_id))||
+            (triageFilter==="due"&&r.stage==="Seguimiento vencido"))
+          )&&<p className="fbc-empty">No hay contactos que coincidan con estos filtros.</p>}
+        </div>
+        {tracking.limited&&<small className="fbtrack-foot">La lista muestra hasta 200 contactos recientes. Los contadores pueden representar un total mayor.</small>}
       </>}
     </section>}
+    {sheetPerson && <FacebookPersonSheet person={sheetPerson}
+      onClose={closeSheet} onChanged={()=>void refreshTracking().catch(()=>{})}
+      onOpenChat={(id)=>{setSheetPerson(null);setSelectedId(id);setShowProfile(false);setMobilePane("chat");setTab("inbox");}}/>}
     {tab === "inbox" && <>
     <div className="fbc-mobile-tabs" role="group" aria-label="Vista de conversación">
       <button type="button" className={mobilePane === "chat" ? "active" : ""} onClick={() => setMobilePane("chat")}>Conversación</button>
@@ -712,13 +624,13 @@ export default function FacebookCenter({ catalog }: { catalog: Catalog }) {
           <button type="button" className={inboxFilter === "all" ? "selected" : ""}
             aria-pressed={inboxFilter === "all"} onClick={() => setInboxFilter("all")}>Todas</button>
           <button type="button" className={inboxFilter === "unread" ? "selected" : ""}
-            aria-pressed={inboxFilter === "unread"} onClick={() => setInboxFilter("unread")}>Por responder</button>
+            aria-pressed={inboxFilter === "unread"} onClick={() => setInboxFilter("unread")}>Sin leer</button>
         </div>
         <input className="fbc-search" aria-label="Buscar interesados" value={filter}
           onChange={(e) => setFilter(e.target.value)} placeholder="Buscar persona, empresa u oficio..." />
         <div className="fbc-contacts-list">
           {!visible.length && <p className="fbc-empty">{inboxFilter === "unread"
-            ? "No hay conversaciones pendientes con este filtro."
+            ? "No hay conversaciones sin leer con este filtro."
             : filter ? "No encontramos contactos con esa búsqueda." :
             "Aún no hay mensajes sincronizados. Los contactos aparecerán cuando escriban a la página conectada."}</p>}
           {visible.map((item) => <button key={item.id}

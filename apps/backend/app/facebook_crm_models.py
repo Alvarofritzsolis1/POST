@@ -44,6 +44,12 @@ class FacebookLead(Base):
     work_area: Mapped[str] = mapped_column(String(120), default="", server_default="")
     work_communes: Mapped[list] = mapped_column(JSON, nullable=False, default=list, server_default="[]")
     profile_sources: Mapped[dict] = mapped_column(JSON, nullable=False, default=dict, server_default="{}")
+    # Optional contact information, provided voluntarily or recorded by an operator.
+    contact_phone: Mapped[str] = mapped_column(String(20), nullable=False, default="", server_default="")
+    phone_source: Mapped[str] = mapped_column(String(16), nullable=False, default="", server_default="")
+    phone_shared_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    phone_requested_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    phone_opt_out: Mapped[bool] = mapped_column(Boolean, nullable=False, default=False, server_default="false")
     follow_up_on: Mapped[date | None] = mapped_column(Date, nullable=True)
     follow_up_note: Mapped[str] = mapped_column(String(240), default="")
     follow_up_by: Mapped[str | None] = mapped_column(String(36), nullable=True)
