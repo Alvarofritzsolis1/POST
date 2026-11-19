@@ -86,3 +86,56 @@ class FacebookTradeGuide(Base):
     approved: Mapped[bool] = mapped_column(Boolean, default=False)
     updated_by: Mapped[str | None] = mapped_column(ForeignKey("users.id"), nullable=True)
     updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow)
+
+
+class FacebookLeadTrade(Base):
+    """One self-declared trade per contact, independent of the legacy main specialty."""
+    __tablename__ = "facebook_lead_trades"
+    __table_args__ = (
+        UniqueConstraint("org_id", "lead_id", "trade", name="uq_fb_lead_trade"),
+        Index("ix_fb_lead_trades_contact", "org_id", "lead_id", "active"),
+    )
+    id: Mapped[str] = mapped_column(String(36), primary_key=True, default=uid)
+    org_id: Mapped[str] = mapped_column(ForeignKey("organizations.id"), index=True)
+    lead_id: Mapped[str] = mapped_column(ForeignKey("facebook_leads.id"), index=True)
+    trade: Mapped[str] = mapped_column(String(120))
+    source: Mapped[str] = mapped_column(String(20), default="message")
+    source_remote_id: Mapped[str | None] = mapped_column(String(180), nullable=True)
+    active: Mapped[bool] = mapped_column(Boolean, nullable=False, default=True, server_default="true")
+    first_seen_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow)
+    updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow)
+
+
+class FacebookNeedAssociation(Base):
+    """Human-reviewed many-to-many link; never an employment or award decision."""
+    __tablename__ = "facebook_need_associations"
+    __table_args__ = (
+        UniqueConstraint("org_id", "lead_id", "requirement_id", name="uq_fb_need_association"),
+        Index("ix_fb_association_contact", "org_id", "lead_id", "state"),
+    )
+    id: Mapped[str] = mapped_column(String(36), primary_key=True, default=uid)
+    org_id: Mapped[str] = mapped_column(ForeignKey("organizations.id"), index=True)
+    lead_id: Mapped[str] = mapped_column(ForeignKey("facebook_leads.id"), index=True)
+    requirement_id: Mapped[str] = mapped_column(ForeignKey("network_requirements.id"))
+    state: Mapped[str] = mapped_column(String(16), default="linked")
+    reviewed_by: Mapped[str | None] = mapped_column(String(36), nullable=True)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow)
+    updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow)
+
+
+class FacebookLeadTrace(Base):
+    """Append-only audit of trade extraction and need linking."""
+    __tablename__ = "facebook_lead_trace"
+    __table_args__ = (
+        Index("ix_fb_lead_trace_contact", "org_id", "lead_id", "created_at"),
+    )
+    id: Mapped[str] = mapped_column(String(36), primary_key=True, default=uid)
+    org_id: Mapped[str] = mapped_column(ForeignKey("organizations.id"), index=True)
+    lead_id: Mapped[str] = mapped_column(ForeignKey("facebook_leads.id"), index=True)
+    requirement_id: Mapped[str | None] = mapped_column(String(36), nullable=True)
+    trade: Mapped[str | None] = mapped_column(String(120), nullable=True)
+    event: Mapped[str] = mapped_column(String(32))
+    source: Mapped[str] = mapped_column(String(24), default="system")
+    actor_id: Mapped[str | None] = mapped_column(String(36), nullable=True)
+    source_remote_id: Mapped[str | None] = mapped_column(String(180), nullable=True)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow)

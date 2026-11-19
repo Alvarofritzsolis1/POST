@@ -433,3 +433,64 @@
 .fbc-typing-dots i:nth-child(3) {animation-delay:.32s;}
 @keyframes fbc-dot-bounce {0%,60%,100%{opacity:.4;transform:translateY(0)}30%{opacity:1;transform:translateY(-5px)}}
 @media(prefers-reduced-motion:reduce){.fbc-typing-dots i{animation:none;opacity:.75}}
+
+
+/* 20.9.0 · Progressive lead cards, multi-trade matches and traceability. */
+.fbc-linked-card { align-items:start; grid-template-columns:minmax(175px,1.15fr) minmax(165px,1fr) minmax(185px,1.2fr) auto; }
+.fbc-linked-person,.fbc-linked-status,.fbc-linked-next { min-width:0; }
+.fbc-linked-person strong { font-size:14px; }
+.fbc-trade-chips { display:flex!important; flex-wrap:wrap; gap:5px!important; }
+.fbc-trade-chip { display:inline-flex; border:1px solid #c2d9f4; background:#eef5ff; color:#134e92!important;
+  padding:3px 7px; border-radius:7px; font-weight:650; font-size:11px!important; }
+.fbc-linked-next strong { font-size:11px; color:#2162a9; }
+.fbc-card-more { grid-column:1/-1; border-top:1px solid var(--nw-border); padding-top:8px; min-width:0; }
+.fbc-card-more > summary { cursor:pointer; width:max-content; max-width:100%; color:var(--nw-accent,#205ca8);
+  font-size:12px; font-weight:650; }
+.fbc-card-more-body { display:grid; grid-template-columns:minmax(0,2fr) minmax(180px,1fr);
+  gap:12px; padding-top:12px; }
+.fbc-card-need-list,.fbc-card-trace { min-width:0; display:grid; align-content:start; gap:8px; }
+.fbc-card-need-list > b,.fbc-card-trace > b { font-size:12px; }
+.fbc-card-need { display:flex; justify-content:space-between; gap:12px; align-items:center; padding:11px;
+  border-radius:9px; border:1px solid var(--nw-border); background:var(--nw-light); }
+.fbc-card-need > div { display:grid; gap:5px; min-width:0; }
+.fbc-card-need > button { flex:none; }
+.fbc-card-need small,.fbc-card-trace small { display:block; font-size:11px; line-height:1.55; }
+.fbc-match-numbers { display:flex!important; flex-wrap:wrap; gap:7px!important; }
+.fbc-match-numbers span { display:inline-flex; align-items:center; gap:4px; border:1px solid var(--nw-border);
+  border-radius:7px; padding:5px 7px; color:var(--nw-ink)!important; background:var(--nw-paper); }
+.fbc-match-numbers b { font-size:15px; color:#205fa7; }
+.fbc-profile-ready { display:inline-flex; align-items:center; padding:5px 8px; border-radius:7px;
+  font-size:11px; color:#165b52; background:rgba(40,135,111,.09); font-weight:700; }
+[data-theme="dark"] .fbc-trade-chip { color:#bfdbff!important; border-color:#3e6696; background:#163454; }
+[data-theme="dark"] .fbc-profile-ready { color:#b1ecdb; background:#21473f; }
+@media(max-width:1050px) {
+  .fbc-linked-card { grid-template-columns:minmax(0,1fr) minmax(0,1fr); }
+  .fbc-card-more-body { grid-template-columns:1fr; }
+}
+@media(max-width:560px) {
+  .fbc-linked-card { grid-template-columns:1fr; }
+  .fbc-card-need { flex-wrap:wrap; }
+}
+
+.fbc-tracking-search { display:flex; align-items:center; flex-wrap:wrap; gap:10px; }
+.fbc-tracking-search input { min-height:38px; min-width:min(100%,330px); flex:1; max-width:560px;
+  padding:8px 11px; border-radius:9px; border:1px solid var(--nw-border); background:var(--nw-paper); color:var(--nw-ink); }
+.fbc-tracking-search small { color:var(--nw-muted); font-size:11px; }
+
+.fbc-need-overview { border-top:1px solid var(--nw-border); padding-top:12px; min-width:0; }
+.fbc-need-overview > summary { cursor:pointer; font-weight:700; font-size:13px; color:var(--nw-accent,#205ca8); }
+.fbc-need-groups { display:grid; gap:11px; margin-top:12px; }
+.fbc-need-group { display:grid; gap:8px; border:1px solid var(--nw-border);
+  border-radius:10px; padding:12px; background:var(--nw-paper); min-width:0; }
+.fbc-need-group-head { display:flex; flex-wrap:wrap; align-items:center; gap:8px 16px; padding-bottom:8px; border-bottom:1px solid var(--nw-border); }
+.fbc-need-group-head strong { font-size:13px; }
+.fbc-need-group-head small { font-size:11px; color:var(--nw-muted); }
+.fbc-need-group-head b { margin-left:auto; font-size:11px; font-weight:650; }
+.fbc-need-person { display:grid; grid-template-columns:minmax(140px,1.2fr) minmax(150px,1fr) auto auto;
+  align-items:center; gap:12px; padding:8px 6px; border-bottom:1px solid var(--nw-border); }
+.fbc-need-person > div { display:grid; gap:3px; min-width:0; }
+.fbc-need-person strong,.fbc-need-person b { font-size:12px; }
+.fbc-need-person small { font-size:11px; color:var(--nw-muted); }
+.fbc-need-person > button { white-space:nowrap; }
+@media(max-width:900px) {.fbc-need-person { grid-template-columns:1fr 1fr; }}
+@media(max-width:560px) {.fbc-need-person { grid-template-columns:1fr; } .fbc-need-group-head b { margin-left:0; }}
