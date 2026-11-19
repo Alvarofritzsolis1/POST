@@ -363,5 +363,5 @@ def natural_messenger_reply(text: str, prior_ai_replies: int = 0) -> str:
             clean = clean[len(beginning):].strip()
             break
     # Un proveedor podría ignorar la instrucción y presentarse como bot.
-    clean = re.sub(r"^(?:hola(?:\\s+\\w+)?[,!.]?\\s*)?soy (?:el |un )?asistente virtual(?: de [^.]+)?[.!]\\s*", "", clean, flags=re.I)
+    clean = re.sub(r"^(?:¡?hola[,!.]?\s+)?soy\s+(?:Galancito(?:,\s*(?:el\s+)?asistente virtual(?: de (?:GALANT|Red de Obras))?)?|(?:el\s+|un\s+)?asistente virtual(?: de (?:GALANT|Red de Obras))?)[.!]?\s*", "", clean, flags=re.I)
     return clean[:550]
