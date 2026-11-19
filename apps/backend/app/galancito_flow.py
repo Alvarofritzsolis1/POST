@@ -138,14 +138,27 @@ def set_permission_request(lead, provider: str, *, repeat=False) -> str:
     return permission_question(provider, repeat=repeat)
 
 
+def is_permission_prompt(lead, message: str) -> bool:
+    provider = lead.ai_consent_provider
+    return bool(provider and message in {
+        permission_question(provider), permission_question(provider, repeat=True),
+    })
+
+
+def explain_permission(lead, message: str, previous: str) -> str | None:
+    if (_plain(message) in {"no entiendo", "no comprendo", "no cacho", "que significa eso",
+                            "que quieres decir", "no entendi", "no entiendo lo del permiso"}
+            and is_permission_prompt(lead, previous)):
+        return "Podemos seguir por acá. Cuéntame qué necesitas y vemos cómo ayudarte."
+    return None
+
+
 def apply_permission_reply(lead, message: str, delivered_prompt: str) -> bool | None:
     """Treat a bare yes/no as consent only when it answers the permission prompt."""
     if wants_human(message) or _plain(message) in {"no autorizo", "no acepto usar ia"}:
         result = False
     elif (lead.ai_consent_state in {"requested", "requested_team"} and
-          lead.ai_consent_provider and "autorizas" in delivered_prompt.casefold() and
-          delivered_prompt in {permission_question(lead.ai_consent_provider),
-                               permission_question(lead.ai_consent_provider, repeat=True)}):
+          is_permission_prompt(lead, delivered_prompt)):
         result = consent_decision(message)
     else:
         return None

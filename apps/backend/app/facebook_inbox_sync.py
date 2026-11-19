@@ -18,11 +18,13 @@ from sqlalchemy import select, text as sql_text
 from .config import settings
 from .db import SessionLocal
 from .facebook_ai import messenger_ai_source
+from .facebook_availability_reply import availability_reply
+from .facebook_worksite_reply import is_worksite_location, worksite_reply
 from .facebook_crm_models import FacebookChatMessage, FacebookLead
 from .facebook_lead_insights import trace_unique_requirement
-from .galancito_flow import apply_permission_reply, consented_for, set_permission_request, wants_human
+from .galancito_flow import apply_permission_reply, consented_for, explain_permission, set_permission_request, wants_human
 from .galancito_escalation import flag_for_human
-from .galancito_intake import identity_reply, needs_deeper_response, next_intake_reply, small_talk_reply
+from .galancito_intake import declared_relative_start, identity_reply, needs_deeper_response, next_intake_reply, small_talk_reply
 from .galancito_memory import (
     apply_messenger_message, approved_trade_aliases, aware, prior_delivered_prompt, profile_facts,
 )
@@ -173,7 +175,9 @@ def sync_page_inbox(*, page_id: str, page_token: str, org_id: str,
                     pending.state = "cancelled"
                 preceding = latest_new.get(psid)
                 if (preceding and decision is None and not identity_reply(body)
-                        and needs_deeper_response(preceding[1]) and not needs_deeper_response(body)):
+                        and (needs_deeper_response(preceding[1]) or is_worksite_location(preceding[1]))
+                        and not (needs_deeper_response(body) or is_worksite_location(body))
+                        and declared_relative_start(body) is None):
                     body, prior = preceding[1], preceding[4]
                 latest_new[psid] = (lead, body, timestamp, cid, prior, decision,
                                     changed or bool(preceding and preceding[6]))
@@ -200,7 +204,8 @@ def sync_page_inbox(*, page_id: str, page_token: str, org_id: str,
                 ).limit(1))
                 if later:
                     continue
-                if lead.needs_support or lead.ai_consent_state == "declined":
+                follow_up = availability_reply(db, lead, body, prior, timestamp)
+                if not follow_up and (lead.needs_support or lead.ai_consent_state == "declined"):
                     if wants_human(body):
                         acknowledgement = ("Ya avisé al equipo para que te atienda "
                                            "una persona. No necesitas enviar documentos por aquí.")
@@ -215,8 +220,11 @@ def sync_page_inbox(*, page_id: str, page_token: str, org_id: str,
                         ai_generated=False))
                     queued += 1
                     continue
-                source = messenger_ai_source(db, org_id, cfg)
-                if consented_for(lead, source):
+                direct = follow_up or explain_permission(lead, body, prior) or worksite_reply(db, lead, body, prior)
+                source = "disabled" if direct else messenger_ai_source(db, org_id, cfg)
+                if direct:
+                    state, reply = "pending", direct
+                elif consented_for(lead, source):
                     state, reply = "ai_pending", ""
                 else:
                     facts = profile_facts(lead, changed=changed)

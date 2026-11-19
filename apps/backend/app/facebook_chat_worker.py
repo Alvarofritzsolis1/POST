@@ -14,6 +14,8 @@ from sqlalchemy import select
 
 from .config import settings
 from .db import SessionLocal
+from .facebook_availability_reply import availability_reply
+from .facebook_worksite_reply import worksite_reply
 from .facebook_ai import REPLY_INSTRUCTIONS, generate_text, messenger_ai_source
 from .ai_gateway import orchestrated_text
 from .galancito_flow import safe_ai_reply, consented_for, grounded_reply, permission_question
@@ -265,15 +267,17 @@ def process_chat_next(session_factory=SessionLocal) -> bool:
                 any(origin.get("message_id") == focus.remote_id for origin in lead.profile_sources.values())))
             prior_question = (prior_delivered_prompt(db, lead, at=focus.created_at)
                               if focus else "")
-            intake = small_talk_reply(latest) or next_intake_reply(latest, facts, prior_question)
-            intent = analyze(latest).intent
+            location = worksite_reply(db, lead, latest, prior_question)
+            follow_up = availability_reply(db, lead, latest, prior_question, focus.created_at) if focus else None
+            intake = location or follow_up or small_talk_reply(latest) or next_intake_reply(latest, facts, prior_question)
+            intent = "worksite_location" if location else analyze(latest).intent
             fast = intake or quick_reply(latest, known=facts)
             evidence = []
             if not intake and not private_data(latest) and intent not in {"human", "restricted"}:
                 evidence = retrieve(db, lead.org_id, latest, "messenger")
                 if learned := exact_answer(evidence):
                     fast, fast_source = learned, "knowledge"
-            model_needed = (bool(latest) and not private_data(latest) and not identity_reply(latest)
+            model_needed = (bool(latest) and not (location or follow_up) and not private_data(latest) and not identity_reply(latest)
                             and intent not in {"human", "restricted"} and fast_source != "knowledge"
                             and (not fast or needs_deeper_response(latest)))
             if model_needed:

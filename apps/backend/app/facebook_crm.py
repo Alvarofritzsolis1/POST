@@ -25,9 +25,11 @@ from .facebook_ai import (AD_INSTRUCTIONS, REPLY_INSTRUCTIONS, generate_text,
                           messenger_ai_source, verified_ad_copy,
                           generate_triage_note)
 from .ai_gateway import orchestrated_text
+from .facebook_availability_reply import availability_reply
+from .facebook_worksite_reply import is_worksite_location, worksite_reply
 from .facebook_onboarding import assistance_signal, reply_for_support, onboarding_guide
 from .galancito_flow import (
-    AI_PERMISSION_DECLINED, apply_permission_reply, consented_for, set_permission_request, wants_human,
+    AI_PERMISSION_DECLINED, apply_permission_reply, consented_for, explain_permission, set_permission_request, wants_human,
 )
 from .facebook_crm_models import (FacebookLead, FacebookChatMessage, FacebookTradeGuide,
                                   FacebookLeadTrade, FacebookNeedAssociation, FacebookLeadTrace)
@@ -39,7 +41,8 @@ from .galancito_triage import classify_lead, dashboard
 from .security import administrator
 from .galancito_triage import analyze, private_data, quick_reply
 from .galancito_intake import (
-    identity_reply, needs_deeper_response, next_intake_reply, small_talk_reply, natural_messenger_reply,
+    declared_relative_start, identity_reply, needs_deeper_response, next_intake_reply, small_talk_reply,
+    natural_messenger_reply,
 )
 from .galancito_memory import (
     apply_messenger_message, approved_trade_aliases, aware, note_profile_sources,
@@ -357,14 +360,16 @@ async def webhook(request: Request, db: Session = Depends(get_db)):
             continue
         signal = ("Solicitó atención humana" if wants_human(body) else
                   assistance_signal(body, is_audio=audio_received)
-                  if consent is None else None)
+                  if consent is None and not explain_permission(lead, body, previous_question) else None)
         if consent is False:
             signal = "Prefirió atención humana y no autorizó IA externa"
         if signal:
             flag_for_human(db, lead, signal)
         earlier = reply_turns.get(lead.id)
         if (earlier and consent is None and not signal and not identity_reply(body)
-                and needs_deeper_response(earlier[1]) and not needs_deeper_response(body)):
+                and (needs_deeper_response(earlier[1]) or is_worksite_location(earlier[1]))
+                and not (needs_deeper_response(body) or is_worksite_location(body))
+                and declared_relative_start(body) is None):
             body, previous_question = earlier[1], earlier[2]
         reply_turns[lead.id] = (lead, body, previous_question, changed or bool(earlier and earlier[3]),
                                signal or (earlier[4] if earlier else None), mid,
@@ -386,7 +391,12 @@ async def webhook(request: Request, db: Session = Depends(get_db)):
             waiting_for_permission |= previous.state in {"pending", "drafting"} and "autorizas" in previous.body.casefold()
             previous.state = "cancelled"
         if cfg.facebook_ai_enabled and not lead.ai_paused:
-            ai_source = messenger_ai_source(db, lead.org_id, cfg)
+            location = (worksite_reply(db, lead, body, previous_question)
+                        if not (signal or lead.needs_support or lead.ai_consent_state == "declined") else None)
+            direct = location or (explain_permission(lead, body, previous_question) or
+                                  availability_reply(db, lead, body, previous_question, lead.last_inbound_at)
+                                  if not signal and lead.ai_consent_state != "declined" else None)
+            ai_source = "disabled" if direct else messenger_ai_source(db, lead.org_id, cfg)
             recent = db.scalar(select(func.count(FacebookChatMessage.id)).where(
                 FacebookChatMessage.lead_id == lead.id,
                 FacebookChatMessage.direction == "outbound",
@@ -401,6 +411,8 @@ async def webhook(request: Request, db: Session = Depends(get_db)):
                               "No necesitas enviar documentos por aquí.") if wants_human(body) else
                              AI_PERMISSION_DECLINED if lead.ai_consent_state == "declined" else
                              reply_for_support(signal, bool(lead.specialty)))
+            elif direct:
+                reply = direct
             elif local and identity_reply(body):
                 reply = local
             elif (local and not waiting_for_ai and not waiting_for_permission and not lead.needs_support and
@@ -1091,6 +1103,8 @@ def suggest_reply(lead_id: str, user: User = Depends(administrator),
     facts = profile_facts(lead)
     previous_question = next((m.body for m in messages if m.direction == "outbound"
                               and m.state == "sent"), "")
+    if location := worksite_reply(db, lead, latest_inbound, previous_question):
+        return {"draft": location, "source": "template", "requires_review": True}
     intake = next_intake_reply(latest_inbound, facts, previous_question)
     evidence = retrieve(db, lead.org_id, latest_inbound, "messenger") if not private_data(latest_inbound) else []
     fast = intake or quick_reply(latest_inbound, known=facts)

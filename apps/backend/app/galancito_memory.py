@@ -6,7 +6,9 @@ from zoneinfo import ZoneInfo
 from sqlalchemy import select
 
 from .facebook_crm_models import FacebookChatMessage, FacebookTradeGuide
-from .galancito_intake import UNKNOWN_NAMES, apply_intake, needs_deeper_response, unanswered_intake_question
+from .galancito_intake import (
+    UNKNOWN_NAMES, apply_intake, needs_deeper_response, requested_relative_start, unanswered_intake_question,
+)
 from .galancito_links import audit_event, record_declared_trades, trade_declarations
 from .galancito_triage import analyze, private_data
 
@@ -43,13 +45,16 @@ def prior_delivered_prompt(db, lead, *, at, since=None) -> str:
         FacebookChatMessage.updated_at <= at,
         FacebookChatMessage.updated_at >= at - timedelta(hours=24),
     ]
-    latest = db.execute(select(FacebookChatMessage.body, FacebookChatMessage.updated_at)
+    latest = db.execute(select(FacebookChatMessage.body, FacebookChatMessage.updated_at, FacebookChatMessage.operator_id)
                         .where(*criteria).order_by(FacebookChatMessage.updated_at.desc(),
                                                   FacebookChatMessage.id.desc()).limit(1)).first()
     if not latest:
         return ""
-    prompt, sent_at = latest
-    return prompt if not since or aware(sent_at) >= since or unanswered_intake_question(lead, prompt) else ""
+    prompt, sent_at, operator_id = latest
+    if (not since or aware(sent_at) >= since or unanswered_intake_question(lead, prompt)
+            or (operator_id and requested_relative_start(prompt) is not None)):
+        return prompt
+    return ""
 
 
 def approved_trade_aliases(db, org_id):
