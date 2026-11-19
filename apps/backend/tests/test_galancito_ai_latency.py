@@ -110,3 +110,46 @@ def test_unverified_provider_never_joins_fallback(monkeypatch):
         max_output_tokens=120,
     )
     assert calls == ["primary"]
+
+
+def test_transient_failure_keeps_verified_connection_for_next_message(monkeypatch):
+    conn = _connection("primary", "Primary")
+    conn.price_input_per_million = None
+    conn.price_output_per_million = None
+    conn.last_checked_at = None
+
+    class FakeUsageDB:
+        def __init__(self):
+            self.added = []
+
+        def add(self, row):
+            self.added.append(row)
+
+        def flush(self):
+            pass
+
+    db = FakeUsageDB()
+
+    def unavailable(*args, **kwargs):
+        raise ai_gateway.AIServiceError("No se pudo contactar al proveedor")
+
+    monkeypatch.setattr(ai_gateway, "invoke", unavailable)
+    import pytest
+    with pytest.raises(ai_gateway.AIServiceError):
+        ai_gateway.run_connection(
+            db, conn, task="messenger", instructions="help",
+            prompt="Hola", timeout=2,
+        )
+    assert conn.last_status == "verified"
+    assert len(db.added) == 1 and db.added[0].status == "error"
+
+    def bad_credentials(*args, **kwargs):
+        raise ai_gateway.AIServiceError("Autenticación rechazada", requires_reverify=True)
+
+    monkeypatch.setattr(ai_gateway, "invoke", bad_credentials)
+    with pytest.raises(ai_gateway.AIServiceError):
+        ai_gateway.run_connection(
+            db, conn, task="messenger", instructions="help",
+            prompt="Hola", timeout=2,
+        )
+    assert conn.last_status == "error"
