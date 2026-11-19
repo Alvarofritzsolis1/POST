@@ -317,7 +317,7 @@ function App() {
     void refresh().finally(() => {
       if (active) setLoading(false);
     });
-    const timer = setInterval(update, 25000);
+    const timer = setInterval(update, 30000);
     window.addEventListener("galant-changed", update);
     const sitesUpdate = () => {
       void opsApi
