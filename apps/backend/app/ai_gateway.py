@@ -5,7 +5,7 @@ import json
 import os
 import re
 import time
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
 from decimal import Decimal
 from urllib.error import HTTPError, URLError
 from urllib.parse import quote
@@ -280,6 +280,41 @@ def orchestration_selected(db: Session, org_id: str, task: str) -> bool:
     return bool(policy and policy.enabled and (policy.task_routes or {}).get(task))
 
 
+
+def _fast_fallback_order(db: Session, org_id: str, task: str,
+                         connections: list[AIConnection]) -> list[AIConnection]:
+    """Rank only administrator-authorized backups using recent real latency.
+
+    Never change the configured primary model. Sparse history stays neutral;
+    errors make unreliable backup models less attractive. No prompts or
+    credentials are stored or inspected here.
+    """
+    if len(connections) < 2:
+        return connections
+    samples = list(db.scalars(select(AIUsage).where(
+        AIUsage.org_id == org_id, AIUsage.task == task,
+        AIUsage.created_at >= datetime.now(timezone.utc) - timedelta(days=14),
+    ).order_by(AIUsage.created_at.desc()).limit(120)))
+    observed: dict[str, list[AIUsage]] = {}
+    for sample in samples:
+        observed.setdefault(sample.connection_id, []).append(sample)
+
+    def score(conn: AIConnection) -> tuple[float, str]:
+        rows = observed.get(conn.id, [])[:20]
+        successes = [row.duration_ms for row in rows
+                     if row.status == "success" and row.duration_ms > 0]
+        if not successes:
+            return (6500.0 if len(rows) < 3 else 10000.0, conn.name)
+        if len(rows) < 3:
+            return (6500.0, conn.name)
+        successes.sort()
+        median = float(successes[len(successes) // 2])
+        error_rate = (len(rows) - len(successes)) / len(rows)
+        return (median + 4500.0 * error_rate, conn.name)
+
+    return sorted(connections, key=score)
+
+
 def orchestrated_text(db: Session, org_id: str, *, task: str, instructions: str,
                       prompt: str, max_output_tokens: int = 300) -> str | None:
     """Opt-in multi-provider routing; optional independent review, not weight training.
@@ -293,7 +328,9 @@ def orchestrated_text(db: Session, org_id: str, *, task: str, instructions: str,
     if not within_budget(db, policy, org_id, instructions, prompt, max_output_tokens):
         return None
     started = time.perf_counter()
-    deadline_seconds = 18.0 if task == "messenger" else 7.5
+    # A slow first provider must not hold Messenger for 18 seconds.
+    # Bound the whole multi-provider path, including optional review.
+    deadline_seconds = 10.5 if task == "messenger" else 7.5
     routes = policy.task_routes or {}
     connections = list(db.scalars(select(AIConnection).where(
         AIConnection.org_id == org_id, AIConnection.enabled.is_(True))))
@@ -308,20 +345,24 @@ def orchestrated_text(db: Session, org_id: str, *, task: str, instructions: str,
                                    (ordered[0].provider, ordered[0].model))):
         return None
     if policy.fallback_enabled:
-        ordered += [c for c in connections if c.id not in {primary_id, review_id}
-                    and c.encrypted_key and c.last_status == "verified"
-                    and (not ordered or (c.provider, c.model) !=
-                         (ordered[0].provider, ordered[0].model))]
-    for conn in ordered:
+        alternatives = [c for c in connections if c.id not in {primary_id, review_id}
+                        and c.encrypted_key and c.last_status == "verified"
+                        and (not ordered or (c.provider, c.model) !=
+                             (ordered[0].provider, ordered[0].model))]
+        ordered += _fast_fallback_order(db, org_id, task, alternatives)[:2]
+    for attempt, conn in enumerate(ordered):
         if reviewer and (conn.provider, conn.model) == (reviewer.provider, reviewer.model):
             continue
         # Messenger runs in a worker, so it can try another approved provider.
         # Synchronous Red de Obras requests retain their shorter deadline.
         remaining = deadline_seconds - (time.perf_counter() - started)
-        if remaining < (3 if policy.review_enabled else 1):
+        reserve = 2.5 if policy.review_enabled else 0.3
+        if remaining < reserve + 0.75:
             break
-        timeout = min(remaining - 2.2, 4.8) if policy.review_enabled else min(remaining, 6.0)
-        if timeout < 0.7:
+        # The administrator-selected primary gets more time; approved backups
+        # get a short chance instead of a second long request.
+        timeout = min(remaining - reserve, 5.0 if attempt == 0 else 3.0)
+        if timeout < 0.75:
             break
         if not within_budget(db, policy, org_id, instructions, prompt, max_output_tokens):
             break
