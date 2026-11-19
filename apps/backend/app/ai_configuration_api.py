@@ -156,7 +156,7 @@ def bootstrap(user: User = Depends(administrator), db: Session = Depends(get_db)
         "messenger_ready": {
             "messaging_enabled": cfg.facebook_messaging_enabled,
             "ai_enabled": cfg.facebook_ai_enabled,
-            "auto_reply_enabled": cfg.facebook_ai_auto_reply_enabled,
+            "auto_reply_enabled": cfg.facebook_ai_enabled,
             "page_configured": bool(cfg.facebook_page_id and cfg.facebook_org_id),
         },
     }

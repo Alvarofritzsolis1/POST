@@ -275,7 +275,6 @@ export default function AIConfiguration() {
     !data.messenger_ready.page_configured && "página y organización de Facebook",
     !data.messenger_ready.messaging_enabled && "FACEBOOK_MESSAGING_ENABLED",
     !data.messenger_ready.ai_enabled && "FACEBOOK_AI_ENABLED",
-    !data.messenger_ready.auto_reply_enabled && "FACEBOOK_AI_AUTO_REPLY_ENABLED",
   ].filter(Boolean) : [];
   const shownUsage = [...(usage?.groups || [])].sort((a, b) => b.total_tokens - a.total_tokens);
   const providerName = (id: string) => data?.providers.find(p => p.id === id)?.name || id;

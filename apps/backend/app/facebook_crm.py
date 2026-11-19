@@ -387,7 +387,7 @@ async def webhook(request: Request, db: Session = Depends(get_db)):
                 FacebookChatMessage.state == "ai_pending",
             )):
                 previous.state = "cancelled"
-            if cfg.facebook_ai_auto_reply_enabled and not lead.ai_paused:
+            if cfg.facebook_ai_enabled and not lead.ai_paused:
                 ai_source = messenger_ai_source(db, lead.org_id, cfg)
                 recent = db.scalar(select(func.count(FacebookChatMessage.id)).where(
                     FacebookChatMessage.lead_id == lead.id,
@@ -650,8 +650,6 @@ def center(user: User = Depends(administrator), db: Session = Depends(get_db)):
         reply_blockers.append("Página u organización de Messenger sin asociar")
     if not cfg.facebook_app_secret or not cfg.facebook_webhook_verify_token:
         reply_blockers.append("Webhook de Meta incompleto")
-    if not cfg.facebook_ai_auto_reply_enabled:
-        reply_blockers.append("Respuestas automáticas deshabilitadas en el VPS")
     if not cfg.facebook_ai_enabled:
         reply_blockers.append("Asistente de Facebook deshabilitado en el VPS")
     if ai_source == "disabled":
@@ -670,7 +668,7 @@ def center(user: User = Depends(administrator), db: Session = Depends(get_db)):
             "messaging_enabled": cfg.facebook_messaging_enabled,
             "ai_enabled": ai_source != "disabled",
             "ai_provider": ai_source,
-            "auto_reply_enabled": cfg.facebook_ai_auto_reply_enabled,
+            "auto_reply_enabled": cfg.facebook_ai_enabled,
             "auto_reply": auto_reply,
             "page_id": cfg.facebook_page_id,
             "pending_ads": ads, "publications": publications,
