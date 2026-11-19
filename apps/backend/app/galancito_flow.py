@@ -8,17 +8,17 @@ import re
 
 ASSISTANT_NAME = "Galancito"
 AI_PERMISSION_QUESTION = (
-    "¡Hola! Soy Galancito, asistente virtual de Red de Obras. "
+    "¡Hola! Soy Galancito de Red de Obras. "
     "Para orientarte con IA de OpenAI necesito procesar tus mensajes. "
     "¿Me autorizas? Responde sí o no; si prefieres, te atiende una persona."
 )
 AI_PERMISSION_REASK = (
-    "Soy Galancito. Para responderte usando IA necesito tu permiso. "
+    "Para responderte usando IA necesito tu permiso. "
     "¿Autorizas que use IA de OpenAI con estos mensajes? Escribe SÍ o NO. "
     "También puedes hablar con una persona."
 )
 AI_PERMISSION_DECLINED = (
-    "Entendido. Soy Galancito y no usaré IA con tus mensajes. "
+    "Entendido, no usaré IA con tus mensajes. "
     "Una persona de GALANT podrá ayudarte. No necesitas enviar documentos por aquí."
 )
 
@@ -26,16 +26,16 @@ AI_PERMISSION_DECLINED = (
 def permission_question(provider: str, repeat: bool = False) -> str:
     """Explain where messages are processed before seeking explicit consent."""
     if provider == "team":
-        opening = "Soy Galancito. " if repeat else "¡Hola! Soy Galancito, asistente virtual de Red de Obras. "
+        opening = "" if repeat else "¡Hola! Soy Galancito de Red de Obras. "
         return (opening + "Puedo orientarte usando los proveedores de IA externos "
                 "configurados para este servicio. ¿Me autorizas a procesar allí "
                 "tus mensajes? Responde sí o no. También puede atenderte una persona.")
     if provider == "ollama":
         if repeat:
-            return ("Soy Galancito. ¿Me autorizas a usar IA local de GALANT "
+            return ("¿Me autorizas a usar IA local de GALANT "
                     "para responderte? Tu mensaje se procesa en nuestro servidor. "
                     "Escribe SÍ o NO. Si prefieres, te atiende una persona.")
-        return ("Hola, soy Galancito, asistente virtual de GALANT. "
+        return ("Hola, te habla Galancito de GALANT. "
                 "¿Me autorizas a utilizar IA local para responderte? "
                 "Tus mensajes se procesan en nuestro servidor, sin OpenAI. "
                 "Responde SÍ o NO; también puedes hablar con una persona.")
@@ -67,9 +67,8 @@ def consent_decision(message: str) -> bool | None:
 def galancito_prefix(message: str) -> str:
     line = message.strip()
     if not line:
-        return "Soy Galancito, asistente virtual de GALANT. ¿Qué trabajo haces?"
-    if "galancito" not in line.lower():
-        return ("Soy Galancito, asistente virtual de GALANT. " + line)[:650]
+        return "¿En qué te puedo ayudar con Red de Obras?"
+    # No añadir prefijos repetitivos; el consentimiento se informa por separado.
     return line[:650]
 
 
@@ -99,8 +98,7 @@ def safe_ai_reply(draft: str) -> str:
         r"(paga primero|paga una comision|depositame)",
     )
     if not clean or clean.count("?") > 1 or any(re.search(p, normalized) for p in forbidden):
-        return ("Soy Galancito, asistente virtual de GALANT. "
-                "Para revisar esos datos, solicita orientación de administración por un canal seguro.")
+        return "Para revisar esos datos, solicita orientación de administración por un canal seguro."
     return galancito_prefix(clean)
 
 
