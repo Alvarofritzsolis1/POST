@@ -31,7 +31,10 @@ const GeneralConfiguration = lazy(() => import("./GeneralConfiguration"));
 const Ine = lazy(() => import("./Ine"));
 const Javiera = lazy(() => import("./Javiera"));
 const JavieraReviewerV17 = lazy(() => import("./JavieraReviewerV17"));
-import RedDeObras, { ResidentNetwork } from "./Network";
+const RedDeObras = lazy(() => import("./Network"));
+const ResidentNetwork = lazy(() =>
+  import("./Network").then(module => ({default: module.ResidentNetwork}))
+);
 import GalancitoWidget from "./GalancitoWidget";
 import { NetworkAccountMenu, NetworkPasswordScreen } from "./NetworkAccounts";
 import {
@@ -410,7 +413,7 @@ function App() {
   if (section === "javiera_config" && user.role !== "admin") return <main className="panel"><h1>Acceso restringido</h1><button onClick={() => go("home")}>Volver</button></main>;
   if (section === "configuration" && user.role !== "admin") return <main className="panel" style={{ margin: "40px auto", maxWidth: 620 }}><h1>Acceso restringido</h1><p>Configuración General está disponible exclusivamente para administradores.</p><button type="button" onClick={() => { window.history.replaceState({}, "", "/"); setSection("home"); }}>← Volver</button></main>;
   if (user.role === "ine_supervisor") return <ErrorBoundary name="Control INE"><Suspense fallback={<div className="app-loading">Cargando INE…</div>}><Ine user={user} version={version} logout={() => void logout()}/></Suspense></ErrorBoundary>;
-  if (user.role === "resident") return <ResidentNetwork user={user} version={version} logout={() => void logout()} />;
+  if (user.role === "resident") return <Suspense fallback={<div className="app-loading">Cargando Red de Obras…</div>}><ResidentNetwork user={user} version={version} logout={() => void logout()} /></Suspense>;
   if (user.role === "administrative") return <AdministrativeWorkspace user={user} version={version} logout={() => void logout()} />;
   if (section === "javiera_config" && user.role === "admin") return <ErrorBoundary name="Configuración de automatización"><Suspense fallback={<div className="app-loading">Cargando JAVIERA…</div>}><Javiera configuration onBack={() => go(automationReturnRef.current)} /></Suspense></ErrorBoundary>;
   if (section === "configuration" && user.role === "admin") return <ErrorBoundary name="Configuración General"><Suspense fallback={<div className="app-loading">Cargando Configuración General…</div>}><GeneralConfiguration user={user} version={version} logout={() => void logout()} onOpenSettings={() => go("settings")} onBack={() => go("settings")}/></Suspense></ErrorBoundary>;
@@ -598,7 +601,7 @@ function App() {
             </div>
 
           </div>}
-          {section === "network" && <RedDeObras user={user} />}
+          {section === "network" && <Suspense fallback={<div className="app-loading">Cargando Red de Obras…</div>}><RedDeObras user={user} /></Suspense>}
           {section === "ine" && <ErrorBoundary name="Control INE"><Suspense fallback={<div className="app-loading">Cargando INE…</div>}><Ine user={user} version={version} onBack={() => go("home")}/></Suspense></ErrorBoundary>}
           {section === "javiera" && <ErrorBoundary name="Proyecto JAVIERA"><Suspense fallback={<div className="app-loading">Cargando JAVIERA…</div>}><Javiera onBack={() => go("home")} onConfig={user.role === "admin" ? () => go("javiera_config") : undefined} /></Suspense></ErrorBoundary>}
           {error && (
