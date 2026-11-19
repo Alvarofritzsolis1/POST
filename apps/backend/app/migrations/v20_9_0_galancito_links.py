@@ -8,6 +8,7 @@ from uuid import uuid4
 from sqlalchemy import inspect, select, text
 
 from ..facebook_crm_models import FacebookLeadTrade, FacebookNeedAssociation, FacebookLeadTrace
+from ..galancito_links import canonical_trade
 
 MIGRATION_ID = "20.9.0_galancito_links"
 
@@ -27,17 +28,18 @@ def upgrade(connection):
     for row in leads:
         lead_id, org_id, specialty, source, requirement_id = row
         if specialty and specialty.strip():
+            normalized_trade = canonical_trade(specialty.strip())
             existing = connection.execute(
                 select(FacebookLeadTrade.id).where(
                     FacebookLeadTrade.org_id == org_id,
                     FacebookLeadTrade.lead_id == lead_id,
-                    FacebookLeadTrade.trade == specialty.strip()[:120],
+                    FacebookLeadTrade.trade == normalized_trade,
                 )
             ).first()
             if not existing:
                 connection.execute(FacebookLeadTrade.__table__.insert().values(
                     id=str(uuid4()), org_id=org_id, lead_id=lead_id,
-                    trade=specialty.strip()[:120],
+                    trade=normalized_trade,
                     source=source if source in {"manual", "message"} else "legacy",
                     active=True, first_seen_at=now, updated_at=now,
                 ))
