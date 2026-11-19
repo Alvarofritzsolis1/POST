@@ -38,7 +38,8 @@ def trade_terms(value: str) -> list[str]:
                 # Don't turn an explicit negative declaration into an active trade.
                 if re.search(
                     r"(?:\bno soy|\bno hago|\bno trabajo(?: en)?|\bno me dedico a|"
-                    r"\bsin experiencia en|\bno se)\s+(?:\w+\s+){0,2}$", prefix
+                    r"\bsin experiencia en|\bno se|\bpero no|\bno)"
+                    r"\s*(?:maestro(?: de)?\s*)?$", prefix
                 ):
                     continue
                 found.append(trade)
