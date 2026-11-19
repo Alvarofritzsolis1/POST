@@ -311,9 +311,13 @@ export default function RedDeObras({ user }: { user: Profile }) {
   }, [refresh, tab]);
   async function openReq(id: string) {
     try {
-      setSelectedReq(
-        await net<Requirement>("/requirements/" + encodeURIComponent(id)),
-      );
+      // An adjudication dialog needs the current contractor catalog, including
+      // changes made in another browser or through the administrative API.
+      const [requirement] = await Promise.all([
+        net<Requirement>("/requirements/" + encodeURIComponent(id)),
+        refreshCatalog(true),
+      ]);
+      setSelectedReq(requirement);
       setPanel("detail");
       setFiles([]);
       setHistory({ rows: [], total: 0 });
