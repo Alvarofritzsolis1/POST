@@ -113,31 +113,31 @@ def quick_reply(message: str, *, titles: list[str] | None = None,
     info = analyze(message, trades)
     known = known or {}
     if info.intent == "human":
-        return "Soy Galancito. Puedes solicitar atención de administración. No necesitas enviar documentos por aquí."
+        return "Puedes solicitar atención de administración. No necesitas enviar documentos por aquí."
     if info.intent == "restricted":
-        return "Soy Galancito. Solo oriento sobre Messenger y Red de Obras. Los permisos y adjudicaciones los gestiona el equipo autorizado."
+        return "Solo oriento sobre Messenger y Red de Obras. Los permisos y adjudicaciones los gestiona el equipo autorizado."
     if private_data(message):
-        return "Soy Galancito. No compartas datos personales ni contraseñas por aquí. Para revisarlos, solicita un canal seguro a administración."
+        return "No compartas datos personales ni contraseñas por aquí. Para revisarlos, solicita un canal seguro a administración."
     replies = {
-        "greeting": "¡Hola! Soy Galancito. Te ayudo con Red de Obras. ¿Qué necesitas hacer?",
-        "about": "Soy Galancito. Red de Obras conecta necesidades de las obras con servicios y disponibilidad de contratistas. El equipo autorizado revisa cada caso; no garantiza contratación.",
-        "publish": "Soy Galancito. En Red de Obras, crea una necesidad e indica especialidad, resumen y fechas conocidas. La publicación debe revisarla el equipo autorizado. ¿Qué especialidad necesitas?",
-        "availability": "Soy Galancito. En Red de Obras puedes informar tu especialidad, dotación y disponibilidad. ¿Qué especialidad ofreces?",
-        "apply": "Soy Galancito. Podemos orientar tu interés para revisión del equipo, sin garantizar un cupo. ¿Buscas empleo como trabajador o ofreces servicios de una empresa?",
-        "contractor_request": "Soy Galancito. Puedes registrar una necesidad en Red de Obras para revisión. ¿Qué especialidad necesitas?",
+        "greeting": "¡Hola! ¿En qué te puedo ayudar con Red de Obras?",
+        "about": "Red de Obras conecta necesidades de las obras con servicios y disponibilidad de contratistas. El equipo autorizado revisa cada caso; no garantiza contratación.",
+        "publish": "En Red de Obras, crea una necesidad e indica especialidad, resumen y fechas conocidas. La publicación debe revisarla el equipo autorizado. ¿Qué especialidad necesitas?",
+        "availability": "En Red de Obras puedes informar tu especialidad, dotación y disponibilidad. ¿Qué especialidad ofreces?",
+        "apply": "Podemos orientar tu interés para revisión del equipo, sin garantizar un cupo. ¿Buscas empleo como trabajador o ofreces servicios de una empresa?",
+        "contractor_request": "Puedes registrar una necesidad en Red de Obras para revisión. ¿Qué especialidad necesitas?",
     }
     if info.intent in replies:
         return replies[info.intent]
     if info.intent == "requirements":
-        return ("Soy Galancito. Necesidades publicadas: " + "; ".join(titles[:3])[:320]
+        return ("Necesidades publicadas: " + "; ".join(titles[:3])[:320]
                 + ". La disponibilidad debe confirmarla administración." if titles else
-                "Soy Galancito. No tengo necesidades vigentes confirmadas para mostrarte en esta consulta. Administración puede revisar tu caso.")
+                "No tengo necesidades vigentes confirmadas para mostrarte en esta consulta. Administración puede revisar tu caso.")
     if info.intent == "documents":
         entity = known.get("entity_type") or info.entity_type
         question = ("¿Trabajas con una empresa o a tu propio nombre?" if entity == "unknown" else
                     "¿Trabajas solo o tienes trabajadores contratados?" if known.get("has_employees") is None else
                     "¿Sobre qué documento necesitas orientación?")
-        return "Soy Galancito. Los documentos se revisan según la obra y tu situación, sin exigir papeles que no correspondan. " + question
+        return "Los documentos se revisan según la obra y tu situación, sin exigir papeles que no correspondan. " + question
     if info.intent in {"job_seeker", "company_offer", "capacity", "trade_offer"}:
         specialty = known.get("specialty") or info.specialty
         availability = known.get("availability") or info.availability
@@ -155,7 +155,7 @@ def quick_reply(message: str, *, titles: list[str] | None = None,
         else:
             question = "¿En qué comuna puedes trabajar?"
         intro = "Recibo tu interés como trabajador, sin garantizar un puesto. " if info.intent == "job_seeker" else "Gracias por informar tu disponibilidad. "
-        return "Soy Galancito. " + intro + question
+        return "" + intro + question
     return None
 
 
