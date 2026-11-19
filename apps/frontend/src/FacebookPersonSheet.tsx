@@ -25,7 +25,7 @@ type Lead = {
   follow_up_on: string | null; follow_up_note: string; last_inbound_at: string | null;
   contact_phone?: string | null; phone_source?: string | null; phone_requested_at?: string | null;
   phone_opt_out?: boolean; can_reply: boolean;
-  profile: { summary: string; percent: number; missing: string[]; evidence: string };
+  profile: { summary: string; percent: number; completed:number; total:number; missing: string[]; evidence: string };
 };
 type Detail = { lead: Lead };
 type BriefFact = { key:string; label:string; value:string; source:"chat"|"manual"|"registrado";
