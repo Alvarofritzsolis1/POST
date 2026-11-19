@@ -253,7 +253,8 @@ def test_galancito_conversation_auto_reply_only_after_messenger_consent(network,
     assert incoming(n, text="Sí", mid="consent-yes").status_code == 200
     assert process_chat_next(n["Session"]) is True
     assert len(calls) == 2 and len(ai_calls) == 1
-    assert calls[-1].startswith("Soy Galancito")
+    assert "¿Qué oficio haces?" in calls[-1]
+    assert "asistente virtual" not in calls[-1].lower()
     assert n["admin"].get("/api/v1/network/facebook/center").json()["leads"][0]["ai_consent_state"] == "accepted"
     # A manual answer takes this turn, but the next incoming turn is automatic.
     reply = n["send"](n["admin"], "/facebook/leads/" + lead["id"] + "/reply",
