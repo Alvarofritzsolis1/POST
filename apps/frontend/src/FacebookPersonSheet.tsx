@@ -269,8 +269,6 @@ export default function FacebookPersonSheet({person,onClose,onChanged,onOpenChat
                 {!(brief?.missing||lead.profile.missing).length&&
                   <small>Datos básicos registrados. Falta validar antecedentes.</small>}
               </div>
-              <button type="button" className="fbps-button main" onClick={()=>{if(confirmExit())onOpenChat(person.id);}}>
-                <MessageCircle size={16}/> Ver chat</button>
             </section>
             <section className="fbps-card fbps-facts">
               <h3><ShieldCheck size={18}/> Datos identificados en la conversación</h3>
