@@ -56,7 +56,11 @@ urlopen = build_opener(_NoExternalRedirects).open
 
 
 class AIServiceError(Exception):
-    """Safe-to-display provider error; no HTTP bodies, credentials or prompts."""
+    """Safe provider error; transient timeouts must not revoke a verified key."""
+
+    def __init__(self, message: str, *, requires_reverify: bool = False):
+        super().__init__(message)
+        self.requires_reverify = requires_reverify
 
 
 def _cipher() -> Fernet:
@@ -163,7 +167,10 @@ def invoke(connection: AIConnection, *, instructions: str, prompt: str,
             503: "El proveedor está temporalmente no disponible. Vuelve a probar luego.",
             504: "El proveedor tardó demasiado en responder. Vuelve a probar luego.",
         }.get(exc.code, "El proveedor no pudo completar la prueba.")
-        raise AIServiceError(help_text + " (HTTP " + str(exc.code) + ").") from None
+        raise AIServiceError(
+            help_text + " (HTTP " + str(exc.code) + ").",
+            requires_reverify=exc.code in (400, 401, 402, 403, 404, 410, 422),
+        ) from None
     except (URLError, TimeoutError, OSError, ValueError, UnicodeError):
         raise AIServiceError("No se pudo contactar al proveedor de IA.") from None
     if not isinstance(result, dict):
@@ -212,11 +219,15 @@ def run_connection(db: Session, conn: AIConnection, *, task: str, instructions: 
     try:
         generated, inp, out = invoke(conn, instructions=instructions, prompt=prompt,
                                     max_output_tokens=max_output_tokens, timeout=timeout)
-    except AIServiceError:
+    except AIServiceError as exc:
         record_usage(db, conn, task, status="error",
                      duration_ms=round((time.perf_counter() - started) * 1000))
-        conn.last_status = "error"
-        conn.last_checked_at = utcnow()
+        # A network timeout, 429 or transient 5xx does not mean the API key
+        # stopped working. Preserve the last verified connection for the next
+        # request, while recording the failure in usage and allowing fallback.
+        if exc.requires_reverify or conn.last_status != "verified":
+            conn.last_status = "error"
+            conn.last_checked_at = utcnow()
         raise
     record_usage(db, conn, task, status="success", input_tokens=inp, output_tokens=out,
                  duration_ms=round((time.perf_counter() - started) * 1000))
