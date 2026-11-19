@@ -176,6 +176,11 @@ export default function RedDeObras({ user }: { user: Profile }) {
     [activeCoord, setActiveCoord] = useState<Coordination | null>(null);
   const [files, setFiles] = useState<Attachment[]>([]),
     [history, setHistory] = useState<History>({ rows: [], total: 0 });
+  const [debouncedSearch, setDebouncedSearch] = useState(search);
+  useEffect(() => {
+    const timer = window.setTimeout(() => setDebouncedSearch(search), 250);
+    return () => window.clearTimeout(timer);
+  }, [search]);
   const generation = useRef(0);
   // Catalog is nearly static and must not be re-downloaded on every list poll.
   useEffect(() => {
@@ -222,7 +227,7 @@ export default function RedDeObras({ user }: { user: Profile }) {
               "/requirements" +
                 suffix +
                 "&q=" +
-                encodeURIComponent(search) +
+                encodeURIComponent(debouncedSearch) +
                 "&priority=" +
                 priority +
                 "&mine=" +
@@ -231,7 +236,7 @@ export default function RedDeObras({ user }: { user: Profile }) {
           : null,
         ["home", "capacities"].includes(tab)
           ? net<Page<Capacity>>(
-              "/capacities" + suffix + "&q=" + encodeURIComponent(search),
+              "/capacities" + suffix + "&q=" + encodeURIComponent(debouncedSearch),
             )
           : null,
         ["home", "matches"].includes(tab)
@@ -262,7 +267,7 @@ export default function RedDeObras({ user }: { user: Profile }) {
     } finally {
       if (id === generation.current) setLoading(false);
     }
-  }, [tab, query, page, search, priority, mine]);
+  }, [tab, query, page, debouncedSearch, priority, mine]);
   useEffect(() => {
     let active = true;
     const sync = () => {
