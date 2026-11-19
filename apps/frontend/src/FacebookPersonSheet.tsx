@@ -75,13 +75,25 @@ export default function FacebookPersonSheet({person,onClose,onChanged,onOpenChat
   const [notes,setNotes]=useState("");
   const dialog=useRef<HTMLDivElement>(null);
   const closeButton=useRef<HTMLButtonElement>(null);
+  // Evitar que un clic externo o un cambio al chat descarte datos pendientes.
+  const unsavedRef=useRef(false);
+  unsavedRef.current=Boolean(editing && data && (
+    phone.trim()!==(data.lead.contact_phone||"") ||
+    date!==(data.lead.follow_up_on||"") ||
+    notes.trim()!==(data.lead.follow_up_note||"")
+  ));
+  const confirmExit=()=>{
+    if (unsavedRef.current && !window.confirm("Hay cambios sin guardar. ¿Salir sin guardarlos?")) return false;
+    return true;
+  };
+  const exitSheet=()=>{if(confirmExit())onClose();};
   useEffect(()=>{
     const oldFocus=document.activeElement instanceof HTMLElement ? document.activeElement : null;
     const scroll=document.body.style.overflow;
     document.body.style.overflow="hidden";
     closeButton.current?.focus();
     function keydown(event:KeyboardEvent){
-      if(event.key==="Escape"){event.preventDefault();onClose();}
+      if(event.key==="Escape"){event.preventDefault();exitSheet();}
       if(event.key!=="Tab"||!dialog.current)return;
       const controls=Array.from(dialog.current.querySelectorAll<HTMLElement>(
         "button:not([disabled]), input:not([disabled]), textarea:not([disabled]), summary, a[href]"
@@ -151,11 +163,11 @@ export default function FacebookPersonSheet({person,onClose,onChanged,onOpenChat
   const lead=data?.lead;
   const linked=new Set(lead?.linked_needs || (lead?.requirement_id?[lead.requirement_id]:[]));
   const matches=insights?.matches||person.matches||[];
-  return <div className="fbps-overlay" onMouseDown={e=>{if(e.target===e.currentTarget)onClose();}}>
+  return <div className="fbps-overlay">
     <div ref={dialog} className="fbps-dialog" role="dialog" aria-modal="true"
       aria-label={"Ficha de "+(lead?nameOf(lead):person.name)}>
       <div className="fbps-titlebar"><span><UserRound size={16}/> Ficha inteligente · Red de Obras</span>
-        <button ref={closeButton} type="button" className="fbps-close" onClick={onClose} aria-label="Cerrar ficha">
+        <button ref={closeButton} type="button" className="fbps-close" onClick={exitSheet} aria-label="Cerrar ficha">
           <X size={19}/></button></div>
       {!lead?<div className="fbps-loading" role="status">{error||"Cargando ficha…"}</div>:<>
         <header className="fbps-header">
@@ -169,7 +181,7 @@ export default function FacebookPersonSheet({person,onClose,onChanged,onOpenChat
           <div className="fbps-actions">
             <button type="button" className="fbps-button" onClick={()=>setEditing(v=>!v)}>
               <ClipboardList size={16}/>{editing?"Cerrar edición":"Editar seguimiento"}</button>
-            <button type="button" className="fbps-button main" onClick={()=>onOpenChat(person.id)}>
+            <button type="button" className="fbps-button main" onClick={()=>{if(confirmExit())onOpenChat(person.id);}}>
               <MessageCircle size={16}/> Ver chat</button>
           </div>
         </header>
