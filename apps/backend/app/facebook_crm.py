@@ -28,7 +28,8 @@ from .ai_gateway import orchestrated_text
 from .facebook_onboarding import assistance_signal, reply_for_support, onboarding_guide
 from .galancito_flow import (AI_PERMISSION_QUESTION, AI_PERMISSION_REASK,
                              AI_PERMISSION_DECLINED, consent_decision, wants_human, permission_question)
-from .facebook_crm_models import FacebookLead, FacebookChatMessage, FacebookTradeGuide
+from .facebook_crm_models import (FacebookLead, FacebookChatMessage, FacebookTradeGuide,
+                                  FacebookLeadTrade, FacebookNeedAssociation, FacebookLeadTrace)
 from .models import Organization, User, utcnow
 from .network_facebook import public_message
 from .network_models import NetworkFacebookPost, NetworkFacebookManual, NetworkRequirement
@@ -38,6 +39,9 @@ from .security import administrator
 from .galancito_triage import analyze, private_data, quick_reply
 from .galancito_intake import apply_intake, next_intake_reply, small_talk_reply, natural_messenger_reply
 from .galancito_contact_profile import contact_profile
+from .galancito_links import (record_declared_trades, record_manual_trade,
+                              suggest_requirements, link_requirement,
+                              unlink_requirement, audit_event)
 from .galancito_escalation import flag_for_human
 from .facebook_lead_insights import ranked_needs, suggestions_for_lead, link_unique_requirement
 from .ops_models import Worksite
@@ -328,6 +332,8 @@ async def webhook(request: Request, db: Session = Depends(get_db)):
                 # Only self-declared professional details, never an employment inference
                 # from ability to bring people; no third-party model receives these fields.
                 apply_intake(lead, body, previous_question)
+                record_declared_trades(db, lead, body, remote_id=mid,
+                                       prior_prompt=previous_question)
                 approved_trades = {g.trade: (g.trade, *(g.aliases or [])) for g in db.scalars(
                     select(FacebookTradeGuide).where(FacebookTradeGuide.org_id == lead.org_id,
                                                     FacebookTradeGuide.approved.is_(True)).limit(100))}
@@ -512,6 +518,72 @@ def galancito_seguimiento(user: User = Depends(administrator),
         classify_lead(lead, guides, reqs, by_id[lead.id], today=today())
         for lead in leads
     ])
+    # Load all trade, association and trace rows in bounded batches; avoid N+1 queries.
+    ids = [lead.id for lead in leads]
+    trades_by = {lead_id: [] for lead_id in ids}
+    linked_by = {lead_id: [] for lead_id in ids}
+    history_by = {lead_id: [] for lead_id in ids}
+    if ids:
+        for item in db.scalars(select(FacebookLeadTrade).where(
+            FacebookLeadTrade.org_id == user.org_id,
+            FacebookLeadTrade.lead_id.in_(ids),
+            FacebookLeadTrade.active.is_(True),
+        )):
+            trades_by[item.lead_id].append(item.trade)
+        for item in db.scalars(select(FacebookNeedAssociation).where(
+            FacebookNeedAssociation.org_id == user.org_id,
+            FacebookNeedAssociation.lead_id.in_(ids),
+            FacebookNeedAssociation.state == "linked",
+        )):
+            linked_by[item.lead_id].append(item.requirement_id)
+        for event in db.scalars(select(FacebookLeadTrace).where(
+            FacebookLeadTrace.org_id == user.org_id,
+            FacebookLeadTrace.lead_id.in_(ids),
+        ).order_by(FacebookLeadTrace.created_at.desc(),
+                   FacebookLeadTrace.id.desc()).limit(800)):
+            if len(history_by[event.lead_id]) < 3:
+                history_by[event.lead_id].append({
+                    "event": event.event, "trade": event.trade,
+                    "requirement_id": event.requirement_id,
+                    "source": event.source,
+                    "at": event.created_at.isoformat(),
+                })
+    req_by_id = {need.id: need for need in reqs}
+    by_lead_id = {lead.id: lead for lead in leads}
+    by_specialty = {}
+    by_need = {}
+    for row in result["rows"]:
+        lead = by_lead_id[row["id"]]
+        trades = list(dict.fromkeys(trades_by[lead.id] or
+                                    ([lead.specialty] if lead.specialty else [])))
+        linked_ids = set(linked_by[lead.id] +
+                         ([lead.requirement_id] if lead.requirement_id else []))
+        row["trades"] = trades
+        row["links"] = [
+            {"id": req_id, "title": req_by_id[req_id].title,
+             "specialty": req_by_id[req_id].specialty}
+            for req_id in linked_ids if req_id in req_by_id
+        ]
+        row["matches"] = suggest_requirements(
+            lead, trades, reqs, linked_ids, limit=5
+        )
+        row["recent_trace"] = history_by[lead.id]
+        profile = contact_profile(lead)
+        row["profile_state"] = "Perfil básico" if trades else "Oficio por conocer"
+        row["profile_pending"] = [
+            name for name, available in (
+                ("Ubicación", bool(lead.work_area)),
+                ("Disponibilidad", bool(lead.availability)),
+                ("Experiencia", bool(lead.experience)),
+            ) if not available
+        ][:2]
+        for trade in trades or ["Por confirmar"]:
+            by_specialty[trade] = by_specialty.get(trade, 0) + 1
+        for label in [x["title"] for x in row["links"]] or ["Sin necesidad asignada"]:
+            by_need[label] = by_need.get(label, 0) + 1
+    result["by_category"] = by_specialty
+    result["by_requirement"] = by_need
+    result["unlinked"] = sum(not row["links"] for row in result["rows"])
     result["limited"] = total > len(leads)
     return result
 
@@ -746,6 +818,40 @@ def request_inbox_sync(user: User = Depends(administrator),
     return {"state": "pending", "queued": True}
 
 
+
+@router.post("/leads/{lead_id}/needs/{requirement_id}/link")
+def link_contact_need(lead_id: str, requirement_id: str,
+                      user: User = Depends(administrator),
+                      db: Session = Depends(get_db)):
+    """Explicit human link; no selection, award, or contact message."""
+    lead = _lead(db, user, lead_id)
+    need = db.scalar(select(NetworkRequirement).where(
+        NetworkRequirement.id == requirement_id,
+        NetworkRequirement.org_id == user.org_id,
+        NetworkRequirement.state == "published",
+    ))
+    if not need:
+        raise HTTPException(404, "Necesidad vigente no encontrada")
+    changed = link_requirement(db, lead, need.id, user.id)
+    if changed:
+        lead.updated_at = utcnow()
+        db.commit()
+    return {"linked": True, "changed": changed}
+
+
+@router.post("/leads/{lead_id}/needs/{requirement_id}/unlink")
+def unlink_contact_need(lead_id: str, requirement_id: str,
+                        user: User = Depends(administrator),
+                        db: Session = Depends(get_db)):
+    """Keep historical event and soft-delete only the requested association."""
+    lead = _lead(db, user, lead_id)
+    changed = unlink_requirement(db, lead, requirement_id, user.id)
+    if changed:
+        lead.updated_at = utcnow()
+        db.commit()
+    return {"linked": False, "changed": changed}
+
+
 @router.get("/leads/{lead_id}")
 def get_lead(lead_id: str, user: User = Depends(administrator),
              db: Session = Depends(get_db)):
@@ -754,7 +860,20 @@ def get_lead(lead_id: str, user: User = Depends(administrator),
         FacebookChatMessage.org_id == user.org_id,
         FacebookChatMessage.lead_id == lead.id,
     ).order_by(FacebookChatMessage.created_at, FacebookChatMessage.id).limit(200)))
-    return {"lead": _lead_view(db, lead), "messages": [_message_view(m) for m in msgs]}
+    view = _lead_view(db, lead)
+    view["trades"] = [row.trade for row in db.scalars(select(FacebookLeadTrade).where(
+        FacebookLeadTrade.org_id == user.org_id,
+        FacebookLeadTrade.lead_id == lead.id,
+        FacebookLeadTrade.active.is_(True),
+    ))]
+    view["linked_needs"] = [row.requirement_id for row in db.scalars(
+        select(FacebookNeedAssociation).where(
+            FacebookNeedAssociation.org_id == user.org_id,
+            FacebookNeedAssociation.lead_id == lead.id,
+            FacebookNeedAssociation.state == "linked",
+        )
+    )]
+    return {"lead": view, "messages": [_message_view(m) for m in msgs]}
 
 
 @router.post("/leads/{lead_id}/refresh-profile")
@@ -777,6 +896,8 @@ def refresh_declared_profile(lead_id: str, user: User = Depends(administrator),
                 previous_question = item.body or ""
         elif item.direction == "inbound":
             apply_intake(lead, item.body or "", previous_question)
+            record_declared_trades(db, lead, item.body or "",
+                                   remote_id=item.remote_id, prior_prompt=previous_question)
             previous_question = ""
     lead.updated_at = utcnow()
     db.commit()
@@ -850,6 +971,7 @@ def update_lead(lead_id: str, body: LeadEdit, user: User = Depends(administrator
         NetworkRequirement.org_id == user.org_id,
     )):
         raise HTTPException(422, "La necesidad no pertenece a tu organización")
+    previous_requirement_id = lead.requirement_id
     for field, value in body.model_dump(exclude_unset=True).items():
         if field == "name":
             lead.display_name = value.strip() or "Interesado de Facebook"
@@ -859,10 +981,35 @@ def update_lead(lead_id: str, body: LeadEdit, user: User = Depends(administrator
             setattr(lead, field, value.strip())
             if field == "specialty":
                 lead.specialty_source = "manual"
+                if value.strip():
+                    record_manual_trade(db, lead, value.strip(), user.id)
         else:
             setattr(lead, field, value)
-    if "requirement_id" not in body.model_fields_set:
-        link_unique_requirement(db, lead, today=today())
+    if "requirement_id" in body.model_fields_set and previous_requirement_id != lead.requirement_id:
+        # Legacy single-need editor remains usable; the link table is canonical
+        # for the new multi-need view and retains an audit trail.
+        new_requirement_id = lead.requirement_id
+        if previous_requirement_id:
+            unlink_requirement(db, lead, previous_requirement_id, user.id)
+        if new_requirement_id:
+            link_requirement(db, lead, new_requirement_id, user.id)
+            lead.requirement_id = new_requirement_id
+    elif "requirement_id" not in body.model_fields_set:
+        # Keep existing exact-match compatibility behavior, but trace its origin.
+        if link_unique_requirement(db, lead, today=today()):
+            existing = db.scalar(select(FacebookNeedAssociation).where(
+                FacebookNeedAssociation.org_id == lead.org_id,
+                FacebookNeedAssociation.lead_id == lead.id,
+                FacebookNeedAssociation.requirement_id == lead.requirement_id,
+            ))
+            if not existing:
+                db.add(FacebookNeedAssociation(
+                    org_id=lead.org_id, lead_id=lead.id,
+                    requirement_id=lead.requirement_id,
+                    state="linked", reviewed_by=None,
+                ))
+                audit_event(db, lead, "need_auto_linked", source="rule",
+                            requirement_id=lead.requirement_id)
     if body.model_fields_set.intersection({"follow_up_on", "follow_up_note"}):
         lead.follow_up_by = user.id
     if body.model_fields_set.intersection({"needs_support"}) and not lead.needs_support:
