@@ -434,6 +434,10 @@ def main():
             "work_area": "Coronel", "work_communes": ["Coronel"],
             "follow_up_on": None, "follow_up_note": "", "last_inbound_at": None,
             "contact_phone": "", "phone_source": "", "phone_requested_at": None,
+            "ai_consent": False, "ai_consent_state": "not_requested",
+            "ai_paused": False, "support_reason": "", "last_message": None,
+            "analysis": {"label":"Sin necesidad","state":"unlinked",
+                "requirement": None,"checks":[],"missing":[],"human_review_required":True},
             "phone_opt_out": False, "can_reply": False, "unread": True,
             "profile": {
                 "summary": "Ofrece carpintería, declara experiencia y trabaja con equipo.",
@@ -474,7 +478,11 @@ def main():
         fb_ctx.route(fb_root + "galancito/seguimiento", mock_json(fake_tracking))
         fb_ctx.route(fb_root + "leads/" + fake_id, mock_json({"lead":fake_lead,"messages":[]}))
         fb_ctx.route(fb_root + "leads/" + fake_id + "/insights", mock_json({
-            "contact_id":fake_id, "next_action":"Confirmar disponibilidad","matches":[]}))
+            "contact_id":fake_id, "next_action":"Confirmar disponibilidad","matches":[],
+            "suggestions": [], "missing": [], "source": "reglas_locales",
+            "review_required": True, "changes_applied": False,
+            "summary": {"name":"Contacto QA","specialty":"Carpintería","workers":2,
+                        "availability":"Próxima semana","stage":"Responder"}}))
         fb_ctx.route(fb_root + "leads/" + fake_id + "/trace", mock_json([]))
         fb_page.get_by_role("button", name="Red de Obras", exact=True).click()
         fb_page.get_by_role("navigation", name="Red de Obras", exact=True).get_by_role(
