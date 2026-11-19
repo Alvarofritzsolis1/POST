@@ -29,6 +29,9 @@ from .galancito_memory import (
     apply_messenger_message, approved_trade_aliases, aware, prior_delivered_prompt, profile_facts,
 )
 from .galancito_triage import private_data, quick_reply
+from .galancito_phone import remember_shared_phone, phone_question_when_agreed
+from .galancito_links import audit_event
+from .galancito_memory import note_profile_sources
 from .models import Organization, utcnow
 from .network_service import today
 
@@ -149,6 +152,9 @@ def sync_page_inbox(*, page_id: str, page_token: str, org_id: str,
             lead.unread = True
             prior = prior_delivered_prompt(db, lead, at=timestamp, since=previous if fresh else None)
             decision = apply_permission_reply(lead, body, prior) if fresh else None
+            if fresh and remember_shared_phone(lead, body, prior, at=timestamp):
+                note_profile_sources(lead, ["contact_phone"], source="message", at=timestamp, remote_id=mid)
+                audit_event(db, lead, "field_contact_phone", source="message", remote_id=mid)
             if decision is False:
                 flag_for_human(db, lead, "Solicitó atención humana" if wants_human(body)
                                else "Prefirió atención humana y no autorizó IA")
@@ -221,6 +227,10 @@ def sync_page_inbox(*, page_id: str, page_token: str, org_id: str,
                     queued += 1
                     continue
                 direct = follow_up or explain_permission(lead, body, prior) or worksite_reply(db, lead, body, prior)
+                if not direct and not lead.needs_support:
+                    direct = phone_question_when_agreed(lead, body)
+                    if direct:
+                        lead.phone_requested_at = utcnow()
                 source = "disabled" if direct else messenger_ai_source(db, org_id, cfg)
                 if direct:
                     state, reply = "pending", direct
