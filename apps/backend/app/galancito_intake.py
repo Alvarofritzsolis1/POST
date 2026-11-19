@@ -259,7 +259,8 @@ def next_intake_reply(message: str, facts: dict, prior_prompt: str = "") -> str 
         "puedo traer gente", "puedo llevar gente", "tengo cuadrilla",
         "puedo ir con gente", "trabajamos varios"
     ))
-    if (info.intent in {"human", "restricted", "documents", "requirements",
+    if (needs_deeper_response(message) or
+            info.intent in {"human", "restricted", "documents", "requirements",
                         "about", "publish"} or private_data(message)
             or (info.intent == "contractor_request" and not capacity_statement)):
         return None
