@@ -712,13 +712,13 @@ export default function FacebookCenter({ catalog }: { catalog: Catalog }) {
           <button type="button" className={inboxFilter === "all" ? "selected" : ""}
             aria-pressed={inboxFilter === "all"} onClick={() => setInboxFilter("all")}>Todas</button>
           <button type="button" className={inboxFilter === "unread" ? "selected" : ""}
-            aria-pressed={inboxFilter === "unread"} onClick={() => setInboxFilter("unread")}>Por responder</button>
+            aria-pressed={inboxFilter === "unread"} onClick={() => setInboxFilter("unread")}>Sin leer</button>
         </div>
         <input className="fbc-search" aria-label="Buscar interesados" value={filter}
           onChange={(e) => setFilter(e.target.value)} placeholder="Buscar persona, empresa u oficio..." />
         <div className="fbc-contacts-list">
           {!visible.length && <p className="fbc-empty">{inboxFilter === "unread"
-            ? "No hay conversaciones pendientes con este filtro."
+            ? "No hay conversaciones sin leer con este filtro."
             : filter ? "No encontramos contactos con esa búsqueda." :
             "Aún no hay mensajes sincronizados. Los contactos aparecerán cuando escriban a la página conectada."}</p>}
           {visible.map((item) => <button key={item.id}
