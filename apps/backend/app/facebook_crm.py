@@ -384,9 +384,10 @@ async def webhook(request: Request, db: Session = Depends(get_db)):
             body, previous_question = earlier[1], earlier[2]
         reply_turns[lead.id] = (lead, body, previous_question, changed or bool(earlier and earlier[3]),
                                signal or (earlier[4] if earlier else None), mid,
-                               consent is True or bool(earlier and earlier[6]))
+                               consent is True or bool(earlier and earlier[6]),
+                               phone_saved or bool(earlier and earlier[7]))
 
-    for lead, body, previous_question, changed, signal, mid, consent_reply in reply_turns.values():
+    for lead, body, previous_question, changed, signal, mid, consent_reply, phone_saved in reply_turns.values():
         if changed and not signal:
             trace_unique_requirement(db, lead, today=today(), remote_id=mid)
         # El mensaje entrante más reciente desplaza cualquier respuesta
