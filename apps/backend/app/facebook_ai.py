@@ -100,7 +100,9 @@ def _generate(instructions: str, supplied_data: str, max_chars: int,
         },
     )
     try:
-        with urlopen(request, timeout=12) as response:
+        # Messenger should fail over or request human review quickly; avoid a
+        # 12-second synchronous API wait for every contact question.
+        with urlopen(request, timeout=(6 if instructions == REPLY_INSTRUCTIONS else 12)) as response:
             obj = json.loads(response.read(100000).decode("utf-8"))
     except (HTTPError, URLError, TimeoutError, OSError, ValueError) as exc:
         # Los mensajes, el cuerpo remoto y las credenciales nunca van a los logs.
