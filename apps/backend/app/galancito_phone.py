@@ -92,3 +92,8 @@ def remember_shared_phone(lead, message: str, last_question: str, *, at: datetim
     lead.phone_shared_at = at
     lead.phone_opt_out = False
     return True
+
+
+def redact_mobile_for_intake(message: str) -> str:
+    """Preserve non-sensitive trade statements without passing phone digits onward."""
+    return PHONE_PATTERN.sub("[teléfono reservado]", message or "")
