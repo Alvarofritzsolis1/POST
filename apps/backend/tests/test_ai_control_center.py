@@ -9,7 +9,7 @@ from sqlalchemy.orm import sessionmaker
 
 from app import ai_gateway
 from app.ai_gateway import orchestration_available, orchestrated_text
-from app.ai_models import AIConnection, AIUsage
+from app.ai_models import AIConnection, AIOrchestration, AIUsage
 from app.config import settings
 from app.db import Base, get_db
 from app.main import app
@@ -386,6 +386,56 @@ def test_review_rejects_invented_response_without_training(ai_env, monkeypatch):
     bootstrap = client.get(ROOT + "/bootstrap").json()
     assert bootstrap["learning"]["approved"] == 0
     assert bootstrap["learning"]["pending"] == 0
+
+
+def test_messenger_tries_another_configured_ai_after_reviewer_rejects(ai_env, monkeypatch):
+    """Only a consented team route uses other approved providers."""
+    ids = []
+    with ai_env["sessions"].begin() as db:
+        admin_id = db.scalar(select(User.id).where(
+            User.org_id == ai_env["org_id"], User.role == "admin"))
+        for name, provider, model in (
+            ("Principal", "openai", "gpt-4o-mini"),
+            ("Revisor", "groq", "llama-3.3-70b-versatile"),
+            ("Alternativa", "mistral", "mistral-small-latest"),
+        ):
+            conn = AIConnection(org_id=ai_env["org_id"], name=name,
+                                provider=provider, model=model,
+                                encrypted_key="synthetic-not-decrypted", enabled=True,
+                                last_status="verified", updated_by=admin_id)
+            db.add(conn)
+            db.flush()
+            ids.append(conn.id)
+        db.add(AIOrchestration(org_id=ai_env["org_id"], enabled=True,
+                               fallback_enabled=True, review_enabled=True,
+                               monthly_token_limit=0,
+                               task_routes={"messenger": ids[0], "review": ids[1]}))
+    calls = []
+    def fake_run(db, conn, **kwargs):
+        calls.append(conn.id)
+        if conn.id == ids[0]:
+            return "Respuesta sin respaldo"
+        if conn.id == ids[2]:
+            return "La disponibilidad debe confirmarla administración."
+        proposed = json.loads(kwargs["prompt"])["respuesta_propuesta"]
+        return json.dumps({"valid": proposed.startswith("La disponibilidad")})
+    monkeypatch.setattr(ai_gateway, "run_connection", fake_run)
+    with ai_env["sessions"].begin() as db:
+        answer = orchestrated_text(db, ai_env["org_id"], task="messenger",
+                                   instructions="Responder con evidencia",
+                                   prompt="Consulta sintética", max_output_tokens=120)
+    assert answer == "La disponibilidad debe confirmarla administración."
+    assert calls == [ids[0], ids[1], ids[2], ids[1]]
+    with ai_env["sessions"].begin() as db:
+        db.get(AIConnection, ids[0]).last_status = "error"
+    calls.clear()
+    with ai_env["sessions"].begin() as db:
+        assert orchestration_available(db, ai_env["org_id"], "messenger")
+        answer = orchestrated_text(db, ai_env["org_id"], task="messenger",
+                                   instructions="Responder con evidencia",
+                                   prompt="Otra consulta sintética", max_output_tokens=120)
+    assert answer == "La disponibilidad debe confirmarla administración."
+    assert calls == [ids[2], ids[1]]
 
 
 def test_preflight_token_cap_prevents_unaffordable_external_call(ai_env, monkeypatch):

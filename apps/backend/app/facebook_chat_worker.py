@@ -25,6 +25,7 @@ from .galancito_intake import next_intake_reply, natural_messenger_reply, needs_
 from .galancito_knowledge import retrieve, exact_answer, evidence_context
 from .galancito_runtime import infer, record_run
 from .galancito_local import last_timings
+from .galancito_escalation import flag_for_human
 
 class NoRedirect(HTTPRedirectHandler):
     def redirect_request(self, req, fp, code, msg, headers, newurl):
@@ -334,6 +335,10 @@ def process_chat_next(session_factory=SessionLocal) -> bool:
             # Short guided answers use local reasoning. Nuanced questions get a
             # fuller model response after the contact's explicit consent.
             should_model = not fast or needs_deeper_response(latest)
+            if should_model:
+                # A generic intake prompt must not stand in for an answer to a
+                # difficult question when every configured model failed.
+                generated = None
             if should_model and not private_data(context):
                 if fast:
                     context += ("\nOrientación breve disponible como alternativa: " +
@@ -353,11 +358,10 @@ def process_chat_next(session_factory=SessionLocal) -> bool:
                         drafted = grounded_reply(drafted, context)
                     if drafted:
                         generated, source = drafted, "ai"
-                    elif not fast:
-                        generated, source = None, "fallback"
+                    else:
+                        source = "fallback"
                 except (RuntimeError, ValueError):
-                    if not fast:
-                        generated, source = None, "fallback"
+                    source = "fallback"
                     timings = last_timings.get()
             if generated:
                 body = natural_messenger_reply(safe_ai_reply(generated), prior_ai_replies)
@@ -412,6 +416,11 @@ def process_chat_next(session_factory=SessionLocal) -> bool:
             if failed_ai:
                 contact = db.get(FacebookLead, lead_id)
                 if contact:
-                    contact.needs_support = True
-                    contact.support_reason = "Galancito no obtuvo una respuesta confirmada; revisión pendiente"
+                    flag_for_human(db, contact,
+                                   "Galancito no obtuvo una respuesta confirmada; revisión pendiente")
+        if automated_reply and not result_id:
+            contact = db.get(FacebookLead, lead_id)
+            if contact:
+                flag_for_human(db, contact,
+                               "No se confirmó la entrega en Messenger; revisar antes de reintentar")
     return True

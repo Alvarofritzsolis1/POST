@@ -53,11 +53,11 @@ type Onboarding = {
   notice: string; ask_for_files_now: boolean; human_followup: boolean;
 };
 type Chat = { id: string; direction: "inbound" | "outbound"; state: string; body: string;
-  ai_generated: boolean; created_at: string; updated_at?: string; error: string | null };
+  ai_generated: boolean; automated: boolean; created_at: string; updated_at?: string; error: string | null };
 const replyStages: Record<string, {percent: number; label: string}> = {
   pending: {percent: 15, label: "Respuesta en cola"},
-  ai_pending: {percent: 30, label: "Galancito prepara su respuesta"},
-  drafting: {percent: 65, label: "Galancito está redactando"},
+  ai_pending: {percent: 30, label: "Galancito está pensando"},
+  drafting: {percent: 65, label: "Galancito está escribiendo"},
   sending: {percent: 90, label: "Enviando a Messenger"},
   sent: {percent: 100, label: "Meta confirmó el envío"},
 };
@@ -581,6 +581,18 @@ export default function FacebookCenter({ catalog }: { catalog: Catalog }) {
                 </button>)}
             {lead.unread && <button type="button" className="nw-btn fbc-read-btn" onClick={() =>
               void mutate("read", () => change("/facebook/leads/" + lead.id + "/read"), "")} disabled={!!saving}>Leído</button>}
+            <button type="button"
+              className={"fbc-auto-toggle " + (lead.ai_paused ? "is-off" : "is-on")}
+              aria-pressed={!lead.ai_paused}
+              aria-label={(lead.ai_paused ? "Activar" : "Desactivar") + " chat automatizado para este contacto"}
+              title={center?.auto_reply_enabled ? "Control de Galancito para esta conversación" :
+                "Activa las respuestas automáticas en el servidor para usar Galancito"}
+              disabled={!!saving || !center?.auto_reply_enabled}
+              onClick={() => patchLead({ai_paused: !lead.ai_paused})}>
+              <Bot size={15} aria-hidden="true" />
+              <span>Chat automatizado</span>
+              <strong>{lead.ai_paused ? "Activar" : "Desactivar"}</strong>
+            </button>
             <button type="button" className="nw-btn fbc-profile-toggle" aria-expanded={showProfile}
               onClick={() => {
                 setMobilePane(showProfile ? "chat" : "profile");
@@ -588,10 +600,13 @@ export default function FacebookCenter({ catalog }: { catalog: Catalog }) {
               }}>
               <Users size={15} /> {showProfile ? "Cerrar ficha" : "Ver ficha"}
             </button></div>
+            {!center?.auto_reply_enabled && <div className="fbc-auto-unavailable" role="status">
+              Las respuestas automáticas están desactivadas en el servidor. Revísalas en Configuración de Messenger.
+            </div>}
             {lead.ai_paused && <div className="fbc-bot-paused">
-              <Bot size={16}/><span>Galancito está pausado porque intervino un operador.</span>
+              <Bot size={16}/><span>Galancito está pausado para este contacto.</span>
               <button type="button" className="nw-btn" disabled={!!saving}
-                onClick={() => patchLead({ai_paused: false, needs_support: false})}>
+                onClick={() => patchLead({ai_paused: false})}>
                 Reactivar
               </button>
             </div>}
@@ -602,12 +617,12 @@ export default function FacebookCenter({ catalog }: { catalog: Catalog }) {
               {detail?.messages.map((msg) => {
                 const stage = progressFor(msg);
                 return <div key={msg.id} className={"fbc-bubble " + msg.direction}>
-                  {msg.ai_generated && ["ai_pending", "drafting"].includes(msg.state) ?
-                    <div className="fbc-typing" role="status" aria-label={msg.state === "drafting" ? "Galancito está escribiendo" : "Galancito prepara la respuesta"}>
+                  {msg.automated && ["pending", "ai_pending", "drafting"].includes(msg.state) ?
+                    <div className="fbc-typing" role="status" aria-label={msg.state === "ai_pending" ? "Galancito está pensando" : "Galancito está escribiendo"}>
                       <span className="fbc-typing-avatar"><Bot size={17}/></span>
                       <span className="fbc-typing-content">
                         <span className="fbc-typing-dots" aria-hidden="true"><i/><i/><i/></span>
-                        <small>{msg.state === "drafting" ? "Galancito está escribiendo…" : "Galancito va a responder…"}</small>
+                        <small>{msg.state === "ai_pending" ? "Galancito está pensando…" : "Galancito está escribiendo…"}</small>
                       </span>
                     </div> :
                     <p>{msg.body || (msg.state === "sending" ? "Enviando respuesta…" : "Preparando respuesta…")}</p>}
@@ -623,7 +638,7 @@ export default function FacebookCenter({ catalog }: { catalog: Catalog }) {
                       <span style={{width: stage.percent + "%"}} />
                     </div>
                   </div>}
-                  <small>{msg.ai_generated ? "Galancito IA · " : ""}{dateText(msg.created_at)} · {
+                  <small>{msg.automated ? "Galancito · " : ""}{dateText(msg.created_at)} · {
                     msg.state === "sent" ? "Envío confirmado por Meta" :
                     msg.direction === "inbound" ? "Recibido" :
                     msg.state === "ai_pending" ? "En cola IA" :

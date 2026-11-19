@@ -5,9 +5,11 @@ sin confirmación humana. No se envían conversaciones a proveedores externos.
 """
 import re
 from datetime import date
+from sqlalchemy import select
 
-from .network_service import key
+from .network_service import key, today as local_today
 from .galancito_triage import TRADES
+from .network_models import NetworkRequirement
 
 # La extracción de nombres es conservadora: solo frases de presentación explícita.
 _NAME = re.compile(
@@ -76,7 +78,7 @@ def ranked_needs(lead, requirements, site_names: dict, limit: int = 3) -> list[d
         return []
     recommendations = []
     for req in requirements:
-        if req.org_id != lead.org_id or req.state != "published":
+        if req.org_id != lead.org_id or req.state != "published" or req.deadline < local_today():
             continue
         wanted = key(req.specialty)
         if not wanted:
@@ -118,3 +120,32 @@ def ranked_needs(lead, requirements, site_names: dict, limit: int = 3) -> list[d
             "review_required": True,
         })
     return sorted(recommendations, key=lambda item: (-item["score"], item["start_date"], item["id"]))[:limit]
+
+
+def link_unique_requirement(db, lead, *, today: date) -> bool:
+    """Associate one exact active need only after enough professional facts.
+
+    Linking is for follow-up, never an approval, hiring decision or award.
+    Ambiguous or incomplete profiles remain unlinked for human review.
+    """
+    if (lead.requirement_id or lead.interest_type != "service_offer" or
+            not lead.specialty or lead.workers is None or not lead.availability):
+        return False
+    try:
+        available = date.fromisoformat(lead.availability)
+    except (TypeError, ValueError):
+        return False
+    trade = _trade_group(lead.specialty)
+    needs = db.scalars(select(NetworkRequirement).where(
+        NetworkRequirement.org_id == lead.org_id,
+        NetworkRequirement.state == "published",
+        NetworkRequirement.deadline >= today,
+    ).limit(201)).all()
+    if len(needs) > 200:
+        return False
+    matches = [req for req in needs if _trade_group(req.specialty) == trade
+               and lead.workers >= req.workers and available <= req.start_date]
+    if len(matches) != 1:
+        return False
+    lead.requirement_id = matches[0].id
+    return True

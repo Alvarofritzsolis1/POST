@@ -74,6 +74,9 @@ def test_auto_category_uses_only_consented_messages_and_approved_guides(network,
     assert incoming(n, text="ola soy gasfiter", mid="m-cat-1").status_code == 200
     before = n["admin"].get("/api/v1/network/facebook/galancito/seguimiento").json()
     assert before["rows"][0]["category"] == "Por confirmar"
+    assert incoming(n, text="¿Cuáles son los requisitos para postular?", mid="m-cat-permission").status_code == 200
+    requested = n["admin"].get("/api/v1/network/facebook/center").json()["leads"][0]
+    assert requested["ai_consent_state"] == "requested"
     assert incoming(n, text="sí", mid="m-cat-2").status_code == 200
     after = n["admin"].get("/api/v1/network/facebook/galancito/seguimiento").json()
     assert after["rows"][0]["category"] == "Gasfitería"

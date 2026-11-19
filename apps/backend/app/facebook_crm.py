@@ -31,14 +31,15 @@ from .galancito_flow import (AI_PERMISSION_QUESTION, AI_PERMISSION_REASK,
 from .facebook_crm_models import FacebookLead, FacebookChatMessage, FacebookTradeGuide
 from .models import Organization, User, utcnow
 from .network_facebook import public_message
-from .network_models import NetworkFacebookPost, NetworkFacebookManual, NetworkRequirement, NetworkNotification
+from .network_models import NetworkFacebookPost, NetworkFacebookManual, NetworkRequirement
 from .network_service import key, today
 from .galancito_triage import classify_lead, dashboard
 from .security import administrator
 from .galancito_triage import analyze, private_data, quick_reply
 from .galancito_intake import apply_intake, next_intake_reply
 from .galancito_contact_profile import contact_profile
-from .facebook_lead_insights import ranked_needs, suggestions_for_lead
+from .galancito_escalation import flag_for_human
+from .facebook_lead_insights import ranked_needs, suggestions_for_lead, link_unique_requirement
 from .ops_models import Worksite
 from .galancito_knowledge import retrieve, exact_answer, evidence_context
 from .galancito_runtime import infer
@@ -141,6 +142,7 @@ def _lead_view(db: Session, lead: FacebookLead) -> dict:
 def _message_view(m: FacebookChatMessage) -> dict:
     return {"id": m.id, "direction": m.direction, "state": m.state,
             "body": m.body, "ai_generated": m.ai_generated,
+            "automated": m.direction == "outbound" and m.operator_id is None,
             "error": m.error, "created_at": m.created_at.isoformat(),
             "updated_at": m.updated_at.isoformat() if m.updated_at else m.created_at.isoformat()}
 
@@ -312,9 +314,10 @@ async def webhook(request: Request, db: Session = Depends(get_db)):
                     FacebookChatMessage.lead_id == lead.id,
                     FacebookChatMessage.operator_id.is_(None),
                     FacebookChatMessage.direction == "outbound",
-                    FacebookChatMessage.state.in_(["pending", "ai_pending"]),
+                    FacebookChatMessage.state.in_(["pending", "ai_pending", "drafting"]),
                 )):
                     pending.state = "cancelled"
+            previous_question = ""
             if consent is None and not audio_received and not private_data(body):
                 previous_question = db.scalar(select(FacebookChatMessage.body).where(
                     FacebookChatMessage.lead_id == lead.id,
@@ -350,41 +353,26 @@ async def webhook(request: Request, db: Session = Depends(get_db)):
                     lead.availability = facts.availability
                 # Trabajar solo no demuestra que no existan dependientes
                 # formalmente contratados: nunca inferir has_employees.
-            signal = (assistance_signal(body, is_audio=audio_received)
+                link_unique_requirement(db, lead, today=today())
+            signal = ("Solicitó atención humana" if wants_human(body) else
+                      assistance_signal(body, is_audio=audio_received)
                       if consent is None else None)
             if consent is False:
                 signal = "Prefirió atención humana y no autorizó IA externa"
             if signal:
-                # No inferir escolaridad ni rechazar por errores ortográficos.
-                first_alert = not lead.needs_support
-                lead.needs_support = True
-                lead.support_reason = signal
-                if first_alert:
-                    admin_ids = db.scalars(select(User.id).where(
-                        User.org_id == lead.org_id, User.role == "admin",
-                        User.enabled.is_(True))).all()
-                    for admin_id in admin_ids:
-                        event_key = "facebook_help:" + lead.id
-                        if not db.scalar(select(NetworkNotification.id).where(
-                            NetworkNotification.user_id == admin_id,
-                            NetworkNotification.event_key == event_key)):
-                            db.add(NetworkNotification(
-                                org_id=lead.org_id, user_id=admin_id,
-                                event_key=event_key,
-                                title="Facebook: un interesado necesita ayuda para avanzar",
-                                resource_type="facebook", resource_id=lead.id,
-                            ))
+                flag_for_human(db, lead, signal)
             db.add(FacebookChatMessage(
                 org_id=lead.org_id, lead_id=lead.id, page_id=lead.page_id,
                 remote_id=mid, direction="inbound", state="received",
                 body=body.strip()[:3500],
             ))
-            # El mensaje entrante más reciente desplaza cualquier respuesta AI
-            # que todavía no haya salido: nunca responder a una consulta antigua.
+            # El mensaje entrante más reciente desplaza cualquier respuesta
+            # automática aún no enviada, incluidas las reglas locales.
             for previous in db.scalars(select(FacebookChatMessage).where(
                 FacebookChatMessage.lead_id == lead.id,
+                FacebookChatMessage.operator_id.is_(None),
                 FacebookChatMessage.direction == "outbound",
-                FacebookChatMessage.state == "ai_pending",
+                FacebookChatMessage.state.in_(["pending", "ai_pending", "drafting"]),
             )):
                 previous.state = "cancelled"
             if cfg.facebook_ai_enabled and not lead.ai_paused:
@@ -397,7 +385,9 @@ async def webhook(request: Request, db: Session = Depends(get_db)):
                 reply, use_ai = None, False
                 if signal:
                     if recent < 3:
-                        reply = (AI_PERMISSION_DECLINED if consent is False else
+                        reply = (("Soy Galancito. Ya avisé al equipo para que te atienda una persona. "
+                                  "No necesitas enviar documentos por aquí.") if wants_human(body) else
+                                 AI_PERMISSION_DECLINED if consent is False else
                                  reply_for_support(signal, bool(lead.specialty)))
                 elif (consent is True and not lead.needs_support and
                       lead.ai_consent_state == ("accepted_team" if ai_source == "team" else "accepted")):
@@ -413,22 +403,47 @@ async def webhook(request: Request, db: Session = Depends(get_db)):
                     use_ai = True
                 elif ai_source != "disabled" and lead.ai_consent_state in (
                         "not_requested", "accepted", "accepted_team"):
-                    lead.ai_consent_state = "requested_team" if ai_source == "team" else "requested"
-                    lead.ai_consent = False
-                    reply = permission_question(ai_source)
+                    facts = {"specialty": lead.specialty, "workers": lead.workers,
+                             "availability": lead.availability,
+                             "team_available": lead.team_available,
+                             "interest_type": lead.interest_type,
+                             "experience": lead.experience, "work_area": lead.work_area,
+                             "display_name": lead.display_name,
+                             "name_opt_out": lead.name_opt_out}
+                    reply = next_intake_reply(body, facts, previous_question)
+                    if not reply:
+                        lead.ai_consent_state = "requested_team" if ai_source == "team" else "requested"
+                        lead.ai_consent = False
+                        reply = permission_question(ai_source)
                 elif (ai_source != "disabled" and lead.ai_consent_state in
                       ("requested", "requested_team") and lead.ai_consent_state !=
                       ("requested_team" if ai_source == "team" else "requested")):
                     lead.ai_consent_state = "requested_team" if ai_source == "team" else "requested"
                     reply = permission_question(ai_source)
-                elif (ai_source != "disabled" and lead.ai_consent_state in
-                      ("requested", "requested_team") and recent < 2):
-                    reply = permission_question(ai_source, repeat=True)
-                elif recent == 0:
-                    # Sin IA configurada: orientación básica, sin enviar
-                    # datos personales a un servicio externo.
-                    reply = ("Hola, soy Galancito, asistente virtual de GALANT. "
-                             "Puedes escribir como te salga. ¿Qué trabajo haces?")
+                else:
+                    # A person can answer a manually sent question before granting
+                    # model consent. Keep the local intake moving on every turn.
+                    facts = {"specialty": lead.specialty, "workers": lead.workers,
+                             "availability": lead.availability,
+                             "team_available": lead.team_available,
+                             "interest_type": lead.interest_type,
+                             "experience": lead.experience, "work_area": lead.work_area,
+                             "display_name": lead.display_name,
+                             "name_opt_out": lead.name_opt_out}
+                    reply = next_intake_reply(body, facts, previous_question)
+                    if not reply and ai_source == "disabled":
+                        reply = quick_reply(body, known=facts)
+                    if not reply and ai_source != "disabled" and lead.ai_consent_state in (
+                            "requested", "requested_team") and recent < 2:
+                        reply = permission_question(ai_source, repeat=True)
+                    if not reply and recent == 0:
+                        reply = ("Hola, soy Galancito, asistente virtual de GALANT. "
+                                 "Puedes escribir como te salga. ¿Qué trabajo haces?")
+                if not use_ai and not reply and not lead.needs_support:
+                    flag_for_human(db, lead,
+                                   "Galancito no encontró una respuesta confirmada; revisión humana pendiente")
+                    reply = ("No tengo una respuesta confirmada para eso. "
+                             "Avisé al equipo para que pueda ayudarte.")
                 if use_ai and recent < 30 and ai_source != "disabled":
                     queue_locked = (db.bind.dialect.name != "postgresql" or db.scalar(
                         sql_text("SELECT pg_try_advisory_xact_lock(2075002)")))
@@ -442,14 +457,23 @@ async def webhook(request: Request, db: Session = Depends(get_db)):
                             body="", ai_generated=True,
                         ))
                     else:
-                        lead.needs_support = True
-                        lead.support_reason = "Cola del asistente ocupada; requiere revisión humana"
+                        flag_for_human(db, lead,
+                                       "Cola del asistente ocupada; requiere revisión humana")
+                        reply = ("Galancito no pudo preparar una respuesta ahora. "
+                                 "Avisé al equipo para que revise tu consulta.")
+                        db.add(FacebookChatMessage(
+                            org_id=lead.org_id, lead_id=lead.id, page_id=lead.page_id,
+                            direction="outbound", state="pending", body=reply,
+                            ai_generated=False))
                 elif reply and recent < 30:
                     db.add(FacebookChatMessage(
                         org_id=lead.org_id, lead_id=lead.id, page_id=lead.page_id,
                         direction="outbound", state="pending", body=reply[:550],
                         ai_generated=False,
                     ))
+                elif recent >= 30 and (use_ai or reply):
+                    flag_for_human(db, lead,
+                                   "Límite de respuestas automáticas alcanzado; revisión humana pendiente")
     db.commit()
     return {"received": True}
 
@@ -652,15 +676,14 @@ def center(user: User = Depends(administrator), db: Session = Depends(get_db)):
         reply_blockers.append("Webhook de Meta incompleto")
     if not cfg.facebook_ai_enabled:
         reply_blockers.append("Asistente de Facebook deshabilitado en el VPS")
-    if ai_source == "disabled":
-        reply_blockers.append("No hay un modelo de IA verificado y asignado a Messenger")
     # Token is only exposed to the sender container. Its actual permission
     # and delivery must still be verified against Meta from an external account.
     auto_reply = {
         "configured": not reply_blockers,
         "missing": reply_blockers,
         "verification": ("Comprobar enviando un mensaje desde una cuenta externa. "
-                         "Las respuestas requieren consentimiento y confirmación de Meta."),
+                         "Las respuestas de IA requieren consentimiento; todo envío requiere "
+                         "confirmación de Meta."),
         "last_delivery": messenger_delivery["state"],
     }
     return {"automatic_enabled": cfg.facebook_autopublish_enabled,
@@ -835,6 +858,8 @@ def update_lead(lead_id: str, body: LeadEdit, user: User = Depends(administrator
                 lead.specialty_source = "manual"
         else:
             setattr(lead, field, value)
+    if "requirement_id" not in body.model_fields_set:
+        link_unique_requirement(db, lead, today=today())
     if body.model_fields_set.intersection({"follow_up_on", "follow_up_note"}):
         lead.follow_up_by = user.id
     if body.model_fields_set.intersection({"needs_support"}) and not lead.needs_support:
@@ -847,7 +872,7 @@ def update_lead(lead_id: str, body: LeadEdit, user: User = Depends(administrator
             FacebookChatMessage.lead_id == lead.id,
             FacebookChatMessage.operator_id.is_(None),
             FacebookChatMessage.direction == "outbound",
-            FacebookChatMessage.state.in_(["pending", "ai_pending"]),
+            FacebookChatMessage.state.in_(["pending", "ai_pending", "drafting"]),
         )):
             pending.state = "cancelled"
     lead.updated_at = utcnow()
@@ -863,12 +888,13 @@ def queue_reply(lead_id: str, body: ReplyInput, user: User = Depends(administrat
         raise HTTPException(409, "Habilita y verifica Messenger en el servidor")
     if not _in_window(lead):
         raise HTTPException(409, "La ventana estándar de respuesta de 24 horas finalizó")
-    # When a person replies, Galancito pauses to prevent competing messages.
-    lead.ai_paused = True
+    # This reply takes precedence over an unfinished bot draft. Future inbound
+    # turns still receive automatic help unless the operator explicitly pauses it.
     for old in db.scalars(select(FacebookChatMessage).where(
         FacebookChatMessage.lead_id == lead.id,
         FacebookChatMessage.direction == "outbound",
-        FacebookChatMessage.state.in_(["pending", "ai_pending"]),
+        FacebookChatMessage.operator_id.is_(None),
+        FacebookChatMessage.state.in_(["pending", "ai_pending", "drafting"]),
     )):
         old.state = "cancelled"
     message = FacebookChatMessage(org_id=user.org_id, lead_id=lead.id, page_id=lead.page_id,

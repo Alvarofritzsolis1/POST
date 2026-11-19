@@ -91,9 +91,10 @@ def test_facebook_uses_local_ollama_after_explicit_consent(network, monkeypatch)
     center = n["admin"].get("/api/v1/network/facebook/center").json()
     lead = center["leads"][0]
     assert center["ai_provider"] == "ollama"
-    assert lead["ai_consent_state"] == "requested"
+    assert lead["ai_consent_state"] == "not_requested"
     messages = n["admin"].get("/api/v1/network/facebook/leads/" + lead["id"]).json()["messages"]
-    assert "IA local" in messages[-1]["body"]
+    assert messages[-1]["automated"] is True
+    assert "gasfiter" in messages[-1]["body"].lower()
     sent, generated = [], []
     monkeypatch.setattr("app.facebook_chat_worker.graph_send",
                         lambda p, u, text, token: sent.append(text) or "mid-local-" + str(len(sent)))
@@ -103,11 +104,16 @@ def test_facebook_uses_local_ollama_after_explicit_consent(network, monkeypatch)
         AssertionError("No paid API")))
     assert process_chat_next(n["Session"])
     assert len(sent) == 1 and not generated
+    assert incoming(n, text="¿Cuáles son los requisitos para postular?", mid="local-complex").status_code == 200
+    lead = n["admin"].get("/api/v1/network/facebook/center").json()["leads"][0]
+    assert lead["ai_consent_state"] == "requested"
+    messages = n["admin"].get("/api/v1/network/facebook/leads/" + lead["id"]).json()["messages"]
+    assert "IA local" in messages[-1]["body"]
+    assert process_chat_next(n["Session"])
+    assert len(sent) == 2 and not generated
     assert incoming(n, text="sí", mid="local-2").status_code == 200
     assert process_chat_next(n["Session"])
-    # A recognized trade offer is answered without loading the LLM.
-    assert not generated and len(sent) == 2
-    assert "empleo" in sent[-1]
+    assert generated and len(sent) == 3
     assert "Galancito" in sent[-1]
     settings.cache_clear()
 
