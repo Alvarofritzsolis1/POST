@@ -75,7 +75,7 @@ def graph_sender_action(page_id: str, psid: str, action: str, token: str) -> Non
         data=payload, method="POST",
         headers={"Authorization": "Bearer " + token, "Content-Type": "application/json"},
     )
-    with _opener.open(request, timeout=3) as response:
+    with _opener.open(request, timeout=1.0) as response:
         response.read(2048)
 
 
@@ -368,9 +368,8 @@ def process_chat_next(session_factory=SessionLocal) -> bool:
             else:
                 # Si Ollama está saturado o apagado, Messenger continúa
                 # funcionando y la persona puede recibir apoyo humano.
-                body = ("Soy Galancito, asistente virtual de GALANT. "
-                        "Ahora no tengo una respuesta confirmada. "
-                        "Tu consulta queda pendiente de revisión humana.")
+                body = ("Ahora no tengo una respuesta confirmada. "
+                        "Dejé tu consulta para que la revise nuestro equipo.")
                 failed_ai = True
         # Re-check after slow inference: a human may have taken over or the
         # contact may have revoked permission/sent a newer question meanwhile.
