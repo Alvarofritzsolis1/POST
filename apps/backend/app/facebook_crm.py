@@ -385,11 +385,12 @@ async def webhook(request: Request, db: Session = Depends(get_db)):
                 reply, use_ai = None, False
                 if signal:
                     if recent < 3:
-                        reply = (("Soy Galancito. Ya avisé al equipo para que te atienda una persona. "
+                        reply = (("Ya avisé al equipo para que te atienda una persona. "
                                   "No necesitas enviar documentos por aquí.") if wants_human(body) else
                                  AI_PERMISSION_DECLINED if consent is False else
                                  reply_for_support(signal, bool(lead.specialty)))
-                elif small_talk_reply(body) and not lead.needs_support:
+                elif (small_talk_reply(body) and not lead.needs_support and
+                      (lead.ai_consent or lead.ai_consent_state == "declined" or recent > 0)):
                     # Sin costos de inferencia para cortesías simples.
                     reply = small_talk_reply(body)
                 elif (consent is True and not lead.needs_support and
@@ -980,9 +981,8 @@ def suggest_reply(lead_id: str, user: User = Depends(administrator),
         question = "¿Desde cuándo puedes empezar a trabajar?"
     else:
         question = "¿En qué comuna puedes trabajar?"
-    return {"draft": ("Hola, soy Galancito, asistente virtual de GALANT. No importa si escribes "
-                      "con faltas: te entiendo. Si prefieres un audio, una persona lo "
-                      "puede revisar. " + question),
+    return {"draft": ("Puedes escribir como te salga, sin preocuparte por la ortografía. "
+                      "Si prefieres un audio, una persona lo puede revisar. " + question),
             "source": "template", "requires_review": True}
 
 
