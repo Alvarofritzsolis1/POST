@@ -38,6 +38,11 @@ type Props = {
 };
 const dateText = (v?:string|null) => {
   if (!v) return "Por programar";
+  // A date-only value is a calendar date, not UTC midnight (Chile would show the day before).
+  if (/^\d{4}-\d{2}-\d{2}$/.test(v)) {
+    const [year,month,day] = v.split("-");
+    return `${day}-${month}-${year}`;
+  }
   const date = new Date(v);
   return Number.isNaN(date.getTime()) ? v : new Intl.DateTimeFormat("es-CL", {
     day:"2-digit", month:"short", year:"numeric", timeZone:"America/Santiago",
@@ -195,7 +200,7 @@ export default function FacebookPersonSheet({person,onClose,onChanged,onOpenChat
                 <button type="button" className="fbps-inline-action" onClick={()=>void requestPhone()} disabled={saving}>
                   <Phone size={15}/> Solicitar número para coordinación</button>}
               {!lead.contact_phone && lead.phone_requested_at &&
-                <small className="fbps-muted">Número solicitado · {dateText(lead.phone_requested_at)}</small>}
+                <small className="fbps-muted">Solicitud creada · comprobar envío en chat · {dateText(lead.phone_requested_at)}</small>}
               {!lead.contact_phone && lead.phone_opt_out &&
                 <small className="fbps-muted">Prefiere continuar sin compartir teléfono</small>}
             </div></section>
