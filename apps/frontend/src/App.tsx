@@ -164,6 +164,11 @@ function App() {
     window.addEventListener("popstate", routeChanged);
     return () => window.removeEventListener("popstate", routeChanged);
   }, []);
+  const [debouncedSearch, setDebouncedSearch] = useState(search);
+  useEffect(() => {
+    const timer = window.setTimeout(() => setDebouncedSearch(search), 250);
+    return () => window.clearTimeout(timer);
+  }, [search]);
   const refreshGeneration = useRef(0);
   const lastActivity = useRef<string | null>(null);
   useEffect(() => {
@@ -262,7 +267,7 @@ function App() {
             "&limit=50&offset=" +
             page * 50 +
             "&q=" +
-            encodeURIComponent(search) +
+            encodeURIComponent(debouncedSearch) +
             "&state=" +
             encodeURIComponent(filter) +
             "&kind=" +
@@ -281,10 +286,10 @@ function App() {
             "Hay nueva actividad en tu organización. Los datos se actualizaron.",
           );
         lastActivity.current = o.activity[0]?.id || null;
-        setOverview(o);
-        setContributions(c);
-        setMatrix(m);
-        if (a) setLaborAlerts(a);
+        setOverview(previous => JSON.stringify(previous) === JSON.stringify(o) ? previous : o);
+        setContributions(previous => JSON.stringify(previous) === JSON.stringify(c) ? previous : c);
+        setMatrix(previous => JSON.stringify(previous) === JSON.stringify(m) ? previous : m);
+        if (a) setLaborAlerts(previous => JSON.stringify(previous) === JSON.stringify(a) ? previous : a);
         setError("");
       }
     } catch (e) {
@@ -296,7 +301,7 @@ function App() {
     sporadic,
     profile?.preferences.notifications,
     page,
-    search,
+    debouncedSearch,
     filter,
     classification,
     section,
@@ -312,7 +317,7 @@ function App() {
     void refresh().finally(() => {
       if (active) setLoading(false);
     });
-    const timer = setInterval(update, 10000);
+    const timer = setInterval(update, 25000);
     window.addEventListener("galant-changed", update);
     const sitesUpdate = () => {
       void opsApi
