@@ -471,3 +471,8 @@
   .fbc-linked-card { grid-template-columns:1fr; }
   .fbc-card-need { flex-wrap:wrap; }
 }
+
+.fbc-tracking-search { display:flex; align-items:center; flex-wrap:wrap; gap:10px; }
+.fbc-tracking-search input { min-height:38px; min-width:min(100%,330px); flex:1; max-width:560px;
+  padding:8px 11px; border-radius:9px; border:1px solid var(--nw-border); background:var(--nw-paper); color:var(--nw-ink); }
+.fbc-tracking-search small { color:var(--nw-muted); font-size:11px; }
