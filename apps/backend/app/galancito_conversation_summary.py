@@ -64,7 +64,7 @@ def summarize_conversation(lead, messages: Sequence) -> dict:
         "text": _clean(m.body, 180),
         "at": m.created_at.isoformat() if getattr(m, "created_at", None) else None,
         "source_message_id": getattr(m, "remote_id", None),
-    } for m in meaningful[-5:]]
+    } for m in meaningful[-8:]]
     fields = []
     for key, label in FIELDS:
         value = _value(lead, key)
