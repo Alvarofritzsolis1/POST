@@ -158,6 +158,7 @@ export default function FacebookCenter({ catalog }: { catalog: Catalog }) {
   const [guide, setGuide] = useState(freshGuide);
   const [tracking, setTracking] = useState<Tracking | null>(null);
   const [sheetPerson, setSheetPerson] = useState<Triage | null>(null);
+  const closeSheet = useCallback(() => setSheetPerson(null), []);
   const [triageNote, setTriageNote] = useState<TriageNote | null>(null);
   const [insights, setInsights] = useState<LeadInsights | null>(null);
   const [mobilePane, setMobilePane] = useState<"chat" | "profile">("chat");
@@ -604,7 +605,7 @@ export default function FacebookCenter({ catalog }: { catalog: Catalog }) {
       </>}
     </section>}
     {sheetPerson && <FacebookPersonSheet person={sheetPerson}
-      onClose={()=>setSheetPerson(null)} onChanged={()=>void refreshTracking().catch(()=>{})}
+      onClose={closeSheet} onChanged={()=>void refreshTracking().catch(()=>{})}
       onOpenChat={(id)=>{setSheetPerson(null);setSelectedId(id);setShowProfile(false);setMobilePane("chat");setTab("inbox");}}/>}
     {tab === "inbox" && <>
     <div className="fbc-mobile-tabs" role="group" aria-label="Vista de conversación">
