@@ -153,3 +153,37 @@ def test_transient_failure_keeps_verified_connection_for_next_message(monkeypatc
             prompt="Hola", timeout=2,
         )
     assert conn.last_status == "error"
+
+
+def test_legacy_openai_messenger_has_short_timeout(monkeypatch):
+    """Even without the multi-provider team, Messenger must be bounded."""
+    import json
+    from app import facebook_ai
+    timeouts = []
+
+    class FakeResponse:
+        def __enter__(self):
+            return self
+
+        def __exit__(self, *_args):
+            return False
+
+        def read(self, _maximum):
+            return json.dumps({"output": [{"content": [
+                {"type": "output_text", "text": "Claro, cuéntame."}
+            ]}]}).encode()
+
+    def fake_urlopen(_request, *, timeout):
+        timeouts.append(timeout)
+        return FakeResponse()
+
+    monkeypatch.setattr(facebook_ai, "urlopen", fake_urlopen)
+    facebook_ai._generate(
+        facebook_ai.REPLY_INSTRUCTIONS, "Hola", 150,
+        "gpt-4.1-mini", "synthetic-not-sent",
+    )
+    facebook_ai._generate(
+        facebook_ai.AD_INSTRUCTIONS, "Pintura", 150,
+        "gpt-4.1-mini", "synthetic-not-sent",
+    )
+    assert timeouts == [6, 12]
