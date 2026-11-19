@@ -6,6 +6,7 @@ import json
 from pathlib import Path
 import subprocess
 import sys
+import pytest
 
 from sqlalchemy import create_engine, inspect, text
 
@@ -160,3 +161,105 @@ def test_second_fragment_can_answer_a_still_pending_question(network, monkeypatc
     assert detail["lead"]["work_communes"] == ["Penco"]
     assert set(detail["lead"]["trades"]) == {"Carpintería", "Electricidad"}
     assert detail["lead"]["profile"]["sources"]["work_communes"]["message_id"] == "fragment-commune"
+
+
+def test_location_question_asks_for_notice_before_any_provider_and_uses_public_data(network, monkeypatch):
+    from app.facebook_worksite_reply import ASK_WORKSITE
+    from app.galancito_knowledge import search_value
+    from app.galancito_knowledge_models import Knowledge
+    from app.network_models import NetworkFacebookPost
+    from test_network import requirement
+
+    n = network
+    org_id = enable_messaging(n, monkeypatch)
+    monkeypatch.setenv("FACEBOOK_AI_ENABLED", "true")
+    monkeypatch.setenv("FACEBOOK_AI_API_KEY", "synthetic")
+    settings.cache_clear()
+    req = requirement(n)
+    pending = []
+    monkeypatch.setattr("app.facebook_chat_worker.graph_send",
+                        lambda _page, _psid, body, _token: pending.append(body) or f"m-location-{len(pending)}")
+    monkeypatch.setattr("app.facebook_chat_worker.generate_text",
+                        lambda *_args: pytest.fail("No debe llamar a IA para contestar ubicación."))
+
+    assert incoming(n, "donde queda ubicada la obra", mid="location-question").status_code == 200
+    assert process_chat_next(n["Session"])
+    assert pending == [ASK_WORKSITE]
+    assert _detail(n)["lead"]["ai_consent_state"] == "not_requested"
+    with n["Session"].begin() as db:
+        db.add(NetworkFacebookPost(org_id=org_id, requirement_id=req["id"],
+                                   page_id="1489275590928529", state="published",
+                                   post_id="1489275590928529_123456"))
+    assert incoming(n, "Brisas de Junquillar", mid="location-name").status_code == 200
+    assert process_chat_next(n["Session"])
+    assert "No tengo la dirección confirmada" in pending[-1]
+    assert "1489275590928529_123456" in pending[-1]
+    assert "Observación privada" not in pending[-1]
+
+    title = "Ubicación del aviso"
+    phrase = "Dónde queda la obra Brisas de Junquillar"
+    answer = "La obra Brisas de Junquillar está en la comuna de Coronel."
+    with n["Session"].begin() as db:
+        db.add(Knowledge(org_id=org_id, updated_by=n["a_user"]["id"], title=title,
+                         kind="faq", scope="messenger", content=answer, phrases=[phrase],
+                         status="approved", search_text=search_value(title, answer, [phrase])))
+    assert incoming(n, "en q comuna queda la obra Brisas de Junquillar", mid="location-approved").status_code == 200
+    assert process_chat_next(n["Session"])
+    assert pending[-1] == answer
+    assert not process_chat_next(n["Session"])
+
+
+def test_consent_confusion_and_relative_date_resume_the_conversation(network, monkeypatch):
+    from sqlalchemy import select
+    from app.facebook_crm_models import FacebookLead
+    from app.galancito_escalation import flag_for_human
+    from app.galancito_memory import CHILE
+    from app.models import utcnow
+
+    n = network
+    enable_messaging(n, monkeypatch)
+    monkeypatch.setenv("FACEBOOK_AI_ENABLED", "true")
+    monkeypatch.setenv("FACEBOOK_AI_API_KEY", "synthetic")
+    settings.cache_clear()
+    # The Page in the reported conversation uses the team provider.
+    monkeypatch.setattr("app.facebook_crm.messenger_ai_source", lambda *_: "team")
+    monkeypatch.setattr("app.facebook_chat_worker.messenger_ai_source", lambda *_: "team")
+    sent = []
+    monkeypatch.setattr("app.facebook_chat_worker.graph_send",
+                        lambda _page, _psid, body, _token: sent.append(body) or f"m-dates-{len(sent)}")
+
+    assert incoming(n, "¿Cuáles son los requisitos para postular?", mid="date-intro").status_code == 200
+    assert process_chat_next(n["Session"])
+    assert "autorizas" in sent[-1].lower()
+    assert incoming(n, "no entiendo", mid="date-confusion").status_code == 200
+    assert process_chat_next(n["Session"])
+    assert sent[-1] == "Podemos seguir por acá. Cuéntame qué necesitas y vemos cómo ayudarte."
+    lead = _detail(n)["lead"]
+    assert not lead["needs_support"] and not lead["ai_consent"]
+
+    # A contact already flagged by the prior version can still give a date.
+    with n["Session"].begin() as db:
+        row = db.scalar(select(FacebookLead).where(FacebookLead.id == lead["id"]))
+        flag_for_human(db, row, "La persona expresó dificultades con la explicación o el trámite")
+    manual = n["send"](n["admin"], f"/facebook/leads/{lead['id']}/reply",
+                       {"message": "Necesito gasfiter para 2 semanas mas"})
+    assert manual.status_code == 202
+    assert process_chat_next(n["Session"])
+    day = utcnow().astimezone(CHILE).date()
+    assert incoming(n, "vale", mid="date-ack").status_code == 200
+    assert not process_chat_next(n["Session"])
+    assert incoming(n, "pero yo puedo en 1 semana mas", mid="date-answer").status_code == 200
+    assert process_chat_next(n["Session"])
+    early, requested = day + timedelta(days=7), day + timedelta(days=14)
+    assert f"{early:%d/%m}" in sent[-1] and f"{requested:%d/%m}" in sent[-1]
+    assert sent[-1].endswith("¿También puedes ese día?")
+    updated = _detail(n)["lead"]
+    assert updated["availability"] == str(early)
+    assert not updated["ai_consent"] and updated["needs_support"]
+    assert not updated["trades"]
+    assert incoming(n, "sí", mid="date-confirmed").status_code == 200
+    assert process_chat_next(n["Session"])
+    confirmed = _detail(n)["lead"]
+    assert confirmed["availability"] == str(requested)
+    assert not confirmed["ai_consent"]
+    assert f"puedes el {requested:%d/%m}" in sent[-1]

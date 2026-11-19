@@ -210,15 +210,77 @@ def _team_update(lead, value: str, previous: str) -> None:
         lead.workers, lead.team_available = number, number > 1
 
 
+_SPAN = re.compile(r"\b(?:en|desde|para|dentro de|de aqui a) "
+                   r"(\d{1,3}|un|uno|una|dos|tres|cuatro|cinco|seis|siete|ocho|nueve|diez) "
+                   r"(dias?|semanas?)(?: mas)?\b")
+_AVAILABILITY_STATEMENT = re.compile(
+    r"\b(?:puedo(?: empezar| comenzar| partir| ir| trabajar)?|"
+    r"(?:estoy|quedo) disponible|tengo disponibilidad) "
+    r"(?=(?:en|desde|dentro de|de aqui a) )"
+)
+
+
+def relative_start_days(message: str) -> int | None:
+    """Parse a start offset, excluding duration phrases such as 'por dos semanas'."""
+    match = _SPAN.search(plain(message))
+    if not match:
+        return None
+    number, unit = match.groups()
+    words = {"un": 1, "uno": 1, "una": 1, "dos": 2, "tres": 3, "cuatro": 4,
+             "cinco": 5, "seis": 6, "siete": 7, "ocho": 8, "nueve": 9, "diez": 10}
+    count = int(number) if number.isdigit() else words[number]
+    days = count * (7 if unit.startswith("semana") else 1)
+    return days if days <= 365 else None
+
+
+def requested_relative_start(message: str) -> int | None:
+    if re.search(r"\b(?:necesito|necesitamos|busco|buscamos)\b", plain(message)):
+        return relative_start_days(message)
+    return None
+
+
+def declared_relative_start(message: str) -> int | None:
+    value = plain(declaration_text(message))
+    cue = _AVAILABILITY_STATEMENT.search(value)
+    if not cue or re.search(r"\b(?:no|nunca|quizas|tal vez|no se si) (?:yo )?$", value[:cue.start()]):
+        return None
+    offset = value[cue.end():]
+    if _SPAN.match(offset) and not re.search(r"\b(?:o|quizas|tal vez|depende)\b", offset):
+        return relative_start_days(offset)
+    return None
+
+
+def work_date_answer(message: str, previous: str) -> tuple[bool, date] | None:
+    reply = plain(message)
+    if reply not in {"si", "si puedo", "ese dia si", "no", "no puedo", "ese dia no"}:
+        return None
+    match = re.search(r"\bseria el (\d{2}) (\d{2}) (20\d{2}) tambien puedes ese dia$", plain(previous))
+    if not match:
+        return None
+    day, month, year = map(int, match.groups())
+    try:
+        return "no" not in reply.split(), date(year, month, day)
+    except ValueError:
+        return None
+
+
 def _availability_update(lead, message: str, previous: str, *, on_date=None) -> None:
     clean = message.strip()
     value = plain(clean)
     asked = _AVAILABILITY_QUESTION in previous or "desde cuando puedes" in previous
+    if confirmation := work_date_answer(message, previous):
+        if confirmation[0]:
+            lead.availability = confirmation[1].isoformat()
+        return
     if any(phrase in value for phrase in ("sin disponibilidad", "no puedo empezar aun")):
         lead.availability = "Sin disponibilidad"
         return
     cue = re.search(r"\b(?:disponibl[ea]s?|puedo (?:empezar|comenzar|partir|desde)|arranco|parto|"
                     r"comienzo|empiezo|puedo ir)\b|\bdesde (?:el )?(?=" + _DAY + r"\b)", value)
+    offset = declared_relative_start(message)
+    if offset is not None and on_date:
+        lead.availability = (on_date + timedelta(days=offset)).isoformat()
+        return
     literal = re.search(r"\b" + _DATE + r"\b", clean)
     if literal and (cue or asked or re.search(r"\bdesde (?:el )?" + _DATE + r"\b", clean, re.I)):
         if re.search(r"\bno (?:puedo|estoy|empiezo|parto)\b", value):
