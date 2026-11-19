@@ -618,6 +618,52 @@ export default function FacebookCenter({ catalog }: { catalog: Catalog }) {
           </article>)}
           {!tracking.rows.length && <p className="fbc-empty">Aún no hay interesados. El seguimiento aparecerá cuando lleguen mensajes.</p>}
         </div>
+        <details className="fbc-need-overview">
+          <summary>Ver por necesidad de obra · personas y oficios relacionados</summary>
+          <div className="fbc-need-groups">
+            {!requirements.length && <small>No hay necesidades publicadas en la consulta actual.</small>}
+            {requirements.map((need) => {
+              const related = tracking.rows.filter((r) =>
+                r.links?.some((link) => link.id === need.id) ||
+                r.matches?.some((match) => match.id === need.id)
+              );
+              return <section className="fbc-need-group" key={need.id}>
+                <div className="fbc-need-group-head">
+                  <strong>{need.title}</strong>
+                  <small>{need.site} · {need.specialty}</small>
+                  <b>{related.length} persona(s) con oficio relacionado o vínculo existente</b>
+                </div>
+                {!related.length && <small>Aún no se identifican oficios declarados que coincidan. No descarta otras personas.</small>}
+                {related.map((candidate) => {
+                  const match = candidate.matches?.find((item) => item.id === need.id);
+                  const linked = !!candidate.links?.some((item) => item.id === need.id);
+                  return <div className="fbc-need-person" key={candidate.id}>
+                    <div><b>{candidate.company || candidate.name}</b>
+                      <small>{(candidate.trades || [candidate.category]).join(" · ")}</small>
+                    </div>
+                    <div>
+                      {match ? <>
+                        <strong>{match.coincidence_percent}% coincidencia declarada</strong>
+                        <small>{match.coverage_percent}% de información comparable</small>
+                      </> : <small>Vínculo histórico, sin coincidencia vigente verificable</small>}
+                    </div>
+                    <button className="nw-btn" type="button"
+                      onClick={() => { setSelectedId(candidate.id); setShowProfile(true); setMobilePane("profile"); setTab("inbox"); }}>
+                      Ver ficha
+                    </button>
+                    <button className="nw-btn" type="button" disabled={!!saving}
+                      onClick={() => void mutate("need-link", () => change(
+                        "/facebook/leads/" + candidate.id + "/needs/" + need.id +
+                        (linked ? "/unlink" : "/link"), {}
+                      ), linked ? "Vínculo retirado, historial conservado." : "Necesidad vinculada para revisión humana.")}>
+                      {linked ? "Desvincular" : "Vincular"}
+                    </button>
+                  </div>;
+                })}
+              </section>;
+            })}
+          </div>
+        </details>
         {tracking.limited && <small>Se muestran 200 contactos recientes; los totales corresponden a esta vista.</small>}
         <small className="fbc-tracking-disclaimer">{tracking.disclaimer}</small>
       </>}
