@@ -145,6 +145,7 @@ export default function FacebookCenter({ catalog }: { catalog: Catalog }) {
   const recheckedProfilesRef = useRef<Set<string>>(new Set());
   const nearBottomRef = useRef(true);
   const [triageFilter, setTriageFilter] = useState<"all"|"high"|"unlinked"|"due">("all");
+  const [trackingQuery, setTrackingQuery] = useState("");
   selectedIdRef.current = selectedId;
 
   const refresh = useCallback(async () => {
@@ -525,8 +526,20 @@ export default function FacebookCenter({ catalog }: { catalog: Catalog }) {
             className={triageFilter === value ? "selected" : ""}
             onClick={() => setTriageFilter(value as typeof triageFilter)}>{label}</button>)}
         </div>
+        <div className="fbc-tracking-search">
+          <input type="search" aria-label="Buscar fichas por nombre, oficio o necesidad"
+            placeholder="Buscar persona, oficio o necesidad de obra…"
+            value={trackingQuery} onChange={(e) => setTrackingQuery(e.target.value)} />
+          <small>Coincidencias orientativas; revisar antecedentes con cada persona.</small>
+        </div>
         <div className="fbc-tracking-table">
           {tracking.rows.filter((r) =>
+            !trackingQuery.trim() || [r.name, r.company, r.category,
+              ...(r.trades || []), ...(r.links || []).map((x) => x.title),
+              ...(r.matches || []).map((x) => x.title)]
+              .join(" ").toLocaleLowerCase("es-CL")
+              .includes(trackingQuery.trim().toLocaleLowerCase("es-CL"))
+          ).filter((r) =>
             triageFilter === "all" ||
             (triageFilter === "high" && r.urgency === "high") ||
             (triageFilter === "unlinked" && !(r.links?.length || r.requirement_id)) ||
