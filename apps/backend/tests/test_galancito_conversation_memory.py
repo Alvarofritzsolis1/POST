@@ -257,3 +257,9 @@ def test_consent_confusion_and_relative_date_resume_the_conversation(network, mo
     assert updated["availability"] == str(early)
     assert not updated["ai_consent"] and updated["needs_support"]
     assert not updated["trades"]
+    assert incoming(n, "sí", mid="date-confirmed").status_code == 200
+    assert process_chat_next(n["Session"])
+    confirmed = _detail(n)["lead"]
+    assert confirmed["availability"] == str(requested)
+    assert not confirmed["ai_consent"]
+    assert f"puedes el {requested:%d/%m}" in sent[-1]

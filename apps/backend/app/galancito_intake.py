@@ -250,10 +250,28 @@ def declared_relative_start(message: str) -> int | None:
     return None
 
 
+def work_date_answer(message: str, previous: str) -> tuple[bool, date] | None:
+    reply = plain(message)
+    if reply not in {"si", "si puedo", "ese dia si", "no", "no puedo", "ese dia no"}:
+        return None
+    match = re.search(r"\bseria el (\d{2}) (\d{2}) (20\d{2}) tambien puedes ese dia$", plain(previous))
+    if not match:
+        return None
+    day, month, year = map(int, match.groups())
+    try:
+        return "no" not in reply.split(), date(year, month, day)
+    except ValueError:
+        return None
+
+
 def _availability_update(lead, message: str, previous: str, *, on_date=None) -> None:
     clean = message.strip()
     value = plain(clean)
     asked = _AVAILABILITY_QUESTION in previous or "desde cuando puedes" in previous
+    if confirmation := work_date_answer(message, previous):
+        if confirmation[0]:
+            lead.availability = confirmation[1].isoformat()
+        return
     if any(phrase in value for phrase in ("sin disponibilidad", "no puedo empezar aun")):
         lead.availability = "Sin disponibilidad"
         return
