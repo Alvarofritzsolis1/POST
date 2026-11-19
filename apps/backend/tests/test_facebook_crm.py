@@ -1161,7 +1161,7 @@ def test_contact_brief_uses_real_messages_without_outbound_ai_without_consent(ne
 
     monkeypatch.setattr("app.facebook_crm.generate_text",
                         lambda *a,**kw: (_ for _ in ()).throw(AssertionError("AI without consent")))
-    posted=n["admin"].post(url)
+    posted=n["send"](n["admin"], "/facebook/leads/"+lead_id+"/conversation-brief")
     assert posted.status_code==200
     assert posted.json()["ai"] is None
 
@@ -1189,10 +1189,10 @@ def test_consented_ai_brief_has_existing_evidence_and_is_cached(network, monkeyp
             "evidence_ids":[parsed["messages"][0]["id"]],
         })
     monkeypatch.setattr("app.facebook_crm.generate_text",simulate_model)
-    result=n["admin"].post(url)
+    result=n["send"](n["admin"], "/facebook/leads/"+lead_id+"/conversation-brief")
     assert result.status_code==200, result.text
     assert result.json()["ai"]["source"]=="ia_con_evidencia"
     assert len(calls)==1
-    assert n["admin"].post(url).json()["ai"]["evidence_ids"]
+    assert n["send"](n["admin"], "/facebook/leads/"+lead_id+"/conversation-brief").json()["ai"]["evidence_ids"]
     assert len(calls)==1
     assert n["admin"].get(url).json()["ai"]["source"]=="ia_con_evidencia"
