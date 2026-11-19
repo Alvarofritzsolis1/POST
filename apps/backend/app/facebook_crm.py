@@ -36,7 +36,7 @@ from .network_service import key, today
 from .galancito_triage import classify_lead, dashboard
 from .security import administrator
 from .galancito_triage import analyze, private_data, quick_reply
-from .galancito_intake import apply_intake, next_intake_reply
+from .galancito_intake import apply_intake, next_intake_reply, small_talk_reply
 from .galancito_contact_profile import contact_profile
 from .galancito_escalation import flag_for_human
 from .facebook_lead_insights import ranked_needs, suggestions_for_lead, link_unique_requirement
@@ -389,6 +389,9 @@ async def webhook(request: Request, db: Session = Depends(get_db)):
                                   "No necesitas enviar documentos por aquí.") if wants_human(body) else
                                  AI_PERMISSION_DECLINED if consent is False else
                                  reply_for_support(signal, bool(lead.specialty)))
+                elif small_talk_reply(body) and not lead.needs_support:
+                    # Sin costos de inferencia para cortesías simples.
+                    reply = small_talk_reply(body)
                 elif (consent is True and not lead.needs_support and
                       lead.ai_consent_state == ("accepted_team" if ai_source == "team" else "accepted")):
                     use_ai = True
