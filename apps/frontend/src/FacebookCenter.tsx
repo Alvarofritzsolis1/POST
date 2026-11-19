@@ -7,6 +7,8 @@ import { change, net, type Catalog, type Page, type Requirement } from "./networ
 import { errorText } from "./NetworkUI";
 import "./facebook-center.css";
 import GalancitoKnowledgeCenter from "./GalancitoKnowledgeCenter";
+import FacebookOverview from "./FacebookOverview";
+import "./facebook-minimal-layout.css";
 import NetworkFacebook from "./NetworkFacebook";
 
 type Check = { criterion: string; state: "match" | "verify"; detail: string };
@@ -138,7 +140,7 @@ const dateText = (v: string) => {
 
 export default function FacebookCenter({ catalog }: { catalog: Catalog }) {
   const [center, setCenter] = useState<Center | null>(null);
-  const [tab, setTab] = useState<"summary" | "tracking" | "inbox" | "pending" | "publications" | "testing" | "guides" | "knowledge" | "performance">("inbox");
+  const [tab, setTab] = useState<"overview" | "summary" | "tracking" | "inbox" | "pending" | "publications" | "testing" | "guides" | "knowledge" | "performance">("overview");
   const [selectedId, setSelectedId] = useState("");
   const [detail, setDetail] = useState<Detail | null>(null);
   const [requirements, setRequirements] = useState<Requirement[]>([]);
@@ -148,6 +150,7 @@ export default function FacebookCenter({ catalog }: { catalog: Catalog }) {
   const [error, setError] = useState("");
   const [notice, setNotice] = useState("");
   const [filter, setFilter] = useState("");
+  const [inboxFilter, setInboxFilter] = useState<"all" | "unread">("all");
   const [guides, setGuides] = useState<Guide[]>([]);
   const [adDraft, setAdDraft] = useState<{id: string; title: string; draft: string; source: string} | null>(null);
   const [guide, setGuide] = useState(freshGuide);
@@ -391,7 +394,9 @@ export default function FacebookCenter({ catalog }: { catalog: Catalog }) {
   ];
   const currentInsights = insights?.contact_id === selectedId ? insights : null;
   const visible = center?.leads.filter((r) =>
-    [r.name, r.company, r.specialty].some((x) => x.toLowerCase().includes(filter.toLowerCase()))) || [];
+    (inboxFilter === "all" || r.unread) &&
+    [r.name, r.company, r.specialty, ...(r.trades || [])]
+      .some((x) => x.toLocaleLowerCase("es-CL").includes(filter.toLocaleLowerCase("es-CL")))) || [];
 
   // Nunca inferir validez en tiempo real de un error antiguo. Un GET verificado
   // en el worker puede resolverlo sin borrar ni reintentar publicaciones históricas.
@@ -415,21 +420,11 @@ export default function FacebookCenter({ catalog }: { catalog: Catalog }) {
     <header className="fbc-header">
       <div>
         <span className="fbc-eyebrow"><Facebook size={16} /> FACEBOOK · CENTRO DE CONTACTOS</span>
-        <h2>Facebook</h2>
+        <h2>Centro de Facebook</h2>
         <p>Conversaciones y publicaciones</p>
       </div>
 
     </header>
-    <div className="fbc-stats fbc-stats-simple">
-      {[
-        ["Por responder", center?.counts.unread ?? 0, "blue"],
-        ["Interesados", center?.counts.contacts ?? 0, "teal"],
-        ["Por revisar", center?.counts.pending_ads ?? 0, "amber"],
-        ["Publicados", center?.counts.published_ads ?? 0, "teal"],
-      ].map(([title, value, color]) => <div key={title} className={"fbc-stat " + color}>
-        <span>{title}</span><strong>{value}</strong>
-      </div>)}
-    </div>
     <div className="fbc-status-line">
       <span className={"fbc-connection-square " + (messengerBlocked || messengerUncertain || tokenInvalid ? "problem" :
         connectionVerified && center?.messaging_enabled ? "good" : "pending")} role="status"
@@ -437,12 +432,6 @@ export default function FacebookCenter({ catalog }: { catalog: Catalog }) {
         {messengerBlocked || messengerUncertain || tokenInvalid ? <AlertTriangle size={15} /> : <CheckCircle2 size={15} />}
         {messengerBlocked || messengerUncertain || tokenInvalid ? "Revisar" :
           checkingConnection ? "Comprobando" : connectionVerified && center?.messaging_enabled ? "Vigente" : "Sin verificar"}
-      </span>
-      <span className={"fbc-auto-status " + (center?.auto_reply?.configured ? "configured" : "inactive")}
-        role="status" title="La configuración no sustituye una prueba real de entrega en Meta">
-        <Bot size={14} /> {center?.auto_reply?.configured
-          ? "Respuestas IA configuradas · falta probar"
-          : "Respuestas IA sin activar"}
       </span>
       <details className="fbc-connection-details">
         <summary>Diagnóstico</summary>
@@ -478,6 +467,9 @@ export default function FacebookCenter({ catalog }: { catalog: Catalog }) {
     {error && <p role="alert" className="fbc-error">{error}</p>}
     {notice && <p role="status" className="fbc-notice">{notice}</p>}
     <nav aria-label="Centro Facebook" className="fbc-tabs fbc-tabs-simple">
+      <button type="button" className={tab === "overview" ? "selected" : ""} aria-pressed={tab === "overview"} onClick={() => setTab("overview")}>
+        Resumen
+      </button>
       <button className={tab === "publications" || tab === "pending" ? "selected" : ""} onClick={() => setTab("publications")}>
         <Facebook size={16} /> Publicaciones
       </button>
@@ -496,6 +488,17 @@ export default function FacebookCenter({ catalog }: { catalog: Catalog }) {
       </div>
     </details>
     </nav>
+    {tab === "overview" && <FacebookOverview
+      loading={!center && !error}
+      counts={center?.counts}
+      leads={center?.leads || []}
+      publications={center?.publications || []}
+      onOpenConversations={(unreadOnly) => {setInboxFilter(unreadOnly ? "unread" : "all"); setTab("inbox");}}
+      onOpenTracking={() => setTab("tracking")}
+      onOpenPublications={() => setTab("publications")}
+      onOpenPending={() => setTab("pending")}
+      onOpenContact={(id) => {setSelectedId(id); setInboxFilter("all"); setShowProfile(false); setMobilePane("chat"); setTab("inbox");}}
+    />}
     {tab === "summary" && <GalancitoKnowledgeCenter mode="summary" />}
     {tab === "knowledge" && <GalancitoKnowledgeCenter />}
     {tab === "performance" && <GalancitoKnowledgeCenter mode="performance" />}
@@ -705,10 +708,19 @@ export default function FacebookCenter({ catalog }: { catalog: Catalog }) {
     <div className={"fbc-inbox " + (mobilePane === "profile" ? "show-profile" : "show-chat") + (showProfile ? " profile-open" : "")}>
       <aside className="fbc-contacts">
         <div className="fbc-pane-title"><Users size={16} /><b>Personas que escribieron</b></div>
+        <div className="fbmin-inbox-switch" role="group" aria-label="Filtrar conversaciones">
+          <button type="button" className={inboxFilter === "all" ? "selected" : ""}
+            aria-pressed={inboxFilter === "all"} onClick={() => setInboxFilter("all")}>Todas</button>
+          <button type="button" className={inboxFilter === "unread" ? "selected" : ""}
+            aria-pressed={inboxFilter === "unread"} onClick={() => setInboxFilter("unread")}>Por responder</button>
+        </div>
         <input className="fbc-search" aria-label="Buscar interesados" value={filter}
           onChange={(e) => setFilter(e.target.value)} placeholder="Buscar persona, empresa u oficio..." />
         <div className="fbc-contacts-list">
-          {!visible.length && <p className="fbc-empty">Aún no hay mensajes sincronizados. Los contactos aparecerán cuando escriban a la página conectada.</p>}
+          {!visible.length && <p className="fbc-empty">{inboxFilter === "unread"
+            ? "No hay conversaciones pendientes con este filtro."
+            : filter ? "No encontramos contactos con esa búsqueda." :
+            "Aún no hay mensajes sincronizados. Los contactos aparecerán cuando escriban a la página conectada."}</p>}
           {visible.map((item) => <button key={item.id}
             onClick={() => { setSelectedId(item.id); setMobilePane("chat"); }}
             className={"fbc-contact " + (item.id === selectedId ? "selected" : "")}>
@@ -856,8 +868,10 @@ export default function FacebookCenter({ catalog }: { catalog: Catalog }) {
               <b>Ficha que Galancito va completando</b>
               <span className="fbc-profile-ready">{lead.trades?.length || lead.specialty ? "Perfil básico" : "Por conocer oficio"}</span>
             </div>
-            <p className="fbc-person-summary">{lead.profile.summary}</p>
-            <small>{lead.profile.evidence}</small>
+            <details className="fbmin-ai-summary"><summary>Ver resumen de Galancito</summary>
+              <p className="fbc-person-summary">{lead.profile.summary}</p>
+              <small>{lead.profile.evidence}</small>
+            </details>
             <div className="fbc-person-fields">
               <div><small>Nombre</small><strong>{lead.name && lead.name !== "Interesado de Facebook" ? lead.name : "Por registrar"}</strong></div>
               <div><small>Interés</small><strong>{lead.interest_type === "service_offer" ? "Ofrece servicios" :

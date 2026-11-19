@@ -1,0 +1,81 @@
+/* GALANT · Facebook minimalista. Solo se aplica al resumen Facebook. */
+.fbov { --fbov-ink:#172c3d; --fbov-muted:#667782; --fbov-line:#e3e9e8;
+  --fbov-mint:#eaf9f3; display:grid;gap:20px;min-width:0;color:var(--fbov-ink); }
+.fbov * {box-sizing:border-box}
+.fbov-heading,.fbov-panel-heading {display:flex;justify-content:space-between;align-items:center;gap:14px;flex-wrap:wrap}
+.fbov-heading h3 {font-size:19px;letter-spacing:-.45px;margin:0}
+.fbov-heading p,.fbov-panel-heading small {font-size:12px;color:var(--fbov-muted);margin:3px 0 0}
+.fbov-period {font-size:11px;color:var(--fbov-muted);border:1px solid var(--fbov-line);border-radius:8px;padding:7px 10px}
+.fbov-metrics {display:grid;grid-template-columns:minmax(235px,1.7fr) repeat(3,minmax(132px,1fr));gap:12px}
+.fbov-metric {min-width:0;display:flex;flex-direction:column;align-items:flex-start;text-align:left;gap:5px;position:relative;
+  padding:17px 18px;min-height:134px;border:1px solid var(--fbov-line);border-radius:16px;
+  color:var(--fbov-ink);background:var(--nw-paper,#fff);cursor:pointer;
+  box-shadow:0 2px 10px rgba(24,48,54,.035)}
+.fbov-metric:hover,.fbov-contact:hover,.fbov-row-action:hover {border-color:#84d6bd;background:#f5fbf8}
+.fbov-metric:focus-visible,.fbov-link:focus-visible,.fbov-row-action:focus-visible,
+.fbov-contact:focus-visible,.fbov-cta:focus-visible {outline:3px solid #268a73;outline-offset:2px}
+.fbov-metric > svg:not(.fbov-arrow) {flex:none}
+.fbov-metric > span:not(.fbov-metric-icon):not(.fbov-metric-copy) {font-size:12px;color:var(--fbov-muted)}
+.fbov-metric strong {font-size:29px;line-height:1.13;letter-spacing:-.75px;font-variant-numeric:tabular-nums}
+.fbov-metric small {font-size:11px;line-height:1.45;color:var(--fbov-muted)}
+.fbov-primary {flex-direction:row;align-items:center;gap:14px;background:var(--fbov-mint);border-color:#d6eee5}
+.fbov-primary .fbov-metric-copy {display:grid;gap:7px;min-width:0}
+.fbov-primary .fbov-metric-copy > span {font-size:14px;font-weight:700}
+.fbov-primary strong {font-size:44px}
+.fbov-metric-icon {display:grid;place-items:center;width:53px;height:53px;border-radius:13px;
+  color:#007e58;background:#d3f4e4;flex:none}
+.fbov-arrow {align-self:center;margin-left:auto;color:#148e68;flex:none}
+.fbov-blue {color:#3478dc}.fbov-purple {color:#7652c5}.fbov-amber {color:#bd7c23}
+.fbov-layout {display:grid;grid-template-columns:minmax(0,1.25fr) minmax(295px,1fr);gap:14px}
+.fbov-panel {min-width:0;padding:19px;border:1px solid var(--fbov-line);border-radius:16px;
+  background:var(--nw-paper,#fff);box-shadow:0 2px 10px rgba(24,48,54,.03)}
+.fbov-panel-heading {margin-bottom:16px}
+.fbov-panel-heading h4 {margin:0;font-size:15px;letter-spacing:-.25px}
+.fbov-link {display:inline-flex;align-items:center;gap:5px;white-space:nowrap;
+  color:#07806a;background:transparent;border:0;font-weight:700;font-size:12px;cursor:pointer;padding:7px}
+.fbov-rows {display:grid}
+.fbov-row,.fbov-contact {display:flex;align-items:center;gap:12px;min-width:0;padding:12px 0;border-bottom:1px solid var(--fbov-line)}
+.fbov-row:last-child,.fbov-contact:last-child {border-bottom:0}
+.fbov-row-main {display:grid;gap:4px;min-width:0;flex:1;text-align:left}
+.fbov-row-main strong {font-size:12.5px;overflow-wrap:anywhere}
+.fbov-row-main small {font-size:11px;color:var(--fbov-muted);line-height:1.45;overflow-wrap:anywhere}
+.fbov-post-symbol {width:38px;height:38px;flex:none;border-radius:10px;display:grid;place-items:center;color:#5572a2;background:#eef3fc}
+.fbov-pill {font-size:10px;font-weight:700;white-space:nowrap;border-radius:8px;padding:6px 8px;background:#eff1f3;color:#52606b}
+.fbov-pill.ok {background:#e4f8eb;color:#13744e}.fbov-pill.bad {background:#fff1e8;color:#a45b25}
+.fbov-row-action {display:grid;place-items:center;width:32px;height:32px;flex:none;border:1px solid var(--fbov-line);border-radius:9px;background:#fff;cursor:pointer;color:var(--fbov-ink)}
+.fbov-bars {display:grid;gap:13px}
+.fbov-bar-item {display:grid;gap:7px}
+.fbov-bar-label {display:flex;justify-content:space-between;gap:12px;font-size:12px}
+.fbov-bar-label strong {font-variant-numeric:tabular-nums}
+.fbov-bar-track {height:9px;background:#eef2f1;border-radius:20px;overflow:hidden}
+.fbov-bar-track span {display:block;height:100%;border-radius:20px;background:#12987c}
+.fbov-bars > small {color:var(--fbov-muted);line-height:1.45}
+.fbov-contact {width:100%;background:transparent;border-left:0;border-right:0;border-top:0;text-align:left;cursor:pointer;color:var(--fbov-ink)}
+.fbov-avatar {display:grid;place-items:center;flex:none;width:39px;height:39px;background:#e7f1ff;color:#245da8;border-radius:50%;font-size:13px;font-weight:800}
+.fbov-unread {width:7px;height:7px;background:#0e9880;border-radius:50%}
+.fbov-help {background:#f7fbf9}
+.fbov-help-body {display:grid;gap:15px;justify-items:start}
+.fbov-help-body > svg {color:#0f8b73}
+.fbov-help-body p {font-size:13px;line-height:1.7;color:#425760;margin:0}
+.fbov-cta {display:flex;align-items:center;gap:8px;background:#087e73;border:1px solid #087e73;
+  color:#fff;border-radius:9px;padding:11px 13px;font-weight:700;font-size:12px;cursor:pointer}
+.fbov-cta:hover {background:#066b61}
+.fbov-no-data,.fbov-empty {font-size:12px;color:var(--fbov-muted);padding:20px 6px;line-height:1.5}
+[data-theme="dark"] .fbov {--fbov-ink:#e5edf1;--fbov-muted:#a9b8c1;--fbov-line:#344951;--fbov-mint:#193e37}
+[data-theme="dark"] .fbov-help {background:#18312e}
+[data-theme="dark"] .fbov-post-symbol {background:#2d3d53;color:#a9c8f2}
+[data-theme="dark"] .fbov-pill.ok {background:#174c3b;color:#b0f0d2}
+[data-theme="dark"] .fbov-pill.bad {background:#51311e;color:#ffd2ab}
+[data-theme="dark"] .fbov-avatar {background:#243d5d;color:#c1dfff}
+[data-theme="dark"] .fbov-row-action {background:var(--nw-paper);color:var(--fbov-ink)}
+@media(max-width:1120px) {.fbov-metrics {grid-template-columns:repeat(3,minmax(0,1fr))}
+  .fbov-primary {grid-column:1/-1}.fbov-layout {grid-template-columns:1fr}}
+@media(max-width:650px) {.fbov {gap:14px}.fbov-heading {align-items:flex-start}
+  .fbov-period {width:100%}.fbov-metrics {grid-template-columns:1fr 1fr;gap:9px}
+  .fbov-primary {grid-column:1/-1}.fbov-metric {padding:13px;min-height:113px;border-radius:12px}
+  .fbov-primary strong {font-size:38px}.fbov-metric strong {font-size:26px}
+  .fbov-metric small {font-size:10px}.fbov-primary {min-height:128px}
+  .fbov-panel {padding:14px;border-radius:12px}.fbov-row {gap:8px;flex-wrap:wrap}
+  .fbov-row .fbov-pill {margin-left:49px}.fbov-row-action {margin-left:auto}
+  .fbov-layout {gap:10px}}
+@media(prefers-reduced-motion:reduce){.fbov * {transition:none!important;animation:none!important}}
