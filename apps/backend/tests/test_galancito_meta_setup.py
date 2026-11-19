@@ -124,7 +124,6 @@ def test_facebook_sender_uses_decryption_key_and_ai_egress_network():
 def test_messenger_setup_keeps_existing_auto_reply_even_for_external_ai():
     """Linking the Page must not silently disable already authorized responses."""
     source = SCRIPT.read_text()
-    assert 'old.get("FACEBOOK_AI_AUTO_REPLY_ENABLED", "false")' in source
-    assert '"FACEBOOK_AI_PROVIDER") == "ollama" else "false"' not in source
+    assert "FACEBOOK_AI_AUTO_REPLY_ENABLED" not in source
+    assert 'old.get("FACEBOOK_AI_ENABLED", "false")' in source
     assert '"FACEBOOK_AI_ENABLED": "true"' in source
-    assert '"FACEBOOK_AI_AUTO_REPLY_ENABLED": "true"' in source

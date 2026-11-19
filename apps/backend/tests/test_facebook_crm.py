@@ -84,7 +84,6 @@ def test_trade_guide_explains_documents_without_requiring_formality(network, mon
     enable_messaging(n, monkeypatch)
     # Galancito solicita permiso por Messenger; un administrador no puede inventarlo.
     monkeypatch.setenv("FACEBOOK_AI_ENABLED", "true")
-    monkeypatch.setenv("FACEBOOK_AI_AUTO_REPLY_ENABLED", "true")
     monkeypatch.setenv("FACEBOOK_AI_API_KEY", "synthetic-key-never-used")
     settings.cache_clear()
     assert incoming(n, text="¿Cuáles son los requisitos para postular?").status_code == 200
@@ -163,7 +162,7 @@ def test_reply_worker_without_actual_message_delivery(network, monkeypatch):
 def test_explicit_document_help_creates_persistent_alert_and_gentle_reply(network, monkeypatch):
     n = network
     enable_messaging(n, monkeypatch)
-    monkeypatch.setenv("FACEBOOK_AI_AUTO_REPLY_ENABLED", "true")
+    monkeypatch.setenv("FACEBOOK_AI_ENABLED", "true")
     settings.cache_clear()
     assert incoming(n, text="no entiendo lo del f30, no se como sacar los papeles").status_code == 200
     center = n["admin"].get("/api/v1/network/facebook/center")
@@ -225,10 +224,13 @@ def test_bad_spelling_alone_does_not_trigger_support_alert(network, monkeypatch)
 def test_galancito_conversation_auto_reply_only_after_messenger_consent(network, monkeypatch):
     n = network
     enable_messaging(n, monkeypatch)
-    monkeypatch.setenv("FACEBOOK_AI_AUTO_REPLY_ENABLED", "true")
+    monkeypatch.setenv("FACEBOOK_AI_AUTO_REPLY_ENABLED", "false")
     monkeypatch.setenv("FACEBOOK_AI_ENABLED", "true")
     monkeypatch.setenv("FACEBOOK_AI_API_KEY", "synthetic-key")
     settings.cache_clear()
+    readiness = n["admin"].get("/api/v1/network/facebook/center").json()
+    assert readiness["auto_reply_enabled"] is True
+    assert readiness["auto_reply"]["configured"] is True
     assert incoming(n, text="¿Cuáles son los requisitos para postular?", mid="first").status_code == 200
     lead = n["admin"].get("/api/v1/network/facebook/center").json()["leads"][0]
     assert lead["ai_consent"] is False and lead["ai_consent_state"] == "requested"
@@ -267,7 +269,7 @@ def test_galancito_conversation_auto_reply_only_after_messenger_consent(network,
 def test_manual_trade_question_continues_automatically_and_can_be_paused(network, monkeypatch):
     n = network
     enable_messaging(n, monkeypatch)
-    monkeypatch.setenv("FACEBOOK_AI_AUTO_REPLY_ENABLED", "true")
+    monkeypatch.setenv("FACEBOOK_AI_ENABLED", "true")
     monkeypatch.setenv("FACEBOOK_AI_ENABLED", "true")
     monkeypatch.setenv("FACEBOOK_AI_API_KEY", "synthetic-key")
     settings.cache_clear()
@@ -308,7 +310,7 @@ def test_manual_trade_question_continues_automatically_and_can_be_paused(network
 def test_new_inbound_replaces_unsent_automatic_question(network, monkeypatch):
     n = network
     enable_messaging(n, monkeypatch)
-    monkeypatch.setenv("FACEBOOK_AI_AUTO_REPLY_ENABLED", "true")
+    monkeypatch.setenv("FACEBOOK_AI_ENABLED", "true")
     settings.cache_clear()
     assert incoming(n, text="hola", mid="replacement-1").status_code == 200
     lead_id = n["admin"].get("/api/v1/network/facebook/center").json()["leads"][0]["id"]
@@ -325,7 +327,7 @@ def test_explicit_human_request_notifies_administration(network, monkeypatch):
 
     n = network
     enable_messaging(n, monkeypatch)
-    monkeypatch.setenv("FACEBOOK_AI_AUTO_REPLY_ENABLED", "true")
+    monkeypatch.setenv("FACEBOOK_AI_ENABLED", "true")
     settings.cache_clear()
     assert incoming(n, text="Quiero hablar con una persona", mid="human-request-1").status_code == 200
     lead = n["admin"].get("/api/v1/network/facebook/center").json()["leads"][0]
@@ -349,7 +351,7 @@ def test_model_failure_notifies_human_instead_of_sending_generic_answer(network,
 
     n = network
     enable_messaging(n, monkeypatch)
-    monkeypatch.setenv("FACEBOOK_AI_AUTO_REPLY_ENABLED", "true")
+    monkeypatch.setenv("FACEBOOK_AI_ENABLED", "true")
     monkeypatch.setenv("FACEBOOK_AI_ENABLED", "true")
     monkeypatch.setenv("FACEBOOK_AI_API_KEY", "synthetic-key")
     settings.cache_clear()
@@ -383,7 +385,7 @@ def test_automatic_reply_limit_alerts_instead_of_failing_silently(network, monke
 
     n = network
     enable_messaging(n, monkeypatch)
-    monkeypatch.setenv("FACEBOOK_AI_AUTO_REPLY_ENABLED", "true")
+    monkeypatch.setenv("FACEBOOK_AI_ENABLED", "true")
     settings.cache_clear()
     assert incoming(n, text="hola", mid="limit-hello").status_code == 200
     lead_id = n["admin"].get("/api/v1/network/facebook/center").json()["leads"][0]["id"]
@@ -406,7 +408,7 @@ def test_automatic_reply_limit_alerts_instead_of_failing_silently(network, monke
 def test_galancito_respects_refusal_without_external_ai(network, monkeypatch):
     n = network
     enable_messaging(n, monkeypatch)
-    monkeypatch.setenv("FACEBOOK_AI_AUTO_REPLY_ENABLED", "true")
+    monkeypatch.setenv("FACEBOOK_AI_ENABLED", "true")
     monkeypatch.setenv("FACEBOOK_AI_ENABLED", "true")
     monkeypatch.setenv("FACEBOOK_AI_API_KEY", "synthetic-key")
     settings.cache_clear()
@@ -428,7 +430,6 @@ def test_verified_ai_team_answers_messenger_only_after_new_consent(network, monk
     n = network
     org_id = enable_messaging(n, monkeypatch)
     monkeypatch.setenv("FACEBOOK_AI_ENABLED", "true")
-    monkeypatch.setenv("FACEBOOK_AI_AUTO_REPLY_ENABLED", "true")
     monkeypatch.setenv("AI_CREDENTIAL_ENCRYPTION_KEY", Fernet.generate_key().decode())
     settings.cache_clear()
     with n["Session"].begin() as db:
@@ -500,7 +501,6 @@ def test_messenger_reasks_when_legacy_consent_precedes_team_assignment(network, 
     n = network
     org_id = enable_messaging(n, monkeypatch)
     monkeypatch.setenv("FACEBOOK_AI_ENABLED", "true")
-    monkeypatch.setenv("FACEBOOK_AI_AUTO_REPLY_ENABLED", "true")
     monkeypatch.setenv("FACEBOOK_AI_API_KEY", "synthetic-openai-key")
     monkeypatch.setenv("AI_CREDENTIAL_ENCRYPTION_KEY", Fernet.generate_key().decode())
     settings.cache_clear()
@@ -555,7 +555,6 @@ def test_galancito_revocation_halts_ai_after_prior_consent(network, monkeypatch)
     n = network
     enable_messaging(n, monkeypatch)
     monkeypatch.setenv("FACEBOOK_AI_ENABLED", "true")
-    monkeypatch.setenv("FACEBOOK_AI_AUTO_REPLY_ENABLED", "true")
     monkeypatch.setenv("FACEBOOK_AI_API_KEY", "synthetic-key")
     settings.cache_clear()
     assert incoming(n, text="hola", mid="intro").status_code == 200
@@ -776,7 +775,7 @@ def test_recover_external_message_missing_from_webhook(network, monkeypatch):
 
     n = network
     enable_messaging(n, monkeypatch)
-    monkeypatch.setenv("FACEBOOK_AI_AUTO_REPLY_ENABLED", "true")
+    monkeypatch.setenv("FACEBOOK_AI_ENABLED", "true")
     settings.cache_clear()
     requests = []
 
@@ -819,7 +818,8 @@ def test_recovery_queues_fresh_unanswered_trade_once(network, monkeypatch):
 
     n = network
     org_id = enable_messaging(n, monkeypatch)
-    monkeypatch.setenv("FACEBOOK_AI_AUTO_REPLY_ENABLED", "true")
+    monkeypatch.setenv("FACEBOOK_AI_AUTO_REPLY_ENABLED", "false")
+    monkeypatch.setenv("FACEBOOK_AI_ENABLED", "true")
     settings.cache_clear()
     now = datetime.now(timezone.utc).isoformat()
     monkeypatch.setattr(recovery, "_graph_get", lambda token, resource, edge, fields, limit:
@@ -846,7 +846,7 @@ def test_recovery_does_not_answer_after_meta_page_reply(network, monkeypatch):
 
     n = network
     org_id = enable_messaging(n, monkeypatch)
-    monkeypatch.setenv("FACEBOOK_AI_AUTO_REPLY_ENABLED", "true")
+    monkeypatch.setenv("FACEBOOK_AI_ENABLED", "true")
     settings.cache_clear()
     now = datetime.now(timezone.utc)
     monkeypatch.setattr(recovery, "_graph_get", lambda token, resource, edge, fields, limit:
@@ -984,19 +984,19 @@ def test_messenger_automatic_reply_readiness_explains_missing_configuration(netw
     n = network
     enable_messaging(n, monkeypatch)
     monkeypatch.setenv("FACEBOOK_AI_ENABLED", "false")
-    monkeypatch.setenv("FACEBOOK_AI_AUTO_REPLY_ENABLED", "false")
     settings.cache_clear()
     result = n["admin"].get("/api/v1/network/facebook/center")
     assert result.status_code == 200, result.text
+    assert result.json()["auto_reply_enabled"] is False
     auto = result.json()["auto_reply"]
     assert auto["configured"] is False
-    assert any("deshabilitadas" in item for item in auto["missing"])
+    assert any("Asistente de Facebook deshabilitado" in item for item in auto["missing"])
     assert "token" not in str(auto).lower()
     monkeypatch.setenv("FACEBOOK_AI_ENABLED", "true")
-    monkeypatch.setenv("FACEBOOK_AI_AUTO_REPLY_ENABLED", "true")
     settings.cache_clear()
     response = n["admin"].get("/api/v1/network/facebook/center")
     assert response.status_code == 200, response.text
+    assert response.json()["auto_reply_enabled"] is True
     # Local replies do not depend on a verified external model.
     assert response.json()["auto_reply"]["configured"] is True
     assert response.json()["ai_provider"] == "disabled"
@@ -1029,7 +1029,6 @@ def test_messenger_reports_real_drafting_and_sending_stages(network, monkeypatch
     n = network
     enable_messaging(n, monkeypatch)
     monkeypatch.setenv("FACEBOOK_AI_ENABLED", "true")
-    monkeypatch.setenv("FACEBOOK_AI_AUTO_REPLY_ENABLED", "true")
     monkeypatch.setenv("FACEBOOK_AI_API_KEY", "fake-synthetic-key")
     settings.cache_clear()
     assert incoming(n, text="¿Cuáles son los requisitos para postular?", mid="staged-1").status_code == 200
@@ -1065,7 +1064,7 @@ def test_messenger_typing_dots_match_meta_sender_actions(network, monkeypatch):
     """Real processing triggers seen -> typing -> off; no fake idle animation."""
     n = network
     enable_messaging(n, monkeypatch)
-    monkeypatch.setenv("FACEBOOK_AI_AUTO_REPLY_ENABLED", "true")
+    monkeypatch.setenv("FACEBOOK_AI_ENABLED", "true")
     monkeypatch.setenv("FACEBOOK_AI_ENABLED", "true")
     monkeypatch.setenv("FACEBOOK_AI_API_KEY", "synthetic-test-key")
     settings.cache_clear()

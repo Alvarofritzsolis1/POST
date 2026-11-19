@@ -248,9 +248,7 @@ def process_chat_next(session_factory=SessionLocal) -> bool:
                     "accepted_team" if ai_source == "team" else "accepted")):
             job.state, job.error = "cancelled", "El contacto no autorizó el procesamiento con IA"
             return True
-        if job.state == "ai_pending" and not (
-            cfg.facebook_ai_auto_reply_enabled and ai_source != "disabled"
-        ):
+        if job.state == "ai_pending" and ai_source == "disabled":
             job.state, job.error = "cancelled", "El asistente automático está deshabilitado"
             return True
         job_id, lead_id, org_id, psid, state, body = job.id, lead.id, lead.org_id, lead.psid, job.state, job.body

@@ -259,11 +259,6 @@ def run() -> None:
         "FACEBOOK_ORG_ID": org_id,
         "FACEBOOK_WEBHOOK_VERIFY_TOKEN": verify_token,
         "FACEBOOK_MESSAGING_ENABLED": "true",
-        # Never silently disable an existing, consent-gated Messenger assistant.
-        # A verified external team also works; model choice is not tied to Ollama.
-        "FACEBOOK_AI_AUTO_REPLY_ENABLED": old.get(
-            "FACEBOOK_AI_AUTO_REPLY_ENABLED", "false"
-        ),
     })
     print("   ✓ Copia privada anterior: " + backup.name)
     compose("up", "-d", "--no-deps", "--force-recreate", "api", "facebook-publisher")
@@ -291,10 +286,9 @@ def run() -> None:
     # consent remain mandatory. If no verified model is assigned, the backend
     # still refuses to generate automatic replies and explains why.
     if yes("¿Activar respuestas automáticas de Galancito para nuevos mensajes, solicitando primero autorización al contacto?",
-           default=old.get("FACEBOOK_AI_AUTO_REPLY_ENABLED", "false").lower() == "true"):
+           default=old.get("FACEBOOK_AI_ENABLED", "false").lower() == "true"):
         write_env_atomically(ENV_FILE, {
             "FACEBOOK_AI_ENABLED": "true",
-            "FACEBOOK_AI_AUTO_REPLY_ENABLED": "true",
         })
         compose("up", "-d", "--no-deps", "--force-recreate", "api", "facebook-publisher")
         print("   ✓ Respuestas automáticas solicitadas; se usarán solo con una IA disponible y permiso del contacto.")

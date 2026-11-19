@@ -40,7 +40,7 @@ class Settings(BaseSettings):
     # La IA requiere configuración privada; conversaciones y propuestas nunca se envían
     # a modelos externos cuando esta opción está desactivada.
     facebook_ai_enabled: bool = False
-    facebook_ai_auto_reply_enabled: bool = False
+    # Messenger auto-responses use FACEBOOK_AI_ENABLED, Meta permissions and consent.
     facebook_ai_ad_enabled: bool = False
     facebook_worker_poll_seconds: float = Field(default=1.0, ge=0.1, le=5)
     facebook_ai_api_key: str = ""

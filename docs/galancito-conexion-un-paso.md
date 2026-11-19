@@ -60,3 +60,5 @@ Si el asistente falla por permisos de Meta:
 - Revisa que el dominio HTTPS de GALANT sea realmente accesible desde Meta.
 - Antes de volver a ejecutar el instalador, comprueba si Meta ya registró
   el webhook para evitar cambiar configuraciones innecesariamente.
+
+**Respuesta automática simplificada (v20.8.12):** `FACEBOOK_AI_AUTO_REPLY_ENABLED` ya no se usa. Si `FACEBOOK_AI_ENABLED=true`, Messenger está configurado, existe IA disponible y el contacto autoriza su uso, Galancito encola las respuestas sin otra activación en el VPS. Se mantienen la firma del webhook, los permisos de Meta, la pausa humana, la ventana de 24 horas y el estado de envío; una configuración correcta no equivale a entrega real.

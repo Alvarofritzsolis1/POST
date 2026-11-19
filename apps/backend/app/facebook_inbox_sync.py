@@ -187,7 +187,7 @@ def sync_page_inbox(*, page_id: str, page_token: str, org_id: str,
                 latest_new[psid] = (lead, body, timestamp, cid, prior)
             imported += 1
         cfg = settings()
-        if cfg.facebook_ai_auto_reply_enabled:
+        if cfg.facebook_ai_enabled:
             for lead, body, timestamp, cid, prior in latest_new.values():
                 last_inbound = lead.last_inbound_at
                 if last_inbound and last_inbound.tzinfo is None:
