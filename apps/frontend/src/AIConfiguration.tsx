@@ -24,6 +24,7 @@ type UsageGroup = {
   connection_id: string; provider: string; name: string; task: string;
   status: string; calls: number; input_tokens: number; output_tokens: number;
   total_tokens: number; estimated_cost_usd: number | null; priced_calls: number;
+  average_duration_ms: number;
 };
 type LearningProgress = {
   total: number; approved: number; pending: number; percent: number;
@@ -453,15 +454,15 @@ export default function AIConfiguration() {
       <section className="ai-panel">
         <div className="ai-panel-head"><div><h3>4. Consumo de tokens</h3><p>Uso registrado por esta aplicación; no equivale al saldo completo de cada proveedor.</p></div><label className="ai-days">Período<select value={days} onChange={e => setDays(Number(e.target.value))}><option value={7}>7 días</option><option value={30}>30 días</option><option value={90}>90 días</option><option value={365}>1 año</option></select></label></div>
         <div className="ai-usage-head"><span>Entrada: <b>{nice(usage?.input_tokens || 0)}</b></span><span>Salida: <b>{nice(usage?.output_tokens || 0)}</b></span><span>Total: <b>{nice(usage?.total_tokens || 0)}</b></span></div>
-        <div className="ai-table-scroll"><table className="ai-table"><thead><tr><th>IA</th><th>Función</th><th>Estado</th><th>Llamadas</th><th>Tokens</th><th>Estimación USD</th></tr></thead><tbody>
+        <div className="ai-table-scroll"><table className="ai-table"><thead><tr><th>IA</th><th>Función</th><th>Estado</th><th>Llamadas</th><th>Latencia media</th><th>Tokens</th><th>Estimación USD</th></tr></thead><tbody>
           {shownUsage.map((item, i) => <tr key={item.connection_id + item.task + item.status + i}>
             <td>{item.name}<small>{providerName(item.provider)}</small></td>
             <td>{data?.tasks.find(t => t.id === item.task)?.name || (item.task === "connection_test" ? "Prueba API" : item.task)}</td>
             <td>{item.status === "success" ? "Correcto" : "Error"}</td>
-            <td>{nice(item.calls)}</td><td>{nice(item.total_tokens)}</td>
+            <td>{nice(item.calls)}</td><td>{(item.average_duration_ms / 1000).toLocaleString("es-CL", {maximumFractionDigits: 1})} s</td><td>{nice(item.total_tokens)}</td>
             <td>{item.priced_calls === item.calls ? dollars(item.estimated_cost_usd || 0) : "Sin tarifa / parcial"}</td>
           </tr>)}
-          {shownUsage.length === 0 && <tr><td colSpan={6} className="ai-empty">Todavía no hay solicitudes registradas en este período.</td></tr>}
+          {shownUsage.length === 0 && <tr><td colSpan={7} className="ai-empty">Todavía no hay solicitudes registradas en este período.</td></tr>}
         </tbody></table></div>
         <p className="ai-help">El costo es una estimación basada en precios que configures tú; no incluye impuestos, otros sistemas que utilicen tus claves ni ajustes de facturación. Los tokens solo se cuentan cuando el proveedor los informa.</p>
       </section>
