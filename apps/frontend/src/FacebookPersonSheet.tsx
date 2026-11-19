@@ -168,7 +168,7 @@ export default function FacebookPersonSheet({person,onClose,onChanged,onOpenChat
           </div><p>Información declarada · Pendiente de verificación</p></div>
           <div className="fbps-actions">
             <button type="button" className="fbps-button" onClick={()=>setEditing(v=>!v)}>
-              <ClipboardList size={16}/>{editing?"Cerrar edición":"Editar ficha"}</button>
+              <ClipboardList size={16}/>{editing?"Cerrar edición":"Editar seguimiento"}</button>
             <button type="button" className="fbps-button main" onClick={()=>onOpenChat(person.id)}>
               <MessageCircle size={16}/> Ver chat</button>
           </div>
