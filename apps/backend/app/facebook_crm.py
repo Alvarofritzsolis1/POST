@@ -24,7 +24,7 @@ from .db import get_db, SessionLocal
 from .facebook_ai import (AD_INSTRUCTIONS, REPLY_INSTRUCTIONS, generate_text,
                           messenger_ai_source, verified_ad_copy,
                           generate_triage_note)
-from .ai_gateway import orchestrated_text
+from .ai_gateway import orchestrated_text, AIServiceError
 from .facebook_availability_reply import availability_reply
 from .facebook_worksite_reply import is_worksite_location, worksite_reply
 from .facebook_onboarding import assistance_signal, reply_for_support, onboarding_guide
@@ -950,7 +950,7 @@ def _conversation_brief(db: Session, lead: FacebookLead) -> dict:
     allowed = source != "disabled" and consented_for(lead, source) and not lead.ai_paused
     brief["ai_eligible"] = bool(allowed)
     cache = (lead.profile_sources or {}).get(_BRIEF_CACHE_KEY, {})
-    if (isinstance(cache, dict) and cache.get("fingerprint") == brief["fingerprint"]
+    if (allowed and isinstance(cache, dict) and cache.get("fingerprint") == brief["fingerprint"]
             and isinstance(cache.get("result"), dict) and
             cache["result"].get("source") == "ia_con_evidencia"):
         brief["ai"] = cache["result"]
@@ -991,7 +991,7 @@ def generate_conversation_brief(lead_id: str, user: User = Depends(administrator
             raw = infer(db, lambda: generate_local_text(_BRIEF_INSTRUCTIONS, data, 650))
         else:
             raw = infer(db, lambda: generate_text(_BRIEF_INSTRUCTIONS, data, 650))
-    except (RuntimeError, ValueError, TimeoutError):
+    except (RuntimeError, ValueError, TimeoutError, OSError, HTTPError, URLError, AIServiceError):
         raw = None
     accepted = validate_ai_brief(raw, brief) if raw else None
     if accepted:
