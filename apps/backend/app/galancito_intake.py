@@ -6,8 +6,12 @@ Collect voluntary professional declarations only, never determine eligibility,
 legal employment, suitability, or award work. No external model is required.
 """
 import re
-from datetime import date
-from .galancito_triage import analyze, plain, private_data
+from datetime import date, timedelta
+from .galancito_triage import analyze, declaration_text, plain, private_data
+from .galancito_links import trade_declarations
+from .galancito_communes import find_communes
+
+UNKNOWN_NAMES = {"", None, "Interesado de Facebook", "Contacto sin nombre"}
 
 _INTEREST_QUESTION = "ofreces trabajos por tu cuenta"
 _TEAM_QUESTION = "trabajas solo"
@@ -32,195 +36,261 @@ def is_intake_prompt(prompt: str) -> bool:
     return any(key in normalized for key in _PROMPTS)
 
 
-def _is_word_or_option(message: str, prior_prompt: str, option: str) -> bool:
-    norm = plain(message)
-    return norm == option and is_intake_prompt(prior_prompt)
+_ROLE_SERVICE = (
+    "ofrezco servicios", "ofresco servicios", "mis servicios", "por mi cuenta",
+    "tengo un emprendimiento", "somos contratistas", "soy contratista",
+    "somos una empresa", "tengo empresa", "tengo una empresa", "represento una empresa",
+    "tengo cuadrilla", "tengo una cuadrilla",
+)
+_ROLE_WORKER = (
+    "busco pega", "busco empleo", "busco trabajo", "ando buscando pega",
+    "ando en busca de pega", "quiero empleo", "quiero trabajar contratado",
+    "postulo como trabajador", "postular a un empleo", "soy trabajador", "soy trabajadora",
+)
+_NAME_PROMPTS = (
+    "como prefieres que te llamemos", "cual es tu nombre", "como te llamas",
+    "dime tu nombre", "me dices tu nombre", "me puedes decir tu nombre", "tu nombre por favor",
+)
+_TRADE_PROMPTS = (_TRADE_QUESTION, "que oficio", "que servicio", "a que oficio")
+_CORRECTION = re.compile(r"\b(?:corrijo|correccion|me equivoque|en realidad|quise decir|al final|ahora|ya no|cambio de fecha)\b")
+_OFFERS = re.compile(r"\b(?:pega|trabaj|servici|contrat|postul|dispon|equipo|cuadrill|"
+                     r"ofici|ayudant|empresa|experienc|person|comuna|maestr|habl|gracia)\w*\b|"
+                     r"\b(?:si|no|dale|bueno|obvio|ok|listo|bien|paso)\b")
+_DATE = r"(?:\d{1,2}/\d{1,2}/20\d{2}|20\d{2}-\d{2}-\d{2})"
+_DAY = (r"(?:hoy|manana|lunes|martes|miercoles|jueves|viernes|sabado|domingo|"
+        r"(?:la )?proxima semana|en dos semanas|fin de mes|cuando me necesiten|inmediat[oa])")
+_AREA_CUE = re.compile(
+    r"\b(?:me muevo|puedo trabajar|trabajo|trabajamos|atiendo|busco (?:pega|trabajo|empleo)) "
+    r"(?:por|en)\b|\b(?:solo en|comunas? de trabajo)\b"
+)
 
 
-def _intent_from_message(text: str, previous: str) -> str | None:
-    norm, prompt = plain(text), plain(previous)
-    if norm in {"1", "uno"} and _INTEREST_QUESTION in prompt:
-        return "service_offer"
-    if norm in {"2", "dos"} and _INTEREST_QUESTION in prompt:
-        return "employment"
-    if any(phrase in norm for phrase in (
-        "ofrezco servicios", "ofresco servicios", "mis servicios", "trabajo por mi cuenta",
-        "tengo un emprendimiento", "somos contratistas", "soy contratista",
-        "hago trabajos por mi cuenta", "quiero ofrecer mis servicios",
-        "somos una empresa", "tengo empresa",
-    )):
-        return "service_offer"
-    if any(phrase in norm for phrase in (
-        "busco pega", "busco empleo", "busco trabajo como trabajador",
-        "quiero empleo", "busco trabajo de empleado", "quiero trabajar contratado",
-        "postulo como trabajador", "postular a un empleo",
-    )):
-        return "employment"
-    if _INTEREST_QUESTION in prompt:
-        if norm in {"servicios", "contratista", "independiente", "por mi cuenta",
-                    "ofrezco trabajo", "tengo cuadrilla", "maestro independiente"}:
-            return "service_offer"
-        if norm in {"empleo", "pega", "trabajador", "busco empleo", "busco pega"}:
-            return "employment"
-    return None
+def unanswered_intake_question(lead, prompt: str) -> bool:
+    """Keep a delivered question in context until its field has an answer."""
+    value = plain(prompt)
+    pending = (
+        (_TRADE_PROMPTS, not lead.specialty),
+        ((_INTEREST_QUESTION,), lead.interest_type == "unknown"),
+        ((_TEAM_QUESTION, "puedes venir con"), lead.team_available is None),
+        (("cuantas personas", "con cuantas"), lead.workers is None),
+        ((_EXPERIENCE_QUESTION, "cuanta experiencia", "cuantos anos"), not lead.experience),
+        ((_COMMUNE_QUESTION,), not lead.work_area),
+        ((_AVAILABILITY_QUESTION, "desde cuando puedes"), not lead.availability),
+        (_NAME_PROMPTS, lead.display_name in UNKNOWN_NAMES and not lead.name_opt_out),
+    )
+    return any(missing and any(match in value for match in phrases) for phrases, missing in pending)
 
 
-def _team_from_message(text: str, previous: str) -> bool | None:
-    norm, prompt = plain(text), plain(previous)
-    if any(s in norm for s in ("trabajo solo", "trabajo sola", "voy solo", "voy sola",
-                             "yo solo", "yo sola", "no puedo llevar gente",
-                             "sin equipo", "no tengo gente", "no tengo cuadrilla")):
-        return False
-    if any(s in norm for s in ("puedo traer gente", "puedo llevar gente", "tengo cuadrilla",
-                             "con equipo", "somos un equipo", "tengo ayudantes",
-                             "trabajamos varios", "con trabajadores", "puedo ir con gente")):
-        return True
-    if _TEAM_QUESTION in prompt or "puedes venir con" in prompt:
-        if norm in {"1", "uno", "solito", "solo", "sola", "sin gente", "sin equipo", "no"}:
-            return False
-        if norm in {"2", "dos", "con gente", "con equipo", "con personas", "si", "si puedo"}:
-            return True
-    return None
+def _affirmed(value: str, phrases: tuple[str, ...]) -> bool:
+    for clause in value.split(" | "):
+        for phrase in phrases:
+            for match in re.finditer(r"\b" + re.escape(phrase) + r"\b", clause):
+                prefix = clause[max(0, match.start() - 40):match.start()]
+                if not re.search(r"\b(?:no|nunca) (?:\w+ ){0,4}$", prefix):
+                    return True
+    return False
 
 
-def apply_intake(lead, message: str, prior_prompt: str = "") -> None:
-    """Store only volunteered operational facts; never overwrite a manually verified trade."""
-    if private_data(message) or len(message) > 400:
+def _role_update(lead, value: str, previous: str) -> None:
+    service = _affirmed(value, _ROLE_SERVICE)
+    worker = _affirmed(value, _ROLE_WORKER)
+    if _INTEREST_QUESTION in previous:
+        service |= value in {"1", "uno", "servicios", "contratista", "independiente", "ofrezco trabajo"}
+        worker |= value in {"2", "dos", "empleo", "pega", "trabajador", "trabajadora"}
+        if value in {"ambos", "ambas", "las dos", "los dos", "las dos cosas", "ambos roles"}:
+            service = worker = True
+    current = getattr(lead, "interest_type", "unknown")
+    if service and worker:
+        lead.interest_type = "both"
+    elif service or worker:
+        declared = "service_offer" if service else "employment"
+        only = bool(_CORRECTION.search(value) or re.search(r"\bsolo (?:busco|ofrezco|tomo)\b", value))
+        if only or current in {"unknown", declared}:
+            lead.interest_type = declared
+        else:
+            lead.interest_type = "both"
+    if _affirmed(value, ("tengo una empresa", "tengo empresa", "somos una empresa", "represento una empresa")):
+        lead.entity_type = "company"
+    elif _affirmed(value, ("no tengo empresa", "soy independiente", "a mi nombre")):
+        lead.entity_type = "individual"
+    elif getattr(lead, "entity_type", "unknown") == "unknown" and (
+            worker or _affirmed(value, ("trabajo solo", "trabajo sola"))):
+        lead.entity_type = "individual"
+
+
+def _name_update(lead, message: str, previous: str) -> None:
+    if not hasattr(lead, "display_name") or getattr(lead, "name_opt_out", False):
         return
-    value, prev = plain(message), plain(prior_prompt)
+    asked = any(question in previous for question in _NAME_PROMPTS)
+    value = plain(message)
+    if (asked and value in {"paso", "no", "prefiero no decir", "prefiero no", "no quiero"}
+            or re.search(r"\b(?:prefiero no dar mi nombre|no quiero dar mi nombre)\b", value)):
+        lead.name_opt_out = True
+        return
+    explicit = re.search(r"\b(?:me llamo|mi nombre es)\s+([^,;.!?¿¡\n]+)", message, re.I)
+    informal = re.fullmatch(r"(?:hola[,!]?\s+)?[Ss]oy\s+([A-ZÁÉÍÓÚÜÑ][^,;.!?¿¡\n]+)[.!]?", message.strip())
+    candidate = (explicit[1] if explicit else informal[1] if informal else message if asked else "").strip()
+    candidate = re.split(r"\s+(?:y )?(?:trabajo|hago|busco|soy|tengo|vivo|puedo|ofrezco)\b",
+                         candidate, maxsplit=1, flags=re.I)[0].strip(" .")
+    norm = plain(candidate)
+    if (not re.fullmatch(r"[^\W\d_]+(?:[ .’'-]+[^\W\d_]+){0,4}", candidate)
+            or len(candidate) > 70 or "?" in candidate
+            or norm.startswith(("de ", "en ", "tu ", "un ", "una ", "el ", "la ", "hola ", "me "))
+            or _OFFERS.search(norm) or analyze(candidate).specialty):
+        return
+    known = lead.display_name not in UNKNOWN_NAMES
+    if not known or (explicit and _CORRECTION.search(value)):
+        lead.display_name = candidate
+
+
+def _commune_update(lead, message: str, previous: str) -> None:
+    value = plain(message)
+    asked = _COMMUNE_QUESTION in previous
+    found = []
+    for fragment in re.split(r"[,;.!\n]+|\bpero\b", message, flags=re.I):
+        clause = plain(fragment)
+        cue = _AREA_CUE.search(clause)
+        if re.search(r"\b(?:no trabajo en|no voy a|no puedo ir a|no puedo trabajar en)\b", clause):
+            continue
+        if not cue and not asked and not clause.startswith(("tambien en ", "y en ", "en ")):
+            # "Hago aseo en Hualpén" relates the commune to the work.
+            match = re.search(r"\b(?:hago|hacemos|instalo|reparo) (?:\w+ ){1,4}en\b", clause)
+            if not match:
+                continue
+            cue = match
+        found.extend(find_communes(clause[cue.end():] if cue else clause))
+    if not found:
+        return
+    current = list(getattr(lead, "work_communes", None) or [])
+    if not current and lead.work_area:
+        current = find_communes(lead.work_area)
+    replace = bool(_CORRECTION.search(value) and not value.startswith("tambien ")) or "solo en " in value
+    communes = list(dict.fromkeys([*([] if replace else current), *found]))
+    lead.work_communes = communes
+    lead.work_area = ", ".join(communes)[:120]
+
+
+def _team_update(lead, value: str, previous: str) -> None:
+    capacity = _affirmed(value, ("puedo traer gente", "puedo llevar gente", "tengo cuadrilla",
+                                 "tengo una cuadrilla", "somos un equipo",
+                                 "tengo ayudantes", "trabajamos varios", "puedo ir con gente"))
+    solo = _affirmed(value, ("trabajo solo", "trabajo sola", "voy solo", "voy sola",
+                             "voy a ir solo", "voy a ir sola", "yo solo", "yo sola", "sin equipo"))
+    if value in {"no puedo llevar gente", "no tengo gente", "no tengo cuadrilla"}:
+        solo = True
+    if _TEAM_QUESTION in previous or "puedes venir con" in previous:
+        solo |= value in {"1", "uno", "solito", "solo", "sola", "sin gente", "sin equipo"}
+        capacity |= value in {"2", "dos", "con gente", "con equipo", "con personas"}
+    if solo and not capacity:
+        lead.team_available, lead.workers = False, 1
+    elif capacity:
+        if lead.team_available is False:
+            lead.workers = None
+        lead.team_available = True
+
+    count = r"([1-9]\d{0,3}|uno|una|dos|tres|cuatro|cinco|seis|siete|ocho|nueve|diez)"
+    total = re.search(r"\b(?:somos|equipo de|iremos) " + count + r"\b", value)
+    if not total:
+        total = re.search(r"\btengo " + count + r" (?:ayudantes?|trabajadores?|personas?|maestros?)\b", value)
+    helpers = re.search(
+        r"\b(?:puedo ir con|voy con|llevo|puedo llevar) " + count
+        + r" (?:ayudantes?|personas?|maestros?|trabajadores?)\b", value)
+    if not total and not helpers and ("cuantas personas" in previous or "con cuantas" in previous):
+        total = re.fullmatch(r"(?:con |en total )?" + count + r"(?: personas| maestros| trabajadores| gente)?", value)
+    if not total and not helpers:
+        return
+    matched = total or helpers
+    if not _affirmed(value, (matched[0],)):
+        return
+    token = matched[1]
+    numbers = {"uno": 1, "una": 1, "dos": 2, "tres": 3, "cuatro": 4, "cinco": 5,
+               "seis": 6, "siete": 7, "ocho": 8, "nueve": 9, "diez": 10}
+    number = (int(token) if token.isdecimal() else numbers[token]) + bool(helpers and not total)
+    if 1 <= number <= 5000:
+        lead.workers, lead.team_available = number, number > 1
+
+
+def _availability_update(lead, message: str, previous: str, *, on_date=None) -> None:
+    clean = message.strip()
+    value = plain(clean)
+    asked = _AVAILABILITY_QUESTION in previous or "desde cuando puedes" in previous
+    if any(phrase in value for phrase in ("sin disponibilidad", "no puedo empezar aun")):
+        lead.availability = "Sin disponibilidad"
+        return
+    cue = re.search(r"\b(?:disponibl[ea]s?|puedo (?:empezar|comenzar|partir|desde)|arranco|parto|"
+                    r"comienzo|empiezo|puedo ir)\b|\bdesde (?:el )?(?=" + _DAY + r"\b)", value)
+    literal = re.search(r"\b" + _DATE + r"\b", clean)
+    if literal and (cue or asked or re.search(r"\bdesde (?:el )?" + _DATE + r"\b", clean, re.I)):
+        if re.search(r"\bno (?:puedo|estoy|empiezo|parto)\b", value):
+            return
+        token = literal[0]
+        try:
+            if "/" in token:
+                day, month, year = map(int, token.split("/"))
+                lead.availability = date(year, month, day).isoformat()
+            else:
+                lead.availability = date.fromisoformat(token).isoformat()
+        except ValueError:
+            return
+    elif (cue or asked or re.fullmatch(_DAY, value)) and not re.search(
+            r"\b(?:no puedo|no estoy disponible|no desde|nunca)\b", value):
+        relative = re.search(r"\b" + _DAY + r"\b", value)
+        if relative:
+            day = relative[0]
+            if on_date and day in {"hoy", "manana"}:
+                lead.availability = (on_date + timedelta(days=day == "manana")).isoformat()
+            elif value in {day, "desde " + day}:
+                lead.availability = clean[:100]
+            else:
+                day = day.replace("manana", "mañana").replace("proxima", "próxima")
+                lead.availability = "Desde " + day
+
+
+def apply_intake(lead, message: str, prior_prompt: str = "", *,
+                 declarations: dict[str, bool] | None = None, on_date=None) -> None:
+    """Update declared facts using the text and the last delivered question."""
+    if private_data(message) or len(message) > 3500:
+        return
+    if analyze(message).intent in {"human", "restricted"} or identity_reply(message):
+        return
+    prev = plain(prior_prompt)
+    statement = declaration_text(message)
+    value = " | ".join(plain(part) for part in re.split(r"[,;.!\n]+|\bpero\b", statement, flags=re.I)
+                       if plain(part))
+    if declarations is None:
+        declarations = trade_declarations(message, prior_prompt, allow_bare=True)
+    positives = [trade for trade, present in declarations.items() if present]
+    if positives and (not lead.specialty or
+                      (lead.specialty_source == "message" and declarations.get(lead.specialty) is False)):
+        lead.specialty, lead.specialty_source = positives[0][:100], "message"
     if not value:
         return
-    declares_own_work = bool(re.search(
-        r"\b(?:soy|soi|trabajo|trabajamos|hago|hacemos|tengo|tenemos|somos|"
-        r"ofrezco|ofresco|busco|postulo|me dedico|puedo empezar|puedo ir)\b", value))
-    # A question about painters does not make the sender a painter. However,
-    # 'soy pintor, ¿hay pega?' still supplies a useful explicit declaration.
-    if ("?" in message or "¿" in message) and not declares_own_work:
-        return
-
-    # A name can be volunteered or entered in response to a clear optional
-    # question; never guess a person's identity from their trade or PSID.
-    if getattr(lead, "display_name", "Interesado de Facebook") in {
-        "Interesado de Facebook", "Contacto sin nombre"
-    } and not getattr(lead, "name_opt_out", False):
-        name_prompt = any(question in prev for question in (
-            "como prefieres que te llamemos", "cual es tu nombre",
-            "como te llamas", "dime tu nombre", "me dices tu nombre",
-            "me puedes decir tu nombre", "tu nombre por favor",
-        ))
-        declared = re.fullmatch(
-            r"(?:me llamo|mi nombre es|soy)\s+(.+)", message.strip(), re.I)
-        name_candidate = declared.group(1).strip() if declared else (
-            message.strip() if name_prompt else "")
-        if name_prompt and value in {"paso", "prefiero no decir",
-                                     "prefiero no", "no quiero", "no"}:
-            lead.name_opt_out = True
-        elif name_candidate and re.fullmatch(r"[A-Za-zÁÉÍÓÚÜÑáéíóúüñ. '-]{2,70}", name_candidate):
-            normalized = plain(name_candidate)
-            invalid = (normalized in {
-                "si", "no", "gracias", "pintor", "pintora", "carpintero",
-                "carpinteria", "electricista", "gasfite", "gasfitero",
-                "albanil", "soldador", "no se", "soy yo", "contratista",
-                "maestro", "maestra", "de carpintero", "de pintor",
-            } or normalized.startswith((
-                "quiero ", "busco ", "trabajo ", "tengo ", "necesito ",
-                "soy de ", "somos ", "un ", "una ", "de ", "hola ",
-            )) or bool(analyze("soy " + name_candidate).specialty))
-            if 1 <= len(name_candidate.split()) <= 5 and not invalid:
-                lead.display_name = " ".join(name_candidate.split())[:70]
-    intent = _intent_from_message(message, prior_prompt)
-    if intent and getattr(lead, "interest_type", "unknown") == "unknown":
-        lead.interest_type = intent
-    facts = analyze(message)
-    if facts.entity_type != "unknown":
-        lead.entity_type = facts.entity_type
-    if intent == "employment" or "soy trabajador" in value:
-        lead.entity_type = "individual"
-    if "empresa" in value and any(phrase in value for phrase in (
-        "tengo empresa", "tengo una empresa", "somos una empresa", "represento una empresa"
-    )):
-        lead.entity_type = "company"
-    declared_trade = declares_own_work or (
-        len(value.split()) <= 2 and "?" not in message) or (
-        is_intake_prompt(prior_prompt) and any(s in prev for s in
-        (_TRADE_QUESTION, "que oficio", "que servicio", "a que oficio")))
-    if facts.specialty and declared_trade and (
-        not lead.specialty or lead.specialty_source == "message"):
-        lead.specialty, lead.specialty_source = facts.specialty, "message"
-    # An unfamiliar trade may still be self-declared. Keep it marked as
-    # unverified; never treat it as an approved official specialty.
-    if not lead.specialty and any(s in prev for s in (_TRADE_QUESTION, "que oficio",
-                                                       "que servicio", "a que oficio")):
-        if (2 <= len(message.strip()) <= 80 and
-                not re.search(r"\d|@|https?://|\b(?:rut|clave|contrasena|telefono|calle|pasaje|direccion|numero)\b", value)
-                and value not in {"no se", "no tengo", "nada", "si", "no", "1", "2"}
-                and len(value.split()) <= 8):
-            lead.specialty, lead.specialty_source = message.strip(), "message"
-    team = _team_from_message(message, prior_prompt)
-    if team is not None:
-        # Explicit corrections take precedence over an old crew estimate.
-        # Capacity to bring people is not proof of employees.
-        if team is False:
-            lead.team_available, lead.workers = False, 1
-        else:
-            if lead.team_available is False and lead.workers == 1:
-                lead.workers = None
-            lead.team_available = True
-    if facts.workers is not None:
-        lead.workers = facts.workers
-        if facts.workers > 1:
-            lead.team_available = True
-        elif lead.team_available is None:
-            lead.team_available = False
-    if lead.team_available is True and lead.workers is None:
-        m = re.search(r"\b(?:somos|equipo de|en total somos|iremos|tengo)\s+(\d{1,3})\b", value)
-        if not m and ("cuantas personas" in prev or "con cuantas" in prev):
-            m = re.fullmatch(r"(\d{1,3})\s*(?:personas|maestros|trabajadores|gente)?", value)
-        if m and 1 <= int(m.group(1)) <= 500:
-            lead.workers = int(m.group(1))
-    if not lead.experience and (any(s in prev for s in (
-        _EXPERIENCE_QUESTION, "cuanta experiencia", "cuantos anos")) or
-        ("experiencia" in value and re.search(r"\b\d{1,2}\s+(?:anos?|mes(?:es)?)\b", value))):
-        if value in {"ninguna", "no tengo", "sin experiencia", "no tengo experiencia",
-                     "recién comienzo", "recien comienzo", "nuevo", "nuevo en esto"}:
+    _role_update(lead, value, prev)
+    _name_update(lead, statement, prev)
+    _team_update(lead, value, prev)
+    _commune_update(lead, statement, prev)
+    _availability_update(lead, statement, prev, on_date=on_date)
+    if not lead.experience:
+        experience = re.search(r"\b(\d{1,2})\s+(anos?|mes(?:es)?)\b", value)
+        asked = any(s in prev for s in (_EXPERIENCE_QUESTION, "cuanta experiencia", "cuantos anos"))
+        volunteered = bool(re.search(r"\b(?:experiencia|llevo|llevamos)\b", value))
+        if value in {"sin experiencia", "no tengo experiencia", "recien comienzo"} or (
+                asked and value in {"ninguna", "no tengo", "nuevo", "nuevo en esto"}):
             lead.experience = "Sin experiencia declarada"
-        elif value in {"prefiero no decir", "prefiero no indicar"}:
+        elif asked and value in {"prefiero no decir", "prefiero no indicar", "paso"}:
             lead.experience = "No informado por el interesado"
-        elif re.fullmatch(r"\d{1,2}", value):
+        elif asked and re.fullmatch(r"\d{1,2}", value):
             lead.experience = value + " años declarados"
-        elif re.search(r"\b\d{1,2}\s+anos?\b|\b\d{1,2}\s+mes(?:es)?\b", value):
-            lead.experience = message.strip()[:180]
-    if not lead.work_area and _COMMUNE_QUESTION in prev:
-        commune = message.strip()
-        commune = re.sub(r"^(?:en|puedo trabajar en|soy de|vivo en)\s+", "", commune, flags=re.I)
-        if (2 <= len(commune) <= 80 and len(commune.split()) <= 5
-                and not re.search(r"\d|@|http|\b(?:calle|pasaje|avenida|direccion|numero|rut)\b", plain(commune))
-                and plain(commune) not in {"no se", "no", "si"}):
-            lead.work_area = commune
-    date_declaration = re.search(
-        r"\b(?:desde(?:\s+el)?|comenzar(?:\s+el)?|disponible\s+desde(?:\s+el)?)\s+"
-        r"(\d{1,2}/\d{1,2}/20\d{2}|20\d{2}-\d{2}-\d{2})\b",
-        message, flags=re.I)
-    if not lead.availability and (_AVAILABILITY_QUESTION in prev or date_declaration or
-                                  value in {"desde hoy", "desde manana", "inmediato", "inmediata"}):
-        stated_date = date_declaration.group(1) if date_declaration else message.strip()
-        day_first = re.fullmatch(r"(\d{1,2})/(\d{1,2})/(20\d{2})", stated_date)
-        if day_first:
-            stated_date = f"{day_first[3]}-{int(day_first[2]):02d}-{int(day_first[1]):02d}"
-        try:
-            lead.availability = date.fromisoformat(stated_date).isoformat()
-        except ValueError:
-            pass
-        common = {"hoy", "desde hoy", "manana", "desde manana", "inmediata",
-                  "inmediato", "proxima semana", "la proxima semana", "en dos semanas",
-                  "despues de dos semanas", "cuando me necesiten"}
-        if not lead.availability and (value in common or (
-            len(value) < 65 and re.search(
-                r"\b(?:lunes|martes|miercoles|jueves|viernes|sabado|domingo|semana|mes)\b", value)
-        )):
-            lead.availability = message.strip()[:100]
-    if not lead.availability and facts.availability:
-        lead.availability = facts.availability
+        elif experience and (asked or volunteered):
+            lead.experience = experience[0].replace("ano", "año")
+
+
+def identity_reply(message: str) -> str | None:
+    value = plain(message)
+    if re.search(r"\b(?:eres|soi|er[ií]s|hablo con|me (?:responde|atiende)|estoy hablando con) "
+                 r"(?:una? |el )?(?:bot|robot|ia|inteligencia artificial|persona|humano)\b", value):
+        return "Soy Galancito, el asistente de IA de GALANT. Si quieres hablar con alguien del equipo, avísame."
+    return None
 
 
 def _friendly_ack(message: str, facts: dict, question: str, prior: str = "") -> str:
@@ -229,7 +299,7 @@ def _friendly_ack(message: str, facts: dict, question: str, prior: str = "") -> 
     trade = (facts.get("specialty") or "").strip()
     if norm in {"hola", "ola", "buenas", "buen dia", "buenos dias", "buenas tardes"}:
         return "¡Hola, qué tal!"
-    if any(q in plain(prior) for q in ("cual es tu nombre", "como te llamas", "como prefieres que te llamemos")):
+    if not _CORRECTION.search(norm) and any(q in plain(prior) for q in ("cual es tu nombre", "como te llamas", "como prefieres que te llamemos")):
         if facts.get("display_name") not in (None, "", "Interesado de Facebook", "Contacto sin nombre"):
             return "Un gusto, " + facts["display_name"].split()[0].title() + "."
     if "trabajas solo" in plain(question) and facts.get("interest_type") == "service_offer":
@@ -244,9 +314,9 @@ def _friendly_ack(message: str, facts: dict, question: str, prior: str = "") -> 
         return "Bien, ya sé en qué comuna puedes trabajar."
     if "ofreces trabajos" in plain(question) and trade:
         return "Entiendo que trabajas en " + trade.lower() + "."
-    if "que trabajo realizas" in plain(question):
-        return "Cuéntame a qué te dedicas."
-    return "Ya, te entiendo."
+    if facts.get("turn_changed") and _CORRECTION.search(norm):
+        return "Listo, actualicé ese dato."
+    return ""
 
 
 def next_intake_reply(message: str, facts: dict, prior_prompt: str = "") -> str | None:
@@ -254,6 +324,9 @@ def next_intake_reply(message: str, facts: dict, prior_prompt: str = "") -> str 
 
     No fake thinking delay, and no guessed work, hiring, wages or promises.
     """
+    identity = identity_reply(message)
+    if identity:
+        return identity
     info = analyze(message)
     capacity_statement = any(p in plain(message) for p in (
         "puedo traer gente", "puedo llevar gente", "tengo cuadrilla",
@@ -265,9 +338,13 @@ def next_intake_reply(message: str, facts: dict, prior_prompt: str = "") -> str 
             or (info.intent == "contractor_request" and not capacity_statement)):
         return None
     norm = plain(message)
+    if facts.get("turn_changed") is False and re.search(
+            r"\b(?:corrijo|correccion|me equivoque|quise decir|cambio de fecha)\b", norm):
+        return "¿Qué dato quieres corregir?"
     engaged = (
         info.intent in {"greeting", "job_seeker", "company_offer", "capacity", "trade_offer", "apply"} or
-        capacity_statement or is_intake_prompt(prior_prompt) or
+        capacity_statement or is_intake_prompt(prior_prompt) or _CORRECTION.search(norm) or
+        bool(facts.get("turn_changed")) or
         any(p in norm for p in ("ofrezco servicios", "ofresco servicios", "soy contratista",
                                "busco pega", "busco trabajo", "hago trabajos",
                                "trabajo por mi cuenta", "tengo una cuadrilla", "quiero postular"))
@@ -275,29 +352,27 @@ def next_intake_reply(message: str, facts: dict, prior_prompt: str = "") -> str 
     if not engaged:
         return None
     intent = facts.get("interest_type", "unknown")
-    if not facts.get("specialty"):
-        question = "¿Qué trabajo realizas? Por ejemplo, pintura o carpintería."
+    if not (facts.get("specialty") or facts.get("trades")):
+        question = "¿Qué trabajo realizas?"
     elif intent == "unknown":
-        question = "¿Ofreces trabajos por tu cuenta (1) o buscas empleo (2)?"
+        question = "¿Ofreces trabajos por tu cuenta (1), buscas empleo (2) o haces las dos cosas?"
     elif facts.get("team_available") is None:
         question = "¿Trabajas solo (1) o puedes venir con otras personas (2)?"
     elif facts.get("team_available") is True and facts.get("workers") is None:
         question = "¿Cuántas personas pueden trabajar contigo en total?"
     elif not facts.get("experience"):
-        question = "¿Cuánto tiempo llevas haciendo este trabajo? Puedes decir 2 años o recién comienzo."
+        question = "¿Cuánto tiempo llevas en ese oficio?"
     elif not facts.get("work_area"):
         question = "¿En qué comuna puedes trabajar?"
     elif not facts.get("availability"):
-        question = "¿Desde cuándo podrías comenzar? Puedes decir mañana o una fecha en formato día/mes/año."
+        question = "¿Desde cuándo podrías comenzar?"
     elif ("display_name" in facts and facts.get("display_name") in {
         "", "Interesado de Facebook", "Contacto sin nombre", None
     } and not facts.get("name_opt_out")):
         question = "¿Cómo prefieres que te llamemos? Si prefieres no decirlo, escribe paso."
     else:
-        return ("Gracias por contarme sobre tu trabajo. Ya registré lo que me dijiste "
-                "para que el equipo pueda revisarlo si corresponde. "
-                "Esto todavía no significa que exista una contratación confirmada.")
-    return (_friendly_ack(message, facts, question, prior_prompt) + " " + question)[:540]
+        return "Listo, registré tus datos para que el equipo pueda revisarlos."
+    return (_friendly_ack(message, facts, question, prior_prompt) + " " + question).strip()[:540]
 
 
 def needs_deeper_response(message: str) -> bool:
@@ -325,7 +400,7 @@ def needs_deeper_response(message: str) -> bool:
         phrase in text for phrase in short_questions
     ):
         return True
-    if len(text.split()) >= 15:
+    if len(text.split()) >= 15 and ("?" in message or "¿" in message):
         return True
     questions = ("como puedo", "que necesito", "me explicas", "como funciona",
                  "tengo dudas", "que pasa si", "quiero saber", "me puedes contar",
@@ -337,6 +412,8 @@ def needs_deeper_response(message: str) -> bool:
 
 def small_talk_reply(message: str) -> str | None:
     """Respuestas locales inmediatas: no requieren modelo ni consentimiento de IA."""
+    if answer := identity_reply(message):
+        return answer
     norm = plain(message)
     if norm in {"hola", "ola", "buenas", "buen dia", "buenos dias", "buenas tardes", "hola galancito"}:
         return "¡Hola! Cuéntame, ¿en qué te puedo ayudar?"
@@ -354,6 +431,8 @@ def natural_messenger_reply(text: str, prior_ai_replies: int = 0) -> str:
     El permiso explícito para usar IA se procesa de forma independiente.
     """
     clean = text.strip()
+    if clean == identity_reply("eres IA"):
+        return clean
     for beginning in (
         "Soy Galancito, asistente virtual de GALANT. ",
         "Soy Galancito, el asistente virtual de GALANT. ",

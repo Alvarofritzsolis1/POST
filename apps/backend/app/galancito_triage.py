@@ -20,19 +20,19 @@ def plain(text: str) -> str:
 
 
 TRADES = {
-    "Gasfitería": ("gasfite", "gasfiter", "gasfiteria", "gasfitero", "gasfitero", "gafiter", "maestro sanitario"),
-    "Carpintería": ("carpintero", "carpinteros", "carpinteria", "carpinter", "carpintreo", "carpinterio", "mueblista", "mueblero"),
-    "Pintura": ("pintor", "pintores", "pintura", "pinturas", "pinturero", "pintur"),
+    "Gasfitería": ("gasfite", "gasfiter", "gasfiteria", "gasfitero", "gasfitero", "gafiter", "gasfítera", "gasfíteres", "maestro sanitario"),
+    "Carpintería": ("carpintero", "carpintera", "carpinteros", "carpinteria", "carpinter", "carpintreo", "carpinterio", "mueblista", "mueblero"),
+    "Pintura": ("pintor", "pintora", "pintores", "pintura", "pinturas", "pinturero", "pintur"),
     "Albañilería": ("albanil", "albaniles", "albanileria", "albanir", "pandereta"),
-    "Electricidad": ("electrico", "electricista", "electricidad", "electricito", "eletricista", "electrisista"),
-    "Aseo": ("aseo", "limpieza"),
-    "Soldadura": ("soldador", "soldadura", "soldadoro", "sodador"),
+    "Electricidad": ("electrico", "electrica", "electricista", "electricidad", "electricito", "eletricista", "electrisista"),
+    "Aseo": ("aseo", "limpieza", "limpio"),
+    "Soldadura": ("soldador", "soldadora", "soldadura", "sodadura", "soldadoro", "sodador"),
     "Cerámica": ("ceramista", "ceramica", "ceramico", "seramista"),
     "Tabiquería": ("tabique", "tabiques", "tabiquero", "tabiqueria", "volcanita"),
     "Impermeabilización": ("impermeabilizacion", "impermeabilizar", "impermiabilizacion"),
     "Enfierradura": ("enfierrador", "enfierradura", "enfierador", "fierrero"),
     "Hormigonado": ("hormigon", "hormigonado", "hormigonero"),
-    "Techumbres": ("techumbre", "techumbres", "techero", "cubiertas", "cubierta"),
+    "Techumbres": ("techumbre", "techumbres", "techero", "techera", "cubiertas", "cubierta"),
     "Ventanas": ("ventanero", "ventanas", "aluminio", "vidrios", "ventaneria"),
     "Pavimentación": ("pavimentos", "pavimentacion", "pavimentador"),
     "Jardinería": ("jardinero", "jardineria", "paisajismo"),
@@ -43,10 +43,18 @@ def contains(text: str, phrase: str) -> bool:
     return f" {plain(phrase)} " in f" {text} "
 
 
+_QUESTION_CLAUSE = re.compile(r"¿[^?]*(?:\?|$)|[^.!?,;¿\n]+\?")
+
+
+def declaration_text(message: str) -> str:
+    return _QUESTION_CLAUSE.sub(" ", message).strip()
+
+
 def private_data(text: str) -> bool:
     return bool(re.search(
         r"\b\d{1,2}\.?\d{3}\.?\d{3}-?[0-9kK]\b|"
-        r"(?i:clave\s*[úu]nica|contrase[ñn]a|password|token|api[_ ]?key)\s*[:=]|"
+        r"(?i:clave\s*[úu]nica|contrase[ñn]a|password|token|api[_ ]?key)\s*(?:[:=]|es\b)|"
+        r"(?i:\bmi (?:direcci[oó]n|domicilio))\s*(?:[:=]|es\b)|"
         r"[\w.+-]+@[\w.-]+\.[a-zA-Z]{2,}|" 
         r"(?<!\d)(?:\+?56[\s.-]?)?9[\s.-]?\d{4}[\s.-]?\d{4}(?!\d)|"
         r"(?i:(?:nvapi-|gsk_|sk-|AIza)[a-z0-9_\-]{8,})", text))

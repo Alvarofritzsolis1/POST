@@ -329,6 +329,10 @@ def performance(user: User = Depends(administrator), db: Session = Depends(get_d
         AssistantRun.created_at >= utcnow() - timedelta(hours=24))
         .order_by(AssistantRun.created_at.desc()).limit(500)))
     times = sorted(r.elapsed_ms for r in rows)
+    messenger = [r for r in rows if r.channel == "messenger" and "graph_calls" in r.timings]
+    attempted = [r for r in messenger if not r.timings.get("cancelled")]
+    messenger_times = sorted(r.timings["conversation_ms"] for r in attempted if "conversation_ms" in r.timings)
+
     cfg = settings()
     from .galancito_local import model_status
     health = model_status() if cfg.galancito_local_ai_enabled else {"state": "disabled", "model_ram_bytes": None}
@@ -337,6 +341,22 @@ def performance(user: User = Depends(administrator), db: Session = Depends(get_d
             "p50_ms": median(times) if times else None,
             "p95_ms": times[min(len(times) - 1, int(len(times) * .95))] if times else None,
             "sources": {s: sum(r.source == s for r in rows) for s in {r.source for r in rows}},
+            "messenger": {
+                "replies": len(attempted),
+                "cancelled": len(messenger) - len(attempted),
+                "p50_ms": median(messenger_times) if messenger_times else None,
+                "p95_ms": messenger_times[(95 * len(messenger_times) + 99) // 100 - 1]
+                          if messenger_times else None,
+                "delivery_errors": sum(bool(r.timings.get("delivery_error")) for r in messenger),
+                "model_errors": sum(bool(r.timings.get("model_error")) for r in messenger),
+                "graph_calls": sum(r.timings["graph_calls"] for r in messenger),
+                "external_model_calls": sum(r.timings.get("external_model_calls", 0) for r in messenger),
+                "local_model_calls": sum(r.timings.get("local_model_calls", 0) for r in messenger),
+                "input_tokens": sum(r.timings["input_tokens"] for r in messenger if "input_tokens" in r.timings),
+                "output_tokens": sum(r.timings["output_tokens"] for r in messenger if "output_tokens" in r.timings),
+                "replies_with_token_counts": sum("input_tokens" in r.timings and "output_tokens" in r.timings
+                                                 for r in messenger),
+            },
             "incorrect": sum(r.feedback == "incorrect" for r in rows),
             "model": "qwen3:1.7b", "health": health,
             "keep_alive": cfg.galancito_keep_alive, "num_predict": cfg.galancito_num_predict,

@@ -26,8 +26,9 @@ from .facebook_ai import (AD_INSTRUCTIONS, REPLY_INSTRUCTIONS, generate_text,
                           generate_triage_note)
 from .ai_gateway import orchestrated_text
 from .facebook_onboarding import assistance_signal, reply_for_support, onboarding_guide
-from .galancito_flow import (AI_PERMISSION_QUESTION, AI_PERMISSION_REASK,
-                             AI_PERMISSION_DECLINED, consent_decision, wants_human, permission_question)
+from .galancito_flow import (
+    AI_PERMISSION_DECLINED, apply_permission_reply, consented_for, set_permission_request, wants_human,
+)
 from .facebook_crm_models import (FacebookLead, FacebookChatMessage, FacebookTradeGuide,
                                   FacebookLeadTrade, FacebookNeedAssociation, FacebookLeadTrace)
 from .models import Organization, User, utcnow
@@ -37,13 +38,20 @@ from .network_service import key, today
 from .galancito_triage import classify_lead, dashboard
 from .security import administrator
 from .galancito_triage import analyze, private_data, quick_reply
-from .galancito_intake import apply_intake, next_intake_reply, small_talk_reply, natural_messenger_reply
+from .galancito_intake import (
+    identity_reply, needs_deeper_response, next_intake_reply, small_talk_reply, natural_messenger_reply,
+)
+from .galancito_memory import (
+    apply_messenger_message, approved_trade_aliases, aware, note_profile_sources,
+    prior_delivered_prompt, profile_facts,
+)
 from .galancito_contact_profile import contact_profile
-from .galancito_links import (record_declared_trades, record_manual_trade,
+from .galancito_communes import find_communes
+from .galancito_links import (record_manual_trade,
                               suggest_requirements, link_requirement,
-                              unlink_requirement, audit_event)
+                              unlink_requirement, audit_event, canonical_trade, trade_terms)
 from .galancito_escalation import flag_for_human
-from .facebook_lead_insights import ranked_needs, suggestions_for_lead, link_unique_requirement
+from .facebook_lead_insights import active_trades, ranked_needs, suggestions_for_lead, trace_unique_requirement
 from .ops_models import Worksite
 from .galancito_knowledge import retrieve, exact_answer, evidence_context
 from .galancito_runtime import infer
@@ -61,9 +69,9 @@ def _in_window(lead: FacebookLead) -> bool:
                 _aware(lead.last_inbound_at) >= utcnow() - timedelta(hours=24))
 
 
-def _lead(db: Session, user: User, lead_id: str) -> FacebookLead:
-    lead = db.scalar(select(FacebookLead).where(
-        FacebookLead.id == lead_id, FacebookLead.org_id == user.org_id))
+def _lead(db: Session, user: User, lead_id: str, *, lock=False) -> FacebookLead:
+    query = select(FacebookLead).where(FacebookLead.id == lead_id, FacebookLead.org_id == user.org_id)
+    lead = db.scalar(query.with_for_update() if lock else query)
     if not lead:
         raise HTTPException(404, "Contacto no encontrado")
     return lead
@@ -81,13 +89,15 @@ def _match(db: Session, lead: FacebookLead) -> dict:
         return {"label": "Necesidad no disponible", "state": "unlinked",
                 "checks": [], "missing": [], "human_review_required": True}
     checks, missing = [], []
-    if not lead.specialty.strip():
-        missing.append("Especialidad de la empresa")
+    trades = active_trades(db, lead)
+    if not trades:
+        missing.append("Oficio declarado")
     else:
-        compatible = key(lead.specialty) == key(req.specialty)
+        possible = {key(canonical_trade(trade)) for trade in (trade_terms(req.specialty) or [req.specialty])}
+        compatible = any(key(canonical_trade(trade)) in possible for trade in trades)
         checks.append({"criterion": "Especialidad",
                        "state": "match" if compatible else "verify",
-                       "detail": lead.specialty + " / requerida: " + req.specialty})
+                       "detail": ", ".join(trades) + " / requerida: " + req.specialty})
     if lead.workers is None:
         missing.append("Cantidad de trabajadores disponibles")
     else:
@@ -134,7 +144,7 @@ def _lead_view(db: Session, lead: FacebookLead) -> dict:
         "has_employees": lead.has_employees,
         "team_available": lead.team_available,
         "interest_type": lead.interest_type,
-        "work_area": lead.work_area,
+        "work_area": lead.work_area, "work_communes": lead.work_communes,
         "profile": contact_profile(lead),
         "follow_up_on": lead.follow_up_on.isoformat() if lead.follow_up_on else None,
         "follow_up_note": lead.follow_up_note or "",
@@ -145,6 +155,7 @@ def _lead_view(db: Session, lead: FacebookLead) -> dict:
 
 def _message_view(m: FacebookChatMessage) -> dict:
     return {"id": m.id, "direction": m.direction, "state": m.state,
+            "source_message_id": m.remote_id if m.direction == "inbound" else None,
             "body": m.body, "ai_generated": m.ai_generated,
             "automated": m.direction == "outbound" and m.operator_id is None,
             "error": m.error, "created_at": m.created_at.isoformat(),
@@ -168,7 +179,7 @@ class LeadEdit(BaseModel):
     entity_type: str = Field(default="unknown", pattern=r"^(unknown|company|individual)$")
     has_employees: bool | None = None
     team_available: bool | None = None
-    interest_type: str = Field(default="unknown", pattern="^(unknown|service_offer|employment)$")
+    interest_type: str = Field(default="unknown", pattern="^(unknown|service_offer|employment|both)$")
     work_area: str = Field(default="", max_length=120)
     follow_up_on: date | None = None
     follow_up_note: str = Field(default="", max_length=240)
@@ -239,6 +250,12 @@ def verify_webhook(
     return challenge
 
 
+def _event_time(value, received_at):
+    if isinstance(value, (int, float)) and 0 < value <= received_at.timestamp() * 1000:
+        return datetime.fromtimestamp(value / 1000, tz=timezone.utc)
+    return received_at
+
+
 @router.post("/webhook")
 async def webhook(request: Request, db: Session = Depends(get_db)):
     cfg = settings()
@@ -265,238 +282,200 @@ async def webhook(request: Request, db: Session = Depends(get_db)):
         raise HTTPException(503, "Organización de Facebook no configurada")
     if db.bind.dialect.name == "postgresql":
         db.execute(sql_text("SELECT pg_advisory_xact_lock(2075003)"))
-    for entry in payload.get("entry", [])[:20]:
+    received_at = utcnow()
+    events = []
+    reply_turns = {}
+    aliases = None
+    entries = payload.get("entry")
+    for entry in entries[:20] if isinstance(entries, list) else []:
+        if not isinstance(entry, dict):
+            continue
         if str(entry.get("id")) != cfg.facebook_page_id:
             continue
-        for event in entry.get("messaging", [])[:30]:
-            if not isinstance(event, dict):
-                continue
-            meta_message = event.get("message") or {}
-            if not isinstance(meta_message, dict) or meta_message.get("is_echo"):
-                continue
-            psid = str((event.get("sender") or {}).get("id") or "")
-            mid = str(meta_message.get("mid") or "")
-            body = meta_message.get("text")
-            attachments = meta_message.get("attachments") or []
-            audio_received = any(isinstance(part, dict) and part.get("type") == "audio"
-                                 for part in attachments[:10]) if isinstance(attachments, list) else False
-            if audio_received and not (isinstance(body, str) and body.strip()):
-                # No almacenar URLs de adjuntos sin un mecanismo privado de audio;
-                # el humano puede escuchar el audio en la bandeja de Meta.
-                body = "[Mensaje de voz recibido: revisar audio en Meta Business Suite]"
-            if not (re.fullmatch(r"[0-9]{5,90}", psid) and
-                    3 <= len(mid) <= 180 and isinstance(body, str) and body.strip()):
-                continue
-            already = db.scalar(select(FacebookChatMessage.id).where(
-                FacebookChatMessage.page_id == cfg.facebook_page_id,
-                FacebookChatMessage.remote_id == mid))
-            if already:
-                continue
-            lead = db.scalar(select(FacebookLead).where(
-                FacebookLead.org_id == cfg.facebook_org_id,
-                FacebookLead.page_id == cfg.facebook_page_id,
-                FacebookLead.psid == psid))
-            if lead is None:
-                lead = FacebookLead(org_id=cfg.facebook_org_id,
-                                    page_id=cfg.facebook_page_id, psid=psid)
-                db.add(lead)
-                db.flush()
-            lead.last_inbound_at, lead.updated_at, lead.unread = utcnow(), utcnow(), True
-            consent = (False if (lead.ai_consent_state in ("accepted", "accepted_team") and
-                                 wants_human(body)) else
-                       consent_decision(body) if lead.ai_consent_state in ("requested", "requested_team")
-                       and not audio_received else None)
-            if consent is True:
-                lead.ai_consent = True
-                lead.ai_consent_state = ("accepted_team" if lead.ai_consent_state == "requested_team"
-                                         else "accepted")
-            elif consent is False:
-                lead.ai_consent, lead.ai_consent_state = False, "declined"
-                # A refusal can arrive before the permission question leaves
-                # the durable queue. Do not send that obsolete question later.
-                for pending in db.scalars(select(FacebookChatMessage).where(
-                    FacebookChatMessage.lead_id == lead.id,
-                    FacebookChatMessage.operator_id.is_(None),
-                    FacebookChatMessage.direction == "outbound",
-                    FacebookChatMessage.state.in_(["pending", "ai_pending", "drafting"]),
-                )):
-                    pending.state = "cancelled"
-            previous_question = ""
-            if consent is None and not audio_received and not private_data(body):
-                previous_question = db.scalar(select(FacebookChatMessage.body).where(
-                    FacebookChatMessage.lead_id == lead.id,
-                    FacebookChatMessage.direction == "outbound",
-                    FacebookChatMessage.state == "sent",
-                ).order_by(FacebookChatMessage.created_at.desc(),
-                           FacebookChatMessage.id.desc()).limit(1)) or ""
-                # Only self-declared professional details, never an employment inference
-                # from ability to bring people; no third-party model receives these fields.
-                apply_intake(lead, body, previous_question)
-                record_declared_trades(db, lead, body, remote_id=mid,
-                                       prior_prompt=previous_question)
-                approved_trades = {g.trade: (g.trade, *(g.aliases or [])) for g in db.scalars(
-                    select(FacebookTradeGuide).where(FacebookTradeGuide.org_id == lead.org_id,
-                                                    FacebookTradeGuide.approved.is_(True)).limit(100))}
-                facts = analyze(body, approved_trades)
-                # Asking about a trade is NOT a declaration of doing that trade.
-                # Allow short one-word answers because many small contractors
-                # type only a word or two.
-                casual = key(body)
-                declares_trade = bool(re.search(
-                    r"\b(?:soy|soi|trabajo|trabajamos|hago|hacemos|ofrezco|ofresco|"
-                    r"tengo|tenemos|somos|me dedico|busco)\b", casual))
-                declares_trade = declares_trade or (
-                    len(casual.split()) <= 2 and "?" not in body and "¿" not in body)
-                if facts.specialty and declares_trade and (
-                    not lead.specialty or lead.specialty_source == "message"):
-                    lead.specialty = facts.specialty
-                    lead.specialty_source = "message"
-                if facts.entity_type != "unknown":
-                    lead.entity_type = facts.entity_type
-                if facts.workers is not None:
-                    lead.workers = facts.workers
-                if facts.availability:
-                    lead.availability = facts.availability
-                # Trabajar solo no demuestra que no existan dependientes
-                # formalmente contratados: nunca inferir has_employees.
-                if link_unique_requirement(db, lead, today=today()):
-                    existing_association = db.scalar(select(FacebookNeedAssociation).where(
-                        FacebookNeedAssociation.org_id == lead.org_id,
-                        FacebookNeedAssociation.lead_id == lead.id,
-                        FacebookNeedAssociation.requirement_id == lead.requirement_id,
-                    ))
-                    if not existing_association:
-                        db.add(FacebookNeedAssociation(
-                            org_id=lead.org_id, lead_id=lead.id,
-                            requirement_id=lead.requirement_id,
-                            state="linked", reviewed_by=None,
-                        ))
-                        audit_event(db, lead, "need_auto_linked", source="rule",
-                                    requirement_id=lead.requirement_id,
-                                    remote_id=mid)
-            signal = ("Solicitó atención humana" if wants_human(body) else
-                      assistance_signal(body, is_audio=audio_received)
-                      if consent is None else None)
-            if consent is False:
-                signal = "Prefirió atención humana y no autorizó IA externa"
-            if signal:
-                flag_for_human(db, lead, signal)
-            db.add(FacebookChatMessage(
-                org_id=lead.org_id, lead_id=lead.id, page_id=lead.page_id,
-                remote_id=mid, direction="inbound", state="received",
-                body=body.strip()[:3500],
-            ))
-            # El mensaje entrante más reciente desplaza cualquier respuesta
-            # automática aún no enviada, incluidas las reglas locales.
-            for previous in db.scalars(select(FacebookChatMessage).where(
+        messaging = entry.get("messaging")
+        for event in messaging[:30] if isinstance(messaging, list) else []:
+            if isinstance(event, dict):
+                event_at = _event_time(event.get("timestamp"), received_at)
+                events.append((event_at + timedelta(microseconds=len(events)), event))
+    for event_at, event in sorted(events, key=lambda item: item[0]):
+        meta_message = event.get("message") or {}
+        if not isinstance(meta_message, dict) or meta_message.get("is_echo"):
+            continue
+        sender = event.get("sender")
+        psid = str(sender.get("id") or "") if isinstance(sender, dict) else ""
+        mid = str(meta_message.get("mid") or "")
+        body = meta_message.get("text")
+        attachments = meta_message.get("attachments") or []
+        audio_received = any(isinstance(part, dict) and part.get("type") == "audio"
+                             for part in attachments[:10]) if isinstance(attachments, list) else False
+        if audio_received and not (isinstance(body, str) and body.strip()):
+            # No almacenar URLs de adjuntos sin un mecanismo privado de audio;
+            # el humano puede escuchar el audio en la bandeja de Meta.
+            body = "[Mensaje de voz recibido: revisar audio en Meta Business Suite]"
+        if not (re.fullmatch(r"[0-9]{5,90}", psid) and
+                3 <= len(mid) <= 180 and isinstance(body, str) and body.strip()):
+            continue
+        already = db.scalar(select(FacebookChatMessage.id).where(
+            FacebookChatMessage.page_id == cfg.facebook_page_id,
+            FacebookChatMessage.remote_id == mid))
+        if already:
+            continue
+        lead = db.scalar(select(FacebookLead).where(
+            FacebookLead.org_id == cfg.facebook_org_id,
+            FacebookLead.page_id == cfg.facebook_page_id,
+            FacebookLead.psid == psid).with_for_update())
+        if lead is None:
+            lead = FacebookLead(org_id=cfg.facebook_org_id,
+                                page_id=cfg.facebook_page_id, psid=psid)
+            db.add(lead)
+            db.flush()
+        prior_inbound = aware(lead.last_inbound_at)
+        historical = prior_inbound is not None and event_at < prior_inbound
+        previous_question = (prior_delivered_prompt(
+            db, lead, at=event_at, since=None if historical else prior_inbound
+        ) if not audio_received else "")
+        consent = (apply_permission_reply(lead, body, previous_question)
+                   if not historical and not audio_received else None)
+        changed = False
+        if consent is None and not audio_received and not private_data(body):
+            if aliases is None:
+                aliases = approved_trade_aliases(db, lead.org_id)
+            changed = apply_messenger_message(
+                db, lead, body, previous_question, remote_id=mid, at=event_at,
+                historical=historical, aliases=aliases,
+            )
+        lead.updated_at, lead.unread = received_at, True
+        if not historical:
+            lead.last_inbound_at = event_at
+        db.add(FacebookChatMessage(
+            org_id=lead.org_id, lead_id=lead.id, page_id=lead.page_id,
+            remote_id=mid, direction="inbound", state="received",
+            body=body.strip()[:3500], created_at=event_at, updated_at=event_at,
+            consent_decision=consent,
+        ))
+        if historical or event_at < received_at - timedelta(hours=24):
+            continue
+        signal = ("Solicitó atención humana" if wants_human(body) else
+                  assistance_signal(body, is_audio=audio_received)
+                  if consent is None else None)
+        if consent is False:
+            signal = "Prefirió atención humana y no autorizó IA externa"
+        if signal:
+            flag_for_human(db, lead, signal)
+        earlier = reply_turns.get(lead.id)
+        if (earlier and consent is None and not signal and not identity_reply(body)
+                and needs_deeper_response(earlier[1]) and not needs_deeper_response(body)):
+            body, previous_question = earlier[1], earlier[2]
+        reply_turns[lead.id] = (lead, body, previous_question, changed or bool(earlier and earlier[3]),
+                               signal or (earlier[4] if earlier else None), mid,
+                               consent is True or bool(earlier and earlier[6]))
+
+    for lead, body, previous_question, changed, signal, mid, consent_reply in reply_turns.values():
+        if changed and not signal:
+            trace_unique_requirement(db, lead, today=today(), remote_id=mid)
+        # El mensaje entrante más reciente desplaza cualquier respuesta
+        # automática aún no enviada, incluidas las reglas locales.
+        waiting_for_ai, waiting_for_permission = False, False
+        for previous in db.scalars(select(FacebookChatMessage).where(
+            FacebookChatMessage.lead_id == lead.id,
+            FacebookChatMessage.operator_id.is_(None),
+            FacebookChatMessage.direction == "outbound",
+            FacebookChatMessage.state.in_(["pending", "ai_pending", "drafting"]),
+        )):
+            waiting_for_ai |= previous.ai_generated
+            waiting_for_permission |= previous.state in {"pending", "drafting"} and "autorizas" in previous.body.casefold()
+            previous.state = "cancelled"
+        if cfg.facebook_ai_enabled and not lead.ai_paused:
+            ai_source = messenger_ai_source(db, lead.org_id, cfg)
+            recent = db.scalar(select(func.count(FacebookChatMessage.id)).where(
                 FacebookChatMessage.lead_id == lead.id,
-                FacebookChatMessage.operator_id.is_(None),
                 FacebookChatMessage.direction == "outbound",
-                FacebookChatMessage.state.in_(["pending", "ai_pending", "drafting"]),
-            )):
-                previous.state = "cancelled"
-            if cfg.facebook_ai_enabled and not lead.ai_paused:
-                ai_source = messenger_ai_source(db, lead.org_id, cfg)
-                recent = db.scalar(select(func.count(FacebookChatMessage.id)).where(
-                    FacebookChatMessage.lead_id == lead.id,
-                    FacebookChatMessage.direction == "outbound",
-                    FacebookChatMessage.created_at >= utcnow() - timedelta(hours=24),
-                )) or 0
-                reply, use_ai = None, False
-                if signal:
-                    if recent < 3:
-                        reply = (("Ya avisé al equipo para que te atienda una persona. "
-                                  "No necesitas enviar documentos por aquí.") if wants_human(body) else
-                                 AI_PERMISSION_DECLINED if consent is False else
-                                 reply_for_support(signal, bool(lead.specialty)))
-                elif (small_talk_reply(body) and not lead.needs_support and
-                      (lead.ai_consent or lead.ai_consent_state == "declined" or recent > 0)):
-                    # Sin costos de inferencia para cortesías simples.
-                    reply = small_talk_reply(body)
-                elif (consent is True and not lead.needs_support and
-                      lead.ai_consent_state == ("accepted_team" if ai_source == "team" else "accepted")):
-                    use_ai = True
-                elif lead.ai_consent_state == "declined":
-                    # No insistir con IA a quien ya la rechazó.
-                    reply = None
-                elif lead.needs_support:
-                    # Conversaciones difíciles pasan a revisión humana.
-                    reply = None
-                elif lead.ai_consent and lead.ai_consent_state == (
-                        "accepted_team" if ai_source == "team" else "accepted"):
-                    use_ai = True
-                elif ai_source != "disabled" and lead.ai_consent_state in (
-                        "not_requested", "accepted", "accepted_team"):
-                    facts = {"specialty": lead.specialty, "workers": lead.workers,
-                             "availability": lead.availability,
-                             "team_available": lead.team_available,
-                             "interest_type": lead.interest_type,
-                             "experience": lead.experience, "work_area": lead.work_area,
-                             "display_name": lead.display_name,
-                             "name_opt_out": lead.name_opt_out}
-                    reply = next_intake_reply(body, facts, previous_question)
-                    if not reply:
-                        lead.ai_consent_state = "requested_team" if ai_source == "team" else "requested"
-                        lead.ai_consent = False
-                        reply = permission_question(ai_source)
-                elif (ai_source != "disabled" and lead.ai_consent_state in
-                      ("requested", "requested_team") and lead.ai_consent_state !=
-                      ("requested_team" if ai_source == "team" else "requested")):
-                    lead.ai_consent_state = "requested_team" if ai_source == "team" else "requested"
-                    reply = permission_question(ai_source)
-                else:
-                    # A person can answer a manually sent question before granting
-                    # model consent. Keep the local intake moving on every turn.
-                    facts = {"specialty": lead.specialty, "workers": lead.workers,
-                             "availability": lead.availability,
-                             "team_available": lead.team_available,
-                             "interest_type": lead.interest_type,
-                             "experience": lead.experience, "work_area": lead.work_area,
-                             "display_name": lead.display_name,
-                             "name_opt_out": lead.name_opt_out}
-                    reply = next_intake_reply(body, facts, previous_question)
-                    if not reply and ai_source == "disabled":
-                        reply = quick_reply(body, known=facts)
-                    if not reply and ai_source != "disabled" and lead.ai_consent_state in (
-                            "requested", "requested_team") and recent < 2:
-                        reply = permission_question(ai_source, repeat=True)
-                    if not reply and recent == 0:
-                        reply = "¡Hola! Puedes escribir con confianza. ¿Qué trabajo haces?"
-                if not use_ai and not reply and not lead.needs_support:
-                    flag_for_human(db, lead,
-                                   "Galancito no encontró una respuesta confirmada; revisión humana pendiente")
-                    reply = ("No tengo una respuesta confirmada para eso. "
-                             "Avisé al equipo para que pueda ayudarte.")
-                if use_ai and recent < 30 and ai_source != "disabled":
-                    queue_locked = (db.bind.dialect.name != "postgresql" or db.scalar(
-                        sql_text("SELECT pg_try_advisory_xact_lock(2075002)")))
-                    queued = db.scalar(select(func.count(FacebookChatMessage.id)).where(
-                        FacebookChatMessage.org_id == lead.org_id,
-                        FacebookChatMessage.state == "ai_pending")) or 0
-                    if queue_locked and queued < 2:
-                        db.add(FacebookChatMessage(
-                            org_id=lead.org_id, lead_id=lead.id, page_id=lead.page_id,
-                            direction="outbound", state="ai_pending",
-                            body="", ai_generated=True,
-                        ))
-                    else:
-                        flag_for_human(db, lead,
-                                       "Cola del asistente ocupada; requiere revisión humana")
-                        reply = ("Galancito no pudo preparar una respuesta ahora. "
-                                 "Avisé al equipo para que revise tu consulta.")
-                        db.add(FacebookChatMessage(
-                            org_id=lead.org_id, lead_id=lead.id, page_id=lead.page_id,
-                            direction="outbound", state="pending", body=reply,
-                            ai_generated=False))
-                elif reply and recent < 30:
+                FacebookChatMessage.created_at >= utcnow() - timedelta(hours=24),
+                FacebookChatMessage.state != "cancelled",
+            )) or 0
+            reply, use_ai = None, False
+            local = small_talk_reply(body)
+            if signal:
+                if recent < 3:
+                    reply = (("Ya avisé al equipo para que te atienda una persona. "
+                              "No necesitas enviar documentos por aquí.") if wants_human(body) else
+                             AI_PERMISSION_DECLINED if lead.ai_consent_state == "declined" else
+                             reply_for_support(signal, bool(lead.specialty)))
+            elif local and identity_reply(body):
+                reply = local
+            elif (local and not waiting_for_ai and not waiting_for_permission and not lead.needs_support and
+                  (lead.ai_consent or lead.ai_consent_state == "declined" or recent > 0)):
+                # Sin costos de inferencia para cortesías simples.
+                reply = local
+            elif lead.ai_consent_state == "declined":
+                # No insistir con IA a quien ya la rechazó.
+                reply = None
+            elif lead.needs_support:
+                # Conversaciones difíciles pasan a revisión humana.
+                reply = None
+            elif (waiting_for_permission and ai_source != "disabled" and
+                  lead.ai_consent_state in {"requested", "requested_team"}):
+                reply = set_permission_request(lead, ai_source, repeat=lead.ai_consent_provider == ai_source)
+            elif consented_for(lead, ai_source):
+                if not (waiting_for_ai or consent_reply):
+                    reply = next_intake_reply(body, profile_facts(lead, changed=changed), previous_question)
+                use_ai = not reply
+            elif ai_source != "disabled" and lead.ai_consent_state in (
+                    "not_requested", "accepted", "accepted_team"):
+                facts = profile_facts(lead, changed=changed)
+                reply = next_intake_reply(body, facts, previous_question)
+                if not reply:
+                    reply = set_permission_request(lead, ai_source)
+            elif (ai_source != "disabled" and lead.ai_consent_state in
+                  ("requested", "requested_team") and lead.ai_consent_provider != ai_source):
+                reply = set_permission_request(lead, ai_source)
+            else:
+                # A person can answer a manually sent question before granting
+                # model consent. Keep the local intake moving on every turn.
+                facts = profile_facts(lead, changed=changed)
+                reply = next_intake_reply(body, facts, previous_question)
+                if not reply and ai_source == "disabled":
+                    reply = quick_reply(body, known=facts)
+                if not reply and ai_source != "disabled" and lead.ai_consent_state in (
+                        "requested", "requested_team") and recent < 2:
+                    reply = set_permission_request(lead, ai_source, repeat=True)
+                if not reply and recent == 0:
+                    reply = "¡Hola! Puedes escribir con confianza. ¿Qué trabajo haces?"
+            if not use_ai and not reply and not lead.needs_support and lead.ai_consent_state != "declined":
+                flag_for_human(db, lead,
+                               "Galancito no encontró una respuesta confirmada; revisión humana pendiente")
+                reply = ("No tengo una respuesta confirmada para eso. "
+                         "Avisé al equipo para que pueda ayudarte.")
+            if use_ai and recent < 30 and ai_source != "disabled":
+                queue_locked = (db.bind.dialect.name != "postgresql" or db.scalar(
+                    sql_text("SELECT pg_try_advisory_xact_lock(2075002)")))
+                queued = db.scalar(select(func.count(FacebookChatMessage.id)).where(
+                    FacebookChatMessage.org_id == lead.org_id,
+                    FacebookChatMessage.state == "ai_pending")) or 0
+                if queue_locked and queued < 2:
                     db.add(FacebookChatMessage(
                         org_id=lead.org_id, lead_id=lead.id, page_id=lead.page_id,
-                        direction="outbound", state="pending", body=reply[:550],
-                        ai_generated=False,
+                        direction="outbound", state="ai_pending",
+                        body="", ai_generated=True, updated_at=received_at,
                     ))
-                elif recent >= 30 and (use_ai or reply):
+                else:
                     flag_for_human(db, lead,
-                                   "Límite de respuestas automáticas alcanzado; revisión humana pendiente")
+                                   "Cola del asistente ocupada; requiere revisión humana")
+                    reply = ("Galancito no pudo preparar una respuesta ahora. "
+                             "Avisé al equipo para que revise tu consulta.")
+                    db.add(FacebookChatMessage(
+                        org_id=lead.org_id, lead_id=lead.id, page_id=lead.page_id,
+                        direction="outbound", state="pending", body=reply,
+                        ai_generated=False))
+            elif reply and recent < 30:
+                db.add(FacebookChatMessage(
+                    org_id=lead.org_id, lead_id=lead.id, page_id=lead.page_id,
+                    direction="outbound", state="pending", body=reply[:550],
+                    ai_generated=False,
+                ))
+            elif recent >= 30 and (use_ai or reply):
+                flag_for_human(db, lead,
+                               "Límite de respuestas automáticas alcanzado; revisión humana pendiente")
     db.commit()
     return {"received": True}
 
@@ -584,13 +563,7 @@ def galancito_seguimiento(user: User = Depends(administrator),
         row["recent_trace"] = history_by[lead.id]
         profile = contact_profile(lead)
         row["profile_state"] = "Perfil básico" if trades else "Oficio por conocer"
-        row["profile_pending"] = [
-            name for name, available in (
-                ("Ubicación", bool(lead.work_area)),
-                ("Disponibilidad", bool(lead.availability)),
-                ("Experiencia", bool(lead.experience)),
-            ) if not available
-        ][:2]
+        row["profile_pending"] = profile["missing"]
         for trade in trades or ["Por confirmar"]:
             by_specialty[trade] = by_specialty.get(trade, 0) + 1
         for label in [x["title"] for x in row["links"]] or ["Sin necesidad asignada"]:
@@ -622,7 +595,7 @@ def galancito_analyze_lead(lead_id: str, user: User = Depends(administrator),
     ).order_by(FacebookChatMessage.created_at.desc()).limit(4)))
     summary = classify_lead(lead, guides, reqs, recent, today=today())
     note, source = "", "reglas"
-    if lead.ai_consent and not lead.ai_paused and not lead.needs_support:
+    if consented_for(lead, "ollama") and not lead.ai_paused and not lead.needs_support:
         context = ("Oficio: " + lead.specialty[:100] +
                    "\nTrabajadores declarados: " + str(lead.workers or "sin informar") +
                    "\nNecesidad vinculada: " + (summary["requirement_title"] or "ninguna")[:150] +
@@ -891,13 +864,20 @@ def get_lead(lead_id: str, user: User = Depends(administrator),
     msgs = list(db.scalars(select(FacebookChatMessage).where(
         FacebookChatMessage.org_id == user.org_id,
         FacebookChatMessage.lead_id == lead.id,
-    ).order_by(FacebookChatMessage.created_at, FacebookChatMessage.id).limit(200)))
+    ).order_by(FacebookChatMessage.created_at.desc(), FacebookChatMessage.id.desc()).limit(200)))
+    msgs.reverse()
     view = _lead_view(db, lead)
-    view["trades"] = [row.trade for row in db.scalars(select(FacebookLeadTrade).where(
+    trade_rows = list(db.scalars(select(FacebookLeadTrade).where(
         FacebookLeadTrade.org_id == user.org_id,
         FacebookLeadTrade.lead_id == lead.id,
         FacebookLeadTrade.active.is_(True),
-    ))]
+    ).order_by(FacebookLeadTrade.first_seen_at, FacebookLeadTrade.id)))
+    view["trades"] = list(dict.fromkeys([*(row.trade for row in trade_rows), *(
+        [lead.specialty] if lead.specialty and not trade_rows else [])]))
+    view["trade_sources"] = [
+        {"trade": row.trade, "source": row.source, "message_id": row.source_remote_id,
+         "at": row.updated_at.isoformat()} for row in trade_rows
+    ]
     view["linked_needs"] = [row.requirement_id for row in db.scalars(
         select(FacebookNeedAssociation).where(
             FacebookNeedAssociation.org_id == user.org_id,
@@ -916,20 +896,22 @@ def refresh_declared_profile(lead_id: str, user: User = Depends(administrator),
     Recovers short names given to an older question like "¿Cuál es tu nombre?"
     while respecting names already set by an operator or Meta.
     """
-    lead = _lead(db, user, lead_id)
+    lead = _lead(db, user, lead_id, lock=True)
     messages = list(db.scalars(select(FacebookChatMessage).where(
         FacebookChatMessage.org_id == user.org_id,
         FacebookChatMessage.lead_id == lead.id,
     ).order_by(FacebookChatMessage.created_at, FacebookChatMessage.id).limit(200)))
     previous_question = ""
+    aliases = approved_trade_aliases(db, lead.org_id)
     for item in messages:
         if item.direction == "outbound":
             if item.state == "sent":
                 previous_question = item.body or ""
         elif item.direction == "inbound":
-            apply_intake(lead, item.body or "", previous_question)
-            record_declared_trades(db, lead, item.body or "",
-                                   remote_id=item.remote_id, prior_prompt=previous_question)
+            if item.consent_decision is None:
+                apply_messenger_message(db, lead, item.body or "", previous_question,
+                                        remote_id=item.remote_id, at=aware(item.created_at),
+                                        replay=True, aliases=aliases)
             previous_question = ""
     lead.updated_at = utcnow()
     db.commit()
@@ -954,7 +936,7 @@ def lead_insights(lead_id: str, user: User = Depends(administrator),
         Worksite.org_id == user.org_id
     ))}
     suggestions = suggestions_for_lead(lead, messages)
-    matches = ranked_needs(lead, needs, sites)
+    matches = ranked_needs(lead, needs, sites, trades=active_trades(db, lead))
     triage = classify_lead(lead, [], needs, messages, today=today())
     missing = []
     if lead.display_name == "Interesado de Facebook":
@@ -997,18 +979,27 @@ def read_lead(lead_id: str, user: User = Depends(administrator),
 @router.patch("/leads/{lead_id}")
 def update_lead(lead_id: str, body: LeadEdit, user: User = Depends(administrator),
                 db: Session = Depends(get_db)):
-    lead = _lead(db, user, lead_id)
+    lead = _lead(db, user, lead_id, lock=True)
     if body.requirement_id and not db.scalar(select(NetworkRequirement.id).where(
         NetworkRequirement.id == body.requirement_id,
         NetworkRequirement.org_id == user.org_id,
     )):
         raise HTTPException(422, "La necesidad no pertenece a tu organización")
     previous_requirement_id = lead.requirement_id
+    manual_fields = set()
+    tracked_fields = profile_facts(lead)
     for field, value in body.model_dump(exclude_unset=True).items():
+        tracked = "display_name" if field == "name" else field
+        if tracked in tracked_fields and getattr(lead, tracked) != value:
+            manual_fields.add(tracked)
         if field == "name":
             lead.display_name = value.strip() or "Interesado de Facebook"
         elif field == "company":
             lead.company = value.strip()
+        elif field == "work_area" and value != lead.work_area:
+            lead.work_area = value.strip()
+            lead.work_communes = find_communes(value)
+            manual_fields.add("work_communes")
         elif field in {"specialty", "experience", "availability"}:
             setattr(lead, field, value.strip())
             if field == "specialty":
@@ -1017,6 +1008,9 @@ def update_lead(lead_id: str, body: LeadEdit, user: User = Depends(administrator
                     record_manual_trade(db, lead, value.strip(), user.id)
         else:
             setattr(lead, field, value)
+    note_profile_sources(lead, manual_fields, source="manual", at=utcnow())
+    for field in sorted(manual_fields - {"work_area"}):
+        audit_event(db, lead, "field_" + field, source="manual", actor_id=user.id)
     if "requirement_id" in body.model_fields_set and previous_requirement_id != lead.requirement_id:
         # Legacy single-need editor remains usable; the link table is canonical
         # for the new multi-need view and retains an audit trail.
@@ -1027,21 +1021,7 @@ def update_lead(lead_id: str, body: LeadEdit, user: User = Depends(administrator
             link_requirement(db, lead, new_requirement_id, user.id)
             lead.requirement_id = new_requirement_id
     elif "requirement_id" not in body.model_fields_set:
-        # Keep existing exact-match compatibility behavior, but trace its origin.
-        if link_unique_requirement(db, lead, today=today()):
-            existing = db.scalar(select(FacebookNeedAssociation).where(
-                FacebookNeedAssociation.org_id == lead.org_id,
-                FacebookNeedAssociation.lead_id == lead.id,
-                FacebookNeedAssociation.requirement_id == lead.requirement_id,
-            ))
-            if not existing:
-                db.add(FacebookNeedAssociation(
-                    org_id=lead.org_id, lead_id=lead.id,
-                    requirement_id=lead.requirement_id,
-                    state="linked", reviewed_by=None,
-                ))
-                audit_event(db, lead, "need_auto_linked", source="rule",
-                            requirement_id=lead.requirement_id)
+        trace_unique_requirement(db, lead, today=today())
     if body.model_fields_set.intersection({"follow_up_on", "follow_up_note"}):
         lead.follow_up_by = user.id
     if body.model_fields_set.intersection({"needs_support"}) and not lead.needs_support:
@@ -1065,7 +1045,7 @@ def update_lead(lead_id: str, body: LeadEdit, user: User = Depends(administrator
 @router.post("/leads/{lead_id}/reply", status_code=202)
 def queue_reply(lead_id: str, body: ReplyInput, user: User = Depends(administrator),
                 db: Session = Depends(get_db)):
-    lead = _lead(db, user, lead_id)
+    lead = _lead(db, user, lead_id, lock=True)
     if not settings().facebook_messaging_enabled:
         raise HTTPException(409, "Habilita y verifica Messenger en el servidor")
     if not _in_window(lead):
@@ -1107,12 +1087,8 @@ def suggest_reply(lead_id: str, user: User = Depends(administrator),
                 "source": "help_first", "requires_review": True,
                 "alert_admin": True}
     latest_inbound = next((m.body for m in messages if m.direction == "inbound"
-                           and consent_decision(m.body) is None), "")
-    facts = {"specialty": lead.specialty, "workers": lead.workers,
-             "availability": lead.availability, "entity_type": lead.entity_type,
-             "has_employees": lead.has_employees, "team_available": lead.team_available,
-             "interest_type": lead.interest_type, "work_area": lead.work_area, "experience": lead.experience,
-             "display_name": lead.display_name, "name_opt_out": lead.name_opt_out}
+                           and m.consent_decision is None), "")
+    facts = profile_facts(lead)
     previous_question = next((m.body for m in messages if m.direction == "outbound"
                               and m.state == "sent"), "")
     intake = next_intake_reply(latest_inbound, facts, previous_question)
@@ -1122,10 +1098,11 @@ def suggest_reply(lead_id: str, user: User = Depends(administrator),
         fast = exact_answer(evidence) or fast
     if fast:
         return {"draft": fast, "source": "template", "requires_review": True}
-    supplied = "Consulta actual: " + latest_inbound[:800] + "\nHechos: " + json.dumps(facts, ensure_ascii=False) + "\nReferencias: " + evidence_context(evidence)
+    supplied = "Consulta actual: " + latest_inbound[:800] + "\nHechos: " + json.dumps(
+        {k: v for k, v in facts.items() if k not in {"display_name", "name_opt_out", "turn_changed"}},
+        ensure_ascii=False) + "\nReferencias: " + evidence_context(evidence)
     ai_source = messenger_ai_source(db, lead.org_id)
-    consent_state = "accepted_team" if ai_source == "team" else "accepted"
-    if ai_source != "disabled" and lead.ai_consent and lead.ai_consent_state == consent_state and not private_data(supplied):
+    if (consented_for(lead, ai_source) and not lead.ai_paused and not private_data(supplied)):
         guide = _guide_for(db, lead)
         if guide:
             supplied += ("\nGuía aprobada para el oficio: " + guide.trade

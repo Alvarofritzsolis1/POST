@@ -10,11 +10,11 @@ def contact_profile(lead) -> dict:
         ("team_available", "Trabaja solo o con equipo"),
         *( [("workers", "Personas que pueden acudir")] if getattr(lead, "team_available", None) is True else []),
         ("experience", "Experiencia"),
-        ("work_area", "Comuna donde trabaja"),
+        ("work_area", "Comunas donde puede trabajar"),
         ("availability", "Disponibilidad"),
     ]
     counts = {
-        "interest_type": getattr(lead, "interest_type", "unknown") in {"service_offer", "employment"},
+        "interest_type": getattr(lead, "interest_type", "unknown") in {"service_offer", "employment", "both"},
         "specialty": bool(lead.specialty and lead.specialty.strip()),
         "team_available": getattr(lead, "team_available", None) is not None,
         "workers": lead.workers is not None,
@@ -28,7 +28,9 @@ def contact_profile(lead) -> dict:
         missing.append("Nombre de la persona (opcional)")
     answered = sum(bool(counts[key]) for key, _ in fields)
     choice = getattr(lead, "interest_type", "unknown")
-    if choice == "service_offer":
+    if choice == "both":
+        intro = "Busca empleo y ofrece servicios"
+    elif choice == "service_offer":
         intro = "Ofrece servicios por su cuenta"
     elif choice == "employment":
         intro = "Busca empleo como trabajador"
@@ -66,6 +68,7 @@ def contact_profile(lead) -> dict:
         "missing": missing,
         "next_field": missing[0] if missing else None,
         "evidence": "Datos declarados en la conversación o registrados manualmente; no acreditan documentos ni contratación.",
+        "sources": getattr(lead, "profile_sources", None) or {},
         "specialty_origin": ("Registrado por administración" if lead.specialty_source == "manual"
                              else "Interpretado del mensaje; requiere confirmación"),
     }

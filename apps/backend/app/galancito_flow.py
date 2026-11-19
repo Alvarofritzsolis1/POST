@@ -110,6 +110,11 @@ def grounded_reply(draft: str, supplied: str) -> str | None:
         return None
     if re.search(r"\b(?:ya estas contratado|te contratamos|te adjudicamos|contratacion garantizada|ingreso garantizado)\b", text):
         return None
+    if re.search(r"(?<!no )\b(?:tenemos (?:un )?(?:cupos?|vacantes?)|"
+                 r"te conseguimos (?:una )?(?:pega|vacante)|"
+                 r"tu ficha (?:ya )?(?:esta|quedo) (?:aprobada|verificada)|"
+                 r"te confirmo (?:el cupo|la contratacion))\b", text):
+        return None
     if set(re.findall(r"\d+", draft)) - set(re.findall(r"\d+", supplied)):
         return None
     if any(url not in supplied for url in re.findall(r"https?://\S+", draft)):
@@ -118,3 +123,37 @@ def grounded_reply(draft: str, supplied: str) -> str | None:
                  r"(?:rut|cedula|contrasena|clave unica|documento de identidad)\b", text):
         return None
     return safe_ai_reply(draft)
+
+
+def consented_for(lead, provider: str) -> bool:
+    return bool(provider != "disabled" and lead.ai_consent and
+                lead.ai_consent_provider == provider and lead.ai_consent_state == (
+                    "accepted_team" if provider == "team" else "accepted"))
+
+
+def set_permission_request(lead, provider: str, *, repeat=False) -> str:
+    lead.ai_consent = False
+    lead.ai_consent_provider = provider
+    lead.ai_consent_state = "requested_team" if provider == "team" else "requested"
+    return permission_question(provider, repeat=repeat)
+
+
+def apply_permission_reply(lead, message: str, delivered_prompt: str) -> bool | None:
+    """Treat a bare yes/no as consent only when it answers the permission prompt."""
+    if wants_human(message) or _plain(message) in {"no autorizo", "no acepto usar ia"}:
+        result = False
+    elif (lead.ai_consent_state in {"requested", "requested_team"} and
+          lead.ai_consent_provider and "autorizas" in delivered_prompt.casefold() and
+          delivered_prompt in {permission_question(lead.ai_consent_provider),
+                               permission_question(lead.ai_consent_provider, repeat=True)}):
+        result = consent_decision(message)
+    else:
+        return None
+    if result is True:
+        lead.ai_consent = True
+        lead.ai_consent_state = "accepted_team" if lead.ai_consent_provider == "team" else "accepted"
+    elif result is False:
+        lead.ai_consent = False
+        lead.ai_consent_state = "declined"
+        lead.ai_consent_provider = ""
+    return result
