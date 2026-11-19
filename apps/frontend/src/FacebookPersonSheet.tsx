@@ -46,9 +46,9 @@ const dateText = (v?:string|null) => {
 const nameOf = (lead:Lead) => lead.name && lead.name !== "Interesado de Facebook" ?
   lead.name : lead.company || "Contacto sin nombre";
 const interest = (v:string) => ({employment:"Busca empleo",service_offer:"Ofrece servicios",
-  both:"Busca empleo y ofrece servicios"} as Record<string,string>)[v] || "Por confirmar");
+  both:"Busca empleo y ofrece servicios"} as Record<string,string>)[v] || "Por confirmar";
 const typeLabel = (v:string) => ({company:"Empresa declarada",individual:"Persona natural",
-  unknown:"Por confirmar"} as Record<string,string>)[v] || "Por confirmar");
+  unknown:"Por confirmar"} as Record<string,string>)[v] || "Por confirmar";
 const traceLabel = (value:string) => value==="need_linked" ? "Necesidad vinculada" :
   value==="need_unlinked" ? "Necesidad desvinculada" : value==="trade_added" ?
   "Oficio registrado" : value==="trade_removed" ? "Oficio corregido" : "Ficha actualizada";
