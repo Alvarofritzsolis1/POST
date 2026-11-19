@@ -504,6 +504,13 @@ def main():
         expect(sheet.get_by_role("button", name="Ver chat")).to_be_visible()
         assert not fb_page.locator(".fbc-inbox").is_visible(), "La ficha no debe navegar al chat"
         fb_page.screenshot(path=str(args.output / "ficha-facebook-qa.png"), full_page=True)
+        # Los datos editados no se descartan al abrir el chat sin confirmación.
+        sheet.get_by_role("button", name="Editar ficha").click()
+        sheet.get_by_role("textbox", name="Nota interna").fill("Nota sintética sin guardar")
+        fb_page.once("dialog", lambda prompt: prompt.dismiss())
+        sheet.get_by_role("button", name="Ver chat").click()
+        expect(sheet).to_be_visible()
+        fb_page.once("dialog", lambda prompt: prompt.accept())
         sheet.get_by_role("button", name="Ver chat").click()
         expect(sheet).not_to_be_visible()
         expect(fb_page.locator(".fbc-inbox")).to_be_visible()
