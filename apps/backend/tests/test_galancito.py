@@ -16,7 +16,8 @@ def test_galancito_is_available_without_external_ai(network, monkeypatch):
     assert response.status_code == 200, response.text
     data = response.json()
     assert data["source"] == "local" and data["read_only"] is True
-    assert "Galancito" in data["answer"]
+    assert "Red de Obras" in data["answer"]
+    assert "asistente virtual" not in data["answer"].lower()
     # Galancito no se puede invocar para módulos ajenos a Red de Obras.
     denied = n["send"](n["admin"], "/galancito/chat",
         {"message": "hola", "area": "galant"})
