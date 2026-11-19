@@ -38,7 +38,8 @@ def test_informal_spanish_evaluation(case):
     if answer:
         assert len(answer) <= 650
         assert answer.count("?") <= 1
-        assert "Galancito" in answer
+        assert "asistente virtual" not in answer.lower()
+        assert answer.strip()
         assert "contratación garantizada" not in answer
 
 
