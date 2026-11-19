@@ -359,7 +359,21 @@ async def webhook(request: Request, db: Session = Depends(get_db)):
                     lead.availability = facts.availability
                 # Trabajar solo no demuestra que no existan dependientes
                 # formalmente contratados: nunca inferir has_employees.
-                link_unique_requirement(db, lead, today=today())
+                if link_unique_requirement(db, lead, today=today()):
+                    existing_association = db.scalar(select(FacebookNeedAssociation).where(
+                        FacebookNeedAssociation.org_id == lead.org_id,
+                        FacebookNeedAssociation.lead_id == lead.id,
+                        FacebookNeedAssociation.requirement_id == lead.requirement_id,
+                    ))
+                    if not existing_association:
+                        db.add(FacebookNeedAssociation(
+                            org_id=lead.org_id, lead_id=lead.id,
+                            requirement_id=lead.requirement_id,
+                            state="linked", reviewed_by=None,
+                        ))
+                        audit_event(db, lead, "need_auto_linked", source="rule",
+                                    requirement_id=lead.requirement_id,
+                                    remote_id=mid)
             signal = ("Solicitó atención humana" if wants_human(body) else
                       assistance_signal(body, is_audio=audio_received)
                       if consent is None else None)
@@ -817,6 +831,24 @@ def request_inbox_sync(user: User = Depends(administrator),
     db.commit()
     return {"state": "pending", "queued": True}
 
+
+
+@router.get("/leads/{lead_id}/trace")
+def lead_trace(lead_id: str, user: User = Depends(administrator),
+               db: Session = Depends(get_db)):
+    lead = _lead(db, user, lead_id)
+    events = db.scalars(select(FacebookLeadTrace).where(
+        FacebookLeadTrace.org_id == lead.org_id,
+        FacebookLeadTrace.lead_id == lead.id,
+    ).order_by(FacebookLeadTrace.created_at.desc(),
+               FacebookLeadTrace.id.desc()).limit(100))
+    return [{
+        "event": item.event, "trade": item.trade,
+        "requirement_id": item.requirement_id,
+        "source": item.source, "actor_id": item.actor_id,
+        "message_id": item.source_remote_id,
+        "at": item.created_at.isoformat(),
+    } for item in events]
 
 
 @router.post("/leads/{lead_id}/needs/{requirement_id}/link")
