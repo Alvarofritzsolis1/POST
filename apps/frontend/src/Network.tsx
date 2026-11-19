@@ -59,7 +59,7 @@ import {
 } from "./NetworkForms";
 import { NetworkAccountMenu } from "./NetworkAccounts";
 import { NetworkQuickForm } from "./NetworkQuickForm";
-import FacebookCenter from "./FacebookCenter";
+const FacebookCenter = lazy(() => import("./FacebookCenter"));
 import GalancitoWidget from "./GalancitoWidget";
 import {
   Badge,
@@ -765,7 +765,9 @@ export default function RedDeObras({ user }: { user: Profile }) {
         )}
       </div>
       {tab === "facebook" && user.role === "admin" && (
-        <FacebookCenter catalog={catalog} />
+        <Suspense fallback={<div className="nw-loading" role="status">Abriendo Facebook…</div>}>
+          <FacebookCenter catalog={catalog} />
+        </Suspense>
       )}
       {error && (
         <div role="alert" className="nw-error">
