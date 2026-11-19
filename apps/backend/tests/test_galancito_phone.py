@@ -4,7 +4,7 @@ from types import SimpleNamespace
 
 from app.galancito_phone import (
     QUESTION, normalize_mobile, phone_shared_by_sender, remember_shared_phone,
-    phone_declined, phone_question_when_agreed,
+    phone_declined, phone_question_when_agreed, redact_mobile_for_intake,
 )
 
 def contact(**kwargs):
@@ -59,3 +59,9 @@ def test_phone_opt_out_applies_only_to_phone_question():
     assert not remember_shared_phone(lead, "Prefiero hablar por Messenger", QUESTION,
                                      at=datetime.now(timezone.utc))
     assert lead.phone_opt_out
+
+
+def test_redacts_number_without_discarding_professional_details():
+    text = redact_mobile_for_intake("Soy gasfiter y hago pintura, mi celular es +56 9 8765 4321")
+    assert "gasfiter" in text and "pintura" in text
+    assert "+56 9" not in text and "8765 4321" not in text
