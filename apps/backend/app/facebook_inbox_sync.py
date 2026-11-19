@@ -29,7 +29,7 @@ from .galancito_memory import (
     apply_messenger_message, approved_trade_aliases, aware, prior_delivered_prompt, profile_facts,
 )
 from .galancito_triage import private_data, quick_reply
-from .galancito_phone import remember_shared_phone, phone_question_when_agreed
+from .galancito_phone import remember_shared_phone, phone_question_when_agreed, redact_mobile_for_intake
 from .galancito_links import audit_event
 from .galancito_memory import note_profile_sources
 from .models import Organization, utcnow
@@ -152,16 +152,18 @@ def sync_page_inbox(*, page_id: str, page_token: str, org_id: str,
             lead.unread = True
             prior = prior_delivered_prompt(db, lead, at=timestamp, since=previous if fresh else None)
             decision = apply_permission_reply(lead, body, prior) if fresh else None
-            if fresh and remember_shared_phone(lead, body, prior, at=timestamp):
+            phone_saved = fresh and remember_shared_phone(lead, body, prior, at=timestamp)
+            if phone_saved:
                 note_profile_sources(lead, ["contact_phone"], source="message", at=timestamp, remote_id=mid)
                 audit_event(db, lead, "field_contact_phone", source="message", remote_id=mid)
             if decision is False:
                 flag_for_human(db, lead, "Solicitó atención humana" if wants_human(body)
                                else "Prefirió atención humana y no autorizó IA")
             changed = False
-            if decision is None and not private_data(body):
+            intake_body = redact_mobile_for_intake(body) if phone_saved else body
+            if decision is None and not private_data(intake_body):
                 changed = apply_messenger_message(
-                    db, lead, body, prior, remote_id=mid, at=timestamp,
+                    db, lead, intake_body, prior, remote_id=mid, at=timestamp,
                     historical=not fresh, aliases=aliases,
                 )
                 if fresh and changed:
