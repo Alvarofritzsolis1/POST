@@ -490,6 +490,12 @@ def main():
         fb_page.get_by_role("navigation", name="Centro Facebook").get_by_role(
             "button", name="Seguimiento", exact=True).click()
         expect(fb_page.get_by_role("button", name="Ver ficha").first).to_be_visible()
+        fb_page.get_by_role("button", name="Ver contactos de Carpintería").click()
+        expect(fb_page.get_by_role("searchbox", name="Buscar personas u oficios")).to_have_value("Carpintería")
+        fb_page.get_by_role("button", name="Limpiar filtros").click()
+        fb_page.get_by_role("button", name="Filtrar seguimiento: Responder").click()
+        expect(fb_page.get_by_role("searchbox", name="Buscar personas u oficios")).to_have_value("Responder")
+        fb_page.get_by_role("button", name="Limpiar filtros").click()
         fb_page.get_by_role("button", name="Ver ficha").first.click()
         sheet = fb_page.get_by_role("dialog", name="Ficha de Contacto QA")
         expect(sheet).to_be_visible()
