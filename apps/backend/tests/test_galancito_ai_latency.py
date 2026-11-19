@@ -44,6 +44,10 @@ def test_messenger_primary_preserved_and_low_latency_backup_first(monkeypatch):
     primary = _connection("primary", "Primary")
     slow = _connection("slow", "Slow backup")
     fast = _connection("fast", "Fast backup")
+    # Real fallbacks must be distinct models; identical provider/model pairs
+    # are deliberately deduplicated by the orchestrator.
+    slow.provider, slow.model = "nvidia", "nvidia/slow-synthetic"
+    fast.provider, fast.model = "gemini", "gemini-fast-synthetic"
     samples = ([_usage("slow", 5000) for _ in range(4)] +
                [_usage("fast", 900) for _ in range(4)])
     db = FakeDB([slow, primary, fast], samples)
