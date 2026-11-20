@@ -637,7 +637,7 @@ function App() {
                   </button>)}
                 </div>
                 <nav className="galant-home-shortcuts" aria-label="Accesos directos">
-                  <button type="button" onClick={() => go("network")}><Network size={16} /> Red de Obras</button>
+                  <button type="button" aria-label="Abrir Red de Obras" onClick={() => go("network")}><Network size={16} /> Red de Obras</button>
                   <button type="button" onClick={() => go("contractors")}><Building2 size={16} /> Contratistas</button>
                   <button type="button" onClick={() => go("workers")}><Users size={16} /> Trabajadores</button>
                   <button type="button" onClick={() => go("documents")}><FileCheck2 size={16} /> Documentos</button>
