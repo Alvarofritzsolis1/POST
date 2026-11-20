@@ -90,6 +90,11 @@ with sync_playwright() as p:
 
     # GALANT v13: la ficha debe sustituir completamente el listado y permitir regresar.
     page.get_by_role("button", name="Control de asistencia", exact=True).click()
+    # La navegación con ratón debe replegar el panel para no bloquear botones.
+    page.wait_for_function(
+        "() => document.querySelector('.platform .sidebar')?.getBoundingClientRect().width <= 85",
+        timeout=2500,
+    )
     expect(page.locator(".av93-month-matrix tbody tr").first).to_be_visible(timeout=15000)
     contractor_name = page.locator(".av13-company-link").first.inner_text()
     page.locator(".av13-company-link").first.click()
