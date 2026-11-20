@@ -309,3 +309,21 @@ def test_author_activity_uses_exact_meta_id_and_note_is_persistent(network, monk
                      {"review_state": "handled", "note": "Borrar"}, method="PATCH").status_code == 403
     assert n["send"](n["admin"], path + "/comments/" + cid + "/review",
                      {"review_state": "review", "note": "x" * 1001}, method="PATCH").status_code == 422
+
+
+def test_explicit_rejection_and_negated_trades_never_become_leads():
+    from app.facebook_comment_intelligence import classify_comment, declared_profile
+    for message in (
+        "No me interesa, gracias",
+        "No busco trabajo",
+        "Ya no busco pega",
+        "No soy carpintero",
+        "No quiero postular",
+        "No estoy disponible",
+    ):
+        assert classify_comment(message)[0] != "interested", message
+    profile = declared_profile("No soy electricista, soy pintor y hago cerámica")
+    assert "Electricidad" not in profile["trades"]
+    assert "Pintura" in profile["trades"]
+    assert "Cerámica" in profile["trades"]
+    assert declared_profile("No hago carpintería")["trades"] == []
