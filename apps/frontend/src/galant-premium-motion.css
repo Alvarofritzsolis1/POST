@@ -415,3 +415,92 @@
   .platform .dashboard-alerts .galant-alert-row,
   .platform .galant-sidebar-pin {animation:none!important;transition:none!important;transform:none!important}
 }
+
+
+/* Microinteracciones compartidas por los módulos operativos existentes. */
+.platform .ops-status-filters button,
+.platform .ops-detail-tabs button,
+.platform .worker-tabs button,
+.platform .nw-tabs>button,
+.platform .nw-tracking-tabs>button,
+.platform .administrative-tabs button,
+.platform .av13-tabs button {
+  position:relative;transition:color 180ms ease,background-color 180ms ease,border-color 180ms ease,box-shadow 180ms ease!important;
+}
+.platform .ops-detail-tabs button.selected,
+.platform .ops-status-filters button.selected,
+.platform .worker-tabs button.active,
+.platform .nw-tabs>button.active,
+.platform .nw-tracking-tabs>button.active,
+.platform .av13-tabs button.current {
+  isolation:isolate;
+}
+.platform .worker-tabs button:after,
+.platform .nw-tabs>button:after,
+.platform .ops-detail-tabs button:after,
+.platform .av13-tabs button:after {
+  content:"";position:absolute;bottom:0;left:12px;right:12px;height:2px;border-radius:3px;
+  background:#1684d5;transform:scaleX(0);transform-origin:left center;
+  transition:transform 210ms var(--galant-ease);
+  pointer-events:none;
+}
+.platform .worker-tabs button.active:after,
+.platform .nw-tabs>button.active:after,
+.platform .ops-detail-tabs button.selected:after,
+.platform .av13-tabs button.current:after {transform:scaleX(1)}
+.platform .v15-quicknav-results {
+  transform-origin:top center;animation:galant-dropdown-in 170ms var(--galant-ease) both;
+}
+@keyframes galant-dropdown-in {
+  from{opacity:.4;transform:translateY(-5px) scale(.99)}
+  to{opacity:1;transform:translateY(0) scale(1)}
+}
+.platform .alert[role="alert"],
+.platform .alert[role="status"],
+.platform .nw-error[role="alert"] {
+  animation:galant-notice-in 200ms var(--galant-ease) both;
+}
+@keyframes galant-notice-in {from{opacity:.5;transform:translateY(-4px)}to{opacity:1;transform:translateY(0)}}
+.platform .toolbar input,
+.platform .toolbar select,
+.platform input:not([type="checkbox"]):not([type="radio"]),
+.platform textarea,
+.platform select {
+  transition:border-color 170ms ease,box-shadow 170ms ease,background-color 170ms ease;
+}
+.platform .toolbar input:focus-visible,
+.platform .toolbar select:focus-visible,
+.platform textarea:focus-visible,
+.platform select:focus-visible {
+  outline:2px solid #1684d5;outline-offset:1px;
+}
+.platform .table-wrap tbody tr,
+.platform .ops-list-table tbody tr {transition:background-color 150ms ease}
+.platform .table-wrap tbody tr:hover,
+.platform .ops-list-table tbody tr:hover {background-color:rgba(22,132,213,.045)}
+.platform .empty,
+.platform .ops-empty,
+.platform .av92-empty {
+  border-radius:12px;border:1px dashed #cedbe6;padding:20px 16px;
+  background:linear-gradient(140deg,rgba(239,245,250,.83),rgba(255,255,255,.73));
+  color:#62788c;
+}
+[data-theme="dark"] .platform .empty,
+[data-theme="dark"] .platform .ops-empty,
+[data-theme="dark"] .platform .av92-empty {
+  background:#172f3a;border-color:#38515b;color:#d0dfe8;
+}
+@media(prefers-reduced-motion:reduce) {
+  .platform .ops-detail-tabs button:after,
+  .platform .worker-tabs button:after,
+  .platform .nw-tabs>button:after,
+  .platform .av13-tabs button:after,
+  .platform .v15-quicknav-results,
+  .platform .alert,
+  .platform .table-wrap tbody tr,
+  .platform input,
+  .platform select,
+  .platform textarea {
+    transition:none!important;animation:none!important;transform:none!important;
+  }
+}
