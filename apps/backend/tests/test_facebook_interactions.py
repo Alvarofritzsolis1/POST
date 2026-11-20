@@ -3,7 +3,7 @@ from datetime import timedelta
 
 from sqlalchemy import select
 
-from app.facebook_publication_models import FacebookPostJob
+from app.facebook_publication_models import FacebookPostJob, FacebookPostComment
 from app.facebook_publication_worker import process_publication_next
 from app.models import utcnow
 from test_facebook_publications import COMMENT, PAGE, POST, created, meta_result
@@ -262,3 +262,50 @@ def test_public_profile_does_not_infer_trade_from_publication():
     assert "Carpintería" in profile["trades"]
     assert "Pintura" in profile["trades"]
     assert profile["team_size_declared"] == 4
+
+
+def test_author_activity_uses_exact_meta_id_and_note_is_persistent(network, monkeypatch):
+    n, record, _ = created(network, monkeypatch)
+    monkeypatch.setattr("app.facebook_publication_worker.graph", meta_result)
+    path = "/facebook/publications/" + record
+    assert n["send"](n["admin"], path + "/refresh", {}).status_code == 202
+    assert process_publication_next(n["Session"])
+    with n["Session"].begin() as db:
+        current = db.scalar(select(FacebookPostComment).where(
+            FacebookPostComment.post_record_id == record,
+            FacebookPostComment.comment_id == COMMENT))
+        assert current is not None
+        db.add(FacebookPostComment(
+            org_id=current.org_id, post_record_id=record,
+            comment_id="12345678_987654322", author_id=current.author_id,
+            author_name="Juan Pérez", body="También puedo trabajar en pintura.",
+            posted_at=utcnow() - timedelta(hours=1)))
+        db.add(FacebookPostComment(
+            org_id=current.org_id, post_record_id=record,
+            comment_id="12345678_987654323", author_id="9876543210099",
+            author_name="Juan Pérez", body="Soy otro Juan Pérez.",
+            posted_at=utcnow() - timedelta(hours=2)))
+        cid = current.id
+    result = n["send"](n["admin"], "/facebook/publications/interactions/inbox",
+                       method="GET")
+    assert result.status_code == 200, result.text
+    person = next(item for item in result.json()["rows"] if item["id"] == cid)
+    assert person["author_activity_count"] == 1
+    assert len(person["author_activity"]) == 1
+    assert "pintura" in person["author_activity"][0]["body"]
+    assert "otro" not in person["author_activity"][0]["body"]
+
+    saved = n["send"](n["admin"], path + "/comments/" + cid + "/review",
+                      {"review_state": "review",
+                       "note": "Confirmar si trae su cuadrilla para tabiquería."},
+                      method="PATCH")
+    assert saved.status_code == 200, saved.text
+    assert "cuadrilla" in saved.json()["review_note"]
+    again = n["send"](n["admin"], "/facebook/publications/interactions/inbox",
+                      method="GET").json()["rows"]
+    person = next(item for item in again if item["id"] == cid)
+    assert "cuadrilla" in person["review_note"]
+    assert n["send"](n["a"], path + "/comments/" + cid + "/review",
+                     {"review_state": "handled", "note": "Borrar"}, method="PATCH").status_code == 403
+    assert n["send"](n["admin"], path + "/comments/" + cid + "/review",
+                     {"review_state": "review", "note": "x" * 1001}, method="PATCH").status_code == 422
