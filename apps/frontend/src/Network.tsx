@@ -500,8 +500,7 @@ export default function RedDeObras({ user }: { user: Profile }) {
           )}
         </div>
         <div className="nw-card-footer">
-          {r.coverage > 0 && <span>En adjudicación</span>}
-          <button className="nw-text-button" onClick={() => void openReq(r.id)}>
+                    <button className="nw-text-button" onClick={() => void openReq(r.id)}>
             Ver solicitud <ArrowRight size={15} />
           </button>
         </div>
@@ -618,7 +617,7 @@ export default function RedDeObras({ user }: { user: Profile }) {
               setPanel("request-form");
             }}>
               <span className="nw-publish-choice-icon"><Plus size={22} /></span>
-              <span><b>Necesito contratista</b><small>Publicar una necesidad</small></span>
+              <span><b>Necesito contratista</b></span>
               <ArrowRight size={18} />
             </button>
             <button type="button" className="nw-publish-choice nw-publish-available" onClick={() => {
@@ -626,7 +625,7 @@ export default function RedDeObras({ user }: { user: Profile }) {
               setPanel("capacity-form");
             }}>
               <span className="nw-publish-choice-icon"><Users size={22} /></span>
-              <span><b>Tengo contratista disponible</b><small>Compartir disponibilidad</small></span>
+              <span><b>Tengo contratista disponible</b></span>
               <ArrowRight size={18} />
             </button>
           </div>
