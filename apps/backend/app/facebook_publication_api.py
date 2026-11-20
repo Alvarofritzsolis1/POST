@@ -150,6 +150,9 @@ def interactions_inbox(user: User = Depends(administrator),
             "review_state": comment.review_state, "reviewed_at": (
                 comment.reviewed_at.isoformat() if comment.reviewed_at else None),
             "is_hidden": comment.is_hidden, "is_deleted": comment.is_deleted,
+            "user_likes": comment.user_likes, "like_count": comment.like_count,
+            "can_like": not own and not comment.is_deleted and
+                        post.state == "published" and comment.user_likes is not None,
             "can_reply": comment.can_comment and not comment.is_deleted and post.state == "published",
             "can_hide": comment.can_hide and not comment.is_deleted and post.state == "published",
             "can_delete": comment.can_hide and not own and not comment.is_deleted and post.state == "published",
@@ -225,6 +228,9 @@ def publication_detail(record_id: str, user: User = Depends(administrator),
             "classification_score": c.classification_score,
             "review_state": c.review_state,
             "is_deleted": c.is_deleted,
+            "user_likes": c.user_likes,
+            "can_like": c.author_id != post.page_id and not c.is_deleted and
+                        post.state == "published" and c.user_likes is not None,
             "can_delete": c.can_hide and c.author_id != post.page_id and
                           not c.is_deleted and post.state == "published",
             "body": c.body,
@@ -302,6 +308,26 @@ def moderate_comment(record_id: str, comment_id: str,
         raise HTTPException(409, "Meta no permite moderar este comentario")
     return _enqueue(db, user, post, "unhide" if comment.is_hidden else "hide",
                     comment_id=comment.comment_id)
+
+
+@router.post("/{record_id}/comments/{comment_id}/like", status_code=202)
+def like_comment(record_id: str, comment_id: str,
+                 user: User = Depends(administrator), db: Session = Depends(get_db)):
+    post = _post(db, user, record_id)
+    comment = _comment(db, post, comment_id)
+    if comment.is_deleted or comment.author_id == post.page_id or comment.user_likes is not False:
+        raise HTTPException(409, "Meta no habilitó dar Me gusta a este comentario")
+    return _enqueue(db, user, post, "like", comment_id=comment.comment_id)
+
+
+@router.post("/{record_id}/comments/{comment_id}/unlike", status_code=202)
+def unlike_comment(record_id: str, comment_id: str,
+                   user: User = Depends(administrator), db: Session = Depends(get_db)):
+    post = _post(db, user, record_id)
+    comment = _comment(db, post, comment_id)
+    if comment.is_deleted or comment.author_id == post.page_id or comment.user_likes is not True:
+        raise HTTPException(409, "Meta no habilitó retirar la reacción")
+    return _enqueue(db, user, post, "unlike", comment_id=comment.comment_id)
 
 
 @router.delete("/{record_id}/comments/{comment_id}", status_code=202)
