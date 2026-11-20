@@ -393,15 +393,13 @@ export function NetworkAccountMenu({
                   <div className="galant-person-row galant-account-card-id">
                     <PersonAvatar name={a.name || a.email} size="md" />
                     <div>
-                    <b>{a.name}</b>
-                    <p>{a.email}</p>
+                      <b>{a.name}</b>
+                      <p>{a.email}</p>
+                      <Badge value={a.role} />{" "}
+                      <span className="nw-muted">
+                        {a.enabled ? "Activa" : "Suspendida"}
+                      </span>
                     </div>
-                  </div>
-                  <div>
-                    <Badge value={a.role} />{" "}
-                    <span className="nw-muted">
-                      {a.enabled ? "Activa" : "Suspendida"}
-                    </span>
                   </div>
                   <div className="nw-row">
                     <button
