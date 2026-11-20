@@ -463,6 +463,12 @@ function App() {
         (filter === "declared_unpaid" && r.payment_finding === "declared_unpaid")) &&
       (classification === "all" || r.classification === classification),
   );
+  const severityRank = (severity: string) => {
+    const normalized = severity.toLowerCase();
+    return ["critical","urgent","danger","high"].includes(normalized) ? 0
+      : ["warning","medium","attention"].includes(normalized) ? 1 : 2;
+  };
+  const sortedLaborAlerts = laborAlerts ? [...laborAlerts.alerts].sort((a,b) => severityRank(a.severity) - severityRank(b.severity)) : [];
   const cards = (overview?.contractors || []).filter(
     (r) =>
       (filter === "all" || r.state === filter) &&
@@ -704,14 +710,24 @@ function App() {
                   }}><small>{label}</small><strong>{laborAlerts.summary[key] || 0}</strong><span className="alert-metric-state">{(laborAlerts.summary[key] || 0) === 0 ? "Sin casos" : alertCriticalKeys.has(key) ? "Requiere acción" : "Revisar"}</span><span className="alert-metric-action">Ver registros →</span></button>)}
                 </div>
                 </details><h3 className="dashboard-list-heading">Centro de alertas</h3>
-                {laborAlerts.alerts.slice(0, 30).map((item, i) => <button className={"worker-alert-link worker-signal " + item.severity} key={i} onClick={() => {
-                  if (item.target_section === "workers") { setTargetWorker(item.target_id); go("workers"); }
-                  else if (item.target_section === "contributions") drill("contributions", item.kind === "declared_unpaid" ? "declared_unpaid" : "differences");
-                  else if (item.target_section === "documents") drill("documents", "overdue");
-                  else if (item.target_section === "attendance") go("attendance");
-                  else { drill("contractors"); setClassification("SIN CLASIFICAR"); }
-                }}>{item.label} · {item.site} {item.date ? "· " + item.date : ""}</button>)}
-                {!laborAlerts.alerts.length && <p>Sin alertas verificadas para el período y obra seleccionados.</p>}
+                {sortedLaborAlerts.slice(0,6).map((item, i) => <button type="button"
+                  className={"worker-alert-link worker-signal galant-alert-row " + item.severity}
+                  key={item.kind+"-"+item.target_id+"-"+i} onClick={() => openLaborAlert(item)}>
+                  <span className="galant-alert-row-text">{item.label}</span>
+                  <small>{item.site}{item.date ? " · " + item.date : ""}</small>
+                  <span className="galant-alert-arrow" aria-hidden="true">→</span>
+                </button>)}
+                {sortedLaborAlerts.length > 6 && <details className="galant-more-alerts">
+                  <summary>Ver {sortedLaborAlerts.length - 6} alertas adicionales</summary>
+                  {sortedLaborAlerts.slice(6).map((item, i) => <button type="button"
+                    className={"worker-alert-link worker-signal galant-alert-row " + item.severity}
+                    key={item.kind+"-"+item.target_id+"-more-"+i} onClick={() => openLaborAlert(item)}>
+                    <span className="galant-alert-row-text">{item.label}</span>
+                    <small>{item.site}{item.date ? " · " + item.date : ""}</small>
+                    <span className="galant-alert-arrow" aria-hidden="true">→</span>
+                  </button>)}
+                </details>}
+                {!sortedLaborAlerts.length && <p className="galant-no-alerts"><ShieldCheck size={18} aria-hidden="true"/> Sin alertas verificadas para esta selección.</p>}
               </section>}
               <div className="dashboard-summary-heading">
                 <h2>Resumen de contratistas</h2>
@@ -924,6 +940,7 @@ function App() {
                   <p>Aún no hay actividad registrada.</p>
                 )}
               </section>
+              <ArchitecturalBanner />
             </>
           )}
           {section === "contractors" &&
