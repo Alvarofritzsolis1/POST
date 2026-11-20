@@ -125,6 +125,10 @@ def test_verifiable_profile_and_critical_draft():
     assert not bad["passed"]
     assert bad["critical"] and bad["errors"]["critico"]
     assert all("Ya estás contratado" not in turn["reply"] for turn in bad["turns"])
+    reviewed = evaluate(reference_case(0), {}, [], corrector=lambda _: "Verifica la ficha sintetica. " * 20)
+    assert len(reviewed["ai_proposal"]) <= 300
+    assert reviewed["ai_proposal"].endswith("…")
+
 
 
 def test_lifecycle_permissions_restart_review_and_rollback(database):
