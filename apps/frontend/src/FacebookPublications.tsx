@@ -28,6 +28,7 @@ type Comment = {
   parent_id: string | null; is_hidden: boolean; like_count: number;
   can_reply: boolean; can_hide: boolean; can_private_reply: boolean;
   private_reply_state: "not_sent" | "pending" | "sent" | "failed" | "uncertain";
+  lead_id: string | null;
 };
 type Job = { id: string; action: string; state: string; error: string; created_at: string };
 type PublicationDetail = {
@@ -43,6 +44,7 @@ type Props = {
   onSync: (ad: FacebookAd) => Promise<void>;
   onChanged: () => Promise<void>;
   onOpenInbox: () => void;
+  onOpenLead: (leadId: string) => void;
 };
 
 const when = (value?: string | null) => {
@@ -65,7 +67,7 @@ const isPending = (value: string) => value === "pending" || value === "sending";
 const isReview = (value: string) => ["failed", "uncertain", "not_queued"].includes(value);
 
 export default function FacebookPublications({
-  posts, automaticEnabled, onSync, onChanged, onOpenInbox,
+  posts, automaticEnabled, onSync, onChanged, onOpenInbox, onOpenLead,
 }: Props) {
   const [filter, setFilter] = useState<"all" | "published" | "review">("all");
   const [search, setSearch] = useState("");
@@ -321,6 +323,8 @@ export default function FacebookPublications({
                     </button>}
                   </div>
                   {c.private_reply_state === "sent" && <p className="fbpub-private-note"><ShieldCheck size={14} /> Mensaje privado confirmado. Podrás conversar por Messenger si la persona responde.</p>}
+                  {c.lead_id && <button type="button" className="nw-btn"
+                    onClick={() => onOpenLead(c.lead_id!)}><MessageCircle size={14} /> Abrir chat de {c.author_name || "esta persona"}</button>}
                   {c.private_reply_state === "pending" && <p className="fbpub-private-note">Invitación privada en cola.</p>}
                   {c.private_reply_state === "uncertain" && <p className="fbpub-private-note">No se confirmó el mensaje privado. Verifica en Meta; no se enviará de nuevo automáticamente.</p>}
                   {c.private_reply_state === "failed" && <p className="fbpub-private-note">Meta rechazó la respuesta privada. Verifica permisos y plazo.</p>}
