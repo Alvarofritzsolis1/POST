@@ -12,6 +12,7 @@ type Category = "interested" | "question" | "positive" | "negative" | "spam" | "
 type ReviewState = "new" | "review" | "handled" | "dismissed";
 type ActionJob = {
   id: string; action: string; state: string; message: string; error: string; at: string;
+  operator: string;
 };
 type Interaction = {
   id: string; remote_comment_id: string; record_id: string;
@@ -22,7 +23,8 @@ type Interaction = {
   posted_at: string; parent_id: string | null; like_count: number; reply_count: number;
   is_page_author: boolean;
   classification: Category; classification_source: "manual" | "rules" | "ai";
-  classification_score: number; review_state: ReviewState; reviewed_at: string | null;
+  classification_score: number; classified_at: string | null;
+  review_state: ReviewState; reviewed_at: string | null;
   is_hidden: boolean; is_deleted: boolean; user_likes: boolean | null;
   can_reply: boolean; can_hide: boolean; can_delete: boolean; can_private_reply: boolean; can_like: boolean;
   private_reply_state: string; lead_id: string | null; history: ActionJob[];
@@ -420,10 +422,18 @@ export default function FacebookInteractions({ onOpenInbox, onOpenLead, onOpenPr
             {showHistory ? "Ocultar" : "Ver todo"}</button></div>
         <ol className="fbint-timeline">
           <li><Clock3 size={14}/><span>Comentó la publicación <small>{when(active.posted_at)}</small></span></li>
+          {active.classified_at && <li><Sparkles size={14}/><span>
+            Clasificación {active.classification_source === "ai" ? "con Galancito" :
+              active.classification_source === "manual" ? "corregida manualmente" : "preliminar"}
+            <small>{categories[active.classification]?.label} · {when(active.classified_at)}</small>
+          </span></li>}
+          {active.reviewed_at && <li><ShieldCheck size={14}/><span>
+            Revisión por el equipo <small>{when(active.reviewed_at)}</small>
+          </span></li>}
           {active.history.filter(job => showHistory || job.action !== "private_reply").map(job => <li key={job.id}>
             {job.state === "done" ? <Check size={14}/> : <CircleHelp size={14}/>}
             <span>{jobLabels[job.action] || job.action} · {jobStates[job.state] || job.state}
-              <small>{when(job.at)}{job.error ? " · " + job.error : ""}</small>
+              <small>{when(job.at)} · {job.operator}{job.error ? " · " + job.error : ""}</small>
               {job.message && <small className="fbint-history-message">{job.message}</small>}
             </span>
           </li>)}
