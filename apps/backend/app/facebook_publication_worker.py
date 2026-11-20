@@ -153,7 +153,7 @@ def refresh(db, post: NetworkFacebookPost) -> None:
             found.is_hidden = raw.get("is_hidden") is True
             found.like_count = positive_count(raw.get("like_count")) or 0
             found.can_reply_privately = (raw.get("can_reply_privately") is True
-                                         and found.private_reply_state in {"not_sent", "failed"})
+                                         and (found.private_reply_state or "not_sent") in {"not_sent", "failed"})
             found.fetched_at = now
         paging = batch.get("paging") if isinstance(batch.get("paging"), dict) else {}
         cursors = paging.get("cursors") if isinstance(paging.get("cursors"), dict) else {}
