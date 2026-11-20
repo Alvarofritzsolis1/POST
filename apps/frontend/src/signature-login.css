@@ -1,0 +1,246 @@
+
+/* GALANT Signature 2026 — estilos exclusivos de la portada pública.
+   Se preservan las rutas y los formularios de autenticación existentes. */
+.signature-login{
+  --signature-gold:#e9ca96;
+  --signature-muted:#b1c2d4;
+  position:relative;isolation:isolate;display:flex;flex-direction:column;
+  width:100%;height:100dvh;min-height:500px;overflow:hidden;
+  background:#081523;color:#f4f8fc;font-family:Inter,-apple-system,BlinkMacSystemFont,"Segoe UI",sans-serif;
+}
+.signature-login,.signature-login *,.signature-login *::before,.signature-login *::after{box-sizing:border-box}
+.signature-login__background{
+  position:absolute;z-index:-3;inset:0;
+  background:radial-gradient(ellipse 50% 75% at 82% 54%,#2d628459,transparent 75%),
+  radial-gradient(ellipse 62% 72% at 36% 110%,#183a5966,transparent 74%),
+  linear-gradient(125deg,#081422,#0b1c2d 65%,#081422);
+}
+.signature-login__grid{
+  position:absolute;inset:0;z-index:-2;pointer-events:none;
+  background-image:linear-gradient(#cee6fa08 1px,transparent 1px),linear-gradient(90deg,#cee6fa08 1px,transparent 1px);
+  background-size:56px 56px;mask-image:linear-gradient(90deg,transparent 32%,#000 100%);
+}
+.signature-login__header{
+  width:min(100%,1500px);margin:0 auto;padding:clamp(18px,3.5vh,32px) clamp(24px,5.6vw,90px) 0;
+  flex:none;display:flex;align-items:center;animation:signature-reveal .6s both;
+}
+.signature-login__brand{display:flex;align-items:center;gap:13px}
+.signature-login__brand-mark{
+  display:grid;place-items:center;width:43px;height:43px;border-radius:12px;
+  border:1px solid #d6e9ff45;background:linear-gradient(145deg,#ffffff1b,#ffffff06);
+  box-shadow:inset 0 1px #ffffff29,0 6px 22px #0002;
+}
+.signature-login__brand-mark svg{width:28px;height:28px}
+.signature-login__brand-mark path{
+  stroke-dasharray:145;stroke-dashoffset:145;animation:signature-stroke 1.3s .12s ease-out forwards;
+}
+.signature-login__wordmark{display:block;font-size:19px;font-weight:850;letter-spacing:.2em;line-height:1.1}
+.signature-login__brand-subtitle{
+  display:block;margin-top:5px;color:#a2b7cc;font-size:8px;letter-spacing:.15em;font-weight:750;
+}
+.signature-login__main{
+  flex:1 1 auto;display:grid;grid-template-columns:minmax(0,1fr) minmax(0,1fr);
+  gap:clamp(18px,4vw,62px);align-items:center;min-height:0;width:min(100%,1500px);
+  margin:0 auto;padding:0 clamp(24px,6.6vw,100px);
+}
+.signature-login__auth{
+  width:min(100%,395px);min-width:0;padding:10px 0 14px;
+  animation:signature-reveal .75s .16s both;
+}
+.signature-login__eyebrow{
+  display:flex;align-items:center;gap:10px;margin:0 0 14px;color:var(--signature-gold);
+  font-size:10px;font-weight:800;letter-spacing:.2em;
+}
+.signature-login__eyebrow::before{content:"";width:23px;height:1px;background:linear-gradient(90deg,var(--signature-gold),transparent)}
+.signature-login__auth h1{
+  margin:0 0 10px;color:#f7faff;font-size:clamp(37px,3.7vw,53px);
+  font-weight:760;line-height:1.1;letter-spacing:-.06em;
+}
+.signature-login__subtitle{margin:0 0 clamp(20px,3.5vh,33px);color:var(--signature-muted);font-size:14px;line-height:1.5}
+.signature-login__form{display:flex;flex-direction:column;gap:0}
+.signature-login__labelrow{display:flex;align-items:center;justify-content:space-between;gap:12px;margin-bottom:8px}
+.signature-login__label{color:#e0e9f4;font-size:12px;font-weight:700}
+.signature-login__field{position:relative;margin-bottom:18px}
+.signature-login__input{
+  display:block;width:100%;height:48px;padding:0 46px 0 15px;
+  border:1px solid #91a9c080;border-radius:10px;outline:0;background:#172b41c4;
+  color:#f8fbff;font:500 13px Inter,-apple-system,BlinkMacSystemFont,"Segoe UI",sans-serif;
+  box-shadow:inset 0 1px #ffffff09;transition:border-color .2s,box-shadow .2s,background-color .2s;
+}
+.signature-login__input::placeholder{color:#a1b4c8}
+.signature-login__input:focus{
+  background:#1a3045;border-color:var(--signature-gold);box-shadow:0 0 0 3px #e9ca9624;
+}
+.signature-login__field-icon{position:absolute;right:15px;top:15px;color:#acbfd0;pointer-events:none}
+.signature-login__forgot{
+  color:#f1d29e;font-size:11px;font-weight:680;text-decoration:none;white-space:nowrap;padding:2px 0;
+}
+.signature-login__forgot:hover{text-decoration:underline}
+.signature-login__toggle{
+  display:grid;place-items:center;position:absolute;right:7px;top:6px;width:36px;height:36px;
+  padding:0;border:0;border-radius:8px;background:transparent;color:#c4d4e3;cursor:pointer;
+}
+.signature-login__toggle:hover{background:#ffffff17}
+.signature-login__submit{
+  display:flex;align-items:center;justify-content:center;gap:11px;width:100%;height:48px;
+  margin-top:2px;padding:0 15px;border:0;border-radius:10px;
+  background:linear-gradient(115deg,#f6e6cb,#e0bc83);color:#152539;
+  font:800 13px Inter,-apple-system,BlinkMacSystemFont,"Segoe UI",sans-serif;
+  cursor:pointer;box-shadow:0 9px 25px #e4c38e1f;
+  transition:transform .2s,box-shadow .2s,filter .2s;
+}
+.signature-login__submit:not(:disabled):hover{
+  transform:translateY(-2px);filter:brightness(1.04);box-shadow:0 13px 30px #e4c38e36;
+}
+.signature-login__submit:disabled{opacity:.75;cursor:wait}
+.signature-login__submit svg:last-child{transition:transform .2s}
+.signature-login__submit:not(:disabled):hover svg:last-child{transform:translateX(3px)}
+.signature-login button:focus-visible,.signature-login a:focus-visible{
+  outline:3px solid #b2d2ff;outline-offset:3px;
+}
+.signature-login__error{margin:0 0 13px;color:#ffd5d1;font-size:12px;line-height:1.5}
+.signature-login__secure{
+  display:flex;align-items:center;justify-content:center;gap:8px;
+  margin:17px 0 0;color:#a8bbce;font-size:11px;
+}
+.signature-login__footer{
+  width:min(100%,1500px);margin:0 auto;
+  padding:0 clamp(24px,5.6vw,90px) clamp(18px,3vh,30px);
+  flex:none;display:flex;align-items:center;justify-content:space-between;gap:12px;
+  color:#a4b8ca;font-size:10px;
+}
+.signature-login__credit strong{font-weight:750;color:#e4c797}
+.signature-login__version{
+  color:#92a9bf;font-size:9px;font-weight:600;letter-spacing:.04em;
+  text-align:right;white-space:nowrap;font-variant-numeric:tabular-nums;
+}
+.signature-login__art{
+  position:relative;justify-self:center;display:grid;place-items:center;
+  width:min(100%,490px);height:min(73vh,480px);min-height:305px;
+  pointer-events:none;perspective:1000px;
+  animation:signature-art-reveal 1.05s .22s both;
+}
+.signature-login__aura{
+  position:absolute;width:94%;aspect-ratio:1;border-radius:50%;
+  background:radial-gradient(circle,#437ba652,#2959831b 40%,transparent 69%);filter:blur(9px);
+}
+.signature-login__orbit{
+  position:absolute;width:min(95%,405px);aspect-ratio:1;
+  border:1px solid #abd3ed20;border-radius:50%;animation:signature-breathe 10s ease-in-out infinite;
+}
+.signature-login__orbit::before{
+  content:"";position:absolute;inset:-19px;border:1px dashed #e9ca9628;
+  border-radius:50%;animation:signature-spin 100s linear infinite;
+}
+.signature-login__orbit::after{
+  content:"";position:absolute;inset:60px;border:1px solid #b9d9f21d;border-radius:50%;
+}
+.signature-login__plinth{
+  position:absolute;bottom:17px;left:50%;width:250px;height:37px;
+  transform:translateX(-50%);background:#6aa2c83d;border-radius:50%;filter:blur(24px);
+}
+.signature-login__sculpture{
+  position:relative;width:min(68%,286px);aspect-ratio:288/324;
+  transform-style:preserve-3d;animation:signature-float 7s ease-in-out infinite;
+}
+.signature-login__layer{
+  position:absolute;inset:3% 4%;overflow:hidden;border-radius:24px;
+  transform:rotateY(-23deg) rotateX(8deg) rotateZ(-8deg);
+}
+.signature-login__layer--back{
+  transform:translate(25px,-18px) rotateY(-23deg) rotateX(8deg) rotateZ(-8deg);
+  background:linear-gradient(145deg,#2b4c64,#101e2e);border:1px solid #c2e5ff66;
+  box-shadow:15px 15px 44px #0009;
+}
+.signature-login__layer--middle{
+  transform:translate(12px,-7px) rotateY(-23deg) rotateX(8deg) rotateZ(-8deg);
+  background:linear-gradient(140deg,#315f81,#122237);border:1px solid #9dc6e484;box-shadow:15px 18px 46px #0008;
+}
+.signature-login__layer--front{
+  display:grid;place-items:center;
+  background:radial-gradient(ellipse at 82% 20%,#5787aa4f,transparent 54%),
+  linear-gradient(155deg,#284a68,#112036 68%,#172b43);
+  border:1px solid #c3e5f4ad;
+  box-shadow:inset 0 1px #ffffff36,inset -15px -14px 38px #0009,0 20px 65px #0009;
+}
+.signature-login__layer--front::before{
+  content:"";position:absolute;inset:0;
+  background:repeating-linear-gradient(0deg,transparent 0 37px,#aed6f10a 38px),
+  repeating-linear-gradient(90deg,transparent 0 37px,#aed6f10a 38px);
+}
+.signature-login__layer--front::after{
+  content:"";position:absolute;top:0;left:12%;width:80%;height:1px;
+  background:linear-gradient(90deg,transparent,#f3dbafbd,transparent);
+}
+.signature-login__hero-mark{
+  position:relative;z-index:1;width:59%;height:auto;filter:drop-shadow(0 0 18px #e9ca9652);
+}
+.signature-login__hero-mark path{
+  stroke-dasharray:345;stroke-dashoffset:345;
+  animation:signature-stroke 1.75s .46s cubic-bezier(.5,0,.1,1) forwards;
+}
+.signature-login__plate{
+  position:absolute;bottom:23px;left:22px;z-index:1;color:#c2d7e7;
+  font-size:9px;font-weight:800;letter-spacing:.22em;
+}
+.signature-login__chip{
+  position:absolute;z-index:3;display:grid;place-items:center;width:51px;height:51px;
+  border:1px solid #d3efff48;border-radius:15px;
+  background:linear-gradient(135deg,#2b4c6af0,#14283bf0);
+  box-shadow:inset 0 1px #ffffff24,0 10px 32px #0009;
+  color:#d6eaf9;animation:signature-chip-float 6s ease-in-out infinite;
+}
+.signature-login__chip--building{top:24%;left:3%}
+.signature-login__chip--documents{top:49%;right:0;animation-delay:-1.8s}
+.signature-login__chip--people{bottom:13%;left:11%;animation-delay:-3.6s}
+@keyframes signature-reveal{
+  from{opacity:0;transform:translateY(18px)}to{opacity:1;transform:translateY(0)}
+}
+@keyframes signature-art-reveal{
+  from{opacity:0;transform:translateY(12px) scale(.94)}
+  to{opacity:1;transform:translateY(0) scale(1)}
+}
+@keyframes signature-stroke{to{stroke-dashoffset:0}}
+@keyframes signature-float{
+  0%,100%{transform:translate3d(0,5px,0)}50%{transform:translate3d(0,-9px,0)}
+}
+@keyframes signature-chip-float{
+  0%,100%{transform:translateY(0)}50%{transform:translateY(-9px)}
+}
+@keyframes signature-breathe{
+  0%,100%{transform:scale(.98)}50%{transform:scale(1.035)}
+}
+@keyframes signature-spin{to{transform:rotate(360deg)}}
+@media(max-width:980px){
+  .signature-login__main{grid-template-columns:minmax(0,1fr) minmax(0,.82fr);gap:10px}
+  .signature-login__art{width:100%}
+  .signature-login__chip--building{left:-4%}
+  .signature-login__chip--documents{right:-4%}
+}
+@media(max-width:700px){
+  .signature-login{height:auto;min-height:100dvh;overflow-x:hidden;overflow-y:auto}
+  .signature-login__header{padding:24px 7% 0}
+  .signature-login__main{display:flex;align-items:center;justify-content:center;flex:1;padding:32px 7% 30px}
+  .signature-login__auth{width:min(100%,410px);margin:auto}
+  .signature-login__art{display:none}
+  .signature-login__footer{padding:0 7% 22px}
+}
+@media(max-height:650px) and (min-width:701px){
+  .signature-login__auth{padding:4px 0}
+  .signature-login__subtitle{margin-bottom:17px}
+  .signature-login__eyebrow{margin-bottom:10px}
+  .signature-login__field{margin-bottom:12px}
+  .signature-login__secure{margin-top:12px}
+  .signature-login__art{height:min(67vh,410px);min-height:250px}
+  .signature-login__footer{padding-bottom:14px}
+}
+@media(max-height:500px) and (min-width:701px){
+  .signature-login{overflow-y:auto}
+  .signature-login__main{min-height:420px}
+}
+@media(prefers-reduced-motion:reduce){
+  .signature-login *,.signature-login *::before,.signature-login *::after{
+    animation:none!important;transition:none!important;
+  }
+  .signature-login__hero-mark path,.signature-login__brand-mark path{stroke-dashoffset:0}
+}
