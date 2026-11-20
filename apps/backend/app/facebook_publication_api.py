@@ -432,6 +432,9 @@ def analyze_comment(record_id: str, comment_id: str,
     # Las reglas de protección tienen prioridad frente al modelo.
     if category in {"negative", "interested"} and strength >= 80 and ai_category != category:
         ai_category = category
+    # El análisis puede tardar: no sobrescribir una corrección humana realizada
+    # mientras el modelo respondía.
+    db.refresh(comment)
     if comment.classification_source != "manual":
         comment.classification = ai_category
         comment.classification_score = 0  # Sin probabilidades calibradas
