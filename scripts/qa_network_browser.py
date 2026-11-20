@@ -164,9 +164,22 @@ def main():
             login(resident, resident_email)
             expect(resident.locator(".nw-kpis")).to_be_visible()
             expect(resident.get_by_text("Actualizando información compartida…", exact=True)).not_to_be_visible()
+            # UI real de residentes: panel lateral con la misma estética premium.
+            aside_style = resident.locator(".nw-feed-aside-card").evaluate(
+                "(el) => ({padding: parseFloat(getComputedStyle(el).paddingLeft), radius: parseFloat(getComputedStyle(el).borderTopLeftRadius)})"
+            )
+            assert aside_style["padding"] >= 12 and aside_style["radius"] >= 10, aside_style
             resident.screenshot(path=str(args.output / "residente.png"), full_page=True)
             resident.set_viewport_size({"width": 390, "height": 844})
             assert resident.evaluate("document.documentElement.scrollWidth <= window.innerWidth")
+            grid_cols = resident.locator(".nw-feed-kpis").evaluate(
+                "(el) => getComputedStyle(el).gridTemplateColumns.split(' ').length"
+            )
+            assert grid_cols == 2, ("KPIs móviles de residentes", grid_cols)
+            trigger_width = resident.locator(".galancito-trigger").evaluate(
+                "(el) => el.getBoundingClientRect().width"
+            )
+            assert trigger_width <= 55, ("Galancito móvil invade la pantalla", trigger_width)
             resident.screenshot(path=str(args.output / "movil.png"), full_page=True)
             assert not errors, errors
             assert not failures, failures
