@@ -68,6 +68,32 @@ def main():
         admin_ctx, admin = context()
         login(admin, email)
 
+        # Premium UI: la barra lateral debe ampliar sobre el contenido, no moverlo.
+        def shell_geometry():
+            return admin.evaluate("""() => {
+              const aside = document.querySelector(".platform .sidebar");
+              const main = document.querySelector(".platform .main");
+              return {
+                aside: aside?.getBoundingClientRect().width,
+                mainLeft: main?.getBoundingClientRect().left,
+                scrollWidth: document.documentElement.scrollWidth,
+                innerWidth: innerWidth
+              };
+            }""")
+
+        admin.mouse.move(1100, 300)
+        rail_before = shell_geometry()
+        assert rail_before["aside"] is not None and rail_before["aside"] <= 85, rail_before
+        assert rail_before["scrollWidth"] <= rail_before["innerWidth"], rail_before
+        admin.locator(".platform .sidebar").hover(position={"x":28, "y":45})
+        rail_open = shell_geometry()
+        assert rail_open["aside"] is not None and rail_open["aside"] >= 230, rail_open
+        assert abs(rail_open["mainLeft"] - rail_before["mainLeft"]) <= 1, (rail_before, rail_open)
+        admin.mouse.move(1100, 300)
+        rail_after = shell_geometry()
+        assert rail_after["aside"] is not None and rail_after["aside"] <= 85, rail_after
+        assert abs(rail_after["mainLeft"] - rail_before["mainLeft"]) <= 1, (rail_before, rail_after)
+
         def api(ctx, path):
             result = ctx.request.get(args.url + root + path)
             assert result.ok, (path, result.status, result.text())
