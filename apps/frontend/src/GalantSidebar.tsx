@@ -40,7 +40,7 @@ export function GalantSidebar({
     </div>
     <p className="sidebar-label">ORGANIZACIÓN COMPARTIDA</p>
     <nav aria-label="Navegación principal">
-      {groups.map(group => <div className="nav-group" key={group.title}>
+      {groups.map(group => <div className="nav-group" role="group" aria-label={group.title} key={group.title}>
         <p className="nav-group-title">{group.title}</p>
         {group.ids.map(id => {
           const entry = entries.find(([key]) => key === id);
