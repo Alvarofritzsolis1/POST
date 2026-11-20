@@ -148,7 +148,6 @@ services:
       DATABASE_URL: postgresql+psycopg://galant:${POSTGRES_PASSWORD}@db:5432/galant
       AI_CREDENTIAL_ENCRYPTION_KEY: ${AI_CREDENTIAL_ENCRYPTION_KEY:-}
       GALANCITO_MEMORY_RESERVE_MB: ${GALANCITO_MEMORY_RESERVE_MB:-1536}
-      NO_PROXY: localhost,127.0.0.1,db,galancito-training-ollama
     depends_on: {db: {condition: service_healthy}}
     networks: [internal, galancito-egress]
     security_opt: [no-new-privileges:true]

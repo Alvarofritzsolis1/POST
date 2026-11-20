@@ -14,7 +14,7 @@ from pathlib import Path
 from contextvars import ContextVar
 from threading import BoundedSemaphore
 from urllib.error import HTTPError, URLError
-from urllib.request import HTTPRedirectHandler, Request, build_opener
+from urllib.request import HTTPRedirectHandler, ProxyHandler, Request, build_opener
 from .config import settings
 
 MODEL = "qwen3:1.7b"
@@ -28,7 +28,8 @@ class NoRedirect(HTTPRedirectHandler):
         raise URLError("Ollama no debe redirigir consultas")
 
 
-_opener = build_opener(NoRedirect)
+# Ollama is reachable only through the private network. Ignore ambient egress proxies.
+_opener = build_opener(ProxyHandler({}), NoRedirect)
 _slot = BoundedSemaphore(1)
 last_timings: ContextVar[dict] = ContextVar("galancito_timings", default={})
 
