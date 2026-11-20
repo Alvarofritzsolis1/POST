@@ -149,7 +149,7 @@ function App() {
     [notice, setNotice] = useState(""),
     [hash, setHash] = useState(window.location.hash),
     [mobileOpen, setMobileOpen] = useState(false),
-    [sidebarCollapsed, setSidebarCollapsed] = useState(() => window.localStorage.getItem("galant-sidebar-pinned") !== "true"),
+    [sidebarCollapsed] = useState(true),
     [sidebarHovered, setSidebarHovered] = useState(false),
     [loading, setLoading] = useState(false),
     [search, setSearch] = useState(""),
@@ -210,7 +210,8 @@ function App() {
   const automationReturnRef = useRef("javiera");
   const sectionRef = useRef(section);
   sectionRef.current = section;
-  useEffect(() => { window.localStorage.setItem("galant-sidebar-pinned", String(!sidebarCollapsed)); }, [sidebarCollapsed]);
+  // La preferencia antigua de menú fijo no debe anular el comportamiento automático.
+  useEffect(() => { window.localStorage.removeItem("galant-sidebar-pinned"); }, []);
   useEffect(() => {
     const routeChanged = () => {
       const next = sectionFromLocation();
@@ -529,22 +530,33 @@ function App() {
         collapsed={sidebarCollapsed} preview={sidebarHovered} touch={touchNavigation}
         organization={profile?.organization} version={version} revision={revision}
         navigate={go} onEnter={openSidebarOnHover} onLeave={closeSidebarAfterDelay}
-        togglePin={() => {clearSidebarTimer();setSidebarHovered(false);setSidebarCollapsed(value => !value);}}
       />
       {mobileOpen && <button type="button" className="v91-menu-backdrop" aria-label="Cerrar menú de navegación" onClick={() => setMobileOpen(false)} />}
       <main className="main">
         <header className="topbar">
           <button
             className="icon-button menu-toggle"
-            aria-label={mobileOpen ? "Cerrar menú" : touchNavigation ? "Expandir menú" : sidebarCollapsed ? "Fijar menú abierto" : "Contraer menú automáticamente"}
-            title={touchNavigation ? "Menú de navegación" : sidebarCollapsed ? "Fijar menú abierto" : "Activar contracción automática"}
-            aria-expanded={touchNavigation ? mobileOpen : !sidebarCollapsed || sidebarHovered}
+            aria-label={touchNavigation ? (mobileOpen ? "Cerrar menú" : "Abrir menú") : (sidebarHovered ? "Cerrar menú lateral" : "Abrir menú lateral")}
+            title={touchNavigation ? "Menú de navegación" : "Menú lateral automático"}
+            aria-expanded={touchNavigation ? mobileOpen : sidebarHovered}
+            aria-controls="galant-sidebar"
             onClick={() => {
-              if (touchNavigation) setMobileOpen((value) => !value);
-              else { clearSidebarTimer(); setSidebarHovered(false); setSidebarCollapsed((value) => !value); }
+              if (touchNavigation) { setMobileOpen(value => !value); return; }
+              clearSidebarTimer();
+              sidebarNavigationLock.current = false;
+              if (sidebarHovered) {
+                setSidebarHovered(false);
+              } else {
+                setSidebarHovered(true);
+                // La apertura con botón es temporal si no se entra al menú.
+                sidebarHoverTimer.current = setTimeout(() => {
+                  setSidebarHovered(false);
+                  sidebarHoverTimer.current = null;
+                }, 2400);
+              }
             }}
           >
-            {mobileOpen ? <PanelLeftClose /> : touchNavigation ? <Menu /> : sidebarCollapsed ? <PanelLeftOpen /> : <Menu />}
+            {mobileOpen || (!touchNavigation && sidebarHovered) ? <PanelLeftClose /> : touchNavigation ? <Menu /> : <PanelLeftOpen />}
           </button>
           <strong>GALANT POST</strong>
           <div className="v15-quicknav" role="search">
@@ -620,7 +632,7 @@ function App() {
           </button>
           <div className="v16-account-cluster">
             <NetworkAccountMenu user={user} logout={() => void logout()} openNetwork={() => go("network")} openSettings={() => go("settings")} />
-            {user.role === "admin" && section !== "settings" && <button type="button" className="v16-automation-entry" onClick={() => go("javiera_config")} title="Editar documentos, matrices y reglas de JAVIERA" aria-label="Configuración de automatización"><SettingsIcon size={16} /> <span>Configuración de automatización</span></button>}
+            {user.role === "admin" && section === "javiera" && <button type="button" className="v16-automation-entry" onClick={() => go("javiera_config")} title="Editar documentos, matrices y reglas de JAVIERA" aria-label="Configuración de automatización"><SettingsIcon size={16} /> <span>Configuración de automatización</span></button>}
           </div>
         </header>
         <div className="page galant-page-view" key={section}>
