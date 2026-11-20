@@ -532,6 +532,26 @@ def main():
             assert composer["y"] + composer["height"] <= height + 8, (
                 f"El usuario debe bajar para enviar en {width}x{height}: {composer}"
             )
+            # La burbuja global no debe cubrir el envío ni la sugerencia.
+            assist = fb_page.locator(".galancito-trigger")
+            if assist.is_visible():
+                trigger = assist.bounding_box()
+                send_button = fb_page.locator(".fbc-composer button[type='submit']").bounding_box()
+                suggest_button = fb_page.get_by_role("button", name="Sugerir respuesta").bounding_box()
+                assert trigger and send_button and suggest_button
+                def overlaps(left, right):
+                    return (
+                        left["x"] < right["x"] + right["width"]
+                        and left["x"] + left["width"] > right["x"]
+                        and left["y"] < right["y"] + right["height"]
+                        and left["y"] + left["height"] > right["y"]
+                    )
+                assert not overlaps(trigger, send_button), (
+                    f"El acceso flotante a Galancito tapa Enviar en {width}x{height}"
+                )
+                assert not overlaps(trigger, suggest_button), (
+                    f"El acceso flotante a Galancito tapa Sugerir respuesta en {width}x{height}"
+                )
             assert fb_page.evaluate(
                 "document.documentElement.scrollWidth <= window.innerWidth + 2"
             ), f"Desbordamiento horizontal en Facebook: {width}x{height}"
