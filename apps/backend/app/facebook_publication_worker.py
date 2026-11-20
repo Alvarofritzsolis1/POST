@@ -205,7 +205,11 @@ def _run(job: FacebookPostJob, post: NetworkFacebookPost, session_factory=Sessio
             result = json.loads(response.read(16384).decode("utf-8"))
         if not isinstance(result, dict) or not isinstance(result.get("message_id"), str):
             raise ValueError("Meta no confirmó el mensaje privado")
-        return result["message_id"][:140]
+        recipient = str(result.get("recipient_id") or "")
+        # Only the PSID returned by Meta may link to Messenger, never a public
+        # commenter ID or a name similarity.
+        return (result["message_id"][:140],
+                recipient if re.fullmatch(r"[0-9]{5,90}", recipient) else "")
     if job.action in {"hide", "unhide"}:
         result = graph("POST", job.comment_id, payload={
             "is_hidden": "true" if job.action == "hide" else "false"})
@@ -280,9 +284,13 @@ def process_publication_next(session_factory=SessionLocal) -> bool:
         job.state, job.updated_at = "sending", utcnow()
         remote_post = post  # ORM object still accessible after commit
 
-    result_id, error, uncertain = "", "", False
+    result_id, recipient_psid, error, uncertain = "", "", "", False
     try:
-        result_id = _run(job, remote_post, session_factory)
+        confirmed = _run(job, remote_post, session_factory)
+        if isinstance(confirmed, tuple):
+            result_id, recipient_psid = confirmed
+        else:
+            result_id = confirmed
     except HTTPError as exc:
         error = meta_http_error(exc)[:350]
     except (URLError, TimeoutError, OSError, ValueError, UnicodeError) as exc:
@@ -307,6 +315,7 @@ def process_publication_next(session_factory=SessionLocal) -> bool:
                                                "failed" if error else "sent")
                 if not error:
                     comment.private_reply_at = utcnow()
+                    comment.messenger_psid = recipient_psid
                     comment.can_reply_privately = False
         if not error:
             if current.action in {"hide", "unhide"}:
