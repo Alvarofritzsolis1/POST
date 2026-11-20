@@ -369,6 +369,11 @@ html[data-theme="dark"] :is(.platform, .nw-resident-shell) .nw-portal .nw-headin
     justify-content:center; gap:0; border-radius:50%;
   }
   .galancito .galancito-trigger > span {display:none;}
+  /* Keep quick actions outside the mobile assistant's floating hit area. */
+  :is(.platform,.nw-resident-shell) .nw-portal .nw-section-title > .nw-text-button,
+  :is(.platform,.nw-resident-shell) .nw-portal .nw-card-footer > .nw-text-button {
+    margin-inline-end:54px;
+  }
 }
 /* Accessible motion and responsive constraints. */
 @media (max-width: 1180px) {
