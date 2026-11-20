@@ -650,9 +650,9 @@ function App() {
                 </div>
                 <nav className="galant-home-shortcuts" aria-label="Accesos directos">
                   <button type="button" aria-label="Abrir Red de Obras" onClick={() => go("network")}><Network size={16} /> Red de Obras</button>
-                  <button type="button" onClick={() => go("contractors")}><Building2 size={16} /> Contratistas</button>
-                  <button type="button" onClick={() => go("workers")}><Users size={16} /> Trabajadores</button>
-                  <button type="button" onClick={() => go("documents")}><FileCheck2 size={16} /> Documentos</button>
+                  <button type="button" aria-label="Abrir Contratistas" onClick={() => go("contractors")}><Building2 size={16} /> Contratistas</button>
+                  <button type="button" aria-label="Abrir Trabajadores" onClick={() => go("workers")}><Users size={16} /> Trabajadores</button>
+                  <button type="button" aria-label="Abrir Documentos" onClick={() => go("documents")}><FileCheck2 size={16} /> Documentos</button>
                 </nav>
               </section>
               {laborAlerts && <section className="panel dashboard-alerts" aria-labelledby="dashboard-alerts-title">
