@@ -1063,6 +1063,7 @@ export default function FacebookCenter({ catalog }: { catalog: Catalog }) {
         setNotice("Sincronización solicitada; espera la confirmación de Meta.");
       }}
       onOpenInbox={() => setTab("inbox")}
+      onOpenLead={(leadId) => { setSelectedId(leadId); setTab("inbox"); }}
     />}
     {tab === "testing" && <NetworkFacebook catalog={catalog} />}
     {tab === "pending" && <section className="fbc-pending">
