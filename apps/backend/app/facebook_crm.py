@@ -36,6 +36,7 @@ from .facebook_crm_models import (FacebookLead, FacebookChatMessage, FacebookTra
 from .models import Organization, User, utcnow
 from .network_facebook import public_message
 from .network_models import NetworkFacebookPost, NetworkFacebookManual, NetworkRequirement
+from .facebook_publication_models import FacebookPostSnapshot
 from .network_service import key, today
 from .galancito_triage import classify_lead, dashboard
 from .security import administrator
@@ -688,6 +689,13 @@ def center(user: User = Depends(administrator), db: Session = Depends(get_db)):
             NetworkRequirement.id.in_(requirement_ids),
         ))
     } if requirement_ids else {}
+    # Resumen de interacción en una única consulta: sin llamadas a Meta
+    # ni consultas por publicación en el GET del panel.
+    snapshots_by_post = {
+        snap.post_record_id: snap for snap in db.scalars(select(FacebookPostSnapshot).where(
+            FacebookPostSnapshot.org_id == user.org_id,
+            FacebookPostSnapshot.post_record_id.in_([row.id for row in rows])))
+    } if rows else {}
     for row in rows:
         req = requirements_by_id.get(row.requirement_id)
         if req:
@@ -698,6 +706,10 @@ def center(user: User = Depends(administrator), db: Session = Depends(get_db)):
                                  if row.post_id and re.fullmatch(r"[0-9]+_[0-9]+", row.post_id) else None),
                     "updated_at": row.updated_at.isoformat(),
                     "attempts": row.attempts}
+            snap = snapshots_by_post.get(row.id)
+            item["comment_count"] = snap.comment_count if snap else None
+            item["reaction_count"] = snap.reaction_count if snap else None
+            item["share_count"] = snap.share_count if snap else None
             publications.append(item)
             if row.state in ("pending", "sending", "failed", "uncertain"):
                 ads.append(item)
