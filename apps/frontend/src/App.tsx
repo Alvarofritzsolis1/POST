@@ -142,7 +142,7 @@ function App() {
     [notice, setNotice] = useState(""),
     [hash, setHash] = useState(window.location.hash),
     [mobileOpen, setMobileOpen] = useState(false),
-    sidebarCollapsed = true,
+    [sidebarCollapsed, setSidebarCollapsed] = useState(true),
     [loading, setLoading] = useState(false),
     [search, setSearch] = useState(""),
     [quickNav, setQuickNav] = useState(""),
@@ -455,6 +455,7 @@ function App() {
     <div className={"shell platform " + (mobileOpen ? "menu-open" : "") + (sidebarCollapsed ? " sidebar-collapsed" : "")}>
       <aside className="sidebar"
         onMouseLeave={() => {
+          setSidebarCollapsed(true);
           // Un click de ratón no debe mantener abierto el panel al salir;
           // se conserva el foco visible para quienes navegan con teclado.
           const focused = document.activeElement;
@@ -514,7 +515,10 @@ function App() {
             aria-expanded={mobileOpen ? true : undefined}
             onClick={() => {
               if (window.matchMedia("(max-width: 760px)").matches) setMobileOpen((value) => !value);
-              else document.querySelector<HTMLButtonElement>(".platform .sidebar .nav-item")?.focus();
+              else {
+                setSidebarCollapsed(false);
+                document.querySelector<HTMLButtonElement>(".platform .sidebar .nav-item")?.focus();
+              }
             }}
           >
             <Menu />
