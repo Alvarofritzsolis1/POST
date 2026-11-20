@@ -1,4 +1,4 @@
-import { Building2, Pin, PinOff } from "lucide-react";
+import { Building2 } from "lucide-react";
 import type { LucideIcon } from "lucide-react";
 
 export type SidebarEntry = readonly [id: string, label: string, icon: LucideIcon];
@@ -6,7 +6,7 @@ export type SidebarGroup = Readonly<{ title: string; ids: readonly string[] }>;
 
 export function GalantSidebar({
   entries, groups, selected, collapsed, preview, touch,
-  organization, version, revision, navigate, togglePin, onEnter, onLeave,
+  organization, version, revision, navigate, onEnter, onLeave,
 }: {
   entries: readonly SidebarEntry[];
   groups: readonly SidebarGroup[];
@@ -18,25 +18,24 @@ export function GalantSidebar({
   version?: string | null;
   revision?: string | null;
   navigate: (id: string) => void;
-  togglePin: () => void;
   onEnter: () => void;
   onLeave: () => void;
 }) {
-  return <aside className="sidebar" aria-label="Menú lateral de GALANT"
+  return <aside id="galant-sidebar" className="sidebar" aria-label="Menú lateral de GALANT"
     onMouseEnter={onEnter} onMouseLeave={onLeave}
     onFocusCapture={onEnter}
     onBlurCapture={(event) => {
       if (!event.currentTarget.contains(event.relatedTarget as Node | null)) onLeave();
+    }}
+    onKeyDown={(event) => {
+      if (event.key === "Escape" && preview) {
+        onLeave();
+        document.querySelector<HTMLButtonElement>(".topbar .menu-toggle")?.focus();
+      }
     }}>
     <div className="brand galant-brand">
       <span className="galant-brand-symbol" aria-hidden="true"><Building2 size={23} /></span>
       <div><b>GALANT<span className="galant-brand-post"> POST</span></b><small>Gestión de contratistas</small></div>
-      <button type="button" className="galant-sidebar-pin"
-        title={collapsed ? "Fijar menú abierto" : "Usar menú automático"}
-        aria-label={collapsed ? "Fijar menú abierto" : "Activar contracción automática"}
-        aria-pressed={!collapsed} onClick={togglePin}>
-        {collapsed ? <Pin size={16} aria-hidden="true" /> : <PinOff size={16} aria-hidden="true" />}
-      </button>
     </div>
     <p className="sidebar-label">ORGANIZACIÓN COMPARTIDA</p>
     <nav aria-label="Navegación principal">
