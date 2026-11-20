@@ -162,9 +162,16 @@ def refresh(db, post: NetworkFacebookPost) -> None:
                         (host == "facebook.com" or host.endswith(".facebook.com")
                          or host == "fbcdn.net" or host.endswith(".fbcdn.net"))):
                     found.author_picture_url = picture_url
+            previous_body = found.body
             found.body = str(raw.get("message") or "")[:6000]
+            if previous_body != found.body and found.classification_source == "ai":
+                found.classification_source = "rules"  # El análisis anterior quedó obsoleto
             if found.classification_source not in {"manual", "ai"}:
-                found.classification, found.classification_score = classify_comment(found.body)
+                category, strength = classify_comment(found.body)
+                if (found.classification != category or found.classification_score != strength
+                        or found.classified_at is None):
+                    found.classified_at = now
+                found.classification, found.classification_score = category, strength
                 found.classification_source = "rules"
             found.posted_at = parsed_time(raw.get("created_time"))
             found.can_comment = raw.get("can_comment") is True
