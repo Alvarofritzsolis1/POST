@@ -536,7 +536,7 @@ function App() {
         <header className="topbar">
           <button
             className="icon-button menu-toggle"
-            aria-label={touchNavigation ? (mobileOpen ? "Cerrar menú" : "Abrir menú") : (sidebarHovered ? "Cerrar menú lateral" : "Abrir menú lateral")}
+            aria-label={touchNavigation ? (mobileOpen ? "Cerrar menú" : "Expandir menú") : (sidebarHovered ? "Cerrar menú lateral" : "Expandir menú lateral")}
             title={touchNavigation ? "Menú de navegación" : "Menú lateral automático"}
             aria-expanded={touchNavigation ? mobileOpen : sidebarHovered}
             aria-controls="galant-sidebar"
