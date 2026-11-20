@@ -170,7 +170,7 @@ function App() {
   // El contenido tiene prioridad al desplazarse; el menú flotante se repliega.
   // Evita tapar fichas y controles durante un scroll (especialmente a 768-900 px).
   useEffect(() => {
-    if (!sidebarCollapsed) return;
+    if (!sidebarCollapsed || !sidebarHovered) return;
     const closePeekOnScroll = () => {
       sidebarNavigationLock.current = true;
       clearSidebarTimer();
@@ -178,7 +178,7 @@ function App() {
     };
     window.addEventListener("scroll", closePeekOnScroll, {passive: true});
     return () => window.removeEventListener("scroll", closePeekOnScroll);
-  }, [sidebarCollapsed]);
+  }, [sidebarCollapsed, sidebarHovered]);
 
   const [touchNavigation, setTouchNavigation] = useState(() => window.matchMedia("(max-width: 760px), (hover: none) and (pointer: coarse)").matches);
   useEffect(() => {
