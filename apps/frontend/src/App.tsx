@@ -142,7 +142,7 @@ function App() {
     [notice, setNotice] = useState(""),
     [hash, setHash] = useState(window.location.hash),
     [mobileOpen, setMobileOpen] = useState(false),
-    [sidebarCollapsed, setSidebarCollapsed] = useState(true),
+    sidebarCollapsed = true,
     [loading, setLoading] = useState(false),
     [search, setSearch] = useState(""),
     [quickNav, setQuickNav] = useState(""),
