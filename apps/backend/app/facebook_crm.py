@@ -51,7 +51,7 @@ from .galancito_memory import (
 )
 from .galancito_contact_profile import contact_profile
 from .galancito_conversation_summary import (
-    summarize_conversation, safe_model_input, validate_ai_brief,
+    summarize_conversation, safe_model_input, validate_ai_brief, brief_contains_private_data,
 )
 from .galancito_phone import (QUESTION as CONTACT_PHONE_QUESTION, normalize_mobile,
                               remember_shared_phone, phone_question_when_agreed,
@@ -1037,9 +1037,10 @@ def generate_conversation_brief(lead_id: str, user: User = Depends(administrator
     if brief["ai"] or not brief["ai_eligible"] or not brief["evidence"]:
         return brief
     source = messenger_ai_source(db, lead.org_id)
-    data = safe_model_input(brief)
-    if private_data(data):
+    # Check only human-readable content. Internal IDs may look like RUT/phone numbers.
+    if brief_contains_private_data(brief):
         return brief
+    data = safe_model_input(brief)
     try:
         if source == "team":
             raw = infer(db, lambda: orchestrated_text(
