@@ -1196,3 +1196,53 @@ def test_consented_ai_brief_has_existing_evidence_and_is_cached(network, monkeyp
     assert n["send"](n["admin"], "/facebook/leads/"+lead_id+"/conversation-brief").json()["ai"]["evidence_ids"]
     assert len(calls)==1
     assert n["admin"].get(url).json()["ai"]["source"]=="ia_con_evidencia"
+
+
+def test_facebook_center_bulk_publication_joins_no_query_per_post(network):
+    """Dashboard with many publication rows never triggers N+1 requirement SELECTs."""
+    from sqlalchemy import event
+    from app.network_models import NetworkFacebookPost
+    from test_network import request_body
+    n = network
+    created = n["send"](n["a"], "/requirements", request_body(n, items=1))
+    assert created.status_code == 201, created.text
+    requirement_id = created.json()["id"]
+    with n["Session"].begin() as db:
+        org_id = db.scalar(select(User.org_id).where(User.email == "admin@network.example.cl"))
+        for i in range(16):
+            db.add(NetworkFacebookPost(
+                org_id=org_id, requirement_id=requirement_id,
+                page_id=f"synthetic-page-{i}", state="published",
+                post_id=f"{i}_{i+10}", target_version=1,
+            ))
+    statements = []
+    def count_queries(_connection, _cursor, statement, _parameters, _context, _executemany):
+        if "network_requirements" in statement.lower():
+            statements.append(statement.lower())
+    event.listen(n["engine"], "before_cursor_execute", count_queries)
+    try:
+        response = n["admin"].get("/api/v1/network/facebook/center")
+    finally:
+        event.remove(n["engine"], "before_cursor_execute", count_queries)
+    assert response.status_code == 200, response.text
+    assert sum(post["requirement_id"] == requirement_id
+               for post in response.json()["publications"]) == 16
+    # One query for selected needs and one for all publication targets.
+    assert len(statements) <= 3, "Expected bulk lookup, not one SQL query per publication"
+
+
+def test_contact_sheet_profile_only_skips_expensive_message_history(network, monkeypatch):
+    n = network
+    enable_messaging(n, monkeypatch)
+    assert incoming(n, text="soy carpintero", mid="profile-perf-1").status_code == 200
+    lead_id = n["admin"].get("/api/v1/network/facebook/center").json()["leads"][0]["id"]
+    uri = "/api/v1/network/facebook/leads/" + lead_id
+    full = n["admin"].get(uri)
+    compact = n["admin"].get(uri+"?include_messages=false")
+    assert full.status_code == 200 and compact.status_code == 200
+    assert len(full.json()["messages"]) == 1
+    assert compact.json()["messages"] == []
+    assert compact.json()["lead"]["id"] == lead_id
+    assert compact.json()["lead"]["specialty"] == full.json()["lead"]["specialty"]
+    assert n["send"](n["a"], "/facebook/leads/"+lead_id+"?include_messages=false",
+                     method="GET").status_code == 403

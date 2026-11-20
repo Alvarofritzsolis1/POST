@@ -123,7 +123,7 @@ export default function FacebookPersonSheet({person,onClose,onChanged,onOpenChat
   },[onClose]);
   async function reload(){
     const [detail,insight,history,snapshot]=await Promise.all([
-      net<Detail>("/facebook/leads/"+person.id),
+      net<Detail>("/facebook/leads/"+person.id+"?include_messages=false"),
       net<Insights>("/facebook/leads/"+person.id+"/insights").catch(()=>null),
       net<Trace[]>("/facebook/leads/"+person.id+"/trace").catch(()=>[]),
       net<Brief>("/facebook/leads/"+person.id+"/conversation-brief").catch(()=>null),
@@ -137,7 +137,7 @@ export default function FacebookPersonSheet({person,onClose,onChanged,onOpenChat
   useEffect(()=>{
     let enabled=true;
     Promise.all([
-      net<Detail>("/facebook/leads/"+person.id),
+      net<Detail>("/facebook/leads/"+person.id+"?include_messages=false"),
       net<Insights>("/facebook/leads/"+person.id+"/insights").catch(()=>null),
       net<Trace[]>("/facebook/leads/"+person.id+"/trace").catch(()=>[]),
     ]).then(([detail,insight,history])=>{
@@ -151,10 +151,16 @@ export default function FacebookPersonSheet({person,onClose,onChanged,onOpenChat
   useEffect(()=>{
     let active=true;
     setBrief(null);setBriefLoading(true);setBriefError("");setSummaryBusy(false);
-    const loadSummary = () => net<Brief>("/facebook/leads/"+person.id+"/conversation-brief")
+    let briefRequestActive=false;
+    const loadSummary = () => {
+      if (briefRequestActive || !active || document.hidden) return;
+      briefRequestActive=true;
+      void net<Brief>("/facebook/leads/"+person.id+"/conversation-brief")
       .then(snapshot=>{
         if(!active)return;
-        setBrief(snapshot);setBriefLoading(false);
+        setBrief(previous => previous?.fingerprint === snapshot.fingerprint &&
+          previous.ai?.summary === snapshot.ai?.summary ? previous : snapshot);
+        setBriefLoading(false);
         if(!snapshot.ai_eligible || snapshot.ai || !snapshot.evidence.length)return;
         const attemptKey=person.id+":"+snapshot.fingerprint;
         if(briefAttempts.has(attemptKey))return;
@@ -166,10 +172,16 @@ export default function FacebookPersonSheet({person,onClose,onChanged,onOpenChat
           .then(generated=>{if(active)setBrief(generated);})
           .catch(()=>{if(active)setBriefError("No se pudo generar la interpretación IA. Los datos registrados siguen disponibles.");})
           .finally(()=>{if(active)setSummaryBusy(false);});
-      }).catch(e=>{if(active){setBriefLoading(false);setBriefError(errorText(e));}});
+      }).catch(e=>{if(active){setBriefLoading(false);setBriefError(errorText(e));}})
+      .finally(()=>{briefRequestActive=false;});
+    };
     loadSummary();
-    const timer=window.setInterval(()=>{if(!document.hidden)loadSummary();},15000);
-    return()=>{active=false;window.clearInterval(timer);};
+    const timer=window.setInterval(loadSummary,45000);
+    window.addEventListener("focus",loadSummary);
+    return()=>{
+      active=false;window.clearInterval(timer);
+      window.removeEventListener("focus",loadSummary);
+    };
   },[person.id]);
   async function save(e:FormEvent){
     e.preventDefault();

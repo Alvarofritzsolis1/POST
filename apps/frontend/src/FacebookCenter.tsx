@@ -169,16 +169,27 @@ export default function FacebookCenter({ catalog }: { catalog: Catalog }) {
   const latestInboundRef = useRef<Record<string, string>>({});
   const recheckedProfilesRef = useRef<Set<string>>(new Set());
   const nearBottomRef = useRef(true);
+  const centerPollingRef = useRef(false);
+  const inboxPollingRef = useRef(false);
   const [triageFilter, setTriageFilter] = useState<"all"|"high"|"support"|"unlinked"|"due">("all");
   const [trackingQuery, setTrackingQuery] = useState("");
   selectedIdRef.current = selectedId;
 
-  const refresh = useCallback(async () => {
-    const current = await net<Center>("/facebook/center");
-    setCenter(current);
-    // La lista del centro muestra solo contactos recientes; conservar contactos
-    // abiertos desde Seguimiento aunque no aparezcan entre los primeros 100.
-    setSelectedId((prev) => prev || (current.leads[0]?.id || ""));
+  const refresh = useCallback(async (force = false) => {
+    // An operator's explicit refresh must not be skipped just because an
+    // automatic poll is already underway.
+    if (centerPollingRef.current && !force) return;
+    if (!force) centerPollingRef.current = true;
+    try {
+      const current = await net<Center>("/facebook/center");
+      // Reuse the same object when the server returned no changes. This stops
+      // the entire inbox and tracking tree repainting on every poll.
+      setCenter(previous => previous && JSON.stringify(previous) === JSON.stringify(current)
+        ? previous : current);
+      setSelectedId(prev => prev || (current.leads[0]?.id || ""));
+    } finally {
+      if (!force) centerPollingRef.current = false;
+    }
   }, []);
   // Estado fresco del worker; al finalizar la comprobación desaparece el estado pendiente.
   useEffect(() => {
@@ -220,16 +231,30 @@ export default function FacebookCenter({ catalog }: { catalog: Catalog }) {
     }
   }, []);
   useEffect(() => {
-    void refresh().catch((e) => setError(errorText(e)));
+    let active = true;
     void net<Page<Requirement>>("/requirements?limit=100&offset=0")
-      .then((data) => setRequirements(data.rows.filter((r) => r.state === "published")))
+      .then(data => { if (active) setRequirements(data.rows.filter(r => r.state === "published")); })
       .catch(() => {});
-    const interval = window.setInterval(() => {
-      if (!document.hidden) void refresh().catch(() => {});
-    }, 3000);
-    return () => window.clearInterval(interval);
-  }, [refresh]);
+    return () => { active = false; };
+  }, []);
   useEffect(() => {
+    let active = true;
+    const update = () => {
+      if (active && !document.hidden) void refresh().catch(e => setError(errorText(e)));
+    };
+    update();
+    // Chat messages have their own, smaller poll. The heavier dashboard
+    // snapshot never needs a full reload every three seconds.
+    const interval = window.setInterval(update, tab === "inbox" ? 9000 : 30000);
+    window.addEventListener("focus", update);
+    return () => {
+      active = false;
+      window.clearInterval(interval);
+      window.removeEventListener("focus", update);
+    };
+  }, [refresh, tab]);
+  useEffect(() => {
+    if (tab !== "inbox") return;
     nearBottomRef.current = true;
     void refreshDetail(selectedId).catch((e) => setError(errorText(e)));
     setInsights(null);
@@ -237,7 +262,7 @@ export default function FacebookCenter({ catalog }: { catalog: Catalog }) {
     setReply("");
     setOnboarding(null);
     setTriageNote(null);
-  }, [selectedId, refreshDetail, refreshInsights]);
+  }, [selectedId, tab, refreshDetail, refreshInsights]);
   useEffect(() => {
     if (chatRef.current && nearBottomRef.current) chatRef.current.scrollTop = chatRef.current.scrollHeight;
   }, [selectedId, detail?.lead.id, detail?.messages.length]);
@@ -258,7 +283,8 @@ export default function FacebookCenter({ catalog }: { catalog: Catalog }) {
   useEffect(() => {
     if (!selectedId || tab !== "inbox") return;
     const refreshMessages = async () => {
-      if (document.hidden) return;
+      if (document.hidden || inboxPollingRef.current) return;
+      inboxPollingRef.current = true;
       try {
         const update = await net<Detail>("/facebook/leads/" + selectedId);
         const newestInbound = [...update.messages].reverse().find((m) => m.direction === "inbound")?.id || "";
@@ -276,11 +302,21 @@ export default function FacebookCenter({ catalog }: { catalog: Catalog }) {
           for (const field of editableFields) {
             if (previous.lead[field] !== saved[field]) Object.assign(lead, {[field]: previous.lead[field]});
           }
-          return {...update, lead};
+          // Keep the same React state when no message or profile value changed.
+          const sameMessages = previous.messages.length === update.messages.length &&
+            previous.messages.every((msg, index) => {
+              const next = update.messages[index];
+              return msg.id === next.id && msg.state === next.state &&
+                msg.updated_at === next.updated_at && msg.body === next.body &&
+                msg.error === next.error;
+            });
+          return sameMessages && JSON.stringify(previous.lead) === JSON.stringify(lead)
+            ? previous : {...update, lead};
         });
       } catch { /* No borrar la conversación si hay un fallo temporal de red. */ }
+      finally { inboxPollingRef.current = false; }
     };
-    const interval = window.setInterval(() => { void refreshMessages(); }, 1800);
+    const interval = window.setInterval(() => { void refreshMessages(); }, 3000);
     return () => window.clearInterval(interval);
   }, [selectedId, tab, refreshInsights]);
 
@@ -303,7 +339,7 @@ export default function FacebookCenter({ catalog }: { catalog: Catalog }) {
     try {
       await run();
       if (message) setNotice(message);
-      await refresh();
+      await refresh(true);
       if (tab === "tracking") await refreshTracking();
       if (selectedId) {
         await refreshDetail(selectedId);
@@ -1022,7 +1058,7 @@ export default function FacebookCenter({ catalog }: { catalog: Catalog }) {
           <h3>Estado de publicaciones</h3>
           <p>Revisa envíos, errores y enlaces a Facebook.</p>
         </div>
-        <button type="button" className="nw-btn" onClick={() => void refresh().catch((e) => setError(errorText(e)))} disabled={!!saving}>
+        <button type="button" className="nw-btn" onClick={() => void refresh(true).catch((e) => setError(errorText(e)))} disabled={!!saving}>
           <RefreshCcw size={16} /> Actualizar estados
         </button>
       </div>

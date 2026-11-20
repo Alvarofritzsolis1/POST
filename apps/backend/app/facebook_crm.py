@@ -678,10 +678,18 @@ def center(user: User = Depends(administrator), db: Session = Depends(get_db)):
                        "attempts": 0}
             publications.append(pending)
             ads.append(pending)
+    # Resolve publication targets in one query, never one SELECT per post.
+    # With 200 publications the old pattern produced up to 200 DB roundtrips
+    # on every Facebook dashboard refresh.
+    requirement_ids = {row.requirement_id for row in rows if row.requirement_id}
+    requirements_by_id = {
+        req.id: req for req in db.scalars(select(NetworkRequirement).where(
+            NetworkRequirement.org_id == user.org_id,
+            NetworkRequirement.id.in_(requirement_ids),
+        ))
+    } if requirement_ids else {}
     for row in rows:
-        req = db.scalar(select(NetworkRequirement).where(
-            NetworkRequirement.id == row.requirement_id,
-            NetworkRequirement.org_id == user.org_id))
+        req = requirements_by_id.get(row.requirement_id)
         if req:
             item = {"id": row.id, "requirement_id": req.id, "title": req.title,
                     "specialty": req.specialty, "state": row.state,
@@ -895,13 +903,18 @@ def unlink_contact_need(lead_id: str, requirement_id: str,
 
 @router.get("/leads/{lead_id}")
 def get_lead(lead_id: str, user: User = Depends(administrator),
-             db: Session = Depends(get_db)):
+             db: Session = Depends(get_db),
+             include_messages: bool = Query(default=True)):
     lead = _lead(db, user, lead_id)
-    msgs = list(db.scalars(select(FacebookChatMessage).where(
-        FacebookChatMessage.org_id == user.org_id,
-        FacebookChatMessage.lead_id == lead.id,
-    ).order_by(FacebookChatMessage.created_at.desc(), FacebookChatMessage.id.desc()).limit(200)))
-    msgs.reverse()
+    # The contact sheet needs professional facts, not a 200-message chat
+    # transcript. Inbox calls keep the default and receive all chat messages.
+    msgs = []
+    if include_messages:
+        msgs = list(db.scalars(select(FacebookChatMessage).where(
+            FacebookChatMessage.org_id == user.org_id,
+            FacebookChatMessage.lead_id == lead.id,
+        ).order_by(FacebookChatMessage.created_at.desc(), FacebookChatMessage.id.desc()).limit(200)))
+        msgs.reverse()
     view = _lead_view(db, lead)
     trade_rows = list(db.scalars(select(FacebookLeadTrade).where(
         FacebookLeadTrade.org_id == user.org_id,

@@ -477,6 +477,8 @@ def main():
         fb_ctx.route(fb_root + "center", mock_json(fake_center))
         fb_ctx.route(fb_root + "galancito/seguimiento", mock_json(fake_tracking))
         fb_ctx.route(fb_root + "leads/" + fake_id, mock_json({"lead":fake_lead,"messages":[]}))
+        fb_ctx.route(fb_root + "leads/" + fake_id + "?include_messages=false",
+                     mock_json({"lead":fake_lead,"messages":[]}))
         fb_ctx.route(fb_root + "leads/" + fake_id + "/insights", mock_json({
             "contact_id":fake_id, "next_action":"Confirmar disponibilidad","matches":[],
             "suggestions": [], "missing": [], "source": "reglas_locales",

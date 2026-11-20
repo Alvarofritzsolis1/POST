@@ -59,7 +59,7 @@ import {
 } from "./NetworkForms";
 import { NetworkAccountMenu } from "./NetworkAccounts";
 import { NetworkQuickForm } from "./NetworkQuickForm";
-import FacebookCenter from "./FacebookCenter";
+const FacebookCenter = lazy(() => import("./FacebookCenter"));
 import GalancitoWidget from "./GalancitoWidget";
 import {
   Badge,
@@ -176,7 +176,39 @@ export default function RedDeObras({ user }: { user: Profile }) {
     [activeCoord, setActiveCoord] = useState<Coordination | null>(null);
   const [files, setFiles] = useState<Attachment[]>([]),
     [history, setHistory] = useState<History>({ rows: [], total: 0 });
+  const [debouncedSearch, setDebouncedSearch] = useState(search);
+  useEffect(() => {
+    const timer = window.setTimeout(() => setDebouncedSearch(search), 250);
+    return () => window.clearTimeout(timer);
+  }, [search]);
   const generation = useRef(0);
+  const catalogLoaded = useRef(false);
+  const catalogRequest = useRef<Promise<void> | null>(null);
+  const refreshCatalog = useCallback((force = false): Promise<void> => {
+    if (catalogRequest.current) return catalogRequest.current;
+    if (catalogLoaded.current && !force) return Promise.resolve();
+    // Share a single initial request with the dashboard. Forms must not
+    // appear with incomplete contractor options when opened immediately.
+    const task = net<Catalog>("/catalog")
+      .then(data => {
+        catalogLoaded.current = true;
+        setCatalog(old => JSON.stringify(old) === JSON.stringify(data) ? old : data);
+      }).finally(() => { catalogRequest.current = null; });
+    catalogRequest.current = task;
+    return task;
+  }, []);
+  useEffect(() => {
+    void refreshCatalog().catch(err => setError(errorText(err)));
+    const update = () => {
+      if (!document.hidden) void refreshCatalog(true).catch(err => setError(errorText(err)));
+    };
+    const timer = window.setInterval(update, 120000);
+    window.addEventListener("galant-network-changed", update);
+    return () => {
+      window.clearInterval(timer);
+      window.removeEventListener("galant-network-changed", update);
+    };
+  }, [refreshCatalog]);
   const canPublish =
     ["admin", "resident", "supervisor", "analyst"].includes(user.role) &&
     catalog.sites.some((s) => s.editable);
@@ -185,19 +217,22 @@ export default function RedDeObras({ user }: { user: Profile }) {
     ...(specialty ? { specialty } : {}),
   }).toString();
   const refresh = useCallback(async () => {
+    // Facebook has its own loading and polling. Never fetch unrelated Network
+    // feeds, contractor lists and matching requests behind the Facebook UI.
+    if (tab === "facebook") return;
     const id = ++generation.current;
     const suffix =
       "?" + query + (query ? "&" : "") + "limit=24&offset=" + page * 24;
     try {
       const data = await Promise.all([
-        net<Catalog>("/catalog"),
+        refreshCatalog(),
         net<Overview>("/overview?" + query + (mine ? "&mine=true" : "")),
         ["home", "requirements"].includes(tab)
           ? net<Page<Requirement>>(
               "/requirements" +
                 suffix +
                 "&q=" +
-                encodeURIComponent(search) +
+                encodeURIComponent(debouncedSearch) +
                 "&priority=" +
                 priority +
                 "&mine=" +
@@ -206,7 +241,7 @@ export default function RedDeObras({ user }: { user: Profile }) {
           : null,
         ["home", "capacities"].includes(tab)
           ? net<Page<Capacity>>(
-              "/capacities" + suffix + "&q=" + encodeURIComponent(search),
+              "/capacities" + suffix + "&q=" + encodeURIComponent(debouncedSearch),
             )
           : null,
         ["home", "matches"].includes(tab)
@@ -223,8 +258,7 @@ export default function RedDeObras({ user }: { user: Profile }) {
           : null,
       ]);
       if (id !== generation.current) return;
-      const [cat, o, r, c, m, a, co, conv] = data;
-      setCatalog(cat);
+      const [, o, r, c, m, a, co, conv] = data;
       setOverview(o);
       if (r) setReqs(r);
       if (c) setCaps(c);
@@ -238,7 +272,7 @@ export default function RedDeObras({ user }: { user: Profile }) {
     } finally {
       if (id === generation.current) setLoading(false);
     }
-  }, [tab, query, page, search, priority, mine]);
+  }, [tab, query, page, debouncedSearch, priority, mine, refreshCatalog]);
   useEffect(() => {
     let active = true;
     const sync = () => {
@@ -248,19 +282,24 @@ export default function RedDeObras({ user }: { user: Profile }) {
         });
     };
     sync();
-    const timer = window.setInterval(sync, 30000);
+    const timer = window.setInterval(sync, 60000);
     return () => {
       active = false;
       clearInterval(timer);
     };
   }, []);
   useEffect(() => {
+    if (tab === "facebook") {
+      generation.current++;
+      setLoading(false);
+      return;
+    }
     setLoading(true);
     void refresh();
     const update = () => {
       if (!document.hidden) void refresh();
     };
-    const timer = window.setInterval(update, 7000);
+    const timer = window.setInterval(update, 15000);
     window.addEventListener("focus", update);
     window.addEventListener("galant-network-changed", update);
     return () => {
@@ -269,12 +308,16 @@ export default function RedDeObras({ user }: { user: Profile }) {
       window.removeEventListener("focus", update);
       window.removeEventListener("galant-network-changed", update);
     };
-  }, [refresh]);
+  }, [refresh, tab]);
   async function openReq(id: string) {
     try {
-      setSelectedReq(
-        await net<Requirement>("/requirements/" + encodeURIComponent(id)),
-      );
+      // An adjudication dialog needs the current contractor catalog, including
+      // changes made in another browser or through the administrative API.
+      const [requirement] = await Promise.all([
+        net<Requirement>("/requirements/" + encodeURIComponent(id)),
+        refreshCatalog(true),
+      ]);
+      setSelectedReq(requirement);
       setPanel("detail");
       setFiles([]);
       setHistory({ rows: [], total: 0 });
@@ -731,7 +774,9 @@ export default function RedDeObras({ user }: { user: Profile }) {
         )}
       </div>
       {tab === "facebook" && user.role === "admin" && (
-        <FacebookCenter catalog={catalog} />
+        <Suspense fallback={<div className="nw-loading" role="status">Abriendo Facebook…</div>}>
+          <FacebookCenter catalog={catalog} />
+        </Suspense>
       )}
       {error && (
         <div role="alert" className="nw-error">

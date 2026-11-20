@@ -31,7 +31,10 @@ const GeneralConfiguration = lazy(() => import("./GeneralConfiguration"));
 const Ine = lazy(() => import("./Ine"));
 const Javiera = lazy(() => import("./Javiera"));
 const JavieraReviewerV17 = lazy(() => import("./JavieraReviewerV17"));
-import RedDeObras, { ResidentNetwork } from "./Network";
+const RedDeObras = lazy(() => import("./Network"));
+const ResidentNetwork = lazy(() =>
+  import("./Network").then(module => ({default: module.ResidentNetwork}))
+);
 import GalancitoWidget from "./GalancitoWidget";
 import { NetworkAccountMenu, NetworkPasswordScreen } from "./NetworkAccounts";
 import {
@@ -164,6 +167,11 @@ function App() {
     window.addEventListener("popstate", routeChanged);
     return () => window.removeEventListener("popstate", routeChanged);
   }, []);
+  const [debouncedSearch, setDebouncedSearch] = useState(search);
+  useEffect(() => {
+    const timer = window.setTimeout(() => setDebouncedSearch(search), 250);
+    return () => window.clearTimeout(timer);
+  }, [search]);
   const refreshGeneration = useRef(0);
   const lastActivity = useRef<string | null>(null);
   useEffect(() => {
@@ -262,7 +270,7 @@ function App() {
             "&limit=50&offset=" +
             page * 50 +
             "&q=" +
-            encodeURIComponent(search) +
+            encodeURIComponent(debouncedSearch) +
             "&state=" +
             encodeURIComponent(filter) +
             "&kind=" +
@@ -281,10 +289,10 @@ function App() {
             "Hay nueva actividad en tu organización. Los datos se actualizaron.",
           );
         lastActivity.current = o.activity[0]?.id || null;
-        setOverview(o);
-        setContributions(c);
-        setMatrix(m);
-        if (a) setLaborAlerts(a);
+        setOverview(previous => JSON.stringify(previous) === JSON.stringify(o) ? previous : o);
+        setContributions(previous => JSON.stringify(previous) === JSON.stringify(c) ? previous : c);
+        setMatrix(previous => JSON.stringify(previous) === JSON.stringify(m) ? previous : m);
+        if (a) setLaborAlerts(previous => JSON.stringify(previous) === JSON.stringify(a) ? previous : a);
         setError("");
       }
     } catch (e) {
@@ -296,7 +304,7 @@ function App() {
     sporadic,
     profile?.preferences.notifications,
     page,
-    search,
+    debouncedSearch,
     filter,
     classification,
     section,
@@ -312,7 +320,7 @@ function App() {
     void refresh().finally(() => {
       if (active) setLoading(false);
     });
-    const timer = setInterval(update, 10000);
+    const timer = setInterval(update, 30000);
     window.addEventListener("galant-changed", update);
     const sitesUpdate = () => {
       void opsApi
@@ -405,7 +413,7 @@ function App() {
   if (section === "javiera_config" && user.role !== "admin") return <main className="panel"><h1>Acceso restringido</h1><button onClick={() => go("home")}>Volver</button></main>;
   if (section === "configuration" && user.role !== "admin") return <main className="panel" style={{ margin: "40px auto", maxWidth: 620 }}><h1>Acceso restringido</h1><p>Configuración General está disponible exclusivamente para administradores.</p><button type="button" onClick={() => { window.history.replaceState({}, "", "/"); setSection("home"); }}>← Volver</button></main>;
   if (user.role === "ine_supervisor") return <ErrorBoundary name="Control INE"><Suspense fallback={<div className="app-loading">Cargando INE…</div>}><Ine user={user} version={version} logout={() => void logout()}/></Suspense></ErrorBoundary>;
-  if (user.role === "resident") return <ResidentNetwork user={user} version={version} logout={() => void logout()} />;
+  if (user.role === "resident") return <Suspense fallback={<div className="app-loading">Cargando Red de Obras…</div>}><ResidentNetwork user={user} version={version} logout={() => void logout()} /></Suspense>;
   if (user.role === "administrative") return <AdministrativeWorkspace user={user} version={version} logout={() => void logout()} />;
   if (section === "javiera_config" && user.role === "admin") return <ErrorBoundary name="Configuración de automatización"><Suspense fallback={<div className="app-loading">Cargando JAVIERA…</div>}><Javiera configuration onBack={() => go(automationReturnRef.current)} /></Suspense></ErrorBoundary>;
   if (section === "configuration" && user.role === "admin") return <ErrorBoundary name="Configuración General"><Suspense fallback={<div className="app-loading">Cargando Configuración General…</div>}><GeneralConfiguration user={user} version={version} logout={() => void logout()} onOpenSettings={() => go("settings")} onBack={() => go("settings")}/></Suspense></ErrorBoundary>;
@@ -593,7 +601,7 @@ function App() {
             </div>
 
           </div>}
-          {section === "network" && <RedDeObras user={user} />}
+          {section === "network" && <Suspense fallback={<div className="app-loading">Cargando Red de Obras…</div>}><RedDeObras user={user} /></Suspense>}
           {section === "ine" && <ErrorBoundary name="Control INE"><Suspense fallback={<div className="app-loading">Cargando INE…</div>}><Ine user={user} version={version} onBack={() => go("home")}/></Suspense></ErrorBoundary>}
           {section === "javiera" && <ErrorBoundary name="Proyecto JAVIERA"><Suspense fallback={<div className="app-loading">Cargando JAVIERA…</div>}><Javiera onBack={() => go("home")} onConfig={user.role === "admin" ? () => go("javiera_config") : undefined} /></Suspense></ErrorBoundary>}
           {error && (
