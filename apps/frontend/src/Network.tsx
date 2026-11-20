@@ -58,6 +58,7 @@ import {
   RequirementForm,
 } from "./NetworkForms";
 import { NetworkAccountMenu } from "./NetworkAccounts";
+import GalantMark from "./GalantMark";
 import { NetworkQuickForm } from "./NetworkQuickForm";
 const FacebookCenter = lazy(() => import("./FacebookCenter"));
 import GalancitoWidget from "./GalancitoWidget";
@@ -125,11 +126,9 @@ export function ResidentNetwork({
     <div className="nw nw-resident-shell">
       <header className="nw-resident-header">
         <div className="nw-brand">
-          <span>
-            <Network size={23} />
-          </span>
+          <GalantMark className="galant-logo-mark" />
           <div>
-            <b>GALANT POST</b>
+            <b>GALANT</b>
             <small>Red de Obras</small>
           </div>
         </div>
@@ -569,16 +568,7 @@ export default function RedDeObras({ user }: { user: Profile }) {
     <section className="nw nw-portal">
       <div className="nw-heading">
         <div>
-          <span className="nw-eyebrow">
-            <span className="nw-live-dot" />
-            COLABORACIÓN ENTRE OBRAS
-          </span>
-          <h1>
-            Red de Obras<span>.</span>
-          </h1>
-          <p>
-            Solicita apoyo, comparte contratistas y coordina necesidades entre obras.
-          </p>
+          <h1>Red de Obras<span>.</span></h1>
         </div>
         {canPublish && tab !== "home" && (
           <div className="nw-row nw-wrap">
@@ -622,7 +612,6 @@ export default function RedDeObras({ user }: { user: Profile }) {
         <section className="nw-publish-hub" aria-label="Publicación rápida">
           <div className="nw-publish-hub-heading">
             <strong>¿Qué necesitas hacer?</strong>
-            <span>Publica en pocos pasos</span>
           </div>
           <div className="nw-publish-choices">
             <button type="button" className="nw-publish-choice nw-publish-need" onClick={() => {
