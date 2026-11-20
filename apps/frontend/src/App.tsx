@@ -547,12 +547,8 @@ function App() {
               if (sidebarHovered) {
                 setSidebarHovered(false);
               } else {
+                // Mantener abierto mientras haya foco o puntero; cerrar al salir o con Escape.
                 setSidebarHovered(true);
-                // La apertura con botón es temporal si no se entra al menú.
-                sidebarHoverTimer.current = setTimeout(() => {
-                  setSidebarHovered(false);
-                  sidebarHoverTimer.current = null;
-                }, 2400);
               }
             }}
           >
