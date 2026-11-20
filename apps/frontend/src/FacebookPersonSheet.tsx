@@ -8,6 +8,7 @@ import {
 import { change, net } from "./networkApi";
 import { errorText } from "./NetworkUI";
 import "./facebook-person-sheet.css";
+import PersonAvatar from "./PersonAvatar";
 
 export type TrackingPerson = {
   id: string; name: string; company: string; category: string; stage: string;
@@ -221,7 +222,7 @@ export default function FacebookPersonSheet({person,onClose,onChanged,onOpenChat
           <X size={19}/></button></div>
       {!lead?<div className="fbps-loading" role="status">{error||"Cargando ficha…"}</div>:<>
         <header className="fbps-header">
-          <div className="fbps-avatar">{nameOf(lead).slice(0,1).toLocaleUpperCase("es-CL")}</div>
+          <PersonAvatar name={nameOf(lead)} size="lg" className="fbps-avatar-portrait" />
           <div className="fbps-person"><h2>{nameOf(lead)}</h2><div className="fbps-tags">
             <span className="fbps-tag trade">{lead.specialty||person.category||"Oficio por confirmar"}</span>
             <span className={"fbps-tag "+(person.needs_support?"amber":person.urgency==="high"?"rose":"mint")}>
