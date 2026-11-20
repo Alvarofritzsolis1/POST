@@ -90,6 +90,7 @@ def main():
         page.get_by_role("navigation", name="Centro Facebook").get_by_role(
             "button", name="Interacciones").click()
         expect(page.get_by_role("heading", name="Centro de Interacciones")).to_be_visible()
+        expect(page.get_by_role("button", name="Configuración de automatización")).to_have_count(0)
         expect(page.locator(".fbint-item")).to_have_count(1)  # Respuesta propia de la Página no genera lead
         page.locator(".fbint-item").first.click()
         expect(page.get_by_role("heading", name="Detalle del comentario")).to_be_visible()
@@ -108,6 +109,18 @@ def main():
         expect(page.locator(".fbint-detail")).to_be_visible()
         assert page.evaluate("document.documentElement.scrollWidth <= window.innerWidth + 2"), (
             "El Centro de Interacciones provocó desplazamiento horizontal")
+        # El documento puede ocultar un desborde con overflow-x:clip; comprobar
+        # también las cajas reales de los controles y el texto de seguimiento.
+        clipped = page.locator(".fbint-detail .fbint-section-title button, .fbint-detail .fbint-source").evaluate_all(
+            """els => els.filter(el => {
+               const b = el.getBoundingClientRect();
+               const style = getComputedStyle(el);
+               return style.display !== 'none' && (
+                 b.right > window.innerWidth - 2 || b.left < 0 ||
+                 el.scrollWidth > el.clientWidth + 2);
+             }).map(el => ({text: el.textContent.slice(0,70), rect: el.getBoundingClientRect().toJSON()}))"""
+        )
+        assert not clipped, ("Controles o textos cortados en móvil: " + str(clipped))
         page.screenshot(path=str(args.output / "interacciones-movil.png"), full_page=True)
         assert not errors, errors
         assert not outreach, "La QA intentó enviar o moderar mensajes reales: " + str(outreach)
