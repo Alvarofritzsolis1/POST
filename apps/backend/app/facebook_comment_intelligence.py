@@ -17,14 +17,14 @@ TRADE_WORDS = (
     "carpinter", "gasfit", "gafit", "electric", "albanil", "maestro", "soldador",
     "pintor", "pintura", "tabiquer", "ceram", "enfierr", "jornal", "yeser",
     "techumbr", "impermeabili", "excavador", "operador", "obrero", "instalador",
-    "jardin", "topograf", "sanitari", "terminacion", "hormigon", "alumin",
+    "jardin", "topograf", "sanitari", "terminacion", "hormigon", "alumin", "constructor", "maquinaria", "andam", "bodegu",
 )
 OFFER = re.compile(
     r"\b(soy|somos|hago|hacemos|realizo|realizamos|trabajo|trabajamos|"
     r"ofrezco|ofrecemos|me dedico|nos dedicamos|tengo (?:una? )?cuadrilla|"
     r"tengo disponibilidad|tamos disponibles|ando buscando pega|busco pega|"
     r"busco trabajo|estoy disponible|estamos disponibles|necesito pega|"
-    r"quiero postular|donde postulo|como postulo)\b"
+    r"quiero postular|donde postulo|como postulo|me interesa|estoy interesado|estamos interesados)\b"
 )
 ASK = re.compile(r"[?¿]|\b(como|cuando|donde|cuanto|requisitos|informacion|info|disponible|hay cupos)\b")
 NEG = re.compile(r"\b(estafa|enga[nñ]o|mentira|no pagan|no pagaron|reclamo|denuncia|pesimo|malo|abuso)\b")
@@ -54,7 +54,7 @@ def classify_comment(text: str) -> tuple[str, int]:
             return "interested", 90
         if any(term in value for term in ("busco pega", "busco trabajo", "quiero postular", "donde postulo", "como postulo", "necesito pega")):
             return "interested", 77
-        if "cuadrilla" in value or "disponib" in value:
+        if "cuadrilla" in value or "disponib" in value or "interesa" in value:
             return "interested", 73
     if ASK.search(value):
         return "question", 65
