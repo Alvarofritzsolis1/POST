@@ -1,0 +1,173 @@
+/* GALANT Human Motion — portada, identidades y microinteracciones.
+   Referencias: Material motion, Atlassian avatar, WAI reduced-motion.
+   No añade librerías JS ni consultas a servicios de avatar. */
+:root {
+  --galant-motion-fast: 160ms;
+  --galant-motion-standard: 230ms;
+  --galant-motion-smooth: cubic-bezier(.22,1,.36,1);
+}
+.login-page {overflow-x:clip}
+.login-page .login-decoration {
+  background:linear-gradient(148deg,#091c31 0%,#0b2947 58%,#17466a 100%);
+}
+.login-page .login-decoration::before {
+  background:radial-gradient(circle,rgba(43,137,205,.36) 0%,rgba(28,96,154,.15) 42%,transparent 71%);
+}
+.login-page .login-decoration::after {
+  background-image:linear-gradient(rgba(188,221,249,.055) 1px,transparent 1px),linear-gradient(90deg,rgba(188,221,249,.055) 1px,transparent 1px);
+  background-size:64px 64px;opacity:.65;
+}
+.login-page .login-decoration-inner {min-height:min(680px,100dvh);padding-top:clamp(45px,6vh,75px)}
+.login-page .login-eyebrow-dot {background:#45b9ee;box-shadow:0 0 0 4px rgba(69,185,238,.12)}
+.login-page .login-hero-icon {
+  margin-top:clamp(54px,11vh,92px);border-color:rgba(187,225,251,.25);
+  background:linear-gradient(150deg,rgba(42,138,209,.27),rgba(13,58,102,.17));
+  color:#eef9ff;
+}
+.login-page .login-decoration-inner h1 {
+  font-size:clamp(39px,4.1vw,58px);letter-spacing:-.055em;line-height:1.08;
+  max-width:530px;margin:26px 0 20px;
+}
+.login-page .login-decoration-inner h1 em {color:#86d2ff}
+.login-page .login-decoration-inner>p {
+  color:#bfd4e4;font-size:clamp(13px,1.1vw,15px);
+  line-height:1.7;max-width:385px;
+}
+.login-page .login-decoration-foot {color:#a2bad1;border-top-color:rgba(191,220,244,.15)}
+.login-page .login-author-credit strong {color:#e2f3ff}
+.login-page .login-panel {
+  position:relative;
+  background:radial-gradient(circle at 88% 0%,rgba(212,234,248,.5),transparent 38%),#fbfcfe;
+  padding-bottom:72px;
+}
+.login-page .login-box {max-width:430px;animation:galant-login-form-in 360ms var(--galant-motion-smooth) both}
+.login-page .login-panel-head .logo-symbol {
+  background:linear-gradient(140deg,#0e497c,#0b2848);
+  box-shadow:0 8px 18px rgba(21,73,116,.10);
+}
+.login-page .login-panel-head .logo strong {letter-spacing:.11em}
+.login-page .login-panel-head .logo small {color:#678ba6;font-size:8px;letter-spacing:.12em}
+.login-page .login-greeting {
+  color:#1266a3;margin-top:clamp(49px,9vh,85px);letter-spacing:.18em;
+}
+.login-page .login-box h2 {color:#12314c;margin-bottom:10px}
+.login-page .heading-period {color:#1684d5}
+.login-page .login-box>p.muted {margin-bottom:25px;line-height:1.6}
+.login-page .login-box form {gap:18px}
+.login-page .login-box input {
+  height:50px;border-color:#d3e2ec;color:#173650;border-radius:12px;
+  box-shadow:0 1px 2px rgba(10,34,60,.03);
+  transition:border-color var(--galant-motion-fast) ease,box-shadow var(--galant-motion-fast) ease;
+}
+.login-page .login-box input:focus-visible {
+  outline:2px solid #1684d5;outline-offset:2px;
+  border-color:#1684d5;box-shadow:0 0 0 4px rgba(22,132,213,.10);
+}
+.login-page .login-box .primary.full {
+  min-height:50px;border-radius:12px;background:#1266a3;color:#fff;
+  transition:background-color var(--galant-motion-fast) ease,box-shadow var(--galant-motion-standard) ease,transform var(--galant-motion-standard) var(--galant-motion-smooth);
+}
+.login-page .login-box .primary.full:hover:not(:disabled) {
+  background:#0a518a;box-shadow:0 9px 19px rgba(13,91,152,.18);
+  transform:translateY(-1px);
+}
+.login-page .login-box .primary.full svg:not(.spin) {transition:transform var(--galant-motion-standard) var(--galant-motion-smooth)}
+.login-page .login-box .primary.full:hover:not(:disabled) svg:not(.spin) {transform:translateX(3px)}
+.login-page .galant-login-recovery {text-align:right;margin-top:18px}
+.login-page .galant-login-recovery a {font-size:12px;font-weight:650;color:#426c8e}
+.login-page .galant-login-recovery a:hover {color:#1266a3}
+.login-page .login-footer {
+  margin-top:30px;padding-top:20px;color:#70889a;
+  font-size:11px;border-top:1px solid #e4ecf3;
+}
+.login-page .login-footer svg {color:#278b7f}
+.login-page .login-version {
+  position:absolute;bottom:14px;right:20px;margin:0;padding:4px 7px;
+  border:0;background:transparent;box-shadow:none;
+  color:#8498a8;font-size:10px;letter-spacing:.03em;font-weight:700;
+}
+.login-page .login-process,.login-page .login-edition {display:none}
+.login-page .login-decoration .login-eyebrow {animation:galant-login-form-in 310ms var(--galant-motion-smooth) both}
+.login-page .login-hero-icon {animation:galant-login-form-in 390ms var(--galant-motion-smooth) 45ms both}
+.login-page .login-decoration-inner h1 {animation:galant-login-form-in 410ms var(--galant-motion-smooth) 75ms both}
+.login-page .login-decoration-inner>p {animation:galant-login-form-in 410ms var(--galant-motion-smooth) 105ms both}
+@keyframes galant-login-form-in {
+  from {opacity:.35;transform:translateY(10px)}
+  to {opacity:1;transform:translateY(0)}
+}
+/* No status-online inventado: los avatares solo representan visualmente el registro. */
+.nw-profile-trigger .galant-person-avatar {flex-shrink:0}
+.nw-user-card .galant-account-card-id {min-width:170px;align-items:center}
+.nw-user-card .galant-account-card-id>div {min-width:0}
+.nw-user-card .galant-account-card-id p {overflow-wrap:anywhere;margin:3px 0 0}
+.galant-worker-heading {min-width:0}
+.galant-worker-heading>div {min-width:0}
+.galant-worker-heading h2 {overflow-wrap:anywhere}
+.galant-participant {display:inline-flex;padding:6px 10px 6px 6px;border:1px solid #d9e7f1;background:#f6fafc;border-radius:40px}
+.galant-participant>span:last-child {display:grid;gap:2px;line-height:1.16;min-width:0}
+.galant-participant strong {font-size:12px;font-weight:740}
+.galant-participant small {font-size:10px;color:#6a8094}
+.galant-chat-participants {display:flex;flex-wrap:wrap;gap:7px;margin:10px 0}
+.galant-message-author {font-size:12px;gap:7px}
+.galant-message-author b {font-weight:760}
+.fbc-contact .fbc-avatar-portrait {flex:0 0 43px}
+.fbc-pane-title>.galant-person-avatar {flex-shrink:0}
+.fbtrack-avatar-portrait {justify-self:center}
+.fbps-avatar-portrait {flex-shrink:0}
+.settings-users-wrap .galant-person-row {min-width:170px}
+.settings-users-wrap .galant-person-row>span:last-child {overflow-wrap:anywhere}
+@media (hover:hover) and (pointer:fine) {
+  .platform .nw-user-card:hover,
+  .platform .fbtrack-person:hover,
+  .platform .fbc-contact:hover {transition:background-color var(--galant-motion-fast) ease,box-shadow var(--galant-motion-fast) ease}
+  .platform .nw-user-card:hover {box-shadow:0 6px 20px rgba(10,43,73,.07)}
+}
+.platform .nw-user-card,
+.platform .fbc-contact,
+.platform .fbtrack-person,
+.platform .fbps-dialog,
+.platform .worker-detail,
+.platform .nw-chat {
+  animation:galant-surface-enter 220ms var(--galant-motion-smooth) both;
+}
+.platform .nw-message {
+  animation:galant-message-enter 180ms var(--galant-motion-smooth) both;
+}
+@keyframes galant-surface-enter {
+  from {opacity:.6;transform:translateY(5px)}
+  to {opacity:1;transform:translateY(0)}
+}
+@keyframes galant-message-enter {
+  from {opacity:.55;transform:translateY(4px)}
+  to {opacity:1;transform:translateY(0)}
+}
+@media (max-width:780px) {
+  .login-page .login-panel {padding-top:38px;padding-bottom:64px}
+  .login-page .login-greeting {margin-top:clamp(45px,8vh,72px)}
+  .login-page .login-version {right:15px;bottom:10px}
+  .settings-users-wrap .galant-person-row {min-width:125px}
+}
+@media (max-width:520px) {
+  .galant-person-avatar--lg {width:51px;height:51px}
+  .galant-chat-participants {gap:5px}
+  .galant-participant {padding:5px 7px 5px 5px}
+  .login-page .login-box h2 {font-size:29px}
+  .nw-user-card .galant-account-card-id {min-width:0}
+}
+@media (prefers-reduced-motion:reduce) {
+  .login-page .login-decoration .login-eyebrow,
+  .login-page .login-hero-icon,
+  .login-page .login-decoration-inner h1,
+  .login-page .login-decoration-inner>p,
+  .login-page .login-box,
+  .platform .nw-user-card,
+  .platform .fbc-contact,
+  .platform .fbtrack-person,
+  .platform .fbps-dialog,
+  .platform .worker-detail,
+  .platform .nw-chat,
+  .platform .nw-message {animation:none!important;transform:none!important}
+  .login-page .login-box .primary.full,
+  .login-page .login-box .primary.full svg,
+  .login-page .login-box input {transition:none!important;transform:none!important}
+}
