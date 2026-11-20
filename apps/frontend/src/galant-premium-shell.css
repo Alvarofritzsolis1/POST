@@ -47,6 +47,10 @@ html { scrollbar-gutter: stable; }
     width:254px!important;
     box-shadow:14px 0 32px rgba(19,59,89,.14);
   }
+  .platform.shell:not(.sidebar-collapsed) .sidebar {
+    width:254px!important;
+    box-shadow:14px 0 32px rgba(19,59,89,.14);
+  }
   .platform.shell .main, .platform.shell.sidebar-collapsed .main {
     margin-left:var(--galant-rail)!important;
     max-width:calc(100% - var(--galant-rail));
