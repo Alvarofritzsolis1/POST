@@ -20,7 +20,7 @@ from .facebook_publication_models import FacebookPostComment, FacebookPostJob, F
 from .facebook_comment_intelligence import CATEGORIES, REVIEW_STATES, reply_template, declared_profile
 from .facebook_crm_models import FacebookLead
 from .models import AuditEvent, User, utcnow
-from .network_models import NetworkFacebookPost, NetworkRequirement
+from .network_models import NetworkFacebookPost, NetworkRequirement, NetworkMember
 from .security import administrator
 
 router = APIRouter(prefix="/api/v1/network/facebook/publications", tags=["Facebook · publicaciones"])
@@ -121,6 +121,15 @@ def interactions_inbox(user: User = Depends(administrator),
         FacebookPostJob.page_id == cfg.facebook_page_id,
         FacebookPostJob.comment_id.in_(remote_ids),
     ).order_by(FacebookPostJob.created_at.desc()).limit(650))) if remote_ids else []
+    job_creators = {job.created_by for job in jobs}
+    operator_names = {
+        member.user_id: member.name.strip()
+        for member in db.scalars(select(NetworkMember).join(
+            User, User.id == NetworkMember.user_id).where(
+            User.org_id == user.org_id,
+            NetworkMember.user_id.in_(job_creators)))
+        if member.name and member.name.strip()
+    } if job_creators else {}
     history: dict[tuple[str, str], list[dict]] = {}
     for job in jobs:
         key = (job.post_record_id, job.comment_id)
@@ -128,6 +137,7 @@ def interactions_inbox(user: User = Depends(administrator),
             continue
         history.setdefault(key, []).append({
             "id": job.id, "action": job.action, "state": job.state,
+            "operator": operator_names.get(job.created_by, "Administrador GALANT"),
             "message": job.message if job.action in {"public_reply", "private_reply"} else "",
             "error": job.last_error, "at": job.created_at.isoformat(),
         })
@@ -171,6 +181,7 @@ def interactions_inbox(user: User = Depends(administrator),
             "parent_id": comment.parent_id or None, "reply_count": comment.reply_count,
             "classification": comment.classification, "classification_score": comment.classification_score,
             "classification_source": comment.classification_source,
+            "classified_at": comment.classified_at.isoformat() if comment.classified_at else None,
             "review_state": comment.review_state, "reviewed_at": (
                 comment.reviewed_at.isoformat() if comment.reviewed_at else None),
             "is_hidden": comment.is_hidden, "is_deleted": comment.is_deleted,
@@ -252,6 +263,7 @@ def publication_detail(record_id: str, user: User = Depends(administrator),
             "classification": c.classification,
             "classification_source": c.classification_source,
             "classification_score": c.classification_score,
+            "classified_at": c.classified_at.isoformat() if c.classified_at else None,
             "review_state": c.review_state,
             "is_deleted": c.is_deleted,
             "user_likes": c.user_likes,
@@ -379,6 +391,7 @@ def review_comment(record_id: str, comment_id: str, body: ReviewInput,
             raise HTTPException(422, "Clasificación inválida")
         comment.classification = body.classification
         comment.classification_source = "manual"
+        comment.classified_at = utcnow()
         comment.classification_score = 0  # No fingir confianza del modelo
     comment.review_state = body.review_state
     comment.review_by = user.id
@@ -460,6 +473,7 @@ def analyze_comment(record_id: str, comment_id: str,
     db.refresh(comment)
     if comment.classification_source != "manual":
         comment.classification = ai_category
+        comment.classified_at = utcnow()
         comment.classification_score = 0  # Sin probabilidades calibradas
         comment.classification_source = "ai"
         db.add(AuditEvent(org_id=user.org_id, user_id=user.id,
