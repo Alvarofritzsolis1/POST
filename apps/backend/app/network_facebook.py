@@ -228,9 +228,13 @@ def process_next(session_factory=SessionLocal) -> bool:
             if not isinstance(outcome_id, str) or not re.fullmatch(r"[0-9]+_[0-9]+", outcome_id):
                 error, uncertain = "Meta no confirmó el ID de publicación.", True
         elif action == "update":
-            graph_request("POST", "/" + post_id, cfg.facebook_page_token, message)
+            result = graph_request("POST", "/" + post_id, cfg.facebook_page_token, message)
+            if result.get("success") is not True:
+                error, uncertain = "Meta no confirmó la edición; revisar la publicación.", True
         elif action == "delete":
-            graph_request("DELETE", "/" + post_id, cfg.facebook_page_token)
+            result = graph_request("DELETE", "/" + post_id, cfg.facebook_page_token)
+            if result.get("success") is not True:
+                error, uncertain = "Meta no confirmó la eliminación; revisar en Facebook.", True
         else:
             error = "Acción de publicación desconocida."
     except HTTPError as exc:
