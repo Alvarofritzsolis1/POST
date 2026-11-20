@@ -1,4 +1,6 @@
 """Red de Obras: bandeja y moderación manual con Meta sintético."""
+from datetime import timedelta
+
 from sqlalchemy import select
 
 from app.facebook_publication_models import FacebookPostJob
@@ -6,6 +8,18 @@ from app.facebook_publication_worker import process_publication_next
 from app.models import utcnow
 from test_facebook_publications import COMMENT, PAGE, POST, created, meta_result
 from test_network import network, request_body
+
+
+def expire_refresh_cooldown(n, record):
+    """Simular el paso del período anti-abuso sin cambiar la API real."""
+    with n["Session"].begin() as db:
+        job = db.scalar(select(FacebookPostJob).where(
+            FacebookPostJob.post_record_id == record,
+            FacebookPostJob.action == "refresh",
+            FacebookPostJob.state == "done").order_by(
+            FacebookPostJob.created_at.desc()).limit(1))
+        assert job is not None
+        job.created_at = utcnow() - timedelta(seconds=20)
 
 
 def test_manual_inbox_classification_review_and_reply(network, monkeypatch):
@@ -32,6 +46,7 @@ def test_manual_inbox_classification_review_and_reply(network, monkeypatch):
                        {"review_state": "review", "classification": "question"}, method="PATCH")
     assert result.status_code == 200, result.text
     assert result.json()["classification_source"] == "manual"
+    expire_refresh_cooldown(n, record)
     assert n["send"](n["admin"], path + "/refresh", {}).status_code == 202
     assert process_publication_next(n["Session"]) is True
     updated = n["send"](n["admin"], "/facebook/publications/interactions/inbox", method="GET").json()["rows"][0]
@@ -105,6 +120,7 @@ def test_comment_photo_is_optional_and_whitelisted(network, monkeypatch):
             response["data"][0]["from"]["picture"]["data"]["url"] = "https://fbcdn.net.evil.invalid/fake.jpg"
         return response
     monkeypatch.setattr("app.facebook_publication_worker.graph", unsafe)
+    expire_refresh_cooldown(n, record)
     assert n["send"](n["admin"], path + "/refresh", {}).status_code == 202
     assert process_publication_next(n["Session"]) is True
     row = n["send"](n["admin"], "/facebook/publications/interactions/inbox", method="GET").json()["rows"][0]
