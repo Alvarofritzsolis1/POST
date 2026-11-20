@@ -144,3 +144,11 @@
  .fbint-detail .fbint-text-btn{font-size:11px;line-height:1.35}
  .fbint-detail .fbint-action-row .nw-btn{min-width:0;white-space:normal}
 }
+
+/* Seguimiento interno: notas y actividad verificable, sin alterar Messenger. */
+.fbint-follow-up{display:grid;gap:7px;min-width:0;border:1px solid var(--fbint-border);
+ background:var(--nw-soft,#f8fafc);border-radius:9px;padding:10px}
+.fbint-follow-up label{font-size:11px;font-weight:750;color:var(--fbint-blue)}
+.fbint-follow-up textarea{display:block;min-width:0;width:100%;resize:vertical}
+.fbint-follow-up .nw-btn{justify-self:end;max-width:100%;white-space:normal}
+.fbint-thread>.fbint-source{display:block;overflow-wrap:anywhere;line-height:1.4}
