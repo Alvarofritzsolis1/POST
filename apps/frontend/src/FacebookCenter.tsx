@@ -497,7 +497,7 @@ export default function FacebookCenter({ catalog }: { catalog: Catalog }) {
       <span className={"fbc-connection-square " + (messengerBlocked || messengerUncertain || tokenInvalid || lastSendFailed ? "problem" :
         connectionVerified && center?.messaging_enabled ? "good" : "pending")} role="status"
         title={lastSendFailed ? "El último envío de este chat falló" : connectionVerified ? "Token de página verificado" : "Conexión sin confirmar"}>
-        {messengerBlocked || messengerUncertain || tokenInvalid ? <AlertTriangle size={15} /> : <CheckCircle2 size={15} />}
+        {messengerBlocked || messengerUncertain || tokenInvalid || lastSendFailed ? <AlertTriangle size={15} /> : <CheckCircle2 size={15} />}
         {messengerBlocked || messengerUncertain || tokenInvalid || lastSendFailed ? "Revisar" :
           checkingConnection ? "Comprobando" : connectionVerified && center?.messaging_enabled ? "Conectado" : "Sin verificar"}
       </span>
@@ -703,7 +703,7 @@ export default function FacebookCenter({ catalog }: { catalog: Catalog }) {
             className={"fbc-contact " + (item.id === selectedId ? "selected" : "")}>
             <PersonAvatar name={item.name && item.name !== "Interesado de Facebook" ? item.name : item.company || "Contacto sin nombre"} size="md" className="fbc-avatar-portrait" />
             <div><strong>{item.name && item.name !== "Interesado de Facebook" ? item.name : item.company || "Contacto sin nombre"}</strong>
-              {item.company && <small>{item.company}</small>}
+              {item.company && item.name && item.name !== "Interesado de Facebook" && item.company !== item.name && <small>{item.company}</small>}
               {item.last_message?.text ? <small className="fbc-contact-preview">{item.last_message.direction === "outbound" ? "Tú: " : ""}{item.last_message.text}</small> :
                 <small>{item.specialty || "Oficio por confirmar"}</small>}
               {item.follow_up_on && <small>Seguimiento: {item.follow_up_on}</small>}
@@ -741,7 +741,7 @@ export default function FacebookCenter({ catalog }: { catalog: Catalog }) {
               onClick={() => patchLead({ai_paused: !lead.ai_paused})}>
               <Bot size={15} aria-hidden="true" />
               <span>Galancito</span>
-              <strong>{lead.ai_paused ? "Activar" : "Desactivar"}</strong>
+              <strong>{lead.ai_paused ? "Activar" : "Pausar"}</strong>
             </button>
             <button type="button" className="nw-btn fbc-profile-toggle" aria-expanded={showProfile}
               onClick={() => {
@@ -806,11 +806,10 @@ export default function FacebookCenter({ catalog }: { catalog: Catalog }) {
                 onChange={(e) => setReply(e.target.value)} onKeyDown={composerKeyDown} rows={1}
                 title="Enter envía; Shift + Enter agrega una línea"
                 placeholder="Escribe un mensaje..." />
-              
               <div className="fbc-composer-actions">
                 <details className="fbc-quick-replies">
-                <summary>Respuestas rápidas</summary>
-                <div className="fbc-reply-chips" aria-label="Respuestas rápidas">
+                  <summary>Respuestas rápidas</summary>
+                  <div className="fbc-reply-chips" aria-label="Respuestas rápidas">
                 {[
                   ["Preguntar oficio", "Hola, gracias por escribirnos. ¿En qué oficio te especializas?"],
                   ["Disponibilidad", "¿Desde qué fecha podrías comenzar a trabajar?"],
@@ -818,8 +817,8 @@ export default function FacebookCenter({ catalog }: { catalog: Catalog }) {
                   ["Experiencia", "¿En qué tipo de obras has trabajado anteriormente?"],
                 ].map(([label, text]) => <button key={label} type="button" disabled={!!saving}
                   onClick={() => setReply(text)}>{label}</button>)}
-                </div>
-              </details>
+                  </div>
+                </details>
                 <button className="nw-btn" type="button" disabled={!!saving}
                   onClick={() => void suggest()}><Sparkles size={16} /> {saving === "draft" ? "Preparando…" : "Sugerir respuesta"}</button>
                 <button className="nw-btn nw-primary" type="submit"
