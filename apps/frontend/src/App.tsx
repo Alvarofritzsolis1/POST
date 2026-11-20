@@ -454,15 +454,13 @@ function App() {
   return (
     <div className={"shell platform " + (mobileOpen ? "menu-open" : "") + (sidebarCollapsed ? " sidebar-collapsed" : "")}>
       <aside className="sidebar"
-        onMouseEnter={() => {
-          if (window.matchMedia("(min-width: 761px) and (hover: hover)").matches) setSidebarCollapsed(false);
-        }}
-        onMouseLeave={() => setSidebarCollapsed(true)}
-        onFocusCapture={() => {
-          if (window.innerWidth > 760) setSidebarCollapsed(false);
-        }}
-        onBlurCapture={(event) => {
-          if (!event.currentTarget.contains(event.relatedTarget as Node)) setSidebarCollapsed(true);
+        onMouseLeave={() => {
+          // Un click de ratón no debe mantener abierto el panel al salir;
+          // se conserva el foco visible para quienes navegan con teclado.
+          const focused = document.activeElement;
+          if (focused instanceof HTMLElement &&
+              focused.closest(".platform .sidebar") &&
+              !focused.matches(":focus-visible")) focused.blur();
         }}
       >
         <div className="brand">
@@ -511,12 +509,12 @@ function App() {
         <header className="topbar">
           <button
             className="icon-button menu-toggle"
-            aria-label={mobileOpen ? "Cerrar menú" : sidebarCollapsed ? "Expandir menú" : "Contraer menú"}
-            title={sidebarCollapsed ? "Expandir menú" : "Contraer menú"}
-            aria-expanded={!sidebarCollapsed || mobileOpen}
+            aria-label={mobileOpen ? "Cerrar menú" : "Mostrar navegación"}
+            title="Mostrar navegación"
+            aria-expanded={mobileOpen ? true : undefined}
             onClick={() => {
               if (window.matchMedia("(max-width: 760px)").matches) setMobileOpen((value) => !value);
-              else setSidebarCollapsed((value) => !value);
+              else document.querySelector<HTMLButtonElement>(".platform .sidebar .nav-item")?.focus();
             }}
           >
             <Menu />
