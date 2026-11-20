@@ -80,8 +80,16 @@ def _counts(result: dict, edge: str) -> int | None:
 
 
 def refresh(db, post: NetworkFacebookPost) -> None:
-    remote = graph("GET", post.post_id, query={
-        "fields": "id,message,permalink_url,comments.limit(0).summary(true),reactions.limit(0).summary(true),shares"})
+    try:
+        remote = graph("GET", post.post_id, query={
+            "fields": "id,message,permalink_url,comments.limit(0).summary(true),reactions.limit(0).summary(true),shares"})
+    except HTTPError as exc:
+        # Some post types cannot expose reaction/share summaries even with
+        # valid Page permissions. Keep comments available in that case.
+        if exc.code != 400:
+            raise
+        remote = graph("GET", post.post_id, query={
+            "fields": "id,message,permalink_url"})
     snapshot = db.get(FacebookPostSnapshot, post.id)
     if snapshot is None:
         snapshot = FacebookPostSnapshot(post_record_id=post.id, org_id=post.org_id)
@@ -104,7 +112,15 @@ def refresh(db, post: NetworkFacebookPost) -> None:
         }
         if cursor:
             query["after"] = cursor
-        batch = graph("GET", post.post_id, "comments", query=query)
+        try:
+            batch = graph("GET", post.post_id, "comments", query=query)
+        except HTTPError as exc:
+            # Older/limited Page tasks may omit can_reply_privately. Do not
+            # guess eligibility: drop the field and keep private actions closed.
+            if exc.code != 400:
+                raise
+            query["fields"] = "id,message,created_time,from,can_comment,can_hide,is_hidden,like_count,parent"
+            batch = graph("GET", post.post_id, "comments", query=query)
         data = batch.get("data")
         if not isinstance(data, list):
             raise ValueError("Meta no devolvió comentarios válidos")
@@ -137,7 +153,7 @@ def refresh(db, post: NetworkFacebookPost) -> None:
             found.is_hidden = raw.get("is_hidden") is True
             found.like_count = positive_count(raw.get("like_count")) or 0
             found.can_reply_privately = (raw.get("can_reply_privately") is True
-                                         and found.private_reply_state == "not_sent")
+                                         and found.private_reply_state in {"not_sent", "failed"})
             found.fetched_at = now
         paging = batch.get("paging") if isinstance(batch.get("paging"), dict) else {}
         cursors = paging.get("cursors") if isinstance(paging.get("cursors"), dict) else {}
@@ -147,10 +163,10 @@ def refresh(db, post: NetworkFacebookPost) -> None:
         cursor = nxt
 
 
-def _run(job: FacebookPostJob, post: NetworkFacebookPost):
+def _run(job: FacebookPostJob, post: NetworkFacebookPost, session_factory=SessionLocal):
     cfg = settings()
     if job.action == "refresh":
-        with SessionLocal.begin() as db:
+        with session_factory.begin() as db:
             current = db.get(NetworkFacebookPost, post.id)
             if current is None or current.post_id != post.post_id:
                 raise ValueError("La publicación cambió antes de sincronizar")
@@ -160,7 +176,7 @@ def _run(job: FacebookPostJob, post: NetworkFacebookPost):
         result = graph("POST", post.post_id, payload={"message": job.message})
         if result.get("success") is not True:
             raise ValueError("Meta no confirmó la modificación")
-        with SessionLocal.begin() as db:
+        with session_factory.begin() as db:
             snapshot = db.get(FacebookPostSnapshot, post.id)
             if snapshot:
                 snapshot.message = job.message
@@ -197,6 +213,33 @@ def _run(job: FacebookPostJob, post: NetworkFacebookPost):
             raise ValueError("Meta no confirmó la moderación del comentario")
         return ""
     raise ValueError("Acción de publicación no soportada")
+
+
+def recover_interrupted_publications(session_factory=SessionLocal) -> int:
+    """After a worker restart never resend a possibly delivered mutation."""
+    cfg = settings()
+    if not cfg.facebook_page_id:
+        return 0
+    recovered = 0
+    with session_factory.begin() as db:
+        jobs = list(db.scalars(select(FacebookPostJob).where(
+            FacebookPostJob.page_id == cfg.facebook_page_id,
+            FacebookPostJob.state == "sending")))
+        for job in jobs:
+            if job.action == "refresh":
+                job.state = "pending"
+            else:
+                job.state = "uncertain"
+                job.last_error = "Worker interrumpido: verifica en Meta antes de repetir."
+                if job.action == "private_reply":
+                    comment = db.scalar(select(FacebookPostComment).where(
+                        FacebookPostComment.post_record_id == job.post_record_id,
+                        FacebookPostComment.comment_id == job.comment_id))
+                    if comment:
+                        comment.private_reply_state = "uncertain"
+            job.updated_at = utcnow()
+            recovered += 1
+    return recovered
 
 
 def process_publication_next(session_factory=SessionLocal) -> bool:
@@ -239,7 +282,7 @@ def process_publication_next(session_factory=SessionLocal) -> bool:
 
     result_id, error, uncertain = "", "", False
     try:
-        result_id = _run(job, remote_post)
+        result_id = _run(job, remote_post, session_factory)
     except HTTPError as exc:
         error = meta_http_error(exc)[:350]
     except (URLError, TimeoutError, OSError, ValueError, UnicodeError) as exc:
