@@ -739,6 +739,9 @@ export default function FacebookCenter({ catalog }: { catalog: Catalog }) {
               {detail?.messages.map((msg) => {
                 const stage = progressFor(msg);
                 return <div key={msg.id} id={"fbc-message-" + msg.id} tabIndex={-1} className={"fbc-bubble " + msg.direction}>
+                  {msg.direction === "inbound" && <PersonAvatar
+                    name={lead.name && lead.name !== "Interesado de Facebook" ? lead.name : lead.company || "Contacto sin nombre"}
+                    size="xs" className="galant-bubble-avatar" />}
                   {msg.automated && ["pending", "ai_pending", "drafting"].includes(msg.state) ?
                     <div className="fbc-typing" role="status" aria-label={msg.state === "ai_pending" ? "Galancito está pensando" : "Galancito está escribiendo"}>
                       <span className="fbc-typing-avatar"><Bot size={17}/></span>
