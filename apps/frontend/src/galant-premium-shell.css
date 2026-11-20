@@ -18,6 +18,25 @@ html { scrollbar-gutter: stable; }
   background: #fff; border-right: 1px solid #e1eaf2;
   box-shadow: 8px 0 30px rgba(21,59,101,.035);
 }
+/* Override legacy html:not([data-theme=dark]) selectors, which otherwise
+   outweigh the new premium shell despite loading earlier. */
+html:not([data-theme="dark"]) .platform.shell .sidebar {
+  background:#fff;
+  border-right-color:#e1eaf2;
+}
+html:not([data-theme="dark"]) .platform.shell .sidebar .nav-item {
+  color:#536e85; background:transparent; box-shadow:none;
+}
+html:not([data-theme="dark"]) .platform.shell .sidebar .nav-item:hover {
+  color:#175880; background:#f2f8fc; box-shadow:none;
+}
+html:not([data-theme="dark"]) .platform.shell .sidebar .nav-item.active {
+  background:#e7f6f4; color:#087d76;
+  box-shadow:inset 3px 0 #079a8f;
+}
+html:not([data-theme="dark"]) .platform.shell .sidebar .nav-item.active:hover {
+  background:#dcf2ed;
+}
 .platform.shell .brand { min-height: 91px; display: flex; align-items: center; gap: 10px; color: #153b65; }
 .platform.shell .brand b { color:#153b65; font-size: 20px; letter-spacing: -.055em; font-weight: 850; }
 .platform.shell .brand small { color:#718397; letter-spacing: .02em; }
