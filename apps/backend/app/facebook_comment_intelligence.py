@@ -14,19 +14,19 @@ CATEGORIES = frozenset({
 REVIEW_STATES = frozenset({"new", "review", "handled", "dismissed"})
 
 TRADE_WORDS = (
-    "carpinter", "gasfit", "gafit", "electric", "albanil", "maestro", "soldador",
+    "carpinter", "carpint", "gasfit", "gafit", "electric", "albanil", "maestro", "soldador",
     "pintor", "pintura", "tabiquer", "ceram", "enfierr", "jornal", "yeser",
     "techumbr", "impermeabili", "excavador", "operador", "obrero", "instalador",
     "jardin", "topograf", "sanitari", "terminacion", "hormigon", "alumin", "constructor", "maquinaria", "andam", "bodegu",
 )
 OFFER = re.compile(
-    r"\b(soy|somos|hago|hacemos|realizo|realizamos|trabajo|trabajamos|"
+    r"\b(soy|soi|somos|hago|hacemos|realizo|realizamos|trabajo|trabajamos|"
     r"ofrezco|ofrecemos|me dedico|nos dedicamos|tengo (?:una? )?cuadrilla|"
     r"tengo disponibilidad|tamos disponibles|ando buscando pega|busco pega|"
     r"busco trabajo|estoy disponible|estamos disponibles|necesito pega|"
     r"quiero postular|donde postulo|como postulo|me interesa|estoy interesado|estamos interesados)\b"
 )
-ASK = re.compile(r"[?¿]|\b(como|cuando|donde|cuanto|requisitos|informacion|info|disponible|hay cupos)\b")
+ASK = re.compile(r"[?¿]|\b(como|cuando|donde|cuanto|requisitos|informacion|disponible|hay cupos)\b")
 NEG = re.compile(r"\b(estafa|enga[nñ]o|mentira|no pagan|no pagaron|reclamo|denuncia|pesimo|malo|abuso)\b")
 POS = re.compile(r"\b(buen trabajo|excelente|felicitaciones|felicidades|buena iniciativa|genial|muy bueno)\b")
 SPAM = re.compile(r"(https?://\S+.*){3,}|\b(apuesta|casino|bitcoin gratis|credito inmediato)\b")
@@ -56,6 +56,8 @@ def classify_comment(text: str) -> tuple[str, int]:
             return "interested", 77
         if "cuadrilla" in value or "disponib" in value or "interesa" in value:
             return "interested", 73
+    if value in {"info", "informacion", "hola", "ola", "buenas", "interesado"}:
+        return "ambiguous", 20
     if ASK.search(value):
         return "question", 65
     if POS.search(value):
