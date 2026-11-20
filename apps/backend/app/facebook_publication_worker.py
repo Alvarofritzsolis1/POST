@@ -108,14 +108,14 @@ def refresh(db, post: NetworkFacebookPost) -> None:
     # Bounded paging: never fetch an arbitrary paging.next URL (SSRF).
     cursor, seen = "", set()
     for _ in range(3):
-        query = {"filter": "stream", "limit": 50}
+        query = {"filter": "stream", "order": "reverse_chronological", "limit": 50}
         if cursor:
             query["after"] = cursor
         # Algunas versiones/tareas de Página no exponen picture, user_likes
         # ni can_reply_privately. Degradar solo los campos opcionales.
         variants = (
-            "id,message,created_time,from{id,name,picture},can_comment,can_hide,is_hidden,like_count,parent,can_reply_privately,user_likes",
-            "id,message,created_time,from,can_comment,can_hide,is_hidden,like_count,parent,can_reply_privately,user_likes",
+            "id,message,created_time,from{id,name,picture},can_comment,can_hide,is_hidden,like_count,comment_count,parent,can_reply_privately,user_likes",
+            "id,message,created_time,from,can_comment,can_hide,is_hidden,like_count,comment_count,parent,can_reply_privately,user_likes",
             "id,message,created_time,from,can_comment,can_hide,is_hidden,like_count,parent,can_reply_privately",
             "id,message,created_time,from,can_comment,can_hide,is_hidden,like_count,parent",
         )
@@ -163,7 +163,7 @@ def refresh(db, post: NetworkFacebookPost) -> None:
                          or host == "fbcdn.net" or host.endswith(".fbcdn.net"))):
                     found.author_picture_url = picture_url
             found.body = str(raw.get("message") or "")[:6000]
-            if found.classification_source != "manual":
+            if found.classification_source not in {"manual", "ai"}:
                 found.classification, found.classification_score = classify_comment(found.body)
                 found.classification_source = "rules"
             found.posted_at = parsed_time(raw.get("created_time"))
@@ -171,6 +171,7 @@ def refresh(db, post: NetworkFacebookPost) -> None:
             found.can_hide = raw.get("can_hide") is True
             found.is_hidden = raw.get("is_hidden") is True
             found.like_count = positive_count(raw.get("like_count")) or 0
+            found.reply_count = positive_count(raw.get("comment_count")) or 0
             if type(raw.get("user_likes")) is bool:
                 found.user_likes = raw["user_likes"]
             found.can_reply_privately = (raw.get("can_reply_privately") is True
