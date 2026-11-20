@@ -5,7 +5,7 @@ from app.facebook_publication_models import FacebookPostJob
 from app.facebook_publication_worker import process_publication_next
 from app.models import utcnow
 from test_facebook_publications import COMMENT, PAGE, POST, created, meta_result
-from test_network import network
+from test_network import network, request_body
 
 
 def test_manual_inbox_classification_review_and_reply(network, monkeypatch):
@@ -226,7 +226,15 @@ def test_interaction_profile_matches_only_explicit_trades(network, monkeypatch):
     row = rows[0]
     assert row["origin_requirement_id"] == req_id
     assert "Gasfitería" in row["declared_profile"]["trades"]
-    assert any(need["id"] == req_id for need in row["potential_needs"])
+    # El anuncio de origen es de carpintería: NO vincularlo falsamente a gasfitería.
+    assert row["potential_needs"] == []
+    other = request_body(n, items=1)
+    other["specialty"] = "Gasfitería"
+    other["title"] = "Trabajos sanitarios"
+    created_need = n["send"](n["a"], "/requirements", other)
+    assert created_need.status_code == 201, created_need.text
+    refreshed = n["send"](n["admin"], "/facebook/publications/interactions/inbox", method="GET").json()["rows"][0]
+    assert any(need["id"] == created_need.json()["id"] for need in refreshed["potential_needs"])
     assert row["is_page_author"] is False
 
 
