@@ -144,3 +144,17 @@
  .fbint-detail .fbint-text-btn{font-size:11px;line-height:1.35}
  .fbint-detail .fbint-action-row .nw-btn{min-width:0;white-space:normal}
 }
+
+
+/* Las columnas implícitas de CSS Grid podían crecer hasta 469px en un móvil
+   de 390px: impedir el ancho min-content y permitir saltos de línea. */
+.fbint-detail,.fbint-profile,.fbint-thread,.fbint-follow-up{
+  grid-template-columns:minmax(0,1fr);
+}
+.fbint-detail>*{min-width:0;max-width:100%;overflow-wrap:anywhere}
+.fbint-detail .fbint-controls,.fbint-detail .fbint-reply-tabs,
+.fbint-detail .fbint-action-row{min-width:0;max-width:100%}
+@media(max-width:620px){
+  .fbint,.fbint-layout,.fbint-feed,.fbint-detail{min-width:0;width:100%;max-width:100%}
+  .fbint-layout,.fbint-layout.detail-open{grid-template-columns:minmax(0,1fr)}
+}
