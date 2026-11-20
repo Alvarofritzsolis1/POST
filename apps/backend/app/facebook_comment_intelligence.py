@@ -31,6 +31,18 @@ NEG = re.compile(r"\b(estafa|enga[nñ]o|mentira|no pagan|no pagaron|reclamo|denu
 POS = re.compile(r"\b(buen trabajo|excelente|felicitaciones|felicidades|buena iniciativa|genial|muy bueno)\b")
 SPAM = re.compile(r"(https?://\S+.*){3,}|\b(apuesta|casino|bitcoin gratis|credito inmediato)\b")
 SENSITIVE = re.compile(r"\b(amenaz|acoso|discriminacion|violencia|suicid|agresi[oó]n)\b")
+DECLINED = re.compile(
+    r"\b(no me interesa|no estoy interesado|no estamos interesados|"
+    r"no busco pega|no busco trabajo|ya no busco pega|ya no busco trabajo|"
+    r"no quiero postular|no tengo disponibilidad|no estoy disponible)\b"
+)
+NEGATED_TRADE = re.compile(
+    r"\bno\s+(?:soy|hago|trabajo como|trabajo de)\s+(?:maestro\s+)?[\w-]+\b"
+)
+
+
+def without_negated_trades(text: str) -> str:
+    return NEGATED_TRADE.sub(" ", text)
 
 
 def normalize(text: str) -> str:
@@ -49,12 +61,15 @@ def classify_comment(text: str) -> tuple[str, int]:
         return "spam", 85
     if NEG.search(value):
         return "negative", 80
-    if OFFER.search(value):
-        if any(word in value for word in TRADE_WORDS):
+    if DECLINED.search(value):
+        return "ambiguous", 50  # Rechazo explícito: nunca catalogar como postulación
+    affirmed = without_negated_trades(value)
+    if OFFER.search(affirmed):
+        if any(word in affirmed for word in TRADE_WORDS):
             return "interested", 90
-        if any(term in value for term in ("busco pega", "busco trabajo", "quiero postular", "donde postulo", "como postulo", "necesito pega")):
+        if any(term in affirmed for term in ("busco pega", "busco trabajo", "quiero postular", "donde postulo", "como postulo", "necesito pega")):
             return "interested", 77
-        if "cuadrilla" in value or "disponib" in value or "interesa" in value:
+        if "cuadrilla" in affirmed or "disponib" in affirmed or "interesa" in affirmed:
             return "interested", 73
     if value in {"info", "informacion", "hola", "ola", "buenas", "interesado"}:
         return "ambiguous", 20
@@ -108,7 +123,7 @@ TEAM = re.compile(r"\b(?:somos|cuadrilla de|equipo de)\s*(\d{1,2})\b")
 
 def declared_profile(text: str) -> dict:
     """Perfil declarativo de texto público, no validación de idoneidad."""
-    normalized = normalize(text)[:6000]
+    normalized = without_negated_trades(normalize(text)[:6000])
     trades = [label for label, roots in DECLARED_TRADES.items()
               if any(root in normalized for root in roots)]
     match = TEAM.search(normalized)
