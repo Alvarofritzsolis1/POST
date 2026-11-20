@@ -108,3 +108,92 @@
 @media (prefers-reduced-motion:reduce) {
   .fbps-dialog,.fbc-bubble {animation:none!important;transform:none!important}
 }
+
+
+/* Responsive Workers — en teléfono/tablet la lista es una ficha legible, sin
+   desplazamiento horizontal interno; en escritorio persiste la tabla completa. */
+.platform .workers-page, .platform .workers-page>.panel,
+.platform .workers-page .workers-heading, .platform .workers-page .workers-heading>div {
+  min-width:0;max-width:100%;
+}
+.platform .workers-page .workers-heading p {
+  white-space:normal;overflow-wrap:anywhere;line-height:1.45;
+  max-width:68ch;
+}
+@media (max-width:980px) {
+  .platform .workers-page .galant-workers-table {
+    overflow:visible!important;max-width:100%;width:100%;border:none;
+  }
+  .platform .workers-page .galant-workers-table table,
+  .platform .workers-page .galant-workers-table tbody {
+    display:block;width:100%;border-collapse:separate;
+  }
+  .platform .workers-page .galant-workers-table thead {display:none}
+  .platform .workers-page .galant-workers-table tbody {
+    display:grid;gap:11px;
+  }
+  .platform .workers-page .galant-workers-table tbody tr {
+    display:grid;grid-template-columns:minmax(0,1fr) minmax(0,1fr);align-items:start;
+    gap:11px 13px;min-width:0;width:100%;
+    padding:15px;border:1px solid #d9e5ee;border-radius:13px;
+    background:var(--surface,#fff);
+    box-shadow:0 3px 10px rgba(11,43,72,.05);
+  }
+  .platform .workers-page .galant-workers-table tbody td {
+    display:none;border:0!important;min-width:0;max-width:100%;
+    padding:0!important;white-space:normal!important;overflow:visible;
+    overflow-wrap:anywhere;font-size:12px;line-height:1.45;
+    color:var(--ink,#193750);text-align:left!important;
+  }
+  .platform .workers-page .galant-workers-table tbody td:nth-child(1) {
+    display:block;grid-column:1/-1;margin:0 0 3px;
+  }
+  .platform .workers-page .galant-workers-table tbody td:nth-child(1) .galant-person-row {
+    align-items:center;gap:10px;
+  }
+  .platform .workers-page .galant-workers-table tbody td:nth-child(1) strong {
+    font-size:15px;line-height:1.35;
+  }
+  .platform .workers-page .galant-workers-table tbody td:nth-child(2),
+  .platform .workers-page .galant-workers-table tbody td:nth-child(3),
+  .platform .workers-page .galant-workers-table tbody td:nth-child(9),
+  .platform .workers-page .galant-workers-table tbody td:nth-child(10) {
+    display:flex;flex-direction:column;align-items:flex-start;gap:4px;
+  }
+  .platform .workers-page .galant-workers-table tbody td[data-label]:not(:first-child):not(:last-child):before {
+    content:attr(data-label);
+    display:block;text-transform:uppercase;font-size:10px;
+    font-weight:750;letter-spacing:.06em;color:#71879a;
+  }
+  .platform .workers-page .galant-workers-table tbody td:nth-child(11) {
+    display:block;grid-column:1/-1;margin-top:2px;
+  }
+  .platform .workers-page .galant-workers-table tbody td:nth-child(11) button {
+    width:100%;min-height:42px;text-align:center;justify-content:center;
+    border-radius:9px;background:#edf5fb;color:#075b91;
+    border:1px solid #bed7e9;font-weight:740;cursor:pointer;
+    transition:background-color 160ms ease,border-color 160ms ease;
+  }
+  .platform .workers-page .galant-workers-table tbody td:nth-child(11) button:hover {
+    background:#dff0fc;border-color:#81b6d9;
+  }
+  .platform .workers-page .workers-filters {display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:10px}
+  .platform .workers-page .workers-filters label {min-width:0}
+  .platform .workers-page .workers-filters input:not([type=checkbox]),
+  .platform .workers-page .workers-filters select {width:100%;max-width:100%;min-width:0}
+  .platform .workers-page .workers-heading {align-items:flex-start}
+  .platform .workers-page .workers-heading>div p {margin:5px 0 10px}
+}
+@media (max-width:520px) {
+  .platform .workers-page .workers-filters {grid-template-columns:minmax(0,1fr)}
+  .platform .workers-page .galant-workers-table tbody tr {padding:13px;gap:10px}
+  .platform .workers-page .worker-kpi strong {font-size:clamp(20px,5vw,27px)}
+  .platform .workers-page .workers-heading>div p {font-size:12px}
+}
+[data-theme="dark"] .platform .workers-page .galant-workers-table tbody tr {
+  background:var(--surface,#172f3a);border-color:#38515b;
+}
+[data-theme="dark"] .platform .workers-page .galant-workers-table tbody td[data-label]:before {color:#acbfcb}
+@media(prefers-reduced-motion:reduce) {
+  .platform .workers-page .galant-workers-table tbody td:nth-child(11) button {transition:none!important}
+}
