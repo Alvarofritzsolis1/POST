@@ -16,6 +16,7 @@ from sqlalchemy.orm import Session
 from .config import settings
 from .db import get_db
 from .facebook_publication_models import FacebookPostComment, FacebookPostJob, FacebookPostSnapshot
+from .facebook_crm_models import FacebookLead
 from .models import AuditEvent, User, utcnow
 from .network_models import NetworkFacebookPost, NetworkRequirement
 from .security import administrator
@@ -98,6 +99,14 @@ def publication_detail(record_id: str, user: User = Depends(administrator),
         FacebookPostComment.org_id == user.org_id,
         FacebookPostComment.post_record_id == record_id)
         .order_by(FacebookPostComment.posted_at.desc(), FacebookPostComment.id.desc()).limit(150)))
+    psids = {c.messenger_psid for c in comments if c.messenger_psid}
+    leads = {
+        lead.psid: lead.id for lead in db.scalars(select(FacebookLead).where(
+            FacebookLead.org_id == user.org_id,
+            FacebookLead.page_id == post.page_id,
+            FacebookLead.last_inbound_at.isnot(None),
+            FacebookLead.psid.in_(psids)))
+    } if psids else {}
     jobs = list(db.scalars(select(FacebookPostJob).where(
         FacebookPostJob.org_id == user.org_id,
         FacebookPostJob.post_record_id == record_id)
@@ -123,12 +132,12 @@ def publication_detail(record_id: str, user: User = Depends(administrator),
             "can_private_reply": (post.state == "published" and
                                   c.author_id != post.page_id and _within_private_window(c)),
             "private_reply_state": c.private_reply_state,
+            "lead_id": leads.get(c.messenger_psid),
         } for c in comments],
         "comments_limited": len(comments) == 150,
         "jobs": [{"id": j.id, "action": j.action, "state": j.state,
                   "error": j.last_error, "created_at": j.created_at.isoformat()}
                  for j in jobs],
-        "token_in_worker": True,  # architecture only; not a claim of token validity
     }
 
 
