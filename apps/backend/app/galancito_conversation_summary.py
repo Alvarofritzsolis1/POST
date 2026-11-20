@@ -127,6 +127,19 @@ def summarize_conversation(lead, messages: Sequence) -> dict:
     }
 
 
+def brief_contains_private_data(brief: dict) -> bool:
+    """Review text sent to AI, not opaque database message IDs.
+
+    A generated message UUID can accidentally resemble a RUT or telephone;
+    scanning serialized JSON falsely rejects otherwise safe, consented briefs.
+    """
+    return any(private_data(value) for value in (
+        [str(f.get("value", "")) for f in brief["facts"] if f["key"] != "company"]
+        + [str(e.get("text", "")) for e in brief["evidence"]]
+        + [str(value) for value in brief["missing"][:8]]
+    ))
+
+
 def safe_model_input(brief: dict) -> str:
     """Only non-sensitive professional facts and real selected messages go to AI."""
     return json.dumps({

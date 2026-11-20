@@ -95,15 +95,28 @@ with sync_playwright() as playwright:
 
     page.locator(".topbar .menu-toggle").click()
     expect(sidebar).to_have_css("width", "250px", timeout=3500)
-    expect(main).to_have_css("margin-left", "250px")
-    check(page.evaluate("localStorage.getItem('galant-sidebar-pinned')") == "true", "La fijación persiste en el almacenamiento local")
-    screenshot(page, "01-inicio-menu-fijado.png")
+    expect(main).to_have_css("margin-left", "66px")
+    check(page.locator(".platform.galant-sidebar-peek").count() == 1, "El botón despliega temporalmente sin fijar el menú")
+    page.mouse.move(20, 125)
+    page.mouse.move(925, 240)
+    expect(sidebar).to_have_css("width", "66px", timeout=3500)
+    check(page.evaluate("localStorage.getItem('galant-sidebar-pinned')") is None, "No persiste una fijación")
+    screenshot(page, "01-inicio-menu-automatico.png")
+    # Una preferencia fijada por versiones anteriores no puede bloquear el auto-cierre.
+    page.evaluate("localStorage.setItem('galant-sidebar-pinned', 'true')")
     page.reload(wait_until="domcontentloaded")
-    expect(page.locator(".platform .sidebar")).to_have_css("width", "250px")
-    check(page.evaluate("localStorage.getItem('galant-sidebar-pinned')") == "true", "Preferencia recuperada tras recarga")
-    page.locator(".topbar .menu-toggle").click()
     expect(page.locator(".platform .sidebar")).to_have_css("width", "66px")
-    check(page.evaluate("localStorage.getItem('galant-sidebar-pinned')") == "false", "Modo automático restaurado")
+    check(page.evaluate("localStorage.getItem('galant-sidebar-pinned')") is None,
+          "Se descarta la preferencia antigua al cargar")
+    check(page.locator(".v16-automation-entry").count() == 0,
+          "Inicio no ofrece configuración propia de JAVIERA")
+    page.get_by_role("button", name="Proyecto JAVIERA", exact=True).click()
+    expect(page.locator(".v16-automation-entry")).to_be_visible(timeout=8000)
+    check(page.locator(".v16-automation-entry").count() == 1,
+          "La automatización aparece solamente en Proyecto JAVIERA")
+    page.get_by_role("button", name="Inicio", exact=True).click()
+    check(page.locator(".v16-automation-entry").count() == 0,
+          "La automatización desaparece al salir de JAVIERA")
     page.locator(".sidebar .nav-item").filter(has=page.locator("svg")).first.click()
     expect(page.locator(".platform .sidebar")).to_be_visible()
     check(page.locator(".sidebar .nav-item[aria-current='page']").count() == 1, "Existe un solo módulo activo")

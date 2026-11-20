@@ -4,7 +4,7 @@ from datetime import datetime, timezone
 from types import SimpleNamespace
 
 from app.galancito_conversation_summary import (
-    safe_model_input, summarize_conversation, validate_ai_brief,
+    brief_contains_private_data, safe_model_input, summarize_conversation, validate_ai_brief,
 )
 
 
@@ -91,3 +91,23 @@ def test_fingerprint_changes_after_new_message_or_manual_correction():
         message(2,"Tengo disponibilidad mañana")])["fingerprint"]
     assert first["fingerprint"] != summarize_conversation(
         lead(experience="4 años"),base)["fingerprint"]
+
+
+def test_numeric_message_ids_never_block_a_safe_opted_in_summary():
+    """A random UUID ending in 9+ decimal digits previously matched the RUT regex."""
+    from app.galancito_triage import private_data
+
+    data = summarize_conversation(lead(), [
+        message("123456789", "Soy carpintero y trabajo solo"),
+    ])
+    prompt = safe_model_input(data)
+    assert private_data(prompt)  # Reproduces the old false-positive JSON check.
+    assert not brief_contains_private_data(data)  # Text-only screening must allow it.
+    assert json.loads(prompt)["messages"][0]["id"] == "123456789"
+
+
+def test_text_only_screen_still_rejects_sensitive_professional_fields():
+    data = summarize_conversation(lead(work_area="mi dirección es Pasaje Privado 123"), [
+        message("123456789", "Soy carpintero y trabajo solo"),
+    ])
+    assert brief_contains_private_data(data)

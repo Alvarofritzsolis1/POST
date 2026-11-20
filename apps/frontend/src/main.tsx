@@ -11,6 +11,7 @@ import "./v15-premium.css"
 import "./signature-login.css"
 import "./galant-premium-motion.css"
 import "./galant-human-motion.css"
+import "./galant-sidebar-auto.css"
 
 // Inicio siempre en la cabecera: los retrocesos internos restauran el scroll explicitamente.
 window.scrollTo({top:0,left:0,behavior:"instant"})
