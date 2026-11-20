@@ -504,3 +504,31 @@
     transition:none!important;animation:none!important;transform:none!important;
   }
 }
+
+
+/* Pantalla inicial breve con identidad; accesible y sin bloqueos artificiales. */
+.galant-startup {
+  min-height:100dvh;display:grid;place-items:center;padding:24px;
+  background:radial-gradient(circle at 50% 15%,#e6f1f9 0%,#f5f8fb 58%,#e8f0f7 100%);
+}
+.galant-startup-panel {
+  display:grid;justify-items:center;gap:12px;width:min(340px,100%);
+  text-align:center;color:#193f60;animation:galant-startup-in 320ms var(--galant-ease) both;
+}
+.galant-startup-logo {
+  display:grid;place-items:center;width:64px;height:64px;border-radius:19px;
+  background:linear-gradient(145deg,#185f96,#0b294a);color:#fff;
+  box-shadow:0 14px 32px rgba(8,41,76,.16);
+}
+.galant-startup-panel>strong {font-size:23px;font-weight:850;letter-spacing:.13em}
+.galant-startup-panel>span:not(.galant-startup-logo) {font-size:12px;font-weight:650;color:#638098}
+.galant-startup-track {height:3px;overflow:hidden;width:170px;background:#d4e3ee;border-radius:3px;margin-top:9px}
+.galant-startup-track i {
+  display:block;height:100%;width:45%;border-radius:3px;background:#1684d5;
+  animation:galant-startup-progress 900ms ease-in-out infinite alternate;
+}
+@keyframes galant-startup-in {from{opacity:0;transform:translateY(7px)}to{opacity:1;transform:translateY(0)}}
+@keyframes galant-startup-progress {from{transform:translateX(-100%)}to{transform:translateX(320%)}}
+@media(prefers-reduced-motion:reduce){
+  .galant-startup-panel,.galant-startup-track i {animation:none!important;transform:none!important}
+}
