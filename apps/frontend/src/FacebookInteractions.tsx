@@ -24,7 +24,9 @@ type Interaction = {
   is_page_author: boolean;
   classification: Category; classification_source: "manual" | "rules" | "ai";
   classification_score: number; classified_at: string | null;
-  review_state: ReviewState; reviewed_at: string | null;
+  review_state: ReviewState; review_note: string; reviewed_at: string | null;
+  author_activity_count: number;
+  author_activity: { id: string; record_id: string; body: string; post_title: string; posted_at: string }[];
   is_hidden: boolean; is_deleted: boolean; user_likes: boolean | null;
   can_reply: boolean; can_hide: boolean; can_delete: boolean; can_private_reply: boolean; can_like: boolean;
   private_reply_state: string; lead_id: string | null; history: ActionJob[];
@@ -81,6 +83,7 @@ export default function FacebookInteractions({ onOpenInbox, onOpenLead, onOpenPr
   const [draft, setDraft] = useState<Record<string, string>>({});
   const [privateDraft, setPrivateDraft] = useState<Record<string, string>>({});
   const [replyMode, setReplyMode] = useState<"public" | "private">("public");
+  const [followUpDraft, setFollowUpDraft] = useState<Record<string, string>>({});
   const [suggestSource, setSuggestSource] = useState("");
   const [showHistory, setShowHistory] = useState(false);
   const [awaiting, setAwaiting] = useState<Record<string, AwaitingDelivery>>({});
@@ -228,6 +231,14 @@ export default function FacebookInteractions({ onOpenInbox, onOpenLead, onOpenPr
     }, "PATCH");
   }
 
+  async function saveFollowUp(c: Interaction) {
+    const note = (followUpDraft[c.id] ?? c.review_note).trim();
+    if (note.length > 1000) { setError("La nota no debe superar 1000 caracteres."); return; }
+    await execute("follow-up", urlFor(c) + "/review", {
+      review_state: c.review_state, note,
+    }, "PATCH");
+  }
+
   async function remove(c: Interaction) {
     if (!window.confirm("¿Eliminar definitivamente el comentario de " + (c.author_name || "este usuario") + "? Esta acción no se puede deshacer.")) return;
     await execute("delete", urlFor(c), undefined, "DELETE");
@@ -346,6 +357,16 @@ export default function FacebookInteractions({ onOpenInbox, onOpenLead, onOpenPr
             </a>)}
           </>}
         </div>
+        {active.author_activity.length > 0 && <div className="fbint-thread">
+          <strong>Actividad del mismo autor · {active.author_activity_count} comentario{active.author_activity_count === 1 ? "" : "s"}</strong>
+          <small className="fbint-source">Solo comentarios vinculados mediante un identificador real de Meta, nunca por similitud de nombres.</small>
+          {active.author_activity.map(previous => <button type="button" key={previous.id}
+            className="fbint-thread-reply" onClick={() => { setActiveId(previous.id); setShowHistory(false); }}>
+            <Clock3 size={15}/>
+            <span><b>{previous.post_title} · {when(previous.posted_at)}</b>
+              <small>{previous.body || "(Sin texto)"}</small></span>
+          </button>)}
+        </div>}
         {!!thread.length && <div className="fbint-thread">
           <strong>Interacción en el hilo · {thread.length}</strong>
           {thread.map(item => <button key={item.id} className="fbint-thread-reply"
@@ -370,6 +391,16 @@ export default function FacebookInteractions({ onOpenInbox, onOpenLead, onOpenPr
               <option value="handled">Gestionado</option><option value="dismissed">Descartado</option>
             </select>
           </label>
+        </div>
+        <div className="fbint-follow-up">
+          <label htmlFor={"fbint-note-" + active.id}>Nota de seguimiento del equipo</label>
+          <textarea id={"fbint-note-" + active.id} rows={2} maxLength={1000}
+            value={followUpDraft[active.id] ?? active.review_note}
+            onChange={event => setFollowUpDraft(previous => ({ ...previous, [active.id]: event.target.value }))}
+            placeholder="Ej. Revisar disponibilidad o confirmar datos profesionales." />
+          <button className="nw-btn" type="button" disabled={!!busy ||
+            (followUpDraft[active.id] ?? active.review_note) === active.review_note}
+            onClick={() => void saveFollowUp(active)}><Check size={14}/> Guardar seguimiento</button>
         </div>
         <small className="fbint-source">Clasificación {active.classification_source === "manual" ? "corregida por una persona" :
           active.classification_source === "ai" ? "analizada por Galancito; requiere revisión" :
