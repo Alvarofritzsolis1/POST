@@ -202,6 +202,68 @@ html { scrollbar-gutter: stable; }
 /* Resident header uses same brand; no module behavior altered. */
 .nw .nw-brand .galant-logo-mark {width:43px;height:43px;flex:none;}
 .nw .nw-brand b {font-size:18px;letter-spacing:-.04em;color:#153b65;}
+/* Wide-screen Red de Obras feed, built from existing real API data. */
+.platform .nw-portal .nw-feed-board {
+  display:grid;grid-template-columns:minmax(0,1fr) 270px;
+  gap:13px;align-items:start;min-width:0;
+}
+.platform .nw-portal .nw-feed-board-main {min-width:0;}
+.platform .nw-portal .nw-feed-board-main .nw-section-title {margin-top:10px;}
+.platform .nw-portal .nw-feed-board-main .nw-feed-cards {
+  grid-template-columns:repeat(2,minmax(0,1fr));gap:12px;
+}
+.platform .nw-portal .nw-feed-board-side {min-width:0;padding-top:10px;}
+.platform .nw-portal .nw-feed-aside-card {
+  padding:18px;border-radius:15px;background:white;border:1px solid #e0e9ef;
+  box-shadow:0 7px 23px rgba(19,59,86,.045);
+}
+.platform .nw-portal .nw-feed-aside-heading {
+  display:flex;justify-content:space-between;align-items:center;gap:8px;
+  color:#173b5b;margin-bottom:15px;font-size:15px;
+}
+.platform .nw-portal .nw-feed-aside-heading svg {color:#078e86;}
+.platform .nw-portal .nw-feed-aside-stats {
+  display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:8px;
+  margin-bottom:18px;
+}
+.platform .nw-portal .nw-feed-aside-stats > div {
+  display:flex;flex-direction:column;gap:4px;background:#f3f9fd;
+  border-radius:10px;padding:11px;min-width:0;
+}
+.platform .nw-portal .nw-feed-aside-stats span {
+  font-size:10px;line-height:1.4;color:#687f90;
+}
+.platform .nw-portal .nw-feed-aside-stats strong {
+  font-size:24px;line-height:1.1;color:#173b5b;
+}
+.platform .nw-portal .nw-feed-aside-card h3 {
+  margin:0 0 10px;color:#173b5b;font-size:13px;
+}
+.platform .nw-portal .nw-feed-aside-card .nw-bars {margin-bottom:18px;}
+.platform .nw-portal .nw-feed-aside-card .nw-text-button {
+  font-size:12px;font-weight:750;
+}
+html[data-theme="dark"] .platform .nw-portal .nw-feed-aside-card {
+  background:#17313f;border-color:#365362;
+}
+html[data-theme="dark"] .platform .nw-portal .nw-feed-aside-heading,
+html[data-theme="dark"] .platform .nw-portal .nw-feed-aside-card h3,
+html[data-theme="dark"] .platform .nw-portal .nw-feed-aside-stats strong {
+  color:#e1f0fa;
+}
+html[data-theme="dark"] .platform .nw-portal .nw-feed-aside-stats > div {
+  background:#1b3a4b;
+}
+@media (max-width: 1200px) {
+  .platform .nw-portal .nw-feed-board {grid-template-columns:minmax(0,1fr) 245px;}
+}
+@media (max-width: 980px) {
+  .platform .nw-portal .nw-feed-board {grid-template-columns:1fr;}
+  .platform .nw-portal .nw-feed-board-side {padding-top:0;}
+}
+@media (max-width: 620px) {
+  .platform .nw-portal .nw-feed-board-main .nw-feed-cards {grid-template-columns:1fr;}
+}
 /* Four real business indicators: needs, capacity, matches, inbox. */
 .platform .nw-portal .nw-feed-kpis {
   grid-template-columns:repeat(4,minmax(0,1fr))!important;
