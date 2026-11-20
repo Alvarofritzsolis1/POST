@@ -17,10 +17,11 @@ from .version import VERSION
 from .migrations import v0_6_0, v0_7_0, v8_1_0, v13_1_0, v16_0_0, v16_0_1, v16_6_0, v20_0_0, v20_1_0_facebook, v20_2_0_facebook_tests, v20_3_0_network_facebook_optin, v20_5_0_ine, v20_7_0_facebook_crm, v20_7_1_galancito, v20_7_4_galancito_followup
 from . import v81_models, configuration_models, javiera_models, javiera_v166_models, javiera_workbook_models  # register additive tables
 from . import facebook_crm_models  # isolated inbox data; no modifications to historical contractor records
+from . import facebook_publication_models  # cache/queue without Page Access Token
 from . import galancito_knowledge_models
 from . import ai_models
 from .migrations import v20_7_5_galancito_learning, v20_8_0_ai_control_center, v20_8_1_ai_collaboration, v20_8_7_global_lightning, v20_8_8_galancito_intake
-from .migrations import v20_9_0_galancito_links, v20_9_1_galancito_memory, v20_9_4_facebook_contact_sheet
+from .migrations import v20_9_0_galancito_links, v20_9_1_galancito_memory, v20_9_4_facebook_contact_sheet, v20_9_7_facebook_publications
 from .ai_global_lightning import sync_org as sync_org_global_lightning
 
 
@@ -115,6 +116,9 @@ def migrate(db):
     if not db.get(SchemaVersion, v20_9_4_facebook_contact_sheet.MIGRATION_ID):
         v20_9_4_facebook_contact_sheet.upgrade(db.connection())
         db.add(SchemaVersion(version=v20_9_4_facebook_contact_sheet.MIGRATION_ID))
+    if not db.get(SchemaVersion, v20_9_7_facebook_publications.MIGRATION_ID):
+        v20_9_7_facebook_publications.upgrade(db.connection())
+        db.add(SchemaVersion(version=v20_9_7_facebook_publications.MIGRATION_ID))
 
 
 def find_admin(db, email: str) -> User:
