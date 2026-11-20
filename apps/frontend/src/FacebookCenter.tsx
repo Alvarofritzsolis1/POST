@@ -168,6 +168,7 @@ export default function FacebookCenter({ catalog }: { catalog: Catalog }) {
   const [showProfile, setShowProfile] = useState(false);
   const [inboxHeight, setInboxHeight] = useState<number | null>(null);
   const inboxRef = useRef<HTMLDivElement | null>(null);
+  const toolsRef = useRef<HTMLDetailsElement | null>(null);
   const chatRef = useRef<HTMLDivElement | null>(null);
   const selectedIdRef = useRef("");
   const savedLeadRef = useRef<Lead | null>(null);
@@ -179,6 +180,19 @@ export default function FacebookCenter({ catalog }: { catalog: Catalog }) {
   const [triageFilter, setTriageFilter] = useState<"all"|"high"|"support"|"unlinked"|"due">("all");
   const [trackingQuery, setTrackingQuery] = useState("");
   selectedIdRef.current = selectedId;
+  // Las opciones secundarias no deben cubrir la conversación al cambiar de vista.
+  useEffect(() => {
+    if (toolsRef.current) toolsRef.current.open = false;
+  }, [tab]);
+  useEffect(() => {
+    const closeOutside = (event: PointerEvent) => {
+      if (toolsRef.current && event.target instanceof Node && !toolsRef.current.contains(event.target)) {
+        toolsRef.current.open = false;
+      }
+    };
+    document.addEventListener("pointerdown", closeOutside);
+    return () => document.removeEventListener("pointerdown", closeOutside);
+  }, []);
   // Mantener el cuadro de respuesta dentro del viewport al cambiar a conversaciones.
   useEffect(() => {
     if (tab !== "inbox") return;
@@ -515,7 +529,7 @@ export default function FacebookCenter({ catalog }: { catalog: Catalog }) {
           </div>
         </div>
       </details>
-    <details className="fbc-tools">
+    <details className="fbc-tools" ref={toolsRef}>
       <summary>Herramientas</summary>
       <div>
         <button type="button" className="nw-btn" onClick={() => setTab("summary")}>Resumen IA</button>
