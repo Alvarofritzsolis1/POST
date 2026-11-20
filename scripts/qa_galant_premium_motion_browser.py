@@ -28,11 +28,16 @@ def check(condition, label):
 
 def auth(page):
     page.goto(URL, wait_until="domcontentloaded")
+    expect(page.locator(".login-page .login-version")).to_be_visible(timeout=10000)
+    assert page.locator(".login-edition").count() == 0, "Portada sin texto Acceso privado"
+    version = page.locator(".login-page .login-version").bounding_box()
+    assert version and version["x"] >= 0 and version["x"] + version["width"] <= page.viewport_size["width"] + 2, "Versión alineada dentro de pantalla"
     page.get_by_label("Correo electrónico", exact=True).fill(EMAIL)
     page.get_by_label("Contraseña", exact=True).fill(PASSWORD)
     page.get_by_role("button", name="Ingresar a GALANT").click()
     expect(page.get_by_role("button", name="Menú de usuario")).to_be_visible(timeout=30000)
     expect(page.locator(".platform")).to_be_visible()
+    expect(page.locator(".nw-profile-trigger .galant-person-avatar")).to_be_visible(timeout=10000)
 
 
 def measure(page):
@@ -110,6 +115,10 @@ with sync_playwright() as playwright:
     check(measure(page)["rootWidth"] <= 1442, "Sin scroll horizontal al cambiar a documentación")
     page.get_by_role("button", name="Inicio", exact=True).click()
     expect(page.locator(".galant-metric")).to_have_count(5)
+    page.get_by_role("button", name="Trabajadores", exact=True).click()
+    expect(page.locator(".workers-page .galant-person-avatar").first).to_be_visible(timeout=15000)
+    check(page.locator(".workers-page .galant-person-avatar").count() >= 1, "Trabajadores muestran caritas ilustradas coherentes")
+    page.get_by_role("button", name="Inicio", exact=True).click()
     screenshot(page, "02-inicio-menu-compacto.png")
     check(not report["errors"], "Navegación escritorio sin errores JS o HTTP 5xx")
 
