@@ -171,3 +171,15 @@
   .login-page .login-box .primary.full svg,
   .login-page .login-box input {transition:none!important;transform:none!important}
 }
+
+
+/* FacebookPersonSheet se monta en un portal fuera de .platform. */
+.fbps-dialog {animation:galant-surface-enter 220ms var(--galant-motion-smooth) both}
+.fbc-bubble {position:relative;animation:galant-message-enter 180ms var(--galant-motion-smooth) both}
+.fbc-bubble.inbound {margin-left:36px}
+.fbc-bubble .galant-bubble-avatar {
+  position:absolute;left:-40px;top:5px;box-shadow:0 2px 7px rgba(14,39,62,.10);
+}
+@media (prefers-reduced-motion:reduce) {
+  .fbps-dialog,.fbc-bubble {animation:none!important;transform:none!important}
+}
