@@ -214,3 +214,27 @@ def test_comment_signal_rules_distinguish_interest_and_ambiguous():
     assert classify_comment("excelente proyecto")[0] == "positive"
     assert classify_comment("no pagan")[0] == "negative"
     assert classify_comment("¿Dónde publican los requisitos?")[0] == "question"
+
+
+def test_interaction_profile_matches_only_explicit_trades(network, monkeypatch):
+    n, record, req_id = created(network, monkeypatch)
+    monkeypatch.setattr("app.facebook_publication_worker.graph", meta_result)
+    base = "/facebook/publications/" + record
+    assert n["send"](n["admin"], base + "/refresh", {}).status_code == 202
+    assert process_publication_next(n["Session"])
+    rows = n["send"](n["admin"], "/facebook/publications/interactions/inbox", method="GET").json()["rows"]
+    row = rows[0]
+    assert row["origin_requirement_id"] == req_id
+    assert "Gasfitería" in row["declared_profile"]["trades"]
+    assert any(need["id"] == req_id for need in row["potential_needs"])
+    assert row["is_page_author"] is False
+
+
+def test_public_profile_does_not_infer_trade_from_publication():
+    from app.facebook_comment_intelligence import declared_profile
+    assert declared_profile("hola")["trades"] == []
+    assert declared_profile("me interesa")["trades"] == []
+    profile = declared_profile("Soy carpintero y también hago pintura, somos 4")
+    assert "Carpintería" in profile["trades"]
+    assert "Pintura" in profile["trades"]
+    assert profile["team_size_declared"] == 4
