@@ -11,6 +11,7 @@ def upgrade(connection):
         ("classification", "VARCHAR(24) NOT NULL DEFAULT 'ambiguous'"),
         ("classification_source", "VARCHAR(16) NOT NULL DEFAULT 'rules'"),
         ("classification_score", "INTEGER NOT NULL DEFAULT 0"),
+        ("classified_at", "TIMESTAMP WITH TIME ZONE"),
         ("review_state", "VARCHAR(20) NOT NULL DEFAULT 'new'"),
         ("review_by", "VARCHAR(36) NOT NULL DEFAULT ''"),
         ("reviewed_at", "TIMESTAMP WITH TIME ZONE"),
