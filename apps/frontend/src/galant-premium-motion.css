@@ -127,3 +127,291 @@
     animation:none!important;transition:none!important;transform:none!important;
   }
 }
+
+
+/* Identidad visual compacta con marca clara en ambos tamaños. */
+.platform .galant-brand {
+  display:flex;align-items:center;gap:10px;min-height:83px;position:relative;
+}
+.platform .galant-brand-symbol {
+  flex:0 0 38px;width:38px;height:38px;display:grid;place-items:center;
+  border:1px solid rgba(132,197,243,.28);border-radius:12px;
+  background:linear-gradient(155deg,#1a6093,#123b64);color:#eff9ff;
+  box-shadow:inset 0 1px rgba(255,255,255,.11),0 7px 20px rgba(3,15,34,.15);
+}
+.platform .galant-brand>div {min-width:0;flex:1;white-space:nowrap;overflow:hidden}
+.platform .galant-brand b {font-weight:850;letter-spacing:.045em;font-size:19px;line-height:1.2}
+.platform .galant-brand-post {font-weight:550;font-size:11px;letter-spacing:.11em;color:#b4d5eb}
+.platform .galant-brand small {display:block;margin-top:4px;font-size:10px;color:#a6bfd3}
+.platform .galant-sidebar-pin {
+  display:grid;place-items:center;flex:0 0 28px;width:28px;height:28px;
+  padding:0;border:1px solid rgba(255,255,255,.12);border-radius:9px;
+  color:#bed6e9;background:rgba(255,255,255,.06);
+  transition:background-color 180ms ease,color 180ms ease;
+}
+.platform .galant-sidebar-pin:hover,.platform .galant-sidebar-pin:focus-visible {
+  background:rgba(48,155,218,.28);color:#fff;
+}
+.platform .sidebar .nav-group-title {
+  color:#92b5ce;font-size:10px;letter-spacing:.11em;
+}
+.platform .sidebar .nav-item.active {
+  background:#1266a3;color:#fff;
+  box-shadow:inset 3px 0 #79d2ff,0 4px 15px rgba(2,17,38,.16);
+}
+.platform .sidebar .nav-item svg {flex-shrink:0;transition:transform 180ms var(--galant-ease)}
+.platform .sidebar .nav-item:hover svg {transform:scale(1.05)}
+.platform .sidebar .nav-item:not(.active):hover {background:#174a74;color:#fff}
+@media(min-width:761px) {
+  .platform .galant-brand {padding:20px 17px}
+  .platform.sidebar-collapsed .sidebar .galant-brand {
+    padding:18px 10px;justify-content:center;gap:0;min-height:83px;
+  }
+  .platform.sidebar-collapsed .sidebar .galant-brand-symbol {width:40px;height:40px;flex-basis:40px}
+  .platform.sidebar-collapsed .sidebar .galant-brand>div,
+  .platform.sidebar-collapsed .sidebar .galant-sidebar-pin {display:none}
+  .platform.sidebar-collapsed .sidebar .nav-group+.nav-group:before {
+    content:"";height:1px;width:23px;margin:6px auto 8px;display:block;
+    background:rgba(168,197,226,.17);
+  }
+  .platform.sidebar-collapsed.galant-sidebar-peek .sidebar .galant-brand {
+    padding:20px 17px;justify-content:flex-start;gap:10px;
+  }
+  .platform.sidebar-collapsed.galant-sidebar-peek .sidebar .galant-brand>div {
+    display:block;animation:galant-label-in 180ms ease both;
+  }
+  .platform.sidebar-collapsed.galant-sidebar-peek .sidebar .galant-sidebar-pin {display:grid}
+  .platform.sidebar-collapsed.galant-sidebar-peek .sidebar .nav-group+.nav-group:before {display:none}
+  .platform.sidebar-collapsed.galant-sidebar-peek .sidebar .nav-item .v91-nav-label,
+  .platform.sidebar-collapsed.galant-sidebar-peek .sidebar .nav-group-title {
+    animation:galant-label-in 180ms ease both;
+  }
+}
+@keyframes galant-label-in {from{opacity:0;transform:translateX(-5px)}to{opacity:1;transform:translateX(0)}}
+
+/* Tarjetas con iconos, espaciado consistente y semántica. */
+.platform .v15-dashboard-heading {
+  align-items:center;gap:12px;
+}
+.platform .galant-dashboard-context {display:flex;align-items:center;flex-wrap:wrap;justify-content:flex-end;gap:8px}
+.platform .galant-period-pill {
+  padding:7px 10px;border-radius:9px;color:#315878;background:#e7f0f7;
+  font-size:12px;font-weight:750;font-variant-numeric:tabular-nums;
+}
+.platform .galant-dashboard-status {
+  display:inline-flex;align-items:center;gap:7px;min-height:32px;padding:6px 10px;
+  border:1px solid #dfe7ef;border-radius:9px;background:#eef2f6;color:#426076;
+  font-size:12px;font-weight:750;white-space:normal;
+}
+.platform .galant-dashboard-status.galant-tone-danger {color:#a82e33;background:#fff0f0;border-color:#f2cdcd}
+.platform .galant-dashboard-status.galant-tone-warning {color:#955c0b;background:#fff7e8;border-color:#f3dbb0}
+.platform .galant-dashboard-status.galant-tone-success {color:#147451;background:#eaf8ef;border-color:#c5e6d2}
+.platform .galant-dashboard-status.galant-tone-info {color:#1266a3;background:#eaf4fd;border-color:#cce4f6}
+.platform .v15-dashboard-kpi.galant-metric {
+  padding:16px;min-height:155px;gap:4px;align-content:space-between;
+  border-radius:15px;border-color:#dce7f0;isolation:isolate;
+}
+.platform .galant-metric .galant-metric-head {
+  display:flex;justify-content:space-between;align-items:center;width:100%;gap:8px;
+  color:inherit;
+}
+.platform .galant-metric-icon {
+  display:inline-flex;align-items:center;justify-content:center;
+  height:36px;width:36px;border-radius:11px;
+  background:#eff3f7;color:#54738b;
+}
+.platform .galant-metric.galant-tone-info .galant-metric-icon {background:#e5f1fb;color:#1266a3}
+.platform .galant-metric.galant-tone-success .galant-metric-icon {background:#e7f8ef;color:#16845f}
+.platform .galant-metric.galant-tone-warning .galant-metric-icon {background:#fff3df;color:#a66712}
+.platform .galant-metric.galant-tone-danger .galant-metric-icon {background:#fff0ef;color:#bd3e43}
+.platform .galant-metric .galant-metric-arrow {color:#9aacbb;transition:transform 180ms ease,color 180ms ease}
+.platform .galant-metric:hover .galant-metric-arrow {color:#1266a3;transform:translate(2px,-2px)}
+.platform .v15-dashboard-kpi .galant-metric-label {font-size:12px;line-height:1.3;color:#4c6479}
+.platform .v15-dashboard-kpi.galant-metric>strong {font-size:clamp(27px,2.4vw,35px);font-variant-numeric:tabular-nums}
+.platform .v15-dashboard-kpi.galant-tone-danger>strong {color:#b4232b}
+.platform .v15-dashboard-kpi.galant-tone-warning>strong {color:#925c13}
+.platform .v15-dashboard-kpi.galant-tone-success>strong {color:#0e7653}
+.platform .v15-dashboard-kpi.galant-tone-neutral>strong {color:#25465d}
+.platform .v15-dashboard-kpi.galant-metric>small {font-size:11px;margin-top:2px}
+.platform .v15-dashboard-metrics {gap:11px}
+.platform .dashboard-section-title {align-items:center}
+.platform .dashboard-alerts {border-radius:16px}
+.platform .dashboard-alerts .dashboard-source-label {color:#708397}
+.platform .dashboard-alerts .dashboard-list-heading {margin:18px 0 9px;font-size:14px}
+.platform .dashboard-alerts .galant-alert-row {
+  display:flex;align-items:center;gap:12px;width:100%;min-height:50px;
+  padding:11px 14px;margin:6px 0;white-space:normal;text-align:left;
+  border:1px solid #e3eaf2;border-left:3px solid #6b94b8;border-radius:10px;
+  background:var(--surface,#fff);color:var(--ink,#1b334b);
+  transition:border-color 160ms ease,background-color 160ms ease,transform 160ms ease;
+}
+.platform .dashboard-alerts .galant-alert-row.critical,
+.platform .dashboard-alerts .galant-alert-row.urgent,
+.platform .dashboard-alerts .galant-alert-row.high,
+.platform .dashboard-alerts .galant-alert-row.danger {border-left-color:#dc3545}
+.platform .dashboard-alerts .galant-alert-row.warning,
+.platform .dashboard-alerts .galant-alert-row.medium {border-left-color:#e6a23c}
+.platform .dashboard-alerts .galant-alert-row:hover {
+  background:color-mix(in srgb,var(--surface,#fff) 90%,#b9dbf2);
+  border-color:#9cbed8;transform:translateX(2px);
+}
+.platform .dashboard-alerts .galant-alert-row-text {
+  flex:1 1 52%;font-size:13px;font-weight:650;line-height:1.4;overflow-wrap:anywhere;
+}
+.platform .dashboard-alerts .galant-alert-row small {
+  flex:0 1 auto;font-size:11px;color:#6b7e8e;text-align:right;line-height:1.3;
+}
+.platform .dashboard-alerts .galant-alert-arrow {color:#1684d5;font-size:17px}
+.platform .galant-more-alerts {margin-top:10px}
+.platform .galant-more-alerts summary {
+  cursor:pointer;font-size:12px;color:#075b91;font-weight:750;padding:10px 0;
+}
+.platform .galant-no-alerts {
+  margin:8px 0 0;display:flex;align-items:center;gap:9px;padding:11px 13px;
+  color:#216d51;background:#edf9f2;border-radius:10px;font-weight:650;
+}
+
+/* Skeleton no bloqueante: revela la estructura sin inventar datos. */
+.platform .galant-skeleton-page {display:grid;gap:16px;min-height:250px;align-content:start}
+.platform .galant-visually-hidden {
+  position:absolute!important;width:1px!important;height:1px!important;padding:0!important;
+  overflow:hidden!important;clip:rect(0,0,0,0)!important;white-space:nowrap!important;
+}
+.platform .galant-skeleton-grid {display:grid;grid-template-columns:repeat(5,minmax(0,1fr));gap:12px}
+.platform .galant-skeleton-tile {
+  display:grid;align-content:start;gap:13px;padding:18px;border:1px solid #e3eaf0;
+  background:var(--surface,#fff);border-radius:14px;min-height:145px;
+}
+.platform .galant-skeleton {position:relative;overflow:hidden;display:block;background:#e7edf4;border-radius:7px}
+.platform .galant-skeleton:after {
+  content:"";position:absolute;inset:0;
+  background:linear-gradient(90deg,transparent,rgba(255,255,255,.62),transparent);
+  transform:translateX(-100%);animation:galant-skeleton-shimmer 1.5s ease-in-out infinite;
+}
+@keyframes galant-skeleton-shimmer {to{transform:translateX(100%)}}
+.platform .galant-skeleton-heading {height:27px;width:min(245px,60%)}
+.platform .galant-skeleton-icon {width:35px;height:35px;border-radius:10px}
+.platform .galant-skeleton-line {height:12px;width:85%}
+.platform .galant-skeleton-number {height:31px;width:45%}
+.platform .galant-skeleton-panel {height:175px;width:100%;border-radius:13px}
+
+/* Banner secundario: la fotografía nunca sustituye información real. */
+.platform .galant-architecture-banner {
+  display:flex;align-items:center;min-height:170px;position:relative;overflow:hidden;
+  isolation:isolate;border-radius:16px;margin:26px 0 16px;
+  background:linear-gradient(110deg,#0b2340,#1d4a69);
+  border:1px solid #174265;
+}
+.platform .galant-architecture-banner>img {
+  position:absolute;z-index:-2;inset:0;width:100%;height:100%;object-fit:cover;
+  object-position:center 48%;
+}
+.platform .galant-architecture-banner:before {
+  content:"";position:absolute;z-index:-1;inset:0;
+  background:linear-gradient(90deg,#061a30 0%,rgba(7,34,57,.94) 30%,rgba(8,37,63,.45) 65%,rgba(8,34,56,.12) 100%);
+}
+.platform .galant-architecture-copy {
+  display:grid;align-content:center;justify-items:start;gap:6px;
+  position:relative;z-index:1;padding:22px clamp(22px,3vw,38px);color:#fff;
+}
+.platform .galant-architecture-mark {
+  display:grid;place-items:center;width:34px;height:34px;border-radius:10px;
+  color:#d7edff;background:rgba(39,141,207,.3);border:1px solid rgba(180,224,255,.23);
+}
+.platform .galant-architecture-wordmark {font-size:17px;letter-spacing:.13em;font-weight:850}
+.platform .galant-architecture-copy>strong {
+  max-width:330px;font-size:clamp(17px,1.8vw,23px);line-height:1.22;
+  font-weight:750;letter-spacing:-.02em;color:#f4f9ff;
+}
+.platform .galant-architecture-credit {
+  position:absolute;right:12px;bottom:10px;z-index:2;text-decoration:none;
+  color:rgba(255,255,255,.85);font-size:10px;
+  background:rgba(0,18,31,.38);border-radius:7px;padding:4px 7px;
+}
+.platform .galant-architecture-credit:hover {text-decoration:underline;color:white}
+
+/* Otros controles: movimientos mínimos, no animaciones permanentes. */
+.platform .topbar .icon-button,
+.platform .topbar .v16-automation-entry,
+.platform .sidebar .galant-sidebar-pin,
+.platform .global-filters select,
+.platform .global-filters input {
+  transition:background-color 180ms ease,border-color 180ms ease,box-shadow 180ms ease,transform 180ms ease;
+}
+@media(hover:hover) and (pointer:fine) {
+  .platform .topbar .icon-button:hover,.platform .topbar .v16-automation-entry:hover {transform:translateY(-1px)}
+}
+.platform .global-filters input:focus-visible,
+.platform .global-filters select:focus-visible,
+.platform .topbar input:focus-visible {
+  outline:2px solid #1684d5;outline-offset:1px;
+}
+/* Vista cambia con su clave de ruta, conserva encabezado y sidebar. */
+.platform .galant-page-view {animation:galant-page-enter 240ms var(--galant-ease) both}
+
+/* Compatibilidad táctil también para tablets sin hover. */
+.platform.galant-touch-nav .sidebar {
+  display:flex;flex-direction:column;position:fixed;top:0;left:0;bottom:0;
+  height:100dvh!important;width:min(310px,88vw)!important;max-width:88vw;
+  transform:translateX(-105%);visibility:hidden;pointer-events:none;overflow-y:auto;
+  z-index:45;transition:transform 250ms var(--galant-ease),visibility 250ms ease!important;
+}
+.platform.galant-touch-nav.menu-open .sidebar {
+  display:flex;transform:translateX(0);visibility:visible;pointer-events:auto;
+}
+.platform.galant-touch-nav .main {margin-left:0!important;width:100%}
+.platform.galant-touch-nav .v91-menu-backdrop {
+  display:block;position:fixed;inset:0;z-index:40;width:100%;height:100dvh;
+  border:0;border-radius:0;background:rgba(4,20,36,.56);
+}
+.platform.galant-touch-nav .sidebar .galant-brand {padding:22px 17px;justify-content:flex-start}
+.platform.galant-touch-nav .sidebar .galant-brand>div {display:block}
+.platform.galant-touch-nav .sidebar .galant-sidebar-pin {display:none}
+.platform.galant-touch-nav .sidebar .sidebar-label,
+.platform.galant-touch-nav .sidebar .sidebar-bottom,
+.platform.galant-touch-nav .sidebar .nav-group-title {display:block}
+.platform.galant-touch-nav .sidebar .nav-item {
+  width:calc(100% - 24px);margin:4px 12px;min-height:45px;
+  gap:12px;padding:11px 14px;justify-content:flex-start;
+}
+.platform.galant-touch-nav .sidebar .nav-item .v91-nav-label {display:inline}
+.platform.galant-touch-nav .sidebar nav {margin:0;gap:7px}
+@media (max-width:1050px) {
+  .platform .galant-skeleton-grid {grid-template-columns:repeat(3,minmax(0,1fr))}
+  .platform .v15-dashboard-metrics {grid-template-columns:repeat(3,minmax(0,1fr))}
+}
+@media (max-width:760px) {
+  .platform .galant-skeleton-grid {grid-template-columns:repeat(2,minmax(0,1fr))}
+  .platform .v15-dashboard-metrics {grid-template-columns:repeat(2,minmax(0,1fr))}
+  .platform .galant-dashboard-context {justify-content:flex-start}
+  .platform .galant-architecture-banner {min-height:155px}
+  .platform .galant-architecture-copy {padding:20px}
+  .platform .galant-architecture-banner:before {
+    background:linear-gradient(90deg,#061a30 0%,rgba(8,37,63,.91) 58%,rgba(8,34,56,.34) 100%);
+  }
+  .platform .dashboard-alerts .galant-alert-row {flex-wrap:wrap;gap:5px}
+  .platform .dashboard-alerts .galant-alert-row-text {flex-basis:100%}
+  .platform .dashboard-alerts .galant-alert-row small {flex:1;text-align:left}
+}
+@media (max-width:430px) {
+  .platform .v15-dashboard-metrics,.platform .galant-skeleton-grid {gap:8px}
+  .platform .v15-dashboard-kpi.galant-metric {padding:12px;min-height:146px}
+  .platform .galant-metric-icon {height:32px;width:32px}
+  .platform .galant-dashboard-status {font-size:11px}
+  .platform .galant-architecture-credit {right:7px;bottom:6px;font-size:9px}
+}
+[data-theme="dark"] .platform .galant-dashboard-status.galant-tone-neutral {
+  color:#dce8f0;background:#234154;border-color:#355668;
+}
+[data-theme="dark"] .platform .galant-skeleton {background:#294253}
+[data-theme="dark"] .platform .galant-skeleton-tile {border-color:#38515b;background:#172f3a}
+[data-theme="dark"] .platform .dashboard-alerts .galant-alert-row {color:#e0edf2;background:#172f3a;border-color:#38515b}
+[data-theme="dark"] .platform .dashboard-alerts .galant-alert-row small {color:#b7cbd7}
+[data-theme="dark"] .platform .v15-dashboard-kpi.galant-metric .galant-metric-label {color:#d4e3ed}
+@media(prefers-reduced-motion:reduce) {
+  .platform .galant-page-view,.platform .galant-skeleton:after,
+  .platform .galant-metric .galant-metric-arrow,
+  .platform .sidebar .nav-item svg,
+  .platform .dashboard-alerts .galant-alert-row,
+  .platform .galant-sidebar-pin {animation:none!important;transition:none!important;transform:none!important}
+}
