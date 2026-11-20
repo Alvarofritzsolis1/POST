@@ -82,3 +82,37 @@ def reply_template(body: str, category: str) -> str:
     if category == "spam":
         return ""
     return "¡Hola! ¿Nos cuentas en qué podemos ayudarte?"
+
+
+# Información profesional SOLO cuando aparece explícitamente en el comentario.
+# El oficio del anuncio nunca se atribuye al comentarista.
+DECLARED_TRADES = {
+    "Carpintería": ("carpint", "muebl", "mueblist"),
+    "Gasfitería": ("gasfit", "gafit", "sanitari"),
+    "Electricidad": ("electric", "electrico", "electrica"),
+    "Pintura": ("pintor", "pintura"),
+    "Tabiquería": ("tabiquer", "volcometal"),
+    "Cerámica": ("ceramic", "ceramista"),
+    "Albañilería": ("albanil", "albaniler"),
+    "Soldadura": ("soldador", "soldadur"),
+    "Enfierradura": ("enfierr"),
+    "Impermeabilización": ("impermeabil"),
+    "Techumbre": ("techumbr", "techero"),
+    "Jardinería": ("jardin", "paisaj"),
+    "Hormigón": ("hormigon", "hormigonado"),
+    "Topografía": ("topograf",),
+    "Excavación": ("excavador", "excavacion", "excavadora"),
+}
+TEAM = re.compile(r"\b(?:somos|cuadrilla de|equipo de)\s*(\d{1,2})\b")
+
+
+def declared_profile(text: str) -> dict:
+    """Perfil declarativo de texto público, no validación de idoneidad."""
+    normalized = normalize(text)[:6000]
+    trades = [label for label, roots in DECLARED_TRADES.items()
+              if any(root in normalized for root in roots)]
+    match = TEAM.search(normalized)
+    workers = int(match.group(1)) if match else None
+    if workers is not None and not 1 <= workers <= 50:
+        workers = None
+    return {"trades": trades, "team_size_declared": workers}
