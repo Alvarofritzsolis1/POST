@@ -144,7 +144,8 @@ export default function FacebookPublications({
     try {
       await change(url, data, method);
       setNotice("Solicitud recibida. El publicador debe confirmar el resultado con Meta.");
-      await reload();
+      if (method === "DELETE") await onChanged();
+      else await reload();
       return true;
     } catch (e) {
       setError(errorText(e));
