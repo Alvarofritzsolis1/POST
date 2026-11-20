@@ -14,6 +14,7 @@ import "./facebook-minimal-layout.css";
 import "./facebook-tracking-refresh.css";
 import NetworkFacebook from "./NetworkFacebook";
 import FacebookPublications from "./FacebookPublications";
+import FacebookInteractions from "./FacebookInteractions";
 
 type Check = { criterion: string; state: "match" | "verify"; detail: string };
 type Analysis = {
@@ -144,7 +145,7 @@ const dateText = (v: string) => {
 
 export default function FacebookCenter({ catalog }: { catalog: Catalog }) {
   const [center, setCenter] = useState<Center | null>(null);
-  const [tab, setTab] = useState<"overview" | "summary" | "tracking" | "inbox" | "pending" | "publications" | "testing" | "guides" | "knowledge" | "performance">("overview");
+  const [tab, setTab] = useState<"overview" | "summary" | "tracking" | "inbox" | "pending" | "publications" | "interactions" | "testing" | "guides" | "knowledge" | "performance">("overview");
   const [selectedId, setSelectedId] = useState("");
   const [detail, setDetail] = useState<Detail | null>(null);
   const [requirements, setRequirements] = useState<Requirement[]>([]);
@@ -515,6 +516,9 @@ export default function FacebookCenter({ catalog }: { catalog: Catalog }) {
       </button>
       <button className={tab === "publications" || tab === "pending" ? "selected" : ""} onClick={() => setTab("publications")}>
         <Facebook size={16} /> Publicaciones
+      </button>
+      <button className={tab === "interactions" ? "selected" : ""} onClick={() => setTab("interactions")}>
+        <MessageCircle size={16} /> Interacciones
       </button>
       <button className={tab === "inbox" ? "selected" : ""} onClick={() => setTab("inbox")}>
         <Inbox size={16} /> Conversaciones
@@ -1056,6 +1060,10 @@ export default function FacebookCenter({ catalog }: { catalog: Catalog }) {
         </>}
       </aside>
     </div></>}
+    {tab === "interactions" && <FacebookInteractions
+      onOpenInbox={() => setTab("inbox")}
+      onOpenLead={(leadId) => { setSelectedId(leadId); setTab("inbox"); }}
+    />}
     {tab === "publications" && <FacebookPublications
       posts={center?.publications || []}
       automaticEnabled={!!center?.automatic_enabled}
