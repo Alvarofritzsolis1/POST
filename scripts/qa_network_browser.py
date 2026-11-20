@@ -180,6 +180,14 @@ def main():
                 "(el) => el.getBoundingClientRect().width"
             )
             assert trigger_width <= 55, ("Galancito móvil invade la pantalla", trigger_width)
+            action_and_fab = resident.evaluate("""() => {
+              const action = document.querySelector(".nw-feed-board-main .nw-section-title > .nw-text-button");
+              const fab = document.querySelector(".galancito-trigger");
+              if (!action || !fab) return {ok:false, missing:true};
+              const a=action.getBoundingClientRect(), f=fab.getBoundingClientRect();
+              return {ok: !(a.left<f.right && a.right>f.left && a.top<f.bottom && a.bottom>f.top)};
+            }""")
+            assert action_and_fab["ok"], ("Acción de feed cubierta por Galancito", action_and_fab)
             resident.screenshot(path=str(args.output / "movil.png"), full_page=True)
             assert not errors, errors
             assert not failures, failures
