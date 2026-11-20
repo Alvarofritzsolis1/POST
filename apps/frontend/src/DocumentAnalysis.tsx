@@ -20,7 +20,7 @@ const badgeClass=(doc:DocumentSummary)=>{
   return "status review"
 }
 function Logo(){
-  return <div className="logo"><span className="logo-symbol"><ScanLine size={21}/></span><span><strong>GALANT</strong><small>DOCUMENT INTELLIGENCE</small></span></div>
+  return <div className="logo"><span className="logo-symbol"><ScanLine size={21}/></span><span><strong>GALANT</strong><small>GESTIÓN DE OBRAS</small></span></div>
 }
 export function Login({onLogin,version}:{onLogin:(user:Profile)=>void;version:string|null}){
   const [email,setEmail]=useState("")
@@ -39,23 +39,19 @@ export function Login({onLogin,version}:{onLogin:(user:Profile)=>void;version:st
       <div className="login-decoration-inner">
         <div className="login-eyebrow"><span className="login-eyebrow-dot"/> GESTIÓN DE CONTRATISTAS · CHILE</div>
         <span className="login-hero-icon"><ScanLine size={31} strokeWidth={1.6}/></span>
-        <h1>Más claridad.<br/><em>Mejor control.</em><br/>Un solo lugar.</h1>
-        <p>Organiza tus obras, contratistas y trabajadores en un solo lugar. Carga datos manualmente o desde Excel y conserva la revisión OCR como apoyo.</p>
-        <div className="login-process" aria-label="Etapas de análisis">
-          <span><b>01</b> Organiza obras</span>
-          <span><b>02</b> Importa datos</span>
-          <span><b>03</b> Revisa registros</span>
-        </div>
+        <h1>Tu obra.<br/><em>Todo bajo control.</em></h1>
+        <p>Contratistas, trabajadores y documentos. Una sola plataforma.</p>
+
         <div className="login-decoration-foot"><span>GALANT POST</span><span className="login-author-credit">Creado por <strong>Álvaro Fritz</strong></span></div>
       </div>
     </div>
     <div className="login-panel">
       <div className="login-box">
-        <div className="login-panel-head"><Logo/><span className="login-edition">ACCESO PRIVADO</span></div>
-        <span className="login-greeting">TU ESPACIO DE TRABAJO</span>
+        <div className="login-panel-head"><Logo/></div>
+        <span className="login-greeting">BIENVENIDO</span>
         <h2>Bienvenido a GALANT<span className="heading-period">.</span></h2>
-        <p className="muted">Ingresa con tu cuenta autorizada para acceder a tus obras y registros.</p>
-        <div className="login-version"><span className="version-indicator" aria-hidden="true"/> GALANT POST · Versión {version?"v"+version:"no disponible"}</div>
+        <p className="muted">Ingresa para continuar con tu gestión.</p>
+        
         <form onSubmit={submit}>
           <label>Correo electrónico
             <input type="email" required value={email} onChange={e=>setEmail(e.target.value)} autoComplete="username" placeholder="nombre@empresa.cl"/>
@@ -70,9 +66,10 @@ export function Login({onLogin,version}:{onLogin:(user:Profile)=>void;version:st
           {error&&<p className="form-error" role="alert">{error}</p>}
           <button type="submit" className="primary full" disabled={pending}>{pending?<LoaderCircle size={17} className="spin"/>:null} Ingresar a GALANT <ArrowRight size={17}/></button>
         </form>
-        <a href="#recuperar-clave">¿Olvidaste tu contraseña?</a>
-        <div className="login-footer"><ShieldCheck size={17}/> Espacio de acceso restringido. Cada resultado requiere evaluación documental responsable.</div>
+        <div className="galant-login-recovery"><a href="#recuperar-clave">¿Olvidaste tu contraseña?</a></div>
+        <div className="login-footer"><ShieldCheck size={17}/> Acceso protegido · Información de tu organización.</div>
         <div className="login-author-credit login-author-credit--mobile">Creado por <strong>Álvaro Fritz</strong></div>
+        <div className="login-version" aria-label={"Versión de GALANT "+(version||"no disponible")}>v{version||"—"}</div>
       </div>
     </div>
   </div>
