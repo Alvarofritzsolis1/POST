@@ -488,15 +488,17 @@ export default function FacebookCenter({ catalog }: { catalog: Catalog }) {
   const connectionVerified = connection?.state === "verified" && !tokenInvalid;
   const messengerBlocked = center?.messenger_delivery?.state === "failed";
   const messengerUncertain = center?.messenger_delivery?.state === "uncertain";
+  const lastOutbound = detail?.messages.filter(message => message.direction === "outbound").at(-1);
+  const lastSendFailed = tab === "inbox" && !!lastOutbound && (lastOutbound.state === "failed" || !!lastOutbound.error);
   return <div className="fbc">
     <header className="fbc-header">
       <div className="fbc-header-title"><h2>Centro de Facebook</h2></div>
       <div className="fbc-status-line">
-      <span className={"fbc-connection-square " + (messengerBlocked || messengerUncertain || tokenInvalid ? "problem" :
+      <span className={"fbc-connection-square " + (messengerBlocked || messengerUncertain || tokenInvalid || lastSendFailed ? "problem" :
         connectionVerified && center?.messaging_enabled ? "good" : "pending")} role="status"
-        title={connectionVerified ? "Token de página verificado" : "Conexión sin confirmar"}>
+        title={lastSendFailed ? "El último envío de este chat falló" : connectionVerified ? "Token de página verificado" : "Conexión sin confirmar"}>
         {messengerBlocked || messengerUncertain || tokenInvalid ? <AlertTriangle size={15} /> : <CheckCircle2 size={15} />}
-        {messengerBlocked || messengerUncertain || tokenInvalid ? "Revisar" :
+        {messengerBlocked || messengerUncertain || tokenInvalid || lastSendFailed ? "Revisar" :
           checkingConnection ? "Comprobando" : connectionVerified && center?.messaging_enabled ? "Conectado" : "Sin verificar"}
       </span>
       <details className="fbc-connection-details">
@@ -517,6 +519,7 @@ export default function FacebookCenter({ catalog }: { catalog: Catalog }) {
           {center?.inbox_sync?.state === "failed" && <p role="alert">{center.inbox_sync.error || "Fallo al recuperar conversaciones"}</p>}
           {tokenInvalid && <p role="alert">Revisar token de página en el VPS.</p>}
           {(messengerBlocked || messengerUncertain) && <p role="alert">{center?.messenger_delivery?.error || "No se confirmó el envío."}</p>}
+          {lastSendFailed && <p role="alert">Último mensaje no enviado: {lastOutbound?.error || "Revisa la conexión de Meta."}</p>}
           <div className="fbc-diagnostic-actions">
             <button type="button" className="nw-btn" disabled={!!saving || checkingConnection || !(center?.automatic_enabled || center?.manual_enabled)}
               onClick={() => void mutate("verify-connection", () => change("/facebook/tests/verify", {}), "")}>
