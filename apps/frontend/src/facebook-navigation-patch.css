@@ -47,7 +47,7 @@
   width:100%; min-height:34px; justify-content:flex-start; text-align:left;
 }
 .fbc .fbc-inbox {
-  min-height:410px; height:min(70dvh,720px);
+  min-height:320px; height:min(70dvh,720px);
   grid-template-columns:clamp(208px,23%,270px) minmax(0,1fr);
 }
 .fbc .fbc-contacts .fbc-pane-title { min-height:43px; padding:9px 11px; }
