@@ -7,9 +7,10 @@ from __future__ import annotations
 
 import json
 import re
+import time
 from datetime import datetime, timedelta, timezone
 from urllib.error import HTTPError, URLError
-from urllib.parse import urlencode
+from urllib.parse import urlencode, urlsplit
 from urllib.request import HTTPRedirectHandler, Request, build_opener
 
 from sqlalchemy import select
@@ -18,8 +19,9 @@ from .config import settings
 from .db import SessionLocal
 from .models import AuditEvent, utcnow
 from .network_facebook import meta_http_error
-from .network_models import NetworkFacebookPost
+from .network_models import NetworkFacebookPost, NetworkRequirement
 from .facebook_publication_models import FacebookPostComment, FacebookPostJob, FacebookPostSnapshot
+from .facebook_comment_intelligence import classify_comment
 
 _ID = re.compile(r"[0-9_]{5,120}")
 _CURSOR = re.compile(r"[A-Za-z0-9._~-]{1,500}")
@@ -36,9 +38,9 @@ _HTTP = build_opener(NoRedirect)
 def graph(method: str, node_id: str, edge: str = "", *,
           query: dict | None = None, payload: dict | None = None) -> dict:
     """Allow only numeric IDs and the explicitly supported edges."""
-    if not _ID.fullmatch(node_id) or edge not in {"", "comments", "messages"}:
+    if not _ID.fullmatch(node_id) or edge not in {"", "comments", "messages", "likes"}:
         raise ValueError("Identificador o recurso de Facebook inválido")
-    if method not in {"GET", "POST"}:
+    if method not in {"GET", "POST", "DELETE"}:
         raise ValueError("Operación de Facebook no permitida")
     cfg = settings()
     if not cfg.facebook_page_token:
@@ -106,21 +108,25 @@ def refresh(db, post: NetworkFacebookPost) -> None:
     # Bounded paging: never fetch an arbitrary paging.next URL (SSRF).
     cursor, seen = "", set()
     for _ in range(3):
-        query = {
-            "fields": "id,message,created_time,from,can_comment,can_hide,is_hidden,like_count,parent,can_reply_privately",
-            "filter": "stream", "limit": 50,
-        }
+        query = {"filter": "stream", "order": "reverse_chronological", "limit": 50}
         if cursor:
             query["after"] = cursor
-        try:
-            batch = graph("GET", post.post_id, "comments", query=query)
-        except HTTPError as exc:
-            # Older/limited Page tasks may omit can_reply_privately. Do not
-            # guess eligibility: drop the field and keep private actions closed.
-            if exc.code != 400:
-                raise
-            query["fields"] = "id,message,created_time,from,can_comment,can_hide,is_hidden,like_count,parent"
-            batch = graph("GET", post.post_id, "comments", query=query)
+        # Algunas versiones/tareas de Página no exponen picture, user_likes
+        # ni can_reply_privately. Degradar solo los campos opcionales.
+        variants = (
+            "id,message,created_time,from{id,name,picture},can_comment,can_hide,is_hidden,like_count,comment_count,parent,can_reply_privately,user_likes",
+            "id,message,created_time,from,can_comment,can_hide,is_hidden,like_count,comment_count,parent,can_reply_privately,user_likes",
+            "id,message,created_time,from,can_comment,can_hide,is_hidden,like_count,parent,can_reply_privately",
+            "id,message,created_time,from,can_comment,can_hide,is_hidden,like_count,parent",
+        )
+        for i, fields in enumerate(variants):
+            query["fields"] = fields
+            try:
+                batch = graph("GET", post.post_id, "comments", query=query)
+                break
+            except HTTPError as exc:
+                if exc.code != 400 or i == len(variants) - 1:
+                    raise
         data = batch.get("data")
         if not isinstance(data, list):
             raise ValueError("Meta no devolvió comentarios válidos")
@@ -146,12 +152,35 @@ def refresh(db, post: NetworkFacebookPost) -> None:
             found.parent_id = str(parent.get("id") or "")[:120]
             found.author_id = author_id if _ID.fullmatch(author_id) else ""
             found.author_name = author_name
+            picture = person.get("picture")
+            picture_data = picture.get("data") if isinstance(picture, dict) else None
+            picture_url = picture_data.get("url") if isinstance(picture_data, dict) else ""
+            if isinstance(picture_url, str) and len(picture_url) <= 1000:
+                parsed = urlsplit(picture_url)
+                host = (parsed.hostname or "").lower()
+                if (parsed.scheme == "https" and
+                        (host == "facebook.com" or host.endswith(".facebook.com")
+                         or host == "fbcdn.net" or host.endswith(".fbcdn.net"))):
+                    found.author_picture_url = picture_url
+            previous_body = found.body
             found.body = str(raw.get("message") or "")[:6000]
+            if previous_body != found.body and found.classification_source == "ai":
+                found.classification_source = "rules"  # El análisis anterior quedó obsoleto
+            if found.classification_source not in {"manual", "ai"}:
+                category, strength = classify_comment(found.body)
+                if (found.classification != category or found.classification_score != strength
+                        or found.classified_at is None):
+                    found.classified_at = now
+                found.classification, found.classification_score = category, strength
+                found.classification_source = "rules"
             found.posted_at = parsed_time(raw.get("created_time"))
             found.can_comment = raw.get("can_comment") is True
             found.can_hide = raw.get("can_hide") is True
             found.is_hidden = raw.get("is_hidden") is True
             found.like_count = positive_count(raw.get("like_count")) or 0
+            found.reply_count = positive_count(raw.get("comment_count")) or 0
+            if type(raw.get("user_likes")) is bool:
+                found.user_likes = raw["user_likes"]
             found.can_reply_privately = (raw.get("can_reply_privately") is True
                                          and (found.private_reply_state or "not_sent") in {"not_sent", "failed"})
             found.fetched_at = now
@@ -210,6 +239,17 @@ def _run(job: FacebookPostJob, post: NetworkFacebookPost, session_factory=Sessio
         # commenter ID or a name similarity.
         return (result["message_id"][:140],
                 recipient if re.fullmatch(r"[0-9]{5,90}", recipient) else "")
+    if job.action in {"like", "unlike"}:
+        result = graph("POST" if job.action == "like" else "DELETE",
+                       job.comment_id, "likes", payload={} if job.action == "like" else None)
+        if result.get("success") is not True:
+            raise ValueError("Meta no confirmó la reacción al comentario")
+        return ""
+    if job.action == "delete_comment":
+        result = graph("DELETE", job.comment_id)
+        if result.get("success") is not True:
+            raise ValueError("Meta no confirmó la eliminación del comentario")
+        return ""
     if job.action in {"hide", "unhide"}:
         result = graph("POST", job.comment_id, payload={
             "is_hidden": "true" if job.action == "hide" else "false"})
@@ -246,6 +286,60 @@ def recover_interrupted_publications(session_factory=SessionLocal) -> int:
     return recovered
 
 
+_next_periodic_refresh_at = 0.0
+
+
+def queue_periodic_comment_refresh(session_factory=SessionLocal) -> bool:
+    """Recuperación automática acotada, sin afectar la cola de Messenger.
+
+    Se espacia una publicación cada 25s y solo se leen posts recientes.
+    Los webhooks siguen siendo la vía principal para novedades.
+    """
+    global _next_periodic_refresh_at
+    now_tick = time.monotonic()
+    if now_tick < _next_periodic_refresh_at:
+        return False
+    _next_periodic_refresh_at = now_tick + 25.0
+    cfg = settings()
+    if not cfg.facebook_page_token or not _ID.fullmatch(cfg.facebook_page_id or ""):
+        return False
+    with session_factory.begin() as db:
+        now = utcnow()
+        rows = db.execute(select(
+            NetworkFacebookPost.id, NetworkFacebookPost.org_id,
+            NetworkFacebookPost.page_id, NetworkRequirement.created_by,
+            FacebookPostSnapshot.checked_at,
+        ).join(NetworkRequirement,
+               NetworkRequirement.id == NetworkFacebookPost.requirement_id)
+          .outerjoin(FacebookPostSnapshot,
+                     FacebookPostSnapshot.post_record_id == NetworkFacebookPost.id)
+          .where(NetworkFacebookPost.page_id == cfg.facebook_page_id,
+                 NetworkFacebookPost.state == "published",
+                 NetworkFacebookPost.post_id.isnot(None),
+                 NetworkFacebookPost.updated_at >= now - timedelta(days=45),
+                 *([NetworkFacebookPost.org_id == cfg.facebook_org_id]
+                   if cfg.facebook_org_id else []))
+          .order_by(NetworkFacebookPost.updated_at.desc()).limit(40)).all()
+        if not rows:
+            return False
+        current = {item for item in db.scalars(select(FacebookPostJob.post_record_id).where(
+            FacebookPostJob.page_id == cfg.facebook_page_id,
+            FacebookPostJob.state.in_(["pending", "sending"])))}
+        for post_id, org_id, page_id, creator_id, checked_at in rows:
+            if post_id in current:
+                continue
+            if checked_at is not None:
+                if checked_at.tzinfo is None:
+                    checked_at = checked_at.replace(tzinfo=timezone.utc)
+                if now - checked_at < timedelta(minutes=15):
+                    continue
+            db.add(FacebookPostJob(org_id=org_id, page_id=page_id,
+                                   post_record_id=post_id, created_by=creator_id,
+                                   action="refresh", state="pending"))
+            return True
+    return False
+
+
 def process_publication_next(session_factory=SessionLocal) -> bool:
     """Process one queued task. Unknown delivery is never retried automatically."""
     cfg = settings()
@@ -271,12 +365,25 @@ def process_publication_next(session_factory=SessionLocal) -> bool:
         if post.state != "published":
             job.state, job.last_error = "failed", "Publicación no vigente"
             return True
-        if job.action in {"public_reply", "private_reply", "hide", "unhide"}:
+        if job.action in {"public_reply", "private_reply", "hide", "unhide", "delete_comment", "like", "unlike"}:
             comment = db.scalar(select(FacebookPostComment).where(
                 FacebookPostComment.post_record_id == post.id,
                 FacebookPostComment.comment_id == job.comment_id))
             if not comment:
                 job.state, job.last_error = "failed", "Comentario desconocido"
+                return True
+            if comment.is_deleted:
+                job.state, job.last_error = "failed", "El comentario ya fue eliminado"
+                return True
+            if job.action in {"like", "unlike"} and comment.user_likes is None:
+                job.state, job.last_error = "failed", "Meta no confirmó disponibilidad de reacciones"
+                return True
+            if (job.action == "like" and comment.user_likes is True or
+                    job.action == "unlike" and comment.user_likes is False):
+                job.state, job.last_error = "failed", "La reacción ya está en el estado solicitado"
+                return True
+            if job.action == "delete_comment" and not comment.can_hide:
+                job.state, job.last_error = "failed", "Meta no permitió moderar este comentario"
                 return True
             if job.action == "private_reply" and comment.private_reply_state != "pending":
                 job.state, job.last_error = "failed", "Respuesta privada ya procesada"
@@ -318,12 +425,18 @@ def process_publication_next(session_factory=SessionLocal) -> bool:
                     comment.messenger_psid = recipient_psid
                     comment.can_reply_privately = False
         if not error:
-            if current.action in {"hide", "unhide"}:
+            if current.action in {"hide", "unhide", "delete_comment", "like", "unlike"}:
                 comment = db.scalar(select(FacebookPostComment).where(
                     FacebookPostComment.post_record_id == current.post_record_id,
                     FacebookPostComment.comment_id == current.comment_id))
                 if comment:
-                    comment.is_hidden = current.action == "hide"
+                    if current.action == "delete_comment":
+                        comment.is_deleted = True
+                    elif current.action in {"like", "unlike"}:
+                        comment.user_likes = current.action == "like"
+                        comment.like_count = max(0, comment.like_count + (1 if current.action == "like" else -1))
+                    else:
+                        comment.is_hidden = current.action == "hide"
             db.add(AuditEvent(org_id=current.org_id, user_id=current.created_by,
                               action="facebook_" + current.action, resource_id=current.post_record_id))
     return True
