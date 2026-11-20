@@ -131,3 +131,16 @@
 .fbint-need-link small{font-weight:400;color:var(--nw-muted,#667787)}
 .fbint-need-link:hover{text-decoration:underline;border-color:#7eadd2}
 @media(max-width:620px){.fbint-profile-grid{grid-template-columns:1fr}.fbint-layout.detail-open .fbint-detail{order:-1}}
+
+/* Evitar que botones largos o textos de origen externo ensanchen el detalle móvil. */
+.fbint-section-title{flex-wrap:wrap;min-width:0;row-gap:6px}
+.fbint-section-title>*{min-width:0;overflow-wrap:anywhere}
+.fbint-section-title>.fbint-text-btn{max-width:100%;flex:0 1 auto;white-space:normal;text-align:right}
+.fbint-detail>.fbint-source,.fbint-detail>.fbint-alert{display:block;min-width:0;overflow-wrap:anywhere;white-space:normal}
+.fbint-layout,.fbint-detail,.fbint-profile,.fbint-comment-body,.fbint-thread{max-width:100%}
+@media(max-width:620px){
+ .fbint-detail{width:100%;max-width:100%;padding:12px}
+ .fbint-detail .fbint-section-title{align-items:flex-start}
+ .fbint-detail .fbint-text-btn{font-size:11px;line-height:1.35}
+ .fbint-detail .fbint-action-row .nw-btn{min-width:0;white-space:normal}
+}
