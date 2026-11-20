@@ -655,17 +655,32 @@ function App() {
           {section === "home" && overview && (
             <>
               <section className="v15-dashboard-hero" aria-label="Indicadores principales del período">
-                <div className="v15-dashboard-heading"><div><span className="eyebrow">VISIÓN OPERATIVA</span><h2>Resumen del período</h2></div><span>{period}</span></div>
+                <div className="v15-dashboard-heading">
+                  <div><span className="eyebrow">VISIÓN OPERATIVA</span><h2>Resumen del período</h2></div>
+                  <div className="galant-dashboard-context">
+                    <span className="galant-period-pill">{period}</span>
+                    {overview.contractors.length === 0
+                      ? <DashboardStatus tone="neutral">Sin contratistas registrados</DashboardStatus>
+                      : !laborAlerts
+                      ? <DashboardStatus tone="info">Revisando alertas</DashboardStatus>
+                      : laborAlerts.alerts.some(item => ["critical","danger","high","urgent"].includes(item.severity.toLowerCase()))
+                      ? <DashboardStatus tone="danger">Requiere atención</DashboardStatus>
+                      : laborAlerts.alerts.length > 0 || overview.pending_documents > 0
+                      ? <DashboardStatus tone="warning">Con observaciones</DashboardStatus>
+                      : <DashboardStatus tone="success">Sin alertas verificadas</DashboardStatus>}
+                  </div>
+                </div>
                 <div className="v15-dashboard-metrics">
-                  {([
-                    ["Contratistas del período", overview.contractors.length, "contractors", "all"],
-                    ["Contratistas al día", overview.up_to_date, "contractors", "all"],
-                    ["Documentos pendientes", overview.pending_documents, "documents", "pending"],
-                    ["Contratos por vencer", laborAlerts?.summary.workers_ending ?? "—", "workers", "ending_soon"],
-                    ["Asistencia atrasada", laborAlerts?.summary.attendance_overdue ?? "—", "attendance", "overdue"]
-                  ] as const).map(([label,value,target,state])=><button type="button" className={"v15-dashboard-kpi "+((Number(value)>0&&["Documentos pendientes","Asistencia atrasada"].includes(label))?"attention":"")} key={label} onClick={()=>drill(target,state)}>
-                    <span>{label}</span><strong>{value}</strong><small aria-hidden="true">Ver detalle →</small>
-                  </button>)}
+                  <DashboardMetricCard label="Contratistas del período" value={overview.contractors.length} icon={Building2}
+                    tone="info" onClick={() => drill("contractors", "all")} />
+                  <DashboardMetricCard label="Contratistas al día" value={overview.up_to_date} icon={ShieldCheck}
+                    tone={overview.up_to_date > 0 ? "success" : "neutral"} onClick={() => drill("contractors", "all")} />
+                  <DashboardMetricCard label="Documentos pendientes" value={overview.pending_documents} icon={ClipboardList}
+                    tone={overview.pending_documents > 0 ? "danger" : "neutral"} onClick={() => drill("documents", "pending")} />
+                  <DashboardMetricCard label="Contratos por vencer" value={laborAlerts?.summary.workers_ending ?? "—"} icon={FileClock}
+                    tone={(laborAlerts?.summary.workers_ending ?? 0) > 0 ? "warning" : "neutral"} onClick={() => drill("workers", "ending_soon")} />
+                  <DashboardMetricCard label="Asistencia atrasada" value={laborAlerts?.summary.attendance_overdue ?? "—"} icon={Timer}
+                    tone={(laborAlerts?.summary.attendance_overdue ?? 0) > 0 ? "danger" : "neutral"} onClick={() => drill("attendance", "overdue")} />
                 </div>
               </section>
               {laborAlerts && <section className="panel dashboard-alerts" aria-labelledby="dashboard-alerts-title">
