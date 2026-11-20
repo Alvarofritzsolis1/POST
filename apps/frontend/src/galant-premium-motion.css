@@ -586,3 +586,28 @@
     display:inline-block;max-width:calc(100% - 34px);
   }
 }
+
+
+/* Los fallbacks Suspense de residentes, JAVIERA e INE también viven fuera del shell admin. */
+.galant-skeleton-page {
+  display:grid;gap:16px;min-height:250px;align-content:start;
+  max-width:100%;padding:clamp(12px,2vw,24px);
+}
+.galant-skeleton-grid {display:grid;grid-template-columns:repeat(5,minmax(0,1fr));gap:12px}
+.galant-skeleton-tile {
+  display:grid;align-content:start;gap:13px;padding:18px;min-height:145px;
+  border:1px solid #e3eaf0;border-radius:14px;background:var(--surface,#fff);
+}
+.galant-skeleton {position:relative;overflow:hidden;display:block;background:#e7edf4;border-radius:7px}
+.galant-skeleton:after {
+  content:"";position:absolute;inset:0;background:linear-gradient(90deg,transparent,rgba(255,255,255,.62),transparent);
+  transform:translateX(-100%);animation:galant-skeleton-shimmer 1.5s ease-in-out infinite;
+}
+.galant-skeleton-heading {height:27px;width:min(245px,60%)}
+.galant-skeleton-icon {width:35px;height:35px;border-radius:10px}
+.galant-skeleton-line {height:12px;width:85%}
+.galant-skeleton-number {height:31px;width:45%}
+.galant-skeleton-panel {height:175px;width:100%;border-radius:13px}
+@media(max-width:1050px){.galant-skeleton-grid{grid-template-columns:repeat(3,minmax(0,1fr))}}
+@media(max-width:760px){.galant-skeleton-grid{grid-template-columns:repeat(2,minmax(0,1fr))}}
+@media(prefers-reduced-motion:reduce){.galant-skeleton:after{animation:none!important;transform:none!important}}
