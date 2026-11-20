@@ -37,6 +37,7 @@ const ResidentNetwork = lazy(() =>
 );
 import GalancitoWidget from "./GalancitoWidget";
 import { NetworkAccountMenu, NetworkPasswordScreen } from "./NetworkAccounts";
+import GalantMark from "./GalantMark";
 import {
   read,
   send,
@@ -141,7 +142,7 @@ function App() {
     [notice, setNotice] = useState(""),
     [hash, setHash] = useState(window.location.hash),
     [mobileOpen, setMobileOpen] = useState(false),
-    [sidebarCollapsed, setSidebarCollapsed] = useState(() => window.localStorage.getItem("galant-sidebar-collapsed") === "true"),
+    [sidebarCollapsed, setSidebarCollapsed] = useState(true),
     [loading, setLoading] = useState(false),
     [search, setSearch] = useState(""),
     [quickNav, setQuickNav] = useState(""),
@@ -156,7 +157,6 @@ function App() {
   const automationReturnRef = useRef("javiera");
   const sectionRef = useRef(section);
   sectionRef.current = section;
-  useEffect(() => { window.localStorage.setItem("galant-sidebar-collapsed", String(sidebarCollapsed)); }, [sidebarCollapsed]);
   useEffect(() => {
     const routeChanged = () => {
       const next = sectionFromLocation();
@@ -453,11 +453,22 @@ function App() {
   );
   return (
     <div className={"shell platform " + (mobileOpen ? "menu-open" : "") + (sidebarCollapsed ? " sidebar-collapsed" : "")}>
-      <aside className="sidebar">
+      <aside className="sidebar"
+        onMouseEnter={() => {
+          if (window.matchMedia("(min-width: 761px) and (hover: hover)").matches) setSidebarCollapsed(false);
+        }}
+        onMouseLeave={() => setSidebarCollapsed(true)}
+        onFocusCapture={() => {
+          if (window.innerWidth > 760) setSidebarCollapsed(false);
+        }}
+        onBlurCapture={(event) => {
+          if (!event.currentTarget.contains(event.relatedTarget as Node)) setSidebarCollapsed(true);
+        }}
+      >
         <div className="brand">
-          <Building2 />
+          <GalantMark className="galant-logo-mark" />
           <div>
-            <b>GALANT POST</b>
+            <b>GALANT</b>
             <small>Gestión de contratistas</small>
           </div>
         </div>
@@ -510,7 +521,7 @@ function App() {
           >
             <Menu />
           </button>
-          <strong>GALANT POST</strong>
+          <strong>GALANT</strong>
           <div className="v15-quicknav" role="search">
             <input
               type="search"
@@ -588,16 +599,13 @@ function App() {
           </div>
         </header>
         <div className="page">
-          {section !== "network" && section !== "javiera" && section !== "ine" && section !== "settings" && <div className="intro">
+          {section !== "home" && section !== "network" && section !== "javiera" && section !== "ine" && section !== "settings" && <div className="intro">
             <div>
               <span className="eyebrow">
                 {profile?.organization} /{" "}
                 {sites.find((s) => s.id === site)?.name || "Todas las obras"}
               </span>
               <h1>{nav.find(([id]) => id === section)?.[1]}</h1>
-              <p>
-                Información compartida de tu organización · Período {period}
-              </p>
             </div>
 
           </div>}
@@ -618,7 +626,7 @@ function App() {
           {section === "home" && overview && (
             <>
               <section className="v15-dashboard-hero" aria-label="Indicadores principales del período">
-                <div className="v15-dashboard-heading"><div><span className="eyebrow">VISIÓN OPERATIVA</span><h2>Resumen del período</h2><p>Situación real de las obras y documentación bajo revisión</p></div><span>{period}</span></div>
+                <div className="v15-dashboard-heading"><div><h2>Inicio</h2></div><span>{period}</span></div>
                 <div className="v15-dashboard-metrics">
                   {([
                     ["Contratistas del período", overview.contractors.length, "contractors", "all"],
@@ -627,14 +635,20 @@ function App() {
                     ["Contratos por vencer", laborAlerts?.summary.workers_ending ?? "—", "workers", "ending_soon"],
                     ["Asistencia atrasada", laborAlerts?.summary.attendance_overdue ?? "—", "attendance", "overdue"]
                   ] as const).map(([label,value,target,state])=><button type="button" className={"v15-dashboard-kpi "+((Number(value)>0&&["Documentos pendientes","Asistencia atrasada"].includes(label))?"attention":"")} key={label} onClick={()=>drill(target,state)}>
-                    <span>{label}</span><strong>{value}</strong><small>Ver detalle →</small>
+                    <span>{label}</span><strong>{value}</strong>
                   </button>)}
                 </div>
+                <nav className="galant-home-shortcuts" aria-label="Accesos directos">
+                  <button type="button" onClick={() => go("network")}><Network size={16} /> Red de Obras</button>
+                  <button type="button" onClick={() => go("contractors")}><Building2 size={16} /> Contratistas</button>
+                  <button type="button" onClick={() => go("workers")}><Users size={16} /> Trabajadores</button>
+                  <button type="button" onClick={() => go("documents")}><FileCheck2 size={16} /> Documentos</button>
+                </nav>
               </section>
               {laborAlerts && <section className="panel dashboard-alerts" aria-labelledby="dashboard-alerts-title">
                 <div className="dashboard-section-title">
                   <div><span className="eyebrow">PRIORIDADES DEL PERÍODO</span><h2 id="dashboard-alerts-title">Alertas laborales y documentales</h2></div>
-                  <span className="dashboard-source-label">Datos verificados de la obra seleccionada</span>
+                  <span className="dashboard-source-label">Datos verificados</span>
                 </div>
                 <details className="v15-dashboard-more"><summary>Indicadores de riesgo por categoría</summary><div className="kpi-grid alert-kpi-grid">
                   {([
@@ -663,7 +677,6 @@ function App() {
               </section>}
               <div className="dashboard-summary-heading">
                 <h2>Resumen de contratistas</h2>
-                <p>Distribución por clasificación para la obra y período seleccionados.</p>
               </div>
               <div className="kpi-grid">
                 {Object.entries(overview.classifications).map(
