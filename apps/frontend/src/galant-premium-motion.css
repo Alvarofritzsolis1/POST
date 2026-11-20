@@ -532,3 +532,57 @@
 @media(prefers-reduced-motion:reduce){
   .galant-startup-panel,.galant-startup-track i {animation:none!important;transform:none!important}
 }
+
+
+/* CRÍTICO: las coordenadas de las opciones nunca cambian al pasar de rail a overlay.
+   Evita clics sobre otra opción durante la transición (QA Red de Obras). */
+@media(min-width:761px) {
+  .platform .sidebar .galant-brand,
+  .platform.sidebar-collapsed .sidebar .galant-brand,
+  .platform.sidebar-collapsed.galant-sidebar-peek .sidebar .galant-brand {
+    height:83px;min-height:83px;max-height:83px;box-sizing:border-box;
+  }
+  .platform .sidebar .sidebar-label,
+  .platform.sidebar-collapsed .sidebar .sidebar-label,
+  .platform.sidebar-collapsed.galant-sidebar-peek .sidebar .sidebar-label,
+  .platform .sidebar .nav-group-title,
+  .platform.sidebar-collapsed .sidebar .nav-group-title,
+  .platform.sidebar-collapsed.galant-sidebar-peek .sidebar .nav-group-title {
+    display:none!important;
+  }
+  .platform .sidebar nav,
+  .platform.sidebar-collapsed .sidebar nav,
+  .platform.sidebar-collapsed.galant-sidebar-peek .sidebar nav {
+    margin-top:11px;gap:10px;padding-top:0;
+  }
+  .platform .sidebar .nav-group,
+  .platform.sidebar-collapsed .sidebar .nav-group,
+  .platform.sidebar-collapsed.galant-sidebar-peek .sidebar .nav-group {gap:3px}
+  .platform .sidebar .nav-group+.nav-group:before,
+  .platform.sidebar-collapsed .sidebar .nav-group+.nav-group:before,
+  .platform.sidebar-collapsed.galant-sidebar-peek .sidebar .nav-group+.nav-group:before {
+    display:block;content:"";height:1px;min-height:1px;
+    width:23px;margin:6px auto 8px;
+    background:rgba(168,197,226,.19);
+  }
+  .platform:not(.sidebar-collapsed) .sidebar .nav-group+.nav-group:before,
+  .platform.sidebar-collapsed.galant-sidebar-peek .sidebar .nav-group+.nav-group:before {
+    width:calc(100% - 46px);
+  }
+  .platform .sidebar .nav-item,
+  .platform.sidebar-collapsed .sidebar .nav-item,
+  .platform.sidebar-collapsed.galant-sidebar-peek .sidebar .nav-item {
+    height:46px;min-height:46px;max-height:46px;box-sizing:border-box;
+    margin-top:3px;margin-bottom:3px;
+    white-space:nowrap!important;flex-shrink:0;line-height:1.2;
+  }
+  .platform .sidebar .nav-item .v91-nav-label {
+    white-space:nowrap!important;overflow:hidden;text-overflow:ellipsis;
+    line-height:1.25!important;
+  }
+  /* No se permite que el ancho del label cambie la altura de la fila. */
+  .platform.sidebar-collapsed.galant-sidebar-peek .sidebar .nav-item .v91-nav-label,
+  .platform:not(.sidebar-collapsed) .sidebar .nav-item .v91-nav-label {
+    display:inline-block;max-width:calc(100% - 34px);
+  }
+}
