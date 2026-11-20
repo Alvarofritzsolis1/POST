@@ -32,6 +32,7 @@ import {
   Workflow,
 } from "lucide-react";
 import type { Profile } from "./api";
+import PersonAvatar from "./PersonAvatar";
 import {
   attach,
   change,
@@ -1717,17 +1718,12 @@ function ConversationView({
     <section className="nw-chat">
       <header>
         <h3>Conversación de coordinación</h3>
-        <p className="nw-muted">
-          {data?.participants
-            .map(
-              (p) =>
-                p.name +
-                (p.sites.length
-                  ? " · " + p.sites.join(", ")
-                  : " · Administración"),
-            )
-            .join(" / ")}
-        </p>
+        <div className="galant-chat-participants" aria-label="Participantes de la conversación">
+          {data?.participants.map(p=><span className="galant-person-row galant-participant" key={p.id}>
+            <PersonAvatar name={p.name} size="xs" />
+            <span><strong>{p.name}</strong><small>{p.sites.length ? p.sites.join(", ") : "Administración"}</small></span>
+          </span>)}
+        </div>
         {user.role === "admin" && (
           <label>
             Incorporar coordinador
@@ -1794,7 +1790,7 @@ function ConversationView({
             className={"nw-message " + (m.sender_id === user.id ? "mine" : "")}
             key={m.id}
           >
-            <b>{m.sender}</b>
+            <div className="galant-message-author galant-person-row"><PersonAvatar name={m.sender} size="xs" /><b>{m.sender}</b></div>
             <p>{m.body}</p>
             <small>{dateTime(m.created_at)}</small>
           </article>

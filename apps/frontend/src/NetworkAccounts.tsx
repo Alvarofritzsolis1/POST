@@ -27,6 +27,7 @@ import {
 } from "./networkApi";
 import { Badge, dateTime, Drawer, errorText, labels } from "./NetworkUI";
 import "./network.css";
+import PersonAvatar from "./PersonAvatar";
 
 type AccessLink = {
   activation_path: string;
@@ -233,14 +234,7 @@ export function NetworkAccountMenu({
           setBell(false);
         }}
       >
-        <span className="nw-avatar">
-          {(profile?.name || user.email)
-            .split(/\s+/)
-            .slice(0, 2)
-            .map((s) => s[0])
-            .join("")
-            .toUpperCase()}
-        </span>
+        <PersonAvatar name={profile?.name || user.email} size="md" className="galant-person-avatar--on-dark" />
         <span>
           <b>{profile?.name || user.email}</b>
           <small>{labels[user.role] || user.role}</small>
@@ -396,13 +390,16 @@ export function NetworkAccountMenu({
               </button>
               {accounts.map((a) => (
                 <div className="nw-user-card" key={a.id}>
-                  <div>
-                    <b>{a.name}</b>
-                    <p>{a.email}</p>
-                    <Badge value={a.role} />{" "}
-                    <span className="nw-muted">
-                      {a.enabled ? "Activa" : "Suspendida"}
-                    </span>
+                  <div className="galant-person-row galant-account-card-id">
+                    <PersonAvatar name={a.name || a.email} size="md" />
+                    <div>
+                      <b>{a.name}</b>
+                      <p>{a.email}</p>
+                      <Badge value={a.role} />{" "}
+                      <span className="nw-muted">
+                        {a.enabled ? "Activa" : "Suspendida"}
+                      </span>
+                    </div>
                   </div>
                   <div className="nw-row">
                     <button

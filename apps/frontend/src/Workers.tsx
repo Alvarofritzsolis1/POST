@@ -3,6 +3,7 @@ import { api } from "./api";
 import { type Site } from "./opsApi";
 import { read, send } from "./platformApi";
 import "./workers.css";
+import PersonAvatar from "./PersonAvatar";
 
 type WorkerRow = {
   assignment_id: string; worker_id: string; worker_name: string; worker_rut: string;
@@ -243,12 +244,12 @@ export default function Workers({ siteId, sites, period, canEdit, canReview, ini
         <label><input type="checkbox" checked={pending} onChange={(e) => setPending(e.target.checked)} /> Finiquitos pendientes</label>
         <button onClick={refresh} disabled={busy}>Actualizar</button>
       </div>
-      <div className="table-wrap"><table><thead><tr><th>Trabajador</th><th>RUT</th><th>Contratista</th><th>Obra</th><th>COD</th><th>Contrato</th><th>Ingreso</th><th>Término pactado</th><th>Estado laboral</th><th>Finiquito</th><th>Acciones</th></tr></thead>
+      <div className="table-wrap galant-workers-table"><table><thead><tr><th>Trabajador</th><th>RUT</th><th>Contratista</th><th>Obra</th><th>COD</th><th>Contrato</th><th>Ingreso</th><th>Término pactado</th><th>Estado laboral</th><th>Finiquito</th><th>Acciones</th></tr></thead>
         <tbody>{registry?.rows.map((r) => <tr key={r.assignment_id}>
-          <td><strong>{r.worker_name}</strong></td><td>{r.worker_rut}</td><td>{r.contractor_name}</td><td>{r.site_name}</td><td>{r.worker_code || "—"}</td>
-          <td>{types[r.contract_type || ""] || "Sin contrato"}</td><td>{date(r.start_date)}</td><td>{date(r.end_date)}</td>
-          <td><span className={"worker-signal " + r.severity} title={r.alert}>{stateLabel[r.labor_state] || r.labor_state}</span></td>
-          <td>{stateLabel[r.finiquito_state] || r.finiquito_state}</td><td><button onClick={() => { setSelected(r.assignment_id); setTab("summary"); }}>Ver y gestionar</button></td>
+          <td data-label="Trabajador"><span className="galant-person-row"><PersonAvatar name={r.worker_name} size="sm" /><strong>{r.worker_name}</strong></span></td><td data-label="RUT">{r.worker_rut}</td><td data-label="Contratista">{r.contractor_name}</td><td data-label="Obra">{r.site_name}</td><td data-label="COD">{r.worker_code || "—"}</td>
+          <td data-label="Contrato">{types[r.contract_type || ""] || "Sin contrato"}</td><td data-label="Ingreso">{date(r.start_date)}</td><td data-label="Término">{date(r.end_date)}</td>
+          <td data-label="Estado laboral"><span className={"worker-signal " + r.severity} title={r.alert}>{stateLabel[r.labor_state] || r.labor_state}</span></td>
+          <td data-label="Finiquito">{stateLabel[r.finiquito_state] || r.finiquito_state}</td><td data-label="Acciones"><button onClick={() => { setSelected(r.assignment_id); setTab("summary"); }}>Ver ficha</button></td>
         </tr>)}</tbody></table></div>
       {!registry?.rows.length && <p className="empty">No hay trabajadores para estos filtros. Selecciona otra obra o crea una persona con su contrato.</p>}
       <div className="toolbar"><button disabled={page <= 1} onClick={() => setPage(page - 1)}>Anterior</button><span>Página {page} · {registry?.summary.total ?? 0} asignaciones</span><button disabled={page * 50 >= (registry?.summary.total || 0)} onClick={() => setPage(page + 1)}>Siguiente</button></div>
@@ -265,7 +266,7 @@ export default function Workers({ siteId, sites, period, canEdit, canReview, ini
       </form>
     </section>}
     {selected && detail && <section className="panel worker-detail">
-      <div className="workers-heading"><div><h2>{detail.name}</h2><p>{detail.rut} · {detail.contractor} · {detail.site}</p></div><button onClick={() => setSelected("")}>Cerrar ficha</button></div>
+      <div className="workers-heading"><div className="galant-person-row galant-worker-heading"><PersonAvatar name={detail.name} size="lg" /><div><h2>{detail.name}</h2><p>{detail.rut} · {detail.contractor} · {detail.site}</p></div></div><button onClick={() => setSelected("")}>Cerrar ficha</button></div>
       <div className="worker-tabs" role="tablist">{[["summary", "Resumen"], ["contract", "Contrato"], ["finiquito", "Finiquito"], ["documents", "Control documental"], ["history", "Historial"]].map(([id, label]) => <button key={id} role="tab" aria-selected={tab === id} className={tab === id ? "active" : ""} onClick={() => setTab(id)}>{label}</button>)}</div>
       {tab === "summary" && <div className="worker-summary">
         <p><b>COD:</b> {detail.current?.worker_code || "Sin clasificar"} · <b>Estado laboral:</b> {stateLabel[detail.current?.labor_state || "observed"]} · <b>Finiquito:</b> {stateLabel[detail.current?.finiquito_state || "not_applicable"]}</p>
@@ -343,7 +344,7 @@ export default function Workers({ siteId, sites, period, canEdit, canReview, ini
         {detail.history.map(h=><article className="worker-record v15-worker-audit" key={h.id}>
           <div className="v15-worker-audit-head"><strong>{auditEntityLabel[h.entity_type]||"Movimiento laboral"}</strong>
             <time>{new Date(h.created_at).toLocaleString("es-CL",{timeZone:"America/Santiago"})}</time></div>
-          <span>Responsable: {h.actor_name||"Sin nombre registrado"}</span>
+          <span className="galant-person-row galant-person-row--history"><PersonAvatar name={h.actor_name||"Sin nombre registrado"} size="xs"/><span>Responsable: {h.actor_name||"Sin nombre registrado"}</span></span>
           <p>{readableAudit(h.changes)}</p>
         </article>)}
         {!detail.history.length&&<p className="empty">Sin cambios registrados.</p>}
