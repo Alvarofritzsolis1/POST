@@ -167,6 +167,19 @@ function App() {
   const openSidebarOnHover = () => { if (!sidebarNavigationLock.current && window.matchMedia("(hover: hover) and (pointer: fine) and (min-width: 761px)").matches) { clearSidebarTimer(); setSidebarHovered(true); } };
   const closeSidebarAfterDelay = () => { clearSidebarTimer(); sidebarNavigationLock.current = false; sidebarHoverTimer.current = setTimeout(() => { setSidebarHovered(false); sidebarHoverTimer.current = null; }, 190); };
   useEffect(() => () => { if (sidebarHoverTimer.current !== null) clearTimeout(sidebarHoverTimer.current); }, []);
+  // El contenido tiene prioridad al desplazarse; el menú flotante se repliega.
+  // Evita tapar fichas y controles durante un scroll (especialmente a 768-900 px).
+  useEffect(() => {
+    if (!sidebarCollapsed) return;
+    const closePeekOnScroll = () => {
+      sidebarNavigationLock.current = true;
+      clearSidebarTimer();
+      setSidebarHovered(false);
+    };
+    window.addEventListener("scroll", closePeekOnScroll, {passive: true});
+    return () => window.removeEventListener("scroll", closePeekOnScroll);
+  }, [sidebarCollapsed]);
+
   const [touchNavigation, setTouchNavigation] = useState(() => window.matchMedia("(max-width: 760px), (hover: none) and (pointer: coarse)").matches);
   useEffect(() => {
     const mode = window.matchMedia("(max-width: 760px), (hover: none) and (pointer: coarse)");
