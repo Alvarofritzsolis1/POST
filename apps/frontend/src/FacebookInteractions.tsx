@@ -16,7 +16,8 @@ type ActionJob = {
 type Interaction = {
   id: string; remote_comment_id: string; record_id: string; post_title: string; post_specialty: string; post_url: string;
   author_name: string | null; author_picture_url: string | null; body: string;
-  posted_at: string; parent_id: string | null; like_count: number;
+  posted_at: string; parent_id: string | null; like_count: number; reply_count: number;
+  is_page_author: boolean;
   classification: Category; classification_source: "manual" | "rules" | "ai";
   classification_score: number; review_state: ReviewState; reviewed_at: string | null;
   is_hidden: boolean; is_deleted: boolean; user_likes: boolean | null;
@@ -24,6 +25,7 @@ type Interaction = {
   private_reply_state: string; lead_id: string | null; history: ActionJob[];
 };
 type Inbox = { rows: Interaction[]; limited: boolean; mode: "manual" };
+type AwaitingDelivery = { commentId: string; mode: "public" | "private"; text: string };
 type Props = { onOpenInbox: () => void; onOpenLead: (id: string) => void };
 type Filter = "all" | "pending" | "interested" | "review" | "negative" | "hidden" | "spam";
 
@@ -76,6 +78,7 @@ export default function FacebookInteractions({ onOpenInbox, onOpenLead }: Props)
   const [replyMode, setReplyMode] = useState<"public" | "private">("public");
   const [suggestSource, setSuggestSource] = useState("");
   const [showHistory, setShowHistory] = useState(false);
+  const [awaiting, setAwaiting] = useState<Record<string, AwaitingDelivery>>({});
 
   const load = useCallback(async (silent = false) => {
     if (!silent) setLoading(true);
@@ -100,19 +103,50 @@ export default function FacebookInteractions({ onOpenInbox, onOpenLead }: Props)
 
   const rows = data?.rows || [];
   const active = rows.find(c => c.id === activeId) || null;
+  useEffect(() => {
+    if (!data || !Object.keys(awaiting).length) return;
+    const finished = Object.entries(awaiting).flatMap(([jobId, wait]) => {
+      const item = data.rows.find(c => c.id === wait.commentId);
+      const job = item?.history.find(j => j.id === jobId);
+      return job && ["done", "failed", "uncertain"].includes(job.state) ? [{ jobId, wait, job }] : [];
+    });
+    if (!finished.length) return;
+    for (const { wait, job } of finished) {
+      if (job.state === "done") {
+        if (wait.mode === "private") {
+          setPrivateDraft(previous => previous[wait.commentId] === wait.text
+            ? { ...previous, [wait.commentId]: "" } : previous);
+        } else {
+          setDraft(previous => previous[wait.commentId] === wait.text
+            ? { ...previous, [wait.commentId]: "" } : previous);
+        }
+        setNotice("Meta confirmó la respuesta. El historial quedó actualizado.");
+      } else {
+        setError(job.state === "uncertain"
+          ? "Meta no confirmó el envío. Conservamos tu borrador: comprueba Facebook antes de repetir."
+          : (job.error || "Meta rechazó el envío. Conservamos tu borrador."));
+      }
+    }
+    setAwaiting(previous => {
+      const next = { ...previous };
+      for (const { jobId } of finished) delete next[jobId];
+      return next;
+    });
+  }, [data, awaiting]);
   const thread = active ? rows.filter(c =>
     c.record_id === active.record_id && (c.parent_id === active.remote_comment_id ||
       (active.parent_id && c.remote_comment_id === active.parent_id))
   ).filter(c => c.id !== active.id).slice(0, 20) : [];
   const stats = useMemo(() => ({
-    total: rows.length,
-    interested: rows.filter(c => c.classification === "interested" && !c.is_deleted).length,
-    pending: rows.filter(c => !hasPublicReply(c) && !c.is_deleted && !["dismissed", "handled"].includes(c.review_state)).length,
-    review: rows.filter(c => c.review_state === "review" || c.classification === "human_review").length,
+    total: rows.filter(c => !c.is_page_author).length,
+    interested: rows.filter(c => !c.is_page_author && c.classification === "interested" && !c.is_deleted).length,
+    pending: rows.filter(c => !c.is_page_author && !hasPublicReply(c) && !c.is_deleted && !["dismissed", "handled"].includes(c.review_state)).length,
+    review: rows.filter(c => !c.is_page_author && (c.review_state === "review" || c.classification === "human_review")).length,
   }), [rows]);
   const visible = useMemo(() => {
     const term = search.trim().toLocaleLowerCase("es-CL");
     return rows.filter(c => {
+      if (c.is_page_author && !term) return false;
       if (filter === "interested" && c.classification !== "interested") return false;
       if (filter === "negative" && c.classification !== "negative") return false;
       if (filter === "spam" && c.classification !== "spam") return false;
@@ -138,15 +172,24 @@ export default function FacebookInteractions({ onOpenInbox, onOpenLead }: Props)
   const urlFor = (c: Interaction) => "/facebook/publications/" + c.record_id + "/comments/" + c.id;
 
   async function send(c: Interaction) {
-    const isPrivate = replyMode === "private";
+    const mode = replyMode;
+    const isPrivate = mode === "private";
     const text = (isPrivate ? privateDraft[c.id] : draft[c.id])?.trim();
     if (!text) { setError("Escribe una respuesta antes de enviarla."); return; }
     if (isPrivate && !window.confirm("Meta permite una sola invitación privada por comentario. ¿Enviar ahora?")) return;
-    const ok = await execute(c.id, urlFor(c) + (isPrivate ? "/private-reply" : "/reply"), { message: text });
-    if (ok) {
-      if (isPrivate) setPrivateDraft(v => ({ ...v, [c.id]: "" }));
-      else setDraft(v => ({ ...v, [c.id]: "" }));
-    }
+    setBusy(c.id); setError(""); setNotice("");
+    try {
+      const response = await change<{ id: string; state: string }>(
+        urlFor(c) + (isPrivate ? "/private-reply" : "/reply"), { message: text });
+      if (!response?.id || response.state !== "pending") {
+        throw new Error("No se confirmó que la solicitud entrara en la cola.");
+      }
+      setAwaiting(prev => ({ ...prev, [response.id]: { commentId: c.id, mode, text } }));
+      setNotice("Respuesta en cola. Conservaremos el borrador hasta la confirmación de Meta.");
+      await load(true);
+    } catch (err) {
+      setError(errorText(err));
+    } finally { setBusy(""); }
   }
 
   async function suggest(c: Interaction) {
@@ -248,6 +291,7 @@ export default function FacebookInteractions({ onOpenInbox, onOpenLead }: Props)
               {c.is_hidden && !c.is_deleted && <span className="fbint-tag muted">Oculto</span>}
               {hasPendingJob(c) && <span className="fbint-tag warning">En proceso</span>}
               {hasPublicReply(c) && <span className="fbint-tag good">Respondido</span>}
+              {c.reply_count > 0 && <span className="fbint-tag info">{c.reply_count} respuesta{c.reply_count === 1 ? "" : "s"}</span>}
               <small>{c.post_specialty || c.post_title}</small>
             </span>
           </span>
@@ -302,7 +346,7 @@ export default function FacebookInteractions({ onOpenInbox, onOpenLead }: Props)
         <small className="fbint-source">Clasificación {active.classification_source === "manual" ? "corregida por una persona" :
           active.classification_source === "ai" ? "analizada por Galancito; requiere revisión" :
           "preliminar mediante reglas locales"}. No es una evaluación de la persona.</small>
-        {!active.is_deleted && <>
+        {!active.is_deleted && !active.is_page_author && <>
           <div className="fbint-section-title"><b>Responder comentario</b><button className="fbint-text-btn"
             type="button" disabled={!!busy} onClick={() => void suggest(active)}>
             <Sparkles size={15}/> Sugerir texto
@@ -319,7 +363,7 @@ export default function FacebookInteractions({ onOpenInbox, onOpenLead }: Props)
             placeholder="Escribe una respuesta profesional…" />
           {suggestSource && replyMode === "public" && <small className="fbint-source">{suggestSource}</small>}
           {replyMode === "private" && <small className="fbint-source">Solo una invitación privada si Meta la permite. La conversación continúa cuando la persona responde.</small>}
-          <button className="nw-btn fbint-send" type="button" disabled={!!busy || (replyMode === "public" ? !active.can_reply : !active.can_private_reply)}
+          <button className="nw-btn fbint-send" type="button" disabled={!!busy || hasPendingJob(active) || Object.values(awaiting).some(j => j.commentId === active.id) || (replyMode === "public" ? !active.can_reply : !active.can_private_reply)}
             onClick={() => void send(active)}><Send size={15}/> Enviar {replyMode === "public" ? "respuesta" : "mensaje privado"}</button>
         </>}
         <div className="fbint-section-title"><b>Administrar</b></div>
