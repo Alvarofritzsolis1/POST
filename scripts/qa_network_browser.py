@@ -68,6 +68,41 @@ def main():
         admin_ctx, admin = context()
         login(admin, email)
 
+        # Premium UI: la barra lateral debe ampliar sobre el contenido, no moverlo.
+        def shell_geometry():
+            return admin.evaluate("""() => {
+              const aside = document.querySelector(".platform .sidebar");
+              const main = document.querySelector(".platform .main");
+              return {
+                aside: aside?.getBoundingClientRect().width,
+                asideBackground: aside ? getComputedStyle(aside).backgroundColor : null,
+                mainLeft: main?.getBoundingClientRect().left,
+                scrollWidth: document.documentElement.scrollWidth,
+                innerWidth: innerWidth
+              };
+            }""")
+
+        admin.mouse.move(1100, 300)
+        rail_before = shell_geometry()
+        assert rail_before["aside"] is not None and rail_before["aside"] <= 85, rail_before
+        assert rail_before["asideBackground"] == "rgb(255, 255, 255)", rail_before
+        assert rail_before["scrollWidth"] <= rail_before["innerWidth"], rail_before
+        admin.locator(".platform .sidebar").hover(position={"x":28, "y":45})
+        # CSS hover transition is allowed to animate; assert its final settled state.
+        admin.wait_for_function(
+            "() => document.querySelector('.platform .sidebar')?.getBoundingClientRect().width >= 230",
+            timeout=2500,
+        )
+        rail_open = shell_geometry()
+        assert abs(rail_open["mainLeft"] - rail_before["mainLeft"]) <= 1, (rail_before, rail_open)
+        admin.mouse.move(1100, 300)
+        admin.wait_for_function(
+            "() => document.querySelector('.platform .sidebar')?.getBoundingClientRect().width <= 85",
+            timeout=2500,
+        )
+        rail_after = shell_geometry()
+        assert abs(rail_after["mainLeft"] - rail_before["mainLeft"]) <= 1, (rail_before, rail_after)
+
         def api(ctx, path):
             result = ctx.request.get(args.url + root + path)
             assert result.ok, (path, result.status, result.text())
@@ -129,9 +164,30 @@ def main():
             login(resident, resident_email)
             expect(resident.locator(".nw-kpis")).to_be_visible()
             expect(resident.get_by_text("Actualizando información compartida…", exact=True)).not_to_be_visible()
+            # UI real de residentes: panel lateral con la misma estética premium.
+            aside_style = resident.locator(".nw-feed-aside-card").evaluate(
+                "(el) => ({padding: parseFloat(getComputedStyle(el).paddingLeft), radius: parseFloat(getComputedStyle(el).borderTopLeftRadius)})"
+            )
+            assert aside_style["padding"] >= 12 and aside_style["radius"] >= 10, aside_style
             resident.screenshot(path=str(args.output / "residente.png"), full_page=True)
             resident.set_viewport_size({"width": 390, "height": 844})
             assert resident.evaluate("document.documentElement.scrollWidth <= window.innerWidth")
+            grid_cols = resident.locator(".nw-feed-kpis").evaluate(
+                "(el) => getComputedStyle(el).gridTemplateColumns.split(' ').length"
+            )
+            assert grid_cols == 2, ("KPIs móviles de residentes", grid_cols)
+            trigger_width = resident.locator(".galancito-trigger").evaluate(
+                "(el) => el.getBoundingClientRect().width"
+            )
+            assert trigger_width <= 55, ("Galancito móvil invade la pantalla", trigger_width)
+            action_and_fab = resident.evaluate("""() => {
+              const action = document.querySelector(".nw-feed-board-main .nw-section-title > .nw-text-button");
+              const fab = document.querySelector(".galancito-trigger");
+              if (!action || !fab) return {ok:false, missing:true};
+              const a=action.getBoundingClientRect(), f=fab.getBoundingClientRect();
+              return {ok: !(a.left<f.right && a.right>f.left && a.top<f.bottom && a.bottom>f.top)};
+            }""")
+            assert action_and_fab["ok"], ("Acción de feed cubierta por Galancito", action_and_fab)
             resident.screenshot(path=str(args.output / "movil.png"), full_page=True)
             assert not errors, errors
             assert not failures, failures

@@ -90,6 +90,11 @@ with sync_playwright() as p:
 
     # GALANT v13: la ficha debe sustituir completamente el listado y permitir regresar.
     page.get_by_role("button", name="Control de asistencia", exact=True).click()
+    # La navegación con ratón debe replegar el panel para no bloquear botones.
+    page.wait_for_function(
+        "() => document.querySelector('.platform .sidebar')?.getBoundingClientRect().width <= 85",
+        timeout=2500,
+    )
     expect(page.locator(".av93-month-matrix tbody tr").first).to_be_visible(timeout=15000)
     contractor_name = page.locator(".av13-company-link").first.inner_text()
     page.locator(".av13-company-link").first.click()
@@ -112,6 +117,8 @@ with sync_playwright() as p:
     for label in ["Contratistas", "Trabajadores", "Control de asistencia", "Control documental", "Cotizaciones y pagos", "Evaluación administrativa", "Gestión administrativa", "Importación masiva", "Informes", "Configuración", "Inicio"]:
         page.get_by_role("button", name=label, exact=True).click()
         expect(page.locator(".page")).to_be_visible()
+        # Las capturas deben enseñar el contenido, no el menú abierto por el click.
+        page.mouse.move(1380, 22)
         page.screenshot(path=str(OUT / ("desktop-" + label.lower().replace(" ", "-") + ".png")), full_page=True, animations="disabled")
         assert_no_horizontal_page_scroll(page, label)
 
@@ -141,6 +148,12 @@ with sync_playwright() as p:
         sel = page.get_by_label("Obra seleccionada", exact=True).bounding_box()
         assert sel and sel["height"] >= 39, (width, sel)
         assert sel["x"] >= -1 and sel["x"] + sel["width"] <= width + 2, (width, sel)
+        if width > 760:
+            page.mouse.move(width - 20, 20)
+            page.wait_for_function(
+                "() => document.querySelector('.platform .sidebar')?.getBoundingClientRect().width <= 85",
+                timeout=2500,
+            )
         page.screenshot(path=str(OUT / f"contractors-{width}x{height}.png"), full_page=True, animations="disabled")
         if width <= 900:
             page.locator(".ops-mobile-contractor-action").first.click()

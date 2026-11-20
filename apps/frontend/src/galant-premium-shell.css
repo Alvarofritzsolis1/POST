@@ -1,0 +1,411 @@
+/* GALANT · Premium shell 2026-11-20
+ * Visual-only layer after the legacy styles. Persistent 76px rail prevents layout shift.
+ * Hover/focus expansion lives above the content, not inside its layout geometry.
+ */
+:root { --galant-rail: 76px; --galant-navy: #153b65; --galant-blue: #2563eb; --galant-teal: #079a8f; }
+html { scrollbar-gutter: stable; }
+.platform.shell { background: #f5f8fc; }
+.platform.shell .page { width: 100%; max-width: none; min-width: 0; padding: clamp(16px,1.6vw,29px); }
+.platform.shell .main { min-width: 0; overflow-x: clip; }
+.platform.shell .topbar {
+  min-height: 64px; padding: 10px clamp(16px,1.6vw,29px);
+  border-bottom: 1px solid #e2eaf2; background: #ffffffed;
+}
+.platform.shell .topbar > strong { color: #153b65; letter-spacing: -.04em; font-size: 17px; font-weight: 850; }
+.platform.shell .topbar .menu-toggle { background: #f1f6fc; color: #1a5784; }
+.platform.shell .v15-quicknav input { border-radius: 12px; background: #f7faff; }
+.platform.shell .sidebar {
+  background: #fff; border-right: 1px solid #e1eaf2;
+  box-shadow: 8px 0 30px rgba(21,59,101,.035);
+}
+/* Override legacy html:not([data-theme=dark]) selectors, which otherwise
+   outweigh the new premium shell despite loading earlier. */
+html:not([data-theme="dark"]) .platform.shell .sidebar {
+  background:#fff;
+  border-right-color:#e1eaf2;
+}
+html:not([data-theme="dark"]) .platform.shell .sidebar .nav-item {
+  color:#536e85; background:transparent; box-shadow:none;
+}
+html:not([data-theme="dark"]) .platform.shell .sidebar .nav-item:hover {
+  color:#175880; background:#f2f8fc; box-shadow:none;
+}
+html:not([data-theme="dark"]) .platform.shell .sidebar .nav-item.active {
+  background:#e7f6f4; color:#087d76;
+  box-shadow:inset 3px 0 #079a8f;
+}
+html:not([data-theme="dark"]) .platform.shell .sidebar .nav-item.active:hover {
+  background:#dcf2ed;
+}
+.platform.shell .brand { min-height: 91px; display: flex; align-items: center; gap: 10px; color: #153b65; }
+.platform.shell .brand b { color:#153b65; font-size: 20px; letter-spacing: -.055em; font-weight: 850; }
+.platform.shell .brand small { color:#718397; letter-spacing: .02em; }
+.platform.shell .galant-logo-mark { width: 43px; height:43px; flex-shrink:0; filter: drop-shadow(0 5px 9px rgba(16,118,171,.18)); }
+.platform.shell .sidebar .nav-group-title, .platform.shell .sidebar-label { color:#94a5b4; }
+.platform.shell .sidebar .nav-item {
+  color:#536e85; border-radius: 11px; min-height:44px;
+  transition: color .16s ease, background-color .16s ease, box-shadow .16s ease;
+}
+.platform.shell .sidebar .nav-item:hover { color:#175880; background:#f2f8fc; transform:none; }
+.platform.shell .sidebar .nav-item.active {
+  background:#e7f6f4; color:#087d76;
+  box-shadow:inset 3px 0 #079a8f; transform:none;
+}
+.platform.shell .sidebar-bottom { color:#718397; }
+.platform.shell .sidebar-bottom p,.platform.shell .sidebar-bottom small { color:#718397; }
+/* Desktop: the left rail never occupies more layout space than 76px.
+   Expansion overlays the page, keeping clickable controls at the same Y location. */
+@media (min-width: 761px) {
+  .platform.shell .sidebar, .platform.shell.sidebar-collapsed .sidebar {
+    width:var(--galant-rail)!important;
+    overflow-x:hidden; overflow-y:auto;
+    transition:width .23s cubic-bezier(.2,.78,.2,1),box-shadow .2s ease!important;
+    z-index:35;
+  }
+  .platform.shell.sidebar-collapsed .sidebar:is(:hover,:focus-within) {
+    width:254px!important;
+    box-shadow:14px 0 32px rgba(19,59,89,.14);
+  }
+  .platform.shell:not(.sidebar-collapsed) .sidebar {
+    width:254px!important;
+    box-shadow:14px 0 32px rgba(19,59,89,.14);
+  }
+  .platform.shell .main, .platform.shell.sidebar-collapsed .main {
+    margin-left:var(--galant-rail)!important;
+    max-width:calc(100% - var(--galant-rail));
+    width:calc(100% - var(--galant-rail));
+    transition:none!important;
+  }
+  /* Reserve the same vertical layout in collapsed and expanded modes. */
+  .platform.shell.sidebar-collapsed .sidebar .brand {
+    position:relative;
+    padding:21px 17px!important;
+    min-height:91px; justify-content:flex-start;
+    flex-shrink:0; gap:10px; white-space:nowrap;
+  }
+  .platform.shell.sidebar-collapsed .sidebar .galant-logo-mark {
+    width:43px;height:43px;flex:0 0 43px;
+  }
+  .platform.shell.sidebar-collapsed .sidebar .brand>div {
+    display:block!important;visibility:hidden;opacity:0;
+    position:absolute;left:71px;top:26px;pointer-events:none;white-space:nowrap;
+  }
+  .platform.shell.sidebar-collapsed .sidebar:is(:hover,:focus-within) .brand>div {
+    visibility:visible;opacity:1;transition:opacity .14s ease .08s;
+  }
+  .platform.shell.sidebar-collapsed .sidebar-label {
+    display:block!important; visibility:hidden; opacity:0;
+    white-space:nowrap;min-height:47px;overflow:hidden;
+  }
+  .platform.shell.sidebar-collapsed .sidebar:is(:hover,:focus-within) .sidebar-label {
+    visibility:visible;opacity:1;
+  }
+  .platform.shell.sidebar-collapsed .sidebar nav,
+  .platform.shell.sidebar-collapsed .sidebar:is(:hover,:focus-within) nav {
+    margin-top:0!important;gap:2px;
+  }
+  .platform.shell.sidebar-collapsed .sidebar .nav-group-title {
+    display:block!important;
+    visibility:hidden;opacity:0;
+    white-space:nowrap;
+    min-height:16px;overflow:hidden;
+  }
+  .platform.shell.sidebar-collapsed .sidebar:is(:hover,:focus-within) .nav-group-title {
+    visibility:visible;opacity:1;
+  }
+  .platform.shell.sidebar-collapsed .sidebar .nav-item,
+  .platform.shell.sidebar-collapsed .sidebar:is(:hover,:focus-within) .nav-item {
+    min-height:47px;max-height:47px;
+    width:calc(100% - 24px);
+    margin:4px 12px;padding:12px 14px;
+    justify-content:flex-start;gap:12px;overflow:hidden;white-space:nowrap;
+  }
+  .platform.shell.sidebar-collapsed .sidebar .nav-item .v91-nav-label {
+    display:inline!important;visibility:hidden;opacity:0;
+    overflow:hidden;text-overflow:ellipsis;white-space:nowrap;
+  }
+  .platform.shell.sidebar-collapsed .sidebar:is(:hover,:focus-within) .nav-item .v91-nav-label {
+    visibility:visible;opacity:1;
+    transition:opacity .14s ease .08s;
+  }
+  .platform.shell.sidebar-collapsed .sidebar .nav-item svg { flex:0 0 18px; }
+  .platform.shell.sidebar-collapsed .sidebar .sidebar-bottom { display:none; }
+  .platform.shell.sidebar-collapsed .sidebar:is(:hover,:focus-within) .sidebar-bottom {
+    display:block;
+  }
+}
+/* Close overlay after a pointer navigation action. Avoids intercepting clicks
+   on module content immediately to the right of the compact rail. */
+@media (min-width: 761px) {
+  .platform.shell.sidebar-dismissed.sidebar-collapsed .sidebar,
+  .platform.shell.sidebar-dismissed.sidebar-collapsed .sidebar:is(:hover,:focus-within),
+  .platform.shell.sidebar-dismissed:not(.sidebar-collapsed) .sidebar {
+    width:var(--galant-rail)!important;
+    box-shadow:8px 0 30px rgba(21,59,101,.035)!important;
+  }
+  .platform.shell.sidebar-dismissed .sidebar .brand>div,
+  .platform.shell.sidebar-dismissed .sidebar .sidebar-label,
+  .platform.shell.sidebar-dismissed .sidebar .nav-group-title,
+  .platform.shell.sidebar-dismissed .sidebar .nav-item .v91-nav-label {
+    visibility:hidden!important;
+    opacity:0!important;
+    pointer-events:none!important;
+  }
+  .platform.shell.sidebar-dismissed .sidebar .sidebar-bottom {display:none!important;}
+}
+.platform.shell .v15-dashboard-hero { gap:13px; margin-bottom:17px; }
+.platform.shell .v15-dashboard-heading { align-items:center; gap:12px; }
+.platform.shell .v15-dashboard-heading h2 { font-size:clamp(23px,2.2vw,30px); margin:0; color:#153b65; }
+.platform.shell .v15-dashboard-heading>span {
+  border-radius:10px; padding:8px 12px;
+  background:#eaf3fc; color:#1c5d8a;
+}
+.platform.shell .v15-dashboard-metrics { gap:12px; }
+.platform.shell .v15-dashboard-kpi {
+  border-radius:16px; background:#fff; min-height:112px; padding:17px;
+  border:1px solid #e0e9f1;
+  box-shadow:0 8px 26px rgba(22,60,93,.045);
+  transition:transform .18s ease,box-shadow .18s ease,border-color .18s ease;
+}
+.platform.shell .v15-dashboard-kpi:hover {
+  transform:translateY(-2px);border-color:#accce6;box-shadow:0 12px 28px rgba(22,60,93,.09);
+}
+.platform.shell .v15-dashboard-kpi > span { font-size:12px; color:#627d91; }
+.platform.shell .v15-dashboard-kpi > strong { font-size:clamp(27px,2.5vw,36px); color:#153b65; }
+.platform.shell .v15-dashboard-kpi.attention { background:#fff8f5; border-color:#f4d9d0; }
+.platform.shell .v15-dashboard-kpi.attention > strong { color:#bb3e33; }
+.galant-home-shortcuts {
+  display:flex;flex-wrap:wrap;align-items:center;gap:9px;margin:1px 0 2px;
+}
+.galant-home-shortcuts button {
+  display:inline-flex;align-items:center;gap:8px;min-height:40px;
+  padding:9px 14px;background:#fff;border:1px solid #dce6ee;border-radius:11px;
+  color:#225477;font-size:12px;font-weight:760;
+  transition:background .17s ease,border-color .17s ease,transform .17s ease;
+}
+.galant-home-shortcuts button:hover { background:#eff8ff;border-color:#b4d8ef;transform:translateY(-1px); }
+.galant-home-shortcuts button svg { width:16px;height:16px;color:#0d8e86;flex-shrink:0; }
+.platform.shell .dashboard-alerts,.platform.shell .dashboard-more,.platform.shell .dashboard-metric {
+  border-radius:15px;box-shadow:0 6px 21px rgba(18,57,85,.035);
+}
+/* Red de Obras: denser composition, richer affordances and stable card dimensions. */
+:is(.platform, .nw-resident-shell) .nw.nw-portal {
+  --nw-ink:#173b5b;--nw-muted:#6d8494;--nw-accent:#078e86;
+  --nw-light:#e9f8f5;--nw-border:#e0e9ef;--nw-bg:#f5f8fc;
+  width:100%;min-width:0;
+}
+:is(.platform, .nw-resident-shell) .nw-portal .nw-heading { margin:0 0 15px; }
+:is(.platform, .nw-resident-shell) .nw-portal .nw-heading h1 { font-size:clamp(26px,2.7vw,34px); margin:2px 0 0; color:#153b65; }
+:is(.platform, .nw-resident-shell) .nw-portal .nw-tabs { gap:3px; border-color:#dfe9f0; margin-bottom:18px; }
+:is(.platform, .nw-resident-shell) .nw-portal .nw-tabs > button {
+  padding:11px 15px; min-height:44px; border-radius:10px 10px 0 0;
+  font-size:12px; font-weight:720;transition:background-color .16s,color .16s;
+}
+:is(.platform, .nw-resident-shell) .nw-portal .nw-tabs > button.active {
+  background:#e9f8f5;color:#087e76;border-color:#079a8f;
+}
+:is(.platform, .nw-resident-shell) .nw-portal .nw-publish-hub {
+  padding:16px; border-radius:16px;margin-bottom:16px;background:white;
+  box-shadow:0 7px 25px rgba(19,59,86,.038);
+}
+:is(.platform, .nw-resident-shell) .nw-portal .nw-publish-hub-heading { margin-bottom:10px; }
+:is(.platform, .nw-resident-shell) .nw-portal .nw-publish-hub-heading strong { color:#173b5b; font-size:15px; }
+:is(.platform, .nw-resident-shell) .nw-portal .nw-publish-choices { gap:10px; }
+:is(.platform, .nw-resident-shell) .nw-portal .nw-publish-choice {
+  border-radius:13px;padding:16px;
+  transition:transform .18s ease,box-shadow .18s ease,border-color .18s ease;
+}
+:is(.platform, .nw-resident-shell) .nw-portal .nw-publish-choice:hover { transform:translateY(-2px);box-shadow:0 10px 27px #1b73b914; }
+:is(.platform, .nw-resident-shell) .nw-portal .nw-publish-choice-icon { border-radius:12px; }
+:is(.platform, .nw-resident-shell) .nw-portal .nw-filters { margin-bottom:15px; }
+:is(.platform, .nw-resident-shell) .nw-portal .nw-filters > label:not(.nw-check),:is(.platform, .nw-resident-shell) .nw-portal .nw-filters > select {
+  border-radius:11px;border-color:#dfe9f0;min-height:40px;
+}
+:is(.platform, .nw-resident-shell) .nw-portal .nw-filters > .nw-search { flex:1 1 210px; max-width:420px; }
+:is(.platform, .nw-resident-shell) .nw-portal .nw-filters > .nw-search input { width:100%;max-width:100%; }
+:is(.platform, .nw-resident-shell) .nw-portal .nw-feed-kpis { gap:10px; margin-bottom:18px; }
+:is(.platform, .nw-resident-shell) .nw-portal .nw-feed-kpi {
+  border-radius:15px;min-height:106px;padding:15px 17px;
+  box-shadow:0 7px 24px rgba(19,59,86,.04);
+}
+:is(.platform, .nw-resident-shell) .nw-portal .nw-feed-kpi > strong { font-size:clamp(27px,2.5vw,33px); }
+:is(.platform, .nw-resident-shell) .nw-portal .nw-section-title { margin:19px 0 12px; }
+:is(.platform, .nw-resident-shell) .nw-portal .nw-section-title h2 { color:#173b5b; font-size:17px; }
+:is(.platform, .nw-resident-shell) .nw-portal .nw-cards { gap:12px; }
+:is(.platform, .nw-resident-shell) .nw-portal .nw-card {
+  border-radius:15px;border-color:#e1e9f0;
+  box-shadow:0 7px 23px rgba(19,59,86,.045);padding:18px;
+}
+:is(.platform, .nw-resident-shell) .nw-portal .nw-card:hover {border-color:#a5cfc7;box-shadow:0 11px 28px rgba(19,59,86,.09);}
+:is(.platform, .nw-resident-shell) .nw-portal .nw-feed-card {padding:16px;}
+:is(.platform, .nw-resident-shell) .nw-portal .nw-card .nw-text-button {font-weight:750;}
+:is(.platform, .nw-resident-shell) .nw-portal .nw-badge {border-radius:8px;}
+:is(.platform, .nw-resident-shell) .nw-portal .nw-surface {border-radius:15px;}
+/* Resident header uses same brand; no module behavior altered. */
+.nw .nw-brand .galant-logo-mark {width:43px;height:43px;flex:none;}
+.nw .nw-brand b {font-size:18px;letter-spacing:-.04em;color:#153b65;}
+/* Wide-screen Red de Obras feed, built from existing real API data. */
+:is(.platform, .nw-resident-shell) .nw-portal .nw-feed-board {
+  display:grid;grid-template-columns:minmax(0,1fr) 270px;
+  gap:13px;align-items:start;min-width:0;
+}
+:is(.platform, .nw-resident-shell) .nw-portal .nw-feed-board-main {min-width:0;}
+:is(.platform, .nw-resident-shell) .nw-portal .nw-feed-board-main .nw-section-title {margin-top:10px;}
+:is(.platform, .nw-resident-shell) .nw-portal .nw-feed-board-main .nw-feed-cards {
+  grid-template-columns:repeat(2,minmax(0,1fr));gap:12px;
+}
+:is(.platform, .nw-resident-shell) .nw-portal .nw-feed-board-side {min-width:0;padding-top:10px;}
+:is(.platform, .nw-resident-shell) .nw-portal .nw-feed-aside-card {
+  padding:18px;border-radius:15px;background:white;border:1px solid #e0e9ef;
+  box-shadow:0 7px 23px rgba(19,59,86,.045);
+}
+:is(.platform, .nw-resident-shell) .nw-portal .nw-feed-aside-heading {
+  display:flex;justify-content:space-between;align-items:center;gap:8px;
+  color:#173b5b;margin-bottom:15px;font-size:15px;
+}
+:is(.platform, .nw-resident-shell) .nw-portal .nw-feed-aside-heading svg {color:#078e86;}
+:is(.platform, .nw-resident-shell) .nw-portal .nw-feed-aside-stats {
+  display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:8px;
+  margin-bottom:18px;
+}
+:is(.platform, .nw-resident-shell) .nw-portal .nw-feed-aside-stats > div {
+  display:flex;flex-direction:column;gap:4px;background:#f3f9fd;
+  border-radius:10px;padding:11px;min-width:0;
+}
+:is(.platform, .nw-resident-shell) .nw-portal .nw-feed-aside-stats span {
+  font-size:10px;line-height:1.4;color:#687f90;
+}
+:is(.platform, .nw-resident-shell) .nw-portal .nw-feed-aside-stats strong {
+  font-size:24px;line-height:1.1;color:#173b5b;
+}
+:is(.platform, .nw-resident-shell) .nw-portal .nw-feed-aside-card h3 {
+  margin:0 0 10px;color:#173b5b;font-size:13px;
+}
+:is(.platform, .nw-resident-shell) .nw-portal .nw-feed-aside-card .nw-bars {margin-bottom:18px;}
+:is(.platform, .nw-resident-shell) .nw-portal .nw-feed-aside-card .nw-text-button {
+  font-size:12px;font-weight:750;
+}
+html[data-theme="dark"] :is(.platform, .nw-resident-shell) .nw-portal .nw-feed-aside-card {
+  background:#17313f;border-color:#365362;
+}
+html[data-theme="dark"] :is(.platform, .nw-resident-shell) .nw-portal .nw-feed-aside-heading,
+html[data-theme="dark"] :is(.platform, .nw-resident-shell) .nw-portal .nw-feed-aside-card h3,
+html[data-theme="dark"] :is(.platform, .nw-resident-shell) .nw-portal .nw-feed-aside-stats strong {
+  color:#e1f0fa;
+}
+html[data-theme="dark"] :is(.platform, .nw-resident-shell) .nw-portal .nw-feed-aside-stats > div {
+  background:#1b3a4b;
+}
+@media (max-width: 1200px) {
+  :is(.platform, .nw-resident-shell) .nw-portal .nw-feed-board {grid-template-columns:minmax(0,1fr) 245px;}
+}
+@media (max-width: 980px) {
+  :is(.platform, .nw-resident-shell) .nw-portal .nw-feed-board {grid-template-columns:1fr;}
+  :is(.platform, .nw-resident-shell) .nw-portal .nw-feed-board-side {padding-top:0;}
+}
+@media (max-width: 620px) {
+  :is(.platform, .nw-resident-shell) .nw-portal .nw-feed-board-main .nw-feed-cards {grid-template-columns:1fr;}
+}
+/* Four real business indicators: needs, capacity, matches, inbox. */
+:is(.platform, .nw-resident-shell) .nw-portal .nw-feed-kpis {
+  grid-template-columns:repeat(4,minmax(0,1fr))!important;
+}
+:is(.platform, .nw-resident-shell) .nw-portal .nw-feed-kpi-match > strong {color:#6155c7;}
+:is(.platform, .nw-resident-shell) .nw-portal .nw-feed-kpi-match > span svg {color:#6155c7;}
+:is(.platform, .nw-resident-shell) .nw-portal .nw-card-footer:has(>button:only-child) {justify-content:flex-end;}
+/* Respect the existing appearance switch; premium styling must not break dark mode. */
+html[data-theme="dark"] .platform.shell {
+  background:#0e1f2c;
+}
+html[data-theme="dark"] .platform.shell .topbar {
+  background:#132b3a;border-bottom-color:#304653;
+}
+html[data-theme="dark"] .platform.shell .topbar > strong,
+html[data-theme="dark"] .platform.shell .brand b {color:#e3eff8;}
+html[data-theme="dark"] .platform.shell .sidebar {
+  background:#132b3a;border-right-color:#304653;
+}
+html[data-theme="dark"] .platform.shell .sidebar .nav-item {
+  color:#b9ccda;
+}
+html[data-theme="dark"] .platform.shell .sidebar .nav-item:hover {
+  color:#f3fafc;background:#1e4255;
+}
+html[data-theme="dark"] .platform.shell .sidebar .nav-item.active {
+  background:#1b5959;color:#c4fcf3;
+}
+html[data-theme="dark"] .platform.shell .v15-dashboard-heading h2,
+html[data-theme="dark"] .platform.shell .v15-dashboard-kpi > strong {
+  color:#e4eff7;
+}
+html[data-theme="dark"] .platform.shell .v15-dashboard-kpi,
+html[data-theme="dark"] .galant-home-shortcuts button {
+  background:#162f3d;border-color:#365365;color:#d6ebf5;
+}
+html[data-theme="dark"] .platform.shell .v15-dashboard-kpi > span {
+  color:#aec5d2;
+}
+html[data-theme="dark"] .platform.shell .v15-dashboard-kpi.attention {
+  background:#402b30;border-color:#874752;
+}
+html[data-theme="dark"] .platform.shell .v15-dashboard-kpi.attention > strong {
+  color:#ffb7af;
+}
+html[data-theme="dark"] :is(.platform, .nw-resident-shell) .nw-portal .nw-section-title h2,
+html[data-theme="dark"] :is(.platform, .nw-resident-shell) .nw-portal .nw-heading h1 {
+  color:#e3eff8;
+}
+/* Resident view: share the same premium feed without depending on the admin shell. */
+.nw-resident-shell > main { max-width:none; width:100%; padding:clamp(15px,2vw,30px); }
+.nw-resident-shell .nw-feed-board-side { min-width:0; }
+.nw-resident-shell .nw-feed-kpis { grid-template-columns:repeat(4,minmax(0,1fr))!important; }
+.nw-resident-shell .nw-feed-aside-card { box-sizing:border-box; }
+@media(max-width:760px) {
+  .nw-resident-shell > main { padding:15px 14px 80px; }
+  .nw-resident-shell .nw-feed-kpis { grid-template-columns:repeat(2,minmax(0,1fr))!important; }
+  .nw-resident-shell .nw-feed-board { grid-template-columns:1fr; }
+  .galancito .galancito-trigger {
+    width:48px; height:48px; min-height:48px; padding:0;
+    justify-content:center; gap:0; border-radius:50%;
+  }
+  .galancito .galancito-trigger > span {display:none;}
+  /* Keep quick actions outside the mobile assistant's floating hit area. */
+  :is(.platform,.nw-resident-shell) .nw-portal .nw-section-title > .nw-text-button,
+  :is(.platform,.nw-resident-shell) .nw-portal .nw-card-footer > .nw-text-button {
+    margin-inline-end:54px;
+  }
+}
+/* Accessible motion and responsive constraints. */
+@media (max-width: 1180px) {
+  .platform.shell .v15-dashboard-metrics {grid-template-columns:repeat(3,minmax(0,1fr));}
+  :is(.platform, .nw-resident-shell) .nw-portal .nw-cards {grid-template-columns:repeat(2,minmax(0,1fr));}
+}
+@media (max-width: 760px) {
+  .platform.shell .main,.platform.shell.sidebar-collapsed .main {
+    width:100%; max-width:100%; margin-left:0!important;
+  }
+  .platform.shell .sidebar,.platform.shell.sidebar-collapsed .sidebar {
+    width:min(300px,86vw)!important;
+    background:#fff;border-right:1px solid #e3edf3;
+  }
+  .platform.shell .sidebar .brand {color:#153b65;}
+  .platform.shell .sidebar .nav-item {color:#536e85;}
+  .platform.shell .sidebar .nav-item.active {color:#087e76;}
+  .platform.shell .page {padding:15px 13px 28px;}
+  .platform.shell .v15-dashboard-metrics {grid-template-columns:repeat(2,minmax(0,1fr));}
+  .galant-home-shortcuts {gap:7px;}
+  .galant-home-shortcuts button {flex:1 1 auto;justify-content:center;min-height:42px;padding:8px 11px;}
+  :is(.platform, .nw-resident-shell) .nw-portal .nw-cards {grid-template-columns:1fr;}
+  :is(.platform, .nw-resident-shell) .nw-portal .nw-feed-kpis {grid-template-columns:repeat(2,minmax(0,1fr))!important;}
+}
+@media (max-width: 420px) {
+  .platform.shell .v15-dashboard-kpi {padding:12px;min-height:93px;}
+  .platform.shell .v15-dashboard-kpi > span {font-size:11px;}
+  :is(.platform, .nw-resident-shell) .nw-portal .nw-publish-choice {padding:12px;}
+  :is(.platform, .nw-resident-shell) .nw-portal .nw-feed-kpi {padding:11px;min-height:85px;}
+  :is(.platform, .nw-resident-shell) .nw-portal .nw-feed-kpi > span {font-size:10px;}
+}
+@media (prefers-reduced-motion: reduce) {
+  .platform.shell .sidebar,.platform.shell .v15-dashboard-kpi,.galant-home-shortcuts button,
+  :is(.platform, .nw-resident-shell) .nw-portal .nw-card,:is(.platform, .nw-resident-shell) .nw-portal .nw-publish-choice {transition:none!important;animation:none!important;}
+}

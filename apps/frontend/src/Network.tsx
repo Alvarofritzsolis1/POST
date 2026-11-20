@@ -58,6 +58,7 @@ import {
   RequirementForm,
 } from "./NetworkForms";
 import { NetworkAccountMenu } from "./NetworkAccounts";
+import GalantMark from "./GalantMark";
 import { NetworkQuickForm } from "./NetworkQuickForm";
 const FacebookCenter = lazy(() => import("./FacebookCenter"));
 import GalancitoWidget from "./GalancitoWidget";
@@ -125,11 +126,9 @@ export function ResidentNetwork({
     <div className="nw nw-resident-shell">
       <header className="nw-resident-header">
         <div className="nw-brand">
-          <span>
-            <Network size={23} />
-          </span>
+          <GalantMark className="galant-logo-mark" />
           <div>
-            <b>GALANT POST</b>
+            <b>GALANT</b>
             <small>Red de Obras</small>
           </div>
         </div>
@@ -501,8 +500,7 @@ export default function RedDeObras({ user }: { user: Profile }) {
           )}
         </div>
         <div className="nw-card-footer">
-          <span>{r.coverage > 0 ? "En proceso de adjudicación" : "Solicitud de contratista"}</span>
-          <button className="nw-text-button" onClick={() => void openReq(r.id)}>
+                    <button className="nw-text-button" onClick={() => void openReq(r.id)}>
             Ver solicitud <ArrowRight size={15} />
           </button>
         </div>
@@ -522,7 +520,6 @@ export default function RedDeObras({ user }: { user: Profile }) {
         <span><CalendarDays size={15} /> Desde {dateText(c.available_date)}</span>
       </div>
       <div className="nw-card-footer">
-        <span>Contratista disponible</span>
         <button className="nw-text-button" onClick={() => void contactCap(c)}>
           Contactar <ArrowRight size={15} />
         </button>
@@ -569,16 +566,7 @@ export default function RedDeObras({ user }: { user: Profile }) {
     <section className="nw nw-portal">
       <div className="nw-heading">
         <div>
-          <span className="nw-eyebrow">
-            <span className="nw-live-dot" />
-            COLABORACIÓN ENTRE OBRAS
-          </span>
-          <h1>
-            Red de Obras<span>.</span>
-          </h1>
-          <p>
-            Solicita apoyo, comparte contratistas y coordina necesidades entre obras.
-          </p>
+          <h1>Red de Obras<span>.</span></h1>
         </div>
         {canPublish && tab !== "home" && (
           <div className="nw-row nw-wrap">
@@ -622,7 +610,6 @@ export default function RedDeObras({ user }: { user: Profile }) {
         <section className="nw-publish-hub" aria-label="Publicación rápida">
           <div className="nw-publish-hub-heading">
             <strong>¿Qué necesitas hacer?</strong>
-            <span>Publica en pocos pasos</span>
           </div>
           <div className="nw-publish-choices">
             <button type="button" className="nw-publish-choice nw-publish-need" onClick={() => {
@@ -630,7 +617,7 @@ export default function RedDeObras({ user }: { user: Profile }) {
               setPanel("request-form");
             }}>
               <span className="nw-publish-choice-icon"><Plus size={22} /></span>
-              <span><b>Necesito contratista</b><small>Publicar una necesidad</small></span>
+              <span><b>Necesito contratista</b></span>
               <ArrowRight size={18} />
             </button>
             <button type="button" className="nw-publish-choice nw-publish-available" onClick={() => {
@@ -638,7 +625,7 @@ export default function RedDeObras({ user }: { user: Profile }) {
               setPanel("capacity-form");
             }}>
               <span className="nw-publish-choice-icon"><Users size={22} /></span>
-              <span><b>Tengo contratista disponible</b><small>Compartir disponibilidad</small></span>
+              <span><b>Tengo contratista disponible</b></span>
               <ArrowRight size={18} />
             </button>
           </div>
@@ -812,28 +799,46 @@ export default function RedDeObras({ user }: { user: Profile }) {
               <span><Users size={17} /> Disponibles</span>
               <strong>{number(overview.capacities)}</strong>
             </button>
+            <button className="nw-kpi nw-feed-kpi nw-feed-kpi-match" onClick={() => go("matches")}>
+              <span><Sparkles size={17} /> Coincidencias</span>
+              <strong>{number(overview.matches)}</strong>
+            </button>
             <button className="nw-kpi nw-feed-kpi nw-feed-kpi-amber" onClick={() => go("messages")}>
               <span><MessageSquare size={17} /> Mensajes nuevos</span>
               <strong>{number(overview.unread_messages)}</strong>
             </button>
           </div>
-          <div className="nw-section-title">
-            <h2>Necesidades recientes</h2>
-            <button
-              className="nw-text-button"
-              onClick={() => go("requirements")}
-            >
-              Ver todas <ArrowRight size={15} />
-            </button>
+          <div className="nw-feed-board">
+            <section className="nw-feed-board-main" aria-label="Necesidades recientes">
+              <div className="nw-section-title">
+                <h2>Necesidades recientes</h2>
+                <button className="nw-text-button" onClick={() => go("requirements")}>
+                  Ver todas <ArrowRight size={15} />
+                </button>
+              </div>
+              {reqs.rows.length ? (
+                <div className="nw-cards nw-feed-cards">{reqs.rows.slice(0, 6).map(reqCard)}</div>
+              ) : (
+                <Empty title="Sin necesidades publicadas">
+                  Publica un requerimiento para iniciar la búsqueda.
+                </Empty>
+              )}
+            </section>
+            <aside className="nw-feed-board-side" aria-label="Resumen de Red de Obras">
+              <div className="nw-feed-aside-card">
+                <div className="nw-feed-aside-heading"><b>Vista general</b><Sparkles size={18} aria-hidden="true" /></div>
+                <div className="nw-feed-aside-stats">
+                  <div><span>Necesidades urgentes</span><strong>{number(overview.urgent)}</strong></div>
+                  <div><span>Obras con actividad</span><strong>{number(Object.values(overview.by_site).filter(count => count > 0).length)}</strong></div>
+                </div>
+                <h3>Actividad por obra</h3>
+                <Bars values={overview.by_site} />
+                <button className="nw-text-button" onClick={() => go("matches")}>
+                  Ir a seguimiento <ArrowRight size={14} />
+                </button>
+              </div>
+            </aside>
           </div>
-          {reqs.rows.length ? (
-            <div className="nw-cards nw-feed-cards">{reqs.rows.slice(0, 6).map(reqCard)}</div>
-          ) : (
-            <Empty title="La red está lista para conectar tus obras">
-              Publica el primer requerimiento o comparte la capacidad de un
-              contratista registrado.
-            </Empty>
-          )}
           <div className="nw-section-title">
             <h2>Contratistas disponibles</h2>
             <button className="nw-text-button" onClick={() => go("capacities")}>

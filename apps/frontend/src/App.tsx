@@ -37,6 +37,7 @@ const ResidentNetwork = lazy(() =>
 );
 import GalancitoWidget from "./GalancitoWidget";
 import { NetworkAccountMenu, NetworkPasswordScreen } from "./NetworkAccounts";
+import GalantMark from "./GalantMark";
 import {
   read,
   send,
@@ -141,7 +142,8 @@ function App() {
     [notice, setNotice] = useState(""),
     [hash, setHash] = useState(window.location.hash),
     [mobileOpen, setMobileOpen] = useState(false),
-    [sidebarCollapsed, setSidebarCollapsed] = useState(() => window.localStorage.getItem("galant-sidebar-collapsed") === "true"),
+    [sidebarCollapsed, setSidebarCollapsed] = useState(true),
+    [sidebarDismissed, setSidebarDismissed] = useState(false),
     [loading, setLoading] = useState(false),
     [search, setSearch] = useState(""),
     [quickNav, setQuickNav] = useState(""),
@@ -156,7 +158,6 @@ function App() {
   const automationReturnRef = useRef("javiera");
   const sectionRef = useRef(section);
   sectionRef.current = section;
-  useEffect(() => { window.localStorage.setItem("galant-sidebar-collapsed", String(sidebarCollapsed)); }, [sidebarCollapsed]);
   useEffect(() => {
     const routeChanged = () => {
       const next = sectionFromLocation();
@@ -452,12 +453,23 @@ function App() {
         .includes(search.toLowerCase()),
   );
   return (
-    <div className={"shell platform " + (mobileOpen ? "menu-open" : "") + (sidebarCollapsed ? " sidebar-collapsed" : "")}>
-      <aside className="sidebar">
+    <div className={"shell platform " + (mobileOpen ? "menu-open" : "") + (sidebarCollapsed ? " sidebar-collapsed" : "") + (sidebarDismissed ? " sidebar-dismissed" : "")}>
+      <aside className="sidebar"
+        onMouseLeave={() => {
+          setSidebarCollapsed(true);
+          setSidebarDismissed(false);
+          // Un click de ratón no debe mantener abierto el panel al salir;
+          // se conserva el foco visible para quienes navegan con teclado.
+          const focused = document.activeElement;
+          if (focused instanceof HTMLElement &&
+              focused.closest(".platform .sidebar") &&
+              !focused.matches(":focus-visible")) focused.blur();
+        }}
+      >
         <div className="brand">
-          <Building2 />
+          <GalantMark className="galant-logo-mark" />
           <div>
-            <b>GALANT POST</b>
+            <b>GALANT</b>
             <small>Gestión de contratistas</small>
           </div>
         </div>
@@ -477,7 +489,13 @@ function App() {
                     aria-current={section === id ? "page" : undefined}
                     aria-label={label}
                     title={sidebarCollapsed ? label : undefined}
-                    onClick={() => go(id)}
+                    onClick={(event) => {
+                      if (event.detail > 0 && window.innerWidth > 760) {
+                        setSidebarDismissed(true);
+                        setSidebarCollapsed(true);
+                      }
+                      go(id);
+                    }}
                   >
                     <Icon size={18} aria-hidden="true" />
                     <span className="v91-nav-label">{label}</span>
@@ -500,17 +518,20 @@ function App() {
         <header className="topbar">
           <button
             className="icon-button menu-toggle"
-            aria-label={mobileOpen ? "Cerrar menú" : sidebarCollapsed ? "Expandir menú" : "Contraer menú"}
-            title={sidebarCollapsed ? "Expandir menú" : "Contraer menú"}
-            aria-expanded={!sidebarCollapsed || mobileOpen}
+            aria-label={mobileOpen ? "Cerrar menú" : "Expandir menú"}
+            title="Expandir menú"
+            aria-expanded={mobileOpen ? true : undefined}
             onClick={() => {
               if (window.matchMedia("(max-width: 760px)").matches) setMobileOpen((value) => !value);
-              else setSidebarCollapsed((value) => !value);
+              else {
+                setSidebarCollapsed(false);
+                document.querySelector<HTMLButtonElement>(".platform .sidebar .nav-item")?.focus();
+              }
             }}
           >
             <Menu />
           </button>
-          <strong>GALANT POST</strong>
+          <strong>GALANT</strong>
           <div className="v15-quicknav" role="search">
             <input
               type="search"
@@ -588,16 +609,13 @@ function App() {
           </div>
         </header>
         <div className="page">
-          {section !== "network" && section !== "javiera" && section !== "ine" && section !== "settings" && <div className="intro">
+          {section !== "home" && section !== "network" && section !== "javiera" && section !== "ine" && section !== "settings" && <div className="intro">
             <div>
               <span className="eyebrow">
                 {profile?.organization} /{" "}
                 {sites.find((s) => s.id === site)?.name || "Todas las obras"}
               </span>
               <h1>{nav.find(([id]) => id === section)?.[1]}</h1>
-              <p>
-                Información compartida de tu organización · Período {period}
-              </p>
             </div>
 
           </div>}
@@ -618,7 +636,7 @@ function App() {
           {section === "home" && overview && (
             <>
               <section className="v15-dashboard-hero" aria-label="Indicadores principales del período">
-                <div className="v15-dashboard-heading"><div><span className="eyebrow">VISIÓN OPERATIVA</span><h2>Resumen del período</h2><p>Situación real de las obras y documentación bajo revisión</p></div><span>{period}</span></div>
+                <div className="v15-dashboard-heading"><div><h2>Inicio</h2></div><span>{period}</span></div>
                 <div className="v15-dashboard-metrics">
                   {([
                     ["Contratistas del período", overview.contractors.length, "contractors", "all"],
@@ -627,14 +645,20 @@ function App() {
                     ["Contratos por vencer", laborAlerts?.summary.workers_ending ?? "—", "workers", "ending_soon"],
                     ["Asistencia atrasada", laborAlerts?.summary.attendance_overdue ?? "—", "attendance", "overdue"]
                   ] as const).map(([label,value,target,state])=><button type="button" className={"v15-dashboard-kpi "+((Number(value)>0&&["Documentos pendientes","Asistencia atrasada"].includes(label))?"attention":"")} key={label} onClick={()=>drill(target,state)}>
-                    <span>{label}</span><strong>{value}</strong><small>Ver detalle →</small>
+                    <span>{label}</span><strong>{value}</strong>
                   </button>)}
                 </div>
+                <nav className="galant-home-shortcuts" aria-label="Accesos directos">
+                  <button type="button" aria-label="Abrir Red de Obras" onClick={() => go("network")}><Network size={16} /> Red de Obras</button>
+                  <button type="button" aria-label="Abrir Contratistas" onClick={() => go("contractors")}><Building2 size={16} /> Contratistas</button>
+                  <button type="button" aria-label="Abrir Trabajadores" onClick={() => go("workers")}><Users size={16} /> Trabajadores</button>
+                  <button type="button" aria-label="Abrir Documentos" onClick={() => go("documents")}><FileCheck2 size={16} /> Documentos</button>
+                </nav>
               </section>
               {laborAlerts && <section className="panel dashboard-alerts" aria-labelledby="dashboard-alerts-title">
                 <div className="dashboard-section-title">
-                  <div><span className="eyebrow">PRIORIDADES DEL PERÍODO</span><h2 id="dashboard-alerts-title">Alertas laborales y documentales</h2></div>
-                  <span className="dashboard-source-label">Datos verificados de la obra seleccionada</span>
+                  <div><h2 id="dashboard-alerts-title">Alertas laborales y documentales</h2></div>
+                  <span className="dashboard-source-label">Datos verificados</span>
                 </div>
                 <details className="v15-dashboard-more"><summary>Indicadores de riesgo por categoría</summary><div className="kpi-grid alert-kpi-grid">
                   {([
@@ -663,7 +687,6 @@ function App() {
               </section>}
               <div className="dashboard-summary-heading">
                 <h2>Resumen de contratistas</h2>
-                <p>Distribución por clasificación para la obra y período seleccionados.</p>
               </div>
               <div className="kpi-grid">
                 {Object.entries(overview.classifications).map(
@@ -678,13 +701,12 @@ function App() {
                     >
                       <small>Contratistas {key}</small>
                       <strong>{value}</strong>
-                      <span>Ver registros →</span>
                     </button>
                   ),
                 )}
               </div>
               <details className="dashboard-more">
-                <summary><strong>Más indicadores del período</strong><span>Trabajadores, documentos, pagos y retenciones</span></summary>
+                <summary><strong>Más indicadores</strong></summary>
                 <div className="kpi-grid">
                 {[
                   [
@@ -767,16 +789,14 @@ function App() {
                   >
                     <small>{title}</small>
                     <strong>{value}</strong>
-                    <span>Ver detalle →</span>
                   </button>
                 ))}
                 </div>
+                <p className="muted">
+                  Promedio calculado con {overview.contributions.denominator} registros con días informados.
+                  Los registros incompletos siguen pendientes de revisión.
+                </p>
               </details>
-              <p className="muted">
-                Promedio: {overview.contributions.denominator} registros
-                individuales con días informados. La falta de información
-                permanece pendiente; las observaciones requieren revisión.
-              </p>
               <div className="toolbar">
                 <input
                   aria-label="Buscar contratista"
@@ -1438,9 +1458,7 @@ function App() {
           {section === "network" && <GalancitoWidget />}
           <footer className="footer">
             GALANT POST v{version} · {profile?.organization}
-            <span>
-              {section === "network" ? "Información compartida · Red de Obras" : "Datos de la organización · Actualización automática cada 10 segundos"}
-            </span>
+            
           </footer>
         </div>
       </main>

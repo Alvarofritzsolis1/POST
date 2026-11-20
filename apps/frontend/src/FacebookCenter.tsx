@@ -461,9 +461,7 @@ export default function FacebookCenter({ catalog }: { catalog: Catalog }) {
   return <div className="fbc">
     <header className="fbc-header">
       <div>
-        <span className="fbc-eyebrow"><Facebook size={16} /> FACEBOOK · CENTRO DE CONTACTOS</span>
-        <h2>Centro de Facebook</h2>
-        <p>Conversaciones y publicaciones</p>
+        <h2>Facebook</h2>
       </div>
 
     </header>
@@ -485,7 +483,7 @@ export default function FacebookCenter({ catalog }: { catalog: Catalog }) {
             <div className="fbc-auto-check" role="status">
               <b>Qué falta para que Galancito responda solo</b>
               <ul>{center.auto_reply.missing.map(item => <li key={item}>{item}</li>)}</ul>
-              <small>Se corrige en la configuración de IA y Messenger; no basta con que Facebook diga «Vigente».</small>
+              <small>Revisa Configuración de IA y Messenger.</small>
             </div>}
           {center?.auto_reply?.configured &&
             <p className="fbc-auto-confirm">Respuestas automáticas listas para una prueba externa. La conexión de Meta y el envío real deben confirmarse.</p>}
@@ -546,7 +544,7 @@ export default function FacebookCenter({ catalog }: { catalog: Catalog }) {
     {tab === "performance" && <GalancitoKnowledgeCenter mode="performance" />}
     {tab === "tracking" && <section className="fbc-tracking fbtrack" aria-label="Seguimiento Galancito">
       <div className="fbtrack-heading">
-        <div><h3>Seguimiento de interesados</h3><p>Revisa contactos, prioridades y necesidades de obra.</p></div>
+        <div><h3>Seguimiento de interesados</h3></div>
         <button className="nw-btn" type="button" disabled={!!saving}
           onClick={() => void refreshTracking().catch((e) => setError(errorText(e)))}>
           <RefreshCcw size={16}/> Actualizar
