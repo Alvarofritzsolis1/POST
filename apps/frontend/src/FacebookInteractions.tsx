@@ -2,7 +2,7 @@ import { useCallback, useEffect, useMemo, useState } from "react";
 import {
   AlertTriangle, Check, ChevronRight, CircleHelp, Clock3, ExternalLink,
   Eye, EyeOff, Loader2, MessageCircle, RefreshCcw, Search, Send, ShieldCheck,
-  Sparkles, Trash2, UserRound, X,
+  Sparkles, ThumbsUp, Trash2, UserRound, X,
 } from "lucide-react";
 import { change, net } from "./networkApi";
 import { errorText } from "./NetworkUI";
@@ -19,8 +19,8 @@ type Interaction = {
   posted_at: string; parent_id: string | null; like_count: number;
   classification: Category; classification_source: "manual" | "rules" | "ai";
   classification_score: number; review_state: ReviewState; reviewed_at: string | null;
-  is_hidden: boolean; is_deleted: boolean;
-  can_reply: boolean; can_hide: boolean; can_delete: boolean; can_private_reply: boolean;
+  is_hidden: boolean; is_deleted: boolean; user_likes: boolean | null;
+  can_reply: boolean; can_hide: boolean; can_delete: boolean; can_private_reply: boolean; can_like: boolean;
   private_reply_state: string; lead_id: string | null; history: ActionJob[];
 };
 type Inbox = { rows: Interaction[]; limited: boolean; mode: "manual" };
@@ -39,6 +39,7 @@ const categories: Record<Category, { label: string; tone: string }> = {
 const jobLabels: Record<string, string> = {
   public_reply: "Respuesta pública", private_reply: "Mensaje privado",
   hide: "Ocultado", unhide: "Restaurado", delete_comment: "Eliminación",
+  like: "Me gusta", unlike: "Quitar Me gusta",
 };
 const jobStates: Record<string, string> = {
   done: "Confirmado por Meta", pending: "En cola", sending: "Enviando",
@@ -102,7 +103,7 @@ export default function FacebookInteractions({ onOpenInbox, onOpenLead }: Props)
   const stats = useMemo(() => ({
     total: rows.length,
     interested: rows.filter(c => c.classification === "interested" && !c.is_deleted).length,
-    pending: rows.filter(c => !hasPublicReply(c) && !c.is_deleted && c.review_state !== "dismissed").length,
+    pending: rows.filter(c => !hasPublicReply(c) && !c.is_deleted && !["dismissed", "handled"].includes(c.review_state)).length,
     review: rows.filter(c => c.review_state === "review" || c.classification === "human_review").length,
   }), [rows]);
   const visible = useMemo(() => {
@@ -113,7 +114,7 @@ export default function FacebookInteractions({ onOpenInbox, onOpenLead }: Props)
       if (filter === "spam" && c.classification !== "spam") return false;
       if (filter === "hidden" && !c.is_hidden) return false;
       if (filter === "review" && c.review_state !== "review" && c.classification !== "human_review") return false;
-      if (filter === "pending" && (hasPublicReply(c) || c.is_deleted || c.review_state === "dismissed")) return false;
+      if (filter === "pending" && (hasPublicReply(c) || c.is_deleted || ["dismissed", "handled"].includes(c.review_state))) return false;
       return !term || (c.body + " " + (c.author_name || "") + " " + c.post_title + " " + c.post_specialty).toLocaleLowerCase("es-CL").includes(term);
     });
   }, [rows, filter, search]);
@@ -296,6 +297,10 @@ export default function FacebookInteractions({ onOpenInbox, onOpenLead }: Props)
         </>}
         <div className="fbint-section-title"><b>Administrar</b></div>
         <div className="fbint-action-row">
+          {active.can_like && <button type="button" className="nw-btn" disabled={!!busy}
+            onClick={() => void execute("reaction", urlFor(active) + (active.user_likes ? "/unlike" : "/like"), {})}>
+            <ThumbsUp size={15}/> {active.user_likes ? "Quitar Me gusta" : "Me gusta"}
+          </button>}
           {active.can_hide && <button type="button" className="nw-btn" disabled={!!busy}
             onClick={() => void execute("hide", urlFor(active) + "/hide", {})}>
             {active.is_hidden ? <Eye size={15}/> : <EyeOff size={15}/>}
