@@ -93,7 +93,7 @@ export default function FacebookOverview({
           <span className="fbov-metric-icon"><Users size={22} /></span>
           <span className="fbov-metric-copy"><span>Contactos recientes</span>
             <strong>{counts.contacts.toLocaleString("es-CL")}</strong>
-  </span>
+          </span>
           <ArrowRight size={18} className="fbov-arrow" aria-hidden="true" />
         </button>
         <button type="button" title="Conversaciones sin leer entre contactos recientes" className="fbov-metric" onClick={() => onOpenConversations(true)}>
