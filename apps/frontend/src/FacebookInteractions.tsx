@@ -14,7 +14,10 @@ type ActionJob = {
   id: string; action: string; state: string; message: string; error: string; at: string;
 };
 type Interaction = {
-  id: string; remote_comment_id: string; record_id: string; post_title: string; post_specialty: string; post_url: string;
+  id: string; remote_comment_id: string; record_id: string;
+  origin_requirement_id: string; post_title: string; post_specialty: string; post_url: string;
+  declared_profile: { trades: string[]; team_size_declared: number | null };
+  potential_needs: { id: string; title: string; specialty: string; matched_trades: string[] }[];
   author_name: string | null; author_picture_url: string | null; body: string;
   posted_at: string; parent_id: string | null; like_count: number; reply_count: number;
   is_page_author: boolean;
@@ -317,6 +320,29 @@ export default function FacebookInteractions({ onOpenInbox, onOpenLead, onOpenPr
           {active.parent_id && <small>Respuesta dentro de un hilo</small>}
           {active.post_url && <a href={active.post_url} target="_blank" rel="noopener noreferrer">
             Abrir publicación en Facebook <ExternalLink size={13}/></a>}
+        </div>
+        <div className="fbint-profile">
+          <div className="fbint-section-title"><b>Ficha del comentario</b>
+            <small>Solo datos declarados</small></div>
+          <div className="fbint-profile-grid">
+            <div><small>Oficios mencionados</small>
+              <strong>{active.declared_profile.trades.length
+                ? active.declared_profile.trades.join(", ") : "Sin informar"}</strong></div>
+            <div><small>Cuadrilla declarada</small>
+              <strong>{active.declared_profile.team_size_declared != null
+                ? String(active.declared_profile.team_size_declared) + " personas" : "Sin informar"}</strong></div>
+          </div>
+          {active.origin_requirement_id && <a className="fbint-need-link"
+             href={"#red/requirement/" + active.origin_requirement_id}>
+            Ver necesidad de la publicación <ChevronRight size={15}/></a>}
+          {active.potential_needs.length > 0 && <>
+            <small className="fbint-source">Necesidades relacionadas por oficio expresamente mencionado; no representan una contratación.</small>
+            {active.potential_needs.map(need => <a key={need.id} className="fbint-need-link"
+              href={"#red/requirement/" + need.id}>
+              <span>{need.title}<small>{need.matched_trades.join(", ")}</small></span>
+              <ChevronRight size={15}/>
+            </a>)}
+          </>}
         </div>
         {!!thread.length && <div className="fbint-thread">
           <strong>Interacción en el hilo · {thread.length}</strong>
