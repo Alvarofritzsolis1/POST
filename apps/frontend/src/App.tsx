@@ -143,6 +143,7 @@ function App() {
     [hash, setHash] = useState(window.location.hash),
     [mobileOpen, setMobileOpen] = useState(false),
     [sidebarCollapsed, setSidebarCollapsed] = useState(true),
+    [sidebarDismissed, setSidebarDismissed] = useState(false),
     [loading, setLoading] = useState(false),
     [search, setSearch] = useState(""),
     [quickNav, setQuickNav] = useState(""),
@@ -452,10 +453,11 @@ function App() {
         .includes(search.toLowerCase()),
   );
   return (
-    <div className={"shell platform " + (mobileOpen ? "menu-open" : "") + (sidebarCollapsed ? " sidebar-collapsed" : "")}>
+    <div className={"shell platform " + (mobileOpen ? "menu-open" : "") + (sidebarCollapsed ? " sidebar-collapsed" : "") + (sidebarDismissed ? " sidebar-dismissed" : "")}>
       <aside className="sidebar"
         onMouseLeave={() => {
           setSidebarCollapsed(true);
+          setSidebarDismissed(false);
           // Un click de ratón no debe mantener abierto el panel al salir;
           // se conserva el foco visible para quienes navegan con teclado.
           const focused = document.activeElement;
@@ -487,7 +489,13 @@ function App() {
                     aria-current={section === id ? "page" : undefined}
                     aria-label={label}
                     title={sidebarCollapsed ? label : undefined}
-                    onClick={() => go(id)}
+                    onClick={(event) => {
+                      if (event.detail > 0 && window.innerWidth > 760) {
+                        setSidebarDismissed(true);
+                        setSidebarCollapsed(true);
+                      }
+                      go(id);
+                    }}
                   >
                     <Icon size={18} aria-hidden="true" />
                     <span className="v91-nav-label">{label}</span>
@@ -510,8 +518,8 @@ function App() {
         <header className="topbar">
           <button
             className="icon-button menu-toggle"
-            aria-label={mobileOpen ? "Cerrar menú" : "Mostrar navegación"}
-            title="Mostrar navegación"
+            aria-label={mobileOpen ? "Cerrar menú" : "Expandir menú"}
+            title="Expandir menú"
             aria-expanded={mobileOpen ? true : undefined}
             onClick={() => {
               if (window.matchMedia("(max-width: 760px)").matches) setMobileOpen((value) => !value);
