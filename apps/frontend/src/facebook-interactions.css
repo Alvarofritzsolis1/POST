@@ -166,3 +166,24 @@
   .fbint,.fbint-layout,.fbint-feed,.fbint-detail{min-width:0;width:100%;max-width:100%}
   .fbint-layout,.fbint-layout.detail-open{grid-template-columns:minmax(0,1fr)}
 }
+
+/* El contenedor externo también es Grid: si conserva columna implícita 'auto',
+   los filtros y acciones pueden forzar 496px en un viewport de 390px. */
+.fbint{
+  grid-template-columns:minmax(0,1fr);
+  width:100%;
+  max-width:100%;
+  min-width:0;
+}
+.fbint>*,.fbint-toolbar,.fbint-layout,.fbint-stats,.fbint-feed{
+  min-width:0;
+  max-width:100%;
+}
+.fbint-toolbar{width:100%;overflow:visible}
+@media(max-width:620px){
+  .fbint-filters{width:100%;max-width:100%;min-width:0;flex:1 1 100%;
+    overflow-x:auto;scrollbar-width:thin}
+  .fbint-search{flex:1 1 100%;min-width:0;width:100%}
+  .fbint-section-title>.fbint-text-btn{min-width:0;max-width:100%}
+  .fbint-detail .fbint-source{white-space:normal;overflow-wrap:anywhere}
+}
