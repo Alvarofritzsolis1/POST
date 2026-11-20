@@ -7,6 +7,7 @@ from __future__ import annotations
 
 import json
 import re
+import time
 from datetime import datetime, timedelta, timezone
 from urllib.error import HTTPError, URLError
 from urllib.parse import urlencode, urlsplit
@@ -18,7 +19,7 @@ from .config import settings
 from .db import SessionLocal
 from .models import AuditEvent, utcnow
 from .network_facebook import meta_http_error
-from .network_models import NetworkFacebookPost
+from .network_models import NetworkFacebookPost, NetworkRequirement
 from .facebook_publication_models import FacebookPostComment, FacebookPostJob, FacebookPostSnapshot
 from .facebook_comment_intelligence import classify_comment
 
@@ -269,6 +270,60 @@ def recover_interrupted_publications(session_factory=SessionLocal) -> int:
             job.updated_at = utcnow()
             recovered += 1
     return recovered
+
+
+_next_periodic_refresh_at = 0.0
+
+
+def queue_periodic_comment_refresh(session_factory=SessionLocal) -> bool:
+    """Recuperación automática acotada, sin afectar la cola de Messenger.
+
+    Se espacia una publicación cada 25s y solo se leen posts recientes.
+    Los webhooks siguen siendo la vía principal para novedades.
+    """
+    global _next_periodic_refresh_at
+    now_tick = time.monotonic()
+    if now_tick < _next_periodic_refresh_at:
+        return False
+    _next_periodic_refresh_at = now_tick + 25.0
+    cfg = settings()
+    if not cfg.facebook_page_token or not _ID.fullmatch(cfg.facebook_page_id or ""):
+        return False
+    with session_factory.begin() as db:
+        now = utcnow()
+        rows = db.execute(select(
+            NetworkFacebookPost.id, NetworkFacebookPost.org_id,
+            NetworkFacebookPost.page_id, NetworkRequirement.created_by,
+            FacebookPostSnapshot.checked_at,
+        ).join(NetworkRequirement,
+               NetworkRequirement.id == NetworkFacebookPost.requirement_id)
+          .outerjoin(FacebookPostSnapshot,
+                     FacebookPostSnapshot.post_record_id == NetworkFacebookPost.id)
+          .where(NetworkFacebookPost.page_id == cfg.facebook_page_id,
+                 NetworkFacebookPost.state == "published",
+                 NetworkFacebookPost.post_id.isnot(None),
+                 NetworkFacebookPost.updated_at >= now - timedelta(days=45),
+                 *([NetworkFacebookPost.org_id == cfg.facebook_org_id]
+                   if cfg.facebook_org_id else []))
+          .order_by(NetworkFacebookPost.updated_at.desc()).limit(40)).all()
+        if not rows:
+            return False
+        current = {item for item in db.scalars(select(FacebookPostJob.post_record_id).where(
+            FacebookPostJob.page_id == cfg.facebook_page_id,
+            FacebookPostJob.state.in_(["pending", "sending"])))}
+        for post_id, org_id, page_id, creator_id, checked_at in rows:
+            if post_id in current:
+                continue
+            if checked_at is not None:
+                if checked_at.tzinfo is None:
+                    checked_at = checked_at.replace(tzinfo=timezone.utc)
+                if now - checked_at < timedelta(minutes=15):
+                    continue
+            db.add(FacebookPostJob(org_id=org_id, page_id=page_id,
+                                   post_record_id=post_id, created_by=creator_id,
+                                   action="refresh", state="pending"))
+            return True
+    return False
 
 
 def process_publication_next(session_factory=SessionLocal) -> bool:
