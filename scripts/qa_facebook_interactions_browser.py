@@ -123,8 +123,22 @@ def main():
                  el.scrollWidth > el.clientWidth + 2);
              }).map(el => ({text: el.textContent.slice(0,70), rect: el.getBoundingClientRect().toJSON()}))"""
         )
-        assert not clipped, ("Controles o textos cortados en móvil: " + str(clipped))
         page.screenshot(path=str(args.output / "interacciones-movil.png"), full_page=True)
+        layout = page.evaluate("""() => Object.fromEntries(
+          ['.fbint', '.fbint-toolbar', '.fbint-layout',
+           '.fbint-detail', '.fbint-section-title', '.fbint-filters']
+            .map(selector => {
+              const e = document.querySelector(selector);
+              return [selector, e ? {
+                x: Math.round(e.getBoundingClientRect().x),
+                w: Math.round(e.getBoundingClientRect().width),
+                scrollWidth: e.scrollWidth,
+                clientWidth: e.clientWidth
+              } : null];
+            })
+        )""")
+        assert not clipped, ("Controles o textos cortados en móvil: "
+                             + str(clipped) + " · distribución=" + str(layout))
         assert not errors, errors
         assert not outreach, "La QA intentó enviar o moderar mensajes reales: " + str(outreach)
         browser.close()
