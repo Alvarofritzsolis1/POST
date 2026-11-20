@@ -9,7 +9,7 @@ import json
 import re
 from datetime import datetime, timedelta, timezone
 from urllib.error import HTTPError, URLError
-from urllib.parse import urlencode
+from urllib.parse import urlencode, urlsplit
 from urllib.request import HTTPRedirectHandler, Request, build_opener
 
 from sqlalchemy import select
@@ -20,6 +20,7 @@ from .models import AuditEvent, utcnow
 from .network_facebook import meta_http_error
 from .network_models import NetworkFacebookPost
 from .facebook_publication_models import FacebookPostComment, FacebookPostJob, FacebookPostSnapshot
+from .facebook_comment_intelligence import classify_comment
 
 _ID = re.compile(r"[0-9_]{5,120}")
 _CURSOR = re.compile(r"[A-Za-z0-9._~-]{1,500}")
@@ -38,7 +39,7 @@ def graph(method: str, node_id: str, edge: str = "", *,
     """Allow only numeric IDs and the explicitly supported edges."""
     if not _ID.fullmatch(node_id) or edge not in {"", "comments", "messages"}:
         raise ValueError("Identificador o recurso de Facebook inválido")
-    if method not in {"GET", "POST"}:
+    if method not in {"GET", "POST", "DELETE"}:
         raise ValueError("Operación de Facebook no permitida")
     cfg = settings()
     if not cfg.facebook_page_token:
@@ -107,7 +108,7 @@ def refresh(db, post: NetworkFacebookPost) -> None:
     cursor, seen = "", set()
     for _ in range(3):
         query = {
-            "fields": "id,message,created_time,from,can_comment,can_hide,is_hidden,like_count,parent,can_reply_privately",
+            "fields": "id,message,created_time,from{id,name,picture},can_comment,can_hide,is_hidden,like_count,parent,can_reply_privately",
             "filter": "stream", "limit": 50,
         }
         if cursor:
@@ -119,8 +120,14 @@ def refresh(db, post: NetworkFacebookPost) -> None:
             # guess eligibility: drop the field and keep private actions closed.
             if exc.code != 400:
                 raise
-            query["fields"] = "id,message,created_time,from,can_comment,can_hide,is_hidden,like_count,parent"
-            batch = graph("GET", post.post_id, "comments", query=query)
+            try:
+                query["fields"] = "id,message,created_time,from,can_comment,can_hide,is_hidden,like_count,parent,can_reply_privately"
+                batch = graph("GET", post.post_id, "comments", query=query)
+            except HTTPError as fallback_exc:
+                if fallback_exc.code != 400:
+                    raise
+                query["fields"] = "id,message,created_time,from,can_comment,can_hide,is_hidden,like_count,parent"
+                batch = graph("GET", post.post_id, "comments", query=query)
         data = batch.get("data")
         if not isinstance(data, list):
             raise ValueError("Meta no devolvió comentarios válidos")
@@ -146,7 +153,20 @@ def refresh(db, post: NetworkFacebookPost) -> None:
             found.parent_id = str(parent.get("id") or "")[:120]
             found.author_id = author_id if _ID.fullmatch(author_id) else ""
             found.author_name = author_name
+            picture = person.get("picture")
+            picture_data = picture.get("data") if isinstance(picture, dict) else None
+            picture_url = picture_data.get("url") if isinstance(picture_data, dict) else ""
+            if isinstance(picture_url, str) and len(picture_url) <= 1000:
+                parsed = urlsplit(picture_url)
+                host = (parsed.hostname or "").lower()
+                if (parsed.scheme == "https" and
+                        (host == "facebook.com" or host.endswith(".facebook.com")
+                         or host == "fbcdn.net" or host.endswith(".fbcdn.net"))):
+                    found.author_picture_url = picture_url
             found.body = str(raw.get("message") or "")[:6000]
+            if found.classification_source != "manual":
+                found.classification, found.classification_score = classify_comment(found.body)
+                found.classification_source = "rules"
             found.posted_at = parsed_time(raw.get("created_time"))
             found.can_comment = raw.get("can_comment") is True
             found.can_hide = raw.get("can_hide") is True
@@ -210,6 +230,11 @@ def _run(job: FacebookPostJob, post: NetworkFacebookPost, session_factory=Sessio
         # commenter ID or a name similarity.
         return (result["message_id"][:140],
                 recipient if re.fullmatch(r"[0-9]{5,90}", recipient) else "")
+    if job.action == "delete_comment":
+        result = graph("DELETE", job.comment_id)
+        if result.get("success") is not True:
+            raise ValueError("Meta no confirmó la eliminación del comentario")
+        return ""
     if job.action in {"hide", "unhide"}:
         result = graph("POST", job.comment_id, payload={
             "is_hidden": "true" if job.action == "hide" else "false"})
@@ -271,12 +296,18 @@ def process_publication_next(session_factory=SessionLocal) -> bool:
         if post.state != "published":
             job.state, job.last_error = "failed", "Publicación no vigente"
             return True
-        if job.action in {"public_reply", "private_reply", "hide", "unhide"}:
+        if job.action in {"public_reply", "private_reply", "hide", "unhide", "delete_comment"}:
             comment = db.scalar(select(FacebookPostComment).where(
                 FacebookPostComment.post_record_id == post.id,
                 FacebookPostComment.comment_id == job.comment_id))
             if not comment:
                 job.state, job.last_error = "failed", "Comentario desconocido"
+                return True
+            if comment.is_deleted:
+                job.state, job.last_error = "failed", "El comentario ya fue eliminado"
+                return True
+            if job.action == "delete_comment" and not comment.can_hide:
+                job.state, job.last_error = "failed", "Meta no permitió moderar este comentario"
                 return True
             if job.action == "private_reply" and comment.private_reply_state != "pending":
                 job.state, job.last_error = "failed", "Respuesta privada ya procesada"
@@ -318,12 +349,15 @@ def process_publication_next(session_factory=SessionLocal) -> bool:
                     comment.messenger_psid = recipient_psid
                     comment.can_reply_privately = False
         if not error:
-            if current.action in {"hide", "unhide"}:
+            if current.action in {"hide", "unhide", "delete_comment"}:
                 comment = db.scalar(select(FacebookPostComment).where(
                     FacebookPostComment.post_record_id == current.post_record_id,
                     FacebookPostComment.comment_id == current.comment_id))
                 if comment:
-                    comment.is_hidden = current.action == "hide"
+                    if current.action == "delete_comment":
+                        comment.is_deleted = True
+                    else:
+                        comment.is_hidden = current.action == "hide"
             db.add(AuditEvent(org_id=current.org_id, user_id=current.created_by,
                               action="facebook_" + current.action, resource_id=current.post_record_id))
     return True
