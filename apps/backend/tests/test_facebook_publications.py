@@ -1,5 +1,7 @@
 """Facebook publications: synthetic Meta, no real messages and no real token."""
 from datetime import timedelta
+import hashlib
+import hmac
 from io import BytesIO
 import json
 
@@ -189,3 +191,45 @@ def test_worker_does_not_repeat_ambiguous_outreach(network, monkeypatch):
     detail = n["send"](n["admin"], base, method="GET").json()
     assert detail["comments"][0]["private_reply_state"] == "uncertain"
     assert detail["comments"][0]["can_private_reply"] is False
+
+
+
+def test_signed_feed_webhook_queues_comment_refresh_and_deduplicates(network, monkeypatch):
+    n, record, _ = created(network, monkeypatch)
+    payload = {
+        "object": "page",
+        "entry": [{
+            "id": PAGE,
+            "changes": [{
+                "field": "feed",
+                "value": {
+                    "item": "comment", "verb": "add",
+                    "post_id": POST, "comment_id": COMMENT,
+                    "from": {"id": "9876543210001", "name": "Juan Pérez"},
+                },
+            }],
+        }],
+    }
+    raw = json.dumps(payload).encode("utf-8")
+    sig = "sha256=" + hmac.new(
+        b"synthetic-test-only-meta-secret", raw, hashlib.sha256).hexdigest()
+    route = "/api/v1/network/facebook/webhook"
+    response = n["admin"].post(route, content=raw, headers={
+        "X-Hub-Signature-256": sig, "Content-Type": "application/json"})
+    assert response.status_code == 200, response.text
+    response2 = n["admin"].post(route, content=raw, headers={
+        "X-Hub-Signature-256": sig, "Content-Type": "application/json"})
+    assert response2.status_code == 200
+    with n["Session"].begin() as db:
+        jobs = list(db.scalars(select(FacebookPostJob).where(
+            FacebookPostJob.post_record_id == record)))
+        assert len(jobs) == 1
+        assert jobs[0].action == "refresh"
+        # A public comment must never create a Messenger contact.
+        from app.facebook_crm_models import FacebookLead
+        assert not list(db.scalars(select(FacebookLead)))
+    monkeypatch.setattr("app.facebook_publication_worker.graph", meta_result)
+    assert process_publication_next(n["Session"])
+    view = n["send"](n["admin"], "/facebook/publications/" + record,
+                     method="GET").json()
+    assert view["comments"][0]["author_name"] == "Juan Pérez"
