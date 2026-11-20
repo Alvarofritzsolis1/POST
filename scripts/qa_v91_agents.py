@@ -41,7 +41,11 @@ def audit_ux():
     assert "aria-label" in weekly and "aria-live" in weekly
     assert "minmax(min(100%,340px),1fr)" in css
     assert "prefers-reduced-motion" in responsive
-    assert "sidebarCollapsed" in app and "setSidebarCollapsed" in app
+    # El rail se contrae siempre: la fijación persistente V9.1 fue retirada en UX 2026.
+    assert "[sidebarCollapsed] = useState(true)" in app
+    assert "setSidebarHovered" in app and "sidebarHoverTimer" in app
+    assert 'localStorage.removeItem("galant-sidebar-pinned")' in app
+    assert 'section === "javiera" && <button type="button" className="v16-automation-entry"' in app
     assert "aria-expanded" in app and 'className="v91-menu-backdrop"' in app
     print("Auditor interfaz OK: tarjetas adaptables, menú retráctil, accesibilidad.")
 
