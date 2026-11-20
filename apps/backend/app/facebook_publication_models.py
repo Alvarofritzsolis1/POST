@@ -44,6 +44,7 @@ class FacebookPostComment(Base):
     classification: Mapped[str] = mapped_column(String(24), default="ambiguous")
     classification_source: Mapped[str] = mapped_column(String(16), default="rules")
     classification_score: Mapped[int] = mapped_column(Integer, default=0)
+    classified_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
     review_state: Mapped[str] = mapped_column(String(20), default="new")
     review_by: Mapped[str] = mapped_column(String(36), default="")
     reviewed_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
