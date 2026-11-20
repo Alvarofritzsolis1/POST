@@ -244,12 +244,12 @@ export default function Workers({ siteId, sites, period, canEdit, canReview, ini
         <label><input type="checkbox" checked={pending} onChange={(e) => setPending(e.target.checked)} /> Finiquitos pendientes</label>
         <button onClick={refresh} disabled={busy}>Actualizar</button>
       </div>
-      <div className="table-wrap"><table><thead><tr><th>Trabajador</th><th>RUT</th><th>Contratista</th><th>Obra</th><th>COD</th><th>Contrato</th><th>Ingreso</th><th>Término pactado</th><th>Estado laboral</th><th>Finiquito</th><th>Acciones</th></tr></thead>
+      <div className="table-wrap galant-workers-table"><table><thead><tr><th>Trabajador</th><th>RUT</th><th>Contratista</th><th>Obra</th><th>COD</th><th>Contrato</th><th>Ingreso</th><th>Término pactado</th><th>Estado laboral</th><th>Finiquito</th><th>Acciones</th></tr></thead>
         <tbody>{registry?.rows.map((r) => <tr key={r.assignment_id}>
-          <td><span className="galant-person-row"><PersonAvatar name={r.worker_name} size="sm" /><strong>{r.worker_name}</strong></span></td><td>{r.worker_rut}</td><td>{r.contractor_name}</td><td>{r.site_name}</td><td>{r.worker_code || "—"}</td>
-          <td>{types[r.contract_type || ""] || "Sin contrato"}</td><td>{date(r.start_date)}</td><td>{date(r.end_date)}</td>
-          <td><span className={"worker-signal " + r.severity} title={r.alert}>{stateLabel[r.labor_state] || r.labor_state}</span></td>
-          <td>{stateLabel[r.finiquito_state] || r.finiquito_state}</td><td><button onClick={() => { setSelected(r.assignment_id); setTab("summary"); }}>Ver y gestionar</button></td>
+          <td data-label="Trabajador"><span className="galant-person-row"><PersonAvatar name={r.worker_name} size="sm" /><strong>{r.worker_name}</strong></span></td><td data-label="RUT">{r.worker_rut}</td><td data-label="Contratista">{r.contractor_name}</td><td data-label="Obra">{r.site_name}</td><td data-label="COD">{r.worker_code || "—"}</td>
+          <td data-label="Contrato">{types[r.contract_type || ""] || "Sin contrato"}</td><td data-label="Ingreso">{date(r.start_date)}</td><td data-label="Término">{date(r.end_date)}</td>
+          <td data-label="Estado laboral"><span className={"worker-signal " + r.severity} title={r.alert}>{stateLabel[r.labor_state] || r.labor_state}</span></td>
+          <td data-label="Finiquito">{stateLabel[r.finiquito_state] || r.finiquito_state}</td><td data-label="Acciones"><button onClick={() => { setSelected(r.assignment_id); setTab("summary"); }}>Ver ficha</button></td>
         </tr>)}</tbody></table></div>
       {!registry?.rows.length && <p className="empty">No hay trabajadores para estos filtros. Selecciona otra obra o crea una persona con su contrato.</p>}
       <div className="toolbar"><button disabled={page <= 1} onClick={() => setPage(page - 1)}>Anterior</button><span>Página {page} · {registry?.summary.total ?? 0} asignaciones</span><button disabled={page * 50 >= (registry?.summary.total || 0)} onClick={() => setPage(page + 1)}>Siguiente</button></div>
