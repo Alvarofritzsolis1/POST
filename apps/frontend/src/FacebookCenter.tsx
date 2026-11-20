@@ -1062,7 +1062,25 @@ export default function FacebookCenter({ catalog }: { catalog: Catalog }) {
     </div></>}
     {tab === "interactions" && <FacebookInteractions
       onOpenInbox={() => setTab("inbox")}
-      onOpenLead={(leadId) => { setSelectedId(leadId); setTab("inbox"); }}
+      onOpenLead={(leadId) => { setSelectedId(leadId); setShowProfile(false); setMobilePane("chat"); setTab("inbox"); }}
+      onOpenProfile={(leadId) => {
+        void net<Tracking>("/facebook/galancito/seguimiento").then(result => {
+          setTracking(result);
+          const person = result.rows.find(row => row.id === leadId);
+          if (person) setSheetPerson(person);
+          else {
+            setSelectedId(leadId);
+            setShowProfile(true);
+            setMobilePane("profile");
+            setTab("inbox");
+          }
+        }).catch(() => {
+          setSelectedId(leadId);
+          setShowProfile(true);
+          setMobilePane("profile");
+          setTab("inbox");
+        });
+      }}
     />}
     {tab === "publications" && <FacebookPublications
       posts={center?.publications || []}
