@@ -699,7 +699,7 @@ function App() {
                 )}
               </div>
               <details className="dashboard-more">
-                <summary><strong>Más indicadores del período</strong><span>Trabajadores, documentos, pagos y retenciones</span></summary>
+                <summary><strong>Más indicadores</strong></summary>
                 <div className="kpi-grid">
                 {[
                   [
@@ -1453,9 +1453,7 @@ function App() {
           {section === "network" && <GalancitoWidget />}
           <footer className="footer">
             GALANT POST v{version} · {profile?.organization}
-            <span>
-              {section === "network" ? "Información compartida · Red de Obras" : "Datos de la organización · Actualización automática cada 10 segundos"}
-            </span>
+            
           </footer>
         </div>
       </main>
