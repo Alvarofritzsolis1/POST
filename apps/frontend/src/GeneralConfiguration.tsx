@@ -41,6 +41,7 @@ import {
 } from "./configurationApi";
 import "./configuration.css";
 import AIConfiguration from "./AIConfiguration";
+import GalancitoTraining from "./GalancitoTraining";
 
 const ROOT = "/admin/configuracion";
 const sections = [
@@ -385,7 +386,8 @@ export default function GeneralConfiguration({
   const associationId = route.startsWith("contratistas/")
     ? decodeURIComponent(route.split("/")[1])
     : "";
-  const section = associationId ? "contratistas" : route;
+  const training = route === "ia/entrenamiento";
+  const section = associationId ? "contratistas" : training ? "ia" : route;
   const tab = query.get("tab") || "resumen";
   const selectedPeriods = (query.get("periods") || nowMonth())
     .split(",")
@@ -1336,7 +1338,7 @@ export default function GeneralConfiguration({
           </div>
         </aside>
         <main className="gc-content">
-          <div className="gc-page-heading">
+          {!training && <div className="gc-page-heading">
             <div>
               <span className="gc-eyebrow">
                 {associationId
@@ -1366,7 +1368,7 @@ export default function GeneralConfiguration({
             >
               <RefreshCcw size={16} /> Actualizar
             </button>}
-          </div>
+          </div>}
           {section !== "ia" && (<section
             className="gc-period-selector"
             aria-label="Consulta de varios períodos"
@@ -1634,7 +1636,9 @@ export default function GeneralConfiguration({
               ))}
             </nav>
           )}
-          {section === "ia" && <AIConfiguration />}
+          {section === "ia" && (training
+            ? <GalancitoTraining back={() => navigate("ia")} />
+            : <AIConfiguration openTraining={() => navigate("ia/entrenamiento")} />)}
           {data &&
             ((!section && !associationId) ||
               (associationId && tab === "resumen")) && (

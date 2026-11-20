@@ -71,7 +71,8 @@ def view(row: Knowledge):
 
 
 def own(db, user, knowledge_id):
-    row = db.scalar(select(Knowledge).where(Knowledge.id == knowledge_id, Knowledge.org_id == user.org_id)
+    row = db.scalar(select(Knowledge).where(Knowledge.id == knowledge_id, Knowledge.org_id == user.org_id,
+                                              Knowledge.scope != "training")
                     .with_for_update())
     if row is None:
         raise HTTPException(404, "Conocimiento no encontrado")
@@ -103,7 +104,7 @@ def create(db, body, user):
 def list_knowledge(q: str = Query(default="", max_length=100),
                    state: Literal["pending", "approved", "disabled"] | None = None,
                    user: User = Depends(administrator), db: Session = Depends(get_db)):
-    query = select(Knowledge).where(Knowledge.org_id == user.org_id)
+    query = select(Knowledge).where(Knowledge.org_id == user.org_id, Knowledge.scope != "training")
     if q.strip():
         query = query.where(Knowledge.search_text.contains(plain(q)))
     if state:

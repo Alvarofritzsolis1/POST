@@ -1,6 +1,6 @@
 """Qwen3 1.7B on the PRIVATE Ollama Docker network.
 
-Only two allowed callers: Facebook Messenger replies and Red de Obras advising.
+Production callers: Messenger replies and Red de Obras. The training worker uses a separate server.
 Never accepts an arbitrary model, host, URL, or general GALANT business action.
 No paid API, no Internet endpoint, no stored prompts and no tool execution.
 """
@@ -100,11 +100,11 @@ def generate_local_text(instructions: str, data: str,
         _slot.release()
 
 
-def _generate(instructions, data, max_chars, cfg):
+def _generate(instructions, data, max_chars, cfg, *, url=None, seed=None, allow_training=False):
     payload = {
         "model": MODEL,
         "messages": [
-            {"role": "system", "content": instructions[:MAX_INSTRUCTIONS_CHARS]},
+            {"role": "system", "content": instructions[:4000 if allow_training else MAX_INSTRUCTIONS_CHARS]},
             {"role": "user", "content": data[:MAX_CONTEXT_CHARS]},
         ],
         "stream": False,
@@ -117,14 +117,16 @@ def _generate(instructions, data, max_chars, cfg):
             "temperature": 0.2,
         },
     }
+    if seed is not None:
+        payload["options"]["seed"] = seed
     request = Request(
-        INTERNAL_URL, data=json.dumps(payload, ensure_ascii=False).encode("utf-8"),
+        url or INTERNAL_URL, data=json.dumps(payload, ensure_ascii=False).encode("utf-8"),
         method="POST", headers={"Content-Type": "application/json"},
     )
     started = time.perf_counter()
     record_model_attempt(external=False)
     try:
-        with _opener.open(request, timeout=min(cfg.galancito_timeout_seconds, 8)) as response:
+        with _opener.open(request, timeout=40 if allow_training else min(cfg.galancito_timeout_seconds, 8)) as response:
             result = json.loads(response.read(100000).decode("utf-8"))
     except (HTTPError, URLError, TimeoutError, OSError, ValueError):
         # No incluir mensajes de trabajadores, secretos o direcciones internas en logs.
@@ -154,3 +156,10 @@ def _generate(instructions, data, max_chars, cfg):
     if not clean:
         raise RuntimeError("Galancito local no devolvió contenido útil")
     return clean[:max_chars]
+
+
+def generate_training_text(instructions: str, data: str, seed: int, cfg) -> str:
+    """Only the isolated trainer calls this; it never queues on Messenger's model."""
+    last_timings.set({})
+    return _generate(instructions, data, 650, cfg, seed=seed, allow_training=True,
+                     url="http://galancito-training-ollama:11434/api/chat")
