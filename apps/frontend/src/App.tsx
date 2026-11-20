@@ -162,9 +162,10 @@ function App() {
     [sporadic, setSporadic] = useState(false),
     [page, setPage] = useState(0);
   const sidebarHoverTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const sidebarNavigationLock = useRef(false);
   const clearSidebarTimer = () => { if (sidebarHoverTimer.current !== null) { clearTimeout(sidebarHoverTimer.current); sidebarHoverTimer.current = null; } };
-  const openSidebarOnHover = () => { if (window.matchMedia("(hover: hover) and (pointer: fine) and (min-width: 761px)").matches) { clearSidebarTimer(); setSidebarHovered(true); } };
-  const closeSidebarAfterDelay = () => { clearSidebarTimer(); sidebarHoverTimer.current = setTimeout(() => { setSidebarHovered(false); sidebarHoverTimer.current = null; }, 190); };
+  const openSidebarOnHover = () => { if (!sidebarNavigationLock.current && window.matchMedia("(hover: hover) and (pointer: fine) and (min-width: 761px)").matches) { clearSidebarTimer(); setSidebarHovered(true); } };
+  const closeSidebarAfterDelay = () => { clearSidebarTimer(); sidebarNavigationLock.current = false; sidebarHoverTimer.current = setTimeout(() => { setSidebarHovered(false); sidebarHoverTimer.current = null; }, 190); };
   useEffect(() => () => { if (sidebarHoverTimer.current !== null) clearTimeout(sidebarHoverTimer.current); }, []);
   const [touchNavigation, setTouchNavigation] = useState(() => window.matchMedia("(max-width: 760px), (hover: none) and (pointer: coarse)").matches);
   useEffect(() => {
@@ -405,6 +406,9 @@ function App() {
     }
   }
   function go(s: string, configDestination = "") {
+    // Cuando se selecciona una ruta, impedir un nuevo hover accidental hasta salir del rail.
+    sidebarNavigationLock.current = true;
+    setSidebarHovered(false);
     if(s === "settings" && section !== "settings" && section !== "configuration" && section !== "javiera_config") settingsReturnRef.current = section;
     if(s!==section&&!window.dispatchEvent(new Event("galant-before-navigate",{cancelable:true})))return;
     // Antes del cambio de componentes, evitar que el módulo nuevo herede el scroll viejo.
