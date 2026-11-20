@@ -1,0 +1,168 @@
+/* GALANT · parche UX Facebook (20-11-2026).
+   Solo presentación y distribución; se conserva la lógica de la plataforma. */
+.nw-portal .nw-heading { margin:0 0 12px; align-items:center; }
+.nw-portal .nw-heading h1 { font-size:clamp(23px,2.4vw,30px); line-height:1.2; margin:0; }
+.nw-portal .nw-tabs { gap:5px; margin-bottom:12px; }
+.nw-portal .nw-tabs > button { padding:9px 12px; }
+.nw-facebook-workspace > .nw-tabs {
+  display:flex; flex-wrap:nowrap; overflow-x:auto; gap:5px;
+  padding:0 0 8px; margin:0 0 9px; scrollbar-width:thin;
+}
+.nw-facebook-workspace > .nw-tabs > button { flex:0 0 auto; }
+
+.fbc { gap:9px; padding-bottom:8px; }
+.fbc .fbc-header {
+  display:flex; align-items:center; justify-content:space-between;
+  gap:8px 14px; flex-wrap:wrap; min-height:40px;
+}
+.fbc .fbc-header-title { flex:1 1 210px; min-width:0; }
+.fbc .fbc-header h2 { font-size:clamp(19px,1.9vw,24px); margin:0; line-height:1.2; }
+.fbc .fbc-status-line { flex:0 0 auto; gap:7px; min-height:0; }
+.fbc .fbc-connection-square { padding:6px 9px; min-width:0; font-size:11px; }
+.fbc .fbc-connection-details { margin-left:0; }
+.fbc .fbc-connection-details > summary { padding:6px 9px; }
+.fbc .fbc-connection-content {
+  text-align:left; max-height:min(70dvh,540px); overflow-y:auto;
+}
+.fbc .fbc-tabs-simple {
+  display:flex; flex-wrap:nowrap; align-items:center; gap:4px;
+  padding-bottom:5px; margin:0; min-height:39px; position:relative;
+}
+.fbc .fbc-tabs-simple > button { font-size:12px; padding:8px 11px; }
+.fbc .fbc-tabs-simple .fbc-tools { flex:0 0 auto; margin-left:auto; position:relative; }
+.fbc .fbc-tools > summary {
+  padding:7px 10px; border:1px solid var(--nw-border); border-radius:9px;
+  background:var(--nw-paper); color:var(--nw-ink); list-style:none; cursor:pointer;
+}
+.fbc .fbc-tools > summary::-webkit-details-marker { display:none; }
+.fbc .fbc-tools > summary::after { content:"⌄"; margin-left:8px; color:var(--nw-muted); }
+.fbc .fbc-tools[open] > summary { border-color:var(--nw-accent); }
+.fbc .fbc-tools > div {
+  position:absolute; z-index:30; right:0; top:calc(100% + 6px);
+  display:grid; gap:4px; min-width:190px; padding:8px;
+  background:var(--nw-paper); border:1px solid var(--nw-border); border-radius:11px;
+  box-shadow:0 12px 32px rgba(14,36,55,.14);
+}
+.fbc .fbc-tools > div > button {
+  width:100%; min-height:34px; justify-content:flex-start; text-align:left;
+}
+.fbc .fbc-inbox {
+  min-height:410px; height:min(70dvh,720px);
+  grid-template-columns:clamp(208px,23%,270px) minmax(0,1fr);
+}
+.fbc .fbc-contacts .fbc-pane-title { min-height:43px; padding:9px 11px; }
+.fbc .fbmin-inbox-switch { margin:7px 8px 0; padding:2px; }
+.fbc .fbc-search { margin:7px 8px; padding:9px 10px; min-height:36px; }
+.fbc .fbc-contact { padding:9px 10px; min-height:64px; }
+.fbc .fbc-contact > div:nth-child(2) { gap:2px; }
+.fbc .fbc-contact small { line-height:1.3; }
+.fbc .fbc-conversation .fbc-pane-title {
+  min-height:55px; padding:8px 11px; gap:7px; flex-wrap:wrap;
+}
+.fbc .fbc-conversation .fbc-pane-title > div { flex:1 1 160px; }
+.fbc .fbc-read-btn { min-height:32px; padding:6px 9px; }
+.fbc .fbc-auto-toggle { padding:6px 8px; font-size:11px; gap:5px; }
+.fbc .fbc-auto-toggle strong { padding:2px 6px; }
+.fbc .fbc-profile-toggle { padding:6px 9px; min-height:32px; }
+.fbc .fbc-chat-stream {
+  flex:1 1 auto; min-height:0; max-height:none;
+  padding:11px 12px; gap:9px; overscroll-behavior:contain; scrollbar-gutter:stable;
+}
+.fbc .fbc-bubble { padding:8px 10px; line-height:1.45; }
+.fbc .fbc-composer {
+  flex:0 0 auto; margin:0; padding:9px 11px; gap:7px;
+  border-top:1px solid var(--nw-border); background:var(--nw-paper);
+}
+.fbc .fbc-composer textarea {
+  min-height:39px; max-height:110px; padding:8px 10px;
+  resize:vertical; line-height:1.4;
+}
+.fbc .fbc-composer-actions {
+  display:flex; justify-content:space-between; align-items:center;
+  flex-wrap:wrap; gap:7px;
+}
+.fbc .fbc-composer-actions .fbc-quick-replies { margin-right:auto; }
+.fbc .fbc-composer-actions .nw-btn:first-child { margin-right:0; }
+.fbc .fbc-quick-replies > summary { padding:7px 4px; white-space:nowrap; font-size:11px; }
+.fbc .fbc-composer-actions > .nw-btn { min-height:34px; padding:7px 10px; }
+.fbc .fbc-analysis { overscroll-behavior:contain; }
+
+/* Tablero: cuatro decisiones fáciles de escanear. */
+.fbc .fbov { gap:12px; }
+.fbc .fbov-heading h3 { font-size:16px; }
+.fbc .fbov-heading { min-height:22px; }
+.fbc .fbov-metrics { grid-template-columns:repeat(4,minmax(0,1fr)); gap:9px; }
+.fbc .fbov-metric,.fbc .fbov-metric.fbov-primary {
+  display:flex; flex-direction:row; align-items:center;
+  gap:10px; min-height:86px; padding:13px; border-radius:12px;
+}
+.fbc .fbov-metric:not(.fbov-primary) {
+  display:grid; grid-template-columns:24px 1fr; grid-template-rows:auto auto;
+  align-content:center; column-gap:10px; row-gap:0;
+}
+.fbc .fbov-metric:not(.fbov-primary) > svg { grid-row:1/-1; }
+.fbc .fbov-metric:not(.fbov-primary) strong { grid-column:2; }
+.fbc .fbov-metric strong,.fbc .fbov-primary strong { font-size:26px; line-height:1; }
+.fbc .fbov-primary .fbov-metric-copy { gap:5px; }
+.fbc .fbov-primary .fbov-metric-copy > span { font-size:12px; }
+.fbc .fbov-metric-icon { width:40px; height:40px; }
+.fbc .fbov-metric-icon > svg { width:19px; height:19px; }
+.fbc .fbov-arrow { margin-left:auto; }
+.fbc .fbov-layout { gap:10px; grid-template-columns:minmax(0,1.1fr) minmax(250px,.9fr); }
+.fbc .fbov-panel { padding:13px 15px; border-radius:12px; }
+.fbc .fbov-panel-heading { margin-bottom:7px; }
+.fbc .fbov-row,.fbc .fbov-contact { padding:9px 0; }
+.fbc .fbov-bars { gap:10px; }
+.fbc .fbov-bar-track { height:7px; }
+
+@media(max-width:1050px) {
+  .fbc .fbov-metrics { grid-template-columns:repeat(2,minmax(0,1fr)); }
+  .fbc .fbov-primary { grid-column:auto; }
+  .fbc .fbc-conversation .fbc-pane-title { gap:5px; }
+}
+@media(max-width:850px) {
+  .fbc .fbov-layout { grid-template-columns:minmax(0,1fr); }
+  .fbc .fbc-inbox { grid-template-columns:200px minmax(0,1fr); }
+  .fbc .fbc-auto-toggle { font-size:10px; }
+  .fbc .fbc-auto-toggle > span { display:none; }
+  .fbc .fbc-tabs-simple { overflow-x:auto; scrollbar-width:thin; }
+}
+@media(max-width:740px) {
+  .nw-portal .nw-heading h1 { font-size:23px; }
+  .nw-facebook-workspace > .nw-tabs { flex-wrap:nowrap; }
+  .fbc .fbc-header { align-items:center; }
+  .fbc .fbc-header-title { flex-basis:auto; }
+  .fbc .fbc-tabs-simple > button { flex:0 0 auto; }
+  .fbc .fbc-inbox {
+    display:flex; flex-direction:column; height:auto !important;
+    min-height:0; overflow:visible;
+  }
+  .fbc .fbc-inbox > .fbc-contacts {
+    flex:none; min-height:0; max-height:170px; overflow:hidden;
+    border-right:0; border-bottom:1px solid var(--nw-border);
+  }
+  .fbc .fbc-contacts .fbc-pane-title { min-height:38px; padding:7px 10px; }
+  .fbc .fbmin-inbox-switch { margin:5px 8px 0; }
+  .fbc .fbc-search { margin:5px 8px; min-height:32px; padding:6px 9px; }
+  .fbc .fbc-inbox > .fbc-conversation {
+    flex:none; height:clamp(380px,65dvh,650px);
+    min-height:0; max-height:none; overflow:hidden;
+  }
+  .fbc .fbc-inbox > .fbc-analysis { position:static; flex:none; width:100%; max-height:none; overflow:visible; }
+  .fbc .fbc-contact { min-height:60px; }
+  .fbc .fbc-composer-actions > .nw-btn { font-size:11px; }
+  .fbc .fbov-metrics { grid-template-columns:repeat(2,minmax(0,1fr)); }
+  .fbc .fbov-metric,.fbc .fbov-metric.fbov-primary { min-height:81px; padding:11px; gap:7px; }
+  .fbc .fbov-primary .fbov-metric-icon { width:32px; height:32px; }
+  .fbc .fbov-metric strong,.fbc .fbov-primary strong { font-size:23px; }
+}
+@media(max-width:420px) {
+  .fbc .fbc-header { flex-direction:column; align-items:stretch; }
+  .fbc .fbc-status-line { justify-content:space-between; }
+  .fbc .fbc-composer-actions { gap:5px; }
+  .fbc .fbc-composer-actions > .nw-btn { padding:6px 8px; }
+  .fbc .fbov-primary .fbov-arrow { display:none; }
+}
+@media(prefers-reduced-motion:reduce) {
+  .fbc .fbc-inbox,.fbc .fbov-metric { transition:none!important; }
+}
