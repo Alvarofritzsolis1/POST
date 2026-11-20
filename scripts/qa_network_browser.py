@@ -86,12 +86,19 @@ def main():
         assert rail_before["aside"] is not None and rail_before["aside"] <= 85, rail_before
         assert rail_before["scrollWidth"] <= rail_before["innerWidth"], rail_before
         admin.locator(".platform .sidebar").hover(position={"x":28, "y":45})
+        # CSS hover transition is allowed to animate; assert its final settled state.
+        admin.wait_for_function(
+            "() => document.querySelector('.platform .sidebar')?.getBoundingClientRect().width >= 230",
+            timeout=2500,
+        )
         rail_open = shell_geometry()
-        assert rail_open["aside"] is not None and rail_open["aside"] >= 230, rail_open
         assert abs(rail_open["mainLeft"] - rail_before["mainLeft"]) <= 1, (rail_before, rail_open)
         admin.mouse.move(1100, 300)
+        admin.wait_for_function(
+            "() => document.querySelector('.platform .sidebar')?.getBoundingClientRect().width <= 85",
+            timeout=2500,
+        )
         rail_after = shell_geometry()
-        assert rail_after["aside"] is not None and rail_after["aside"] <= 85, rail_after
         assert abs(rail_after["mainLeft"] - rail_before["mainLeft"]) <= 1, (rail_before, rail_after)
 
         def api(ctx, path):
