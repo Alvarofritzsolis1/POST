@@ -14,7 +14,7 @@ type ActionJob = {
   id: string; action: string; state: string; message: string; error: string; at: string;
 };
 type Interaction = {
-  id: string; record_id: string; post_title: string; post_specialty: string; post_url: string;
+  id: string; remote_comment_id: string; record_id: string; post_title: string; post_specialty: string; post_url: string;
   author_name: string | null; author_picture_url: string | null; body: string;
   posted_at: string; parent_id: string | null; like_count: number;
   classification: Category; classification_source: "manual" | "rules" | "ai";
@@ -100,6 +100,10 @@ export default function FacebookInteractions({ onOpenInbox, onOpenLead }: Props)
 
   const rows = data?.rows || [];
   const active = rows.find(c => c.id === activeId) || null;
+  const thread = active ? rows.filter(c =>
+    c.record_id === active.record_id && (c.parent_id === active.remote_comment_id ||
+      (active.parent_id && c.remote_comment_id === active.parent_id))
+  ).filter(c => c.id !== active.id).slice(0, 20) : [];
   const stats = useMemo(() => ({
     total: rows.length,
     interested: rows.filter(c => c.classification === "interested" && !c.is_deleted).length,
@@ -156,6 +160,16 @@ export default function FacebookInteractions({ onOpenInbox, onOpenLead }: Props)
       } else {
         setNotice("Este comentario requiere una respuesta redactada por una persona.");
       }
+    } catch (err) { setError(errorText(err)); }
+    finally { setBusy(""); }
+  }
+
+  async function analyze(c: Interaction) {
+    setBusy("analyze"); setError(""); setNotice("");
+    try {
+      const response = await change<{ classification: Category; source: string; message: string }>(urlFor(c) + "/analyze", {});
+      setNotice(response.message || "Análisis actualizado.");
+      await load(true);
     } catch (err) { setError(errorText(err)); }
     finally { setBusy(""); }
   }
@@ -260,7 +274,18 @@ export default function FacebookInteractions({ onOpenInbox, onOpenLead }: Props)
           {active.post_url && <a href={active.post_url} target="_blank" rel="noopener noreferrer">
             Abrir publicación en Facebook <ExternalLink size={13}/></a>}
         </div>
-        <div className="fbint-section-title"><b>Clasificación y seguimiento</b><small>Corregible manualmente</small></div>
+        {!!thread.length && <div className="fbint-thread">
+          <strong>Interacción en el hilo · {thread.length}</strong>
+          {thread.map(item => <button key={item.id} className="fbint-thread-reply"
+            type="button" onClick={() => {setActiveId(item.id);setReplyMode("public");setShowHistory(false);}}>
+            <ProfileAvatar name={item.author_name} src={item.author_picture_url}/>
+            <span><b>{item.author_name || "Nombre no disponible"}</b><small>{item.body || "(Sin texto)"}</small></span>
+          </button>)}
+        </div>}
+        <div className="fbint-section-title"><b>Clasificación y seguimiento</b>
+          <button type="button" className="fbint-text-btn" disabled={!!busy || active.is_deleted}
+            onClick={() => void analyze(active)}><Sparkles size={14}/> Analizar con Galancito</button>
+        </div>
         <div className="fbint-controls">
           <label>Tipo de comentario
             <select value={active.classification} disabled={!!busy} onChange={e => void review(active, "review", e.target.value as Category)}>
@@ -274,7 +299,9 @@ export default function FacebookInteractions({ onOpenInbox, onOpenLead }: Props)
             </select>
           </label>
         </div>
-        <small className="fbint-source">Clasificación {active.classification_source === "manual" ? "corregida por una persona" : "preliminar mediante reglas locales"}. No es una evaluación de la persona.</small>
+        <small className="fbint-source">Clasificación {active.classification_source === "manual" ? "corregida por una persona" :
+          active.classification_source === "ai" ? "analizada por Galancito; requiere revisión" :
+          "preliminar mediante reglas locales"}. No es una evaluación de la persona.</small>
         {!active.is_deleted && <>
           <div className="fbint-section-title"><b>Responder comentario</b><button className="fbint-text-btn"
             type="button" disabled={!!busy} onClick={() => void suggest(active)}>
