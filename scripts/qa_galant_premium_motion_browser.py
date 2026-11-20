@@ -135,6 +135,14 @@ with sync_playwright() as playwright:
     screenshot(phone, "03-movil-menu-abierto.png")
     phone.locator(".sidebar .nav-item").filter(has_text="Trabajadores").first.click()
     expect(phone.locator(".platform.menu-open")).to_have_count(0)
+    card = phone.locator(".galant-workers-table tbody tr").first
+    expect(card).to_be_visible(timeout=15000)
+    check(card.evaluate("element => getComputedStyle(element).display") == "grid",
+          "Trabajadores usa tarjetas responsive en móvil, no tabla cortada")
+    check(phone.locator(".galant-workers-table thead").is_hidden(),
+          "Las cabeceras tabulares se ocultan en vista compacta")
+    check(phone.locator(".galant-workers-table tbody tr td:nth-child(11) button").first.is_visible(),
+          "El botón Ver ficha de cada trabajador permanece visible")
     check(measure(phone)["rootWidth"] <= 392, "Móvil sin scroll horizontal global")
     screenshot(phone, "04-movil-modulo.png")
     mobile.close()
