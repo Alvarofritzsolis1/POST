@@ -1,4 +1,12 @@
 
+/* The global layout reserves scrollbar space for authenticated tables.
+   Remove that reservation only while the public login is visible. */
+html:has(.signature-login){
+  scrollbar-gutter:auto;
+  background:#081523;
+}
+html:has(.signature-login) body{background:#081523}
+
 /* GALANT Signature 2026 — estilos exclusivos de la portada pública.
    Se preservan las rutas y los formularios de autenticación existentes. */
 .signature-login{

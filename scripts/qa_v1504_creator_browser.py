@@ -57,6 +57,9 @@ with sync_playwright() as playwright:
         else:
             expect(sculpture).to_be_visible()
 
+        # Sin banda de scrollbar reservada cuando no hay desplazamiento vertical.
+        root_width = page.evaluate("document.documentElement.clientWidth")
+        assert root_width >= width - 1, (width, root_width)
         doc_width = page.evaluate("document.documentElement.scrollWidth")
         assert doc_width <= width + 2, (width, doc_width)
         if width >= 768 and height >= 630:
