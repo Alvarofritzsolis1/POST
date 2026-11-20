@@ -500,7 +500,7 @@ export default function RedDeObras({ user }: { user: Profile }) {
           )}
         </div>
         <div className="nw-card-footer">
-          <span>{r.coverage > 0 ? "En proceso de adjudicación" : "Solicitud de contratista"}</span>
+          {r.coverage > 0 && <span>En adjudicación</span>}
           <button className="nw-text-button" onClick={() => void openReq(r.id)}>
             Ver solicitud <ArrowRight size={15} />
           </button>
@@ -521,7 +521,6 @@ export default function RedDeObras({ user }: { user: Profile }) {
         <span><CalendarDays size={15} /> Desde {dateText(c.available_date)}</span>
       </div>
       <div className="nw-card-footer">
-        <span>Contratista disponible</span>
         <button className="nw-text-button" onClick={() => void contactCap(c)}>
           Contactar <ArrowRight size={15} />
         </button>
@@ -800,6 +799,10 @@ export default function RedDeObras({ user }: { user: Profile }) {
             <button className="nw-kpi nw-feed-kpi nw-feed-kpi-green" onClick={() => go("capacities")}>
               <span><Users size={17} /> Disponibles</span>
               <strong>{number(overview.capacities)}</strong>
+            </button>
+            <button className="nw-kpi nw-feed-kpi nw-feed-kpi-match" onClick={() => go("matches")}>
+              <span><Sparkles size={17} /> Coincidencias</span>
+              <strong>{number(overview.matches)}</strong>
             </button>
             <button className="nw-kpi nw-feed-kpi nw-feed-kpi-amber" onClick={() => go("messages")}>
               <span><MessageSquare size={17} /> Mensajes nuevos</span>
