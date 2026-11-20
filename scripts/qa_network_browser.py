@@ -75,6 +75,7 @@ def main():
               const main = document.querySelector(".platform .main");
               return {
                 aside: aside?.getBoundingClientRect().width,
+                asideBackground: aside ? getComputedStyle(aside).backgroundColor : null,
                 mainLeft: main?.getBoundingClientRect().left,
                 scrollWidth: document.documentElement.scrollWidth,
                 innerWidth: innerWidth
@@ -84,6 +85,7 @@ def main():
         admin.mouse.move(1100, 300)
         rail_before = shell_geometry()
         assert rail_before["aside"] is not None and rail_before["aside"] <= 85, rail_before
+        assert rail_before["asideBackground"] == "rgb(255, 255, 255)", rail_before
         assert rail_before["scrollWidth"] <= rail_before["innerWidth"], rail_before
         admin.locator(".platform .sidebar").hover(position={"x":28, "y":45})
         # CSS hover transition is allowed to animate; assert its final settled state.
