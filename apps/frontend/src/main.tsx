@@ -9,6 +9,7 @@ import "./v91.css"
 import "./ux-2026.css"
 import "./v15-premium.css"
 import "./galant-premium-motion.css"
+import "./galant-human-motion.css"
 
 // Inicio siempre en la cabecera: los retrocesos internos restauran el scroll explicitamente.
 window.scrollTo({top:0,left:0,behavior:"instant"})
