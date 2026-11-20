@@ -390,9 +390,14 @@ export function NetworkAccountMenu({
               </button>
               {accounts.map((a) => (
                 <div className="nw-user-card" key={a.id}>
-                  <div>
+                  <div className="galant-person-row galant-account-card-id">
+                    <PersonAvatar name={a.name || a.email} size="md" />
+                    <div>
                     <b>{a.name}</b>
                     <p>{a.email}</p>
+                    </div>
+                  </div>
+                  <div>
                     <Badge value={a.role} />{" "}
                     <span className="nw-muted">
                       {a.enabled ? "Activa" : "Suspendida"}
