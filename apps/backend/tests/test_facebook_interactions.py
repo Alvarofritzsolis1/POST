@@ -175,3 +175,42 @@ def test_page_like_requires_meta_user_likes_and_worker_confirmation(network, mon
     assert process_publication_next(n["Session"])
     assert sent[-1] == ("DELETE", COMMENT, "likes")
     assert n["send"](n["admin"], base, method="GET").json()["comments"][0]["user_likes"] is False
+
+
+def test_optional_ai_classification_never_sends_and_preserves_manual_override(network, monkeypatch):
+    n, record, _ = created(network, monkeypatch)
+    monkeypatch.setattr("app.facebook_publication_worker.graph", meta_result)
+    base = "/facebook/publications/" + record
+    assert n["send"](n["admin"], base + "/refresh", {}).status_code == 202
+    assert process_publication_next(n["Session"])
+    row = n["send"](n["admin"], base, method="GET").json()["comments"][0]
+    path = base + "/comments/" + row["id"]
+    from app import ai_gateway, galancito_runtime
+    monkeypatch.setattr(ai_gateway, "orchestrated_text", lambda *args, **kwargs: '{"category":"negative"}')
+    monkeypatch.setattr(galancito_runtime, "infer", lambda db, callback, **kwargs: callback())
+    result = n["send"](n["admin"], path + "/analyze", {})
+    assert result.status_code == 200, result.text
+    # AI no puede anular una señal de interés laboral explícita por alta confianza de reglas.
+    assert result.json()["classification"] == "interested"
+    assert result.json()["source"] == "ai"
+    assert result.json()["requires_review"] is True
+    with n["Session"].begin() as db:
+        assert list(db.scalars(select(FacebookPostJob).where(
+            FacebookPostJob.action.in_(["public_reply", "private_reply"])))) == []
+    assert n["send"](n["admin"], path + "/review", {
+        "review_state": "handled", "classification": "question"
+    }, method="PATCH").status_code == 200
+    after = n["send"](n["admin"], path + "/analyze", {})
+    assert after.status_code == 200
+    assert after.json()["classification"] == "question"
+    assert after.json()["source"] == "manual"
+
+
+def test_comment_signal_rules_distinguish_interest_and_ambiguous():
+    from app.facebook_comment_intelligence import classify_comment
+    assert classify_comment("ola soi carpintreo, busco pega")[0] == "interested"
+    assert classify_comment("tengo cuadrilla y hago gasfitería")[0] == "interested"
+    assert classify_comment("hola")[0] == "ambiguous"
+    assert classify_comment("excelente proyecto")[0] == "positive"
+    assert classify_comment("no pagan")[0] == "negative"
+    assert classify_comment("¿Dónde publican los requisitos?")[0] == "question"
