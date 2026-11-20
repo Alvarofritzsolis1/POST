@@ -14,6 +14,7 @@ def upgrade(connection):
         ("classified_at", "TIMESTAMP WITH TIME ZONE"),
         ("review_state", "VARCHAR(20) NOT NULL DEFAULT 'new'"),
         ("review_by", "VARCHAR(36) NOT NULL DEFAULT ''"),
+        ("review_note", "TEXT NOT NULL DEFAULT ''"),
         ("reviewed_at", "TIMESTAMP WITH TIME ZONE"),
         ("is_deleted", "BOOLEAN NOT NULL DEFAULT FALSE"),
         ("user_likes", "BOOLEAN"),
