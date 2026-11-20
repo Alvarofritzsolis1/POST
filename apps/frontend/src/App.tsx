@@ -25,7 +25,7 @@ import { Login } from "./DocumentAnalysis";
 import DocumentAnalysis from "./DocumentAnalysis";
 import Operations from "./Operations";
 import ErrorBoundary from "./ErrorBoundary";
-import { ArchitecturalBanner, DashboardMetricCard, DashboardStatus, PageSkeleton } from "./GalantPremium";
+import { ArchitecturalBanner, DashboardMetricCard, DashboardStatus, PageSkeleton, StartupSplash } from "./GalantPremium";
 import { GalantSidebar } from "./GalantSidebar";
 import Workers from "./Workers";
 import AdminAttendanceV93 from "./AdminAttendanceV93";
@@ -453,7 +453,7 @@ function App() {
     else { drill("contractors"); setClassification("SIN CLASIFICAR"); }
   };
   if (hash.startsWith("#establecer-clave=") || hash === "#recuperar-clave") return <NetworkPasswordScreen hash={hash} done={() => { window.history.replaceState(null, "", window.location.pathname); setHash(""); setUser(null); }} />;
-  if (!ready) return <div className="app-loading">Cargando GALANT…</div>;
+  if (!ready) return <StartupSplash />;
   if (!user) return <Login onLogin={setUser} version={version} />;
   if (user.role === "doc_reviewer") return section === "ine"
     ? <ErrorBoundary name="Histórico INE"><Suspense fallback={<div className="app-loading">Cargando histórico INE…</div>}><Ine user={user} version={version} onBack={() => setSection("home")}/></Suspense></ErrorBoundary>
