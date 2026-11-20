@@ -11,6 +11,12 @@ import {
   Network,
   RefreshCcw,
   Menu,
+  ClipboardList,
+  ShieldCheck,
+  FileClock,
+  Timer,
+  PanelLeftOpen,
+  PanelLeftClose,
   Bell,
 } from "lucide-react";
 import { api, type Profile } from "./api";
@@ -19,6 +25,8 @@ import { Login } from "./DocumentAnalysis";
 import DocumentAnalysis from "./DocumentAnalysis";
 import Operations from "./Operations";
 import ErrorBoundary from "./ErrorBoundary";
+import { ArchitecturalBanner, DashboardMetricCard, DashboardStatus, PageSkeleton, StartupSplash } from "./GalantPremium";
+import { GalantSidebar } from "./GalantSidebar";
 import Workers from "./Workers";
 import AdminAttendanceV93 from "./AdminAttendanceV93";
 import AdministrativePerformanceV81 from "./AdministrativePerformanceV81";
@@ -141,7 +149,8 @@ function App() {
     [notice, setNotice] = useState(""),
     [hash, setHash] = useState(window.location.hash),
     [mobileOpen, setMobileOpen] = useState(false),
-    [sidebarCollapsed, setSidebarCollapsed] = useState(() => window.localStorage.getItem("galant-sidebar-collapsed") === "true"),
+    [sidebarCollapsed, setSidebarCollapsed] = useState(() => window.localStorage.getItem("galant-sidebar-pinned") !== "true"),
+    [sidebarHovered, setSidebarHovered] = useState(false),
     [loading, setLoading] = useState(false),
     [search, setSearch] = useState(""),
     [quickNav, setQuickNav] = useState(""),
@@ -152,11 +161,56 @@ function App() {
     [evidence, setEvidence] = useState(false),
     [sporadic, setSporadic] = useState(false),
     [page, setPage] = useState(0);
+  const sidebarHoverTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const sidebarNavigationLock = useRef(false);
+  const clearSidebarTimer = () => { if (sidebarHoverTimer.current !== null) { clearTimeout(sidebarHoverTimer.current); sidebarHoverTimer.current = null; } };
+  const openSidebarOnHover = () => { if (!sidebarNavigationLock.current && window.matchMedia("(hover: hover) and (pointer: fine) and (min-width: 761px)").matches) { clearSidebarTimer(); setSidebarHovered(true); } };
+  const closeSidebarAfterDelay = () => { clearSidebarTimer(); sidebarNavigationLock.current = false; sidebarHoverTimer.current = setTimeout(() => { setSidebarHovered(false); sidebarHoverTimer.current = null; }, 190); };
+  useEffect(() => () => { if (sidebarHoverTimer.current !== null) clearTimeout(sidebarHoverTimer.current); }, []);
+  // El contenido tiene prioridad al desplazarse; el menú flotante se repliega.
+  // Evita tapar fichas y controles durante un scroll (especialmente a 768-900 px).
+  useEffect(() => {
+    if (!sidebarCollapsed || !sidebarHovered) return;
+    const closePeekOnScroll = () => {
+      sidebarNavigationLock.current = true;
+      clearSidebarTimer();
+      setSidebarHovered(false);
+    };
+    window.addEventListener("scroll", closePeekOnScroll, {passive: true});
+    return () => window.removeEventListener("scroll", closePeekOnScroll);
+  }, [sidebarCollapsed, sidebarHovered]);
+
+  const [touchNavigation, setTouchNavigation] = useState(() => window.matchMedia("(max-width: 760px), (hover: none) and (pointer: coarse)").matches);
+  useEffect(() => {
+    const mode = window.matchMedia("(max-width: 760px), (hover: none) and (pointer: coarse)");
+    const refreshMode = () => { setTouchNavigation(mode.matches); setSidebarHovered(false); setMobileOpen(false); };
+    mode.addEventListener("change", refreshMode);
+    return () => mode.removeEventListener("change", refreshMode);
+  }, []);
+  useEffect(() => {
+    if (!touchNavigation || !mobileOpen) return;
+    const previousOverflow = document.body.style.overflow;
+    document.body.style.overflow = "hidden";
+    const drawer = document.querySelector<HTMLElement>(".platform .sidebar");
+    drawer?.querySelector<HTMLButtonElement>(".nav-item")?.focus();
+    const keyHandler = (event: KeyboardEvent) => {
+      if (event.key === "Escape") { setMobileOpen(false); return; }
+      if (event.key !== "Tab" || !drawer) return;
+      const focusable = Array.from(drawer.querySelectorAll<HTMLButtonElement>("button:not(:disabled)"))
+        .filter(button => button.offsetParent !== null);
+      const first = focusable[0], last = focusable[focusable.length - 1];
+      if (!first || !last) return;
+      if (event.shiftKey && document.activeElement === first) {event.preventDefault();last.focus();}
+      else if (!event.shiftKey && document.activeElement === last) {event.preventDefault();first.focus();}
+    };
+    document.addEventListener("keydown", keyHandler);
+    return () => {document.body.style.overflow = previousOverflow;document.removeEventListener("keydown", keyHandler);};
+  }, [touchNavigation, mobileOpen]);
   const settingsReturnRef = useRef("home");
   const automationReturnRef = useRef("javiera");
   const sectionRef = useRef(section);
   sectionRef.current = section;
-  useEffect(() => { window.localStorage.setItem("galant-sidebar-collapsed", String(sidebarCollapsed)); }, [sidebarCollapsed]);
+  useEffect(() => { window.localStorage.setItem("galant-sidebar-pinned", String(!sidebarCollapsed)); }, [sidebarCollapsed]);
   useEffect(() => {
     const routeChanged = () => {
       const next = sectionFromLocation();
@@ -365,6 +419,9 @@ function App() {
     }
   }
   function go(s: string, configDestination = "") {
+    // Cuando se selecciona una ruta, impedir un nuevo hover accidental hasta salir del rail.
+    sidebarNavigationLock.current = true;
+    setSidebarHovered(false);
     if(s === "settings" && section !== "settings" && section !== "configuration" && section !== "javiera_config") settingsReturnRef.current = section;
     if(s!==section&&!window.dispatchEvent(new Event("galant-before-navigate",{cancelable:true})))return;
     // Antes del cambio de componentes, evitar que el módulo nuevo herede el scroll viejo.
@@ -397,6 +454,7 @@ function App() {
     setFilter("all");
     setSearch("");
     setMobileOpen(false);
+    setSidebarHovered(false);
     setError("");
     setNotice("");
   }
@@ -404,18 +462,25 @@ function App() {
     go(s);
     setFilter(value);
   }
+  const openLaborAlert = (item: LaborAlerts["alerts"][number]) => {
+    if (item.target_section === "workers") { setTargetWorker(item.target_id); go("workers"); }
+    else if (item.target_section === "contributions") drill("contributions", item.kind === "declared_unpaid" ? "declared_unpaid" : "differences");
+    else if (item.target_section === "documents") drill("documents", "overdue");
+    else if (item.target_section === "attendance") go("attendance");
+    else { drill("contractors"); setClassification("SIN CLASIFICAR"); }
+  };
   if (hash.startsWith("#establecer-clave=") || hash === "#recuperar-clave") return <NetworkPasswordScreen hash={hash} done={() => { window.history.replaceState(null, "", window.location.pathname); setHash(""); setUser(null); }} />;
-  if (!ready) return <div className="app-loading">Cargando GALANT…</div>;
+  if (!ready) return <StartupSplash />;
   if (!user) return <Login onLogin={setUser} version={version} />;
   if (user.role === "doc_reviewer") return section === "ine"
     ? <ErrorBoundary name="Histórico INE"><Suspense fallback={<div className="app-loading">Cargando histórico INE…</div>}><Ine user={user} version={version} onBack={() => setSection("home")}/></Suspense></ErrorBoundary>
     : <div><button className="ine-reviewer-entry" type="button" onClick={() => setSection("ine")}>Consultar histórico INE · solo lectura</button><ErrorBoundary name="Revisión documental JAVIERA"><Suspense fallback={<div className="app-loading">Cargando mesa documental…</div>}><JavieraReviewerV17 onLogout={() => void logout()} /></Suspense></ErrorBoundary></div>;
   if (section === "javiera_config" && user.role !== "admin") return <main className="panel"><h1>Acceso restringido</h1><button onClick={() => go("home")}>Volver</button></main>;
   if (section === "configuration" && user.role !== "admin") return <main className="panel" style={{ margin: "40px auto", maxWidth: 620 }}><h1>Acceso restringido</h1><p>Configuración General está disponible exclusivamente para administradores.</p><button type="button" onClick={() => { window.history.replaceState({}, "", "/"); setSection("home"); }}>← Volver</button></main>;
-  if (user.role === "ine_supervisor") return <ErrorBoundary name="Control INE"><Suspense fallback={<div className="app-loading">Cargando INE…</div>}><Ine user={user} version={version} logout={() => void logout()}/></Suspense></ErrorBoundary>;
-  if (user.role === "resident") return <Suspense fallback={<div className="app-loading">Cargando Red de Obras…</div>}><ResidentNetwork user={user} version={version} logout={() => void logout()} /></Suspense>;
+  if (user.role === "ine_supervisor") return <ErrorBoundary name="Control INE"><Suspense fallback={<PageSkeleton title="Cargando INE" />}><Ine user={user} version={version} logout={() => void logout()}/></Suspense></ErrorBoundary>;
+  if (user.role === "resident") return <Suspense fallback={<PageSkeleton title="Cargando Red de Obras" />}><ResidentNetwork user={user} version={version} logout={() => void logout()} /></Suspense>;
   if (user.role === "administrative") return <AdministrativeWorkspace user={user} version={version} logout={() => void logout()} />;
-  if (section === "javiera_config" && user.role === "admin") return <ErrorBoundary name="Configuración de automatización"><Suspense fallback={<div className="app-loading">Cargando JAVIERA…</div>}><Javiera configuration onBack={() => go(automationReturnRef.current)} /></Suspense></ErrorBoundary>;
+  if (section === "javiera_config" && user.role === "admin") return <ErrorBoundary name="Configuración de automatización"><Suspense fallback={<PageSkeleton title="Cargando Proyecto JAVIERA" />}><Javiera configuration onBack={() => go(automationReturnRef.current)} /></Suspense></ErrorBoundary>;
   if (section === "configuration" && user.role === "admin") return <ErrorBoundary name="Configuración General"><Suspense fallback={<div className="app-loading">Cargando Configuración General…</div>}><GeneralConfiguration user={user} version={version} logout={() => void logout()} onOpenSettings={() => go("settings")} onBack={() => go("settings")}/></Suspense></ErrorBoundary>;
   const rows = (contributions?.rows || []).filter(
     (r) =>
@@ -433,6 +498,12 @@ function App() {
         (filter === "declared_unpaid" && r.payment_finding === "declared_unpaid")) &&
       (classification === "all" || r.classification === classification),
   );
+  const severityRank = (severity: string) => {
+    const normalized = severity.toLowerCase();
+    return ["critical","urgent","danger","high"].includes(normalized) ? 0
+      : ["warning","medium","attention"].includes(normalized) ? 1 : 2;
+  };
+  const sortedLaborAlerts = laborAlerts ? [...laborAlerts.alerts].sort((a,b) => severityRank(a.severity) - severityRank(b.severity)) : [];
   const cards = (overview?.contractors || []).filter(
     (r) =>
       (filter === "all" || r.state === filter) &&
@@ -452,63 +523,28 @@ function App() {
         .includes(search.toLowerCase()),
   );
   return (
-    <div className={"shell platform " + (mobileOpen ? "menu-open" : "") + (sidebarCollapsed ? " sidebar-collapsed" : "")}>
-      <aside className="sidebar">
-        <div className="brand">
-          <Building2 />
-          <div>
-            <b>GALANT POST</b>
-            <small>Gestión de contratistas</small>
-          </div>
-        </div>
-        <p className="sidebar-label">ORGANIZACIÓN COMPARTIDA</p>
-        <nav aria-label="Navegación principal">
-          {navGroups.map(group => (
-            <div className="nav-group" key={group.title}>
-              <p className="nav-group-title">{group.title}</p>
-              {group.ids.map(id => {
-                const entry = nav.find(([key]) => key === id);
-                if (!entry) return null;
-                const [, label, Icon] = entry;
-                return (
-                  <button
-                    key={id}
-                    className={"nav-item " + (section === id ? "active" : "")}
-                    aria-current={section === id ? "page" : undefined}
-                    aria-label={label}
-                    title={sidebarCollapsed ? label : undefined}
-                    onClick={() => go(id)}
-                  >
-                    <Icon size={18} aria-hidden="true" />
-                    <span className="v91-nav-label">{label}</span>
-                  </button>
-                );
-              })}
-            </div>
-          ))}
-        </nav>
-        <div className="sidebar-bottom">
-          <p>{profile?.organization}</p>
-          <small>
-            v{version} · {revision && revision !== "unbuilt" ? revision.slice(0, 8) + " · " : ""}{" "}
-            Administrador
-          </small>
-        </div>
-      </aside>
+    <div className={"shell platform " + (mobileOpen ? "menu-open" : "") + (sidebarCollapsed ? " sidebar-collapsed" : "") + (sidebarCollapsed && sidebarHovered ? " galant-sidebar-peek" : "") + (touchNavigation ? " galant-touch-nav" : "")}>
+      <GalantSidebar
+        entries={nav} groups={navGroups} selected={section}
+        collapsed={sidebarCollapsed} preview={sidebarHovered} touch={touchNavigation}
+        organization={profile?.organization} version={version} revision={revision}
+        navigate={go} onEnter={openSidebarOnHover} onLeave={closeSidebarAfterDelay}
+        togglePin={() => {clearSidebarTimer();setSidebarHovered(false);setSidebarCollapsed(value => !value);}}
+      />
       {mobileOpen && <button type="button" className="v91-menu-backdrop" aria-label="Cerrar menú de navegación" onClick={() => setMobileOpen(false)} />}
       <main className="main">
         <header className="topbar">
           <button
             className="icon-button menu-toggle"
-            aria-label={mobileOpen ? "Cerrar menú" : sidebarCollapsed ? "Expandir menú" : "Contraer menú"}
-            title={sidebarCollapsed ? "Expandir menú" : "Contraer menú"}
-            aria-expanded={!sidebarCollapsed || mobileOpen}
+            aria-label={mobileOpen ? "Cerrar menú" : touchNavigation ? "Expandir menú" : sidebarCollapsed ? "Fijar menú abierto" : "Contraer menú automáticamente"}
+            title={touchNavigation ? "Menú de navegación" : sidebarCollapsed ? "Fijar menú abierto" : "Activar contracción automática"}
+            aria-expanded={touchNavigation ? mobileOpen : !sidebarCollapsed || sidebarHovered}
             onClick={() => {
-              if (window.matchMedia("(max-width: 760px)").matches) setMobileOpen((value) => !value);
-              else setSidebarCollapsed((value) => !value);
+              if (touchNavigation) setMobileOpen((value) => !value);
+              else { clearSidebarTimer(); setSidebarHovered(false); setSidebarCollapsed((value) => !value); }
             }}
           >
-            <Menu />
+            {mobileOpen ? <PanelLeftClose /> : touchNavigation ? <Menu /> : sidebarCollapsed ? <PanelLeftOpen /> : <Menu />}
           </button>
           <strong>GALANT POST</strong>
           <div className="v15-quicknav" role="search">
@@ -587,7 +623,7 @@ function App() {
             {user.role === "admin" && section !== "settings" && <button type="button" className="v16-automation-entry" onClick={() => go("javiera_config")} title="Editar documentos, matrices y reglas de JAVIERA" aria-label="Configuración de automatización"><SettingsIcon size={16} /> <span>Configuración de automatización</span></button>}
           </div>
         </header>
-        <div className="page">
+        <div className="page galant-page-view" key={section}>
           {section !== "network" && section !== "javiera" && section !== "ine" && section !== "settings" && <div className="intro">
             <div>
               <span className="eyebrow">
@@ -596,14 +632,14 @@ function App() {
               </span>
               <h1>{nav.find(([id]) => id === section)?.[1]}</h1>
               <p>
-                Información compartida de tu organización · Período {period}
+                Período {period}
               </p>
             </div>
 
           </div>}
-          {section === "network" && <Suspense fallback={<div className="app-loading">Cargando Red de Obras…</div>}><RedDeObras user={user} /></Suspense>}
-          {section === "ine" && <ErrorBoundary name="Control INE"><Suspense fallback={<div className="app-loading">Cargando INE…</div>}><Ine user={user} version={version} onBack={() => go("home")}/></Suspense></ErrorBoundary>}
-          {section === "javiera" && <ErrorBoundary name="Proyecto JAVIERA"><Suspense fallback={<div className="app-loading">Cargando JAVIERA…</div>}><Javiera onBack={() => go("home")} onConfig={user.role === "admin" ? () => go("javiera_config") : undefined} /></Suspense></ErrorBoundary>}
+          {section === "network" && <Suspense fallback={<PageSkeleton title="Cargando Red de Obras" />}><RedDeObras user={user} /></Suspense>}
+          {section === "ine" && <ErrorBoundary name="Control INE"><Suspense fallback={<PageSkeleton title="Cargando INE" />}><Ine user={user} version={version} onBack={() => go("home")}/></Suspense></ErrorBoundary>}
+          {section === "javiera" && <ErrorBoundary name="Proyecto JAVIERA"><Suspense fallback={<PageSkeleton title="Cargando Proyecto JAVIERA" />}><Javiera onBack={() => go("home")} onConfig={user.role === "admin" ? () => go("javiera_config") : undefined} /></Suspense></ErrorBoundary>}
           {error && (
             <div role="alert" className="alert danger">
               {error}
@@ -615,20 +651,36 @@ function App() {
             </div>
           )}
           {loading && section !== "network" && <p className="v1501-refresh-status" role="status">Actualizando datos…</p>}
+          {section === "home" && !overview && !error && <PageSkeleton title="Cargando indicadores de la obra" />}
           {section === "home" && overview && (
             <>
               <section className="v15-dashboard-hero" aria-label="Indicadores principales del período">
-                <div className="v15-dashboard-heading"><div><span className="eyebrow">VISIÓN OPERATIVA</span><h2>Resumen del período</h2><p>Situación real de las obras y documentación bajo revisión</p></div><span>{period}</span></div>
+                <div className="v15-dashboard-heading">
+                  <div><span className="eyebrow">VISIÓN OPERATIVA</span><h2>Resumen del período</h2></div>
+                  <div className="galant-dashboard-context">
+                    <span className="galant-period-pill">{period}</span>
+                    {overview.contractors.length === 0
+                      ? <DashboardStatus tone="neutral">Sin contratistas registrados</DashboardStatus>
+                      : !laborAlerts
+                      ? <DashboardStatus tone="info">Revisando alertas</DashboardStatus>
+                      : laborAlerts.alerts.some(item => ["critical","danger","high","urgent"].includes(item.severity.toLowerCase()))
+                      ? <DashboardStatus tone="danger">Requiere atención</DashboardStatus>
+                      : laborAlerts.alerts.length > 0 || overview.pending_documents > 0
+                      ? <DashboardStatus tone="warning">Con observaciones</DashboardStatus>
+                      : <DashboardStatus tone="success">Sin alertas verificadas</DashboardStatus>}
+                  </div>
+                </div>
                 <div className="v15-dashboard-metrics">
-                  {([
-                    ["Contratistas del período", overview.contractors.length, "contractors", "all"],
-                    ["Contratistas al día", overview.up_to_date, "contractors", "all"],
-                    ["Documentos pendientes", overview.pending_documents, "documents", "pending"],
-                    ["Contratos por vencer", laborAlerts?.summary.workers_ending ?? "—", "workers", "ending_soon"],
-                    ["Asistencia atrasada", laborAlerts?.summary.attendance_overdue ?? "—", "attendance", "overdue"]
-                  ] as const).map(([label,value,target,state])=><button type="button" className={"v15-dashboard-kpi "+((Number(value)>0&&["Documentos pendientes","Asistencia atrasada"].includes(label))?"attention":"")} key={label} onClick={()=>drill(target,state)}>
-                    <span>{label}</span><strong>{value}</strong><small>Ver detalle →</small>
-                  </button>)}
+                  <DashboardMetricCard label="Contratistas del período" value={overview.contractors.length} icon={Building2}
+                    tone="info" onClick={() => drill("contractors", "all")} />
+                  <DashboardMetricCard label="Contratistas al día" value={overview.up_to_date} icon={ShieldCheck}
+                    tone={overview.up_to_date > 0 ? "success" : "neutral"} onClick={() => drill("contractors", "all")} />
+                  <DashboardMetricCard label="Documentos pendientes" value={overview.pending_documents} icon={ClipboardList}
+                    tone={overview.pending_documents > 0 ? "danger" : "neutral"} onClick={() => drill("documents", "pending")} />
+                  <DashboardMetricCard label="Contratos por vencer" value={laborAlerts?.summary.workers_ending ?? "—"} icon={FileClock}
+                    tone={(laborAlerts?.summary.workers_ending ?? 0) > 0 ? "warning" : "neutral"} onClick={() => drill("workers", "ending_soon")} />
+                  <DashboardMetricCard label="Asistencia atrasada" value={laborAlerts?.summary.attendance_overdue ?? "—"} icon={Timer}
+                    tone={(laborAlerts?.summary.attendance_overdue ?? 0) > 0 ? "danger" : "neutral"} onClick={() => drill("attendance", "overdue")} />
                 </div>
               </section>
               {laborAlerts && <section className="panel dashboard-alerts" aria-labelledby="dashboard-alerts-title">
@@ -652,14 +704,24 @@ function App() {
                   }}><small>{label}</small><strong>{laborAlerts.summary[key] || 0}</strong><span className="alert-metric-state">{(laborAlerts.summary[key] || 0) === 0 ? "Sin casos" : alertCriticalKeys.has(key) ? "Requiere acción" : "Revisar"}</span><span className="alert-metric-action">Ver registros →</span></button>)}
                 </div>
                 </details><h3 className="dashboard-list-heading">Centro de alertas</h3>
-                {laborAlerts.alerts.slice(0, 30).map((item, i) => <button className={"worker-alert-link worker-signal " + item.severity} key={i} onClick={() => {
-                  if (item.target_section === "workers") { setTargetWorker(item.target_id); go("workers"); }
-                  else if (item.target_section === "contributions") drill("contributions", item.kind === "declared_unpaid" ? "declared_unpaid" : "differences");
-                  else if (item.target_section === "documents") drill("documents", "overdue");
-                  else if (item.target_section === "attendance") go("attendance");
-                  else { drill("contractors"); setClassification("SIN CLASIFICAR"); }
-                }}>{item.label} · {item.site} {item.date ? "· " + item.date : ""}</button>)}
-                {!laborAlerts.alerts.length && <p>Sin alertas verificadas para el período y obra seleccionados.</p>}
+                {sortedLaborAlerts.slice(0,6).map((item, i) => <button type="button"
+                  className={"worker-alert-link worker-signal galant-alert-row " + item.severity}
+                  key={item.kind+"-"+item.target_id+"-"+i} onClick={() => openLaborAlert(item)}>
+                  <span className="galant-alert-row-text">{item.label}</span>
+                  <small>{item.site}{item.date ? " · " + item.date : ""}</small>
+                  <span className="galant-alert-arrow" aria-hidden="true">→</span>
+                </button>)}
+                {sortedLaborAlerts.length > 6 && <details className="galant-more-alerts">
+                  <summary>Ver {sortedLaborAlerts.length - 6} alertas adicionales</summary>
+                  {sortedLaborAlerts.slice(6).map((item, i) => <button type="button"
+                    className={"worker-alert-link worker-signal galant-alert-row " + item.severity}
+                    key={item.kind+"-"+item.target_id+"-more-"+i} onClick={() => openLaborAlert(item)}>
+                    <span className="galant-alert-row-text">{item.label}</span>
+                    <small>{item.site}{item.date ? " · " + item.date : ""}</small>
+                    <span className="galant-alert-arrow" aria-hidden="true">→</span>
+                  </button>)}
+                </details>}
+                {!sortedLaborAlerts.length && <p className="galant-no-alerts"><ShieldCheck size={18} aria-hidden="true"/> Sin alertas verificadas para esta selección.</p>}
               </section>}
               <div className="dashboard-summary-heading">
                 <h2>Resumen de contratistas</h2>
@@ -872,6 +934,7 @@ function App() {
                   <p>Aún no hay actividad registrada.</p>
                 )}
               </section>
+              <ArchitecturalBanner />
             </>
           )}
           {section === "contractors" &&
