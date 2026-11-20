@@ -1,0 +1,66 @@
+/* GALANT — navegación compacta automática, aplicada al final del shell premium.
+   El rail ocupa 66 px; la expansión es una superposición y NO desplaza el contenido. */
+@media (min-width: 761px) {
+  .platform.sidebar-collapsed .sidebar {
+    width: 66px !important;
+    border-right: 1px solid rgba(105, 169, 210, .18);
+    background: linear-gradient(170deg, #09243e 0%, #0b2b48 54%, #091e34 100%);
+    box-shadow: 2px 0 14px rgba(7, 33, 55, .08);
+    transition: width 260ms cubic-bezier(.22, 1, .36, 1), box-shadow 260ms ease !important;
+    will-change: auto;
+  }
+  .platform.sidebar-collapsed .main,
+  .platform.sidebar-collapsed.galant-sidebar-peek .main {
+    margin-left: 66px !important;
+  }
+  .platform.sidebar-collapsed.galant-sidebar-peek .sidebar {
+    width: 250px !important;
+    box-shadow: 12px 0 34px rgba(7, 32, 55, .23);
+    border-color: rgba(111, 189, 212, .3);
+  }
+  .platform.sidebar-collapsed .sidebar .galant-brand-symbol {
+    background: linear-gradient(140deg, #106c8e, #1464a4);
+    border-color: rgba(157, 224, 238, .25);
+    box-shadow: 0 5px 16px rgba(5, 24, 43, .24);
+  }
+  .platform.sidebar-collapsed .sidebar .nav-item {
+    color: #bfd4e4;
+    font-weight: 640;
+    letter-spacing: -.005em;
+    border: 1px solid transparent;
+  }
+  .platform.sidebar-collapsed .sidebar .nav-item.active {
+    color: #fff;
+    background: linear-gradient(115deg, #11649b, #087c8a);
+    border-color: rgba(137, 220, 230, .22);
+    box-shadow: inset 3px 0 #76e1dc, 0 4px 12px rgba(1, 20, 39, .19);
+  }
+  .platform.sidebar-collapsed .sidebar .nav-item:not(.active):hover {
+    color: #fff;
+    background: rgba(45, 134, 176, .24);
+  }
+  .platform.sidebar-collapsed.galant-sidebar-peek .sidebar .nav-item {
+    font-size: 13px;
+    border-radius: 10px;
+  }
+  .platform.sidebar-collapsed.galant-sidebar-peek .sidebar .nav-item .v91-nav-label {
+    font-weight: 650;
+    color: inherit;
+  }
+  .platform.sidebar-collapsed .sidebar .nav-item:focus-visible {
+    outline: 2px solid #8de6ef;
+    outline-offset: -2px;
+  }
+  .platform.sidebar-collapsed.galant-sidebar-peek .sidebar-bottom {
+    border-top: 1px solid rgba(163, 207, 234, .12);
+    font-size: 11px;
+  }
+}
+@media (prefers-reduced-motion: reduce) {
+  .platform.sidebar-collapsed .sidebar,
+  .platform.sidebar-collapsed.galant-sidebar-peek .sidebar,
+  .platform.sidebar-collapsed.galant-sidebar-peek .sidebar .v91-nav-label {
+    transition: none !important;
+    animation: none !important;
+  }
+}
