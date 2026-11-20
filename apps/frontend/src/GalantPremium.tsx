@@ -32,6 +32,17 @@ export function PageSkeleton({title="Preparando módulo"}: {title?: string}) {
   </section>;
 }
 
+export function StartupSplash() {
+  return <div className="galant-startup" role="status" aria-label="Iniciando GALANT">
+    <div className="galant-startup-panel">
+      <span className="galant-startup-logo"><Building2 size={30} aria-hidden="true"/></span>
+      <strong>GALANT</strong>
+      <span>Preparando el espacio de trabajo</span>
+      <div className="galant-startup-track" aria-hidden="true"><i /></div>
+    </div>
+  </div>;
+}
+
 export function DashboardStatus({children, tone}: {children: ReactNode; tone: MetricTone}) {
   const Icon = tone === "success" ? CircleCheck : tone === "danger" || tone === "warning" ? ShieldAlert : Building2;
   return <span className={`galant-dashboard-status galant-tone-${tone}`} role="status"><Icon size={15} aria-hidden="true" />{children}</span>;
