@@ -657,7 +657,7 @@ function App() {
               </section>
               {laborAlerts && <section className="panel dashboard-alerts" aria-labelledby="dashboard-alerts-title">
                 <div className="dashboard-section-title">
-                  <div><span className="eyebrow">PRIORIDADES DEL PERÍODO</span><h2 id="dashboard-alerts-title">Alertas laborales y documentales</h2></div>
+                  <div><h2 id="dashboard-alerts-title">Alertas laborales y documentales</h2></div>
                   <span className="dashboard-source-label">Datos verificados</span>
                 </div>
                 <details className="v15-dashboard-more"><summary>Indicadores de riesgo por categoría</summary><div className="kpi-grid alert-kpi-grid">
@@ -701,7 +701,6 @@ function App() {
                     >
                       <small>Contratistas {key}</small>
                       <strong>{value}</strong>
-                      <span>Ver registros →</span>
                     </button>
                   ),
                 )}
@@ -790,16 +789,14 @@ function App() {
                   >
                     <small>{title}</small>
                     <strong>{value}</strong>
-                    <span>Ver detalle →</span>
                   </button>
                 ))}
                 </div>
+                <p className="muted">
+                  Promedio calculado con {overview.contributions.denominator} registros con días informados.
+                  Los registros incompletos siguen pendientes de revisión.
+                </p>
               </details>
-              <p className="muted">
-                Promedio: {overview.contributions.denominator} registros
-                individuales con días informados. La falta de información
-                permanece pendiente; las observaciones requieren revisión.
-              </p>
               <div className="toolbar">
                 <input
                   aria-label="Buscar contratista"
