@@ -35,30 +35,82 @@ html { scrollbar-gutter: stable; }
 }
 .platform.shell .sidebar-bottom { color:#718397; }
 .platform.shell .sidebar-bottom p,.platform.shell .sidebar-bottom small { color:#718397; }
+/* Desktop: the left rail never occupies more layout space than 76px.
+   Expansion overlays the page, keeping clickable controls at the same Y location. */
 @media (min-width: 761px) {
   .platform.shell .sidebar, .platform.shell.sidebar-collapsed .sidebar {
-    width: var(--galant-rail) !important;
-    overflow-x: hidden; overflow-y: auto;
-    transition: width .23s cubic-bezier(.2,.78,.2,1), box-shadow .2s ease !important;
+    width:var(--galant-rail)!important;
+    overflow-x:hidden; overflow-y:auto;
+    transition:width .23s cubic-bezier(.2,.78,.2,1),box-shadow .2s ease!important;
+    z-index:35;
   }
-  .platform.shell:not(.sidebar-collapsed) .sidebar {
-    width: 254px !important;
-    box-shadow: 14px 0 32px rgba(19,59,89,.14);
+  .platform.shell.sidebar-collapsed .sidebar:is(:hover,:focus-within) {
+    width:254px!important;
+    box-shadow:14px 0 32px rgba(19,59,89,.14);
   }
   .platform.shell .main, .platform.shell.sidebar-collapsed .main {
-    margin-left:var(--galant-rail) !important;
+    margin-left:var(--galant-rail)!important;
     max-width:calc(100% - var(--galant-rail));
     width:calc(100% - var(--galant-rail));
-    transition:none !important;
+    transition:none!important;
   }
-  .platform.shell.sidebar-collapsed .sidebar .brand { padding:21px 13px; justify-content:center; }
-  .platform.shell.sidebar-collapsed .sidebar .brand>div { display:none; }
-  .platform.shell.sidebar-collapsed .sidebar .galant-logo-mark { width:43px; height:43px; }
-  .platform.shell.sidebar-collapsed .sidebar nav { margin-top:5px; }
-  .platform.shell.sidebar-collapsed .sidebar .nav-item { margin:4px auto; }
-  .platform.shell:not(.sidebar-collapsed) .sidebar .brand { padding:21px 17px; }
-  .platform.shell:not(.sidebar-collapsed) .sidebar .nav-item { white-space:normal; }
-  /* Rail opens on hover, but it never pushes dashboard content sideways. */
+  /* Reserve the same vertical layout in collapsed and expanded modes. */
+  .platform.shell.sidebar-collapsed .sidebar .brand {
+    position:relative;
+    padding:21px 17px!important;
+    min-height:91px; justify-content:flex-start;
+    flex-shrink:0; gap:10px; white-space:nowrap;
+  }
+  .platform.shell.sidebar-collapsed .sidebar .galant-logo-mark {
+    width:43px;height:43px;flex:0 0 43px;
+  }
+  .platform.shell.sidebar-collapsed .sidebar .brand>div {
+    display:block!important;visibility:hidden;opacity:0;
+    position:absolute;left:71px;top:26px;pointer-events:none;white-space:nowrap;
+  }
+  .platform.shell.sidebar-collapsed .sidebar:is(:hover,:focus-within) .brand>div {
+    visibility:visible;opacity:1;transition:opacity .14s ease .08s;
+  }
+  .platform.shell.sidebar-collapsed .sidebar-label {
+    display:block!important; visibility:hidden; opacity:0;
+    white-space:nowrap;min-height:47px;overflow:hidden;
+  }
+  .platform.shell.sidebar-collapsed .sidebar:is(:hover,:focus-within) .sidebar-label {
+    visibility:visible;opacity:1;
+  }
+  .platform.shell.sidebar-collapsed .sidebar nav,
+  .platform.shell.sidebar-collapsed .sidebar:is(:hover,:focus-within) nav {
+    margin-top:0!important;gap:2px;
+  }
+  .platform.shell.sidebar-collapsed .sidebar .nav-group-title {
+    display:block!important;
+    visibility:hidden;opacity:0;
+    white-space:nowrap;
+    min-height:16px;overflow:hidden;
+  }
+  .platform.shell.sidebar-collapsed .sidebar:is(:hover,:focus-within) .nav-group-title {
+    visibility:visible;opacity:1;
+  }
+  .platform.shell.sidebar-collapsed .sidebar .nav-item,
+  .platform.shell.sidebar-collapsed .sidebar:is(:hover,:focus-within) .nav-item {
+    min-height:47px;max-height:47px;
+    width:calc(100% - 24px);
+    margin:4px 12px;padding:12px 14px;
+    justify-content:flex-start;gap:12px;overflow:hidden;white-space:nowrap;
+  }
+  .platform.shell.sidebar-collapsed .sidebar .nav-item .v91-nav-label {
+    display:inline!important;visibility:hidden;opacity:0;
+    overflow:hidden;text-overflow:ellipsis;white-space:nowrap;
+  }
+  .platform.shell.sidebar-collapsed .sidebar:is(:hover,:focus-within) .nav-item .v91-nav-label {
+    visibility:visible;opacity:1;
+    transition:opacity .14s ease .08s;
+  }
+  .platform.shell.sidebar-collapsed .sidebar .nav-item svg { flex:0 0 18px; }
+  .platform.shell.sidebar-collapsed .sidebar .sidebar-bottom { display:none; }
+  .platform.shell.sidebar-collapsed .sidebar:is(:hover,:focus-within) .sidebar-bottom {
+    display:block;
+  }
 }
 .platform.shell .v15-dashboard-hero { gap:13px; margin-bottom:17px; }
 .platform.shell .v15-dashboard-heading { align-items:center; gap:12px; }
