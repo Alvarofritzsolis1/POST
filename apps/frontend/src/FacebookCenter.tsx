@@ -9,6 +9,7 @@ import "./facebook-center.css";
 import GalancitoKnowledgeCenter from "./GalancitoKnowledgeCenter";
 import FacebookOverview from "./FacebookOverview";
 import FacebookPersonSheet from "./FacebookPersonSheet";
+import PersonAvatar from "./PersonAvatar";
 import "./facebook-minimal-layout.css";
 import "./facebook-tracking-refresh.css";
 import NetworkFacebook from "./NetworkFacebook";
@@ -608,8 +609,7 @@ export default function FacebookCenter({ catalog }: { catalog: Catalog }) {
             (triageFilter==="unlinked"&&!(r.links?.length||r.requirement_id))||
             (triageFilter==="due"&&r.stage==="Seguimiento vencido")
           ).map(r=><article className="fbtrack-person" key={r.id}>
-            <span className="fbtrack-avatar" aria-hidden="true">{(r.name&&r.name!=="Interesado de Facebook"?
-              r.name:r.company||"?").slice(0,1).toUpperCase()}</span>
+            <PersonAvatar name={r.name && r.name !== "Interesado de Facebook" ? r.name : r.company || "Contacto sin nombre"} size="md" className="fbtrack-avatar-portrait" />
             <div className="fbtrack-person-main">
               <strong>{r.name&&r.name!=="Interesado de Facebook"?r.name:r.company||"Contacto sin nombre"}</strong>
               <div className="fbtrack-person-tags">
@@ -673,7 +673,7 @@ export default function FacebookCenter({ catalog }: { catalog: Catalog }) {
           {visible.map((item) => <button key={item.id}
             onClick={() => { setSelectedId(item.id); setMobilePane("chat"); }}
             className={"fbc-contact " + (item.id === selectedId ? "selected" : "")}>
-            <div className="fbc-avatar">{(item.name || "?").charAt(0).toUpperCase()}</div>
+            <PersonAvatar name={item.name && item.name !== "Interesado de Facebook" ? item.name : item.company || "Contacto sin nombre"} size="md" className="fbc-avatar-portrait" />
             <div><strong>{item.name && item.name !== "Interesado de Facebook" ? item.name : "Contacto sin nombre"}</strong>
               {item.company && <small>{item.company}</small>}
               {item.last_message?.text ? <small className="fbc-contact-preview">{item.last_message.direction === "outbound" ? "Tú: " : ""}{item.last_message.text}</small> :
@@ -689,7 +689,7 @@ export default function FacebookCenter({ catalog }: { catalog: Catalog }) {
           <MessageCircle size={32} /><b>Selecciona un interesado</b>
           <p>Aquí podrás responder sin cambiar a Facebook.</p></div> :
           <>
-            <div className="fbc-pane-title"><MessageCircle size={17} /><div>
+            <div className="fbc-pane-title"><PersonAvatar name={lead.name && lead.name !== "Interesado de Facebook" ? lead.name : lead.company || "Contacto sin nombre"} size="md" /><div>
               <b>{lead.name && lead.name !== "Interesado de Facebook" ? lead.name : "Contacto sin nombre"}</b>
               <small>{lead.company ? lead.company + " · " : ""}{lead.specialty ? lead.specialty + " · " : ""}
                 {lead.can_reply ? "Puedes responder" : "Fuera de la ventana de respuesta"}</small>
