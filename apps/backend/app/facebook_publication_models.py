@@ -55,6 +55,7 @@ class FacebookPostComment(Base):
     can_reply_privately: Mapped[bool] = mapped_column(Boolean, default=False)
     is_hidden: Mapped[bool] = mapped_column(Boolean, default=False)
     like_count: Mapped[int] = mapped_column(Integer, default=0)
+    user_likes: Mapped[bool | None] = mapped_column(Boolean, nullable=True)
     messenger_psid: Mapped[str] = mapped_column(String(90), default="")  # solo si Meta lo devuelve
     private_reply_state: Mapped[str] = mapped_column(String(18), default="not_sent")
     private_reply_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
