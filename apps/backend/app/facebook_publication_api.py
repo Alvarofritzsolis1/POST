@@ -28,16 +28,16 @@ router = APIRouter(prefix="/api/v1/network/facebook/publications", tags=["Facebo
 class Body(BaseModel):
     message: str = Field(min_length=1, max_length=3900)
 
-
-class ReviewInput(BaseModel):
-    classification: str | None = None
-    review_state: str = "review"
-
     def text(self) -> str:
         clean = self.message.strip()
         if not clean:
             raise HTTPException(422, "Escribe un mensaje")
         return clean
+
+
+class ReviewInput(BaseModel):
+    classification: str | None = None
+    review_state: str = "review"
 
 
 def _post(db: Session, user: User, record_id: str, *, allow_failed=False):
