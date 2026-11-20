@@ -15,6 +15,7 @@ def upgrade(connection):
         ("review_by", "VARCHAR(36) NOT NULL DEFAULT ''"),
         ("reviewed_at", "TIMESTAMP WITH TIME ZONE"),
         ("is_deleted", "BOOLEAN NOT NULL DEFAULT FALSE"),
+        ("user_likes", "BOOLEAN"),
     ):
         if name not in columns:
             connection.execute(text(f"ALTER TABLE {table} ADD COLUMN {name} {definition}"))
