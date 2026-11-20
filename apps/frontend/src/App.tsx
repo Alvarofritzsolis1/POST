@@ -11,6 +11,12 @@ import {
   Network,
   RefreshCcw,
   Menu,
+  Pin,
+  PinOff,
+  ClipboardList,
+  ShieldCheck,
+  FileClock,
+  Timer,
   PanelLeftOpen,
   PanelLeftClose,
   Bell,
@@ -21,6 +27,7 @@ import { Login } from "./DocumentAnalysis";
 import DocumentAnalysis from "./DocumentAnalysis";
 import Operations from "./Operations";
 import ErrorBoundary from "./ErrorBoundary";
+import { ArchitecturalBanner, DashboardMetricCard, DashboardStatus, PageSkeleton } from "./GalantPremium";
 import Workers from "./Workers";
 import AdminAttendanceV93 from "./AdminAttendanceV93";
 import AdministrativePerformanceV81 from "./AdministrativePerformanceV81";
@@ -160,6 +167,13 @@ function App() {
   const openSidebarOnHover = () => { if (window.matchMedia("(hover: hover) and (pointer: fine) and (min-width: 761px)").matches) { clearSidebarTimer(); setSidebarHovered(true); } };
   const closeSidebarAfterDelay = () => { clearSidebarTimer(); sidebarHoverTimer.current = setTimeout(() => { setSidebarHovered(false); sidebarHoverTimer.current = null; }, 190); };
   useEffect(() => () => { if (sidebarHoverTimer.current !== null) clearTimeout(sidebarHoverTimer.current); }, []);
+  const [touchNavigation, setTouchNavigation] = useState(() => window.matchMedia("(max-width:760px), ((hover:none) and (pointer:coarse))").matches);
+  useEffect(() => {
+    const mode = window.matchMedia("(max-width:760px), ((hover:none) and (pointer:coarse))");
+    const refreshMode = () => { setTouchNavigation(mode.matches); setSidebarHovered(false); setMobileOpen(false); };
+    mode.addEventListener("change", refreshMode);
+    return () => mode.removeEventListener("change", refreshMode);
+  }, []);
   const settingsReturnRef = useRef("home");
   const automationReturnRef = useRef("javiera");
   const sectionRef = useRef(section);
@@ -405,6 +419,7 @@ function App() {
     setFilter("all");
     setSearch("");
     setMobileOpen(false);
+    setSidebarHovered(false);
     setError("");
     setNotice("");
   }
@@ -412,6 +427,13 @@ function App() {
     go(s);
     setFilter(value);
   }
+  const openLaborAlert = (item: LaborAlerts["alerts"][number]) => {
+    if (item.target_section === "workers") { setTargetWorker(item.target_id); go("workers"); }
+    else if (item.target_section === "contributions") drill("contributions", item.kind === "declared_unpaid" ? "declared_unpaid" : "differences");
+    else if (item.target_section === "documents") drill("documents", "overdue");
+    else if (item.target_section === "attendance") go("attendance");
+    else { drill("contractors"); setClassification("SIN CLASIFICAR"); }
+  };
   if (hash.startsWith("#establecer-clave=") || hash === "#recuperar-clave") return <NetworkPasswordScreen hash={hash} done={() => { window.history.replaceState(null, "", window.location.pathname); setHash(""); setUser(null); }} />;
   if (!ready) return <div className="app-loading">Cargando GALANT…</div>;
   if (!user) return <Login onLogin={setUser} version={version} />;
@@ -420,10 +442,10 @@ function App() {
     : <div><button className="ine-reviewer-entry" type="button" onClick={() => setSection("ine")}>Consultar histórico INE · solo lectura</button><ErrorBoundary name="Revisión documental JAVIERA"><Suspense fallback={<div className="app-loading">Cargando mesa documental…</div>}><JavieraReviewerV17 onLogout={() => void logout()} /></Suspense></ErrorBoundary></div>;
   if (section === "javiera_config" && user.role !== "admin") return <main className="panel"><h1>Acceso restringido</h1><button onClick={() => go("home")}>Volver</button></main>;
   if (section === "configuration" && user.role !== "admin") return <main className="panel" style={{ margin: "40px auto", maxWidth: 620 }}><h1>Acceso restringido</h1><p>Configuración General está disponible exclusivamente para administradores.</p><button type="button" onClick={() => { window.history.replaceState({}, "", "/"); setSection("home"); }}>← Volver</button></main>;
-  if (user.role === "ine_supervisor") return <ErrorBoundary name="Control INE"><Suspense fallback={<div className="app-loading">Cargando INE…</div>}><Ine user={user} version={version} logout={() => void logout()}/></Suspense></ErrorBoundary>;
-  if (user.role === "resident") return <Suspense fallback={<div className="app-loading">Cargando Red de Obras…</div>}><ResidentNetwork user={user} version={version} logout={() => void logout()} /></Suspense>;
+  if (user.role === "ine_supervisor") return <ErrorBoundary name="Control INE"><Suspense fallback={<PageSkeleton title="Cargando INE" />}><Ine user={user} version={version} logout={() => void logout()}/></Suspense></ErrorBoundary>;
+  if (user.role === "resident") return <Suspense fallback={<PageSkeleton title="Cargando Red de Obras" />}><ResidentNetwork user={user} version={version} logout={() => void logout()} /></Suspense>;
   if (user.role === "administrative") return <AdministrativeWorkspace user={user} version={version} logout={() => void logout()} />;
-  if (section === "javiera_config" && user.role === "admin") return <ErrorBoundary name="Configuración de automatización"><Suspense fallback={<div className="app-loading">Cargando JAVIERA…</div>}><Javiera configuration onBack={() => go(automationReturnRef.current)} /></Suspense></ErrorBoundary>;
+  if (section === "javiera_config" && user.role === "admin") return <ErrorBoundary name="Configuración de automatización"><Suspense fallback={<PageSkeleton title="Cargando Proyecto JAVIERA" />}><Javiera configuration onBack={() => go(automationReturnRef.current)} /></Suspense></ErrorBoundary>;
   if (section === "configuration" && user.role === "admin") return <ErrorBoundary name="Configuración General"><Suspense fallback={<div className="app-loading">Cargando Configuración General…</div>}><GeneralConfiguration user={user} version={version} logout={() => void logout()} onOpenSettings={() => go("settings")} onBack={() => go("settings")}/></Suspense></ErrorBoundary>;
   const rows = (contributions?.rows || []).filter(
     (r) =>
@@ -460,14 +482,20 @@ function App() {
         .includes(search.toLowerCase()),
   );
   return (
-    <div className={"shell platform " + (mobileOpen ? "menu-open" : "") + (sidebarCollapsed ? " sidebar-collapsed" : "") + (sidebarCollapsed && sidebarHovered ? " galant-sidebar-peek" : "")}>
+    <div className={"shell platform " + (mobileOpen ? "menu-open" : "") + (sidebarCollapsed ? " sidebar-collapsed" : "") + (sidebarCollapsed && sidebarHovered ? " galant-sidebar-peek" : "") + (touchNavigation ? " galant-touch-nav" : "")}>
       <aside className="sidebar" onMouseEnter={openSidebarOnHover} onMouseLeave={closeSidebarAfterDelay} onFocusCapture={openSidebarOnHover} onBlurCapture={(event) => { if (!event.currentTarget.contains(event.relatedTarget as Node | null)) closeSidebarAfterDelay(); }}>
-        <div className="brand">
-          <Building2 />
+        <div className="brand galant-brand">
+          <span className="galant-brand-symbol" aria-hidden="true"><Building2 size={23}/></span>
           <div>
-            <b>GALANT POST</b>
+            <b>GALANT<span className="galant-brand-post"> POST</span></b>
             <small>Gestión de contratistas</small>
           </div>
+          <button type="button" className="galant-sidebar-pin" title={sidebarCollapsed ? "Fijar menú abierto" : "Usar menú automático"}
+            aria-label={sidebarCollapsed ? "Fijar menú abierto" : "Activar contracción automática"}
+            aria-pressed={!sidebarCollapsed}
+            onClick={() => {clearSidebarTimer();setSidebarHovered(false);setSidebarCollapsed(v=>!v);}}>
+            {sidebarCollapsed ? <Pin size={16} aria-hidden="true"/> : <PinOff size={16} aria-hidden="true"/>}
+          </button>
         </div>
         <p className="sidebar-label">ORGANIZACIÓN COMPARTIDA</p>
         <nav aria-label="Navegación principal">
@@ -484,7 +512,7 @@ function App() {
                     className={"nav-item " + (section === id ? "active" : "")}
                     aria-current={section === id ? "page" : undefined}
                     aria-label={label}
-                    title={sidebarCollapsed && !sidebarHovered ? label : undefined}
+                    title={sidebarCollapsed && !sidebarHovered && !touchNavigation ? label : undefined}
                     onClick={() => go(id)}
                   >
                     <Icon size={18} aria-hidden="true" />
@@ -508,15 +536,15 @@ function App() {
         <header className="topbar">
           <button
             className="icon-button menu-toggle"
-            aria-label={mobileOpen ? "Cerrar menú" : sidebarCollapsed ? "Fijar menú abierto" : "Contraer menú automáticamente"}
-            title={sidebarCollapsed ? "Fijar menú abierto" : "Activar contracción automática"}
-            aria-expanded={!sidebarCollapsed || sidebarHovered || mobileOpen}
+            aria-label={mobileOpen ? "Cerrar menú" : touchNavigation ? "Expandir menú" : sidebarCollapsed ? "Fijar menú abierto" : "Contraer menú automáticamente"}
+            title={touchNavigation ? "Menú de navegación" : sidebarCollapsed ? "Fijar menú abierto" : "Activar contracción automática"}
+            aria-expanded={touchNavigation ? mobileOpen : !sidebarCollapsed || sidebarHovered}
             onClick={() => {
-              if (window.matchMedia("(max-width: 760px)").matches) setMobileOpen((value) => !value);
+              if (touchNavigation) setMobileOpen((value) => !value);
               else { clearSidebarTimer(); setSidebarHovered(false); setSidebarCollapsed((value) => !value); }
             }}
           >
-            {mobileOpen ? <PanelLeftClose /> : sidebarCollapsed ? <PanelLeftOpen /> : <Menu />}
+            {mobileOpen ? <PanelLeftClose /> : touchNavigation ? <Menu /> : sidebarCollapsed ? <PanelLeftOpen /> : <Menu />}
           </button>
           <strong>GALANT POST</strong>
           <div className="v15-quicknav" role="search">
@@ -595,7 +623,7 @@ function App() {
             {user.role === "admin" && section !== "settings" && <button type="button" className="v16-automation-entry" onClick={() => go("javiera_config")} title="Editar documentos, matrices y reglas de JAVIERA" aria-label="Configuración de automatización"><SettingsIcon size={16} /> <span>Configuración de automatización</span></button>}
           </div>
         </header>
-        <div className="page">
+        <div className="page galant-page-view" key={section}>
           {section !== "network" && section !== "javiera" && section !== "ine" && section !== "settings" && <div className="intro">
             <div>
               <span className="eyebrow">
@@ -609,9 +637,9 @@ function App() {
             </div>
 
           </div>}
-          {section === "network" && <Suspense fallback={<div className="app-loading">Cargando Red de Obras…</div>}><RedDeObras user={user} /></Suspense>}
-          {section === "ine" && <ErrorBoundary name="Control INE"><Suspense fallback={<div className="app-loading">Cargando INE…</div>}><Ine user={user} version={version} onBack={() => go("home")}/></Suspense></ErrorBoundary>}
-          {section === "javiera" && <ErrorBoundary name="Proyecto JAVIERA"><Suspense fallback={<div className="app-loading">Cargando JAVIERA…</div>}><Javiera onBack={() => go("home")} onConfig={user.role === "admin" ? () => go("javiera_config") : undefined} /></Suspense></ErrorBoundary>}
+          {section === "network" && <Suspense fallback={<PageSkeleton title="Cargando Red de Obras" />}><RedDeObras user={user} /></Suspense>}
+          {section === "ine" && <ErrorBoundary name="Control INE"><Suspense fallback={<PageSkeleton title="Cargando INE" />}><Ine user={user} version={version} onBack={() => go("home")}/></Suspense></ErrorBoundary>}
+          {section === "javiera" && <ErrorBoundary name="Proyecto JAVIERA"><Suspense fallback={<PageSkeleton title="Cargando Proyecto JAVIERA" />}><Javiera onBack={() => go("home")} onConfig={user.role === "admin" ? () => go("javiera_config") : undefined} /></Suspense></ErrorBoundary>}
           {error && (
             <div role="alert" className="alert danger">
               {error}
@@ -623,6 +651,7 @@ function App() {
             </div>
           )}
           {loading && section !== "network" && <p className="v1501-refresh-status" role="status">Actualizando datos…</p>}
+          {section === "home" && !overview && !error && <PageSkeleton title="Cargando indicadores de la obra" />}
           {section === "home" && overview && (
             <>
               <section className="v15-dashboard-hero" aria-label="Indicadores principales del período">
