@@ -7,7 +7,7 @@ from __future__ import annotations
 
 import json
 import re
-from datetime import timedelta
+from datetime import timedelta, timezone
 
 from fastapi import APIRouter, Depends, HTTPException
 from pydantic import BaseModel, Field
@@ -301,8 +301,12 @@ def refresh_publication(record_id: str, user: User = Depends(administrator),
     ).order_by(FacebookPostJob.created_at.desc()).limit(1))
     if prior and prior.state in {"pending", "sending"}:
         return {"id": prior.id, "state": prior.state, "message": "Sincronización en curso"}
-    if prior and prior.state == "done" and (utcnow() - prior.created_at).total_seconds() < 12:
-        return {"id": prior.id, "state": "done", "message": "Actualizado recientemente"}
+    if prior and prior.state == "done":
+        checked = prior.created_at
+        if checked.tzinfo is None:
+            checked = checked.replace(tzinfo=timezone.utc)  # SQLite sin tzinfo
+        if (utcnow() - checked).total_seconds() < 12:
+            return {"id": prior.id, "state": "done", "message": "Actualizado recientemente"}
     return _enqueue(db, user, post, "refresh")
 
 
