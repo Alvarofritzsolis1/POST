@@ -185,7 +185,7 @@ export default function FacebookCenter({ catalog }: { catalog: Catalog }) {
     const fit = () => {
       if (!inboxRef.current) return;
       const top = Math.max(0, inboxRef.current.getBoundingClientRect().top);
-      setInboxHeight(Math.max(410, Math.min(800, Math.round(window.innerHeight - top - 12))));
+      setInboxHeight(Math.max(320, Math.min(800, Math.round(window.innerHeight - top - 12))));
     };
     fit();
     window.addEventListener("resize", fit, {passive: true});
