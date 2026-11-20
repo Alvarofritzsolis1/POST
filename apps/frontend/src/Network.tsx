@@ -809,23 +809,37 @@ export default function RedDeObras({ user }: { user: Profile }) {
               <strong>{number(overview.unread_messages)}</strong>
             </button>
           </div>
-          <div className="nw-section-title">
-            <h2>Necesidades recientes</h2>
-            <button
-              className="nw-text-button"
-              onClick={() => go("requirements")}
-            >
-              Ver todas <ArrowRight size={15} />
-            </button>
+          <div className="nw-feed-board">
+            <section className="nw-feed-board-main" aria-label="Necesidades recientes">
+              <div className="nw-section-title">
+                <h2>Necesidades recientes</h2>
+                <button className="nw-text-button" onClick={() => go("requirements")}>
+                  Ver todas <ArrowRight size={15} />
+                </button>
+              </div>
+              {reqs.rows.length ? (
+                <div className="nw-cards nw-feed-cards">{reqs.rows.slice(0, 6).map(reqCard)}</div>
+              ) : (
+                <Empty title="Sin necesidades publicadas">
+                  Publica un requerimiento para iniciar la búsqueda.
+                </Empty>
+              )}
+            </section>
+            <aside className="nw-feed-board-side" aria-label="Resumen de Red de Obras">
+              <div className="nw-feed-aside-card">
+                <div className="nw-feed-aside-heading"><b>Vista general</b><Sparkles size={18} aria-hidden="true" /></div>
+                <div className="nw-feed-aside-stats">
+                  <div><span>Necesidades urgentes</span><strong>{number(overview.urgent)}</strong></div>
+                  <div><span>Obras con actividad</span><strong>{number(Object.values(overview.by_site).filter(count => count > 0).length)}</strong></div>
+                </div>
+                <h3>Actividad por obra</h3>
+                <Bars values={overview.by_site} />
+                <button className="nw-text-button" onClick={() => go("matches")}>
+                  Ir a seguimiento <ArrowRight size={14} />
+                </button>
+              </div>
+            </aside>
           </div>
-          {reqs.rows.length ? (
-            <div className="nw-cards nw-feed-cards">{reqs.rows.slice(0, 6).map(reqCard)}</div>
-          ) : (
-            <Empty title="La red está lista para conectar tus obras">
-              Publica el primer requerimiento o comparte la capacidad de un
-              contratista registrado.
-            </Empty>
-          )}
           <div className="nw-section-title">
             <h2>Contratistas disponibles</h2>
             <button className="nw-text-button" onClick={() => go("capacities")}>
