@@ -104,6 +104,7 @@ def interactions_inbox(user: User = Depends(administrator),
     cfg = settings()
     rows = list(db.execute(
         select(FacebookPostComment, NetworkFacebookPost, NetworkRequirement, FacebookPostSnapshot)
+        .select_from(FacebookPostComment)
         .join(NetworkFacebookPost, NetworkFacebookPost.id == FacebookPostComment.post_record_id)
         .join(NetworkRequirement, NetworkRequirement.id == NetworkFacebookPost.requirement_id)
         .outerjoin(FacebookPostSnapshot, FacebookPostSnapshot.post_record_id == NetworkFacebookPost.id)
