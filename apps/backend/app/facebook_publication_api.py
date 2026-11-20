@@ -39,6 +39,7 @@ class Body(BaseModel):
 class ReviewInput(BaseModel):
     classification: str | None = None
     review_state: str = "review"
+    note: str | None = Field(default=None, max_length=1000)
 
 
 def _post(db: Session, user: User, record_id: str, *, allow_failed=False):
@@ -152,9 +153,24 @@ def interactions_inbox(user: User = Depends(administrator),
         NetworkRequirement.state == "published",
     ).order_by(NetworkRequirement.updated_at.desc()).limit(150)))
     opportunities_by_id = {need.id: need for need in opportunities}
+    author_index: dict[tuple[str, str], list[tuple]] = {}
+    for known_comment, known_post, known_need, _ in rows:
+        if known_comment.author_id and known_comment.author_id != known_post.page_id:
+            author_index.setdefault(
+                (known_post.page_id, known_comment.author_id), []
+            ).append((known_comment, known_need))
     result = []
     for comment, post, requirement, snapshot in rows:
         own = comment.author_id == post.page_id
+        connected_comments = (author_index.get((post.page_id, comment.author_id), [])
+                              if comment.author_id and not own else [])
+        previous_activity = [
+            {"id": related.id, "record_id": related.post_record_id,
+             "body": related.body[:180], "posted_at": related.posted_at.isoformat(),
+             "post_title": related_need.title}
+            for related, related_need in connected_comments
+            if related.id != comment.id
+        ][:5]
         profile = declared_profile(comment.body) if not own else {"trades": [], "team_size_declared": None}
         evidence = set(profile["trades"])
         linked_needs = []
@@ -182,7 +198,11 @@ def interactions_inbox(user: User = Depends(administrator),
             "classification": comment.classification, "classification_score": comment.classification_score,
             "classification_source": comment.classification_source,
             "classified_at": comment.classified_at.isoformat() if comment.classified_at else None,
-            "review_state": comment.review_state, "reviewed_at": (
+            "review_state": comment.review_state,
+            "review_note": comment.review_note,
+            "author_activity": previous_activity,
+            "author_activity_count": max(0, len(connected_comments) - 1),
+            "reviewed_at": (
                 comment.reviewed_at.isoformat() if comment.reviewed_at else None),
             "is_hidden": comment.is_hidden, "is_deleted": comment.is_deleted,
             "is_page_author": own,
@@ -265,6 +285,7 @@ def publication_detail(record_id: str, user: User = Depends(administrator),
             "classification_score": c.classification_score,
             "classified_at": c.classified_at.isoformat() if c.classified_at else None,
             "review_state": c.review_state,
+            "review_note": c.review_note,
             "is_deleted": c.is_deleted,
             "user_likes": c.user_likes,
             "can_like": c.author_id != post.page_id and not c.is_deleted and
@@ -398,6 +419,8 @@ def review_comment(record_id: str, comment_id: str, body: ReviewInput,
         comment.classified_at = utcnow()
         comment.classification_score = 0  # No fingir confianza del modelo
     comment.review_state = body.review_state
+    if body.note is not None:
+        comment.review_note = body.note.strip()
     comment.review_by = user.id
     comment.reviewed_at = utcnow()
     db.add(AuditEvent(org_id=user.org_id, user_id=user.id,
@@ -405,7 +428,8 @@ def review_comment(record_id: str, comment_id: str, body: ReviewInput,
     db.commit()
     return {"id": comment.id, "classification": comment.classification,
             "classification_source": comment.classification_source,
-            "review_state": comment.review_state}
+            "review_state": comment.review_state,
+            "review_note": comment.review_note}
 
 
 _COMMENT_INSTRUCTIONS = """Redacta SOLO una propuesta de respuesta pública breve en español chileno.
