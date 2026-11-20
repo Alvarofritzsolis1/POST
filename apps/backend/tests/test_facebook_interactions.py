@@ -141,3 +141,37 @@ def test_batch_refresh_creates_no_outbound_messages(network, monkeypatch):
         jobs = list(db.scalars(select(FacebookPostJob)))
         assert len(jobs) == 1
         assert jobs[0].action == "refresh"
+
+
+def test_page_like_requires_meta_user_likes_and_worker_confirmation(network, monkeypatch):
+    n, record, _ = created(network, monkeypatch)
+    sent = []
+    def graph(method, node_id, edge="", *, query=None, payload=None):
+        if edge == "likes":
+            sent.append((method, node_id, edge))
+            return {"success": True}
+        response = meta_result(method, node_id, edge, query=query, payload=payload)
+        if method == "GET" and edge == "comments":
+            response["data"][0]["user_likes"] = False if not sent else True
+        return response
+
+    monkeypatch.setattr("app.facebook_publication_worker.graph", graph)
+    base = "/facebook/publications/" + record
+    assert n["send"](n["admin"], base + "/refresh", {}).status_code == 202
+    assert process_publication_next(n["Session"])
+    row = n["send"](n["admin"], base, method="GET").json()["comments"][0]
+    assert row["can_like"] and row["user_likes"] is False
+    like = base + "/comments/" + row["id"] + "/like"
+    assert n["send"](n["a"], like, {}).status_code == 403
+    assert n["send"](n["admin"], like, {}).status_code == 202
+    assert sent == []
+    assert process_publication_next(n["Session"])
+    assert sent == [("POST", COMMENT, "likes")]
+    view = n["send"](n["admin"], base, method="GET").json()["comments"][0]
+    assert view["user_likes"] is True
+    assert n["send"](n["admin"], like, {}).status_code == 409
+    unlike = base + "/comments/" + row["id"] + "/unlike"
+    assert n["send"](n["admin"], unlike, {}).status_code == 202
+    assert process_publication_next(n["Session"])
+    assert sent[-1] == ("DELETE", COMMENT, "likes")
+    assert n["send"](n["admin"], base, method="GET").json()["comments"][0]["user_likes"] is False
