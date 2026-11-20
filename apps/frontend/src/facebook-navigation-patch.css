@@ -163,6 +163,22 @@
   .fbc .fbc-composer-actions > .nw-btn { padding:6px 8px; }
   .fbc .fbov-primary .fbov-arrow { display:none; }
 }
+/* Facebook tiene sus propios controles de IA: el acceso flotante sigue disponible,
+   pero no debe tapar Enviar ni Sugerir respuesta. */
+body:has(.nw-facebook-workspace .fbc-inbox) .galancito:not(:has(.galancito-panel)) {
+  right:12px; bottom:14px;
+}
+body:has(.nw-facebook-workspace .fbc-inbox) .galancito-trigger {
+  display:flex; width:44px; height:44px; min-height:44px; padding:0;
+  align-items:center; justify-content:center; border-radius:50%;
+}
+body:has(.nw-facebook-workspace .fbc-inbox) .galancito-trigger > span {
+  display:none;
+}
+body:has(.nw-facebook-workspace .fbc-inbox) .fbc-composer-actions {
+  padding-right:54px;
+}
+
 @media(prefers-reduced-motion:reduce) {
   .fbc .fbc-inbox,.fbc .fbov-metric { transition:none!important; }
 }
