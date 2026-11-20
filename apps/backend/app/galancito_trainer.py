@@ -152,6 +152,7 @@ def _update_stage(factory, claim, state):
 def _charge(factory, claim, spec, instructions, prompt, seed, *, role, sampler):
     provider = spec["id"]
     local = provider == "ollama"
+    output_limit = {"reply": LOCAL_OUTPUT_LIMIT, "judge": 8, "correction": 96}[role]
     # Preflight by context size locally and conservative UTF-8 bounds externally.
     # An unsuccessful call with unknown usage keeps the reservation.
     reserve = LOCAL_CONTEXT_LIMIT if local else len((instructions + prompt).encode("utf-8")) + 640
@@ -179,8 +180,8 @@ def _charge(factory, claim, spec, instructions, prompt, seed, *, role, sampler):
                 policy = db.get(AIOrchestration, row.org_id)
                 if policy and policy.monthly_token_limit and monthly_tokens(db, row.org_id) + reserve > policy.monthly_token_limit:
                     raise BudgetReached("Se alcanzó la cuota mensual configurada")
-                reserved_cost = (float(conn.price_input_per_million) * (reserve - 140)
-                                 + float(conn.price_output_per_million) * 140) / 1_000_000
+                reserved_cost = (float(conn.price_input_per_million) * (reserve - output_limit)
+                                 + float(conn.price_output_per_million) * output_limit) / 1_000_000
             metrics = dict(row.metrics)
             tokens = sum(metrics.get(key, 0) for key in ("input_tokens", "output_tokens", "reserved_tokens"))
             if tokens + reserve > row.config["token_budget"]:
@@ -193,13 +194,13 @@ def _charge(factory, claim, spec, instructions, prompt, seed, *, role, sampler):
             row.lease_until = utcnow() + timedelta(seconds=LEASE_SECONDS)
         sent = True
         if local:
-            cfg = SimpleNamespace(galancito_num_ctx=LOCAL_CONTEXT_LIMIT, galancito_num_predict=LOCAL_OUTPUT_LIMIT,
+            cfg = SimpleNamespace(galancito_num_ctx=LOCAL_CONTEXT_LIMIT, galancito_num_predict=output_limit,
                                   galancito_num_thread=1, galancito_keep_alive="2m")
             answer = generate_training_text(instructions, prompt, seed, cfg)
             measured = last_timings.get()
             counts = (measured.get("input_tokens"), measured.get("output_tokens"))
         else:
-            answer, inp, out = invoke(conn, instructions=instructions, prompt=prompt, max_output_tokens=140)
+            answer, inp, out = invoke(conn, instructions=instructions, prompt=prompt, max_output_tokens=output_limit)
             counts = (inp, out) if inp or out else (None, None)
         with factory.begin() as db:
             row = lock_round(db, claim.id)

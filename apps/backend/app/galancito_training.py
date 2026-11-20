@@ -16,7 +16,7 @@ LOCAL_CONTEXT_LIMIT = 2048
 LOCAL_OUTPUT_LIMIT = 140
 DETAIL_DAYS = 30
 HISTORY_DAYS = 180
-WORKER_STALE_SECONDS = 70
+WORKER_STALE_SECONDS = 150
 
 
 def eligible_at(config: dict, now: datetime) -> datetime:

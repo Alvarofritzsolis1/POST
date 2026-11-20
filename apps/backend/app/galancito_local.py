@@ -127,7 +127,7 @@ def _generate(instructions, data, max_chars, cfg, *, url=None, seed=None, allow_
     started = time.perf_counter()
     record_model_attempt(external=False)
     try:
-        with _opener.open(request, timeout=40 if allow_training else min(cfg.galancito_timeout_seconds, 8)) as response:
+        with _opener.open(request, timeout=120 if allow_training else min(cfg.galancito_timeout_seconds, 8)) as response:
             result = json.loads(response.read(100000).decode("utf-8"))
     except (HTTPError, URLError, TimeoutError, OSError, ValueError):
         # No incluir mensajes de trabajadores, secretos o direcciones internas en logs.
