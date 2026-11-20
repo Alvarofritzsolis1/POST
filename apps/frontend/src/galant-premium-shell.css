@@ -115,6 +115,25 @@ html { scrollbar-gutter: stable; }
     display:block;
   }
 }
+/* Close overlay after a pointer navigation action. Avoids intercepting clicks
+   on module content immediately to the right of the compact rail. */
+@media (min-width: 761px) {
+  .platform.shell.sidebar-dismissed.sidebar-collapsed .sidebar,
+  .platform.shell.sidebar-dismissed.sidebar-collapsed .sidebar:is(:hover,:focus-within),
+  .platform.shell.sidebar-dismissed:not(.sidebar-collapsed) .sidebar {
+    width:var(--galant-rail)!important;
+    box-shadow:8px 0 30px rgba(21,59,101,.035)!important;
+  }
+  .platform.shell.sidebar-dismissed .sidebar .brand>div,
+  .platform.shell.sidebar-dismissed .sidebar .sidebar-label,
+  .platform.shell.sidebar-dismissed .sidebar .nav-group-title,
+  .platform.shell.sidebar-dismissed .sidebar .nav-item .v91-nav-label {
+    visibility:hidden!important;
+    opacity:0!important;
+    pointer-events:none!important;
+  }
+  .platform.shell.sidebar-dismissed .sidebar .sidebar-bottom {display:none!important;}
+}
 .platform.shell .v15-dashboard-hero { gap:13px; margin-bottom:17px; }
 .platform.shell .v15-dashboard-heading { align-items:center; gap:12px; }
 .platform.shell .v15-dashboard-heading h2 { font-size:clamp(23px,2.2vw,30px); margin:0; color:#153b65; }
