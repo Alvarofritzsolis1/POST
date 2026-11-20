@@ -26,7 +26,7 @@ type Interaction = {
 };
 type Inbox = { rows: Interaction[]; limited: boolean; mode: "manual" };
 type AwaitingDelivery = { commentId: string; mode: "public" | "private"; text: string };
-type Props = { onOpenInbox: () => void; onOpenLead: (id: string) => void };
+type Props = { onOpenInbox: () => void; onOpenLead: (id: string) => void; onOpenProfile: (id: string) => void };
 type Filter = "all" | "pending" | "interested" | "review" | "negative" | "hidden" | "spam";
 
 const categories: Record<Category, { label: string; tone: string }> = {
@@ -64,7 +64,7 @@ function ProfileAvatar({ name, src, large = false }: { name: string | null; src:
   </span>;
 }
 
-export default function FacebookInteractions({ onOpenInbox, onOpenLead }: Props) {
+export default function FacebookInteractions({ onOpenInbox, onOpenLead, onOpenProfile }: Props) {
   const [data, setData] = useState<Inbox | null>(null);
   const [activeId, setActiveId] = useState("");
   const [filter, setFilter] = useState<Filter>("all");
@@ -379,8 +379,12 @@ export default function FacebookInteractions({ onOpenInbox, onOpenLead }: Props)
           </button>}
           {active.can_delete && <button type="button" className="nw-btn fbint-danger" disabled={!!busy}
             onClick={() => void remove(active)}><Trash2 size={15}/> Eliminar</button>}
-          {active.lead_id && <button className="nw-btn" type="button"
-            onClick={() => onOpenLead(active.lead_id!)}><MessageCircle size={15}/> Ver Messenger</button>}
+          {active.lead_id && <>
+            <button className="nw-btn" type="button" onClick={() => onOpenProfile(active.lead_id!)}>
+              <UserRound size={15}/> Ver ficha</button>
+            <button className="nw-btn" type="button" onClick={() => onOpenLead(active.lead_id!)}>
+              <MessageCircle size={15}/> Ver Messenger</button>
+          </>}
           {!active.lead_id && <button className="nw-btn" type="button" onClick={onOpenInbox}>
             <MessageCircle size={15}/> Conversaciones</button>}
           {!active.can_hide && !active.is_deleted && <small className="fbint-source">Meta no habilitó la moderación de este comentario.</small>}
