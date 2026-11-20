@@ -10,7 +10,6 @@ html { scrollbar-gutter: stable; }
 .platform.shell .topbar {
   min-height: 64px; padding: 10px clamp(16px,1.6vw,29px);
   border-bottom: 1px solid #e2eaf2; background: #ffffffed;
-  backdrop-filter: blur(14px);
 }
 .platform.shell .topbar > strong { color: #153b65; letter-spacing: -.04em; font-size: 17px; font-weight: 850; }
 .platform.shell .topbar .menu-toggle { background: #f1f6fc; color: #1a5784; }
@@ -203,6 +202,55 @@ html { scrollbar-gutter: stable; }
 /* Resident header uses same brand; no module behavior altered. */
 .nw .nw-brand .galant-logo-mark {width:43px;height:43px;flex:none;}
 .nw .nw-brand b {font-size:18px;letter-spacing:-.04em;color:#153b65;}
+/* Four real business indicators: needs, capacity, matches, inbox. */
+.platform .nw-portal .nw-feed-kpis {
+  grid-template-columns:repeat(4,minmax(0,1fr))!important;
+}
+.platform .nw-portal .nw-feed-kpi-match > strong {color:#6155c7;}
+.platform .nw-portal .nw-feed-kpi-match > span svg {color:#6155c7;}
+.platform .nw-portal .nw-card-footer:has(>button:only-child) {justify-content:flex-end;}
+/* Respect the existing appearance switch; premium styling must not break dark mode. */
+html[data-theme="dark"] .platform.shell {
+  background:#0e1f2c;
+}
+html[data-theme="dark"] .platform.shell .topbar {
+  background:#132b3a;border-bottom-color:#304653;
+}
+html[data-theme="dark"] .platform.shell .topbar > strong,
+html[data-theme="dark"] .platform.shell .brand b {color:#e3eff8;}
+html[data-theme="dark"] .platform.shell .sidebar {
+  background:#132b3a;border-right-color:#304653;
+}
+html[data-theme="dark"] .platform.shell .sidebar .nav-item {
+  color:#b9ccda;
+}
+html[data-theme="dark"] .platform.shell .sidebar .nav-item:hover {
+  color:#f3fafc;background:#1e4255;
+}
+html[data-theme="dark"] .platform.shell .sidebar .nav-item.active {
+  background:#1b5959;color:#c4fcf3;
+}
+html[data-theme="dark"] .platform.shell .v15-dashboard-heading h2,
+html[data-theme="dark"] .platform.shell .v15-dashboard-kpi > strong {
+  color:#e4eff7;
+}
+html[data-theme="dark"] .platform.shell .v15-dashboard-kpi,
+html[data-theme="dark"] .galant-home-shortcuts button {
+  background:#162f3d;border-color:#365365;color:#d6ebf5;
+}
+html[data-theme="dark"] .platform.shell .v15-dashboard-kpi > span {
+  color:#aec5d2;
+}
+html[data-theme="dark"] .platform.shell .v15-dashboard-kpi.attention {
+  background:#402b30;border-color:#874752;
+}
+html[data-theme="dark"] .platform.shell .v15-dashboard-kpi.attention > strong {
+  color:#ffb7af;
+}
+html[data-theme="dark"] .platform .nw-portal .nw-section-title h2,
+html[data-theme="dark"] .platform .nw-portal .nw-heading h1 {
+  color:#e3eff8;
+}
 /* Accessible motion and responsive constraints. */
 @media (max-width: 1180px) {
   .platform.shell .v15-dashboard-metrics {grid-template-columns:repeat(3,minmax(0,1fr));}
@@ -224,7 +272,7 @@ html { scrollbar-gutter: stable; }
   .galant-home-shortcuts {gap:7px;}
   .galant-home-shortcuts button {flex:1 1 auto;justify-content:center;min-height:42px;padding:8px 11px;}
   .platform .nw-portal .nw-cards {grid-template-columns:1fr;}
-  .platform .nw-portal .nw-feed-kpis {grid-template-columns:repeat(3,minmax(0,1fr))!important;}
+  .platform .nw-portal .nw-feed-kpis {grid-template-columns:repeat(2,minmax(0,1fr))!important;}
 }
 @media (max-width: 420px) {
   .platform.shell .v15-dashboard-kpi {padding:12px;min-height:93px;}
