@@ -425,6 +425,21 @@ jobs:
           export GALANT_QA_PASSWORD="$QA_SMOKE_PASSWORD"
           export GALANT_UX_OUTPUT="$RUNNER_TEMP/ux-2026-browser"
           python3 scripts/qa_ux_2026_browser.py
+      - name: QA Facebook Interacciones - manual, hilos, fichas y móvil (Meta sintético)
+        env:
+          GALANT_NETWORK_QA_EMAIL: qa-admin@example.test
+        run: |
+          set -Eeuo pipefail
+          export GALANT_NETWORK_QA_PASSWORD="$QA_SMOKE_PASSWORD"
+          python3 scripts/qa_facebook_interactions_browser.py \
+            --url http://127.0.0.1:18612 \
+            --output "$RUNNER_TEMP/facebook-interactions-browser"
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: galant-facebook-interactions-browser
+          path: ${{ runner.temp }}/facebook-interactions-browser
+          if-no-files-found: warn
       - name: QA GALANT Premium Motion - hover, touch, pin y accesibilidad
         env:
           GALANT_QA_EMAIL: qa-admin@example.test
