@@ -28,9 +28,11 @@ def check(condition, label):
 
 def auth(page):
     page.goto(URL, wait_until="domcontentloaded")
-    expect(page.locator(".login-page .login-version")).to_be_visible(timeout=10000)
-    assert page.locator(".login-edition").count() == 0, "Portada sin texto Acceso privado"
-    version = page.locator(".login-page .login-version").bounding_box()
+    expect(page.locator(".signature-login")).to_be_visible(timeout=10000)
+    expect(page.locator(".signature-login__version")).to_be_visible()
+    expect(page.locator(".signature-login__art")).to_have_count(1)
+    assert page.get_by_text("ACCESO PRIVADO", exact=True).count() == 0, "Portada Signature sin texto redundante"
+    version = page.locator(".signature-login__version").bounding_box()
     assert version and version["x"] >= 0 and version["x"] + version["width"] <= page.viewport_size["width"] + 2, "Versión alineada dentro de pantalla"
     page.get_by_label("Correo electrónico", exact=True).fill(EMAIL)
     page.get_by_label("Contraseña", exact=True).fill(PASSWORD)
