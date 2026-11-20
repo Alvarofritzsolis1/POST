@@ -1,4 +1,4 @@
-import { ArrowRight, Clock3, Inbox, Megaphone, Users, Workflow } from "lucide-react";
+import { ArrowRight, Clock3, Inbox, Megaphone, Users } from "lucide-react";
 import "./facebook-overview.css";
 
 type Counts = {
@@ -83,42 +83,37 @@ export default function FacebookOverview({
     <section className="fbov" aria-label="Resumen de Facebook">
       <header className="fbov-heading">
         <div>
-          <h3>Resumen general</h3>
-          <p>Contacto, publicación y seguimiento en un solo lugar.</p>
+          <h3>Resumen</h3>
         </div>
-        <span className="fbov-period">Datos acumulados · Comparación temporal no disponible</span>
       </header>
 
       <div className="fbov-metrics" aria-label="Indicadores de Facebook">
-        <button type="button" className="fbov-metric fbov-primary" onClick={onOpenTracking}
+        <button type="button" title="Hasta 100 contactos recientes; no son postulaciones confirmadas" className="fbov-metric fbov-primary" onClick={onOpenTracking}
           aria-label={"Abrir seguimiento de contactos; " + counts.contacts + " contactos en los datos recientes"}>
           <span className="fbov-metric-icon"><Users size={22} /></span>
           <span className="fbov-metric-copy"><span>Contactos recientes</span>
             <strong>{counts.contacts.toLocaleString("es-CL")}</strong>
-            <small>Hasta 100 contactos · no equivalen a postulaciones confirmadas</small></span>
+          </span>
           <ArrowRight size={18} className="fbov-arrow" aria-hidden="true" />
         </button>
-        <button type="button" className="fbov-metric" onClick={() => onOpenConversations(true)}>
+        <button type="button" title="Conversaciones sin leer entre contactos recientes" className="fbov-metric" onClick={() => onOpenConversations(true)}>
           <Inbox size={22} className="fbov-blue" />
           <span>Sin leer</span><strong>{counts.unread.toLocaleString("es-CL")}</strong>
-          <small>Conversaciones sin leer entre los contactos recientes</small>
         </button>
-        <button type="button" className="fbov-metric" onClick={onOpenPublications}>
+        <button type="button" title="Hasta 200 envíos recientes" className="fbov-metric" onClick={onOpenPublications}>
           <Megaphone size={22} className="fbov-purple" />
           <span>Publicadas</span><strong>{counts.published_ads.toLocaleString("es-CL")}</strong>
-          <small>Estado registrado · hasta 200 envíos recientes</small>
         </button>
-        <button type="button" className="fbov-metric" onClick={onOpenPending}>
+        <button type="button" title="Anuncios pendientes de revisión" className="fbov-metric" onClick={onOpenPending}>
           <Clock3 size={22} className="fbov-amber" />
           <span>Por revisar</span><strong>{counts.pending_ads.toLocaleString("es-CL")}</strong>
-          <small>Anuncios por revisar en los registros consultados</small>
         </button>
       </div>
 
       <div className="fbov-layout">
         <section className="fbov-panel fbov-posts" aria-labelledby="fbov-posts-title">
           <div className="fbov-panel-heading">
-            <div><h4 id="fbov-posts-title">Publicaciones recientes</h4><small>Estado reportado por GALANT</small></div>
+            <div><h4 id="fbov-posts-title">Publicaciones recientes</h4></div>
             <button type="button" className="fbov-link" onClick={onOpenPublications}>Ver todas <ArrowRight size={15} /></button>
           </div>
           {!recentPosts.length ? <p className="fbov-no-data">Todavía no hay publicaciones registradas.</p> :
@@ -153,7 +148,7 @@ export default function FacebookOverview({
         </section>
         <section className="fbov-panel fbov-recent" aria-labelledby="fbov-contacts-title">
           <div className="fbov-panel-heading">
-            <div><h4 id="fbov-contacts-title">Conversaciones recientes</h4><small>Último mensaje recibido</small></div>
+            <div><h4 id="fbov-contacts-title">Conversaciones recientes</h4></div>
             <button type="button" className="fbov-link" onClick={() => onOpenConversations(false)}>
               Ver todas <ArrowRight size={15}/>
             </button>
@@ -171,17 +166,6 @@ export default function FacebookOverview({
                 <ArrowRight size={16} aria-hidden="true" />
               </button>)}
             </div>}
-        </section>
-        <section className="fbov-panel fbov-help" aria-labelledby="fbov-control-title">
-          <div className="fbov-panel-heading"><div><h4 id="fbov-control-title">Control de postulantes</h4>
-            <small>Una ruta clara para avanzar</small></div></div>
-          <div className="fbov-help-body">
-            <Workflow size={24} aria-hidden="true"/>
-            <p>Revisa las fichas, confirma los oficios y vincula las personas a necesidades de obra desde Seguimiento.</p>
-            <button type="button" className="fbov-cta" onClick={onOpenTracking}>
-              Abrir seguimiento <ArrowRight size={17} />
-            </button>
-          </div>
         </section>
       </div>
     </section>

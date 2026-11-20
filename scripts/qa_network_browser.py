@@ -506,6 +506,66 @@ def main():
         fb_page.get_by_role("button", name="Red de Obras", exact=True).click()
         fb_page.get_by_role("navigation", name="Red de Obras", exact=True).get_by_role(
             "button", name="Facebook", exact=True).click()
+        # GALANT UX Facebook: probar el parche con el navegador real y datos sintéticos.
+        # La barra principal no debe duplicar la portada de Red de Obras.
+        expect(fb_page.locator(".nw-facebook-workspace")).to_be_visible()
+        expect(fb_page.locator(".nw-facebook-workspace .nw-heading")).to_have_count(0)
+        expect(fb_page.locator(".fbov-metrics button")).to_have_count(4)
+        expect(fb_page.get_by_text(
+            "Solicita apoyo, comparte contratistas y coordina necesidades entre obras.",
+            exact=True,
+        )).to_have_count(0)
+        fb_page.locator(".fbc-tools > summary").click()
+        expect(fb_page.get_by_role("button", name="Guías de oficios")).to_be_visible()
+        fb_page.locator(".fbc-header h2").click()
+        expect(fb_page.get_by_role("button", name="Guías de oficios")).not_to_be_visible()
+        # El redactor debe verse sin desplazar verticalmente toda la página.
+        fb_page.get_by_role("navigation", name="Centro Facebook").get_by_role(
+            "button", name="Conversaciones", exact=True).click()
+        for width, height in [(1366, 768), (1024, 768), (1440, 900)]:
+            fb_page.set_viewport_size({"width": width, "height": height})
+            expect(fb_page.locator(".fbc-inbox")).to_be_visible()
+            expect(fb_page.locator(".fbc-composer textarea")).to_be_visible()
+            fb_page.wait_for_timeout(160)
+            composer = fb_page.locator(".fbc-composer").bounding_box()
+            assert composer, "Redactor de Messenger ausente"
+            assert composer["y"] + composer["height"] <= height + 8, (
+                f"El usuario debe bajar para enviar en {width}x{height}: {composer}"
+            )
+            # La burbuja global no debe cubrir el envío ni la sugerencia.
+            assist = fb_page.locator(".galancito-trigger")
+            if assist.is_visible():
+                trigger = assist.bounding_box()
+                send_button = fb_page.locator(".fbc-composer button[type='submit']").bounding_box()
+                suggest_button = fb_page.get_by_role("button", name="Sugerir respuesta").bounding_box()
+                assert trigger and send_button and suggest_button
+                def overlaps(left, right):
+                    return (
+                        left["x"] < right["x"] + right["width"]
+                        and left["x"] + left["width"] > right["x"]
+                        and left["y"] < right["y"] + right["height"]
+                        and left["y"] + left["height"] > right["y"]
+                    )
+                assert not overlaps(trigger, send_button), (
+                    f"El acceso flotante a Galancito tapa Enviar en {width}x{height}"
+                )
+                assert not overlaps(trigger, suggest_button), (
+                    f"El acceso flotante a Galancito tapa Sugerir respuesta en {width}x{height}"
+                )
+            assert fb_page.evaluate(
+                "document.documentElement.scrollWidth <= window.innerWidth + 2"
+            ), f"Desbordamiento horizontal en Facebook: {width}x{height}"
+            fb_page.screenshot(
+                path=str(args.output / f"facebook-inbox-{width}x{height}.png"),
+                full_page=False,
+            )
+        fb_page.set_viewport_size({"width": 1440, "height": 1000})
+        fb_page.get_by_role("navigation", name="Centro Facebook").get_by_role(
+            "button", name="Resumen", exact=True).click()
+        fb_page.screenshot(
+            path=str(args.output / "facebook-resumen-compacto.png"),
+            full_page=False,
+        )
         fb_page.get_by_role("navigation", name="Centro Facebook").get_by_role(
             "button", name="Seguimiento", exact=True).click()
         expect(fb_page.get_by_role("button", name="Ver ficha").first).to_be_visible()

@@ -567,20 +567,9 @@ export default function RedDeObras({ user }: { user: Profile }) {
     </article>
   );
   return (
-    <section className="nw nw-portal">
-      <div className="nw-heading">
-        <div>
-          <span className="nw-eyebrow">
-            <span className="nw-live-dot" />
-            COLABORACIÓN ENTRE OBRAS
-          </span>
-          <h1>
-            Red de Obras<span>.</span>
-          </h1>
-          <p>
-            Solicita apoyo, comparte contratistas y coordina necesidades entre obras.
-          </p>
-        </div>
+    <section className={"nw nw-portal" + (tab === "facebook" ? " nw-facebook-workspace" : "")}>
+      {tab !== "facebook" && <div className="nw-heading">
+        <div><h1>Red de Obras<span>.</span></h1></div>
         {canPublish && tab !== "home" && (
           <div className="nw-row nw-wrap">
             <button
@@ -605,7 +594,7 @@ export default function RedDeObras({ user }: { user: Profile }) {
             </button>
           </div>
         )}
-      </div>
+      </div>}
       <nav className="nw-tabs" aria-label="Red de Obras">
         {tabs.filter(([id]) => id !== "facebook" || user.role === "admin").map(([id, label, Icon]) => (
           <button
