@@ -228,9 +228,13 @@ def process_next(session_factory=SessionLocal) -> bool:
             if not isinstance(outcome_id, str) or not re.fullmatch(r"[0-9]+_[0-9]+", outcome_id):
                 error, uncertain = "Meta no confirmó el ID de publicación.", True
         elif action == "update":
-            graph_request("POST", "/" + post_id, cfg.facebook_page_token, message)
+            result = graph_request("POST", "/" + post_id, cfg.facebook_page_token, message)
+            if result.get("success") is not True:
+                error, uncertain = "Meta no confirmó la edición; revisar la publicación.", True
         elif action == "delete":
-            graph_request("DELETE", "/" + post_id, cfg.facebook_page_token)
+            result = graph_request("DELETE", "/" + post_id, cfg.facebook_page_token)
+            if result.get("success") is not True:
+                error, uncertain = "Meta no confirmó la eliminación; revisar en Facebook.", True
         else:
             error = "Acción de publicación desconocida."
     except HTTPError as exc:
@@ -374,11 +378,30 @@ def main() -> None:
     log.info("Worker de Facebook iniciado; sin publicación retroactiva.")
     from .facebook_chat_worker import process_chat_next, process_profile_next
     from .facebook_inbox_sync import periodic_recovery
+    from .facebook_publication_worker import process_publication_next, recover_interrupted_publications
     recovery_stop = threading.Event()
     recovery_thread = threading.Thread(
         target=periodic_recovery, args=(recovery_stop,),
         name="facebook-inbox-recovery", daemon=True)
     recovery_thread.start()
+    # Comentarios se sincronizan fuera del bucle de Messenger para no volver
+    # lentas las respuestas automáticas al consultar publicaciones grandes.
+    publication_stop = threading.Event()
+    def publication_loop():
+        try:
+            recover_interrupted_publications()
+        except Exception:
+            log.exception("No se pudo reconciliar la cola de publicaciones")
+        while not publication_stop.is_set():
+            try:
+                if process_publication_next():
+                    continue
+            except Exception:
+                log.exception("Fallo aislado administrando comentarios de Facebook")
+            publication_stop.wait(1.5)
+    publication_thread = threading.Thread(
+        target=publication_loop, name="facebook-publications", daemon=True)
+    publication_thread.start()
     while not stopping:
         try:
             if process_chat_next():
@@ -396,6 +419,8 @@ def main() -> None:
             if stopping:
                 break
             time.sleep(settings().facebook_worker_poll_seconds / 10)
+    publication_stop.set()
+    publication_thread.join(timeout=2)
     recovery_stop.set()
     recovery_thread.join(timeout=2)
 

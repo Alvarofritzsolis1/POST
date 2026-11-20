@@ -36,6 +36,7 @@ from .facebook_crm_models import (FacebookLead, FacebookChatMessage, FacebookTra
 from .models import Organization, User, utcnow
 from .network_facebook import public_message
 from .network_models import NetworkFacebookPost, NetworkFacebookManual, NetworkRequirement
+from .facebook_publication_models import FacebookPostSnapshot, FacebookPostJob
 from .network_service import key, today
 from .galancito_triage import classify_lead, dashboard
 from .security import administrator
@@ -300,16 +301,52 @@ async def webhook(request: Request, db: Session = Depends(get_db)):
     reply_turns = {}
     aliases = None
     entries = payload.get("entry")
+    changed_post_ids = set()
     for entry in entries[:20] if isinstance(entries, list) else []:
         if not isinstance(entry, dict):
             continue
         if str(entry.get("id")) != cfg.facebook_page_id:
             continue
+        # Feed webhooks notify about post comments. Do not trust actor IDs,
+        # create Messenger contacts or send messages for a public comment:
+        # just schedule a safe refresh of GALANT-owned post snapshots.
+        changes = entry.get("changes")
+        for change in changes[:30] if isinstance(changes, list) else []:
+            if not isinstance(change, dict) or change.get("field") != "feed":
+                continue
+            value = change.get("value")
+            if not isinstance(value, dict) or value.get("item") != "comment":
+                continue
+            remote_post_id = str(value.get("post_id") or "")
+            if re.fullmatch(r"[0-9]{5,30}_[0-9]{1,40}", remote_post_id):
+                if remote_post_id.startswith(cfg.facebook_page_id + "_"):
+                    changed_post_ids.add(remote_post_id)
         messaging = entry.get("messaging")
         for event in messaging[:30] if isinstance(messaging, list) else []:
             if isinstance(event, dict):
                 event_at = _event_time(event.get("timestamp"), received_at)
                 events.append((event_at + timedelta(microseconds=len(events)), event))
+    if changed_post_ids:
+        posts = list(db.scalars(select(NetworkFacebookPost).where(
+            NetworkFacebookPost.org_id == cfg.facebook_org_id,
+            NetworkFacebookPost.page_id == cfg.facebook_page_id,
+            NetworkFacebookPost.post_id.in_(changed_post_ids),
+            NetworkFacebookPost.state == "published")))
+        for post in posts:
+            already_queued = db.scalar(select(FacebookPostJob.id).where(
+                FacebookPostJob.post_record_id == post.id,
+                FacebookPostJob.action == "refresh",
+                FacebookPostJob.state.in_(["pending", "sending"])).limit(1))
+            if not already_queued:
+                db.add(FacebookPostJob(
+                    org_id=cfg.facebook_org_id, post_record_id=post.id,
+                    page_id=post.page_id,
+                    created_by=post.created_by if hasattr(post, "created_by") else (
+                        db.scalar(select(NetworkRequirement.created_by).where(
+                            NetworkRequirement.id == post.requirement_id,
+                            NetworkRequirement.org_id == post.org_id))
+                    ),
+                    action="refresh", state="pending"))
     for event_at, event in sorted(events, key=lambda item: item[0]):
         meta_message = event.get("message") or {}
         if not isinstance(meta_message, dict) or meta_message.get("is_echo"):
@@ -688,6 +725,13 @@ def center(user: User = Depends(administrator), db: Session = Depends(get_db)):
             NetworkRequirement.id.in_(requirement_ids),
         ))
     } if requirement_ids else {}
+    # Resumen de interacción en una única consulta: sin llamadas a Meta
+    # ni consultas por publicación en el GET del panel.
+    snapshots_by_post = {
+        snap.post_record_id: snap for snap in db.scalars(select(FacebookPostSnapshot).where(
+            FacebookPostSnapshot.org_id == user.org_id,
+            FacebookPostSnapshot.post_record_id.in_([row.id for row in rows])))
+    } if rows else {}
     for row in rows:
         req = requirements_by_id.get(row.requirement_id)
         if req:
@@ -698,6 +742,10 @@ def center(user: User = Depends(administrator), db: Session = Depends(get_db)):
                                  if row.post_id and re.fullmatch(r"[0-9]+_[0-9]+", row.post_id) else None),
                     "updated_at": row.updated_at.isoformat(),
                     "attempts": row.attempts}
+            snap = snapshots_by_post.get(row.id)
+            item["comment_count"] = snap.comment_count if snap else None
+            item["reaction_count"] = snap.reaction_count if snap else None
+            item["share_count"] = snap.share_count if snap else None
             publications.append(item)
             if row.state in ("pending", "sending", "failed", "uncertain"):
                 ads.append(item)

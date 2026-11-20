@@ -12,6 +12,7 @@ import FacebookPersonSheet from "./FacebookPersonSheet";
 import "./facebook-minimal-layout.css";
 import "./facebook-tracking-refresh.css";
 import NetworkFacebook from "./NetworkFacebook";
+import FacebookPublications from "./FacebookPublications";
 
 type Check = { criterion: string; state: "match" | "verify"; detail: string };
 type Analysis = {
@@ -128,7 +129,7 @@ const statuses: Record<string, string> = {
   new: "Nuevo", contacting: "En conversación", pending_review: "Por revisar",
   shortlisted: "Posible candidato", archived: "Archivado", pending: "Pendiente",
   disabled: "Conexión desactivada", not_queued: "Sin sincronizar",
-  failed: "Rechazado por Meta", sending: "Enviando", uncertain: "Revisar en Meta",
+  failed: "Error de publicación", sending: "Enviando", uncertain: "Revisar en Meta",
   published: "Publicado en Facebook", deleted: "Retirado de Facebook",
   cancelled: "Cancelado", verified: "Identidad comprobada",
 };
@@ -1052,44 +1053,18 @@ export default function FacebookCenter({ catalog }: { catalog: Catalog }) {
         </>}
       </aside>
     </div></>}
-    {tab === "publications" && <section className="fbc-pending" aria-label="Publicaciones de Red de Obras en Facebook">
-      <div className="fbc-tracking-head">
-        <div>
-          <h3>Estado de publicaciones</h3>
-          <p>Revisa envíos, errores y enlaces a Facebook.</p>
-        </div>
-        <button type="button" className="nw-btn" onClick={() => void refresh(true).catch((e) => setError(errorText(e)))} disabled={!!saving}>
-          <RefreshCcw size={16} /> Actualizar estados
-        </button>
-      </div>
-      {!center?.publications?.length && <p className="fbc-empty">Aún no hay publicaciones vinculadas con Red de Obras. Crea una necesidad y activa «Publicar también en Facebook».</p>}
-      {(center?.publications || []).map((ad) => <article key={ad.id} className="fbc-ad">
-        <div>
-          <strong>{ad.title}</strong>
-          <small className={"fbc-post-state " + (ad.state === "published" ? "published" : ad.state === "failed" ? "failed" : "pending")}>
-            {ad.specialty} · {statuses[ad.state] || ad.state}
-          </small>
-          {ad.updated_at && <small>{dateText(ad.updated_at)}</small>}
-          {ad.error && <details className="fbc-post-error">
-            <summary>{/190|token/i.test(ad.error) ? "Error de conexión de Facebook" : "Meta rechazó la publicación"}</summary>
-            <p role="alert">{ad.error}</p>
-          </details>}
-          {ad.state === "uncertain" && <small>Verifica en Facebook antes de reintentar.</small>}
-          
-        </div>
-        <div className="fbc-ad-actions">
-          {ad.post_url && <a className="nw-btn" href={ad.post_url} target="_blank" rel="noopener noreferrer"><Facebook size={15} /> Ver en Facebook</a>}
-          {["failed", "not_queued"].includes(ad.state) && <button className="nw-btn"
-            disabled={!!saving || !center?.automatic_enabled || tokenInvalid}
-            onClick={() => void mutate(ad.id,
-              () => change("/requirements/" + ad.requirement_id + "/facebook/sync"),
-              "Solicitud enviada al publicador. Revisa el estado para confirmar la publicación.")}>
-            <RefreshCcw size={15} /> {saving === ad.id ? "Solicitando…" : "Sincronizar"}
-          </button>}
-        </div>
-      </article>)}
-      {!center?.automatic_enabled && <div className="fbc-alert"><AlertTriangle size={18} /> El envío automático está desactivado en el VPS. Ninguna sincronización llegará a Facebook hasta habilitarlo y validar el token de página.</div>}
-    </section>}
+    {tab === "publications" && <FacebookPublications
+      posts={center?.publications || []}
+      automaticEnabled={!!center?.automatic_enabled}
+      onChanged={async () => { await refresh(true); }}
+      onSync={async (ad) => {
+        await change("/requirements/" + ad.requirement_id + "/facebook/sync");
+        await refresh(true);
+        setNotice("Sincronización solicitada; espera la confirmación de Meta.");
+      }}
+      onOpenInbox={() => setTab("inbox")}
+      onOpenLead={(leadId) => { setSelectedId(leadId); setTab("inbox"); }}
+    />}
     {tab === "testing" && <NetworkFacebook catalog={catalog} />}
     {tab === "pending" && <section className="fbc-pending">
       <h3>Publicaciones que necesitan atención</h3>
