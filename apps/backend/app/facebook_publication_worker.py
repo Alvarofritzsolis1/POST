@@ -171,7 +171,8 @@ def refresh(db, post: NetworkFacebookPost) -> None:
             found.can_hide = raw.get("can_hide") is True
             found.is_hidden = raw.get("is_hidden") is True
             found.like_count = positive_count(raw.get("like_count")) or 0
-            found.user_likes = raw.get("user_likes") if type(raw.get("user_likes")) is bool else None
+            if type(raw.get("user_likes")) is bool:
+                found.user_likes = raw["user_likes"]
             found.can_reply_privately = (raw.get("can_reply_privately") is True
                                          and (found.private_reply_state or "not_sent") in {"not_sent", "failed"})
             found.fetched_at = now
@@ -368,6 +369,10 @@ def process_publication_next(session_factory=SessionLocal) -> bool:
                 return True
             if job.action in {"like", "unlike"} and comment.user_likes is None:
                 job.state, job.last_error = "failed", "Meta no confirmó disponibilidad de reacciones"
+                return True
+            if (job.action == "like" and comment.user_likes is True or
+                    job.action == "unlike" and comment.user_likes is False):
+                job.state, job.last_error = "failed", "La reacción ya está en el estado solicitado"
                 return True
             if job.action == "delete_comment" and not comment.can_hide:
                 job.state, job.last_error = "failed", "Meta no permitió moderar este comentario"
