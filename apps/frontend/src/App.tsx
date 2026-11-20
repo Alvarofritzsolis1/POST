@@ -141,7 +141,8 @@ function App() {
     [notice, setNotice] = useState(""),
     [hash, setHash] = useState(window.location.hash),
     [mobileOpen, setMobileOpen] = useState(false),
-    [sidebarCollapsed, setSidebarCollapsed] = useState(() => window.localStorage.getItem("galant-sidebar-collapsed") === "true"),
+    [sidebarCollapsed, setSidebarCollapsed] = useState(() => window.localStorage.getItem("galant-sidebar-collapsed") !== "false"),
+    [sidebarHovered, setSidebarHovered] = useState(false),
     [loading, setLoading] = useState(false),
     [search, setSearch] = useState(""),
     [quickNav, setQuickNav] = useState(""),
@@ -152,6 +153,11 @@ function App() {
     [evidence, setEvidence] = useState(false),
     [sporadic, setSporadic] = useState(false),
     [page, setPage] = useState(0);
+  const sidebarHoverTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const clearSidebarTimer = () => { if (sidebarHoverTimer.current !== null) { clearTimeout(sidebarHoverTimer.current); sidebarHoverTimer.current = null; } };
+  const openSidebarOnHover = () => { if (window.matchMedia("(hover: hover) and (pointer: fine) and (min-width: 761px)").matches) { clearSidebarTimer(); setSidebarHovered(true); } };
+  const closeSidebarAfterDelay = () => { clearSidebarTimer(); sidebarHoverTimer.current = setTimeout(() => { setSidebarHovered(false); sidebarHoverTimer.current = null; }, 190); };
+  useEffect(() => () => { if (sidebarHoverTimer.current !== null) clearTimeout(sidebarHoverTimer.current); }, []);
   const settingsReturnRef = useRef("home");
   const automationReturnRef = useRef("javiera");
   const sectionRef = useRef(section);
@@ -452,8 +458,8 @@ function App() {
         .includes(search.toLowerCase()),
   );
   return (
-    <div className={"shell platform " + (mobileOpen ? "menu-open" : "") + (sidebarCollapsed ? " sidebar-collapsed" : "")}>
-      <aside className="sidebar">
+    <div className={"shell platform " + (mobileOpen ? "menu-open" : "") + (sidebarCollapsed ? " sidebar-collapsed" : "") + (sidebarCollapsed && sidebarHovered ? " galant-sidebar-peek" : "")}>
+      <aside className="sidebar" onMouseEnter={openSidebarOnHover} onMouseLeave={closeSidebarAfterDelay} onFocusCapture={openSidebarOnHover} onBlurCapture={(event) => { if (!event.currentTarget.contains(event.relatedTarget as Node | null)) closeSidebarAfterDelay(); }}>
         <div className="brand">
           <Building2 />
           <div>
@@ -476,7 +482,7 @@ function App() {
                     className={"nav-item " + (section === id ? "active" : "")}
                     aria-current={section === id ? "page" : undefined}
                     aria-label={label}
-                    title={sidebarCollapsed ? label : undefined}
+                    title={sidebarCollapsed && !sidebarHovered ? label : undefined}
                     onClick={() => go(id)}
                   >
                     <Icon size={18} aria-hidden="true" />
@@ -500,12 +506,12 @@ function App() {
         <header className="topbar">
           <button
             className="icon-button menu-toggle"
-            aria-label={mobileOpen ? "Cerrar menú" : sidebarCollapsed ? "Expandir menú" : "Contraer menú"}
-            title={sidebarCollapsed ? "Expandir menú" : "Contraer menú"}
-            aria-expanded={!sidebarCollapsed || mobileOpen}
+            aria-label={mobileOpen ? "Cerrar menú" : sidebarCollapsed ? "Fijar menú abierto" : "Contraer menú automáticamente"}
+            title={sidebarCollapsed ? "Fijar menú abierto" : "Activar contracción automática"}
+            aria-expanded={!sidebarCollapsed || sidebarHovered || mobileOpen}
             onClick={() => {
               if (window.matchMedia("(max-width: 760px)").matches) setMobileOpen((value) => !value);
-              else setSidebarCollapsed((value) => !value);
+              else { clearSidebarTimer(); setSidebarHovered(false); setSidebarCollapsed((value) => !value); }
             }}
           >
             <Menu />
@@ -596,7 +602,7 @@ function App() {
               </span>
               <h1>{nav.find(([id]) => id === section)?.[1]}</h1>
               <p>
-                Información compartida de tu organización · Período {period}
+                Período {period}
               </p>
             </div>
 
@@ -618,7 +624,7 @@ function App() {
           {section === "home" && overview && (
             <>
               <section className="v15-dashboard-hero" aria-label="Indicadores principales del período">
-                <div className="v15-dashboard-heading"><div><span className="eyebrow">VISIÓN OPERATIVA</span><h2>Resumen del período</h2><p>Situación real de las obras y documentación bajo revisión</p></div><span>{period}</span></div>
+                <div className="v15-dashboard-heading"><div><span className="eyebrow">VISIÓN OPERATIVA</span><h2>Resumen del período</h2></div><span>{period}</span></div>
                 <div className="v15-dashboard-metrics">
                   {([
                     ["Contratistas del período", overview.contractors.length, "contractors", "all"],
@@ -627,7 +633,7 @@ function App() {
                     ["Contratos por vencer", laborAlerts?.summary.workers_ending ?? "—", "workers", "ending_soon"],
                     ["Asistencia atrasada", laborAlerts?.summary.attendance_overdue ?? "—", "attendance", "overdue"]
                   ] as const).map(([label,value,target,state])=><button type="button" className={"v15-dashboard-kpi "+((Number(value)>0&&["Documentos pendientes","Asistencia atrasada"].includes(label))?"attention":"")} key={label} onClick={()=>drill(target,state)}>
-                    <span>{label}</span><strong>{value}</strong><small>Ver detalle →</small>
+                    <span>{label}</span><strong>{value}</strong><small aria-hidden="true">Ver detalle →</small>
                   </button>)}
                 </div>
               </section>
