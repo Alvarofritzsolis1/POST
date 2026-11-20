@@ -12,6 +12,7 @@ import FacebookPersonSheet from "./FacebookPersonSheet";
 import PersonAvatar from "./PersonAvatar";
 import "./facebook-minimal-layout.css";
 import "./facebook-tracking-refresh.css";
+import "./facebook-navigation-patch.css";
 import NetworkFacebook from "./NetworkFacebook";
 import FacebookPublications from "./FacebookPublications";
 
@@ -165,6 +166,8 @@ export default function FacebookCenter({ catalog }: { catalog: Catalog }) {
   const [insights, setInsights] = useState<LeadInsights | null>(null);
   const [mobilePane, setMobilePane] = useState<"chat" | "profile">("chat");
   const [showProfile, setShowProfile] = useState(false);
+  const [inboxHeight, setInboxHeight] = useState<number | null>(null);
+  const inboxRef = useRef<HTMLDivElement | null>(null);
   const chatRef = useRef<HTMLDivElement | null>(null);
   const selectedIdRef = useRef("");
   const savedLeadRef = useRef<Lead | null>(null);
@@ -176,6 +179,18 @@ export default function FacebookCenter({ catalog }: { catalog: Catalog }) {
   const [triageFilter, setTriageFilter] = useState<"all"|"high"|"support"|"unlinked"|"due">("all");
   const [trackingQuery, setTrackingQuery] = useState("");
   selectedIdRef.current = selectedId;
+  // Mantener el cuadro de respuesta dentro del viewport al cambiar a conversaciones.
+  useEffect(() => {
+    if (tab !== "inbox") return;
+    const fit = () => {
+      if (!inboxRef.current) return;
+      const top = Math.max(0, inboxRef.current.getBoundingClientRect().top);
+      setInboxHeight(Math.max(410, Math.min(800, Math.round(window.innerHeight - top - 12))));
+    };
+    fit();
+    window.addEventListener("resize", fit, {passive: true});
+    return () => window.removeEventListener("resize", fit);
+  }, [tab]);
 
   const refresh = useCallback(async (force = false) => {
     // An operator's explicit refresh must not be skipped just because an
@@ -461,20 +476,14 @@ export default function FacebookCenter({ catalog }: { catalog: Catalog }) {
   const messengerUncertain = center?.messenger_delivery?.state === "uncertain";
   return <div className="fbc">
     <header className="fbc-header">
-      <div>
-        <span className="fbc-eyebrow"><Facebook size={16} /> FACEBOOK · CENTRO DE CONTACTOS</span>
-        <h2>Centro de Facebook</h2>
-        <p>Conversaciones y publicaciones</p>
-      </div>
-
-    </header>
-    <div className="fbc-status-line">
+      <div className="fbc-header-title"><h2>Centro de Facebook</h2></div>
+      <div className="fbc-status-line">
       <span className={"fbc-connection-square " + (messengerBlocked || messengerUncertain || tokenInvalid ? "problem" :
         connectionVerified && center?.messaging_enabled ? "good" : "pending")} role="status"
         title={connectionVerified ? "Token de página verificado" : "Conexión sin confirmar"}>
         {messengerBlocked || messengerUncertain || tokenInvalid ? <AlertTriangle size={15} /> : <CheckCircle2 size={15} />}
         {messengerBlocked || messengerUncertain || tokenInvalid ? "Revisar" :
-          checkingConnection ? "Comprobando" : connectionVerified && center?.messaging_enabled ? "Vigente" : "Sin verificar"}
+          checkingConnection ? "Comprobando" : connectionVerified && center?.messaging_enabled ? "Conectado" : "Sin verificar"}
       </span>
       <details className="fbc-connection-details">
         <summary>Diagnóstico</summary>
@@ -506,7 +515,8 @@ export default function FacebookCenter({ catalog }: { catalog: Catalog }) {
           </div>
         </div>
       </details>
-    </div>
+      </div>
+    </header>
     {error && <p role="alert" className="fbc-error">{error}</p>}
     {notice && <p role="status" className="fbc-notice">{notice}</p>}
     <nav aria-label="Centro Facebook" className="fbc-tabs fbc-tabs-simple">
@@ -523,11 +533,12 @@ export default function FacebookCenter({ catalog }: { catalog: Catalog }) {
         <ShieldCheck size={16} /> Seguimiento
       </button>
     <details className="fbc-tools">
-      <summary>Más herramientas</summary>
+      <summary>Herramientas</summary>
       <div>
         <button type="button" className="nw-btn" onClick={() => setTab("summary")}>Resumen IA</button>
         <button type="button" className="nw-btn" onClick={() => setTab("performance")}>Rendimiento</button>
         <button type="button" className="nw-btn" onClick={() => setTab("testing")}>Comprobar conexión</button>
+        <button type="button" className="nw-btn" onClick={() => setTab("guides")}>Guías de oficios</button>
       </div>
     </details>
     </nav>
@@ -654,9 +665,9 @@ export default function FacebookCenter({ catalog }: { catalog: Catalog }) {
       <button type="button" className={mobilePane === "chat" ? "active" : ""} onClick={() => setMobilePane("chat")}>Conversación</button>
       <button type="button" className={mobilePane === "profile" ? "active" : ""} onClick={() => setMobilePane("profile")}>Ficha inteligente</button>
     </div>
-    <div className={"fbc-inbox " + (mobilePane === "profile" ? "show-profile" : "show-chat") + (showProfile ? " profile-open" : "")}>
+    <div ref={inboxRef} style={inboxHeight ? {height: inboxHeight} : undefined} className={"fbc-inbox " + (mobilePane === "profile" ? "show-profile" : "show-chat") + (showProfile ? " profile-open" : "")}>
       <aside className="fbc-contacts">
-        <div className="fbc-pane-title"><Users size={16} /><b>Personas que escribieron</b></div>
+        <div className="fbc-pane-title"><Users size={16} /><b>Conversaciones</b></div>
         <div className="fbmin-inbox-switch" role="group" aria-label="Filtrar conversaciones">
           <button type="button" className={inboxFilter === "all" ? "selected" : ""}
             aria-pressed={inboxFilter === "all"} onClick={() => setInboxFilter("all")}>Todas</button>
@@ -674,7 +685,7 @@ export default function FacebookCenter({ catalog }: { catalog: Catalog }) {
             onClick={() => { setSelectedId(item.id); setMobilePane("chat"); }}
             className={"fbc-contact " + (item.id === selectedId ? "selected" : "")}>
             <PersonAvatar name={item.name && item.name !== "Interesado de Facebook" ? item.name : item.company || "Contacto sin nombre"} size="md" className="fbc-avatar-portrait" />
-            <div><strong>{item.name && item.name !== "Interesado de Facebook" ? item.name : "Contacto sin nombre"}</strong>
+            <div><strong>{item.name && item.name !== "Interesado de Facebook" ? item.name : item.company || "Contacto sin nombre"}</strong>
               {item.company && <small>{item.company}</small>}
               {item.last_message?.text ? <small className="fbc-contact-preview">{item.last_message.direction === "outbound" ? "Tú: " : ""}{item.last_message.text}</small> :
                 <small>{item.specialty || "Oficio por confirmar"}</small>}
@@ -706,13 +717,13 @@ export default function FacebookCenter({ catalog }: { catalog: Catalog }) {
             <button type="button"
               className={"fbc-auto-toggle " + (lead.ai_paused ? "is-off" : "is-on")}
               aria-pressed={!lead.ai_paused}
-              aria-label={(lead.ai_paused ? "Activar" : "Desactivar") + " chat automatizado para este contacto"}
+              aria-label={(lead.ai_paused ? "Activar" : "Pausar") + " chat automatizado para este contacto"}
               title={center?.auto_reply_enabled ? "Control de Galancito para esta conversación" :
                 "Activa las respuestas automáticas en el servidor para usar Galancito"}
               disabled={!!saving || !center?.auto_reply_enabled}
               onClick={() => patchLead({ai_paused: !lead.ai_paused})}>
               <Bot size={15} aria-hidden="true" />
-              <span>Chat automatizado</span>
+              <span>Galancito</span>
               <strong>{lead.ai_paused ? "Activar" : "Desactivar"}</strong>
             </button>
             <button type="button" className="nw-btn fbc-profile-toggle" aria-expanded={showProfile}
@@ -775,9 +786,12 @@ export default function FacebookCenter({ catalog }: { catalog: Catalog }) {
             </div>
             <form className="fbc-composer" onSubmit={send}>
               <textarea aria-label="Respuesta para el contratista" value={reply}
-                onChange={(e) => setReply(e.target.value)} onKeyDown={composerKeyDown} rows={2}
+                onChange={(e) => setReply(e.target.value)} onKeyDown={composerKeyDown} rows={1}
+                title="Enter envía; Shift + Enter agrega una línea"
                 placeholder="Escribe un mensaje..." />
-              <details className="fbc-quick-replies">
+              
+              <div className="fbc-composer-actions">
+                <details className="fbc-quick-replies">
                 <summary>Respuestas rápidas</summary>
                 <div className="fbc-reply-chips" aria-label="Respuestas rápidas">
                 {[
@@ -789,10 +803,8 @@ export default function FacebookCenter({ catalog }: { catalog: Catalog }) {
                   onClick={() => setReply(text)}>{label}</button>)}
                 </div>
               </details>
-              <div className="fbc-composer-actions">
                 <button className="nw-btn" type="button" disabled={!!saving}
                   onClick={() => void suggest()}><Sparkles size={16} /> {saving === "draft" ? "Preparando…" : "Sugerir respuesta"}</button>
-                <span className="fbc-compose-hint">Enter envía · Shift+Enter nueva línea</span>
                 <button className="nw-btn nw-primary" type="submit"
                   disabled={!!saving || !reply.trim() || !lead.can_reply}>
                   <Send size={16} /> {saving === "send" ? "Encolando..." : "Enviar"}
