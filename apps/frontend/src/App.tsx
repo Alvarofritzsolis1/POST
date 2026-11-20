@@ -11,8 +11,6 @@ import {
   Network,
   RefreshCcw,
   Menu,
-  Pin,
-  PinOff,
   ClipboardList,
   ShieldCheck,
   FileClock,
@@ -28,6 +26,7 @@ import DocumentAnalysis from "./DocumentAnalysis";
 import Operations from "./Operations";
 import ErrorBoundary from "./ErrorBoundary";
 import { ArchitecturalBanner, DashboardMetricCard, DashboardStatus, PageSkeleton } from "./GalantPremium";
+import { GalantSidebar } from "./GalantSidebar";
 import Workers from "./Workers";
 import AdminAttendanceV93 from "./AdminAttendanceV93";
 import AdministrativePerformanceV81 from "./AdministrativePerformanceV81";
@@ -167,13 +166,32 @@ function App() {
   const openSidebarOnHover = () => { if (window.matchMedia("(hover: hover) and (pointer: fine) and (min-width: 761px)").matches) { clearSidebarTimer(); setSidebarHovered(true); } };
   const closeSidebarAfterDelay = () => { clearSidebarTimer(); sidebarHoverTimer.current = setTimeout(() => { setSidebarHovered(false); sidebarHoverTimer.current = null; }, 190); };
   useEffect(() => () => { if (sidebarHoverTimer.current !== null) clearTimeout(sidebarHoverTimer.current); }, []);
-  const [touchNavigation, setTouchNavigation] = useState(() => window.matchMedia("(max-width:760px), ((hover:none) and (pointer:coarse))").matches);
+  const [touchNavigation, setTouchNavigation] = useState(() => window.matchMedia("(max-width: 760px), (hover: none) and (pointer: coarse)").matches);
   useEffect(() => {
-    const mode = window.matchMedia("(max-width:760px), ((hover:none) and (pointer:coarse))");
+    const mode = window.matchMedia("(max-width: 760px), (hover: none) and (pointer: coarse)");
     const refreshMode = () => { setTouchNavigation(mode.matches); setSidebarHovered(false); setMobileOpen(false); };
     mode.addEventListener("change", refreshMode);
     return () => mode.removeEventListener("change", refreshMode);
   }, []);
+  useEffect(() => {
+    if (!touchNavigation || !mobileOpen) return;
+    const previousOverflow = document.body.style.overflow;
+    document.body.style.overflow = "hidden";
+    const drawer = document.querySelector<HTMLElement>(".platform .sidebar");
+    drawer?.querySelector<HTMLButtonElement>(".nav-item")?.focus();
+    const keyHandler = (event: KeyboardEvent) => {
+      if (event.key === "Escape") { setMobileOpen(false); return; }
+      if (event.key !== "Tab" || !drawer) return;
+      const focusable = Array.from(drawer.querySelectorAll<HTMLButtonElement>("button:not(:disabled)"))
+        .filter(button => button.offsetParent !== null);
+      const first = focusable[0], last = focusable[focusable.length - 1];
+      if (!first || !last) return;
+      if (event.shiftKey && document.activeElement === first) {event.preventDefault();last.focus();}
+      else if (!event.shiftKey && document.activeElement === last) {event.preventDefault();first.focus();}
+    };
+    document.addEventListener("keydown", keyHandler);
+    return () => {document.body.style.overflow = previousOverflow;document.removeEventListener("keydown", keyHandler);};
+  }, [touchNavigation, mobileOpen]);
   const settingsReturnRef = useRef("home");
   const automationReturnRef = useRef("javiera");
   const sectionRef = useRef(section);
@@ -489,54 +507,13 @@ function App() {
   );
   return (
     <div className={"shell platform " + (mobileOpen ? "menu-open" : "") + (sidebarCollapsed ? " sidebar-collapsed" : "") + (sidebarCollapsed && sidebarHovered ? " galant-sidebar-peek" : "") + (touchNavigation ? " galant-touch-nav" : "")}>
-      <aside className="sidebar" onMouseEnter={openSidebarOnHover} onMouseLeave={closeSidebarAfterDelay} onFocusCapture={openSidebarOnHover} onBlurCapture={(event) => { if (!event.currentTarget.contains(event.relatedTarget as Node | null)) closeSidebarAfterDelay(); }}>
-        <div className="brand galant-brand">
-          <span className="galant-brand-symbol" aria-hidden="true"><Building2 size={23}/></span>
-          <div>
-            <b>GALANT<span className="galant-brand-post"> POST</span></b>
-            <small>Gestión de contratistas</small>
-          </div>
-          <button type="button" className="galant-sidebar-pin" title={sidebarCollapsed ? "Fijar menú abierto" : "Usar menú automático"}
-            aria-label={sidebarCollapsed ? "Fijar menú abierto" : "Activar contracción automática"}
-            aria-pressed={!sidebarCollapsed}
-            onClick={() => {clearSidebarTimer();setSidebarHovered(false);setSidebarCollapsed(v=>!v);}}>
-            {sidebarCollapsed ? <Pin size={16} aria-hidden="true"/> : <PinOff size={16} aria-hidden="true"/>}
-          </button>
-        </div>
-        <p className="sidebar-label">ORGANIZACIÓN COMPARTIDA</p>
-        <nav aria-label="Navegación principal">
-          {navGroups.map(group => (
-            <div className="nav-group" key={group.title}>
-              <p className="nav-group-title">{group.title}</p>
-              {group.ids.map(id => {
-                const entry = nav.find(([key]) => key === id);
-                if (!entry) return null;
-                const [, label, Icon] = entry;
-                return (
-                  <button
-                    key={id}
-                    className={"nav-item " + (section === id ? "active" : "")}
-                    aria-current={section === id ? "page" : undefined}
-                    aria-label={label}
-                    title={sidebarCollapsed && !sidebarHovered && !touchNavigation ? label : undefined}
-                    onClick={() => go(id)}
-                  >
-                    <Icon size={18} aria-hidden="true" />
-                    <span className="v91-nav-label">{label}</span>
-                  </button>
-                );
-              })}
-            </div>
-          ))}
-        </nav>
-        <div className="sidebar-bottom">
-          <p>{profile?.organization}</p>
-          <small>
-            v{version} · {revision && revision !== "unbuilt" ? revision.slice(0, 8) + " · " : ""}{" "}
-            Administrador
-          </small>
-        </div>
-      </aside>
+      <GalantSidebar
+        entries={nav} groups={navGroups} selected={section}
+        collapsed={sidebarCollapsed} preview={sidebarHovered} touch={touchNavigation}
+        organization={profile?.organization} version={version} revision={revision}
+        navigate={go} onEnter={openSidebarOnHover} onLeave={closeSidebarAfterDelay}
+        togglePin={() => {clearSidebarTimer();setSidebarHovered(false);setSidebarCollapsed(value => !value);}}
+      />
       {mobileOpen && <button type="button" className="v91-menu-backdrop" aria-label="Cerrar menú de navegación" onClick={() => setMobileOpen(false)} />}
       <main className="main">
         <header className="topbar">
