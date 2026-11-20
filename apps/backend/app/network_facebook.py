@@ -374,7 +374,7 @@ def main() -> None:
     log.info("Worker de Facebook iniciado; sin publicación retroactiva.")
     from .facebook_chat_worker import process_chat_next, process_profile_next
     from .facebook_inbox_sync import periodic_recovery
-    from .facebook_publication_worker import process_publication_next
+    from .facebook_publication_worker import process_publication_next, recover_interrupted_publications
     recovery_stop = threading.Event()
     recovery_thread = threading.Thread(
         target=periodic_recovery, args=(recovery_stop,),
@@ -384,6 +384,10 @@ def main() -> None:
     # lentas las respuestas automáticas al consultar publicaciones grandes.
     publication_stop = threading.Event()
     def publication_loop():
+        try:
+            recover_interrupted_publications()
+        except Exception:
+            log.exception("No se pudo reconciliar la cola de publicaciones")
         while not publication_stop.is_set():
             try:
                 if process_publication_next():
