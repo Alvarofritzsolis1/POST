@@ -515,6 +515,15 @@ export default function FacebookCenter({ catalog }: { catalog: Catalog }) {
           </div>
         </div>
       </details>
+    <details className="fbc-tools">
+      <summary>Herramientas</summary>
+      <div>
+        <button type="button" className="nw-btn" onClick={() => setTab("summary")}>Resumen IA</button>
+        <button type="button" className="nw-btn" onClick={() => setTab("performance")}>Rendimiento</button>
+        <button type="button" className="nw-btn" onClick={() => setTab("testing")}>Comprobar conexión</button>
+        <button type="button" className="nw-btn" onClick={() => setTab("guides")}>Guías de oficios</button>
+      </div>
+    </details>
       </div>
     </header>
     {error && <p role="alert" className="fbc-error">{error}</p>}
@@ -532,15 +541,6 @@ export default function FacebookCenter({ catalog }: { catalog: Catalog }) {
       <button className={tab === "tracking" ? "selected" : ""} onClick={() => setTab("tracking")}>
         <ShieldCheck size={16} /> Seguimiento
       </button>
-    <details className="fbc-tools">
-      <summary>Herramientas</summary>
-      <div>
-        <button type="button" className="nw-btn" onClick={() => setTab("summary")}>Resumen IA</button>
-        <button type="button" className="nw-btn" onClick={() => setTab("performance")}>Rendimiento</button>
-        <button type="button" className="nw-btn" onClick={() => setTab("testing")}>Comprobar conexión</button>
-        <button type="button" className="nw-btn" onClick={() => setTab("guides")}>Guías de oficios</button>
-      </div>
-    </details>
     </nav>
     {tab === "overview" && <FacebookOverview
       loading={!center && !error}
