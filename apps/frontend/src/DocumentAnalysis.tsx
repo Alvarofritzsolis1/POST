@@ -1,7 +1,7 @@
 import {useCallback,useEffect,useMemo,useState,type ChangeEvent,type DragEvent} from "react"
 import {
   Activity,ArrowDownToLine,ArrowRight,Building2,CheckCircle2,ChevronRight,Clock3,
-  Eye,EyeOff,FileCheck2,FileSearch,FileText,History,LayoutDashboard,LoaderCircle,
+  Eye,EyeOff,FileCheck2,FileSearch,FileText,History,LayoutDashboard,LoaderCircle,Mail,UsersRound,
   LogOut,RefreshCcw,ScanLine,ShieldCheck,UploadCloud,XCircle
 } from "lucide-react"
 import {api,type Dashboard,type DocumentSummary,type DocumentView,type Profile} from "./api"
@@ -34,47 +34,81 @@ export function Login({onLogin,version}:{onLogin:(user:Profile)=>void;version:st
     catch(err){setError(err instanceof Error?err.message:"No fue posible ingresar")}
     finally{setPending(false)}
   }
-  return <div className="login-page">
-    <div className="login-decoration">
-      <div className="login-decoration-inner">
-        <div className="login-eyebrow"><span className="login-eyebrow-dot"/> GESTIÓN DE CONTRATISTAS · CHILE</div>
-        <span className="login-hero-icon"><ScanLine size={31} strokeWidth={1.6}/></span>
-        <h1>Más claridad.<br/><em>Mejor control.</em><br/>Un solo lugar.</h1>
-        <p>Organiza tus obras, contratistas y trabajadores en un solo lugar. Carga datos manualmente o desde Excel y conserva la revisión OCR como apoyo.</p>
-        <div className="login-process" aria-label="Etapas de análisis">
-          <span><b>01</b> Organiza obras</span>
-          <span><b>02</b> Importa datos</span>
-          <span><b>03</b> Revisa registros</span>
-        </div>
-        <div className="login-decoration-foot"><span>GALANT POST</span><span className="login-author-credit">Creado por <strong>Álvaro Fritz</strong></span></div>
+  return <div className="signature-login">
+    <div className="signature-login__background" aria-hidden="true"/>
+    <div className="signature-login__grid" aria-hidden="true"/>
+    <header className="signature-login__header">
+      <div className="signature-login__brand" aria-label="GALANT">
+        <span className="signature-login__brand-mark" aria-hidden="true">
+          <svg viewBox="0 0 32 32" fill="none">
+            <path d="M11 5H8C6.3 5 5 6.3 5 8V11M21 5H24C25.7 5 27 6.3 27 8V11M5 21V24C5 25.7 6.3 27 8 27H11M27 21V24C27 25.7 25.7 27 24 27H21M12 16H20"
+              stroke="#efd9b1" strokeWidth="2.4" strokeLinecap="round"/>
+          </svg>
+        </span>
+        <span><strong className="signature-login__wordmark">GALANT</strong><small className="signature-login__brand-subtitle">DOCUMENT INTELLIGENCE</small></span>
       </div>
-    </div>
-    <div className="login-panel">
-      <div className="login-box">
-        <div className="login-panel-head"><Logo/><span className="login-edition">ACCESO PRIVADO</span></div>
-        <span className="login-greeting">TU ESPACIO DE TRABAJO</span>
-        <h2>Bienvenido a GALANT<span className="heading-period">.</span></h2>
-        <p className="muted">Ingresa con tu cuenta autorizada para acceder a tus obras y registros.</p>
-        <div className="login-version"><span className="version-indicator" aria-hidden="true"/> GALANT POST · Versión {version?"v"+version:"no disponible"}</div>
-        <form onSubmit={submit}>
-          <label>Correo electrónico
-            <input type="email" required value={email} onChange={e=>setEmail(e.target.value)} autoComplete="username" placeholder="nombre@empresa.cl"/>
-          </label>
-          <div className="form-field">
-            <label htmlFor="galant-password">Contraseña</label>
-            <span className="password-field">
-              <input id="galant-password" type={showPassword?"text":"password"} required value={password} onChange={e=>setPassword(e.target.value)} autoComplete="current-password" placeholder="Ingresa tu contraseña"/>
-              <button type="button" className="password-toggle" aria-label={showPassword?"Ocultar contraseña":"Mostrar contraseña"} aria-pressed={showPassword} onClick={()=>setShowPassword(!showPassword)}>{showPassword?<EyeOff size={17}/>:<Eye size={17}/>}</button>
-            </span>
+    </header>
+    <main className="signature-login__main">
+      <section className="signature-login__auth" aria-labelledby="signature-login-title">
+        <p className="signature-login__eyebrow">TU ESPACIO DE TRABAJO</p>
+        <h1 id="signature-login-title">Bienvenido.</h1>
+        <p className="signature-login__subtitle">Ingresa para continuar.</p>
+        <form className="signature-login__form" onSubmit={submit}>
+          <div className="signature-login__labelrow">
+            <label className="signature-login__label" htmlFor="signature-login-email">Correo electrónico</label>
           </div>
-          {error&&<p className="form-error" role="alert">{error}</p>}
-          <button type="submit" className="primary full" disabled={pending}>{pending?<LoaderCircle size={17} className="spin"/>:null} Ingresar a GALANT <ArrowRight size={17}/></button>
+          <div className="signature-login__field">
+            <input id="signature-login-email" className="signature-login__input" type="email" required
+              value={email} onChange={e=>setEmail(e.target.value)} autoComplete="username"
+              placeholder="nombre@empresa.cl"/>
+            <Mail className="signature-login__field-icon" size={17} strokeWidth={1.7} aria-hidden="true"/>
+          </div>
+          <div className="signature-login__labelrow">
+            <label className="signature-login__label" htmlFor="signature-login-password">Contraseña</label>
+            <a href="#recuperar-clave" className="signature-login__forgot">¿La olvidaste?</a>
+          </div>
+          <div className="signature-login__field">
+            <input id="signature-login-password" className="signature-login__input" type={showPassword?"text":"password"} required
+              value={password} onChange={e=>setPassword(e.target.value)} autoComplete="current-password"
+              placeholder="Ingresa tu contraseña"/>
+            <button type="button" className="signature-login__toggle" aria-label={showPassword?"Ocultar contraseña":"Mostrar contraseña"}
+              aria-pressed={showPassword} onClick={()=>setShowPassword(!showPassword)}>
+              {showPassword?<EyeOff size={18}/>:<Eye size={18}/>}
+            </button>
+          </div>
+          {error&&<p className="signature-login__error" role="alert">{error}</p>}
+          <button className="signature-login__submit" type="submit" disabled={pending} aria-busy={pending}>
+            {pending?<LoaderCircle size={17} className="spin" aria-hidden="true"/>:null}
+            {pending?"Ingresando…":"Ingresar a GALANT"}
+            {!pending&&<ArrowRight size={17} aria-hidden="true"/>}
+          </button>
         </form>
-        <a href="#recuperar-clave">¿Olvidaste tu contraseña?</a>
-        <div className="login-footer"><ShieldCheck size={17}/> Espacio de acceso restringido. Cada resultado requiere evaluación documental responsable.</div>
-        <div className="login-author-credit login-author-credit--mobile">Creado por <strong>Álvaro Fritz</strong></div>
+        <p className="signature-login__secure"><ShieldCheck size={15} aria-hidden="true"/> Solo para usuarios autorizados</p>
+      </section>
+      <div className="signature-login__art" aria-hidden="true">
+        <div className="signature-login__aura"/>
+        <div className="signature-login__orbit"/>
+        <div className="signature-login__plinth"/>
+        <div className="signature-login__sculpture">
+          <div className="signature-login__layer signature-login__layer--back"/>
+          <div className="signature-login__layer signature-login__layer--middle"/>
+          <div className="signature-login__layer signature-login__layer--front">
+            <svg className="signature-login__hero-mark" viewBox="0 0 200 200" fill="none">
+              <path d="M70 40H55C46.7 40 40 46.7 40 55V70M130 40H145C153.3 40 160 46.7 160 55V70M40 130V145C40 153.3 46.7 160 55 160H70M160 130V145C160 153.3 153.3 160 145 160H130M76 100H124"
+                stroke="#f0d4a5" strokeWidth="7" strokeLinecap="round"/>
+            </svg>
+            <span className="signature-login__plate">GALANT / SYSTEM</span>
+          </div>
+        </div>
+        <span className="signature-login__chip signature-login__chip--building"><Building2 size={23} strokeWidth={1.6}/></span>
+        <span className="signature-login__chip signature-login__chip--documents"><FileText size={23} strokeWidth={1.6}/></span>
+        <span className="signature-login__chip signature-login__chip--people"><UsersRound size={23} strokeWidth={1.6}/></span>
       </div>
-    </div>
+    </main>
+    <footer className="signature-login__footer">
+      <span className="signature-login__credit">Creado por <strong>Álvaro Fritz</strong></span>
+      <small className="signature-login__version">{"Versión "+(version?"v"+version:"—")}</small>
+    </footer>
   </div>
 }
 function Metric({title,value,icon:Icon,kind}:{title:string;value:number;icon:typeof Activity;kind?:string}){
