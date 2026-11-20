@@ -11,6 +11,8 @@ import {
   Network,
   RefreshCcw,
   Menu,
+  PanelLeftOpen,
+  PanelLeftClose,
   Bell,
 } from "lucide-react";
 import { api, type Profile } from "./api";
@@ -141,7 +143,7 @@ function App() {
     [notice, setNotice] = useState(""),
     [hash, setHash] = useState(window.location.hash),
     [mobileOpen, setMobileOpen] = useState(false),
-    [sidebarCollapsed, setSidebarCollapsed] = useState(() => window.localStorage.getItem("galant-sidebar-collapsed") !== "false"),
+    [sidebarCollapsed, setSidebarCollapsed] = useState(() => window.localStorage.getItem("galant-sidebar-pinned") !== "true"),
     [sidebarHovered, setSidebarHovered] = useState(false),
     [loading, setLoading] = useState(false),
     [search, setSearch] = useState(""),
@@ -162,7 +164,7 @@ function App() {
   const automationReturnRef = useRef("javiera");
   const sectionRef = useRef(section);
   sectionRef.current = section;
-  useEffect(() => { window.localStorage.setItem("galant-sidebar-collapsed", String(sidebarCollapsed)); }, [sidebarCollapsed]);
+  useEffect(() => { window.localStorage.setItem("galant-sidebar-pinned", String(!sidebarCollapsed)); }, [sidebarCollapsed]);
   useEffect(() => {
     const routeChanged = () => {
       const next = sectionFromLocation();
@@ -514,7 +516,7 @@ function App() {
               else { clearSidebarTimer(); setSidebarHovered(false); setSidebarCollapsed((value) => !value); }
             }}
           >
-            <Menu />
+            {mobileOpen ? <PanelLeftClose /> : sidebarCollapsed ? <PanelLeftOpen /> : <Menu />}
           </button>
           <strong>GALANT POST</strong>
           <div className="v15-quicknav" role="search">
