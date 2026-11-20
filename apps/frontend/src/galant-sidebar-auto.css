@@ -1,6 +1,6 @@
 /* GALANT — navegación compacta automática, aplicada al final del shell premium.
    El rail ocupa 66 px; la expansión es una superposición y NO desplaza el contenido. */
-@media (min-width: 761px) {
+@media (min-width: 761px) and (hover: hover) and (pointer: fine) {
   .platform.sidebar-collapsed .sidebar {
     width: 66px !important;
     border-right: 1px solid rgba(105, 169, 210, .18);
