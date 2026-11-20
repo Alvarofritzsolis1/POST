@@ -17,7 +17,7 @@ from sqlalchemy.orm import Session
 from .config import settings
 from .db import get_db
 from .facebook_publication_models import FacebookPostComment, FacebookPostJob, FacebookPostSnapshot
-from .facebook_comment_intelligence import CATEGORIES, REVIEW_STATES, reply_template
+from .facebook_comment_intelligence import CATEGORIES, REVIEW_STATES, reply_template, declared_profile
 from .facebook_crm_models import FacebookLead
 from .models import AuditEvent, User, utcnow
 from .network_models import NetworkFacebookPost, NetworkRequirement
@@ -135,12 +135,33 @@ def interactions_inbox(user: User = Depends(administrator),
     leads = {lead.psid: lead.id for lead in db.scalars(select(FacebookLead).where(
         FacebookLead.org_id == user.org_id, FacebookLead.page_id == cfg.facebook_page_id,
         FacebookLead.psid.in_(psids), FacebookLead.last_inbound_at.isnot(None)))} if psids else {}
+    # Oportunidades de obra basadas únicamente en oficios mencionados por el
+    # comentarista, nunca en una inferencia del título del anuncio.
+    opportunities = list(db.scalars(select(NetworkRequirement).where(
+        NetworkRequirement.org_id == user.org_id,
+        NetworkRequirement.state == "published",
+    ).order_by(NetworkRequirement.updated_at.desc()).limit(150)))
+    opportunities_by_id = {need.id: need for need in opportunities}
     result = []
     for comment, post, requirement, snapshot in rows:
         own = comment.author_id == post.page_id
+        profile = declared_profile(comment.body) if not own else {"trades": [], "team_size_declared": None}
+        evidence = set(profile["trades"])
+        linked_needs = []
+        if evidence and comment.classification == "interested":
+            for need in opportunities_by_id.values():
+                matched = sorted(evidence.intersection(declared_profile(need.specialty)["trades"]))
+                if matched:
+                    linked_needs.append({"id": need.id, "title": need.title,
+                                         "specialty": need.specialty, "matched_trades": matched})
+                    if len(linked_needs) >= 4:
+                        break
         result.append({
             "id": comment.id, "remote_comment_id": comment.comment_id,
             "record_id": post.id,
+            "origin_requirement_id": requirement.id,
+            "declared_profile": profile,
+            "potential_needs": linked_needs,
             "post_title": requirement.title,
             "post_specialty": requirement.specialty,
             "post_url": snapshot.permalink_url if snapshot else "",
