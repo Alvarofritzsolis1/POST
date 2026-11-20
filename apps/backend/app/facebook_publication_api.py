@@ -138,7 +138,8 @@ def interactions_inbox(user: User = Depends(administrator),
     for comment, post, requirement, snapshot in rows:
         own = comment.author_id == post.page_id
         result.append({
-            "id": comment.id, "record_id": post.id,
+            "id": comment.id, "remote_comment_id": comment.comment_id,
+            "record_id": post.id,
             "post_title": requirement.title,
             "post_specialty": requirement.specialty,
             "post_url": snapshot.permalink_url if snapshot else "",
@@ -222,6 +223,7 @@ def publication_detail(record_id: str, user: User = Depends(administrator),
         "checked_at": snapshot.checked_at.isoformat() if snapshot and snapshot.checked_at else None,
         "comments": [{
             "id": c.id,
+            "remote_comment_id": c.comment_id,
             "author_name": c.author_name or None,
             "author_picture_url": c.author_picture_url or None,
             "classification": c.classification,
