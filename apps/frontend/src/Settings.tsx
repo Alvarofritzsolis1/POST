@@ -4,6 +4,7 @@ import CatalogEditor from "./CatalogEditor";
 import { read, send, type OrgProfile, type Preferences } from "./platformApi";
 import type { Site } from "./opsApi";
 import Reconciliation from "./Reconciliation";
+import PersonAvatar from "./PersonAvatar";
 type Account = { id: string; email: string; role: string; enabled: boolean };
 type SettingsView = "home" | "profile" | "users" | "sites" | "rules" | "historical";
 export default function Settings({
@@ -346,7 +347,7 @@ export default function Settings({
               <tbody>
                 {users.map((u) => (
                   <tr key={u.id}>
-                    <td>{u.email}</td>
+                    <td><span className="galant-person-row"><PersonAvatar name={u.email} size="sm" /><span>{u.email}</span></span></td>
                     <td>
                       <select
                         aria-label={"Rol " + u.email}
