@@ -47,6 +47,7 @@ class FacebookPostComment(Base):
     classified_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
     review_state: Mapped[str] = mapped_column(String(20), default="new")
     review_by: Mapped[str] = mapped_column(String(36), default="")
+    review_note: Mapped[str] = mapped_column(Text, default="")
     reviewed_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
     is_deleted: Mapped[bool] = mapped_column(Boolean, default=False)
     body: Mapped[str] = mapped_column(Text, default="")
