@@ -11,6 +11,11 @@ const labels: Record<string, string> = {
   queued: "En espera", practicing: "Practicando", evaluating: "Evaluando", correcting: "Corrigiendo",
   paused: "Pausado", completed: "Completado", stopped: "Detenido", error: "Error",
 };
+const internalDimensions: Record<string, string> = {
+  accuracy: "Exactitud factual", tools: "Evidencia y herramientas", context: "Contexto",
+  usefulness: "Utilidad", security: "Seguridad", limits: "Reconoce límites",
+};
+const profiles: Record<string, string> = { postulantes: "Postulantes", interno: "Interno 360°" };
 const dimensions: Record<string, string> = {
   understanding: "Comprensión del mensaje", context: "Coherencia contextual",
   profile: "Extracción de ficha", naturalness: "Naturalidad estimada",
@@ -20,6 +25,7 @@ const errorNames: Record<string, string> = {
   extraccion: "Extracción", repeticion: "Repetición", respuesta: "Respuesta",
   contexto: "Contexto", critico: "Crítico", compatibilidad: "Compatibilidad",
   menu_numerado: "Opciones numeradas",
+  exactitud: "Exactitud", herramienta: "Herramientas", utilidad: "Utilidad", seguridad: "Seguridad", limites: "Límites",
 };
 const fieldNames: Record<string, string> = {
   name: "Nombre", trades: "Especialidades", experience: "Experiencia", work_communes: "Comunas",
@@ -54,12 +60,12 @@ type Metrics = {
 type Round = {
   id: string; state: string; target: number; completed: number; reason: string | null; next_at: string;
   created_at: string; previous_id: string | null; dataset_hash: string; leased: boolean;
-  config: { level: number; suite: string; model: Model; judge: Model; night: boolean; evaluation_version?: number; profile_review?: boolean };
+  config: { profile?: "postulantes" | "interno"; level: number; suite: string; model: Model; judge: Model; night: boolean; evaluation_version?: number; profile_review?: boolean };
   metrics: Metrics;
 };
 type Overview = {
   active_id: string | null; rounds: Round[]; detail_days: number;
-  local_model: string; training_mode: string;
+  local_model: string; training_mode: string; internal_categories?: string[];
   worker: { available: boolean; seen: string | null; resources: {
     host_ram_mb: number | null; available_ram_mb: number | null; worker_ram_mb: number | null;
     worker_ram_limit_mb: number | null; host_cpu_percent: number | null; disk_free_mb: number;
@@ -75,7 +81,7 @@ type Case = {
 };
 type Failures = { cases: Case[]; more: boolean; proposals: Record<string, string> };
 const defaults = {
-  level: 1, cases: 100, suite: "reference", seed: "",
+  profile: "postulantes" as "postulantes" | "interno", level: 1, cases: 100, suite: "reference", seed: "",
   model: "ollama", judge: "rules", corrector: "rules", profile_review: false, night_start: 23, night_end: 7, minutes: 480,
   concurrency: 0, ram_limit_mb: 0, cpu_limit_percent: 75, token_budget: 6000000, cost_budget: 0,
 };
@@ -122,7 +128,9 @@ export default function GalancitoTraining({ back }: { back: () => void }) {
   }, []);
 
   const active = data?.rounds.find(round => round.id === data.active_id);
-  const round = data?.rounds.find(item => item.id === selection) ?? active ?? data?.rounds[0];
+  const history = (data?.rounds ?? []).filter(item => (item.config.profile ?? "postulantes") === form.profile);
+  const round = history.find(item => item.id === selection) ??
+    (active && (active.config.profile ?? "postulantes") === form.profile ? active : undefined) ?? history[0];
   const comparison = data?.rounds.find(item => item.id === round?.previous_id);
   const stats = round?.metrics;
   const sameEvaluation = round?.config.evaluation_version === comparison?.config.evaluation_version &&
@@ -185,14 +193,36 @@ export default function GalancitoTraining({ back }: { back: () => void }) {
     <div className="ai-banner training-banner">
       <div>
         <span className="ai-eyebrow"><Beaker size={15} /> GALANT AI TRAINING LAB</span>
-        <h1>Entrenamiento de Galancito</h1>
-        <p>Simula conversaciones de construcción chilena y evalúa las fichas, las respuestas y el contexto.</p>
+        <h1>Práctica Bot · Galancito</h1>
+        <p>{form.profile === "interno" ? "Practica consultas internas con resultados de herramientas simulados, sin acceder a datos de producción." :
+          "Simula conversaciones de construcción chilena y evalúa las fichas, las respuestas y el contexto."}</p>
       </div>
       <span className={"training-status " + (active?.state ?? (data?.worker.available ? "available" : ""))}>
         <span aria-hidden="true" />
         {!data ? "Cargando" : !data.worker.available ? "Servicio sin conexión" : active ? labels[active.state] : "Disponible"}
       </span>
     </div>
+    <div className="training-profile-tabs" role="group" aria-label="Perfil de Galancito que se evalúa">
+      {(["postulantes", "interno"] as const).map(profile =>
+        <button type="button" key={profile} aria-pressed={form.profile === profile}
+          className={"training-profile-tab" + (form.profile === profile ? " is-active" : "")}
+          onClick={() => {
+            setForm(prev => ({ ...prev, profile, judge: "rules", corrector: "rules", profile_review: false,
+              cases: profile === "interno" ? 400 : 100 }));
+            setSelection(null); setFailures(null);
+          }}>
+          {profiles[profile]}
+        </button>
+      )}
+    </div>
+    {form.profile === "interno" && <div className="ai-panel" role="note">
+      <strong>Galancito Interno · 20 categorías de práctica</strong>
+      <p className="training-muted">Incluye navegación, obras, contratistas, fichas, publicaciones, informes,
+        versiones, rendimiento, permisos y búsqueda web. Los 400 casos son ejemplos sintéticos,
+        no lecturas del VPS ni entrenamiento de pesos del modelo.</p>
+      <p className="training-muted">Elige Ollama para evaluar respuestas generadas por IA.
+        “Reglas locales” solo valida la referencia determinista.</p>
+    </div>}
     {data && <div className="ai-panel" aria-label="Motores de Galancito">
       <strong>Motor principal: Ollama · {data.local_model}</strong>
       <p className="training-muted">Próximas prácticas con Ollama: {data.local_model} · {data.training_mode === "motor_principal_compartido" ? "motor local compartido, sin duplicar el modelo en RAM" : "motor de entrenamiento separado"}.</p>
@@ -205,7 +235,7 @@ export default function GalancitoTraining({ back }: { back: () => void }) {
 
     <div className="training-grid">
       <section className="ai-panel training-launch">
-        <div className="ai-panel-head"><h3>Nueva ronda</h3></div>
+        <div className="ai-panel-head"><h3>Nueva práctica · {profiles[form.profile]}</h3></div>
         <form id="galancito-training-form" onSubmit={event => { event.preventDefault(); start(false); }}>
           <div className="training-fields">
             <label>Nivel<select value={form.level} onChange={event => setForm({ ...form, level: Number(event.target.value) })}>
@@ -222,16 +252,16 @@ export default function GalancitoTraining({ back }: { back: () => void }) {
           <details className="training-details">
             <summary>Opciones avanzadas</summary>
             <div className="training-fields">
-              <label>Evaluación<select value={form.judge} onChange={event => setForm({ ...form, judge: event.target.value })}>
+              {form.profile === "postulantes" && <label>Evaluación<select value={form.judge} onChange={event => setForm({ ...form, judge: event.target.value })}>
                 <option value="rules">Pruebas deterministas</option><option value="ollama">Ollama · {data?.local_model ?? "Modelo local"}</option>{modelOptions}
-              </select></label>
-              <label>Verificación de ficha<select value={form.profile_review ? "on" : "off"}
+              </select></label>}
+              {form.profile === "postulantes" && <label>Verificación de ficha<select value={form.profile_review ? "on" : "off"}
                 onChange={event => setForm({ ...form, profile_review: event.target.value === "on" })}>
                 <option value="off">Base</option><option value="on">Nombres y oficios declarados</option>
-              </select></label>
-              <label>Propuestas de corrección<select value={form.corrector} onChange={event => setForm({ ...form, corrector: event.target.value })}>
+              </select></label>}
+              {form.profile === "postulantes" && <label>Propuestas de corrección<select value={form.corrector} onChange={event => setForm({ ...form, corrector: event.target.value })}>
                 <option value="rules">Por categoría</option><option value="ollama">Ollama · {data?.local_model ?? "Modelo local"}</option>{modelOptions}
-              </select></label>
+              </select></label>}
               {form.suite === "practice" && <label>Semilla<input placeholder="Aleatoria" type="number" min="0" max="2147483647" value={form.seed} onChange={event => setForm({ ...form, seed: event.target.value })} /></label>}
               {fields.map(([key, label, min, max, step]) => <label key={key}>{label}
                 <input required type="number" min={min} max={max} step={step} value={form[key]} onChange={event => setForm({ ...form, [key]: Number(event.target.value) })} />
@@ -251,7 +281,7 @@ export default function GalancitoTraining({ back }: { back: () => void }) {
         {round ? <>
           <div className="training-progress">
             <div><strong>{number(round.completed)}</strong><span> / {number(round.target)} casos</span></div>
-            <span>{suites[round.config.suite]} · Nivel {round.config.level} · {round.config.model.model}</span>
+            <span>{profiles[round.config.profile ?? "postulantes"]} · {suites[round.config.suite]} · Nivel {round.config.level} · {round.config.model.model}</span>
             <progress aria-label="Casos completados" value={round.completed} max={round.target} />
           </div>
           {round.reason && <p className={round.state === "error" ? "ai-error" : "training-muted"}>{round.reason}
@@ -261,7 +291,7 @@ export default function GalancitoTraining({ back }: { back: () => void }) {
             <div><dt>Incorrectos</dt><dd>{number(stats?.failed)}</dd></div>
             <div><dt>Pendientes</dt><dd>{number(round.target - round.completed)}</dd></div>
             <div><dt>Alertas críticas</dt><dd className={stats?.critical ? "training-danger" : ""}>{number(stats?.critical)}</dd></div>
-            <div><dt>Exactitud de fichas</dt><dd>{percent(stats?.profile_accuracy)}</dd></div>
+            <div><dt>{form.profile === "interno" ? "Exactitud factual" : "Exactitud de fichas"}</dt><dd>{percent(form.profile === "interno" ? stats?.dimensions.accuracy : stats?.profile_accuracy)}</dd></div>
             <div><dt>Comprensión del contexto</dt><dd>{percent(stats?.dimensions.context)}</dd></div>
             <div><dt>Naturalidad estimada por IA</dt><dd>{stats?.judged_turns ? percent(stats.dimensions.naturalness) : "Sin revisión IA"}</dd></div>
             <div><dt>Latencia de simulación por turno</dt><dd>{number(stats?.average_latency_ms)} {stats?.average_latency_ms != null && "ms"}</dd></div>
@@ -271,12 +301,12 @@ export default function GalancitoTraining({ back }: { back: () => void }) {
           {stats?.reply_sources && <p className="training-muted">
             Respuestas por origen · {number(stats.reply_sources.model ?? 0)} IA · {number(stats.reply_sources.rules ?? 0)} reglas · {number(stats.reply_sources.approved_correction ?? 0)} aprobadas · {number(stats.reply_sources.fallback ?? 0)} respaldo
           </p>}
-          {!!stats?.questions && <p className="training-muted">
+          {form.profile === "postulantes" && !!stats?.questions && <p className="training-muted">
             Preguntas sobre datos ya entregados · {number(stats.repeated_questions)} de {number(stats.questions)} ({percent(stats.repetition_rate)})
           </p>}
           {!!stats?.judged_turns && <p className="training-muted">{number(stats.judged_turns)} turnos revisados para estimar naturalidad.</p>}
           {!!stats?.reserved_tokens && <p className="training-muted">{number(stats.reserved_tokens)} tokens reservados sin medición del proveedor.</p>}
-          {stats?.fields ? <p className="training-muted">Fichas: {number(stats.correct_fields)} de {number(stats.fields)} campos presentes correctos.</p> : null}
+          {form.profile === "postulantes" && stats?.fields ? <p className="training-muted">Fichas: {number(stats.correct_fields)} de {number(stats.fields)} campos presentes correctos.</p> : null}
           <div className="training-actions">
             {running.includes(round.state) && <>
               <button className="gc-secondary" disabled={busy} onClick={() => void perform(async () => {
@@ -330,8 +360,8 @@ export default function GalancitoTraining({ back }: { back: () => void }) {
     <div className="training-grid">
       <section className="ai-panel">
         <div className="ai-panel-head"><h3><History size={17} /> Historial de rondas</h3></div>
-        {data?.rounds.length ? <div className="training-history">
-          {data.rounds.map(item => <button key={item.id} aria-pressed={round?.id === item.id} className="training-history-row"
+        {history.length ? <div className="training-history">
+          {history.map(item => <button key={item.id} aria-pressed={round?.id === item.id} className="training-history-row"
             onClick={() => { setSelection(item.id); setFailures(null); }}>
             <span><strong>{timestamp(item.created_at)}</strong><small>{suites[item.config.suite]} · Nivel {item.config.level} · {labels[item.state]} · {item.config.model.model}</small></span>
             <span className="training-bar" aria-hidden="true"><span style={{ width: (item.metrics.score ?? 0) + "%" }} /></span>
@@ -350,7 +380,7 @@ export default function GalancitoTraining({ back }: { back: () => void }) {
             <button className="gc-secondary" disabled={busy} onClick={() => repeatRound(round.id)}>
               <RotateCcw size={15} /> Reevaluar conjunto
             </button>
-            {!round.config.profile_review && round.state === "completed" && round.completed === round.target &&
+            {form.profile === "postulantes" && !round.config.profile_review && round.state === "completed" && round.completed === round.target &&
               <button className="gc-secondary" disabled={busy}
               onClick={() => repeatRound(round.id, true)}>Comparar con verificación</button>}
           </div>}
@@ -368,13 +398,13 @@ export default function GalancitoTraining({ back }: { back: () => void }) {
         </dl>
         {stats && <details className="training-details"><summary>Resultados por competencia</summary>
           <dl className="training-metrics">
-            {Object.entries(dimensions).map(([key, label]) => <div key={key}><dt>{label}</dt><dd>{percent(stats.dimensions[key])}</dd></div>)}
+            {Object.entries(form.profile === "interno" ? internalDimensions : dimensions).map(([key, label]) => <div key={key}><dt>{label}</dt><dd>{percent(stats.dimensions[key])}</dd></div>)}
           </dl>
         </details>}
       </section>
     </div>
 
-    <section className="ai-panel">
+    {form.profile === "postulantes" && <section className="ai-panel">
       <div className="ai-panel-head"><div><h3>Correcciones aprobadas</h3><p>Conocimiento del laboratorio · versión {data?.knowledge.version ?? 0} · {data?.knowledge.corrections.length ?? 0} ejemplos activos</p></div></div>
       <details className="training-details"><summary>Importar correcciones o restaurar una versión</summary>
         <p className="training-muted">Elige una ronda finalizada. Cada entrada JSON debe incluir <code>case_id</code>, <code>turn</code>, <code>reply</code> e <code>instruction</code>.</p>
@@ -419,6 +449,6 @@ export default function GalancitoTraining({ back }: { back: () => void }) {
             <a key={key} className="gc-secondary" href={exportUrl("/knowledge/dataset/" + key)}><Download size={15} /> {label}</a>)}
         </div>
       </details>
-    </section>
+    </section>}
   </div>;
 }
