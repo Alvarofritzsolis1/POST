@@ -44,7 +44,7 @@ def _site_scope(db: Session, user: User, message: str, history: list[str]):
         return matching, True
     # Context is confined to the latest user message with a named authorized site.
     if len(current) < 75 and any(term in current for term in (
-            "y cuales", "y cuantos", "y las", "y los", "y que", "y como",
+            "y cuales", "y cuantos", "y cuantas", "y cuanto", "y las", "y los", "y que", "y como",
             "tambien", "y ahora", "los pendientes")):
         for prior in reversed(history[-4:]):
             found = _matching_sites(sites, key(prior))
