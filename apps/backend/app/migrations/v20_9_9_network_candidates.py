@@ -1,12 +1,10 @@
-"""Additive CRM follow-up table for the Red de Obras candidate workspace.
+"""Add candidate follow-up table only after its Red de Obras and CRM parents.
 
-Some legacy installations can have incomplete Facebook schema while their
-historical version flags remain present. Repair only the missing parent table;
-never replace an existing Facebook profile table or its data.
+This additive migration deliberately does not create or rewrite Facebook
+contact tables: those are owned by the earlier CRM migrations.
 """
 from sqlalchemy import inspect
 
-from ..facebook_crm_models import FacebookLead
 from ..network_models import NetworkCandidateFollowUp
 
 MIGRATION_ID = "20.9.9_network_candidates"
@@ -14,12 +12,13 @@ MIGRATION_ID = "20.9.9_network_candidates"
 
 def upgrade(connection):
     inspector = inspect(connection)
-    if not inspector.has_table("network_requirements"):
+    missing = [
+        name for name in ("network_requirements", "facebook_leads")
+        if not inspector.has_table(name)
+    ]
+    if missing:
         raise RuntimeError(
-            "Falta network_requirements: ejecuta primero las migraciones de Red de Obras"
+            "La migración de candidatos requiere tablas anteriores: "
+            + ", ".join(missing)
         )
-    # PostgreSQL verifies this foreign key at CREATE TABLE time. An incomplete
-    # historical schema must not block an additive candidate migration.
-    if not inspector.has_table("facebook_leads"):
-        FacebookLead.__table__.create(bind=connection, checkfirst=True)
     NetworkCandidateFollowUp.__table__.create(bind=connection, checkfirst=True)
