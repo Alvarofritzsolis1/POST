@@ -23,18 +23,23 @@ def _authorized_sites(db: Session, user: User):
     return list(db.execute(query.order_by(Worksite.name).limit(150)).all())
 
 
+def _matching_sites(sites, normalized_text: str):
+    matching = [(site_id, name) for site_id, name in sites if key(name) in normalized_text]
+    if len(matching) <= 1:
+        return matching
+    # A longer nested name suppresses the shorter one unless both appear
+    # explicitly. Apply the same rule to current and earlier questions.
+    return [(site_id, name) for site_id, name in matching if not any(
+        key(name) != key(other_name) and key(name) in key(other_name) and
+        normalized_text.count(key(name)) <= normalized_text.count(key(other_name))
+        for _, other_name in matching
+    )]
+
+
 def _site_scope(db: Session, user: User, message: str, history: list[str]):
     sites = _authorized_sites(db, user)
     current = key(message)
-    matching = [(id, name) for id, name in sites if key(name) in current]
-    if len(matching) > 1:
-        # "Lomas Verdes" is part of "Cumbre de Lomas Verdes". When the
-        # longer name appears alone, do not silently combine two sites.
-        matching = [(site_id, name) for site_id, name in matching if not any(
-            key(name) != key(other_name) and key(name) in key(other_name) and
-            current.count(key(name)) <= current.count(key(other_name))
-            for _, other_name in matching
-        )]
+    matching = _matching_sites(sites, current)
     if matching:
         return matching, True
     # Context is confined to the latest user message with a named authorized site.
@@ -42,7 +47,7 @@ def _site_scope(db: Session, user: User, message: str, history: list[str]):
             "y cuales", "y cuantos", "y las", "y los", "y que", "y como",
             "tambien", "y ahora", "los pendientes")):
         for prior in reversed(history[-4:]):
-            found = [(id, name) for id, name in sites if key(name) in key(prior)]
+            found = _matching_sites(sites, key(prior))
             if found:
                 return found, True
     return sites, False
