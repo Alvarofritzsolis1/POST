@@ -230,3 +230,83 @@ def test_upgrade_preserves_javiera_compose_overlay():
     assert str(root / "docker-compose.preview.yml") in ns["COMPOSE"]
     assert str(root / "docker-compose.javiera20.yml") in ns["COMPOSE"]
     assert str(root / ".env.javiera20") in ns["COMPOSE"]
+
+
+def test_qwen35_smoke_accepts_natural_paraphrases(monkeypatch, capsys):
+    """Smoke validates that Ollama responds, not one exact Spanish synonym."""
+    import runpy
+    import urllib.request
+    script = Path(__file__).resolve().parents[3] / "scripts/upgrade-galancito-qwen35.py"
+    namespace = runpy.run_path(str(script))
+    smoke = namespace["SMOKE"].replace("MODEL_TOKEN", repr(namespace["MODEL"]))
+    compile(smoke, "<synthetic-ollama-smoke>", "exec")
+    calls = []
+
+    class Response:
+        def __enter__(self): return self
+        def __exit__(self, *args): return False
+        def __iter__(self): return self
+        def read(self):
+            return b'{"message":{"content":"Hola, que tal, maestro!"},"eval_count":20}'
+
+    class Opener:
+        def open(self, request, timeout):
+            calls.append((json.loads(request.data), timeout))
+            return Response()
+
+    monkeypatch.setattr(urllib.request, "build_opener", lambda *args: Opener())
+    exec(compile(smoke, "<synthetic-ollama-smoke>", "exec"), {})
+    assert len(calls) == 2
+    assert calls[0][0]["model"] == namespace["MODEL"]
+    assert calls[0][1] == 180
+    assert calls[1][1] == 45
+    assert "SMOKE_OK stage=carga_inicial" in capsys.readouterr().out
+
+
+def test_qwen35_smoke_reports_http_without_raw_private_output(monkeypatch, capsys):
+    import runpy
+    import urllib.request
+    from urllib.error import HTTPError
+    script = Path(__file__).resolve().parents[3] / "scripts/upgrade-galancito-qwen35.py"
+    namespace = runpy.run_path(str(script))
+    smoke = namespace["SMOKE"].replace("MODEL_TOKEN", repr(namespace["MODEL"]))
+
+    class Opener:
+        def open(self, request, timeout):
+            raise HTTPError(request.full_url, 400, "bad request", {}, None)
+
+    monkeypatch.setattr(urllib.request, "build_opener", lambda *args: Opener())
+    with pytest.raises(SystemExit) as exc:
+        exec(compile(smoke, "<synthetic-ollama-smoke>", "exec"), {})
+    assert exc.value.code == 21
+    assert "SMOKE_ERROR stage=carga_inicial http=400" in capsys.readouterr().err
+
+
+def test_qwen35_install_reports_sanitized_diagnostic_only(monkeypatch):
+    import runpy
+    import subprocess
+    script = Path(__file__).resolve().parents[3] / "scripts/upgrade-galancito-qwen35.py"
+    namespace = runpy.run_path(str(script))
+    def fake_run(*args, **kwargs):
+        raise subprocess.CalledProcessError(21, "safe-call",
+             stderr="SMOKE_ERROR stage=carga_inicial http=400\nTOKEN=never-reveal\n")
+    monkeypatch.setattr(subprocess, "run", fake_run)
+    with pytest.raises(RuntimeError) as exc:
+        namespace["run"](["docker", "compose", "exec"])
+    assert "http=400" in str(exc.value)
+    assert "never-reveal" not in str(exc.value)
+
+
+def test_qwen35_diagnostic_filters_forged_smoke_lines(monkeypatch):
+    import runpy
+    import subprocess
+    script = Path(__file__).resolve().parents[3] / "scripts/upgrade-galancito-qwen35.py"
+    namespace = runpy.run_path(str(script))
+    def fake_run(*args, **kwargs):
+        raise subprocess.CalledProcessError(
+            21, "safe-call", stderr="SMOKE_ERROR stage=carga_inicial http=400 TOKEN=never-reveal")
+    monkeypatch.setattr(subprocess, "run", fake_run)
+    with pytest.raises(RuntimeError) as exc:
+        namespace["run"](["docker", "compose", "exec"])
+    assert "never-reveal" not in str(exc.value)
+    assert "exit_code=21" in str(exc.value)

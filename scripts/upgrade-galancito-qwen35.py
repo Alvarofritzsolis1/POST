@@ -9,6 +9,7 @@ import argparse
 import fcntl
 import json
 import os
+import re
 from pathlib import Path
 import runpy
 import shutil
@@ -32,22 +33,56 @@ CHANGES = {"GALANCITO_LOCAL_MODEL": MODEL, "GALANCITO_OLLAMA_MEM_LIMIT": "5g",
            "GALANCITO_TIMEOUT_SECONDS": "45", "GALANCITO_MEMORY_RESERVE_MB": "2048",
            "GALANCITO_AI_PROVIDER": "ollama", "FACEBOOK_AI_PROVIDER": "ollama",
            "GALANCITO_LOCAL_AI_ENABLED": "true"}
-SMOKE = """import json,time,urllib.request
+SMOKE = """import json
+import sys
+import time
+import urllib.request
+from urllib.error import HTTPError, URLError
+
 model = MODEL_TOKEN
 url = 'http://galancito-ollama:11434/api/chat'
-for text, expected in [('Responde solo: GALANT', 'galant'),
-                       ('Responde solo el oficio: instalo cañerías de agua', 'gasfit')]:
-    payload = {'model': model, 'messages': [{'role':'system','content':'Responde en español, breve y directamente.'},
-               {'role':'user','content':text}], 'think':False,'stream':False,
-               'keep_alive':'2m','options':{'num_ctx':2048,'num_thread':2,'num_predict':40,'temperature':0}}
-    start=time.monotonic()
-    with urllib.request.build_opener(urllib.request.ProxyHandler({})).open(
-        urllib.request.Request(url,data=json.dumps(payload).encode(),headers={'Content-Type':'application/json'}),timeout=45) as r:
-        result=json.load(r)
-    answer=result['message']['content'].strip()
-    if expected not in answer.casefold() or '<think>' in answer.casefold():
-        raise RuntimeError('Falló prueba sintética del modelo')
-    print('Prueba sintética OK, segundos:', round(time.monotonic()-start,2))
+opener = urllib.request.build_opener(urllib.request.ProxyHandler({}))
+# Cold model loading is different from response latency after warmup.
+# These are synthetic prompts only; never print Messenger content or secrets.
+stages = [
+    ('carga_inicial', 'Saluda brevemente en español.', 180),
+    ('respuesta_caliente', 'Un maestro trabaja en carpintería. Dale un saludo corto.', 45),
+]
+for stage, prompt, timeout_seconds in stages:
+    payload = {
+        'model': model,
+        'messages': [{'role': 'system', 'content': 'Responde brevemente en español, sin explicaciones adicionales.'},
+                     {'role': 'user', 'content': prompt}],
+        'think': False, 'stream': False, 'keep_alive': '2m',
+        'options': {'num_ctx': 2048, 'num_thread': 2, 'num_predict': 64, 'temperature': 0},
+    }
+    started = time.monotonic()
+    request = urllib.request.Request(
+        url, data=json.dumps(payload).encode('utf-8'),
+        headers={'Content-Type': 'application/json'}, method='POST')
+    try:
+        with opener.open(request, timeout=timeout_seconds) as response:
+            result = json.load(response)
+    except HTTPError as error:
+        print('SMOKE_ERROR stage=%s http=%d' % (stage, error.code), file=sys.stderr)
+        sys.exit(21)
+    except (URLError, TimeoutError, OSError) as error:
+        print('SMOKE_ERROR stage=%s transport=%s' % (stage, type(error).__name__), file=sys.stderr)
+        sys.exit(22)
+    except (ValueError, TypeError):
+        print('SMOKE_ERROR stage=%s invalid_json' % stage, file=sys.stderr)
+        sys.exit(23)
+    elapsed = time.monotonic() - started
+    message = result.get('message')
+    content = message.get('content', '') if isinstance(message, dict) else ''
+    if not isinstance(content, str) or len(content.strip()) < 3 or '<think>' in content.casefold():
+        print('SMOKE_ERROR stage=%s invalid_response' % stage, file=sys.stderr)
+        sys.exit(24)
+    if stage == 'respuesta_caliente' and elapsed >= 45:
+        print('SMOKE_ERROR stage=%s latency_gate' % stage, file=sys.stderr)
+        sys.exit(25)
+    print('SMOKE_OK stage=%s seconds=%.2f tokens=%s' %
+          (stage, elapsed, result.get('eval_count', 'unknown')), flush=True)
 """
 HEALTH = "import urllib.request; assert urllib.request.urlopen('http://127.0.0.1:8000/api/v1/health',timeout=5).status == 200"
 
@@ -55,8 +90,20 @@ HEALTH = "import urllib.request; assert urllib.request.urlopen('http://127.0.0.1
 def run(args, timeout=180):
     try:
         result = subprocess.run(args, cwd=ROOT, capture_output=True, text=True, check=True, timeout=timeout)
-    except (subprocess.SubprocessError, OSError):
-        raise RuntimeError("Falló un paso de verificación/ejecución. Revisar el servicio en el VPS.") from None
+    except subprocess.TimeoutExpired:
+        raise RuntimeError("Tiempo de ejecución agotado; operación detenida sin activar el modelo.") from None
+    except subprocess.CalledProcessError as error:
+        # Only explicitly marked diagnostics from the synthetic Ollama smoke test.
+        allowed = re.compile(
+            r"SMOKE_ERROR stage=(?:carga_inicial|respuesta_caliente) "
+            r"(?:http=[0-9]{3}|transport=[A-Za-z]{1,40}|invalid_json|invalid_response|latency_gate)"
+        )
+        safe = [line.strip() for line in (error.stderr or "").splitlines()
+                if allowed.fullmatch(line.strip())][:2]
+        detail = (" " + "; ".join(safe)) if safe else (" exit_code=" + str(error.returncode))
+        raise RuntimeError("Falló un paso de verificación/ejecución." + detail) from None
+    except OSError:
+        raise RuntimeError("No se pudo ejecutar el comando de verificación.") from None
     return result.stdout
 
 
@@ -110,9 +157,9 @@ def wait_health():
 
 
 def smoke():
-    result = compose("exec", "-T", "api", "python", "-c", SMOKE.replace("MODEL_TOKEN", repr(MODEL)), timeout=110)
-    if result.count("Prueba sintética OK") != 2:
-        raise RuntimeError("No se confirmaron ambas pruebas sintéticas")
+    result = compose("exec", "-T", "api", "python", "-c", SMOKE.replace("MODEL_TOKEN", repr(MODEL)), timeout=260)
+    if result.count("SMOKE_OK stage=") != 2:
+        raise RuntimeError("No se confirmaron las dos pruebas sintéticas")
     print(result.strip())
     if memory_mb() < 2048:
         raise RuntimeError("Reserva de memoria insuficiente, se aborta")
