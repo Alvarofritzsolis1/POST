@@ -88,7 +88,8 @@ def _counts(db, user: User, site_ids: list[str]):
     )) or 0
     overdue = db.scalar(select(func.count(NetworkRequirement.id)).where(
         NetworkRequirement.org_id == org, NetworkRequirement.site_id.in_(site_ids),
-        NetworkRequirement.state == "published", NetworkRequirement.deadline < today()
+        NetworkRequirement.state == "published",
+        NetworkRequirement.end_date >= today(), NetworkRequirement.deadline < today()
     )) or 0
     posts = dict(db.execute(
         select(NetworkFacebookPost.state, func.count(NetworkFacebookPost.id))
@@ -103,7 +104,8 @@ def _counts(db, user: User, site_ids: list[str]):
         .join(NetworkRequirement, NetworkRequirement.id == NetworkCandidateFollowUp.requirement_id)
         .where(NetworkCandidateFollowUp.org_id == org, NetworkRequirement.org_id == org,
                NetworkRequirement.site_id.in_(site_ids),
-               NetworkCandidateFollowUp.follow_up_on <= today())
+               NetworkCandidateFollowUp.follow_up_on <= today(),
+               NetworkCandidateFollowUp.stage != "discarded")
     ) or 0
     return {"active": active, "urgent": urgent, "overdue": overdue,
             "posts": posts, "followups_due": due}
