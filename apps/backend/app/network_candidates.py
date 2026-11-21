@@ -350,7 +350,10 @@ def update_candidate_follow_up(
     db.flush()
     result = _follow_up(record)
     event(db, user, "candidate_follow_up", requirement.id,
-          {"lead_id": lead.id, "tracking": before},
-          {"lead_id": lead.id, "tracking": result})
+          {"lead_id": lead.id, "candidate_stage": before["stage"],
+           "candidate_follow_up_on": before["follow_up_on"], "tracking": before},
+          {"lead_id": lead.id, "candidate_stage": result["stage"],
+           "candidate_follow_up_on": result["follow_up_on"], "tracking": result},
+          reason="Seguimiento del candidato actualizado")
     db.commit()
     return result
