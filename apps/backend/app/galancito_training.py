@@ -48,6 +48,7 @@ def case_confidence(passed: int, count: int) -> list[float] | None:
 def summarize(metrics: dict) -> dict:
     turns = metrics.get("turns", 0)
     fields = metrics.get("fields", 0)
+    questions = metrics.get("questions", 0)
     dimensions = metrics.get("dimensions", {})
     denominators = {key: turns for key in WEIGHTS}
     denominators["naturalness"] = metrics.get("judged_turns", 0)
@@ -63,7 +64,8 @@ def summarize(metrics: dict) -> dict:
         "turns": turns, "fields": fields, "correct_fields": metrics.get("correct_fields", 0),
         "profile_accuracy": round(metrics.get("correct_fields", 0) / fields, 4) if fields else None,
         "dimensions": ratios, "score": score,
-        "repetition_rate": round(metrics.get("repeated_turns", 0) / turns, 4) if turns else None,
+        "questions": questions, "repeated_questions": metrics.get("repeated_questions", 0),
+        "repetition_rate": round(metrics.get("repeated_questions", 0) / questions, 4) if questions else None,
         "pending_prompt_repeats": metrics.get("pending_repeats"),
         "reply_sources": metrics.get("reply_sources"),
         "critical": metrics.get("critical", 0), "error_counts": metrics.get("errors", {}),

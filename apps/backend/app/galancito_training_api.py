@@ -370,6 +370,9 @@ def export_round(round_id: str, kind: Literal["json", "md"], user: User = Depend
         value = metrics["dimensions"][dimension]
         formatted = f"{value:.1%}" if value is not None else "Sin muestra"
         lines.append(f"| {dimension} | {formatted} | {weight}% |")
+    if metrics["questions"]:
+        lines += ["", f"Preguntas que volvieron a pedir datos entregados: {metrics['repeated_questions']} "
+                  f"de {metrics['questions']} ({metrics['repetition_rate']:.1%})."]
     if comparison:
         lines += ["", f"## Comparación con {previous.id}", ""]
         if comparison["same_evaluation"]:

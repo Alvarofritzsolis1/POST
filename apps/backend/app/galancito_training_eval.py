@@ -32,7 +32,7 @@ CORRECTOR_PROMPT = """Propón una corrección concreta para el asistente de Red 
 En dos frases breves, indica qué cambiar y cómo probarlo. Omite el resumen del caso.
 Usa hasta 250 caracteres en español y evita nombres, teléfonos y datos de contacto.
 El texto queda sujeto a revisión humana y jamás se aplica automáticamente."""
-EVALUATION_VERSION = 2
+EVALUATION_VERSION = 3
 WEIGHTS = {"understanding": 20, "context": 20, "profile": 20, "naturalness": 15,
            "trades": 10, "repetition": 10, "efficiency": 5}
 PROFILE_DEFAULTS = {
@@ -133,6 +133,7 @@ def evaluate(case, aliases, knowledge, answer=None, judge=None, corrector=None, 
     turns, history, errors = [], [], Counter()
     expected = {**PROFILE_DEFAULTS}
     facts_correct = facts_total = repeated_turns = pending_repeats = 0
+    questions_total = repeated_questions = 0
     dimensions, reply_sources = Counter(), Counter()
     critical_count = 0
     with Session(sandbox()) as db:
@@ -198,9 +199,13 @@ def evaluate(case, aliases, knowledge, answer=None, judge=None, corrector=None, 
                              for k in ("name", "trades", "phone", "documents_state", "has_employees"))
             normalized = plain(reply)
             questions = re.findall(r"(?:¿|^|[.!]\s*)([^¿?]+)\?", reply)
-            asked = " ".join(plain(q) for q in questions)
-            repeated = any(re.search(pattern, asked) and expected.get(key) != PROFILE_DEFAULTS.get(key)
-                           for key, pattern in QUESTIONS.items())
+            known_patterns = [pattern for key, pattern in QUESTIONS.items()
+                              if expected.get(key) != PROFILE_DEFAULTS.get(key)]
+            repeats = sum(any(re.search(pattern, plain(question)) for pattern in known_patterns)
+                          for question in questions)
+            questions_total += len(questions)
+            repeated_questions += repeats
+            repeated = repeats > 0
             pending_repeats += bool(not repeated and questions and normalized == plain(previous))
             no_supported_identity = bool(identity and not re.search(r"\b(?:ia|asistente)\b", normalized))
             severe = (unexpected or unsupported_draft or no_supported_identity or any(
@@ -270,6 +275,7 @@ def evaluate(case, aliases, knowledge, answer=None, judge=None, corrector=None, 
     return {"id": case.id, "passed": not errors, "turns": turns,
             "dimensions": dict(dimensions), "naturalness_review": natural_review,
             "fields": facts_total, "correct_fields": facts_correct, "repeated_turns": repeated_turns,
+            "questions": questions_total, "repeated_questions": repeated_questions,
             "pending_repeats": pending_repeats, "reply_sources": dict(reply_sources),
             "critical": critical_count, "errors": dict(errors), "evidence": evidence,
             "synthetic_need": case.need, "ai_proposal": proposed,

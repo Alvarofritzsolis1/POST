@@ -172,6 +172,9 @@ def test_lifecycle_permissions_restart_review_and_rollback(database):
         assert finished["metrics"]["dimensions"]["naturalness"] is None
         assert finished["metrics"]["judged_turns"] == 0
         assert sum(finished["metrics"]["reply_sources"].values()) == finished["metrics"]["turns"]
+        measured = finished["metrics"]
+        assert 0 < measured["questions"] <= measured["turns"]
+        assert measured["repetition_rate"] == round(measured["repeated_questions"] / measured["questions"], 4)
         with database() as db:
             assert db.scalar(select(func.count()).select_from(TrainingCase)) == 10
             assert db.scalar(select(func.count()).select_from(FacebookChatMessage)) == 0

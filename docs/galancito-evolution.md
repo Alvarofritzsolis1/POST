@@ -50,7 +50,7 @@ El detalle de casos se retiene durante 30 días y los informes agregados durante
 
 ## Metas de calidad
 
-Mide el desempeño en el conjunto reservado con una muestra suficiente. Las metas iniciales son 95% de exactitud en campos presentes, 90% de cumplimiento de los criterios conversacionales, menos de 3% de preguntas innecesariamente repetidas y cero fallas críticas detectadas. Fija el presupuesto de latencia a partir de las mediciones del VPS y verifica las regresiones de Messenger antes de promover una versión.
+Mide el desempeño en el conjunto reservado con una muestra suficiente. Las metas iniciales son 95% de exactitud en campos presentes, 90% de cumplimiento de los criterios conversacionales, menos de 3% de preguntas que vuelven a pedir un dato entregado, sobre el total de preguntas y cero fallas críticas detectadas. Fija el presupuesto de latencia a partir de las mediciones del VPS y verifica las regresiones de Messenger antes de promover una versión.
 
 ## Pruebas
 

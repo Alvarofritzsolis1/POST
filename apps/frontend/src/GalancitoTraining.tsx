@@ -48,7 +48,7 @@ type Metrics = {
   dimensions: Record<string, number | null>; average_latency_ms: number | null;
   input_tokens: number; output_tokens: number; reserved_tokens: number;
   estimated_cost_usd: number; reserved_cost_usd: number; repetition_rate: number | null; judged_turns: number;
-  reply_sources: Record<string, number> | null; pending_prompt_repeats: number | null;
+  reply_sources: Record<string, number> | null; questions: number; repeated_questions: number;
 };
 type Round = {
   id: string; state: string; target: number; completed: number; reason: string | null; next_at: string;
@@ -250,6 +250,9 @@ export default function GalancitoTraining({ back }: { back: () => void }) {
           </dl>
           {stats?.reply_sources && <p className="training-muted">
             Respuestas por origen · {number(stats.reply_sources.model ?? 0)} IA · {number(stats.reply_sources.rules ?? 0)} reglas · {number(stats.reply_sources.approved_correction ?? 0)} aprobadas · {number(stats.reply_sources.fallback ?? 0)} respaldo
+          </p>}
+          {!!stats?.questions && <p className="training-muted">
+            Preguntas sobre datos ya entregados · {number(stats.repeated_questions)} de {number(stats.questions)} ({percent(stats.repetition_rate)})
           </p>}
           {!!stats?.judged_turns && <p className="training-muted">{number(stats.judged_turns)} turnos revisados para estimar naturalidad.</p>}
           {!!stats?.reserved_tokens && <p className="training-muted">{number(stats.reserved_tokens)} tokens reservados sin medición del proveedor.</p>}

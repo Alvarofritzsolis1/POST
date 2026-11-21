@@ -240,7 +240,8 @@ def checkpoints(factory, claim, results, snapshot, elapsed):
             db.add(TrainingCase(round_id=row.id, position=row.completed, case_id=result["id"],
                                 passed=result["passed"], result=result))
             row.completed += 1
-            for field in ("fields", "correct_fields", "repeated_turns", "pending_repeats", "critical", "latency_ms"):
+            for field in ("fields", "correct_fields", "repeated_turns", "questions", "repeated_questions",
+                          "pending_repeats", "critical", "latency_ms"):
                 metrics[field] = metrics.get(field, 0) + result[field]
             metrics["turns"] = metrics.get("turns", 0) + len(result["turns"])
             status = "passed" if result["passed"] else "failed"
