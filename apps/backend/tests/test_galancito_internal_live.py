@@ -142,3 +142,25 @@ def test_internal_month_specific_documents_do_not_mix_periods(network):
         assert "período 2026-" in response.json()["answer"]
         assert present in response.json()["answer"]
         assert absent not in response.json()["answer"]
+
+
+def test_internal_candidate_summary_reuses_authorized_matching(network):
+    n = network
+    body = request_body(n)
+    body["title"] = "Carpinteros para terminaciones - prueba"
+    assert n["send"](n["a"], "/requirements", body).status_code == 201
+    allowed = n["send"](n["a"], "/galancito/chat", {
+        "message": "¿Qué candidatos tenemos para carpinteros?",
+        "area": "interno",
+    })
+    assert allowed.status_code == 200, allowed.text
+    assert "no hay candidatos compatibles" in allowed.json()["answer"].lower()
+    assert allowed.json()["intent"] == "candidates"
+
+    denied = n["send"](n["b"], "/galancito/chat", {
+        "message": "¿Qué candidatos tiene Brisas de Junquillar?",
+        "area": "interno",
+    })
+    assert denied.status_code == 200
+    assert "No hay necesidades publicadas" in denied.json()["answer"]
+    assert "Carpinteros para terminaciones - prueba" not in denied.json()["answer"]
