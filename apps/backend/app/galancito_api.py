@@ -28,6 +28,7 @@ from .galancito_triage import analyze, quick_reply, private_data, plain
 from .galancito_knowledge import retrieve, exact_answer, evidence_context, public_sources
 from .galancito_local import last_timings
 from .galancito_runtime import infer, record_run
+from .galancito_internal_live import internal_reply
 from .ai_gateway import orchestration_available, orchestrated_text
 from .ai_global_lightning import sync_org as sync_org_global_lightning
 from .ai_models import AIOrchestration
@@ -62,11 +63,17 @@ Ejemplo: "ola soy gasfite" → oficio gasfitería; consulta qué servicio busca.
 """
 
 
+class ContextTurn(BaseModel):
+    role: Literal["user", "assistant"]
+    text: str = Field(min_length=1, max_length=500)
+
+
 class ChatInput(BaseModel):
     message: str = Field(min_length=2, max_length=800)
-    # No acceso a módulos fuera de Red de Obras.
-    area: Literal["red_obras"] = "red_obras"
+    area: Literal["red_obras", "interno"] = "red_obras"
     allow_external_ai: bool = False
+    # Bounded, client-side context: never grants permission or runs as commands.
+    history: list[ContextTurn] = Field(default_factory=list, max_length=6)
 
 
 def _local_reply(message: str, area: str, titles: list[str], guides: list[FacebookTradeGuide], stats: dict | None = None) -> str:
@@ -181,6 +188,7 @@ def galancito_status(user: User = Depends(authorized_user), db: Session = Depend
                                       available and cfg.galancito_ai_provider == "openai"),
             "ai_team_available": team_available,
             "scope": "red_obras",
+            "internal_available": user.role in {"admin", "resident"},
             "can_teach": user.role == "admin",
             "read_only": True}
 
@@ -189,6 +197,19 @@ def galancito_status(user: User = Depends(authorized_user), db: Session = Depend
 def galancito_chat(body: ChatInput, user: User = Depends(authorized_user),
                    db: Session = Depends(get_db)):
     started = perf_counter()
+    if body.area == "interno":
+        if user.role not in {"admin", "resident"}:
+            raise HTTPException(403, "Perfil sin acceso a Galancito Interno")
+        # Only previous user prompts are used to resolve an ellipsis ("¿y cuáles?").
+        # Assistant-generated content is never trusted as an authorization source.
+        user_context = [turn.text for turn in body.history if turn.role == "user"]
+        answer, intent = internal_reply(db, user, body.message.strip(), user_context)
+        run = record_run(db, org_id=user.org_id, user_id=user.id, channel="galant_internal",
+                         source="verified_local", intent=intent, started=started)
+        db.commit()
+        return {"name": "Galancito Interno", "answer": answer, "source": "verified_local",
+                "read_only": True, "run_id": run.id, "references": [],
+                "notice": None}
     if sync_org_global_lightning(db, user.org_id):
         db.commit()
     text = body.message.strip()
