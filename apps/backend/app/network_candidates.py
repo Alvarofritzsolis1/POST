@@ -5,7 +5,7 @@ modifies a Facebook lead or changes an adjudication.
 """
 from __future__ import annotations
 
-from datetime import date
+from datetime import date, timedelta, timezone
 from typing import Literal
 
 from fastapi import APIRouter, Depends, HTTPException, Query
@@ -13,6 +13,7 @@ from pydantic import BaseModel, Field
 from sqlalchemy import select
 from sqlalchemy.orm import Session
 
+from .config import settings
 from .db import get_db
 from .models import User, utcnow
 from .security import authorized_user
@@ -22,7 +23,7 @@ from .network_models import (
     NetworkFacebookPost,
 )
 from .facebook_crm_models import (
-    FacebookLead, FacebookLeadTrade, FacebookNeedAssociation,
+    FacebookLead, FacebookLeadTrade, FacebookNeedAssociation, FacebookChatMessage,
 )
 from .facebook_publication_models import FacebookPostComment
 from .galancito_contact_profile import contact_profile
@@ -374,3 +375,140 @@ def update_candidate_follow_up(
           reason="Seguimiento del candidato actualizado")
     db.commit()
     return result
+
+
+def _scoped_chat_lead(db: Session, user: User, requirement_id: str, lead_id: str):
+    """Authorize BOTH the worksite and the candidate relationship on every call."""
+    requirement = requirement_for(db, user, requirement_id, detail=True)
+    lead = db.scalar(select(FacebookLead).where(
+        FacebookLead.id == lead_id, FacebookLead.org_id == user.org_id
+    ))
+    if not lead:
+        raise HTTPException(404, "Contacto no encontrado")
+    linked = lead.requirement_id == requirement.id or bool(db.scalar(
+        select(FacebookNeedAssociation.id).where(
+            FacebookNeedAssociation.org_id == user.org_id,
+            FacebookNeedAssociation.requirement_id == requirement.id,
+            FacebookNeedAssociation.lead_id == lead.id,
+            FacebookNeedAssociation.state == "linked",
+        )
+    ))
+    tracked = bool(db.scalar(select(NetworkCandidateFollowUp.id).where(
+        NetworkCandidateFollowUp.org_id == user.org_id,
+        NetworkCandidateFollowUp.requirement_id == requirement.id,
+        NetworkCandidateFollowUp.lead_id == lead.id,
+    )))
+    if not linked and not tracked:
+        trades = list(db.scalars(select(FacebookLeadTrade.trade).where(
+            FacebookLeadTrade.org_id == user.org_id,
+            FacebookLeadTrade.lead_id == lead.id,
+            FacebookLeadTrade.active.is_(True),
+        )))
+        if lead.specialty:
+            trades.append(lead.specialty)
+        if _fit(lead, trades, requirement) is None:
+            raise HTTPException(403, "Esta persona no está relacionada con la solicitud")
+    return lead
+
+
+def _can_message(lead: FacebookLead) -> bool:
+    last = lead.last_inbound_at
+    if not last:
+        return False
+    if last.tzinfo is None:
+        last = last.replace(tzinfo=timezone.utc)
+    config = settings()
+    return (
+        config.facebook_messaging_enabled
+        and config.facebook_page_id == lead.page_id
+        and config.facebook_org_id == lead.org_id
+        and last >= utcnow() - timedelta(hours=24)
+    )
+
+
+def _chat_message(row: FacebookChatMessage) -> dict:
+    return {
+        "id": row.id,
+        "direction": row.direction,
+        "state": row.state,
+        "body": row.body,
+        "automated": row.direction == "outbound" and row.operator_id is None,
+        "created_at": row.created_at.isoformat(),
+        "updated_at": row.updated_at.isoformat() if row.updated_at else row.created_at.isoformat(),
+        "error": row.error if row.state in {"failed", "uncertain"} else None,
+    }
+
+
+@router.get("/requirements/{requirement_id}/candidates/{lead_id}/chat")
+def candidate_chat(
+    requirement_id: str,
+    lead_id: str,
+    user: User = Depends(authorized_user),
+    db: Session = Depends(get_db),
+):
+    lead = _scoped_chat_lead(db, user, requirement_id, lead_id)
+    recent = list(db.scalars(select(FacebookChatMessage).where(
+        FacebookChatMessage.org_id == user.org_id,
+        FacebookChatMessage.lead_id == lead.id,
+    ).order_by(FacebookChatMessage.created_at.desc(), FacebookChatMessage.id.desc()).limit(120)))
+    return {
+        "lead_id": lead.id,
+        "name": lead.display_name,
+        "messages": [_chat_message(row) for row in reversed(recent)],
+        "can_reply": _can_message(lead),
+        "reply_notice": (
+            "Puedes responder por Messenger. Confirma el envío en el estado del mensaje."
+            if _can_message(lead) else
+            "Mensajería no habilitada para responder o la ventana de 24 horas finalizó. Puedes revisar el historial."
+        ),
+    }
+
+
+class ResidentReply(BaseModel):
+    message: str = Field(min_length=1, max_length=550)
+
+
+@router.post("/requirements/{requirement_id}/candidates/{lead_id}/chat", status_code=202)
+def candidate_reply(
+    requirement_id: str,
+    lead_id: str,
+    body: ResidentReply,
+    user: User = Depends(authorized_user),
+    db: Session = Depends(get_db),
+):
+    if user.role not in {"admin", "resident"}:
+        raise HTTPException(403, "No tienes permiso para escribir por Messenger")
+    lead = _scoped_chat_lead(db, user, requirement_id, lead_id)
+    # Prevent concurrent manual and AI pending drafts for the same conversation.
+    db.refresh(lead, with_for_update=True)
+    if not _can_message(lead):
+        raise HTTPException(409, "Messenger no permite responder ahora: verifica la conexión y la ventana de 24 horas")
+    message_text = body.message.strip()
+    if not message_text:
+        raise HTTPException(422, "Escribe un mensaje")
+    for earlier in db.scalars(select(FacebookChatMessage).where(
+        FacebookChatMessage.org_id == user.org_id,
+        FacebookChatMessage.lead_id == lead.id,
+        FacebookChatMessage.direction == "outbound",
+        FacebookChatMessage.state == "pending",
+        FacebookChatMessage.operator_id == user.id,
+        FacebookChatMessage.created_at >= utcnow() - timedelta(seconds=20),
+    )):
+        if earlier.body.strip() == message_text:
+            raise HTTPException(409, "Este mensaje ya está en cola de envío")
+    for pending in db.scalars(select(FacebookChatMessage).where(
+        FacebookChatMessage.org_id == user.org_id,
+        FacebookChatMessage.lead_id == lead.id,
+        FacebookChatMessage.direction == "outbound",
+        FacebookChatMessage.operator_id.is_(None),
+        FacebookChatMessage.state.in_(["pending", "ai_pending", "drafting"]),
+    )):
+        pending.state = "cancelled"
+    message = FacebookChatMessage(
+        org_id=user.org_id, lead_id=lead.id, page_id=lead.page_id,
+        direction="outbound", state="pending", operator_id=user.id,
+        body=message_text,
+    )
+    db.add(message)
+    db.commit()
+    return _chat_message(message)
