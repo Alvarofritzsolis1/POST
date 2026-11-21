@@ -11,6 +11,7 @@ import re
 from collections.abc import Sequence
 
 from .galancito_contact_profile import contact_profile
+from .galancito_contact_email import EMAIL
 from .galancito_triage import private_data
 
 _IGNORABLE = re.compile(
@@ -57,7 +58,7 @@ def summarize_conversation(lead, messages: Sequence) -> dict:
     inbound = [m for m in messages if getattr(m, "direction", "") == "inbound"]
     sources = getattr(lead, "profile_sources", None) or {}
     safe = [m for m in inbound if (getattr(m, "body", "") or "").strip()
-            and not private_data(m.body)]
+            and not private_data(m.body) and not EMAIL.search(m.body)]
     meaningful = [m for m in safe if not _IGNORABLE.fullmatch(_clean(m.body, 250))]
     evidence = [{
         "id": str(m.id),
@@ -79,33 +80,16 @@ def summarize_conversation(lead, messages: Sequence) -> dict:
             "at": origin.get("at") if isinstance(origin, dict) else None,
             "source_message_id": origin.get("message_id") if isinstance(origin, dict) else None,
         })
-    main = [_value(lead, key) for key in
-            ("interest_type", "specialty", "team_available", "experience",
-             "work_area", "availability")]
-    parts = []
-    if main[0]:
-        parts.append(main[0] + (" en " + main[1] if main[1] else ""))
-    elif main[1]:
-        parts.append("Oficio registrado: " + main[1])
-    if main[2]:
-        parts.append(main[2])
-    if main[3]:
-        parts.append("Experiencia: " + main[3])
-    if main[4]:
-        parts.append("Zona: " + main[4])
-    if main[5]:
-        parts.append("Disponibilidad: " + main[5])
-    if parts:
-        overview = ". ".join(parts).rstrip(".") + "."
-    elif meaningful:
-        overview = ("Hay mensajes del contacto, pero todavía no hay suficientes "
-                    "datos profesionales registrados para resumir su perfil.")
-    elif inbound:
-        overview = ("La conversación contiene principalmente saludos o respuestas "
-                    "breves; aún faltan datos para un resumen profesional.")
-    else:
-        overview = "Este contacto todavía no tiene mensajes recibidos para analizar."
+    # A unified narrative for residents and Facebook admins. Avoid the
+    # unnatural 'field: value. field: value' fallback.
     profile = contact_profile(lead)
+    if not fields and meaningful:
+        overview = ("Hay mensajes del contacto, pero todavía faltan datos "
+                    "profesionales para preparar una presentación confiable.")
+    elif not fields and not inbound:
+        overview = "Este contacto todavía no tiene mensajes recibidos para resumir."
+    else:
+        overview = profile["summary"]
     last_inbound = inbound[-1].created_at.isoformat() if inbound and inbound[-1].created_at else None
     fingerprint = hashlib.sha256(json.dumps({
         "messages": [(str(m.id), getattr(m, "body", "")[:700],
