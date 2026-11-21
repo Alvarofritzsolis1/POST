@@ -58,3 +58,22 @@ export const api={
   excel:(id:string)=>base+"/documents/"+encodeURIComponent(id)+"/report",
   extraction:(id:string)=>base+"/documents/"+encodeURIComponent(id)+"/extraction"
 }
+
+/** Authenticated, CSRF-protected export; does not put private queries in URLs. */
+export async function downloadInternalReport(question:string, kind:"pdf"|"xlsx"|"docx"):Promise<Blob> {
+  const response=await fetch(base+"/network/galancito/report",{
+    method:"POST",credentials:"include",cache:"no-store",
+    headers:{"Content-Type":"application/json","X-CSRF-Token":csrf()},
+    body:JSON.stringify({question,kind})
+  })
+  if(!response.ok){
+    if(response.status===401)window.dispatchEvent(new Event("galant-session-ended"))
+    let detail="No se pudo generar el informe."
+    try {
+      const result=await response.json()
+      if(typeof result.detail==="string")detail=result.detail
+    }catch{}
+    throw new ApiError(response.status,detail)
+  }
+  return response.blob()
+}
