@@ -260,7 +260,14 @@ def checkpoints(factory, claim, results, snapshot, elapsed):
         metrics = dict(row.metrics)
         dims, errors = dict(metrics.get("dimensions", {})), dict(metrics.get("errors", {}))
         sources = dict(metrics.get("reply_sources", {}))
+        cycles = dict(metrics.get("cycles", {}))
         for result in results:
+            if row.config.get("profile") == "interno":
+                cycle = str(row.completed // row.config["cases"] + 1)
+                item = dict(cycles.get(cycle, {"passed": 0, "failed": 0, "critical": 0}))
+                item["passed" if result["passed"] else "failed"] += 1
+                item["critical"] += result["critical"]
+                cycles[cycle] = item
             db.add(TrainingCase(round_id=row.id, position=row.completed, case_id=result["id"],
                                 passed=result["passed"], result=result))
             row.completed += 1
@@ -279,7 +286,8 @@ def checkpoints(factory, claim, results, snapshot, elapsed):
                 dims[key] = dims.get(key, 0) + value
             for key, value in result["errors"].items():
                 errors[key] = errors.get(key, 0) + value
-        metrics.update(dimensions=dims, errors=errors, reply_sources=sources, elapsed_seconds=metrics.get("elapsed_seconds", 0) + elapsed)
+        metrics.update(dimensions=dims, errors=errors, reply_sources=sources, cycles=cycles,
+                       elapsed_seconds=metrics.get("elapsed_seconds", 0) + elapsed)
         for key, measured in (("peak_worker_ram_mb", "worker_ram_mb"), ("peak_host_cpu_percent", "host_cpu_percent")):
             if snapshot[measured] is not None:
                 metrics[key] = max(metrics.get(key, 0), snapshot[measured])
