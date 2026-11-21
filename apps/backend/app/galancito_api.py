@@ -32,7 +32,7 @@ from .galancito_runtime import infer, record_run
 from .galancito_internal_live import internal_reply
 from .galancito_web import WebSearchUnavailable, public_search, format_public_search, web_available
 from .galancito_reports import MIME_TYPES, SUPPORTED_REPORTS, internal_report, export_internal_report
-from .ai_gateway import orchestration_available, orchestrated_text
+from .ai_gateway import AIServiceError, orchestration_available, orchestrated_text
 from .ai_global_lightning import sync_org as sync_org_global_lightning
 from .ai_models import AIOrchestration
 from .galancito_flow import safe_ai_reply, grounded_reply
@@ -410,7 +410,9 @@ def galancito_chat(body: ChatInput, user: User = Depends(authorized_user),
                                   max_output_tokens=240)
                 if use_team else generate_internal_text(INSTRUCTIONS, context, 650)),
                 org_id=user.org_id if use_team else None)
-        except RuntimeError:
+        except (RuntimeError, AIServiceError, TimeoutError, OSError):
+            # Degraded inference must not produce an HTTP 500 for a read-only
+            # chat. Keep the deterministic answer when the model is unavailable.
             generated = None
         if generated and private_data(generated):
             generated = None
