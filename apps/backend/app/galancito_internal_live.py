@@ -68,10 +68,10 @@ def _requested_month(message: str):
     if "este mes" in normalized or "mes actual" in normalized:
         return f"{base.year:04}-{base.month:02}"
     found = next((index for index, name in enumerate(MONTHS, 1)
-                  if re.search(r"\\b" + name + r"\\b", normalized)), None)
+                  if re.search(r"\b" + name + r"\b", normalized)), None)
     if found is None:
         return None
-    year = re.search(r"\\b(20[0-9]{2})\\b", normalized)
+    year = re.search(r"\b(20[0-9]{2})\b", normalized)
     return f"{int(year.group(1)) if year else base.year:04}-{found:02}"
 
 
