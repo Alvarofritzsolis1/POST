@@ -16,7 +16,7 @@ from openpyxl.styles import Alignment, Font, PatternFill
 from .galancito_internal_live import internal_reply
 from .network_service import today
 
-SUPPORTED_REPORTS = {"overview", "publications", "followups", "contractors", "documents", "training", "metrics"}
+SUPPORTED_REPORTS = {"overview", "publications", "followups", "contractors", "documents", "training", "metrics", "candidates"}
 MIME_TYPES = {
     "pdf": "application/pdf",
     "xlsx": "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
