@@ -93,3 +93,17 @@ def test_internal_longer_site_name_does_not_merge_lomas(network):
         })
         assert response.status_code == 200, response.text
         assert "Necesidades vigentes: 1" in response.json()["answer"]
+
+
+def test_internal_followup_preserves_specific_cumbre_site(network):
+    n = network
+    body = request_body(n)
+    body["site_id"] = n["sites"][2]
+    assert n["send"](n["c"], "/requirements", body).status_code == 201
+    result = n["send"](n["admin"], "/galancito/chat", {
+        "message": "¿Y cuántas necesidades están vigentes?", "area": "interno",
+        "history": [{"role": "user", "text": "Resumen de Cumbre de Lomas Verdes"}],
+    })
+    assert result.status_code == 200, result.text
+    assert "Necesidades vigentes: 1" in result.json()["answer"]
+    assert "Cumbre de Lomas Verdes" in result.json()["answer"]
