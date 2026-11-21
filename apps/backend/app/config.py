@@ -51,14 +51,15 @@ class Settings(BaseSettings):
     galancito_ai_api_key: str = ""
     galancito_ai_model: str = "gpt-4.1-mini"
     galancito_ai_provider: str = "openai"
-    # Ollama se habilita solo después de descargar y probar Qwen3 1.7B en el VPS.
+    # Ollama se habilita solo tras descargar y probar el modelo en el VPS.
+    galancito_local_model: Literal["qwen3:1.7b", "qwen3.5:4b-q4_K_M"] = "qwen3:1.7b"
     galancito_local_ai_enabled: bool = False
     # 2m preserves warm service after 20s idle; generation limits stay bounded.
     galancito_keep_alive: Literal["20s", "2m", "5m"] = "2m"
     galancito_num_predict: int = Field(default=140, ge=40, le=140)
     galancito_num_ctx: int = Field(default=2048, ge=1024, le=4096)
     galancito_num_thread: int = Field(default=1, ge=1, le=4)
-    galancito_timeout_seconds: float = Field(default=8, ge=1, le=24)
+    galancito_timeout_seconds: float = Field(default=8, ge=1, le=60)
     galancito_memory_reserve_mb: int = Field(default=1536, ge=512, le=8192)
 
 
