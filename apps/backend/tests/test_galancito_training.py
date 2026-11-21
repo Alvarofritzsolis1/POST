@@ -171,6 +171,9 @@ def test_training_preserves_crew_on_commune_correction_and_flags_numbered_drafts
     assert "menu_numerado" in turn["issues"]
     assert not turn["critical"]
     assert "(1)" not in turn["reply"] and "(2)" not in turn["reply"]
+    ungrounded = evaluate(case, {}, [], answer=lambda _: "Debes llenar el formulario para postular.")
+    assert "critico" in ungrounded["turns"][-1]["issues"]
+    assert "formulario" not in ungrounded["turns"][-1]["reply"]
 
 
 def test_lifecycle_permissions_restart_review_and_rollback(database, monkeypatch):

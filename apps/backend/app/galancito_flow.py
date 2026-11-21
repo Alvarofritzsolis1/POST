@@ -119,8 +119,9 @@ def safe_ai_reply(draft: str) -> str:
 def grounded_reply(draft: str, supplied: str) -> str | None:
     """Bounded guard, not a general proof of factuality: reject new numbers/URLs."""
     text = _plain(draft)
-    financial = r"\b(?:prestamos?|bancos?|creditos?)\b"
-    if re.search(financial, text) and not re.search(financial, _plain(supplied)):
+    reference = _plain(supplied)
+    referenced_topics = (r"\b(?:prestamos?|bancos?|creditos?)\b", r"\bformularios?\b")
+    if any(re.search(topic, text) and not re.search(topic, reference) for topic in referenced_topics):
         return None
     if re.search(r"\b(?:ya estas contratado|te contratamos|te adjudicamos|contratacion garantizada|ingreso garantizado)\b", text):
         return None
