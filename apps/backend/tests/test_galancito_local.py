@@ -191,3 +191,32 @@ def test_qwen35_messenger_never_selects_external_team(monkeypatch):
     monkeypatch.setattr(facebook_ai, "orchestration_selected", forbidden)
     assert facebook_ai.messenger_ai_source(None, "org", cfg) == "ollama"
     assert facebook_ai.messenger_ai_source(None, "org", cfg.model_copy(update={"facebook_ai_provider": "openai"})) == "disabled"
+
+
+def test_qwen35_upgrade_preflight_is_read_only(monkeypatch, tmp_path):
+    import runpy
+    import sys
+    script = Path(__file__).resolve().parents[3] / "scripts/upgrade-galancito-qwen35.py"
+    ns = runpy.run_path(str(script))
+    entered = []
+    monkeypatch.setitem(ns["main"].__globals__, "preflight", lambda: entered.append("check"))
+    monkeypatch.setitem(ns["main"].__globals__, "activate",
+                        lambda: pytest.fail("Default must not activate"))
+    monkeypatch.setattr(sys, "argv", [str(script)])
+    ns["main"]()
+    assert entered == ["check"]
+
+
+def test_qwen35_upgrade_restores_environment_bytes(monkeypatch, tmp_path):
+    import runpy
+    script = Path(__file__).resolve().parents[3] / "scripts/upgrade-galancito-qwen35.py"
+    ns = runpy.run_path(str(script))
+    target = tmp_path / ".env.preview"
+    target.write_bytes(b"TEST=changed\n")
+    g = ns["restore_env"].__globals__
+    monkeypatch.setitem(g, "ENV", target)
+    monkeypatch.setitem(g, "ROOT", tmp_path)
+    original = b"# comment\nTEST=previous\n"
+    ns["restore_env"](original)
+    assert target.read_bytes() == original
+    assert target.stat().st_mode & 0o777 == 0o600
