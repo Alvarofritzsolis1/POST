@@ -65,3 +65,26 @@ def test_internal_prompt_contains_only_synthetic_tool_payload():
     assert len(captured) == 1
     assert "herramienta_simulada" in captured[0]
     assert "GALANT real" in captured[0]
+
+
+def test_internal_numeric_hallucination_is_detected_even_with_correct_answer():
+    case = next(internal_case(config(), i) for i in range(20)
+                if internal_case(config(), i).category == "obras")
+    output = evaluate_internal(case, answer=lambda _: case.baseline + " También registré 999 pendientes.")
+    assert not output["passed"]
+    assert output["errors"].get("exactitud")
+
+
+def test_internal_multi_turn_reuses_evidence_and_counts_both_turns():
+    config4 = config(level=4, cases=20)
+    case = next(internal_case(config4, i) for i in range(20)
+                if internal_case(config4, i).category == "obras")
+    assert case.followup and "misma obra" in case.followup
+    success = evaluate_internal(case, answer=lambda _: case.baseline)
+    assert success["passed"]
+    assert len(success["turns"]) == 2
+    assert success["reply_sources"] == {"model": 2}
+    attempts = iter([case.baseline, "No sé"])
+    failure = evaluate_internal(case, answer=lambda _: next(attempts))
+    assert not failure["passed"]
+    assert failure["errors"].get("contexto")
