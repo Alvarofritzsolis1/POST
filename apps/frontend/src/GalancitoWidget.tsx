@@ -59,8 +59,8 @@ export default function GalancitoWidget({ area = "red_obras" }: { area?: Area })
       const reply = await request<Reply>("/network/galancito/chat", {
         method: "POST", signal: controller.signal, body: JSON.stringify({
         message: question, area: mode,
-        history: mode === "interno" ? history.slice(-6).map(({role, text}) =>
-          ({role: role === "user" ? "user" : "assistant", text: text.slice(0, 500)})) : [],
+        history: mode === "interno" ? history.filter(item => item.role === "user").slice(-4).map(item =>
+          ({role: "user", text: item.text.slice(0, 500)})) : [],
         allow_external_ai: mode === "red_obras" && consent && !!status?.external_ai_available,
         }),
       });
@@ -114,9 +114,9 @@ export default function GalancitoWidget({ area = "red_obras" }: { area?: Area })
         <button className="galancito-close" type="button" onClick={() => setOpen(false)} aria-label="Cerrar Galancito"><X size={19}/></button>
       </header>
       {status?.internal_available && <nav className="galancito-modes" aria-label="Perfil de Galancito">
-        <button type="button" className={mode === "red_obras" ? "selected" : ""} aria-pressed={mode === "red_obras"}
+        <button type="button" disabled={busy} className={mode === "red_obras" ? "selected" : ""} aria-pressed={mode === "red_obras"}
           onClick={() => { setMode("red_obras"); setHistory([]); setError(""); }}>Red de Obras</button>
-        <button type="button" className={mode === "interno" ? "selected" : ""} aria-pressed={mode === "interno"}
+        <button type="button" disabled={busy} className={mode === "interno" ? "selected" : ""} aria-pressed={mode === "interno"}
           onClick={() => { setMode("interno"); setHistory([]); setError(""); }}>Interno 360°</button>
       </nav>}
       <div className="galancito-history" role="log" aria-label="Conversación con Galancito" aria-live="polite">
@@ -142,11 +142,11 @@ export default function GalancitoWidget({ area = "red_obras" }: { area?: Area })
           </div>}
         </div>)}
         {feedbackNotice && <p role="status" className="galancito-feedback-notice">{feedbackNotice}</p>}
-        {busy && <p className="galancito-thinking"><Sparkles size={14}/> {mode === "interno" ? "Consultando datos autorizados…" : "Preparando respuesta…"} </p>}}
+        {busy && <p className="galancito-thinking"><Sparkles size={14}/> {mode === "interno" ? "Consultando datos autorizados…" : "Preparando respuesta…"} </p>}
         <div ref={end}/>
       </div>
       <form className="galancito-compose" onSubmit={(e) => void send(e)}>
-        {status?.local_ai_available && <div className="galancito-safety">
+        {mode === "red_obras" && status?.local_ai_available && <div className="galancito-safety">
           <ShieldCheck size={14}/> Modelo local disponible · sin consumo de API externa
         </div>}
         {mode === "red_obras" && status?.external_ai_available && <label className="galancito-privacy"><input type="checkbox" checked={consent}
