@@ -16,7 +16,10 @@ sudo docker compose --profile local-ai --env-file .env.preview -f docker-compose
 ```
 La descarga no sustituye el modelo anterior. Para probar inferencia, ajustar primero GALANCITO_OLLAMA_MEM_LIMIT=5g y GALANCITO_OLLAMA_CPUS=2 en .env.preview y recrear exclusivamente galancito-ollama con `up -d --no-deps galancito-ollama` (ventana de mantenimiento). No cambiar todavía GALANCITO_LOCAL_MODEL. Enviar pruebas sintéticas al API privado de Ollama desde el contenedor api con el modelo nuevo explícito, think=false, num_ctx=2048, num_predict=140 y num_thread=2. Comparar con el original, medir p50/p95, tiempos de carga, RAM y calidad, no enviar mensajes reales. Verificar que no hay OOM ni presión de memoria y que GALANT responde normalmente. Si falla, restaurar el env y recrear solo Ollama.
 
-## Activación posterior a la prueba satisfactoria
+## Activación asistida (recomendada)
+Con el código candidato ya desplegado, ejecutar primero `sudo python3 scripts/upgrade-galancito-qwen35.py` desde `/opt/galant-post`. Es un preflight de solo lectura. Si aprueba, realizar la evaluación comparativa descrita arriba y, solo si es satisfactoria, ejecutar `sudo python3 scripts/upgrade-galancito-qwen35.py --activate` en una ventana de mantenimiento. El instalador exige 7 GiB libres inicialmente, verifica respaldo y restauración aislada, conserva los modelos, prueba el nuevo motor antes y después de cambiar la configuración y revierte el archivo de entorno si falla. No deja iniciada una ronda de entrenamiento concurrente ni transmite mensajes a Facebook. No ejecutar simultáneamente otro despliegue o cambio de configuración. Si no hay RAM suficiente, conservar la versión anterior.
+
+## Activación manual posterior a la prueba satisfactoria
 Editar las variables existentes (sin duplicarlas) en .env.preview privado:
 ```dotenv
 GALANCITO_LOCAL_MODEL=qwen3.5:4b-q4_K_M
