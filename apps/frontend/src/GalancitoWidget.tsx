@@ -48,8 +48,9 @@ export default function GalancitoWidget({ area = "red_obras" }: { area?: Area })
     setHistory((prev) => [...prev, {role: "user", text: question}]);
     setBusy(true);
     const controller = new AbortController();
-    // Leave a margin for rendering the safe alternative within 10 seconds.
-    const deadline = window.setTimeout(() => controller.abort(), 9000);
+    // Permit the local model to load and infer under temporary VPS load.
+    // The previous 9-second client deadline cut off requests prematurely.
+    const deadline = window.setTimeout(() => controller.abort(), 30000);
     try {
       const reply = await request<Reply>("/network/galancito/chat", {
         method: "POST", signal: controller.signal, body: JSON.stringify({
@@ -63,8 +64,8 @@ export default function GalancitoWidget({ area = "red_obras" }: { area?: Area })
     } catch {
       setHistory((prev) => [...prev, {role: "assistant", text:
         controller.signal.aborted
-          ? "Soy Galancito. Esta consulta tardó más de lo previsto. Puedes intentar con una pregunta más breve o solicitar atención humana."
-          : "Soy Galancito. No pude conectar con GALANT ahora. Puedes seguir trabajando; tu consulta no modificó ningún registro."}]);
+          ? "La consulta superó los 30 segundos. No recibí una respuesta; puedes reintentar cuando el modelo tenga más recursos."
+          : "No pude conectar con GALANT. Revisa la conexión o vuelve a intentar; no se confirmó ningún cambio."}]);
       setError("No se pudo consultar el asistente.");
     } finally { window.clearTimeout(deadline); setBusy(false); }
   }
