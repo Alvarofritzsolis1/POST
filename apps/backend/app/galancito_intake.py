@@ -10,6 +10,7 @@ from datetime import date, timedelta
 from .galancito_triage import analyze, declaration_text, plain, private_data
 from .galancito_links import trade_declarations
 from .galancito_communes import find_communes
+from .galancito_profile_review import declaration_for_review, JOB_ROLES
 
 UNKNOWN_NAMES = {"", None, "Interesado de Facebook", "Contacto sin nombre"}
 
@@ -95,7 +96,7 @@ def _role_update(lead, value: str, previous: str) -> None:
     service = _affirmed(value, _ROLE_SERVICE)
     worker = _affirmed(value, _ROLE_WORKER)
     if _INTEREST_QUESTION in previous:
-        service |= value in {"1", "uno", "servicios", "contratista", "independiente", "ofrezco trabajo"}
+        service |= value in {"1", "uno", "servicios", "contratista", "independiente", "ofrezco trabajo", "por mi cuenta"}
         worker |= value in {"2", "dos", "empleo", "pega", "trabajador", "trabajadora"}
         if value in {"ambos", "ambas", "las dos", "los dos", "las dos cosas", "ambos roles"}:
             service = worker = True
@@ -128,7 +129,8 @@ def _name_update(lead, message: str, previous: str) -> None:
         lead.name_opt_out = True
         return
     explicit = re.search(r"\b(?:me llamo|mi nombre es)\s+([^,;.!?¿¡\n]+)", message, re.I)
-    informal = re.fullmatch(r"(?:hola[,!]?\s+)?[Ss]oy\s+([A-ZÁÉÍÓÚÜÑ][^,;.!?¿¡\n]+)[.!]?", message.strip())
+    introduction = declaration_for_review(message)
+    informal = re.fullmatch(r"[Ss]oy\s+([A-ZÁÉÍÓÚÜÑ][^,;.!?¿¡\n]+)[.!]?", introduction.strip())
     candidate = (explicit[1] if explicit else informal[1] if informal else message if asked else "").strip()
     candidate = re.split(r"\s+(?:y )?(?:trabajo|hago|busco|soy|tengo|vivo|puedo|ofrezco)\b",
                          candidate, maxsplit=1, flags=re.I)[0].strip(" .")
@@ -136,7 +138,7 @@ def _name_update(lead, message: str, previous: str) -> None:
     if (not re.fullmatch(r"[^\W\d_]+(?:[ .’'-]+[^\W\d_]+){0,4}", candidate)
             or len(candidate) > 70 or "?" in candidate
             or norm.startswith(("de ", "en ", "tu ", "un ", "una ", "el ", "la ", "hola ", "me "))
-            or _OFFERS.search(norm) or analyze(candidate).specialty):
+            or not norm or norm.split()[0] in JOB_ROLES or _OFFERS.search(norm) or analyze(candidate).specialty):
         return
     known = lead.display_name not in UNKNOWN_NAMES
     if not known or (explicit and _CORRECTION.search(value)):
@@ -174,7 +176,9 @@ def _team_update(lead, value: str, previous: str) -> None:
     capacity = _affirmed(value, ("puedo traer gente", "puedo llevar gente", "tengo cuadrilla",
                                  "tengo una cuadrilla", "somos un equipo",
                                  "tengo ayudantes", "trabajamos varios", "puedo ir con gente"))
-    solo = _affirmed(value, ("trabajo solo", "trabajo sola", "voy solo", "voy sola",
+    # In “trabajo solo en Ñuñoa”, solo limits the work area.
+    team_statement = re.sub(r"\b(trabajo|trabajamos) solo en\b", r"\1 en", value)
+    solo = _affirmed(team_statement, ("trabajo solo", "trabajo sola", "voy solo", "voy sola",
                              "voy a ir solo", "voy a ir sola", "yo solo", "yo sola", "sin equipo"))
     if value in {"no puedo llevar gente", "no tengo gente", "no tengo cuadrilla"}:
         solo = True
@@ -195,6 +199,8 @@ def _team_update(lead, value: str, previous: str) -> None:
     helpers = re.search(
         r"\b(?:puedo ir con|voy con|llevo|puedo llevar) " + count
         + r" (?:ayudantes?|personas?|maestros?|trabajadores?)\b", value)
+    if not helpers:
+        helpers = re.fullmatch(r"yo y " + count + r" mas", value)
     if not total and not helpers and ("cuantas personas" in previous or "con cuantas" in previous):
         total = re.fullmatch(r"(?:con |en total )?" + count + r"(?: personas| maestros| trabajadores| gente)?", value)
     if not total and not helpers:
@@ -417,9 +423,9 @@ def next_intake_reply(message: str, facts: dict, prior_prompt: str = "") -> str 
     if not (facts.get("specialty") or facts.get("trades")):
         question = "¿Qué trabajo realizas?"
     elif intent == "unknown":
-        question = "¿Ofreces trabajos por tu cuenta (1), buscas empleo (2) o haces las dos cosas?"
+        question = "¿Ofreces trabajos por tu cuenta, buscas empleo o haces las dos cosas?"
     elif facts.get("team_available") is None:
-        question = "¿Trabajas solo (1) o puedes venir con otras personas (2)?"
+        question = "¿Trabajas solo o puedes venir con otras personas?"
     elif facts.get("team_available") is True and facts.get("workers") is None:
         question = "¿Cuántas personas pueden trabajar contigo en total?"
     elif not facts.get("experience"):

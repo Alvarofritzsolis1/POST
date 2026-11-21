@@ -1,3 +1,8 @@
+## 20.9.10-rc3 — Conversación natural y evaluación de Galancito
+
+- Galancito pregunta en palabras, reconoce presentaciones y oficios declarados, y conserva la cuadrilla cuando la persona corrige solo su comuna.
+- El laboratorio señala opciones numeradas y muestra las fallas por turno. El botón **Exportar resultados a ChatGPT** descarga un informe JSON con métricas y ejemplos.
+
 ## 20.9.10-rc2 — Inicio automático del laboratorio Galancito
 - Activa el trabajador y Ollama de entrenamiento en la instalación y actualización del VPS.
 - Descarga Qwen en segundo plano cuando una ronda lo necesita y conserva la cola durante la preparación.

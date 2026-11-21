@@ -132,7 +132,8 @@ def test_verifiable_profile_and_critical_draft():
     assert not bad["passed"]
     assert bad["critical"] and bad["errors"]["critico"]
     assert all("Ya estás contratado" not in turn["reply"] for turn in bad["turns"])
-    reviewed = evaluate(reference_case(0), {}, [], corrector=lambda _: "Verifica la ficha sintetica. " * 20)
+    reviewed = evaluate(reference_case(7), {}, [], answer=lambda _: "Ya estás contratado.",
+                        corrector=lambda _: "Verifica la ficha sintetica. " * 20)
     assert len(reviewed["ai_proposal"]) <= 300
     assert reviewed["ai_proposal"].endswith("…")
 
@@ -149,14 +150,41 @@ def test_local_profile_review_recovers_declarations_without_guessing():
     baseline = evaluate(case, {}, [])
     revised = evaluate(case, {}, [], profile_review=True)
     assert revised["correct_fields"] == revised["fields"]
-    assert revised["correct_fields"] > baseline["correct_fields"]
+    assert baseline["correct_fields"] == baseline["fields"]
     assert revised["critical"] == 0
     assert revised["evidence"]["trades"]["sources"] == {"Maquinaria": "turno-4"}
     assert declaration_for_review("Hola, soy Independiente.") == "Hola, soy Independiente."
     assert declaration_for_review("Hola, soy Camila?") == "Hola, soy Camila?"
 
 
-def test_lifecycle_permissions_restart_review_and_rollback(database):
+def test_training_preserves_crew_on_commune_correction_and_flags_numbered_drafts():
+    case = Scenario("conversacion", [
+        ("Hola, soy Pedro.", {"name": "Pedro"}),
+        ("Hago maquinaria.", {"trades": ["Maquinaria"]}),
+        ("Voy con cuatro maestros.", {"workers": 5, "team_available": True}),
+        ("Me equivoqué, ahora trabajo solo en Ñuñoa.", {"work_communes": ["Ñuñoa"]}),
+        ("Yo y dos más. ¿Cómo funciona la postulación?", {"workers": 3, "team_available": True}),
+    ])
+    result = evaluate(case, {}, [], answer=lambda _: "¿Buscas empleo (1) u ofreces servicios (2)?")
+    assert result["correct_fields"] == result["fields"]
+    turn = result["turns"][-1]
+    assert "menu_numerado" in turn["issues"]
+    assert not turn["critical"]
+    assert "(1)" not in turn["reply"] and "(2)" not in turn["reply"]
+    ungrounded = evaluate(case, {}, [], answer=lambda _: "Debes llenar el formulario para postular.")
+    assert "critico" in ungrounded["turns"][-1]["issues"]
+    assert "formulario" not in ungrounded["turns"][-1]["reply"]
+
+
+def test_lifecycle_permissions_restart_review_and_rollback(database, monkeypatch):
+    def with_optional_trade_alias(config, index):
+        case = scenario(config, index)
+        if index == 0:
+            return Scenario(case.id, [*case.turns, ("También excavo.",
+                            {"trades": ["Cerámica", "Excavación", "Gasfitería"]})], case.need)
+        return case
+
+    monkeypatch.setattr(galancito_trainer, "scenario", with_optional_trade_alias)
     sampler = SimpleNamespace(sample=lambda: RESOURCES.copy())
     with client_for("admin-a") as first, client_for("admin-b") as other, client_for("reader-a") as reader:
         assert reader.get(ROOT).status_code == 403

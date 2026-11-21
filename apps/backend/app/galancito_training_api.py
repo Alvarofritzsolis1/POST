@@ -410,6 +410,7 @@ def export_round(round_id: str, kind: Literal["json", "md"], user: User = Depend
             lines.append("Propuesta del modelo para revisión: " + example["ai_proposal"])
         for turn in example.get("turns", []):
             lines += [f"- Persona: {turn['message']}", f"  Galancito: {turn['reply']}",
+                      "  Fallas: " + ", ".join(turn.get("issues", [])),
                       "  Diferencias: " + json.dumps(turn["differences"], ensure_ascii=False),
                       "  Esperado: " + json.dumps(turn["expected"], ensure_ascii=False)]
     lines += ["", "Revisa primero las alertas críticas y prepara instrucciones para la siguiente ronda.",
