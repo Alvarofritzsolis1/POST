@@ -24,10 +24,10 @@ const time = (stamp: string) => {
 };
 
 export default function RequirementCandidateChat({
-  requirementId, leadId, name, contactMissing, onBack,
+  requirementId, leadId, name, contactMissing, onBack, onDraftDirty,
 }: {
   requirementId: string; leadId: string; name: string;
-  contactMissing: boolean; onBack: () => void;
+  contactMissing: boolean; onBack: () => void; onDraftDirty: (value: boolean) => void;
 }) {
   const [thread, setThread] = useState<Thread | null>(null);
   const [draft, setDraft] = useState("");
@@ -36,6 +36,7 @@ export default function RequirementCandidateChat({
   const [error, setError] = useState("");
   const [notice, setNotice] = useState("");
   const endRef = useRef<HTMLDivElement | null>(null);
+  useEffect(() => { onDraftDirty(Boolean(draft.trim())); }, [draft, onDraftDirty]);
   const chatPath = "/requirements/" + encodeURIComponent(requirementId) +
     "/candidates/" + encodeURIComponent(leadId) + "/chat";
 
