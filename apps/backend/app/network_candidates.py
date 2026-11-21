@@ -46,37 +46,40 @@ def _date(value: str | None):
 
 
 def _fit(lead, trades: list[str], requirement):
+    """Fixed weights: missing evidence never becomes a perfect 100% match."""
     required = trade_terms(requirement.specialty) or [requirement.specialty]
     sought = {normalized_trade(v) for v in required if v}
     declared = {normalized_trade(v) for v in trades if v}
     if not sought.intersection(declared):
         return None
-    earned, known = 65, 65
-    missing, reasons = [], ["Oficio compatible con la necesidad"]
-    if lead.interest_type == "employment":
-        missing.append("Confirmar modalidad de contratación")
-    elif lead.workers is not None:
-        known += 20
-        if lead.workers >= requirement.workers:
-            earned += 20
-            reasons.append("Dotación declarada suficiente")
+    # The sum of these independently verifiable criteria is exactly 100.
+    score, coverage = 60, 60
+    missing, reasons = [], ["Oficio relacionado con la necesidad"]
+    workers = getattr(lead, "workers", None)
+    if workers is not None:
+        coverage += 20
+        if workers >= requirement.workers:
+            score += 20
+            reasons.append("Cantidad de personas declarada compatible")
         else:
-            reasons.append("Dotación inferior a la solicitada")
+            reasons.append("Debe confirmar si puede cubrir toda la dotación")
     else:
-        missing.append("Dotación por confirmar")
+        missing.append("Cantidad de personas por confirmar")
     available = _date(lead.availability)
     if available:
-        known += 15
+        coverage += 20
         if available <= requirement.start_date:
-            earned += 15
-            reasons.append("Disponibilidad declarada compatible")
+            score += 20
+            reasons.append("Fecha de disponibilidad compatible")
         else:
-            reasons.append("Fecha de disponibilidad por coordinar")
+            reasons.append("Fecha posterior al inicio solicitado")
     else:
-        missing.append("Disponibilidad por confirmar")
+        # 'mañana' or 'la próxima semana' is a declaration, not an exact
+        # calendar date. It must not score as verified availability.
+        missing.append("Confirmar fecha exacta de disponibilidad")
     return {
-        "compatibility": round(100 * earned / known),
-        "data_coverage": round(100 * known / (80 if lead.interest_type == "employment" else 100)),
+        "compatibility": score,
+        "data_coverage": coverage,
         "reasons": reasons,
         "missing": missing,
     }
@@ -190,6 +193,20 @@ def requirement_candidates(
             "work_area": lead.work_area or "",
             "experience": (lead.experience or "")[:600],
             "phone": lead.contact_phone or "",
+            "email": lead.contact_email or "",
+            "phone_opt_out": lead.phone_opt_out,
+            "email_opt_out": lead.email_opt_out,
+            "contact_source": {
+                "phone": lead.phone_source or "",
+                "email": lead.email_source or "",
+            },
+            "contact_action": (
+                "Se puede coordinar por teléfono o correo."
+                if lead.contact_phone or lead.contact_email else
+                "Aún falta teléfono o correo. Conversar primero por Messenger y, si se acuerda coordinar, ofrecer compartir el medio que prefiera."
+                if not (lead.phone_opt_out and lead.email_opt_out) else
+                "Prefirió no facilitar teléfono ni correo; continuar por Messenger si está permitido."
+            ),
             "last_inbound_at": lead.last_inbound_at.isoformat() if lead.last_inbound_at else None,
             "profile": {
                 "summary": profile["summary"],
