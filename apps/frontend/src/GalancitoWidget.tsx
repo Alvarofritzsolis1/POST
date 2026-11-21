@@ -189,7 +189,7 @@ export default function GalancitoWidget({ area = "red_obras" }: { area?: Area })
       </div>
       <form className="galancito-compose" onSubmit={(e) => void send(e)}>
         {mode === "red_obras" && status?.local_ai_available && <div className="galancito-safety">
-          <ShieldCheck size={14}/> Modelo local disponible · sin consumo de API externa
+          <ShieldCheck size={14}/> Modelo local configurado · conexión no verificada en vivo
         </div>}
         {mode === "red_obras" && status?.external_ai_available && <label className="galancito-privacy"><input type="checkbox" checked={consent}
           onChange={(e) => setConsent(e.target.checked)} disabled={!status?.external_ai_available}/>
