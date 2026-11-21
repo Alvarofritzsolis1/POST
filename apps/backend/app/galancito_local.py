@@ -104,7 +104,7 @@ def generate_local_text(instructions: str, data: str,
 
 def _generate(instructions, data, max_chars, cfg, *, url=None, seed=None, allow_training=False):
     payload = {
-        "model": MODEL if allow_training else cfg.galancito_local_model,
+        "model": getattr(cfg, "galancito_local_model", MODEL) if allow_training else cfg.galancito_local_model,
         "messages": [
             {"role": "system", "content": instructions[:4000 if allow_training else MAX_INSTRUCTIONS_CHARS]},
             {"role": "user", "content": data[:MAX_CONTEXT_CHARS]},
@@ -163,5 +163,8 @@ def _generate(instructions, data, max_chars, cfg, *, url=None, seed=None, allow_
 def generate_training_text(instructions: str, data: str, seed: int, cfg) -> str:
     """Only the isolated trainer calls this; it never queues on Messenger's model."""
     last_timings.set({})
-    return _generate(instructions, data, 650, cfg, seed=seed, allow_training=True,
-                     url=TRAINING_OLLAMA + "/api/chat")
+    # Historical 1.7B rounds retain the isolated trainer. New 4B rounds reuse
+    # the already-installed private production Ollama, avoiding a second 4B in RAM.
+    target = getattr(cfg, "galancito_local_model", MODEL)
+    url = INTERNAL_URL if target == "qwen3.5:4b-q4_K_M" else TRAINING_OLLAMA + "/api/chat"
+    return _generate(instructions, data, 650, cfg, seed=seed, allow_training=True, url=url)

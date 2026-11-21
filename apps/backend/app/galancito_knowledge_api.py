@@ -359,9 +359,9 @@ def performance(user: User = Depends(administrator), db: Session = Depends(get_d
                                                  for r in messenger),
             },
             "incorrect": sum(r.feedback == "incorrect" for r in rows),
-            "model": "qwen3:1.7b", "health": health,
+            "model": cfg.galancito_local_model, "health": health,
             "keep_alive": cfg.galancito_keep_alive, "num_predict": cfg.galancito_num_predict,
-            "cpu_limit": 1.5, "ram_limit_gib": 3, "cpu_usage": None,
+            "cpu_limit": None, "ram_limit_gib": None, "cpu_usage": None,
             "stages_ms": {k: round(mean(r.timings[k] for r in rows if k in r.timings))
                           for k in ("db_ms", "load_ms", "prompt_ms", "generation_ms", "transport_ms", "queue_ms")
                           if any(k in r.timings for r in rows)}}

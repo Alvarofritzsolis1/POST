@@ -115,7 +115,7 @@ export default function GalancitoKnowledgeCenter({mode = "knowledge"}: {mode?: "
             : "Sin respuestas con consumo de tokens informado"}</p>
         </section>}
         <p>Memoria de modelos informada por Ollama: {health?.model_ram_bytes == null ? "Sin medición" : `${(health.model_ram_bytes / 1024 ** 3).toFixed(2)} GiB`}.
-          El límite del contenedor es 3 GiB y 1,5 CPU; el uso real de CPU se mide con el benchmark en el servidor.</p>
+          El uso real de memoria depende de la configuración actual de Docker y de las cargas en ejecución.</p>
         <table><caption>Promedios por etapa con muestras disponibles</caption><thead><tr><th>Etapa</th><th>Tiempo</th></tr></thead><tbody>
           {Object.entries(performance?.stages_ms ?? {}).map(([stage, value]) => <tr key={stage}><td>{({db_ms: "Base de datos", load_ms: "Carga del modelo", prompt_ms: "Lectura del contexto", generation_ms: "Generación", transport_ms: "Transporte y otros tiempos", queue_ms: "Espera local"} as Record<string, string>)[stage] || stage}</td><td>{times(value)}</td></tr>)}
         </tbody></table>

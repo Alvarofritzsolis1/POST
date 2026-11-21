@@ -175,8 +175,12 @@ def test_qwen35_candidate_private_and_training_unchanged(monkeypatch):
     assert calls[0][1]["think"] is False
     assert calls[0][2] == 45
     galancito_local.generate_training_text("Sistema", "hola", 42, cfg)
-    assert calls[1][0] == galancito_local.TRAINING_OLLAMA + "/api/chat"
-    assert calls[1][1]["model"] == "qwen3:1.7b"
+    assert calls[1][0] == galancito_local.INTERNAL_URL
+    assert calls[1][1]["model"] == "qwen3.5:4b-q4_K_M"
+    legacy_cfg = cfg.model_copy(update={"galancito_local_model": "qwen3:1.7b"})
+    galancito_local.generate_training_text("Sistema", "hola", 42, legacy_cfg)
+    assert calls[2][0] == galancito_local.TRAINING_OLLAMA + "/api/chat"
+    assert calls[2][1]["model"] == "qwen3:1.7b"
     with pytest.raises(ValueError):
         Settings(galancito_local_model="arbitrary-model")
 
