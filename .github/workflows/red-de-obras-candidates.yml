@@ -7,6 +7,8 @@ on:
       - "apps/backend/app/network_history.py"
       - "apps/backend/app/migrations/v20_9_9_network_candidates.py"
       - "apps/backend/tests/test_network_candidates.py"
+      - "apps/backend/tests/test_network.py"
+      - "apps/backend/tests/test_labor_release.py"
       - ".github/workflows/red-de-obras-candidates.yml"
   workflow_dispatch:
 
