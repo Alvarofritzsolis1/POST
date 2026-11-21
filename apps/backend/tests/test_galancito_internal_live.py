@@ -107,3 +107,38 @@ def test_internal_followup_preserves_specific_cumbre_site(network):
     assert result.status_code == 200, result.text
     assert "Necesidades vigentes: 1" in result.json()["answer"]
     assert "Cumbre de Lomas Verdes" in result.json()["answer"]
+
+
+def test_internal_month_specific_documents_do_not_mix_periods(network):
+    from sqlalchemy import select
+    from app.models import User
+    from app.ops_models import ContractorWorksite, MonthlyDocument
+    from app.galancito_internal_live import _requested_month
+
+    assert _requested_month("documentación de octubre 2026") == "2026-10"
+    assert _requested_month("cotizaciones de noviembre 2026") == "2026-11"
+    assert _requested_month("documentación de todas las obras") is None
+
+    n = network
+    with n["Session"].begin() as db:
+        user = db.scalar(select(User).where(User.email == "admin@network.example.cl"))
+        assoc = db.scalar(select(ContractorWorksite).where(
+            ContractorWorksite.worksite_id == n["sites"][0]))
+        for period, state in [("2026-10", "pending"), ("2026-11", "approved")]:
+            db.add(MonthlyDocument(
+                org_id=user.org_id, association_id=assoc.id,
+                contractor_id=assoc.contractor_id, created_by=user.id,
+                period=period, kind="f30-1", review_status=state))
+
+    for period, present, absent in [
+        ("octubre", "pending: 1", "approved: 1"),
+        ("noviembre", "approved: 1", "pending: 1"),
+    ]:
+        response = n["send"](n["admin"], "/galancito/chat", {
+            "message": "Documentación de " + period + " 2026 en Brisas de Junquillar",
+            "area": "interno",
+        })
+        assert response.status_code == 200, response.text
+        assert "período 2026-" in response.json()["answer"]
+        assert present in response.json()["answer"]
+        assert absent not in response.json()["answer"]
