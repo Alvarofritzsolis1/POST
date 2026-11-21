@@ -56,3 +56,16 @@
   .training-banner { flex-wrap: wrap; gap: 10px; }
   .training-progress > span { text-align: right; }
 }
+
+/* Profile selector keeps synthetic internal evaluations distinct from Messenger practice. */
+.training-profile-tabs { display:flex; gap:8px; flex-wrap:wrap; margin:0 0 16px; }
+.training-profile-tab { flex:1 1 190px; padding:11px 16px; border:1px solid var(--border, #dbe5eb);
+  border-radius:12px; background:var(--surface, #fff); color:inherit; font-weight:700;
+  cursor:pointer; transition:background .18s ease,border-color .18s ease,transform .18s ease; }
+.training-profile-tab:hover { transform:translateY(-1px); border-color:#39999d; }
+.training-profile-tab.is-active { border-color:#198b90; background:rgba(25,139,144,.10); color:inherit; }
+.training-profile-tab:focus-visible { outline:3px solid #198b90; outline-offset:3px; }
+@media (prefers-reduced-motion:reduce) {
+  .training-profile-tab { transition:none; }
+  .training-profile-tab:hover { transform:none; }
+}
