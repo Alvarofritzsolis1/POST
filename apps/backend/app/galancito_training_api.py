@@ -371,8 +371,8 @@ def export_round(round_id: str, kind: Literal["json", "md"], user: User = Depend
         retained = aware(previous.finished_at) and aware(previous.finished_at) >= utcnow() - timedelta(days=DETAIL_DAYS)
         same_evaluation = (row.config.get("evaluation_version", 1) == previous.config.get("evaluation_version", 1)
                            and row.config["judge"] == previous.config["judge"]
-                           and (metrics["dimensions"]["naturalness"] is None)
-                           == (old["dimensions"]["naturalness"] is None))
+                           and (metrics["dimensions"].get("naturalness") is None)
+                           == (old["dimensions"].get("naturalness") is None))
         comparison = {"id": previous.id, "metrics": old, "same_evaluation": same_evaluation,
                       "profile_review": previous.config.get("profile_review", False),
                       "regressions": regressions if retained and same_evaluation else None,
