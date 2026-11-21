@@ -110,7 +110,7 @@ def _pdf(report: dict) -> bytes:
 
 def _docx(report: dict) -> bytes:
     def paragraph(value, *, bold=False):
-        cleaned = re.sub(r"[\\x00-\\x08\\x0B\\x0C\\x0E-\\x1F]", "", value)
+        cleaned = re.sub(r"[\x00-\x08\x0B\x0C\x0E-\x1F]", "", value)
         text = escape(cleaned)
         # Each value is model-free, escaped plain text. No active links, scripts or macros.
         properties = "<w:rPr><w:b/></w:rPr>" if bold else ""
