@@ -48,5 +48,9 @@ jobs:
         run: python -m pip install -r requirements-dev.txt
       - name: Compilar nuevos módulos
         run: python -m compileall -q app/network_candidates.py app/network_models.py app/network_history.py
-      - name: Probar candidatos, autorización y persistencia en SQLite y PostgreSQL
-        run: python -m pytest -q tests/test_network_candidates.py
+      - name: Probar candidatos y migraciones legadas en SQLite y PostgreSQL
+        run: |
+          python -m pytest -q \
+            tests/test_network_candidates.py \
+            tests/test_labor_release.py::test_additive_migration_idempotent_and_persistent_after_reopen \
+            tests/test_network.py::test_migration_from_existing_schema_is_additive_and_reopen_preserves_data
