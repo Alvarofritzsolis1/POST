@@ -4,7 +4,7 @@ import re
 from .galancito_triage import plain, private_data
 
 INTRODUCTION = re.compile(
-    r"^\s*[¡!]?(?i:hola|ola|buenas|wena|qu[eé]\s+tal)[,.!]\s*"
+    r"^\s*[¡!]?(?i:hola|ola|buenas|wena|qu[eé]\s+tal)(?:[,.!]\s*|\s+)"
     r"(?P<statement>[Ss]oy\s+(?P<name>[A-ZÁÉÍÓÚÜÑ][^,;.!?¿¡\n]+))(?P<end>[.!]?)\s*$"
 )
 JOB_ROLES = {"independiente", "contratista", "maestro", "maestra", "trabajador", "trabajadora"}

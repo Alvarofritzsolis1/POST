@@ -19,6 +19,7 @@ const dimensions: Record<string, string> = {
 const errorNames: Record<string, string> = {
   extraccion: "Extracción", repeticion: "Repetición", respuesta: "Respuesta",
   contexto: "Contexto", critico: "Crítico", compatibilidad: "Compatibilidad",
+  menu_numerado: "Opciones numeradas",
 };
 const fieldNames: Record<string, string> = {
   name: "Nombre", trades: "Especialidades", experience: "Experiencia", work_communes: "Comunas",
@@ -69,7 +70,7 @@ type Overview = {
 };
 type Case = {
   id: string; critical: number; errors: Record<string, number>; ai_proposal?: string | null;
-  turns?: { turn: number; message: string; reply: string; expected: Record<string, unknown>; differences: Record<string, unknown> }[];
+  turns?: { turn: number; message: string; reply: string; issues?: string[]; expected: Record<string, unknown>; differences: Record<string, unknown> }[];
 };
 type Failures = { cases: Case[]; more: boolean; proposals: Record<string, string> };
 const defaults = {
@@ -282,15 +283,17 @@ export default function GalancitoTraining({ back }: { back: () => void }) {
             <button className="gc-secondary" disabled={!stats?.failed || busy} onClick={() => void perform(() => viewErrors(round.id))}>
               <TriangleAlert size={15} /> Ver errores
             </button>
-            <details className="training-download">
-              <summary><Download size={15} /> Exportar para ChatGPT</summary>
-              <div>
-                <p className="training-download-key">Clave en ChatGPT <strong>GALANT PRACTICA</strong></p>
-                <a href={exportUrl("/rounds/" + round.id + "/export/md")}>Informe Markdown</a>
-                <a href={exportUrl("/rounds/" + round.id + "/export/json")}>Datos JSON</a>
-              </div>
-            </details>
+            {round.completed > 0 && <>
+              <a className="gc-secondary" aria-describedby="training-export-help"
+                href={exportUrl("/rounds/" + round.id + "/export/json")}>
+                <Download size={15} /> Exportar resultados a ChatGPT
+              </a>
+              <a className="gc-secondary" href={exportUrl("/rounds/" + round.id + "/export/md")}>Informe Markdown</a>
+            </>}
           </div>
+          {round.completed > 0 && <p id="training-export-help" className="training-muted">
+            Adjunta el archivo descargado en ChatGPT y escribe <strong>GALANT PRACTICA</strong>.
+          </p>}
         </> : <div className="ai-empty">Las mediciones aparecerán cuando el trabajador complete los primeros casos.</div>}
       </section>
     </div>
@@ -304,6 +307,9 @@ export default function GalancitoTraining({ back }: { back: () => void }) {
         {item.ai_proposal && <p className="training-muted">{item.ai_proposal}</p>}
         {item.turns?.map(turn => <div key={turn.turn} className="training-turn">
           <strong>Turno {turn.turn}</strong><p>{turn.message}</p><p>{turn.reply}</p>
+          {Boolean(turn.issues?.length) && <p className="training-danger">
+            {turn.issues?.map(code => errorNames[code] ?? code).join(" · ")}
+          </p>}
           {Object.entries(turn.differences).map(([key, actual]) => <p key={key} className="training-danger">
             <strong>{fieldNames[key] ?? key}</strong> · Esperado {displayField(turn.expected[key])} · Registrado {displayField(actual)}
           </p>)}

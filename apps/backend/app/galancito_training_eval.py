@@ -12,8 +12,9 @@ from sqlalchemy.orm import Session
 
 from .facebook_ai import REPLY_INSTRUCTIONS
 from .facebook_crm_models import FacebookLead, FacebookLeadTrace, FacebookLeadTrade
-from .galancito_flow import grounded_reply
-from .galancito_intake import UNKNOWN_NAMES, identity_reply, next_intake_reply, small_talk_reply, needs_deeper_response
+from .galancito_flow import grounded_reply, numbered_menu
+from .galancito_intake import (UNKNOWN_NAMES, identity_reply, natural_messenger_reply,
+                               needs_deeper_response, next_intake_reply, small_talk_reply)
 from .galancito_links import suggest_requirements
 from .galancito_memory import apply_messenger_message, note_profile_sources, profile_facts
 from .galancito_profile_review import declaration_for_review, reviewed_trade_aliases
@@ -33,7 +34,7 @@ CORRECTOR_PROMPT = """Propón una corrección concreta para el asistente de Red 
 En dos frases breves, indica qué cambiar y cómo probarlo. Omite el resumen del caso.
 Usa hasta 250 caracteres en español y evita nombres, teléfonos y datos de contacto.
 El texto queda sujeto a revisión humana y jamás se aplica automáticamente."""
-EVALUATION_VERSION = 3
+EVALUATION_VERSION = 4
 WEIGHTS = {"understanding": 20, "context": 20, "profile": 20, "naturalness": 15,
            "trades": 10, "repetition": 10, "efficiency": 5}
 PROFILE_DEFAULTS = {
@@ -52,6 +53,7 @@ PROPOSALS = {
     "extraccion": "Corrige el dato estructurado mediante evidencia declarada y vuelve a evaluar todos los turnos.",
     "repeticion": "Consulta la ficha y el turno anterior antes de formular una sola pregunta útil.",
     "respuesta": "Responde la intención principal en español chileno sencillo y luego pide hasta un dato faltante.",
+    "menu_numerado": "Pide el dato con una pregunta en palabras y acepta respuestas libres sin presentar opciones numeradas.",
     "contexto": "Conserva datos anteriores, aplica correcciones explícitas y plantea las dudas que sigan abiertas.",
     "critico": "Verifica identidad, privacidad y ausencia de promesas antes de continuar con la conversación.",
     "compatibilidad": "Comprueba oficio, comuna, fecha, cuadrilla y experiencia declarada antes de sugerir revisión.",
@@ -175,7 +177,8 @@ def evaluate(case, aliases, knowledge, answer=None, judge=None, corrector=None, 
             # Preserve identity, private turn and need handling before candidate knowledge.
             source = "rules"
             eligible_for_rewrite = not private_data(message) and not identity and not asks_match
-            if reviewed and eligible_for_rewrite:
+            numbered_draft = bool(reviewed and eligible_for_rewrite and numbered_menu(reviewed))
+            if reviewed and eligible_for_rewrite and not numbered_draft:
                 fast, source = reviewed, "approved_correction"
             draft = ""
             unsupported_draft = False
@@ -184,10 +187,12 @@ def evaluate(case, aliases, knowledge, answer=None, judge=None, corrector=None, 
                 context = json.dumps({"mensaje": clean, "ultimos_turnos": history[-4:],
                                       "ficha_declarada": public_facts}, ensure_ascii=False)
                 draft = answer(context)
+                numbered_draft = numbered_menu(draft)
                 grounded = grounded_reply(draft, context)
                 unsupported_draft = grounded is None
-                if grounded and not private_data(grounded):
-                    fast = grounded
+                natural = natural_messenger_reply(grounded) if grounded and not numbered_draft else ""
+                if natural and not private_data(natural):
+                    fast = natural
                     source = "model" if grounded == draft.strip()[:550] else "fallback"
             if not fast:
                 fast = "Por ahora no puedo confirmarlo. El equipo de Red de Obras puede revisar tu consulta."
@@ -232,17 +237,18 @@ def evaluate(case, aliases, knowledge, answer=None, judge=None, corrector=None, 
             dimensions.update({k: float(v) for k, v in checks.items()})
             repeated_turns += repeated
             critical_count += severe
-            for key, detected in {
+            issues = [key for key, detected in {
                 "extraccion": not checks["profile"], "repeticion": repeated, "contexto": not contextual,
-                "respuesta": not avoids_formal_template or not efficient or not understanding,
+                "respuesta": not avoids_formal_template or not efficient or not replies_to_intent,
                 "critico": severe, "compatibilidad": "match" in mismatched,
-            }.items():
-                if detected:
-                    errors[key] += 1
+                "menu_numerado": numbered_draft or numbered_menu(reply),
+            }.items() if detected]
+            errors.update(issues)
             history.append([redact_mobile_for_intake(visible(message)), visible(reply)])
             turns.append({"turn": index, "message": visible(redact_mobile_for_intake(message)),
                           "reply": visible(reply), "reply_source": source,
-                          "candidate_reply": visible(draft) if draft else None, "checks": checks, "critical": severe,
+                          "candidate_reply": visible(draft) if draft else None, "checks": checks,
+                          "issues": issues, "critical": severe,
                           "expected": {k: ("reservado" if k == "phone" and v else v) for k, v in expected.items()},
                           "differences": {k: ("reservado" if k == "phone" and actual[k] else actual[k]) for k in mismatched}})
             previous = reply
@@ -271,8 +277,14 @@ def evaluate(case, aliases, knowledge, answer=None, judge=None, corrector=None, 
     if errors:
         stage("correcting")
         if corrector:
-            summary = [{"message": turn["message"], "checks": turn["checks"],
-                        "fields": list(turn["differences"])} for turn in turns]
+            summary = []
+            for turn in (item for item in turns if item["issues"]):
+                fields = {key: {"observado": value, "esperado": turn["expected"][key]}
+                          for key, value in turn["differences"].items() if key not in {"name", "phone"}}
+                summary.append({"mensaje": turn["message"][:140], "respuesta": turn["reply"][:140],
+                                "fallas": turn["issues"], "campos": fields})
+                if len(summary) == 2:
+                    break
             text = corrector(json.dumps({"errors": dict(errors), "turns": summary}, ensure_ascii=False))
             proposed = visible(text)
             if len(proposed) > 300:

@@ -36,6 +36,10 @@ TRADES = {
     "Ventanas": ("ventanero", "ventanas", "aluminio", "vidrios", "ventaneria"),
     "Pavimentación": ("pavimentos", "pavimentacion", "pavimentador"),
     "Jardinería": ("jardinero", "jardineria", "paisajismo"),
+    "Excavación": ("excavacion",),
+    "Terminaciones": ("terminaciones",),
+    "Maquinaria": ("maquinaria",),
+    "Obras civiles": ("obras civiles",),
 }
 
 

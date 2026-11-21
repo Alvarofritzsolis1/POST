@@ -21,7 +21,7 @@
 .training input:not([type="file"]), .training select, .training textarea { width: 100%; min-width: 0; min-height: 37px; border: 1px solid #bfd3e9; background: #fff; border-radius: 8px; padding: 7px 9px; color: var(--lab-ink); font: inherit; box-sizing: border-box; }
 .training textarea { resize: vertical; }
 .training-actions { display: flex; flex-wrap: wrap; align-items: end; gap: 8px; }
-.training-actions > a, .training-actions > button, .training-download summary { display: inline-flex; align-items: center; gap: 6px; text-decoration: none; }
+.training-actions > a, .training-actions > button { display: inline-flex; align-items: center; gap: 6px; text-decoration: none; }
 .training-details { border-top: 1px solid var(--lab-border); padding-top: 9px; margin-top: 4px; }
 .training-details summary, .training-case summary { cursor: pointer; color: var(--lab-blue); font-size: .85rem; font-weight: 700; }
 .training-details[open] summary, .training-case[open] summary { margin-bottom: 10px; }
@@ -36,12 +36,6 @@
 .training-metrics dt { color: #395570; font-size: .73rem; font-weight: 650; }
 .training-metrics dd { color: var(--lab-ink); margin: 3px 0 0; font-size: .96rem; font-weight: 750; overflow-wrap: anywhere; }
 .training-danger, .training-metrics .training-danger, .training-stop { color: #a52235; }
-.training-download { position: relative; }
-.training-download summary { cursor: pointer; min-height: 36px; padding: 0 8px; color: var(--lab-blue); font-weight: 700; font-size: .83rem; }
-.training-download > div { position: absolute; right: 0; z-index: 3; min-width: 150px; background: white; border: 1px solid #bfd3e9; border-radius: 9px; padding: 4px; box-shadow: 0 5px 15px #17325320; }
-.training-download-key { margin: 4px 9px; color: #45627f; font-size: .75rem; }
-.training-download-key strong { display: block; color: var(--lab-ink); white-space: nowrap; }
-.training-download a { display: block; padding: 7px 9px; color: var(--lab-blue); font-size: .83rem; }
 .training-history { max-height: 260px; overflow-y: auto; }
 .training-history-row { display: grid; grid-template-columns: minmax(135px,1fr) minmax(28px,.7fr) auto auto; gap: 9px; align-items: center; text-align: left; width: 100%; border: 1px solid transparent; border-bottom-color: var(--lab-border); border-radius: 6px; padding: 8px; background: white; font: inherit; font-size: .83rem; color: var(--lab-ink); cursor: pointer; }
 .training-history-row:hover, .training-history-row[aria-pressed="true"] { background: #edf5ff; border-color: #c6def9; }
@@ -61,5 +55,4 @@
   .training-metrics { grid-template-columns: repeat(2, minmax(0, 1fr)); }
   .training-banner { flex-wrap: wrap; gap: 10px; }
   .training-progress > span { text-align: right; }
-  .training-download > div { left: 0; right: auto; }
 }

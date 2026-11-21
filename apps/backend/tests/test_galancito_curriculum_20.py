@@ -31,14 +31,14 @@ def respond(lead, question: str, reply: str) -> str | None:
     return next_intake_reply(reply, vars(lead), question)
 
 
-def test_small_contractor_with_misspellings_and_one_number_answers():
+def test_small_contractor_with_natural_questions_and_legacy_answers():
     lead = blank_lead()
     next_question = respond(lead, "", "ola soy carpintreo")
     assert lead.specialty == "Carpintería"
-    assert "cuenta (1)" in next_question
+    assert next_question.endswith("¿Ofreces trabajos por tu cuenta, buscas empleo o haces las dos cosas?")
     next_question = respond(lead, next_question, "1")
     assert lead.interest_type == "service_offer"
-    assert "Trabajas solo" in next_question
+    assert next_question.endswith("¿Trabajas solo o puedes venir con otras personas?")
     next_question = respond(lead, next_question, "2")
     assert lead.team_available is True
     assert "Cuántas personas" in next_question
