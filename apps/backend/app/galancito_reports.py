@@ -70,7 +70,8 @@ def _excel(report: dict) -> bytes:
     for index, (label, value) in enumerate(rows, 1):
         sheet.cell(index, 1, label)
         # Prevent spreadsheet formula injection in fields derived from user text.
-        safe_value = "\u0027" + value if value.lstrip().startswith(("=", "+", "-", "@")) else value
+        cleaned_value = re.sub(r"[\x00-\x08\x0B\x0C\x0E-\x1F]", "", value)
+        safe_value = "'" + cleaned_value if cleaned_value.lstrip().startswith(("=", "+", "-", "@")) else cleaned_value
         cell = sheet.cell(index, 2, safe_value)
         cell.alignment = Alignment(wrap_text=True, vertical="top")
         sheet.cell(index, 1).font = Font(bold=True, color="FFFFFF")
