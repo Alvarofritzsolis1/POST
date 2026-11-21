@@ -1,3 +1,10 @@
+## 20.9.10-rc1 — Laboratorio Galancito Evolution
+- Rondas sintéticas reproducibles con métricas por turno, programación nocturna de Chile y avance persistente en PostgreSQL.
+- Trabajador de activación opcional que prioriza Messenger, con Ollama propio y presupuestos para conexiones externas.
+- Exportación JSON y Markdown con la clave `GALANT PRACTICA`, comparación de rondas y correcciones aprobadas con historial y reversión.
+- El informe indica el origen de las respuestas, los turnos procesados y el alcance de la estimación de naturalidad.
+- Verificación local opcional de nombres y oficios, con comparación sobre la misma ronda base.
+
 ## 20.8.4-rc1 — Messenger automático y bandeja simplificada
 - Webhook en tiempo real y recuperación de respaldo automática cada 75 segundos (inicio tras 15 segundos), con espera creciente ante errores o límites de Meta. No requiere botón para uso normal.
 - Estado compacto «Vigente» cuando la página está verificada y Messenger habilitado; diagnóstico técnico y recuperaciones puntuales ocultos tras menú. Eliminación de avisos verdes redundantes.

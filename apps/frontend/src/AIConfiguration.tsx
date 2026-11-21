@@ -78,7 +78,7 @@ const dollars = (value: number) => value.toLocaleString("es-CL", { style: "curre
 const displayDate = (value: string | null) => value ? new Date(value).toLocaleString("es-CL") : "Aún sin prueba";
 const errorMessage = (error: unknown) => error instanceof Error ? error.message : "No se pudo completar la operación";
 
-export default function AIConfiguration() {
+export default function AIConfiguration({ openTraining }: { openTraining: () => void }) {
   const [data, setData] = useState<Bootstrap | null>(null);
   const [learningProgress, setLearningProgress] = useState<LearningProgress | null>(null);
   const [usage, setUsage] = useState<Usage | null>(null);
@@ -292,6 +292,12 @@ export default function AIConfiguration() {
           <RefreshCw size={16} /> Actualizar
         </button>
       </div>
+      <section className="ai-panel">
+        <div className="ai-panel-head">
+          <div><h3>Entrenamiento de Galancito</h3><p>Practica con escenarios sintéticos, revisa errores y compara rondas.</p></div>
+          <button type="button" className="gc-primary" onClick={openTraining}>Abrir entrenamiento</button>
+        </div>
+      </section>
       {loading && <p role="status">Cargando conexiones y consumo…</p>}
       {error && <p role="alert" className="ai-error">{error}</p>}
       {notice && <p role="status" className="ai-notice"><CheckCircle2 size={16} /> {notice}</p>}

@@ -135,7 +135,7 @@ def bootstrap(user: User = Depends(administrator), db: Session = Depends(get_db)
         AIConnection.org_id == user.org_id).order_by(AIConnection.name)))
     policy = db.get(AIOrchestration, user.org_id)
     knowledge_counts = dict(db.execute(select(Knowledge.status, func.count(Knowledge.id)).where(
-        Knowledge.org_id == user.org_id).group_by(Knowledge.status)).all())
+        Knowledge.org_id == user.org_id, Knowledge.scope != "training").group_by(Knowledge.status)).all())
     feedback_rows = db.execute(select(AssistantRun.feedback, func.count(AssistantRun.id)).where(
         AssistantRun.org_id == user.org_id, AssistantRun.feedback.is_not(None))
         .group_by(AssistantRun.feedback)).all()

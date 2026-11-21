@@ -21,6 +21,7 @@ from . import facebook_publication_models  # cache/queue without Page Access Tok
 from . import galancito_knowledge_models
 from . import ai_models
 from .migrations import v20_7_5_galancito_learning, v20_8_0_ai_control_center, v20_8_1_ai_collaboration, v20_8_7_global_lightning, v20_8_8_galancito_intake
+from .migrations import galancito_training
 from .migrations import v20_9_0_galancito_links, v20_9_1_galancito_memory, v20_9_4_facebook_contact_sheet, v20_9_7_facebook_publications, v20_9_8_facebook_interactions
 from .ai_global_lightning import sync_org as sync_org_global_lightning
 
@@ -119,6 +120,9 @@ def migrate(db):
     if not db.get(SchemaVersion, v20_9_7_facebook_publications.MIGRATION_ID):
         v20_9_7_facebook_publications.upgrade(db.connection())
         db.add(SchemaVersion(version=v20_9_7_facebook_publications.MIGRATION_ID))
+    if not db.get(SchemaVersion, galancito_training.MIGRATION_ID):
+        galancito_training.upgrade(db.connection())
+        db.add(SchemaVersion(version=galancito_training.MIGRATION_ID))
 
     if not db.get(SchemaVersion, v20_9_8_facebook_interactions.MIGRATION_ID):
         v20_9_8_facebook_interactions.upgrade(db.connection())
