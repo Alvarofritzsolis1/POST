@@ -27,6 +27,14 @@ def _site_scope(db: Session, user: User, message: str, history: list[str]):
     sites = _authorized_sites(db, user)
     current = key(message)
     matching = [(id, name) for id, name in sites if key(name) in current]
+    if len(matching) > 1:
+        # "Lomas Verdes" is part of "Cumbre de Lomas Verdes". When the
+        # longer name appears alone, do not silently combine two sites.
+        matching = [(site_id, name) for site_id, name in matching if not any(
+            key(name) != key(other_name) and key(name) in key(other_name) and
+            current.count(key(name)) <= current.count(key(other_name))
+            for _, other_name in matching
+        )]
     if matching:
         return matching, True
     # Context is confined to the latest user message with a named authorized site.
