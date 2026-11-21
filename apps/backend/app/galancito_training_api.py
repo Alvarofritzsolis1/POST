@@ -45,6 +45,7 @@ class RoundInput(BaseModel):
     profile: Literal["postulantes", "interno"] = "postulantes"
     level: int = Field(default=1, ge=1, le=5)
     cases: int = Field(default=100, ge=1, le=MAX_CASES)
+    cycles: int = Field(default=1, ge=1, le=40)
     seed: int | None = Field(default=None, ge=0, le=2**31 - 1)
     suite: Literal["practice", "reference", "holdout"] = "reference"
     night: bool = False
@@ -65,6 +66,10 @@ class RoundInput(BaseModel):
     def validate_night(self):
         if self.night and self.night_start == self.night_end:
             raise ValueError("La hora inicial y final deben ser distintas")
+        if self.profile != "interno" and self.cycles != 1:
+            raise ValueError("Los ciclos automáticos se reservan a Galancito Interno")
+        if self.cases * self.cycles > MAX_CASES:
+            raise ValueError(f"El máximo es {MAX_CASES} evaluaciones totales por ejecución")
         if self.profile == "interno" and (self.profile_review or self.judge != "rules" or self.corrector != "rules"):
             raise ValueError("La práctica interna usa evaluación determinista; no aplica verificación de fichas ni juez externo")
         return self
@@ -205,7 +210,7 @@ def start(db, user, body, *, previous=None, compare_profile=False):
     ):
         raise HTTPException(409, "La evaluación, la conexión o el conocimiento cambió. Repite primero la ronda base.")
     scheduled = eligible_at(config, utcnow())
-    row = TrainingRound(org_id=user.org_id, created_by=user.id, target=body.cases, config=config,
+    row = TrainingRound(org_id=user.org_id, created_by=user.id, target=body.cases * body.cycles, config=config,
                         dataset_hash=fingerprint, system_version=f"{VERSION}@{SOURCE_COMMIT}",
                         prompt_version=INTERNAL_PROMPT_VERSION if internal else PROMPT_VERSION,
                         previous_id=comparable.id if comparable else None,
