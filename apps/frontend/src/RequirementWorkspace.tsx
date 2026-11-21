@@ -63,7 +63,7 @@ export default function RequirementWorkspace({
   const [chatDraftDirty, setChatDraftDirty] = useState(false);
   useEffect(() => {
     window.dispatchEvent(new CustomEvent("galant-network-chat-draft", { detail: chatDraftDirty }));
-    return () => window.dispatchEvent(new CustomEvent("galant-network-chat-draft", { detail: false }));
+    return () => { window.dispatchEvent(new CustomEvent("galant-network-chat-draft", { detail: false })); };
   }, [chatDraftDirty]);
   const [query, setQuery] = useState("");
   const [stageFilter, setStageFilter] = useState("all");
