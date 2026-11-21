@@ -87,6 +87,18 @@ def wants_human(message: str) -> bool:
     }
     return any(value == phrase or value.startswith(phrase + " ") for phrase in phrases)
 
+_NUMBERED_MENU = re.compile(
+    r"\(\s*\d{1,2}\s*\)|(?:^|[\s:])\d{1,2}\)\s*|(?:^|\n)\s*\d{1,2}\.\s+"
+    r"|\b(?:responde|escribe|elige|marca|pulsa)\s+(?:el\s+)?(?:n[uú]mero\s+)?\d{1,2}\b",
+    re.I,
+)
+
+
+def numbered_menu(text: str) -> bool:
+    """Detect choice labels while allowing dates and declared quantities."""
+    return bool(_NUMBERED_MENU.search(text))
+
+
 def safe_ai_reply(draft: str) -> str:
     """Reject unsafe external output before it reaches a contractor in Messenger."""
     clean = draft.strip()[:550]
@@ -99,6 +111,8 @@ def safe_ai_reply(draft: str) -> str:
     )
     if not clean or clean.count("?") > 1 or any(re.search(p, normalized) for p in forbidden):
         return "Para revisar esos datos, solicita orientación de administración por un canal seguro."
+    if numbered_menu(clean):
+        return "Cuéntame con tus palabras y seguimos."
     return galancito_prefix(clean)
 
 
@@ -115,7 +129,7 @@ def grounded_reply(draft: str, supplied: str) -> str | None:
                  r"tu ficha (?:ya )?(?:esta|quedo) (?:aprobada|verificada)|"
                  r"te confirmo (?:el cupo|la contratacion))\b", text):
         return None
-    if set(re.findall(r"\d+", draft)) - set(re.findall(r"\d+", supplied)):
+    if set(re.findall(r"\d+", _NUMBERED_MENU.sub(" ", draft))) - set(re.findall(r"\d+", supplied)):
         return None
     if any(url not in supplied for url in re.findall(r"https?://\S+", draft)):
         return None
