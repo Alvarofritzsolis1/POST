@@ -3,8 +3,8 @@
 Uses only deterministic internal_reply facts. Never exposes underlying records or
 persists sensitive report files on disk; all formats are built in memory.
 """
-from datetime import datetime
 from io import BytesIO
+import re
 import textwrap
 from xml.sax.saxutils import escape
 from zipfile import ZipFile, ZIP_DEFLATED
@@ -12,7 +12,6 @@ from zipfile import ZipFile, ZIP_DEFLATED
 import fitz
 from openpyxl import Workbook
 from openpyxl.styles import Alignment, Font, PatternFill
-from openpyxl.utils import get_column_letter
 
 from .galancito_internal_live import internal_reply
 from .network_service import today
@@ -70,7 +69,9 @@ def _excel(report: dict) -> bytes:
     ]
     for index, (label, value) in enumerate(rows, 1):
         sheet.cell(index, 1, label)
-        cell = sheet.cell(index, 2, value)
+        # Prevent spreadsheet formula injection in fields derived from user text.
+        safe_value = "\u0027" + value if value.lstrip().startswith(("=", "+", "-", "@")) else value
+        cell = sheet.cell(index, 2, safe_value)
         cell.alignment = Alignment(wrap_text=True, vertical="top")
         sheet.cell(index, 1).font = Font(bold=True, color="FFFFFF")
         sheet.cell(index, 1).fill = PatternFill("solid", fgColor="145750")
@@ -109,7 +110,8 @@ def _pdf(report: dict) -> bytes:
 
 def _docx(report: dict) -> bytes:
     def paragraph(value, *, bold=False):
-        text = escape(value)
+        cleaned = re.sub(r"[\\x00-\\x08\\x0B\\x0C\\x0E-\\x1F]", "", value)
+        text = escape(cleaned)
         # Each value is model-free, escaped plain text. No active links, scripts or macros.
         properties = "<w:rPr><w:b/></w:rPr>" if bold else ""
         return ("<w:p><w:r>" + properties +
