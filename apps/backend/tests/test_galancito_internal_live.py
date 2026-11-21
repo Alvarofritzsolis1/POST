@@ -217,3 +217,27 @@ def test_internal_answer_can_be_rated_without_modifying_knowledge(network):
         assert row.channel == "galant_internal"
         assert row.feedback == "incorrect"
         assert not db.scalar(select(func.count()).select_from(Knowledge))
+
+
+def test_red_obras_ai_transport_failure_uses_safe_fallback(network, monkeypatch):
+    from types import SimpleNamespace
+
+    n = network
+    monkeypatch.setattr("app.galancito_api.settings", lambda: SimpleNamespace(
+        galancito_ai_provider="ollama",
+        galancito_local_model="qwen3:1.7b",
+        galancito_local_ai_enabled=True,
+    ))
+    monkeypatch.setattr("app.galancito_api.galancito_red_ai_available",
+                        lambda _: True)
+    def unavailable(*args, **kwargs):
+        raise TimeoutError("provider took too long")
+    monkeypatch.setattr("app.galancito_api.generate_internal_text", unavailable)
+    reply = n["send"](n["admin"], "/galancito/chat", {
+        "area": "red_obras",
+        "message": "Compara distintos enfoques hipotéticos de coordinación empresarial",
+    })
+    assert reply.status_code == 200, reply.text
+    assert reply.json()["read_only"] is True
+    assert reply.json()["source"] in {"fallback", "local"}
+    assert reply.json()["answer"]
