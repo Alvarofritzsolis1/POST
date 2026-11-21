@@ -75,3 +75,14 @@
   .galancito.is-expanded { inset:0; }
   .galancito.is-expanded .galancito-panel { width:100vw; height:100dvh; border-radius:0; }
 }
+
+.galancito-export { margin-top:10px; padding-top:8px; border-top:1px solid #e1ebed; }
+.galancito-export summary { display:inline-flex; align-items:center; gap:6px; font-size:12px;
+  font-weight:750; color:#087e73; cursor:pointer; }
+.galancito-export-options { display:flex; flex-wrap:wrap; gap:6px; margin-top:8px; }
+.galancito-export-options button { padding:6px 10px; border:1px solid #b9d6d3;
+  border-radius:7px; background:#ecf7f4; color:#075c52; font:inherit; font-size:11px;
+  cursor:pointer; }
+.galancito-export-options button:hover { background:#d8efea; }
+.galancito-export-options button:disabled { opacity:.5; cursor:wait; }
+.galancito-modes button:disabled { cursor:wait; opacity:.65; }
