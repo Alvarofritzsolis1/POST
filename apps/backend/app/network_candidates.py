@@ -208,9 +208,9 @@ def requirement_candidates(
                 if lead.contact_phone else
                 "Correo disponible para coordinación."
                 if lead.contact_email else
+                "Prefirió no facilitar datos de contacto; continuar por Messenger si está permitido."
+                if lead.phone_opt_out or lead.email_opt_out else
                 "Aún falta teléfono o correo. Conversar primero por Messenger y, si se acuerda coordinar, ofrecer compartir el medio que prefiera."
-                if not (lead.phone_opt_out and lead.email_opt_out) else
-                "Prefirió no facilitar teléfono ni correo; continuar por Messenger si está permitido."
             ),
             "last_inbound_at": lead.last_inbound_at.isoformat() if lead.last_inbound_at else None,
             "profile": {
