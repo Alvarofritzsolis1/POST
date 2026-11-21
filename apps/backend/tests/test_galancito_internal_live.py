@@ -56,7 +56,7 @@ def test_internal_resident_scope_and_bounded_context(network):
         "message": "¿Cuántos contratistas hay en Lomas Verdes?", "area": "interno",
     })
     assert withheld.status_code == 200, withheld.text
-    assert "requiere un perfil autorizado" in withheld.json()["answer"]
+    assert "No tienes permiso" in withheld.json()["answer"]
 
 
 def test_internal_no_fake_internet_or_secrets(network):
@@ -162,7 +162,7 @@ def test_internal_candidate_summary_reuses_authorized_matching(network):
         "area": "interno",
     })
     assert denied.status_code == 200
-    assert "No hay necesidades publicadas" in denied.json()["answer"]
+    assert "No tienes permiso" in denied.json()["answer"]
     assert "Carpinteros para terminaciones - prueba" not in denied.json()["answer"]
 
 
