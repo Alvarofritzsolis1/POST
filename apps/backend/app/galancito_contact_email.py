@@ -23,7 +23,8 @@ REFUSAL = re.compile(
 def email_shared_by_sender(message: str, last_question: str = "") -> str | None:
     if not isinstance(message, str) or len(message) > 3500:
         return None
-    if re.search(r"(?i)\b(?:ejemplo|ficticio|prueba|no\s+es\s+mi\s+(?:correo|mail))\b", message):
+    description = EMAIL.sub("[correo]", message)
+    if re.search(r"(?i)\b(?:ejemplo|ficticio|prueba|no\s+es\s+mi\s+(?:correo|mail))\b", description):
         return None
     matches = list(EMAIL.finditer(message))
     if len(matches) != 1:
