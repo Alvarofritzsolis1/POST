@@ -9,6 +9,7 @@ import argparse
 import fcntl
 import json
 import os
+import re
 from pathlib import Path
 import runpy
 import shutil
@@ -93,8 +94,12 @@ def run(args, timeout=180):
         raise RuntimeError("Tiempo de ejecución agotado; operación detenida sin activar el modelo.") from None
     except subprocess.CalledProcessError as error:
         # Only explicitly marked diagnostics from the synthetic Ollama smoke test.
+        allowed = re.compile(
+            r"SMOKE_ERROR stage=(?:carga_inicial|respuesta_caliente) "
+            r"(?:http=[0-9]{3}|transport=[A-Za-z]{1,40}|invalid_json|invalid_response|latency_gate)"
+        )
         safe = [line.strip() for line in (error.stderr or "").splitlines()
-                if line.startswith("SMOKE_ERROR ")][:2]
+                if allowed.fullmatch(line.strip())][:2]
         detail = (" " + "; ".join(safe)) if safe else (" exit_code=" + str(error.returncode))
         raise RuntimeError("Falló un paso de verificación/ejecución." + detail) from None
     except OSError:
