@@ -88,3 +88,13 @@ def test_internal_multi_turn_reuses_evidence_and_counts_both_turns():
     failure = evaluate_internal(case, answer=lambda _: next(attempts))
     assert not failure["passed"]
     assert failure["errors"].get("contexto")
+
+
+def test_internal_dataset_hash_includes_cycle_plan():
+    assert internal_dataset_hash(config(cycles=1)) != internal_dataset_hash(config(cycles=40))
+    configs = config(cases=4, cycles=2)
+    examples = [internal_case(configs, pos) for pos in range(8)]
+    assert len({example.id for example in examples}) == 8
+    assert examples[0].id.startswith("interno-reference-c01")
+    assert examples[4].id.startswith("interno-reference-c02")
+    assert all(evaluate_internal(item)["passed"] for item in examples)
