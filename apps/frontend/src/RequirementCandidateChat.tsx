@@ -64,7 +64,10 @@ export default function RequirementCandidateChat({
     return () => { window.clearInterval(interval); window.removeEventListener("focus", poll); };
   }, [refresh]);
   useEffect(() => {
-    if (!loading) endRef.current?.scrollIntoView({block:"nearest"});
+    if (!loading && endRef.current?.parentElement) {
+      const list = endRef.current.parentElement;
+      list.scrollTop = list.scrollHeight;
+    }
   }, [loading, thread?.messages.length]);
 
   async function send() {
