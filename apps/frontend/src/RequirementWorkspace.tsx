@@ -105,6 +105,10 @@ export default function RequirementWorkspace({
     setNotice("");
   }
 
+  function confirmAbandon() {
+    return !formChanged || window.confirm("Hay cambios sin guardar en esta ficha. ¿Descartarlos?");
+  }
+
   async function save() {
     if (!selected || saving) return;
     setSaving(true);
@@ -147,7 +151,7 @@ export default function RequirementWorkspace({
           <p>{requirement.specialty} · {requirement.workers} {requirement.workers === 1 ? "trabajador" : "trabajadores"} · Inicio {dateText(requirement.start_date)}</p>
         </div>
       </div>
-      {requirement.editable && <button className="nwc-ghost" type="button" onClick={onEdit}><FileText size={16}/> Editar solicitud</button>}
+      {requirement.editable && <button className="nwc-ghost" type="button" onClick={() => { if (confirmAbandon()) onEdit(); }}><FileText size={16}/> Editar solicitud</button>}
     </div>
     {data?.classification_warning && <div className="nwc-warning" role="status"><CircleAlert size={18}/>{data.classification_warning}</div>}
     <div className="nwc-kpis" aria-label="Resumen del seguimiento">
@@ -194,7 +198,7 @@ export default function RequirementWorkspace({
           <h3>Contratistas disponibles en otras obras</h3>
           {data.capacities.map(match => <div className="nwc-cap" key={match.id}>
             <div><strong>{match.capacity.contractor}</strong><small>{match.capacity.site} · {match.capacity.workers} personas · {match.score}% afinidad</small></div>
-            <button type="button" onClick={() => onCapacity(match)}>Coordinar <ArrowRight size={14}/></button>
+            <button type="button" onClick={() => { if (confirmAbandon()) onCapacity(match); }}>Coordinar <ArrowRight size={14}/></button>
           </div>)}
         </div>}
       </section>
