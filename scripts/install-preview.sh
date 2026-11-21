@@ -32,11 +32,14 @@ if ss -lntH 'sport = :18512' | grep -q . && ! docker ps --format '{{.Names}}' | 
 fi
 install -d -m 0700 preview-storage
 chown 10001:10001 preview-storage
-compose=(docker compose --env-file .env.preview -f docker-compose.preview.yml)
+compose=(docker compose --profile training --env-file .env.preview -f docker-compose.preview.yml)
 "${compose[@]}" config --quiet
-COMPOSE_PARALLEL_LIMIT=1 "${compose[@]}" build
+COMPOSE_PARALLEL_LIMIT=1 "${compose[@]}" build api worker facebook-publisher frontend galancito-trainer
 "${compose[@]}" up -d db api worker facebook-publisher frontend proxy
 "${compose[@]}" exec -T api python -m app.cli init-db
+"${compose[@]}" up -d --no-build galancito-trainer galancito-training-ollama
+"${compose[@]}" exec -T api python -m app.deploy_verify \
+    --expected-commit "${SOURCE_COMMIT:-unknown}" --training-worker-only
 ok=0
 for i in {1..35}; do
     if curl -fsS --max-time 4 http://127.0.0.1:18512/api/v1/health | grep -q '"status":"ok"'; then ok=1; break; fi

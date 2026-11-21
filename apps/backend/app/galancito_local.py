@@ -19,6 +19,7 @@ from .config import settings
 
 MODEL = "qwen3:1.7b"
 INTERNAL_URL = "http://galancito-ollama:11434/api/chat"
+TRAINING_OLLAMA = "http://galancito-training-ollama:11434"
 MAX_CONTEXT_CHARS = 3000
 MAX_INSTRUCTIONS_CHARS = 3300
 
@@ -163,4 +164,4 @@ def generate_training_text(instructions: str, data: str, seed: int, cfg) -> str:
     """Only the isolated trainer calls this; it never queues on Messenger's model."""
     last_timings.set({})
     return _generate(instructions, data, 650, cfg, seed=seed, allow_training=True,
-                     url="http://galancito-training-ollama:11434/api/chat")
+                     url=TRAINING_OLLAMA + "/api/chat")

@@ -1,10 +1,12 @@
 """Post-deploy checks with synthetic bytes only; no production records are written."""
 import argparse
 import base64
+from datetime import timedelta
 import io
 import json
 from pathlib import Path
 import tempfile
+from time import sleep
 from urllib.error import HTTPError
 from urllib.request import urlopen
 
@@ -15,13 +17,28 @@ from sqlalchemy import inspect
 from . import cli  # Register the complete, additive schema.
 from .config import settings
 from .db import SessionLocal, engine
+from .galancito_memory import aware
+from .galancito_training import WORKER_STALE_SECONDS
+from .galancito_training_models import TrainingWorker
 from .javiera_workbook import warm_convert
 from .migrations.v20_0_0 import MIGRATION_ID
 from .migrations.v20_8_0_ai_control_center import MIGRATION_ID as AI_MIGRATION_ID
 from .migrations.v20_8_1_ai_collaboration import MIGRATION_ID as AI_REVIEW_MIGRATION_ID
 from .migrations.v20_8_8_galancito_intake import MIGRATION_ID as GALANCITO_INTAKE_MIGRATION_ID
+from .models import utcnow
 from .platform_models import SchemaVersion
 from .version import SOURCE_COMMIT, VERSION
+
+
+def verify_training_worker(expected_commit: str):
+    for _ in range(30):
+        with SessionLocal() as db:
+            worker = db.get(TrainingWorker, 1)
+            if (worker and worker.resources.get("worker_commit") == expected_commit
+                    and aware(worker.updated_at) > utcnow() - timedelta(seconds=WORKER_STALE_SECONDS)):
+                return
+        sleep(2)
+    raise RuntimeError("El servicio de entrenamiento no registró actividad del commit solicitado")
 
 
 def verify(expected_commit: str):
@@ -99,5 +116,10 @@ def verify(expected_commit: str):
 if __name__ == "__main__":
     parser = argparse.ArgumentParser()
     parser.add_argument("--expected-commit", required=True)
+    parser.add_argument("--training-worker-only", action="store_true")
     args = parser.parse_args()
-    print(json.dumps(verify(args.expected_commit), ensure_ascii=False))
+    if args.training_worker_only:
+        verify_training_worker(args.expected_commit)
+        print("Servicio de entrenamiento verificado")
+    else:
+        print(json.dumps(verify(args.expected_commit), ensure_ascii=False))

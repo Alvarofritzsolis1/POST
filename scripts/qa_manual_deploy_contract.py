@@ -61,4 +61,16 @@ assert "GALANT_DEPLOY_DIR=/opt/galant-post bash" in auto
 assert "POST_AUTODEPLOY_ENABLED" not in auto
 assert "POST_DEPLOY_SSH_KEY" not in auto
 
+# Activar el laboratorio solo en el ciclo de instalación/actualización validado.
+installer = (ROOT / "scripts/install-preview.sh").read_text(encoding="utf-8")
+assert "--profile training" in updater and "--profile training" in installer
+assert "training_services=(galancito-trainer galancito-training-ollama)" in updater
+assert any(line.startswith('COMPOSE_PARALLEL_LIMIT=1') and 'up -d --no-build db' in line
+           and '"${training_services[@]}"' in line for line in updater.splitlines())
+assert 'stop api worker "${facebook_services[@]}" "${training_services[@]}"' in updater
+assert 'frontend proxy "${previous_training[@]}"' in updater
+assert updater.index('wait_for_health "$target_ref"') < updater.index('--training-worker-only')
+assert installer.index('app.cli init-db') < installer.index('up -d --no-build galancito-trainer')
+assert '--training-worker-only' in installer
+
 print("GALANT: despliegue manual intacto y automático con versión/CI/SSH/rollback verificados.")

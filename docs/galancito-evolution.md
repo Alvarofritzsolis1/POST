@@ -2,6 +2,9 @@
 
 Acceso para administradores en **Configuración → Inteligencia artificial → Entrenamiento de Galancito**. El laboratorio practica con conversaciones sintéticas y guarda las rondas en PostgreSQL. El trabajador es un servicio independiente. El navegador solo consulta el estado.
 
+## Inicio automático
+El instalador y el actualizador del VPS inician el trabajador automáticamente tras migrar PostgreSQL. Las rondas en cola conservan su configuración y progreso. La primera ronda que elige Ollama prepara Qwen y continúa cuando la descarga termina. El panel indica si falta espacio, si el servicio tarda en iniciar o si se está reintentando la descarga.
+
 ## Activación en un entorno de prueba
 
 Usa el procedimiento de respaldos y restauración de GALANT para una base existente. La migración aditiva `20.9.10_galancito_training` crea tres tablas de laboratorio. En una base de pruebas vacía, el comando habitual `app.cli init-db` crea el esquema completo. En una base restaurada, utiliza `app.cli migrate-db --verified-backup-sha256` con el hash del respaldo verificado.
