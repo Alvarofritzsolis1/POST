@@ -88,7 +88,9 @@ def internal_case(config: dict, position: int) -> InternalCase:
     offset = int(sha256(f"{suite}:{seed}:{level}:{position}".encode()).hexdigest()[:8], 16)
     category_index = (position + (0 if suite == "reference" else 7 if suite == "holdout" else 13)) % len(TEMPLATES)
     name, question, tool, evidence, required, baseline = TEMPLATES[category_index]
-    variant = (position // len(TEMPLATES) + offset % 100) % 100 + 1
+    per_cycle = config.get("cases", 400)
+    cycle = position // per_cycle
+    variant = ((position % per_cycle) // len(TEMPLATES) + offset % 100 + cycle * 7) % 100 + 1
     replacements = {"work": f"Obra Demo {variant:02}", "count": str(variant % 19 + 1)}
     def substitute(text):
         for key, value in replacements.items():
@@ -102,7 +104,7 @@ def internal_case(config: dict, position: int) -> InternalCase:
                 name in {"obras", "contratistas", "trabajadores", "comentarios", "postulaciones"}
                 else None)
     return InternalCase(
-        id=f"interno-{suite}-n{level}-{position:05}",
+        id=f"interno-{suite}-c{cycle + 1:02}-n{level}-{position:05}",
         category=name, question=substitute(question),
         context=json.dumps(payload, ensure_ascii=False, sort_keys=True),
         required=tuple(substitute(term) for term in required),
@@ -116,7 +118,7 @@ def internal_case(config: dict, position: int) -> InternalCase:
 def internal_dataset_hash(config: dict) -> str:
     payload = [INTERNAL_DATASET_VERSION, "interno", config["suite"],
                config.get("seed") if config["suite"] == "practice" else None,
-               config["level"], config["cases"]]
+               config["level"], config["cases"], config.get("cycles", 1)]
     return sha256(json.dumps(payload, ensure_ascii=False).encode()).hexdigest()
 
 
