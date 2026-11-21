@@ -116,6 +116,53 @@ def _summarize_counts(values):
             f"{values['followups_due']}. Publicaciones por estado: {posts or 'sin registros'}.")
 
 
+
+def _candidate_reply(db: Session, user: User, question: str, site_ids: list[str]):
+    """Reuse the existing permission-checked candidate-matching service."""
+    from .network_candidates import requirement_candidates
+
+    requirements = list(db.scalars(
+        select(NetworkRequirement).where(
+            NetworkRequirement.org_id == user.org_id,
+            NetworkRequirement.site_id.in_(site_ids),
+            NetworkRequirement.state == "published",
+        ).order_by(NetworkRequirement.created_at.desc()).limit(80)
+    ))
+    if not requirements:
+        return "No hay necesidades publicadas para consultar candidatos en estas obras.", "candidates"
+    query = key(question)
+    matching = [row for row in requirements if key(row.title) in query]
+    if len(matching) != 1:
+        matching = [row for row in requirements if key(row.specialty) in query]
+    if len(matching) != 1 and len(requirements) == 1:
+        matching = requirements
+    if len(matching) != 1:
+        labels = "; ".join(row.title[:75] for row in requirements[:4])
+        return (f"Indica la necesidad para comparar candidatos. "
+                f"Necesidades disponibles en tus obras: {labels}. "
+                "Abre la necesidad para revisar las fichas completas."), "candidates"
+    need = matching[0]
+    details = requirement_candidates(need.id, limit=4, user=user, db=db)
+    total = details["candidate_total"]
+    if not total:
+        return (f"Para '{need.title}' no hay candidatos compatibles registrados en el panel. "
+                "No se infiere interés a partir de comentarios públicos."), "candidates"
+    rows = []
+    for candidate in details["candidates"][:4]:
+        fit = candidate.get("fit") or {}
+        score = fit.get("compatibility")
+        match = (f"compatibilidad estimada {score}%" if score is not None else
+                 "compatibilidad sin verificar")
+        trades = ", ".join(candidate.get("trades") or [])[:80] or "oficio por confirmar"
+        stage = (candidate.get("tracking") or {}).get("stage", "sin seguimiento")
+        rows.append(f"{candidate['name'][:80]} · {trades} · {match} · estado: {stage}")
+    cutoff = (" Se muestran solo cuatro candidatos; revisa el panel para ver el resto."
+              if total > 4 else "")
+    return (f"Necesidad: {need.title}. Candidatos que aparecen en el motor de coincidencias: "
+            f"{total}. " + "; ".join(rows) + "." + cutoff +
+            " Estas coincidencias son sugerencias, no adjudicaciones; confirma experiencia y disponibilidad."), "candidates"
+
+
 def internal_reply(db: Session, user: User, message: str, history: list[str] | None = None):
     """Return (text, intent) for a bounded, permission-aware internal question."""
     if user.role not in {"admin", "resident"}:
@@ -164,6 +211,8 @@ def internal_reply(db: Session, user: User, message: str, history: list[str] | N
     ids = [site_id for site_id, _ in sites]
     label = (", ".join(site_name for _, site_name in sites[:3])
              + (" y otras" if len(sites) > 3 else "")) if named else "las obras autorizadas"
+    if any(word in normalized for word in ("postulant", "candidat", "ficha", "mejor opcion", "mas compatible")):
+        return _candidate_reply(db, user, message, ids)
     if any(word in normalized for word in ("contratista", "cotizac", "documento", "documentacion", "liquidac", "f30", "finiquito")):
         if user.role != "admin":
             return "La consulta documental y de contratistas requiere un perfil autorizado de administración.", "permission"
