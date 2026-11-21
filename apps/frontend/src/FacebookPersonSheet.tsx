@@ -2,7 +2,7 @@ import { useEffect, useRef, useState, type FormEvent } from "react";
 import { createPortal } from "react-dom";
 import {
   AlertCircle, ArrowRight, BriefcaseBusiness, CalendarClock, CheckCircle2,
-  ClipboardList, Clock3, Link2, MapPin, MessageCircle, Phone, Save,
+  ClipboardList, Clock3, Link2, MapPin, MessageCircle, Phone, Mail, Save,
   ShieldCheck, Sparkles, UserRound, Users, X,
 } from "lucide-react";
 import { change, net } from "./networkApi";
@@ -25,7 +25,8 @@ type Lead = {
   has_employees: boolean | null; work_area: string; work_communes?: string[];
   follow_up_on: string | null; follow_up_note: string; last_inbound_at: string | null;
   contact_phone?: string | null; phone_source?: string | null; phone_requested_at?: string | null;
-  phone_opt_out?: boolean; can_reply: boolean;
+  phone_opt_out?: boolean; contact_email?: string | null;
+  email_source?: string | null; email_opt_out?: boolean; can_reply: boolean;
   profile: { summary: string; percent: number; completed:number; total:number; missing: string[]; evidence: string };
 };
 type Detail = { lead: Lead };
@@ -85,6 +86,7 @@ export default function FacebookPersonSheet({person,onClose,onChanged,onOpenChat
   const [saving,setSaving]=useState(false);
   const [editing,setEditing]=useState(false);
   const [phone,setPhone]=useState("");
+  const [email,setEmail]=useState("");
   const [date,setDate]=useState("");
   const [notes,setNotes]=useState("");
   const dialog=useRef<HTMLDivElement>(null);
@@ -93,6 +95,7 @@ export default function FacebookPersonSheet({person,onClose,onChanged,onOpenChat
   const unsavedRef=useRef(false);
   unsavedRef.current=Boolean(editing && data && (
     phone.trim()!==(data.lead.contact_phone||"") ||
+    email.trim()!==(data.lead.contact_email||"") ||
     date!==(data.lead.follow_up_on||"") ||
     notes.trim()!==(data.lead.follow_up_note||"")
   ));
@@ -131,7 +134,7 @@ export default function FacebookPersonSheet({person,onClose,onChanged,onOpenChat
     ]);
     setData(detail);setInsights(insight);setTrace(history);
     if(snapshot)setBrief(snapshot);
-    setPhone(detail.lead.contact_phone||"");
+    setPhone(detail.lead.contact_phone||"");setEmail(detail.lead.contact_email||"");
     setDate(detail.lead.follow_up_on||"");
     setNotes(detail.lead.follow_up_note||"");
   }
@@ -144,7 +147,7 @@ export default function FacebookPersonSheet({person,onClose,onChanged,onOpenChat
     ]).then(([detail,insight,history])=>{
       if(!enabled)return;
       setData(detail);setInsights(insight);setTrace(history);
-      setPhone(detail.lead.contact_phone||"");setDate(detail.lead.follow_up_on||"");
+      setPhone(detail.lead.contact_phone||"");setEmail(detail.lead.contact_email||"");setDate(detail.lead.follow_up_on||"");
       setNotes(detail.lead.follow_up_note||"");
     }).catch(e=>{if(enabled)setError(errorText(e));});
     return()=>{enabled=false;};
@@ -188,10 +191,11 @@ export default function FacebookPersonSheet({person,onClose,onChanged,onOpenChat
     e.preventDefault();
     if(saving||!data)return;
     if(!validPhone(phone)){setError("Número inválido. Usa +56 9 1234 5678 o deja vacío.");return;}
+    if(email.trim() && !/^[^\\s@]+@[^\\s@]+\\.[^\\s@]+$/.test(email.trim())){setError("Correo electrónico inválido.");return;}
     setSaving(true);setError("");setNotice("");
     try{
       await change("/facebook/leads/"+person.id,{
-        contact_phone:phone.trim(),follow_up_on:date||null,follow_up_note:notes.trim(),
+        contact_phone:phone.trim(),contact_email:email.trim(),follow_up_on:date||null,follow_up_note:notes.trim(),
       },"PATCH");
       await reload();setEditing(false);setNotice("Ficha actualizada.");onChanged();
     }catch(e){setError(errorText(e));}
@@ -244,6 +248,9 @@ export default function FacebookPersonSheet({person,onClose,onChanged,onOpenChat
             <label>Teléfono voluntario<input type="tel" inputMode="tel" autoComplete="off"
               value={phone} onChange={e=>setPhone(e.target.value)} maxLength={26}
               placeholder="+56 9 1234 5678"/></label>
+            <label>Correo voluntario<input type="email" autoComplete="off"
+              value={email} onChange={e=>setEmail(e.target.value)} maxLength={254}
+              placeholder="contacto@ejemplo.cl"/></label>
             <label>Fecha de seguimiento<input type="date" value={date} onChange={e=>setDate(e.target.value)}/></label>
             <label className="fbps-notes-field">Nota interna<textarea rows={2} maxLength={240}
               value={notes} onChange={e=>setNotes(e.target.value)}/></label>
@@ -300,7 +307,16 @@ export default function FacebookPersonSheet({person,onClose,onChanged,onOpenChat
               <Cell title="Perfil" value={typeLabel(lead.entity_type)}/>
               <Cell title="Interés" value={interest(lead.interest_type)}/>
               <Cell title="Empresa declarada" value={lead.company}/>
-              <Cell title="Teléfono" value={lead.contact_phone||"No compartido"}/>
+              <div className={!lead.contact_phone?"fbps-contact-pending":""}>
+                <Cell title="Teléfono" value={lead.contact_phone||"Pendiente"}/>
+              </div>
+              <div className={!lead.contact_email?"fbps-contact-pending":""}>
+                <Cell title="Correo electrónico" value={lead.contact_email||"Pendiente"}/>
+              </div>
+              {!lead.contact_phone && !lead.contact_email && <p className="fbps-contact-help">
+                <Mail size={14}/> Falta teléfono o correo para coordinar fuera de Messenger.
+                Se pueden solicitar solo de manera opcional cuando corresponda.
+              </p>}
               <Cell title="Origen del número" value={lead.phone_source==="message"?"Enviado voluntariamente":
                 lead.phone_source==="manual"?"Registrado por administración":"Sin dato"}/>
               {!lead.contact_phone&&!lead.phone_opt_out&&!lead.phone_requested_at&&lead.can_reply&&
