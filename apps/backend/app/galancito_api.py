@@ -20,6 +20,7 @@ from .facebook_ai import generate_internal_text, galancito_red_ai_available
 from .facebook_onboarding import onboarding_guide
 from .facebook_crm_models import FacebookTradeGuide, FacebookLead
 from .network_service import key, today
+from .ops_models import Contractor, Worksite
 from .models import User
 from .network_models import (NetworkRequirement, NetworkCapacity, NetworkCoordination,
                              NetworkAward, NetworkFacebookPost, NetworkMatch)
@@ -235,6 +236,17 @@ def galancito_chat(body: ChatInput, user: User = Depends(authorized_user),
         user_context = [turn.text for turn in body.history if turn.role == "user"]
         if body.allow_web:
             try:
+                # User consent is necessary, but does not authorize leaking
+                # private GALANT worksite/contractor names to an external provider.
+                normalized_query = key(body.message)
+                for model in (Worksite, Contractor):
+                    private_names = db.scalars(
+                        select(model.name).where(model.org_id == user.org_id).limit(1000))
+                    if any(len(key(name)) >= 11 and key(name) in normalized_query
+                           for name in private_names):
+                        raise WebSearchUnavailable(
+                            "La consulta incluye el nombre de una obra o contratista registrado. "
+                            "Reformula la búsqueda sin datos internos de GALANT.")
                 results = public_search(body.message)
                 answer, intent, source = format_public_search(results), "external_web", "public_web"
             except WebSearchUnavailable as exc:
