@@ -30,7 +30,7 @@ from .galancito_local import last_timings
 from .galancito_runtime import infer, record_run
 from .galancito_internal_live import internal_reply
 from .galancito_web import WebSearchUnavailable, public_search, format_public_search, web_available
-from .galancito_reports import MIME_TYPES, internal_report, export_internal_report
+from .galancito_reports import MIME_TYPES, SUPPORTED_REPORTS, internal_report, export_internal_report
 from .ai_gateway import orchestration_available, orchestrated_text
 from .ai_global_lightning import sync_org as sync_org_global_lightning
 from .ai_models import AIOrchestration
@@ -247,6 +247,7 @@ def galancito_chat(body: ChatInput, user: User = Depends(authorized_user),
         db.commit()
         return {"name": "Galancito Interno", "answer": answer, "source": source,
                 "read_only": True, "run_id": run.id, "references": [],
+                "intent": intent, "reportable": source == "verified_local" and intent in SUPPORTED_REPORTS,
                 "notice": None}
     if sync_org_global_lightning(db, user.org_id):
         db.commit()
