@@ -16,6 +16,7 @@ from .db import get_db
 from .galancito_flow import grounded_reply
 from .galancito_knowledge_api import persist
 from .galancito_knowledge_models import Knowledge, KnowledgeVersion
+from .config import settings
 from .galancito_local import MODEL
 from .galancito_memory import approved_trade_aliases, aware
 from .galancito_phone import redact_mobile_for_intake
@@ -113,7 +114,10 @@ def model_info(db, user, identifier, role):
         name = "Pruebas deterministas" if role == "judge" else "Correcciones por categoría"
         return {"id": identifier, "provider": "local", "model": name}
     if identifier == "ollama":
-        return {"id": identifier, "provider": "ollama", "model": MODEL}
+        # Snapshot the selected live model for new rounds. Existing rounds keep
+        # their recorded model, instead of being silently relabeled.
+        return {"id": identifier, "provider": "ollama",
+                "model": settings().galancito_local_model}
     row = db.get(AIConnection, identifier)
     if not (row and row.org_id == user.org_id and row.enabled and row.encrypted_key and
             row.last_status == "verified" and row.price_input_per_million is not None and
@@ -147,7 +151,10 @@ def overview(user: User = Depends(administrator), db: Session = Depends(get_db))
             "knowledge": {"version": review.version if review else 0, "revisions": revisions,
                           "corrections": knowledge_items(review)},
             "providers": [{"id": row.id, "label": row.name, "model": row.model} for row in models],
-            "weights": WEIGHTS, "detail_days": DETAIL_DAYS}
+            "weights": WEIGHTS, "detail_days": DETAIL_DAYS,
+            "local_model": settings().galancito_local_model,
+            "training_mode": "motor_principal_compartido" if settings().galancito_local_model != MODEL
+                             else "ollama_entrenamiento_aislado"}
 
 
 def start(db, user, body, *, previous=None, compare_profile=False):

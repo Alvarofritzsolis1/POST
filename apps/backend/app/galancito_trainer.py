@@ -131,7 +131,14 @@ def claim(factory, snapshot, *, maintenance=False, training_model=None):
             if slots and training_model is not None and any(
                 row.config.get(role, {}).get("id") == "ollama" for role in ("model", "judge", "corrector")
             ):
-                reason = training_model.waiting_reason(snapshot["disk_free_mb"])
+                # The immutable round snapshot determines the actual model,
+                # including old rounds created before the Qwen3.5 upgrade.
+                targets = {row.config[role]["model"] for role in ("model", "judge", "corrector")
+                           if row.config.get(role, {}).get("id") == "ollama"}
+                if len(targets) != 1:
+                    slots, reason = 0, "La ronda contiene versiones Ollama diferentes"
+                else:
+                    reason = training_model.waiting_reason(snapshot["disk_free_mb"], next(iter(targets)))
                 if reason:
                     slots = 0
             if not slots:
@@ -207,7 +214,8 @@ def _charge(factory, claim, spec, instructions, prompt, seed, *, role, sampler):
         sent = True
         if local:
             cfg = SimpleNamespace(galancito_num_ctx=LOCAL_CONTEXT_LIMIT, galancito_num_predict=output_limit,
-                                  galancito_num_thread=1, galancito_keep_alive="2m")
+                                  galancito_num_thread=1, galancito_keep_alive="2m",
+                                  galancito_local_model=spec["model"])
             answer = generate_training_text(instructions, prompt, seed, cfg)
             measured = last_timings.get()
             counts = (measured.get("input_tokens"), measured.get("output_tokens"))

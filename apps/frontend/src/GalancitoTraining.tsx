@@ -59,6 +59,7 @@ type Round = {
 };
 type Overview = {
   active_id: string | null; rounds: Round[]; detail_days: number;
+  local_model: string; training_mode: string;
   worker: { available: boolean; seen: string | null; resources: {
     host_ram_mb: number | null; available_ram_mb: number | null; worker_ram_mb: number | null;
     worker_ram_limit_mb: number | null; host_cpu_percent: number | null; disk_free_mb: number;
@@ -192,6 +193,11 @@ export default function GalancitoTraining({ back }: { back: () => void }) {
         {!data ? "Cargando" : !data.worker.available ? "Servicio sin conexión" : active ? labels[active.state] : "Disponible"}
       </span>
     </div>
+    {data && <div className="ai-panel" aria-label="Motores de Galancito">
+      <strong>Motor principal: Ollama · {data.local_model}</strong>
+      <p className="training-muted">Próximas prácticas con Ollama: {data.local_model} · {data.training_mode === "motor_principal_compartido" ? "motor local compartido, sin duplicar el modelo en RAM" : "motor de entrenamiento separado"}.</p>
+      <p className="training-muted">Las rondas anteriores conservan el modelo con el que se realizaron. {data.worker.available ? "Servicio de prácticas conectado." : "Entrenador detenido; no hay prácticas automáticas en ejecución."}</p>
+    </div>}
     {loadError && <p role="alert" className="ai-error">{loadError}</p>}
     {error && <p role="alert" className="ai-error">{error}</p>}
     {notice && <p role="status" className="ai-notice">{notice}</p>}
@@ -210,21 +216,21 @@ export default function GalancitoTraining({ back }: { back: () => void }) {
               {Object.entries(suites).map(([key, label]) => <option key={key} value={key}>{label}</option>)}
             </select></label>
             <label>Modelo de respuesta<select value={form.model} onChange={event => setForm({ ...form, model: event.target.value })}>
-              <option value="ollama">Ollama · Qwen3 1.7B</option><option value="guided">Reglas locales</option>{modelOptions}
+              <option value="ollama">Ollama · {data?.local_model ?? "Modelo local"}</option><option value="guided">Reglas locales</option>{modelOptions}
             </select></label>
           </div>
           <details className="training-details">
             <summary>Opciones avanzadas</summary>
             <div className="training-fields">
               <label>Evaluación<select value={form.judge} onChange={event => setForm({ ...form, judge: event.target.value })}>
-                <option value="rules">Pruebas deterministas</option><option value="ollama">Pruebas y Ollama</option>{modelOptions}
+                <option value="rules">Pruebas deterministas</option><option value="ollama">Ollama · {data?.local_model ?? "Modelo local"}</option>{modelOptions}
               </select></label>
               <label>Verificación de ficha<select value={form.profile_review ? "on" : "off"}
                 onChange={event => setForm({ ...form, profile_review: event.target.value === "on" })}>
                 <option value="off">Base</option><option value="on">Nombres y oficios declarados</option>
               </select></label>
               <label>Propuestas de corrección<select value={form.corrector} onChange={event => setForm({ ...form, corrector: event.target.value })}>
-                <option value="rules">Por categoría</option><option value="ollama">Ollama</option>{modelOptions}
+                <option value="rules">Por categoría</option><option value="ollama">Ollama · {data?.local_model ?? "Modelo local"}</option>{modelOptions}
               </select></label>
               {form.suite === "practice" && <label>Semilla<input placeholder="Aleatoria" type="number" min="0" max="2147483647" value={form.seed} onChange={event => setForm({ ...form, seed: event.target.value })} /></label>}
               {fields.map(([key, label, min, max, step]) => <label key={key}>{label}
@@ -245,7 +251,7 @@ export default function GalancitoTraining({ back }: { back: () => void }) {
         {round ? <>
           <div className="training-progress">
             <div><strong>{number(round.completed)}</strong><span> / {number(round.target)} casos</span></div>
-            <span>{suites[round.config.suite]} · Nivel {round.config.level}</span>
+            <span>{suites[round.config.suite]} · Nivel {round.config.level} · {round.config.model.model}</span>
             <progress aria-label="Casos completados" value={round.completed} max={round.target} />
           </div>
           {round.reason && <p className={round.state === "error" ? "ai-error" : "training-muted"}>{round.reason}
@@ -327,7 +333,7 @@ export default function GalancitoTraining({ back }: { back: () => void }) {
         {data?.rounds.length ? <div className="training-history">
           {data.rounds.map(item => <button key={item.id} aria-pressed={round?.id === item.id} className="training-history-row"
             onClick={() => { setSelection(item.id); setFailures(null); }}>
-            <span><strong>{timestamp(item.created_at)}</strong><small>{suites[item.config.suite]} · Nivel {item.config.level} · {labels[item.state]}</small></span>
+            <span><strong>{timestamp(item.created_at)}</strong><small>{suites[item.config.suite]} · Nivel {item.config.level} · {labels[item.state]} · {item.config.model.model}</small></span>
             <span className="training-bar" aria-hidden="true"><span style={{ width: (item.metrics.score ?? 0) + "%" }} /></span>
             <span>{item.metrics.score == null ? "—" : number(item.metrics.score) + " / 100"}</span><ChevronRight size={15} />
           </button>)}

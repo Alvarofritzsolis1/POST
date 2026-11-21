@@ -2,6 +2,8 @@
 from __future__ import annotations
 
 from datetime import datetime, timedelta, timezone
+from time import perf_counter
+from urllib.error import HTTPError
 from decimal import Decimal
 from typing import Literal
 
@@ -21,6 +23,7 @@ from .ai_model_recovery import recover_gemini
 from .ai_provider_recovery import recover_provider
 from .ai_global_lightning import sync_org as sync_org_global_lightning
 from .galancito_knowledge_models import Knowledge, AssistantRun
+from .galancito_local import generate_local_text, last_timings, model_status
 from .db import get_db
 from .models import AuditEvent, User, utcnow
 from .security import administrator
@@ -139,7 +142,16 @@ def bootstrap(user: User = Depends(administrator), db: Session = Depends(get_db)
     feedback_rows = db.execute(select(AssistantRun.feedback, func.count(AssistantRun.id)).where(
         AssistantRun.org_id == user.org_id, AssistantRun.feedback.is_not(None))
         .group_by(AssistantRun.feedback)).all()
+    runtime = model_status() if cfg.galancito_local_ai_enabled else {"state": "disabled", "loaded": False}
     return {
+        "local_engine": {
+            "provider": "ollama", "model": cfg.galancito_local_model,
+            "enabled": cfg.galancito_local_ai_enabled,
+            "status": runtime.get("state", "unavailable"),
+            "loaded": bool(runtime.get("loaded")),
+            "messenger": cfg.facebook_ai_enabled and cfg.facebook_ai_provider == "ollama",
+            "red_obras": cfg.galancito_ai_enabled and cfg.galancito_ai_provider == "ollama",
+        },
         "learning": {
             "approved": knowledge_counts.get("approved", 0),
             "pending": knowledge_counts.get("pending", 0),
@@ -160,6 +172,26 @@ def bootstrap(user: User = Depends(administrator), db: Session = Depends(get_db)
             "page_configured": bool(cfg.facebook_page_id and cfg.facebook_org_id),
         },
     }
+
+
+@router.post("/local-model/test")
+def test_local_model(user: User = Depends(administrator)):
+    """A synthetic, keyless Ollama test of the actual deployed Galancito model."""
+    cfg = settings()
+    if not cfg.galancito_local_ai_enabled:
+        raise HTTPException(409, "El motor local está desactivado")
+    started = perf_counter()
+    try:
+        answer = generate_local_text("Responde en español, de forma breve.",
+                                     "Saluda a una persona que trabaja en carpintería.", 170)
+    except RuntimeError as exc:
+        # The local adapter emits only fixed operational errors, not prompts.
+        raise HTTPException(503, str(exc)) from None
+    return {"ok": True, "model": cfg.galancito_local_model,
+            "response": answer,
+            "elapsed_ms": round((perf_counter() - started) * 1000),
+            "generation_ms": round(last_timings.get().get("generation_ms", 0))}
+
 
 
 @router.post("/connections", status_code=201)

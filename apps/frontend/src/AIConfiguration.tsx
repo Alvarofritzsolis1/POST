@@ -16,6 +16,7 @@ type Policy = {
 };
 type Bootstrap = {
   providers: Provider[]; tasks: Task[]; connections: Connection[];
+  local_engine: { provider: string; model: string; enabled: boolean; status: string; loaded: boolean; messenger: boolean; red_obras: boolean };
   policy: Policy; monthly_tokens: number; server_ready: boolean;
   messenger_ready: { messaging_enabled: boolean; ai_enabled: boolean; auto_reply_enabled: boolean; page_configured: boolean };
   learning: { approved: number; pending: number; disabled: number; feedback: Record<string, number>; method: string };
@@ -91,6 +92,7 @@ export default function AIConfiguration({ openTraining }: { openTraining: () => 
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState("");
   const [notice, setNotice] = useState("");
+  const [localTest, setLocalTest] = useState<{ model: string; response: string; elapsed_ms: number; generation_ms: number } | null>(null);
   const initializedPolicy = useRef(false);
 
   const refresh = useCallback(async (resetPolicy = false) => {
@@ -292,9 +294,29 @@ export default function AIConfiguration({ openTraining }: { openTraining: () => 
           <RefreshCw size={16} /> Actualizar
         </button>
       </div>
+      <section className="ai-panel" aria-label="Motor local de Galancito">
+        <div className="ai-panel-head">
+          <div>
+            <h3>Galancito · Modelo local activo</h3>
+            <p><strong>{data?.local_engine.model ?? "Consultando Ollama..."}</strong> · Sin API externa · Modelo real del servidor</p>
+          </div>
+          <button type="button" className="gc-primary" disabled={Boolean(busy) || !data?.local_engine.enabled || data?.local_engine.status !== "available"}
+            onClick={() => void perform("local-test", async () => {
+              const result = await request<{ ok: boolean; model: string; response: string; elapsed_ms: number; generation_ms: number }>(
+                base + "/local-model/test", { method: "POST" });
+              setLocalTest(result);
+              setNotice("Prueba de IA local completada con " + result.model);
+            })}>{busy === "local-test" ? "Probando..." : "Probar Qwen local"}</button>
+        </div>
+        <p className="ai-help">Estado: {!data?.local_engine.enabled ? "Desactivado" : data.local_engine.status === "available" ? "Ollama disponible" : "Ollama sin conexión"}
+          {" · "}En memoria: {data?.local_engine.loaded ? "Sí" : "No / inactivo"}
+          {" · "}Messenger: {data?.local_engine.messenger ? "Local" : "Otra configuración"}
+          {" · "}Red de Obras: {data?.local_engine.red_obras ? "Local" : "Otra configuración"}.</p>
+        {localTest && <p className="ai-help" role="status">Modelo probado: {localTest.model} · Tiempo total: {(localTest.elapsed_ms / 1000).toFixed(2)} s · Respuesta: {localTest.response}</p>}
+      </section>
       <section className="ai-panel">
         <div className="ai-panel-head">
-          <div><h3>Entrenamiento de Galancito</h3><p>Practica con escenarios sintéticos, revisa errores y compara rondas.</p></div>
+          <div><h3>Entrenamiento de Galancito</h3><p>Prácticas nuevas con {data?.local_engine.model ?? "el modelo local"}. Historial de modelos anteriores conservado.</p></div>
           <button type="button" className="gc-primary" onClick={openTraining}>Abrir entrenamiento</button>
         </div>
       </section>
