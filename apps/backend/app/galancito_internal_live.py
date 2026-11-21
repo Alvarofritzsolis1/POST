@@ -164,10 +164,10 @@ def internal_reply(db: Session, user: User, message: str, history: list[str] | N
     ids = [site_id for site_id, _ in sites]
     label = (", ".join(site_name for _, site_name in sites[:3])
              + (" y otras" if len(sites) > 3 else "")) if named else "las obras autorizadas"
-    if any(word in normalized for word in ("contratista", "cotizacion", "documento", "f30", "finiquito")):
+    if any(word in normalized for word in ("contratista", "cotizac", "documento", "documentacion", "liquidac", "f30", "finiquito")):
         if user.role != "admin":
             return "La consulta documental y de contratistas requiere un perfil autorizado de administración.", "permission"
-        if any(word in normalized for word in ("cotizacion", "documento", "f30", "finiquito")):
+        if any(word in normalized for word in ("cotizac", "documento", "documentacion", "liquidac", "f30", "finiquito")):
             period = _requested_month(message)
             query = (select(MonthlyDocument.review_status, func.count(MonthlyDocument.id))
                 .join(ContractorWorksite, MonthlyDocument.association_id == ContractorWorksite.id)
