@@ -168,6 +168,13 @@ def internal_reply(db: Session, user: User, message: str, history: list[str] | N
     if user.role not in {"admin", "resident"}:
         return "Este perfil no tiene acceso al asistente interno.", "permission"
     normalized = key(message)
+    if user.role == "resident":
+        permitted = {site_id for site_id, _ in _authorized_sites(db, user)}
+        org_sites = list(db.execute(select(Worksite.id, Worksite.name).where(
+            Worksite.org_id == user.org_id)).all())
+        specified_sites = _matching_sites(org_sites, normalized)
+        if any(site_id not in permitted for site_id, _ in specified_sites):
+            return "No tienes permiso para consultar la obra solicitada.", "permission"
     if any(part in normalized for part in ("contrasena", "clave secreta", "token de acceso",
                                            "credenciales", "exporta datos privados", "rut de", "password")):
         return "No puedo entregar contraseñas, credenciales ni información personal por el chat.", "permission"
