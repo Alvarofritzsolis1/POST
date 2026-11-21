@@ -128,8 +128,8 @@ export function Drawer({
       className={"nw nw-drawer" + (wide ? " nw-drawer--wide" : "") + (workspace ? " nw-drawer--workspace" : "")}
       ref={ref}
       aria-label={title}
-      onInputCapture={() => { dirty.current = true; }}
-      onChangeCapture={() => { dirty.current = true; }}
+      onInputCapture={(event) => { if (!workspace || (event.target as HTMLElement).closest(".nwc-track")) dirty.current = true; }}
+      onChangeCapture={(event) => { if (!workspace || (event.target as HTMLElement).closest(".nwc-track")) dirty.current = true; }}
       onClickCapture={(event) => {
         if ((event.target as HTMLElement).closest(".nw-quick-chip-row button, .nw-quick-priority-btn")) {
           dirty.current = true;
