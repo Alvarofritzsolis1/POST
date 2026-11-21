@@ -163,7 +163,12 @@ export default function RequirementWorkspace({
           <p>{requirement.specialty} · {requirement.workers} {requirement.workers === 1 ? "trabajador" : "trabajadores"} · Inicio {dateText(requirement.start_date)}</p>
         </div>
       </div>
-      {requirement.editable && <button className="nwc-ghost" type="button" onClick={() => { if (confirmAbandon()) onEdit(); }}><FileText size={16}/> Editar solicitud</button>}
+      <div className="nwc-header-actions">
+        <span className={"nwc-priority " + (requirement.priority === "urgent" || requirement.priority === "high" ? "is-urgent" : "")}>
+          {requirement.priority === "urgent" ? "Urgente" : requirement.priority === "high" ? "Alta prioridad" : requirement.priority === "low" ? "Baja prioridad" : "Normal"}
+        </span>
+        {requirement.editable && <button className="nwc-ghost" type="button" onClick={() => { if (confirmAbandon()) onEdit(); }}><FileText size={16}/> Editar solicitud</button>}
+      </div>
     </div>
     {data?.classification_warning && <div className="nwc-warning" role="status"><CircleAlert size={18}/>{data.classification_warning}</div>}
     <div className="nwc-kpis" aria-label="Resumen del seguimiento">
