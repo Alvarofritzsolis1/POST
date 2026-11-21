@@ -90,6 +90,18 @@ export default function RequirementWorkspace({
     setForm(init(selected));
   }, [selected?.id, selected?.tracking.version]);
 
+  useEffect(() => {
+    const sync = () => {
+      if (!document.hidden && !formChanged && !saving) void load(true);
+    };
+    const timer = window.setInterval(sync, 60000);
+    window.addEventListener("focus", sync);
+    return () => {
+      window.clearInterval(timer);
+      window.removeEventListener("focus", sync);
+    };
+  }, [load, formChanged, saving]);
+
   const filtered = useMemo(() => candidates.filter(candidate => {
     const text = [candidate.name, candidate.company, ...candidate.trades, candidate.work_area]
       .join(" ").toLocaleLowerCase("es-CL");
