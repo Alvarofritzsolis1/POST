@@ -130,9 +130,10 @@ def migrate(db):
     if not db.get(SchemaVersion, v20_9_9_network_candidates.MIGRATION_ID):
         v20_9_9_network_candidates.upgrade(db.connection())
         db.add(SchemaVersion(version=v20_9_9_network_candidates.MIGRATION_ID))
-    if not db.get(SchemaVersion, v20_9_14_contact_email.MIGRATION_ID):
-        v20_9_14_contact_email.upgrade(db.connection())
-        db.add(SchemaVersion(version=v20_9_14_contact_email.MIGRATION_ID))
+    # Idempotent CRM column reconciliation. Historical schema-version snapshots
+    # stay unchanged; this ensures optional contact fields are present even on
+    # installations where the CRM version marker already exists.
+    v20_9_14_contact_email.upgrade(db.connection())
 
 
 
