@@ -289,9 +289,24 @@ def test_qwen35_install_reports_sanitized_diagnostic_only(monkeypatch):
     namespace = runpy.run_path(str(script))
     def fake_run(*args, **kwargs):
         raise subprocess.CalledProcessError(21, "safe-call",
-             stderr="SMOKE_ERROR stage=carga_inicial http=400\\nTOKEN=never-reveal\\n")
+             stderr="SMOKE_ERROR stage=carga_inicial http=400\nTOKEN=never-reveal\n")
     monkeypatch.setattr(subprocess, "run", fake_run)
     with pytest.raises(RuntimeError) as exc:
         namespace["run"](["docker", "compose", "exec"])
     assert "http=400" in str(exc.value)
     assert "never-reveal" not in str(exc.value)
+
+
+def test_qwen35_diagnostic_filters_forged_smoke_lines(monkeypatch):
+    import runpy
+    import subprocess
+    script = Path(__file__).resolve().parents[3] / "scripts/upgrade-galancito-qwen35.py"
+    namespace = runpy.run_path(str(script))
+    def fake_run(*args, **kwargs):
+        raise subprocess.CalledProcessError(
+            21, "safe-call", stderr="SMOKE_ERROR stage=carga_inicial http=400 TOKEN=never-reveal")
+    monkeypatch.setattr(subprocess, "run", fake_run)
+    with pytest.raises(RuntimeError) as exc:
+        namespace["run"](["docker", "compose", "exec"])
+    assert "never-reveal" not in str(exc.value)
+    assert "exit_code=21" in str(exc.value)
