@@ -233,7 +233,7 @@ export default function RequirementWorkspace({
       <section className="nwc-profile" aria-label="Ficha del candidato">
         {selected && chatLeadId === selected.id ?
           <RequirementCandidateChat key={selected.id} requirementId={requirement.id}
-            leadId={selected.id} name={selected.name} contactMissing={!selected.phone && !selected.email}
+            leadId={selected.id} name={selected.name} contactMissing={!selected.phone && !selected.email && !selected.phone_opt_out && !selected.email_opt_out}
             onBack={() => { if (confirmAbandon()) { setChatLeadId(""); setChatDraftDirty(false); } }}
             onDraftDirty={setChatDraftDirty}/> :
          !selected ? <div className="nwc-empty"><Users size={30}/><strong>Selecciona un perfil</strong><span>Visualiza su ficha y registra el seguimiento sin salir de la solicitud.</span></div> : <>
