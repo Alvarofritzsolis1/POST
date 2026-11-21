@@ -256,7 +256,8 @@ def test_additive_migration_idempotent_and_persistent_after_reopen(tmp_path):
                   "ai_connections", "ai_orchestration", "ai_usage",
                   "facebook_lead_trades", "facebook_need_associations", "facebook_lead_trace",
                   "facebook_post_snapshots", "facebook_post_comments", "facebook_post_jobs",
-                  "galancito_training_rounds", "galancito_training_cases", "galancito_training_worker"}
+                  "galancito_training_rounds", "galancito_training_cases", "galancito_training_worker",
+                   "network_candidate_followups"}
     Base.metadata.create_all(engine, tables=[t for t in Base.metadata.sorted_tables if t.name not in new_tables and not t.name.startswith("network_")])
     with Session(engine) as db:
         db.add(Organization(id="legacy-org", name="Organización histórica"))
@@ -272,5 +273,5 @@ def test_additive_migration_idempotent_and_persistent_after_reopen(tmp_path):
     reopened = create_engine("sqlite+pysqlite:///" + str(path))
     with Session(reopened) as db:
         assert db.get(Organization, "legacy-org").name == "Organización histórica"
-        assert set(db.scalars(select(SchemaVersion.version))) == {"0.6.0-rc1", "0.7.0", "8.1.0", "13.1.0_documentary_configuration", "16.0.0", "16.0.1_excel_pdf_reviews", "16.6.0_independent_documental", "20.0.0_excel_master_workspace", "20.1.0_network_facebook", "20.2.0_network_facebook_tests", "20.3.0_network_facebook_optin", "20.5.0-ine", "20.7.0_facebook_crm", "20.7.1_galancito_consent", "20.7.4_galancito_followup", "20.7.5_galancito_learning", "20.8.0_ai_control_center", "20.8.1_ai_collaboration", "20.8.7_global_lightning", "20.8.8_galancito_intake", "20.9.0_galancito_links", "20.9.1_galancito_memory", "20.9.4_facebook_contact_sheet", "20.9.7_facebook_publications", "20.9.8_facebook_interactions", "20.9.10_galancito_training"}
+        assert set(db.scalars(select(SchemaVersion.version))) == {"0.6.0-rc1", "0.7.0", "8.1.0", "13.1.0_documentary_configuration", "16.0.0", "16.0.1_excel_pdf_reviews", "16.6.0_independent_documental", "20.0.0_excel_master_workspace", "20.1.0_network_facebook", "20.2.0_network_facebook_tests", "20.3.0_network_facebook_optin", "20.5.0-ine", "20.7.0_facebook_crm", "20.7.1_galancito_consent", "20.7.4_galancito_followup", "20.7.5_galancito_learning", "20.8.0_ai_control_center", "20.8.1_ai_collaboration", "20.8.7_global_lightning", "20.8.8_galancito_intake", "20.9.0_galancito_links", "20.9.1_galancito_memory", "20.9.4_facebook_contact_sheet", "20.9.7_facebook_publications", "20.9.8_facebook_interactions", "20.9.10_galancito_training", "20.9.9_network_candidates"}
     reopened.dispose()
