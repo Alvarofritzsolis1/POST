@@ -1,3 +1,10 @@
+## 20.9.13-rc1 — Red de Obras: fichas y seguimiento por requerimiento
+
+- Vista completa con candidatos y ficha interactiva, consulta de Messenger, capacidades compartidas y comentarios públicos.
+- Seguimiento por candidato y solicitud con etapa, observaciones, próxima gestión, concurrencia y auditoría.
+- Comparaciones explicadas, datos faltantes, avisos de discrepancias de oficio, filtros y roles por obra.
+- Migración aditiva; no cambia adjudicaciones ni envía mensajes automáticos.
+
 ## 20.9.10-rc3 — Conversación natural y evaluación de Galancito
 
 - Galancito pregunta en palabras, reconoce presentaciones y oficios declarados, y conserva la cuadrilla cuando la persona corrige solo su comuna.
