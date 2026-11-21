@@ -1115,3 +1115,41 @@ def test_zai_coding_plan_not_supported_for_multiuser_application(ai_env):
     })
     assert response.status_code == 422
     assert "fake-nonproduction-only" not in response.text
+
+
+def test_local_qwen35_dashboard_and_keyless_test(ai_env, monkeypatch):
+    from app import ai_configuration_api
+    client = ai_env["client"]
+    headers = signin(client)
+    monkeypatch.setenv("GALANCITO_LOCAL_AI_ENABLED", "true")
+    monkeypatch.setenv("GALANCITO_LOCAL_MODEL", "qwen3.5:4b-q4_K_M")
+    monkeypatch.setenv("FACEBOOK_AI_PROVIDER", "ollama")
+    monkeypatch.setenv("FACEBOOK_AI_ENABLED", "true")
+    settings.cache_clear()
+    monkeypatch.setattr(ai_configuration_api, "model_status",
+                        lambda: {"state": "available", "loaded": True})
+    monkeypatch.setattr(ai_configuration_api, "generate_local_text",
+                        lambda instructions, prompt, max_chars: "¡Hola, maestro!")
+    bootstrap = client.get(ROOT + "/bootstrap").json()
+    engine = bootstrap["local_engine"]
+    assert engine["model"] == "qwen3.5:4b-q4_K_M"
+    assert engine["enabled"] and engine["messenger"]
+    assert engine["status"] == "available" and engine["loaded"]
+    tested = client.post(ROOT + "/local-model/test", headers=headers)
+    assert tested.status_code == 200, tested.text
+    assert tested.json()["model"] == engine["model"]
+    assert "maestro" in tested.json()["response"]
+    settings.cache_clear()
+
+
+def test_local_qwen35_test_admin_only_and_disabled(ai_env, monkeypatch):
+    client = ai_env["client"]
+    assert client.post(ROOT + "/local-model/test").status_code == 401
+    reader = signin(client, "resident")
+    assert client.post(ROOT + "/local-model/test", headers=reader).status_code == 403
+    admin = signin(client)
+    monkeypatch.setenv("GALANCITO_LOCAL_AI_ENABLED", "false")
+    settings.cache_clear()
+    result = client.post(ROOT + "/local-model/test", headers=admin)
+    assert result.status_code == 409
+    settings.cache_clear()

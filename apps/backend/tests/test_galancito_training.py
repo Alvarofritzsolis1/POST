@@ -318,7 +318,7 @@ def test_queued_ollama_round_does_not_spend_attempts_while_model_downloads(datab
     sampler = SimpleNamespace(sample=lambda: RESOURCES.copy())
     with client_for("admin-a") as client:
         row = request_round(client, model="ollama", cases=1)
-        pending = SimpleNamespace(waiting_reason=lambda _: "Preparando Qwen")
+        pending = SimpleNamespace(waiting_reason=lambda *_: "Preparando Qwen")
         assert not galancito_trainer.process_next(database, sampler, training_model=pending)
         assert latest(client, row["id"])["reason"] == "Preparando Qwen"
         with database() as db:
