@@ -163,6 +163,48 @@ def _candidate_reply(db: Session, user: User, question: str, site_ids: list[str]
             " Estas coincidencias son sugerencias, no adjudicaciones; confirma experiencia y disponibilidad."), "candidates"
 
 
+# Navigation labels verified against App.tsx and Network.tsx navigation tables.
+# Informational only: the assistant cannot navigate or modify the current page.
+_INTERNAL_NAV = (
+    (("facebook", "publicaciones", "publicacion", "anuncios"), "Red de Obras > Facebook"),
+    (("necesidades", "necesidad"), "Red de Obras > Necesidades"),
+    (("coincidencias", "seguimiento", "postulantes", "candidatos"), "Red de Obras > Seguimiento"),
+    (("contratistas", "contratista"), "Contratistas"),
+    (("trabajadores", "trabajador"), "Trabajadores"),
+    (("asistencia",), "Control de asistencia"),
+    (("documentacion", "documental", "documentos", "f30"), "Control documental"),
+    (("cotizaciones", "cotizacion", "pagos"), "Cotizaciones y pagos"),
+    (("evaluacion administrativa", "evaluaciones"), "Evaluación administrativa"),
+    (("importacion", "importar"), "Importación masiva"),
+    (("informes", "reporte", "reportes"), "Informes"),
+    (("ine",), "INE · Contratistas activos"),
+    (("javiera",), "Proyecto JAVIERA"),
+    (("configuracion", "usuarios y permisos"), "Configuración"),
+    (("red de obras",), "Red de Obras"),
+)
+
+
+def _navigation_answer(message: str, role: str):
+    normalized = key(message)
+    if not any(phrase in normalized for phrase in (
+        "donde", "como encuentro", "en que modulo", "como ingreso",
+        "como abro", "como llego", "ir a ", "abrir ", "ubicacion de",
+    )):
+        return None
+    for terms, destination in _INTERNAL_NAV:
+        if not any(term in normalized for term in terms):
+            continue
+        # The resident UI only contains Red de Obras and its own workspace.
+        if role == "resident" and not destination.startswith("Red de Obras"):
+            return ("Ese apartado no está disponible en la navegación de residente. "
+                    "Consulta con administración si necesitas acceso a otra función."), "navigation"
+        return (f"Encuentras ese apartado en: {destination}. "
+                "Selecciona la sección desde la navegación de GALANT; "
+                "no he abierto ni modificado ninguna pantalla."), "navigation"
+    return ("No encuentro una ruta verificada para esa función. "
+            "Revisa el menú de GALANT o indica el nombre del módulo."), "navigation"
+
+
 def internal_reply(db: Session, user: User, message: str, history: list[str] | None = None):
     """Return (text, intent) for a bounded, permission-aware internal question."""
     if user.role not in {"admin", "resident"}:
@@ -178,6 +220,9 @@ def internal_reply(db: Session, user: User, message: str, history: list[str] | N
     if any(part in normalized for part in ("contrasena", "clave secreta", "token de acceso",
                                            "credenciales", "exporta datos privados", "rut de", "password")):
         return "No puedo entregar contraseñas, credenciales ni información personal por el chat.", "permission"
+    navigation = _navigation_answer(message, user.role)
+    if navigation is not None:
+        return navigation
     if any(word in normalized for word in ("version", "desplegada", "commit", "revision")):
         version = f"Versión del backend: {VERSION}."
         revision = f" Commit de compilación: {SOURCE_COMMIT}." if SOURCE_COMMIT != "unbuilt" else (
