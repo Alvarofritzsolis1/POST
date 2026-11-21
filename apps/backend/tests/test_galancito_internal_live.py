@@ -178,3 +178,21 @@ def test_resident_cannot_query_named_unauthorized_site(network):
     assert response.json()["intent"] == "permission"
     assert "No tienes permiso" in response.json()["answer"]
     assert "Necesidades vigentes" not in response.json()["answer"]
+
+
+def test_internal_navigation_uses_real_menu_and_respects_role(network):
+    n = network
+    cases = [
+        (n["admin"], "¿Dónde encuentro control de asistencia?", "Control de asistencia"),
+        (n["admin"], "¿Dónde están las publicaciones?", "Red de Obras > Facebook"),
+        (n["admin"], "¿Cómo llego a las necesidades?", "Red de Obras > Necesidades"),
+        (n["a"], "¿Dónde veo candidatos?", "Red de Obras > Seguimiento"),
+        (n["a"], "¿Dónde encuentro los documentos?", "no está disponible"),
+    ]
+    for user, question, expected in cases:
+        response = n["send"](user, "/galancito/chat", {
+            "area": "interno", "message": question,
+        })
+        assert response.status_code == 200, response.text
+        assert expected in response.json()["answer"]
+        assert response.json()["intent"] == "navigation"
