@@ -56,11 +56,12 @@ type Metrics = {
   input_tokens: number; output_tokens: number; reserved_tokens: number;
   estimated_cost_usd: number; reserved_cost_usd: number; repetition_rate: number | null; judged_turns: number;
   reply_sources: Record<string, number> | null; questions: number; repeated_questions: number;
+  cycles?: Record<string, {passed:number;failed:number;critical:number}>;
 };
 type Round = {
   id: string; state: string; target: number; completed: number; reason: string | null; next_at: string;
   created_at: string; previous_id: string | null; dataset_hash: string; leased: boolean;
-  config: { profile?: "postulantes" | "interno"; level: number; suite: string; model: Model; judge: Model; night: boolean; evaluation_version?: number; profile_review?: boolean };
+  config: { profile?: "postulantes" | "interno"; cycles?: number; cases?: number; level: number; suite: string; model: Model; judge: Model; night: boolean; evaluation_version?: number; profile_review?: boolean };
   metrics: Metrics;
 };
 type Overview = {
@@ -81,7 +82,7 @@ type Case = {
 };
 type Failures = { cases: Case[]; more: boolean; proposals: Record<string, string> };
 const defaults = {
-  profile: "postulantes" as "postulantes" | "interno", level: 1, cases: 100, suite: "reference", seed: "",
+  profile: "postulantes" as "postulantes" | "interno", level: 1, cases: 100, cycles: 1, suite: "reference", seed: "",
   model: "ollama", judge: "rules", corrector: "rules", profile_review: false, night_start: 23, night_end: 7, minutes: 480,
   concurrency: 0, ram_limit_mb: 0, cpu_limit_percent: 75, token_budget: 6000000, cost_budget: 0,
 };
@@ -160,6 +161,10 @@ export default function GalancitoTraining({ back }: { back: () => void }) {
   function start(night: boolean) {
     const formElement = document.getElementById("galancito-training-form") as HTMLFormElement | null;
     if (!formElement?.reportValidity()) return;
+    if (form.cases * form.cycles > 10000) {
+      setError("Máximo 10.000 casos en total por ejecución. Reduce los casos o los ciclos.");
+      return;
+    }
     void perform(async () => {
       const row = await json<Round>("/rounds", { ...form, night, seed: form.seed === "" ? null : Number(form.seed) });
       setSelection(row.id);
@@ -208,7 +213,7 @@ export default function GalancitoTraining({ back }: { back: () => void }) {
           className={"training-profile-tab" + (form.profile === profile ? " is-active" : "")}
           onClick={() => {
             setForm(prev => ({ ...prev, profile, judge: "rules", corrector: "rules", profile_review: false,
-              cases: profile === "interno" ? 400 : 100 }));
+              cases: profile === "interno" ? 400 : 100, cycles: 1 }));
             setSelection(null); setFailures(null);
           }}>
           {profiles[profile]}
@@ -241,7 +246,11 @@ export default function GalancitoTraining({ back }: { back: () => void }) {
             <label>Nivel<select value={form.level} onChange={event => setForm({ ...form, level: Number(event.target.value) })}>
               {levels.map((level, index) => <option key={level} value={index + 1}>{index + 1} · {level}</option>)}
             </select></label>
-            <label>Casos objetivo<input required min="1" max="10000" type="number" value={form.cases} onChange={event => setForm({ ...form, cases: Number(event.target.value) })} /></label>
+            <label>Casos por ciclo<input required min="1" max="10000" type="number" value={form.cases} onChange={event => setForm({ ...form, cases: Number(event.target.value) })} /></label>
+            {form.profile === "interno" && <label>Ciclos de evaluación<select value={form.cycles}
+              onChange={event => setForm({ ...form, cycles: Number(event.target.value) })}>
+              {[1,5,10,20,40].map(value => <option value={value} key={value}>{value} {value === 1 ? "ciclo" : "ciclos"}</option>)}
+            </select></label>}
             <label>Conjunto<select value={form.suite} onChange={event => setForm({ ...form, suite: event.target.value })}>
               {Object.entries(suites).map(([key, label]) => <option key={key} value={key}>{label}</option>)}
             </select></label>
@@ -268,6 +277,10 @@ export default function GalancitoTraining({ back }: { back: () => void }) {
               </label>)}
             </div>
           </details>
+          {form.profile === "interno" && <p className="training-muted">
+            Total previsto: <strong>{number(form.cases * form.cycles)} evaluaciones</strong>.
+            Los ciclos son pruebas repetidas: no modifican los pesos del modelo ni se aplican cambios sin aprobación.
+          </p>}
           <div className="training-actions">
             <button type="submit" className="gc-primary" disabled={busy || Boolean(active)}><Play size={16} /> Iniciar entrenamiento</button>
             <button type="button" className="gc-secondary" disabled={busy || Boolean(active)} onClick={() => start(true)}><Moon size={16} /> Entrenamiento nocturno</button>
@@ -284,6 +297,16 @@ export default function GalancitoTraining({ back }: { back: () => void }) {
             <span>{profiles[round.config.profile ?? "postulantes"]} · {suites[round.config.suite]} · Nivel {round.config.level} · {round.config.model.model}</span>
             <progress aria-label="Casos completados" value={round.completed} max={round.target} />
           </div>
+          {(round.config.profile === "interno") && stats?.cycles && Object.keys(stats.cycles).length > 0 &&
+            <details className="training-details"><summary>Resultados por ciclo · {Object.keys(stats.cycles).length} registrados</summary>
+              <div className="training-cycle-results">
+                {Object.entries(stats.cycles).sort((a,b) => Number(a[0]) - Number(b[0])).map(([cycle, result]) =>
+                  <div key={cycle}><span>Ciclo {cycle}</span>
+                    <strong>{number(result.passed)} correctos / {number(result.passed + result.failed)}</strong>
+                    <small>{number(result.critical)} alertas críticas</small>
+                  </div>)}
+              </div>
+            </details>}
           {round.reason && <p className={round.state === "error" ? "ai-error" : "training-muted"}>{round.reason}
             {round.state === "queued" && round.config.night ? " · " + timestamp(round.next_at) : ""}</p>}
           <dl className="training-metrics">
