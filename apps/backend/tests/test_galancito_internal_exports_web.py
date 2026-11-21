@@ -150,3 +150,20 @@ def test_spreadsheet_and_docx_escape_user_supplied_formulas_and_xml_controls():
         ET.fromstring(xml)
         assert b"HYPERLINK" in xml
         assert b"\x01" not in xml
+
+
+def test_external_search_does_not_send_private_worksite_names(network, monkeypatch):
+    n = network
+    monkeypatch.setenv("GALANCITO_BRAVE_SEARCH_API_KEY", "synthetic-key-only")
+    calls = []
+    monkeypatch.setattr("app.galancito_api.public_search",
+                        lambda query: calls.append(query))
+    denied = n["send"](n["admin"], "/galancito/chat", {
+        "area": "interno",
+        "message": "Investiga normativas de Brisas de Junquillar",
+        "allow_web": True,
+    })
+    assert denied.status_code == 200, denied.text
+    assert "datos internos de GALANT" in denied.json()["answer"]
+    assert denied.json()["source"] == "local"
+    assert not calls
