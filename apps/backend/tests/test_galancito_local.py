@@ -144,9 +144,89 @@ def test_red_de_obras_local_ai_without_external_api(network, monkeypatch):
 def test_compose_optional_memory_cpu_and_no_published_port():
     file = Path(__file__).resolve().parents[3] / "docker-compose.preview.yml"
     text = file.read_text()
-    section = text.split("  galancito-ollama:\n",1)[1].split("\n  frontend:",1)[0]
-    for expected in ['profiles: [local-ai]', 'mem_limit: 3g', 'cpus: 1.5',
+    section = text.split("  galancito-ollama:\n",1)[1].split("\n  galancito-trainer:",1)[0]
+    for expected in ['profiles: [local-ai]', 'mem_limit: ${GALANCITO_OLLAMA_MEM_LIMIT:-3g}', 'cpus: ${GALANCITO_OLLAMA_CPUS:-1.5}',
                      'OLLAMA_NUM_PARALLEL: "1"', 'OLLAMA_MAX_QUEUE: "2"',
                      'OLLAMA_KEEP_ALIVE: ${GALANCITO_KEEP_ALIVE:-2m}', 'galancito_models:/root/.ollama']:
         assert expected in section
     assert "ports:" not in section
+
+
+def test_qwen35_candidate_private_and_training_unchanged(monkeypatch):
+    from app.config import Settings
+    cfg = Settings(galancito_local_model="qwen3.5:4b-q4_K_M", galancito_timeout_seconds=45)
+    calls = []
+
+    class Response:
+        def __enter__(self): return self
+        def __exit__(self, *args): return False
+        def read(self, length): return b'{"message":{"content":"Hola, maestro."}}'
+
+    def fake_open(req, timeout):
+        calls.append((req.full_url, json.loads(req.data), timeout))
+        return Response()
+
+    monkeypatch.setattr(galancito_local._opener, "open", fake_open)
+    monkeypatch.setattr(galancito_local, "settings", lambda: cfg)
+    monkeypatch.setattr(galancito_local, "available_memory_mb", lambda: 8192)
+    assert galancito_local.generate_local_text("Responde breve", "hola") == "Hola, maestro."
+    assert calls[0][0] == galancito_local.INTERNAL_URL
+    assert calls[0][1]["model"] == "qwen3.5:4b-q4_K_M"
+    assert calls[0][1]["think"] is False
+    assert calls[0][2] == 45
+    galancito_local.generate_training_text("Sistema", "hola", 42, cfg)
+    assert calls[1][0] == galancito_local.TRAINING_OLLAMA + "/api/chat"
+    assert calls[1][1]["model"] == "qwen3:1.7b"
+    with pytest.raises(ValueError):
+        Settings(galancito_local_model="arbitrary-model")
+
+
+def test_qwen35_messenger_never_selects_external_team(monkeypatch):
+    from app.config import Settings
+    cfg = Settings(galancito_local_model="qwen3.5:4b-q4_K_M",
+                   facebook_ai_enabled=True, facebook_ai_provider="ollama",
+                   galancito_local_ai_enabled=True)
+    def forbidden(*args):
+        raise AssertionError("Do not select external team for local candidate")
+    monkeypatch.setattr(facebook_ai, "orchestration_selected", forbidden)
+    assert facebook_ai.messenger_ai_source(None, "org", cfg) == "ollama"
+    assert facebook_ai.messenger_ai_source(None, "org", cfg.model_copy(update={"facebook_ai_provider": "openai"})) == "disabled"
+
+
+def test_qwen35_upgrade_preflight_is_read_only(monkeypatch, tmp_path):
+    import runpy
+    import sys
+    script = Path(__file__).resolve().parents[3] / "scripts/upgrade-galancito-qwen35.py"
+    ns = runpy.run_path(str(script))
+    entered = []
+    monkeypatch.setitem(ns["main"].__globals__, "preflight", lambda: entered.append("check"))
+    monkeypatch.setitem(ns["main"].__globals__, "activate",
+                        lambda: pytest.fail("Default must not activate"))
+    monkeypatch.setattr(sys, "argv", [str(script)])
+    ns["main"]()
+    assert entered == ["check"]
+
+
+def test_qwen35_upgrade_restores_environment_bytes(monkeypatch, tmp_path):
+    import runpy
+    script = Path(__file__).resolve().parents[3] / "scripts/upgrade-galancito-qwen35.py"
+    ns = runpy.run_path(str(script))
+    target = tmp_path / ".env.preview"
+    target.write_bytes(b"TEST=changed\n")
+    g = ns["restore_env"].__globals__
+    monkeypatch.setitem(g, "ENV", target)
+    monkeypatch.setitem(g, "ROOT", tmp_path)
+    original = b"# comment\nTEST=previous\n"
+    ns["restore_env"](original)
+    assert target.read_bytes() == original
+    assert target.stat().st_mode & 0o777 == 0o600
+
+
+def test_upgrade_preserves_javiera_compose_overlay():
+    import runpy
+    from pathlib import Path
+    root = Path(__file__).resolve().parents[3]
+    ns = runpy.run_path(str(root / "scripts/upgrade-galancito-qwen35.py"))
+    assert str(root / "docker-compose.preview.yml") in ns["COMPOSE"]
+    assert str(root / "docker-compose.javiera20.yml") in ns["COMPOSE"]
+    assert str(root / ".env.javiera20") in ns["COMPOSE"]

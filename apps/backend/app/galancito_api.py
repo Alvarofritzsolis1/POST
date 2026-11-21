@@ -171,7 +171,8 @@ def galancito_status(user: User = Depends(authorized_user), db: Session = Depend
         db.commit()
     cfg = settings()
     available = galancito_red_ai_available(cfg)
-    team_available = orchestration_available(db, user.org_id, "red_obras")
+    team_available = (cfg.galancito_local_model != "qwen3.5:4b-q4_K_M" and
+                      orchestration_available(db, user.org_id, "red_obras"))
     policy = db.get(AIOrchestration, user.org_id)
     selected_team = bool(policy and policy.enabled and (policy.task_routes or {}).get("red_obras"))
     return {"name": "Galancito",
@@ -283,7 +284,8 @@ def galancito_chat(body: ChatInput, user: User = Depends(authorized_user),
     db_ms = (perf_counter() - started) * 1000
     cfg = settings()
     available = galancito_red_ai_available(cfg)
-    team_available = orchestration_available(db, user.org_id, "red_obras")
+    team_available = (cfg.galancito_local_model != "qwen3.5:4b-q4_K_M" and
+                      orchestration_available(db, user.org_id, "red_obras"))
     policy = db.get(AIOrchestration, user.org_id)
     selected_team = bool(policy and policy.enabled and (policy.task_routes or {}).get("red_obras"))
     # Datos de identidad/documentación involuntarios se mantienen locales.
@@ -310,6 +312,7 @@ def galancito_chat(body: ChatInput, user: User = Depends(authorized_user),
     # Once an admin selects the new team, legacy paid providers must NOT
     # bypass its quota or a failed reviewer. Local Ollama remains permitted.
     use_legacy = available and not private_pattern and (
+        cfg.galancito_local_model != "qwen3.5:4b-q4_K_M" or cfg.galancito_ai_provider == "ollama") and (
         cfg.galancito_ai_provider == "ollama" or
         (body.allow_external_ai and not selected_team))
     use_model = use_team or use_legacy

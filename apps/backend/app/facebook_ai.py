@@ -143,6 +143,8 @@ def messenger_ai_source(db, org_id: str, cfg=None) -> str:
     cfg = cfg or settings()
     if not cfg.facebook_ai_enabled:
         return "disabled"
+    if cfg.galancito_local_model == "qwen3.5:4b-q4_K_M":
+        return "ollama" if cfg.facebook_ai_provider == "ollama" and facebook_reply_ai_available(cfg) else "disabled"
     if orchestration_selected(db, org_id, "messenger"):
         return "team" if orchestration_available(db, org_id, "messenger") else "disabled"
     return cfg.facebook_ai_provider if facebook_reply_ai_available(cfg) else "disabled"
