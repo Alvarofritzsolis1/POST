@@ -66,7 +66,7 @@ def summarize(metrics: dict, profile: str = "postulantes") -> dict:
         "passed": metrics.get("passed", 0), "failed": metrics.get("failed", 0),
         "turns": turns, "fields": fields, "correct_fields": metrics.get("correct_fields", 0),
         "profile_accuracy": round(metrics.get("correct_fields", 0) / fields, 4) if fields else None,
-        "dimensions": ratios, "score": score,
+        "dimensions": ratios, "score": score, "cycles": metrics.get("cycles", {}),
         "questions": questions, "repeated_questions": metrics.get("repeated_questions", 0),
         "repetition_rate": round(metrics.get("repeated_questions", 0) / questions, 4) if questions else None,
         "pending_prompt_repeats": metrics.get("pending_repeats"),
