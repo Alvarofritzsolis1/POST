@@ -1,4 +1,4 @@
-"""Qwen3 1.7B on the PRIVATE Ollama Docker network.
+"""Allowlisted Qwen models on the PRIVATE Ollama Docker network.
 
 Production callers: Messenger replies and Red de Obras. The training worker uses a separate server.
 Never accepts an arbitrary model, host, URL, or general GALANT business action.
@@ -17,7 +17,7 @@ from urllib.error import HTTPError, URLError
 from urllib.request import HTTPRedirectHandler, ProxyHandler, Request, build_opener
 from .config import settings
 
-MODEL = "qwen3:1.7b"
+MODEL = "qwen3:1.7b"  # isolated training baseline, unchanged for existing rounds
 INTERNAL_URL = "http://galancito-ollama:11434/api/chat"
 TRAINING_OLLAMA = "http://galancito-training-ollama:11434"
 MAX_CONTEXT_CHARS = 3000
@@ -66,7 +66,7 @@ def model_status() -> dict:
         with _opener.open(Request(INTERNAL_URL.replace("/api/chat", "/api/ps")), timeout=1) as response:
             result = json.loads(response.read(16384))
         models = result.get("models", [])
-        active = next((m for m in models if m.get("name") == MODEL), None)
+        active = next((m for m in models if m.get("name") == settings().galancito_local_model), None)
         return {"state": "available", "loaded": bool(active),
                 "model_ram_bytes": active.get("size") if active else 0}
     except (OSError, ValueError, AttributeError, TypeError):
@@ -86,7 +86,7 @@ def generate_local_text(instructions: str, data: str,
         # An empty chat with keep_alive=0 unloads an existing model, without
         # asking Ollama to generate or preload it under memory pressure.
         try:
-            unload = Request(INTERNAL_URL, data=json.dumps({"model": MODEL, "keep_alive": 0}).encode(),
+            unload = Request(INTERNAL_URL, data=json.dumps({"model": cfg.galancito_local_model, "keep_alive": 0}).encode(),
                              headers={"Content-Type": "application/json"}, method="POST")
             with _opener.open(unload, timeout=1):
                 pass
@@ -104,7 +104,7 @@ def generate_local_text(instructions: str, data: str,
 
 def _generate(instructions, data, max_chars, cfg, *, url=None, seed=None, allow_training=False):
     payload = {
-        "model": MODEL,
+        "model": MODEL if allow_training else cfg.galancito_local_model,
         "messages": [
             {"role": "system", "content": instructions[:4000 if allow_training else MAX_INSTRUCTIONS_CHARS]},
             {"role": "user", "content": data[:MAX_CONTEXT_CHARS]},
@@ -128,7 +128,7 @@ def _generate(instructions, data, max_chars, cfg, *, url=None, seed=None, allow_
     started = time.perf_counter()
     record_model_attempt(external=False)
     try:
-        with _opener.open(request, timeout=120 if allow_training else min(cfg.galancito_timeout_seconds, 8)) as response:
+        with _opener.open(request, timeout=120 if allow_training else min(cfg.galancito_timeout_seconds, 8 if cfg.galancito_local_model == MODEL else 60)) as response:
             result = json.loads(response.read(100000).decode("utf-8"))
     except (HTTPError, URLError, TimeoutError, OSError, ValueError):
         # No incluir mensajes de trabajadores, secretos o direcciones internas en logs.
