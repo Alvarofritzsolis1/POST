@@ -4,7 +4,8 @@ No arbitrary model-generated SQL, external HTTP, or private Messenger contents.
 Callers receive deterministic answers from actual authorized rows, or an
 explicit explanation of a missing capability.
 """
-from collections import Counter
+import re
+from datetime import date, timedelta
 from sqlalchemy import func, select
 from sqlalchemy.orm import Session
 
@@ -53,13 +54,29 @@ def _site_scope(db: Session, user: User, message: str, history: list[str]):
     return sites, False
 
 
+MONTHS = ("enero", "febrero", "marzo", "abril", "mayo", "junio", "julio",
+          "agosto", "septiembre", "octubre", "noviembre", "diciembre")
+
+
+def _requested_month(message: str):
+    """Apply an explicit Chilean month/year; never silently filter a whole archive."""
+    normalized = key(message)
+    base = today()
+    if "mes pasado" in normalized or "mes anterior" in normalized:
+        previous = base.replace(day=1) - timedelta(days=1)
+        return f"{previous.year:04}-{previous.month:02}"
+    if "este mes" in normalized or "mes actual" in normalized:
+        return f"{base.year:04}-{base.month:02}"
+    found = next((index for index, name in enumerate(MONTHS, 1)
+                  if re.search(r"\\b" + name + r"\\b", normalized)), None)
+    if found is None:
+        return None
+    year = re.search(r"\\b(20[0-9]{2})\\b", normalized)
+    return f"{int(year.group(1)) if year else base.year:04}-{found:02}"
+
+
 def _counts(db, user: User, site_ids: list[str]):
     org = user.org_id
-    states = dict(db.execute(
-        select(NetworkRequirement.state, func.count(NetworkRequirement.id))
-        .where(NetworkRequirement.org_id == org, NetworkRequirement.site_id.in_(site_ids))
-        .group_by(NetworkRequirement.state)
-    ).all())
     active = db.scalar(select(func.count(NetworkRequirement.id)).where(
         NetworkRequirement.org_id == org, NetworkRequirement.site_id.in_(site_ids),
         NetworkRequirement.state == "published", NetworkRequirement.end_date >= today()
@@ -88,7 +105,7 @@ def _counts(db, user: User, site_ids: list[str]):
                NetworkRequirement.site_id.in_(site_ids),
                NetworkCandidateFollowUp.follow_up_on <= today())
     ) or 0
-    return {"needs": states, "active": active, "urgent": urgent, "overdue": overdue,
+    return {"active": active, "urgent": urgent, "overdue": overdue,
             "posts": posts, "followups_due": due}
 
 
@@ -151,12 +168,16 @@ def internal_reply(db: Session, user: User, message: str, history: list[str] | N
         if user.role != "admin":
             return "La consulta documental y de contratistas requiere un perfil autorizado de administración.", "permission"
         if any(word in normalized for word in ("cotizacion", "documento", "f30", "finiquito")):
-            data = dict(db.execute(select(MonthlyDocument.review_status, func.count(MonthlyDocument.id))
+            period = _requested_month(message)
+            query = (select(MonthlyDocument.review_status, func.count(MonthlyDocument.id))
                 .join(ContractorWorksite, MonthlyDocument.association_id == ContractorWorksite.id)
                 .where(MonthlyDocument.org_id == user.org_id, ContractorWorksite.org_id == user.org_id,
-                       ContractorWorksite.worksite_id.in_(ids))
-                .group_by(MonthlyDocument.review_status)).all())
-            return (f"Documentos mensuales registrados para {label}, agrupados por estado de revisión: "
+                       ContractorWorksite.worksite_id.in_(ids)))
+            if period:
+                query = query.where(MonthlyDocument.period == period)
+            data = dict(db.execute(query.group_by(MonthlyDocument.review_status)).all())
+            period_label = f"período {period}" if period else "todos los períodos"
+            return (f"Documentos mensuales registrados para {label} ({period_label}), por estado de revisión: "
                     + (", ".join(f"{status}: {count}" for status, count in sorted(data.items()))
                        or "sin documentos registrados") +
                     ". No equivale a certificar cumplimiento ni a determinar documentos faltantes sin una matriz de exigencias."), "documents"
