@@ -164,3 +164,17 @@ def test_internal_candidate_summary_reuses_authorized_matching(network):
     assert denied.status_code == 200
     assert "No hay necesidades publicadas" in denied.json()["answer"]
     assert "Carpinteros para terminaciones - prueba" not in denied.json()["answer"]
+
+
+def test_resident_cannot_query_named_unauthorized_site(network):
+    n = network
+    assert n["send"](n["b"], "/requirements", {
+        **request_body(n), "site_id": n["sites"][1]
+    }).status_code == 201
+    response = n["send"](n["a"], "/galancito/chat", {
+        "message": "¿Cuántas necesidades tiene Lomas Verdes?", "area": "interno",
+    })
+    assert response.status_code == 200
+    assert response.json()["intent"] == "permission"
+    assert "No tienes permiso" in response.json()["answer"]
+    assert "Necesidades vigentes" not in response.json()["answer"]
