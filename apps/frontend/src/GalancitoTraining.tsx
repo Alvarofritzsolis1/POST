@@ -12,7 +12,7 @@ const labels: Record<string, string> = {
   paused: "Pausado", completed: "Completado", stopped: "Detenido", error: "Error",
 };
 const internalDimensions: Record<string, string> = {
-  accuracy: "Exactitud factual", tools: "Evidencia y herramientas", context: "Contexto",
+  accuracy: "Exactitud factual", grounding: "Evidencia simulada", context: "Contexto",
   usefulness: "Utilidad", security: "Seguridad", limits: "Reconoce límites",
 };
 const profiles: Record<string, string> = { postulantes: "Postulantes", interno: "Interno 360°" };
