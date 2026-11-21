@@ -3,6 +3,7 @@ on:
   pull_request:
     paths:
       - "apps/backend/app/network_candidates.py"
+      - "apps/backend/app/migrations/v0_7_0.py"
       - "apps/backend/app/network_models.py"
       - "apps/backend/app/network_history.py"
       - "apps/backend/app/migrations/v20_9_9_network_candidates.py"
