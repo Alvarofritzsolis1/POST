@@ -1,14 +1,14 @@
 import { useEffect, useRef, useState, type FormEvent } from "react";
-import { Bot, MessageCircle, Send, ShieldCheck, Sparkles, X, Maximize2, Minimize2, RotateCcw } from "lucide-react";
-import { ApiError, request } from "./api";
+import { Bot, MessageCircle, Send, ShieldCheck, Sparkles, X, Maximize2, Minimize2, RotateCcw, Download } from "lucide-react";
+import { ApiError, request, downloadInternalReport } from "./api";
 import { change, net } from "./networkApi";
 import "./galancito.css";
 
 type Area = "red_obras" | "interno";
-type ChatLine = { role: "user" | "assistant"; text: string; runId?: string; question?: string; rated?: boolean };
+type ChatLine = { role: "user" | "assistant"; text: string; runId?: string; question?: string; rated?: boolean; reportable?: boolean };
 type Reply = { name: string; answer: string; source: string; notice?: string; run_id?: string;
-  references?: {id: string; version: number; title: string}[] };
-type Status = { name: string; local_ai_available: boolean; external_ai_available: boolean; read_only: boolean; can_teach?: boolean; internal_available?: boolean };
+  references?: {id: string; version: number; title: string}[]; reportable?: boolean };
+type Status = { name: string; local_ai_available: boolean; external_ai_available: boolean; read_only: boolean; can_teach?: boolean; internal_available?: boolean; web_available?: boolean };
 const EXAMPLES = [
   "¿Cómo publicar una necesidad?",
   "¿Qué documentos necesita un contratista?",
@@ -24,6 +24,8 @@ export default function GalancitoWidget({ area = "red_obras" }: { area?: Area })
   const [history, setHistory] = useState<ChatLine[]>([]);
   const [status, setStatus] = useState<Status | null>(null);
   const [consent, setConsent] = useState(false);
+  const [webConsent, setWebConsent] = useState(false);
+  const [exporting, setExporting] = useState(false);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState("");
   const [correcting, setCorrecting] = useState<number | null>(null);
@@ -62,10 +64,11 @@ export default function GalancitoWidget({ area = "red_obras" }: { area?: Area })
         history: mode === "interno" ? history.filter(item => item.role === "user").slice(-4).map(item =>
           ({role: "user", text: item.text.slice(0, 500)})) : [],
         allow_external_ai: mode === "red_obras" && consent && !!status?.external_ai_available,
+        allow_web: mode === "interno" && webConsent && !!status?.web_available,
         }),
       });
       setHistory((prev) => [...prev, {role: "assistant", runId: reply.run_id, question,
-        text: reply.answer + (reply.references?.length ? "\nReferencia: " + reply.references.map(r => `${r.title} (v${r.version})`).join(", ") : "") +
+        reportable: mode === "interno" && Boolean(reply.reportable), text: reply.answer + (reply.references?.length ? "\nReferencia: " + reply.references.map(r => `${r.title} (v${r.version})`).join(", ") : "") +
         (reply.notice ? "\n" + reply.notice : "")}]);
     } catch (err) {
       setLastFailed(question);
@@ -74,7 +77,7 @@ export default function GalancitoWidget({ area = "red_obras" }: { area?: Area })
           ? "La consulta superó los 30 segundos. No recibí una respuesta; puedes reintentar cuando el modelo tenga más recursos."
           : "No pude conectar con GALANT. Revisa la conexión o vuelve a intentar; no se confirmó ningún cambio."}]);
       setError(err instanceof ApiError ? `Error de conexión o servidor (HTTP ${err.status}). Puedes reintentar la última consulta.` : "La consulta no se completó. Puedes reintentar.");
-    } finally { window.clearTimeout(deadline); setBusy(false); }
+    } finally { window.clearTimeout(deadline); setBusy(false); setWebConsent(false); }
   }
 
   async function rate(index: number, rating: "useful" | "incorrect", proposed?: string) {
@@ -91,6 +94,24 @@ export default function GalancitoWidget({ area = "red_obras" }: { area?: Area })
       setFeedbackNotice(proposed ? "Corrección guardada como pendiente. Apruébala en Conocimientos." : "Evaluación guardada.");
     } catch { setFeedbackNotice("No se pudo guardar. Revisa que la corrección no incluya datos privados."); }
     finally { setFeedbackBusy(false); }
+  }
+
+  async function exportLine(question: string, kind: "pdf"|"xlsx"|"docx") {
+    if (exporting) return;
+    setExporting(true); setError("");
+    try {
+      const blob = await downloadInternalReport(question, kind);
+      const href = URL.createObjectURL(blob);
+      const link = document.createElement("a");
+      link.href = href;
+      link.download = "galant-informe-" + new Date().toISOString().slice(0,10) + "." + kind;
+      document.body.appendChild(link);
+      link.click();
+      link.remove();
+      window.setTimeout(() => URL.revokeObjectURL(href), 2000);
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "No fue posible exportar este informe.");
+    } finally { setExporting(false); }
   }
 
   function askExample(value: string) { setMessage(value); setOpen(true); }
@@ -131,6 +152,15 @@ export default function GalancitoWidget({ area = "red_obras" }: { area?: Area })
         {history.map((entry,i) => <div key={i} className={"galancito-bubble " + entry.role}>
           <span>{entry.role === "assistant" ? "Galancito" : "Tú"}</span>
           <p>{entry.text}</p>
+          {mode === "interno" && entry.reportable && entry.question && <details className="galancito-export">
+            <summary><Download size={14}/> Exportar informe</summary>
+            <div className="galancito-export-options">
+              {(["pdf", "xlsx", "docx"] as const).map(kind => <button type="button" key={kind}
+                disabled={exporting} onClick={() => void exportLine(entry.question!, kind)}>
+                {kind.toUpperCase()}
+              </button>)}
+            </div>
+          </details>}
           {entry.runId && mode === "red_obras" && <div className="galancito-feedback" aria-label="Evaluar respuesta">
             <button type="button" disabled={feedbackBusy || entry.rated} onClick={() => void rate(i, "useful")}>Útil</button>
             <button type="button" disabled={feedbackBusy || entry.rated} onClick={() => void rate(i, "incorrect")}>Incorrecta</button>
@@ -153,7 +183,12 @@ export default function GalancitoWidget({ area = "red_obras" }: { area?: Area })
           onChange={(e) => setConsent(e.target.checked)} disabled={!status?.external_ai_available}/>
           <span>Permitir modelo externo en esta conversación</span>
         </label>}
-        <small>{mode === "interno" ? "Consultas a registros autorizados. No compartas secretos ni datos personales." : "No ingreses RUT, claves ni documentos personales."}</small>
+        {mode === "interno" && status?.web_available && <label className="galancito-privacy">
+          <input type="checkbox" checked={webConsent} disabled={busy}
+            onChange={event => setWebConsent(event.target.checked)} />
+          <span>Buscar en internet (envía solo esta pregunta al buscador público)</span>
+        </label>}
+        <small>{mode === "interno" ? "Consultas a registros autorizados. Para búsqueda pública, no incluyas datos personales ni de las obras." : "No ingreses RUT, claves ni documentos personales."}</small>
         <div className="galancito-input-row">
           <input aria-label="Escribe tu pregunta a Galancito" value={message}
             onChange={(e) => setMessage(e.target.value)}
