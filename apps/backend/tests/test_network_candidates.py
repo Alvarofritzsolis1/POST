@@ -77,3 +77,12 @@ def test_worksite_specialty_conflict_is_advisory_only(network):
                          "/requirements/" + requirement["id"],
                          method="GET").json()
     assert original["specialty"] == "Electricidad"
+
+
+def test_original_network_migration_cannot_create_new_candidate_table():
+    """0.7 must not try to create the candidate foreign key before Facebook CRM."""
+    from app.migrations.v0_7_0 import LEGACY_NETWORK_TABLES
+
+    assert "network_requirements" in LEGACY_NETWORK_TABLES
+    assert "network_candidate_followups" not in LEGACY_NETWORK_TABLES
+    assert "network_facebook_posts" not in LEGACY_NETWORK_TABLES
