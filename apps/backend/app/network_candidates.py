@@ -202,8 +202,12 @@ def requirement_candidates(
                 "email": lead.email_source or "",
             },
             "contact_action": (
-                "Se puede coordinar por teléfono o correo."
-                if lead.contact_phone or lead.contact_email else
+                "Teléfono y correo disponibles para coordinación."
+                if lead.contact_phone and lead.contact_email else
+                "Teléfono disponible para coordinación."
+                if lead.contact_phone else
+                "Correo disponible para coordinación."
+                if lead.contact_email else
                 "Aún falta teléfono o correo. Conversar primero por Messenger y, si se acuerda coordinar, ofrecer compartir el medio que prefiera."
                 if not (lead.phone_opt_out and lead.email_opt_out) else
                 "Prefirió no facilitar teléfono ni correo; continuar por Messenger si está permitido."
