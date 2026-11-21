@@ -9,7 +9,7 @@ from zoneinfo import ZoneInfo
 from time import perf_counter
 import json
 
-from fastapi import APIRouter, Depends, HTTPException
+from fastapi import APIRouter, Depends, HTTPException, Response
 from pydantic import BaseModel, Field
 from sqlalchemy import select, func
 from sqlalchemy.orm import Session
@@ -29,6 +29,8 @@ from .galancito_knowledge import retrieve, exact_answer, evidence_context, publi
 from .galancito_local import last_timings
 from .galancito_runtime import infer, record_run
 from .galancito_internal_live import internal_reply
+from .galancito_web import WebSearchUnavailable, public_search, format_public_search, web_available
+from .galancito_reports import MIME_TYPES, internal_report, export_internal_report
 from .ai_gateway import orchestration_available, orchestrated_text
 from .ai_global_lightning import sync_org as sync_org_global_lightning
 from .ai_models import AIOrchestration
@@ -72,6 +74,7 @@ class ChatInput(BaseModel):
     message: str = Field(min_length=2, max_length=800)
     area: Literal["red_obras", "interno"] = "red_obras"
     allow_external_ai: bool = False
+    allow_web: bool = False
     # Bounded, client-side context: never grants permission or runs as commands.
     history: list[ContextTurn] = Field(default_factory=list, max_length=6)
 
@@ -189,8 +192,35 @@ def galancito_status(user: User = Depends(authorized_user), db: Session = Depend
             "ai_team_available": team_available,
             "scope": "red_obras",
             "internal_available": user.role in {"admin", "resident"},
+            "web_available": web_available() and user.role in {"admin", "resident"},
             "can_teach": user.role == "admin",
             "read_only": True}
+
+
+class ReportRequest(BaseModel):
+    question: str = Field(min_length=3, max_length=800)
+    kind: Literal["pdf", "xlsx", "docx"]
+
+
+@router.post("/report")
+def galancito_report(body: ReportRequest, user: User = Depends(authorized_user),
+                     db: Session = Depends(get_db)):
+    if user.role not in {"admin", "resident"}:
+        raise HTTPException(403, "No tienes permiso para generar informes internos")
+    try:
+        report = internal_report(db, user, body.question)
+        payload = export_internal_report(report, body.kind)
+    except ValueError as exc:
+        raise HTTPException(422, str(exc)) from None
+    filename = f"galant-informe-{today().isoformat()}.{body.kind}"
+    return Response(
+        content=payload, media_type=MIME_TYPES[body.kind],
+        headers={
+            "Content-Disposition": f'attachment; filename="{filename}"',
+            "Cache-Control": "private, no-store",
+            "X-Content-Type-Options": "nosniff",
+        },
+    )
 
 
 @router.post("/chat")
@@ -203,11 +233,19 @@ def galancito_chat(body: ChatInput, user: User = Depends(authorized_user),
         # Only previous user prompts are used to resolve an ellipsis ("¿y cuáles?").
         # Assistant-generated content is never trusted as an authorization source.
         user_context = [turn.text for turn in body.history if turn.role == "user"]
-        answer, intent = internal_reply(db, user, body.message.strip(), user_context)
+        if body.allow_web:
+            try:
+                results = public_search(body.message)
+                answer, intent, source = format_public_search(results), "external_web", "public_web"
+            except WebSearchUnavailable as exc:
+                answer, intent, source = str(exc), "external_unavailable", "local"
+        else:
+            answer, intent = internal_reply(db, user, body.message.strip(), user_context)
+            source = "verified_local"
         run = record_run(db, org_id=user.org_id, user_id=user.id, channel="galant_internal",
-                         source="verified_local", intent=intent, started=started)
+                         source=source, intent=intent, started=started)
         db.commit()
-        return {"name": "Galancito Interno", "answer": answer, "source": "verified_local",
+        return {"name": "Galancito Interno", "answer": answer, "source": source,
                 "read_only": True, "run_id": run.id, "references": [],
                 "notice": None}
     if sync_org_global_lightning(db, user.org_id):
