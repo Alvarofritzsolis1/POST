@@ -139,3 +139,18 @@ def test_worksite_scoped_chat_and_resident_reply_queue(network, monkeypatch):
         row = db.get(FacebookChatMessage, queued.json()["id"])
         assert row.operator_id
         assert row.state == "pending"
+
+
+
+def test_candidate_contact_opt_out_is_respected(network):
+    """Missing phone/email is not permission to repeat a declined request."""
+    n = network
+    requirement = n["send"](n["a"], "/requirements", request_body(n)).json()
+    lead_id = _lead(n, phone_opt_out=True, contact_phone="", contact_email="")
+    path = "/requirements/" + requirement["id"] + "/candidates"
+    read = n["send"](n["a"], path, method="GET")
+    assert read.status_code == 200, read.text
+    candidate = next(item for item in read.json()["candidates"] if item["id"] == lead_id)
+    assert candidate["phone_opt_out"]
+    assert "Prefirió no facilitar" in candidate["contact_action"]
+    assert "ofrecer compartir" not in candidate["contact_action"]
