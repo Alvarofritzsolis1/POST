@@ -22,6 +22,15 @@ export default function GalancitoWidget({ area = "red_obras" }: { area?: Area })
   const [lastFailed, setLastFailed] = useState("");
   const [message, setMessage] = useState("");
   const [history, setHistory] = useState<ChatLine[]>([]);
+  const profileHistory = useRef<Record<Area, ChatLine[]>>({red_obras: [], interno: []});
+  function switchProfile(next: Area) {
+    if (busy || mode === next) return;
+    profileHistory.current[mode] = history;
+    setMode(next);
+    setHistory(profileHistory.current[next]);
+    setError(""); setLastFailed(""); setFeedbackNotice("");
+    setWebConsent(false);
+  }
   const [status, setStatus] = useState<Status | null>(null);
   const [consent, setConsent] = useState(false);
   const [webConsent, setWebConsent] = useState(false);
@@ -132,13 +141,16 @@ export default function GalancitoWidget({ area = "red_obras" }: { area?: Area })
           aria-label={expanded ? "Reducir chat" : "Expandir chat"} title={expanded ? "Reducir" : "Pantalla completa"}>
           {expanded ? <Minimize2 size={18}/> : <Maximize2 size={18}/>}
         </button>
+        <button className="galancito-close" type="button" disabled={busy}
+          onClick={() => { setHistory([]); profileHistory.current[mode] = []; setError(""); setLastFailed(""); }}
+          title="Nueva conversación" aria-label="Nueva conversación"><RotateCcw size={16}/></button>
         <button className="galancito-close" type="button" onClick={() => setOpen(false)} aria-label="Cerrar Galancito"><X size={19}/></button>
       </header>
       {status?.internal_available && <nav className="galancito-modes" aria-label="Perfil de Galancito">
         <button type="button" disabled={busy} className={mode === "red_obras" ? "selected" : ""} aria-pressed={mode === "red_obras"}
-          onClick={() => { setMode("red_obras"); setHistory([]); setError(""); }}>Red de Obras</button>
+          onClick={() => switchProfile("red_obras")}>Red de Obras</button>
         <button type="button" disabled={busy} className={mode === "interno" ? "selected" : ""} aria-pressed={mode === "interno"}
-          onClick={() => { setMode("interno"); setHistory([]); setError(""); }}>Interno 360°</button>
+          onClick={() => switchProfile("interno")}>Interno 360°</button>
       </nav>}
       <div className="galancito-history" role="log" aria-label="Conversación con Galancito" aria-live="polite">
         {!history.length && <div className="galancito-greeting">
@@ -161,11 +173,11 @@ export default function GalancitoWidget({ area = "red_obras" }: { area?: Area })
               </button>)}
             </div>
           </details>}
-          {entry.runId && mode === "red_obras" && <div className="galancito-feedback" aria-label="Evaluar respuesta">
+          {entry.runId && <div className="galancito-feedback" aria-label="Evaluar respuesta">
             <button type="button" disabled={feedbackBusy || entry.rated} onClick={() => void rate(i, "useful")}>Útil</button>
             <button type="button" disabled={feedbackBusy || entry.rated} onClick={() => void rate(i, "incorrect")}>Incorrecta</button>
-            {status?.can_teach && <button type="button" disabled={feedbackBusy} onClick={() => { setCorrecting(i); setCorrection(""); }}>Proponer corrección</button>}
-            {correcting === i && <><label>Respuesta correcta (sin datos privados)<textarea value={correction} maxLength={24000}
+            {mode === "red_obras" && status?.can_teach && <button type="button" disabled={feedbackBusy} onClick={() => { setCorrecting(i); setCorrection(""); }}>Proponer corrección</button>}
+            {mode === "red_obras" && correcting === i && <><label>Respuesta correcta (sin datos privados)<textarea value={correction} maxLength={24000}
               onChange={e => setCorrection(e.target.value)} /></label>
               <button type="button" disabled={feedbackBusy || correction.trim().length < 2} onClick={() => void rate(i, "incorrect", correction.trim())}>Guardar para aprobación</button>
               <button type="button" onClick={() => setCorrecting(null)}>Cancelar</button></>}
