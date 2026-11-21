@@ -86,7 +86,10 @@ def summarize_conversation(lead, messages: Sequence) -> dict:
     if not fields and meaningful:
         overview = ("Hay mensajes del contacto, pero todavía faltan datos "
                     "profesionales para preparar una presentación confiable.")
-    elif not fields and not inbound:
+    elif not fields and inbound:
+        overview = ("Solo se registran saludos breves. Todavía no existen "
+                    "datos profesionales para preparar una ficha confiable.")
+    elif not fields:
         overview = "Este contacto todavía no tiene mensajes recibidos para resumir."
     else:
         overview = profile["summary"]
