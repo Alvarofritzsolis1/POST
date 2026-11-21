@@ -130,3 +130,23 @@ def test_public_search_never_follows_results_or_contacts_arbitrary_hosts(monkeyp
     response = public_search("normativa construcción Chile", opener=FakeOpener())
     assert len(response["results"]) == 1
     assert response["results"][0]["url"] == "https://gob.cl/guia"
+
+
+def test_spreadsheet_and_docx_escape_user_supplied_formulas_and_xml_controls():
+    from app.galancito_reports import export_internal_report
+    fake = {
+        "title": "GALANT | Informe",
+        "date": "2026-11-21",
+        "scope": '=HYPERLINK("http://malicioso.example")',
+        "summary": "Resumen confiable",
+        "intent": "overview", "source": "Fuente autorizada",
+        "limitations": "Observaciones" + chr(1) + " sin controles extraños",
+    }
+    excel = load_workbook(BytesIO(export_internal_report(fake, "xlsx")), data_only=False)
+    assert excel.active["B3"].data_type == "s"
+    assert excel.active["B3"].value.startswith("'=")
+    with ZipFile(BytesIO(export_internal_report(fake, "docx"))) as package:
+        xml = package.read("word/document.xml")
+        ET.fromstring(xml)
+        assert b"HYPERLINK" in xml
+        assert b"\x01" not in xml
