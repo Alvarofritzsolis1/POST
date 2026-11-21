@@ -181,12 +181,12 @@ def test_each_contact_has_own_progress_and_summary():
     prompt = respond(first, prompt, "1")
     prompt = respond(first, prompt, "2")
     assert "Personas que pueden acudir" in contact_profile(first)["missing"]
-    assert contact_profile(first)["total"] == 7
+    assert contact_profile(first)["total"] == 8
     prompt = respond(first, prompt, "3")
     assert first.workers == 3
     summary = contact_profile(first)["summary"]
     assert "Carpintería" in summary and "3 persona" in summary
-    assert "Pendiente de validación" in summary
+    assert "contacto" in summary.lower()
     assert contact_profile(second)["summary"] != summary
 
 
@@ -204,9 +204,10 @@ def test_local_profile_progress_is_not_employment_approval():
         interest_type="service_offer", specialty="Pintura", team_available=False,
         workers=1, experience="4 años", work_area="Coronel", availability="mañana")
     profile = contact_profile(lead)
-    assert profile["percent"] == 100
-    assert profile["completed"] == profile["total"]
-    assert "validación" in profile["summary"]
+    assert profile["percent"] < 100
+    assert profile["completed"] == profile["total"] - 1
+    assert "Teléfono o correo para coordinar" in profile["missing"]
+    assert "no ha compartido teléfono ni correo" in profile["summary"]
     assert not hasattr(lead, "documents_state")
 
 
