@@ -354,3 +354,31 @@ def test_internal_practice_api_worker_and_scope(database):
                            json={"version": 0, "corrections": []}).status_code == 422
         with database() as db:
             assert db.scalar(select(func.count()).select_from(FacebookChatMessage)) == 0
+
+
+def test_internal_training_forty_cycle_cap_and_cycle_metrics(database):
+    sampler = SimpleNamespace(sample=lambda: RESOURCES.copy())
+    with client_for("admin-a") as client:
+        forbidden = client.post(ROOT + "/rounds", json={
+            "profile": "interno", "model": "guided", "cases": 400, "cycles": 40,
+        })
+        assert forbidden.status_code == 422
+
+        row = request_round(client, profile="interno", cases=3, cycles=2)
+        assert row["target"] == 6
+        for _ in range(6):
+            assert galancito_trainer.process_next(database, sampler)
+        actual = latest(client, row["id"])
+        assert actual["state"] == "completed"
+        assert actual["completed"] == 6
+        assert actual["metrics"]["passed"] == 6
+        assert actual["metrics"]["cycles"]["1"]["passed"] == 3
+        assert actual["metrics"]["cycles"]["2"]["passed"] == 3
+        assert actual["metrics"]["cycles"]["1"]["critical"] == 0
+        assert actual["metrics"]["cycles"]["2"]["critical"] == 0
+        results = client.get(ROOT + "/rounds/" + row["id"] + "/export/json").json()
+        assert results["metrics"]["cycles"]["2"]["failed"] == 0
+
+        original = request_round(client, cases=1)
+        assert original["target"] == 1
+        assert original["config"]["cycles"] == 1
