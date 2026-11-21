@@ -50,6 +50,7 @@ class RoundInput(BaseModel):
     token_budget: int = Field(default=6000000, ge=1, le=50000000)
     cost_budget: float = Field(default=0, ge=0, le=100, allow_inf_nan=False)
     model: str = Field(default="ollama", max_length=36)
+    profile_review: bool = False
     judge: str = Field(default="rules", max_length=36)
     corrector: str = Field(default="rules", max_length=36)
 
@@ -58,6 +59,11 @@ class RoundInput(BaseModel):
         if self.night and self.night_start == self.night_end:
             raise ValueError("La hora inicial y final deben ser distintas")
         return self
+
+
+class RepeatInput(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+    profile_review: bool | None = None
 
 
 class ApprovedCorrection(BaseModel):
@@ -144,7 +150,7 @@ def overview(user: User = Depends(administrator), db: Session = Depends(get_db))
             "weights": WEIGHTS, "detail_days": DETAIL_DAYS}
 
 
-def start(db, user, body, *, previous=None):
+def start(db, user, body, *, previous=None, compare_profile=False):
     config = body.model_dump()
     config["seed"] = secrets.randbelow(2**31) if body.seed is None else body.seed
     config["dataset_version"] = DATASET_VERSION
@@ -171,12 +177,21 @@ def start(db, user, body, *, previous=None):
                    for role in ("model", "judge", "corrector"))
     review = None if external else review_knowledge(db, user.org_id)
     knowledge = [{**item, "id": review.id, "version": review.version} for item in knowledge_items(review)]
+    aliases = {} if external else approved_trade_aliases(db, user.org_id)
+    if compare_profile and (previous.state != "completed" or previous.completed != previous.target):
+        raise HTTPException(409, "Completa todos los casos de la ronda base antes de comparar.")
+    if compare_profile and (
+        previous.config.get("evaluation_version") != EVALUATION_VERSION
+        or previous.prompt_version != PROMPT_VERSION
+        or previous.knowledge != knowledge or previous.aliases != aliases
+        or any(previous.config.get(role) != config[role] for role in ("model", "judge", "corrector"))
+    ):
+        raise HTTPException(409, "La evaluación, la conexión o el conocimiento cambió. Repite primero la ronda base.")
     scheduled = eligible_at(config, utcnow())
     row = TrainingRound(org_id=user.org_id, created_by=user.id, target=body.cases, config=config,
                         dataset_hash=fingerprint, system_version=f"{VERSION}@{SOURCE_COMMIT}",
                         prompt_version=PROMPT_VERSION, previous_id=comparable.id if comparable else None,
-                        aliases={} if external else approved_trade_aliases(db, user.org_id),
-                        knowledge=knowledge, next_at=scheduled)
+                        aliases=aliases, knowledge=knowledge, next_at=scheduled)
     try:
         db.add(row)
         db.flush()
@@ -194,14 +209,18 @@ def create_round(body: RoundInput, user: User = Depends(administrator), db: Sess
 
 
 @router.post("/rounds/{round_id}/repeat", status_code=201)
-def repeat_round(round_id: str, user: User = Depends(administrator), db: Session = Depends(get_db)):
+def repeat_round(round_id: str, body: RepeatInput | None = None, user: User = Depends(administrator),
+                 db: Session = Depends(get_db)):
     previous = owned_round(db, user.org_id, round_id)
     if previous.state not in TERMINAL:
         raise HTTPException(409, "Espera a que termine la ronda original")
     config = {key: value for key, value in previous.config.items() if key in RoundInput.model_fields}
     config.update(model=config["model"]["id"], judge=config["judge"]["id"],
                   corrector=config.get("corrector", {"id": "rules"})["id"], night=False)
-    return start(db, user, RoundInput.model_validate(config), previous=previous)
+    compare_profile = body is not None and body.profile_review is not None
+    if compare_profile:
+        config["profile_review"] = body.profile_review
+    return start(db, user, RoundInput.model_validate(config), previous=previous, compare_profile=compare_profile)
 
 
 @router.post("/rounds/{round_id}/control/{action}")
@@ -330,6 +349,7 @@ def export_round(round_id: str, kind: Literal["json", "md"], user: User = Depend
                            and (metrics["dimensions"]["naturalness"] is None)
                            == (old["dimensions"]["naturalness"] is None))
         comparison = {"id": previous.id, "metrics": old, "same_evaluation": same_evaluation,
+                      "profile_review": previous.config.get("profile_review", False),
                       "regressions": regressions if retained and same_evaluation else None,
                       "score_difference": round(metrics["score"] - old["score"], 2)
                       if same_evaluation and metrics["score"] is not None and old["score"] is not None else None}
@@ -338,6 +358,7 @@ def export_round(round_id: str, kind: Literal["json", "md"], user: User = Depend
             "dataset_hash": row.dataset_hash, "dataset_version": row.config["dataset_version"],
             "state": row.state, "processed": row.completed, "target": row.target,
             "evaluation_version": row.config.get("evaluation_version", 1),
+            "profile_review": row.config.get("profile_review", False),
             "suite": row.config["suite"], "level": row.config["level"], "metrics": metrics,
             "weights": WEIGHTS, "targets": {"profile_accuracy": 0.95, "conversational_criteria": 0.9,
                                              "repetition_below": 0.03, "critical_max": 0},
@@ -357,6 +378,7 @@ def export_round(round_id: str, kind: Literal["json", "md"], user: User = Depend
              f"- {row.completed} / {row.target} casos sintéticos procesados",
              f"- {metrics['passed']} correctos, {metrics['failed']} incorrectos y {metrics['critical']} alertas críticas",
              f"- Respuesta con {info['models']['model']['model']} y revisión con {info['models']['judge']['model']}.",
+             f"- Verificación local de ficha {'activa' if info['profile_review'] else 'inactiva'}.",
              f"- {metrics['fields']} campos presentes evaluados en {metrics['turns']} turnos.",
              f"- {metrics['judged_turns']} turnos revisados por un modelo de naturalidad.",
              f"- Correcciones aprobadas incluidas en la ronda: {len(row.knowledge)}."]

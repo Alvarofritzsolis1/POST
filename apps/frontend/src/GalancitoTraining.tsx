@@ -53,7 +53,7 @@ type Metrics = {
 type Round = {
   id: string; state: string; target: number; completed: number; reason: string | null; next_at: string;
   created_at: string; previous_id: string | null; dataset_hash: string; leased: boolean;
-  config: { level: number; suite: string; model: Model; judge: Model; night: boolean; evaluation_version?: number };
+  config: { level: number; suite: string; model: Model; judge: Model; night: boolean; evaluation_version?: number; profile_review?: boolean };
   metrics: Metrics;
 };
 type Overview = {
@@ -74,7 +74,7 @@ type Case = {
 type Failures = { cases: Case[]; more: boolean; proposals: Record<string, string> };
 const defaults = {
   level: 1, cases: 100, suite: "reference", seed: "",
-  model: "ollama", judge: "rules", corrector: "rules", night_start: 23, night_end: 7, minutes: 480,
+  model: "ollama", judge: "rules", corrector: "rules", profile_review: false, night_start: 23, night_end: 7, minutes: 480,
   concurrency: 0, ram_limit_mb: 0, cpu_limit_percent: 75, token_budget: 6000000, cost_budget: 0,
 };
 const fields = [
@@ -157,6 +157,15 @@ export default function GalancitoTraining({ back }: { back: () => void }) {
     });
   }
 
+  function repeatRound(id: string, profileReview?: boolean) {
+    void perform(async () => {
+      const body = profileReview === undefined ? null : { profile_review: profileReview };
+      const queued = await json<Round>("/rounds/" + id + "/repeat", body);
+      setSelection(queued.id);
+      setNotice(profileReview ? "Comparación con verificación en cola." : "Reevaluación en cola.");
+    });
+  }
+
   async function viewErrors(id: string, next = 0) {
     const result = await request<Failures>(endpoint + "/rounds/" + id + "/errors?offset=" + next);
     setFailureRound(id);
@@ -208,6 +217,10 @@ export default function GalancitoTraining({ back }: { back: () => void }) {
             <div className="training-fields">
               <label>Evaluación<select value={form.judge} onChange={event => setForm({ ...form, judge: event.target.value })}>
                 <option value="rules">Pruebas deterministas</option><option value="ollama">Pruebas y Ollama</option>{modelOptions}
+              </select></label>
+              <label>Verificación de ficha<select value={form.profile_review ? "on" : "off"}
+                onChange={event => setForm({ ...form, profile_review: event.target.value === "on" })}>
+                <option value="off">Base</option><option value="on">Nombres y oficios declarados</option>
               </select></label>
               <label>Propuestas de corrección<select value={form.corrector} onChange={event => setForm({ ...form, corrector: event.target.value })}>
                 <option value="rules">Por categoría</option><option value="ollama">Ollama</option>{modelOptions}
@@ -314,16 +327,21 @@ export default function GalancitoTraining({ back }: { back: () => void }) {
           </button>)}
         </div> : <p className="training-muted">Aún no hay rondas registradas.</p>}
         {round && <div className="training-history-info">
-          <div><strong>{round.config.model.model}</strong><small>Evaluación · {round.config.judge.model}</small></div>
+          <div><strong>{round.config.model.model}</strong><small>Evaluación · {round.config.judge.model}</small>
+            {round.config.profile_review && <small>Verificación de ficha activa</small>}
+          </div>
           {comparison && <div><strong>Comparación con {timestamp(comparison.created_at)}</strong><small>
             {sameEvaluation ? `${number(round.metrics.score)} / 100 frente a ${number(comparison.metrics.score)} / 100 · mismo conjunto`
               : "Metodología o evaluador distinto"}
           </small></div>}
-          {!active && <button className="gc-secondary" disabled={busy} onClick={() => void perform(async () => {
-            const row = await json<Round>("/rounds/" + round.id + "/repeat", null);
-            setSelection(row.id);
-            setNotice("Reevaluación en cola.");
-          })}><RotateCcw size={15} /> Reevaluar conjunto</button>}
+          {!active && <div className="training-actions">
+            <button className="gc-secondary" disabled={busy} onClick={() => repeatRound(round.id)}>
+              <RotateCcw size={15} /> Reevaluar conjunto
+            </button>
+            {!round.config.profile_review && round.state === "completed" && round.completed === round.target &&
+              <button className="gc-secondary" disabled={busy}
+              onClick={() => repeatRound(round.id, true)}>Comparar con verificación</button>}
+          </div>}
         </div>}
       </section>
       <section className="ai-panel">

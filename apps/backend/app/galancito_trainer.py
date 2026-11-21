@@ -320,7 +320,8 @@ def process_next(factory=SessionLocal, sampler=None, *, maintenance=False):
                             answer=ask if model["id"] != "guided" else None,
                             judge=score if judge["id"] != "rules" else None,
                             corrector=suggest if corrector["id"] != "rules" else None,
-                            stage=(lambda state: _update_stage(factory, row, state)) if count == 1 else (lambda _: None))
+                            stage=(lambda state: _update_stage(factory, row, state)) if count == 1 else (lambda _: None),
+                            profile_review=row.config.get("profile_review", False))
 
         try:
             positions = range(row.completed, row.completed + count)

@@ -14,7 +14,8 @@ from app.config import settings
 from app.db import Base, get_db
 from app.facebook_crm_models import FacebookChatMessage, FacebookLead
 from app.galancito_training import eligible_at
-from app.galancito_training_data import dataset_hash, reference_case, scenario
+from app.galancito_profile_review import declaration_for_review
+from app.galancito_training_data import Scenario, dataset_hash, reference_case, scenario
 from app.galancito_training_eval import evaluate
 from app.galancito_training_models import TrainingCase, TrainingRound
 from app.main import app
@@ -137,6 +138,24 @@ def test_verifiable_profile_and_critical_draft():
 
 
 
+def test_local_profile_review_recovers_declarations_without_guessing():
+    case = Scenario("ficha", [
+        ("Qué tal. Soy Camila.", {"name": "Camila"}),
+        ("¿Tu hermano hace excavación?", {"trades": []}),
+        ("Mi hermano trabaja en obras civiles.", {"trades": []}),
+        ("Me dedico a maquinaria y excavación.", {"trades": ["Excavación", "Maquinaria"]}),
+        ("No hago excavación.", {"trades": ["Maquinaria"]}),
+    ])
+    baseline = evaluate(case, {}, [])
+    revised = evaluate(case, {}, [], profile_review=True)
+    assert revised["correct_fields"] == revised["fields"]
+    assert revised["correct_fields"] > baseline["correct_fields"]
+    assert revised["critical"] == 0
+    assert revised["evidence"]["trades"]["sources"] == {"Maquinaria": "turno-4"}
+    assert declaration_for_review("Hola, soy Independiente.") == "Hola, soy Independiente."
+    assert declaration_for_review("Hola, soy Camila?") == "Hola, soy Camila?"
+
+
 def test_lifecycle_permissions_restart_review_and_rollback(database):
     sampler = SimpleNamespace(sample=lambda: RESOURCES.copy())
     with client_for("admin-a") as first, client_for("admin-b") as other, client_for("reader-a") as reader:
@@ -188,6 +207,19 @@ def test_lifecycle_permissions_restart_review_and_rollback(database):
         assert "56900000000" not in report.text and "password" not in report.text
         assert first.get(path + "/export/md").text.startswith("# GALANT PRACTICA")
 
+        comparison = first.post(path + "/repeat", json={"profile_review": True})
+        assert comparison.status_code == 201, comparison.text
+        comparison_id = comparison.json()["id"]
+        assert comparison.json()["dataset_hash"] == row["dataset_hash"]
+        assert comparison.json()["config"]["profile_review"] is True
+        for _ in range(10):
+            assert galancito_trainer.process_next(database, sampler)
+        revised = first.get(ROOT + "/rounds/" + comparison_id + "/export/json").json()
+        assert revised["metrics"]["correct_fields"] > finished["metrics"]["correct_fields"]
+        assert revised["comparison"]["same_evaluation"]
+        assert revised["comparison"]["profile_review"] is False
+        assert revised["profile_review"] is True
+
         corrections = {
             "version": 0, "corrections": [{"case_id": case["id"], "turn": 1,
                 "reply": "Hola, Pedro. ¿Qué oficio tienes?", "instruction": "Saluda a la persona por su nombre declarado."}],
@@ -201,6 +233,7 @@ def test_lifecycle_permissions_restart_review_and_rollback(database):
         assert sum(item.count("Pedro.") for item in datasets) == 2
         assert all(first.get(k).json() == [] for k in ("/api/v1/network/galancito/knowledge",))
 
+        assert first.post(path + "/repeat", json={"profile_review": True}).status_code == 409
         reevaluation = first.post(path + "/repeat")
         assert reevaluation.status_code == 201, reevaluation.text
         new_id = reevaluation.json()["id"]
@@ -210,6 +243,8 @@ def test_lifecycle_permissions_restart_review_and_rollback(database):
         new_report = first.get(new_path + "/export/json").json()
         assert new_report["comparison"]["id"] == row_id
         assert new_report["comparison"]["same_evaluation"]
+        assert new_report["profile_review"] is False
+        assert new_report["comparison"]["profile_review"] is False
         assert new_report["approved_corrections"] == 1
         assert new_report["dataset_hash"] == row["dataset_hash"]
         assert first.post(ROOT + "/knowledge/rollback", json={"version": 1, "restore_version": 0}).json()["version"] == 2

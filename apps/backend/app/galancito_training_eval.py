@@ -16,6 +16,7 @@ from .galancito_flow import grounded_reply
 from .galancito_intake import UNKNOWN_NAMES, identity_reply, next_intake_reply, small_talk_reply, needs_deeper_response
 from .galancito_links import suggest_requirements
 from .galancito_memory import apply_messenger_message, note_profile_sources, profile_facts
+from .galancito_profile_review import declaration_for_review, reviewed_trade_aliases
 from .galancito_phone import remember_shared_phone, redact_mobile_for_intake
 from .galancito_triage import plain, private_data, quick_reply
 
@@ -127,11 +128,14 @@ def profile(lead, trades, match):
     return row
 
 
-def evaluate(case, aliases, knowledge, answer=None, judge=None, corrector=None, stage=lambda state: None):
+def evaluate(case, aliases, knowledge, answer=None, judge=None, corrector=None, stage=lambda state: None,
+             *, profile_review=False):
     """answer and judge are bounded, independently selectable synthetic-only callbacks."""
     started = perf_counter()
     turns, history, errors = [], [], Counter()
     expected = {**PROFILE_DEFAULTS}
+    if profile_review:
+        aliases = reviewed_trade_aliases(aliases)
     facts_correct = facts_total = repeated_turns = pending_repeats = 0
     questions_total = repeated_questions = 0
     dimensions, reply_sources = Counter(), Counter()
@@ -149,7 +153,8 @@ def evaluate(case, aliases, knowledge, answer=None, judge=None, corrector=None, 
             if shared:
                 note_profile_sources(lead, ["contact_phone"], source="message", at=timestamp, remote_id=remote_id)
             clean = redact_mobile_for_intake(message) if shared else message
-            changed = apply_messenger_message(db, lead, clean, previous, remote_id=remote_id,
+            registered_message = declaration_for_review(clean) if profile_review else clean
+            changed = apply_messenger_message(db, lead, registered_message, previous, remote_id=remote_id,
                                               at=timestamp, aliases=aliases)
             facts = profile_facts(lead, changed=changed)
             trades = sorted(db.scalars(select(FacebookLeadTrade.trade).where(
