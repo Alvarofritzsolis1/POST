@@ -730,7 +730,7 @@ def test_reset_token_expiry_csrf_and_preferences(network):
     )
 
 
-def test_migration_from_existing_schema_is_additive_and_reopen_preserves_data(network, monkeypatch):
+def test_migration_from_existing_schema_is_additive_and_reopen_preserves_data(network):
     from app.cli import migrate
     from app.platform_models import SchemaVersion
 
@@ -747,25 +747,6 @@ def test_migration_from_existing_schema_is_additive_and_reopen_preserves_data(ne
         if t.name.startswith(("network_", "facebook_", "galancito_", "ai_"))
     ]
     Base.metadata.drop_all(n["engine"], tables=list(reversed(future_tables)))
-    if n["dialect"] == "postgres":
-        from app.migrations import v20_9_9_network_candidates
-
-        upgrade_before_probe = v20_9_9_network_candidates.upgrade
-
-        def probe_upgrade(connection):
-            print("PG_SCHEMA_PROBE", connection.exec_driver_sql(
-                "SELECT current_schema(), current_setting('search_path'), to_regclass('facebook_leads')::text"
-            ).one())
-            print("PG_TABLE_PROBE", connection.exec_driver_sql(
-                "SELECT n.nspname, c.relname FROM pg_class c "
-                "JOIN pg_namespace n ON c.relnamespace=n.oid "
-                "WHERE c.relname in ('facebook_leads','network_requirements',"
-                "'network_candidate_followups') ORDER BY n.nspname,c.relname"
-            ).all())
-            print("PG_INSPECT_PROBE", inspect(connection).has_table("facebook_leads"))
-            return upgrade_before_probe(connection)
-
-        monkeypatch.setattr(v20_9_9_network_candidates, "upgrade", probe_upgrade)
     for _ in range(2):
         with n["Session"].begin() as db:
             migrate(db)
