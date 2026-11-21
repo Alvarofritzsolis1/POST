@@ -1,14 +1,14 @@
 import { useEffect, useRef, useState, type FormEvent } from "react";
-import { Bot, MessageCircle, Send, ShieldCheck, Sparkles, X } from "lucide-react";
-import { request } from "./api";
+import { Bot, MessageCircle, Send, ShieldCheck, Sparkles, X, Maximize2, Minimize2, RotateCcw } from "lucide-react";
+import { ApiError, request } from "./api";
 import { change, net } from "./networkApi";
 import "./galancito.css";
 
-type Area = "red_obras";
+type Area = "red_obras" | "interno";
 type ChatLine = { role: "user" | "assistant"; text: string; runId?: string; question?: string; rated?: boolean };
 type Reply = { name: string; answer: string; source: string; notice?: string; run_id?: string;
   references?: {id: string; version: number; title: string}[] };
-type Status = { name: string; local_ai_available: boolean; external_ai_available: boolean; read_only: boolean; can_teach?: boolean };
+type Status = { name: string; local_ai_available: boolean; external_ai_available: boolean; read_only: boolean; can_teach?: boolean; internal_available?: boolean };
 const EXAMPLES = [
   "¿Cómo publicar una necesidad?",
   "¿Qué documentos necesita un contratista?",
@@ -17,6 +17,9 @@ const EXAMPLES = [
 
 export default function GalancitoWidget({ area = "red_obras" }: { area?: Area }) {
   const [open, setOpen] = useState(false);
+  const [expanded, setExpanded] = useState(false);
+  const [mode, setMode] = useState<Area>(area);
+  const [lastFailed, setLastFailed] = useState("");
   const [message, setMessage] = useState("");
   const [history, setHistory] = useState<ChatLine[]>([]);
   const [status, setStatus] = useState<Status | null>(null);
@@ -45,6 +48,7 @@ export default function GalancitoWidget({ area = "red_obras" }: { area?: Area })
     if (busy || question.length < 2) return;
     setMessage("");
     setError("");
+    setLastFailed("");
     setHistory((prev) => [...prev, {role: "user", text: question}]);
     setBusy(true);
     const controller = new AbortController();
@@ -54,19 +58,22 @@ export default function GalancitoWidget({ area = "red_obras" }: { area?: Area })
     try {
       const reply = await request<Reply>("/network/galancito/chat", {
         method: "POST", signal: controller.signal, body: JSON.stringify({
-        message: question, area,
-        allow_external_ai: consent && !!status?.external_ai_available,
+        message: question, area: mode,
+        history: mode === "interno" ? history.slice(-6).map(({role, text}) =>
+          ({role: role === "user" ? "user" : "assistant", text: text.slice(0, 500)})) : [],
+        allow_external_ai: mode === "red_obras" && consent && !!status?.external_ai_available,
         }),
       });
       setHistory((prev) => [...prev, {role: "assistant", runId: reply.run_id, question,
         text: reply.answer + (reply.references?.length ? "\nReferencia: " + reply.references.map(r => `${r.title} (v${r.version})`).join(", ") : "") +
         (reply.notice ? "\n" + reply.notice : "")}]);
-    } catch {
+    } catch (err) {
+      setLastFailed(question);
       setHistory((prev) => [...prev, {role: "assistant", text:
         controller.signal.aborted
           ? "La consulta superó los 30 segundos. No recibí una respuesta; puedes reintentar cuando el modelo tenga más recursos."
           : "No pude conectar con GALANT. Revisa la conexión o vuelve a intentar; no se confirmó ningún cambio."}]);
-      setError("No se pudo consultar el asistente.");
+      setError(err instanceof ApiError ? `Error de conexión o servidor (HTTP ${err.status}). Puedes reintentar la última consulta.` : "La consulta no se completó. Puedes reintentar.");
     } finally { window.clearTimeout(deadline); setBusy(false); }
   }
 
@@ -87,7 +94,11 @@ export default function GalancitoWidget({ area = "red_obras" }: { area?: Area })
   }
 
   function askExample(value: string) { setMessage(value); setOpen(true); }
-  return <aside className="galancito" aria-label="Asistente Galancito">
+  const examples = mode === "interno" ? [
+    "¿Qué versión está desplegada?", "Haz un resumen de las publicaciones",
+    "¿Cuántas necesidades vigentes hay?", "¿Cómo está el rendimiento del VPS?",
+  ] : EXAMPLES;
+  return <aside className={"galancito" + (expanded ? " is-expanded" : "")} aria-label="Asistente Galancito">
     {!open && <button className="galancito-trigger" type="button" onClick={() => setOpen(true)}
         title="Abrir Galancito, asistente de GALANT">
       <Bot size={22} /> <span>Galancito</span>
@@ -95,21 +106,32 @@ export default function GalancitoWidget({ area = "red_obras" }: { area?: Area })
     {open && <section className="galancito-panel" role="dialog" aria-label="Galancito, asistente virtual" aria-modal="false">
       <header className="galancito-header">
         <div className="galancito-bot-icon"><Bot size={22}/></div>
-        <div><strong>Galancito</strong><small>Asesor de Red de Obras · no modifica registros</small></div>
+        <div><strong>{mode === "interno" ? "Galancito Interno" : "Galancito"}</strong><small>{mode === "interno" ? "Consultas verificadas · solo lectura" : "Asesor de Red de Obras · solo lectura"}</small></div>
+        <button className="galancito-close" type="button" onClick={() => setExpanded(value => !value)}
+          aria-label={expanded ? "Reducir chat" : "Expandir chat"} title={expanded ? "Reducir" : "Pantalla completa"}>
+          {expanded ? <Minimize2 size={18}/> : <Maximize2 size={18}/>}
+        </button>
         <button className="galancito-close" type="button" onClick={() => setOpen(false)} aria-label="Cerrar Galancito"><X size={19}/></button>
       </header>
+      {status?.internal_available && <nav className="galancito-modes" aria-label="Perfil de Galancito">
+        <button type="button" className={mode === "red_obras" ? "selected" : ""} aria-pressed={mode === "red_obras"}
+          onClick={() => { setMode("red_obras"); setHistory([]); setError(""); }}>Red de Obras</button>
+        <button type="button" className={mode === "interno" ? "selected" : ""} aria-pressed={mode === "interno"}
+          onClick={() => { setMode("interno"); setHistory([]); setError(""); }}>Interno 360°</button>
+      </nav>}
       <div className="galancito-history" role="log" aria-label="Conversación con Galancito" aria-live="polite">
         {!history.length && <div className="galancito-greeting">
           <MessageCircle size={24}/>
           <b>¡Hola! Soy Galancito.</b>
-          <p>Te ayudo a buscar contratistas y entender las necesidades de Red de Obras. No modifico documentos ni adjudico trabajos.</p>
-          <div className="galancito-examples">{EXAMPLES.map(x =>
+          <p>{mode === "interno" ? "Consulto datos autorizados de GALANT, versiones y reportes breves. Las funciones sin conexión aparecerán como no disponibles." :
+            "Te ayudo a buscar contratistas y entender las necesidades de Red de Obras. No modifico documentos ni adjudico trabajos."}</p>
+          <div className="galancito-examples">{examples.map(x =>
             <button type="button" key={x} onClick={() => askExample(x)}>{x}</button>)}</div>
         </div>}
         {history.map((entry,i) => <div key={i} className={"galancito-bubble " + entry.role}>
           <span>{entry.role === "assistant" ? "Galancito" : "Tú"}</span>
           <p>{entry.text}</p>
-          {entry.runId && <div className="galancito-feedback" aria-label="Evaluar respuesta">
+          {entry.runId && mode === "red_obras" && <div className="galancito-feedback" aria-label="Evaluar respuesta">
             <button type="button" disabled={feedbackBusy || entry.rated} onClick={() => void rate(i, "useful")}>Útil</button>
             <button type="button" disabled={feedbackBusy || entry.rated} onClick={() => void rate(i, "incorrect")}>Incorrecta</button>
             {status?.can_teach && <button type="button" disabled={feedbackBusy} onClick={() => { setCorrecting(i); setCorrection(""); }}>Proponer corrección</button>}
@@ -120,27 +142,28 @@ export default function GalancitoWidget({ area = "red_obras" }: { area?: Area })
           </div>}
         </div>)}
         {feedbackNotice && <p role="status" className="galancito-feedback-notice">{feedbackNotice}</p>}
-        {busy && <p className="galancito-thinking"><Sparkles size={14}/> Galancito está preparando una respuesta…</p>}
+        {busy && <p className="galancito-thinking"><Sparkles size={14}/> {mode === "interno" ? "Consultando datos autorizados…" : "Preparando respuesta…"} </p>}}
         <div ref={end}/>
       </div>
       <form className="galancito-compose" onSubmit={(e) => void send(e)}>
         {status?.local_ai_available && <div className="galancito-safety">
           <ShieldCheck size={14}/> Modelo local disponible · sin consumo de API externa
         </div>}
-        <label className="galancito-privacy"><input type="checkbox" checked={consent}
+        {mode === "red_obras" && status?.external_ai_available && <label className="galancito-privacy"><input type="checkbox" checked={consent}
           onChange={(e) => setConsent(e.target.checked)} disabled={!status?.external_ai_available}/>
-          <span>Utilizar equipo IA externo {status?.external_ai_available ? "(requiere consentimiento)" : "(no habilitado)"}</span>
-        </label>
-        <small>{status?.local_ai_available
-          ? "Los mensajes se procesan dentro del VPS. No ingreses RUT, contraseñas ni documentos personales."
-          : "Cuando el modelo local no está activo, Galancito ofrece ayuda básica. No compartas información privada."}</small>
+          <span>Permitir modelo externo en esta conversación</span>
+        </label>}
+        <small>{mode === "interno" ? "Consultas a registros autorizados. No compartas secretos ni datos personales." : "No ingreses RUT, claves ni documentos personales."}</small>
         <div className="galancito-input-row">
           <input aria-label="Escribe tu pregunta a Galancito" value={message}
             onChange={(e) => setMessage(e.target.value)}
             placeholder="Ej.: ¿Qué debo hacer primero?" maxLength={800}/>
           <button type="submit" disabled={busy || message.trim().length < 2} aria-label="Enviar pregunta"><Send size={18}/></button>
         </div>
-        {error && <span role="alert" className="galancito-error">{error}</span>}
+        {error && <div role="alert" className="galancito-error">{error}
+          {lastFailed && <button type="button" className="galancito-retry"
+            onClick={() => { setMessage(lastFailed); setError(""); }}><RotateCcw size={14}/> Recuperar pregunta</button>}
+        </div>}
         <div className="galancito-safety"><ShieldCheck size={13}/> Solo orienta, no modifica registros.</div>
       </form>
     </section>}
