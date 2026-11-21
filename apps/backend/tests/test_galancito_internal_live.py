@@ -76,3 +76,20 @@ def test_internal_no_fake_internet_or_secrets(network):
         "history": [{"role": "user", "text": "a" * 501}],
     })
     assert invalid.status_code == 422
+
+
+def test_internal_longer_site_name_does_not_merge_lomas(network):
+    n = network
+    a = request_body(n)
+    b = request_body(n)
+    a["site_id"] = n["sites"][1]
+    b["site_id"] = n["sites"][2]
+    b["title"] = "Solo Cumbre de Lomas Verdes"
+    assert n["send"](n["b"], "/requirements", a).status_code == 201
+    assert n["send"](n["c"], "/requirements", b).status_code == 201
+    for name in ("Cumbre de Lomas Verdes", "Lomas Verdes"):
+        response = n["send"](n["admin"], "/galancito/chat", {
+            "message": "Resumen de necesidades de " + name, "area": "interno",
+        })
+        assert response.status_code == 200, response.text
+        assert "Necesidades vigentes: 1" in response.json()["answer"]
