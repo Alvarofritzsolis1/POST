@@ -48,9 +48,14 @@ def case_confidence(passed: int, count: int) -> list[float] | None:
 def summarize(metrics: dict) -> dict:
     turns = metrics.get("turns", 0)
     fields = metrics.get("fields", 0)
-    ratios = {key: round(metrics.get("dimensions", {}).get(key, 0) / turns, 4)
-              if turns else None for key in WEIGHTS}
-    score = round(sum(ratios[k] * weight for k, weight in WEIGHTS.items()), 2) if turns else None
+    dimensions = metrics.get("dimensions", {})
+    denominators = {key: turns for key in WEIGHTS}
+    denominators["naturalness"] = metrics.get("judged_turns", 0)
+    ratios = {key: round(dimensions.get(key, 0) / count, 4) if count else None
+              for key, count in denominators.items()}
+    measured = {key: weight for key, weight in WEIGHTS.items() if ratios[key] is not None}
+    score = round(100 * sum(ratios[key] * weight for key, weight in measured.items()) /
+                  sum(measured.values()), 2) if measured else None
     cases = metrics.get("passed", 0) + metrics.get("failed", 0)
     return {
         "case_pass_interval_95": case_confidence(metrics.get("passed", 0), cases),
@@ -59,8 +64,10 @@ def summarize(metrics: dict) -> dict:
         "profile_accuracy": round(metrics.get("correct_fields", 0) / fields, 4) if fields else None,
         "dimensions": ratios, "score": score,
         "repetition_rate": round(metrics.get("repeated_turns", 0) / turns, 4) if turns else None,
+        "pending_prompt_repeats": metrics.get("pending_repeats"),
+        "reply_sources": metrics.get("reply_sources"),
         "critical": metrics.get("critical", 0), "error_counts": metrics.get("errors", {}),
-        "judged_cases": metrics.get("judged_cases", 0),
+        "judged_cases": metrics.get("judged_cases", 0), "judged_turns": metrics.get("judged_turns", 0),
         "average_latency_ms": round(metrics.get("latency_ms", 0) / turns, 1) if turns else None,
         "input_tokens": metrics.get("input_tokens", 0), "output_tokens": metrics.get("output_tokens", 0),
         "reserved_tokens": metrics.get("reserved_tokens", 0),

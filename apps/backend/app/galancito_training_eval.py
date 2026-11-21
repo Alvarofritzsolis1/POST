@@ -32,6 +32,7 @@ CORRECTOR_PROMPT = """Propón una corrección concreta para el asistente de Red 
 En dos frases breves, indica qué cambiar y cómo probarlo. Omite el resumen del caso.
 Usa hasta 250 caracteres en español y evita nombres, teléfonos y datos de contacto.
 El texto queda sujeto a revisión humana y jamás se aplica automáticamente."""
+EVALUATION_VERSION = 2
 WEIGHTS = {"understanding": 20, "context": 20, "profile": 20, "naturalness": 15,
            "trades": 10, "repetition": 10, "efficiency": 5}
 PROFILE_DEFAULTS = {
@@ -131,8 +132,8 @@ def evaluate(case, aliases, knowledge, answer=None, judge=None, corrector=None, 
     started = perf_counter()
     turns, history, errors = [], [], Counter()
     expected = {**PROFILE_DEFAULTS}
-    facts_correct = facts_total = repeated_turns = 0
-    dimensions = Counter()
+    facts_correct = facts_total = repeated_turns = pending_repeats = 0
+    dimensions, reply_sources = Counter(), Counter()
     critical_count = 0
     with Session(sandbox()) as db:
         lead = FacebookLead(org_id="synthetic", page_id="synthetic", psid="synthetic")
@@ -153,25 +154,26 @@ def evaluate(case, aliases, knowledge, answer=None, judge=None, corrector=None, 
             trades = sorted(db.scalars(select(FacebookLeadTrade.trade).where(
                 FacebookLeadTrade.lead_id == lead.id, FacebookLeadTrade.active.is_(True))))
             facts["trades"] = trades
-            matching = case.need is not None and ("match" in delta or "match" in expected)
-            match = match_need(lead, trades, case.need) if matching else None
+            match = match_need(lead, trades, case.need) if case.need is not None else None
             last_profile = profile(lead, trades, match)
             expected.update(delta)
 
             # Share the production deterministic policies, including identity and intake.
             identity = identity_reply(clean)
             prior = next_intake_reply(clean, facts, previous)
-            fast = identity or (match_reply(match) if "match" in delta and "?" in message else None)
+            asks_match = match is not None and bool(re.search(r"\bcompatible\b", plain(message))) and "?" in message
+            fast = identity or (match_reply(match) if asks_match else None)
             fast = fast or small_talk_reply(clean) or prior or quick_reply(clean, known=facts)
             reviewed = next((item.get("reply") for item in knowledge
                              if item.get("phrase") and plain(item["phrase"]) == plain(clean)), None)
             # Preserve identity, private turn and need handling before candidate knowledge.
-            if reviewed and not identity and not private_data(message) and "match" not in delta:
-                fast = reviewed
+            source = "rules"
+            eligible_for_rewrite = not private_data(message) and not identity and not asks_match
+            if reviewed and eligible_for_rewrite:
+                fast, source = reviewed, "approved_correction"
             draft = ""
             unsupported_draft = False
-            if answer and not private_data(message) and not identity and not reviewed and "match" not in delta and (
-                    not fast or needs_deeper_response(clean)):
+            if answer and eligible_for_rewrite and not reviewed and (not fast or needs_deeper_response(clean)):
                 public_facts = {k: v for k, v in last_profile.items() if k != "phone"}
                 context = json.dumps({"mensaje": clean, "ultimos_turnos": history[-4:],
                                       "ficha_declarada": public_facts}, ensure_ascii=False)
@@ -180,7 +182,12 @@ def evaluate(case, aliases, knowledge, answer=None, judge=None, corrector=None, 
                 unsupported_draft = grounded is None
                 if grounded and not private_data(grounded):
                     fast = grounded
-            reply = fast or "Por ahora no puedo confirmarlo. El equipo de Red de Obras puede revisar tu consulta."
+                    source = "model" if grounded == draft.strip()[:550] else "fallback"
+            if not fast:
+                fast = "Por ahora no puedo confirmarlo. El equipo de Red de Obras puede revisar tu consulta."
+                source = "fallback"
+            reply = fast
+            reply_sources[source] += 1
             actual = {k: last_profile.get(k) for k in expected}
             mismatched = sorted(k for k in expected if actual[k] != expected[k])
             # Accuracy on present fields is distinct from hallucination/invention checks.
@@ -194,7 +201,7 @@ def evaluate(case, aliases, knowledge, answer=None, judge=None, corrector=None, 
             asked = " ".join(plain(q) for q in questions)
             repeated = any(re.search(pattern, asked) and expected.get(key) != PROFILE_DEFAULTS.get(key)
                            for key, pattern in QUESTIONS.items())
-            repeated |= bool(questions and normalized == plain(previous))
+            pending_repeats += bool(not repeated and questions and normalized == plain(previous))
             no_supported_identity = bool(identity and not re.search(r"\b(?:ia|asistente)\b", normalized))
             severe = (unexpected or unsupported_draft or no_supported_identity or any(
                 any(re.search(pattern, plain(candidate)) for pattern in CRITICAL) or private_data(candidate)
@@ -207,24 +214,25 @@ def evaluate(case, aliases, knowledge, answer=None, judge=None, corrector=None, 
             elif "certificado" in topic:
                 replies_to_intent = bool(re.search(r"\b(?:certific|no puedo confirmar|revise)", normalized))
             understanding = not any(k in mismatched for k in delta) and not no_supported_identity and replies_to_intent
-            natural = not re.search(r"\b(?:estimado usuario|procederemos a gestionar|su solicitud ha sido)\b", normalized)
+            avoids_formal_template = not re.search(r"\b(?:estimado usuario|procederemos a gestionar|su solicitud ha sido)\b", normalized)
             efficient = len(reply) <= 450 and reply.count("?") <= 1
             checks = {"understanding": understanding, "context": contextual,
-                      "profile": not any(k != "match" for k in mismatched), "naturalness": natural,
+                      "profile": not any(k != "match" for k in mismatched),
                       "trades": "trades" not in mismatched, "repetition": not repeated, "efficiency": efficient}
             dimensions.update({k: float(v) for k, v in checks.items()})
             repeated_turns += repeated
             critical_count += severe
             for key, detected in {
                 "extraccion": not checks["profile"], "repeticion": repeated, "contexto": not contextual,
-                "respuesta": not natural or not efficient or not understanding,
+                "respuesta": not avoids_formal_template or not efficient or not understanding,
                 "critico": severe, "compatibilidad": "match" in mismatched,
             }.items():
                 if detected:
                     errors[key] += 1
             history.append([redact_mobile_for_intake(visible(message)), visible(reply)])
             turns.append({"turn": index, "message": visible(redact_mobile_for_intake(message)),
-                          "reply": visible(reply), "candidate_reply": visible(draft) if draft else None, "checks": checks, "critical": severe,
+                          "reply": visible(reply), "reply_source": source,
+                          "candidate_reply": visible(draft) if draft else None, "checks": checks, "critical": severe,
                           "expected": {k: ("reservado" if k == "phone" and v else v) for k, v in expected.items()},
                           "differences": {k: ("reservado" if k == "phone" and actual[k] else actual[k]) for k in mismatched}})
             previous = reply
@@ -244,7 +252,9 @@ def evaluate(case, aliases, knowledge, answer=None, judge=None, corrector=None, 
         verdict = judge(json.dumps(history, ensure_ascii=False))
         if re.fullmatch(r"[0-4]", verdict.strip()):
             natural_review = int(verdict.strip()) / 4
-            dimensions["naturalness"] = min(dimensions["naturalness"], natural_review * len(turns))
+            dimensions["naturalness"] = natural_review * len(turns)
+            if natural_review < 0.75:
+                errors["respuesta"] += 1
         else:
             errors["respuesta"] += 1
     proposed = None
@@ -260,6 +270,7 @@ def evaluate(case, aliases, knowledge, answer=None, judge=None, corrector=None, 
     return {"id": case.id, "passed": not errors, "turns": turns,
             "dimensions": dict(dimensions), "naturalness_review": natural_review,
             "fields": facts_total, "correct_fields": facts_correct, "repeated_turns": repeated_turns,
+            "pending_repeats": pending_repeats, "reply_sources": dict(reply_sources),
             "critical": critical_count, "errors": dict(errors), "evidence": evidence,
             "synthetic_need": case.need, "ai_proposal": proposed,
             "latency_ms": round((perf_counter() - started) * 1000, 2)}

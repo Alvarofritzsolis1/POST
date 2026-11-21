@@ -19,7 +19,7 @@ from .galancito_memory import aware
 from .galancito_training import (DETAIL_DAYS, HISTORY_DAYS, LEASE_SECONDS, LOCAL_CONTEXT_LIMIT,
                                   LOCAL_OUTPUT_LIMIT, ResourceSampler, eligible_at, resource_slots)
 from .galancito_training_data import DATASET_VERSION, scenario
-from .galancito_training_eval import CORRECTOR_PROMPT, JUDGE_PROMPT, PROMPT, evaluate
+from .galancito_training_eval import CORRECTOR_PROMPT, EVALUATION_VERSION, JUDGE_PROMPT, PROMPT, evaluate
 from .galancito_training_models import TERMINAL, TrainingCase, TrainingRound, TrainingWorker
 from .models import uid, utcnow
 
@@ -109,6 +109,9 @@ def claim(factory, snapshot, *, maintenance=False):
                 continue
             if row.config["dataset_version"] != DATASET_VERSION:
                 finish(row, "error", "Cambió la versión del generador durante la sesión", now)
+                continue
+            if row.config.get("evaluation_version", 1) != EVALUATION_VERSION:
+                finish(row, "error", "Cambió la metodología de evaluación. Inicia una nueva ronda.", now)
                 continue
             if row.metrics.get("elapsed_seconds", 0) >= row.config["minutes"] * 60:
                 finish(row, "completed", "Se alcanzó la duración configurada", now)
@@ -232,21 +235,26 @@ def checkpoints(factory, claim, results, snapshot, elapsed):
         row = active_claim(db, claim)
         metrics = dict(row.metrics)
         dims, errors = dict(metrics.get("dimensions", {})), dict(metrics.get("errors", {}))
+        sources = dict(metrics.get("reply_sources", {}))
         for result in results:
             db.add(TrainingCase(round_id=row.id, position=row.completed, case_id=result["id"],
                                 passed=result["passed"], result=result))
             row.completed += 1
-            for field in ("fields", "correct_fields", "repeated_turns", "critical", "latency_ms"):
+            for field in ("fields", "correct_fields", "repeated_turns", "pending_repeats", "critical", "latency_ms"):
                 metrics[field] = metrics.get(field, 0) + result[field]
             metrics["turns"] = metrics.get("turns", 0) + len(result["turns"])
             status = "passed" if result["passed"] else "failed"
             metrics[status] = metrics.get(status, 0) + 1
-            metrics["judged_cases"] = metrics.get("judged_cases", 0) + (result["naturalness_review"] is not None)
+            if result["naturalness_review"] is not None:
+                metrics["judged_cases"] = metrics.get("judged_cases", 0) + 1
+                metrics["judged_turns"] = metrics.get("judged_turns", 0) + len(result["turns"])
+            for key, value in result["reply_sources"].items():
+                sources[key] = sources.get(key, 0) + value
             for key, value in result["dimensions"].items():
                 dims[key] = dims.get(key, 0) + value
             for key, value in result["errors"].items():
                 errors[key] = errors.get(key, 0) + value
-        metrics.update(dimensions=dims, errors=errors, elapsed_seconds=metrics.get("elapsed_seconds", 0) + elapsed)
+        metrics.update(dimensions=dims, errors=errors, reply_sources=sources, elapsed_seconds=metrics.get("elapsed_seconds", 0) + elapsed)
         for key, measured in (("peak_worker_ram_mb", "worker_ram_mb"), ("peak_host_cpu_percent", "host_cpu_percent")):
             if snapshot[measured] is not None:
                 metrics[key] = max(metrics.get(key, 0), snapshot[measured])

@@ -21,7 +21,7 @@ from .galancito_memory import approved_trade_aliases, aware
 from .galancito_phone import redact_mobile_for_intake
 from .galancito_training import DETAIL_DAYS, WORKER_STALE_SECONDS, eligible_at, round_view, summarize
 from .galancito_training_data import DATASET_VERSION, MAX_CASES, dataset_hash, digest, scenario
-from .galancito_training_eval import CORRECTOR_PROMPT, CRITICAL, JUDGE_PROMPT, PROMPT, PROPOSALS, WEIGHTS, visible
+from .galancito_training_eval import CORRECTOR_PROMPT, CRITICAL, EVALUATION_VERSION, JUDGE_PROMPT, PROMPT, PROPOSALS, WEIGHTS, visible
 from .galancito_training_models import ACTIVE, TERMINAL, TrainingCase, TrainingRound, TrainingWorker
 from .galancito_triage import plain
 from .models import AuditEvent, Organization, User, utcnow
@@ -29,9 +29,9 @@ from .security import administrator
 from .version import SOURCE_COMMIT, VERSION
 
 router = APIRouter(prefix="/api/v1/admin/ai/training", tags=["Galancito Evolution"])
-PROMPT_VERSION = digest([PROMPT, JUDGE_PROMPT, CORRECTOR_PROMPT, WEIGHTS])
+PROMPT_VERSION = digest([PROMPT, JUDGE_PROMPT, CORRECTOR_PROMPT, WEIGHTS, EVALUATION_VERSION])
 SCOPE = "training"
-REVIEW_COMMAND = "GALANCITO PRACTICA"
+REVIEW_COMMAND = "GALANT PRACTICA"
 
 
 class RoundInput(BaseModel):
@@ -148,6 +148,7 @@ def start(db, user, body, *, previous=None):
     config = body.model_dump()
     config["seed"] = secrets.randbelow(2**31) if body.seed is None else body.seed
     config["dataset_version"] = DATASET_VERSION
+    config["evaluation_version"] = EVALUATION_VERSION
     config["model"] = model_info(db, user, body.model, "model")
     config["judge"] = model_info(db, user, body.judge, "judge")
     config["corrector"] = model_info(db, user, body.corrector, "corrector")
@@ -324,14 +325,19 @@ def export_round(round_id: str, kind: Literal["json", "md"], user: User = Depend
             before, and_(before.round_id == previous.id, before.position == TrainingCase.position)).where(
             TrainingCase.round_id == row.id, TrainingCase.passed.is_(False), before.passed.is_(True)))
         retained = aware(previous.finished_at) and aware(previous.finished_at) >= utcnow() - timedelta(days=DETAIL_DAYS)
-        comparison = {"id": previous.id, "metrics": old,
-                      "regressions": regressions if retained else None,
+        same_evaluation = (row.config.get("evaluation_version", 1) == previous.config.get("evaluation_version", 1)
+                           and row.config["judge"] == previous.config["judge"]
+                           and (metrics["dimensions"]["naturalness"] is None)
+                           == (old["dimensions"]["naturalness"] is None))
+        comparison = {"id": previous.id, "metrics": old, "same_evaluation": same_evaluation,
+                      "regressions": regressions if retained and same_evaluation else None,
                       "score_difference": round(metrics["score"] - old["score"], 2)
-                      if metrics["score"] is not None and old["score"] is not None else None}
+                      if same_evaluation and metrics["score"] is not None and old["score"] is not None else None}
     info = {"command": REVIEW_COMMAND, "source": "simulacion_sintetica", "round_id": row.id,
             "system_version": row.system_version, "prompt_version": row.prompt_version,
             "dataset_hash": row.dataset_hash, "dataset_version": row.config["dataset_version"],
             "state": row.state, "processed": row.completed, "target": row.target,
+            "evaluation_version": row.config.get("evaluation_version", 1),
             "suite": row.config["suite"], "level": row.config["level"], "metrics": metrics,
             "weights": WEIGHTS, "targets": {"profile_accuracy": 0.95, "conversational_criteria": 0.9,
                                              "repetition_below": 0.03, "critical_max": 0},
@@ -342,25 +348,34 @@ def export_round(round_id: str, kind: Literal["json", "md"], user: User = Depend
             "knowledge_versions": sorted({item["version"] for item in row.knowledge}),
             "approved_corrections": len(row.knowledge), "comparison": comparison,
             "proposals": {code: PROPOSALS[code] for code in metrics["error_counts"]}, "examples": examples}
-    name = f"galancito-practica-{row.id}.{kind}"
+    name = f"galant-practica-{row.id}.{kind}"
     if kind == "json":
         return attachment(json.dumps(info, ensure_ascii=False, indent=2), "application/json", name)
-    lines = ["# GALANCITO PRACTICA", "", f"- Ronda `{row.id}`",
+    lines = [f"# {REVIEW_COMMAND}", "", f"- Ronda `{row.id}`",
              f"- Sistema `{row.system_version}` y prompt `{row.prompt_version}`",
              f"- Dataset `{row.dataset_hash}` · nivel {row.config['level']} · {row.config['suite']}",
              f"- {row.completed} / {row.target} casos sintéticos procesados",
              f"- {metrics['passed']} correctos, {metrics['failed']} incorrectos y {metrics['critical']} alertas críticas",
              f"- Respuesta con {info['models']['model']['model']} y revisión con {info['models']['judge']['model']}.",
-             f"- Correcciones aprobadas incluidas en la ronda: {len(row.knowledge)}.",
-             "", "## Resultados por competencia", "", "| Competencia | Resultado | Peso |",
-             "| --- | ---: | ---: |"]
+             f"- {metrics['fields']} campos presentes evaluados en {metrics['turns']} turnos.",
+             f"- {metrics['judged_turns']} turnos revisados por un modelo de naturalidad.",
+             f"- Correcciones aprobadas incluidas en la ronda: {len(row.knowledge)}."]
+    if metrics["reply_sources"] is not None:
+        sources = metrics["reply_sources"]
+        lines.append(f"- Respuestas por origen: {sources.get('model', 0)} de IA, {sources.get('rules', 0)} de reglas, "
+                     f"{sources.get('approved_correction', 0)} revisadas y {sources.get('fallback', 0)} de respaldo.")
+    lines += ["", "## Resultados por competencia", "", "| Competencia | Resultado | Peso |",
+              "| --- | ---: | ---: |"]
     for dimension, weight in WEIGHTS.items():
         value = metrics["dimensions"][dimension]
         formatted = f"{value:.1%}" if value is not None else "Sin muestra"
         lines.append(f"| {dimension} | {formatted} | {weight}% |")
     if comparison:
-        lines += ["", f"## Comparación con {previous.id}", "",
-                  f"Diferencia en puntuación: {comparison['score_difference']}. Regresiones: {comparison['regressions']}."]
+        lines += ["", f"## Comparación con {previous.id}", ""]
+        if comparison["same_evaluation"]:
+            lines.append(f"Diferencia en puntuación: {comparison['score_difference']}. Regresiones: {comparison['regressions']}.")
+        else:
+            lines.append("La metodología o el evaluador cambió. Ejecuta las dos rondas con la misma evaluación para comparar.")
     lines += ["", "## Propuestas de revisión", ""]
     lines.extend(f"- {metrics['error_counts'][code]} alertas de {code}. {proposal}"
                  for code, proposal in info["proposals"].items())
@@ -373,7 +388,8 @@ def export_round(round_id: str, kind: Literal["json", "md"], user: User = Depend
                       "  Diferencias: " + json.dumps(turn["differences"], ensure_ascii=False),
                       "  Esperado: " + json.dumps(turn["expected"], ensure_ascii=False)]
     lines += ["", "Revisa primero las alertas críticas y prepara instrucciones para la siguiente ronda.",
-              "Los resultados corresponden a simulaciones. La naturalidad automatizada es una aproximación."]
+              "La naturalidad es una estimación del modelo evaluador y se calcula sobre los turnos revisados. "
+              "La puntuación global pondera solo las competencias medidas."]
     return attachment("\n".join(lines) + "\n", "text/markdown", name)
 
 

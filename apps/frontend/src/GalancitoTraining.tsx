@@ -47,12 +47,13 @@ type Metrics = {
   fields: number; correct_fields: number; profile_accuracy: number | null;
   dimensions: Record<string, number | null>; average_latency_ms: number | null;
   input_tokens: number; output_tokens: number; reserved_tokens: number;
-  estimated_cost_usd: number; reserved_cost_usd: number; repetition_rate: number | null; judged_cases: number;
+  estimated_cost_usd: number; reserved_cost_usd: number; repetition_rate: number | null; judged_turns: number;
+  reply_sources: Record<string, number> | null; pending_prompt_repeats: number | null;
 };
 type Round = {
   id: string; state: string; target: number; completed: number; reason: string | null; next_at: string;
   created_at: string; previous_id: string | null; dataset_hash: string; leased: boolean;
-  config: { level: number; suite: string; model: Model; judge: Model; night: boolean };
+  config: { level: number; suite: string; model: Model; judge: Model; night: boolean; evaluation_version?: number };
   metrics: Metrics;
 };
 type Overview = {
@@ -122,6 +123,10 @@ export default function GalancitoTraining({ back }: { back: () => void }) {
   const round = data?.rounds.find(item => item.id === selection) ?? active ?? data?.rounds[0];
   const comparison = data?.rounds.find(item => item.id === round?.previous_id);
   const stats = round?.metrics;
+  const sameEvaluation = round?.config.evaluation_version === comparison?.config.evaluation_version &&
+    round?.config.judge.id === comparison?.config.judge.id &&
+    round?.config.judge.model === comparison?.config.judge.model &&
+    (stats?.dimensions.naturalness == null) === (comparison?.metrics.dimensions.naturalness == null);
   const resources = data?.worker.resources;
 
   async function perform(operation: () => Promise<void>) {
@@ -238,11 +243,15 @@ export default function GalancitoTraining({ back }: { back: () => void }) {
             <div><dt>Alertas críticas</dt><dd className={stats?.critical ? "training-danger" : ""}>{number(stats?.critical)}</dd></div>
             <div><dt>Exactitud de fichas</dt><dd>{percent(stats?.profile_accuracy)}</dd></div>
             <div><dt>Comprensión del contexto</dt><dd>{percent(stats?.dimensions.context)}</dd></div>
-            <div><dt>Calidad conversacional estimada</dt><dd>{percent(stats?.dimensions.naturalness)}</dd></div>
+            <div><dt>Naturalidad estimada por IA</dt><dd>{stats?.judged_turns ? percent(stats.dimensions.naturalness) : "Sin revisión IA"}</dd></div>
             <div><dt>Latencia de simulación por turno</dt><dd>{number(stats?.average_latency_ms)} {stats?.average_latency_ms != null && "ms"}</dd></div>
             <div><dt>Tokens registrados</dt><dd>{number((stats?.input_tokens ?? 0) + (stats?.output_tokens ?? 0))}</dd></div>
             <div><dt>Costo estimado de API</dt><dd>{price.format(stats?.estimated_cost_usd ?? 0)}</dd></div>
           </dl>
+          {stats?.reply_sources && <p className="training-muted">
+            Respuestas por origen · {number(stats.reply_sources.model ?? 0)} IA · {number(stats.reply_sources.rules ?? 0)} reglas · {number(stats.reply_sources.approved_correction ?? 0)} aprobadas · {number(stats.reply_sources.fallback ?? 0)} respaldo
+          </p>}
+          {!!stats?.judged_turns && <p className="training-muted">{number(stats.judged_turns)} turnos revisados para estimar naturalidad.</p>}
           {!!stats?.reserved_tokens && <p className="training-muted">{number(stats.reserved_tokens)} tokens reservados sin medición del proveedor.</p>}
           {stats?.fields ? <p className="training-muted">Fichas: {number(stats.correct_fields)} de {number(stats.fields)} campos presentes correctos.</p> : null}
           <div className="training-actions">
@@ -260,6 +269,7 @@ export default function GalancitoTraining({ back }: { back: () => void }) {
             <details className="training-download">
               <summary><Download size={15} /> Exportar para ChatGPT</summary>
               <div>
+                <p className="training-download-key">Clave en ChatGPT <strong>GALANT PRACTICA</strong></p>
                 <a href={exportUrl("/rounds/" + round.id + "/export/md")}>Informe Markdown</a>
                 <a href={exportUrl("/rounds/" + round.id + "/export/json")}>Datos JSON</a>
               </div>
@@ -303,7 +313,8 @@ export default function GalancitoTraining({ back }: { back: () => void }) {
         {round && <div className="training-history-info">
           <div><strong>{round.config.model.model}</strong><small>Evaluación · {round.config.judge.model}</small></div>
           {comparison && <div><strong>Comparación con {timestamp(comparison.created_at)}</strong><small>
-            {number(round.metrics.score)} / 100 frente a {number(comparison.metrics.score)} / 100 · mismo conjunto
+            {sameEvaluation ? `${number(round.metrics.score)} / 100 frente a ${number(comparison.metrics.score)} / 100 · mismo conjunto`
+              : "Metodología o evaluador distinto"}
           </small></div>}
           {!active && <button className="gc-secondary" disabled={busy} onClick={() => void perform(async () => {
             const row = await json<Round>("/rounds/" + round.id + "/repeat", null);

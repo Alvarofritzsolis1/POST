@@ -1,7 +1,7 @@
 """Add the isolated Galancito simulation queue and measurements."""
 from ..galancito_training_models import TrainingCase, TrainingRound, TrainingWorker
 
-MIGRATION_ID = "20.9.8_galancito_training"
+MIGRATION_ID = "20.9.10_galancito_training"
 
 
 def upgrade(connection):

@@ -120,6 +120,12 @@ def test_verifiable_profile_and_critical_draft():
     expected = evaluate(reference_case(2), {}, [])
     assert expected["fields"] > 0
     assert expected["correct_fields"] == expected["fields"]
+    assert expected["naturalness_review"] is None
+    assert "naturalness" not in expected["dimensions"]
+    assert sum(expected["reply_sources"].values()) == len(expected["turns"])
+    with_review = evaluate(reference_case(2), {}, [], judge=lambda _: "3")
+    assert with_review["naturalness_review"] == 0.75
+    assert with_review["dimensions"]["naturalness"] == len(expected["turns"]) * 0.75
     assert expected["evidence"]["trades"]["sources"] == {"Tabiquería": "turno-1"}
     bad = evaluate(reference_case(7), {}, [], answer=lambda _: "Ya estás contratado. Soy humano.")
     assert not bad["passed"]
@@ -163,6 +169,9 @@ def test_lifecycle_permissions_restart_review_and_rollback(database):
         assert finished["metrics"]["profile_accuracy"] is not None
         assert finished["metrics"]["failed"] > 0 and finished["metrics"]["passed"] > 0
         assert finished["metrics"]["input_tokens"] == 0
+        assert finished["metrics"]["dimensions"]["naturalness"] is None
+        assert finished["metrics"]["judged_turns"] == 0
+        assert sum(finished["metrics"]["reply_sources"].values()) == finished["metrics"]["turns"]
         with database() as db:
             assert db.scalar(select(func.count()).select_from(TrainingCase)) == 10
             assert db.scalar(select(func.count()).select_from(FacebookChatMessage)) == 0
@@ -171,10 +180,10 @@ def test_lifecycle_permissions_restart_review_and_rollback(database):
         case = next(item for item in errors["cases"] if item["id"] == "referencia-01")
         assert case["turns"][0]["expected"]["name"] == "Pedro"
         report = first.get(path + "/export/json")
-        assert report.json()["command"] == "GALANCITO PRACTICA"
+        assert report.json()["command"] == "GALANT PRACTICA"
         assert report.json()["dataset_hash"] == row["dataset_hash"]
         assert "56900000000" not in report.text and "password" not in report.text
-        assert first.get(path + "/export/md").text.startswith("# GALANCITO PRACTICA")
+        assert first.get(path + "/export/md").text.startswith("# GALANT PRACTICA")
 
         corrections = {
             "version": 0, "corrections": [{"case_id": case["id"], "turn": 1,
@@ -197,6 +206,7 @@ def test_lifecycle_permissions_restart_review_and_rollback(database):
             assert galancito_trainer.process_next(database, sampler)
         new_report = first.get(new_path + "/export/json").json()
         assert new_report["comparison"]["id"] == row_id
+        assert new_report["comparison"]["same_evaluation"]
         assert new_report["approved_corrections"] == 1
         assert new_report["dataset_hash"] == row["dataset_hash"]
         assert first.post(ROOT + "/knowledge/rollback", json={"version": 1, "restore_version": 0}).json()["version"] == 2
