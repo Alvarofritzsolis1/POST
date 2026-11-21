@@ -433,7 +433,7 @@ async def webhook(request: Request, db: Session = Depends(get_db)):
                 and not (needs_deeper_response(body) or is_worksite_location(body))
                 and declared_relative_start(body) is None):
             body, previous_question = earlier[1], earlier[2]
-        reply_turns[lead.id] = (lead, body, previous_question, changed or bool(earlier and earlier[3]),
+        reply_turns[lead.id] = (lead, intake_body, previous_question, changed or bool(earlier and earlier[3]),
                                signal or (earlier[4] if earlier else None), mid,
                                consent is True or bool(earlier and earlier[6]),
                                phone_saved or bool(earlier and earlier[7]))
