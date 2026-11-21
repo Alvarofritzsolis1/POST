@@ -60,6 +60,7 @@ export default function RequirementWorkspace({
   const [data, setData] = useState<CandidatesResponse | null>(null);
   const [selectedId, setSelectedId] = useState("");
   const [chatLeadId, setChatLeadId] = useState("");
+  const [chatDraftDirty, setChatDraftDirty] = useState(false);
   const [query, setQuery] = useState("");
   const [stageFilter, setStageFilter] = useState("all");
   const [loading, setLoading] = useState(true);
@@ -116,14 +117,15 @@ export default function RequirementWorkspace({
 
   function choose(id: string) {
     if (id === selectedId) return;
-    if (formChanged && !window.confirm("Hay cambios sin guardar en esta ficha. ¿Descartarlos?")) return;
+    if ((formChanged || chatDraftDirty) && !window.confirm("Hay cambios sin guardar en la ficha o en un mensaje. ¿Descartarlos?")) return;
     setSelectedId(id);
     setChatLeadId("");
+    setChatDraftDirty(false);
     setNotice("");
   }
 
   function confirmAbandon() {
-    return !formChanged || window.confirm("Hay cambios sin guardar en esta ficha. ¿Descartarlos?");
+    return (!formChanged && !chatDraftDirty) || window.confirm("Hay cambios sin guardar en la ficha o en un mensaje. ¿Descartarlos?");
   }
 
   async function save() {
@@ -184,9 +186,9 @@ export default function RequirementWorkspace({
       <div><strong>{data?.capacities.length ?? "—"}</strong><span>Otras obras</span></div>
     </div>
     <nav className="nwc-tabs" aria-label="Secciones del requerimiento">
-      <button type="button" className={tab === "candidates" ? "active" : ""} onClick={() => setTab("candidates")} aria-current={tab==="candidates"?"page":undefined}><Users size={17}/> Candidatos</button>
-      <button type="button" className={tab === "facebook" ? "active" : ""} onClick={() => setTab("facebook")} aria-current={tab==="facebook"?"page":undefined}><Facebook size={17}/> Publicación e interacciones <span>{data?.comments.length || 0}</span></button>
-      <button type="button" className={tab === "admin" ? "active" : ""} onClick={() => setTab("admin")} aria-current={tab==="admin"?"page":undefined}><FileText size={17}/> Partidas y documentos</button>
+      <button type="button" className={tab === "candidates" ? "active" : ""} onClick={() => { if (confirmAbandon()) { setTab("candidates"); setChatLeadId(""); setChatDraftDirty(false); } }} aria-current={tab==="candidates"?"page":undefined}><Users size={17}/> Candidatos</button>
+      <button type="button" className={tab === "facebook" ? "active" : ""} onClick={() => { if (confirmAbandon()) { setTab("facebook"); setChatLeadId(""); setChatDraftDirty(false); } }} aria-current={tab==="facebook"?"page":undefined}><Facebook size={17}/> Publicación e interacciones <span>{data?.comments.length || 0}</span></button>
+      <button type="button" className={tab === "admin" ? "active" : ""} onClick={() => { if (confirmAbandon()) { setTab("admin"); setChatLeadId(""); setChatDraftDirty(false); } }} aria-current={tab==="admin"?"page":undefined}><FileText size={17}/> Partidas y documentos</button>
       <button className="nwc-refresh" type="button" onClick={() => void load()} aria-label="Actualizar candidatos" title="Actualizar candidatos"><RefreshCw size={17}/></button>
     </nav>
     {error && <div className="nwc-error" role="alert"><CircleAlert size={18}/>{error} <button type="button" onClick={() => void load()}>Reintentar</button></div>}
@@ -228,7 +230,8 @@ export default function RequirementWorkspace({
         {selected && chatLeadId === selected.id ?
           <RequirementCandidateChat key={selected.id} requirementId={requirement.id}
             leadId={selected.id} name={selected.name} contactMissing={!selected.phone && !selected.email}
-            onBack={() => setChatLeadId("")}/> :
+            onBack={() => { if (confirmAbandon()) { setChatLeadId(""); setChatDraftDirty(false); } }}
+            onDraftDirty={setChatDraftDirty}/> :
          !selected ? <div className="nwc-empty"><Users size={30}/><strong>Selecciona un perfil</strong><span>Visualiza su ficha y registra el seguimiento sin salir de la solicitud.</span></div> : <>
           <div className="nwc-profile-top">
             <PersonAvatar name={selected.name} size="lg"/>
