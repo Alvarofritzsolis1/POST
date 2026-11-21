@@ -326,3 +326,31 @@ def test_queued_ollama_round_does_not_spend_attempts_while_model_downloads(datab
             assert waiting.state == "queued"
             assert waiting.attempts == waiting.completed == 0
             assert waiting.lease is None
+
+
+def test_internal_practice_api_worker_and_scope(database):
+    """Internal practice uses the original queue with separate synthetic grading."""
+    sampler = SimpleNamespace(sample=lambda: RESOURCES.copy())
+    with client_for("admin-a") as client, client_for("admin-b") as other:
+        created = request_round(client, profile="interno", cases=3, suite="reference")
+        row_id = created["id"]
+        assert created["config"]["profile"] == "interno"
+        assert other.get(ROOT + "/rounds/" + row_id + "/errors").status_code == 404
+        assert client.get(ROOT).json()["internal_categories"]
+        for _ in range(3):
+            assert galancito_trainer.process_next(database, sampler)
+        finished = latest(client, row_id)
+        assert finished["state"] == "completed"
+        assert finished["metrics"]["passed"] == 3
+        assert finished["metrics"]["critical"] == 0
+        assert finished["metrics"]["score"] == 100
+        assert finished["metrics"]["profile_accuracy"] is None
+        assert finished["metrics"]["dimensions"]["accuracy"] == 1
+        report = client.get(ROOT + "/rounds/" + row_id + "/export/json")
+        assert report.status_code == 200, report.text
+        assert report.json()["profile"] == "interno"
+        assert report.json()["weights"]["accuracy"] == 25
+        assert client.post(ROOT + "/rounds/" + row_id + "/corrections",
+                           json={"version": 0, "corrections": []}).status_code == 422
+        with database() as db:
+            assert db.scalar(select(func.count()).select_from(FacebookChatMessage)) == 0
