@@ -16,7 +16,7 @@ from sqlalchemy.orm import Session
 from .db import get_db
 from .models import User, utcnow
 from .security import authorized_user
-from .network_service import requirement_for, capacity_view, event, today
+from .network_service import requirement_for, capacity_view, event, today, lock_org
 from .network_models import (
     NetworkCandidateFollowUp, NetworkMatch, NetworkCapacity,
     NetworkFacebookPost,
@@ -305,6 +305,9 @@ def update_candidate_follow_up(
     ))
     if not lead:
         raise HTTPException(404, "Contacto no encontrado")
+    # Serialize first-time creation as well as updates. Without this lock two
+    # reviewers saving a previously untracked profile could race to a 500.
+    lock_org(db, user)
     record = db.scalar(select(NetworkCandidateFollowUp).where(
         NetworkCandidateFollowUp.org_id == user.org_id,
         NetworkCandidateFollowUp.requirement_id == requirement.id,
