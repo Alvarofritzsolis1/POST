@@ -69,3 +69,9 @@
   .training-profile-tab { transition:none; }
   .training-profile-tab:hover { transform:none; }
 }
+
+.training-cycle-results { display:grid; grid-template-columns:repeat(auto-fit,minmax(170px,1fr)); gap:7px; margin-top:10px; }
+.training-cycle-results > div { display:grid; gap:3px; padding:9px 12px; border:1px solid #dae6e9; border-radius:9px; background:#f7faf9; }
+.training-cycle-results span { font-weight:800; font-size:12px; color:#14655d; }
+.training-cycle-results strong { font-size:12px; color:#234b50; }
+.training-cycle-results small { color:#607a7c; font-size:11px; }
