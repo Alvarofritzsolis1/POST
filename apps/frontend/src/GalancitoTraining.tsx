@@ -248,7 +248,7 @@ export default function GalancitoTraining({ back }: { back: () => void }) {
             </select></label>
             <label>Casos por ciclo<input required min="1" max="10000" type="number" value={form.cases} onChange={event => setForm({ ...form, cases: Number(event.target.value) })} /></label>
             {form.profile === "interno" && <label>Ciclos de evaluación<select value={form.cycles}
-              onChange={event => setForm({ ...form, cycles: Number(event.target.value) })}>
+              onChange={event => { const cycles = Number(event.target.value); setForm(prev => ({ ...prev, cycles, cases: Math.min(prev.cases, Math.floor(10000 / cycles)) })); }}>
               {[1,5,10,20,40].map(value => <option value={value} key={value}>{value} {value === 1 ? "ciclo" : "ciclos"}</option>)}
             </select></label>}
             <label>Conjunto<select value={form.suite} onChange={event => setForm({ ...form, suite: event.target.value })}>
@@ -279,7 +279,7 @@ export default function GalancitoTraining({ back }: { back: () => void }) {
           </details>
           {form.profile === "interno" && <p className="training-muted">
             Total previsto: <strong>{number(form.cases * form.cycles)} evaluaciones</strong>.
-            Los ciclos son pruebas repetidas: no modifican los pesos del modelo ni se aplican cambios sin aprobación.
+            Los ciclos son pruebas repetidas, no entrenamiento de pesos. Se limita automáticamente la cantidad de casos por ciclo a 10.000 ÷ ciclos para proteger el VPS.
           </p>}
           <div className="training-actions">
             <button type="submit" className="gc-primary" disabled={busy || Boolean(active)}><Play size={16} /> Iniciar entrenamiento</button>
