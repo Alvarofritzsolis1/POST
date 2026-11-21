@@ -196,3 +196,24 @@ def test_internal_navigation_uses_real_menu_and_respects_role(network):
         assert response.status_code == 200, response.text
         assert expected in response.json()["answer"]
         assert response.json()["intent"] == "navigation"
+
+
+def test_internal_answer_can_be_rated_without_modifying_knowledge(network):
+    from sqlalchemy import func, select
+    from app.galancito_knowledge_models import AssistantRun, Knowledge
+
+    n = network
+    answer = n["send"](n["admin"], "/galancito/chat", {
+        "area": "interno", "message": "¿Qué versión está desplegada?",
+    })
+    assert answer.status_code == 200, answer.text
+    run_id = answer.json()["run_id"]
+    feedback = n["send"](n["admin"], f"/galancito/runs/{run_id}/feedback",
+                         {"rating": "incorrect"})
+    assert feedback.status_code == 200, feedback.text
+    assert feedback.json()["saved"] is True
+    with n["Session"]() as db:
+        row = db.get(AssistantRun, run_id)
+        assert row.channel == "galant_internal"
+        assert row.feedback == "incorrect"
+        assert not db.scalar(select(func.count()).select_from(Knowledge))
