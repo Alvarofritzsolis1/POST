@@ -191,7 +191,7 @@ export default function FacebookPersonSheet({person,onClose,onChanged,onOpenChat
     e.preventDefault();
     if(saving||!data)return;
     if(!validPhone(phone)){setError("Número inválido. Usa +56 9 1234 5678 o deja vacío.");return;}
-    if(email.trim() && !/^[^\\s@]+@[^\\s@]+\\.[^\\s@]+$/.test(email.trim())){setError("Correo electrónico inválido.");return;}
+    if(email.trim() && !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email.trim())){setError("Correo electrónico inválido.");return;}
     setSaving(true);setError("");setNotice("");
     try{
       await change("/facebook/leads/"+person.id,{
