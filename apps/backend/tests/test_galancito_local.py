@@ -220,3 +220,13 @@ def test_qwen35_upgrade_restores_environment_bytes(monkeypatch, tmp_path):
     ns["restore_env"](original)
     assert target.read_bytes() == original
     assert target.stat().st_mode & 0o777 == 0o600
+
+
+def test_upgrade_preserves_javiera_compose_overlay():
+    import runpy
+    from pathlib import Path
+    root = Path(__file__).resolve().parents[3]
+    ns = runpy.run_path(str(root / "scripts/upgrade-galancito-qwen35.py"))
+    assert str(root / "docker-compose.preview.yml") in ns["COMPOSE"]
+    assert str(root / "docker-compose.javiera20.yml") in ns["COMPOSE"]
+    assert str(root / ".env.javiera20") in ns["COMPOSE"]

@@ -42,3 +42,5 @@ Restaurar los valores originales desde la copia privada (no sobrescribir cambios
 
 ## Estado
 Candidata sin despliegue ni pruebas reales en VPS. Las pruebas automatizadas añadidas verifican el modelo seleccionado, endpoint privado, no selección de equipo externo en Messenger y conservación del motor de entrenamiento. Pendiente ejecución de CI, prueba local, revisión de etiquetas de UI y validación real de calidad/recursos antes de activar.
+
+La activación conserva también la configuración privada y el servicio Calc de Proyecto Javiera; no recrea el API sin el overlay de Javiera si está presente.

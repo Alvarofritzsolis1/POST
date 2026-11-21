@@ -23,6 +23,9 @@ MODEL = "qwen3.5:4b-q4_K_M"
 OLD = "qwen3:1.7b"
 COMPOSE = ["docker", "compose", "--profile", "local-ai", "--profile", "training",
            "--env-file", str(ENV), "-f", str(ROOT / "docker-compose.preview.yml")]
+JAVIERA_OVERRIDE = ROOT / "docker-compose.javiera20.yml"
+if JAVIERA_OVERRIDE.is_file():
+    COMPOSE += ["--env-file", str(ROOT / ".env.javiera20"), "-f", str(JAVIERA_OVERRIDE)]
 SERVICES = ("api", "worker", "facebook-publisher")
 CHANGES = {"GALANCITO_LOCAL_MODEL": MODEL, "GALANCITO_OLLAMA_MEM_LIMIT": "5g",
            "GALANCITO_OLLAMA_CPUS": "2", "GALANCITO_NUM_THREAD": "2",
@@ -71,6 +74,8 @@ def memory_mb():
 def preflight():
     if os.geteuid() != 0 or not ENV.is_file() or ENV.is_symlink() or stat.S_IMODE(ENV.stat().st_mode) & 0o077:
         raise RuntimeError("Ejecutar como root en GALANT con .env.preview privado (600)")
+    if JAVIERA_OVERRIDE.is_file() and not (ROOT / ".env.javiera20").is_file():
+        raise RuntimeError("Falta el entorno de Javiera; no se recreará el API con una configuración incompleta")
     compose("config", "--quiet")
     if memory_mb() < 7168 or (os.cpu_count() or 0) < 4:
         raise RuntimeError("Se requieren 7 GiB disponibles y 4 CPU antes de probar; no se modifica nada")
@@ -82,6 +87,8 @@ def preflight():
     if not {"api", "db", "galancito-ollama", *SERVICES} <= running:
         raise RuntimeError("El stack activo está incompleto; revisar antes de cambiar el modelo")
     compose("exec", "-T", "api", "python", "-c", HEALTH)
+    if JAVIERA_OVERRIDE.is_file() and "javiera-calc" not in running:
+        raise RuntimeError("Javiera no está operativo; no se modificará el API")
     compose("exec", "-T", "api", "python", "-c",
             "from app.config import Settings; assert Settings(galancito_local_model=" + repr(MODEL) + ").galancito_local_model == " + repr(MODEL))
     models = compose("exec", "-T", "galancito-ollama", "ollama", "list")
