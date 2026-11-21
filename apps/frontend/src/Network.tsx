@@ -1255,6 +1255,9 @@ export default function RedDeObras({ user }: { user: Profile }) {
               })}
             >
             <div className="nw-detail">
+              <details className="nwc-legacy-summary">
+                <summary>Ver información adicional de la solicitud y difusión</summary>
+                <div className="nwc-legacy-summary-body">
               <div className="nw-row nw-wrap">
                 <Badge value={selectedReq.priority} />
                 <Badge value={selectedReq.state} />
@@ -1330,6 +1333,8 @@ export default function RedDeObras({ user }: { user: Profile }) {
                   Editar y reprogramar
                 </button>
               )}
+                </div>
+              </details>
               <h3>Partidas y contratistas adjudicados</h3>
               {selectedReq.items.map((i) => (
                 <div className="nw-detail-item" key={i.id}>
