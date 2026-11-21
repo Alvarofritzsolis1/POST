@@ -10,6 +10,9 @@
 .nwc-titleline p { color:#657b87; font-size:13px; }
 .nwc-eyebrow { display:block; font-size:10px; font-weight:800; letter-spacing:1.1px; color:#008e88; }
 .nwc-symbol { width:52px; height:52px; border-radius:14px; background:linear-gradient(145deg,#087f8c,#064965); color:#fff; display:grid; place-items:center; flex:none; box-shadow:0 8px 20px #07556b2b; }
+.nwc-header-actions { display:flex; align-items:center; gap:10px; flex-wrap:wrap; justify-content:flex-end; }
+.nwc-priority { display:inline-flex; align-items:center; padding:7px 11px; background:#eaf3f1; border:1px solid #d3e1dc; color:#4e7169; border-radius:8px; font-size:11px; font-weight:800; }
+.nwc-priority.is-urgent { background:#fff1e6; border-color:#f3d2ae; color:#b25a1c; }
 .nwc-ghost { display:inline-flex; align-items:center; justify-content:center; gap:8px; border:1px solid #cddce2; border-radius:10px; background:#fff; color:#1f5867; font-size:13px; font-weight:700; padding:11px 16px; white-space:nowrap; }
 .nwc-ghost:hover { border-color:#168f94; background:#f0faf9; }
 .nwc-warning, .nwc-error { display:flex; align-items:center; gap:10px; background:#fff4e6; border:1px solid #f4cea1; color:#905117; border-radius:11px; padding:11px 15px; margin:14px 0; font-size:13px; }
@@ -106,6 +109,10 @@
 .nwc-commentline span { font-size:10px; color:#8295a0; }
 .nwc-comment p { font-size:12px; color:#365564; overflow-wrap:anywhere; margin:8px 0; }
 .nwc-comment small { font-size:10px; color:#8e9ca4; }
+.nwc-legacy-summary { border:1px solid #e1e9ed; border-radius:10px; margin-bottom:18px; background:#f9fbfc; }
+.nwc-legacy-summary > summary { cursor:pointer; padding:13px 17px; color:#456b79; font-size:13px; font-weight:740; }
+.nwc-legacy-summary > summary:hover { color:#087c85; background:#eff8f8; }
+.nwc-legacy-summary-body { display:grid; gap:12px; padding:17px; border-top:1px solid #e1e9ed; background:#fff; }
 .nwc-admin .nw-detail { max-width:100%; }
 .nwc-spin { animation:nwc-rotate 1.3s linear infinite; }
 @keyframes nwc-rotate {to{transform:rotate(360deg)}}
