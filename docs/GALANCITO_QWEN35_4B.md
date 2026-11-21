@@ -44,3 +44,9 @@ Restaurar los valores originales desde la copia privada (no sobrescribir cambios
 Candidata sin despliegue ni pruebas reales en VPS. Las pruebas automatizadas añadidas verifican el modelo seleccionado, endpoint privado, no selección de equipo externo en Messenger y conservación del motor de entrenamiento. Pendiente ejecución de CI, prueba local, revisión de etiquetas de UI y validación real de calidad/recursos antes de activar.
 
 La activación conserva también la configuración privada y el servicio Calc de Proyecto Javiera; no recrea el API sin el overlay de Javiera si está presente.
+
+## Corrección 20.9.11-rc2 — prueba de Qwen3.5 4B en VPS
+
+El primer intento de activación falló después de respaldar/restaurar y antes de seleccionar el modelo. La comprobación anterior exigía respuestas literales («GALANT» y «gasfit») y limitaba a 45 s también la primera carga del modelo CPU. Eso podía generar falsos negativos. Se sustituyó por pruebas sintéticas con respuesta no vacía, dos ventanas diferenciadas (carga en frío 180 s y respuesta caliente 45 s), registro de duración y tokens, y códigos seguros `SMOKE_ERROR` para distinguir HTTP, tiempo de espera, respuesta inválida y lentitud. La activación continúa bloqueada si no supera ambas etapas o falta memoria. La configuración original y los datos permanecen intactos ante fallo. La reparación del código no descarga ni activa automáticamente el modelo: ejecutar el instalador solo tras constatar el despliegue y detener entrenamiento si no hay rondas activas.
+
+No ampliar de forma automática el timeout operativo si la respuesta caliente no pasa la prueba: un modelo demasiado lento para Messenger debe quedarse desactivado hasta revisar recursos.
