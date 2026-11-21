@@ -284,3 +284,17 @@ def test_resource_pressure_messenger_priority_and_budget(database, monkeypatch):
         assert result["state"] == "completed" and result["completed"] == 0
         assert "presupuesto de tokens" in result["reason"]
         assert client.post(path + "/control/stop").status_code == 409
+
+
+def test_queued_ollama_round_does_not_spend_attempts_while_model_downloads(database):
+    sampler = SimpleNamespace(sample=lambda: RESOURCES.copy())
+    with client_for("admin-a") as client:
+        row = request_round(client, model="ollama", cases=1)
+        pending = SimpleNamespace(waiting_reason=lambda _: "Preparando Qwen")
+        assert not galancito_trainer.process_next(database, sampler, training_model=pending)
+        assert latest(client, row["id"])["reason"] == "Preparando Qwen"
+        with database() as db:
+            waiting = db.get(TrainingRound, row["id"])
+            assert waiting.state == "queued"
+            assert waiting.attempts == waiting.completed == 0
+            assert waiting.lease is None

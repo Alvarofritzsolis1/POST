@@ -1,3 +1,8 @@
+## 20.9.10-rc2 — Inicio automático del laboratorio Galancito
+- Activa el trabajador y Ollama de entrenamiento en la instalación y actualización del VPS.
+- Descarga Qwen en segundo plano cuando una ronda lo necesita y conserva la cola durante la preparación.
+- Verifica la actividad del trabajador en el despliegue y muestra un estado claro cuando se desconecta.
+
 ## 20.9.10-rc1 — Laboratorio Galancito Evolution
 - Rondas sintéticas reproducibles con métricas por turno, programación nocturna de Chile y avance persistente en PostgreSQL.
 - Trabajador de activación opcional que prioriza Messenger, con Ollama propio y presupuestos para conexiones externas.

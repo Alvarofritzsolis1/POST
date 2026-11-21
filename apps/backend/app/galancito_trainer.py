@@ -20,8 +20,10 @@ from .galancito_training import (DETAIL_DAYS, HISTORY_DAYS, LEASE_SECONDS, LOCAL
                                   LOCAL_OUTPUT_LIMIT, ResourceSampler, eligible_at, resource_slots)
 from .galancito_training_data import DATASET_VERSION, scenario
 from .galancito_training_eval import CORRECTOR_PROMPT, EVALUATION_VERSION, JUDGE_PROMPT, PROMPT, evaluate
+from .galancito_training_model import TrainingModel
 from .galancito_training_models import TERMINAL, TrainingCase, TrainingRound, TrainingWorker
 from .models import uid, utcnow
+from .version import SOURCE_COMMIT
 
 logger = logging.getLogger(__name__)
 MAX_ATTEMPTS = 3
@@ -61,6 +63,7 @@ def worker_lock(factory):
 
 
 def heartbeat(db, snapshot, now):
+    snapshot = {**snapshot, "worker_commit": SOURCE_COMMIT}
     row = db.get(TrainingWorker, 1)
     if row is None:
         db.add(TrainingWorker(id=1, updated_at=now, resources=snapshot))
@@ -91,7 +94,7 @@ def messenger_busy(db):
         FacebookChatMessage.updated_at >= utcnow() - timedelta(minutes=2))))
 
 
-def claim(factory, snapshot, *, maintenance=False):
+def claim(factory, snapshot, *, maintenance=False, training_model=None):
     now = utcnow()
     with factory.begin() as db:
         heartbeat(db, snapshot, now)
@@ -125,6 +128,12 @@ def claim(factory, snapshot, *, maintenance=False):
             slots, reason = resource_slots(row.config, snapshot, settings().galancito_memory_reserve_mb)
             if slots and messenger_busy(db):
                 slots, reason = 0, "Messenger tiene prioridad"
+            if slots and training_model is not None and any(
+                row.config.get(role, {}).get("id") == "ollama" for role in ("model", "judge", "corrector")
+            ):
+                reason = training_model.waiting_reason(snapshot["disk_free_mb"])
+                if reason:
+                    slots = 0
             if not slots:
                 row.state, row.reason, row.next_at = "queued", reason, now + timedelta(seconds=20)
                 row.lease = row.lease_until = None
@@ -285,13 +294,13 @@ def defer(factory, claim, elapsed, error, *, budget=False, pressure=False):
             row.state, row.next_at = "queued", eligible_at(row.config, retry)
 
 
-def process_next(factory=SessionLocal, sampler=None, *, maintenance=False):
+def process_next(factory=SessionLocal, sampler=None, *, maintenance=False, training_model=None):
     sampler = sampler or ResourceSampler()
     with worker_lock(factory) as granted:
         if not granted:
             return False
         snapshot = sampler.sample()
-        claimed = claim(factory, snapshot, maintenance=maintenance)
+        claimed = claim(factory, snapshot, maintenance=maintenance, training_model=training_model)
         if not claimed:
             return False
         row, count = claimed
@@ -350,10 +359,11 @@ def main():
     logging.basicConfig(level=logging.INFO)
     sampler = ResourceSampler()
     next_cleanup = 0
+    training_model = TrainingModel()
     while True:
         try:
             maintenance = monotonic() >= next_cleanup
-            processed = process_next(sampler=sampler, maintenance=maintenance)
+            processed = process_next(sampler=sampler, maintenance=maintenance, training_model=training_model)
             if maintenance:
                 next_cleanup = monotonic() + 3600
             sleep(0.15 if processed else 3)

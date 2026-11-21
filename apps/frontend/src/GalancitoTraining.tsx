@@ -153,7 +153,7 @@ export default function GalancitoTraining({ back }: { back: () => void }) {
     void perform(async () => {
       const row = await json<Round>("/rounds", { ...form, night, seed: form.seed === "" ? null : Number(form.seed) });
       setSelection(row.id);
-      setNotice(night ? "Ronda nocturna programada para " + timestamp(row.next_at) : "Ronda en cola.");
+      setNotice(night ? "Ronda nocturna programada para " + timestamp(row.next_at) : "Ronda guardada. El servidor la iniciará automáticamente.");
     });
   }
 
@@ -188,13 +188,13 @@ export default function GalancitoTraining({ back }: { back: () => void }) {
       </div>
       <span className={"training-status " + (active?.state ?? (data?.worker.available ? "available" : ""))}>
         <span aria-hidden="true" />
-        {active ? labels[active.state] : data?.worker.available ? "Disponible" : data ? "Servicio sin conexión" : "Cargando"}
+        {!data ? "Cargando" : !data.worker.available ? "Servicio sin conexión" : active ? labels[active.state] : "Disponible"}
       </span>
     </div>
     {loadError && <p role="alert" className="ai-error">{loadError}</p>}
     {error && <p role="alert" className="ai-error">{error}</p>}
     {notice && <p role="status" className="ai-notice">{notice}</p>}
-    {data && !data.worker.available && <p className="ai-warning" role="status">El trabajador no registra actividad reciente. Las rondas guardadas esperan a que vuelva a conectarse.</p>}
+    {data && !data.worker.available && <p className="ai-warning" role="status">El servidor de entrenamiento está desconectado. Tu ronda guardada continuará cuando vuelva a estar disponible.</p>}
 
     <div className="training-grid">
       <section className="ai-panel training-launch">
