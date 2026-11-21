@@ -39,6 +39,7 @@ from .compliance_api import router as compliance_router
 from . import platform_models
 from .network_accounts import router as network_accounts_router
 from .network_api import router as network_router
+from .network_candidates import router as network_candidates_router
 from .network_facebook_manual import router as network_facebook_manual_router
 from .facebook_crm import router as facebook_crm_router
 from .facebook_publication_api import router as facebook_publications_router
@@ -92,6 +93,7 @@ app.include_router(monthly_router)
 app.include_router(ops_import_router)
 app.include_router(network_accounts_router)
 app.include_router(network_router)
+app.include_router(network_candidates_router)
 app.include_router(network_facebook_manual_router)
 app.include_router(facebook_crm_router)
 app.include_router(facebook_publications_router)

@@ -122,6 +122,8 @@ def main():
             admin.screenshot(path=str(args.output / "administrador.png"), full_page=True)
             admin.get_by_role("navigation", name="Red de Obras", exact=True).get_by_role("button", name="Necesidades", exact=True).click()
             admin.get_by_role("button", name=req["title"], exact=True).click()
+            expect(admin.get_by_role("dialog").get_by_role("heading", name="Candidatos relacionados")).to_be_visible()
+            admin.get_by_role("dialog").get_by_role("button", name="Partidas y documentos", exact=True).click()
             expect(admin.get_by_role("dialog").get_by_text("ADJUDICADO A: " + req["items"][0]["awards"][0]["contractor"], exact=True)).to_be_visible()
             admin.screenshot(path=str(args.output / "adjudicacion.png"), full_page=True)
             resident_email = next(u["email"] for u in api(admin_ctx, "/users") if u["id"] == req["created_by"])
@@ -363,6 +365,7 @@ def main():
         admin.get_by_role("button", name=title, exact=True).click()
         for qty, company in [("60", companies[0]), ("40", companies[1])]:
             drawer = admin.get_by_role("dialog")
+            drawer.get_by_role("button", name="Partidas y documentos", exact=True).click()
             drawer.locator(".nw-detail-item").first.get_by_role(
                 "button", name="Adjudicar partida", exact=True
             ).click()
@@ -380,6 +383,7 @@ def main():
             expect(
                 drawer.get_by_role("heading", name=title, exact=True)
             ).to_be_visible()
+            drawer.get_by_role("button", name="Partidas y documentos", exact=True).click()
             expect(
                 drawer.get_by_text("ADJUDICADO A: " + company["name"], exact=True)
             ).to_be_visible()

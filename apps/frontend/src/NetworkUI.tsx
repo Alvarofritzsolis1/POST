@@ -92,12 +92,14 @@ export function Drawer({
   onClose,
   children,
   wide = false,
+  workspace = false,
   protectUnsaved = false,
 }: {
   title: string;
   onClose: () => void;
   children: ReactNode;
   wide?: boolean;
+  workspace?: boolean;
   protectUnsaved?: boolean;
 }) {
   const ref = useRef<HTMLDialogElement>(null);
@@ -109,6 +111,11 @@ export function Drawer({
   }
   const previous = useRef<HTMLElement | null>(null);
   useEffect(() => {
+    const clearDirty = () => { dirty.current = false; };
+    window.addEventListener("galant-network-follow-up-saved", clearDirty);
+    return () => window.removeEventListener("galant-network-follow-up-saved", clearDirty);
+  }, []);
+  useEffect(() => {
     previous.current = document.activeElement as HTMLElement | null;
     ref.current?.showModal();
     return () => {
@@ -118,11 +125,11 @@ export function Drawer({
   }, []);
   return (
     <dialog
-      className={"nw nw-drawer" + (wide ? " nw-drawer--wide" : "")}
+      className={"nw nw-drawer" + (wide ? " nw-drawer--wide" : "") + (workspace ? " nw-drawer--workspace" : "")}
       ref={ref}
       aria-label={title}
-      onInputCapture={() => { dirty.current = true; }}
-      onChangeCapture={() => { dirty.current = true; }}
+      onInputCapture={(event) => { if (!workspace || (event.target as HTMLElement).closest(".nwc-track")) dirty.current = true; }}
+      onChangeCapture={(event) => { if (!workspace || (event.target as HTMLElement).closest(".nwc-track")) dirty.current = true; }}
       onClickCapture={(event) => {
         if ((event.target as HTMLElement).closest(".nw-quick-chip-row button, .nw-quick-priority-btn")) {
           dirty.current = true;

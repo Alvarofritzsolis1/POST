@@ -305,3 +305,25 @@ class NetworkFacebookManual(Record, Base):
     last_error: Mapped[str | None] = mapped_column(String(250), nullable=True)
     attempts: Mapped[int] = mapped_column(Integer, default=0)
     updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow)
+
+
+class NetworkCandidateFollowUp(Record, Base):
+    """Per-requirement human tracking; never changes the Facebook lead globally."""
+    __tablename__ = "network_candidate_followups"
+    __table_args__ = (
+        UniqueConstraint("org_id", "requirement_id", "lead_id", name="uq_network_candidate_need_lead"),
+        Index("ix_network_candidate_need", "org_id", "requirement_id", "stage"),
+    )
+    requirement_id: Mapped[str] = mapped_column(
+        ForeignKey("network_requirements.id"), nullable=False, index=True
+    )
+    lead_id: Mapped[str] = mapped_column(
+        ForeignKey("facebook_leads.id"), nullable=False, index=True
+    )
+    stage: Mapped[str] = mapped_column(String(20), nullable=False, default="suggested")
+    note: Mapped[str] = mapped_column(Text, nullable=False, default="")
+    follow_up_on: Mapped[date | None] = mapped_column(Date, nullable=True)
+    created_by: Mapped[str] = mapped_column(ForeignKey("users.id"), nullable=False)
+    updated_by: Mapped[str | None] = mapped_column(ForeignKey("users.id"), nullable=True)
+    updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow)
+    version: Mapped[int] = mapped_column(Integer, nullable=False, default=1)

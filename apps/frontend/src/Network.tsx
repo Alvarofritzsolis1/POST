@@ -62,6 +62,7 @@ import { NetworkAccountMenu } from "./NetworkAccounts";
 import { NetworkQuickForm } from "./NetworkQuickForm";
 const FacebookCenter = lazy(() => import("./FacebookCenter"));
 import GalancitoWidget from "./GalancitoWidget";
+import RequirementWorkspace from "./RequirementWorkspace";
 import {
   Badge,
   dateText,
@@ -1187,7 +1188,8 @@ export default function RedDeObras({ user }: { user: Profile }) {
           }
           onClose={() => setPanel("")}
           wide={panel === "request-form"}
-          protectUnsaved={panel === "request-form" || panel === "capacity-form"}
+          workspace={panel === "detail"}
+          protectUnsaved={panel === "request-form" || panel === "capacity-form" || panel === "detail"}
         >
           {panel === "request-form" && (
             selectedReq
@@ -1241,7 +1243,21 @@ export default function RedDeObras({ user }: { user: Profile }) {
             />
           )}
           {panel === "detail" && selectedReq && (
+            <RequirementWorkspace
+              requirement={selectedReq}
+              onEdit={() => setPanel("request-form")}
+              onCapacity={(candidate) => void interest({
+                id: candidate.id,
+                score: candidate.score,
+                reasons: candidate.reasons,
+                requirement: selectedReq,
+                capacity: candidate.capacity,
+              })}
+            >
             <div className="nw-detail">
+              <details className="nwc-legacy-summary">
+                <summary>Ver información adicional de la solicitud y difusión</summary>
+                <div className="nwc-legacy-summary-body">
               <div className="nw-row nw-wrap">
                 <Badge value={selectedReq.priority} />
                 <Badge value={selectedReq.state} />
@@ -1317,6 +1333,8 @@ export default function RedDeObras({ user }: { user: Profile }) {
                   Editar y reprogramar
                 </button>
               )}
+                </div>
+              </details>
               <h3>Partidas y contratistas adjudicados</h3>
               {selectedReq.items.map((i) => (
                 <div className="nw-detail-item" key={i.id}>
@@ -1465,6 +1483,7 @@ export default function RedDeObras({ user }: { user: Profile }) {
                 </>
               )}
             </div>
+            </RequirementWorkspace>
           )}
           {panel === "capacity-detail" && selectedCap && (
             <div className="nw-detail">

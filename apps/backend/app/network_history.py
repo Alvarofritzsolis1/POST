@@ -9,6 +9,7 @@ from datetime import date
 from sqlalchemy import select
 
 from .ops_models import Contractor, Worksite
+from .facebook_crm_models import FacebookLead
 
 TITLES = {
     "network_requirement": ("Requerimiento creado", "Requerimiento actualizado"),
@@ -19,6 +20,7 @@ TITLES = {
     "network_item_amendment": ("Partida ampliada", "Partida ampliada"),
     "network_coordination": ("Coordinación iniciada", "Coordinación actualizada"),
     "network_participant": ("Coordinador incorporado", "Coordinación actualizada"),
+    "network_candidate_follow_up": ("Seguimiento de postulante", "Seguimiento de postulante"),
 }
 FIELDS = {
     "site_id": "Obra",
@@ -37,6 +39,9 @@ FIELDS = {
     "unit": "Unidad",
     "executed": "Cantidad ejecutada",
     "contractor_id": "Contratista",
+    "lead_id": "Candidato",
+    "candidate_stage": "Etapa del candidato",
+    "candidate_follow_up_on": "Próxima gestión",
     "items": "Partidas",
 }
 STATES = {
@@ -46,6 +51,9 @@ STATES = {
     "completed": "Finalizado", "revoked": "Revocado",
     "estimated": "Estimada", "confirmed": "Confirmada", "discarded": "Descartada",
     "committed": "Comprometida", "pending": "Pendiente",
+    "suggested": "Sugerido", "interested": "Interesado confirmado",
+    "contacted": "Contactado", "evaluating": "En evaluación",
+    "selected": "Preseleccionado",
 }
 
 
@@ -61,6 +69,11 @@ def _public_value(db, org_id, field, value):
             select(Worksite.name).where(Worksite.id == value, Worksite.org_id == org_id)
         )
         return name or "Obra no disponible"
+    if field == "lead_id":
+        name = db.scalar(select(FacebookLead.display_name).where(
+            FacebookLead.id == value, FacebookLead.org_id == org_id
+        ))
+        return name or "Candidato no disponible"
     if field == "contractor_id":
         name = db.scalar(
             select(Contractor.name).where(
@@ -68,7 +81,7 @@ def _public_value(db, org_id, field, value):
             )
         )
         return name or "Contratista no disponible"
-    if field in {"start_date", "end_date", "deadline", "available_date", "expires_on"}:
+    if field in {"start_date", "end_date", "deadline", "available_date", "expires_on", "candidate_follow_up_on"}:
         try:
             return date.fromisoformat(str(value)[:10]).strftime("%d/%m/%Y")
         except ValueError:
