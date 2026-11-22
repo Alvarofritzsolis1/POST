@@ -67,10 +67,39 @@ def general_intent(message: str) -> str:
 
 
 def is_complex(message: str) -> bool:
+    """Low-cost, automatic first-stage router for *substantive* analyses.
+
+    Never spend an external API call merely because a short question contains
+    'analiza', 'compara' or another keyword. The user does not need to choose
+    a provider: a confirmed organization route is checked separately.
+    """
     normalized = key(message)
-    return (len(normalized) >= 190
-            or any(term in normalized for term in COMPLEX)
-            or sum(token in normalized for token in (" y ", " ademas ", " pero ", " junto con ")) >= 2)
+    if len(normalized) < 35:
+        return False
+    if any(phrase in normalized for phrase in (
+        "en profundidad", "analisis detallado", "informe complejo",
+        "paso a paso detallado", "plan estrategico completo",
+    )):
+        return True
+    operations = (
+        "analiza", "compara", "evalua", "evaluacion", "investiga",
+        "optimiza", "planifica", "razona", "disena", "prioriza",
+    )
+    dimensions = (
+        "riesgo", "plazo", "costo", "presupuesto", "recursos",
+        "estrategia", "alternativa", "escenario", "impacto",
+        "arquitectura", "integracion", "ventajas", "desventajas",
+        "rendimiento", "dependencias", "seguridad", "trade-off",
+    )
+    tasks = sum(term in normalized for term in operations)
+    factors = sum(term in normalized for term in dimensions)
+    clauses = sum(token in normalized for token in (
+        " y ", " ademas ", " pero ", " junto con ", " considerando ",
+    ))
+    return (len(normalized) >= 260
+            or (len(normalized) >= 160 and tasks >= 1 and factors >= 1)
+            or (tasks >= 2 and factors >= 1)
+            or (tasks >= 1 and factors >= 2 and clauses >= 1))
 
 
 def external_safe(message: str, *, internal_names: tuple[str, ...] = ()) -> bool:
