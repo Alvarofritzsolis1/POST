@@ -163,3 +163,18 @@ def test_internal_focus_validation_and_threads_are_bounded():
     assert practice_threads({"worker_cores": 2}) == 2
     assert practice_threads({"worker_cores": 8}) == 4
     assert practice_threads({"worker_cores": None}) == 1
+
+
+def test_synthetic_coaching_is_applied_only_to_practice_not_real_learning():
+    from app.galancito_internal_training import (
+        INTERNAL_PROMPT, propose_synthetic_coaching, synthetic_practice_prompt,
+    )
+    selected = propose_synthetic_coaching({"contexto": 2, "exactitud": 4, "herramienta": 3})
+    assert selected == ["exactitud", "herramienta", "contexto"]
+    coached = synthetic_practice_prompt("practice", selected)
+    assert "Correcciones de ciclos sintéticos previos" in coached
+    assert "Fundamenta cifras" in coached
+    assert synthetic_practice_prompt("reference", selected) == INTERNAL_PROMPT
+    assert synthetic_practice_prompt("holdout", selected) == INTERNAL_PROMPT
+    assert synthetic_practice_prompt("live", selected) == INTERNAL_PROMPT
+    assert propose_synthetic_coaching({"inventado": 99}, []) == []
