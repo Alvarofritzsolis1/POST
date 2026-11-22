@@ -83,6 +83,21 @@ def propose_synthetic_coaching(errors: dict, previous=()) -> list[str]:
     return chosen
 
 
+def clean_synthetic_streak(cycles: dict, last_cycle: int, threshold: int) -> bool:
+    """Stop optional practice early after genuinely completed clean cycles.
+
+    A synthetic clean streak means no new *lab* errors. It must not be exposed
+    as proof of real accuracy or used in operational holdout promotion.
+    """
+    if threshold < 2 or last_cycle < threshold:
+        return False
+    for index in range(last_cycle - threshold + 1, last_cycle + 1):
+        item = cycles.get(str(index), {})
+        if item.get("passed", 0) < 1 or item.get("failed", -1) != 0:
+            return False
+    return True
+
+
 def synthetic_practice_prompt(suite: str, coaching: list[str]) -> str:
     if suite != "practice" or not coaching:
         return INTERNAL_PROMPT
