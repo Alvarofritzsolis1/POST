@@ -76,7 +76,8 @@ def social_reply(message: str) -> str | None:
     if re.search(
         r"\b(?:cuantos|cuantas|dime|revisa|revisar|consulta|consultar|"
         r"muestra|mostrar|busca|buscar|informe|reporte|pendientes|"
-        r"falta|faltan|necesito|necesitamos|haz|evalua)\b", text
+        r"falta|faltan|necesito|necesitamos|haz|evalua|"
+        r"puedes|podrias|podemos|recomienda|recomiendas)\b", text
     ):
         return None
     if "control de contratistas" in text:
@@ -134,6 +135,14 @@ def general_intent(message: str) -> str:
         "como funciona", "como redactar", "como configurar",
         "que es ", "para que sirve", "explicame ",
         "que documentos necesita", "que requisitos necesito", "que pasos debo")):
+        return "advice"
+    # A greeting that introduces an operational team is still a how-to
+    # request if it asks what the group can do or improve together.
+    if (re.search(r"\b(?:como (?:podemos|puedo|deberiamos|debo)|"
+                  r"en que nos (?:puedes|podrias) ayudar|"
+                  r"que (?:nos |me )?recomiendas)\b", normalized)
+            and re.search(r"\b(?:mejorar|organizar|gestionar|coordinar|"
+                          r"hacer|ayudar|redactar|recomiendas)\b", normalized)):
         return "advice"
     # Match short technical words as tokens: "programa" is not "RAM",
     # and "conversión" is not a question about the deployed version.
