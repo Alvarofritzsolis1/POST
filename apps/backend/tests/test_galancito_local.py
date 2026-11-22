@@ -356,7 +356,9 @@ def test_training_thinking_budget_is_honored_without_changing_live_chat(monkeypa
     class Response:
         def __enter__(self): return self
         def __exit__(self, *args): return False
-        def read(self, length): return b'{"message":{"content":"Resultado: 1\\nExplicación: Un registro."}}'
+        def read(self, length):
+            return json.dumps({"message": {"content": "Resultado: 1\\nExplicación: Un registro."}},
+                              ensure_ascii=False).encode("utf-8")
 
     def mocked_open(request, timeout):
         calls.append((json.loads(request.data), timeout))
