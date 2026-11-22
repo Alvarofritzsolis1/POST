@@ -117,9 +117,9 @@ export default function GalancitoWidget() {
         message: question, area: "general",
         history: history.filter(item => item.role === "user").slice(-4).map(item =>
           ({role: "user", text: item.text.slice(0, 500)})),
-        // An approved organization connection enables automatic complexity routing.
-        // The backend chooses locally or externally and always enforces privacy/budgets.
-        allow_external_ai: !!status?.complex_api_available,
+        // The backend alone checks complexity, approved connections, quotas and privacy;
+        // never depend on the optional status request having completed.
+        allow_external_ai: true,
         allow_web: webConsent && !!status?.web_available,
         save_history: saveMemory,
         conversation_id: saveMemory ? conversationId : null,
