@@ -77,16 +77,24 @@ def summarize(metrics: dict, profile: str = "postulantes") -> dict:
     } if samples else None
     actual_inference = metrics.get("inference_samples_ms", [])
     cases = metrics.get("passed", 0) + metrics.get("failed", 0)
-    if metrics.get("evidence_type") == "live_database":
-        # In real-data evaluations the headline score is the actual share of
-        # completely correct cases, not a weighted synthetic-looking average.
+    evidence_type = metrics.get("evidence_type", "synthetic")
+    score_basis = "weighted_dimensions"
+    if profile == "interno":
+        # Transparent share of fully passing cases, rather than a composite
+        # which counted correlated dimensions as independent evidence.
         score = round(metrics.get("passed", 0) * 100 / cases, 2) if cases else None
+        score_basis = ("verified_numeric_case_pass_rate" if evidence_type == "live_database"
+                       else "synthetic_case_pass_rate")
+    elif evidence_type == "live_database":
+        score = round(metrics.get("passed", 0) * 100 / cases, 2) if cases else None
+        score_basis = "verified_numeric_case_pass_rate"
     return {
         "case_pass_interval_95": case_confidence(metrics.get("passed", 0), cases),
         "passed": metrics.get("passed", 0), "failed": metrics.get("failed", 0),
         "turns": turns, "fields": fields, "correct_fields": metrics.get("correct_fields", 0),
         "profile_accuracy": round(metrics.get("correct_fields", 0) / fields, 4) if fields else None,
-        "dimensions": ratios, "score": score, "cycles": metrics.get("cycles", {}),
+        "dimensions": ratios, "score": score, "score_basis": score_basis,
+        "cycles": metrics.get("cycles", {}), "early_stop": metrics.get("early_stop"),
         "questions": questions, "repeated_questions": metrics.get("repeated_questions", 0),
         "repetition_rate": round(metrics.get("repeated_questions", 0) / questions, 4) if questions else None,
         "pending_prompt_repeats": metrics.get("pending_repeats"),
