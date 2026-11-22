@@ -1168,10 +1168,10 @@ def test_quality_overview_reports_observed_not_invented_scores(ai_env):
         db.add_all([
             AssistantRun(org_id=ai_env["org_id"], channel="messenger",
                          source="ollama_4b", intent="hello", elapsed_ms=1500,
-                         timings={"graph_calls": 1}, feedback="useful"),
+                         timings={"graph_calls": 1, "conversation_ms": 1500}, feedback="useful"),
             AssistantRun(org_id=ai_env["org_id"], channel="messenger",
                          source="ollama_4b", intent="profile", elapsed_ms=2700,
-                         timings={"graph_calls": 1, "model_error": True}, feedback="incorrect"),
+                         timings={"graph_calls": 1, "model_error": True, "conversation_ms": 2700}, feedback="incorrect"),
             AssistantRun(org_id=ai_env["org_id"], channel="galant_internal",
                          source="verified_local", intent="metrics", elapsed_ms=120,
                          timings={}, feedback=None),
@@ -1184,6 +1184,8 @@ def test_quality_overview_reports_observed_not_invented_scores(ai_env):
     assert messenger["runs"] == 2
     assert messenger["p50_ms"] == 1500
     assert messenger["p95_ms"] == 2700
+    assert messenger["latency_basis"] == "inbound_to_confirmed_delivery"
+    assert messenger["latency_sample"] == 2
     assert messenger["feedback"] == {"useful": 1, "incorrect": 1, "total": 2, "useful_percent": 50.0}
     assert messenger["model_errors"] == 1
     assert messenger["quality_score"] is None
