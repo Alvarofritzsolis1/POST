@@ -134,6 +134,7 @@ jobs:
           tests/test_galancito_internal_training.py
           tests/test_galancito_internal_live.py
           tests/test_galancito_internal_exports_web.py
+          tests/test_galancito_general.py
 
   backend_irl:
     name: Backend IRL independiente — fórmulas, roles y firmas

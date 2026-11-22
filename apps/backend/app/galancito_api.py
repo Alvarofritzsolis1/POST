@@ -27,9 +27,12 @@ from .network_models import (NetworkRequirement, NetworkCapacity, NetworkCoordin
 from .security import authorized_user
 from .galancito_triage import analyze, quick_reply, private_data, plain
 from .galancito_knowledge import retrieve, exact_answer, evidence_context, public_sources
-from .galancito_local import last_timings
+from .galancito_local import (last_timings, model_status, generate_local_text,
+                              interactive_timeout_seconds)
 from .galancito_runtime import infer, record_run
 from .galancito_internal_live import internal_reply
+from .galancito_general import QWEN_4B, external_safe, is_complex, needs_public_web
+from .galancito_general_runtime import general_answer, external_ready, internal_names_for_privacy
 from .galancito_web import WebSearchUnavailable, public_search, format_public_search, web_available
 from .galancito_reports import MIME_TYPES, SUPPORTED_REPORTS, internal_report, export_internal_report
 from . import galancito_internal_history as saved_history
@@ -75,9 +78,10 @@ class ContextTurn(BaseModel):
 
 class ChatInput(BaseModel):
     message: str = Field(min_length=2, max_length=800)
-    area: Literal["red_obras", "interno"] = "red_obras"
+    area: Literal["red_obras", "interno", "general"] = "red_obras"
     allow_external_ai: bool = False
     allow_web: bool = False
+    auto_web: bool = False  # Explicitly enabled client session; backend selects public-current questions
     allow_local_analysis: bool = False
     save_history: bool = False
     conversation_id: str | None = Field(default=None, min_length=36, max_length=36)
@@ -191,8 +195,24 @@ def galancito_status(user: User = Depends(authorized_user), db: Session = Depend
                       orchestration_available(db, user.org_id, "red_obras"))
     policy = db.get(AIOrchestration, user.org_id)
     selected_team = bool(policy and policy.enabled and (policy.task_routes or {}).get("red_obras"))
+    # A configured provider is not the same as a reachable or responsive model.
+    # One short /api/ps probe; a cold model may be connected but not loaded.
+    local_status = model_status() if cfg.galancito_local_ai_enabled else {
+        "state": "not_configured", "loaded": False}
+    local_state = ("running" if local_status.get("loaded") else
+                   "connected" if local_status.get("state") == "available" else
+                   "not_configured" if not cfg.galancito_local_ai_enabled else
+                   "unavailable")
     return {"name": "Galancito",
-            "local_ai_available": available and cfg.galancito_ai_provider == "ollama",
+            "local_ai_available": cfg.galancito_local_ai_enabled,
+            "local_model_status": local_state,
+            "general_chat_available": user.role in {"admin", "resident"},
+            "general_model": QWEN_4B,
+            "general_model_ready": (cfg.galancito_local_ai_enabled and
+                                    cfg.galancito_local_model == QWEN_4B and
+                                    local_status.get("state") == "available"),
+            "complex_api_available": external_ready(db, user),
+            "reply_timeout_seconds": int(interactive_timeout_seconds(cfg) + 12),
             "external_ai_available": (team_available if selected_team else
                                       available and cfg.galancito_ai_provider == "openai"),
             "ai_team_available": team_available,
@@ -202,6 +222,51 @@ def galancito_status(user: User = Depends(authorized_user), db: Session = Depend
             "web_available": web_available() and user.role in {"admin", "resident"},
             "can_teach": user.role == "admin",
             "read_only": True}
+
+
+@router.post("/diagnostic")
+def diagnose_local_model(user: User = Depends(authorized_user),
+                         db: Session = Depends(get_db)):
+    """Administrator-initiated live Ollama probe with no user/business data.
+
+    Unlike /status, this endpoint actually runs inference. It neither changes
+    application records nor exposes model text, credentials or raw exceptions.
+    """
+    if user.role != "admin":
+        raise HTTPException(403, "Solo administración puede probar el modelo local")
+    cfg = settings()
+    if not cfg.galancito_local_ai_enabled:
+        return {"status": "not_configured", "responsive": False,
+                "message": "El modelo local no está habilitado en este servidor."}
+    if cfg.galancito_local_model != QWEN_4B:
+        return {"status": "wrong_model", "responsive": False,
+                "message": "Galancito General requiere Qwen3.5 4B. El servidor usa otro modelo; no se ejecutó una prueba de 4B."}
+    started = perf_counter()
+    try:
+        response = infer(db, lambda: generate_local_text(
+            "Prueba técnica sin datos de usuarios. Responde solo la palabra OK.",
+            "Escribe OK.", max_chars=80))
+        responsive = isinstance(response, str) and response.strip().casefold().strip(".!¡ ") in {
+            "ok", "listo"}
+        status = "ok" if responsive else "invalid_response"
+    except (RuntimeError, TimeoutError, OSError, ValueError) as exc:
+        responsive = False
+        status = "busy" if "ocupado" in str(exc).lower() or "memoria" in str(exc).lower() else "unavailable"
+    elapsed = round((perf_counter() - started) * 1000)
+    # No transcript is stored; the event contains resource-neutral timings only.
+    run = record_run(db, org_id=user.org_id, user_id=user.id, channel="galant_diagnostic",
+                     source="local" if responsive else "unavailable",
+                     intent="ollama_probe", started=started,
+                     timings=last_timings.get())
+    db.commit()
+    messages = {
+        "ok": "Ollama respondió a una pregunta de prueba.",
+        "busy": "El modelo está ocupado o el servidor necesita liberar memoria.",
+        "unavailable": "Ollama no respondió; revisa sus recursos y conectividad.",
+        "invalid_response": "Ollama respondió, pero no superó la prueba de contenido.",
+    }
+    return {"status": status, "responsive": responsive, "elapsed_ms": elapsed,
+            "message": messages[status], "run_id": run.id}
 
 
 @router.get("/conversations")
@@ -266,7 +331,7 @@ def galancito_report(body: ReportRequest, user: User = Depends(authorized_user),
 def galancito_chat(body: ChatInput, user: User = Depends(authorized_user),
                    db: Session = Depends(get_db)):
     started = perf_counter()
-    if body.area == "interno":
+    if body.area in {"interno", "general"}:
         if user.role not in {"admin", "resident"}:
             raise HTTPException(403, "Perfil sin acceso a Galancito Interno")
         # Only previous user prompts are used to resolve an ellipsis ("¿y cuáles?").
@@ -279,34 +344,46 @@ def galancito_chat(body: ChatInput, user: User = Depends(authorized_user),
                 raise HTTPException(404, "Conversación no encontrada")
         else:
             user_context = [turn.text for turn in body.history if turn.role == "user"]
-        if body.allow_web:
+        general_source = None
+        external_used = False
+        # The user authorizes a public-web session once; the server chooses
+        # only questions that actually need current, public information.
+        search_requested = (body.allow_web or
+                            (body.area == "general" and body.auto_web and
+                             needs_public_web(body.message)))
+        if body.area == "general" and not search_requested:
+            answer, intent, general_source, external_used = general_answer(
+                db, user, body.message.strip(), user_context,
+                allow_external=body.allow_external_ai)
+        if search_requested:
             try:
                 # User consent is necessary, but does not authorize leaking
                 # private GALANT worksite/contractor names to an external provider.
-                normalized_query = key(body.message)
-                for model in (Worksite, Contractor):
-                    private_names = db.scalars(
-                        select(model.name).where(model.org_id == user.org_id).limit(1000))
-                    if any(len(key(name)) >= 11 and key(name) in normalized_query
-                           for name in private_names):
-                        raise WebSearchUnavailable(
-                            "La consulta incluye el nombre de una obra o contratista registrado. "
-                            "Reformula la búsqueda sin datos internos de GALANT.")
+                if not external_safe(
+                    body.message, internal_names=internal_names_for_privacy(db, user)
+                ):
+                    raise WebSearchUnavailable(
+                        "La consulta puede contener datos internos de GALANT o información "
+                        "privada. Reformula la pregunta usando solo información pública.")
                 results = public_search(body.message)
                 answer, intent, source = format_public_search(results), "external_web", "public_web"
             except WebSearchUnavailable as exc:
                 answer, intent, source = str(exc), "external_unavailable", "local"
+        elif general_source is not None:
+            source = general_source
         else:
             answer, intent = internal_reply(db, user, body.message.strip(), user_context)
             source = "verified_local"
         analysis_generated = False
-        if body.allow_local_analysis and not body.allow_web and source == "verified_local":
+        if body.area == "interno" and body.allow_local_analysis and not search_requested and source == "verified_local":
             advice = local_advice(db, question=body.message.strip(), facts=answer, intent=intent)
             if advice:
                 answer += "\n\nSugerencia orientativa de IA local (no verificada): " + advice
                 analysis_generated = True
+        # Store timing counters only, never prompts or personal data.
         run = record_run(db, org_id=user.org_id, user_id=user.id, channel="galant_internal",
-                         source=source, intent=intent, started=started)
+                         source=source, intent=intent, started=started,
+                         timings=last_timings.get() if source == "ollama_4b" else None)
         conversation_id, history_notice, history_saved = None, None, False
         if body.save_history:
             try:
@@ -324,6 +401,7 @@ def galancito_chat(body: ChatInput, user: User = Depends(authorized_user),
                 "intent": intent, "reportable": source == "verified_local" and intent in SUPPORTED_REPORTS,
                 "conversation_id": conversation_id, "history_saved": history_saved,
                 "analysis_generated": analysis_generated,
+                "external_used": external_used,
                 "notice": history_notice}
     text = body.message.strip()
     if not text:
@@ -344,7 +422,23 @@ def galancito_chat(body: ChatInput, user: User = Depends(authorized_user),
         db.commit()
         return {"name": "Galancito", "answer": quick_reply(text), "source": "local",
                 "read_only": True, "run_id": run.id, "references": [], "notice": None}
-    # Do not wait for synchronization before answering deterministic greetings.
+    # Safety and informational intents have deterministic answers. Skip
+    # organization API synchronization, model selection and all operational
+    # aggregates: legacy chat must not spend SQL/AI resources here.
+    if private_data(text) or info.intent in {
+        "human", "restricted", "publish", "availability", "apply",
+        "contractor_request", "about",
+    }:
+        answer = quick_reply(text)
+        if answer is not None:
+            run = record_run(db, org_id=user.org_id, user_id=user.id,
+                             channel="red_obras", source="local",
+                             intent=info.intent, started=started)
+            db.commit()
+            return {"name": "Galancito", "answer": answer, "source": "local",
+                    "read_only": True, "run_id": run.id, "references": [],
+                    "notice": "Consulta tratada localmente por posible dato privado."
+                    if private_data(text) else None}
     if sync_org_global_lightning(db, user.org_id):
         db.commit()
     # Los datos se obtienen solo del módulo Red de Obras de la organización.
@@ -445,13 +539,18 @@ def galancito_chat(body: ChatInput, user: User = Depends(authorized_user),
         return result(safe_ai_reply(learned), "knowledge")
     if fast:
         return result(fast, "local")
-    use_team = team_available and body.allow_external_ai and not private_pattern
+    # Legacy chat API remains compatible but cannot bypass the complex-only
+    # routing policy or disclose GALANT operational data to external models.
+    public_complex = (body.allow_external_ai and user.role == "admin"
+                      and is_complex(text) and external_safe(
+                          text, internal_names=internal_names_for_privacy(db, user)))
+    use_team = team_available and public_complex
     # Once an admin selects the new team, legacy paid providers must NOT
     # bypass its quota or a failed reviewer. Local Ollama remains permitted.
     use_legacy = available and not private_pattern and (
         cfg.galancito_local_model != "qwen3.5:4b-q4_K_M" or cfg.galancito_ai_provider == "ollama") and (
         cfg.galancito_ai_provider == "ollama" or
-        (body.allow_external_ai and not selected_team))
+        (public_complex and not selected_team))
     use_model = use_team or use_legacy
     if use_model:
         # The latest query is first: truncating context must never lose it.
@@ -464,10 +563,11 @@ def galancito_chat(body: ChatInput, user: User = Depends(authorized_user),
                    json.dumps(live, ensure_ascii=False) + "\nReferencias aprobadas:\n" +
                    evidence_context(evidence) + "\nGuías pertinentes:\n" +
                    "\n".join(g.trade + ": " + g.explanation[:180] for g in matching))
-        # Public titles/approved historical guides may still contain private data.
-        # A safe current question is not consent to disclose an unsafe reference.
-        if private_data(context) and (use_team or cfg.galancito_ai_provider != "ollama"):
-            return result(_local_reply(text, body.area, titles, guides, stats), "local")
+        # Only local Ollama receives organization context. External providers
+        # get the clean public question, never titles, metrics, leads or guides.
+        external_provider = use_team or (use_legacy and cfg.galancito_ai_provider != "ollama")
+        if external_provider:
+            context = "Consulta general pública sin registros internos de GALANT:\n" + text[:650]
         try:
             generated = infer(db, lambda: (
                 orchestrated_text(db, user.org_id, task="red_obras",

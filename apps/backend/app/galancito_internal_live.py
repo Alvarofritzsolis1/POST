@@ -75,38 +75,45 @@ def _requested_month(message: str):
     return f"{int(year.group(1)) if year else base.year:04}-{found:02}"
 
 
-def _counts(db, user: User, site_ids: list[str]):
+def _counts(db, user: User, site_ids: list[str], *, include=None):
+    """Only aggregate the measurements needed by the current question."""
+    wanted = set(include) if include is not None else {"requirements", "publications", "followups"}
     org = user.org_id
-    active = db.scalar(select(func.count(NetworkRequirement.id)).where(
-        NetworkRequirement.org_id == org, NetworkRequirement.site_id.in_(site_ids),
-        NetworkRequirement.state == "published", NetworkRequirement.end_date >= today()
-    )) or 0
-    urgent = db.scalar(select(func.count(NetworkRequirement.id)).where(
-        NetworkRequirement.org_id == org, NetworkRequirement.site_id.in_(site_ids),
-        NetworkRequirement.state == "published", NetworkRequirement.end_date >= today(),
-        NetworkRequirement.priority.in_(("high", "urgent"))
-    )) or 0
-    overdue = db.scalar(select(func.count(NetworkRequirement.id)).where(
-        NetworkRequirement.org_id == org, NetworkRequirement.site_id.in_(site_ids),
-        NetworkRequirement.state == "published",
-        NetworkRequirement.end_date >= today(), NetworkRequirement.deadline < today()
-    )) or 0
-    posts = dict(db.execute(
-        select(NetworkFacebookPost.state, func.count(NetworkFacebookPost.id))
-        .join(NetworkRequirement, NetworkRequirement.id == NetworkFacebookPost.requirement_id)
-        .where(NetworkFacebookPost.org_id == org,
-               NetworkRequirement.org_id == org,
-               NetworkRequirement.site_id.in_(site_ids))
-        .group_by(NetworkFacebookPost.state)
-    ).all())
-    due = db.scalar(
-        select(func.count(NetworkCandidateFollowUp.id))
-        .join(NetworkRequirement, NetworkRequirement.id == NetworkCandidateFollowUp.requirement_id)
-        .where(NetworkCandidateFollowUp.org_id == org, NetworkRequirement.org_id == org,
-               NetworkRequirement.site_id.in_(site_ids),
-               NetworkCandidateFollowUp.follow_up_on <= today(),
-               NetworkCandidateFollowUp.stage != "discarded")
-    ) or 0
+    active = urgent = overdue = due = 0
+    posts = {}
+    if "requirements" in wanted:
+        active = db.scalar(select(func.count(NetworkRequirement.id)).where(
+            NetworkRequirement.org_id == org, NetworkRequirement.site_id.in_(site_ids),
+            NetworkRequirement.state == "published", NetworkRequirement.end_date >= today()
+        )) or 0
+        urgent = db.scalar(select(func.count(NetworkRequirement.id)).where(
+            NetworkRequirement.org_id == org, NetworkRequirement.site_id.in_(site_ids),
+            NetworkRequirement.state == "published", NetworkRequirement.end_date >= today(),
+            NetworkRequirement.priority.in_(("high", "urgent"))
+        )) or 0
+        overdue = db.scalar(select(func.count(NetworkRequirement.id)).where(
+            NetworkRequirement.org_id == org, NetworkRequirement.site_id.in_(site_ids),
+            NetworkRequirement.state == "published",
+            NetworkRequirement.end_date >= today(), NetworkRequirement.deadline < today()
+        )) or 0
+    if "publications" in wanted:
+        posts = dict(db.execute(
+            select(NetworkFacebookPost.state, func.count(NetworkFacebookPost.id))
+            .join(NetworkRequirement, NetworkRequirement.id == NetworkFacebookPost.requirement_id)
+            .where(NetworkFacebookPost.org_id == org,
+                   NetworkRequirement.org_id == org,
+                   NetworkRequirement.site_id.in_(site_ids))
+            .group_by(NetworkFacebookPost.state)
+        ).all())
+    if "followups" in wanted:
+        due = db.scalar(
+            select(func.count(NetworkCandidateFollowUp.id))
+            .join(NetworkRequirement, NetworkRequirement.id == NetworkCandidateFollowUp.requirement_id)
+            .where(NetworkCandidateFollowUp.org_id == org, NetworkRequirement.org_id == org,
+                   NetworkRequirement.site_id.in_(site_ids),
+                   NetworkCandidateFollowUp.follow_up_on <= today(),
+                   NetworkCandidateFollowUp.stage != "discarded")
+        ) or 0
     return {"active": active, "urgent": urgent, "overdue": overdue,
             "posts": posts, "followups_due": due}
 
@@ -225,7 +232,8 @@ def internal_reply(db: Session, user: User, message: str, history: list[str] | N
     navigation = _navigation_answer(message, user.role)
     if navigation is not None:
         return navigation
-    if any(word in normalized for word in ("version", "desplegada", "commit", "revision")):
+    if (re.search(r"\bversion(?:es)?\b", normalized)
+            or any(word in normalized for word in ("desplegada", "commit", "revision"))):
         version = f"Versión del backend: {VERSION}."
         revision = f" Commit de compilación: {SOURCE_COMMIT}." if SOURCE_COMMIT != "unbuilt" else (
             " El proceso no contiene identificador de compilación verificable.")
@@ -233,7 +241,8 @@ def internal_reply(db: Session, user: User, message: str, history: list[str] | N
     if any(word in normalized for word in ("internet", "buscar en la web", "investigar online", "google")):
         return ("El chat interno aún no tiene un proveedor de búsqueda web configurado y verificado. "
                 "No puedo afirmar que haya consultado internet."), "external_unavailable"
-    if any(word in normalized for word in ("memoria", "cpu", "ram", "rendimiento", "saturado", "lento", "vps")):
+    if (any(word in normalized for word in ("memoria", "rendimiento", "saturado", "lento", "vps"))
+            or re.search(r"\b(?:cpu|ram)\b", normalized)):
         if user.role != "admin":
             return "Las métricas internas del servidor requieren permisos de administración.", "permission"
         from .galancito_training import ResourceSampler
@@ -290,18 +299,20 @@ def internal_reply(db: Session, user: User, message: str, history: list[str] | N
             ContractorWorksite.contract_status == "active")) or 0
         return (f"Contratistas con asociación activa en {label}: {active}. "
                 "Es un recuento de asociaciones a obras, no de empresas únicas."), "contractors"
-    values = _counts(db, user, ids)
     if any(word in normalized for word in ("postulant", "candidat", "interesado", "seguimiento", "ficha")):
+        values = _counts(db, user, ids, include={"followups"})
         return (f"Seguimientos con fecha hasta hoy para {label}: {values['followups_due']}. "
                 "Esta cifra no incluye automáticamente a todos los interesados sin ficha; "
                 "para revisar candidatos concretos usa el panel de la necesidad."), "followups"
     if any(word in normalized for word in ("publicacion", "facebook", "comentario", "anuncio")):
+        values = _counts(db, user, ids, include={"publications"})
         posts = values["posts"]
         listed = ", ".join(f"{state}: {count}" for state, count in sorted(posts.items()))
         return (f"Publicaciones asociadas a {label}, por estado registrado: {listed or 'sin registros'}. "
                 "Estos estados no representan alcance, visitas ni comentarios de Meta si no existen métricas de API."), "publications"
     if any(word in normalized for word in ("informe", "reporte", "resumen", "como vamos", "estado", "pendiente",
                                            "necesidad", "urgente", "atrasado", "obra")):
+        values = _counts(db, user, ids)
         prefix = f"Resumen verificable de {label} (consulta {today()}): "
         return prefix + _summarize_counts(values) + " Fuente: registros internos autorizados de Red de Obras.", "overview"
     return ("Puedo consultar la versión de GALANT, un resumen de necesidades, publicaciones, "
