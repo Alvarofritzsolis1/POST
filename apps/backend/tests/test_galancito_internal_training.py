@@ -161,6 +161,9 @@ def test_internal_focus_validation_and_threads_are_bounded():
             RoundInput(**invalid)
     assert practice_threads({"worker_cores": 1}) == 1
     assert practice_threads({"worker_cores": 2}) == 2
+    assert practice_threads({"worker_cores": 1.5}) == 2
+    assert practice_threads({"worker_cores": 0.5}) == 1
+    assert practice_threads({"worker_cores": 2.4}) == 3
     assert practice_threads({"worker_cores": 8}) == 4
     assert practice_threads({"worker_cores": None}) == 1
 
@@ -197,3 +200,15 @@ def test_clean_synthetic_practice_can_end_early_but_not_holdout():
     assert RoundInput(profile="interno", suite="practice").stop_after_clean_cycles == 3
     with pytest.raises(ValidationError):
         RoundInput(profile="interno", stop_after_clean_cycles=1)
+
+
+def test_real_latency_percentiles_use_samples_not_estimates():
+    from app.galancito_training import inference_percentile_ms, summarize
+    assert inference_percentile_ms([90, 20, 10, 50, 30], 0.5) == 30
+    assert inference_percentile_ms([90, 20, 10, 50, 30], 0.95) == 90
+    assert inference_percentile_ms([], 0.95) is None
+    summary = summarize({"turns": 5, "passed": 2, "failed": 3,
+                         "inference_samples_ms": [90, 20, 10, 50, 30]}, "interno")
+    assert summary["inference_p50_ms"] == 30
+    assert summary["inference_p95_ms"] == 90
+    assert summary["inference_samples"] == 5
