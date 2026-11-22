@@ -52,6 +52,7 @@ class RoundInput(BaseModel):
     cycles: int = Field(default=1, ge=1, le=40)
     seed: int | None = Field(default=None, ge=0, le=2**31 - 1)
     suite: Literal["practice", "reference", "holdout", "live"] = "reference"
+    focus: str = Field(default="", max_length=30)
     night: bool = False
     night_start: int = Field(default=23, ge=0, le=23)
     night_end: int = Field(default=7, ge=0, le=23)
@@ -76,6 +77,9 @@ class RoundInput(BaseModel):
             raise ValueError("La evaluación operativa exige respuestas reales de Qwen, no reglas ni API externa")
         if self.suite == "live" and self.cases > MAX_LIVE_CASES:
             raise ValueError(f"Para datos reales admite como máximo {MAX_LIVE_CASES} casos por ciclo")
+        if self.focus and (self.profile != "interno" or self.suite == "live"
+                           or self.focus not in INTERNAL_CATEGORIES):
+            raise ValueError("El enfoque por categoría solo admite prácticas sintéticas de Galancito General")
         if self.profile != "interno" and self.cycles != 1:
             raise ValueError("Los ciclos automáticos se reservan a Galancito Interno")
         if self.cases * self.cycles > MAX_CASES:
