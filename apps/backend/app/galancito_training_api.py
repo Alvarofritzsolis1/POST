@@ -64,6 +64,7 @@ class RoundInput(BaseModel):
     model: str = Field(default="ollama", max_length=36)
     profile_review: bool = False
     focus_categories: list[str] = Field(default_factory=list, max_length=20)
+    stop_after_clean_cycles: int = Field(default=3, ge=0, le=10)
     judge: str = Field(default="rules", max_length=36)
     corrector: str = Field(default="rules", max_length=36)
 
@@ -77,6 +78,8 @@ class RoundInput(BaseModel):
             raise ValueError("La evaluación operativa exige respuestas reales de Qwen, no reglas ni API externa")
         if self.suite == "live" and self.cases > MAX_LIVE_CASES:
             raise ValueError(f"Para datos reales admite como máximo {MAX_LIVE_CASES} casos por ciclo")
+        if self.stop_after_clean_cycles == 1:
+            raise ValueError("La parada anticipada requiere al menos dos ciclos limpios o cero para desactivarla")
         if self.focus_categories:
             if self.profile != "interno" or self.suite == "live":
                 raise ValueError("Las categorías focalizadas requieren práctica sintética interna")
