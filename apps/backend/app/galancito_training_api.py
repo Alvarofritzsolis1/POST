@@ -193,11 +193,16 @@ def start(db, user, body, *, previous=None, compare_profile=False):
                                     INTERNAL_EVALUATION_VERSION if internal else EVALUATION_VERSION)
     if live:
         try:
-            config["live_cases"] = collect_live_cases(db, user)
+            config["live_cases"] = (previous.config["live_cases"]
+                                    if previous is not None and previous.config.get("suite") == "live"
+                                    else collect_live_cases(db, user))
+            config["snapshot_reused"] = previous is not None
         except ValueError as exc:
             raise HTTPException(422, str(exc)) from None
-        if body.cases > len(config["live_cases"]):
-            raise HTTPException(422, f"Solo hay {len(config['live_cases'])} casos verificables distintos; reduce casos por ciclo")
+        if body.cases * 2 > len(config["live_cases"]):
+            raise HTTPException(422, f"Hay {len(config['live_cases'])} escenarios reales. Reduce a {len(config['live_cases']) // 2} casos por ciclo para reservar otros tantos sin usar para validación")
+        if body.cycles < 3 or body.cases < 4:
+            raise HTTPException(422, "Se requieren al menos 4 casos y 3 ciclos: referencia, corrección y prueba reservada")
     config["model"] = model_info(db, user, body.model, "model")
     config["judge"] = model_info(db, user, body.judge, "judge")
     config["corrector"] = model_info(db, user, body.corrector, "corrector")
