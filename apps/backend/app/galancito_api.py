@@ -414,7 +414,23 @@ def galancito_chat(body: ChatInput, user: User = Depends(authorized_user),
         db.commit()
         return {"name": "Galancito", "answer": quick_reply(text), "source": "local",
                 "read_only": True, "run_id": run.id, "references": [], "notice": None}
-    # Do not wait for synchronization before answering deterministic greetings.
+    # Safety and informational intents have deterministic answers. Skip
+    # organization API synchronization, model selection and all operational
+    # aggregates: legacy chat must not spend SQL/AI resources here.
+    if private_data(text) or info.intent in {
+        "human", "restricted", "publish", "availability", "apply",
+        "contractor_request", "about",
+    }:
+        answer = quick_reply(text)
+        if answer is not None:
+            run = record_run(db, org_id=user.org_id, user_id=user.id,
+                             channel="red_obras", source="local",
+                             intent=info.intent, started=started)
+            db.commit()
+            return {"name": "Galancito", "answer": answer, "source": "local",
+                    "read_only": True, "run_id": run.id, "references": [],
+                    "notice": "Consulta tratada localmente por posible dato privado."
+                    if private_data(text) else None}
     if sync_org_global_lightning(db, user.org_id):
         db.commit()
     # Los datos se obtienen solo del módulo Red de Obras de la organización.
