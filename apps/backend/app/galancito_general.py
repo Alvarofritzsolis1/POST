@@ -6,7 +6,7 @@ The production model is strictly Qwen3.5 4B; no silent downgrade to 1.7B.
 """
 import re
 from .network_service import key
-from .galancito_triage import private_data, analyze, quick_reply
+from .galancito_triage import private_data, analyze, quick_reply, plain
 
 QWEN_4B = "qwen3.5:4b-q4_K_M"
 GENERAL_INSTRUCTIONS = """Eres Galancito, asistente único de la plataforma GALANT en Chile.
@@ -55,7 +55,10 @@ INTERNAL_CONTEXT = ("nuestras publicaciones", "nuestros contratistas", "mis cont
 
 
 def general_intent(message: str) -> str:
-    normalized = key(message)
+    # User questions start with inverted Spanish punctuation. key() preserves
+    # '¿', so startswith('como'/'que') silently misroutes how-to guidance.
+    # plain() is the canonical punctuation-free Spanish intent normalizer.
+    normalized = plain(message)
     if analyze(message).intent == "greeting":
         return "greeting"
     if any(term in normalized for term in GENERIC_SAFETY):
