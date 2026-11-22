@@ -313,6 +313,8 @@ def checkpoints(factory, claim, results, snapshot, elapsed):
                 errors[key] = errors.get(key, 0) + value
         metrics.update(dimensions=dims, errors=errors, reply_sources=sources, cycles=cycles,
                        elapsed_seconds=metrics.get("elapsed_seconds", 0) + elapsed)
+        if row.config.get("suite") == "live":
+            metrics["evidence_type"] = "live_database"
         if row.config.get("suite") == "live" and row.completed % row.config["cases"] == 0:
             current = str(row.completed // row.config["cases"])
             item = cycles[current]
