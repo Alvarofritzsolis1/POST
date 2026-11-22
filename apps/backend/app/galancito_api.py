@@ -31,7 +31,7 @@ from .galancito_local import (last_timings, model_status, generate_local_text,
                               interactive_timeout_seconds)
 from .galancito_runtime import infer, record_run
 from .galancito_internal_live import internal_reply
-from .galancito_general import QWEN_4B, external_safe
+from .galancito_general import QWEN_4B, external_safe, is_complex
 from .galancito_general_runtime import general_answer, external_ready, internal_names_for_privacy
 from .galancito_web import WebSearchUnavailable, public_search, format_public_search, web_available
 from .galancito_reports import MIME_TYPES, SUPPORTED_REPORTS, internal_report, export_internal_report
@@ -515,13 +515,18 @@ def galancito_chat(body: ChatInput, user: User = Depends(authorized_user),
         return result(safe_ai_reply(learned), "knowledge")
     if fast:
         return result(fast, "local")
-    use_team = team_available and body.allow_external_ai and not private_pattern
+    # Legacy chat API remains compatible but cannot bypass the complex-only
+    # routing policy or disclose GALANT operational data to external models.
+    public_complex = (body.allow_external_ai and user.role == "admin"
+                      and is_complex(text) and external_safe(
+                          text, internal_names=internal_names_for_privacy(db, user)))
+    use_team = team_available and public_complex
     # Once an admin selects the new team, legacy paid providers must NOT
     # bypass its quota or a failed reviewer. Local Ollama remains permitted.
     use_legacy = available and not private_pattern and (
         cfg.galancito_local_model != "qwen3.5:4b-q4_K_M" or cfg.galancito_ai_provider == "ollama") and (
         cfg.galancito_ai_provider == "ollama" or
-        (body.allow_external_ai and not selected_team))
+        (public_complex and not selected_team))
     use_model = use_team or use_legacy
     if use_model:
         # The latest query is first: truncating context must never lose it.
@@ -534,10 +539,11 @@ def galancito_chat(body: ChatInput, user: User = Depends(authorized_user),
                    json.dumps(live, ensure_ascii=False) + "\nReferencias aprobadas:\n" +
                    evidence_context(evidence) + "\nGuías pertinentes:\n" +
                    "\n".join(g.trade + ": " + g.explanation[:180] for g in matching))
-        # Public titles/approved historical guides may still contain private data.
-        # A safe current question is not consent to disclose an unsafe reference.
-        if private_data(context) and (use_team or cfg.galancito_ai_provider != "ollama"):
-            return result(_local_reply(text, body.area, titles, guides, stats), "local")
+        # Only local Ollama receives organization context. External providers
+        # get the clean public question, never titles, metrics, leads or guides.
+        external_provider = use_team or (use_legacy and cfg.galancito_ai_provider != "ollama")
+        if external_provider:
+            context = "Consulta general pública sin registros internos de GALANT:\\n" + text[:650]
         try:
             generated = infer(db, lambda: (
                 orchestrated_text(db, user.org_id, task="red_obras",
