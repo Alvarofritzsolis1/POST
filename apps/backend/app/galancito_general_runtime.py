@@ -66,10 +66,11 @@ def general_answer(db: Session, user, message: str,
     # Never silently downgrade the general assistant to the legacy 1.7B.
     if cfg.galancito_local_ai_enabled and cfg.galancito_local_model == QWEN_4B:
         try:
+            previous = "\n".join((history or [])[-3:])[:500]
+            prompt = ("Preguntas anteriores del usuario, solo como contexto:\n" + previous +
+                      "\nPregunta actual:\n" + message[:700])
             generated = infer(db, lambda: generate_local_text(
-                GENERAL_INSTRUCTIONS,
-                "Pregunta del usuario (sin registros privados):\n" + message[:950],
-                max_chars=1100))
+                GENERAL_INSTRUCTIONS, prompt, max_chars=1100))
             answer = safe_generated(generated, question=message)
             if answer:
                 return answer, "general_advice", "ollama_4b", False
