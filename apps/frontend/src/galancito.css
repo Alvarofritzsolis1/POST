@@ -78,10 +78,11 @@
 .galancito-export-options button:hover { background:#d8efea; }
 .galancito-export-options button:disabled { opacity:.5; cursor:wait; }
 
-.galancito-memory { background:#f7fbfa; padding:8px 12px; display:flex; gap:8px; flex-wrap:wrap;
-  border-bottom:1px solid #dbe7e6; align-items:center; flex:none; }
+.galancito-memory { background:#f7fbfa; padding:6px 14px; border-bottom:1px solid #dbe7e6; flex:none; }
+.galancito-memory summary { color:#42646a; font-size:11px; font-weight:650; cursor:pointer; user-select:none; }
+.galancito-memory-controls { display:flex; align-items:center; gap:8px; flex-wrap:wrap; padding:9px 0 2px; }
 .galancito-memory label { display:inline-flex; gap:6px; align-items:center; font-size:11px; font-weight:650; }
-.galancito-memory > button { padding:5px 9px; border:1px solid #bad7d1;
+.galancito-memory-controls > button { padding:5px 9px; border:1px solid #bad7d1;
   border-radius:7px; background:#fff; color:#14665d; font-size:11px; cursor:pointer; }
 .galancito-memory-list { max-height:172px; overflow:auto; flex:1 1 100%; display:grid; gap:5px; }
 .galancito-memory-entry { display:flex; align-items:center; gap:6px; min-width:0; }
@@ -94,7 +95,6 @@
 
 .galancito-source { display:inline-block; margin:3px 0 8px; font-size:10px;
   font-weight:650; color:#547977; letter-spacing:.01em; }
-.galancito-health { display:flex; flex-wrap:wrap; align-items:center; gap:8px; }
-.galancito-health button { border:1px solid #accfc7; border-radius:7px;
-  background:#eef9f6; color:#165d53; padding:5px 9px; cursor:pointer; }
-.galancito-health small { flex-basis:100%; }
+.galancito-options { font-size:11px; color:#45646c; }
+.galancito-options summary { cursor:pointer; font-weight:600; padding:2px 0; }
+.galancito-options .galancito-privacy { margin:7px 0 1px; font-weight:500; }
