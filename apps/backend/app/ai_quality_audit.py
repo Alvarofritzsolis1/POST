@@ -52,40 +52,49 @@ def observed_run(db: Session, user: User, run_id: str) -> AssistantRun:
     return record
 
 
+def messenger_evidence(db: Session, user: User, message_id: str) -> dict | None:
+    """Verify a delivered AI message against the real on-platform conversation.
+
+    Works for existing Messenger chats recorded before telemetry was linked.
+    Never invent a run, response time, provider or inferred ground truth.
+    """
+    if not isinstance(message_id, str) or len(message_id) != 36:
+        return None
+    message = db.scalar(select(FacebookChatMessage).where(
+        FacebookChatMessage.id == message_id,
+        FacebookChatMessage.org_id == user.org_id,
+        FacebookChatMessage.ai_generated.is_(True),
+        FacebookChatMessage.direction == "outbound",
+        FacebookChatMessage.state == "sent",
+    ))
+    if (message is None or not message.body.strip()
+            or aware(message.created_at) < utcnow() - timedelta(days=30)):
+        return None
+    recent = list(db.scalars(select(FacebookChatMessage).where(
+        FacebookChatMessage.org_id == user.org_id,
+        FacebookChatMessage.lead_id == message.lead_id,
+        FacebookChatMessage.id != message.id,
+        FacebookChatMessage.direction.in_(("inbound", "outbound")),
+        FacebookChatMessage.created_at <= message.updated_at,
+    ).order_by(FacebookChatMessage.created_at.desc()).limit(12)))
+    conversation = list(reversed(recent))
+    inbound = [item for item in conversation if item.direction == "inbound" and item.body.strip()]
+    if not inbound:
+        return None
+    return {
+        "channel": "messenger", "kind": "messenger_message",
+        "source_id": message.id, "source_at": message.created_at,
+        "question": inbound[-1].body[:800],
+        "answer": message.body[:1800],
+        "history": [{"role": item.direction, "text": item.body[:650]}
+                    for item in conversation if item.body.strip()],
+    }
+
+
 def linked_evidence(db: Session, user: User, record: AssistantRun) -> dict | None:
-    """Read in scope only; never persist or return without admin authorization."""
+    """Resolve evidence for a run while preserving opt-in internal history."""
     if record.channel == "messenger":
-        message_id = (record.timings or {}).get("outbound_message_id")
-        if not isinstance(message_id, str) or len(message_id) != 36:
-            return None
-        message = db.scalar(select(FacebookChatMessage).where(
-            FacebookChatMessage.id == message_id,
-            FacebookChatMessage.org_id == user.org_id,
-            FacebookChatMessage.ai_generated.is_(True),
-            FacebookChatMessage.direction == "outbound",
-            FacebookChatMessage.state == "sent",
-        ))
-        if message is None or not message.body.strip():
-            return None
-        recent = list(db.scalars(select(FacebookChatMessage).where(
-            FacebookChatMessage.org_id == user.org_id,
-            FacebookChatMessage.lead_id == message.lead_id,
-            FacebookChatMessage.id != message.id,
-            FacebookChatMessage.direction.in_(("inbound", "outbound")),
-            FacebookChatMessage.created_at <= message.updated_at,
-        ).order_by(FacebookChatMessage.created_at.desc()).limit(12)))
-        conversation = list(reversed(recent))
-        inbound = [item for item in conversation if item.direction == "inbound" and item.body.strip()]
-        if not inbound:
-            return None  # Missing original user message: do not score.
-        return {
-            "channel": "messenger", "kind": "messenger_message",
-            "source_id": message.id,
-            "question": inbound[-1].body[:800],
-            "answer": message.body[:1800],
-            "history": [{"role": item.direction, "text": item.body[:650]}
-                        for item in conversation if item.body.strip()],
-        }
+        return messenger_evidence(db, user, (record.timings or {}).get("outbound_message_id"))
 
     # Never read another user's opt-in private internal conversation,
     # even when requesting a review as an organization administrator.
@@ -107,7 +116,7 @@ def linked_evidence(db: Session, user: User, record: AssistantRun) -> dict | Non
             if question.strip() and answer.strip():
                 return {
                     "channel": "general", "kind": "saved_internal_chat",
-                    "source_id": conversation.id,
+                    "source_id": record.id, "source_at": record.created_at,
                     "question": question[:800], "answer": answer[:1600],
                     "history": [
                         {"role": str(item.get("role", "")), "text": str(item.get("text", ""))[:650]}
@@ -121,68 +130,106 @@ def linked_evidence(db: Session, user: User, record: AssistantRun) -> dict | Non
 @router.get("/queue")
 def review_queue(channel: Literal["messenger", "general"] = Query(default="messenger"),
                  user: User = Depends(administrator), db: Session = Depends(get_db)):
-    """List only auditable runs with real evidence, never message contents."""
-    original_channel = "messenger" if channel == "messenger" else "galant_internal"
-    recent = list(db.scalars(select(AssistantRun).where(
-        AssistantRun.org_id == user.org_id, AssistantRun.channel == original_channel,
-        AssistantRun.created_at >= utcnow() - timedelta(days=30),
-    ).order_by(AssistantRun.created_at.desc()).limit(200)))
-    reviewed_ids = set(db.scalars(select(AIResponseReview.run_id).where(
-        AIResponseReview.org_id == user.org_id,
-        AIResponseReview.run_id.in_([row.id for row in recent]),
-    ))) if recent else set()
+    """Review cases linked to actual chat text; never expose text in list."""
+    since = utcnow() - timedelta(days=30)
     items = []
-    for row in recent:
-        if row.id in reviewed_ids:
-            continue
-        evidence = linked_evidence(db, user, row)
-        if evidence:
-            items.append({
-                "run_id": row.id, "created_at": row.created_at,
-                "channel": channel, "source": row.source,
-            })
-        if len(items) >= 40:
-            break
+    if channel == "messenger":
+        messages = list(db.scalars(select(FacebookChatMessage).where(
+            FacebookChatMessage.org_id == user.org_id,
+            FacebookChatMessage.ai_generated.is_(True),
+            FacebookChatMessage.direction == "outbound",
+            FacebookChatMessage.state == "sent",
+            FacebookChatMessage.created_at >= since,
+        ).order_by(FacebookChatMessage.created_at.desc()).limit(250)))
+        reviewed = set(db.scalars(select(AIResponseReview.evidence_id).where(
+            AIResponseReview.org_id == user.org_id,
+            AIResponseReview.channel == "messenger",
+            AIResponseReview.evidence_kind == "messenger_message",
+            AIResponseReview.evidence_id.in_([row.id for row in messages]),
+        ))) if messages else set()
+        for message in messages:
+            if message.id in reviewed or messenger_evidence(db, user, message.id) is None:
+                continue
+            items.append({"run_id": message.id, "created_at": message.created_at,
+                          "channel": "messenger", "source": "Mensaje IA entregado"})
+            if len(items) >= 40:
+                break
+    else:
+        recent = list(db.scalars(select(AssistantRun).where(
+            AssistantRun.org_id == user.org_id, AssistantRun.channel == "galant_internal",
+            AssistantRun.created_at >= since,
+            AssistantRun.user_id == user.id,
+        ).order_by(AssistantRun.created_at.desc()).limit(200)))
+        reviewed = set(db.scalars(select(AIResponseReview.evidence_id).where(
+            AIResponseReview.org_id == user.org_id,
+            AIResponseReview.channel == "general",
+            AIResponseReview.evidence_kind == "saved_internal_chat",
+            AIResponseReview.evidence_id.in_([row.id for row in recent]),
+        ))) if recent else set()
+        for record in recent:
+            if record.id in reviewed or linked_evidence(db, user, record) is None:
+                continue
+            items.append({"run_id": record.id, "created_at": record.created_at,
+                          "channel": "general", "source": record.source})
+            if len(items) >= 40:
+                break
     return {"channel": channel, "rubric_version": RUBRIC_VERSION,
             "criteria": list(CRITERIA[channel]), "items": items}
+
+
+def _audit_source(db: Session, user: User, source_id: str):
+    """Direct Messenger message IDs and AssistantRun IDs; no guessed linkage."""
+    run = db.scalar(select(AssistantRun).where(
+        AssistantRun.id == source_id, AssistantRun.org_id == user.org_id,
+        AssistantRun.channel.in_(("messenger", "galant_internal")),
+    ))
+    if run is not None:
+        if aware(run.created_at) < utcnow() - timedelta(days=30):
+            raise HTTPException(409, "La interacción está fuera de la ventana de revisión")
+        evidence = linked_evidence(db, user, run)
+    else:
+        evidence = messenger_evidence(db, user, source_id)
+    if evidence is None:
+        raise HTTPException(404, "No hay intercambio original verificable y autorizado")
+    return run, evidence
 
 
 @router.get("/cases/{run_id}")
 def review_case(run_id: str, user: User = Depends(administrator),
                 db: Session = Depends(get_db)):
-    record = observed_run(db, user, run_id)
-    evidence = linked_evidence(db, user, record)
-    if not evidence:
-        raise HTTPException(404, "No hay intercambio original verificable y autorizado")
+    record, evidence = _audit_source(db, user, run_id)
     channel = evidence["channel"]
-    return {"run_id": record.id, "created_at": record.created_at,
+    return {"run_id": run_id, "created_at": evidence["source_at"],
             "rubric_version": RUBRIC_VERSION, "criteria": list(CRITERIA[channel]),
-            **{k: evidence[k] for k in ("channel", "question", "answer", "history")}}
+            "origin": "conversacion_real", "trace_available": record is not None,
+            **{key: evidence[key] for key in ("channel", "question", "answer", "history")}}
 
 
 @router.post("/reviews", status_code=201)
 def save_review(body: ReviewInput, user: User = Depends(administrator),
                 db: Session = Depends(get_db)):
-    record = observed_run(db, user, body.run_id)
-    evidence = linked_evidence(db, user, record)
-    if evidence is None:
-        raise HTTPException(409, "Falta conversación original revisable, entrega confirmada o permiso")
+    record, evidence = _audit_source(db, user, body.run_id)
     channel = evidence["channel"]
     if set(body.ratings) != set(CRITERIA[channel]):
         raise HTTPException(422, "Evalúa todos los criterios de esta versión sin agregar otros")
     if db.scalar(select(AIResponseReview.id).where(
-        AIResponseReview.org_id == user.org_id, AIResponseReview.run_id == record.id,
+        AIResponseReview.org_id == user.org_id,
+        AIResponseReview.channel == channel,
+        AIResponseReview.evidence_kind == evidence["kind"],
+        AIResponseReview.evidence_id == evidence["source_id"],
     )):
-        raise HTTPException(409, "La interacción ya fue auditada; no se admiten puntuaciones duplicadas")
+        raise HTTPException(409, "La interacción ya fue auditada; no se admiten notas duplicadas")
     review = AIResponseReview(
-        org_id=user.org_id, run_id=record.id, reviewer_id=user.id,
-        channel=channel, rubric_version=RUBRIC_VERSION,
-        evidence_kind=evidence["kind"], evidence_id=evidence["source_id"],
+        org_id=user.org_id, run_id=record.id if record else None,
+        reviewer_id=user.id, channel=channel,
+        rubric_version=RUBRIC_VERSION, evidence_kind=evidence["kind"],
+        evidence_id=evidence["source_id"], source_at=evidence["source_at"],
         ratings=dict(body.ratings),
     )
     db.add(review)
     db.add(AuditEvent(org_id=user.org_id, user_id=user.id,
-                      action="ai.response_review.created", resource_id=record.id))
+                      action="ai.response_review.created",
+                      resource_id=evidence["source_id"]))
     try:
         db.commit()
     except IntegrityError:
@@ -195,13 +242,10 @@ def save_review(body: ReviewInput, user: User = Depends(administrator),
 def reviewed_sample(db: Session, org_id: str, channel: Literal["messenger", "general"],
                     since) -> dict:
     """Exactly observed and human-reviewed subset; no extrapolated population grade."""
-    rows = list(db.scalars(select(AIResponseReview).join(
-        AssistantRun, AIResponseReview.run_id == AssistantRun.id
-    ).where(
+    rows = list(db.scalars(select(AIResponseReview).where(
         AIResponseReview.org_id == org_id,
-        AssistantRun.org_id == org_id,
         AIResponseReview.channel == channel,
-        AssistantRun.created_at >= since,
+        AIResponseReview.source_at >= since,
         AIResponseReview.rubric_version == RUBRIC_VERSION,
     )))
     count = len(rows)
