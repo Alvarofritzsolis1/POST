@@ -115,6 +115,7 @@ def summarize(metrics: dict, profile: str = "postulantes") -> dict:
         "elapsed_seconds": round(metrics.get("elapsed_seconds", 0), 1),
         "evidence_type": metrics.get("evidence_type", "synthetic"),
         "synthetic_coaching": metrics.get("synthetic_coaching", []),
+        "synthetic_category_coaching": metrics.get("synthetic_category_coaching", []),
         "synthetic_coached_cases": metrics.get("synthetic_coached_cases", 0),
         "real_coaching": metrics.get("real_coaching", []),
         "real_learning_demonstrated": metrics.get("real_learning_demonstrated", False),
