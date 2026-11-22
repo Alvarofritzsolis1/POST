@@ -186,3 +186,42 @@ def test_general_web_search_refuses_internal_business_context(network, monkeypat
     assert response.status_code == 200, response.text
     assert response.json()["source"] == "public_web"
     assert sent == ["Guía pública de seguridad en construcción Chile"]
+
+
+def test_legacy_chat_never_bills_external_for_simple_question_or_leaks_org_context(
+        network, monkeypatch):
+    """Old clients cannot bypass complex-only routing or send internal KPIs."""
+    n = network
+    calls = []
+    monkeypatch.setattr("app.galancito_api.settings", lambda: SimpleNamespace(
+        galancito_local_model="qwen3:1.7b", galancito_ai_provider="openai",
+    ))
+    monkeypatch.setattr("app.galancito_api.galancito_red_ai_available", lambda _cfg: True)
+    monkeypatch.setattr("app.galancito_api.orchestration_available", lambda *_: False)
+    monkeypatch.setattr("app.galancito_api.infer", lambda _db, fn, **_kw: fn())
+    monkeypatch.setattr("app.galancito_api.generate_internal_text",
+                        lambda _instructions, prompt, _length:
+                        calls.append(prompt) or "Compara alternativas antes de decidir.")
+
+    ordinary = n["send"](n["admin"], "/galancito/chat", {
+        "area": "red_obras", "message": "Explica qué significa una planificación.",
+        "allow_external_ai": True,
+    })
+    assert ordinary.status_code == 200, ordinary.text
+    assert calls == []
+
+    assert n["send"](n["a"], "/requirements", request_body(n)).status_code == 201
+    complex_question = (
+        "Analiza y compara estrategias de construcción para equilibrar "
+        "los costos, plazos y riesgos de diferentes escenarios."
+    )
+    analyzed = n["send"](n["admin"], "/galancito/chat", {
+        "area": "red_obras", "message": complex_question,
+        "allow_external_ai": True,
+    })
+    assert analyzed.status_code == 200, analyzed.text
+    assert len(calls) == 1
+    assert complex_question in calls[0]
+    assert "Brisas de Junquillar" not in calls[0]
+    assert "Indicadores comprobables:" not in calls[0]
+    assert "Necesidades publicadas" not in calls[0]
