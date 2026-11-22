@@ -104,12 +104,20 @@ export function Drawer({
 }) {
   const ref = useRef<HTMLDialogElement>(null);
   const dirty = useRef(false);
+  const chatDraftDirty = useRef(false);
   function safeClose() {
-    if (protectUnsaved && dirty.current &&
+    if (protectUnsaved && (dirty.current || chatDraftDirty.current) &&
       !window.confirm("Hay cambios sin guardar. ¿Quieres salir y descartarlos?")) return;
     onClose();
   }
   const previous = useRef<HTMLElement | null>(null);
+  useEffect(() => {
+    const updateDraft = (event: Event) => {
+      chatDraftDirty.current = (event as CustomEvent<boolean>).detail === true;
+    };
+    window.addEventListener("galant-network-chat-draft", updateDraft);
+    return () => window.removeEventListener("galant-network-chat-draft", updateDraft);
+  }, []);
   useEffect(() => {
     const clearDirty = () => { dirty.current = false; };
     window.addEventListener("galant-network-follow-up-saved", clearDirty);

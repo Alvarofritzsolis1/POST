@@ -56,6 +56,7 @@ from .galancito_conversation_summary import (
 from .galancito_phone import (QUESTION as CONTACT_PHONE_QUESTION, normalize_mobile,
                               remember_shared_phone, phone_question_when_agreed,
                               redact_mobile_for_intake)
+from .galancito_contact_email import remember_shared_email, redact_email_for_intake
 from .galancito_communes import find_communes
 from .galancito_links import (record_manual_trade,
                               suggest_requirements, link_requirement,
@@ -156,6 +157,8 @@ def _lead_view(db: Session, lead: FacebookLead) -> dict:
         "interest_type": lead.interest_type,
         "work_area": lead.work_area, "work_communes": lead.work_communes,
         "contact_phone": lead.contact_phone, "phone_source": lead.phone_source,
+        "contact_email": lead.contact_email, "email_source": lead.email_source,
+        "email_opt_out": lead.email_opt_out,
         "phone_requested_at": lead.phone_requested_at.isoformat() if lead.phone_requested_at else None,
         "phone_opt_out": lead.phone_opt_out,
         "profile": contact_profile(lead),
@@ -197,6 +200,7 @@ class LeadEdit(BaseModel):
     follow_up_on: date | None = None
     follow_up_note: str = Field(default="", max_length=240)
     contact_phone: str = Field(default="", max_length=26)
+    contact_email: str = Field(default="", max_length=254)
 
 
 class TradeGuideInput(BaseModel):
@@ -391,8 +395,13 @@ async def webhook(request: Request, db: Session = Depends(get_db)):
         if phone_saved:
             note_profile_sources(lead, ["contact_phone"], source="message", at=event_at, remote_id=mid)
             audit_event(db, lead, "field_contact_phone", source="message", remote_id=mid)
+        email_saved = (remember_shared_email(lead, body, previous_question, at=event_at)
+                       if not historical and not audio_received else False)
+        if email_saved:
+            note_profile_sources(lead, ["contact_email"], source="message", at=event_at, remote_id=mid)
+            audit_event(db, lead, "field_contact_email", source="message", remote_id=mid)
         changed = False
-        intake_body = redact_mobile_for_intake(body) if phone_saved else body
+        intake_body = redact_email_for_intake(redact_mobile_for_intake(body))
         if consent is None and not audio_received and not private_data(intake_body):
             if aliases is None:
                 aliases = approved_trade_aliases(db, lead.org_id)
@@ -424,7 +433,7 @@ async def webhook(request: Request, db: Session = Depends(get_db)):
                 and not (needs_deeper_response(body) or is_worksite_location(body))
                 and declared_relative_start(body) is None):
             body, previous_question = earlier[1], earlier[2]
-        reply_turns[lead.id] = (lead, body, previous_question, changed or bool(earlier and earlier[3]),
+        reply_turns[lead.id] = (lead, intake_body, previous_question, changed or bool(earlier and earlier[3]),
                                signal or (earlier[4] if earlier else None), mid,
                                consent is True or bool(earlier and earlier[6]),
                                phone_saved or bool(earlier and earlier[7]))
@@ -1185,6 +1194,18 @@ def update_lead(lead_id: str, body: LeadEdit, user: User = Depends(administrator
                 lead.phone_opt_out = False
                 note_profile_sources(lead, ["contact_phone"], source="manual", at=utcnow())
                 audit_event(db, lead, "field_contact_phone", source="manual", actor_id=user.id)
+        elif field == "contact_email":
+            normalized_email = value.strip().lower()
+            from .galancito_contact_email import email_shared_by_sender
+            if normalized_email and (email_shared_by_sender(normalized_email) != normalized_email):
+                raise HTTPException(422, "Ingresa un correo electrónico válido")
+            if lead.contact_email != normalized_email:
+                lead.contact_email = normalized_email
+                lead.email_source = "manual" if normalized_email else ""
+                lead.email_shared_at = utcnow() if normalized_email else None
+                lead.email_opt_out = False
+                note_profile_sources(lead, ["contact_email"], source="manual", at=utcnow())
+                audit_event(db, lead, "field_contact_email", source="manual", actor_id=user.id)
         elif field == "work_area" and value != lead.work_area:
             lead.work_area = value.strip()
             lead.work_communes = find_communes(value)

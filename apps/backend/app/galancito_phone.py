@@ -24,8 +24,9 @@ DECLINED = re.compile(
     r"(?i)(?:no\s+(?:quiero|deseo|voy\s+a)\s+(?:dar|pasar|enviar|compartir)"
     r"|prefiero\s+(?:seguir|hablar)\s+por\s+(?:aqu[ií]|messenger))"
 )
-QUESTION = ("Para coordinar el contacto, ¿me compartes un número de celular? "
-            "Es opcional; también podemos seguir por Messenger.")
+QUESTION = ("Podemos seguir conversando por Messenger. Si te acomoda "
+            "coordinar por otra vía, también puedes dejar un número de celular "
+            "o un correo. Es totalmente opcional.")
 
 
 def normalize_mobile(value: str) -> str | None:
@@ -62,7 +63,8 @@ def phone_declined(message: str, last_question: str) -> bool:
 
 def phone_question_when_agreed(lead, message: str, *, at: datetime | None = None) -> str | None:
     """Only on a clear contact-coordination request; never on mere job interest."""
-    if (getattr(lead, "contact_phone", "") or getattr(lead, "phone_opt_out", False)
+    if (getattr(lead, "contact_phone", "") or getattr(lead, "contact_email", "")
+            or getattr(lead, "phone_opt_out", False) or getattr(lead, "email_opt_out", False)
             or not COORDINATE.search(message or "")):
         return None
     now = at or datetime.now(timezone.utc)

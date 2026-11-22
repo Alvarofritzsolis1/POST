@@ -86,3 +86,71 @@ def test_original_network_migration_cannot_create_new_candidate_table():
     assert "network_requirements" in LEGACY_NETWORK_TABLES
     assert "network_candidate_followups" not in LEGACY_NETWORK_TABLES
     assert "network_facebook_posts" not in LEGACY_NETWORK_TABLES
+
+
+def test_contact_readiness_and_unknown_availability_never_score_as_100(network):
+    n = network
+    requirement = n["send"](n["a"], "/requirements", request_body(n)).json()
+    lead_id = _lead(n, availability="mañana", contact_email="contacto@obra.cl")
+    data = n["send"](n["a"], "/requirements/" + requirement["id"] + "/candidates", method="GET").json()
+    candidate = next(c for c in data["candidates"] if c["id"] == lead_id)
+    assert candidate["fit"]["compatibility"] == 80
+    assert candidate["fit"]["data_coverage"] == 80
+    assert candidate["email"] == "contacto@obra.cl"
+    assert candidate["phone"] == ""
+    assert "fecha exacta" in " ".join(candidate["fit"]["missing"]).lower()
+    assert candidate["profile"]["percent"] < 100 or candidate["email"]
+
+
+def test_worksite_scoped_chat_and_resident_reply_queue(network, monkeypatch):
+    from datetime import datetime, timezone
+    from types import SimpleNamespace
+    import app.network_candidates as workspace
+    from app.facebook_crm_models import FacebookChatMessage
+    n = network
+    requirement = n["send"](n["a"], "/requirements", request_body(n)).json()
+    lead_id = _lead(n, availability=requirement["start_date"])
+    with n["Session"].begin() as db:
+        lead = db.get(FacebookLead, lead_id)
+        lead.last_inbound_at = datetime.now(timezone.utc)
+        db.add(FacebookChatMessage(
+            org_id=lead.org_id, lead_id=lead_id, page_id=lead.page_id,
+            direction="inbound", state="received", body="Hola, hago carpintería",
+        ))
+        org_id, page_id = lead.org_id, lead.page_id
+    path = "/requirements/" + requirement["id"] + "/candidates/" + lead_id + "/chat"
+    read = n["send"](n["a"], path, method="GET")
+    assert read.status_code == 200, read.text
+    assert read.json()["messages"][0]["body"].startswith("Hola")
+    assert n["send"](n["b"], path, method="GET").status_code == 403
+    assert n["send"](n["b"], path, {"message": "Hola"}, method="POST").status_code == 403
+
+    monkeypatch.setattr(workspace, "settings", lambda: SimpleNamespace(
+        facebook_messaging_enabled=True, facebook_page_id=page_id,
+        facebook_org_id=org_id,
+    ))
+    ready = n["send"](n["a"], path, method="GET")
+    assert ready.status_code == 200 and ready.json()["can_reply"]
+    queued = n["send"](n["a"], path, {"message": "Hola, ¿te acomoda conversar por aquí?"}, method="POST")
+    assert queued.status_code == 202, queued.text
+    assert queued.json()["state"] == "pending"
+    assert n["send"](n["a"], path, {"message": "Hola, ¿te acomoda conversar por aquí?"}, method="POST").status_code == 409
+    with n["Session"]() as db:
+        row = db.get(FacebookChatMessage, queued.json()["id"])
+        assert row.operator_id
+        assert row.state == "pending"
+
+
+
+def test_candidate_contact_opt_out_is_respected(network):
+    """Missing phone/email is not permission to repeat a declined request."""
+    n = network
+    requirement = n["send"](n["a"], "/requirements", request_body(n)).json()
+    lead_id = _lead(n, phone_opt_out=True, contact_phone="", contact_email="")
+    path = "/requirements/" + requirement["id"] + "/candidates"
+    read = n["send"](n["a"], path, method="GET")
+    assert read.status_code == 200, read.text
+    candidate = next(item for item in read.json()["candidates"] if item["id"] == lead_id)
+    assert candidate["phone_opt_out"]
+    assert "Prefirió no facilitar" in candidate["contact_action"]
+    assert "ofrecer compartir" not in candidate["contact_action"]

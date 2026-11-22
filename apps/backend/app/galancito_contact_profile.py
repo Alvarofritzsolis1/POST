@@ -1,74 +1,114 @@
-"""Concise, evidence-aware read model for each Messenger conversation.
+"""Resident-friendly, evidence-aware contact summary shared across GALANT.
 
-Derived from persisted, voluntarily supplied professional facts on each API read.
-Never store a model-written free-text summary or infer contractor compliance.
+This is an on-read presentation model, not hallucinated AI narration.
+Only explicitly declared professional facts are used. Unknown dates and
+missing contact channels remain visible instead of implying completeness.
 """
+from __future__ import annotations
+
+from datetime import date
+
+
+def _value(lead, key: str) -> str:
+    return str(getattr(lead, key, "") or "").strip()
+
+
+def _known_date(value: str) -> bool:
+    try:
+        date.fromisoformat(value)
+        return True
+    except ValueError:
+        return False
+
+
 def contact_profile(lead) -> dict:
+    team = getattr(lead, "team_available", None)
+    workers = getattr(lead, "workers", None)
+    contact_phone = _value(lead, "contact_phone")
+    contact_email = _value(lead, "contact_email")
+    choice = getattr(lead, "interest_type", "unknown")
     fields = [
         ("interest_type", "Tipo de interés"),
         ("specialty", "Trabajo u oficio"),
         ("team_available", "Trabaja solo o con equipo"),
-        *( [("workers", "Personas que pueden acudir")] if getattr(lead, "team_available", None) is True else []),
+        *([("workers", "Personas que pueden acudir")] if team is True else []),
         ("experience", "Experiencia"),
         ("work_area", "Comunas donde puede trabajar"),
         ("availability", "Disponibilidad"),
+        ("contact", "Teléfono o correo para coordinar"),
     ]
     counts = {
-        "interest_type": getattr(lead, "interest_type", "unknown") in {"service_offer", "employment", "both"},
-        "specialty": bool(lead.specialty and lead.specialty.strip()),
-        "team_available": getattr(lead, "team_available", None) is not None,
-        "workers": lead.workers is not None,
-        "experience": bool(lead.experience and lead.experience.strip()),
-        "work_area": bool(getattr(lead, "work_area", "").strip()),
-        "availability": bool(lead.availability and lead.availability.strip()),
+        "interest_type": choice in {"service_offer", "employment", "both"},
+        "specialty": bool(_value(lead, "specialty")),
+        "team_available": team is not None,
+        "workers": workers is not None,
+        "experience": bool(_value(lead, "experience")),
+        "work_area": bool(_value(lead, "work_area")),
+        # A relative answer such as 'mañana' is known as a declaration,
+        # but it cannot confirm a calendar date for a specific worksite.
+        "availability": bool(_value(lead, "availability")),
+        "contact": bool(contact_phone or contact_email),
     }
     missing = [label for key, label in fields if not counts[key]]
-    name_missing = getattr(lead, "display_name", "") in ("", "Interesado de Facebook", "Contacto sin nombre", None)
-    if name_missing and not getattr(lead, "name_opt_out", False):
+    name = _value(lead, "display_name")
+    known_name = bool(name and name not in {"Interesado de Facebook", "Contacto sin nombre"})
+    if not known_name and not getattr(lead, "name_opt_out", False):
         missing.append("Nombre de la persona (opcional)")
-    answered = sum(bool(counts[key]) for key, _ in fields)
-    choice = getattr(lead, "interest_type", "unknown")
-    if choice == "both":
-        intro = "Busca empleo y ofrece servicios"
-    elif choice == "service_offer":
-        intro = "Ofrece servicios por su cuenta"
-    elif choice == "employment":
-        intro = "Busca empleo como trabajador"
-    else:
-        intro = "Tipo de interés por aclarar"
-    narrative = [intro]
-    name = getattr(lead, "display_name", "") or ""
-    if name not in {"", "Interesado de Facebook", "Contacto sin nombre"}:
-        narrative.insert(0, "Nombre registrado: " + name.strip()[:70])
-    if lead.specialty:
-        narrative.append("oficio: " + lead.specialty.strip()[:100])
-    team = getattr(lead, "team_available", None)
+
+    subject = name[:75] if known_name else "Este contacto"
+    trade = _value(lead, "specialty")
+    intro = {
+        "employment": "busca empleo",
+        "service_offer": "ofrece servicios",
+        "both": "busca empleo y también ofrece servicios",
+    }.get(choice, "aún no ha definido si busca empleo u ofrece servicios")
+    first = subject + " " + intro
+    if trade:
+        first += (" de " if choice != "employment" else " en ") + trade[:90]
+    first += "."
+    chunks = [first]
+
     if team is False:
-        narrative.append("trabaja solo/a")
+        chunks.append("Indicó que trabaja por su cuenta.")
+    elif team is True and workers is not None:
+        chunks.append(f"Señaló que puede acudir con {workers} {'persona' if workers == 1 else 'personas'} en total.")
     elif team is True:
-        if lead.workers is not None:
-            narrative.append("puede acudir con " + str(lead.workers) + " persona(s) en total")
+        chunks.append("Puede trabajar con un equipo, pero falta confirmar cuántas personas.")
+
+    experience = _value(lead, "experience")
+    if experience:
+        chunks.append("Experiencia declarada: " + experience[:150].rstrip(".") + ".")
+    area = _value(lead, "work_area")
+    if area:
+        chunks.append("Zona de trabajo: " + area[:100].rstrip(".") + ".")
+    availability = _value(lead, "availability")
+    if availability:
+        if _known_date(availability):
+            chunks.append("Indicó disponibilidad desde el " + availability + ".")
         else:
-            narrative.append("puede acudir con otras personas; cantidad pendiente")
-    if lead.experience:
-        narrative.append("experiencia declarada: " + lead.experience.strip()[:120])
-    if getattr(lead, "work_area", ""):
-        narrative.append("comuna: " + lead.work_area.strip()[:80])
-    if lead.availability:
-        narrative.append("disponibilidad declarada: " + lead.availability.strip()[:100])
-    company = getattr(lead, "company", "") or ""
-    if company:
-        narrative.append("nombre comercial registrado: " + company.strip()[:100])
-    if getattr(lead, "requirement_id", None):
-        narrative.append("tiene una necesidad vinculada para revisión")
+            chunks.append("Disponibilidad declarada: «" + availability[:85] +
+                          "». Falta confirmar una fecha exacta.")
+    company = _value(lead, "company")
+    if company and company.casefold() != name.casefold():
+        chunks.append("Empresa o nombre comercial declarado: " + company[:100].rstrip(".") + ".")
+
+    if not contact_phone and not contact_email:
+        chunks.append("Aún no ha compartido teléfono ni correo; por ahora el contacto puede continuar por Messenger.")
+    else:
+        channels = ("teléfono y correo" if contact_phone and contact_email
+                    else "teléfono" if contact_phone else "correo")
+        chunks.append("Datos de contacto disponibles: " + channels + ".")
+    answered = sum(bool(counts[key]) for key, _ in fields)
     return {
-        "summary": ". ".join(narrative) + ". Pendiente de validación por administración.",
+        "summary": " ".join(chunks),
         "completed": answered, "total": len(fields),
         "percent": round(answered * 100 / len(fields)),
         "missing": missing,
         "next_field": missing[0] if missing else None,
-        "evidence": "Datos declarados en la conversación o registrados manualmente; no acreditan documentos ni contratación.",
+        "evidence": "Datos declarados en Messenger o registrados por un operador; no acreditan experiencia ni cumplimiento documental.",
         "sources": getattr(lead, "profile_sources", None) or {},
-        "specialty_origin": ("Registrado por administración" if lead.specialty_source == "manual"
-                             else "Interpretado del mensaje; requiere confirmación"),
+        "specialty_origin": (
+            "Registrado por administración" if getattr(lead, "specialty_source", "") == "manual"
+            else "Interpretado del mensaje; requiere confirmación"
+        ),
     }
