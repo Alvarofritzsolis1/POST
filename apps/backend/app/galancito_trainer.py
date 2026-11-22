@@ -19,6 +19,8 @@ from .galancito_memory import aware
 from .galancito_training import (DETAIL_DAYS, HISTORY_DAYS, LEASE_SECONDS, LOCAL_CONTEXT_LIMIT,
                                   LOCAL_OUTPUT_LIMIT, ResourceSampler, eligible_at, resource_slots)
 from .galancito_training_data import DATASET_VERSION, scenario
+from .galancito_real_learning import (LIVE_DATASET_VERSION, LIVE_EVALUATION_VERSION,
+                                       LIVE_PROMPT, COACHING, evaluate_live)
 from .galancito_internal_training import (
     INTERNAL_DATASET_VERSION, INTERNAL_EVALUATION_VERSION,
     INTERNAL_PROMPT, internal_case, evaluate_internal,
@@ -115,8 +117,11 @@ def claim(factory, snapshot, *, maintenance=False, training_model=None):
                 finish(row, "error", row.reason or "Se agotaron los reintentos del caso", now)
                 continue
             internal = row.config.get("profile", "postulantes") == "interno"
-            expected_dataset = INTERNAL_DATASET_VERSION if internal else DATASET_VERSION
-            expected_evaluation = INTERNAL_EVALUATION_VERSION if internal else EVALUATION_VERSION
+            live = internal and row.config.get("suite") == "live"
+            expected_dataset = (LIVE_DATASET_VERSION if live else
+                                INTERNAL_DATASET_VERSION if internal else DATASET_VERSION)
+            expected_evaluation = (LIVE_EVALUATION_VERSION if live else
+                                   INTERNAL_EVALUATION_VERSION if internal else EVALUATION_VERSION)
             if row.config["dataset_version"] != expected_dataset:
                 finish(row, "error", "Cambió la versión del generador durante la sesión", now)
                 continue
@@ -175,10 +180,11 @@ def _update_stage(factory, claim, state):
         row.lease_until = utcnow() + timedelta(seconds=LEASE_SECONDS)
 
 
-def _charge(factory, claim, spec, instructions, prompt, seed, *, role, sampler):
+def _charge(factory, claim, spec, instructions, prompt, seed, *, role, sampler, thinking=False):
     provider = spec["id"]
     local = provider == "ollama"
-    output_limit = {"reply": LOCAL_OUTPUT_LIMIT, "judge": 8, "correction": 96}[role]
+    output_limit = (512 if thinking and role == "reply" else
+                    {"reply": LOCAL_OUTPUT_LIMIT, "judge": 8, "correction": 96}[role])
     # Preflight by context size locally and conservative UTF-8 bounds externally.
     # An unsuccessful call with unknown usage keeps the reservation.
     reserve = LOCAL_CONTEXT_LIMIT if local else len((instructions + prompt).encode("utf-8")) + 640
@@ -223,7 +229,8 @@ def _charge(factory, claim, spec, instructions, prompt, seed, *, role, sampler):
             cfg = SimpleNamespace(galancito_num_ctx=LOCAL_CONTEXT_LIMIT, galancito_num_predict=output_limit,
                                   galancito_num_thread=1, galancito_keep_alive="2m",
                                   galancito_local_model=spec["model"])
-            answer = generate_training_text(instructions, prompt, seed, cfg)
+            answer = (generate_training_text(instructions, prompt, seed, cfg, thinking=True)
+                      if thinking else generate_training_text(instructions, prompt, seed, cfg))
             measured = last_timings.get()
             counts = (measured.get("input_tokens"), measured.get("output_tokens"))
         else:
@@ -288,6 +295,23 @@ def checkpoints(factory, claim, results, snapshot, elapsed):
                 errors[key] = errors.get(key, 0) + value
         metrics.update(dimensions=dims, errors=errors, reply_sources=sources, cycles=cycles,
                        elapsed_seconds=metrics.get("elapsed_seconds", 0) + elapsed)
+        if row.config.get("suite") == "live" and row.completed % row.config["cases"] == 0:
+            current = str(row.completed // row.config["cases"])
+            item = cycles[current]
+            baseline = cycles.get("1", item)
+            # Compare only cycles of the same frozen, real DB evidence.
+            item["pass_rate"] = round(item["passed"] / max(1, item["passed"] + item["failed"]), 4)
+            item["improved_vs_first"] = item["passed"] > baseline["passed"] and item["critical"] == 0
+            cycles[current] = item
+            if row.completed < row.target:
+                observed = [error for result in results for error in result["errors"]]
+                hints = list(metrics.get("real_coaching", []))
+                for dimension in observed:
+                    if dimension in COACHING and COACHING[dimension] not in hints:
+                        hints.append(COACHING[dimension])
+                metrics["real_coaching"] = hints[:3]
+            metrics["real_learning_demonstrated"] = any(
+                cycle.get("improved_vs_first") for cycle in cycles.values())
         for key, measured in (("peak_worker_ram_mb", "worker_ram_mb"), ("peak_host_cpu_percent", "host_cpu_percent")):
             if snapshot[measured] is not None:
                 metrics[key] = max(metrics.get(key, 0), snapshot[measured])
@@ -334,6 +358,15 @@ def process_next(factory=SessionLocal, sampler=None, *, maintenance=False, train
             {**item, "phrase": None, "reply": None} for item in row.knowledge]
         def run(position):
             seed = int(row.dataset_hash[:8], 16) ^ position
+            if row.config.get("suite") == "live":
+                fixture = row.config["live_cases"][position % row.config["cases"]]
+                coach = row.metrics.get("real_coaching", [])
+                def real_answer(context, instructions):
+                    system = LIVE_PROMPT + ("\nConsejos revisados tras errores anteriores:\n" +
+                                            "\n".join(instructions) if instructions else "")
+                    return _charge(factory, row, model, system, context,
+                                   seed % (2**31), role="reply", sampler=sampler, thinking=True)
+                return evaluate_live(fixture, answer=real_answer, coach=coach)
             if row.config.get("profile", "postulantes") == "interno":
                 fixture = internal_case(row.config, position)
                 def internal_answer(context):
