@@ -71,7 +71,7 @@ export default function AIAdminPanel({ onBack }: { onBack: () => void }) {
         initialFocus={practiceTarget.focus} back={() => navigate("resumen")} />}
       {section === "aprendizaje" && <div className="ai-admin-learning">
         <AIConfiguration section="aprendizaje" openTraining={() => openPractice("general")} />
-        <AIHumanAudit />
+        <AIHumanAudit onPractice={openPractice} />
       </div>}
     </div>
   </section>;
