@@ -15,7 +15,7 @@ const internalDimensions: Record<string, string> = {
   accuracy: "Exactitud factual", grounding: "Evidencia simulada", context: "Contexto",
   usefulness: "Utilidad", security: "Seguridad", limits: "Reconoce límites",
 };
-const profiles: Record<string, string> = { postulantes: "Postulantes", interno: "Interno 360°" };
+const profiles: Record<string, string> = { postulantes: "Postulantes Messenger", interno: "Galancito General" };
 const dimensions: Record<string, string> = {
   understanding: "Comprensión del mensaje", context: "Coherencia contextual",
   profile: "Extracción de ficha", naturalness: "Naturalidad estimada",
@@ -82,7 +82,7 @@ type Case = {
 };
 type Failures = { cases: Case[]; more: boolean; proposals: Record<string, string> };
 const defaults = {
-  profile: "postulantes" as "postulantes" | "interno", level: 1, cases: 100, cycles: 1, suite: "reference", seed: "",
+  profile: "interno" as "postulantes" | "interno", level: 1, cases: 100, cycles: 1, suite: "reference", seed: "",
   model: "ollama", judge: "rules", corrector: "rules", profile_review: false, night_start: 23, night_end: 7, minutes: 480,
   concurrency: 0, ram_limit_mb: 0, cpu_limit_percent: 75, token_budget: 6000000, cost_budget: 0,
 };
@@ -199,7 +199,7 @@ export default function GalancitoTraining({ back }: { back: () => void }) {
       <div>
         <span className="ai-eyebrow"><Beaker size={15} /> GALANT AI TRAINING LAB</span>
         <h1>Práctica Bot · Galancito</h1>
-        <p>{form.profile === "interno" ? "Practica consultas internas con resultados de herramientas simulados, sin acceder a datos de producción." :
+        <p>{form.profile === "interno" ? "Practica el único chat general: datos, permisos, contexto, Qwen3.5 4B y decisión segura de API. Usa ejemplos sintéticos, sin acceder a producción." :
           "Simula conversaciones de construcción chilena y evalúa las fichas, las respuestas y el contexto."}</p>
       </div>
       <span className={"training-status " + (active?.state ?? (data?.worker.available ? "available" : ""))}>
