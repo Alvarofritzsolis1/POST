@@ -1286,7 +1286,7 @@ export default function GeneralConfiguration({ onBack }: { onBack: () => void })
             </a>
           ))}
         </nav>
-        <main className="gc-content">
+        <div className="gc-content">
           {!training && <div className="gc-page-heading">
             <div>
               <span className="gc-eyebrow">
@@ -2387,7 +2387,7 @@ export default function GeneralConfiguration({ onBack }: { onBack: () => void })
               General.
             </Empty>
           )}
-        </main>
+        </div>
       </div>
     </div>
   );
