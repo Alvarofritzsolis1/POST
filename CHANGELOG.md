@@ -1,3 +1,13 @@
+## 20.9.16-rc1 — Parche: aprendizaje medido con datos reales de GALANT
+
+- **Práctica Bot · Datos reales:** crea escenarios cuantitativos a partir de agregados reales de obras autorizadas en PostgreSQL, sin entregar fichas, nombres de contratistas o mensajes personales al modelo.
+- **Qwen3.5 4B:** realiza inferencias reales con razonamiento interno activado cuando corresponde; no se muestra razonamiento privado ni se recurre a respuestas predefinidas como evidencia de aprendizaje.
+- **Ciclos A/B:** primera referencia, correcciones supervisadas y prueba con los mismos casos reservados sin/con instrucciones, usando semillas comparables. Informa casos recuperados, regresiones, exactitud y latencia.
+- **Transferencia controlada:** las reglas generales solo llegan al chat con aprobación administrativa y mejora medida sin regresiones en la prueba reservada. No entrena los pesos de Qwen ni promete fine-tuning.
+- **Protección operativa:** conserva el orden de prioridad del chat y Messenger sobre la práctica, respetando el bloqueo de inferencias compartido y los límites de recursos.
+- **Alcance:** la interfaz del chat permanece intacta; los cambios corresponden al módulo Práctica Bot y al razonamiento fundamentado de Galancito General.
+- **Validación:** la evidencia de integración del parche y una ejecución de Qwen real en VPS deben revisarse antes de instalar en producción.
+
 ## 20.9.14-rc1 — Red de Obras: contacto, fichas y chat en el requerimiento
 
 - Resúmenes profesionales legibles, sin repetir etiquetas ni declarar confirmada una fecha relativa.
