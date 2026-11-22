@@ -15,6 +15,7 @@ from .config import settings
 from .db import SessionLocal
 from .facebook_crm_models import FacebookChatMessage
 from .galancito_local import generate_training_text, last_timings
+from .galancito_runtime import infer
 from .galancito_memory import aware
 from .galancito_training import (DETAIL_DAYS, HISTORY_DAYS, LEASE_SECONDS, LOCAL_CONTEXT_LIMIT,
                                   LOCAL_OUTPUT_LIMIT, ResourceSampler, eligible_at, resource_slots)
@@ -229,8 +230,21 @@ def _charge(factory, claim, spec, instructions, prompt, seed, *, role, sampler, 
             cfg = SimpleNamespace(galancito_num_ctx=LOCAL_CONTEXT_LIMIT, galancito_num_predict=output_limit,
                                   galancito_num_thread=1, galancito_keep_alive="2m",
                                   galancito_local_model=spec["model"])
-            answer = (generate_training_text(instructions, prompt, seed, cfg, thinking=True)
-                      if thinking else generate_training_text(instructions, prompt, seed, cfg))
+            def invoke_local():
+                return (generate_training_text(instructions, prompt, seed, cfg, thinking=True)
+                        if thinking else generate_training_text(instructions, prompt, seed, cfg))
+            if spec["model"] == "qwen3.5:4b-q4_K_M":
+                # Same PostgreSQL gate as the authenticated GALANT chat and
+                # Messenger. Training cannot monopolize the shared 4B model.
+                try:
+                    with factory.begin() as inference_db:
+                        answer = infer(inference_db, invoke_local, org_id=claim.org_id)
+                except RuntimeError as exc:
+                    if str(exc) == "Galancito está ocupado":
+                        raise Deferred("Chat real usando Ollama; práctica reprogramada") from None
+                    raise
+            else:
+                answer = invoke_local()
             measured = last_timings.get()
             counts = (measured.get("input_tokens"), measured.get("output_tokens"))
         else:
