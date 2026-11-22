@@ -16,7 +16,7 @@ HISTORY_DAYS = 30
 MAX_CONVERSATIONS = 20
 MAX_TURNS = 16
 SAFE_INTENTS = {"overview", "navigation", "version", "publications", "training", "help",
-                "metrics", "external_unavailable", "no_sites"}
+                "metrics", "external_unavailable", "no_sites", "greeting", "general_advice"}
 REDACTED = "Esta consulta no se almacenó por contener datos potencialmente privados."
 
 
