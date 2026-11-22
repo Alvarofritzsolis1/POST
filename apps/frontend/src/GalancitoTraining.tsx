@@ -56,8 +56,9 @@ type Metrics = {
   input_tokens: number; output_tokens: number; reserved_tokens: number;
   estimated_cost_usd: number; reserved_cost_usd: number; repetition_rate: number | null; judged_turns: number;
   reply_sources: Record<string, number> | null; questions: number; repeated_questions: number;
-  cycles?: Record<string, {passed:number;failed:number;critical:number;pass_rate?:number;improved_vs_first?:boolean;holdout?:boolean}>;
-  real_coaching?: string[]; real_holdout_pass_rate?: number; real_learning_demonstrated?: boolean;
+  cycles?: Record<string, {passed:number;failed:number;critical:number;pass_rate?:number;improved_vs_first?:boolean;holdout?:boolean;holdout_role?: "baseline" | "candidate" | null}>;
+  real_coaching?: string[]; real_holdout_pass_rate?: number; real_holdout_baseline_pass_rate?: number;
+  real_holdout_gain_cases?: number; real_holdout_regressions?: number; real_learning_demonstrated?: boolean;
 };
 type Round = {
   id: string; state: string; target: number; completed: number; reason: string | null; next_at: string;
@@ -255,7 +256,7 @@ export default function GalancitoTraining({ back }: { back: () => void }) {
             <label>Casos por ciclo<input required min={form.suite === "live" ? 4 : 1} max={form.suite === "live" ? 12 : 10000} type="number" value={form.cases} onChange={event => setForm({ ...form, cases: Number(event.target.value) })} /></label>
             {form.profile === "interno" && <label>Ciclos de evaluación<select value={form.cycles}
               onChange={event => { const cycles = Number(event.target.value); setForm(prev => ({ ...prev, cycles, cases: Math.min(prev.cases, Math.floor(10000 / cycles)) })); }}>
-              {(form.suite === "live" ? [3,5,10,20,40] : [1,5,10,20,40]).map(value => <option value={value} key={value}>{value} {value === 1 ? "ciclo" : "ciclos"}</option>)}
+              {(form.suite === "live" ? [4,5,10,20,40] : [1,5,10,20,40]).map(value => <option value={value} key={value}>{value} {value === 1 ? "ciclo" : "ciclos"}</option>)}
             </select></label>}
             <label>Conjunto<select value={form.suite} onChange={event => {
               const live = event.target.value === "live";
@@ -289,7 +290,7 @@ export default function GalancitoTraining({ back }: { back: () => void }) {
           </details>
           {form.profile === "interno" && <p className="training-muted">
             Total previsto: <strong>{number(form.cases * form.cycles)} evaluaciones</strong>.
-            {form.suite === "live" ? "Datos numéricos realmente consultados al iniciar; último ciclo reservado para validación sin correcciones. Los cambios de instrucciones son aprendizaje contextual, no ajuste de pesos." : "Los ciclos son pruebas repetidas, no entrenamiento de pesos. El máximo es 10.000 casos por ejecución."}
+            {form.suite === "live" ? "Los dos últimos ciclos prueban los mismos datos reales: primero sin correcciones y luego con correcciones, con la misma semilla. Se cuentan mejoras y regresiones. No se ajustan pesos." : "Los ciclos son pruebas repetidas, no entrenamiento de pesos. El máximo es 10.000 casos por ejecución."}
           </p>}
           <div className="training-actions">
             <button type="submit" className="gc-primary" disabled={busy || Boolean(active)}><Play size={16} /> Iniciar entrenamiento</button>
@@ -311,7 +312,7 @@ export default function GalancitoTraining({ back }: { back: () => void }) {
             <details className="training-details"><summary>Resultados por ciclo · {Object.keys(stats.cycles).length} registrados</summary>
               <div className="training-cycle-results">
                 {Object.entries(stats.cycles).sort((a,b) => Number(a[0]) - Number(b[0])).map(([cycle, result]) =>
-                  <div key={cycle}><span>Ciclo {cycle}{result.holdout ? " · prueba reservada" : ""}</span>
+                  <div key={cycle}><span>Ciclo {cycle}{result.holdout ? (result.holdout_role === "baseline" ? " · referencia reservada A" : " · corregido reservado B") : ""}</span>
                     <strong>{number(result.passed)} correctos / {number(result.passed + result.failed)}{result.pass_rate != null ? " · " + percent(result.pass_rate) : ""}</strong>
                     <small>{number(result.critical)} alertas críticas</small>
                   </div>)}
@@ -336,7 +337,7 @@ export default function GalancitoTraining({ back }: { back: () => void }) {
             {round.config.snapshot_reused && " Esta ronda reutiliza la evidencia real de una ejecución anterior."}
           </p>}
           {round.config.suite === "live" && <p className="training-muted">
-            Validación reservada: {percent(stats?.real_holdout_pass_rate)} · Mejora observada sobre referencia: {stats?.real_learning_demonstrated ? "Sí, con prueba reservada aprobada" : "No demostrada aún"}.
+            Prueba reservada A/B: {percent(stats?.real_holdout_baseline_pass_rate)} sin corrección frente a {percent(stats?.real_holdout_pass_rate)} con corrección. Casos recuperados: {number(stats?.real_holdout_gain_cases)}; regresiones: {number(stats?.real_holdout_regressions)}. Aprendizaje observado: {stats?.real_learning_demonstrated ? "Sí, sin regresiones en esta muestra" : "No demostrado"}.
             {stats?.real_coaching?.length ? " Instrucciones corregidas entre ciclos: " + stats.real_coaching.length + "." : " Sin correcciones de instrucciones aún."}
           </p>}
           {stats?.reply_sources && <p className="training-muted">
