@@ -96,7 +96,7 @@ def is_complex(message: str) -> bool:
     clauses = sum(token in normalized for token in (
         " y ", " ademas ", " pero ", " junto con ", " considerando ",
     ))
-    return (len(normalized) >= 260
+    return ((len(normalized) >= 260 and factors >= 2 and clauses >= 2)
             or (len(normalized) >= 160 and tasks >= 1 and factors >= 1)
             or (tasks >= 2 and factors >= 1)
             or (tasks >= 1 and factors >= 2 and clauses >= 1))
