@@ -514,8 +514,8 @@ def process_next(factory=SessionLocal, sampler=None, *, maintenance=False, train
                 if focused and not baseline:
                     approved_hints = row.metrics.get("messenger_coaching", [])
                     if approved_hints:
-                        instructions += "\\nAjustes medidos en ciclos sintéticos anteriores (sin datos reales):\\n" + (
-                            "\\n".join(approved_hints[:3])[:520])
+                        instructions += "\nAjustes medidos en ciclos sintéticos anteriores (sin datos reales):\n" + (
+                            "\n".join(approved_hints[:3])[:520])
                 if model["id"] == "ollama" and knowledge:
                     instructions += "\nCriterios revisados del laboratorio:\n" + "\n".join(
                         item["instruction"] for item in knowledge)[:500]
