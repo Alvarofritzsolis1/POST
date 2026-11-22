@@ -81,6 +81,8 @@ class RoundInput(BaseModel):
             allowed = INTERNAL_CATEGORIES if self.profile == "interno" else MESSENGER_FOCUS
             if self.suite == "live" or self.focus not in allowed:
                 raise ValueError("Enfoque incompatible con este canal o con datos operativos reales")
+        if self.profile == "postulantes" and self.focus and self.suite == "holdout" and self.cycles > 1:
+            raise ValueError("La prueba reservada no admite épocas previas que reutilicen sus casos")
         if self.profile != "interno" and self.cycles != 1 and not self.focus:
             raise ValueError("En Messenger los ciclos especializados requieren una categoría enfocada")
         if self.cases * self.cycles > MAX_CASES:
