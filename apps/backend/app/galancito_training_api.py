@@ -381,8 +381,8 @@ def promote_live(round_id: str, user: User = Depends(administrator), db: Session
         raise HTTPException(409, "No hay cambios de comportamiento evaluados")
     content = ("Para análisis de datos internos, aplica únicamente estas reglas "
                "de razonamiento a información ya verificada por el servidor. "
-               "Nunca inventes cifras, accesos, cambios ni acciones:\\n" +
-               "\\n".join(instructions))
+               "Nunca inventes cifras, accesos, cambios ni acciones:\n" +
+               "\n".join(instructions))
     db.scalar(select(Organization.id).where(Organization.id == user.org_id).with_for_update())
     current = db.scalar(select(Knowledge).where(
         Knowledge.org_id == user.org_id,
