@@ -316,3 +316,50 @@ def test_internal_memory_retention_expiration(network):
     assert listed.status_code == 200
     assert listed.json()["conversations"] == []
     assert n["admin"].get("/api/v1/network/galancito/conversations/" + chat_id).status_code == 404
+
+
+def test_internal_optional_local_ai_advice_does_not_replace_verified_facts(network, monkeypatch):
+    n = network
+    monkeypatch.setattr("app.galancito_api.local_analysis_available", lambda: True)
+    observed = []
+    def local_advice(_db, *, question, facts, intent):
+        observed.append((question, facts, intent))
+        return "Revisar los pendientes con el residente de la obra."
+    monkeypatch.setattr("app.galancito_api.local_advice", local_advice)
+    status = n["admin"].get("/api/v1/network/galancito/status")
+    assert status.status_code == 200
+    assert status.json()["internal_ai_available"] is True
+
+    disabled = n["send"](n["admin"], "/galancito/chat", {
+        "area": "interno", "message": "Resumen de las obras",
+    })
+    assert disabled.status_code == 200
+    assert not disabled.json()["analysis_generated"]
+    assert not observed
+
+    enabled = n["send"](n["admin"], "/galancito/chat", {
+        "area": "interno", "message": "Resumen de las obras",
+        "allow_local_analysis": True,
+    })
+    assert enabled.status_code == 200
+    assert enabled.json()["analysis_generated"] is True
+    assert "Necesidades vigentes:" in enabled.json()["answer"]
+    assert "Sugerencia orientativa de IA local (no verificada):" in enabled.json()["answer"]
+    assert observed[-1][2] == "overview"
+
+    web = n["send"](n["admin"], "/galancito/chat", {
+        "area": "interno", "message": "Busca documentación",
+        "allow_web": True, "allow_local_analysis": True,
+    })
+    assert web.status_code == 200
+    assert len(observed) == 1
+
+
+def test_internal_local_ai_suggestion_fails_closed_on_hallucinations():
+    from app.galancito_internal_analysis import safe_suggestion
+    facts = "Hay 3 necesidades vigentes y 2 urgentes."
+    assert safe_suggestion("Revisar primero las 2 necesidades urgentes.", facts)
+    assert safe_suggestion("Revisar primero las 99 necesidades urgentes.", facts) is None
+    assert safe_suggestion("Ya publiqué las 3 necesidades.", facts) is None
+    assert safe_suggestion("Consulta https://ejemplo.com para verificar.", facts) is None
+    assert safe_suggestion("Todo está perfecto", facts) is None
