@@ -41,7 +41,6 @@
 .galancito-input-row button { display:grid; place-items:center; flex:none; width:41px; height:41px;
   border:0; border-radius:10px; background:#087e73; color:#fff; cursor:pointer; }
 .galancito-input-row button:disabled { opacity:.4; cursor:not-allowed; }
-.galancito-safety { display:flex; gap:6px; align-items:center; color:#6c838b; font-size:10px; }
 .galancito-error { color:#b64037; font-size:11px; }
 .galancito-feedback { display:flex; gap:6px; flex-wrap:wrap; margin-top:9px; }
 .galancito-feedback button { border:1px solid #abc9c3; background:#f4faf8; color:#174f51; border-radius:5px; padding:5px 7px; font-size:11px; cursor:pointer; }
