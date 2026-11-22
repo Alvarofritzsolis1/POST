@@ -79,6 +79,11 @@ def record(db: Session, user, *, chat_id: str | None,
     row = _owned(db, user, chat_id, lock=True) if chat_id else None
     if chat_id and not row:
         raise ValueError("Conversación no encontrada o caducada")
+    # Never persist potentially sensitive prompts, personal information or
+    # tool outputs even when a user has opted into general conversation memory.
+    sensitive = private_data(question) or private_data(answer) or intent not in SAFE_INTENTS
+    if sensitive:
+        return (row.id if row else None), False
     if not row:
         count = len(list(db.scalars(select(InternalConversation.id).where(
             InternalConversation.org_id == user.org_id,
@@ -94,13 +99,8 @@ def record(db: Session, user, *, chat_id: str | None,
         )
         db.add(row)
         db.flush()
-    sensitive = private_data(question) or private_data(answer) or intent not in SAFE_INTENTS
-    if sensitive:
-        question_copy, answer_copy = REDACTED, REDACTED
-        stored_reportable = False
-    else:
-        question_copy, answer_copy = question[:800], answer[:1600]
-        stored_reportable = reportable
+    question_copy, answer_copy = question[:800], answer[:1600]
+    stored_reportable = reportable
     turns = list(row.turns or [])
     turns.extend([
         {"role": "user", "text": question_copy},
@@ -112,4 +112,4 @@ def record(db: Session, user, *, chat_id: str | None,
     row.updated_at = now
     row.expires_at = now + timedelta(days=HISTORY_DAYS)
     db.flush()
-    return row.id
+    return row.id, True
