@@ -15,10 +15,14 @@ from .config import settings
 from .db import SessionLocal
 from .facebook_crm_models import FacebookChatMessage
 from .galancito_local import generate_training_text, last_timings
+from .galancito_runtime import infer
 from .galancito_memory import aware
 from .galancito_training import (DETAIL_DAYS, HISTORY_DAYS, LEASE_SECONDS, LOCAL_CONTEXT_LIMIT,
                                   LOCAL_OUTPUT_LIMIT, ResourceSampler, eligible_at, resource_slots)
 from .galancito_training_data import DATASET_VERSION, scenario
+from .galancito_real_learning import (LIVE_DATASET_VERSION, LIVE_EVALUATION_VERSION,
+                                       LIVE_PROMPT, COACHING, evaluate_live,
+                                       paired_holdout_metrics)
 from .galancito_internal_training import (
     INTERNAL_DATASET_VERSION, INTERNAL_EVALUATION_VERSION,
     INTERNAL_PROMPT, internal_case, evaluate_internal,
@@ -115,8 +119,11 @@ def claim(factory, snapshot, *, maintenance=False, training_model=None):
                 finish(row, "error", row.reason or "Se agotaron los reintentos del caso", now)
                 continue
             internal = row.config.get("profile", "postulantes") == "interno"
-            expected_dataset = INTERNAL_DATASET_VERSION if internal else DATASET_VERSION
-            expected_evaluation = INTERNAL_EVALUATION_VERSION if internal else EVALUATION_VERSION
+            live = internal and row.config.get("suite") == "live"
+            expected_dataset = (LIVE_DATASET_VERSION if live else
+                                INTERNAL_DATASET_VERSION if internal else DATASET_VERSION)
+            expected_evaluation = (LIVE_EVALUATION_VERSION if live else
+                                   INTERNAL_EVALUATION_VERSION if internal else EVALUATION_VERSION)
             if row.config["dataset_version"] != expected_dataset:
                 finish(row, "error", "Cambió la versión del generador durante la sesión", now)
                 continue
@@ -175,10 +182,11 @@ def _update_stage(factory, claim, state):
         row.lease_until = utcnow() + timedelta(seconds=LEASE_SECONDS)
 
 
-def _charge(factory, claim, spec, instructions, prompt, seed, *, role, sampler):
+def _charge(factory, claim, spec, instructions, prompt, seed, *, role, sampler, thinking=False):
     provider = spec["id"]
     local = provider == "ollama"
-    output_limit = {"reply": LOCAL_OUTPUT_LIMIT, "judge": 8, "correction": 96}[role]
+    output_limit = (512 if thinking and role == "reply" else
+                    {"reply": LOCAL_OUTPUT_LIMIT, "judge": 8, "correction": 96}[role])
     # Preflight by context size locally and conservative UTF-8 bounds externally.
     # An unsuccessful call with unknown usage keeps the reservation.
     reserve = LOCAL_CONTEXT_LIMIT if local else len((instructions + prompt).encode("utf-8")) + 640
@@ -223,7 +231,21 @@ def _charge(factory, claim, spec, instructions, prompt, seed, *, role, sampler):
             cfg = SimpleNamespace(galancito_num_ctx=LOCAL_CONTEXT_LIMIT, galancito_num_predict=output_limit,
                                   galancito_num_thread=1, galancito_keep_alive="2m",
                                   galancito_local_model=spec["model"])
-            answer = generate_training_text(instructions, prompt, seed, cfg)
+            def invoke_local():
+                return (generate_training_text(instructions, prompt, seed, cfg, thinking=True)
+                        if thinking else generate_training_text(instructions, prompt, seed, cfg))
+            if spec["model"] == "qwen3.5:4b-q4_K_M":
+                # Same PostgreSQL gate as the authenticated GALANT chat and
+                # Messenger. Training cannot monopolize the shared 4B model.
+                try:
+                    with factory.begin() as inference_db:
+                        answer = infer(inference_db, invoke_local)
+                except RuntimeError as exc:
+                    if str(exc) == "Galancito está ocupado":
+                        raise Deferred("Chat real usando Ollama; práctica reprogramada") from None
+                    raise
+            else:
+                answer = invoke_local()
             measured = last_timings.get()
             counts = (measured.get("input_tokens"), measured.get("output_tokens"))
         else:
@@ -264,9 +286,13 @@ def checkpoints(factory, claim, results, snapshot, elapsed):
         for result in results:
             if row.config.get("profile") == "interno":
                 cycle = str(row.completed // row.config["cases"] + 1)
-                item = dict(cycles.get(cycle, {"passed": 0, "failed": 0, "critical": 0}))
+                item = dict(cycles.get(cycle, {"passed": 0, "failed": 0, "critical": 0, "errors": {}}))
                 item["passed" if result["passed"] else "failed"] += 1
                 item["critical"] += result["critical"]
+                per_cycle_errors = dict(item.get("errors", {}))
+                for error, amount in result["errors"].items():
+                    per_cycle_errors[error] = per_cycle_errors.get(error, 0) + amount
+                item["errors"] = per_cycle_errors
                 cycles[cycle] = item
             db.add(TrainingCase(round_id=row.id, position=row.completed, case_id=result["id"],
                                 passed=result["passed"], result=result))
@@ -288,6 +314,59 @@ def checkpoints(factory, claim, results, snapshot, elapsed):
                 errors[key] = errors.get(key, 0) + value
         metrics.update(dimensions=dims, errors=errors, reply_sources=sources, cycles=cycles,
                        elapsed_seconds=metrics.get("elapsed_seconds", 0) + elapsed)
+        if row.config.get("suite") == "live":
+            metrics["evidence_type"] = "live_database"
+        if row.config.get("suite") == "live" and row.completed % row.config["cases"] == 0:
+            current = str(row.completed // row.config["cases"])
+            item = cycles[current]
+            # The final two cycles use exactly the SAME reserved real cases:
+            # A = uncoached baseline, B = coached candidate with identical
+            # Ollama seed. This avoids claiming learning from an easy holdout.
+            item["pass_rate"] = round(item["passed"] / max(1, item["passed"] + item["failed"]), 4)
+            last_cycle = row.config["cycles"]
+            index = int(current)
+            item["holdout"] = index >= last_cycle - 1
+            item["holdout_role"] = ("baseline" if index == last_cycle - 1 else
+                                    "candidate" if index == last_cycle else None)
+            cycles[current] = item
+            if not item["holdout"]:
+                hints = list(metrics.get("real_coaching", []))
+                for dimension in item.get("errors", {}):
+                    if dimension in COACHING and COACHING[dimension] not in hints:
+                        hints.append(COACHING[dimension])
+                metrics["real_coaching"] = hints[:3]
+            if index == last_cycle:
+                cases = row.config["cases"]
+                db.flush()
+                baseline_start = (last_cycle - 2) * cases
+                candidate_start = (last_cycle - 1) * cases
+                baseline_rows = list(db.scalars(select(TrainingCase).where(
+                    TrainingCase.round_id == row.id,
+                    TrainingCase.position >= baseline_start,
+                    TrainingCase.position < baseline_start + cases
+                ).order_by(TrainingCase.position)))
+                candidate_rows = list(db.scalars(select(TrainingCase).where(
+                    TrainingCase.round_id == row.id,
+                    TrainingCase.position >= candidate_start,
+                    TrainingCase.position < candidate_start + cases
+                ).order_by(TrainingCase.position)))
+                if len(baseline_rows) == cases and len(candidate_rows) == cases:
+                    comparison = paired_holdout_metrics(
+                        [a.passed for a in baseline_rows],
+                        [b.passed for b in candidate_rows])
+                    gains, regressions = comparison["gain_cases"], comparison["regressions"]
+                    metrics["real_holdout_gain_cases"] = gains
+                    metrics["real_holdout_regressions"] = regressions
+                    metrics["real_holdout_baseline_pass_rate"] = comparison["baseline_pass_rate"]
+                    metrics["real_holdout_pass_rate"] = comparison["candidate_pass_rate"]
+                    metrics["real_learning_demonstrated"] = bool(
+                        metrics.get("real_coaching") and gains > 0
+                        and regressions == 0 and item["critical"] == 0
+                        and item["pass_rate"] >= 0.75)
+                else:
+                    metrics["real_learning_demonstrated"] = False
+            else:
+                metrics["real_learning_demonstrated"] = False
         for key, measured in (("peak_worker_ram_mb", "worker_ram_mb"), ("peak_host_cpu_percent", "host_cpu_percent")):
             if snapshot[measured] is not None:
                 metrics[key] = max(metrics.get(key, 0), snapshot[measured])
@@ -334,6 +413,26 @@ def process_next(factory=SessionLocal, sampler=None, *, maintenance=False, train
             {**item, "phrase": None, "reply": None} for item in row.knowledge]
         def run(position):
             seed = int(row.dataset_hash[:8], 16) ^ position
+            if row.config.get("suite") == "live":
+                case_count = row.config["cases"]
+                cycle_number = position // case_count + 1
+                held_out = cycle_number >= row.config["cycles"] - 1
+                baseline_holdout = cycle_number == row.config["cycles"] - 1
+                case_index = position % case_count
+                fixture = row.config["live_cases"][case_index +
+                                                  (case_count if held_out else 0)]
+                coach = [] if baseline_holdout else row.metrics.get("real_coaching", [])
+                # Paired held-out cases use identical generation seeds.
+                model_seed = (int(row.dataset_hash[:8], 16) ^ case_index ^
+                              (314159 if held_out else cycle_number)) % (2**31)
+                def real_answer(context, instructions):
+                    system = LIVE_PROMPT + ("\nConsejos revisados tras errores anteriores:\n" +
+                                            "\n".join(instructions) if instructions else "")
+                    return _charge(factory, row, model, system, context,
+                                   model_seed, role="reply", sampler=sampler, thinking=True)
+                result = evaluate_live(fixture, answer=real_answer, coach=coach)
+                result["id"] = fixture["id"] + "-c" + str(cycle_number)
+                return result
             if row.config.get("profile", "postulantes") == "interno":
                 fixture = internal_case(row.config, position)
                 def internal_answer(context):
