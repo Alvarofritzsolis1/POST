@@ -29,11 +29,12 @@ HOW_TO = (
     "que debo hacer", "me puedes explicar", "explicame", "enseñame",
     "redacta", "escribe un", "propone", "proponer", "recomienda", "analiza",
     "comparar", "compara", "mejora", "estrategia", "planifica", "razona",
-    "por que", "como funciona", "para que sirve",
+    "por que", "como funciona", "para que sirve", "que documentos necesita", "documentos debe presentar",
+    "requisitos para", "como publicar", "como crear", "que tramite",
 )
 DATA_TERMS = ("cuantas", "cuantos", "registros", "registradas", "registrados",
               "publicadas", "vigentes", "atrasadas", "falta", "faltan",
-              "pendientes", "esta desplegad", "estado actual", "estado de las",
+              "pendientes", "esta desplegad", "estado actual", "estado de las", "como estan las publicaciones",
               "cuantos hay", "cuantas hay", "informe mensual", "resumen de",
               "dame los datos", "verifica en el sistema")
 COMPLEX = ("analiza", "compara", "evaluacion", "estrategia", "optimiza",
