@@ -9,6 +9,8 @@ type Channel = {
   sample_capped: boolean;
   p50_ms: number | null;
   p95_ms: number | null;
+  latency_sample: number;
+  latency_basis: string;
   feedback: { useful: number; incorrect: number; total: number; useful_percent: number | null };
   model_errors: number;
   delivery_errors: number;
@@ -133,7 +135,7 @@ export default function AIQualityOverview({
           </div>
           <div className="ai-quality-channel-stats">
             <div><span>Interacciones</span><strong>{data ? fmt.format(data.runs) : "—"}</strong></div>
-            <div><span>Mediana</span><strong>{ms(data?.p50_ms ?? null)}</strong></div>
+            <div><span>{channel === "messenger" ? "Mediana a entrega" : "Mediana"}</span><strong>{ms(data?.p50_ms ?? null)}</strong></div>
             <div><span>Latencia p95</span><strong>{ms(data?.p95_ms ?? null)}</strong></div>
             <div><span>Reportes incorrectos</span><strong>{data ? fmt.format(data.feedback.incorrect) : "—"}</strong></div>
           </div>
@@ -142,6 +144,7 @@ export default function AIQualityOverview({
               ? `${fmt.format(data.feedback.total)} valoraciones de personas · ${data.feedback.useful_percent}% útiles. No equivalen a exactitud factual.`
               : "Sin valoraciones de personas para este período."}
             {data?.sample_capped ? " Últimas 2.000 interacciones (muestra acotada)." : ""}
+            {channel === "messenger" && data ? ` Latencia de ${data.latency_sample} entregas confirmadas (desde el mensaje recibido).` : ""}
             {data?.quality_score != null ? " Nota de muestra auditada, sin representatividad poblacional garantizada." : ""}
           </p>
           <details className="ai-quality-technical ai-quality-criteria"><summary>Criterios de evaluación</summary>
