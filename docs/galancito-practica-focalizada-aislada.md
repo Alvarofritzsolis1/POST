@@ -11,6 +11,7 @@ NO modifica el PR #144, NO publica un despliegue y NO cambia la versión visible
 - Introduce `focus_categories` opcional en POST `/api/v1/admin/ai/training/rounds` solo para el perfil `interno` y suites sintéticas. Ejemplo: `{"profile":"interno","suite":"practice","cases":8,"cycles":3,"focus_categories":["seguimiento","contratistas"],"model":"ollama"}` (los demás valores permanecen sujetos a configuración y validación normal).
 - Al completar un ciclo sintético de `practice`, recopila categorías de errores y agrega hasta tres instrucciones PREDEFINIDAS al prompt de los ciclos siguientes. Nunca aplica texto libre generado ni se filtra hacia `reference`, `holdout` o `live`.
 - Registra tiempos de inferencia de cada turno y, si están disponibles, tiempos nativos de Ollama (carga/prompt/generación/transporte), además de sus promedios en la exportación.
+- Añade parada anticipada opcional (por defecto, tres ciclos sintéticos completos consecutivos sin errores) mediante `stop_after_clean_cycles` (`0` la desactiva). Se informa la cantidad de casos omitidos; **no** se interpreta como aprobación del objetivo completo ni aplica en pruebas operativas/holdout.
 - Reduce de 140 a 96 tokens el máximo de salida en respuestas sintéticas internas, y dimensiona los hilos del entrenamiento local a núcleos efectivamente asignados (1 a 4), en lugar de fijar 1. El efecto sobre la velocidad no está validado aún.
 
 ## Qué significa aprendizaje real
