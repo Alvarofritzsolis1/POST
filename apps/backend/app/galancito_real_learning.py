@@ -19,7 +19,7 @@ from .ops_models import ContractorWorksite, MonthlyDocument
 from .galancito_triage import private_data
 from .network_service import today
 
-LIVE_DATASET_VERSION = 1
+LIVE_DATASET_VERSION = 2
 LIVE_EVALUATION_VERSION = 1
 GENERAL_COACH_TITLE = "Razonamiento operacional verificado de Galancito"
 MAX_LIVE_CASES = 24
@@ -80,12 +80,12 @@ def collect_live_cases(db: Session, user) -> list[dict]:
         alias = f"Obra autorizada {i}"
         tasks = [
             ("contratistas", "¿Cuántas asociaciones de contratistas están activas?", associations, "contratistas_asociados_activos"),
-            ("documentos", "¿Cuántos documentos mensuales están registrados?", documents, "documentos_mensuales_registrados"),
-            ("necesidades", "¿Cuántas necesidades publicadas siguen vigentes?", live["active"], "necesidades_publicadas_vigentes"),
-            ("seguimientos", "¿Cuántos seguimientos están programados hasta hoy?", live["followups_due"], "seguimientos_programados_hasta_hoy"),
             ("resta", "¿Cuántas necesidades vigentes NO están clasificadas como urgentes? Calcula la diferencia.", live["active"] - live["urgent"], "necesidades_publicadas_vigentes - necesidades_urgentes_vigentes"),
+            ("documentos", "¿Cuántos documentos mensuales están registrados?", documents, "documentos_mensuales_registrados"),
             ("suma", "¿Cuál es la suma de necesidades vigentes y seguimientos programados? Son tipos de registros distintos.", live["active"] + live["followups_due"], "necesidades_publicadas_vigentes + seguimientos_programados_hasta_hoy"),
+            ("necesidades", "¿Cuántas necesidades publicadas siguen vigentes?", live["active"], "necesidades_publicadas_vigentes"),
             ("riesgos", "¿Cuánto suman las necesidades vigentes con plazo vencido y los seguimientos hasta hoy?", live["overdue"] + live["followups_due"], "necesidades_vencidas_aun_vigentes + seguimientos_programados_hasta_hoy"),
+            ("seguimientos", "¿Cuántos seguimientos están programados hasta hoy?", live["followups_due"], "seguimientos_programados_hasta_hoy"),
             ("diferencia", "¿Cuál es la diferencia absoluta entre documentos registrados y asociaciones activas de contratistas? No equivale a documentos faltantes.", abs(documents - associations), "abs(documentos_mensuales_registrados - contratistas_asociados_activos)"),
         ]
         for category, question, expected, formula in tasks:
@@ -99,6 +99,9 @@ def collect_live_cases(db: Session, user) -> list[dict]:
                 "source": "db_aggregate", "recorded_at": measured_at,
                 "evidence_hash": reference,
             })
+    if not any(value for case in all_cases for key, value in
+               case["evidence"]["agregados_reales"].items() if key != "id"):
+        raise ValueError("Hay obras autorizadas, pero no hay registros operativos para medir aprendizaje real")
     return all_cases[:MAX_LIVE_CASES]
 
 
