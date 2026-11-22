@@ -67,6 +67,33 @@ TEMPLATES = (
 INTERNAL_CATEGORIES = tuple(item[0] for item in TEMPLATES)
 
 
+def propose_synthetic_coaching(errors: dict, previous=()) -> list[str]:
+    """Draft allowlisted feedback for *later synthetic practice only*.
+
+    These instructions are not trained weights, real-data learning or approved
+    production knowledge. Holdout/reference rounds must never consume them.
+    """
+    chosen = [code for code in previous if code in INTERNAL_PROPOSALS][:3]
+    ranking = sorted(errors.items(), key=lambda item: (-item[1], item[0]))
+    for code, amount in ranking:
+        if amount and code in INTERNAL_PROPOSALS and code not in chosen:
+            chosen.append(code)
+        if len(chosen) == 3:
+            break
+    return chosen
+
+
+def synthetic_practice_prompt(suite: str, coaching: list[str]) -> str:
+    if suite != "practice" or not coaching:
+        return INTERNAL_PROMPT
+    approved = [INTERNAL_PROPOSALS[code] for code in coaching
+                if code in INTERNAL_PROPOSALS][:3]
+    return INTERNAL_PROMPT + "\nCorrecciones de ciclos sintéticos previos:\n" + "\n".join(approved)
+
+
+
+
+
 @dataclass(frozen=True)
 class InternalCase:
     id: str
