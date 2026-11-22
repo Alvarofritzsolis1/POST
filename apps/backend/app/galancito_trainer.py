@@ -522,10 +522,10 @@ def process_next(factory=SessionLocal, sampler=None, *, maintenance=False, train
                 return _charge(factory, row, model, instructions, context, case_seed, role="reply", sampler=sampler)
 
             def score(context):
-                return _charge(factory, row, judge, JUDGE_PROMPT, context, seed % (2**31), role="judge", sampler=sampler)
+                return _charge(factory, row, judge, JUDGE_PROMPT, context, case_seed, role="judge", sampler=sampler)
 
             def suggest(context):
-                return _charge(factory, row, corrector, CORRECTOR_PROMPT, context, seed % (2**31),
+                return _charge(factory, row, corrector, CORRECTOR_PROMPT, context, case_seed,
                                role="correction", sampler=sampler)
 
             result = evaluate(scenario(scenario_config, scenario_position), row.aliases, knowledge,
