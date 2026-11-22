@@ -1,7 +1,7 @@
 """Unified Galancito: one routing surface, Qwen 4B, external privacy, permissions."""
 from types import SimpleNamespace
 from test_network import network, request_body
-from app.galancito_general import QWEN_4B, general_intent, is_complex, external_safe, safe_generated
+from app.galancito_general import QWEN_4B, general_intent, is_complex, external_safe, safe_generated, social_reply, needs_public_web
 
 
 def test_unified_route_classifies_greetings_and_general_help():
@@ -292,3 +292,82 @@ def test_internal_legacy_intents_do_not_misread_program_or_conversion(network):
         })
         assert reply.status_code == 200, reply.text
         assert reply.json()["intent"] not in {"metrics", "version"}
+
+
+def test_social_group_greeting_understands_context_without_claiming_camera(network, monkeypatch):
+    """A live group introduction must not trigger SQL facts, AI or Internet."""
+    n = network
+    def no_inference(*_args, **_kwargs):
+        raise AssertionError("A social greeting should never consume model/API tokens")
+    monkeypatch.setattr("app.galancito_general_runtime.internal_reply", no_inference)
+    monkeypatch.setattr("app.galancito_general_runtime.generate_local_text", no_inference)
+    monkeypatch.setattr("app.galancito_api.public_search", no_inference)
+    question = "Hola Galancito, te estamos viendo con mi equipo de Control de Contratistas."
+    reply = n["send"](n["admin"], "/galancito/chat", {
+        "area": "general", "message": question,
+        "allow_external_ai": True, "auto_web": True,
+    })
+    assert reply.status_code == 200, reply.text
+    result = reply.json()
+    assert result["source"] == "local"
+    assert result["intent"] == "social_context"
+    assert "equipo de Control de Contratistas" in result["answer"]
+    assert "documentación" in result["answer"]
+    assert "los veo" not in result["answer"].lower()
+    assert result["external_used"] is False
+
+
+def test_social_context_never_swallow_authorized_operational_question():
+    assert social_reply("Hola, estamos con el equipo de Control de Contratistas") is not None
+    assert social_reply("Hola equipo, ¿cuántas necesidades siguen pendientes?") is None
+    assert social_reply("Hola, con mi equipo estamos reunidos: revisa los contratistas") is None
+    assert social_reply("Hola, equipo, mi RUT es 12.345.678-5") is None
+    assert social_reply("Hola, soy trabajador por mi cuenta") is None
+
+
+def test_automatic_web_intent_is_public_and_conservative():
+    assert needs_public_web("Busca en internet la normativa de subcontratación chilena")
+    assert needs_public_web("¿Cuál es la normativa vigente de subcontratación en Chile?")
+    assert needs_public_web("¿Cuáles son las últimas noticias del Ministerio del Trabajo?")
+    assert not needs_public_web("Hola Galancito, te estamos viendo con mi equipo de control de contratistas")
+    assert not needs_public_web("¿Cuántas publicaciones están pendientes en mi obra?")
+    assert not needs_public_web("Explícame qué es una ley")
+    assert not needs_public_web("No busques en internet. Explícame qué es una ley")
+
+
+def test_automatic_web_requires_session_authorization_and_remains_private(network, monkeypatch):
+    n = network
+    queries = []
+    monkeypatch.setattr("app.galancito_api.public_search",
+                        lambda query: queries.append(query) or {
+                            "searched_at": "2026-11-22T00:00:00+00:00",
+                            "results": [{"title": "Sitio público", "snippet": "Referencia de ejemplo",
+                                         "url": "https://www.ejemplo.cl/publico"}],
+                        })
+    question = "¿Cuál es la normativa vigente de subcontratación en Chile?"
+    authorized = n["send"](n["admin"], "/galancito/chat", {
+        "area": "general", "message": question, "auto_web": True,
+    })
+    assert authorized.status_code == 200, authorized.text
+    assert authorized.json()["source"] == "public_web"
+    assert queries == [question]
+    # Session opt-in never makes routine/private messages public.
+    for query in (
+        "Hola equipo, estamos reunidos para revisar la documentación",
+        "¿Cuántos contratistas tenemos pendientes en Brisas de Junquillar?",
+    ):
+        answer = n["send"](n["admin"], "/galancito/chat", {
+            "area": "general", "message": query, "auto_web": True,
+        })
+        assert answer.status_code == 200, answer.text
+        assert answer.json()["source"] != "public_web"
+    assert queries == [question]
+    private = n["send"](n["admin"], "/galancito/chat", {
+        "area": "general",
+        "message": "Busca en internet la normativa para Brisas de Junquillar",
+        "auto_web": True,
+    })
+    assert private.status_code == 200, private.text
+    assert private.json()["source"] == "local"
+    assert queries == [question]
+    assert "datos internos de GALANT" in private.json()["answer"]
