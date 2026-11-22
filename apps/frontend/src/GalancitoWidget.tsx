@@ -190,7 +190,7 @@ export default function GalancitoWidget({ area = "red_obras" }: { area?: Area })
           {expanded ? <Minimize2 size={18}/> : <Maximize2 size={18}/>}
         </button>
         <button className="galancito-close" type="button" disabled={busy}
-          onClick={() => { setHistory([]); profileHistory.current[mode] = []; setConversationId(null); setError(""); setLastFailed(""); }}
+          onClick={() => { setHistory([]); profileHistory.current[mode] = []; if (mode === "interno") setConversationId(null); setError(""); setLastFailed(""); }}
           title="Nueva conversación" aria-label="Nueva conversación"><RotateCcw size={16}/></button>
         <button className="galancito-close" type="button" onClick={() => setOpen(false)} aria-label="Cerrar Galancito"><X size={19}/></button>
       </header>
