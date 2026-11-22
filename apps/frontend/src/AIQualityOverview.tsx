@@ -15,6 +15,11 @@ type Channel = {
   cancelled: number;
   quality_score: number | null;
   quality_source: string;
+  reviewed_cases: number;
+  minimum_cases: number;
+  rubric_version: number;
+  dimension_scores: Record<string, number | null>;
+  limitation: string;
   delivery_states?: Record<string, number>;
 };
 type Overview = {
@@ -122,7 +127,9 @@ export default function AIQualityOverview({
           </div>
           <div className="ai-quality-grade">
             <strong>{data?.quality_score == null ? "—" : data.quality_score}<small> / 100</small></strong>
-            <div><b>Calidad de respuestas</b><span>{data?.quality_score == null ? "Pendiente de evaluación humana verificable" : "Evaluación documentada"}</span></div>
+            <div><b>Calidad de respuestas</b><span>{data?.quality_score == null
+              ? (data ? `Sin nota todavía · ${data.reviewed_cases} de ${data.minimum_cases} auditorías` : "Pendiente de evaluación humana")
+              : `Muestra revisada · ${data.reviewed_cases} conversaciones`}</span></div>
           </div>
           <div className="ai-quality-channel-stats">
             <div><span>Interacciones</span><strong>{data ? fmt.format(data.runs) : "—"}</strong></div>
@@ -135,9 +142,16 @@ export default function AIQualityOverview({
               ? `${fmt.format(data.feedback.total)} valoraciones de personas · ${data.feedback.useful_percent}% útiles. No equivalen a exactitud factual.`
               : "Sin valoraciones de personas para este período."}
             {data?.sample_capped ? " Últimas 2.000 interacciones (muestra acotada)." : ""}
+            {data?.quality_score != null ? " Nota de muestra auditada, sin representatividad poblacional garantizada." : ""}
           </p>
           <details className="ai-quality-technical ai-quality-criteria"><summary>Criterios de evaluación</summary>
-            {reviewCriteria[channel].map(criterion => <span key={criterion}>{criterion}: sin calificación validada</span>)}
+            {reviewCriteria[channel].map((criterion, index) => {
+              const apiKey = (channel === "messenger"
+                ? ["understanding", "profile", "context", "naturalness", "safety", "helpfulness"]
+                : ["accuracy", "context", "grounding", "safety", "reasoning", "helpfulness"])[index];
+              const value = data?.quality_score == null ? null : data?.dimension_scores?.[apiKey];
+              return <span key={criterion}>{criterion}: {value == null ? "sin nota validada" : value + "%"}</span>;
+            })}
           </details>
           {channel === "messenger" && data?.delivery_states && Object.keys(data.delivery_states).length > 0 &&
             <details className="ai-quality-technical"><summary>Estados reales de entrega</summary>
