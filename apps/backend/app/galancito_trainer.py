@@ -39,6 +39,15 @@ LOCK_KEY = 2098001
 CPU_THREADS = ThreadPoolExecutor(max_workers=4, thread_name_prefix="training-case")
 
 
+def practice_threads(snapshot: dict) -> int:
+    """Respect measured worker CPU allocation; never force a single thread."""
+    try:
+        cores = int(snapshot.get("worker_cores") or 1)
+    except (TypeError, ValueError):
+        cores = 1
+    return min(4, max(1, cores))
+
+
 class BudgetReached(Exception):
     pass
 
@@ -185,7 +194,10 @@ def _update_stage(factory, claim, state):
 def _charge(factory, claim, spec, instructions, prompt, seed, *, role, sampler, thinking=False):
     provider = spec["id"]
     local = provider == "ollama"
+    internal_synthetic = (claim.config.get("profile") == "interno"
+                          and claim.config.get("suite") != "live")
     output_limit = (512 if thinking and role == "reply" else
+                    96 if internal_synthetic and role == "reply" else
                     {"reply": LOCAL_OUTPUT_LIMIT, "judge": 8, "correction": 96}[role])
     # Preflight by context size locally and conservative UTF-8 bounds externally.
     # An unsuccessful call with unknown usage keeps the reservation.
@@ -229,7 +241,7 @@ def _charge(factory, claim, spec, instructions, prompt, seed, *, role, sampler, 
         sent = True
         if local:
             cfg = SimpleNamespace(galancito_num_ctx=LOCAL_CONTEXT_LIMIT, galancito_num_predict=output_limit,
-                                  galancito_num_thread=1, galancito_keep_alive="2m",
+                                  galancito_num_thread=practice_threads(snapshot), galancito_keep_alive="2m",
                                   galancito_local_model=spec["model"])
             def invoke_local():
                 return (generate_training_text(instructions, prompt, seed, cfg, thinking=True)
@@ -303,6 +315,14 @@ def checkpoints(factory, claim, results, snapshot, elapsed):
             metrics["turns"] = metrics.get("turns", 0) + len(result["turns"])
             status = "passed" if result["passed"] else "failed"
             metrics[status] = metrics.get(status, 0) + 1
+            for turn in result["turns"]:
+                timing = turn.get("ollama_timing", {})
+                if timing:
+                    totals = dict(metrics.get("ollama_timing_totals", {}))
+                    for key, value in timing.items():
+                        totals[key] = totals.get(key, 0) + value
+                    metrics["ollama_timing_totals"] = totals
+                    metrics["ollama_timing_samples"] = metrics.get("ollama_timing_samples", 0) + 1
             if result["naturalness_review"] is not None:
                 metrics["judged_cases"] = metrics.get("judged_cases", 0) + 1
                 metrics["judged_turns"] = metrics.get("judged_turns", 0) + len(result["turns"])
@@ -435,14 +455,25 @@ def process_next(factory=SessionLocal, sampler=None, *, maintenance=False, train
                 return result
             if row.config.get("profile", "postulantes") == "interno":
                 fixture = internal_case(row.config, position)
+                timings = []
                 def internal_answer(context):
-                    return _charge(factory, row, model, INTERNAL_PROMPT, context,
-                                   seed % (2**31), role="reply", sampler=sampler)
-                return evaluate_internal(
+                    reply = _charge(factory, row, model, INTERNAL_PROMPT, context,
+                                    seed % (2**31), role="reply", sampler=sampler)
+                    # Actual Ollama response metrics, never simulated timing.
+                    measured = last_timings.get()
+                    timings.append({key: measured[key] for key in (
+                        "load_ms", "prompt_ms", "generation_ms", "ollama_total_ms",
+                        "transport_ms", "input_tokens", "output_tokens")
+                        if isinstance(measured.get(key), (float, int))})
+                    return reply
+                result = evaluate_internal(
                     fixture, answer=internal_answer if model["id"] != "guided" else None,
                     stage=(lambda state: _update_stage(factory, row, state))
                           if count == 1 else (lambda _: None),
                 )
+                for turn, timing in zip(result["turns"], timings):
+                    turn["ollama_timing"] = timing
+                return result
             def ask(context):
                 instructions = PROMPT
                 if model["id"] == "ollama" and knowledge:
