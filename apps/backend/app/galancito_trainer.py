@@ -45,8 +45,11 @@ LIVE_REASONING_CATEGORIES = frozenset({"resta", "suma", "diferencia", "riesgos"}
 def practice_threads(snapshot: dict) -> int:
     """Respect measured worker CPU allocation; never force a single thread."""
     try:
-        cores = int(snapshot.get("worker_cores") or 1)
-    except (TypeError, ValueError):
+        # Docker commonly reports 1.5 CPU. int(1.5) incorrectly rounds down
+        # to one thread and recreates the original Qwen bottleneck.
+        from math import ceil
+        cores = ceil(float(snapshot.get("worker_cores") or 1))
+    except (TypeError, ValueError, OverflowError):
         cores = 1
     return min(4, max(1, cores))
 
