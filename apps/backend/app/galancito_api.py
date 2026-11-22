@@ -207,7 +207,9 @@ def galancito_status(user: User = Depends(authorized_user), db: Session = Depend
             "local_model_status": local_state,
             "general_chat_available": user.role in {"admin", "resident"},
             "general_model": QWEN_4B,
-            "general_model_ready": cfg.galancito_local_ai_enabled and cfg.galancito_local_model == QWEN_4B,
+            "general_model_ready": (cfg.galancito_local_ai_enabled and
+                                    cfg.galancito_local_model == QWEN_4B and
+                                    local_status.get("state") == "available"),
             "complex_api_available": external_ready(db, user),
             "reply_timeout_seconds": int(interactive_timeout_seconds(cfg) + 12),
             "external_ai_available": (team_available if selected_team else
@@ -235,6 +237,9 @@ def diagnose_local_model(user: User = Depends(authorized_user),
     if not cfg.galancito_local_ai_enabled:
         return {"status": "not_configured", "responsive": False,
                 "message": "El modelo local no está habilitado en este servidor."}
+    if cfg.galancito_local_model != QWEN_4B:
+        return {"status": "wrong_model", "responsive": False,
+                "message": "Galancito General requiere Qwen3.5 4B. El servidor usa otro modelo; no se ejecutó una prueba de 4B."}
     started = perf_counter()
     try:
         response = infer(db, lambda: generate_local_text(
