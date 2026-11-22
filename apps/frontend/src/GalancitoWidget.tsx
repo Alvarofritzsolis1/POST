@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState, type FormEvent } from "react";
-import { Bot, MessageCircle, Send, ShieldCheck, Sparkles, X, Maximize2, Minimize2, RotateCcw, Download } from "lucide-react";
+import { Bot, MessageCircle, Send, ShieldCheck, Sparkles, X, Maximize2, Minimize2, RotateCcw, Download, SlidersHorizontal, CheckCircle2, AlertCircle } from "lucide-react";
 import { ApiError, request, downloadInternalReport, deleteInternalConversation } from "./api";
 import { change, net } from "./networkApi";
 import "./galancito.css";
@@ -27,14 +27,19 @@ export default function GalancitoWidget() {
   const [status, setStatus] = useState<Status | null>(null);
   const [probing, setProbing] = useState(false);
   const [probeNotice, setProbeNotice] = useState("");
+  const [settingsOpen, setSettingsOpen] = useState(false);
   async function testModel() {
     if (probing || busy) return;
     setProbing(true); setProbeNotice("");
     try {
-      const result = await request<{status:string;responsive:boolean;message:string;elapsed_ms?:number}>(
-        "/network/galancito/diagnostic", {method:"POST", body:"{}"});
-      setProbeNotice(result.message +
-        (typeof result.elapsed_ms === "number" ? " (" + (result.elapsed_ms / 1000).toFixed(1) + " s)" : ""));
+      const result = await request<{
+        status:string;responsive:boolean;message:string;elapsed_ms?:number;
+        installed?:boolean;loaded?:boolean;configured_model?:string;response_model?:string|null;
+      }>("/network/galancito/diagnostic", {method:"POST", body:"{}"});
+      setProbeNotice((result.responsive ? "Verificado: " : "No verificado: ") +
+        result.message +
+        (result.responsive && result.response_model ? " · " + result.response_model : "") +
+        (typeof result.elapsed_ms === "number" ? " · " + (result.elapsed_ms / 1000).toFixed(1) + " s" : ""));
       const updated = await net<Status>("/galancito/status");
       setStatus(updated);
     } catch (err) {
@@ -185,7 +190,13 @@ export default function GalancitoWidget() {
     {open && <section className="galancito-panel" role="dialog" aria-label="Galancito, asistente virtual" aria-modal="false">
       <header className="galancito-header">
         <div className="galancito-bot-icon"><Bot size={22}/></div>
-        <div><strong>Galancito</strong><small>Asistente general de GALANT · solo lectura</small></div>
+        <div className="galancito-heading"><strong>Galancito</strong><small>Chat general de GALANT</small></div>
+        <button className={"galancito-close galancito-settings-trigger" + (settingsOpen ? " selected" : "")}
+          type="button" aria-expanded={settingsOpen} aria-controls="galancito-options"
+          aria-label={settingsOpen ? "Ocultar opciones del chat" : "Mostrar opciones del chat"}
+          title="Opciones y prueba de IA" onClick={() => setSettingsOpen(x => !x)}>
+          <SlidersHorizontal size={17}/>
+        </button>
         <button className="galancito-close" type="button" onClick={() => setExpanded(value => !value)}
           aria-label={expanded ? "Reducir chat" : "Expandir chat"} title={expanded ? "Reducir" : "Pantalla completa"}>
           {expanded ? <Minimize2 size={18}/> : <Maximize2 size={18}/>}
@@ -195,25 +206,6 @@ export default function GalancitoWidget() {
           title="Nueva conversación" aria-label="Nueva conversación"><RotateCcw size={16}/></button>
         <button className="galancito-close" type="button" onClick={() => setOpen(false)} aria-label="Cerrar Galancito"><X size={19}/></button>
       </header>
-      {status?.internal_available && <div className="galancito-memory">
-        <label><input type="checkbox" checked={saveMemory} disabled={busy || memoryBusy}
-          onChange={e=>{ setSaveMemory(e.target.checked); if(!e.target.checked) setConversationId(null); }} />
-          Guardar conversación (30 días, sin consultas sensibles)
-        </label>
-        <button type="button" disabled={busy || memoryBusy}
-          onClick={()=>{const next=!showSaved;setShowSaved(next);if(next) void loadSaved();}}>
-          {showSaved ? "Ocultar historial" : "Conversaciones guardadas"}
-        </button>
-        {showSaved && <div className="galancito-memory-list">
-          {!savedList.length && <small>No tienes conversaciones guardadas.</small>}
-          {savedList.map(saved=><div key={saved.id} className="galancito-memory-entry">
-            <button type="button" disabled={busy || memoryBusy} title="Abrir conversación"
-              onClick={()=>void restoreSaved(saved.id)}>{saved.title}</button>
-            <button type="button" disabled={busy || memoryBusy} aria-label={"Eliminar " + saved.title}
-              onClick={()=>void eraseSaved(saved.id)}>Eliminar</button>
-          </div>)}
-        </div>}
-      </div>}
       <div className="galancito-history" role="log" aria-label="Conversación con Galancito" aria-live="polite">
         {!history.length && <div className="galancito-greeting">
           <MessageCircle size={24}/>
@@ -254,27 +246,54 @@ export default function GalancitoWidget() {
         {busy && <p className="galancito-thinking"><Sparkles size={14}/> Galancito está consultando y preparando la respuesta… </p>}
         <div ref={end}/>
       </div>
-      <form className="galancito-compose" onSubmit={(e) => void send(e)}>
-        {status?.can_teach && <div className="galancito-health" role="group" aria-label="Diagnóstico de Ollama">
-          <span>Ollama: {({
-            running:"cargado", connected:"conectado, sin modelo cargado",
+      {settingsOpen && <div className="galancito-options" id="galancito-options" aria-label="Opciones de Galancito">
+        <div className="galancito-options-head">
+          {status?.general_model_ready
+            ? <CheckCircle2 size={16} aria-hidden="true"/>
+            : <AlertCircle size={16} aria-hidden="true"/>}
+          <strong>{status?.general_model_ready ? "Ollama 4B detectado" : "Modelo 4B no confirmado"}</strong>
+        </div>
+        {status?.can_teach && <div className="galancito-health" role="group" aria-label="Diagnóstico real de Ollama">
+          <span>Estado: {({
+            running:"cargado", connected:"servicio conectado",
             unavailable:"sin conexión", not_configured:"no habilitado",
           } as const)[status.local_model_status ?? "not_configured"]}</span>
           <button type="button" onClick={() => void testModel()}
             disabled={busy || probing || !status.local_ai_available}>
-            {probing ? "Comprobando…" : "Probar respuesta"}
+            {probing ? "Comprobando…" : "Verificar modelo 4B"}
           </button>
-          {probeNotice && <small role="status">{probeNotice}</small>}
         </div>}
-        {status?.complex_api_available && <small className="galancito-auto-routing">
-          Enrutamiento automático: Ollama para consultas habituales y API autorizada solo para análisis complejos sin datos privados.
-        </small>}
+        {probeNotice && <p className="galancito-probe-notice" role="status">{probeNotice}</p>}
+        {status?.complex_api_available && <p className="galancito-option-note">
+          La API autorizada solo se usa para análisis públicos complejos.
+        </p>}
         {status?.web_available && <label className="galancito-privacy">
           <input type="checkbox" checked={webConsent} disabled={busy}
             onChange={e => setWebConsent(e.target.checked)} />
-          <span>Autorizar internet cuando la pregunta necesite datos públicos actuales</span>
+          Autorizar búsqueda pública automática
         </label>}
-        <small>{status?.general_model_ready ? "Qwen3.5 4B configurado. Comprueba su respuesta desde administración; los datos reales se consultan con permisos." : "Qwen3.5 4B no está activado en el servidor. Las consultas verificables siguen disponibles."} No compartas claves ni documentos personales.</small>
+        <p className="galancito-option-note">Galancito orienta y consulta datos autorizados; no modifica registros.</p>
+        {status?.internal_available && <div className="galancito-memory">
+        <label><input type="checkbox" checked={saveMemory} disabled={busy || memoryBusy}
+          onChange={e=>{ setSaveMemory(e.target.checked); if(!e.target.checked) setConversationId(null); }} />
+          Guardar conversación (30 días, sin consultas sensibles)
+        </label>
+        <button type="button" disabled={busy || memoryBusy}
+          onClick={()=>{const next=!showSaved;setShowSaved(next);if(next) void loadSaved();}}>
+          {showSaved ? "Ocultar historial" : "Conversaciones guardadas"}
+        </button>
+        {showSaved && <div className="galancito-memory-list">
+          {!savedList.length && <small>No tienes conversaciones guardadas.</small>}
+          {savedList.map(saved=><div key={saved.id} className="galancito-memory-entry">
+            <button type="button" disabled={busy || memoryBusy} title="Abrir conversación"
+              onClick={()=>void restoreSaved(saved.id)}>{saved.title}</button>
+            <button type="button" disabled={busy || memoryBusy} aria-label={"Eliminar " + saved.title}
+              onClick={()=>void eraseSaved(saved.id)}>Eliminar</button>
+          </div>)}
+        </div>}
+      </div>}
+      </div>}
+      <form className="galancito-compose" onSubmit={(e) => void send(e)}>
         <div className="galancito-input-row">
           <input aria-label="Escribe tu pregunta a Galancito" value={message}
             onChange={(e) => setMessage(e.target.value)}
@@ -285,7 +304,7 @@ export default function GalancitoWidget() {
           {lastFailed && <button type="button" className="galancito-retry"
             onClick={() => { setMessage(lastFailed); setError(""); }}><RotateCcw size={14}/> Recuperar pregunta</button>}
         </div>}
-        <div className="galancito-safety"><ShieldCheck size={13}/> Solo orienta, no modifica registros.</div>
+        <div className="galancito-safety"><ShieldCheck size={13}/> Solo lectura <span aria-hidden="true">·</span> <span>{status?.general_model_ready ? "Qwen 4B detectado" : "Modelo pendiente de verificar"}</span></div>
       </form>
     </section>}
   </aside>;
