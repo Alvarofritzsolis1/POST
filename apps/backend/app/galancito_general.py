@@ -61,8 +61,10 @@ def general_intent(message: str) -> str:
     if any(term in normalized for term in GENERIC_SAFETY):
         return "verified"
     if any(normalized.startswith(prefix) for prefix in (
-        "como mejorar", "como publicar", "como crear", "que documentos necesita",
-        "que requisitos necesito", "que pasos debo")):
+        "como mejorar", "como publicar", "como crear", "como gestionar",
+        "como funciona", "como redactar", "como configurar",
+        "que es ", "para que sirve", "explicame ",
+        "que documentos necesita", "que requisitos necesito", "que pasos debo")):
         return "advice"
     if any(term in normalized for term in DATA_TERMS):
         return "verified"
