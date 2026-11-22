@@ -23,9 +23,7 @@ import {
   ShieldCheck,
   Users,
 } from "lucide-react";
-import type { Profile } from "./api";
 import { api } from "./api";
-import { NetworkAccountMenu } from "./NetworkAccounts";
 import { net, type Account } from "./networkApi";
 import {
   configurationApi as cfg,
@@ -45,12 +43,12 @@ import GalancitoTraining from "./GalancitoTraining";
 
 const ROOT = "/admin/configuracion";
 const sections = [
-  ["", "Vista general", LayoutDashboard],
-  ["contratistas", "Contratistas", Building2],
-  ["documentos", "Configuración documental", FileCheck2],
-  ["periodos", "Configuración por períodos", CalendarRange],
-  ["obras", "Configuración de obras", ListChecks],
-  ["alertas", "Alertas y vencimientos", Activity],
+  ["", "Resumen", LayoutDashboard],
+  ["contratistas", "Por contratista", Building2],
+  ["documentos", "Catálogo y reglas", FileCheck2],
+  ["periodos", "Por período", CalendarRange],
+  ["obras", "Por obra", ListChecks],
+  ["alertas", "Alertas", Activity],
   ["ia", "Inteligencia artificial", Bot],
   ["usuarios", "Usuarios y permisos", Users],
   ["auditoria", "Auditoría y trazabilidad", History],
@@ -355,19 +353,7 @@ function AuditValue({ value }: { value: unknown }) {
   );
 }
 
-export default function GeneralConfiguration({
-  user,
-  version,
-  onBack,
-  onOpenSettings,
-  logout,
-}: {
-  user: Profile;
-  version: string | null;
-  onBack: () => void;
-  onOpenSettings: () => void;
-  logout: () => void;
-}) {
+export default function GeneralConfiguration({ onBack }: { onBack: () => void }) {
   const [locationKey, setLocationKey] = useState(
     () => window.location.pathname + window.location.search,
   );
@@ -1275,68 +1261,31 @@ export default function GeneralConfiguration({
   );
   return (
     <div className="gc-root" data-testid="configuration-center">
-      <header className="gc-topbar">
-        <button
-          type="button"
-          className="gc-back"
-          onClick={() => (associationId ? navigate("contratistas") : onBack())}
-        >
-          <ArrowLeft size={17} /> ← Volver
-        </button>
-        <a
-          className="gc-brand"
-          href={ROOT}
-          onClick={(event) => {
-            event.preventDefault();
-            navigate("");
-          }}
-        >
-          <span>G</span>
-          <div>
-            <b>GALANT POST</b>
-            <small>Centro de configuración</small>
-          </div>
-        </a>
-        <div className="gc-top-actions">
-          <span className="gc-admin-label">
-            <ShieldCheck size={15} /> Administrador · v{version}
-          </span>
-          <NetworkAccountMenu
-            user={user}
-            logout={logout}
-            openSettings={onOpenSettings}
-            openUsersSignal={usersSignal}
-          />
+      <div className="gc-document-shell">
+        <div className="gc-toolbar">
+          <button type="button" className="gc-back" onClick={() => (associationId ? navigate("contratistas") : onBack())}>
+            <ArrowLeft size={17} aria-hidden="true" /> {associationId ? "Volver a contratistas" : "Volver a Configuración"}
+          </button>
+          <span>Documentos y cumplimiento</span>
         </div>
-      </header>
-      <div className="gc-layout">
-        <aside className="gc-sidebar">
-          <p>ADMINISTRACIÓN CENTRAL</p>
-          <nav aria-label="Configuración General">
-            {sections.map(([key, label, Icon]) => (
-              <a
-                key={key}
-                href={ROOT + (key ? "/" + key : "")}
-                aria-current={section === key ? "page" : undefined}
-                className={section === key ? "active" : ""}
-                onClick={(event) => {
-                  event.preventDefault();
-                  const next = new URLSearchParams(query);
-                  next.delete("tab");
-                  navigate(key, next);
-                }}
-              >
-                <Icon size={18} />
-                <span>{label}</span>
-              </a>
-            ))}
-          </nav>
-          <div className="gc-sidebar-note">
-            <ShieldCheck size={20} />
-            <strong>Configuración compartida</strong>
-            <p>Los cambios se guardan con su vigencia, motivo y responsable.</p>
-          </div>
-        </aside>
+        <nav className="gc-section-tabs" aria-label="Secciones documentales">
+          {sections.filter(([key]) => key !== "ia" && key !== "usuarios").map(([key, label, Icon]) => (
+            <a
+              key={key}
+              href={ROOT + (key ? "/" + key : "")}
+              aria-current={section === key ? "page" : undefined}
+              className={section === key ? "active" : ""}
+              onClick={event => {
+                event.preventDefault();
+                const next = new URLSearchParams(query);
+                next.delete("tab");
+                navigate(key, next);
+              }}
+            >
+              <Icon size={16} aria-hidden="true" /> {label}
+            </a>
+          ))}
+        </nav>
         <main className="gc-content">
           {!training && <div className="gc-page-heading">
             <div>
@@ -1369,7 +1318,9 @@ export default function GeneralConfiguration({
               <RefreshCcw size={16} /> Actualizar
             </button>}
           </div>}
-          {section !== "ia" && (<section
+          {section !== "ia" && (<details key={section} className="gc-period-panel" open={section === "periodos" ? true : undefined}>
+            <summary><CalendarRange size={16} aria-hidden="true" /><span>Período: {selectedPeriods.length <= 3 ? selectedPeriods.map(periodName).join(" · ") : selectedPeriods.length + " meses"}</span><ChevronRight size={16} aria-hidden="true" /></summary>
+            <section
             className="gc-period-selector"
             aria-label="Consulta de varios períodos"
           >
@@ -1521,7 +1472,7 @@ export default function GeneralConfiguration({
                   " hasta " +
                   selectedPeriods.at(-1)}
             </p>
-          </section>)}
+          </section></details>)}
           {!associationId && section !== "ia" && (
             <div className="gc-filters">
               <label>
