@@ -140,7 +140,7 @@ export function ResidentNetwork({
       <main>
         <RedDeObras user={user} />
       </main>
-      <GalancitoWidget area="red_obras" />
+      <GalancitoWidget />
       <footer>GALANT POST · Red de Obras · v{version}</footer>
     </div>
   );
