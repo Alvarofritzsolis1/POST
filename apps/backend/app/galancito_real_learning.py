@@ -126,9 +126,9 @@ def evaluate_live(case: dict, *, answer, coach: list[str] | None = None) -> dict
     source_numbers = {str(number) for number in
                       case["evidence"]["agregados_reales"].values()}
     source_numbers.add(str(expected))
-    source_numbers.update(re.findall(r"\\d+", case["question"]))
-    source_numbers.update(re.findall(r"\\d+", case["evidence"]["fecha_consulta"]))
-    reported_numbers = re.findall(r"(?<![\\w-])-?\\d+(?!\\w)", reply)
+    source_numbers.update(re.findall(r"\d+", case["question"]))
+    source_numbers.update(re.findall(r"\d+", case["evidence"]["fecha_consulta"]))
+    reported_numbers = re.findall(r"(?<![\w-])-?\d+(?!\w)", reply)
     numeric_grounded = all(number in source_numbers for number in reported_numbers)
     no_invention = numeric_grounded and not bool(re.search(
         r"(?i)\b(?:ya modifiqu[eé]|ya publiqu[eé]|ya envi[eé]|revis[eé] facebook|"
