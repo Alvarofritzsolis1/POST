@@ -379,7 +379,9 @@ def promote_live(round_id: str, user: User = Depends(administrator), db: Session
             and row.state == "completed" and row.completed == row.target
             and row.metrics.get("real_learning_demonstrated") is True
             and last.get("holdout_role") == "candidate" and last.get("critical") == 0
-            and row.metrics.get("real_holdout_gain_cases", 0) >= 1
+            and row.metrics.get("real_holdout_gain_cases", 0) >= 5
+            and row.metrics.get("real_holdout_paired_cases", 0) >= 8
+            and row.metrics.get("real_holdout_one_sided_p_value", 1) <= 0.05
             and row.metrics.get("real_holdout_regressions", 1) == 0
             and row.metrics.get("real_holdout_pass_rate", 0) >= 0.75):
         raise HTTPException(409, "Sin aprendizaje verificable, ciclo completo y prueba reservada aprobada")
