@@ -231,3 +231,19 @@ def test_synthetic_score_is_observed_pass_rate_not_weighted_claim():
     metrics["evidence_type"] = "live_database"
     actual = summarize(metrics, "interno")
     assert actual["score_basis"] == "verified_numeric_case_pass_rate"
+
+
+def test_category_specific_synthetic_coaching_uses_observed_errors_only():
+    from app.galancito_internal_training import (
+        INTERNAL_PROMPT, propose_category_coaching, synthetic_practice_prompt,
+    )
+    selected = propose_category_coaching(
+        {"seguimiento": 6, "comparacion": 2, "contratistas": 1, "inexistente": 100})
+    assert selected == ["seguimiento", "comparacion", "contratistas"]
+    prompt = synthetic_practice_prompt("practice", [], selected)
+    assert "data.accion" in prompt and "data.candidato_compatible" in prompt
+    assert "no lo sustituyas por el oficio" in prompt
+    assert synthetic_practice_prompt("reference", [], selected) == INTERNAL_PROMPT
+    assert synthetic_practice_prompt("holdout", [], selected) == INTERNAL_PROMPT
+    assert synthetic_practice_prompt("live", [], selected) == INTERNAL_PROMPT
+    assert propose_category_coaching({"inexistente": 1}) == []
