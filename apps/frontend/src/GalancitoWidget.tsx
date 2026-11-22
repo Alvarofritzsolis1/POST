@@ -9,7 +9,7 @@ type ChatLine = { role: "user" | "assistant"; text: string; runId?: string; ques
 type Reply = { name: string; answer: string; source: string; notice?: string; run_id?: string;
   references?: {id: string; version: number; title: string}[]; reportable?: boolean;
   conversation_id?: string | null; history_saved?: boolean };
-type Status = { name: string; local_ai_available: boolean; external_ai_available: boolean; read_only: boolean; can_teach?: boolean; internal_available?: boolean; web_available?: boolean };
+type Status = { name: string; local_ai_available: boolean; external_ai_available: boolean; read_only: boolean; can_teach?: boolean; internal_available?: boolean; web_available?: boolean; internal_ai_available?: boolean };
 type SavedConversation = {id:string;title:string;updated_at:string;expires_at:string;turns:number};
 type SavedTurn = {role:"user"|"assistant";text:string;run_id?:string;reportable?:boolean;question?:string};
 const EXAMPLES = [
@@ -38,6 +38,7 @@ export default function GalancitoWidget({ area = "red_obras" }: { area?: Area })
   const [status, setStatus] = useState<Status | null>(null);
   const [consent, setConsent] = useState(false);
   const [webConsent, setWebConsent] = useState(false);
+  const [localAnalysis, setLocalAnalysis] = useState(false);
   const [saveMemory, setSaveMemory] = useState(false);
   const [conversationId, setConversationId] = useState<string | null>(null);
   const [savedList, setSavedList] = useState<SavedConversation[]>([]);
@@ -114,6 +115,7 @@ export default function GalancitoWidget({ area = "red_obras" }: { area?: Area })
           ({role: "user", text: item.text.slice(0, 500)})) : [],
         allow_external_ai: mode === "red_obras" && consent && !!status?.external_ai_available,
         allow_web: mode === "interno" && webConsent && !!status?.web_available,
+        allow_local_analysis: mode === "interno" && !webConsent && localAnalysis && !!status?.internal_ai_available,
         save_history: mode === "interno" && saveMemory,
         conversation_id: mode === "interno" && saveMemory ? conversationId : null,
         }),
@@ -259,6 +261,11 @@ export default function GalancitoWidget({ area = "red_obras" }: { area?: Area })
         {mode === "red_obras" && status?.external_ai_available && <label className="galancito-privacy"><input type="checkbox" checked={consent}
           onChange={(e) => setConsent(e.target.checked)} disabled={!status?.external_ai_available}/>
           <span>Permitir modelo externo en esta conversación</span>
+        </label>}
+        {mode === "interno" && status?.internal_ai_available && <label className="galancito-privacy">
+          <input type="checkbox" checked={localAnalysis} disabled={busy || webConsent}
+            onChange={event=>setLocalAnalysis(event.target.checked)}/>
+          <span>Añadir recomendación de IA local (orientativa, sin modificar registros)</span>
         </label>}
         {mode === "interno" && status?.web_available && <label className="galancito-privacy">
           <input type="checkbox" checked={webConsent} disabled={busy}
