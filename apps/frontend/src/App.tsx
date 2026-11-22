@@ -18,6 +18,7 @@ import {
   PanelLeftOpen,
   PanelLeftClose,
   Bell,
+  Bot,
 } from "lucide-react";
 import { api, type Profile } from "./api";
 import { opsApi, type Site } from "./opsApi";
@@ -36,6 +37,7 @@ import BulkImport from "./BulkImport";
 import ContractAlerts from "./ContractAlerts";
 import Settings from "./Settings";
 const GeneralConfiguration = lazy(() => import("./GeneralConfiguration"));
+const AIAdminPanel = lazy(() => import("./AIAdminPanel"));
 const Ine = lazy(() => import("./Ine"));
 const Javiera = lazy(() => import("./Javiera"));
 const JavieraReviewerV17 = lazy(() => import("./JavieraReviewerV17"));
@@ -70,18 +72,20 @@ const nav = [
   ["administration", "Gestión administrativa", CalendarDays],
   ["reports", "Informes", BarChart3],
   ["settings", "Configuración", SettingsIcon],
+  ["ai_admin", "Inteligencia artificial", Bot],
 ] as const;
 const navGroups = [
   { title: "PRINCIPAL", ids: ["home", "network", "javiera"] },
   { title: "GESTIÓN OPERATIVA", ids: ["contractors", "workers", "contract_alerts", "attendance", "ine"] },
   { title: "CUMPLIMIENTO", ids: ["documents", "contributions", "evaluations"] },
-  { title: "ADMINISTRACIÓN", ids: ["administration", "imports", "reports", "settings"] },
+  { title: "ADMINISTRACIÓN", ids: ["administration", "imports", "reports", "settings", "ai_admin"] },
 ] as const;
 // La URL y el estado del historial deben determinar la ruta desde el primer render.
 function sectionFromLocation(): string {
   const pathname = window.location.pathname;
   if (pathname.startsWith("/configuracion/automatizacion")) return "javiera_config";
   if (pathname.startsWith("/proyecto-javiera")) return "javiera";
+  if (pathname.startsWith("/admin/ia")) return "ai_admin";
   if (pathname.startsWith("/admin/configuracion")) return "configuration";
   if (pathname.startsWith("/contratistas")) return "contractors";
   if (pathname.startsWith("/ine")) return "ine";
@@ -435,13 +439,19 @@ function App() {
       setSection("javiera_config");
       return;
     }
+    if (s === "ai_admin") {
+      window.history.pushState({ galantSection: "ai_admin" }, "", "/admin/ia");
+      setSection("ai_admin");
+      setMobileOpen(false);
+      return;
+    }
     if (s === "configuration") {
       window.history.replaceState({ ...window.history.state, galantSection: section }, "", window.location.href);
       window.history.pushState({ galantSection: "configuration", galantConfiguration: true }, "", "/admin/configuracion" + (configDestination ? "/" + configDestination : ""));
       setSection("configuration");
       return;
     }
-    if (window.location.pathname.startsWith("/contratistas") || window.location.pathname.startsWith("/admin/configuracion") ||
+    if (window.location.pathname.startsWith("/contratistas") || window.location.pathname.startsWith("/admin/configuracion") || window.location.pathname.startsWith("/admin/ia") ||
         window.location.pathname.startsWith("/proyecto-javiera") || window.location.pathname.startsWith("/configuracion/automatizacion")) {
       const url = new URL(window.location.href);
       url.pathname = s === "contractors" ? "/contratistas" : s === "javiera" ? "/proyecto-javiera" : "/";
@@ -482,7 +492,6 @@ function App() {
   if (user.role === "resident") return <Suspense fallback={<PageSkeleton title="Cargando Red de Obras" />}><ResidentNetwork user={user} version={version} logout={() => void logout()} /></Suspense>;
   if (user.role === "administrative") return <AdministrativeWorkspace user={user} version={version} logout={() => void logout()} />;
   if (section === "javiera_config" && user.role === "admin") return <ErrorBoundary name="Configuración de automatización"><Suspense fallback={<PageSkeleton title="Cargando Proyecto JAVIERA" />}><Javiera configuration onBack={() => go(automationReturnRef.current)} /></Suspense></ErrorBoundary>;
-  if (section === "configuration" && user.role === "admin") return <ErrorBoundary name="Configuración General"><Suspense fallback={<div className="app-loading">Cargando Configuración General…</div>}><GeneralConfiguration user={user} version={version} logout={() => void logout()} onOpenSettings={() => go("settings")} onBack={() => go("settings")}/></Suspense></ErrorBoundary>;
   const rows = (contributions?.rows || []).filter(
     (r) =>
       (!search ||
@@ -526,7 +535,7 @@ function App() {
   return (
     <div className={"shell platform " + (mobileOpen ? "menu-open" : "") + (sidebarCollapsed ? " sidebar-collapsed" : "") + (sidebarCollapsed && sidebarHovered ? " galant-sidebar-peek" : "") + (touchNavigation ? " galant-touch-nav" : "")}>
       <GalantSidebar
-        entries={nav} groups={navGroups} selected={section}
+        entries={user.role === "admin" ? nav : nav.filter(([id]) => id !== "ai_admin")} groups={navGroups} selected={section === "configuration" ? "settings" : section}
         collapsed={sidebarCollapsed} preview={sidebarHovered} touch={touchNavigation}
         organization={profile?.organization} version={version} revision={revision}
         navigate={go} onEnter={openSidebarOnHover} onLeave={closeSidebarAfterDelay}
@@ -574,7 +583,7 @@ function App() {
               {!nav.some(([,label])=>label.toLocaleLowerCase("es-CL").includes(quickNav.trim().toLocaleLowerCase("es-CL")))&&<p>Sin módulos coincidentes</p>}
             </div>}
           </div>
-          {section !== "network" && section !== "ine" && <div className="global-filters">
+          {section !== "network" && section !== "ine" && section !== "settings" && section !== "configuration" && section !== "ai_admin" && <div className="global-filters">
             <label className="global-filter">
               <span>Obra</span>
               <select
@@ -632,7 +641,7 @@ function App() {
           </div>
         </header>
         <div className="page galant-page-view" key={section}>
-          {section !== "network" && section !== "javiera" && section !== "ine" && section !== "settings" && <div className="intro">
+          {section !== "network" && section !== "javiera" && section !== "ine" && section !== "settings" && section !== "configuration" && section !== "ai_admin" && <div className="intro">
             <div>
               <span className="eyebrow">
                 {profile?.organization} /{" "}
@@ -1291,10 +1300,11 @@ function App() {
               sites={sites}
               onPreferences={applyPreferences}
               onOpenConfiguration={(destination) => go("configuration", destination)}
-              onOpenAutomation={() => go("javiera_config")}
               onBack={() => go(settingsReturnRef.current)}
             />
           )}
+          {section === "configuration" && user.role === "admin" && <ErrorBoundary name="Configuración documental"><Suspense fallback={<PageSkeleton title="Cargando documentos" />}><GeneralConfiguration user={user} version={version} logout={() => void logout()} onOpenSettings={() => go("settings")} onBack={() => go("settings")} /></Suspense></ErrorBoundary>}
+          {section === "ai_admin" && user.role === "admin" && <ErrorBoundary name="Administración IA"><Suspense fallback={<PageSkeleton title="Cargando herramientas IA" />}><AIAdminPanel onBack={() => go("home")} /></Suspense></ErrorBoundary>}
           {editing && (
             <div className="modal-backdrop">
               <section
@@ -1506,7 +1516,7 @@ function App() {
               </section>
             </div>
           )}
-          <GalancitoWidget />
+          {section !== "settings" && section !== "configuration" && section !== "ai_admin" && <GalancitoWidget />}
           <footer className="footer">
             GALANT POST v{version} · {profile?.organization}
             <span>
