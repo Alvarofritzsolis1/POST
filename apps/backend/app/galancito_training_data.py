@@ -211,5 +211,9 @@ def scenario(config: dict, index: int) -> Scenario:
 
 def dataset_hash(config: dict) -> str:
     suite = config["suite"]
-    return digest([DATASET_VERSION, suite, SUITE_SEEDS.get(suite, config["seed"]),
-                   config["level"], config["cases"], config.get("focus", "")])
+    payload = [DATASET_VERSION, suite, SUITE_SEEDS.get(suite, config["seed"]),
+               config["level"], config["cases"]]
+    # Preserve all legacy dataset fingerprints when no specialized focus is set.
+    if config.get("focus"):
+        payload.append(config["focus"])
+    return digest(payload)
