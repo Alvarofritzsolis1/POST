@@ -21,7 +21,8 @@ from .galancito_training import (DETAIL_DAYS, HISTORY_DAYS, LEASE_SECONDS, LOCAL
                                   LOCAL_OUTPUT_LIMIT, ResourceSampler, eligible_at, resource_slots)
 from .galancito_training_data import DATASET_VERSION, scenario
 from .galancito_real_learning import (LIVE_DATASET_VERSION, LIVE_EVALUATION_VERSION,
-                                       LIVE_PROMPT, COACHING, evaluate_live)
+                                       LIVE_PROMPT, COACHING, evaluate_live,
+                                       paired_holdout_metrics)
 from .galancito_internal_training import (
     INTERNAL_DATASET_VERSION, INTERNAL_EVALUATION_VERSION,
     INTERNAL_PROMPT, internal_case, evaluate_internal,
@@ -350,14 +351,14 @@ def checkpoints(factory, claim, results, snapshot, elapsed):
                     TrainingCase.position < candidate_start + cases
                 ).order_by(TrainingCase.position)))
                 if len(baseline_rows) == cases and len(candidate_rows) == cases:
-                    gains = sum(not a.passed and b.passed
-                                for a, b in zip(baseline_rows, candidate_rows))
-                    regressions = sum(a.passed and not b.passed
-                                      for a, b in zip(baseline_rows, candidate_rows))
+                    comparison = paired_holdout_metrics(
+                        [a.passed for a in baseline_rows],
+                        [b.passed for b in candidate_rows])
+                    gains, regressions = comparison["gain_cases"], comparison["regressions"]
                     metrics["real_holdout_gain_cases"] = gains
                     metrics["real_holdout_regressions"] = regressions
-                    metrics["real_holdout_baseline_pass_rate"] = cycles[str(last_cycle - 1)]["pass_rate"]
-                    metrics["real_holdout_pass_rate"] = item["pass_rate"]
+                    metrics["real_holdout_baseline_pass_rate"] = comparison["baseline_pass_rate"]
+                    metrics["real_holdout_pass_rate"] = comparison["candidate_pass_rate"]
                     metrics["real_learning_demonstrated"] = bool(
                         metrics.get("real_coaching") and gains > 0
                         and regressions == 0 and item["critical"] == 0
