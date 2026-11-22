@@ -44,7 +44,7 @@ El usuario administrador necesita responder a cinco preguntas con una sola panta
 6. Exigir `npm run build`, `pytest`, revisión de diff, checks CI, prueba de Qwen real y smoke test en VPS antes de considerar producción terminada.
 7. Registrar SHA, número de versión, qué es comprobable y qué queda pendiente; no informar «100 %» sin evidencia.
 
-**Restricción actual de este parche:** hay métricas observadas de producción y pruebas de laboratorio; aún falta un flujo independiente de auditoría humana de casos reales que permita emitir una calificación factual /100 por canal. Por ello la pantalla debe mostrarla vacía en vez de fabricar un porcentaje.
+**Alcance implementado:** la auditoría humana independiente ya puede revisar respuestas reales guardadas en Messenger, incluidas las anteriores al parche, y conversaciones internas guardadas voluntariamente por el propio administrador. Cada evaluación conserva criterio, versión, identificador de evidencia y revisor, sin copiar el texto de los mensajes a la tabla de notas. La calificación global permanece vacía hasta que se revisen al menos 30 casos, y después representa **únicamente esa muestra revisada**, nunca la totalidad de producción. Los errores revisados habilitan prácticas Messenger por criterio con ciclos y A/B sintéticos; cualquier mejora de laboratorio necesita confirmación posterior en nuevos chats reales.
 
 ## Investigación de referencia
 
