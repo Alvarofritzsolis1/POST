@@ -81,8 +81,6 @@ export default function GalancitoWidget() {
   const [exporting, setExporting] = useState(false);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState("");
-  const [correcting, setCorrecting] = useState<number | null>(null);
-  const [correction, setCorrection] = useState("");
   const [feedbackBusy, setFeedbackBusy] = useState(false);
   const [feedbackNotice, setFeedbackNotice] = useState("");
   const end = useRef<HTMLDivElement | null>(null);
@@ -154,7 +152,6 @@ export default function GalancitoWidget() {
         phrases: line.question && line.question.length <= 180 ? [line.question] : [],
       }} : {})});
       setHistory(prev => prev.map((row, i) => i === index ? {...row, rated: true} : row));
-      setCorrecting(null); setCorrection("");
       setFeedbackNotice(proposed ? "Corrección guardada como pendiente. Apruébala en Conocimientos." : "Evaluación guardada.");
     } catch { setFeedbackNotice("No se pudo guardar. Revisa que la corrección no incluya datos privados."); }
     finally { setFeedbackBusy(false); }
@@ -179,7 +176,6 @@ export default function GalancitoWidget() {
   }
 
   function askExample(value: string) { setMessage(value); setOpen(true); }
-  const examples = EXAMPLES;
   return <aside className={"galancito" + (expanded ? " is-expanded" : "")} aria-label="Asistente Galancito">
     {!open && <button className="galancito-trigger" type="button" onClick={() => setOpen(true)}
         title="Abrir Galancito, asistente de GALANT">
@@ -222,7 +218,7 @@ export default function GalancitoWidget() {
           <MessageCircle size={24}/>
           <b>¡Hola! Soy Galancito.</b>
           <p>Consulto información autorizada de GALANT y puedo ayudarte con informes, publicaciones, seguimiento y dudas generales.</p>
-          <div className="galancito-examples">{examples.map(x =>
+          <div className="galancito-examples">{EXAMPLES.map(x =>
             <button type="button" key={x} onClick={() => askExample(x)}>{x}</button>)}</div>
         </div>}
         {history.map((entry,i) => <div key={i} className={"galancito-bubble " + entry.role}>
