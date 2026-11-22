@@ -102,7 +102,7 @@ with sync_playwright() as playwright:
     no_horizontal_scroll(page)
     page.get_by_role("button", name="Volver a Configuración", exact=True).click()
     expect(page.get_by_test_id("settings-center")).to_be_visible()
-    page.get_by_role("button", name=re.compile("Exigencias documentales")).click()
+    page.get_by_role("button", name=re.compile("^Documentos")).click()
 
     # Create a catalog entry and apply an individual obligation through the
     # actual preview/confirmation UI, then verify persistence in the API.
