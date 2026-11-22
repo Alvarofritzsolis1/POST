@@ -25,7 +25,7 @@ from .galancito_real_learning import (LIVE_DATASET_VERSION, LIVE_EVALUATION_VERS
                                        paired_holdout_metrics)
 from .galancito_internal_training import (
     INTERNAL_DATASET_VERSION, INTERNAL_EVALUATION_VERSION,
-    INTERNAL_PROMPT, internal_case, evaluate_internal,
+    internal_case, evaluate_internal,
     propose_synthetic_coaching, synthetic_practice_prompt, clean_synthetic_streak,
 )
 from .galancito_training_eval import CORRECTOR_PROMPT, EVALUATION_VERSION, JUDGE_PROMPT, PROMPT, evaluate
