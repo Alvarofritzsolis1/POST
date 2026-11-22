@@ -421,14 +421,14 @@ def test_live_qwen4b_probe_requires_actual_model_identity(network, monkeypatch):
         return run
 
     monkeypatch.setattr("app.galancito_api.generate_local_text", model_response("qwen3:1.7b"))
-    wrong = n["admin"].post("/api/v1/network/galancito/diagnostic")
+    wrong = n["send"](n["admin"], "/galancito/diagnostic", {})
     assert wrong.status_code == 200, wrong.text
     assert wrong.json()["status"] == "wrong_response_model"
     assert wrong.json()["responsive"] is False
     assert wrong.json()["response_model"] == "qwen3:1.7b"
 
     monkeypatch.setattr("app.galancito_api.generate_local_text", model_response(QWEN_4B))
-    correct = n["admin"].post("/api/v1/network/galancito/diagnostic")
+    correct = n["send"](n["admin"], "/galancito/diagnostic", {})
     assert correct.status_code == 200, correct.text
     assert correct.json()["status"] == "ok"
     assert correct.json()["responsive"] is True
@@ -437,7 +437,7 @@ def test_live_qwen4b_probe_requires_actual_model_identity(network, monkeypatch):
     assert correct.json()["response_model"] == QWEN_4B
 
     monkeypatch.setattr("app.galancito_api.generate_local_text", model_response(None))
-    unverified = n["admin"].post("/api/v1/network/galancito/diagnostic")
+    unverified = n["send"](n["admin"], "/galancito/diagnostic", {})
     assert unverified.status_code == 200, unverified.text
     assert unverified.json()["status"] == "model_identity_unverified"
     assert unverified.json()["responsive"] is False
@@ -452,10 +452,10 @@ def test_absent_qwen4b_diagnostic_does_not_generate_or_download(network, monkeyp
     def forbidden(*_args, **_kwargs):
         raise AssertionError("Missing model must not initiate generation or download")
     monkeypatch.setattr("app.galancito_api.generate_local_text", forbidden)
-    absent = n["admin"].post("/api/v1/network/galancito/diagnostic")
+    absent = n["send"](n["admin"], "/galancito/diagnostic", {})
     assert absent.status_code == 200, absent.text
     assert absent.json()["status"] == "not_installed"
     assert absent.json()["installed"] is False
     assert absent.json()["responsive"] is False
-    denied = n["a"].post("/api/v1/network/galancito/diagnostic")
+    denied = n["send"](n["a"], "/galancito/diagnostic", {})
     assert denied.status_code == 403
