@@ -4,6 +4,7 @@ from zlib import crc32
 from sqlalchemy import text
 from .galancito_local import last_timings
 from .galancito_knowledge_models import AssistantRun
+from .version import VERSION, SOURCE_COMMIT
 
 
 def infer(db, generate, *, org_id: str | None = None):
@@ -29,7 +30,8 @@ def infer(db, generate, *, org_id: str | None = None):
 def record_run(db, *, org_id, user_id=None, channel, source, intent, started, db_ms=0, timings=None):
     row = AssistantRun(org_id=org_id, user_id=user_id, channel=channel, source=source,
                        intent=intent, elapsed_ms=max(0, round((perf_counter() - started) * 1000)),
-                       timings={"db_ms": round(db_ms, 3), **(timings or {})})
+                       timings={"db_ms": round(db_ms, 3), "release": VERSION,
+                                "revision": SOURCE_COMMIT, **(timings or {})})
     db.add(row)
     db.flush()
     return row
