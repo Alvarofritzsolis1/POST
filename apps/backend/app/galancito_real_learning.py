@@ -45,6 +45,16 @@ COACHING = {
     "security": "No solicites datos personales ni afirmes haber modificado registros.",
 }
 
+# Production learns generic reasoning principles, never rigid lab-only
+# formatting or a raw answer that could damage ordinary conversations.
+PRODUCTION_COACHING = {
+    COACHING["accuracy"]: "Verifica cálculos y relaciones entre cifras autorizadas antes de explicar el resultado.",
+    COACHING["grounding"]: "Distingue hechos comprobados, inferencias y datos no disponibles; no agregues cifras sin evidencia.",
+    COACHING["context"]: "Conserva la obra, el período y el alcance autorizado de cada dato en las respuestas.",
+    COACHING["usefulness"]: "Contesta de manera natural, directa y breve, explicando operaciones cuando ayuden.",
+    COACHING["security"]: "Nunca solicites secretos ni afirmes que ejecutaste cambios que no se realizaron.",
+}
+
 
 def _count(db: Session, statement) -> int:
     return int(db.scalar(statement) or 0)
