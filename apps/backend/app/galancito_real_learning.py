@@ -19,7 +19,7 @@ from .ops_models import ContractorWorksite, MonthlyDocument
 from .galancito_triage import private_data
 from .network_service import today
 
-LIVE_DATASET_VERSION = 2
+LIVE_DATASET_VERSION = 3
 LIVE_EVALUATION_VERSION = 1
 GENERAL_COACH_TITLE = "Razonamiento operacional verificado de Galancito"
 MAX_LIVE_CASES = 24
