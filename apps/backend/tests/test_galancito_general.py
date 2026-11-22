@@ -130,3 +130,13 @@ def test_general_howto_documents_is_not_an_internal_document_count():
     assert general_intent("¿Qué documentos necesita un contratista para ingresar?") == "advice"
     assert general_intent("¿Cómo publicar una necesidad en Facebook?") == "advice"
     assert general_intent("¿Cuántas publicaciones están pendientes?") == "verified"
+
+
+def test_general_rejects_private_business_context_before_external_routing():
+    for message in (
+        "Analiza nuestras publicaciones y recomienda cómo mejorar los contactos",
+        "Compara nuestros contratistas y las necesidades de mis obras",
+        "Investiga qué pasa con mis registros en GALANT",
+    ):
+        assert not external_safe(message)
+    assert external_safe("Compara estrategias de coordinación en la construcción chilena")
