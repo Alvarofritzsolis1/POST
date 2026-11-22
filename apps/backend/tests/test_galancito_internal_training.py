@@ -115,7 +115,7 @@ def _count_case(number: int) -> InternalCase:
 def test_count_word_equivalence_requires_correct_quantity_and_noun():
     one = _count_case(1)
     assert evaluate_internal(one, answer=lambda _: "Hay un contratista activo.")["passed"]
-    assert evaluate_internal(one, answer=lambda _: "Hay una persona registrada.")["passed"]
+    assert not evaluate_internal(one, answer=lambda _: "Hay una persona registrada.")["passed"]
     assert evaluate_internal(one, answer=lambda _: "Hay 1 contratista activo.")["passed"]
     twelve = _count_case(12)
     assert evaluate_internal(twelve, answer=lambda _: "Hay doce contratistas activos.")["passed"]
