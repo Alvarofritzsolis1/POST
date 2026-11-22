@@ -27,7 +27,8 @@ from .network_models import (NetworkRequirement, NetworkCapacity, NetworkCoordin
 from .security import authorized_user
 from .galancito_triage import analyze, quick_reply, private_data, plain
 from .galancito_knowledge import retrieve, exact_answer, evidence_context, public_sources
-from .galancito_local import last_timings
+from .galancito_local import (last_timings, model_status, generate_local_text,
+                              interactive_timeout_seconds)
 from .galancito_runtime import infer, record_run
 from .galancito_internal_live import internal_reply
 from .galancito_web import WebSearchUnavailable, public_search, format_public_search, web_available
@@ -191,17 +192,69 @@ def galancito_status(user: User = Depends(authorized_user), db: Session = Depend
                       orchestration_available(db, user.org_id, "red_obras"))
     policy = db.get(AIOrchestration, user.org_id)
     selected_team = bool(policy and policy.enabled and (policy.task_routes or {}).get("red_obras"))
+    # A configured provider is not the same as a reachable or responsive model.
+    # One short /api/ps probe; a cold model may be connected but not loaded.
+    local_status = model_status() if cfg.galancito_local_ai_enabled else {
+        "state": "not_configured", "loaded": False}
+    local_state = ("running" if local_status.get("loaded") else
+                   "connected" if local_status.get("state") == "available" else
+                   "not_configured" if not cfg.galancito_local_ai_enabled else
+                   "unavailable")
     return {"name": "Galancito",
             "local_ai_available": available and cfg.galancito_ai_provider == "ollama",
+            "local_model_status": local_state,
+            "reply_timeout_seconds": int(interactive_timeout_seconds(cfg) + 12),
             "external_ai_available": (team_available if selected_team else
                                       available and cfg.galancito_ai_provider == "openai"),
             "ai_team_available": team_available,
             "scope": "red_obras",
             "internal_available": user.role in {"admin", "resident"},
-            "internal_ai_available": user.role in {"admin", "resident"} and local_analysis_available(),
+            "internal_ai_available": user.role in {"admin", "resident"} and local_status.get("loaded") is True,
             "web_available": web_available() and user.role in {"admin", "resident"},
             "can_teach": user.role == "admin",
             "read_only": True}
+
+
+@router.post("/diagnostic")
+def diagnose_local_model(user: User = Depends(authorized_user),
+                         db: Session = Depends(get_db)):
+    """Administrator-initiated live Ollama probe with no user/business data.
+
+    Unlike /status, this endpoint actually runs inference. It neither changes
+    application records nor exposes model text, credentials or raw exceptions.
+    """
+    if user.role != "admin":
+        raise HTTPException(403, "Solo administración puede probar el modelo local")
+    cfg = settings()
+    if not cfg.galancito_local_ai_enabled:
+        return {"status": "not_configured", "responsive": False,
+                "message": "El modelo local no está habilitado en este servidor."}
+    started = perf_counter()
+    try:
+        response = infer(db, lambda: generate_local_text(
+            "Prueba técnica sin datos de usuarios. Responde solo la palabra OK.",
+            "Escribe OK.", max_chars=80))
+        responsive = isinstance(response, str) and response.strip().casefold().strip(".!¡ ") in {
+            "ok", "listo"}
+        status = "ok" if responsive else "invalid_response"
+    except (RuntimeError, TimeoutError, OSError, ValueError) as exc:
+        responsive = False
+        status = "busy" if "ocupado" in str(exc).lower() or "memoria" in str(exc).lower() else "unavailable"
+    elapsed = round((perf_counter() - started) * 1000)
+    # No transcript is stored; the event contains resource-neutral timings only.
+    run = record_run(db, org_id=user.org_id, user_id=user.id, channel="galant_diagnostic",
+                     source="local" if responsive else "unavailable",
+                     intent="ollama_probe", started=started,
+                     timings=last_timings.get())
+    db.commit()
+    messages = {
+        "ok": "Ollama respondió a una pregunta de prueba.",
+        "busy": "El modelo está ocupado o el servidor necesita liberar memoria.",
+        "unavailable": "Ollama no respondió; revisa sus recursos y conectividad.",
+        "invalid_response": "Ollama respondió, pero no superó la prueba de contenido.",
+    }
+    return {"status": status, "responsive": responsive, "elapsed_ms": elapsed,
+            "message": messages[status], "run_id": run.id}
 
 
 @router.get("/conversations")
