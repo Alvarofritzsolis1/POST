@@ -260,3 +260,21 @@ def test_general_chat_non_operational_questions_avoid_database_lookups(network, 
     assert response.status_code == 200, response.text
     assert response.json()["source"] == "ollama_4b"
     assert seen == []
+
+
+def test_legacy_simple_intents_do_not_sync_external_services(network, monkeypatch):
+    n = network
+    def forbidden(*_args, **_kwargs):
+        raise AssertionError("No external provider sync for deterministic chat")
+    monkeypatch.setattr("app.galancito_api.sync_org_global_lightning", forbidden)
+    for message in (
+        "¿Cómo postulo a una obra?",
+        "¿Cómo funciona Red de Obras?",
+        "Quiero publicar una necesidad",
+    ):
+        result = n["send"](n["admin"], "/galancito/chat", {
+            "area": "red_obras", "message": message,
+            "allow_external_ai": True,
+        })
+        assert result.status_code == 200, result.text
+        assert result.json()["source"] == "local"
