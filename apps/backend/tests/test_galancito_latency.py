@@ -48,7 +48,7 @@ def test_greeting_does_not_read_business_data_or_infer(network, monkeypatch):
         "network_awards", "facebook_trade_guides", "galancito_knowledge", "facebook_leads"))
 
 
-def test_legacy_timeout_setting_cannot_extend_inference_beyond_eight_seconds(monkeypatch):
+def test_legacy_eight_second_limit_no_longer_aborts_4b_inference(monkeypatch):
     from app import galancito_local
     monkeypatch.setenv("GALANCITO_TIMEOUT_SECONDS", "24")
     settings.cache_clear()
@@ -61,7 +61,7 @@ def test_legacy_timeout_setting_cannot_extend_inference_beyond_eight_seconds(mon
     try:
         with pytest.raises(RuntimeError):
             galancito_local.generate_local_text("Galancito", "consulta")
-        assert timeouts == [8]
+        assert timeouts == [24.0]
     finally:
         settings.cache_clear()
 
