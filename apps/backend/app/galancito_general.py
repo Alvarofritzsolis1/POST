@@ -7,7 +7,6 @@ The production model is strictly Qwen3.5 4B; no silent downgrade to 1.7B.
 import re
 from .network_service import key
 from .galancito_triage import private_data, analyze, quick_reply
-from .galancito_flow import safe_ai_reply
 
 QWEN_4B = "qwen3.5:4b-q4_K_M"
 GENERAL_INSTRUCTIONS = """Eres Galancito, asistente único de la plataforma GALANT en Chile.
@@ -84,10 +83,24 @@ def advice_fallback() -> str:
             "verificados para afirmar que ya se hizo alguna gestión.")
 
 
-def safe_generated(text: str | None) -> str | None:
-    if not text or not text.strip() or private_data(text):
+def safe_generated(text: str | None, *, question: str = "") -> str | None:
+    """Reject invented system actions, private output and unsupported facts."""
+    if not text or not text.strip():
         return None
-    if re.search(r"(?i)\b(?:ya publiqu[eé]|ya aprob[eé]|ya borr[eé]|ya envi[eé]|"
-                 r"acabo de ingresar|revis[eé] el sistema|consult[eé] tus registros)\b", text):
+    clean = text.strip()[:1200]
+    if private_data(clean):
         return None
-    return safe_ai_reply(text)[:1300]
+    if re.search(
+        r"(?i)\b(?:ya publiqu[eé]|ya aprob[eé]|ya borr[eé]|ya envi[eé]|"
+        r"acabo de ingresar|revis[eé] el sistema|consult[eé] tus registros|"
+        r"te adjudicamos|te contratamos|cumplimiento garantizado)\b", clean
+    ):
+        return None
+    if re.search(r"(?i)(?:api[_ -]?key|contraseña|clave secreta|token de acceso)", clean):
+        return None
+    # Never turn generated figures into purported real GALANT metrics.
+    input_numbers = set(re.findall(r"(?<!\w)\d+(?!\w)", question))
+    output_numbers = set(re.findall(r"(?<!\w)\d+(?!\w)", clean))
+    if output_numbers - input_numbers:
+        return None
+    return re.sub(r"^(?i:soy galancito[.,! ]+)", "", clean).strip() or None
