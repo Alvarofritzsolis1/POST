@@ -418,6 +418,15 @@ def test_focused_practice_defaults_to_bounded_duration_and_stops_truthfully(data
         assert stopped["target"] == 10
         assert "duración configurada" in stopped["reason"]
 
+        capped = request_round(client, profile="interno", suite="practice",
+                               cases=2, cycles=5, minutes=480)
+        assert capped["config"]["minutes"] == 45
+        assert capped["config"]["duration_capped"] is True
+        with database.begin() as db:
+            db.get(TrainingRound, capped["id"]).state = "stopped"
+
         explicit = request_round(client, profile="interno", suite="practice",
-                                 cases=2, cycles=5, minutes=180)
+                                 cases=2, cycles=5, minutes=180,
+                                 allow_extended_duration=True)
         assert explicit["config"]["minutes"] == 180
+        assert explicit["config"]["duration_capped"] is False
