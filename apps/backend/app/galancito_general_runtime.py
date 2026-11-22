@@ -16,6 +16,8 @@ from .galancito_local import generate_local_text
 from .galancito_runtime import infer
 from .galancito_triage import quick_reply
 from .ops_models import Worksite, Contractor
+from .models import Organization
+from .facebook_crm_models import FacebookLead
 
 
 def internal_names_for_privacy(db: Session, user) -> tuple[str, ...]:
@@ -23,6 +25,12 @@ def internal_names_for_privacy(db: Session, user) -> tuple[str, ...]:
     for model in (Worksite, Contractor):
         names.extend(name for name in db.scalars(
             select(model.name).where(model.org_id == user.org_id).limit(1500)) if name)
+    organization = db.get(Organization, user.org_id)
+    if organization:
+        names.append(organization.name)
+    names.extend(name for name in db.scalars(
+        select(FacebookLead.display_name).where(
+            FacebookLead.org_id == user.org_id).limit(1500)) if name)
     return tuple(names)
 
 
