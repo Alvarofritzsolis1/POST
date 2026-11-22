@@ -33,6 +33,7 @@ from .galancito_internal_live import internal_reply
 from .galancito_web import WebSearchUnavailable, public_search, format_public_search, web_available
 from .galancito_reports import MIME_TYPES, SUPPORTED_REPORTS, internal_report, export_internal_report
 from . import galancito_internal_history as saved_history
+from .galancito_internal_analysis import local_analysis_available, local_advice
 from .ai_gateway import AIServiceError, orchestration_available, orchestrated_text
 from .ai_global_lightning import sync_org as sync_org_global_lightning
 from .ai_models import AIOrchestration
@@ -77,6 +78,7 @@ class ChatInput(BaseModel):
     area: Literal["red_obras", "interno"] = "red_obras"
     allow_external_ai: bool = False
     allow_web: bool = False
+    allow_local_analysis: bool = False
     save_history: bool = False
     conversation_id: str | None = Field(default=None, min_length=36, max_length=36)
     # Bounded, client-side context: never grants permission or runs as commands.
@@ -196,6 +198,7 @@ def galancito_status(user: User = Depends(authorized_user), db: Session = Depend
             "ai_team_available": team_available,
             "scope": "red_obras",
             "internal_available": user.role in {"admin", "resident"},
+            "internal_ai_available": user.role in {"admin", "resident"} and local_analysis_available(),
             "web_available": web_available() and user.role in {"admin", "resident"},
             "can_teach": user.role == "admin",
             "read_only": True}
@@ -296,6 +299,12 @@ def galancito_chat(body: ChatInput, user: User = Depends(authorized_user),
         else:
             answer, intent = internal_reply(db, user, body.message.strip(), user_context)
             source = "verified_local"
+        analysis_generated = False
+        if body.allow_local_analysis and not body.allow_web and source == "verified_local":
+            advice = local_advice(db, question=body.message.strip(), facts=answer, intent=intent)
+            if advice:
+                answer += "\n\nSugerencia orientativa de IA local (no verificada): " + advice
+                analysis_generated = True
         run = record_run(db, org_id=user.org_id, user_id=user.id, channel="galant_internal",
                          source=source, intent=intent, started=started)
         conversation_id, history_notice, history_saved = None, None, False
@@ -314,6 +323,7 @@ def galancito_chat(body: ChatInput, user: User = Depends(authorized_user),
                 "read_only": True, "run_id": run.id, "references": [],
                 "intent": intent, "reportable": source == "verified_local" and intent in SUPPORTED_REPORTS,
                 "conversation_id": conversation_id, "history_saved": history_saved,
+                "analysis_generated": analysis_generated,
                 "notice": history_notice}
     if sync_org_global_lightning(db, user.org_id):
         db.commit()
