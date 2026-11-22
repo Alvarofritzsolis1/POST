@@ -221,7 +221,7 @@ export default function GalancitoTraining({ back }: { back: () => void }) {
       )}
     </div>
     {form.profile === "interno" && <div className="ai-panel" role="note">
-      <strong>Galancito Interno · 20 categorías de práctica</strong>
+      <strong>Galancito General · 20 categorías de práctica específica</strong>
       <p className="training-muted">Incluye navegación, obras, contratistas, fichas, publicaciones, informes,
         versiones, rendimiento, permisos y búsqueda web. Los 400 casos son ejemplos sintéticos,
         no lecturas del VPS ni entrenamiento de pesos del modelo.</p>
@@ -230,6 +230,8 @@ export default function GalancitoTraining({ back }: { back: () => void }) {
     </div>}
     {data && <div className="ai-panel" aria-label="Motores de Galancito">
       <strong>Motor principal: Ollama · {data.local_model}</strong>
+      {form.profile === "interno" && data.local_model !== "qwen3.5:4b-q4_K_M" &&
+        <p className="ai-warning" role="alert">Qwen3.5 4B todavía no figura como modelo principal. Para ejecutar una práctica REAL del chat general con Ollama debes activar y verificar 4B en el VPS. Puedes practicar con reglas sintéticas sin consumir IA.</p>}
       <p className="training-muted">Próximas prácticas con Ollama: {data.local_model} · {data.training_mode === "motor_principal_compartido" ? "motor local compartido, sin duplicar el modelo en RAM" : "motor de entrenamiento separado"}.</p>
       <p className="training-muted">Las rondas anteriores conservan el modelo con el que se realizaron. {data.worker.available ? "Servicio de prácticas conectado." : "Entrenador detenido; no hay prácticas automáticas en ejecución."}</p>
     </div>}
