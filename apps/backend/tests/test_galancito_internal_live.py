@@ -363,3 +363,22 @@ def test_internal_local_ai_suggestion_fails_closed_on_hallucinations():
     assert safe_suggestion("Ya publiqué las 3 necesidades.", facts) is None
     assert safe_suggestion("Consulta https://ejemplo.com para verificar.", facts) is None
     assert safe_suggestion("Todo está perfecto", facts) is None
+
+
+def test_greeting_hola_como_estas_never_uses_ollama_or_external_ai(network, monkeypatch):
+    from app.galancito_triage import analyze, quick_reply
+    n = network
+    for message in ("HOLA COMO ESTAS", "hola como estai", "qué tal", "buenas noches"):
+        assert analyze(message).intent == "greeting"
+        assert quick_reply(message).startswith("¡Hola!")
+    assert analyze("hola busco pega de carpintero").intent == "job_seeker"
+    def unexpected_model(*_args, **_kwargs):
+        raise AssertionError("No se debe llamar a un modelo para un saludo")
+    monkeypatch.setattr("app.galancito_api.generate_internal_text", unexpected_model)
+    monkeypatch.setattr("app.galancito_api.orchestrated_text", unexpected_model)
+    response = n["send"](n["admin"], "/galancito/chat", {
+        "area": "red_obras", "message": "HOLA COMO ESTAS",
+    })
+    assert response.status_code == 200, response.text
+    assert response.json()["source"] == "local"
+    assert "¡Hola!" in response.json()["answer"]
