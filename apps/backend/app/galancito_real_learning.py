@@ -6,6 +6,7 @@ cycles reproducible and to distinguish changed source data from model learning.
 This evaluates reasoning on real aggregates; it does not fine-tune weights.
 """
 from datetime import datetime, timezone
+from math import comb
 import json
 import re
 from time import perf_counter
@@ -123,8 +124,16 @@ def paired_holdout_metrics(baseline: list[bool], candidate: list[bool]) -> dict:
         raise ValueError("La evaluación reservada A/B requiere pares completos")
     wins = sum(not before and after for before, after in zip(baseline, candidate))
     losses = sum(before and not after for before, after in zip(baseline, candidate))
+    # One-sided exact McNemar/binomial test on discordant matched pairs.
+    # Descriptive only: cases across the same obra may not be independent.
+    discordant = wins + losses
+    p_value = (sum(comb(discordant, k) for k in range(wins, discordant + 1))
+               / 2**discordant) if discordant else 1.0
     return {
         "gain_cases": wins, "regressions": losses,
+        "paired_cases": len(baseline),
+        "discordant_pairs": discordant,
+        "one_sided_p_value": round(p_value, 6),
         "baseline_pass_rate": round(sum(baseline) / len(baseline), 4),
         "candidate_pass_rate": round(sum(candidate) / len(candidate), 4),
     }
