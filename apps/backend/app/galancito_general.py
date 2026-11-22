@@ -67,16 +67,16 @@ def social_reply(message: str) -> str | None:
     the regular permission-checked router answer it instead.
     """
     text = plain(message)
-    if not re.search(r"\b(?:hola|buenas|buenos dias|buenas tardes|buenas noches)\\b", text):
+    if not re.search(r"\b(?:hola|buenas|buenos dias|buenas tardes|buenas noches)\b", text):
         return None
-    if not re.search(r"\b(?:equipo|colegas|companeros|reunion|reunidos|somos varios)\\b", text):
+    if not re.search(r"\b(?:equipo|colegas|companeros|reunion|reunidos|somos varios)\b", text):
         return None
     if private_data(message):
         return None
     if re.search(
         r"\b(?:cuantos|cuantas|dime|revisa|revisar|consulta|consultar|"
         r"muestra|mostrar|busca|buscar|informe|reporte|pendientes|"
-        r"falta|faltan|necesito|necesitamos|haz|evalua)\\b", text
+        r"falta|faltan|necesito|necesitamos|haz|evalua)\b", text
     ):
         return None
     if "control de contratistas" in text:
@@ -95,25 +95,25 @@ def needs_public_web(message: str) -> bool:
     text = plain(message)
     if len(text) < 12:
         return False
-    if re.search(r"\bno (?:busques|uses|consultes|investigues) (?:en )?(?:la )?(?:web|internet)\\b", text):
+    if re.search(r"\bno (?:busques|uses|consultes|investigues) (?:en )?(?:la )?(?:web|internet)\b", text):
         return False
     explicit = bool(re.search(
         r"\b(?:busca|buscar|investiga|investigar|consulta|consultar|"
-        r"verifica|verificar|revisa|revisar)\\b.{0,55}"
-        r"\b(?:internet|web|online|fuentes oficiales|sitios oficiales)\\b", text
+        r"verifica|verificar|revisa|revisar)\b.{0,55}"
+        r"\b(?:internet|web|online|fuentes oficiales|sitios oficiales)\b", text
     ))
     explicit |= bool(re.search(
-        r"\b(?:en internet|en la web)\\b.{0,55}"
-        r"\b(?:busca|buscar|investiga|consulta|verifica|revisa)\\b", text
+        r"\b(?:en internet|en la web)\b.{0,55}"
+        r"\b(?:busca|buscar|investiga|consulta|verifica|revisa)\b", text
     ))
     current = bool(re.search(
         r"\b(?:hoy|actualmente|vigente|vigentes|actualizada|actualizado|"
-        r"ultima|ultimas|reciente|recientes|nueva|nuevas)\\b", text
+        r"ultima|ultimas|reciente|recientes|nueva|nuevas)\b", text
     ))
     public_topic = bool(re.search(
         r"\b(?:ley|leyes|normativa|normativas|reglamento|decreto|"
         r"dictamen|noticias|noticia|cotizaciones|tasas|precios|"
-        r"ministerio|direccion del trabajo|diario oficial|jurisprudencia)\\b", text
+        r"ministerio|direccion del trabajo|diario oficial|jurisprudencia)\b", text
     ))
     return explicit or (current and public_topic)
 
