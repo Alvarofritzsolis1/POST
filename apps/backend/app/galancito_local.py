@@ -146,7 +146,12 @@ def _generate(instructions, data, max_chars, cfg, *, url=None, seed=None, allow_
         "keep_alive": cfg.galancito_keep_alive,
         "options": {
             "num_ctx": cfg.galancito_num_ctx,
-            "num_predict": min(640, max(cfg.galancito_num_predict, 512)) if thinking else cfg.galancito_num_predict,
+            # Interactive thinking retains its production safety allowance.
+            # The *isolated training worker* owns an explicit output budget;
+            # don't silently force 512 generated tokens for a two-line answer.
+            "num_predict": (cfg.galancito_num_predict if allow_training else
+                            min(640, max(cfg.galancito_num_predict, 512)))
+            if thinking else cfg.galancito_num_predict,
             "num_thread": min(cfg.galancito_num_thread, os.cpu_count() or 1),
             "temperature": 0.2,
         },

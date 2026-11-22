@@ -87,3 +87,25 @@ def test_live_endpoint_disallows_rule_only_improvement(network):
                           json={"profile": "postulantes", "suite": "live", "cases": 4,
                                 "cycles": 3, "model": "ollama"})
     assert response.status_code == 422, response.text
+
+
+def test_paired_holdout_reports_statistical_evidence_without_inventing_learning():
+    from app.galancito_real_learning import paired_holdout_metrics
+    small = paired_holdout_metrics([False, True, True, True],
+                                   [True, True, True, True])
+    assert small["gain_cases"] == 1
+    assert small["regressions"] == 0
+    assert small["paired_cases"] == 4
+    assert small["one_sided_p_value"] == 0.5  # One win does not prove learning.
+
+    strong = paired_holdout_metrics([False] * 6 + [True] * 2,
+                                    [True] * 8)
+    assert strong["gain_cases"] == 6
+    assert strong["paired_cases"] == 8
+    assert strong["one_sided_p_value"] == 0.015625
+    weak = paired_holdout_metrics([True] * 8, [True] * 8)
+    assert weak["one_sided_p_value"] == 1.0
+    regressed = paired_holdout_metrics([False, True, False],
+                                       [True, False, False])
+    assert regressed["gain_cases"] == 1 and regressed["regressions"] == 1
+    assert regressed["one_sided_p_value"] == 0.75

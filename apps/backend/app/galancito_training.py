@@ -46,6 +46,16 @@ def case_confidence(passed: int, count: int) -> list[float] | None:
     return [round(max(0, center - margin), 4), round(min(1, center + margin), 4)]
 
 
+def inference_percentile_ms(samples: list[float], percentile: float) -> float | None:
+    """Nearest-rank percentile of measured turns, never an estimated result."""
+    values = sorted(float(sample) for sample in samples
+                    if isinstance(sample, (int, float)) and sample >= 0)
+    if not values:
+        return None
+    index = max(0, min(len(values) - 1, ceil(percentile * len(values)) - 1))
+    return round(values[index], 1)
+
+
 def summarize(metrics: dict, profile: str = "postulantes") -> dict:
     turns = metrics.get("turns", 0)
     fields = metrics.get("fields", 0)
@@ -60,17 +70,31 @@ def summarize(metrics: dict, profile: str = "postulantes") -> dict:
     measured = {key: weight for key, weight in weights.items() if ratios[key] is not None}
     score = round(100 * sum(ratios[key] * weight for key, weight in measured.items()) /
                   sum(measured.values()), 2) if measured else None
+    samples = metrics.get("ollama_timing_samples", 0)
+    timing_totals = metrics.get("ollama_timing_totals", {})
+    measured_ollama = {
+        key: round(value / samples, 2) for key, value in timing_totals.items()
+    } if samples else None
+    actual_inference = metrics.get("inference_samples_ms", [])
     cases = metrics.get("passed", 0) + metrics.get("failed", 0)
-    if metrics.get("evidence_type") == "live_database":
-        # In real-data evaluations the headline score is the actual share of
-        # completely correct cases, not a weighted synthetic-looking average.
+    evidence_type = metrics.get("evidence_type", "synthetic")
+    score_basis = "weighted_dimensions"
+    if profile == "interno":
+        # Transparent share of fully passing cases, rather than a composite
+        # which counted correlated dimensions as independent evidence.
         score = round(metrics.get("passed", 0) * 100 / cases, 2) if cases else None
+        score_basis = ("verified_numeric_case_pass_rate" if evidence_type == "live_database"
+                       else "synthetic_case_pass_rate")
+    elif evidence_type == "live_database":
+        score = round(metrics.get("passed", 0) * 100 / cases, 2) if cases else None
+        score_basis = "verified_numeric_case_pass_rate"
     return {
         "case_pass_interval_95": case_confidence(metrics.get("passed", 0), cases),
         "passed": metrics.get("passed", 0), "failed": metrics.get("failed", 0),
         "turns": turns, "fields": fields, "correct_fields": metrics.get("correct_fields", 0),
         "profile_accuracy": round(metrics.get("correct_fields", 0) / fields, 4) if fields else None,
-        "dimensions": ratios, "score": score, "cycles": metrics.get("cycles", {}),
+        "dimensions": ratios, "score": score, "score_basis": score_basis,
+        "cycles": metrics.get("cycles", {}), "early_stop": metrics.get("early_stop"),
         "questions": questions, "repeated_questions": metrics.get("repeated_questions", 0),
         "repetition_rate": round(metrics.get("repeated_questions", 0) / questions, 4) if questions else None,
         "pending_prompt_repeats": metrics.get("pending_repeats"),
@@ -78,12 +102,21 @@ def summarize(metrics: dict, profile: str = "postulantes") -> dict:
         "critical": metrics.get("critical", 0), "error_counts": metrics.get("errors", {}),
         "judged_cases": metrics.get("judged_cases", 0), "judged_turns": metrics.get("judged_turns", 0),
         "average_latency_ms": round(metrics.get("latency_ms", 0) / turns, 1) if turns else None,
+        "inference_p50_ms": inference_percentile_ms(actual_inference, 0.5),
+        "inference_p95_ms": inference_percentile_ms(actual_inference, 0.95),
+        "inference_samples": len(actual_inference),
+        "inference_sample_window": "latest_512_turns",
+        "ollama_timing_samples": samples,
+        "ollama_timing_avg": measured_ollama,
         "input_tokens": metrics.get("input_tokens", 0), "output_tokens": metrics.get("output_tokens", 0),
         "reserved_tokens": metrics.get("reserved_tokens", 0),
         "estimated_cost_usd": round(metrics.get("cost", 0), 6),
         "reserved_cost_usd": round(metrics.get("reserved_cost_usd", 0), 6),
         "elapsed_seconds": round(metrics.get("elapsed_seconds", 0), 1),
         "evidence_type": metrics.get("evidence_type", "synthetic"),
+        "synthetic_coaching": metrics.get("synthetic_coaching", []),
+        "synthetic_category_coaching": metrics.get("synthetic_category_coaching", []),
+        "synthetic_coached_cases": metrics.get("synthetic_coached_cases", 0),
         "real_coaching": metrics.get("real_coaching", []),
         "messenger_coaching_count": len(metrics.get("messenger_coaching", [])),
         "synthetic_holdout_baseline_rate": metrics.get("synthetic_holdout_baseline_rate"),
@@ -95,6 +128,9 @@ def summarize(metrics: dict, profile: str = "postulantes") -> dict:
         "real_holdout_pass_rate": metrics.get("real_holdout_pass_rate"),
         "real_holdout_baseline_pass_rate": metrics.get("real_holdout_baseline_pass_rate"),
         "real_holdout_gain_cases": metrics.get("real_holdout_gain_cases"),
+        "real_holdout_paired_cases": metrics.get("real_holdout_paired_cases"),
+        "real_holdout_one_sided_p_value": metrics.get("real_holdout_one_sided_p_value"),
+        "real_holdout_observed_gain": metrics.get("real_holdout_observed_gain", False),
         "real_holdout_regressions": metrics.get("real_holdout_regressions"),
         "peak_worker_ram_mb": metrics.get("peak_worker_ram_mb"),
         "peak_host_cpu_percent": metrics.get("peak_host_cpu_percent"),

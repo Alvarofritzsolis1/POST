@@ -344,3 +344,33 @@ def test_ollama_installed_model_probe_uses_private_show_and_does_not_pull(monkey
     monkeypatch.setattr(galancito_local._opener, "open",
                         lambda *_args, **_kw: (_ for _ in ()).throw(URLError("offline")))
     assert galancito_local.installed_model_status("qwen3.5:4b-q4_K_M") is None
+
+
+def test_training_thinking_budget_is_honored_without_changing_live_chat(monkeypatch):
+    from types import SimpleNamespace
+    cfg = SimpleNamespace(galancito_local_model="qwen3.5:4b-q4_K_M",
+                          galancito_num_ctx=2048, galancito_num_predict=128,
+                          galancito_num_thread=2, galancito_keep_alive="2m",
+                          galancito_timeout_seconds=45)
+    calls = []
+
+    class Response:
+        def __enter__(self): return self
+        def __exit__(self, *args): return False
+        def read(self, length):
+            return json.dumps({"message": {"content": "Resultado: 1\\nExplicación: Un registro."}},
+                              ensure_ascii=False).encode("utf-8")
+
+    def mocked_open(request, timeout):
+        calls.append((json.loads(request.data), timeout))
+        return Response()
+
+    monkeypatch.setattr(galancito_local._opener, "open", mocked_open)
+    text = galancito_local.generate_training_text("Sistema", "Caso", 23, cfg, thinking=True)
+    assert text.startswith("Resultado: 1")
+    assert calls[-1][0]["options"]["num_predict"] == 128
+    assert calls[-1][0]["options"]["num_thread"] == 2
+    assert calls[-1][0]["think"] is True
+
+    galancito_local._generate("Sistema", "Caso", 500, cfg, thinking=True)
+    assert calls[-1][0]["options"]["num_predict"] == 512
