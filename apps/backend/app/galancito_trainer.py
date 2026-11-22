@@ -420,8 +420,15 @@ def checkpoints(factory, claim, results, snapshot, elapsed):
                     metrics["real_holdout_regressions"] = regressions
                     metrics["real_holdout_baseline_pass_rate"] = comparison["baseline_pass_rate"]
                     metrics["real_holdout_pass_rate"] = comparison["candidate_pass_rate"]
+                    metrics["real_holdout_paired_cases"] = comparison["paired_cases"]
+                    metrics["real_holdout_one_sided_p_value"] = comparison["one_sided_p_value"]
+                    # A single A/B win is preliminary evidence, never proof
+                    # of real learning. Paired cases may share worksite context.
+                    metrics["real_holdout_observed_gain"] = bool(gains > 0 and regressions == 0)
                     metrics["real_learning_demonstrated"] = bool(
-                        metrics.get("real_coaching") and gains > 0
+                        metrics.get("real_coaching") and gains >= 5
+                        and comparison["paired_cases"] >= 8
+                        and comparison["one_sided_p_value"] <= 0.05
                         and regressions == 0 and item["critical"] == 0
                         and item["pass_rate"] >= 0.75)
                 else:
