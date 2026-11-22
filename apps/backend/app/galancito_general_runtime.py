@@ -15,7 +15,7 @@ from .galancito_general import (QWEN_4B, GENERAL_INSTRUCTIONS, advice_fallback,
 from .galancito_internal_live import internal_reply
 from .galancito_flow import grounded_reply
 from .galancito_knowledge_models import Knowledge
-from .galancito_real_learning import GENERAL_COACH_TITLE
+from .galancito_real_learning import GENERAL_COACH_TITLE, GENERAL_COACH_SCOPE
 from .galancito_local import generate_local_text
 from .galancito_runtime import infer
 from .galancito_triage import quick_reply
@@ -46,7 +46,7 @@ def external_ready(db: Session, user) -> bool:
 def _verified_coach(db: Session, org_id: str) -> str:
     """Only explicitly approved operational coaching, never lab-only corrections."""
     row = db.scalar(select(Knowledge).where(
-        Knowledge.org_id == org_id, Knowledge.scope == "red_obras",
+        Knowledge.org_id == org_id, Knowledge.scope == GENERAL_COACH_SCOPE,
         Knowledge.title == GENERAL_COACH_TITLE, Knowledge.status == "approved"))
     return row.content[:700] if row else ""
 
