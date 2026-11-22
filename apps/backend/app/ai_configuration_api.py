@@ -225,6 +225,10 @@ def quality_overview(days: int = Query(default=30, ge=1, le=90),
 
     messenger = sampled(("messenger",))
     general = sampled(("galant_internal", "red_obras"))
+    from .ai_quality_audit import reviewed_sample
+    # A measured human audit of a subset is not a population-wide accuracy estimate.
+    messenger.update(reviewed_sample(db, user.org_id, "messenger", since))
+    general.update(reviewed_sample(db, user.org_id, "general", since))
     delivery_states = dict(db.execute(
         select(FacebookChatMessage.state, func.count(FacebookChatMessage.id)).where(
             FacebookChatMessage.org_id == user.org_id,
