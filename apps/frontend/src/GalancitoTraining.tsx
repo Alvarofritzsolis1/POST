@@ -114,7 +114,7 @@ export default function GalancitoTraining({ back, initialProfile = "interno", in
   back: () => void; initialProfile?: "postulantes" | "interno"; initialFocus?: string;
 }) {
   const [data, setData] = useState<Overview | null>(null);
-  const [form, setForm] = useState({ ...defaults, profile: initialProfile, focus: initialProfile === "interno" ? initialFocus : "" });
+  const [form, setForm] = useState({ ...defaults, profile: initialProfile, focus: initialFocus });
   const [clock, setClock] = useState(() => Date.now());
   const [selection, setSelection] = useState<string | null>(null);
   const [failureRound, setFailureRound] = useState("");
