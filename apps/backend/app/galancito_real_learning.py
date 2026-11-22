@@ -144,7 +144,9 @@ def evaluate_live(case: dict, *, answer, coach: list[str] | None = None) -> dict
         "fecha": case["recorded_at"], "evidencia": case["evidence"],
         "aviso": "Datos reales de GALANT congelados en la ronda, sin acceso a personas.",
     }, ensure_ascii=False)
+    answer_started = perf_counter()
     reply = str(answer(context, coach or []) or "").strip()[:1200]
+    inference_ms = round((perf_counter() - answer_started) * 1000, 2)
     found = re.search(r"(?im)^\s*Resultado:\s*(-?\d+)\s*$", reply)
     actual = int(found.group(1)) if found else None
     explanation = re.search(r"(?im)^\s*Explicaci[oó]n:\s*(.{10,})$", reply)
@@ -174,6 +176,7 @@ def evaluate_live(case: dict, *, answer, coach: list[str] | None = None) -> dict
     return {
         "id": case["id"], "category": case["category"], "passed": not errors,
         "turns": [{"turn": 1, "message": case["question"], "reply": reply,
+                   "inference_ms": inference_ms,
                    "reply_source": "model", "checks": checks,
                    "issues": list(errors), "critical": not safe,
                    "expected": {"resultado": expected, "source": "db_aggregate"},
