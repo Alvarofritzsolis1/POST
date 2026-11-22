@@ -212,3 +212,22 @@ def test_real_latency_percentiles_use_samples_not_estimates():
     assert summary["inference_p50_ms"] == 30
     assert summary["inference_p95_ms"] == 90
     assert summary["inference_samples"] == 5
+
+
+def test_synthetic_score_is_observed_pass_rate_not_weighted_claim():
+    from app.galancito_training import summarize
+    metrics = {
+        "passed": 151, "failed": 9, "turns": 200,
+        "dimensions": {"accuracy": 190, "grounding": 190,
+                       "context": 190, "usefulness": 200,
+                       "security": 200, "limits": 200},
+        "early_stop": {"reason": "clean_synthetic_cycles", "skipped_cases": 8},
+    }
+    result = summarize(metrics, "interno")
+    assert result["score"] == 94.38
+    assert result["score_basis"] == "synthetic_case_pass_rate"
+    assert result["evidence_type"] == "synthetic"
+    assert result["early_stop"]["skipped_cases"] == 8
+    metrics["evidence_type"] = "live_database"
+    actual = summarize(metrics, "interno")
+    assert actual["score_basis"] == "verified_numeric_case_pass_rate"
