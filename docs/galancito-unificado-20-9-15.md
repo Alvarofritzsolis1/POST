@@ -9,7 +9,9 @@ integraciones existentes. El bot Messenger de candidatos sigue independiente:
 su función no es el chat interno empresarial.
 
 ## Enrutamiento
-- Saludos sencillos: respuesta rápida local, sin consumir modelo.
+- Saludos sencillos y presentación de un equipo: respuesta contextual rápida
+  y local, sin gastar tokens. Si dicen «te estamos viendo», el chat reconoce
+  al grupo sin insinuar que dispone de cámara, micrófono o visión.
 - Estados, cifras, documentos, publicación, obras y versión: exclusivamente
   consultas autorizadas a GALANT y respuestas basadas en datos comprobados.
 - Consejos y preguntas generales: Qwen3.5 4B (`qwen3.5:4b-q4_K_M`).
@@ -29,8 +31,20 @@ su función no es el chat interno empresarial.
   nuevas credenciales, cuotas o permisos. La conexión se habilita previamente
   desde Configuración IA por un administrador; luego cada pregunta se clasifica
   sin controles manuales en el chat. El servidor vuelve a aplicar la política.
-- Búsqueda pública en internet es un control distinto y explícito, que
-  requiere `GALANCITO_BRAVE_SEARCH_API_KEY` configurada en el servidor.
+- Internet utiliza la integración existente con Brave Search. Debe existir
+  `GALANCITO_BRAVE_SEARCH_API_KEY` en el entorno seguro del servicio API;
+  sin esa credencial el chat **no tiene internet operativo**.
+  El usuario habilita una sola vez el control de autorización en la sesión
+  del chat, y el backend activa la búsqueda **automáticamente solo** ante
+  preguntas públicas sobre información vigente o solicitudes expresas
+  de búsqueda web. La pregunta es lo único enviado: jamás registros
+  internos, mensajes previos, nombres de obras ni identificadores privados.
+  Los resultados son títulos y extractos con enlaces, no comprobaciones
+  independientes de verdad. La búsqueda manual heredada `allow_web`
+  sigue disponible para clientes antiguos; el nuevo widget envía
+  `auto_web` y no hace búsquedas en cada mensaje.
+  Un saludo grupal y una consulta a GALANT funcionan sin internet.
+  La clave nunca debe incluirse en GitHub ni mostrarse en conversaciones.
 
 ## Activar 4B en el VPS con seguridad
 Hay un procedimiento ya existente `scripts/upgrade-galancito-qwen35.py`.
@@ -60,6 +74,11 @@ de producción. Si la prueba falla, el estado «Configurado» no equivale
 a «operativo».
 
 ## Práctica Bot específica
+Las instrucciones de Práctica Bot ahora incluyen reconocimiento de reuniones
+grupales, referentes de turnos y uso honesto de herramientas. Esto mejora
+los criterios de práctica, pero **no** implica que Qwen haya reentrenado
+sus pesos ni sustituye las pruebas con conversaciones reales.
+
 El perfil «Galancito General» usa el identificador interno `interno` para
 preservar evaluaciones anteriores. Conserva 20 categorías/400 casos
 sintéticos y permite 1–40 ciclos con máximo 10.000 evaluaciones por ronda.
