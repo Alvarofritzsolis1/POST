@@ -114,9 +114,15 @@ def needs_public_web(message: str) -> bool:
     public_topic = bool(re.search(
         r"\b(?:ley|leyes|normativa|normativas|reglamento|decreto|"
         r"dictamen|noticias|noticia|cotizaciones|tasas|precios|"
-        r"ministerio|direccion del trabajo|diario oficial|jurisprudencia)\b", text
+        r"ministerio|direccion del trabajo|diario oficial|jurisprudencia|"
+        r"presidente|presidenta|ministro|ministra|gobierno|elecciones|"
+        r"dolar|uf|ipc|inflacion|pronostico)\b", text
     ))
-    return explicit or (current and public_topic)
+    public_office = bool(re.search(
+        r"\b(?:quien es|quienes son|quien ocupa)\b.{0,55}"
+        r"\b(?:presidente|presidenta|ministro|ministra|alcalde|alcaldesa)\b", text
+    ))
+    return explicit or public_office or (current and public_topic)
 
 
 def general_intent(message: str) -> str:
