@@ -120,7 +120,8 @@ export default function GalancitoWidget() {
         // The backend alone checks complexity, approved connections, quotas and privacy;
         // never depend on the optional status request having completed.
         allow_external_ai: true,
-        allow_web: webConsent && !!status?.web_available,
+        // Session authorization, not a forced web search for every message.
+        auto_web: webConsent && !!status?.web_available,
         save_history: saveMemory,
         conversation_id: saveMemory ? conversationId : null,
         }),
@@ -139,7 +140,7 @@ export default function GalancitoWidget() {
           ? `La consulta superó los ${Math.round(limitMs / 1000)} segundos. No recibí una respuesta; puedes reintentar cuando el modelo tenga más recursos.`
           : "No pude conectar con GALANT. Revisa la conexión o vuelve a intentar; no se confirmó ningún cambio."}]);
       setError(err instanceof ApiError ? `Error de conexión o servidor (HTTP ${err.status}). Puedes reintentar la última consulta.` : "La consulta no se completó. Puedes reintentar.");
-    } finally { window.clearTimeout(deadline); setBusy(false); setWebConsent(false); }
+    } finally { window.clearTimeout(deadline); setBusy(false); }
   }
 
   async function rate(index: number, rating: "useful" | "incorrect", proposed?: string) {
@@ -271,7 +272,7 @@ export default function GalancitoWidget() {
         {status?.web_available && <label className="galancito-privacy">
           <input type="checkbox" checked={webConsent} disabled={busy}
             onChange={e => setWebConsent(e.target.checked)} />
-          <span>Buscar en internet (envía únicamente esta pregunta pública)</span>
+          <span>Autorizar internet cuando la pregunta necesite datos públicos actuales</span>
         </label>}
         <small>{status?.general_model_ready ? "Qwen3.5 4B configurado. Comprueba su respuesta desde administración; los datos reales se consultan con permisos." : "Qwen3.5 4B no está activado en el servidor. Las consultas verificables siguen disponibles."} No compartas claves ni documentos personales.</small>
         <div className="galancito-input-row">
