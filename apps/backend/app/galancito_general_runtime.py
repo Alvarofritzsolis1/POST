@@ -13,6 +13,9 @@ from .galancito_general import (QWEN_4B, GENERAL_INSTRUCTIONS, advice_fallback,
                                 external_safe, general_intent, is_complex, safe_generated,
                                 social_reply)
 from .galancito_internal_live import internal_reply
+from .galancito_flow import grounded_reply
+from .galancito_knowledge_models import Knowledge
+from .galancito_real_learning import GENERAL_COACH_TITLE
 from .galancito_local import generate_local_text
 from .galancito_runtime import infer
 from .galancito_triage import quick_reply
@@ -40,6 +43,14 @@ def external_ready(db: Session, user) -> bool:
             orchestration_available(db, user.org_id, "red_obras"))
 
 
+def _verified_coach(db: Session, org_id: str) -> str:
+    """Only explicitly approved operational coaching, never lab-only corrections."""
+    row = db.scalar(select(Knowledge).where(
+        Knowledge.org_id == org_id, Knowledge.scope == "red_obras",
+        Knowledge.title == GENERAL_COACH_TITLE, Knowledge.status == "approved"))
+    return row.content[:700] if row else ""
+
+
 def general_answer(db: Session, user, message: str,
                    history: list[str] | None = None,
                    *, allow_external: bool = False):
@@ -57,6 +68,23 @@ def general_answer(db: Session, user, message: str,
     if intent == "verified":
         answer, subtype = internal_reply(db, user, message, history or [])
         if subtype != "help":
+            if (is_complex(message) and subtype in {"documents", "contractors", "overview",
+                                                    "followups", "publications"} and
+                    settings().galancito_local_ai_enabled and
+                    settings().galancito_local_model == QWEN_4B):
+                instructions = GENERAL_INSTRUCTIONS + "\n" + _verified_coach(db, user.org_id)
+                prompt = ("Consulta del usuario:\n" + message[:500] +
+                          "\nDATOS REALES VERIFICADOS POR EL SERVIDOR (solo lectura):\n" + answer[:900] +
+                          "\nAnaliza únicamente estos datos, explica limitaciones y no inventes nuevas cifras.")
+                try:
+                    generated = infer(db, lambda: generate_local_text(
+                        instructions, prompt, max_chars=1100, thinking=True))
+                    grounded = safe_generated(generated, question=message + "\n" + answer)
+                    if grounded and grounded_reply(grounded, answer) is not None:
+                        return (answer + "\n\nAnálisis orientativo de Qwen (sobre datos verificados):\n" + grounded,
+                                subtype, "verified_reasoning", False)
+                except (RuntimeError, TimeoutError, OSError, ValueError):
+                    pass
             return answer, subtype, "verified_local", False
     # General advice never sees private database values. If there is no
     # verified result, the fallback acknowledges missing evidence.
@@ -84,7 +112,8 @@ def general_answer(db: Session, user, message: str,
             prompt = (("Contexto previo del usuario:\n" + previous + "\n")
                       if previous else "") + "Consulta:\n" + message[:650]
             generated = infer(db, lambda: generate_local_text(
-                GENERAL_INSTRUCTIONS, prompt, max_chars=1100))
+                GENERAL_INSTRUCTIONS + "\n" + _verified_coach(db, user.org_id),
+                prompt, max_chars=1100, thinking=is_complex(message)))
             answer = safe_generated(generated, question=message)
             if answer:
                 return answer, "general_advice", "ollama_4b", False
