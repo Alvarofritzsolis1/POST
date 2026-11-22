@@ -115,7 +115,14 @@ def analyze(message: str, trades: dict | None = None) -> Intake:
         intent = "about"
     elif specialty:
         intent = "trade_offer"
-    elif text in {"hola", "ola", "buenas", "buenos dias", "buenas tardes", "hola galancito"}:
+    elif text in {"hola", "ola", "buenas", "buenos dias", "buenas tardes", "hola galancito",
+                 "como estas", "como estai", "que tal", "todo bien"} or re.fullmatch(
+        r"(?:hola|ola|buenas|buenos dias|buenas tardes|buenas noches)"
+        r"(?: (?:galancito|como estas|como estai|como estan|que tal|todo bien|buen dia))*",
+        text,
+    ):
+        # Pure greetings should never consume inference tokens or wait on Ollama.
+        # Mixed messages ("hola busco pega") still follow their actual intent.
         intent = "greeting"
     return Intake(intent, specialty, entity, workers, availability)
 
