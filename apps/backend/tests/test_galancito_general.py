@@ -110,3 +110,23 @@ def test_unified_complex_api_is_opted_in_and_never_exposes_private_org_names(net
     })
     assert resident.status_code == 200
     assert resident.json()["external_used"] is False
+
+
+def test_general_synthetic_practice_400_cases_without_production_data():
+    from app.galancito_internal_training import (
+        INTERNAL_CATEGORIES, internal_case, evaluate_internal,
+    )
+    config = {"profile": "interno", "suite": "reference", "level": 3,
+              "cases": 400, "cycles": 1, "seed": 1}
+    assert len(INTERNAL_CATEGORIES) == 20
+    cases = [internal_case(config, position) for position in range(400)]
+    assert len({item.id for item in cases}) == 400
+    assert {item.category for item in cases} == set(INTERNAL_CATEGORIES)
+    failures = [item.id for item in cases if not evaluate_internal(item)["passed"]]
+    assert failures == [], failures[:10]
+
+
+def test_general_howto_documents_is_not_an_internal_document_count():
+    assert general_intent("¿Qué documentos necesita un contratista para ingresar?") == "advice"
+    assert general_intent("¿Cómo publicar una necesidad en Facebook?") == "advice"
+    assert general_intent("¿Cuántas publicaciones están pendientes?") == "verified"
