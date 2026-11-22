@@ -26,7 +26,7 @@ from .galancito_real_learning import (LIVE_DATASET_VERSION, LIVE_EVALUATION_VERS
 from .galancito_internal_training import (
     INTERNAL_DATASET_VERSION, INTERNAL_EVALUATION_VERSION,
     INTERNAL_PROMPT, internal_case, evaluate_internal,
-    propose_synthetic_coaching, synthetic_practice_prompt,
+    propose_synthetic_coaching, synthetic_practice_prompt, clean_synthetic_streak,
 )
 from .galancito_training_eval import CORRECTOR_PROMPT, EVALUATION_VERSION, JUDGE_PROMPT, PROMPT, evaluate
 from .galancito_training_model import TrainingModel
@@ -409,6 +409,21 @@ def checkpoints(factory, claim, results, snapshot, elapsed):
         row.attempts = 0
         if row.completed == row.target:
             finish(row, "completed", None, utcnow())
+        elif (row.config.get("profile") == "interno"
+              and row.config.get("suite") == "practice"
+              and row.completed % row.config["cases"] == 0
+              and clean_synthetic_streak(
+                  cycles, row.completed // row.config["cases"],
+                  row.config.get("stop_after_clean_cycles", 0))):
+            # This shortens useless repetitive practice; the target remains
+            # unchanged to transparently show the skipped evaluations.
+            reason = "Práctica sintética terminada anticipadamente: ciclos limpios consecutivos; no demuestra aprendizaje operativo"
+            row.metrics = {**metrics, "early_stop": {
+                "reason": "clean_synthetic_cycles",
+                "skipped_cases": row.target - row.completed,
+                "completed_cycles": row.completed // row.config["cases"],
+            }}
+            finish(row, "completed", reason, utcnow())
         elif row.state != "paused":
             row.state, row.next_at = "queued", utcnow()
 
