@@ -86,3 +86,17 @@
 .galancito-export-options button:hover { background:#d8efea; }
 .galancito-export-options button:disabled { opacity:.5; cursor:wait; }
 .galancito-modes button:disabled { cursor:wait; opacity:.65; }
+
+.galancito-memory { background:#f7fbfa; padding:8px 12px; display:flex; gap:8px; flex-wrap:wrap;
+  border-bottom:1px solid #dbe7e6; align-items:center; flex:none; }
+.galancito-memory label { display:inline-flex; gap:6px; align-items:center; font-size:11px; font-weight:650; }
+.galancito-memory > button { padding:5px 9px; border:1px solid #bad7d1;
+  border-radius:7px; background:#fff; color:#14665d; font-size:11px; cursor:pointer; }
+.galancito-memory-list { max-height:172px; overflow:auto; flex:1 1 100%; display:grid; gap:5px; }
+.galancito-memory-entry { display:flex; align-items:center; gap:6px; min-width:0; }
+.galancito-memory-entry button { border:1px solid #d9e6e4; background:#fff; border-radius:6px;
+  padding:5px 8px; font:inherit; font-size:11px; color:#235a56; cursor:pointer; }
+.galancito-memory-entry button:first-child { flex:1; text-align:left; white-space:nowrap;
+  overflow:hidden; text-overflow:ellipsis; min-width:0; }
+.galancito-memory-entry button:last-child { color:#9a3d39; }
+.galancito-memory-entry button:disabled { opacity:.5; cursor:wait; }
