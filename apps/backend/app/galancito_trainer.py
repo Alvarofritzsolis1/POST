@@ -147,7 +147,7 @@ def claim(factory, snapshot, *, maintenance=False, training_model=None):
                 finish(row, "error", "Cambió la metodología de evaluación. Inicia una nueva ronda.", now)
                 continue
             if row.metrics.get("elapsed_seconds", 0) >= row.config["minutes"] * 60:
-                finish(row, "completed", "Se alcanzó la duración configurada", now)
+                finish(row, "stopped", "Se alcanzó la duración configurada (pruebas pendientes)", now)
                 continue
             next_at = eligible_at(row.config, now)
             if next_at > now:
