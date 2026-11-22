@@ -38,6 +38,8 @@ logger = logging.getLogger(__name__)
 MAX_ATTEMPTS = 3
 LOCK_KEY = 2098001
 CPU_THREADS = ThreadPoolExecutor(max_workers=4, thread_name_prefix="training-case")
+# Only arithmetic/comparative live cases need deeper reasoning.
+LIVE_REASONING_CATEGORIES = frozenset({"resta", "suma", "diferencia", "riesgos"})
 
 
 def practice_threads(snapshot: dict) -> int:
@@ -192,7 +194,7 @@ def _update_stage(factory, claim, state):
         row.lease_until = utcnow() + timedelta(seconds=LEASE_SECONDS)
 
 
-def _charge(factory, claim, spec, instructions, prompt, seed, *, role, sampler, thinking=False):
+def _charge(factory, claim, spec, instructions, prompt, seed, *, role, sampler, thinking=False, output_budget=None):
     provider = spec["id"]
     local = provider == "ollama"
     internal_synthetic = (claim.config.get("profile") == "interno"
@@ -200,6 +202,9 @@ def _charge(factory, claim, spec, instructions, prompt, seed, *, role, sampler, 
     output_limit = (512 if thinking and role == "reply" else
                     96 if internal_synthetic and role == "reply" else
                     {"reply": LOCAL_OUTPUT_LIMIT, "judge": 8, "correction": 96}[role])
+    if output_budget is not None:
+        # Caller-selected trusted case budget; never increase ordinary limits.
+        output_limit = min(output_limit, max(64, min(int(output_budget), 512)))
     # Preflight by context size locally and conservative UTF-8 bounds externally.
     # An unsuccessful call with unknown usage keeps the reservation.
     reserve = LOCAL_CONTEXT_LIMIT if local else len((instructions + prompt).encode("utf-8")) + 640
@@ -477,8 +482,11 @@ def process_next(factory=SessionLocal, sampler=None, *, maintenance=False, train
                 def real_answer(context, instructions):
                     system = LIVE_PROMPT + ("\nConsejos revisados tras errores anteriores:\n" +
                                             "\n".join(instructions) if instructions else "")
+                    deeper = fixture["category"] in LIVE_REASONING_CATEGORIES
+                    budget = 320 if deeper else 128
                     return _charge(factory, row, model, system, context,
-                                   model_seed, role="reply", sampler=sampler, thinking=True)
+                                   model_seed, role="reply", sampler=sampler,
+                                   thinking=deeper, output_budget=budget)
                 result = evaluate_live(fixture, answer=real_answer, coach=coach)
                 result["id"] = fixture["id"] + "-c" + str(cycle_number)
                 return result
@@ -492,7 +500,7 @@ def process_next(factory=SessionLocal, sampler=None, *, maintenance=False, train
                     reply = _charge(factory, row, model, practice_system, context,
                                     seed % (2**31), role="reply", sampler=sampler)
                     # Actual Ollama response metrics, never simulated timing.
-                    measured = last_timings.get()
+                    measured = last_timings.get() if model["id"] == "ollama" else {}
                     timings.append({key: measured[key] for key in (
                         "load_ms", "prompt_ms", "generation_ms", "ollama_total_ms",
                         "transport_ms", "input_tokens", "output_tokens")
