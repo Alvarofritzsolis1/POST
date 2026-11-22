@@ -91,7 +91,9 @@ def internal_case(config: dict, position: int) -> InternalCase:
     # Rotate category and fixture values independently between suites.
     offset = int(sha256(f"{suite}:{seed}:{level}:{position}".encode()).hexdigest()[:8], 16)
     category_index = (position + (0 if suite == "reference" else 7 if suite == "holdout" else 13)) % len(TEMPLATES)
-    name, question, tool, evidence, required, baseline = TEMPLATES[category_index]
+    focus = tuple(config.get("focus_categories") or ())
+    bank = tuple(template for template in TEMPLATES if template[0] in focus) if focus else TEMPLATES
+    name, question, tool, evidence, required, baseline = bank[category_index % len(bank)]
     per_cycle = config.get("cases", 400)
     cycle = position // per_cycle
     variant = ((position % per_cycle) // len(TEMPLATES) + offset % 100 + cycle * 7) % 100 + 1
@@ -122,7 +124,8 @@ def internal_case(config: dict, position: int) -> InternalCase:
 def internal_dataset_hash(config: dict) -> str:
     payload = [INTERNAL_DATASET_VERSION, "interno", config["suite"],
                config.get("seed") if config["suite"] == "practice" else None,
-               config["level"], config["cases"], config.get("cycles", 1)]
+               config["level"], config["cases"], config.get("cycles", 1),
+               sorted(config.get("focus_categories") or [])]
     return sha256(json.dumps(payload, ensure_ascii=False).encode()).hexdigest()
 
 
