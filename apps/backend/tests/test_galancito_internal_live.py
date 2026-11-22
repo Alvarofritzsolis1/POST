@@ -382,3 +382,33 @@ def test_greeting_hola_como_estas_never_uses_ollama_or_external_ai(network, monk
     assert response.status_code == 200, response.text
     assert response.json()["source"] == "local"
     assert "¡Hola!" in response.json()["answer"]
+
+
+def test_internal_aggregate_queries_are_loaded_only_when_needed(network):
+    """A publications answer must not execute four unrelated count queries."""
+    from sqlalchemy import event, select
+    from app.models import User
+    from app.galancito_internal_live import _counts
+
+    n = network
+    with n["Session"]() as db:
+        admin = db.scalar(select(User).where(User.email == "admin@network.example.cl"))
+        engine = db.get_bind()
+        statements = []
+        def before_select(conn, cursor, statement, parameters, context, executemany):
+            if statement.lstrip().lower().startswith("select"):
+                statements.append(statement)
+        event.listen(engine, "before_cursor_execute", before_select)
+        try:
+            counts = _counts(db, admin, [n["sites"][0]], include={"publications"})
+            assert counts["posts"] == {}
+            assert len(statements) == 1
+            statements.clear()
+            counts = _counts(db, admin, [n["sites"][0]], include={"followups"})
+            assert counts["followups_due"] == 0
+            assert len(statements) == 1
+            statements.clear()
+            _counts(db, admin, [n["sites"][0]])
+            assert len(statements) == 5
+        finally:
+            event.remove(engine, "before_cursor_execute", before_select)
