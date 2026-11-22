@@ -87,6 +87,9 @@ def summarize(metrics: dict, profile: str = "postulantes") -> dict:
         "real_coaching": metrics.get("real_coaching", []),
         "real_learning_demonstrated": metrics.get("real_learning_demonstrated", False),
         "real_holdout_pass_rate": metrics.get("real_holdout_pass_rate"),
+        "real_holdout_baseline_pass_rate": metrics.get("real_holdout_baseline_pass_rate"),
+        "real_holdout_gain_cases": metrics.get("real_holdout_gain_cases"),
+        "real_holdout_regressions": metrics.get("real_holdout_regressions"),
         "peak_worker_ram_mb": metrics.get("peak_worker_ram_mb"),
         "peak_host_cpu_percent": metrics.get("peak_host_cpu_percent"),
     }
