@@ -73,6 +73,15 @@ def model_status() -> dict:
         return {"state": "unavailable", "model_ram_bytes": None}
 
 
+def interactive_timeout_seconds(cfg) -> float:
+    """Prevent obsolete 8-second VPS config from cutting off Ollama inference.
+
+    The local model may need time to load after keep_alive expires. The browser
+    obtains this effective deadline from the API instead of guessing.
+    """
+    return max(24.0, min(float(cfg.galancito_timeout_seconds), 60.0))
+
+
 def generate_local_text(instructions: str, data: str,
                         max_chars: int = 550) -> str:
     """Synchronous bounded chat with a single small model, no external APIs."""
@@ -128,7 +137,7 @@ def _generate(instructions, data, max_chars, cfg, *, url=None, seed=None, allow_
     started = time.perf_counter()
     record_model_attempt(external=False)
     try:
-        with _opener.open(request, timeout=120 if allow_training else min(cfg.galancito_timeout_seconds, 8 if cfg.galancito_local_model == MODEL else 60)) as response:
+        with _opener.open(request, timeout=120 if allow_training else interactive_timeout_seconds(cfg)) as response:
             result = json.loads(response.read(100000).decode("utf-8"))
     except (HTTPError, URLError, TimeoutError, OSError, ValueError):
         # No incluir mensajes de trabajadores, secretos o direcciones internas en logs.
