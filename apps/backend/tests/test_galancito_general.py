@@ -12,6 +12,9 @@ def test_unified_route_classifies_greetings_and_general_help():
     assert general_intent("¿Cómo gestionar la documentación mensual?") == "advice"
     assert general_intent("¿Qué es el control de asistencia?") == "advice"
     assert general_intent("¿Qué significa una evaluación?") == "advice"
+    assert general_intent("Explícame el programa para supervisores") == "advice"
+    assert general_intent("¿Qué significa conversión comercial?") == "advice"
+    assert general_intent("¿Cuánta RAM tiene el VPS?") == "verified"
     assert general_intent("¿Cómo puedo mejorar el seguimiento de candidatos?") == "advice"
     assert is_complex("Analiza los riesgos y compara estrategias de coordinación")
     assert not is_complex("Hola")
@@ -278,3 +281,14 @@ def test_legacy_simple_intents_do_not_sync_external_services(network, monkeypatc
         })
         assert result.status_code == 200, result.text
         assert result.json()["source"] == "local"
+
+
+def test_internal_legacy_intents_do_not_misread_program_or_conversion(network):
+    n = network
+    for question in ("Explícame un programa de actividades",
+                     "¿Qué significa conversión de candidatos?"):
+        reply = n["send"](n["admin"], "/galancito/chat", {
+            "area": "interno", "message": question,
+        })
+        assert reply.status_code == 200, reply.text
+        assert reply.json()["intent"] not in {"metrics", "version"}
