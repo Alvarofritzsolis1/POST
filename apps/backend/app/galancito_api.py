@@ -27,8 +27,8 @@ from .network_models import (NetworkRequirement, NetworkCapacity, NetworkCoordin
 from .security import authorized_user
 from .galancito_triage import analyze, quick_reply, private_data, plain
 from .galancito_knowledge import retrieve, exact_answer, evidence_context, public_sources
-from .galancito_local import (last_timings, model_status, generate_local_text,
-                              interactive_timeout_seconds)
+from .galancito_local import (last_timings, model_status, installed_model_status,
+                              generate_local_text, interactive_timeout_seconds)
 from .galancito_runtime import infer, record_run
 from .galancito_internal_live import internal_reply
 from .galancito_general import QWEN_4B, external_safe, is_complex, needs_public_web
@@ -210,7 +210,8 @@ def galancito_status(user: User = Depends(authorized_user), db: Session = Depend
             "general_model": QWEN_4B,
             "general_model_ready": (cfg.galancito_local_ai_enabled and
                                     cfg.galancito_local_model == QWEN_4B and
-                                    local_status.get("state") == "available"),
+                                    local_status.get("state") == "available" and
+                                    local_status.get("loaded") is True),
             "complex_api_available": external_ready(db, user),
             "reply_timeout_seconds": int(interactive_timeout_seconds(cfg) + 12),
             "external_ai_available": (team_available if selected_team else
@@ -227,46 +228,72 @@ def galancito_status(user: User = Depends(authorized_user), db: Session = Depend
 @router.post("/diagnostic")
 def diagnose_local_model(user: User = Depends(authorized_user),
                          db: Session = Depends(get_db)):
-    """Administrator-initiated live Ollama probe with no user/business data.
+    """Read-only live Ollama diagnostic: installation, actual model and inference.
 
-    Unlike /status, this endpoint actually runs inference. It neither changes
-    application records nor exposes model text, credentials or raw exceptions.
+    A configured model name or HTTP 200 alone is NOT proof of a real Qwen4B
+    response. We check the Ollama model registry, run inference, then require
+    the exact model reported by Ollama itself. Never returns model text.
     """
     if user.role != "admin":
         raise HTTPException(403, "Solo administración puede probar el modelo local")
     cfg = settings()
+    configured = cfg.galancito_local_model
+    base = {"configured_model": configured, "expected_model": QWEN_4B}
     if not cfg.galancito_local_ai_enabled:
-        return {"status": "not_configured", "responsive": False,
-                "message": "El modelo local no está habilitado en este servidor."}
-    if cfg.galancito_local_model != QWEN_4B:
-        return {"status": "wrong_model", "responsive": False,
-                "message": "Galancito General requiere Qwen3.5 4B. El servidor usa otro modelo; no se ejecutó una prueba de 4B."}
+        return {**base, "status": "not_configured", "responsive": False,
+                "installed": None, "loaded": False,
+                "message": "Ollama no está habilitado en la configuración del servidor."}
+    if configured != QWEN_4B:
+        return {**base, "status": "wrong_model", "responsive": False,
+                "installed": None, "loaded": False,
+                "message": "GALANT está configurado con otro modelo, no con Qwen3.5 4B."}
+
+    # /api/show returns 404 for an absent model and does not pull/install it.
+    installed = installed_model_status(QWEN_4B)
+    if installed is False:
+        return {**base, "status": "not_installed", "responsive": False,
+                "installed": False, "loaded": False,
+                "message": "Qwen3.5 4B no está instalado en el servicio Ollama."}
+
     started = perf_counter()
+    reported = None
     try:
         response = infer(db, lambda: generate_local_text(
             "Prueba técnica sin datos de usuarios. Responde solo la palabra OK.",
             "Escribe OK.", max_chars=80))
-        responsive = isinstance(response, str) and response.strip().casefold().strip(".!¡ ") in {
+        reported = last_timings.get().get("response_model")
+        correct = isinstance(response, str) and response.strip().casefold().strip(".!¡ ") in {
             "ok", "listo"}
-        status = "ok" if responsive else "invalid_response"
+        matched = reported == QWEN_4B
+        responsive = bool(correct and matched)
+        status = ("ok" if responsive else
+                  "wrong_response_model" if reported and not matched else
+                  "model_identity_unverified" if correct and not reported else
+                  "invalid_response")
     except (RuntimeError, TimeoutError, OSError, ValueError) as exc:
         responsive = False
-        status = "busy" if "ocupado" in str(exc).lower() or "memoria" in str(exc).lower() else "unavailable"
+        status = ("busy" if "ocupado" in str(exc).lower() or
+                  "memoria" in str(exc).lower() else "unavailable")
     elapsed = round((perf_counter() - started) * 1000)
-    # No transcript is stored; the event contains resource-neutral timings only.
+    # /api/ps is a status check, not proof of a correct model; the chat probe is.
+    loaded = model_status().get("loaded") is True
     run = record_run(db, org_id=user.org_id, user_id=user.id, channel="galant_diagnostic",
                      source="local" if responsive else "unavailable",
                      intent="ollama_probe", started=started,
                      timings=last_timings.get())
     db.commit()
     messages = {
-        "ok": "Ollama respondió a una pregunta de prueba.",
+        "ok": "Qwen3.5 4B respondió correctamente y su identidad coincide.",
         "busy": "El modelo está ocupado o el servidor necesita liberar memoria.",
-        "unavailable": "Ollama no respondió; revisa sus recursos y conectividad.",
-        "invalid_response": "Ollama respondió, pero no superó la prueba de contenido.",
+        "unavailable": "Ollama no respondió; revisa recursos y conectividad.",
+        "invalid_response": "Ollama devolvió una respuesta que no superó la comprobación.",
+        "wrong_response_model": "Ollama respondió usando un modelo distinto a Qwen3.5 4B.",
+        "model_identity_unverified": "Ollama respondió, pero no informó qué modelo utilizó.",
     }
-    return {"status": status, "responsive": responsive, "elapsed_ms": elapsed,
-            "message": messages[status], "run_id": run.id}
+    return {**base, "status": status, "responsive": responsive,
+            "installed": installed if installed is not None else (True if responsive else None),
+            "loaded": loaded, "response_model": reported,
+            "elapsed_ms": elapsed, "message": messages[status], "run_id": run.id}
 
 
 @router.get("/conversations")

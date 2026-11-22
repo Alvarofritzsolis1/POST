@@ -1,5 +1,5 @@
 import { useEffect, useState } from "react";
-import { ArrowLeft, UserRound, Users, Building2, FileCheck2, SlidersHorizontal, Settings2, History, ChevronRight } from "lucide-react";
+import { ArrowLeft, UserRound, Users, Building2, FileCheck2, SlidersHorizontal, History, ChevronRight } from "lucide-react";
 import CatalogEditor from "./CatalogEditor";
 import { read, send, type OrgProfile, type Preferences } from "./platformApi";
 import type { Site } from "./opsApi";
@@ -12,14 +12,12 @@ export default function Settings({
   sites,
   onPreferences,
   onOpenConfiguration,
-  onOpenAutomation,
   onBack,
 }: {
   admin: boolean;
   sites: Site[];
   onPreferences: (p: Preferences) => void;
   onOpenConfiguration?: (section?: string) => void;
-  onOpenAutomation?: () => void;
   onBack: () => void;
 }) {
   const [view, setView] = useState<SettingsView>("home");
@@ -124,10 +122,6 @@ export default function Settings({
         {admin && onOpenConfiguration && <button type="button" className="settings-category" onClick={() => onOpenConfiguration("documentos")}>
           <span className="settings-category-icon"><FileCheck2 size={22} /></span><strong>Exigencias documentales</strong>
           <small>Obras, contratistas, periodos y requisitos</small><ChevronRight size={18} className="settings-category-arrow" />
-        </button>}
-        {admin && onOpenAutomation && <button type="button" className="settings-category" onClick={onOpenAutomation}>
-          <span className="settings-category-icon"><Settings2 size={22} /></span><strong>Automatizaciones</strong>
-          <small>Configuración de procesos de JAVIERA</small><ChevronRight size={18} className="settings-category-arrow" />
         </button>}
         {admin && onOpenConfiguration && <button type="button" className="settings-category settings-category-advanced" onClick={() => onOpenConfiguration("auditoria")}>
           <span className="settings-category-icon"><History size={22} /></span><strong>Auditoría documental</strong>

@@ -1291,7 +1291,6 @@ function App() {
               sites={sites}
               onPreferences={applyPreferences}
               onOpenConfiguration={(destination) => go("configuration", destination)}
-              onOpenAutomation={() => go("javiera_config")}
               onBack={() => go(settingsReturnRef.current)}
             />
           )}

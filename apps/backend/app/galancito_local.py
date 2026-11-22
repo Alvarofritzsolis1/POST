@@ -73,6 +73,28 @@ def model_status() -> dict:
         return {"state": "unavailable", "model_ram_bytes": None}
 
 
+def installed_model_status(model: str) -> bool | None:
+    """Read-only exact Ollama /api/show verification, never downloads a model.
+
+    False means the requested model was not found. None means no reliable
+    answer (server unreachable, timeout, malformed response); callers must
+    never report installation as confirmed on that basis.
+    """
+    request = Request(
+        INTERNAL_URL.replace("/api/chat", "/api/show"),
+        data=json.dumps({"model": model}).encode("utf-8"),
+        method="POST", headers={"Content-Type": "application/json"},
+    )
+    try:
+        with _opener.open(request, timeout=3) as response:
+            info = json.loads(response.read(50000))
+        return bool(isinstance(info, dict) and
+                    (info.get("model_info") or info.get("details") or info.get("modelfile")))
+    except HTTPError as exc:
+        return False if exc.code == 404 else None
+    except (URLError, TimeoutError, OSError, ValueError, TypeError):
+        return None
+
 def interactive_timeout_seconds(cfg) -> float:
     """Prevent obsolete 8-second VPS config from cutting off Ollama inference.
 
@@ -151,11 +173,13 @@ def _generate(instructions, data, max_chars, cfg, *, url=None, seed=None, allow_
     # Ollama's durations are nanoseconds; transport is a residual, not a claim
     # of independently measured server queue time.
     elapsed = (time.perf_counter() - started) * 1000
+    reported_model = result.get("model")
     last_timings.set({**last_timings.get(), "load_ms": ms("load_duration"), "prompt_ms": ms("prompt_eval_duration"),
                       "generation_ms": ms("eval_duration"), "ollama_total_ms": ms("total_duration"),
                       "transport_ms": max(0, elapsed - ms("total_duration")), "queue_ms": 0,
                       "eval_count": result.get("eval_count", 0),
-                      "reasoning_enabled": bool(thinking)})
+                      "reasoning_enabled": bool(thinking),
+                      "response_model": reported_model if isinstance(reported_model, str) else None})
     record_model_tokens(result.get("prompt_eval_count"), result.get("eval_count"))
     msg = result.get("message")
     content = msg.get("content") if isinstance(msg, dict) else None
