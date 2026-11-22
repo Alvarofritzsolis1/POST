@@ -128,7 +128,7 @@ def safe_generated(text: str | None, *, question: str = "") -> str | None:
     clean = text.strip()[:1200]
     # A procedural list (1. Revisar, 2. Comparar) is not an invented KPI.
     # Normalize its step numbering before enforcing the numeric grounding rule.
-    clean = re.sub(r"(?m)^\\s*\\d{1,2}[.)]\\s+", "- ", clean)
+    clean = re.sub(r"(?m)^\s*\d{1,2}[.)]\s+", "- ", clean)
     if private_data(clean):
         return None
     if re.search(
