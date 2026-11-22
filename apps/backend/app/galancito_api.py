@@ -31,6 +31,8 @@ from .galancito_local import (last_timings, model_status, generate_local_text,
                               interactive_timeout_seconds)
 from .galancito_runtime import infer, record_run
 from .galancito_internal_live import internal_reply
+from .galancito_general import QWEN_4B
+from .galancito_general_runtime import general_answer, external_ready
 from .galancito_web import WebSearchUnavailable, public_search, format_public_search, web_available
 from .galancito_reports import MIME_TYPES, SUPPORTED_REPORTS, internal_report, export_internal_report
 from . import galancito_internal_history as saved_history
@@ -76,7 +78,7 @@ class ContextTurn(BaseModel):
 
 class ChatInput(BaseModel):
     message: str = Field(min_length=2, max_length=800)
-    area: Literal["red_obras", "interno"] = "red_obras"
+    area: Literal["red_obras", "interno", "general"] = "general"
     allow_external_ai: bool = False
     allow_web: bool = False
     allow_local_analysis: bool = False
@@ -203,6 +205,10 @@ def galancito_status(user: User = Depends(authorized_user), db: Session = Depend
     return {"name": "Galancito",
             "local_ai_available": available and cfg.galancito_ai_provider == "ollama",
             "local_model_status": local_state,
+            "general_chat_available": user.role in {"admin", "resident"},
+            "general_model": QWEN_4B,
+            "general_model_ready": cfg.galancito_local_ai_enabled and cfg.galancito_local_model == QWEN_4B,
+            "complex_api_available": external_ready(db, user),
             "reply_timeout_seconds": int(interactive_timeout_seconds(cfg) + 12),
             "external_ai_available": (team_available if selected_team else
                                       available and cfg.galancito_ai_provider == "openai"),
@@ -319,7 +325,7 @@ def galancito_report(body: ReportRequest, user: User = Depends(authorized_user),
 def galancito_chat(body: ChatInput, user: User = Depends(authorized_user),
                    db: Session = Depends(get_db)):
     started = perf_counter()
-    if body.area == "interno":
+    if body.area in {"interno", "general"}:
         if user.role not in {"admin", "resident"}:
             raise HTTPException(403, "Perfil sin acceso a Galancito Interno")
         # Only previous user prompts are used to resolve an ellipsis ("¿y cuáles?").
@@ -332,6 +338,12 @@ def galancito_chat(body: ChatInput, user: User = Depends(authorized_user),
                 raise HTTPException(404, "Conversación no encontrada")
         else:
             user_context = [turn.text for turn in body.history if turn.role == "user"]
+        general_source = None
+        external_used = False
+        if body.area == "general" and not body.allow_web:
+            answer, intent, general_source, external_used = general_answer(
+                db, user, body.message.strip(), user_context,
+                allow_external=body.allow_external_ai)
         if body.allow_web:
             try:
                 # User consent is necessary, but does not authorize leaking
@@ -349,11 +361,13 @@ def galancito_chat(body: ChatInput, user: User = Depends(authorized_user),
                 answer, intent, source = format_public_search(results), "external_web", "public_web"
             except WebSearchUnavailable as exc:
                 answer, intent, source = str(exc), "external_unavailable", "local"
+        elif general_source is not None:
+            source = general_source
         else:
             answer, intent = internal_reply(db, user, body.message.strip(), user_context)
             source = "verified_local"
         analysis_generated = False
-        if body.allow_local_analysis and not body.allow_web and source == "verified_local":
+        if body.area == "interno" and body.allow_local_analysis and not body.allow_web and source == "verified_local":
             advice = local_advice(db, question=body.message.strip(), facts=answer, intent=intent)
             if advice:
                 answer += "\n\nSugerencia orientativa de IA local (no verificada): " + advice
@@ -377,6 +391,7 @@ def galancito_chat(body: ChatInput, user: User = Depends(authorized_user),
                 "intent": intent, "reportable": source == "verified_local" and intent in SUPPORTED_REPORTS,
                 "conversation_id": conversation_id, "history_saved": history_saved,
                 "analysis_generated": analysis_generated,
+                "external_used": external_used,
                 "notice": history_notice}
     text = body.message.strip()
     if not text:
