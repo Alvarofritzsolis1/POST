@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState, type FormEvent } from "react";
-import { Bot, MessageCircle, Send, Sparkles, X, Maximize2, Minimize2, RotateCcw, Download } from "lucide-react";
+import { Bot, MessageCircle, Send, ShieldCheck, Sparkles, X, Maximize2, Minimize2, RotateCcw, Download } from "lucide-react";
 import { ApiError, request, downloadInternalReport, deleteInternalConversation } from "./api";
 import { change, net } from "./networkApi";
 import "./galancito.css";
@@ -12,8 +12,10 @@ type Status = { name: string; local_ai_available: boolean; external_ai_available
 type SavedConversation = {id:string;title:string;updated_at:string;expires_at:string;turns:number};
 type SavedTurn = {role:"user"|"assistant";text:string;run_id?:string;reportable?:boolean;question?:string};
 const EXAMPLES = [
-  "¿Qué necesidades están pendientes?",
-  "¿Cómo mejorar el seguimiento de contratistas?",
+  "¿Qué publicaciones siguen pendientes?",
+  "¿Cómo mejorar el seguimiento de candidatos?",
+  "Haz un resumen de las necesidades de las obras",
+  "¿Qué versión tenemos y cómo está el VPS?",
 ];
 
 export default function GalancitoWidget() {
@@ -23,6 +25,23 @@ export default function GalancitoWidget() {
   const [message, setMessage] = useState("");
   const [history, setHistory] = useState<ChatLine[]>([]);
   const [status, setStatus] = useState<Status | null>(null);
+  const [probing, setProbing] = useState(false);
+  const [probeNotice, setProbeNotice] = useState("");
+  async function testModel() {
+    if (probing || busy) return;
+    setProbing(true); setProbeNotice("");
+    try {
+      const result = await request<{status:string;responsive:boolean;message:string;elapsed_ms?:number}>(
+        "/network/galancito/diagnostic", {method:"POST", body:"{}"});
+      setProbeNotice(result.message +
+        (typeof result.elapsed_ms === "number" ? " (" + (result.elapsed_ms / 1000).toFixed(1) + " s)" : ""));
+      const updated = await net<Status>("/galancito/status");
+      setStatus(updated);
+    } catch (err) {
+      setProbeNotice(err instanceof ApiError ? "Error HTTP " + err.status + " al probar Ollama." :
+        "No se pudo completar la comprobación del modelo.");
+    } finally { setProbing(false); }
+  }
   const [webConsent, setWebConsent] = useState(false);
   const [saveMemory, setSaveMemory] = useState(false);
   const [conversationId, setConversationId] = useState<string | null>(null);
@@ -166,7 +185,7 @@ export default function GalancitoWidget() {
     {open && <section className="galancito-panel" role="dialog" aria-label="Galancito, asistente virtual" aria-modal="false">
       <header className="galancito-header">
         <div className="galancito-bot-icon"><Bot size={22}/></div>
-        <div><strong>Galancito</strong><small>Consulta y orientación en GALANT</small></div>
+        <div><strong>Galancito</strong><small>Asistente general de GALANT · solo lectura</small></div>
         <button className="galancito-close" type="button" onClick={() => setExpanded(value => !value)}
           aria-label={expanded ? "Reducir chat" : "Expandir chat"} title={expanded ? "Reducir" : "Pantalla completa"}>
           {expanded ? <Minimize2 size={18}/> : <Maximize2 size={18}/>}
@@ -176,7 +195,7 @@ export default function GalancitoWidget() {
           title="Nueva conversación" aria-label="Nueva conversación"><RotateCcw size={16}/></button>
         <button className="galancito-close" type="button" onClick={() => setOpen(false)} aria-label="Cerrar Galancito"><X size={19}/></button>
       </header>
-      {status?.internal_available && <details className="galancito-memory"><summary>Historial y memoria</summary><div className="galancito-memory-controls">
+      {status?.internal_available && <div className="galancito-memory">
         <label><input type="checkbox" checked={saveMemory} disabled={busy || memoryBusy}
           onChange={e=>{ setSaveMemory(e.target.checked); if(!e.target.checked) setConversationId(null); }} />
           Guardar conversación (30 días, sin consultas sensibles)
@@ -194,29 +213,28 @@ export default function GalancitoWidget() {
               onClick={()=>void eraseSaved(saved.id)}>Eliminar</button>
           </div>)}
         </div>}
-      </div></details>}
+      </div>}
       <div className="galancito-history" role="log" aria-label="Conversación con Galancito" aria-live="polite">
         {!history.length && <div className="galancito-greeting">
           <MessageCircle size={24}/>
-          <b>¿En qué te ayudo?</b>
+          <b>¡Hola! Soy Galancito.</b>
+          <p>Consulto información autorizada de GALANT y puedo ayudarte con informes, publicaciones, seguimiento y dudas generales.</p>
           <div className="galancito-examples">{EXAMPLES.map(x =>
             <button type="button" key={x} onClick={() => askExample(x)}>{x}</button>)}</div>
         </div>}
         {history.map((entry,i) => <div key={i} className={"galancito-bubble " + entry.role}>
           <span>{entry.role === "assistant" ? "Galancito" : "Tú"}</span>
           <p>{entry.text}</p>
-          {entry.role === "assistant" && entry.source && ({
-            verified_local: "Datos verificados",
-            verified_reasoning: "Datos verificados y análisis de IA",
-            public_web: "Fuentes públicas",
-            external_api: "IA externa",
-          } as Record<string,string>)[entry.source] &&
-          <small className="galancito-source">{({
-            verified_local: "Datos verificados",
-            verified_reasoning: "Datos verificados y análisis de IA",
-            public_web: "Fuentes públicas",
-            external_api: "IA externa",
-          } as Record<string,string>)[entry.source]}</small>}
+          {entry.role === "assistant" && entry.source && <small className="galancito-source">
+            {({
+              verified_local: "Datos comprobados de GALANT",
+              ollama_4b: "Orientación de Qwen3.5 4B",
+              external_api: "Análisis de API externa",
+              public_web: "Búsqueda pública",
+              local: "Respuesta directa",
+              fallback: "Orientación básica sin modelo",
+            } as Record<string,string>)[entry.source] || "Respuesta de Galancito"}
+          </small>}
           {entry.reportable && entry.question && <details className="galancito-export">
             <summary><Download size={14}/> Exportar informe</summary>
             <div className="galancito-export-options">
@@ -237,14 +255,26 @@ export default function GalancitoWidget() {
         <div ref={end}/>
       </div>
       <form className="galancito-compose" onSubmit={(e) => void send(e)}>
-        {status?.web_available && <details className="galancito-options">
-          <summary>Opciones de consulta</summary>
-          <label className="galancito-privacy">
-            <input type="checkbox" checked={webConsent} disabled={busy}
-              onChange={e => setWebConsent(e.target.checked)} />
-            Buscar en internet cuando se necesiten datos públicos actuales
-          </label>
-        </details>}
+        {status?.can_teach && <div className="galancito-health" role="group" aria-label="Diagnóstico de Ollama">
+          <span>Ollama: {({
+            running:"cargado", connected:"conectado, sin modelo cargado",
+            unavailable:"sin conexión", not_configured:"no habilitado",
+          } as const)[status.local_model_status ?? "not_configured"]}</span>
+          <button type="button" onClick={() => void testModel()}
+            disabled={busy || probing || !status.local_ai_available}>
+            {probing ? "Comprobando…" : "Probar respuesta"}
+          </button>
+          {probeNotice && <small role="status">{probeNotice}</small>}
+        </div>}
+        {status?.complex_api_available && <small className="galancito-auto-routing">
+          Enrutamiento automático: Ollama para consultas habituales y API autorizada solo para análisis complejos sin datos privados.
+        </small>}
+        {status?.web_available && <label className="galancito-privacy">
+          <input type="checkbox" checked={webConsent} disabled={busy}
+            onChange={e => setWebConsent(e.target.checked)} />
+          <span>Autorizar internet cuando la pregunta necesite datos públicos actuales</span>
+        </label>}
+        <small>{status?.general_model_ready ? "Qwen3.5 4B configurado. Comprueba su respuesta desde administración; los datos reales se consultan con permisos." : "Qwen3.5 4B no está activado en el servidor. Las consultas verificables siguen disponibles."} No compartas claves ni documentos personales.</small>
         <div className="galancito-input-row">
           <input aria-label="Escribe tu pregunta a Galancito" value={message}
             onChange={(e) => setMessage(e.target.value)}
@@ -255,6 +285,7 @@ export default function GalancitoWidget() {
           {lastFailed && <button type="button" className="galancito-retry"
             onClick={() => { setMessage(lastFailed); setError(""); }}><RotateCcw size={14}/> Recuperar pregunta</button>}
         </div>}
+        <div className="galancito-safety"><ShieldCheck size={13}/> Solo orienta, no modifica registros.</div>
       </form>
     </section>}
   </aside>;
