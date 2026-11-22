@@ -50,6 +50,7 @@ from .network_files import router as network_files_router
 from .ine_api import router as ine_router
 from .configuration_api import router as configuration_router
 from .ai_configuration_api import router as ai_configuration_router
+from .ai_quality_audit import router as ai_quality_audit_router
 from .javiera_api import router as javiera_router
 from .javiera_v166_api import router as javiera_v166_router
 from .javiera_v17_api import router as javiera_v17_router
@@ -66,6 +67,7 @@ from .javiera_workbook_api import router as javiera_workbook_router
 app = FastAPI(title="GALANT POST — Document Intelligence", version=VERSION, docs_url=None, redoc_url=None)
 app.include_router(configuration_router)
 app.include_router(ai_configuration_router)
+app.include_router(ai_quality_audit_router
 app.include_router(javiera_router)
 app.include_router(javiera_v166_router)
 app.include_router(javiera_v17_router)
