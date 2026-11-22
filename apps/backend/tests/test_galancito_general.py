@@ -15,6 +15,8 @@ def test_unified_route_classifies_greetings_and_general_help():
     assert general_intent("Explícame el programa para supervisores") == "advice"
     assert general_intent("¿Qué significa conversión comercial?") == "advice"
     assert general_intent("¿Cuánta RAM tiene el VPS?") == "verified"
+    assert general_intent("Hola, equipo de Control de Contratistas: ¿cómo podemos mejorar la coordinación?") == "advice"
+    assert general_intent("Hola, mi equipo está aquí. ¿En qué nos puedes ayudar?") == "advice"
     assert general_intent("¿Cómo puedo mejorar el seguimiento de candidatos?") == "advice"
     assert is_complex("Analiza los riesgos y compara estrategias de coordinación")
     assert not is_complex("Hola")
@@ -322,6 +324,7 @@ def test_social_context_never_swallow_authorized_operational_question():
     assert social_reply("Hola equipo, ¿cuántas necesidades siguen pendientes?") is None
     assert social_reply("Hola, con mi equipo estamos reunidos: revisa los contratistas") is None
     assert social_reply("Hola, equipo, mi RUT es 12.345.678-5") is None
+    assert social_reply("Hola, equipo de control de contratistas, ¿cómo podemos mejorar?") is None
     assert social_reply("Hola, soy trabajador por mi cuenta") is None
 
 
@@ -371,3 +374,26 @@ def test_automatic_web_requires_session_authorization_and_remains_private(networ
     assert private.json()["source"] == "local"
     assert queries == [question]
     assert "datos internos de GALANT" in private.json()["answer"]
+
+
+def test_group_followup_is_sent_to_local_4b_with_prior_context(network, monkeypatch):
+    n = network
+    prompts = []
+    monkeypatch.setattr("app.galancito_general_runtime.settings", lambda: SimpleNamespace(
+        galancito_local_ai_enabled=True, galancito_local_model=QWEN_4B,
+    ))
+    monkeypatch.setattr("app.galancito_general_runtime.infer",
+                        lambda _db, fn, **_kwargs: fn())
+    monkeypatch.setattr("app.galancito_general_runtime.generate_local_text",
+                        lambda _instructions, prompt, **_kwargs:
+                        prompts.append(prompt) or "Pueden revisar primero el estado documental.")
+    reply = n["send"](n["admin"], "/galancito/chat", {
+        "area": "general", "message": "¿En qué nos puedes ayudar?",
+        "history": [{"role": "user", "text":
+                     "Hola Galancito, te estamos viendo con mi equipo de Control de Contratistas"}],
+    })
+    assert reply.status_code == 200, reply.text
+    assert reply.json()["source"] == "ollama_4b"
+    assert len(prompts) == 1
+    assert "equipo de Control de Contratistas" in prompts[0]
+    assert "¿En qué nos puedes ayudar?" in prompts[0]
