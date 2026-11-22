@@ -140,3 +140,35 @@ def test_general_rejects_private_business_context_before_external_routing():
     ):
         assert not external_safe(message)
     assert external_safe("Compara estrategias de coordinación en la construcción chilena")
+
+
+def test_general_web_search_refuses_internal_business_context(network, monkeypatch):
+    """Web search must apply the same privacy filter as external inference."""
+    n = network
+    sent = []
+    monkeypatch.setattr("app.galancito_api.public_search",
+                        lambda query: sent.append(query) or {
+                            "searched_at": "2026-11-22T00:00:00+00:00",
+                            "results": [{"title": "Fuente pública", "snippet": "Guía",
+                                         "url": "https://www.ejemplo.cl/guia"}],
+                        })
+    for query in (
+        "Investiga nuestras publicaciones en GALANT",
+        "Analiza estrategias de Brisas de Junquillar",
+        "Compara documentos de nuestros contratistas",
+    ):
+        response = n["send"](n["admin"], "/galancito/chat", {
+            "area": "general", "message": query, "allow_web": True,
+        })
+        assert response.status_code == 200, response.text
+        assert response.json()["source"] == "local"
+        assert "datos internos de GALANT" in response.json()["answer"]
+    assert sent == []
+
+    response = n["send"](n["admin"], "/galancito/chat", {
+        "area": "general", "message": "Guía pública de seguridad en construcción Chile",
+        "allow_web": True,
+    })
+    assert response.status_code == 200, response.text
+    assert response.json()["source"] == "public_web"
+    assert sent == ["Guía pública de seguridad en construcción Chile"]
