@@ -56,7 +56,7 @@ def general_answer(db: Session, user, message: str,
                     instructions=GENERAL_INSTRUCTIONS,
                     prompt="Consulta general, no contiene datos de GALANT:\n" + message[:650],
                     max_output_tokens=300), org_id=user.org_id)
-                answer = safe_generated(generated)
+                answer = safe_generated(generated, question=message)
                 if answer:
                     return answer, "general_advice", "external_api", True
             except (AIServiceError, RuntimeError, OSError, TimeoutError):
@@ -70,7 +70,7 @@ def general_answer(db: Session, user, message: str,
                 GENERAL_INSTRUCTIONS,
                 "Pregunta del usuario (sin registros privados):\n" + message[:950],
                 max_chars=1100))
-            answer = safe_generated(generated)
+            answer = safe_generated(generated, question=message)
             if answer:
                 return answer, "general_advice", "ollama_4b", False
         except (RuntimeError, TimeoutError, OSError, ValueError):
