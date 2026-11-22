@@ -31,8 +31,8 @@ from .galancito_local import (last_timings, model_status, generate_local_text,
                               interactive_timeout_seconds)
 from .galancito_runtime import infer, record_run
 from .galancito_internal_live import internal_reply
-from .galancito_general import QWEN_4B
-from .galancito_general_runtime import general_answer, external_ready
+from .galancito_general import QWEN_4B, external_safe
+from .galancito_general_runtime import general_answer, external_ready, internal_names_for_privacy
 from .galancito_web import WebSearchUnavailable, public_search, format_public_search, web_available
 from .galancito_reports import MIME_TYPES, SUPPORTED_REPORTS, internal_report, export_internal_report
 from . import galancito_internal_history as saved_history
@@ -353,15 +353,12 @@ def galancito_chat(body: ChatInput, user: User = Depends(authorized_user),
             try:
                 # User consent is necessary, but does not authorize leaking
                 # private GALANT worksite/contractor names to an external provider.
-                normalized_query = key(body.message)
-                for model in (Worksite, Contractor):
-                    private_names = db.scalars(
-                        select(model.name).where(model.org_id == user.org_id).limit(1000))
-                    if any(len(key(name)) >= 11 and key(name) in normalized_query
-                           for name in private_names):
-                        raise WebSearchUnavailable(
-                            "La consulta incluye el nombre de una obra o contratista registrado. "
-                            "Reformula la búsqueda sin datos internos de GALANT.")
+                if not external_safe(
+                    body.message, internal_names=internal_names_for_privacy(db, user)
+                ):
+                    raise WebSearchUnavailable(
+                        "La consulta puede contener datos internos de GALANT o información "
+                        "privada. Reformula la pregunta usando solo información pública.")
                 results = public_search(body.message)
                 answer, intent, source = format_public_search(results), "external_web", "public_web"
             except WebSearchUnavailable as exc:
