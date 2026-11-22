@@ -1,4 +1,4 @@
-# GALANT 20.9.14-rc1 — Galancito Interno 360° (candidata)
+# GALANT 20.9.14-rc2 — Galancito Interno 360° (candidata)
 
 ## Alcance real
 - Dos perfiles separados: Galancito Postulantes y Galancito Interno de solo lectura.
@@ -39,3 +39,12 @@ Una ronda de simulación **no reentrena los pesos del modelo**, no convierte aut
 - Clasificación y análisis automatizado de todos los comentarios de Meta.
 - Autoaprendizaje/fine-tuning con 40 épocas de pesos reales.
 - Verificación en producción del proveedor de búsqueda web y monitorización sostenida de latencia.
+
+## Cambios adicionales en 20.9.14-rc2
+- Conversaciones internas guardadas por usuario y organización **solo con consentimiento explícito**. La opción está desactivada por defecto; el usuario puede restaurar y eliminar sus propias conversaciones. Retención de 30 días y 16 turnos recientes por conversación.
+- Se rechaza el almacenamiento de datos personales detectables y de contextos críticos (fichas de candidatos, documentos, contratos y datos sensibles).
+- Sugerencias de próximos pasos mediante **Ollama local** únicamente cuando el modelo ya está cargado, a petición explícita del usuario. Los datos consultados y verificados permanecen separados de la sugerencia generada.
+- La nueva tabla se crea por una **migración aditiva** registrada en `migrate-db` e `init-db`; requiere el flujo habitual de respaldo verificado antes de desplegar.
+- Las pruebas automatizadas verifican aislamiento, retención, borrado, filtrado y protección contra alucinaciones numéricas.
+
+**No equivale a un agente autónomo universal ni demuestra aprendizaje de pesos o uso real de Brave sin credenciales.**
