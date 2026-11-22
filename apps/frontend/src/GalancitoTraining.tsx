@@ -136,7 +136,9 @@ export default function GalancitoTraining({ back }: { back: () => void }) {
     (active && (active.config.profile ?? "postulantes") === form.profile ? active : undefined) ?? history[0];
   const comparison = data?.rounds.find(item => item.id === round?.previous_id);
   const stats = round?.metrics;
-  const sameEvaluation = round?.config.evaluation_version === comparison?.config.evaluation_version &&
+  const sameEvaluation = round?.dataset_hash === comparison?.dataset_hash &&
+    round?.config.model.model === comparison?.config.model.model &&
+    round?.config.evaluation_version === comparison?.config.evaluation_version &&
     round?.config.judge.id === comparison?.config.judge.id &&
     round?.config.judge.model === comparison?.config.judge.model &&
     (stats?.dimensions.naturalness == null) === (comparison?.metrics.dimensions.naturalness == null);
@@ -309,8 +311,8 @@ export default function GalancitoTraining({ back }: { back: () => void }) {
             <details className="training-details"><summary>Resultados por ciclo · {Object.keys(stats.cycles).length} registrados</summary>
               <div className="training-cycle-results">
                 {Object.entries(stats.cycles).sort((a,b) => Number(a[0]) - Number(b[0])).map(([cycle, result]) =>
-                  <div key={cycle}><span>Ciclo {cycle}</span>
-                    <strong>{number(result.passed)} correctos / {number(result.passed + result.failed)}</strong>
+                  <div key={cycle}><span>Ciclo {cycle}{result.holdout ? " · prueba reservada" : ""}</span>
+                    <strong>{number(result.passed)} correctos / {number(result.passed + result.failed)}{result.pass_rate != null ? " · " + percent(result.pass_rate) : ""}</strong>
                     <small>{number(result.critical)} alertas críticas</small>
                   </div>)}
               </div>
@@ -325,10 +327,18 @@ export default function GalancitoTraining({ back }: { back: () => void }) {
             <div><dt>{form.profile === "interno" ? "Exactitud factual" : "Exactitud de fichas"}</dt><dd>{percent(form.profile === "interno" ? stats?.dimensions.accuracy : stats?.profile_accuracy)}</dd></div>
             <div><dt>Comprensión del contexto</dt><dd>{percent(stats?.dimensions.context)}</dd></div>
             <div><dt>Naturalidad estimada por IA</dt><dd>{stats?.judged_turns ? percent(stats.dimensions.naturalness) : "Sin revisión IA"}</dd></div>
-            <div><dt>Latencia de simulación por turno</dt><dd>{number(stats?.average_latency_ms)} {stats?.average_latency_ms != null && "ms"}</dd></div>
+            <div><dt>Latencia {round.config.suite === "live" ? "medida del modelo" : "de simulación"} por turno</dt><dd>{number(stats?.average_latency_ms)} {stats?.average_latency_ms != null && "ms"}</dd></div>
             <div><dt>Tokens registrados</dt><dd>{number((stats?.input_tokens ?? 0) + (stats?.output_tokens ?? 0))}</dd></div>
             <div><dt>Costo estimado de API</dt><dd>{price.format(stats?.estimated_cost_usd ?? 0)}</dd></div>
           </dl>
+          {round.config.suite === "live" && <p className="training-muted">
+            Fuente: consultas reales de solo lectura a GALANT, anonimizadas y congeladas al iniciar. Las respuestas son generadas por Ollama con razonamiento privado. No se modificaron pesos del modelo ni datos operativos.
+            {round.config.snapshot_reused && " Esta ronda reutiliza la evidencia real de una ejecución anterior."}
+          </p>}
+          {round.config.suite === "live" && <p className="training-muted">
+            Validación reservada: {percent(stats?.real_holdout_pass_rate)} · Mejora observada sobre referencia: {stats?.real_learning_demonstrated ? "Sí, con prueba reservada aprobada" : "No demostrada aún"}.
+            {stats?.real_coaching?.length ? " Instrucciones corregidas entre ciclos: " + stats.real_coaching.length + "." : " Sin correcciones de instrucciones aún."}
+          </p>}
           {stats?.reply_sources && <p className="training-muted">
             Respuestas por origen · {number(stats.reply_sources.model ?? 0)} IA · {number(stats.reply_sources.rules ?? 0)} reglas · {number(stats.reply_sources.approved_correction ?? 0)} aprobadas · {number(stats.reply_sources.fallback ?? 0)} respaldo
           </p>}
@@ -347,6 +357,11 @@ export default function GalancitoTraining({ back }: { back: () => void }) {
                 await json("/rounds/" + round.id + "/control/stop", null);
               })}><Square size={15} /> Detener</button>
             </>}
+            {round.config.suite === "live" && round.state === "completed" && round.completed === round.target && stats?.real_learning_demonstrated &&
+              <button className="gc-primary" disabled={busy} onClick={() => void perform(async () => {
+                const result = await json<{status:string;version:number}>("/rounds/" + round.id + "/promote-live", null);
+                setNotice("Aprendizaje aprobado para el chat general · versión " + result.version);
+              })}>Aplicar aprendizaje validado al chat</button>}
             <button className="gc-secondary" disabled={!stats?.failed || busy} onClick={() => void perform(() => viewErrors(round.id))}>
               <TriangleAlert size={15} /> Ver errores
             </button>
