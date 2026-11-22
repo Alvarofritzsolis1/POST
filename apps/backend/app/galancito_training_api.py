@@ -197,7 +197,7 @@ def start(db, user, body, *, previous=None, compare_profile=False):
     internal = body.profile == "interno"
     # A new focused synthetic practice should not silently plan an 8-hour
     # session. Explicitly configured longer sessions remain user-controlled.
-    if internal and body.suite == "practice" and "minutes" not in body.model_fields_set:
+    if internal and body.suite in ("practice", "reference", "holdout") and "minutes" not in body.model_fields_set:
         config["minutes"] = 45
     if internal and body.model == "ollama" and settings().galancito_local_model != QWEN_4B:
         raise HTTPException(422, "Galancito General requiere activar y verificar Qwen3.5 4B antes de practicar con Ollama. Puedes usar reglas sintéticas.")
