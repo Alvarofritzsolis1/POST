@@ -374,8 +374,10 @@ def galancito_chat(body: ChatInput, user: User = Depends(authorized_user),
             if advice:
                 answer += "\n\nSugerencia orientativa de IA local (no verificada): " + advice
                 analysis_generated = True
+        # Store timing counters only, never prompts or personal data.
         run = record_run(db, org_id=user.org_id, user_id=user.id, channel="galant_internal",
-                         source=source, intent=intent, started=started)
+                         source=source, intent=intent, started=started,
+                         timings=last_timings.get() if source == "ollama_4b" else None)
         conversation_id, history_notice, history_saved = None, None, False
         if body.save_history:
             try:
