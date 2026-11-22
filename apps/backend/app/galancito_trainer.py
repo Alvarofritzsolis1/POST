@@ -26,7 +26,8 @@ from .galancito_real_learning import (LIVE_DATASET_VERSION, LIVE_EVALUATION_VERS
 from .galancito_internal_training import (
     INTERNAL_DATASET_VERSION, INTERNAL_EVALUATION_VERSION,
     internal_case, evaluate_internal,
-    propose_synthetic_coaching, synthetic_practice_prompt, clean_synthetic_streak,
+    propose_synthetic_coaching, propose_category_coaching,
+    synthetic_practice_prompt, clean_synthetic_streak,
 )
 from .galancito_training_eval import CORRECTOR_PROMPT, EVALUATION_VERSION, JUDGE_PROMPT, PROMPT, evaluate
 from .galancito_training_model import TrainingModel
@@ -314,6 +315,11 @@ def checkpoints(factory, claim, results, snapshot, elapsed):
                 for error, amount in result["errors"].items():
                     per_cycle_errors[error] = per_cycle_errors.get(error, 0) + amount
                 item["errors"] = per_cycle_errors
+                if not result["passed"]:
+                    failed_categories = dict(item.get("failed_categories", {}))
+                    category = result["category"]
+                    failed_categories[category] = failed_categories.get(category, 0) + 1
+                    item["failed_categories"] = failed_categories
                 cycles[cycle] = item
             db.add(TrainingCase(round_id=row.id, position=row.completed, case_id=result["id"],
                                 passed=result["passed"], result=result))
@@ -362,6 +368,11 @@ def checkpoints(factory, claim, results, snapshot, elapsed):
                 cycles[finished_cycle].get("errors", {}), previous)
             metrics["synthetic_coaching"] = proposed
             cycles[finished_cycle]["coaching_proposed_for_next_cycle"] = proposed
+            categories = propose_category_coaching(
+                cycles[finished_cycle].get("failed_categories", {}),
+                metrics.get("synthetic_category_coaching", []))
+            metrics["synthetic_category_coaching"] = categories
+            cycles[finished_cycle]["category_coaching_next_cycle"] = categories
         if row.config.get("suite") == "live":
             metrics["evidence_type"] = "live_database"
         if row.config.get("suite") == "live" and row.completed % row.config["cases"] == 0:
@@ -503,7 +514,10 @@ def process_next(factory=SessionLocal, sampler=None, *, maintenance=False, train
                 fixture = internal_case(row.config, position)
                 coaching = (list(row.metrics.get("synthetic_coaching", []))
                             if row.config.get("suite") == "practice" else [])
-                practice_system = synthetic_practice_prompt(row.config["suite"], coaching)
+                category_coaching = (list(row.metrics.get("synthetic_category_coaching", []))
+                                     if row.config.get("suite") == "practice" else [])
+                practice_system = synthetic_practice_prompt(
+                    row.config["suite"], coaching, category_coaching)
                 timings = []
                 def internal_answer(context):
                     reply = _charge(factory, row, model, practice_system, context,
@@ -522,7 +536,9 @@ def process_next(factory=SessionLocal, sampler=None, *, maintenance=False, train
                 )
                 for turn, timing in zip(result["turns"], timings):
                     turn["ollama_timing"] = timing
-                result["coaching_applied"] = coaching if model["id"] != "guided" else []
+                result["coaching_applied"] = (
+                    coaching + ["category:" + name for name in category_coaching]
+                    if model["id"] != "guided" else [])
                 return result
             def ask(context):
                 instructions = PROMPT
