@@ -59,7 +59,7 @@ class Settings(BaseSettings):
     galancito_num_predict: int = Field(default=140, ge=40, le=140)
     galancito_num_ctx: int = Field(default=2048, ge=1024, le=4096)
     galancito_num_thread: int = Field(default=1, ge=1, le=4)
-    galancito_timeout_seconds: float = Field(default=8, ge=1, le=60)
+    galancito_timeout_seconds: float = Field(default=24, ge=1, le=60)
     galancito_memory_reserve_mb: int = Field(default=1536, ge=512, le=8192)
 
 
