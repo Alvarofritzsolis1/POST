@@ -324,6 +324,12 @@ def checkpoints(factory, claim, results, snapshot, elapsed):
             if result.get("coaching_applied"):
                 metrics["synthetic_coached_cases"] = metrics.get("synthetic_coached_cases", 0) + 1
             for turn in result["turns"]:
+                inferred = turn.get("inference_ms")
+                if type(inferred) in (int, float) and 0 <= inferred <= 1_000_000:
+                    samples = list(metrics.get("inference_samples_ms", []))
+                    samples.append(round(float(inferred), 2))
+                    # Keep storage predictable; this is an explicitly recent window.
+                    metrics["inference_samples_ms"] = samples[-512:]
                 timing = turn.get("ollama_timing", {})
                 if timing:
                     totals = dict(metrics.get("ollama_timing_totals", {}))
