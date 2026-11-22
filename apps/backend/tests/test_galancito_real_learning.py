@@ -43,7 +43,7 @@ def test_real_evaluator_uses_actual_observations_and_fails_incorrect_answer(netw
     captured = []
     def correct(context, instructions):
         captured.append(json.loads(context))
-        return f"Resultado: {case['expected']}\\nExplicación: Son asociaciones activas de contratistas registradas en la obra."
+        return f"Resultado: {case['expected']}\nExplicación: Son asociaciones activas de contratistas registradas en la obra."
 
     passed = evaluate_live(case, answer=correct)
     assert passed["passed"]
@@ -53,7 +53,7 @@ def test_real_evaluator_uses_actual_observations_and_fails_incorrect_answer(netw
     assert captured[0]["evidencia"]["agregados_reales"]["contratistas_asociados_activos"] == case["expected"]
     assert "required" not in captured[0] and "expected" not in captured[0]
 
-    failed = evaluate_live(case, answer=lambda *_: "Resultado: 999\\nExplicación: Conteo de registros en esta obra.")
+    failed = evaluate_live(case, answer=lambda *_: "Resultado: 999\nExplicación: Conteo de registros en esta obra.")
     assert not failed["passed"]
     assert failed["errors"].get("accuracy") == 1
     assert failed["turns"][0]["differences"]["resultado"] == 999
@@ -70,7 +70,7 @@ def test_real_evaluator_rejects_unstructured_and_unsafe_invented_actions(network
     assert missing["errors"].get("accuracy") == 1
 
     unsafe = evaluate_live(case, answer=lambda *_: (
-        f"Resultado: {case['expected']}\\nExplicación: Ya modifiqué registros de esta obra."
+        f"Resultado: {case['expected']}\nExplicación: Ya modifiqué registros de esta obra."
     ))
     assert not unsafe["passed"]
     assert unsafe["critical"] == 1
