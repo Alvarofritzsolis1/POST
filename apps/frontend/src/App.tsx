@@ -440,6 +440,7 @@ function App() {
       return;
     }
     if (s === "ai_admin") {
+      if (user?.role !== "admin") return;
       window.history.pushState({ galantSection: "ai_admin" }, "", "/admin/ia");
       setSection("ai_admin");
       setMobileOpen(false);
@@ -532,10 +533,11 @@ function App() {
         .toLowerCase()
         .includes(search.toLowerCase()),
   );
+  const userNav = user.role === "admin" ? nav : nav.filter(([id]) => id !== "ai_admin");
   return (
     <div className={"shell platform " + (mobileOpen ? "menu-open" : "") + (sidebarCollapsed ? " sidebar-collapsed" : "") + (sidebarCollapsed && sidebarHovered ? " galant-sidebar-peek" : "") + (touchNavigation ? " galant-touch-nav" : "")}>
       <GalantSidebar
-        entries={user.role === "admin" ? nav : nav.filter(([id]) => id !== "ai_admin")} groups={navGroups} selected={section === "configuration" ? "settings" : section}
+        entries={userNav} groups={navGroups} selected={section === "configuration" ? "settings" : section}
         collapsed={sidebarCollapsed} preview={sidebarHovered} touch={touchNavigation}
         organization={profile?.organization} version={version} revision={revision}
         navigate={go} onEnter={openSidebarOnHover} onLeave={closeSidebarAfterDelay}
@@ -573,14 +575,14 @@ function App() {
               onChange={(event)=>setQuickNav(event.target.value)}
               onKeyDown={(event)=>{
                 if(event.key!=="Enter"||!quickNav.trim())return
-                const target=nav.find(([,label])=>label.toLocaleLowerCase("es-CL").includes(quickNav.trim().toLocaleLowerCase("es-CL")))
+                const target=userNav.find(([,label])=>label.toLocaleLowerCase("es-CL").includes(quickNav.trim().toLocaleLowerCase("es-CL")))
                 if(target){go(target[0]);setQuickNav("")}
               }}
             />
             {quickNav.trim()&&<div className="v15-quicknav-results" role="group" aria-label="Coincidencias de módulos">
-              {nav.filter(([,label])=>label.toLocaleLowerCase("es-CL").includes(quickNav.trim().toLocaleLowerCase("es-CL"))).slice(0,6).map(([id,label,Icon])=>
+              {userNav.filter(([,label])=>label.toLocaleLowerCase("es-CL").includes(quickNav.trim().toLocaleLowerCase("es-CL"))).slice(0,6).map(([id,label,Icon])=>
                 <button type="button" key={id} onClick={()=>{go(id);setQuickNav("")}}><Icon size={16} aria-hidden="true"/>{label}</button>)}
-              {!nav.some(([,label])=>label.toLocaleLowerCase("es-CL").includes(quickNav.trim().toLocaleLowerCase("es-CL")))&&<p>Sin módulos coincidentes</p>}
+              {!userNav.some(([,label])=>label.toLocaleLowerCase("es-CL").includes(quickNav.trim().toLocaleLowerCase("es-CL")))&&<p>Sin módulos coincidentes</p>}
             </div>}
           </div>
           {section !== "network" && section !== "ine" && section !== "settings" && section !== "configuration" && section !== "ai_admin" && <div className="global-filters">
