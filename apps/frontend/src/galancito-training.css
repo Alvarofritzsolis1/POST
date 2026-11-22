@@ -93,3 +93,12 @@
 .training .training-current .training-progress { padding:7px 0; }
 .training .training-current .training-actions { padding-top:4px; }
 @media(max-width:700px) { .training-compact-head { padding:14px; } .training .training-current .training-metrics { grid-template-columns:repeat(2,minmax(0,1fr)); } }
+
+.training-lab-comparison { display:grid; grid-template-columns:repeat(2,minmax(0,1fr)); gap:8px; padding:12px; background:#edf6ff; border:1px solid #c7dfef; border-radius:10px; color:#254e67; }
+.training-lab-comparison > strong,.training-lab-comparison > small { grid-column:1/-1; }
+.training-lab-comparison > strong { font-size:12px; }
+.training-lab-comparison > div { display:grid; gap:4px; border-radius:8px; background:#fff; padding:9px; border:1px solid #e0eaf3; }
+.training-lab-comparison span { font-size:11px; color:#66808e; }
+.training-lab-comparison b { font-size:18px; }
+.training-lab-comparison small { font-size:11px; line-height:1.5; color:#5e7888; }
+@media(max-width:450px){.training-lab-comparison{grid-template-columns:1fr}}
