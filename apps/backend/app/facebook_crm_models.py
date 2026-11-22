@@ -50,6 +50,11 @@ class FacebookLead(Base):
     phone_shared_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
     phone_requested_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
     phone_opt_out: Mapped[bool] = mapped_column(Boolean, nullable=False, default=False, server_default="false")
+    # Optional, voluntarily shared contact email. Not a matching or hiring signal.
+    contact_email: Mapped[str] = mapped_column(String(254), nullable=False, default="", server_default="")
+    email_source: Mapped[str] = mapped_column(String(16), nullable=False, default="", server_default="")
+    email_shared_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    email_opt_out: Mapped[bool] = mapped_column(Boolean, nullable=False, default=False, server_default="false")
     follow_up_on: Mapped[date | None] = mapped_column(Date, nullable=True)
     follow_up_note: Mapped[str] = mapped_column(String(240), default="")
     follow_up_by: Mapped[str | None] = mapped_column(String(36), nullable=True)

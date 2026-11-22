@@ -118,3 +118,10 @@
  .fbps-chat-summary {font-size:13px!important}
 }
 @media(max-width:390px){.fbps-fact-grid {grid-template-columns:1fr}}
+
+/* Missing contact methods are action items, not candidate disqualifications. */
+.fbps-contact-pending { border-radius:8px; background:#fff1f1; border:1px solid #efc5c7; padding:7px 10px; }
+.fbps-contact-pending .fbps-cell strong { color:#b63642; font-weight:800; }
+.fbps-contact-help { display:flex; align-items:start; gap:8px; color:#885b41; background:#fff8ed;
+  padding:10px; border-radius:8px; line-height:1.5; font-size:12px; grid-column:1/-1; }
+.fbps-contact-help svg { flex:none; margin-top:2px; }

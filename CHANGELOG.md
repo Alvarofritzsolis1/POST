@@ -1,3 +1,12 @@
+## 20.9.14-rc1 — Red de Obras: contacto, fichas y chat en el requerimiento
+
+- Resúmenes profesionales legibles, sin repetir etiquetas ni declarar confirmada una fecha relativa.
+- Afinidad de oficio/dotación/disponibilidad con porcentajes fijos, sin 100% cuando faltan pruebas.
+- Teléfono y correo voluntarios visibles con estado pendiente; captura de correos explícitos en Messenger mediante migración aditiva.
+- Chat integrado dentro de la ficha para residentes autorizados: lectura del historial, respuesta manual y estados reales de cola/envío.
+- El contacto se ofrece solo durante una coordinación real, sin exigir datos personales para postular; no se divulgan correos a modelos de IA.
+- Validaciones por obra, ventana estándar de Messenger y controles para evitar mensajes duplicados.
+
 ## 20.9.13-rc1 — Red de Obras: fichas y seguimiento por requerimiento
 
 - Vista completa con candidatos y ficha interactiva, consulta de Messenger, capacidades compartidas y comentarios públicos.

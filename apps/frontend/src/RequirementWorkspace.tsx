@@ -1,10 +1,11 @@
 import { useCallback, useEffect, useMemo, useState, type ReactNode } from "react";
 import {
-  ArrowRight, Check, CheckCircle2, CircleAlert, Clock3,
+  ArrowRight, Check, CheckCircle2, CircleAlert, Clock3, Mail, Phone, MessageCircle,
   ExternalLink, FileText, Facebook, Filter, LoaderCircle, MessageSquare,
   RefreshCw, Search, Users, BriefcaseBusiness
 } from "lucide-react";
 import PersonAvatar from "./PersonAvatar";
+import RequirementCandidateChat from "./RequirementCandidateChat";
 import { change, net, type Capacity, type Requirement } from "./networkApi";
 import { dateText, errorText } from "./NetworkUI";
 import "./requirement-workspace.css";
@@ -14,7 +15,9 @@ type Tracking = { stage: Stage; note: string; follow_up_on: string | null; versi
 type Candidate = {
   id: string; source: string; name: string; company: string; trades: string[];
   type: string; entity_type: string; workers: number | null; availability: string;
-  work_area: string; experience: string; phone: string;
+  work_area: string; experience: string; phone: string; email: string;
+  phone_opt_out: boolean; email_opt_out: boolean;
+  contact_action: string; contact_source: {phone:string;email:string};
   last_inbound_at: string | null; linked: boolean;
   profile: { summary: string; percent: number; missing: string[] };
   fit: { compatibility: number | null; data_coverage: number; reasons: string[]; missing: string[] };
@@ -56,6 +59,12 @@ export default function RequirementWorkspace({
   const [tab, setTab] = useState<"candidates" | "facebook" | "admin">("candidates");
   const [data, setData] = useState<CandidatesResponse | null>(null);
   const [selectedId, setSelectedId] = useState("");
+  const [chatLeadId, setChatLeadId] = useState("");
+  const [chatDraftDirty, setChatDraftDirty] = useState(false);
+  useEffect(() => {
+    window.dispatchEvent(new CustomEvent("galant-network-chat-draft", { detail: chatDraftDirty }));
+    return () => { window.dispatchEvent(new CustomEvent("galant-network-chat-draft", { detail: false })); };
+  }, [chatDraftDirty]);
   const [query, setQuery] = useState("");
   const [stageFilter, setStageFilter] = useState("all");
   const [loading, setLoading] = useState(true);
@@ -112,13 +121,15 @@ export default function RequirementWorkspace({
 
   function choose(id: string) {
     if (id === selectedId) return;
-    if (formChanged && !window.confirm("Hay cambios sin guardar en esta ficha. ¿Descartarlos?")) return;
+    if ((formChanged || chatDraftDirty) && !window.confirm("Hay cambios sin guardar en la ficha o en un mensaje. ¿Descartarlos?")) return;
     setSelectedId(id);
+    setChatLeadId("");
+    setChatDraftDirty(false);
     setNotice("");
   }
 
   function confirmAbandon() {
-    return !formChanged || window.confirm("Hay cambios sin guardar en esta ficha. ¿Descartarlos?");
+    return (!formChanged && !chatDraftDirty) || window.confirm("Hay cambios sin guardar en la ficha o en un mensaje. ¿Descartarlos?");
   }
 
   async function save() {
@@ -179,9 +190,9 @@ export default function RequirementWorkspace({
       <div><strong>{data?.capacities.length ?? "—"}</strong><span>Otras obras</span></div>
     </div>
     <nav className="nwc-tabs" aria-label="Secciones del requerimiento">
-      <button type="button" className={tab === "candidates" ? "active" : ""} onClick={() => setTab("candidates")} aria-current={tab==="candidates"?"page":undefined}><Users size={17}/> Candidatos</button>
-      <button type="button" className={tab === "facebook" ? "active" : ""} onClick={() => setTab("facebook")} aria-current={tab==="facebook"?"page":undefined}><Facebook size={17}/> Publicación e interacciones <span>{data?.comments.length || 0}</span></button>
-      <button type="button" className={tab === "admin" ? "active" : ""} onClick={() => setTab("admin")} aria-current={tab==="admin"?"page":undefined}><FileText size={17}/> Partidas y documentos</button>
+      <button type="button" className={tab === "candidates" ? "active" : ""} onClick={() => { if (confirmAbandon()) { setTab("candidates"); setChatLeadId(""); setChatDraftDirty(false); } }} aria-current={tab==="candidates"?"page":undefined}><Users size={17}/> Candidatos</button>
+      <button type="button" className={tab === "facebook" ? "active" : ""} onClick={() => { if (confirmAbandon()) { setTab("facebook"); setChatLeadId(""); setChatDraftDirty(false); } }} aria-current={tab==="facebook"?"page":undefined}><Facebook size={17}/> Publicación e interacciones <span>{data?.comments.length || 0}</span></button>
+      <button type="button" className={tab === "admin" ? "active" : ""} onClick={() => { if (confirmAbandon()) { setTab("admin"); setChatLeadId(""); setChatDraftDirty(false); } }} aria-current={tab==="admin"?"page":undefined}><FileText size={17}/> Partidas y documentos</button>
       <button className="nwc-refresh" type="button" onClick={() => void load()} aria-label="Actualizar candidatos" title="Actualizar candidatos"><RefreshCw size={17}/></button>
     </nav>
     {error && <div className="nwc-error" role="alert"><CircleAlert size={18}/>{error} <button type="button" onClick={() => void load()}>Reintentar</button></div>}
@@ -220,13 +231,23 @@ export default function RequirementWorkspace({
         </div>}
       </section>
       <section className="nwc-profile" aria-label="Ficha del candidato">
-        {!selected ? <div className="nwc-empty"><Users size={30}/><strong>Selecciona un perfil</strong><span>Visualiza su ficha y registra el seguimiento sin salir de la solicitud.</span></div> : <>
+        {selected && chatLeadId === selected.id ?
+          <RequirementCandidateChat key={selected.id} requirementId={requirement.id}
+            leadId={selected.id} name={selected.name} contactMissing={!selected.phone && !selected.email && !selected.phone_opt_out && !selected.email_opt_out}
+            onBack={() => { if (confirmAbandon()) { setChatLeadId(""); setChatDraftDirty(false); } }}
+            onDraftDirty={setChatDraftDirty}/> :
+         !selected ? <div className="nwc-empty"><Users size={30}/><strong>Selecciona un perfil</strong><span>Visualiza su ficha y registra el seguimiento sin salir de la solicitud.</span></div> : <>
           <div className="nwc-profile-top">
             <PersonAvatar name={selected.name} size="lg"/>
             <div><span className="nwc-eyebrow">FICHA DE CONTACTO · GALANCITO</span><h3>{selected.name}</h3>
               <p>{selected.company || (selected.type === "employment" ? "Busca trabajo individual" : "Ofrece servicios / modalidad por confirmar")}</p>
               <div className="nwc-chips">{selected.trades.map(t=><span key={t}>{t}</span>)}{selected.linked && <span className="is-linked"><Check size={13}/> Relacionado</span>}</div>
             </div>
+            <button type="button" className="nwc-open-chat" onClick={() => {
+              if (confirmAbandon()) setChatLeadId(selected.id);
+            }} aria-label={"Abrir chat con " + selected.name}>
+              <MessageCircle size={17}/> Chat
+            </button>
           </div>
           <div className="nwc-scoreline">
             <div><strong>{selected.fit.compatibility === null ? "—" : selected.fit.compatibility + "%"}</strong><span>Compatibilidad de oficio, dotación y fecha</span></div>
@@ -242,15 +263,42 @@ export default function RequirementWorkspace({
               <dl><div><dt>Equipo</dt><dd>{selected.workers === null ? "Sin informar" : selected.workers + " persona(s)"}</dd></div>
                 <div><dt>Disponibilidad</dt><dd>{easyDate(selected.availability)}</dd></div>
                 <div><dt>Zona</dt><dd>{selected.work_area || "Por confirmar"}</dd></div>
-                <div><dt>Teléfono</dt><dd>{selected.phone || "No proporcionado"}</dd></div>
               </dl>
             </section>
           </div>
-          <details className="nwc-profile-extras"><summary><FileText size={16}/> Resumen de ficha y experiencia</summary>
+          <section className="nwc-contact-block" aria-label="Datos para comunicarse con el candidato">
+            <div className="nwc-contact-title"><h4><MessageCircle size={16}/> Contacto y coordinación</h4>
+              <span>{selected.phone || selected.email ? "Datos disponibles" : "Faltan datos"}</span>
+            </div>
+            <div className="nwc-contact-grid">
+              <div className={"nwc-contact-field" + (!selected.phone ? " is-pending" : "")}>
+                <Phone size={18}/>
+                <div><small>Teléfono / WhatsApp</small>
+                  {selected.phone ? <a href={"tel:" + selected.phone}>{selected.phone}</a> :
+                    <strong>{selected.phone_opt_out ? "No desea compartirlo" : "Pendiente"}</strong>}
+                </div>
+              </div>
+              <div className={"nwc-contact-field" + (!selected.email ? " is-pending" : "")}>
+                <Mail size={18}/>
+                <div><small>Correo electrónico</small>
+                  {selected.email ? <a href={"mailto:" + selected.email}>{selected.email}</a> :
+                    <strong>{selected.email_opt_out ? "No desea compartirlo" : "Pendiente"}</strong>}
+                </div>
+              </div>
+            </div>
+            <div className="nwc-contact-next">
+              <CircleAlert size={16}/>
+              <span>{selected.contact_action}</span>
+            </div>
+          </section>
+          <section className="nwc-profile-summary">
+            <h4><FileText size={16}/> Resumen para el residente</h4>
             <p>{selected.profile.summary}</p>
-            {selected.experience && <p><strong>Experiencia declarada:</strong> {selected.experience}</p>}
-            {!!selected.profile.missing.length && <p><strong>Datos pendientes:</strong> {selected.profile.missing.join(", ")}</p>}
-          </details>
+            {selected.profile.missing.length > 0 && <details>
+              <summary>Ver {selected.profile.missing.length} datos por completar</summary>
+              <ul>{selected.profile.missing.map(item=><li key={item}>{item}</li>)}</ul>
+            </details>}
+          </section>
           <form className="nwc-track" onSubmit={e => { e.preventDefault(); void save(); }}>
             <div className="nwc-trackhead"><h4><Clock3 size={17}/> Seguimiento del residente</h4><span>Solo para esta solicitud</span></div>
             <div className="nwc-trackfields">
