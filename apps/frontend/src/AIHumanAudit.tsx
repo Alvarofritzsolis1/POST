@@ -11,6 +11,7 @@ type Queue = {
 type Evidence = {
   run_id: string; channel: Channel; question: string; answer: string;
   created_at: string; rubric_version: number; criteria: string[];
+  history: Array<{ role: string; text: string }>;
 };
 const criterionNames: Record<string, string> = {
   understanding: "Comprensión del mensaje", profile: "Extracción y ficha", context: "Continuidad y contexto",
@@ -22,7 +23,7 @@ const date = (value: string) => new Date(value).toLocaleString("es-CL", {
 });
 const errorText = (value: unknown) => value instanceof Error ? value.message : "No se pudo procesar la revisión";
 
-export default function AIHumanAudit() {
+export default function AIHumanAudit({ onPractice }: { onPractice: (channel: Channel, focus: string) => void }) {
   const [channel, setChannel] = useState<Channel>("messenger");
   const [queue, setQueue] = useState<Queue | null>(null);
   const [evidence, setEvidence] = useState<Evidence | null>(null);
@@ -32,6 +33,7 @@ export default function AIHumanAudit() {
   const [revision, setRevision] = useState(0);
   const [error, setError] = useState("");
   const [notice, setNotice] = useState("");
+  const [weaknesses, setWeaknesses] = useState<string[]>([]);
 
   useEffect(() => {
     let mounted = true;
@@ -62,6 +64,7 @@ export default function AIHumanAudit() {
         }),
       });
       setNotice("Evaluación humana registrada. No se modificó el modelo ni se guardó la conversación.");
+      setWeaknesses(evidence.criteria.filter(key => ratings[key] === false));
       setEvidence(null); setRevision(i => i + 1);
     } catch (err) { setError(errorText(err)); }
     finally { setBusy(false); }
@@ -81,12 +84,19 @@ export default function AIHumanAudit() {
       {(["messenger", "general"] as const).map(item =>
         <button key={item} type="button" aria-pressed={channel === item}
           className={channel === item ? "active" : ""}
-          onClick={() => { setChannel(item); setEvidence(null); setQueue(null); setNotice(""); }}>
+          onClick={() => { setChannel(item); setEvidence(null); setQueue(null); setNotice(""); setWeaknesses([]); }}>
           {item === "messenger" ? "Messenger" : "Galancito General"}
         </button>)}
     </div>
     {error && <p className="ai-human-audit-error" role="alert">{error}</p>}
     {notice && <p className="ai-human-audit-notice" role="status"><Check size={15} /> {notice}</p>}
+    {weaknesses.length > 0 && <div className="ai-human-audit-focus" role="group" aria-label="Práctica de fallas detectadas">
+      <strong>Se encontraron fallas reales en esta respuesta:</strong>
+      <div>{weaknesses.map(key => <button key={key} type="button" onClick={() => onPractice(channel, key)}>
+        Practicar {criterionNames[key] ?? key} <ChevronRight size={14} />
+      </button>)}</div>
+      <small>La práctica usa escenarios sintéticos similares. La calificación de Messenger solo cambia con nuevas respuestas reales auditadas.</small>
+    </div>}
     {busy && !evidence && <p role="status" className="ai-human-audit-hint">Consultando registros verificables…</p>}
     {!busy && queue?.items.length === 0 &&
       <p className="ai-human-audit-hint">No hay respuestas pendientes con conversación original accesible en este canal. No se generarán casos ficticios.</p>}
@@ -107,6 +117,12 @@ export default function AIHumanAudit() {
         <b>Interacción del {date(evidence.created_at)}</b>
         <button type="button" disabled={busy} onClick={() => setEvidence(null)}>Cerrar</button>
       </div>
+      {evidence.history.length > 0 && <details className="ai-human-audit-history">
+        <summary>Ver contexto real del chat ({evidence.history.length} mensajes anteriores)</summary>
+        <div>{evidence.history.map((item, index) => <p key={index}>
+          <b>{item.role === "inbound" || item.role === "user" ? "Persona" : "GALANT / equipo"}</b> {item.text}
+        </p>)}</div>
+      </details>}
       <div className="ai-human-audit-exchange">
         <div><b>Mensaje recibido</b><p>{evidence.question}</p></div>
         <div><b>Respuesta enviada</b><p>{evidence.answer}</p></div>
