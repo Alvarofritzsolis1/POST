@@ -10,6 +10,10 @@ def test_unified_route_classifies_greetings_and_general_help():
     assert general_intent("¿Cómo puedo mejorar el seguimiento de candidatos?") == "advice"
     assert is_complex("Analiza los riesgos y compara estrategias de coordinación")
     assert not is_complex("Hola")
+    assert not is_complex("Analiza esto por favor")
+    assert not is_complex("Compara estos conceptos")
+    assert not is_complex("¿Cómo se hace una evaluación?")
+    assert is_complex("Analiza y compara los riesgos, plazos y costos de distintos escenarios")
     assert not external_safe("Analiza las obras de Brisas de Junquillar",
                              internal_names=("Brisas de Junquillar",))
     assert not external_safe("mi RUT es 12.345.678-5")
@@ -90,6 +94,15 @@ def test_unified_complex_api_is_opted_in_and_never_exposes_private_org_names(net
     assert opted.status_code == 200, opted.text
     assert opted.json()["source"] == "external_api"
     assert opted.json()["external_used"] is True
+    assert len(external) == 1
+    # The general chat sets the API policy automatically for all requests;
+    # only substantive complex public questions actually consume that API.
+    simple = n["send"](n["admin"], "/galancito/chat", {
+        "area": "general", "message": "¿Cómo mejorar el seguimiento?",
+        "allow_external_ai": True,
+    })
+    assert simple.status_code == 200, simple.text
+    assert simple.json()["external_used"] is False
     assert len(external) == 1
     not_opted = n["send"](n["admin"], "/galancito/chat", {
         "area": "general", "message": question, "allow_external_ai": False,
