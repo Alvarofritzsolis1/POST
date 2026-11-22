@@ -21,6 +21,7 @@ from .db import get_db
 from .facebook_crm_models import FacebookChatMessage
 from .galancito_knowledge_models import AssistantRun, InternalConversation
 from .models import AuditEvent, User, utcnow
+from .galancito_memory import aware
 from .security import administrator
 
 router = APIRouter(prefix="/api/v1/admin/ai/audit", tags=["Auditoría humana de IA"])
@@ -46,7 +47,7 @@ def observed_run(db: Session, user: User, run_id: str) -> AssistantRun:
     ))
     if not record or record.channel not in {"messenger", "galant_internal"}:
         raise HTTPException(404, "Interacción de producción no encontrada")
-    if record.created_at < utcnow() - timedelta(days=30):
+    if aware(record.created_at) < utcnow() - timedelta(days=30):
         raise HTTPException(409, "La interacción está fuera de la ventana de revisión")
     return record
 
