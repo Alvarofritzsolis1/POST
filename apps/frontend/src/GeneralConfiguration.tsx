@@ -7,7 +7,6 @@ import {
 } from "react";
 import {
   Activity,
-  Bot,
   ArrowLeft,
   ArrowUpRight,
   Building2,
@@ -38,8 +37,6 @@ import {
   type RulePreview,
 } from "./configurationApi";
 import "./configuration.css";
-import AIConfiguration from "./AIConfiguration";
-import GalancitoTraining from "./GalancitoTraining";
 
 const ROOT = "/admin/configuracion";
 const sections = [
@@ -49,7 +46,6 @@ const sections = [
   ["periodos", "Por período", CalendarRange],
   ["obras", "Por obra", ListChecks],
   ["alertas", "Alertas", Activity],
-  ["ia", "Inteligencia artificial", Bot],
   ["usuarios", "Usuarios y permisos", Users],
   ["auditoria", "Auditoría y trazabilidad", History],
 ] as const;
@@ -372,8 +368,7 @@ export default function GeneralConfiguration({ onBack }: { onBack: () => void })
   const associationId = route.startsWith("contratistas/")
     ? decodeURIComponent(route.split("/")[1])
     : "";
-  const training = route === "ia/entrenamiento";
-  const section = associationId ? "contratistas" : training ? "ia" : route;
+  const section = associationId ? "contratistas" : route;
   const tab = query.get("tab") || "resumen";
   const selectedPeriods = (query.get("periods") || nowMonth())
     .split(",")
@@ -396,8 +391,7 @@ export default function GeneralConfiguration({ onBack }: { onBack: () => void })
     [revision, setRevision] = useState(0),
     [refreshTick, setRefreshTick] = useState(0),
     [page, setPage] = useState(0),
-    [alertPage, setAlertPage] = useState(0),
-    [usersSignal, setUsersSignal] = useState(0);
+    [alertPage, setAlertPage] = useState(0);
   const [mode, setMode] = useState(
       selectedPeriods.length > 1 ? "manual" : "single",
     ),
@@ -494,7 +488,6 @@ export default function GeneralConfiguration({ onBack }: { onBack: () => void })
     }
   }
   useEffect(() => {
-    if (section === "ia") return;
     let active = true;
     void cfg
       .bootstrap()
@@ -514,7 +507,6 @@ export default function GeneralConfiguration({ onBack }: { onBack: () => void })
     };
   }, [revision, section]);
   useEffect(() => {
-    if (section === "ia") { setLoading(false); return; }
     let active = true;
     setLoading(true);
     setError("");
@@ -1287,7 +1279,7 @@ export default function GeneralConfiguration({ onBack }: { onBack: () => void })
           ))}
         </nav>
         <div className="gc-content">
-          {!training && <div className="gc-page-heading">
+          <div className="gc-page-heading">
             <div>
               <span className="gc-eyebrow">
                 {associationId
@@ -1305,20 +1297,18 @@ export default function GeneralConfiguration({ onBack }: { onBack: () => void })
                         ? "Activo"
                         : "Inactivo",
                     ].join(" · ")
-                  : section === "ia"
-                    ? "Vincula modelos externos, asigna funciones y controla el consumo desde un solo lugar."
-                    : "Administra exigencias, consulta períodos y conserva el historial de cada obra."}
+                  : "Revisa los requisitos, su vigencia y el historial documental."}
               </p>
             </div>
-            {section !== "ia" && <button
+            {<button
               type="button"
               disabled={loading || busy}
               onClick={() => setRefreshTick((value) => value + 1)}
             >
               <RefreshCcw size={16} /> Actualizar
             </button>}
-          </div>}
-          {section !== "ia" && (<details key={section} className="gc-period-panel" open={section === "periodos" ? true : undefined}>
+          </div>
+          {(<details key={section} className="gc-period-panel" open={section === "periodos" ? true : undefined}>
             <summary><CalendarRange size={16} aria-hidden="true" /><span>Período: {selectedPeriods.length <= 3 ? selectedPeriods.map(periodName).join(" · ") : selectedPeriods.length + " meses"}</span><ChevronRight size={16} aria-hidden="true" /></summary>
             <section
             className="gc-period-selector"
@@ -1473,7 +1463,7 @@ export default function GeneralConfiguration({ onBack }: { onBack: () => void })
                   selectedPeriods.at(-1)}
             </p>
           </section></details>)}
-          {!associationId && section !== "ia" && (
+          {!associationId && (
             <div className="gc-filters">
               <label>
                 Obra de consulta
@@ -1556,7 +1546,7 @@ export default function GeneralConfiguration({ onBack }: { onBack: () => void })
               {notice}
             </div>
           )}
-          {loading && section !== "ia" && (
+          {loading && (
             <p className="gc-loading" role="status">
               Consultando información compartida…
             </p>
@@ -1587,9 +1577,6 @@ export default function GeneralConfiguration({ onBack }: { onBack: () => void })
               ))}
             </nav>
           )}
-          {section === "ia" && (training
-            ? <GalancitoTraining back={() => navigate("ia")} />
-            : <AIConfiguration openTraining={() => navigate("ia/entrenamiento")} />)}
           {data &&
             ((!section && !associationId) ||
               (associationId && tab === "resumen")) && (
@@ -2181,9 +2168,9 @@ export default function GeneralConfiguration({ onBack }: { onBack: () => void })
               <button
                 type="button"
                 className="gc-primary"
-                onClick={() => setUsersSignal((value) => value + 1)}
+                onClick={onBack}
               >
-                Abrir gestión de usuarios <ArrowUpRight size={16} />
+                Ir a Configuración para administrar usuarios <ArrowUpRight size={16} />
               </button>
             </section>
           )}
