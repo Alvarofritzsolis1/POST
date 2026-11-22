@@ -543,7 +543,7 @@ def galancito_chat(body: ChatInput, user: User = Depends(authorized_user),
         # get the clean public question, never titles, metrics, leads or guides.
         external_provider = use_team or (use_legacy and cfg.galancito_ai_provider != "ollama")
         if external_provider:
-            context = "Consulta general pública sin registros internos de GALANT:\\n" + text[:650]
+            context = "Consulta general pública sin registros internos de GALANT:\n" + text[:650]
         try:
             generated = infer(db, lambda: (
                 orchestrated_text(db, user.org_id, task="red_obras",
