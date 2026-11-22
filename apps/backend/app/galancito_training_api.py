@@ -371,18 +371,19 @@ def promote_live(round_id: str, user: User = Depends(administrator), db: Session
             and last.get("holdout") is True and last.get("critical") == 0
             and row.metrics.get("real_holdout_pass_rate", 0) >= 0.75):
         raise HTTPException(409, "Sin aprendizaje verificable, ciclo completo y prueba reservada aprobada")
-    from .galancito_real_learning import COACHING
+    from .galancito_real_learning import PRODUCTION_COACHING
     # Deterministic allowlist prevents model-produced or dataset-derived text
     # from entering prompts or leaking organization information.
-    allowed = set(COACHING.values())
+    allowed = set(PRODUCTION_COACHING)
     instructions = [item for item in row.metrics.get("real_coaching", [])
                     if item in allowed][:3]
     if not instructions:
         raise HTTPException(409, "No hay cambios de comportamiento evaluados")
+    applied = [PRODUCTION_COACHING[instruction] for instruction in instructions]
     content = ("Para análisis de datos internos, aplica únicamente estas reglas "
                "de razonamiento a información ya verificada por el servidor. "
                "Nunca inventes cifras, accesos, cambios ni acciones:\n" +
-               "\n".join(instructions))
+               "\n".join(applied))
     db.scalar(select(Organization.id).where(Organization.id == user.org_id).with_for_update())
     current = db.scalar(select(Knowledge).where(
         Knowledge.org_id == user.org_id,
