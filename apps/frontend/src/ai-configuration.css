@@ -111,3 +111,19 @@
 .ai-curriculum details { border-top:1px solid var(--border,#d9e5e5); padding-top:12px; }
 .ai-curriculum summary { cursor:pointer; font-weight:600; }
 .ai-curriculum ul { margin:10px 0 0 18px; padding:0; display:grid; gap:6px; }
+
+/* 20.9.19: progressive disclosure, no second giant configuration screen. */
+.ai-section-conexiones > .ai-banner, .ai-section-aprendizaje > .ai-banner,
+.ai-section-conexiones > .ai-local-engine, .ai-section-aprendizaje > .ai-local-engine,
+.ai-section-conexiones > .ai-training-link, .ai-section-aprendizaje > .ai-training-link,
+.ai-section-conexiones > .ai-learning-panel, .ai-section-aprendizaje > .ai-connections-panel,
+.ai-section-aprendizaje > .ai-team-panel, .ai-section-aprendizaje > .ai-usage-panel,
+.ai-section-aprendizaje > .ai-kpis { display:none!important; }
+.ai-section-conexiones, .ai-section-aprendizaje { max-width:1440px; gap:14px; }
+.ai-section-aprendizaje .ai-learning-panel { padding:19px; }
+.ai-learning-steps { display:grid; gap:7px; background:#f3faf8; border:1px solid #cbe9e1; border-radius:12px; padding:14px; color:#22574e; }
+.ai-learning-steps strong { font-size:13px; }
+.ai-learning-steps span { font-size:13px; font-weight:750; }
+.ai-learning-steps small { color:#5a756d; font-size:11px; line-height:1.5; }
+.ai-learning-steps button { width:fit-content; margin-top:5px; font-size:12px; }
+@media(max-width:640px) { .ai-learning-steps span { font-size:12px; } }
