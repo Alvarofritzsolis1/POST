@@ -42,7 +42,8 @@ export default function GalancitoWidget() {
         "No se pudo completar la comprobación del modelo.");
     } finally { setProbing(false); }
   }
-  const [consent, setConsent] = useState(true);
+  // External providers must require an affirmative choice by the user.
+  const [consent, setConsent] = useState(false);
   const [webConsent, setWebConsent] = useState(false);
   const [saveMemory, setSaveMemory] = useState(false);
   const [conversationId, setConversationId] = useState<string | null>(null);
@@ -271,7 +272,7 @@ export default function GalancitoWidget() {
         {status?.complex_api_available && <label className="galancito-privacy">
           <input type="checkbox" checked={consent} disabled={busy}
             onChange={e => setConsent(e.target.checked)} />
-          <span>Utilizar API autorizada automáticamente para preguntas complejas y sin datos privados</span>
+          <span>Permitir API externa para preguntas complejas y públicas (desactivado por defecto)</span>
         </label>}
         {status?.web_available && <label className="galancito-privacy">
           <input type="checkbox" checked={webConsent} disabled={busy}
