@@ -67,19 +67,24 @@ def linked_evidence(db: Session, user: User, record: AssistantRun) -> dict | Non
         ))
         if message is None or not message.body.strip():
             return None
-        inbound = list(db.scalars(select(FacebookChatMessage).where(
+        recent = list(db.scalars(select(FacebookChatMessage).where(
             FacebookChatMessage.org_id == user.org_id,
             FacebookChatMessage.lead_id == message.lead_id,
-            FacebookChatMessage.direction == "inbound",
+            FacebookChatMessage.id != message.id,
+            FacebookChatMessage.direction.in_(("inbound", "outbound")),
             FacebookChatMessage.created_at <= message.updated_at,
-        ).order_by(FacebookChatMessage.created_at.desc()).limit(3)))
+        ).order_by(FacebookChatMessage.created_at.desc()).limit(12)))
+        conversation = list(reversed(recent))
+        inbound = [item for item in conversation if item.direction == "inbound" and item.body.strip()]
         if not inbound:
-            return None  # No original user question to check
+            return None  # Missing original user message: do not score.
         return {
             "channel": "messenger", "kind": "messenger_message",
             "source_id": message.id,
-            "question": "\n".join(msg.body[:650] for msg in reversed(inbound)),
+            "question": inbound[-1].body[:800],
             "answer": message.body[:1800],
+            "history": [{"role": item.direction, "text": item.body[:650]}
+                        for item in conversation if item.body.strip()],
         }
 
     # Never read another user's opt-in private internal conversation,
@@ -104,6 +109,11 @@ def linked_evidence(db: Session, user: User, record: AssistantRun) -> dict | Non
                     "channel": "general", "kind": "saved_internal_chat",
                     "source_id": conversation.id,
                     "question": question[:800], "answer": answer[:1600],
+                    "history": [
+                        {"role": str(item.get("role", "")), "text": str(item.get("text", ""))[:650]}
+                        for item in (conversation.turns or [])[max(0, index - 10):index]
+                        if item.get("role") in {"user", "assistant"}
+                    ],
                 }
     return None
 
@@ -147,7 +157,7 @@ def review_case(run_id: str, user: User = Depends(administrator),
     channel = evidence["channel"]
     return {"run_id": record.id, "created_at": record.created_at,
             "rubric_version": RUBRIC_VERSION, "criteria": list(CRITERIA[channel]),
-            **{k: evidence[k] for k in ("channel", "question", "answer")}}
+            **{k: evidence[k] for k in ("channel", "question", "answer", "history")}}
 
 
 @router.post("/reviews", status_code=201)
