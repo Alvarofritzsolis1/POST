@@ -46,6 +46,16 @@ def case_confidence(passed: int, count: int) -> list[float] | None:
     return [round(max(0, center - margin), 4), round(min(1, center + margin), 4)]
 
 
+def inference_percentile_ms(samples: list[float], percentile: float) -> float | None:
+    """Nearest-rank percentile of measured turns, never an estimated result."""
+    values = sorted(float(sample) for sample in samples
+                    if isinstance(sample, (int, float)) and sample >= 0)
+    if not values:
+        return None
+    index = max(0, min(len(values) - 1, ceil(percentile * len(values)) - 1))
+    return round(values[index], 1)
+
+
 def summarize(metrics: dict, profile: str = "postulantes") -> dict:
     turns = metrics.get("turns", 0)
     fields = metrics.get("fields", 0)
@@ -65,6 +75,7 @@ def summarize(metrics: dict, profile: str = "postulantes") -> dict:
     measured_ollama = {
         key: round(value / samples, 2) for key, value in timing_totals.items()
     } if samples else None
+    actual_inference = metrics.get("inference_samples_ms", [])
     cases = metrics.get("passed", 0) + metrics.get("failed", 0)
     if metrics.get("evidence_type") == "live_database":
         # In real-data evaluations the headline score is the actual share of
@@ -83,6 +94,10 @@ def summarize(metrics: dict, profile: str = "postulantes") -> dict:
         "critical": metrics.get("critical", 0), "error_counts": metrics.get("errors", {}),
         "judged_cases": metrics.get("judged_cases", 0), "judged_turns": metrics.get("judged_turns", 0),
         "average_latency_ms": round(metrics.get("latency_ms", 0) / turns, 1) if turns else None,
+        "inference_p50_ms": inference_percentile_ms(actual_inference, 0.5),
+        "inference_p95_ms": inference_percentile_ms(actual_inference, 0.95),
+        "inference_samples": len(actual_inference),
+        "inference_sample_window": "latest_512_turns",
         "ollama_timing_samples": samples,
         "ollama_timing_avg": measured_ollama,
         "input_tokens": metrics.get("input_tokens", 0), "output_tokens": metrics.get("output_tokens", 0),
