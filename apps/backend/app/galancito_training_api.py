@@ -20,7 +20,7 @@ from .config import settings
 from .galancito_general import QWEN_4B
 from .galancito_local import MODEL
 from .galancito_real_learning import (LIVE_DATASET_VERSION, LIVE_EVALUATION_VERSION,
-                                      MAX_LIVE_CASES, GENERAL_COACH_TITLE,
+                                      MAX_LIVE_CASES, GENERAL_COACH_TITLE, GENERAL_COACH_SCOPE,
                                       collect_live_cases, live_hash)
 from .galancito_internal_training import (
     INTERNAL_CATEGORIES, INTERNAL_DATASET_VERSION, INTERNAL_EVALUATION_VERSION,
@@ -389,7 +389,7 @@ def promote_live(round_id: str, user: User = Depends(administrator), db: Session
     db.scalar(select(Organization.id).where(Organization.id == user.org_id).with_for_update())
     current = db.scalar(select(Knowledge).where(
         Knowledge.org_id == user.org_id,
-        Knowledge.scope == "red_obras", Knowledge.title == GENERAL_COACH_TITLE
+        Knowledge.scope == GENERAL_COACH_SCOPE, Knowledge.title == GENERAL_COACH_TITLE
     ).with_for_update())
     if current and current.content == content and current.status == "approved":
         return {"status": "already_approved", "version": current.version,
@@ -397,8 +397,7 @@ def promote_live(round_id: str, user: User = Depends(administrator), db: Session
     if current is None:
         current = Knowledge(org_id=user.org_id, title=GENERAL_COACH_TITLE,
                             category="Razonamiento operacional", kind="correction",
-                            scope="red_obras", phrases=["análisis de datos GALANT",
-                                                       "analiza información de obras"],
+                            scope=GENERAL_COACH_SCOPE, phrases=[],
                             content=content, status="approved", updated_by=user.id,
                             approved_by=user.id)
         db.add(current)
