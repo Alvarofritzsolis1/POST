@@ -473,7 +473,8 @@ def export_round(round_id: str, kind: Literal["json", "md"], user: User = Depend
                       "regressions": regressions if retained and same_evaluation else None,
                       "score_difference": round(metrics["score"] - old["score"], 2)
                       if same_evaluation and metrics["score"] is not None and old["score"] is not None else None}
-    info = {"command": REVIEW_COMMAND, "source": "simulacion_sintetica", "round_id": row.id,
+    info = {"command": REVIEW_COMMAND, "source": "agregados_reales_laboratorio" if row.config["suite"] == "live" else "simulacion_sintetica",
+            "round_id": row.id,
             "system_version": row.system_version, "prompt_version": row.prompt_version,
             "dataset_hash": row.dataset_hash, "dataset_version": row.config["dataset_version"],
             "state": row.state, "processed": row.completed, "target": row.target,
@@ -483,7 +484,9 @@ def export_round(round_id: str, kind: Literal["json", "md"], user: User = Depend
             "weights": weights, "targets": {"profile_accuracy": 0.95, "conversational_criteria": 0.9,
                                              "repetition_below": 0.03, "critical_max": 0},
             "confidence": {"cases": row.completed,
-                "sample": "Casos sintéticos. Los turnos de una conversación no son independientes."},
+                "sample": ("Agregados operativos congelados; no equivalen a conversaciones de producción."
+                           if row.config["suite"] == "live" else
+                           "Casos sintéticos. Los turnos de una conversación no son independientes.")},
             "models": {role: {k: row.config[role][k] for k in ("provider", "model")}
                        for role in ("model", "judge", "corrector") if role in row.config},
             "knowledge_versions": sorted({item["version"] for item in row.knowledge}),
