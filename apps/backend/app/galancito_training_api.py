@@ -63,6 +63,7 @@ class RoundInput(BaseModel):
     cost_budget: float = Field(default=0, ge=0, le=100, allow_inf_nan=False)
     model: str = Field(default="ollama", max_length=36)
     profile_review: bool = False
+    focus_categories: list[str] = Field(default_factory=list, max_length=20)
     judge: str = Field(default="rules", max_length=36)
     corrector: str = Field(default="rules", max_length=36)
 
@@ -76,6 +77,12 @@ class RoundInput(BaseModel):
             raise ValueError("La evaluación operativa exige respuestas reales de Qwen, no reglas ni API externa")
         if self.suite == "live" and self.cases > MAX_LIVE_CASES:
             raise ValueError(f"Para datos reales admite como máximo {MAX_LIVE_CASES} casos por ciclo")
+        if self.focus_categories:
+            if self.profile != "interno" or self.suite == "live":
+                raise ValueError("Las categorías focalizadas requieren práctica sintética interna")
+            if (len(set(self.focus_categories)) != len(self.focus_categories)
+                    or any(name not in INTERNAL_CATEGORIES for name in self.focus_categories)):
+                raise ValueError("Selecciona categorías internas válidas y sin duplicados")
         if self.profile != "interno" and self.cycles != 1:
             raise ValueError("Los ciclos automáticos se reservan a Galancito Interno")
         if self.cases * self.cycles > MAX_CASES:
