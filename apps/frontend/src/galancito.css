@@ -100,3 +100,10 @@
   overflow:hidden; text-overflow:ellipsis; min-width:0; }
 .galancito-memory-entry button:last-child { color:#9a3d39; }
 .galancito-memory-entry button:disabled { opacity:.5; cursor:wait; }
+
+.galancito-source { display:inline-block; margin:3px 0 8px; font-size:10px;
+  font-weight:650; color:#547977; letter-spacing:.01em; }
+.galancito-health { display:flex; flex-wrap:wrap; align-items:center; gap:8px; }
+.galancito-health button { border:1px solid #accfc7; border-radius:7px;
+  background:#eef9f6; color:#165d53; padding:5px 9px; cursor:pointer; }
+.galancito-health small { flex-basis:100%; }
