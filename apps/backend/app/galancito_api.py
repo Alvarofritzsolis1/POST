@@ -298,20 +298,22 @@ def galancito_chat(body: ChatInput, user: User = Depends(authorized_user),
             source = "verified_local"
         run = record_run(db, org_id=user.org_id, user_id=user.id, channel="galant_internal",
                          source=source, intent=intent, started=started)
-        conversation_id, history_notice = None, None
+        conversation_id, history_notice, history_saved = None, None, False
         if body.save_history:
             try:
-                conversation_id = saved_history.record(
+                conversation_id, history_saved = saved_history.record(
                     db, user, chat_id=body.conversation_id, question=body.message.strip(),
                     answer=answer, intent=intent, run_id=run.id,
                     reportable=source == "verified_local" and intent in SUPPORTED_REPORTS)
+                if not history_saved:
+                    history_notice = "No se guardó esta consulta porque puede contener datos privados."
             except ValueError as exc:
                 history_notice = str(exc)
         db.commit()
         return {"name": "Galancito Interno", "answer": answer, "source": source,
                 "read_only": True, "run_id": run.id, "references": [],
                 "intent": intent, "reportable": source == "verified_local" and intent in SUPPORTED_REPORTS,
-                "conversation_id": conversation_id, "history_saved": bool(conversation_id),
+                "conversation_id": conversation_id, "history_saved": history_saved,
                 "notice": history_notice}
     if sync_org_global_lightning(db, user.org_id):
         db.commit()
