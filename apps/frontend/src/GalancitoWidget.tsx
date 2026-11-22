@@ -9,7 +9,7 @@ type ChatLine = { role: "user" | "assistant"; text: string; runId?: string; ques
 type Reply = { name: string; answer: string; source: string; notice?: string; run_id?: string;
   references?: {id: string; version: number; title: string}[]; reportable?: boolean;
   conversation_id?: string | null; history_saved?: boolean };
-type Status = { name: string; local_ai_available: boolean; external_ai_available: boolean; read_only: boolean; can_teach?: boolean; internal_available?: boolean; web_available?: boolean; internal_ai_available?: boolean };
+type Status = { name: string; local_ai_available: boolean; external_ai_available: boolean; read_only: boolean; can_teach?: boolean; internal_available?: boolean; web_available?: boolean; internal_ai_available?: boolean; local_model_status?: "not_configured"|"unavailable"|"connected"|"running"; reply_timeout_seconds?: number };
 type SavedConversation = {id:string;title:string;updated_at:string;expires_at:string;turns:number};
 type SavedTurn = {role:"user"|"assistant";text:string;run_id?:string;reportable?:boolean;question?:string};
 const EXAMPLES = [
@@ -36,6 +36,23 @@ export default function GalancitoWidget({ area = "red_obras" }: { area?: Area })
     if (next === "interno" && saveMemory) void loadSaved();
   }
   const [status, setStatus] = useState<Status | null>(null);
+  const [probing, setProbing] = useState(false);
+  const [probeNotice, setProbeNotice] = useState("");
+  async function testModel() {
+    if (probing || busy) return;
+    setProbing(true); setProbeNotice("");
+    try {
+      const result = await request<{status:string;responsive:boolean;message:string;elapsed_ms?:number}>(
+        "/network/galancito/diagnostic", {method:"POST", body:"{}"});
+      setProbeNotice(result.message +
+        (typeof result.elapsed_ms === "number" ? " (" + (result.elapsed_ms / 1000).toFixed(1) + " s)" : ""));
+      const updated = await net<Status>("/galancito/status");
+      setStatus(updated);
+    } catch (err) {
+      setProbeNotice(err instanceof ApiError ? "Error HTTP " + err.status + " al probar Ollama." :
+        "No se pudo completar la comprobación del modelo.");
+    } finally { setProbing(false); }
+  }
   const [consent, setConsent] = useState(false);
   const [webConsent, setWebConsent] = useState(false);
   const [localAnalysis, setLocalAnalysis] = useState(false);
@@ -106,7 +123,10 @@ export default function GalancitoWidget({ area = "red_obras" }: { area?: Area })
     const controller = new AbortController();
     // Permit the local model to load and infer under temporary VPS load.
     // The previous 9-second client deadline cut off requests prematurely.
-    const deadline = window.setTimeout(() => controller.abort(), 30000);
+    // The API advertises the actual Ollama budget, including a margin for
+    // database work. Never abort before a permitted model response completes.
+    const limitMs = Math.min(75000, Math.max(30000, (status?.reply_timeout_seconds ?? 36) * 1000));
+    const deadline = window.setTimeout(() => controller.abort(), limitMs);
     try {
       const reply = await request<Reply>("/network/galancito/chat", {
         method: "POST", signal: controller.signal, body: JSON.stringify({
@@ -131,7 +151,7 @@ export default function GalancitoWidget({ area = "red_obras" }: { area?: Area })
       setLastFailed(question);
       setHistory((prev) => [...prev, {role: "assistant", text:
         controller.signal.aborted
-          ? "La consulta superó los 30 segundos. No recibí una respuesta; puedes reintentar cuando el modelo tenga más recursos."
+          ? `La consulta superó los ${Math.round(limitMs / 1000)} segundos. No recibí una respuesta; puedes reintentar cuando el modelo tenga más recursos.`
           : "No pude conectar con GALANT. Revisa la conexión o vuelve a intentar; no se confirmó ningún cambio."}]);
       setError(err instanceof ApiError ? `Error de conexión o servidor (HTTP ${err.status}). Puedes reintentar la última consulta.` : "La consulta no se completó. Puedes reintentar.");
     } finally { window.clearTimeout(deadline); setBusy(false); setWebConsent(false); }
@@ -255,9 +275,19 @@ export default function GalancitoWidget({ area = "red_obras" }: { area?: Area })
         <div ref={end}/>
       </div>
       <form className="galancito-compose" onSubmit={(e) => void send(e)}>
-        {mode === "red_obras" && status?.local_ai_available && <div className="galancito-safety">
-          <ShieldCheck size={14}/> Modelo local configurado · conexión no verificada en vivo
+        {status?.can_teach && <div className="galancito-health" role="group" aria-label="Diagnóstico de Ollama">
+          <span>Ollama: {({
+            running:"cargado", connected:"conectado, sin modelo cargado",
+            unavailable:"sin conexión", not_configured:"no habilitado",
+          } as const)[status.local_model_status ?? "not_configured"]}</span>
+          <button type="button" onClick={() => void testModel()}
+            disabled={busy || probing || !status.local_ai_available}>
+            {probing ? "Comprobando…" : "Probar respuesta"}
+          </button>
+          {probeNotice && <small role="status">{probeNotice}</small>}
         </div>}
+        {mode === "red_obras" && status?.local_ai_available && !status?.can_teach &&
+          <div className="galancito-safety"><ShieldCheck size={14}/> IA local configurada</div>}
         {mode === "red_obras" && status?.external_ai_available && <label className="galancito-privacy"><input type="checkbox" checked={consent}
           onChange={(e) => setConsent(e.target.checked)} disabled={!status?.external_ai_available}/>
           <span>Permitir modelo externo en esta conversación</span>
