@@ -60,6 +60,11 @@ def summarize(metrics: dict, profile: str = "postulantes") -> dict:
     measured = {key: weight for key, weight in weights.items() if ratios[key] is not None}
     score = round(100 * sum(ratios[key] * weight for key, weight in measured.items()) /
                   sum(measured.values()), 2) if measured else None
+    samples = metrics.get("ollama_timing_samples", 0)
+    timing_totals = metrics.get("ollama_timing_totals", {})
+    measured_ollama = {
+        key: round(value / samples, 2) for key, value in timing_totals.items()
+    } if samples else None
     cases = metrics.get("passed", 0) + metrics.get("failed", 0)
     if metrics.get("evidence_type") == "live_database":
         # In real-data evaluations the headline score is the actual share of
@@ -78,6 +83,8 @@ def summarize(metrics: dict, profile: str = "postulantes") -> dict:
         "critical": metrics.get("critical", 0), "error_counts": metrics.get("errors", {}),
         "judged_cases": metrics.get("judged_cases", 0), "judged_turns": metrics.get("judged_turns", 0),
         "average_latency_ms": round(metrics.get("latency_ms", 0) / turns, 1) if turns else None,
+        "ollama_timing_samples": samples,
+        "ollama_timing_avg": measured_ollama,
         "input_tokens": metrics.get("input_tokens", 0), "output_tokens": metrics.get("output_tokens", 0),
         "reserved_tokens": metrics.get("reserved_tokens", 0),
         "estimated_cost_usd": round(metrics.get("cost", 0), 6),
