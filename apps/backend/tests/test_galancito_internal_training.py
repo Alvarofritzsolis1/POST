@@ -121,6 +121,7 @@ def test_count_word_equivalence_requires_correct_quantity_and_noun():
     assert evaluate_internal(twelve, answer=lambda _: "Hay doce contratistas activos.")["passed"]
     assert not evaluate_internal(one, answer=lambda _: "Hay doce contratistas activos.")["passed"]
     assert not evaluate_internal(one, answer=lambda _: "Hay un ejemplo y ningún contratista.")["passed"]
+    assert not evaluate_internal(one, answer=lambda _: "No hay un contratista activo.")["passed"]
     assert not evaluate_internal(one, answer=lambda _: "Hay un contratista y 999 adicionales.")["passed"]
 
 
