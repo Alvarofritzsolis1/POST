@@ -31,6 +31,7 @@ SERVICES = ("api", "worker", "facebook-publisher")
 CHANGES = {"GALANCITO_LOCAL_MODEL": MODEL, "GALANCITO_OLLAMA_MEM_LIMIT": "5g",
            "GALANCITO_OLLAMA_CPUS": "2", "GALANCITO_NUM_THREAD": "2",
            "GALANCITO_TIMEOUT_SECONDS": "45", "GALANCITO_MEMORY_RESERVE_MB": "2048",
+           "GALANCITO_KEEP_ALIVE": "5m",
            "GALANCITO_AI_PROVIDER": "ollama", "FACEBOOK_AI_PROVIDER": "ollama",
            "GALANCITO_LOCAL_AI_ENABLED": "true"}
 SMOKE = """import json
