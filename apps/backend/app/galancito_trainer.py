@@ -238,7 +238,7 @@ def _charge(factory, claim, spec, instructions, prompt, seed, *, role, sampler, 
                 # Messenger. Training cannot monopolize the shared 4B model.
                 try:
                     with factory.begin() as inference_db:
-                        answer = infer(inference_db, invoke_local, org_id=claim.org_id)
+                        answer = infer(inference_db, invoke_local)
                 except RuntimeError as exc:
                     if str(exc) == "Galancito está ocupado":
                         raise Deferred("Chat real usando Ollama; práctica reprogramada") from None
