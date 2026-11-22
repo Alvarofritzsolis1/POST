@@ -350,7 +350,8 @@ def test_training_thinking_budget_is_honored_without_changing_live_chat(monkeypa
     from types import SimpleNamespace
     cfg = SimpleNamespace(galancito_local_model="qwen3.5:4b-q4_K_M",
                           galancito_num_ctx=2048, galancito_num_predict=128,
-                          galancito_num_thread=2, galancito_keep_alive="2m")
+                          galancito_num_thread=2, galancito_keep_alive="2m",
+                          galancito_timeout_seconds=45)
     calls = []
 
     class Response:
