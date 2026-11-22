@@ -219,7 +219,14 @@ def _has_term(reply: str, term: str):
         if word is None:
             return False
         words = r"(?:uno|una|un)" if int(term) == 1 else re.escape(word)
-        return bool(re.search(r"\b" + words + r"\s+" + _COUNT_NOUNS + r"\b", reply))
+        pattern = re.compile(r"\b" + words + r"\s+" + _COUNT_NOUNS + r"\b")
+        for match in pattern.finditer(reply):
+            # "No hay un contratista" is NOT evidence of one contractor.
+            before = reply[max(0, match.start() - 24):match.start()]
+            if re.search(r"\b(?:no hay|no existe|no existen|no son|sin)\s*$", before):
+                continue
+            return True
+        return False
     return term in reply
 
 
