@@ -31,7 +31,7 @@ from .galancito_local import (last_timings, model_status, generate_local_text,
                               interactive_timeout_seconds)
 from .galancito_runtime import infer, record_run
 from .galancito_internal_live import internal_reply
-from .galancito_general import QWEN_4B, external_safe, is_complex
+from .galancito_general import QWEN_4B, external_safe, is_complex, needs_public_web
 from .galancito_general_runtime import general_answer, external_ready, internal_names_for_privacy
 from .galancito_web import WebSearchUnavailable, public_search, format_public_search, web_available
 from .galancito_reports import MIME_TYPES, SUPPORTED_REPORTS, internal_report, export_internal_report
@@ -81,6 +81,7 @@ class ChatInput(BaseModel):
     area: Literal["red_obras", "interno", "general"] = "red_obras"
     allow_external_ai: bool = False
     allow_web: bool = False
+    auto_web: bool = False  # Explicitly enabled client session; backend selects public-current questions
     allow_local_analysis: bool = False
     save_history: bool = False
     conversation_id: str | None = Field(default=None, min_length=36, max_length=36)
@@ -345,11 +346,16 @@ def galancito_chat(body: ChatInput, user: User = Depends(authorized_user),
             user_context = [turn.text for turn in body.history if turn.role == "user"]
         general_source = None
         external_used = False
-        if body.area == "general" and not body.allow_web:
+        # The user authorizes a public-web session once; the server chooses
+        # only questions that actually need current, public information.
+        search_requested = (body.allow_web or
+                            (body.area == "general" and body.auto_web and
+                             needs_public_web(body.message)))
+        if body.area == "general" and not search_requested:
             answer, intent, general_source, external_used = general_answer(
                 db, user, body.message.strip(), user_context,
                 allow_external=body.allow_external_ai)
-        if body.allow_web:
+        if search_requested:
             try:
                 # User consent is necessary, but does not authorize leaking
                 # private GALANT worksite/contractor names to an external provider.
@@ -369,7 +375,7 @@ def galancito_chat(body: ChatInput, user: User = Depends(authorized_user),
             answer, intent = internal_reply(db, user, body.message.strip(), user_context)
             source = "verified_local"
         analysis_generated = False
-        if body.area == "interno" and body.allow_local_analysis and not body.allow_web and source == "verified_local":
+        if body.area == "interno" and body.allow_local_analysis and not search_requested and source == "verified_local":
             advice = local_advice(db, question=body.message.strip(), facts=answer, intent=intent)
             if advice:
                 answer += "\n\nSugerencia orientativa de IA local (no verificada): " + advice
