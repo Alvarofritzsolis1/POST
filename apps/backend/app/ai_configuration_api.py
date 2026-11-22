@@ -268,7 +268,7 @@ def quality_overview(days: int = Query(default=30, ge=1, le=90),
                              "label": "Respuestas calificadas como incorrectas", "focus": ""})
         if stats["p95_ms"] is not None and stats["p95_ms"] > 10000:
             findings.append({"channel": channel, "type": "latency", "count": None,
-                             "label": "Latencia p95 superior a 10 segundos", "focus": "rendimiento" if channel == "general" else ""})
+                             "label": "Latencia p95 superior a 10 segundos", "focus": ""})
     return {
         "period_days": days,
         "generated_at": utcnow(),
