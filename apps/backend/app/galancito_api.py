@@ -32,6 +32,7 @@ from .galancito_runtime import infer, record_run
 from .galancito_internal_live import internal_reply
 from .galancito_web import WebSearchUnavailable, public_search, format_public_search, web_available
 from .galancito_reports import MIME_TYPES, SUPPORTED_REPORTS, internal_report, export_internal_report
+from . import galancito_internal_history as saved_history
 from .ai_gateway import AIServiceError, orchestration_available, orchestrated_text
 from .ai_global_lightning import sync_org as sync_org_global_lightning
 from .ai_models import AIOrchestration
@@ -76,6 +77,8 @@ class ChatInput(BaseModel):
     area: Literal["red_obras", "interno"] = "red_obras"
     allow_external_ai: bool = False
     allow_web: bool = False
+    save_history: bool = False
+    conversation_id: str | None = Field(default=None, min_length=36, max_length=36)
     # Bounded, client-side context: never grants permission or runs as commands.
     history: list[ContextTurn] = Field(default_factory=list, max_length=6)
 
@@ -198,6 +201,38 @@ def galancito_status(user: User = Depends(authorized_user), db: Session = Depend
             "read_only": True}
 
 
+@router.get("/conversations")
+def list_internal_conversations(user: User = Depends(authorized_user), db: Session = Depends(get_db)):
+    if user.role not in {"admin", "resident"}:
+        raise HTTPException(403, "No tienes acceso al historial interno")
+    result = saved_history.listed(db, user)
+    db.commit()  # delete records that have expired
+    return {"conversations": result, "retention_days": saved_history.HISTORY_DAYS}
+
+
+@router.get("/conversations/{conversation_id}")
+def get_internal_conversation(conversation_id: str, user: User = Depends(authorized_user),
+                              db: Session = Depends(get_db)):
+    if user.role not in {"admin", "resident"}:
+        raise HTTPException(403, "No tienes acceso al historial interno")
+    result = saved_history.get(db, user, conversation_id)
+    if not result:
+        raise HTTPException(404, "Conversación no encontrada")
+    return result
+
+
+@router.delete("/conversations/{conversation_id}", status_code=204)
+def delete_internal_conversation(conversation_id: str,
+                                 user: User = Depends(authorized_user),
+                                 db: Session = Depends(get_db)):
+    if user.role not in {"admin", "resident"}:
+        raise HTTPException(403, "No tienes acceso al historial interno")
+    if not saved_history.erase(db, user, conversation_id):
+        raise HTTPException(404, "Conversación no encontrada")
+    db.commit()
+    return Response(status_code=204)
+
+
 class ReportRequest(BaseModel):
     question: str = Field(min_length=3, max_length=800)
     kind: Literal["pdf", "xlsx", "docx"]
@@ -233,7 +268,14 @@ def galancito_chat(body: ChatInput, user: User = Depends(authorized_user),
             raise HTTPException(403, "Perfil sin acceso a Galancito Interno")
         # Only previous user prompts are used to resolve an ellipsis ("¿y cuáles?").
         # Assistant-generated content is never trusted as an authorization source.
-        user_context = [turn.text for turn in body.history if turn.role == "user"]
+        if body.conversation_id and not body.save_history:
+            raise HTTPException(422, "Para utilizar memoria guardada debes habilitar el guardado")
+        if body.conversation_id:
+            user_context = saved_history.previous_questions(db, user, body.conversation_id)
+            if user_context is None:
+                raise HTTPException(404, "Conversación no encontrada")
+        else:
+            user_context = [turn.text for turn in body.history if turn.role == "user"]
         if body.allow_web:
             try:
                 # User consent is necessary, but does not authorize leaking
@@ -256,11 +298,21 @@ def galancito_chat(body: ChatInput, user: User = Depends(authorized_user),
             source = "verified_local"
         run = record_run(db, org_id=user.org_id, user_id=user.id, channel="galant_internal",
                          source=source, intent=intent, started=started)
+        conversation_id, history_notice = None, None
+        if body.save_history:
+            try:
+                conversation_id = saved_history.record(
+                    db, user, chat_id=body.conversation_id, question=body.message.strip(),
+                    answer=answer, intent=intent, run_id=run.id,
+                    reportable=source == "verified_local" and intent in SUPPORTED_REPORTS)
+            except ValueError as exc:
+                history_notice = str(exc)
         db.commit()
         return {"name": "Galancito Interno", "answer": answer, "source": source,
                 "read_only": True, "run_id": run.id, "references": [],
                 "intent": intent, "reportable": source == "verified_local" and intent in SUPPORTED_REPORTS,
-                "notice": None}
+                "conversation_id": conversation_id, "history_saved": bool(conversation_id),
+                "notice": history_notice}
     if sync_org_global_lightning(db, user.org_id):
         db.commit()
     text = body.message.strip()
