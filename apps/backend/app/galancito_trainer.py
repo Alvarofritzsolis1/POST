@@ -162,6 +162,10 @@ def claim(factory, snapshot, *, maintenance=False, training_model=None):
             row.state, row.reason = "practicing", None
             row.lease, row.lease_until = uid(), now + timedelta(seconds=LEASE_SECONDS)
             row.attempts += 1
+            # Specialized cycles must checkpoint the previous cycle's
+            # corrections before the next case. Never parallelize across its boundary.
+            if row.config.get("focus") in MESSENGER_FOCUS:
+                slots = 1
             return row, min(slots, row.target - row.completed)
     return None
 
