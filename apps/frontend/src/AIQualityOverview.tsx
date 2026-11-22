@@ -37,6 +37,10 @@ type Bootstrap = {
 const fmt = new Intl.NumberFormat("es-CL");
 const ms = (value: number | null) => value == null ? "Sin medición" : (value / 1000).toLocaleString("es-CL", { maximumFractionDigits: 2 }) + " s";
 const names: Record<ChannelName, string> = { messenger: "Responder mensajes", general: "Galancito General" };
+const reviewCriteria: Record<ChannelName, string[]> = {
+  messenger: ["Comprensión", "Oficios", "Fichas y contacto", "Continuidad", "Naturalidad", "Seguridad"],
+  general: ["Exactitud", "Contexto", "Datos fundamentados", "Permisos", "Razonamiento", "Utilidad"],
+};
 
 export default function AIQualityOverview({
   onPractice, onConnections, onLearning,
@@ -132,6 +136,9 @@ export default function AIQualityOverview({
               : "Sin valoraciones de personas para este período."}
             {data?.sample_capped ? " Últimas 2.000 interacciones (muestra acotada)." : ""}
           </p>
+          <details className="ai-quality-technical ai-quality-criteria"><summary>Criterios de evaluación</summary>
+            {reviewCriteria[channel].map(criterion => <span key={criterion}>{criterion}: sin calificación validada</span>)}
+          </details>
           {channel === "messenger" && data?.delivery_states && Object.keys(data.delivery_states).length > 0 &&
             <details className="ai-quality-technical"><summary>Estados reales de entrega</summary>
               {Object.entries(data.delivery_states).map(([state, count]) => <span key={state}>{state}: {fmt.format(count)}</span>)}
