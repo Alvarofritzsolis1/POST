@@ -1212,3 +1212,103 @@ def test_internal_focus_requires_a_real_category_and_separate_dataset():
         RoundInput(profile="interno", suite="live", focus="seguridad")
     with pytest.raises(ValidationError):
         RoundInput(profile="interno", focus="categoria_que_no_existe")
+
+
+def test_real_messenger_audit_reads_chat_and_scores_only_verified_human_sample(ai_env):
+    """An actual stored inbound/outbound exchange, not a synthetic fixture scorer."""
+    from app.ai_quality_models import AIResponseReview
+    from app.facebook_crm_models import FacebookChatMessage, FacebookLead
+    from app.galancito_knowledge_models import AssistantRun
+
+    client, sessions = ai_env["client"], ai_env["sessions"]
+    with sessions.begin() as db:
+        lead = FacebookLead(org_id=ai_env["org_id"], page_id="test-page", psid="test-psid")
+        db.add(lead)
+        db.flush()
+        inbound = FacebookChatMessage(
+            org_id=ai_env["org_id"], lead_id=lead.id, page_id="test-page",
+            direction="inbound", state="received", body="Hola, soy Pedro y hago gasfitería",
+        )
+        db.add(inbound)
+        db.flush()
+        outbound = FacebookChatMessage(
+            org_id=ai_env["org_id"], lead_id=lead.id, page_id="test-page",
+            direction="outbound", state="sent", ai_generated=True,
+            body="Hola Pedro, registré que trabajas en gasfitería.",
+        )
+        db.add(outbound)
+        db.flush()
+        observed = AssistantRun(
+            org_id=ai_env["org_id"], channel="messenger", source="ollama_4b",
+            intent="intake", elapsed_ms=1720,
+            timings={"graph_calls": 1, "outbound_message_id": outbound.id},
+        )
+        db.add(observed)
+        db.flush()
+        run_id = observed.id
+
+    assert client.get(ROOT + "/audit/queue").status_code == 401
+    signin(client, "resident")
+    assert client.get(ROOT + "/audit/queue").status_code == 403
+    signin(client)
+    listing = client.get(ROOT + "/audit/queue?channel=messenger")
+    assert listing.status_code == 200, listing.text
+    assert run_id in [item["run_id"] for item in listing.json()["items"]]
+    case = client.get(ROOT + "/audit/cases/" + run_id)
+    assert case.status_code == 200, case.text
+    assert "Pedro" in case.json()["question"]
+    assert "gasfitería" in case.json()["answer"]
+    assert any(turn["role"] == "inbound" for turn in case.json()["history"])
+
+    rubric = {
+        "understanding": False, "profile": True, "context": True,
+        "naturalness": True, "safety": True, "helpfulness": True,
+    }
+    bad = client.post(ROOT + "/audit/reviews", headers={"X-CSRF-Token": client.cookies["galant_post_csrf"]},
+                      json={"run_id": run_id, "ratings": {"profile": True}, "source_reviewed": True})
+    assert bad.status_code == 422
+    approved = client.post(ROOT + "/audit/reviews", headers={"X-CSRF-Token": client.cookies["galant_post_csrf"]},
+                           json={"run_id": run_id, "ratings": rubric, "source_reviewed": True})
+    assert approved.status_code == 201, approved.text
+    duplicate = client.post(ROOT + "/audit/reviews", headers={"X-CSRF-Token": client.cookies["galant_post_csrf"]},
+                            json={"run_id": run_id, "ratings": rubric, "source_reviewed": True})
+    assert duplicate.status_code == 409
+
+    quality = client.get(ROOT + "/quality-overview").json()
+    channel = quality["channels"]["messenger"]
+    assert channel["reviewed_cases"] == 1
+    assert channel["quality_score"] is None  # 1 reviewed chat cannot support a /100 score
+    assert channel["failed_review_counts"]["understanding"] == 1
+    assert any(f["focus"] == "understanding" and f["count"] == 1 for f in quality["findings"])
+    with sessions() as db:
+        review = db.query(AIResponseReview).filter_by(run_id=run_id).one()
+        assert review.evidence_kind == "messenger_message"
+        assert review.ratings["understanding"] is False
+        assert not hasattr(review, "question") and not hasattr(review, "answer")
+
+
+def test_focused_messenger_epochs_are_synthetic_and_reproducible():
+    from pydantic import ValidationError
+    from app.galancito_training_api import RoundInput
+    from app.galancito_training_data import MESSENGER_FOCUS, dataset_hash, scenario
+
+    assert set(MESSENGER_FOCUS) == {
+        "understanding", "profile", "context", "naturalness", "safety", "helpfulness",
+    }
+    params = {"profile": "postulantes", "suite": "practice", "level": 3, "cases": 8,
+              "cycles": 20, "seed": 227, "focus": "context"}
+    run = RoundInput(**params)
+    assert run.cycles == 20
+    case = scenario(params, 0)
+    assert len(case.turns) >= 3 and "enfocada-practice-context" in case.id
+    assert case == scenario(params, 0)
+    assert scenario(params, 9).id != case.id
+    assert dataset_hash(params) != dataset_hash({**params, "focus": "profile"})
+    reserved = {**params, "suite": "holdout"}
+    assert scenario(reserved, 0).id != case.id
+    with pytest.raises(ValidationError):
+        RoundInput(profile="postulantes", cycles=5)
+    with pytest.raises(ValidationError):
+        RoundInput(profile="postulantes", focus="inventada")
+    with pytest.raises(ValidationError):
+        RoundInput(profile="postulantes", suite="live", focus="context")
