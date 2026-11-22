@@ -271,9 +271,13 @@ def checkpoints(factory, claim, results, snapshot, elapsed):
         for result in results:
             if row.config.get("profile") == "interno":
                 cycle = str(row.completed // row.config["cases"] + 1)
-                item = dict(cycles.get(cycle, {"passed": 0, "failed": 0, "critical": 0}))
+                item = dict(cycles.get(cycle, {"passed": 0, "failed": 0, "critical": 0, "errors": {}}))
                 item["passed" if result["passed"] else "failed"] += 1
                 item["critical"] += result["critical"]
+                per_cycle_errors = dict(item.get("errors", {}))
+                for error, amount in result["errors"].items():
+                    per_cycle_errors[error] = per_cycle_errors.get(error, 0) + amount
+                item["errors"] = per_cycle_errors
                 cycles[cycle] = item
             db.add(TrainingCase(round_id=row.id, position=row.completed, case_id=result["id"],
                                 passed=result["passed"], result=result))
@@ -301,17 +305,26 @@ def checkpoints(factory, claim, results, snapshot, elapsed):
             baseline = cycles.get("1", item)
             # Compare only cycles of the same frozen, real DB evidence.
             item["pass_rate"] = round(item["passed"] / max(1, item["passed"] + item["failed"]), 4)
-            item["improved_vs_first"] = item["passed"] > baseline["passed"] and item["critical"] == 0
+            last_cycle = row.config["cycles"]
+            item["holdout"] = int(current) == last_cycle
+            item["improved_vs_first"] = (not item["holdout"] and
+                                         item["passed"] > baseline["passed"] and
+                                         item["critical"] == 0)
             cycles[current] = item
-            if row.completed < row.target:
-                observed = [error for result in results for error in result["errors"]]
+            if not item["holdout"] and row.completed < row.target:
                 hints = list(metrics.get("real_coaching", []))
-                for dimension in observed:
+                for dimension in item.get("errors", {}):
                     if dimension in COACHING and COACHING[dimension] not in hints:
                         hints.append(COACHING[dimension])
                 metrics["real_coaching"] = hints[:3]
-            metrics["real_learning_demonstrated"] = any(
-                cycle.get("improved_vs_first") for cycle in cycles.values())
+            if item["holdout"]:
+                metrics["real_holdout_pass_rate"] = item["pass_rate"]
+                metrics["real_learning_demonstrated"] = bool(
+                    metrics.get("real_coaching") and item["pass_rate"] >= 0.75
+                    and item["critical"] == 0 and any(
+                        c.get("improved_vs_first") for c in cycles.values()))
+            else:
+                metrics["real_learning_demonstrated"] = False
         for key, measured in (("peak_worker_ram_mb", "worker_ram_mb"), ("peak_host_cpu_percent", "host_cpu_percent")):
             if snapshot[measured] is not None:
                 metrics[key] = max(metrics.get(key, 0), snapshot[measured])
@@ -359,7 +372,10 @@ def process_next(factory=SessionLocal, sampler=None, *, maintenance=False, train
         def run(position):
             seed = int(row.dataset_hash[:8], 16) ^ position
             if row.config.get("suite") == "live":
-                fixture = row.config["live_cases"][position % row.config["cases"]]
+                held_out = position // row.config["cases"] == row.config["cycles"] - 1
+                case_index = position % row.config["cases"]
+                fixture = row.config["live_cases"][case_index +
+                                                  (row.config["cases"] if held_out else 0)]
                 coach = row.metrics.get("real_coaching", [])
                 def real_answer(context, instructions):
                     system = LIVE_PROMPT + ("\nConsejos revisados tras errores anteriores:\n" +
