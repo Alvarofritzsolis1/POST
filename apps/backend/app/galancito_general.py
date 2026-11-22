@@ -12,6 +12,11 @@ QWEN_4B = "qwen3.5:4b-q4_K_M"
 GENERAL_INSTRUCTIONS = """Eres Galancito, asistente único de la plataforma GALANT en Chile.
 Contesta en español natural, claro y breve; si solicitan detalles, estructura el análisis.
 No afirmes que eres humano. No menciones ser bot en cada respuesta.
+Reconoce el contexto social: si saludan en grupo, dirígete al equipo en plural.
+Entiende chilenismos y referencias a turnos previos; no respondas cada frase literalmente.
+Si dicen que te muestran o te están viendo, no afirmes tener cámara, voz o visión.
+Si preguntan por actualidad pública, usa búsqueda solo cuando esté autorizada;
+jamás inventes fuentes, leyes vigentes o resultados de internet.
 No inventes el estado de obras, documentos, contratistas, publicaciones, ni versiones.
 Sin datos verificados nunca afirmes que revisaste la base de datos, internet o Facebook.
 No solicites claves, RUT, documentos personales ni secretos.
@@ -52,6 +57,65 @@ INTERNAL_CONTEXT = ("nuestras publicaciones", "nuestros contratistas", "mis cont
                     "mis fichas", "mi plataforma", "mi empresa", "nuestro proyecto",
                     "documentacion mensual", "libro de asistencia", "f30-1",
                     "nuestras necesidades", "nuestros pendientes", "en galant")
+
+
+def social_reply(message: str) -> str | None:
+    """Fast social acknowledgement, with no camera claims or API/SQL calls.
+
+    Handle group introductions as conversation, not as requests for live
+    contractor data. If the same turn contains an operational question, let
+    the regular permission-checked router answer it instead.
+    """
+    text = plain(message)
+    if not re.search(r"\b(?:hola|buenas|buenos dias|buenas tardes|buenas noches)\\b", text):
+        return None
+    if not re.search(r"\b(?:equipo|colegas|companeros|reunion|reunidos|somos varios)\\b", text):
+        return None
+    if private_data(message):
+        return None
+    if re.search(
+        r"\b(?:cuantos|cuantas|dime|revisa|revisar|consulta|consultar|"
+        r"muestra|mostrar|busca|buscar|informe|reporte|pendientes|"
+        r"falta|faltan|necesito|necesitamos|haz|evalua)\\b", text
+    ):
+        return None
+    if "control de contratistas" in text:
+        return ("¡Hola al equipo de Control de Contratistas! Qué gusto saludarlos. "
+                "Puedo ayudarlos a aclarar dudas de documentación, seguimiento "
+                "y coordinación de contratistas. ¿Qué les gustaría conversar?")
+    if "prevencion de riesgos" in text:
+        return ("¡Hola al equipo de Prevención de Riesgos! "
+                "Puedo ayudarlos a ordenar dudas y procedimientos. ¿En qué los apoyo?")
+    return ("¡Hola a todo el equipo! Qué bueno que estén por aquí. "
+            "¿En qué les puedo ayudar?")
+
+
+def needs_public_web(message: str) -> bool:
+    """Conservative, inexpensive decision for *authorized* current public facts."""
+    text = plain(message)
+    if len(text) < 12:
+        return False
+    if re.search(r"\bno (?:busques|uses|consultes|investigues) (?:en )?(?:la )?(?:web|internet)\\b", text):
+        return False
+    explicit = bool(re.search(
+        r"\b(?:busca|buscar|investiga|investigar|consulta|consultar|"
+        r"verifica|verificar|revisa|revisar)\\b.{0,55}"
+        r"\b(?:internet|web|online|fuentes oficiales|sitios oficiales)\\b", text
+    ))
+    explicit |= bool(re.search(
+        r"\b(?:en internet|en la web)\\b.{0,55}"
+        r"\b(?:busca|buscar|investiga|consulta|verifica|revisa)\\b", text
+    ))
+    current = bool(re.search(
+        r"\b(?:hoy|actualmente|vigente|vigentes|actualizada|actualizado|"
+        r"ultima|ultimas|reciente|recientes|nueva|nuevas)\\b", text
+    ))
+    public_topic = bool(re.search(
+        r"\b(?:ley|leyes|normativa|normativas|reglamento|decreto|"
+        r"dictamen|noticias|noticia|cotizaciones|tasas|precios|"
+        r"ministerio|direccion del trabajo|diario oficial|jurisprudencia)\\b", text
+    ))
+    return explicit or (current and public_topic)
 
 
 def general_intent(message: str) -> str:
