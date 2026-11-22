@@ -11,7 +11,7 @@ import re
 from time import perf_counter
 import unicodedata
 
-INTERNAL_DATASET_VERSION = 3
+INTERNAL_DATASET_VERSION = 4
 INTERNAL_EVALUATION_VERSION = 4
 INTERNAL_WEIGHTS = {
     "accuracy": 25, "grounding": 20, "context": 15,
