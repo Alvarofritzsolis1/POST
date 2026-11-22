@@ -14,8 +14,6 @@ type SavedTurn = {role:"user"|"assistant";text:string;run_id?:string;reportable?
 const EXAMPLES = [
   "¿Qué publicaciones siguen pendientes?",
   "¿Cómo mejorar el seguimiento de candidatos?",
-  "Haz un resumen de las necesidades de las obras",
-  "¿Qué versión tenemos y cómo está el VPS?",
 ];
 
 export default function GalancitoWidget() {
@@ -209,8 +207,8 @@ export default function GalancitoWidget() {
       <div className="galancito-history" role="log" aria-label="Conversación con Galancito" aria-live="polite">
         {!history.length && <div className="galancito-greeting">
           <MessageCircle size={24}/>
-          <b>¡Hola! Soy Galancito.</b>
-          <p>Consulto información autorizada de GALANT y puedo ayudarte con informes, publicaciones, seguimiento y dudas generales.</p>
+          <b>¡Hola! ¿Qué necesitas revisar?</b>
+          <p>Pregúntame sobre GALANT, contratistas o seguimiento.</p>
           <div className="galancito-examples">{EXAMPLES.map(x =>
             <button type="button" key={x} onClick={() => askExample(x)}>{x}</button>)}</div>
         </div>}
