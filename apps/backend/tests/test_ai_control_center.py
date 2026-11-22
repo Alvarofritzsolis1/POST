@@ -1153,3 +1153,63 @@ def test_local_qwen35_test_admin_only_and_disabled(ai_env, monkeypatch):
     result = client.post(ROOT + "/local-model/test", headers=admin)
     assert result.status_code == 409
     settings.cache_clear()
+
+
+def test_quality_overview_reports_observed_not_invented_scores(ai_env):
+    """Real production counters do not prove factual quality."""
+    from app.galancito_knowledge_models import AssistantRun
+
+    client, sessions = ai_env["client"], ai_env["sessions"]
+    assert client.get(ROOT + "/quality-overview").status_code == 401
+    signin(client, "resident")
+    assert client.get(ROOT + "/quality-overview").status_code == 403
+    signin(client)
+    with sessions.begin() as db:
+        db.add_all([
+            AssistantRun(org_id=ai_env["org_id"], channel="messenger",
+                         source="ollama_4b", intent="hello", elapsed_ms=1500,
+                         timings={"graph_calls": 1}, feedback="useful"),
+            AssistantRun(org_id=ai_env["org_id"], channel="messenger",
+                         source="ollama_4b", intent="profile", elapsed_ms=2700,
+                         timings={"graph_calls": 1, "model_error": True}, feedback="incorrect"),
+            AssistantRun(org_id=ai_env["org_id"], channel="galant_internal",
+                         source="verified_local", intent="metrics", elapsed_ms=120,
+                         timings={}, feedback=None),
+        ])
+    response = client.get(ROOT + "/quality-overview?days=30")
+    assert response.status_code == 200, response.text
+    payload = response.json()
+    messenger = payload["channels"]["messenger"]
+    general = payload["channels"]["general"]
+    assert messenger["runs"] == 2
+    assert messenger["p50_ms"] == 1500
+    assert messenger["p95_ms"] == 2700
+    assert messenger["feedback"] == {"useful": 1, "incorrect": 1, "total": 2, "useful_percent": 50.0}
+    assert messenger["model_errors"] == 1
+    assert messenger["quality_score"] is None
+    assert general["runs"] == 1
+    assert general["quality_score"] is None
+    assert payload["operational_lab"] is None
+    assert client.get(ROOT + "/quality-overview?days=1000").status_code == 422
+    assert "respuestas" not in response.text.lower() or "quality_score" in response.text
+
+
+def test_internal_focus_requires_a_real_category_and_separate_dataset():
+    from pydantic import ValidationError
+    from app.galancito_internal_training import internal_case, internal_dataset_hash
+    from app.galancito_training_api import RoundInput
+
+    base = {"profile": "interno", "suite": "reference", "level": 2,
+            "seed": 7, "cases": 20, "cycles": 1}
+    focus = {**base, "focus": "seguridad"}
+    assert internal_case(focus, 0).category == "seguridad"
+    assert internal_case(focus, 19).category == "seguridad"
+    assert internal_case(base, 0).category != "seguridad"
+    assert internal_dataset_hash(base) != internal_dataset_hash(focus)
+    assert RoundInput(**focus).focus == "seguridad"
+    with pytest.raises(ValidationError):
+        RoundInput(profile="postulantes", focus="seguridad")
+    with pytest.raises(ValidationError):
+        RoundInput(profile="interno", suite="live", focus="seguridad")
+    with pytest.raises(ValidationError):
+        RoundInput(profile="interno", focus="categoria_que_no_existe")
