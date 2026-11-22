@@ -77,3 +77,15 @@ export async function downloadInternalReport(question:string, kind:"pdf"|"xlsx"|
   }
   return response.blob()
 }
+
+/** Delete only the current user's own stored internal conversation. */
+export async function deleteInternalConversation(id:string):Promise<void> {
+  const response=await fetch(base+"/network/galancito/conversations/"+encodeURIComponent(id),{
+    method:"DELETE",credentials:"include",cache:"no-store",
+    headers:{"X-CSRF-Token":csrf()},
+  })
+  if(!response.ok){
+    if(response.status===401) window.dispatchEvent(new Event("galant-session-ended"))
+    throw new ApiError(response.status,"No se pudo eliminar la conversación.")
+  }
+}
