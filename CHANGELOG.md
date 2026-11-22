@@ -1,3 +1,12 @@
+## 20.9.19-rc1 — Centro de IA: datos verificables y laboratorio compacto
+
+- Nuevo **Resumen** de IA con canales separados «Responder mensajes» y «Galancito General»: recuentos de interacciones reales, mediana, latencia p95, señales de error y feedback realmente registrado. Se informa explícitamente el límite de 2.000 registros por canal y período.
+- La nota de exactitud /100 se mantiene **sin calcular** mientras no exista una auditoría representativa y trazable de respuestas reales. Un comentario útil no equivale a precisión; las pruebas sintéticas y las pruebas con agregados de la base de datos se presentan por separado.
+- Navegación independiente y compacta: Resumen, Conexiones, Práctica Bot y Aprendizaje. Las opciones técnicas de proveedores y límites se conservan sin ocupar la portada.
+- Práctica Bot con tiempo activo acumulado, tiempo transcurrido y selección por categoría para escenarios **sintéticos** de Galancito General. La suite sobre agregados operativos permanece sin categoría enfocada por ser una metodología distinta.
+- La exportación del laboratorio diferencia datos operativos de simulaciones. Se amplían pruebas de permisos, procedencia de puntuaciones y aislamiento de categoría.
+- **Pendiente de validación:** compilación del frontend, CI, smoke test en VPS, contraste con interacciones de usuarios y creación de un conjunto de auditoría humana suficiente antes de emitir puntuaciones de exactitud reales. Esta versión no entrena pesos de Ollama ni despliega automáticamente a producción.
+
 ## 20.9.16-rc1 — Parche: aprendizaje medido con datos reales de GALANT
 
 - **Práctica Bot · Datos reales:** crea escenarios cuantitativos a partir de agregados reales de obras autorizadas en PostgreSQL, sin entregar fichas, nombres de contratistas o mensajes personales al modelo.
