@@ -20,7 +20,8 @@ from .config import settings
 from .galancito_general import QWEN_4B
 from .galancito_local import MODEL
 from .galancito_real_learning import (LIVE_DATASET_VERSION, LIVE_EVALUATION_VERSION,
-                                      MAX_LIVE_CASES, collect_live_cases, live_hash)
+                                      MAX_LIVE_CASES, GENERAL_COACH_TITLE,
+                                      collect_live_cases, live_hash)
 from .galancito_internal_training import (
     INTERNAL_CATEGORIES, INTERNAL_DATASET_VERSION, INTERNAL_EVALUATION_VERSION,
     INTERNAL_PROMPT, INTERNAL_PROPOSALS, INTERNAL_WEIGHTS, internal_case, internal_dataset_hash,
@@ -349,6 +350,60 @@ def approve(round_id: str, body: ReviewInput, user: User = Depends(administrator
     current.status, current.approved_by = "approved", user.id
     audit(db, user, "approve", row.id)
     return {"version": persist(db, current, user)["version"], "count": len(by_phrase)}
+
+
+@router.post("/rounds/{round_id}/promote-live")
+def promote_live(round_id: str, user: User = Depends(administrator), db: Session = Depends(get_db)):
+    """Human-approved promotion of measured coaching, never of raw model output.
+
+    The isolated laboratory cannot silently modify production prompts. A
+    promotion requires a full Qwen run, an improvement on repeated real data,
+    and a clean minimum-quality result on unseen verified real aggregates.
+    Only fixed, reviewed rules enter production; no case data is published.
+    """
+    row = owned_round(db, user.org_id, round_id)
+    cycles = row.metrics.get("cycles", {})
+    last = cycles.get(str(row.config.get("cycles", 1)), {})
+    if not (row.config.get("profile") == "interno" and row.config.get("suite") == "live"
+            and row.config.get("model", {}).get("id") == "ollama"
+            and row.state == "completed" and row.completed == row.target
+            and row.metrics.get("real_learning_demonstrated") is True
+            and last.get("holdout") is True and last.get("critical") == 0
+            and row.metrics.get("real_holdout_pass_rate", 0) >= 0.75):
+        raise HTTPException(409, "Sin aprendizaje verificable, ciclo completo y prueba reservada aprobada")
+    from .galancito_real_learning import COACHING
+    # Deterministic allowlist prevents model-produced or dataset-derived text
+    # from entering prompts or leaking organization information.
+    allowed = set(COACHING.values())
+    instructions = [item for item in row.metrics.get("real_coaching", [])
+                    if item in allowed][:3]
+    if not instructions:
+        raise HTTPException(409, "No hay cambios de comportamiento evaluados")
+    content = ("Para análisis de datos internos, aplica únicamente estas reglas "
+               "de razonamiento a información ya verificada por el servidor. "
+               "Nunca inventes cifras, accesos, cambios ni acciones:\\n" +
+               "\\n".join(instructions))
+    db.scalar(select(Organization.id).where(Organization.id == user.org_id).with_for_update())
+    current = db.scalar(select(Knowledge).where(
+        Knowledge.org_id == user.org_id,
+        Knowledge.scope == "red_obras", Knowledge.title == GENERAL_COACH_TITLE
+    ).with_for_update())
+    if current and current.content == content and current.status == "approved":
+        return {"status": "already_approved", "version": current.version,
+                "knowledge_id": current.id}
+    if current is None:
+        current = Knowledge(org_id=user.org_id, title=GENERAL_COACH_TITLE,
+                            category="Razonamiento operacional", kind="correction",
+                            scope="red_obras", phrases=["análisis de datos GALANT",
+                                                       "analiza información de obras"],
+                            content=content, status="approved", updated_by=user.id,
+                            approved_by=user.id)
+        db.add(current)
+    else:
+        current.content, current.status, current.approved_by = content, "approved", user.id
+    audit(db, user, "promote_live", row.id)
+    return {"status": "approved", "version": persist(db, current, user)["version"],
+            "knowledge_id": current.id}
 
 
 @router.post("/knowledge/rollback")
