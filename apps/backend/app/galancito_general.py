@@ -36,7 +36,7 @@ DATA_TERMS = ("cuantas", "cuantos", "registros", "registradas", "registrados",
               "pendientes", "esta desplegad", "estado actual", "estado de las", "como estan las publicaciones",
               "cuantos hay", "cuantas hay", "informe mensual", "resumen de",
               "dame los datos", "verifica en el sistema",
-              "version", "vps", "ram", "cpu", "servidor",
+              "vps", "servidor",
               "entrenamiento", "practica bot", "rondas", "obras",
               "contratistas", "trabajadores", "candidatos", "postulantes",
               "donde", "modulo", "menu", "despliegue",
@@ -68,7 +68,10 @@ def general_intent(message: str) -> str:
         "que es ", "para que sirve", "explicame ",
         "que documentos necesita", "que requisitos necesito", "que pasos debo")):
         return "advice"
-    if any(term in normalized for term in DATA_TERMS):
+    # Match short technical words as tokens: "programa" is not "RAM",
+    # and "conversión" is not a question about the deployed version.
+    if (any(term in normalized for term in DATA_TERMS)
+            or re.search(r"\b(?:ram|cpu|version|versiones)\b", normalized)):
         return "verified"
     if any(term in normalized for term in HOW_TO):
         return "advice"
