@@ -17,6 +17,7 @@ from .galancito_flow import grounded_reply
 from .galancito_knowledge_api import persist
 from .galancito_knowledge_models import Knowledge, KnowledgeVersion
 from .config import settings
+from .galancito_general import QWEN_4B
 from .galancito_local import MODEL
 from .galancito_internal_training import (
     INTERNAL_CATEGORIES, INTERNAL_DATASET_VERSION, INTERNAL_EVALUATION_VERSION,
@@ -175,6 +176,8 @@ def start(db, user, body, *, previous=None, compare_profile=False):
     config = body.model_dump()
     config["seed"] = secrets.randbelow(2**31) if body.seed is None else body.seed
     internal = body.profile == "interno"
+    if internal and body.model == "ollama" and settings().galancito_local_model != QWEN_4B:
+        raise HTTPException(422, "Galancito General requiere activar y verificar Qwen3.5 4B antes de practicar con Ollama. Puedes usar reglas sintéticas.")
     config["dataset_version"] = INTERNAL_DATASET_VERSION if internal else DATASET_VERSION
     config["evaluation_version"] = INTERNAL_EVALUATION_VERSION if internal else EVALUATION_VERSION
     config["model"] = model_info(db, user, body.model, "model")
