@@ -241,3 +241,78 @@ def test_red_obras_ai_transport_failure_uses_safe_fallback(network, monkeypatch)
     assert reply.json()["read_only"] is True
     assert reply.json()["source"] in {"fallback", "local"}
     assert reply.json()["answer"]
+
+
+def test_internal_opt_in_memory_restore_delete_and_cross_user_isolation(network):
+    n = network
+    question = "¿Qué versión está desplegada?"
+    normal = n["send"](n["admin"], "/galancito/chat", {
+        "message": question, "area": "interno",
+    })
+    assert normal.status_code == 200
+    assert normal.json().get("conversation_id") is None
+    saved = n["send"](n["admin"], "/galancito/chat", {
+        "message": question, "area": "interno", "save_history": True,
+    })
+    assert saved.status_code == 200, saved.text
+    assert saved.json()["history_saved"] is True
+    chat_id = saved.json()["conversation_id"]
+    assert chat_id
+    assert n["admin"].get("/api/v1/network/galancito/conversations").json()["retention_days"] == 30
+    restored = n["admin"].get("/api/v1/network/galancito/conversations/" + chat_id)
+    assert restored.status_code == 200, restored.text
+    assert len(restored.json()["turns"]) == 2
+    assert restored.json()["turns"][0]["text"] == question
+    followup = n["send"](n["admin"], "/galancito/chat", {
+        "message": "¿Qué versión del servidor veo?", "area": "interno",
+        "save_history": True, "conversation_id": chat_id,
+    })
+    assert followup.status_code == 200, followup.text
+    assert followup.json()["conversation_id"] == chat_id
+    assert len(n["admin"].get("/api/v1/network/galancito/conversations/" + chat_id).json()["turns"]) == 4
+    assert n["a"].get("/api/v1/network/galancito/conversations/" + chat_id).status_code == 404
+    denied = n["send"](n["a"], "/galancito/chat", {
+        "message": "¿Cuál versión hay?", "area": "interno",
+        "save_history": True, "conversation_id": chat_id,
+    })
+    assert denied.status_code == 404
+    assert n["a"].delete("/api/v1/network/galancito/conversations/" + chat_id).status_code in (403, 404)
+    # DELETE may need a CSRF token; the authenticated helper below supplies it.
+    deleted = n["send"](n["admin"], "/galancito/conversations/" + chat_id, {}, method="DELETE")
+    assert deleted.status_code == 204, deleted.text
+    assert n["admin"].get("/api/v1/network/galancito/conversations/" + chat_id).status_code == 404
+
+
+def test_internal_memory_excludes_sensitive_and_document_content(network):
+    n = network
+    for text in ("¿Qué versión tiene el RUT 12.345.678-5?",
+                 "¿Cuáles documentos faltan de octubre?"):
+        response = n["send"](n["admin"], "/galancito/chat", {
+            "message": text, "area": "interno", "save_history": True,
+        })
+        assert response.status_code == 200, response.text
+        assert response.json()["history_saved"] is False
+        assert response.json()["conversation_id"] is None
+    listed = n["admin"].get("/api/v1/network/galancito/conversations")
+    assert listed.status_code == 200
+    assert listed.json()["conversations"] == []
+
+
+def test_internal_memory_retention_expiration(network):
+    from datetime import timedelta
+    from sqlalchemy import select
+    from app.models import utcnow
+    from app.galancito_knowledge_models import InternalConversation
+    n = network
+    saved = n["send"](n["admin"], "/galancito/chat", {
+        "message": "¿Qué versión se ejecuta?", "area": "interno", "save_history": True,
+    })
+    assert saved.status_code == 200, saved.text
+    chat_id = saved.json()["conversation_id"]
+    with n["Session"].begin() as db:
+        row = db.scalar(select(InternalConversation).where(InternalConversation.id == chat_id))
+        row.expires_at = utcnow() - timedelta(days=1)
+    listed = n["admin"].get("/api/v1/network/galancito/conversations")
+    assert listed.status_code == 200
+    assert listed.json()["conversations"] == []
+    assert n["admin"].get("/api/v1/network/galancito/conversations/" + chat_id).status_code == 404
