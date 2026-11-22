@@ -326,3 +326,59 @@ def test_queued_ollama_round_does_not_spend_attempts_while_model_downloads(datab
             assert waiting.state == "queued"
             assert waiting.attempts == waiting.completed == 0
             assert waiting.lease is None
+
+
+def test_internal_practice_api_worker_and_scope(database):
+    """Internal practice uses the original queue with separate synthetic grading."""
+    sampler = SimpleNamespace(sample=lambda: RESOURCES.copy())
+    with client_for("admin-a") as client, client_for("admin-b") as other:
+        created = request_round(client, profile="interno", cases=3, suite="reference")
+        row_id = created["id"]
+        assert created["config"]["profile"] == "interno"
+        assert other.get(ROOT + "/rounds/" + row_id + "/errors").status_code == 404
+        assert client.get(ROOT).json()["internal_categories"]
+        for _ in range(3):
+            assert galancito_trainer.process_next(database, sampler)
+        finished = latest(client, row_id)
+        assert finished["state"] == "completed"
+        assert finished["metrics"]["passed"] == 3
+        assert finished["metrics"]["critical"] == 0
+        assert finished["metrics"]["score"] == 100
+        assert finished["metrics"]["profile_accuracy"] is None
+        assert finished["metrics"]["dimensions"]["accuracy"] == 1
+        report = client.get(ROOT + "/rounds/" + row_id + "/export/json")
+        assert report.status_code == 200, report.text
+        assert report.json()["profile"] == "interno"
+        assert report.json()["weights"]["accuracy"] == 25
+        assert client.post(ROOT + "/rounds/" + row_id + "/corrections",
+                           json={"version": 0, "corrections": []}).status_code == 422
+        with database() as db:
+            assert db.scalar(select(func.count()).select_from(FacebookChatMessage)) == 0
+
+
+def test_internal_training_forty_cycle_cap_and_cycle_metrics(database):
+    sampler = SimpleNamespace(sample=lambda: RESOURCES.copy())
+    with client_for("admin-a") as client:
+        forbidden = client.post(ROOT + "/rounds", json={
+            "profile": "interno", "model": "guided", "cases": 400, "cycles": 40,
+        })
+        assert forbidden.status_code == 422
+
+        row = request_round(client, profile="interno", cases=3, cycles=2)
+        assert row["target"] == 6
+        for _ in range(6):
+            assert galancito_trainer.process_next(database, sampler)
+        actual = latest(client, row["id"])
+        assert actual["state"] == "completed"
+        assert actual["completed"] == 6
+        assert actual["metrics"]["passed"] == 6
+        assert actual["metrics"]["cycles"]["1"]["passed"] == 3
+        assert actual["metrics"]["cycles"]["2"]["passed"] == 3
+        assert actual["metrics"]["cycles"]["1"]["critical"] == 0
+        assert actual["metrics"]["cycles"]["2"]["critical"] == 0
+        results = client.get(ROOT + "/rounds/" + row["id"] + "/export/json").json()
+        assert results["metrics"]["cycles"]["2"]["failed"] == 0
+
+        original = request_round(client, cases=1)
+        assert original["target"] == 1
+        assert original["config"]["cycles"] == 1

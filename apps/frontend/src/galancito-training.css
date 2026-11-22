@@ -56,3 +56,22 @@
   .training-banner { flex-wrap: wrap; gap: 10px; }
   .training-progress > span { text-align: right; }
 }
+
+/* Profile selector keeps synthetic internal evaluations distinct from Messenger practice. */
+.training-profile-tabs { display:flex; gap:8px; flex-wrap:wrap; margin:0 0 16px; }
+.training-profile-tab { flex:1 1 190px; padding:11px 16px; border:1px solid var(--border, #dbe5eb);
+  border-radius:12px; background:var(--surface, #fff); color:inherit; font-weight:700;
+  cursor:pointer; transition:background .18s ease,border-color .18s ease,transform .18s ease; }
+.training-profile-tab:hover { transform:translateY(-1px); border-color:#39999d; }
+.training-profile-tab.is-active { border-color:#198b90; background:rgba(25,139,144,.10); color:inherit; }
+.training-profile-tab:focus-visible { outline:3px solid #198b90; outline-offset:3px; }
+@media (prefers-reduced-motion:reduce) {
+  .training-profile-tab { transition:none; }
+  .training-profile-tab:hover { transform:none; }
+}
+
+.training-cycle-results { display:grid; grid-template-columns:repeat(auto-fit,minmax(170px,1fr)); gap:7px; margin-top:10px; }
+.training-cycle-results > div { display:grid; gap:3px; padding:9px 12px; border:1px solid #dae6e9; border-radius:9px; background:#f7faf9; }
+.training-cycle-results span { font-weight:800; font-size:12px; color:#14655d; }
+.training-cycle-results strong { font-size:12px; color:#234b50; }
+.training-cycle-results small { color:#607a7c; font-size:11px; }

@@ -22,7 +22,7 @@ from . import galancito_knowledge_models
 from . import ai_models
 from .migrations import v20_7_5_galancito_learning, v20_8_0_ai_control_center, v20_8_1_ai_collaboration, v20_8_7_global_lightning, v20_8_8_galancito_intake
 from .migrations import galancito_training
-from .migrations import v20_9_0_galancito_links, v20_9_1_galancito_memory, v20_9_4_facebook_contact_sheet, v20_9_7_facebook_publications, v20_9_8_facebook_interactions, v20_9_9_network_candidates, v20_9_14_contact_email
+from .migrations import v20_9_0_galancito_links, v20_9_1_galancito_memory, v20_9_4_facebook_contact_sheet, v20_9_7_facebook_publications, v20_9_8_facebook_interactions, v20_9_9_network_candidates, v20_9_14_contact_email, v20_9_14_internal_conversation
 from .ai_global_lightning import sync_org as sync_org_global_lightning
 
 
@@ -134,6 +134,9 @@ def migrate(db):
     # stay unchanged; this ensures optional contact fields are present even on
     # installations where the CRM version marker already exists.
     v20_9_14_contact_email.upgrade(db.connection())
+    if not db.get(SchemaVersion, v20_9_14_internal_conversation.MIGRATION_ID):
+        v20_9_14_internal_conversation.upgrade(db.connection())
+        db.add(SchemaVersion(version=v20_9_14_internal_conversation.MIGRATION_ID))
 
 
 

@@ -54,3 +54,49 @@
   .galancito-panel { width:calc(100vw - 20px); height:min(620px,calc(100dvh - 20px)); }
   .galancito-trigger { min-height:45px; padding:0 15px; }
 }
+
+/* Internal assistant: compact default, optional full-screen workstation. */
+.galancito.is-expanded { inset:12px; right:12px; bottom:12px; left:12px;
+  display:flex; align-items:stretch; justify-content:center; z-index:120; }
+.galancito.is-expanded .galancito-panel { width:min(1120px,100%); height:100%; max-height:100%; }
+.galancito-modes { display:flex; gap:6px; padding:8px 12px; border-bottom:1px solid #dce6ea;
+  background:#fff; flex:none; }
+.galancito-modes button { border:1px solid transparent; background:transparent; color:#3c6467;
+  border-radius:9px; padding:8px 12px; font:inherit; font-size:12px; font-weight:750; cursor:pointer; }
+.galancito-modes button.selected { border-color:#a6d9cf; background:#e8f5f2; color:#075e56; }
+.galancito-modes button:hover { background:#f0f7f6; }
+.galancito-retry { display:inline-flex; align-items:center; gap:4px; margin-left:8px;
+  border:1px solid #e4aba5; border-radius:7px; background:#fff; color:#9a342a;
+  padding:4px 8px; font-size:11px; cursor:pointer; }
+.galancito.is-expanded .galancito-history { padding:clamp(15px,3vw,32px); }
+.galancito.is-expanded .galancito-bubble { max-width:min(770px,90%); }
+.galancito.is-expanded .galancito-compose { padding:14px clamp(15px,3vw,32px); }
+@media(max-width:550px) {
+  .galancito.is-expanded { inset:0; }
+  .galancito.is-expanded .galancito-panel { width:100vw; height:100dvh; border-radius:0; }
+}
+
+.galancito-export { margin-top:10px; padding-top:8px; border-top:1px solid #e1ebed; }
+.galancito-export summary { display:inline-flex; align-items:center; gap:6px; font-size:12px;
+  font-weight:750; color:#087e73; cursor:pointer; }
+.galancito-export-options { display:flex; flex-wrap:wrap; gap:6px; margin-top:8px; }
+.galancito-export-options button { padding:6px 10px; border:1px solid #b9d6d3;
+  border-radius:7px; background:#ecf7f4; color:#075c52; font:inherit; font-size:11px;
+  cursor:pointer; }
+.galancito-export-options button:hover { background:#d8efea; }
+.galancito-export-options button:disabled { opacity:.5; cursor:wait; }
+.galancito-modes button:disabled { cursor:wait; opacity:.65; }
+
+.galancito-memory { background:#f7fbfa; padding:8px 12px; display:flex; gap:8px; flex-wrap:wrap;
+  border-bottom:1px solid #dbe7e6; align-items:center; flex:none; }
+.galancito-memory label { display:inline-flex; gap:6px; align-items:center; font-size:11px; font-weight:650; }
+.galancito-memory > button { padding:5px 9px; border:1px solid #bad7d1;
+  border-radius:7px; background:#fff; color:#14665d; font-size:11px; cursor:pointer; }
+.galancito-memory-list { max-height:172px; overflow:auto; flex:1 1 100%; display:grid; gap:5px; }
+.galancito-memory-entry { display:flex; align-items:center; gap:6px; min-width:0; }
+.galancito-memory-entry button { border:1px solid #d9e6e4; background:#fff; border-radius:6px;
+  padding:5px 8px; font:inherit; font-size:11px; color:#235a56; cursor:pointer; }
+.galancito-memory-entry button:first-child { flex:1; text-align:left; white-space:nowrap;
+  overflow:hidden; text-overflow:ellipsis; min-width:0; }
+.galancito-memory-entry button:last-child { color:#9a3d39; }
+.galancito-memory-entry button:disabled { opacity:.5; cursor:wait; }

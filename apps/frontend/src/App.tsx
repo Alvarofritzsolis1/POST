@@ -1506,7 +1506,7 @@ function App() {
               </section>
             </div>
           )}
-          {section === "network" && <GalancitoWidget />}
+          <GalancitoWidget />
           <footer className="footer">
             GALANT POST v{version} · {profile?.organization}
             <span>

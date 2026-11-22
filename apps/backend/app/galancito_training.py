@@ -9,6 +9,7 @@ from zoneinfo import ZoneInfo
 
 from .galancito_memory import aware
 from .galancito_training_eval import WEIGHTS
+from .galancito_internal_training import INTERNAL_WEIGHTS
 
 CHILE = ZoneInfo("America/Santiago")
 LEASE_SECONDS = 180
@@ -45,16 +46,18 @@ def case_confidence(passed: int, count: int) -> list[float] | None:
     return [round(max(0, center - margin), 4), round(min(1, center + margin), 4)]
 
 
-def summarize(metrics: dict) -> dict:
+def summarize(metrics: dict, profile: str = "postulantes") -> dict:
     turns = metrics.get("turns", 0)
     fields = metrics.get("fields", 0)
     questions = metrics.get("questions", 0)
     dimensions = metrics.get("dimensions", {})
-    denominators = {key: turns for key in WEIGHTS}
-    denominators["naturalness"] = metrics.get("judged_turns", 0)
+    weights = INTERNAL_WEIGHTS if profile == "interno" else WEIGHTS
+    denominators = {key: turns for key in weights}
+    if profile != "interno":
+        denominators["naturalness"] = metrics.get("judged_turns", 0)
     ratios = {key: round(dimensions.get(key, 0) / count, 4) if count else None
               for key, count in denominators.items()}
-    measured = {key: weight for key, weight in WEIGHTS.items() if ratios[key] is not None}
+    measured = {key: weight for key, weight in weights.items() if ratios[key] is not None}
     score = round(100 * sum(ratios[key] * weight for key, weight in measured.items()) /
                   sum(measured.values()), 2) if measured else None
     cases = metrics.get("passed", 0) + metrics.get("failed", 0)
@@ -63,7 +66,7 @@ def summarize(metrics: dict) -> dict:
         "passed": metrics.get("passed", 0), "failed": metrics.get("failed", 0),
         "turns": turns, "fields": fields, "correct_fields": metrics.get("correct_fields", 0),
         "profile_accuracy": round(metrics.get("correct_fields", 0) / fields, 4) if fields else None,
-        "dimensions": ratios, "score": score,
+        "dimensions": ratios, "score": score, "cycles": metrics.get("cycles", {}),
         "questions": questions, "repeated_questions": metrics.get("repeated_questions", 0),
         "repetition_rate": round(metrics.get("repeated_questions", 0) / questions, 4) if questions else None,
         "pending_prompt_repeats": metrics.get("pending_repeats"),
@@ -88,7 +91,7 @@ def round_view(row):
             "dataset_hash": row.dataset_hash, "system_version": row.system_version,
             "prompt_version": row.prompt_version,
             "knowledge_version": [{"id": item["id"], "version": item["version"]} for item in row.knowledge],
-            "config": row.config, "metrics": summarize(row.metrics)}
+            "config": row.config, "metrics": summarize(row.metrics, row.config.get("profile", "postulantes"))}
 
 
 def _read(path):

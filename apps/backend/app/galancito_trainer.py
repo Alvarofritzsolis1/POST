@@ -19,6 +19,10 @@ from .galancito_memory import aware
 from .galancito_training import (DETAIL_DAYS, HISTORY_DAYS, LEASE_SECONDS, LOCAL_CONTEXT_LIMIT,
                                   LOCAL_OUTPUT_LIMIT, ResourceSampler, eligible_at, resource_slots)
 from .galancito_training_data import DATASET_VERSION, scenario
+from .galancito_internal_training import (
+    INTERNAL_DATASET_VERSION, INTERNAL_EVALUATION_VERSION,
+    INTERNAL_PROMPT, internal_case, evaluate_internal,
+)
 from .galancito_training_eval import CORRECTOR_PROMPT, EVALUATION_VERSION, JUDGE_PROMPT, PROMPT, evaluate
 from .galancito_training_model import TrainingModel
 from .galancito_training_models import TERMINAL, TrainingCase, TrainingRound, TrainingWorker
@@ -110,10 +114,13 @@ def claim(factory, snapshot, *, maintenance=False, training_model=None):
             if row.attempts >= MAX_ATTEMPTS:
                 finish(row, "error", row.reason or "Se agotaron los reintentos del caso", now)
                 continue
-            if row.config["dataset_version"] != DATASET_VERSION:
+            internal = row.config.get("profile", "postulantes") == "interno"
+            expected_dataset = INTERNAL_DATASET_VERSION if internal else DATASET_VERSION
+            expected_evaluation = INTERNAL_EVALUATION_VERSION if internal else EVALUATION_VERSION
+            if row.config["dataset_version"] != expected_dataset:
                 finish(row, "error", "Cambió la versión del generador durante la sesión", now)
                 continue
-            if row.config.get("evaluation_version", 1) != EVALUATION_VERSION:
+            if row.config.get("evaluation_version", 1) != expected_evaluation:
                 finish(row, "error", "Cambió la metodología de evaluación. Inicia una nueva ronda.", now)
                 continue
             if row.metrics.get("elapsed_seconds", 0) >= row.config["minutes"] * 60:
@@ -253,7 +260,14 @@ def checkpoints(factory, claim, results, snapshot, elapsed):
         metrics = dict(row.metrics)
         dims, errors = dict(metrics.get("dimensions", {})), dict(metrics.get("errors", {}))
         sources = dict(metrics.get("reply_sources", {}))
+        cycles = dict(metrics.get("cycles", {}))
         for result in results:
+            if row.config.get("profile") == "interno":
+                cycle = str(row.completed // row.config["cases"] + 1)
+                item = dict(cycles.get(cycle, {"passed": 0, "failed": 0, "critical": 0}))
+                item["passed" if result["passed"] else "failed"] += 1
+                item["critical"] += result["critical"]
+                cycles[cycle] = item
             db.add(TrainingCase(round_id=row.id, position=row.completed, case_id=result["id"],
                                 passed=result["passed"], result=result))
             row.completed += 1
@@ -272,7 +286,8 @@ def checkpoints(factory, claim, results, snapshot, elapsed):
                 dims[key] = dims.get(key, 0) + value
             for key, value in result["errors"].items():
                 errors[key] = errors.get(key, 0) + value
-        metrics.update(dimensions=dims, errors=errors, reply_sources=sources, elapsed_seconds=metrics.get("elapsed_seconds", 0) + elapsed)
+        metrics.update(dimensions=dims, errors=errors, reply_sources=sources, cycles=cycles,
+                       elapsed_seconds=metrics.get("elapsed_seconds", 0) + elapsed)
         for key, measured in (("peak_worker_ram_mb", "worker_ram_mb"), ("peak_host_cpu_percent", "host_cpu_percent")):
             if snapshot[measured] is not None:
                 metrics[key] = max(metrics.get(key, 0), snapshot[measured])
@@ -319,6 +334,16 @@ def process_next(factory=SessionLocal, sampler=None, *, maintenance=False, train
             {**item, "phrase": None, "reply": None} for item in row.knowledge]
         def run(position):
             seed = int(row.dataset_hash[:8], 16) ^ position
+            if row.config.get("profile", "postulantes") == "interno":
+                fixture = internal_case(row.config, position)
+                def internal_answer(context):
+                    return _charge(factory, row, model, INTERNAL_PROMPT, context,
+                                   seed % (2**31), role="reply", sampler=sampler)
+                return evaluate_internal(
+                    fixture, answer=internal_answer if model["id"] != "guided" else None,
+                    stage=(lambda state: _update_stage(factory, row, state))
+                          if count == 1 else (lambda _: None),
+                )
             def ask(context):
                 instructions = PROMPT
                 if model["id"] == "ollama" and knowledge:

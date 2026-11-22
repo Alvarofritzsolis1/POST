@@ -18,6 +18,10 @@ from .galancito_knowledge_api import persist
 from .galancito_knowledge_models import Knowledge, KnowledgeVersion
 from .config import settings
 from .galancito_local import MODEL
+from .galancito_internal_training import (
+    INTERNAL_CATEGORIES, INTERNAL_DATASET_VERSION, INTERNAL_EVALUATION_VERSION,
+    INTERNAL_PROMPT, INTERNAL_PROPOSALS, INTERNAL_WEIGHTS, internal_case, internal_dataset_hash,
+)
 from .galancito_memory import approved_trade_aliases, aware
 from .galancito_phone import redact_mobile_for_intake
 from .galancito_training import DETAIL_DAYS, WORKER_STALE_SECONDS, eligible_at, round_view, summarize
@@ -31,14 +35,17 @@ from .version import SOURCE_COMMIT, VERSION
 
 router = APIRouter(prefix="/api/v1/admin/ai/training", tags=["Galancito Evolution"])
 PROMPT_VERSION = digest([PROMPT, JUDGE_PROMPT, CORRECTOR_PROMPT, WEIGHTS, EVALUATION_VERSION])
+INTERNAL_PROMPT_VERSION = digest([INTERNAL_PROMPT, INTERNAL_WEIGHTS, INTERNAL_EVALUATION_VERSION])
 SCOPE = "training"
 REVIEW_COMMAND = "GALANT PRACTICA"
 
 
 class RoundInput(BaseModel):
     model_config = ConfigDict(extra="forbid")
+    profile: Literal["postulantes", "interno"] = "postulantes"
     level: int = Field(default=1, ge=1, le=5)
     cases: int = Field(default=100, ge=1, le=MAX_CASES)
+    cycles: int = Field(default=1, ge=1, le=40)
     seed: int | None = Field(default=None, ge=0, le=2**31 - 1)
     suite: Literal["practice", "reference", "holdout"] = "reference"
     night: bool = False
@@ -59,6 +66,12 @@ class RoundInput(BaseModel):
     def validate_night(self):
         if self.night and self.night_start == self.night_end:
             raise ValueError("La hora inicial y final deben ser distintas")
+        if self.profile != "interno" and self.cycles != 1:
+            raise ValueError("Los ciclos automáticos se reservan a Galancito Interno")
+        if self.cases * self.cycles > MAX_CASES:
+            raise ValueError(f"El máximo es {MAX_CASES} evaluaciones totales por ejecución")
+        if self.profile == "interno" and (self.profile_review or self.judge != "rules" or self.corrector != "rules"):
+            raise ValueError("La práctica interna usa evaluación determinista; no aplica verificación de fichas ni juez externo")
         return self
 
 
@@ -151,7 +164,8 @@ def overview(user: User = Depends(administrator), db: Session = Depends(get_db))
             "knowledge": {"version": review.version if review else 0, "revisions": revisions,
                           "corrections": knowledge_items(review)},
             "providers": [{"id": row.id, "label": row.name, "model": row.model} for row in models],
-            "weights": WEIGHTS, "detail_days": DETAIL_DAYS,
+            "weights": WEIGHTS, "internal_weights": INTERNAL_WEIGHTS,
+            "internal_categories": INTERNAL_CATEGORIES, "detail_days": DETAIL_DAYS,
             "local_model": settings().galancito_local_model,
             "training_mode": "motor_principal_compartido" if settings().galancito_local_model != MODEL
                              else "ollama_entrenamiento_aislado"}
@@ -160,14 +174,15 @@ def overview(user: User = Depends(administrator), db: Session = Depends(get_db))
 def start(db, user, body, *, previous=None, compare_profile=False):
     config = body.model_dump()
     config["seed"] = secrets.randbelow(2**31) if body.seed is None else body.seed
-    config["dataset_version"] = DATASET_VERSION
-    config["evaluation_version"] = EVALUATION_VERSION
+    internal = body.profile == "interno"
+    config["dataset_version"] = INTERNAL_DATASET_VERSION if internal else DATASET_VERSION
+    config["evaluation_version"] = INTERNAL_EVALUATION_VERSION if internal else EVALUATION_VERSION
     config["model"] = model_info(db, user, body.model, "model")
     config["judge"] = model_info(db, user, body.judge, "judge")
     config["corrector"] = model_info(db, user, body.corrector, "corrector")
     if any(config[role].get("priced") for role in ("model", "judge", "corrector")) and not body.cost_budget:
         raise HTTPException(422, "Indica un presupuesto en USD para la conexión seleccionada")
-    fingerprint = dataset_hash(config)
+    fingerprint = internal_dataset_hash(config) if internal else dataset_hash(config)
     if previous is not None and fingerprint != previous.dataset_hash:
         raise HTTPException(409, "El generador cambió desde la ronda anterior. Inicia una nueva referencia.")
     # Serialize starts and approvals for a consistent knowledge snapshot.
@@ -182,22 +197,23 @@ def start(db, user, body, *, previous=None, compare_profile=False):
     ).order_by(TrainingRound.created_at.desc()).limit(1))
     external = any(config[role]["id"] not in {"guided", "rules", "ollama"}
                    for role in ("model", "judge", "corrector"))
-    review = None if external else review_knowledge(db, user.org_id)
+    review = None if external or internal else review_knowledge(db, user.org_id)
     knowledge = [{**item, "id": review.id, "version": review.version} for item in knowledge_items(review)]
-    aliases = {} if external else approved_trade_aliases(db, user.org_id)
+    aliases = {} if external or internal else approved_trade_aliases(db, user.org_id)
     if compare_profile and (previous.state != "completed" or previous.completed != previous.target):
         raise HTTPException(409, "Completa todos los casos de la ronda base antes de comparar.")
     if compare_profile and (
-        previous.config.get("evaluation_version") != EVALUATION_VERSION
-        or previous.prompt_version != PROMPT_VERSION
+        previous.config.get("evaluation_version") != config["evaluation_version"]
+        or previous.prompt_version != (INTERNAL_PROMPT_VERSION if internal else PROMPT_VERSION)
         or previous.knowledge != knowledge or previous.aliases != aliases
         or any(previous.config.get(role) != config[role] for role in ("model", "judge", "corrector"))
     ):
         raise HTTPException(409, "La evaluación, la conexión o el conocimiento cambió. Repite primero la ronda base.")
     scheduled = eligible_at(config, utcnow())
-    row = TrainingRound(org_id=user.org_id, created_by=user.id, target=body.cases, config=config,
+    row = TrainingRound(org_id=user.org_id, created_by=user.id, target=body.cases * body.cycles, config=config,
                         dataset_hash=fingerprint, system_version=f"{VERSION}@{SOURCE_COMMIT}",
-                        prompt_version=PROMPT_VERSION, previous_id=comparable.id if comparable else None,
+                        prompt_version=INTERNAL_PROMPT_VERSION if internal else PROMPT_VERSION,
+                        previous_id=comparable.id if comparable else None,
                         aliases=aliases, knowledge=knowledge, next_at=scheduled)
     try:
         db.add(row)
@@ -259,12 +275,15 @@ def errors(round_id: str, offset: int = Query(default=0, ge=0, le=MAX_CASES),
     cases = [item.result for item in items[:20]]
     if row.config["suite"] == "holdout":
         cases = [{key: case[key] for key in ("id", "errors", "critical")} for case in cases]
-    return {"cases": cases, "more": len(items) > 20, "proposals": PROPOSALS}
+    return {"cases": cases, "more": len(items) > 20,
+            "proposals": INTERNAL_PROPOSALS if row.config.get("profile") == "interno" else PROPOSALS}
 
 
 @router.post("/rounds/{round_id}/corrections", status_code=201)
 def approve(round_id: str, body: ReviewInput, user: User = Depends(administrator), db: Session = Depends(get_db)):
     row = owned_round(db, user.org_id, round_id)
+    if row.config.get("profile") == "interno":
+        raise HTTPException(422, "Las rondas internas se evalúan por separado y no modifican el conocimiento de postulantes")
     if row.state not in TERMINAL or row.config["suite"] == "holdout":
         raise HTTPException(409, "Usa una ronda finalizada de referencia o práctica para preparar correcciones")
     db.scalar(select(Organization.id).where(Organization.id == user.org_id).with_for_update())
@@ -331,7 +350,11 @@ def attachment(body: str, content_type: str, filename: str):
 def export_round(round_id: str, kind: Literal["json", "md"], user: User = Depends(administrator),
                  db: Session = Depends(get_db)):
     row = owned_round(db, user.org_id, round_id)
-    metrics = summarize(row.metrics)
+    profile = row.config.get("profile", "postulantes")
+    internal = profile == "interno"
+    weights = INTERNAL_WEIGHTS if internal else WEIGHTS
+    proposals = INTERNAL_PROPOSALS if internal else PROPOSALS
+    metrics = summarize(row.metrics, profile)
     examples = list(db.scalars(select(TrainingCase.result).where(
         TrainingCase.round_id == row.id, TrainingCase.passed.is_(False),
     ).order_by(TrainingCase.position).limit(12)))
@@ -345,7 +368,7 @@ def export_round(round_id: str, kind: Literal["json", "md"], user: User = Depend
                          TrainingRound.id == row.previous_id)) if row.previous_id else None
     comparison = None
     if previous:
-        old = summarize(previous.metrics)
+        old = summarize(previous.metrics, previous.config.get("profile", "postulantes"))
         before = aliased(TrainingCase)
         regressions = db.scalar(select(func.count()).select_from(TrainingCase).join(
             before, and_(before.round_id == previous.id, before.position == TrainingCase.position)).where(
@@ -353,8 +376,8 @@ def export_round(round_id: str, kind: Literal["json", "md"], user: User = Depend
         retained = aware(previous.finished_at) and aware(previous.finished_at) >= utcnow() - timedelta(days=DETAIL_DAYS)
         same_evaluation = (row.config.get("evaluation_version", 1) == previous.config.get("evaluation_version", 1)
                            and row.config["judge"] == previous.config["judge"]
-                           and (metrics["dimensions"]["naturalness"] is None)
-                           == (old["dimensions"]["naturalness"] is None))
+                           and (metrics["dimensions"].get("naturalness") is None)
+                           == (old["dimensions"].get("naturalness") is None))
         comparison = {"id": previous.id, "metrics": old, "same_evaluation": same_evaluation,
                       "profile_review": previous.config.get("profile_review", False),
                       "regressions": regressions if retained and same_evaluation else None,
@@ -366,8 +389,8 @@ def export_round(round_id: str, kind: Literal["json", "md"], user: User = Depend
             "state": row.state, "processed": row.completed, "target": row.target,
             "evaluation_version": row.config.get("evaluation_version", 1),
             "profile_review": row.config.get("profile_review", False),
-            "suite": row.config["suite"], "level": row.config["level"], "metrics": metrics,
-            "weights": WEIGHTS, "targets": {"profile_accuracy": 0.95, "conversational_criteria": 0.9,
+            "profile": profile, "suite": row.config["suite"], "level": row.config["level"], "metrics": metrics,
+            "weights": weights, "targets": {"profile_accuracy": 0.95, "conversational_criteria": 0.9,
                                              "repetition_below": 0.03, "critical_max": 0},
             "confidence": {"cases": row.completed,
                 "sample": "Casos sintéticos. Los turnos de una conversación no son independientes."},
@@ -375,13 +398,13 @@ def export_round(round_id: str, kind: Literal["json", "md"], user: User = Depend
                        for role in ("model", "judge", "corrector") if role in row.config},
             "knowledge_versions": sorted({item["version"] for item in row.knowledge}),
             "approved_corrections": len(row.knowledge), "comparison": comparison,
-            "proposals": {code: PROPOSALS[code] for code in metrics["error_counts"]}, "examples": examples}
+            "proposals": {code: proposals.get(code, "Revisar el caso") for code in metrics["error_counts"]}, "examples": examples}
     name = f"galant-practica-{row.id}.{kind}"
     if kind == "json":
         return attachment(json.dumps(info, ensure_ascii=False, indent=2), "application/json", name)
     lines = [f"# {REVIEW_COMMAND}", "", f"- Ronda `{row.id}`",
              f"- Sistema `{row.system_version}` y prompt `{row.prompt_version}`",
-             f"- Dataset `{row.dataset_hash}` · nivel {row.config['level']} · {row.config['suite']}",
+             f"- Dataset `{row.dataset_hash}` · perfil {profile} · nivel {row.config['level']} · {row.config['suite']}",
              f"- {row.completed} / {row.target} casos sintéticos procesados",
              f"- {metrics['passed']} correctos, {metrics['failed']} incorrectos y {metrics['critical']} alertas críticas",
              f"- Respuesta con {info['models']['model']['model']} y revisión con {info['models']['judge']['model']}.",
@@ -395,7 +418,7 @@ def export_round(round_id: str, kind: Literal["json", "md"], user: User = Depend
                      f"{sources.get('approved_correction', 0)} revisadas y {sources.get('fallback', 0)} de respaldo.")
     lines += ["", "## Resultados por competencia", "", "| Competencia | Resultado | Peso |",
               "| --- | ---: | ---: |"]
-    for dimension, weight in WEIGHTS.items():
+    for dimension, weight in weights.items():
         value = metrics["dimensions"][dimension]
         formatted = f"{value:.1%}" if value is not None else "Sin muestra"
         lines.append(f"| {dimension} | {formatted} | {weight}% |")

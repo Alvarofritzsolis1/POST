@@ -9,7 +9,7 @@ from zoneinfo import ZoneInfo
 from time import perf_counter
 import json
 
-from fastapi import APIRouter, Depends, HTTPException
+from fastapi import APIRouter, Depends, HTTPException, Response
 from pydantic import BaseModel, Field
 from sqlalchemy import select, func
 from sqlalchemy.orm import Session
@@ -20,6 +20,7 @@ from .facebook_ai import generate_internal_text, galancito_red_ai_available
 from .facebook_onboarding import onboarding_guide
 from .facebook_crm_models import FacebookTradeGuide, FacebookLead
 from .network_service import key, today
+from .ops_models import Contractor, Worksite
 from .models import User
 from .network_models import (NetworkRequirement, NetworkCapacity, NetworkCoordination,
                              NetworkAward, NetworkFacebookPost, NetworkMatch)
@@ -28,7 +29,12 @@ from .galancito_triage import analyze, quick_reply, private_data, plain
 from .galancito_knowledge import retrieve, exact_answer, evidence_context, public_sources
 from .galancito_local import last_timings
 from .galancito_runtime import infer, record_run
-from .ai_gateway import orchestration_available, orchestrated_text
+from .galancito_internal_live import internal_reply
+from .galancito_web import WebSearchUnavailable, public_search, format_public_search, web_available
+from .galancito_reports import MIME_TYPES, SUPPORTED_REPORTS, internal_report, export_internal_report
+from . import galancito_internal_history as saved_history
+from .galancito_internal_analysis import local_analysis_available, local_advice
+from .ai_gateway import AIServiceError, orchestration_available, orchestrated_text
 from .ai_global_lightning import sync_org as sync_org_global_lightning
 from .ai_models import AIOrchestration
 from .galancito_flow import safe_ai_reply, grounded_reply
@@ -62,11 +68,21 @@ Ejemplo: "ola soy gasfite" → oficio gasfitería; consulta qué servicio busca.
 """
 
 
+class ContextTurn(BaseModel):
+    role: Literal["user", "assistant"]
+    text: str = Field(min_length=1, max_length=500)
+
+
 class ChatInput(BaseModel):
     message: str = Field(min_length=2, max_length=800)
-    # No acceso a módulos fuera de Red de Obras.
-    area: Literal["red_obras"] = "red_obras"
+    area: Literal["red_obras", "interno"] = "red_obras"
     allow_external_ai: bool = False
+    allow_web: bool = False
+    allow_local_analysis: bool = False
+    save_history: bool = False
+    conversation_id: str | None = Field(default=None, min_length=36, max_length=36)
+    # Bounded, client-side context: never grants permission or runs as commands.
+    history: list[ContextTurn] = Field(default_factory=list, max_length=6)
 
 
 def _local_reply(message: str, area: str, titles: list[str], guides: list[FacebookTradeGuide], stats: dict | None = None) -> str:
@@ -181,16 +197,134 @@ def galancito_status(user: User = Depends(authorized_user), db: Session = Depend
                                       available and cfg.galancito_ai_provider == "openai"),
             "ai_team_available": team_available,
             "scope": "red_obras",
+            "internal_available": user.role in {"admin", "resident"},
+            "internal_ai_available": user.role in {"admin", "resident"} and local_analysis_available(),
+            "web_available": web_available() and user.role in {"admin", "resident"},
             "can_teach": user.role == "admin",
             "read_only": True}
+
+
+@router.get("/conversations")
+def list_internal_conversations(user: User = Depends(authorized_user), db: Session = Depends(get_db)):
+    if user.role not in {"admin", "resident"}:
+        raise HTTPException(403, "No tienes acceso al historial interno")
+    result = saved_history.listed(db, user)
+    db.commit()  # delete records that have expired
+    return {"conversations": result, "retention_days": saved_history.HISTORY_DAYS}
+
+
+@router.get("/conversations/{conversation_id}")
+def get_internal_conversation(conversation_id: str, user: User = Depends(authorized_user),
+                              db: Session = Depends(get_db)):
+    if user.role not in {"admin", "resident"}:
+        raise HTTPException(403, "No tienes acceso al historial interno")
+    result = saved_history.get(db, user, conversation_id)
+    if not result:
+        raise HTTPException(404, "Conversación no encontrada")
+    return result
+
+
+@router.delete("/conversations/{conversation_id}", status_code=204)
+def delete_internal_conversation(conversation_id: str,
+                                 user: User = Depends(authorized_user),
+                                 db: Session = Depends(get_db)):
+    if user.role not in {"admin", "resident"}:
+        raise HTTPException(403, "No tienes acceso al historial interno")
+    if not saved_history.erase(db, user, conversation_id):
+        raise HTTPException(404, "Conversación no encontrada")
+    db.commit()
+    return Response(status_code=204)
+
+
+class ReportRequest(BaseModel):
+    question: str = Field(min_length=3, max_length=800)
+    kind: Literal["pdf", "xlsx", "docx"]
+
+
+@router.post("/report")
+def galancito_report(body: ReportRequest, user: User = Depends(authorized_user),
+                     db: Session = Depends(get_db)):
+    if user.role not in {"admin", "resident"}:
+        raise HTTPException(403, "No tienes permiso para generar informes internos")
+    try:
+        report = internal_report(db, user, body.question)
+        payload = export_internal_report(report, body.kind)
+    except ValueError as exc:
+        raise HTTPException(422, str(exc)) from None
+    filename = f"galant-informe-{today().isoformat()}.{body.kind}"
+    return Response(
+        content=payload, media_type=MIME_TYPES[body.kind],
+        headers={
+            "Content-Disposition": f'attachment; filename="{filename}"',
+            "Cache-Control": "private, no-store",
+            "X-Content-Type-Options": "nosniff",
+        },
+    )
 
 
 @router.post("/chat")
 def galancito_chat(body: ChatInput, user: User = Depends(authorized_user),
                    db: Session = Depends(get_db)):
     started = perf_counter()
-    if sync_org_global_lightning(db, user.org_id):
+    if body.area == "interno":
+        if user.role not in {"admin", "resident"}:
+            raise HTTPException(403, "Perfil sin acceso a Galancito Interno")
+        # Only previous user prompts are used to resolve an ellipsis ("¿y cuáles?").
+        # Assistant-generated content is never trusted as an authorization source.
+        if body.conversation_id and not body.save_history:
+            raise HTTPException(422, "Para utilizar memoria guardada debes habilitar el guardado")
+        if body.conversation_id:
+            user_context = saved_history.previous_questions(db, user, body.conversation_id)
+            if user_context is None:
+                raise HTTPException(404, "Conversación no encontrada")
+        else:
+            user_context = [turn.text for turn in body.history if turn.role == "user"]
+        if body.allow_web:
+            try:
+                # User consent is necessary, but does not authorize leaking
+                # private GALANT worksite/contractor names to an external provider.
+                normalized_query = key(body.message)
+                for model in (Worksite, Contractor):
+                    private_names = db.scalars(
+                        select(model.name).where(model.org_id == user.org_id).limit(1000))
+                    if any(len(key(name)) >= 11 and key(name) in normalized_query
+                           for name in private_names):
+                        raise WebSearchUnavailable(
+                            "La consulta incluye el nombre de una obra o contratista registrado. "
+                            "Reformula la búsqueda sin datos internos de GALANT.")
+                results = public_search(body.message)
+                answer, intent, source = format_public_search(results), "external_web", "public_web"
+            except WebSearchUnavailable as exc:
+                answer, intent, source = str(exc), "external_unavailable", "local"
+        else:
+            answer, intent = internal_reply(db, user, body.message.strip(), user_context)
+            source = "verified_local"
+        analysis_generated = False
+        if body.allow_local_analysis and not body.allow_web and source == "verified_local":
+            advice = local_advice(db, question=body.message.strip(), facts=answer, intent=intent)
+            if advice:
+                answer += "\n\nSugerencia orientativa de IA local (no verificada): " + advice
+                analysis_generated = True
+        run = record_run(db, org_id=user.org_id, user_id=user.id, channel="galant_internal",
+                         source=source, intent=intent, started=started)
+        conversation_id, history_notice, history_saved = None, None, False
+        if body.save_history:
+            try:
+                conversation_id, history_saved = saved_history.record(
+                    db, user, chat_id=body.conversation_id, question=body.message.strip(),
+                    answer=answer, intent=intent, run_id=run.id,
+                    reportable=source == "verified_local" and intent in SUPPORTED_REPORTS)
+                if not history_saved:
+                    history_notice = "No se guardó esta consulta porque puede contener datos privados."
+            except ValueError as exc:
+                history_notice = str(exc)
         db.commit()
+        return {"name": "Galancito Interno", "answer": answer, "source": source,
+                "read_only": True, "run_id": run.id, "references": [],
+                "intent": intent, "reportable": source == "verified_local" and intent in SUPPORTED_REPORTS,
+                "conversation_id": conversation_id, "history_saved": history_saved,
+                "analysis_generated": analysis_generated,
+                "notice": history_notice}
     text = body.message.strip()
     if not text:
         raise HTTPException(422, "Ingresa una consulta")
@@ -210,6 +344,9 @@ def galancito_chat(body: ChatInput, user: User = Depends(authorized_user),
         db.commit()
         return {"name": "Galancito", "answer": quick_reply(text), "source": "local",
                 "read_only": True, "run_id": run.id, "references": [], "notice": None}
+    # Do not wait for synchronization before answering deterministic greetings.
+    if sync_org_global_lightning(db, user.org_id):
+        db.commit()
     # Los datos se obtienen solo del módulo Red de Obras de la organización.
     titles: list[str] = []
     live: dict = {}
@@ -338,7 +475,9 @@ def galancito_chat(body: ChatInput, user: User = Depends(authorized_user),
                                   max_output_tokens=240)
                 if use_team else generate_internal_text(INSTRUCTIONS, context, 650)),
                 org_id=user.org_id if use_team else None)
-        except RuntimeError:
+        except (RuntimeError, AIServiceError, TimeoutError, OSError):
+            # Degraded inference must not produce an HTTP 500 for a read-only
+            # chat. Keep the deterministic answer when the model is unavailable.
             generated = None
         if generated and private_data(generated):
             generated = None
