@@ -1185,3 +1185,79 @@
   .gc-root .gc-period-table td::before { content: attr(data-label); color: #758995; }
   .gc-root .gc-period-table td strong { text-align: right; max-width: 60%; }
 }
+
+/* GALANT 20.9.18 — configuración documental integrada al shell principal */
+.gc-root {
+  min-height: 0;
+  background: transparent;
+  width: 100%;
+  min-width: 0;
+}
+.gc-root .gc-document-shell { width: 100%; min-width: 0; margin: 0 auto; }
+.gc-root .gc-content { padding: 0 0 36px; width: 100%; min-width: 0; }
+.gc-root .gc-toolbar {
+  display: flex; align-items: center; gap: 14px; flex-wrap: wrap;
+  margin: 0 0 14px;
+}
+.gc-root .gc-toolbar > span {
+  color: #698091; font-size: 12px; font-weight: 650;
+}
+.gc-root .gc-back {
+  display: inline-flex; align-items: center; gap: 8px;
+  padding: 8px 13px; background: #fff; border: 1px solid #dfe7ec;
+  color: #203448; font-size: 12px; border-radius: 10px;
+}
+.gc-root .gc-back > svg { display: block; }
+.gc-root .gc-section-tabs {
+  display: flex; gap: 7px; flex-wrap: wrap; align-items: center;
+  border-bottom: 1px solid #dae4eb; padding: 0 0 12px;
+  margin: 0 0 20px;
+}
+.gc-root .gc-section-tabs a {
+  display: inline-flex; align-items: center; gap: 7px;
+  border-radius: 9px; border: 1px solid transparent;
+  padding: 9px 12px; color: #51677c; background: transparent;
+  text-decoration: none; font-size: 12px; font-weight: 650;
+  transition: background-color .17s ease, border-color .17s ease, color .17s ease;
+}
+.gc-root .gc-section-tabs a:hover { background: #eaf2f6; color: #183f54; text-decoration: none; }
+.gc-root .gc-section-tabs a.active, .gc-root .gc-section-tabs a[aria-current="page"] {
+  background: #e4f4f0; border-color: #badad3; color: #08766c;
+}
+.gc-root .gc-page-heading { margin: 0 0 18px; align-items: center; }
+.gc-root .gc-page-heading h1 { font-size: clamp(23px, 2.2vw, 30px); }
+.gc-root .gc-page-heading p { margin-top: 6px; font-size: 12px; }
+.gc-root .gc-eyebrow { margin-bottom: 4px; letter-spacing: .1em; }
+.gc-root .gc-period-panel {
+  border: 1px solid var(--gc-line); background: #fff;
+  border-radius: 11px; margin-bottom: 15px; overflow: clip;
+}
+.gc-root .gc-period-panel > summary {
+  cursor: pointer; display: flex; align-items: center; gap: 9px;
+  padding: 11px 16px; font-size: 12px; font-weight: 700;
+  list-style: none; color: #405972;
+}
+.gc-root .gc-period-panel > summary::-webkit-details-marker { display: none; }
+.gc-root .gc-period-panel > summary > svg:first-child { color: var(--gc-teal); }
+.gc-root .gc-period-panel > summary > svg:last-child { margin-left: auto; transition: transform .18s ease; }
+.gc-root .gc-period-panel[open] > summary > svg:last-child { transform: rotate(90deg); }
+.gc-root .gc-period-panel > summary:hover { background: #f6fafb; }
+.gc-root .gc-period-panel > .gc-period-selector {
+  padding: 12px 16px 16px; margin: 0;
+  border: 0; border-top: 1px solid #ecf1f5; border-radius: 0; box-shadow: none;
+}
+.gc-root .gc-filters { margin-bottom: 16px; }
+.gc-root .gc-card { box-shadow: 0 2px 10px rgba(15, 43, 61, .035); }
+@media (max-width: 760px) {
+  .gc-root .gc-content { padding: 0 0 30px; }
+  .gc-root .gc-toolbar { gap: 8px; }
+  .gc-root .gc-section-tabs { gap: 4px; }
+  .gc-root .gc-section-tabs a { padding: 8px 9px; font-size: 11px; }
+  .gc-root .gc-page-heading { flex-wrap: wrap; }
+  .gc-root .gc-period-panel > summary { padding: 12px; }
+}
+@media (prefers-reduced-motion: reduce) {
+  .gc-root .gc-section-tabs a, .gc-root .gc-period-panel > summary > svg:last-child {
+    transition: none;
+  }
+}

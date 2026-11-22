@@ -1,5 +1,5 @@
 import { useEffect, useState } from "react";
-import { ArrowLeft, UserRound, Users, Building2, FileCheck2, SlidersHorizontal, History, ChevronRight } from "lucide-react";
+import { ArrowLeft, UserRound, Users, Building2, FileCheck2, SlidersHorizontal, BellRing, Search, History, ChevronRight } from "lucide-react";
 import CatalogEditor from "./CatalogEditor";
 import { read, send, type OrgProfile, type Preferences } from "./platformApi";
 import type { Site } from "./opsApi";
@@ -21,6 +21,7 @@ export default function Settings({
   onBack: () => void;
 }) {
   const [view, setView] = useState<SettingsView>("home");
+  const [settingSearch, setSettingSearch] = useState("");
   const [profile, setProfile] = useState<OrgProfile | null>(null),
     [users, setUsers] = useState<Account[]>([]),
     [rates, setRates] = useState<
@@ -88,8 +89,17 @@ export default function Settings({
   }
   const labels: Record<SettingsView, string> = {
     home: "Configuración", profile: "Mi cuenta", users: "Usuarios y permisos",
-    sites: "Obras", rules: "Reglas operativas", historical: "Recuperación histórica",
+    sites: "Obras", rules: "Reglas y alertas", historical: "Recuperación histórica",
   };
+  const categories = [
+    { id: "profile", title: "Mi cuenta", description: "Perfil y contraseña", keywords: "perfil preferencias contraseña seguridad", Icon: UserRound, adminOnly: false, action: () => open("profile") },
+    { id: "users", title: "Usuarios", description: "Accesos y permisos", keywords: "personas cuentas roles usuarios permisos", Icon: Users, adminOnly: true, action: () => open("users") },
+    { id: "sites", title: "Obras", description: "Datos y responsables", keywords: "proyecto obra crear obra", Icon: Building2, adminOnly: true, action: () => open("sites") },
+    { id: "documents", title: "Documentos", description: "Exigencias y períodos", keywords: "catálogo contratos requisitos documentos contratista excepción regla por obra períodos vencimientos", Icon: FileCheck2, adminOnly: true, action: () => onOpenConfiguration?.("documentos") },
+    { id: "rules", title: "Reglas y alertas", description: "Retenciones y plazos", keywords: "retenciones alertas reglas importación cotizaciones portería vencimientos", Icon: SlidersHorizontal, adminOnly: true, action: () => open("rules") },
+    { id: "audit", title: "Auditoría", description: "Cambios e historial", keywords: "trazabilidad auditoria historial responsable modificaciones", Icon: History, adminOnly: true, action: () => onOpenConfiguration?.("auditoria") },
+  ].filter(item => (!item.adminOnly || admin) && ((item.id !== "documents" && item.id !== "audit") || !!onOpenConfiguration));
+  const visibleCategories = categories.filter(item => (item.title + " " + item.description + " " + item.keywords).toLocaleLowerCase("es-CL").includes(settingSearch.trim().toLocaleLowerCase("es-CL")));
   return (
     <div className="settings-center" data-testid="settings-center">
       <header className="settings-heading">
@@ -99,35 +109,26 @@ export default function Settings({
         <div>
           <p className="settings-breadcrumb">Inicio / Configuración{view === "home" ? "" : " / " + labels[view]}</p>
           <h1>{labels[view]}</h1>
-          <p className="settings-description">{view === "home" ? "Todas las opciones administrativas en un solo lugar." : "Modifica solo lo necesario y conserva el resto de la información."}</p>
+          <p className="settings-description">{view === "home" ? "Elige qué necesitas cambiar." : "Modifica solo lo necesario."}</p>
         </div>
       </header>
-      {view === "home" && <div className="settings-category-grid" aria-label="Categorías de configuración">
-        <button type="button" className="settings-category" onClick={() => open("profile")}>
-          <span className="settings-category-icon"><UserRound size={22} /></span><strong>Mi cuenta</strong>
-          <small>Perfil, preferencias y contraseña</small><ChevronRight size={18} className="settings-category-arrow" />
-        </button>
-        {admin && <button type="button" className="settings-category" onClick={() => open("users")}>
-          <span className="settings-category-icon"><Users size={22} /></span><strong>Usuarios y permisos</strong>
-          <small>Cuentas y niveles de acceso</small><ChevronRight size={18} className="settings-category-arrow" />
-        </button>}
-        {admin && <button type="button" className="settings-category" onClick={() => open("sites")}>
-          <span className="settings-category-icon"><Building2 size={22} /></span><strong>Obras</strong>
-          <small>Obras y datos generales</small><ChevronRight size={18} className="settings-category-arrow" />
-        </button>}
-        {admin && <button type="button" className="settings-category" onClick={() => open("rules")}>
-          <span className="settings-category-icon"><SlidersHorizontal size={22} /></span><strong>Reglas operativas</strong>
-          <small>Retenciones, importaciones y alertas</small><ChevronRight size={18} className="settings-category-arrow" />
-        </button>}
-        {admin && onOpenConfiguration && <button type="button" className="settings-category" onClick={() => onOpenConfiguration("documentos")}>
-          <span className="settings-category-icon"><FileCheck2 size={22} /></span><strong>Exigencias documentales</strong>
-          <small>Obras, contratistas, periodos y requisitos</small><ChevronRight size={18} className="settings-category-arrow" />
-        </button>}
-        {admin && onOpenConfiguration && <button type="button" className="settings-category settings-category-advanced" onClick={() => onOpenConfiguration("auditoria")}>
-          <span className="settings-category-icon"><History size={22} /></span><strong>Auditoría documental</strong>
-          <small>Historial y trazabilidad de cambios</small><ChevronRight size={18} className="settings-category-arrow" />
-        </button>}
-      </div>}
+      {view === "home" && <>
+        <label className="settings-search-field">
+          <Search size={18} aria-hidden="true" />
+          <span className="settings-visually-hidden">Buscar opción de configuración</span>
+          <input type="search" aria-label="Buscar configuración" placeholder="¿Qué necesitas configurar?" value={settingSearch} onChange={event => setSettingSearch(event.target.value)} />
+        </label>
+        <div className="settings-category-grid" aria-label="Categorías de configuración">
+          {visibleCategories.map(({ id, title, description, Icon, action }) => (
+            <button type="button" className="settings-category" key={id} onClick={action}>
+              <span className="settings-category-icon"><Icon size={22} aria-hidden="true" /></span>
+              <span className="settings-category-copy"><strong>{title}</strong><small>{description}</small></span>
+              <ChevronRight size={18} className="settings-category-arrow" aria-hidden="true" />
+            </button>
+          ))}
+        </div>
+        {!visibleCategories.length && <p className="settings-no-results">No encontramos esa opción. Prueba con «documentos», «usuarios» o «alertas».</p>}
+      </>}
       <div className="settings-detail">
       {view === "profile" && <section className="panel">
         <h2>Perfil y preferencias</h2>
@@ -429,6 +430,7 @@ export default function Settings({
       {admin && view === "rules" && (<>
         <section className="panel">
           <h2>Retenciones y vigencias</h2>
+          {onOpenConfiguration && <button className="settings-alert-link" type="button" onClick={() => onOpenConfiguration("alertas")}><BellRing size={17} aria-hidden="true" /> Revisar alertas y vencimientos <ChevronRight size={16} aria-hidden="true" /></button>}
           <h3>Valor diario con vigencia mensual</h3>
           <p>
             Valor registrado más reciente: ${(rates[0]?.daily_clp ?? 4950).toLocaleString("es-CL")} CLP.
