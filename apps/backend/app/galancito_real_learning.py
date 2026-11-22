@@ -6,7 +6,6 @@ cycles reproducible and to distinguish changed source data from model learning.
 This evaluates reasoning on real aggregates; it does not fine-tune weights.
 """
 from datetime import datetime, timezone
-from hashlib import sha256
 import json
 import re
 from time import perf_counter
@@ -16,13 +15,13 @@ from sqlalchemy.orm import Session
 
 from .galancito_internal_live import _authorized_sites, _counts
 from .galancito_training_data import digest
-from .network_models import NetworkRequirement
 from .ops_models import ContractorWorksite, MonthlyDocument
 from .galancito_triage import private_data
 from .network_service import today
 
 LIVE_DATASET_VERSION = 1
 LIVE_EVALUATION_VERSION = 1
+GENERAL_COACH_TITLE = "Razonamiento operacional verificado de Galancito"
 MAX_LIVE_CASES = 24
 
 LIVE_PROMPT = """Eres Galancito General. Resuelve un problema de control de
