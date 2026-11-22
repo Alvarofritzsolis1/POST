@@ -151,6 +151,29 @@ wait_for_health "$target_ref"
 # Check the exact build and additive migration, and exercise the authenticated
 # Calc transport with a disposable workbook. No production dossier is created.
 "${compose[@]}" exec -T api python -m app.deploy_verify --expected-commit "$target_ref"
+# Non-blocking, real VPS check. Never installs a model, logs chat texts,
+# touches production records or makes an external API call.
+"${compose[@]}" exec -T api python - <<'PY' || true
+from app.config import settings
+from app.galancito_general import QWEN_4B
+from app.galancito_local import installed_model_status, generate_local_text, last_timings
+
+cfg = settings()
+if not cfg.galancito_local_ai_enabled or cfg.galancito_local_model != QWEN_4B:
+    print("GALANCITO_MODEL_CHECK=not_configured")
+elif installed_model_status(QWEN_4B) is not True:
+    print("GALANCITO_MODEL_CHECK=not_confirmed_installed")
+else:
+    try:
+        answer = generate_local_text(
+            "Verificación sin datos de usuarios. Responde solo OK.", "OK", max_chars=40)
+        actual = last_timings.get().get("response_model")
+        valid = actual == QWEN_4B and answer.strip().casefold().strip(".! ") == "ok"
+        print("GALANCITO_MODEL_CHECK=" + ("verified_4b" if valid else "unverified"))
+        print("GALANCITO_MODEL_TAG=" + str(actual or "unreported"))
+    except (OSError, RuntimeError, TimeoutError, ValueError):
+        print("GALANCITO_MODEL_CHECK=unavailable_or_busy")
+PY
 python3 - "$port" "$target_ref" <<'PY'
 import json, re, sys
 from urllib.request import urlopen

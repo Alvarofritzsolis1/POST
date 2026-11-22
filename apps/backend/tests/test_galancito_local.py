@@ -314,3 +314,33 @@ def test_qwen35_diagnostic_filters_forged_smoke_lines(monkeypatch):
         namespace["run"](["docker", "compose", "exec"])
     assert "never-reveal" not in str(exc.value)
     assert "exit_code=21" in str(exc.value)
+
+
+def test_ollama_installed_model_probe_uses_private_show_and_does_not_pull(monkeypatch):
+    from io import BytesIO
+    from urllib.error import HTTPError, URLError
+
+    calls = []
+    class Response:
+        def __enter__(self): return self
+        def __exit__(self, *args): return False
+        def read(self, size): return b'{"details":{"family":"qwen3"}}'
+    def available(request, timeout):
+        calls.append((request, timeout))
+        return Response()
+    monkeypatch.setattr(galancito_local._opener, "open", available)
+    assert galancito_local.installed_model_status("qwen3.5:4b-q4_K_M") is True
+    request, timeout = calls[0]
+    assert request.full_url == "http://galancito-ollama:11434/api/show"
+    assert json.loads(request.data)["model"] == "qwen3.5:4b-q4_K_M"
+    assert timeout <= 3
+    assert len(calls) == 1
+
+    def missing(request, timeout):
+        raise HTTPError(request.full_url, 404, "not found", {}, BytesIO(b""))
+    monkeypatch.setattr(galancito_local._opener, "open", missing)
+    assert galancito_local.installed_model_status("qwen3.5:4b-q4_K_M") is False
+
+    monkeypatch.setattr(galancito_local._opener, "open",
+                        lambda *_args, **_kw: (_ for _ in ()).throw(URLError("offline")))
+    assert galancito_local.installed_model_status("qwen3.5:4b-q4_K_M") is None

@@ -1,22 +1,24 @@
 /* Galancito — un solo asistente en GALANT y Red de Obras */
-.galancito { position:fixed; right:22px; bottom:22px; z-index:98; font-family:inherit; color:#153047; }
+.galancito { position:fixed; right:18px; bottom:14px; z-index:1100; font-family:inherit; color:#153047; }
 .galancito * { box-sizing:border-box; }
 .galancito-trigger { display:flex; align-items:center; gap:9px; min-height:49px; padding:0 20px;
   border:1px solid #0b8377; border-radius:999px; background:#087e73; color:#fff; box-shadow:0 10px 27px #0b4f503b;
   font-size:14px; font-weight:800; cursor:pointer; }
 .galancito-trigger:hover { background:#06675d; }
-.galancito-panel { display:flex; flex-direction:column; width:min(404px,calc(100vw - 24px));
-  height:min(610px,calc(100dvh - 45px)); background:#fff; border-radius:16px; border:1px solid #cbdce3;
+.galancito-panel { display:flex; flex-direction:column; width:min(440px,calc(100vw - 24px));
+  /* Reserve room for GALANT's fixed top navigation, even on short screens. */
+  height:min(650px,calc(100dvh - 86px)); max-height:calc(100dvh - 86px); min-height:0;
+  background:#fff; border-radius:16px; border:1px solid #cbdce3;
   box-shadow:0 18px 70px #10364746; overflow:hidden; }
 .galancito-header { display:flex; align-items:center; gap:10px; background:#0c544f; color:#fff; padding:14px 16px; flex:none; }
 .galancito-bot-icon { display:grid; place-items:center; height:38px; width:38px; border-radius:12px; background:#167d72; }
-.galancito-header > div:nth-child(2) { display:grid; gap:3px; flex:1; min-width:0; }
+.galancito-heading { display:grid; gap:3px; flex:1; min-width:0; }
 .galancito-header strong { font-size:17px; }
 .galancito-header small { font-size:11px; opacity:.85; }
 .galancito-close { display:grid; place-items:center; height:34px; width:34px; border:0; border-radius:9px;
   background:transparent; color:#fff; cursor:pointer; }
 .galancito-close:hover { background:#ffffff20; }
-.galancito-history { display:flex; flex-direction:column; gap:13px; min-height:0; flex:1; overflow:auto;
+.galancito-history { display:flex; flex-direction:column; gap:12px; min-height:0; flex:1 1 auto; overflow-y:auto; overscroll-behavior:contain;
   background:#f5f8fa; padding:17px; }
 .galancito-greeting { display:grid; gap:10px; justify-items:start; color:#163c4f; }
 .galancito-greeting svg { color:#087e73; }
@@ -31,7 +33,7 @@
 .galancito-bubble span { display:block; font-size:10px; color:#5c7583; font-weight:750; margin-bottom:5px; }
 .galancito-bubble p { margin:0; white-space:pre-wrap; }
 .galancito-thinking { display:flex; gap:6px; align-items:center; color:#087e73; font-size:12px; }
-.galancito-compose { display:grid; gap:7px; padding:13px 14px; border-top:1px solid #dce6ea; background:#fff; flex:none; }
+.galancito-compose { display:grid; gap:6px; padding:10px 13px; border-top:1px solid #dce6ea; background:#fff; flex:none; }
 .galancito-privacy { display:flex; gap:9px; align-items:center; font-size:12px; font-weight:700; color:#24505b; cursor:pointer; }
 .galancito-privacy input { width:16px; height:16px; accent-color:#087e73; }
 .galancito-compose small { font-size:10px; color:#687f87; line-height:1.5; }
@@ -48,14 +50,14 @@
 .galancito-feedback button:disabled { opacity:.5; cursor:default; }
 .galancito-feedback-notice { font-size:11px; color:#174f51; }
 .galancito button:focus-visible, .galancito input:focus-visible { outline:2px solid #10a28e; outline-offset:2px; }
-@media(max-width:550px) { .galancito { right:10px; bottom:10px; }
-  .galancito-panel { width:calc(100vw - 20px); height:min(620px,calc(100dvh - 20px)); }
+@media(max-width:550px) { .galancito { right:8px; bottom:8px; }
+  .galancito-panel { width:calc(100vw - 16px); height:min(620px,calc(100dvh - 75px)); max-height:calc(100dvh - 75px); }
   .galancito-trigger { min-height:45px; padding:0 15px; }
 }
 
 /* Internal assistant: compact default, optional full-screen workstation. */
-.galancito.is-expanded { inset:12px; right:12px; bottom:12px; left:12px;
-  display:flex; align-items:stretch; justify-content:center; z-index:120; }
+.galancito.is-expanded { inset:62px 12px 12px;
+  display:flex; align-items:stretch; justify-content:center; z-index:1100; }
 .galancito.is-expanded .galancito-panel { width:min(1120px,100%); height:100%; max-height:100%; }
 .galancito-retry { display:inline-flex; align-items:center; gap:4px; margin-left:8px;
   border:1px solid #e4aba5; border-radius:7px; background:#fff; color:#9a342a;
@@ -64,8 +66,8 @@
 .galancito.is-expanded .galancito-bubble { max-width:min(770px,90%); }
 .galancito.is-expanded .galancito-compose { padding:14px clamp(15px,3vw,32px); }
 @media(max-width:550px) {
-  .galancito.is-expanded { inset:0; }
-  .galancito.is-expanded .galancito-panel { width:100vw; height:100dvh; border-radius:0; }
+  .galancito.is-expanded { inset:52px 0 0; }
+  .galancito.is-expanded .galancito-panel { width:100vw; height:calc(100dvh - 52px); max-height:calc(100dvh - 52px); border-radius:0; }
 }
 
 .galancito-export { margin-top:10px; padding-top:8px; border-top:1px solid #e1ebed; }
@@ -98,3 +100,31 @@
 .galancito-health button { border:1px solid #accfc7; border-radius:7px;
   background:#eef9f6; color:#165d53; padding:5px 9px; cursor:pointer; }
 .galancito-health small { flex-basis:100%; }
+
+/* PATCH 20.9.16 — compact accessible settings, generous message area. */
+.galancito-settings-trigger.selected, .galancito-settings-trigger[aria-expanded="true"] {
+  background:rgba(255,255,255,.18);
+}
+.galancito-options { display:grid; gap:10px; flex:none; padding:12px 14px;
+  max-height:min(45dvh,265px); overflow-y:auto; overscroll-behavior:contain;
+  border-bottom:1px solid #d5e7e6; background:#f7fbfa; font-size:12px; }
+.galancito-options-head { display:flex; align-items:center; gap:8px; color:#0a675e; }
+.galancito-options-head strong { font-size:12px; }
+.galancito-option-note { margin:0; color:#5b7180; font-size:11px; line-height:1.35; }
+.galancito-probe-notice { margin:0; color:#164b58; font-size:11px; line-height:1.45; }
+.galancito-options .galancito-memory { display:flex; gap:8px; align-items:center;
+  padding:8px 0 0; background:transparent; border-top:1px solid #d5e7e6;
+  border-bottom:0; }
+.galancito-options .galancito-memory label { flex-wrap:wrap; }
+.galancito-options .galancito-health { gap:8px; }
+.galancito-options .galancito-privacy { font-size:11px; font-weight:600; cursor:pointer; }
+.galancito-options .galancito-privacy input { flex:none; }
+.galancito-safety { gap:6px; font-size:10px; }
+@media (max-height:540px) {
+  .galancito-header { padding:9px 12px; }
+  .galancito-history { padding:12px; }
+  .galancito-greeting { gap:6px; }
+  .galancito-examples { gap:5px; }
+  .galancito-examples button { padding:7px 10px; }
+  .galancito-options { max-height:42dvh; }
+}
