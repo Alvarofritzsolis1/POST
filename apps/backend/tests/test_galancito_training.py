@@ -398,3 +398,26 @@ def test_early_stop_is_terminal_but_not_falsely_completed(database):
         assert final["metrics"]["early_stop"]["skipped_cases"] == 8
         assert final["metrics"]["score_basis"] == "synthetic_case_pass_rate"
         assert final["metrics"]["real_learning_demonstrated"] is False
+
+
+def test_focused_practice_defaults_to_bounded_duration_and_stops_truthfully(database):
+    sampler = SimpleNamespace(sample=lambda: RESOURCES.copy())
+    with client_for("admin-a") as client:
+        row = request_round(client, profile="interno", suite="practice",
+                            cases=2, cycles=5)
+        assert row["config"]["minutes"] == 45
+        with database.begin() as db:
+            current = db.get(TrainingRound, row["id"])
+            metrics = dict(current.metrics)
+            metrics["elapsed_seconds"] = 45 * 60
+            current.metrics = metrics
+        assert not galancito_trainer.process_next(database, sampler)
+        stopped = latest(client, row["id"])
+        assert stopped["state"] == "stopped"
+        assert stopped["completed"] == 0
+        assert stopped["target"] == 10
+        assert "duración configurada" in stopped["reason"]
+
+        explicit = request_round(client, profile="interno", suite="practice",
+                                 cases=2, cycles=5, minutes=180)
+        assert explicit["config"]["minutes"] == 180
