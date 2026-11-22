@@ -12,6 +12,7 @@ def test_unified_route_classifies_greetings_and_general_help():
     assert not is_complex("Hola")
     assert not is_complex("Analiza esto por favor")
     assert not is_complex("Compara estos conceptos")
+    assert not is_complex("¿Qué significa?" + " Me interesa conocer el significado del término." * 9)
     assert not is_complex("¿Cómo se hace una evaluación?")
     assert is_complex("Analiza y compara los riesgos, plazos y costos de distintos escenarios")
     assert not external_safe("Analiza las obras de Brisas de Junquillar",
