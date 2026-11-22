@@ -85,7 +85,7 @@ function sectionFromLocation(): string {
   const pathname = window.location.pathname;
   if (pathname.startsWith("/configuracion/automatizacion")) return "javiera_config";
   if (pathname.startsWith("/proyecto-javiera")) return "javiera";
-  if (pathname.startsWith("/admin/ia")) return "ai_admin";
+  if (pathname.startsWith("/admin/ia") || pathname.startsWith("/admin/configuracion/ia")) return "ai_admin";
   if (pathname.startsWith("/admin/configuracion")) return "configuration";
   if (pathname.startsWith("/contratistas")) return "contractors";
   if (pathname.startsWith("/ine")) return "ine";
@@ -1303,7 +1303,7 @@ function App() {
               onBack={() => go(settingsReturnRef.current)}
             />
           )}
-          {section === "configuration" && user.role === "admin" && <ErrorBoundary name="Configuración documental"><Suspense fallback={<PageSkeleton title="Cargando documentos" />}><GeneralConfiguration user={user} version={version} logout={() => void logout()} onOpenSettings={() => go("settings")} onBack={() => go("settings")} /></Suspense></ErrorBoundary>}
+          {section === "configuration" && user.role === "admin" && <ErrorBoundary name="Configuración documental"><Suspense fallback={<PageSkeleton title="Cargando documentos" />}><GeneralConfiguration onBack={() => go("settings")} /></Suspense></ErrorBoundary>}
           {section === "ai_admin" && user.role === "admin" && <ErrorBoundary name="Administración IA"><Suspense fallback={<PageSkeleton title="Cargando herramientas IA" />}><AIAdminPanel onBack={() => go("home")} /></Suspense></ErrorBoundary>}
           {editing && (
             <div className="modal-backdrop">
