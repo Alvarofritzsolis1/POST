@@ -42,8 +42,6 @@ export default function GalancitoWidget() {
         "No se pudo completar la comprobación del modelo.");
     } finally { setProbing(false); }
   }
-  // External providers must require an affirmative choice by the user.
-  const [consent, setConsent] = useState(false);
   const [webConsent, setWebConsent] = useState(false);
   const [saveMemory, setSaveMemory] = useState(false);
   const [conversationId, setConversationId] = useState<string | null>(null);
@@ -121,7 +119,9 @@ export default function GalancitoWidget() {
         message: question, area: "general",
         history: history.filter(item => item.role === "user").slice(-4).map(item =>
           ({role: "user", text: item.text.slice(0, 500)})),
-        allow_external_ai: consent && !!status?.complex_api_available,
+        // An approved organization connection enables automatic complexity routing.
+        // The backend chooses locally or externally and always enforces privacy/budgets.
+        allow_external_ai: !!status?.complex_api_available,
         allow_web: webConsent && !!status?.web_available,
         save_history: saveMemory,
         conversation_id: saveMemory ? conversationId : null,
@@ -269,11 +269,9 @@ export default function GalancitoWidget() {
           </button>
           {probeNotice && <small role="status">{probeNotice}</small>}
         </div>}
-        {status?.complex_api_available && <label className="galancito-privacy">
-          <input type="checkbox" checked={consent} disabled={busy}
-            onChange={e => setConsent(e.target.checked)} />
-          <span>Permitir API externa para preguntas complejas y públicas (desactivado por defecto)</span>
-        </label>}
+        {status?.complex_api_available && <small className="galancito-auto-routing">
+          Enrutamiento automático: Ollama para consultas habituales y API autorizada solo para análisis complejos sin datos privados.
+        </small>}
         {status?.web_available && <label className="galancito-privacy">
           <input type="checkbox" checked={webConsent} disabled={busy}
             onChange={e => setWebConsent(e.target.checked)} />
