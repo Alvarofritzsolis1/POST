@@ -22,6 +22,7 @@ from .network_service import today
 LIVE_DATASET_VERSION = 3
 LIVE_EVALUATION_VERSION = 1
 GENERAL_COACH_TITLE = "Razonamiento operacional verificado de Galancito"
+GENERAL_COACH_SCOPE = "general_coach"
 MAX_LIVE_CASES = 24
 
 LIVE_PROMPT = """Eres Galancito General. Resuelve un problema de control de
