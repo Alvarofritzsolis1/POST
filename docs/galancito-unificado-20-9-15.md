@@ -15,13 +15,20 @@ su función no es el chat interno empresarial.
 - Consejos y preguntas generales: Qwen3.5 4B (`qwen3.5:4b-q4_K_M`).
   **No existe degradación automática a Qwen1.7B**. Si el 4B no está preparado,
   el chat devuelve una explicación de respaldo, no inventa datos.
-- Consultas complejas genéricas: cuando el administrador permite «Usar API
-  autorizada», el sistema elige la conexión `red_obras` aprobada para su
-  organización. Respeta la cuota y las opciones de revisión del proveedor;
-  si falla vuelve a Qwen 4B, si está operativo.
+- Consultas genéricas de análisis realmente complejo: Galancito detecta la
+  complejidad del texto automáticamente. Si la organización ya tiene activa
+  una conexión `red_obras` aprobada, llama a esa API sin pedir al usuario
+  que seleccione manualmente el proveedor en cada mensaje. Respeta permisos,
+  cuota y revisión; ante fallos vuelve al Qwen 4B, si está operativo.
+  Consultas sencillas, aunque contengan «analiza» o «compara», usan el
+  modelo local y no consumen API externa.
 - **Nunca** se envían a API externa títulos internos de obras, nombres de
   contratistas, fichas, RUT, correos ni documentos. Las respuestas de modelos
   externos no prueban que se hayan consultado sistemas internos.
+- El enrutamiento automático no activa proveedores deshabilitados ni autoriza
+  nuevas credenciales, cuotas o permisos. La conexión se habilita previamente
+  desde Configuración IA por un administrador; luego cada pregunta se clasifica
+  sin controles manuales en el chat. El servidor vuelve a aplicar la política.
 - Búsqueda pública en internet es un control distinto y explícito, que
   requiere `GALANCITO_BRAVE_SEARCH_API_KEY` configurada en el servidor.
 
