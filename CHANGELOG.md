@@ -5,7 +5,10 @@
 - Navegación independiente y compacta: Resumen, Conexiones, Práctica Bot y Aprendizaje. Las opciones técnicas de proveedores y límites se conservan sin ocupar la portada.
 - Práctica Bot con tiempo activo acumulado, tiempo transcurrido y selección por categoría para escenarios **sintéticos** de Galancito General. La suite sobre agregados operativos permanece sin categoría enfocada por ser una metodología distinta.
 - La exportación del laboratorio diferencia datos operativos de simulaciones. Se amplían pruebas de permisos, procedencia de puntuaciones y aislamiento de categoría.
-- **Pendiente de validación:** compilación del frontend, CI, smoke test en VPS, contraste con interacciones de usuarios y creación de un conjunto de auditoría humana suficiente antes de emitir puntuaciones de exactitud reales. Esta versión no entrena pesos de Ollama ni despliega automáticamente a producción.
+- Auditoría de Messenger con **mensajes reales entregados**, incluidos registros anteriores al parche: muestra contexto reciente, revisión humana con seis criterios y almacenamiento sin transcribir el chat. El sistema no atribuye duraciones ficticias a interacciones históricas. El chat interno solo se audita cuando el propio administrador tiene historial privado guardado y autorizado.
+- Calificación verificable por muestra auditada: 30 conversaciones revisadas como umbral mínimo, recuento y criterios individuales, con advertencia de sesgo de selección y sin extrapolar a toda producción. Los hallazgos reales activan prácticas Messenger focalizadas.
+- **Épocas especializadas Messenger:** escenarios ficticios variables separados de conversaciones privadas, propuestas fijas de mejora de instrucciones tras errores, y ensayo A/B con los mismos casos reservados y semillas comparables. Muestra ganancias y regresiones únicamente como prueba sintética; no entrena pesos ni aprueba automáticamente nuevas instrucciones en producción.
+- **Pendiente de validación:** CI, prueba contra Ollama real y smoke test en VPS. Se requieren conversaciones nuevas y revisiones comparables para demostrar mejoras de producción. Este parche no se despliega automáticamente.
 
 ## 20.9.16-rc1 — Parche: aprendizaje medido con datos reales de GALANT
 
