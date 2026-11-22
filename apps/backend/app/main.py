@@ -67,7 +67,7 @@ from .javiera_workbook_api import router as javiera_workbook_router
 app = FastAPI(title="GALANT POST — Document Intelligence", version=VERSION, docs_url=None, redoc_url=None)
 app.include_router(configuration_router)
 app.include_router(ai_configuration_router)
-app.include_router(ai_quality_audit_router
+app.include_router(ai_quality_audit_router)
 app.include_router(javiera_router)
 app.include_router(javiera_v166_router)
 app.include_router(javiera_v17_router)
