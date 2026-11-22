@@ -34,6 +34,10 @@ const fieldNames: Record<string, string> = {
   documents_state: "Documentos", contact_status: "Estado del contacto", match: "Compatibilidad",
 };
 const levels = ["Básico", "Intermedio", "Avanzado", "Experto", "Casos difíciles"];
+const messengerFocus: Record<string, string> = {
+  understanding: "Comprensión y modismos", profile: "Fichas y datos", context: "Continuidad y memoria",
+  naturalness: "Naturalidad", safety: "Seguridad", helpfulness: "Utilidad",
+};
 const suites: Record<string, string> = { live: "Datos reales · medición", reference: "Referencia sintética", practice: "Práctica sintética", holdout: "Prueba sintética reservada" };
 const running = ["queued", "practicing", "evaluating", "correcting", "paused"];
 const format = new Intl.NumberFormat("es-CL", { maximumFractionDigits: 1 });
@@ -232,6 +236,7 @@ export default function GalancitoTraining({ back, initialProfile = "interno", in
             setSelection(null); setFailures(null);
           }}>{profiles[profile]}</button>)}
     </div>
+    <p className="training-muted">En Messenger, el diagnóstico inicial procede de chats auditados. Las épocas especializadas permiten practicar fallas similares con ejemplos ficticios; para confirmar una mejora hay que volver a evaluar mensajes reales.</p>
     <div className="training-model-line">
       <span>Motor: <strong>{data?.local_model ?? "Consultando"}</strong></span>
       <span>Origen: <strong>{form.suite === "live" ? "Agregados reales de GALANT" : "Simulación sintética"}</strong></span>
@@ -252,7 +257,7 @@ export default function GalancitoTraining({ back, initialProfile = "interno", in
               {levels.map((level, index) => <option key={level} value={index + 1}>{index + 1} · {level}</option>)}
             </select></label>
             <label>Casos por ciclo<input required min={form.suite === "live" ? 4 : 1} max={form.suite === "live" ? 12 : 10000} type="number" value={form.cases} onChange={event => setForm({ ...form, cases: Number(event.target.value) })} /></label>
-            {form.profile === "interno" && <label>Ciclos de evaluación<select value={form.cycles}
+            {(form.profile === "interno" || Boolean(form.focus)) && <label>Ciclos especializados<select value={form.cycles}
               onChange={event => { const cycles = Number(event.target.value); setForm(prev => ({ ...prev, cycles, cases: Math.min(prev.cases, Math.floor(10000 / cycles)) })); }}>
               {(form.suite === "live" ? [4,5,10,20,40] : [1,5,10,20,40]).map(value => <option value={value} key={value}>{value} {value === 1 ? "ciclo" : "ciclos"}</option>)}
             </select></label>}
@@ -263,6 +268,12 @@ export default function GalancitoTraining({ back, initialProfile = "interno", in
             }}>
               {Object.entries(suites).filter(([key]) => form.profile === "interno" || key !== "live").map(([key, label]) => <option key={key} value={key}>{label}</option>)}
             </select></label>
+            {form.profile === "postulantes" && <label>Enfoque basado en fallas reales
+              <select value={form.focus} onChange={event => setForm({ ...form, focus: event.target.value, cycles: 1 })}>
+                <option value="">Práctica general (1 ciclo)</option>
+                {Object.entries(messengerFocus).map(([key, label]) => <option key={key} value={key}>{label}</option>)}
+              </select>
+            </label>}
             {form.profile === "interno" && form.suite !== "live" && <label>Categoría enfocada
               <select value={form.focus} onChange={event => setForm({ ...form, focus: event.target.value })}>
                 <option value="">Todas las categorías</option>
@@ -292,9 +303,11 @@ export default function GalancitoTraining({ back, initialProfile = "interno", in
               </label>)}
             </div>
           </details>
-          {form.profile === "interno" && <p className="training-muted">
+          {(form.profile === "interno" || !!form.focus) && <p className="training-muted">
             Total previsto: <strong>{number(form.cases * form.cycles)} evaluaciones</strong>.
-            {form.suite === "live" ? "Los dos últimos ciclos prueban los mismos datos reales: primero sin correcciones y luego con correcciones, con la misma semilla. Se cuentan mejoras y regresiones. No se ajustan pesos." : "Los ciclos son pruebas repetidas, no entrenamiento de pesos. El máximo es 10.000 casos por ejecución."}
+            {form.suite === "live"
+              ? "Se repiten casos operativos reservados A/B; no se entrenan pesos."
+              : "Los ciclos usan ejercicios sintéticos reproducibles; no entrenan pesos ni demuestran mejoras en mensajes reales. Máximo 10.000 casos."}
           </p>}
           <div className="training-actions">
             <button type="submit" className="gc-primary" disabled={busy || Boolean(active)}><Play size={16} /> Iniciar evaluación</button>
@@ -312,7 +325,7 @@ export default function GalancitoTraining({ back, initialProfile = "interno", in
             <span>{profiles[round.config.profile ?? "postulantes"]} · {suites[round.config.suite]}{round.config.focus ? " · " + round.config.focus.replaceAll("_", " ") : ""} · Nivel {round.config.level} · {round.config.model.model}</span>
             <progress aria-label="Casos completados" value={round.completed} max={round.target} />
           </div>
-          {(round.config.profile === "interno") && stats?.cycles && Object.keys(stats.cycles).length > 0 &&
+          {(round.config.profile === "interno" || !!round.config.focus) && stats?.cycles && Object.keys(stats.cycles).length > 0 &&
             <details className="training-details"><summary>Resultados por ciclo · {Object.keys(stats.cycles).length} registrados</summary>
               <div className="training-cycle-results">
                 {Object.entries(stats.cycles).sort((a,b) => Number(a[0]) - Number(b[0])).map(([cycle, result]) =>
@@ -324,6 +337,7 @@ export default function GalancitoTraining({ back, initialProfile = "interno", in
             </details>}
           {round.reason && <p className={round.state === "error" ? "ai-error" : "training-muted"}>{round.reason}
             {round.state === "queued" && round.config.night ? " · " + timestamp(round.next_at) : ""}</p>}
+          {round.config.suite !== "live" && <p className="training-muted" role="note">Resultados exclusivos del laboratorio sintético. No son una calificación de los chats reales de Messenger.</p>}
           <dl className="training-metrics">
             <div><dt>Correctos</dt><dd>{number(stats?.passed)}</dd></div>
             <div><dt>Incorrectos</dt><dd>{number(stats?.failed)}</dd></div>
