@@ -78,7 +78,7 @@ class ContextTurn(BaseModel):
 
 class ChatInput(BaseModel):
     message: str = Field(min_length=2, max_length=800)
-    area: Literal["red_obras", "interno", "general"] = "general"
+    area: Literal["red_obras", "interno", "general"] = "red_obras"
     allow_external_ai: bool = False
     allow_web: bool = False
     allow_local_analysis: bool = False
@@ -217,7 +217,7 @@ def galancito_status(user: User = Depends(authorized_user), db: Session = Depend
             "ai_team_available": team_available,
             "scope": "red_obras",
             "internal_available": user.role in {"admin", "resident"},
-            "internal_ai_available": user.role in {"admin", "resident"} and local_status.get("loaded") is True,
+            "internal_ai_available": user.role in {"admin", "resident"} and local_analysis_available(),
             "web_available": web_available() and user.role in {"admin", "resident"},
             "can_teach": user.role == "admin",
             "read_only": True}
