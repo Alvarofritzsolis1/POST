@@ -29,7 +29,7 @@ from .galancito_internal_training import (
 from .galancito_memory import approved_trade_aliases, aware
 from .galancito_phone import redact_mobile_for_intake
 from .galancito_training import DETAIL_DAYS, WORKER_STALE_SECONDS, eligible_at, round_view, summarize
-from .galancito_training_data import DATASET_VERSION, MAX_CASES, dataset_hash, digest, scenario
+from .galancito_training_data import DATASET_VERSION, MAX_CASES, MESSENGER_FOCUS, dataset_hash, digest, scenario
 from .galancito_training_eval import CORRECTOR_PROMPT, CRITICAL, EVALUATION_VERSION, JUDGE_PROMPT, PROMPT, PROPOSALS, WEIGHTS, visible
 from .galancito_training_models import ACTIVE, TERMINAL, TrainingCase, TrainingRound, TrainingWorker
 from .galancito_triage import plain
@@ -77,11 +77,12 @@ class RoundInput(BaseModel):
             raise ValueError("La evaluación operativa exige respuestas reales de Qwen, no reglas ni API externa")
         if self.suite == "live" and self.cases > MAX_LIVE_CASES:
             raise ValueError(f"Para datos reales admite como máximo {MAX_LIVE_CASES} casos por ciclo")
-        if self.focus and (self.profile != "interno" or self.suite == "live"
-                           or self.focus not in INTERNAL_CATEGORIES):
-            raise ValueError("El enfoque por categoría solo admite prácticas sintéticas de Galancito General")
-        if self.profile != "interno" and self.cycles != 1:
-            raise ValueError("Los ciclos automáticos se reservan a Galancito Interno")
+        if self.focus:
+            allowed = INTERNAL_CATEGORIES if self.profile == "interno" else MESSENGER_FOCUS
+            if self.suite == "live" or self.focus not in allowed:
+                raise ValueError("Enfoque incompatible con este canal o con datos operativos reales")
+        if self.profile != "interno" and self.cycles != 1 and not self.focus:
+            raise ValueError("En Messenger los ciclos especializados requieren una categoría enfocada")
         if self.cases * self.cycles > MAX_CASES:
             raise ValueError(f"El máximo es {MAX_CASES} evaluaciones totales por ejecución")
         if self.profile == "interno" and (self.profile_review or self.judge != "rules" or self.corrector != "rules"):
