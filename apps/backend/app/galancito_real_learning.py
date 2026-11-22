@@ -116,6 +116,21 @@ def collect_live_cases(db: Session, user) -> list[dict]:
     return all_cases[:MAX_LIVE_CASES]
 
 
+
+def paired_holdout_metrics(baseline: list[bool], candidate: list[bool]) -> dict:
+    """Compare paired, identical held-out questions without manufacturing gains."""
+    if not baseline or len(baseline) != len(candidate):
+        raise ValueError("La evaluación reservada A/B requiere pares completos")
+    wins = sum(not before and after for before, after in zip(baseline, candidate))
+    losses = sum(before and not after for before, after in zip(baseline, candidate))
+    return {
+        "gain_cases": wins, "regressions": losses,
+        "baseline_pass_rate": round(sum(baseline) / len(baseline), 4),
+        "candidate_pass_rate": round(sum(candidate) / len(candidate), 4),
+    }
+
+
+
 def live_hash(config: dict) -> str:
     return digest([LIVE_DATASET_VERSION, "operativo", config["level"],
                    config["cases"], config["cycles"], config.get("live_cases", [])])
