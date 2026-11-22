@@ -183,17 +183,26 @@ def _percentile_ms(values: list[int], percentile: float) -> int | None:
     return ordered[max(0, ceil(len(ordered) * percentile) - 1)]
 
 
-def _observed_channel(rows: list[AssistantRun]) -> dict:
-    """Observability is not an accuracy score: user feedback is a separate signal."""
-    valid = [row for row in rows if row.elapsed_ms is not None and row.elapsed_ms >= 0]
+def _observed_channel(rows: list[AssistantRun], *, messenger: bool = False) -> dict:
+    """Real observed timestamps. The Messenger end-to-end latency excludes
+    cancelled and unconfirmed deliveries, never substitutes a guessed duration.
+    """
     feedback = {
         "useful": sum(row.feedback == "useful" for row in rows),
         "incorrect": sum(row.feedback == "incorrect" for row in rows),
     }
     reviewed = feedback["useful"] + feedback["incorrect"]
-    timings = [row.elapsed_ms for row in valid]
+    if messenger:
+        timings = [(row.timings or {}).get("conversation_ms") for row in rows
+                   if not (row.timings or {}).get("delivery_error")
+                   and not (row.timings or {}).get("cancelled")]
+    else:
+        timings = [row.elapsed_ms for row in rows]
+    timings = [value for value in timings if type(value) in (int, float) and 0 <= value < 86400000]
     return {
         "runs": len(rows),
+        "latency_sample": len(timings),
+        "latency_basis": "inbound_to_confirmed_delivery" if messenger else "request_processing",
         "sample_capped": len(rows) >= 2000,
         "p50_ms": _percentile_ms(timings, 0.50),
         "p95_ms": _percentile_ms(timings, 0.95),
@@ -216,14 +225,14 @@ def quality_overview(days: int = Query(default=30, ge=1, le=90),
     from .galancito_training_models import TrainingRound
 
     since = utcnow() - timedelta(days=days)
-    def sampled(channels: tuple[str, ...]) -> dict:
+    def sampled(channels: tuple[str, ...], *, is_messenger: bool = False) -> dict:
         records = list(db.scalars(select(AssistantRun).where(
             AssistantRun.org_id == user.org_id, AssistantRun.channel.in_(channels),
             AssistantRun.created_at >= since,
         ).order_by(AssistantRun.created_at.desc()).limit(2000)))
-        return _observed_channel(records)
+        return _observed_channel(records, messenger=is_messenger)
 
-    messenger = sampled(("messenger",))
+    messenger = sampled(("messenger",), is_messenger=True)
     general = sampled(("galant_internal", "red_obras"))
     from .ai_quality_audit import reviewed_sample
     # A measured human audit of a subset is not a population-wide accuracy estimate.
