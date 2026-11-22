@@ -28,3 +28,18 @@ El flujo operacional YA EXISTENTE en `galancito_real_learning.py`, `galancito_tr
 6. Fusionar/rebasar contra PR #144 después de que cambie su estado, resolver conflictos en archivos compartidos, volver a ejecutar CI y asignar nueva versión definitiva.
 
 **Estado a fecha de implementación:** código en rama aislada; pruebas CI y benchmark VPS pendientes de confirmación. No se ha desplegado ni verificado una reducción numérica de latencia.
+
+
+## Auditoría técnica adicional
+- **Error corregido:** `int(1.5)` reducía la cuota Docker de 1,5 CPU a un solo hilo. Se usa techo matemático con límite de cuatro hilos; el valor típico pasa a 2, sin cambiar la cuota de CPU del contenedor Ollama.
+- **Error corregido:** `galancito_local._generate` imponía 512 tokens mínimos de generación para cualquier llamada con pensamiento activo, incluso en el entrenador. Ahora los presupuestos de *training* se respetan y el comportamiento de producción permanece intacto.
+- **Plan de inferencia operativo:** conteos sencillos sin `think`, con máximo 128 tokens; cálculos comparativos con `think` y máximo 320 tokens. Debe medirse en el VPS para confirmar mejora sin pérdida de exactitud.
+- **Puntuación:** la práctica sintética interna informa tasa de casos completamente aprobados con `score_basis=synthetic_case_pass_rate`, no la antigua combinación de dimensiones correlacionadas que producía 97/100. La evaluación operativa informa `score_basis=verified_numeric_case_pass_rate`.
+- **Telemetría:** se añaden muestras reales de inferencia de respuestas de modelo, p50/p95 (ventana reciente de 512 turnos), desglose nativo Ollama y total de casos omitidos en parada anticipada. Las respuestas de reglas no son muestras de latencia de IA.
+- **Focalización:** los ciclos sintéticos fallidos registran categorías y aplican instrucciones específicas con allowlist a ciclos sintéticos posteriores. Nunca se inyectan en referencia, reserva A/B ni producción.
+- **Restricción física:** `docker-compose.preview.yml` fija por defecto `GALANCITO_OLLAMA_CPUS=1.5`, `OLLAMA_NUM_PARALLEL=1` y 3 GB de RAM. Sin una medición real de tokens/s, CPU y carga en el VPS no se puede prometer una respuesta de 2–5 segundos.
+- **Integración/deploy:** `.github/workflows/deploy-preview.yml` despliega exclusivamente desde `main` y exige versión explícita e incremento sincronizado. El flujo manual también exige `main` y secretos SSH. No es seguro ni autorizado saltarse esa restricción para un PR aislado. El PR #144 sigue abierto; coordinar integración luego de resolver su CI, antes de publicar una versión nueva.
+- **Compatibilidad de prácticas activas:** el cambio de versión del evaluador/dataset invalida por diseño nuevas inferencias sobre rondas anteriores que usaban semántica distinta. No desplegar mientras existan prácticas activas; finalizar, pausar o exportar antes según procedimiento autorizado.
+
+### Estado de comprobación
+El PR #145 pasó su CI principal y auditorías independientes en el SHA anterior `b4dbeda8fd5c07eb7375b421acfc972bd14926ec`. Las modificaciones posteriores deben superar CI otra vez. El PR #144 tenía tres pruebas de migraciones fallidas en su propia CI; no forma parte de este parche. No se ha probado el VPS ni se ha desplegado esta rama. 
