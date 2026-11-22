@@ -4,7 +4,7 @@ import { ApiError, request, downloadInternalReport, deleteInternalConversation }
 import { change, net } from "./networkApi";
 import "./galancito.css";
 
-type ChatLine = { role: "user" | "assistant"; text: string; runId?: string; question?: string; rated?: boolean; reportable?: boolean };
+type ChatLine = { role: "user" | "assistant"; text: string; source?: string; runId?: string; question?: string; rated?: boolean; reportable?: boolean };
 type Reply = { name: string; answer: string; source: string; notice?: string; run_id?: string; external_used?: boolean;
   references?: {id: string; version: number; title: string}[]; reportable?: boolean;
   conversation_id?: string | null; history_saved?: boolean };
@@ -131,7 +131,7 @@ export default function GalancitoWidget() {
         if (reply.history_saved) void loadSaved();
       }
       setHistory((prev) => [...prev, {role: "assistant", runId: reply.run_id, question,
-        reportable: Boolean(reply.reportable), text: reply.answer + (reply.references?.length ? "\nReferencia: " + reply.references.map(r => `${r.title} (v${r.version})`).join(", ") : "") +
+        source: reply.source, reportable: Boolean(reply.reportable), text: reply.answer + (reply.references?.length ? "\nReferencia: " + reply.references.map(r => `${r.title} (v${r.version})`).join(", ") : "") +
         (reply.notice ? "\n" + reply.notice : "")}]);
     } catch (err) {
       setLastFailed(question);
@@ -227,6 +227,16 @@ export default function GalancitoWidget() {
         {history.map((entry,i) => <div key={i} className={"galancito-bubble " + entry.role}>
           <span>{entry.role === "assistant" ? "Galancito" : "Tú"}</span>
           <p>{entry.text}</p>
+          {entry.role === "assistant" && entry.source && <small className="galancito-source">
+            {({
+              verified_local: "Datos comprobados de GALANT",
+              ollama_4b: "Orientación de Qwen3.5 4B",
+              external_api: "Análisis de API externa",
+              public_web: "Búsqueda pública",
+              local: "Respuesta directa",
+              fallback: "Orientación básica sin modelo",
+            } as Record<string,string>)[entry.source] || "Respuesta de Galancito"}
+          </small>}
           {entry.reportable && entry.question && <details className="galancito-export">
             <summary><Download size={14}/> Exportar informe</summary>
             <div className="galancito-export-options">
@@ -268,7 +278,7 @@ export default function GalancitoWidget() {
             onChange={e => setWebConsent(e.target.checked)} />
           <span>Buscar en internet (envía únicamente esta pregunta pública)</span>
         </label>}
-        <small>{status?.general_model_ready ? "IA local: Qwen3.5 4B · las consultas verificables se resuelven con registros autorizados." : "Qwen3.5 4B no está activado en el servidor. Las consultas verificables siguen disponibles."} No compartas claves ni documentos personales.</small>
+        <small>{status?.general_model_ready ? "Qwen3.5 4B configurado. Comprueba su respuesta desde administración; los datos reales se consultan con permisos." : "Qwen3.5 4B no está activado en el servidor. Las consultas verificables siguen disponibles."} No compartas claves ni documentos personales.</small>
         <div className="galancito-input-row">
           <input aria-label="Escribe tu pregunta a Galancito" value={message}
             onChange={(e) => setMessage(e.target.value)}
