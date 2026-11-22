@@ -69,6 +69,10 @@ type Metrics = {
   real_coaching?: string[]; real_holdout_pass_rate?: number; real_holdout_baseline_pass_rate?: number;
   real_holdout_gain_cases?: number; real_holdout_regressions?: number; real_learning_demonstrated?: boolean;
   elapsed_seconds?: number;
+  messenger_coaching_count?: number;
+  synthetic_holdout_baseline_rate?: number | null; synthetic_holdout_candidate_rate?: number | null;
+  synthetic_holdout_gains?: number | null; synthetic_holdout_regressions?: number | null;
+  synthetic_improvement_observed?: boolean;
 };
 type Round = {
   id: string; state: string; target: number; completed: number; reason: string | null; next_at: string;
@@ -338,6 +342,19 @@ export default function GalancitoTraining({ back, initialProfile = "interno", in
           {round.reason && <p className={round.state === "error" ? "ai-error" : "training-muted"}>{round.reason}
             {round.state === "queued" && round.config.night ? " · " + timestamp(round.next_at) : ""}</p>}
           {round.config.suite !== "live" && <p className="training-muted" role="note">Resultados exclusivos del laboratorio sintético. No son una calificación de los chats reales de Messenger.</p>}
+          {round.config.profile === "postulantes" && !!round.config.focus &&
+            (stats?.synthetic_holdout_baseline_rate != null || stats?.messenger_coaching_count) && <div className="training-lab-comparison">
+              <strong>Aprendizaje por instrucciones · solo laboratorio</strong>
+              <div><span>A/B sin corrección:</span> <b>{percent(stats?.synthetic_holdout_baseline_rate)}</b></div>
+              <div><span>A/B corregida:</span> <b>{percent(stats?.synthetic_holdout_candidate_rate)}</b></div>
+              <div><span>Casos recuperados:</span> <b>{number(stats?.synthetic_holdout_gains)}</b></div>
+              <div><span>Regresiones:</span> <b>{number(stats?.synthetic_holdout_regressions)}</b></div>
+              <small>{stats?.synthetic_improvement_observed
+                ? "Mejora observada en ejemplos sintéticos reservados; pendiente de validación con nuevos chats reales."
+                : "No hay mejora sintética comprobada en la prueba reservada."}
+                {" "}Ajustes de instrucciones: {stats?.messenger_coaching_count ?? 0}. No se ajustan pesos.
+              </small>
+            </div>}
           <dl className="training-metrics">
             <div><dt>Correctos</dt><dd>{number(stats?.passed)}</dd></div>
             <div><dt>Incorrectos</dt><dd>{number(stats?.failed)}</dd></div>
