@@ -2,6 +2,7 @@ import { useEffect, useState } from "react";
 import { ArrowLeft, Bot, FlaskConical, GraduationCap, LayoutDashboard, Settings2 } from "lucide-react";
 import AIConfiguration from "./AIConfiguration";
 import AIQualityOverview from "./AIQualityOverview";
+import AIHumanAudit from "./AIHumanAudit";
 import GalancitoTraining from "./GalancitoTraining";
 import "./ai-admin-panel.css";
 
@@ -68,7 +69,10 @@ export default function AIAdminPanel({ onBack }: { onBack: () => void }) {
       {section === "conexiones" && <AIConfiguration section="conexiones" openTraining={() => openPractice("general")} />}
       {section === "practica" && <GalancitoTraining initialProfile={practiceTarget.channel === "messenger" ? "postulantes" : "interno"}
         initialFocus={practiceTarget.focus} back={() => navigate("resumen")} />}
-      {section === "aprendizaje" && <AIConfiguration section="aprendizaje" openTraining={() => openPractice("general")} />}
+      {section === "aprendizaje" && <div className="ai-admin-learning">
+        <AIConfiguration section="aprendizaje" openTraining={() => openPractice("general")} />
+        <AIHumanAudit />
+      </div>}
     </div>
   </section>;
 }
