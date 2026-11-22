@@ -138,7 +138,7 @@ _NUMBERS_ES = {
     18: "dieciocho", 19: "diecinueve", 20: "veinte",
 }
 _COUNT_NOUNS = (r"(?:contratistas?|trabajadores?|necesidades?|"
-                r"comentarios?|postulantes?|personas?|registros?)")
+                r"comentarios?|postulantes?)")
 
 
 def _has_term(reply: str, term: str):
