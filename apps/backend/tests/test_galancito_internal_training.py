@@ -178,3 +178,22 @@ def test_synthetic_coaching_is_applied_only_to_practice_not_real_learning():
     assert synthetic_practice_prompt("holdout", selected) == INTERNAL_PROMPT
     assert synthetic_practice_prompt("live", selected) == INTERNAL_PROMPT
     assert propose_synthetic_coaching({"inventado": 99}, []) == []
+
+
+def test_clean_synthetic_practice_can_end_early_but_not_holdout():
+    from app.galancito_internal_training import clean_synthetic_streak
+    clean = {
+        "1": {"passed": 4, "failed": 0},
+        "2": {"passed": 4, "failed": 0},
+        "3": {"passed": 4, "failed": 0},
+    }
+    assert not clean_synthetic_streak(clean, 2, 3)
+    assert clean_synthetic_streak(clean, 3, 3)
+    assert not clean_synthetic_streak(clean, 3, 0)
+    assert not clean_synthetic_streak({**clean, "2": {"passed": 3, "failed": 1}}, 3, 3)
+    from app.galancito_training_api import RoundInput
+    from pydantic import ValidationError
+    import pytest
+    assert RoundInput(profile="interno", suite="practice").stop_after_clean_cycles == 3
+    with pytest.raises(ValidationError):
+        RoundInput(profile="interno", stop_after_clean_cycles=1)
