@@ -10,7 +10,8 @@ from sqlalchemy.orm import Session
 from .ai_gateway import AIServiceError, orchestration_available, orchestrated_text
 from .config import settings
 from .galancito_general import (QWEN_4B, GENERAL_INSTRUCTIONS, advice_fallback,
-                                external_safe, general_intent, is_complex, safe_generated)
+                                external_safe, general_intent, is_complex, safe_generated,
+                                social_reply)
 from .galancito_internal_live import internal_reply
 from .galancito_local import generate_local_text
 from .galancito_runtime import infer
@@ -47,6 +48,9 @@ def general_answer(db: Session, user, message: str,
     Not an autonomous tool agent. All tool outputs come from allowed internal
     queries; never send these outputs to external APIs.
     """
+    social = social_reply(message)
+    if social is not None:
+        return social, "social_context", "local", False
     intent = general_intent(message)
     if intent == "greeting":
         return quick_reply(message), "greeting", "local", False
