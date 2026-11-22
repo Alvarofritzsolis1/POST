@@ -25,7 +25,9 @@ from .galancito_real_learning import (LIVE_DATASET_VERSION, LIVE_EVALUATION_VERS
                                        paired_holdout_metrics)
 from .galancito_internal_training import (
     INTERNAL_DATASET_VERSION, INTERNAL_EVALUATION_VERSION,
-    INTERNAL_PROMPT, internal_case, evaluate_internal,
+    internal_case, evaluate_internal,
+    propose_synthetic_coaching, propose_category_coaching,
+    synthetic_practice_prompt, clean_synthetic_streak,
 )
 from .galancito_training_eval import CORRECTOR_PROMPT, EVALUATION_VERSION, JUDGE_PROMPT, PROMPT, PROPOSALS, evaluate
 from .galancito_training_model import TrainingModel
@@ -37,6 +39,20 @@ logger = logging.getLogger(__name__)
 MAX_ATTEMPTS = 3
 LOCK_KEY = 2098001
 CPU_THREADS = ThreadPoolExecutor(max_workers=4, thread_name_prefix="training-case")
+# Only arithmetic/comparative live cases need deeper reasoning.
+LIVE_REASONING_CATEGORIES = frozenset({"resta", "suma", "diferencia", "riesgos"})
+
+
+def practice_threads(snapshot: dict) -> int:
+    """Respect measured worker CPU allocation; never force a single thread."""
+    try:
+        # Docker commonly reports 1.5 CPU. int(1.5) incorrectly rounds down
+        # to one thread and recreates the original Qwen bottleneck.
+        from math import ceil
+        cores = ceil(float(snapshot.get("worker_cores") or 1))
+    except (TypeError, ValueError, OverflowError):
+        cores = 1
+    return min(4, max(1, cores))
 
 
 class BudgetReached(Exception):
@@ -131,7 +147,7 @@ def claim(factory, snapshot, *, maintenance=False, training_model=None):
                 finish(row, "error", "Cambió la metodología de evaluación. Inicia una nueva ronda.", now)
                 continue
             if row.metrics.get("elapsed_seconds", 0) >= row.config["minutes"] * 60:
-                finish(row, "completed", "Se alcanzó la duración configurada", now)
+                finish(row, "stopped", "Se alcanzó la duración configurada (pruebas pendientes)", now)
                 continue
             next_at = eligible_at(row.config, now)
             if next_at > now:
@@ -186,11 +202,17 @@ def _update_stage(factory, claim, state):
         row.lease_until = utcnow() + timedelta(seconds=LEASE_SECONDS)
 
 
-def _charge(factory, claim, spec, instructions, prompt, seed, *, role, sampler, thinking=False):
+def _charge(factory, claim, spec, instructions, prompt, seed, *, role, sampler, thinking=False, output_budget=None):
     provider = spec["id"]
     local = provider == "ollama"
+    internal_synthetic = (claim.config.get("profile") == "interno"
+                          and claim.config.get("suite") != "live")
     output_limit = (512 if thinking and role == "reply" else
+                    96 if internal_synthetic and role == "reply" else
                     {"reply": LOCAL_OUTPUT_LIMIT, "judge": 8, "correction": 96}[role])
+    if output_budget is not None:
+        # Caller-selected trusted case budget; never increase ordinary limits.
+        output_limit = min(output_limit, max(64, min(int(output_budget), 512)))
     # Preflight by context size locally and conservative UTF-8 bounds externally.
     # An unsuccessful call with unknown usage keeps the reservation.
     reserve = LOCAL_CONTEXT_LIMIT if local else len((instructions + prompt).encode("utf-8")) + 640
@@ -233,7 +255,7 @@ def _charge(factory, claim, spec, instructions, prompt, seed, *, role, sampler, 
         sent = True
         if local:
             cfg = SimpleNamespace(galancito_num_ctx=LOCAL_CONTEXT_LIMIT, galancito_num_predict=output_limit,
-                                  galancito_num_thread=1, galancito_keep_alive="2m",
+                                  galancito_num_thread=practice_threads(snapshot), galancito_keep_alive="2m",
                                   galancito_local_model=spec["model"])
             def invoke_local():
                 return (generate_training_text(instructions, prompt, seed, cfg, thinking=True)
@@ -297,6 +319,11 @@ def checkpoints(factory, claim, results, snapshot, elapsed):
                 for error, amount in result["errors"].items():
                     per_cycle_errors[error] = per_cycle_errors.get(error, 0) + amount
                 item["errors"] = per_cycle_errors
+                if not result["passed"]:
+                    failed_categories = dict(item.get("failed_categories", {}))
+                    category = result["category"]
+                    failed_categories[category] = failed_categories.get(category, 0) + 1
+                    item["failed_categories"] = failed_categories
                 cycles[cycle] = item
             db.add(TrainingCase(round_id=row.id, position=row.completed, case_id=result["id"],
                                 passed=result["passed"], result=result))
@@ -307,6 +334,24 @@ def checkpoints(factory, claim, results, snapshot, elapsed):
             metrics["turns"] = metrics.get("turns", 0) + len(result["turns"])
             status = "passed" if result["passed"] else "failed"
             metrics[status] = metrics.get(status, 0) + 1
+            if result.get("coaching_applied"):
+                metrics["synthetic_coached_cases"] = metrics.get("synthetic_coached_cases", 0) + 1
+            for turn in result["turns"]:
+                inferred = turn.get("inference_ms")
+                # Never present deterministic rule-only practice as model latency.
+                if (turn.get("reply_source") == "model"
+                        and type(inferred) in (int, float) and 0 <= inferred <= 1_000_000):
+                    samples = list(metrics.get("inference_samples_ms", []))
+                    samples.append(round(float(inferred), 2))
+                    # Keep storage predictable; this is an explicitly recent window.
+                    metrics["inference_samples_ms"] = samples[-512:]
+                timing = turn.get("ollama_timing", {})
+                if timing:
+                    totals = dict(metrics.get("ollama_timing_totals", {}))
+                    for key, value in timing.items():
+                        totals[key] = totals.get(key, 0) + value
+                    metrics["ollama_timing_totals"] = totals
+                    metrics["ollama_timing_samples"] = metrics.get("ollama_timing_samples", 0) + 1
             if result["naturalness_review"] is not None:
                 metrics["judged_cases"] = metrics.get("judged_cases", 0) + 1
                 metrics["judged_turns"] = metrics.get("judged_turns", 0) + len(result["turns"])
@@ -318,6 +363,22 @@ def checkpoints(factory, claim, results, snapshot, elapsed):
                 errors[key] = errors.get(key, 0) + value
         metrics.update(dimensions=dims, errors=errors, reply_sources=sources, cycles=cycles,
                        elapsed_seconds=metrics.get("elapsed_seconds", 0) + elapsed)
+        if (row.config.get("profile") == "interno"
+                and row.config.get("suite") == "practice"
+                and row.completed % row.config["cases"] == 0):
+            # Only completed synthetic cycles may propose changes for LATER
+            # synthetic cycles. Never promote these into production knowledge.
+            finished_cycle = str(row.completed // row.config["cases"])
+            previous = metrics.get("synthetic_coaching", [])
+            proposed = propose_synthetic_coaching(
+                cycles[finished_cycle].get("errors", {}), previous)
+            metrics["synthetic_coaching"] = proposed
+            cycles[finished_cycle]["coaching_proposed_for_next_cycle"] = proposed
+            categories = propose_category_coaching(
+                cycles[finished_cycle].get("failed_categories", {}),
+                metrics.get("synthetic_category_coaching", []))
+            metrics["synthetic_category_coaching"] = categories
+            cycles[finished_cycle]["category_coaching_next_cycle"] = categories
         # Focused Messenger loops can adjust bounded prompt instructions between
         # cycles. The last paired A/B cycles use independent synthetic holdout
         # fixtures; they are NEVER evidence of real-world learning or fine-tuning.
@@ -413,8 +474,15 @@ def checkpoints(factory, claim, results, snapshot, elapsed):
                     metrics["real_holdout_regressions"] = regressions
                     metrics["real_holdout_baseline_pass_rate"] = comparison["baseline_pass_rate"]
                     metrics["real_holdout_pass_rate"] = comparison["candidate_pass_rate"]
+                    metrics["real_holdout_paired_cases"] = comparison["paired_cases"]
+                    metrics["real_holdout_one_sided_p_value"] = comparison["one_sided_p_value"]
+                    # A single A/B win is preliminary evidence, never proof
+                    # of real learning. Paired cases may share worksite context.
+                    metrics["real_holdout_observed_gain"] = bool(gains > 0 and regressions == 0)
                     metrics["real_learning_demonstrated"] = bool(
-                        metrics.get("real_coaching") and gains > 0
+                        metrics.get("real_coaching") and gains >= 5
+                        and comparison["paired_cases"] >= 8
+                        and comparison["one_sided_p_value"] <= 0.05
                         and regressions == 0 and item["critical"] == 0
                         and item["pass_rate"] >= 0.75)
                 else:
@@ -429,6 +497,21 @@ def checkpoints(factory, claim, results, snapshot, elapsed):
         row.attempts = 0
         if row.completed == row.target:
             finish(row, "completed", None, utcnow())
+        elif (row.config.get("profile") == "interno"
+              and row.config.get("suite") == "practice"
+              and row.completed % row.config["cases"] == 0
+              and clean_synthetic_streak(
+                  cycles, row.completed // row.config["cases"],
+                  row.config.get("stop_after_clean_cycles", 0))):
+            # This shortens useless repetitive practice; the target remains
+            # unchanged to transparently show the skipped evaluations.
+            reason = "Práctica sintética terminada anticipadamente: ciclos limpios consecutivos; no demuestra aprendizaje operativo"
+            row.metrics = {**metrics, "early_stop": {
+                "reason": "clean_synthetic_cycles",
+                "skipped_cases": row.target - row.completed,
+                "completed_cycles": row.completed // row.config["cases"],
+            }}
+            finish(row, "stopped", reason, utcnow())
         elif row.state != "paused":
             row.state, row.next_at = "queued", utcnow()
 
@@ -482,21 +565,44 @@ def process_next(factory=SessionLocal, sampler=None, *, maintenance=False, train
                 def real_answer(context, instructions):
                     system = LIVE_PROMPT + ("\nConsejos revisados tras errores anteriores:\n" +
                                             "\n".join(instructions) if instructions else "")
+                    deeper = fixture["category"] in LIVE_REASONING_CATEGORIES
+                    budget = 320 if deeper else 128
                     return _charge(factory, row, model, system, context,
-                                   model_seed, role="reply", sampler=sampler, thinking=True)
+                                   model_seed, role="reply", sampler=sampler,
+                                   thinking=deeper, output_budget=budget)
                 result = evaluate_live(fixture, answer=real_answer, coach=coach)
                 result["id"] = fixture["id"] + "-c" + str(cycle_number)
                 return result
             if row.config.get("profile", "postulantes") == "interno":
                 fixture = internal_case(row.config, position)
+                coaching = (list(row.metrics.get("synthetic_coaching", []))
+                            if row.config.get("suite") == "practice" else [])
+                category_coaching = (list(row.metrics.get("synthetic_category_coaching", []))
+                                     if row.config.get("suite") == "practice" else [])
+                practice_system = synthetic_practice_prompt(
+                    row.config["suite"], coaching, category_coaching)
+                timings = []
                 def internal_answer(context):
-                    return _charge(factory, row, model, INTERNAL_PROMPT, context,
-                                   seed % (2**31), role="reply", sampler=sampler)
-                return evaluate_internal(
+                    reply = _charge(factory, row, model, practice_system, context,
+                                    seed % (2**31), role="reply", sampler=sampler)
+                    # Actual Ollama response metrics, never simulated timing.
+                    measured = last_timings.get() if model["id"] == "ollama" else {}
+                    timings.append({key: measured[key] for key in (
+                        "load_ms", "prompt_ms", "generation_ms", "ollama_total_ms",
+                        "transport_ms", "input_tokens", "output_tokens")
+                        if isinstance(measured.get(key), (float, int))})
+                    return reply
+                result = evaluate_internal(
                     fixture, answer=internal_answer if model["id"] != "guided" else None,
                     stage=(lambda state: _update_stage(factory, row, state))
                           if count == 1 else (lambda _: None),
                 )
+                for turn, timing in zip(result["turns"], timings):
+                    turn["ollama_timing"] = timing
+                result["coaching_applied"] = (
+                    coaching + ["category:" + name for name in category_coaching]
+                    if model["id"] != "guided" else [])
+                return result
             focused = (row.config.get("profile", "postulantes") == "postulantes"
                        and row.config.get("focus") in MESSENGER_FOCUS)
             cycle_number = position // row.config["cases"] + 1

@@ -6,6 +6,7 @@ cycles reproducible and to distinguish changed source data from model learning.
 This evaluates reasoning on real aggregates; it does not fine-tune weights.
 """
 from datetime import datetime, timezone
+from math import comb
 import json
 import re
 from time import perf_counter
@@ -123,8 +124,16 @@ def paired_holdout_metrics(baseline: list[bool], candidate: list[bool]) -> dict:
         raise ValueError("La evaluación reservada A/B requiere pares completos")
     wins = sum(not before and after for before, after in zip(baseline, candidate))
     losses = sum(before and not after for before, after in zip(baseline, candidate))
+    # One-sided exact McNemar/binomial test on discordant matched pairs.
+    # Descriptive only: cases across the same obra may not be independent.
+    discordant = wins + losses
+    p_value = (sum(comb(discordant, k) for k in range(wins, discordant + 1))
+               / 2**discordant) if discordant else 1.0
     return {
         "gain_cases": wins, "regressions": losses,
+        "paired_cases": len(baseline),
+        "discordant_pairs": discordant,
+        "one_sided_p_value": round(p_value, 6),
         "baseline_pass_rate": round(sum(baseline) / len(baseline), 4),
         "candidate_pass_rate": round(sum(candidate) / len(candidate), 4),
     }
@@ -144,7 +153,9 @@ def evaluate_live(case: dict, *, answer, coach: list[str] | None = None) -> dict
         "fecha": case["recorded_at"], "evidencia": case["evidence"],
         "aviso": "Datos reales de GALANT congelados en la ronda, sin acceso a personas.",
     }, ensure_ascii=False)
+    answer_started = perf_counter()
     reply = str(answer(context, coach or []) or "").strip()[:1200]
+    inference_ms = round((perf_counter() - answer_started) * 1000, 2)
     found = re.search(r"(?im)^\s*Resultado:\s*(-?\d+)\s*$", reply)
     actual = int(found.group(1)) if found else None
     explanation = re.search(r"(?im)^\s*Explicaci[oó]n:\s*(.{10,})$", reply)
@@ -174,6 +185,7 @@ def evaluate_live(case: dict, *, answer, coach: list[str] | None = None) -> dict
     return {
         "id": case["id"], "category": case["category"], "passed": not errors,
         "turns": [{"turn": 1, "message": case["question"], "reply": reply,
+                   "inference_ms": inference_ms,
                    "reply_source": "model", "checks": checks,
                    "issues": list(errors), "critical": not safe,
                    "expected": {"resultado": expected, "source": "db_aggregate"},

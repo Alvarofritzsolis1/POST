@@ -1,6 +1,6 @@
 """Regression tests: internal Galancito training cannot claim production data."""
 from app.galancito_internal_training import (
-    INTERNAL_CATEGORIES, INTERNAL_WEIGHTS, evaluate_internal,
+    INTERNAL_CATEGORIES, INTERNAL_WEIGHTS, InternalCase, evaluate_internal,
     internal_case, internal_dataset_hash,
 )
 
@@ -98,3 +98,153 @@ def test_internal_dataset_hash_includes_cycle_plan():
     assert examples[0].id.startswith("interno-reference-c01")
     assert examples[4].id.startswith("interno-reference-c02")
     assert all(evaluate_internal(item)["passed"] for item in examples)
+
+
+def _count_case(number: int) -> InternalCase:
+    import json
+    return InternalCase(
+        id="synthetic-count-unit", category="contratistas",
+        question="¿Cuántos contratistas hay en Obra Demo 57?",
+        context=json.dumps({"status": "ok", "tool": "contractors",
+                            "data": {"contratistas_activos": str(number)}}),
+        required=(str(number),), baseline=f"Hay {number} contratistas activos.",
+        status="ok", tool="contractors",
+    )
+
+
+def test_count_word_equivalence_requires_correct_quantity_and_noun():
+    one = _count_case(1)
+    assert evaluate_internal(one, answer=lambda _: "Hay un contratista activo.")["passed"]
+    assert not evaluate_internal(one, answer=lambda _: "Hay una persona registrada.")["passed"]
+    assert evaluate_internal(one, answer=lambda _: "Hay 1 contratista activo.")["passed"]
+    twelve = _count_case(12)
+    assert evaluate_internal(twelve, answer=lambda _: "Hay doce contratistas activos.")["passed"]
+    assert not evaluate_internal(one, answer=lambda _: "Hay doce contratistas activos.")["passed"]
+    assert not evaluate_internal(one, answer=lambda _: "Hay un ejemplo y ningún contratista.")["passed"]
+    assert not evaluate_internal(one, answer=lambda _: "No hay un contratista activo.")["passed"]
+    assert not evaluate_internal(one, answer=lambda _: "Hay un contratista y 999 adicionales.")["passed"]
+
+
+def test_internal_disclaimer_does_not_get_credit_for_usefulness():
+    case = _count_case(1)
+    report = evaluate_internal(case, answer=lambda _: (
+        "No tengo acceso a GALANT real y no puedo revisar esta obra simulada."
+    ))
+    assert not report["passed"]
+    assert report["turns"][0]["checks"]["usefulness"] is False
+    assert report["turns"][0]["inference_ms"] >= 0
+    assert report["evidence"]["evaluation"] == "partial_deterministic_rules"
+
+
+def test_internal_category_focus_is_isolated_from_reference_bank():
+    focused = config(cases=4, cycles=3, focus_categories=["seguimiento", "contratistas"])
+    cases = [internal_case(focused, index) for index in range(12)]
+    assert {case.category for case in cases} == {"seguimiento", "contratistas"}
+    assert internal_dataset_hash(focused) != internal_dataset_hash(config(cases=4, cycles=3))
+    assert len({case.id for case in cases}) == 12
+    assert all(evaluate_internal(case)["passed"] for case in cases)
+
+
+def test_internal_focus_validation_and_threads_are_bounded():
+    import pytest
+    from pydantic import ValidationError
+    from app.galancito_training_api import RoundInput
+    from app.galancito_trainer import practice_threads
+
+    assert RoundInput(profile="interno", focus_categories=["seguimiento"]).focus_categories == ["seguimiento"]
+    for invalid in (
+        {"profile": "interno", "focus_categories": ["unknown"]},
+        {"profile": "interno", "focus_categories": ["seguimiento", "seguimiento"]},
+        {"profile": "postulantes", "focus_categories": ["seguimiento"]},
+        {"profile": "interno", "suite": "live", "focus_categories": ["seguimiento"]},
+    ):
+        with pytest.raises(ValidationError):
+            RoundInput(**invalid)
+    assert practice_threads({"worker_cores": 1}) == 1
+    assert practice_threads({"worker_cores": 2}) == 2
+    assert practice_threads({"worker_cores": 1.5}) == 2
+    assert practice_threads({"worker_cores": 0.5}) == 1
+    assert practice_threads({"worker_cores": 2.4}) == 3
+    assert practice_threads({"worker_cores": 8}) == 4
+    assert practice_threads({"worker_cores": None}) == 1
+
+
+def test_synthetic_coaching_is_applied_only_to_practice_not_real_learning():
+    from app.galancito_internal_training import (
+        INTERNAL_PROMPT, propose_synthetic_coaching, synthetic_practice_prompt,
+    )
+    selected = propose_synthetic_coaching({"contexto": 2, "exactitud": 4, "herramienta": 3})
+    assert selected == ["exactitud", "herramienta", "contexto"]
+    coached = synthetic_practice_prompt("practice", selected)
+    assert "Correcciones de ciclos sintéticos previos" in coached
+    assert "Fundamenta cifras" in coached
+    assert synthetic_practice_prompt("reference", selected) == INTERNAL_PROMPT
+    assert synthetic_practice_prompt("holdout", selected) == INTERNAL_PROMPT
+    assert synthetic_practice_prompt("live", selected) == INTERNAL_PROMPT
+    assert propose_synthetic_coaching({"inventado": 99}, []) == []
+
+
+def test_clean_synthetic_practice_can_end_early_but_not_holdout():
+    from app.galancito_internal_training import clean_synthetic_streak
+    clean = {
+        "1": {"passed": 4, "failed": 0},
+        "2": {"passed": 4, "failed": 0},
+        "3": {"passed": 4, "failed": 0},
+    }
+    assert not clean_synthetic_streak(clean, 2, 3)
+    assert clean_synthetic_streak(clean, 3, 3)
+    assert not clean_synthetic_streak(clean, 3, 0)
+    assert not clean_synthetic_streak({**clean, "2": {"passed": 3, "failed": 1}}, 3, 3)
+    from app.galancito_training_api import RoundInput
+    from pydantic import ValidationError
+    import pytest
+    assert RoundInput(profile="interno", suite="practice").stop_after_clean_cycles == 3
+    with pytest.raises(ValidationError):
+        RoundInput(profile="interno", stop_after_clean_cycles=1)
+
+
+def test_real_latency_percentiles_use_samples_not_estimates():
+    from app.galancito_training import inference_percentile_ms, summarize
+    assert inference_percentile_ms([90, 20, 10, 50, 30], 0.5) == 30
+    assert inference_percentile_ms([90, 20, 10, 50, 30], 0.95) == 90
+    assert inference_percentile_ms([], 0.95) is None
+    summary = summarize({"turns": 5, "passed": 2, "failed": 3,
+                         "inference_samples_ms": [90, 20, 10, 50, 30]}, "interno")
+    assert summary["inference_p50_ms"] == 30
+    assert summary["inference_p95_ms"] == 90
+    assert summary["inference_samples"] == 5
+
+
+def test_synthetic_score_is_observed_pass_rate_not_weighted_claim():
+    from app.galancito_training import summarize
+    metrics = {
+        "passed": 151, "failed": 9, "turns": 200,
+        "dimensions": {"accuracy": 190, "grounding": 190,
+                       "context": 190, "usefulness": 200,
+                       "security": 200, "limits": 200},
+        "early_stop": {"reason": "clean_synthetic_cycles", "skipped_cases": 8},
+    }
+    result = summarize(metrics, "interno")
+    assert result["score"] == 94.38
+    assert result["score_basis"] == "synthetic_case_pass_rate"
+    assert result["evidence_type"] == "synthetic"
+    assert result["early_stop"]["skipped_cases"] == 8
+    metrics["evidence_type"] = "live_database"
+    actual = summarize(metrics, "interno")
+    assert actual["score_basis"] == "verified_numeric_case_pass_rate"
+
+
+def test_category_specific_synthetic_coaching_uses_observed_errors_only():
+    from app.galancito_internal_training import (
+        INTERNAL_PROMPT, propose_category_coaching, synthetic_practice_prompt,
+    )
+    selected = propose_category_coaching(
+        {"seguimiento": 6, "comparacion": 2, "contratistas": 1, "inexistente": 100})
+    assert selected == ["seguimiento", "comparacion", "contratistas"]
+    prompt = synthetic_practice_prompt("practice", [], selected)
+    assert "data.accion" in prompt and "data.candidato_compatible" in prompt
+    assert "no lo sustituyas por el oficio" in prompt
+    assert synthetic_practice_prompt("reference", [], selected) == INTERNAL_PROMPT
+    assert synthetic_practice_prompt("holdout", [], selected) == INTERNAL_PROMPT
+    assert synthetic_practice_prompt("live", [], selected) == INTERNAL_PROMPT
+    assert propose_category_coaching({"inexistente": 1}) == []

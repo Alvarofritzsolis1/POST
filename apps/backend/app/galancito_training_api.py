@@ -64,6 +64,9 @@ class RoundInput(BaseModel):
     cost_budget: float = Field(default=0, ge=0, le=100, allow_inf_nan=False)
     model: str = Field(default="ollama", max_length=36)
     profile_review: bool = False
+    focus_categories: list[str] = Field(default_factory=list, max_length=20)
+    stop_after_clean_cycles: int = Field(default=3, ge=0, le=10)
+    allow_extended_duration: bool = False
     judge: str = Field(default="rules", max_length=36)
     corrector: str = Field(default="rules", max_length=36)
 
@@ -77,14 +80,26 @@ class RoundInput(BaseModel):
             raise ValueError("La evaluación operativa exige respuestas reales de Qwen, no reglas ni API externa")
         if self.suite == "live" and self.cases > MAX_LIVE_CASES:
             raise ValueError(f"Para datos reales admite como máximo {MAX_LIVE_CASES} casos por ciclo")
+        if self.allow_extended_duration and (self.profile != "interno" or self.suite == "live"):
+            raise ValueError("La autorización extendida solo corresponde a práctica sintética interna")
+        if self.stop_after_clean_cycles == 1:
+            raise ValueError("La parada anticipada requiere al menos dos ciclos limpios o cero para desactivarla")
+        if self.focus_categories:
+            if self.profile != "interno" or self.suite == "live":
+                raise ValueError("Las categorías focalizadas requieren práctica sintética interna")
+            if (len(set(self.focus_categories)) != len(self.focus_categories)
+                    or any(name not in INTERNAL_CATEGORIES for name in self.focus_categories)):
+                raise ValueError("Selecciona categorías internas válidas y sin duplicados")
         if self.focus:
             allowed = INTERNAL_CATEGORIES if self.profile == "interno" else MESSENGER_FOCUS
             if self.suite == "live" or self.focus not in allowed:
                 raise ValueError("Enfoque incompatible con este canal o con datos operativos reales")
+        if self.focus and self.focus_categories:
+            raise ValueError("Usa solo un selector de categorias por ronda")
         if self.profile == "postulantes" and self.focus and self.suite == "holdout" and self.cycles > 1:
-            raise ValueError("La prueba reservada no admite épocas previas que reutilicen sus casos")
+            raise ValueError("La prueba reservada no admite epocas previas que reutilicen casos")
         if self.profile != "interno" and self.cycles != 1 and not self.focus:
-            raise ValueError("En Messenger los ciclos especializados requieren una categoría enfocada")
+            raise ValueError("En Messenger los ciclos especializados requieren una categoria enfocada")
         if self.cases * self.cycles > MAX_CASES:
             raise ValueError(f"El máximo es {MAX_CASES} evaluaciones totales por ejecución")
         if self.profile == "interno" and (self.profile_review or self.judge != "rules" or self.corrector != "rules"):
@@ -192,6 +207,12 @@ def start(db, user, body, *, previous=None, compare_profile=False):
     config = body.model_dump()
     config["seed"] = secrets.randbelow(2**31) if body.seed is None else body.seed
     internal = body.profile == "interno"
+    # Legacy frontend always transmits minutes=480, even if unchanged.
+    # An actual long synthetic practice requires separate explicit opt-in.
+    if internal and body.suite in ("practice", "reference", "holdout"):
+        config["duration_capped"] = bool(body.minutes > 45 and not body.allow_extended_duration)
+        if config["duration_capped"]:
+            config["minutes"] = 45
     if internal and body.model == "ollama" and settings().galancito_local_model != QWEN_4B:
         raise HTTPException(422, "Galancito General requiere activar y verificar Qwen3.5 4B antes de practicar con Ollama. Puedes usar reglas sintéticas.")
     live = internal and body.suite == "live"
@@ -376,7 +397,9 @@ def promote_live(round_id: str, user: User = Depends(administrator), db: Session
             and row.state == "completed" and row.completed == row.target
             and row.metrics.get("real_learning_demonstrated") is True
             and last.get("holdout_role") == "candidate" and last.get("critical") == 0
-            and row.metrics.get("real_holdout_gain_cases", 0) >= 1
+            and row.metrics.get("real_holdout_gain_cases", 0) >= 5
+            and row.metrics.get("real_holdout_paired_cases", 0) >= 8
+            and row.metrics.get("real_holdout_one_sided_p_value", 1) <= 0.05
             and row.metrics.get("real_holdout_regressions", 1) == 0
             and row.metrics.get("real_holdout_pass_rate", 0) >= 0.75):
         raise HTTPException(409, "Sin aprendizaje verificable, ciclo completo y prueba reservada aprobada")
@@ -476,8 +499,7 @@ def export_round(round_id: str, kind: Literal["json", "md"], user: User = Depend
                       "regressions": regressions if retained and same_evaluation else None,
                       "score_difference": round(metrics["score"] - old["score"], 2)
                       if same_evaluation and metrics["score"] is not None and old["score"] is not None else None}
-    info = {"command": REVIEW_COMMAND, "source": "agregados_reales_laboratorio" if row.config["suite"] == "live" else "simulacion_sintetica",
-            "round_id": row.id,
+    info = {"command": REVIEW_COMMAND, "source": "agregados_reales_laboratorio" if row.config["suite"] == "live" else "simulacion_sintetica", "round_id": row.id,
             "system_version": row.system_version, "prompt_version": row.prompt_version,
             "dataset_hash": row.dataset_hash, "dataset_version": row.config["dataset_version"],
             "state": row.state, "processed": row.completed, "target": row.target,
