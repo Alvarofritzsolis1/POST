@@ -1,6 +1,6 @@
 """Regression tests: internal Galancito training cannot claim production data."""
 from app.galancito_internal_training import (
-    INTERNAL_CATEGORIES, INTERNAL_WEIGHTS, evaluate_internal,
+    INTERNAL_CATEGORIES, INTERNAL_WEIGHTS, InternalCase, evaluate_internal,
     internal_case, internal_dataset_hash,
 )
 
@@ -98,3 +98,68 @@ def test_internal_dataset_hash_includes_cycle_plan():
     assert examples[0].id.startswith("interno-reference-c01")
     assert examples[4].id.startswith("interno-reference-c02")
     assert all(evaluate_internal(item)["passed"] for item in examples)
+
+
+def _count_case(number: int) -> InternalCase:
+    import json
+    return InternalCase(
+        id="synthetic-count-unit", category="contratistas",
+        question="¿Cuántos contratistas hay en Obra Demo 57?",
+        context=json.dumps({"status": "ok", "tool": "contractors",
+                            "data": {"contratistas_activos": str(number)}}),
+        required=(str(number),), baseline=f"Hay {number} contratistas activos.",
+        status="ok", tool="contractors",
+    )
+
+
+def test_count_word_equivalence_requires_correct_quantity_and_noun():
+    one = _count_case(1)
+    assert evaluate_internal(one, answer=lambda _: "Hay un contratista activo.")["passed"]
+    assert evaluate_internal(one, answer=lambda _: "Hay una persona registrada.")["passed"]
+    assert evaluate_internal(one, answer=lambda _: "Hay 1 contratista activo.")["passed"]
+    twelve = _count_case(12)
+    assert evaluate_internal(twelve, answer=lambda _: "Hay doce contratistas activos.")["passed"]
+    assert not evaluate_internal(one, answer=lambda _: "Hay doce contratistas activos.")["passed"]
+    assert not evaluate_internal(one, answer=lambda _: "Hay un ejemplo y ningún contratista.")["passed"]
+    assert not evaluate_internal(one, answer=lambda _: "Hay un contratista y 999 adicionales.")["passed"]
+
+
+def test_internal_disclaimer_does_not_get_credit_for_usefulness():
+    case = _count_case(1)
+    report = evaluate_internal(case, answer=lambda _: (
+        "No tengo acceso a GALANT real y no puedo revisar esta obra simulada."
+    ))
+    assert not report["passed"]
+    assert report["turns"][0]["checks"]["usefulness"] is False
+    assert report["turns"][0]["inference_ms"] >= 0
+    assert report["evidence"]["evaluation"] == "partial_deterministic_rules"
+
+
+def test_internal_category_focus_is_isolated_from_reference_bank():
+    focused = config(cases=4, cycles=3, focus_categories=["seguimiento", "contratistas"])
+    cases = [internal_case(focused, index) for index in range(12)]
+    assert {case.category for case in cases} == {"seguimiento", "contratistas"}
+    assert internal_dataset_hash(focused) != internal_dataset_hash(config(cases=4, cycles=3))
+    assert len({case.id for case in cases}) == 12
+    assert all(evaluate_internal(case)["passed"] for case in cases)
+
+
+def test_internal_focus_validation_and_threads_are_bounded():
+    import pytest
+    from pydantic import ValidationError
+    from app.galancito_training_api import RoundInput
+    from app.galancito_trainer import practice_threads
+
+    assert RoundInput(profile="interno", focus_categories=["seguimiento"]).focus_categories == ["seguimiento"]
+    for invalid in (
+        {"profile": "interno", "focus_categories": ["unknown"]},
+        {"profile": "interno", "focus_categories": ["seguimiento", "seguimiento"]},
+        {"profile": "postulantes", "focus_categories": ["seguimiento"]},
+        {"profile": "interno", "suite": "live", "focus_categories": ["seguimiento"]},
+    ):
+        with pytest.raises(ValidationError):
+            RoundInput(**invalid)
+    assert practice_threads({"worker_cores": 1}) == 1
+    assert practice_threads({"worker_cores": 2}) == 2
+    assert practice_threads({"worker_cores": 8}) == 4
+    assert practice_threads({"worker_cores": None}) == 1
