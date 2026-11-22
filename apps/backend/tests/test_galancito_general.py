@@ -332,6 +332,8 @@ def test_automatic_web_intent_is_public_and_conservative():
     assert needs_public_web("Busca en internet la normativa de subcontratación chilena")
     assert needs_public_web("¿Cuál es la normativa vigente de subcontratación en Chile?")
     assert needs_public_web("¿Cuáles son las últimas noticias del Ministerio del Trabajo?")
+    assert needs_public_web("¿Quién es el presidente de Chile?")
+    assert needs_public_web("¿Cuál es el dólar hoy?")
     assert not needs_public_web("Hola Galancito, te estamos viendo con mi equipo de control de contratistas")
     assert not needs_public_web("¿Cuántas publicaciones están pendientes en mi obra?")
     assert not needs_public_web("Explícame qué es una ley")
