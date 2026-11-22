@@ -79,7 +79,7 @@ const dollars = (value: number) => value.toLocaleString("es-CL", { style: "curre
 const displayDate = (value: string | null) => value ? new Date(value).toLocaleString("es-CL") : "Aún sin prueba";
 const errorMessage = (error: unknown) => error instanceof Error ? error.message : "No se pudo completar la operación";
 
-export default function AIConfiguration({ openTraining }: { openTraining: () => void }) {
+export default function AIConfiguration({ openTraining, section }: { openTraining: () => void; section: "conexiones" | "aprendizaje" }) {
   const [data, setData] = useState<Bootstrap | null>(null);
   const [learningProgress, setLearningProgress] = useState<LearningProgress | null>(null);
   const [usage, setUsage] = useState<Usage | null>(null);
@@ -283,7 +283,7 @@ export default function AIConfiguration({ openTraining }: { openTraining: () => 
   const providerName = (id: string) => data?.providers.find(p => p.id === id)?.name || id;
 
   return (
-    <div className="ai-center" data-testid="ai-control-center">
+    <div className={"ai-center ai-section-" + section} data-testid="ai-control-center">
       <div className="ai-banner">
         <div>
           <span className="ai-eyebrow"><Zap size={15} /> CENTRO DE INTELIGENCIA ARTIFICIAL</span>
@@ -294,7 +294,7 @@ export default function AIConfiguration({ openTraining }: { openTraining: () => 
           <RefreshCw size={16} /> Actualizar
         </button>
       </div>
-      <section className="ai-panel" aria-label="Motor local de Galancito">
+      <section className="ai-panel ai-local-engine" aria-label="Motor local de Galancito">
         <div className="ai-panel-head">
           <div>
             <h3>Galancito · Modelo local activo</h3>
@@ -314,7 +314,7 @@ export default function AIConfiguration({ openTraining }: { openTraining: () => 
           {" · "}Red de Obras: {data?.local_engine.red_obras ? "Local" : "Otra configuración"}.</p>
         {localTest && <p className="ai-help" role="status">Modelo probado: {localTest.model} · Tiempo total: {(localTest.elapsed_ms / 1000).toFixed(2)} s · Respuesta: {localTest.response}</p>}
       </section>
-      <section className="ai-panel">
+      <section className="ai-panel ai-training-link">
         <div className="ai-panel-head">
           <div><h3>Entrenamiento de Galancito</h3><p>Prácticas nuevas con {data?.local_engine.model ?? "el modelo local"}. Historial de modelos anteriores conservado.</p></div>
           <button type="button" className="gc-primary" onClick={openTraining}>Abrir entrenamiento</button>
@@ -333,9 +333,9 @@ export default function AIConfiguration({ openTraining }: { openTraining: () => 
         <div><span>Costo estimado · últimos {days} días</span><strong>{usage?.unpriced_calls && usage.unpriced_calls === usage.total_calls ? "No calculado" : dollars(usage?.estimated_cost_usd || 0)}</strong><small>{usage?.unpriced_calls ? nice(usage.unpriced_calls) + " llamadas sin tarifa configurada" : "Solo según tarifas ingresadas"}</small></div>
       </div>
 
-      <section className="ai-panel">
+      <section className="ai-panel ai-connections-panel">
         <div className="ai-panel-head">
-          <div><h3>1. Conexiones API</h3><p>Registra tantas cuentas y modelos como necesites. Las claves se mantienen ocultas.</p></div>
+          <div><h3>Conexiones API</h3><p>Registra tantas cuentas y modelos como necesites. Las claves se mantienen ocultas.</p></div>
           <button type="button" className="gc-primary" onClick={() => edit()} disabled={Boolean(busy)}>
             <Plus size={16} /> Agregar IA
           </button>
@@ -424,8 +424,8 @@ export default function AIConfiguration({ openTraining }: { openTraining: () => 
         </form>}
       </section>
 
-      <section className="ai-panel">
-        <div className="ai-panel-head"><div><h3>2. Equipo de Galancito</h3><p>Una IA principal por función. La alternativa se usa solo ante un error y si la autorizas.</p></div><span className="ai-secure"><ShieldCheck size={16} /> Solo administrador</span></div>
+      <section className="ai-panel ai-team-panel">
+        <div className="ai-panel-head"><div><h3>Funciones y límites</h3><p>Una IA principal por función. La alternativa se usa solo ante un error y si la autorizas.</p></div><span className="ai-secure"><ShieldCheck size={16} /> Solo administrador</span></div>
         <form onSubmit={(event) => void savePolicy(event)}>
           <div className="ai-task-grid">
             {data?.tasks.map(task => <label key={task.id} className="ai-task">
@@ -453,8 +453,9 @@ export default function AIConfiguration({ openTraining }: { openTraining: () => 
         </form>
       </section>
 
-      <section className="ai-panel">
-        <div className="ai-panel-head"><div><h3>3. Aprendizaje compartido</h3><p>Las IA consultan información validada. No se reentrenan ni comparten sus respuestas automáticamente.</p></div><span className="ai-secure"><ShieldCheck size={16} /> Con aprobación humana</span></div>
+      <section className="ai-panel ai-learning-panel">
+        <div className="ai-panel-head"><div><h3>Aprendizaje validado</h3><p>Guías aprobadas y correcciones controladas.</p></div><span className="ai-secure"><ShieldCheck size={16} /> Con aprobación humana</span></div>
+        <div className="ai-learning-steps"><strong>Cómo se valida una mejora</strong><span>1. Medir fallas reales → 2. Corregir → 3. Evaluar casos reservados → 4. Revisar regresiones → 5. Aprobar.</span><small>La práctica sintética no constituye mejora demostrada. Las pruebas con agregados operativos no equivalen a calidad comprobada en conversaciones reales.</small><button type="button" className="gc-secondary" onClick={openTraining}>Abrir pruebas</button></div>
         <div className="ai-learning-stats">
           <div><b>{nice(data?.learning.approved || 0)}</b><span>Guías aprobadas</span></div>
           <div><b>{nice(data?.learning.pending || 0)}</b><span>Propuestas por revisar</span></div>
@@ -479,8 +480,8 @@ export default function AIConfiguration({ openTraining }: { openTraining: () => 
         <p className="ai-help"><CircleHelp size={15} /> Las nuevas guías se guardan pendientes y necesitan aprobación administrativa en Red de Obras → Facebook → Conocimientos. No se comparten mensajes privados ni se reentrenan modelos externos.</p>
       </section>
 
-      <section className="ai-panel">
-        <div className="ai-panel-head"><div><h3>4. Consumo de tokens</h3><p>Uso registrado por esta aplicación; no equivale al saldo completo de cada proveedor.</p></div><label className="ai-days">Período<select value={days} onChange={e => setDays(Number(e.target.value))}><option value={7}>7 días</option><option value={30}>30 días</option><option value={90}>90 días</option><option value={365}>1 año</option></select></label></div>
+      <section className="ai-panel ai-usage-panel">
+        <div className="ai-panel-head"><div><h3>Consumo registrado</h3><p>Uso registrado por esta aplicación; no equivale al saldo completo de cada proveedor.</p></div><label className="ai-days">Período<select value={days} onChange={e => setDays(Number(e.target.value))}><option value={7}>7 días</option><option value={30}>30 días</option><option value={90}>90 días</option><option value={365}>1 año</option></select></label></div>
         <div className="ai-usage-head"><span>Entrada: <b>{nice(usage?.input_tokens || 0)}</b></span><span>Salida: <b>{nice(usage?.output_tokens || 0)}</b></span><span>Total: <b>{nice(usage?.total_tokens || 0)}</b></span></div>
         <div className="ai-table-scroll"><table className="ai-table"><thead><tr><th>IA</th><th>Función</th><th>Estado</th><th>Llamadas</th><th>Latencia media</th><th>Tokens</th><th>Estimación USD</th></tr></thead><tbody>
           {shownUsage.map((item, i) => <tr key={item.connection_id + item.task + item.status + i}>
