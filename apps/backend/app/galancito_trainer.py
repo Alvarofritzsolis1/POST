@@ -318,27 +318,52 @@ def checkpoints(factory, claim, results, snapshot, elapsed):
         if row.config.get("suite") == "live" and row.completed % row.config["cases"] == 0:
             current = str(row.completed // row.config["cases"])
             item = cycles[current]
-            baseline = cycles.get("1", item)
-            # Compare only cycles of the same frozen, real DB evidence.
+            # The final two cycles use exactly the SAME reserved real cases:
+            # A = uncoached baseline, B = coached candidate with identical
+            # Ollama seed. This avoids claiming learning from an easy holdout.
             item["pass_rate"] = round(item["passed"] / max(1, item["passed"] + item["failed"]), 4)
             last_cycle = row.config["cycles"]
-            item["holdout"] = int(current) == last_cycle
-            item["improved_vs_first"] = (not item["holdout"] and
-                                         item["passed"] > baseline["passed"] and
-                                         item["critical"] == 0)
+            index = int(current)
+            item["holdout"] = index >= last_cycle - 1
+            item["holdout_role"] = ("baseline" if index == last_cycle - 1 else
+                                    "candidate" if index == last_cycle else None)
             cycles[current] = item
-            if not item["holdout"] and row.completed < row.target:
+            if not item["holdout"]:
                 hints = list(metrics.get("real_coaching", []))
                 for dimension in item.get("errors", {}):
                     if dimension in COACHING and COACHING[dimension] not in hints:
                         hints.append(COACHING[dimension])
                 metrics["real_coaching"] = hints[:3]
-            if item["holdout"]:
-                metrics["real_holdout_pass_rate"] = item["pass_rate"]
-                metrics["real_learning_demonstrated"] = bool(
-                    metrics.get("real_coaching") and item["pass_rate"] >= 0.75
-                    and item["critical"] == 0 and any(
-                        c.get("improved_vs_first") for c in cycles.values()))
+            if index == last_cycle:
+                cases = row.config["cases"]
+                db.flush()
+                baseline_start = (last_cycle - 2) * cases
+                candidate_start = (last_cycle - 1) * cases
+                baseline_rows = list(db.scalars(select(TrainingCase).where(
+                    TrainingCase.round_id == row.id,
+                    TrainingCase.position >= baseline_start,
+                    TrainingCase.position < baseline_start + cases
+                ).order_by(TrainingCase.position)))
+                candidate_rows = list(db.scalars(select(TrainingCase).where(
+                    TrainingCase.round_id == row.id,
+                    TrainingCase.position >= candidate_start,
+                    TrainingCase.position < candidate_start + cases
+                ).order_by(TrainingCase.position)))
+                if len(baseline_rows) == cases and len(candidate_rows) == cases:
+                    gains = sum(not a.passed and b.passed
+                                for a, b in zip(baseline_rows, candidate_rows))
+                    regressions = sum(a.passed and not b.passed
+                                      for a, b in zip(baseline_rows, candidate_rows))
+                    metrics["real_holdout_gain_cases"] = gains
+                    metrics["real_holdout_regressions"] = regressions
+                    metrics["real_holdout_baseline_pass_rate"] = cycles[str(last_cycle - 1)]["pass_rate"]
+                    metrics["real_holdout_pass_rate"] = item["pass_rate"]
+                    metrics["real_learning_demonstrated"] = bool(
+                        metrics.get("real_coaching") and gains > 0
+                        and regressions == 0 and item["critical"] == 0
+                        and item["pass_rate"] >= 0.75)
+                else:
+                    metrics["real_learning_demonstrated"] = False
             else:
                 metrics["real_learning_demonstrated"] = False
         for key, measured in (("peak_worker_ram_mb", "worker_ram_mb"), ("peak_host_cpu_percent", "host_cpu_percent")):
@@ -388,17 +413,25 @@ def process_next(factory=SessionLocal, sampler=None, *, maintenance=False, train
         def run(position):
             seed = int(row.dataset_hash[:8], 16) ^ position
             if row.config.get("suite") == "live":
-                held_out = position // row.config["cases"] == row.config["cycles"] - 1
-                case_index = position % row.config["cases"]
+                case_count = row.config["cases"]
+                cycle_number = position // case_count + 1
+                held_out = cycle_number >= row.config["cycles"] - 1
+                baseline_holdout = cycle_number == row.config["cycles"] - 1
+                case_index = position % case_count
                 fixture = row.config["live_cases"][case_index +
-                                                  (row.config["cases"] if held_out else 0)]
-                coach = row.metrics.get("real_coaching", [])
+                                                  (case_count if held_out else 0)]
+                coach = [] if baseline_holdout else row.metrics.get("real_coaching", [])
+                # Paired held-out cases use identical generation seeds.
+                model_seed = (int(row.dataset_hash[:8], 16) ^ case_index ^
+                              (314159 if held_out else cycle_number)) % (2**31)
                 def real_answer(context, instructions):
                     system = LIVE_PROMPT + ("\nConsejos revisados tras errores anteriores:\n" +
                                             "\n".join(instructions) if instructions else "")
                     return _charge(factory, row, model, system, context,
-                                   seed % (2**31), role="reply", sampler=sampler, thinking=True)
-                return evaluate_live(fixture, answer=real_answer, coach=coach)
+                                   model_seed, role="reply", sampler=sampler, thinking=True)
+                result = evaluate_live(fixture, answer=real_answer, coach=coach)
+                result["id"] = fixture["id"] + "-c" + str(cycle_number)
+                return result
             if row.config.get("profile", "postulantes") == "interno":
                 fixture = internal_case(row.config, position)
                 def internal_answer(context):
