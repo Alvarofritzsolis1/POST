@@ -203,7 +203,7 @@ def galancito_status(user: User = Depends(authorized_user), db: Session = Depend
                    "not_configured" if not cfg.galancito_local_ai_enabled else
                    "unavailable")
     return {"name": "Galancito",
-            "local_ai_available": available and cfg.galancito_ai_provider == "ollama",
+            "local_ai_available": cfg.galancito_local_ai_enabled,
             "local_model_status": local_state,
             "general_chat_available": user.role in {"admin", "resident"},
             "general_model": QWEN_4B,
