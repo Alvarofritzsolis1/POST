@@ -53,3 +53,23 @@ class AssistantRun(Base):
     timings: Mapped[dict] = mapped_column(JSON, default=dict)
     feedback: Mapped[str | None] = mapped_column(String(16), nullable=True)
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow)
+
+
+class InternalConversation(Base):
+    """Opt-in, short-lived GALANT internal assistant memory; not Messenger.
+
+    Entries belong to a single organization and a single authenticated user.
+    Only redacted/approved summaries are persisted; never tokens or documents.
+    """
+    __tablename__ = "galancito_internal_conversations"
+    __table_args__ = (
+        Index("ix_galancito_internal_owner", "org_id", "user_id", "updated_at"),
+    )
+    id: Mapped[str] = mapped_column(String(36), primary_key=True, default=uid)
+    org_id: Mapped[str] = mapped_column(ForeignKey("organizations.id"), nullable=False)
+    user_id: Mapped[str] = mapped_column(ForeignKey("users.id"), nullable=False)
+    title: Mapped[str] = mapped_column(String(110), nullable=False)
+    turns: Mapped[list] = mapped_column(JSON, nullable=False, default=list)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow)
+    updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow)
+    expires_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
