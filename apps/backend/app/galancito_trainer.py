@@ -19,7 +19,7 @@ from .galancito_runtime import infer
 from .galancito_memory import aware
 from .galancito_training import (DETAIL_DAYS, HISTORY_DAYS, LEASE_SECONDS, LOCAL_CONTEXT_LIMIT,
                                   LOCAL_OUTPUT_LIMIT, ResourceSampler, eligible_at, resource_slots)
-from .galancito_training_data import DATASET_VERSION, scenario
+from .galancito_training_data import DATASET_VERSION, MESSENGER_FOCUS, scenario
 from .galancito_real_learning import (LIVE_DATASET_VERSION, LIVE_EVALUATION_VERSION,
                                        LIVE_PROMPT, COACHING, evaluate_live,
                                        paired_holdout_metrics)
@@ -284,7 +284,7 @@ def checkpoints(factory, claim, results, snapshot, elapsed):
         sources = dict(metrics.get("reply_sources", {}))
         cycles = dict(metrics.get("cycles", {}))
         for result in results:
-            if row.config.get("profile") == "interno":
+            if row.config.get("profile") == "interno" or row.config.get("focus") in MESSENGER_FOCUS:
                 cycle = str(row.completed // row.config["cases"] + 1)
                 item = dict(cycles.get(cycle, {"passed": 0, "failed": 0, "critical": 0, "errors": {}}))
                 item["passed" if result["passed"] else "failed"] += 1
