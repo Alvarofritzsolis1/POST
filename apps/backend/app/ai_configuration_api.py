@@ -259,6 +259,21 @@ def quality_overview(days: int = Query(default=30, ge=1, le=90),
             break
 
     findings = []
+    # Only verified human labels. A finding means "observed in reviewed
+    # conversations", not an estimate for all production conversations.
+    focus_names = {
+        "understanding": "comprensión y modismos", "profile": "fichas y contacto",
+        "context": "continuidad del chat", "naturalness": "naturalidad",
+        "safety": "seguridad", "helpfulness": "respuestas útiles",
+    }
+    for criterion, errors in messenger["failed_review_counts"].items():
+        if errors:
+            findings.append({
+                "channel": "messenger", "type": "audited_" + criterion,
+                "count": errors,
+                "label": "Fallos revisados: " + focus_names[criterion],
+                "focus": criterion,
+            })
     if messenger["delivery_errors"]:
         findings.append({"channel": "messenger", "type": "delivery", "count": messenger["delivery_errors"],
                          "label": "Errores registrados al entregar mensajes", "focus": ""})
