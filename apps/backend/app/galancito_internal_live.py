@@ -232,7 +232,7 @@ def internal_reply(db: Session, user: User, message: str, history: list[str] | N
     navigation = _navigation_answer(message, user.role)
     if navigation is not None:
         return navigation
-    if (re.search(r"\\bversion(?:es)?\\b", normalized)
+    if (re.search(r"\bversion(?:es)?\b", normalized)
             or any(word in normalized for word in ("desplegada", "commit", "revision"))):
         version = f"Versión del backend: {VERSION}."
         revision = f" Commit de compilación: {SOURCE_COMMIT}." if SOURCE_COMMIT != "unbuilt" else (
@@ -242,7 +242,7 @@ def internal_reply(db: Session, user: User, message: str, history: list[str] | N
         return ("El chat interno aún no tiene un proveedor de búsqueda web configurado y verificado. "
                 "No puedo afirmar que haya consultado internet."), "external_unavailable"
     if (any(word in normalized for word in ("memoria", "rendimiento", "saturado", "lento", "vps"))
-            or re.search(r"\\b(?:cpu|ram)\\b", normalized)):
+            or re.search(r"\b(?:cpu|ram)\b", normalized)):
         if user.role != "admin":
             return "Las métricas internas del servidor requieren permisos de administración.", "permission"
         from .galancito_training import ResourceSampler
