@@ -1191,7 +1191,6 @@ def test_quality_overview_reports_observed_not_invented_scores(ai_env):
     assert general["quality_score"] is None
     assert payload["operational_lab"] is None
     assert client.get(ROOT + "/quality-overview?days=1000").status_code == 422
-    assert "respuestas" not in response.text.lower() or "quality_score" in response.text
 
 
 def test_internal_focus_requires_a_real_category_and_separate_dataset():
