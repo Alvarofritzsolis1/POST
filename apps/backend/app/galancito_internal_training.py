@@ -66,6 +66,27 @@ TEMPLATES = (
 )
 INTERNAL_CATEGORIES = tuple(item[0] for item in TEMPLATES)
 
+# Fixed corrective examples are grounded in the *synthetic tool schema*.
+# They never teach fictitious case facts to Galancito in production.
+INTERNAL_CATEGORY_PROPOSALS = {
+    "seguimiento": "Si followups tiene status ok, informa la acción exacta de data.accion, incluso para una obra ficticia.",
+    "comparacion": "Si candidate_matches tiene status ok, usa data.candidato_compatible; no lo sustituyas por el oficio.",
+    "contratistas": "Si contractors entrega data.contratistas_activos, expresa el conteo correcto y conserva el referente en el siguiente turno.",
+    "salud": "Si health entrega data.servicio_degradado, identifica ese servicio; no confundas el ejemplo con un diagnóstico del servidor real.",
+    "fichas": "Si profiles contiene data.campo_pendiente, informa ese campo concreto sin inventar información personal.",
+}
+
+
+def propose_category_coaching(failed_categories: dict, previous=()) -> list[str]:
+    selected = [name for name in previous if name in INTERNAL_CATEGORY_PROPOSALS][:3]
+    for category, amount in sorted(failed_categories.items(), key=lambda item: (-item[1], item[0])):
+        if amount and category in INTERNAL_CATEGORY_PROPOSALS and category not in selected:
+            selected.append(category)
+        if len(selected) == 3:
+            break
+    return selected
+
+
 
 def propose_synthetic_coaching(errors: dict, previous=()) -> list[str]:
     """Draft allowlisted feedback for *later synthetic practice only*.
@@ -98,11 +119,16 @@ def clean_synthetic_streak(cycles: dict, last_cycle: int, threshold: int) -> boo
     return True
 
 
-def synthetic_practice_prompt(suite: str, coaching: list[str]) -> str:
-    if suite != "practice" or not coaching:
+def synthetic_practice_prompt(suite: str, coaching: list[str],
+                              category_coaching=()) -> str:
+    if suite != "practice":
         return INTERNAL_PROMPT
     approved = [INTERNAL_PROPOSALS[code] for code in coaching
                 if code in INTERNAL_PROPOSALS][:3]
+    approved.extend(INTERNAL_CATEGORY_PROPOSALS[code] for code in category_coaching
+                    if code in INTERNAL_CATEGORY_PROPOSALS)
+    if not approved:
+        return INTERNAL_PROMPT
     return INTERNAL_PROMPT + "\nCorrecciones de ciclos sintéticos previos:\n" + "\n".join(approved)
 
 
