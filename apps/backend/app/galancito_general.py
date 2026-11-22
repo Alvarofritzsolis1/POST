@@ -42,6 +42,11 @@ COMPLEX = ("analiza", "compara", "evaluacion", "estrategia", "optimiza",
            "ventajas y desventajas", "paso a paso detallado")
 GENERIC_SAFETY = ("contrasena", "clave secreta", "token", "rut",
                   "credencial", "psid", "numero de telefono", "correo personal")
+INTERNAL_CONTEXT = ("nuestras publicaciones", "nuestros contratistas", "mis contratistas",
+                    "nuestras obras", "mis obras", "nuestros trabajadores", "mis registros",
+                    "mis fichas", "mi plataforma", "mi empresa", "nuestro proyecto",
+                    "documentacion mensual", "libro de asistencia", "f30-1",
+                    "nuestras necesidades", "nuestros pendientes", "en galant")
 
 
 def general_intent(message: str) -> str:
@@ -50,6 +55,10 @@ def general_intent(message: str) -> str:
         return "greeting"
     if any(term in normalized for term in GENERIC_SAFETY):
         return "verified"
+    if any(normalized.startswith(prefix) for prefix in (
+        "como mejorar", "como publicar", "como crear", "que documentos necesita",
+        "que requisitos necesito", "que pasos debo")):
+        return "advice"
     if any(term in normalized for term in DATA_TERMS):
         return "verified"
     if any(term in normalized for term in HOW_TO):
@@ -68,7 +77,7 @@ def external_safe(message: str, *, internal_names: tuple[str, ...] = ()) -> bool
     normalized = key(message)
     if private_data(message) or len(message) > 650:
         return False
-    if any(term in normalized for term in GENERIC_SAFETY):
+    if any(term in normalized for term in GENERIC_SAFETY + INTERNAL_CONTEXT):
         return False
     if any(len(key(name)) >= 6 and key(name) in normalized for name in internal_names):
         return False
