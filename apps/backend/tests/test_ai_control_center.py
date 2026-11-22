@@ -1246,6 +1246,7 @@ def test_real_messenger_audit_reads_chat_and_scores_only_verified_human_sample(a
         db.add(observed)
         db.flush()
         run_id = observed.id
+        real_message_id = outbound.id
 
     assert client.get(ROOT + "/audit/queue").status_code == 401
     signin(client, "resident")
@@ -1253,8 +1254,8 @@ def test_real_messenger_audit_reads_chat_and_scores_only_verified_human_sample(a
     signin(client)
     listing = client.get(ROOT + "/audit/queue?channel=messenger")
     assert listing.status_code == 200, listing.text
-    assert run_id in [item["run_id"] for item in listing.json()["items"]]
-    case = client.get(ROOT + "/audit/cases/" + run_id)
+    assert real_message_id in [item["run_id"] for item in listing.json()["items"]]
+    case = client.get(ROOT + "/audit/cases/" + real_message_id)
     assert case.status_code == 200, case.text
     assert "Pedro" in case.json()["question"]
     assert "gasfitería" in case.json()["answer"]
@@ -1265,13 +1266,13 @@ def test_real_messenger_audit_reads_chat_and_scores_only_verified_human_sample(a
         "naturalness": True, "safety": True, "helpfulness": True,
     }
     bad = client.post(ROOT + "/audit/reviews", headers={"X-CSRF-Token": client.cookies["galant_post_csrf"]},
-                      json={"run_id": run_id, "ratings": {"profile": True}, "source_reviewed": True})
+                      json={"run_id": real_message_id, "ratings": {"profile": True}, "source_reviewed": True})
     assert bad.status_code == 422
     approved = client.post(ROOT + "/audit/reviews", headers={"X-CSRF-Token": client.cookies["galant_post_csrf"]},
-                           json={"run_id": run_id, "ratings": rubric, "source_reviewed": True})
+                           json={"run_id": real_message_id, "ratings": rubric, "source_reviewed": True})
     assert approved.status_code == 201, approved.text
     duplicate = client.post(ROOT + "/audit/reviews", headers={"X-CSRF-Token": client.cookies["galant_post_csrf"]},
-                            json={"run_id": run_id, "ratings": rubric, "source_reviewed": True})
+                            json={"run_id": real_message_id, "ratings": rubric, "source_reviewed": True})
     assert duplicate.status_code == 409
 
     quality = client.get(ROOT + "/quality-overview").json()
@@ -1281,8 +1282,9 @@ def test_real_messenger_audit_reads_chat_and_scores_only_verified_human_sample(a
     assert channel["failed_review_counts"]["understanding"] == 1
     assert any(f["focus"] == "understanding" and f["count"] == 1 for f in quality["findings"])
     with sessions() as db:
-        review = db.query(AIResponseReview).filter_by(run_id=run_id).one()
+        review = db.query(AIResponseReview).filter_by(evidence_id=real_message_id).one()
         assert review.evidence_kind == "messenger_message"
+        assert review.run_id is None  # Old messages can be audited without fake latency
         assert review.ratings["understanding"] is False
         assert not hasattr(review, "question") and not hasattr(review, "answer")
 
