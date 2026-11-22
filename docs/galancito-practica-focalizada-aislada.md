@@ -43,3 +43,10 @@ El flujo operacional YA EXISTENTE en `galancito_real_learning.py`, `galancito_tr
 
 ### Estado de comprobación
 El PR #145 pasó su CI principal y auditorías independientes en el SHA anterior `b4dbeda8fd5c07eb7375b421acfc972bd14926ec`. Las modificaciones posteriores deben superar CI otra vez. El PR #144 tenía tres pruebas de migraciones fallidas en su propia CI; no forma parte de este parche. No se ha probado el VPS ni se ha desplegado esta rama. 
+
+
+## Correcciones finales de la auditoría
+- El frontend actual **siempre** envía `minutes: 480`, por eso no basta con reemplazar el valor por defecto del backend. El servidor ahora limita cualquier práctica sintética interna (reference/practice/holdout) a 45 minutos si no recibe `allow_extended_duration=true`. La configuración devuelve `duration_capped: true` cuando aplica. La prueba operativa `live` no se limita con este mecanismo.
+- La duración máxima no garantiza que una llamada que ya empezó termine exactamente en el segundo del límite; la parada se comprueba entre casos.
+- `real_learning_demonstrated` exige además de las condiciones anteriores al menos 8 pares, 5 mejoras sin regresiones y una prueba pareada unilateral p ≤ 0,05. El valor p es descriptivo y la correlación entre preguntas de una misma obra reduce la fuerza de la inferencia; no equivale a reentrenamiento de pesos.
+- Los límites de tiempo o parada anticipada devuelven `state=stopped`, no `completed`; ningún caso omitido se presenta como aprobado.
