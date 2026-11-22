@@ -7,6 +7,11 @@ from app.galancito_general import QWEN_4B, general_intent, is_complex, external_
 def test_unified_route_classifies_greetings_and_general_help():
     assert general_intent("HOLA COMO ESTAS") == "greeting"
     assert general_intent("¿Cuántas necesidades vigentes hay?") == "verified"
+    assert general_intent("¿Qué versión tenemos y cómo está el VPS?") == "verified"
+    assert general_intent("¿Dónde veo las publicaciones?") == "verified"
+    assert general_intent("¿Cómo gestionar la documentación mensual?") == "advice"
+    assert general_intent("¿Qué es el control de asistencia?") == "advice"
+    assert general_intent("¿Qué significa una evaluación?") == "advice"
     assert general_intent("¿Cómo puedo mejorar el seguimiento de candidatos?") == "advice"
     assert is_complex("Analiza los riesgos y compara estrategias de coordinación")
     assert not is_complex("Hola")
@@ -234,3 +239,24 @@ def test_generated_complex_analysis_can_use_step_lists_but_no_invented_metrics()
     assert checked.startswith("- Revisar alternativas")
     assert "- Comparar riesgos" in checked
     assert safe_generated("La obra tiene 28 trabajadores.", question="Analiza estrategias") is None
+
+
+def test_general_chat_non_operational_questions_avoid_database_lookups(network, monkeypatch):
+    """Common explanations do not trigger expensive internal metrics retrieval."""
+    n = network
+    seen = []
+    monkeypatch.setattr("app.galancito_general_runtime.internal_reply",
+                        lambda *args, **kwargs: seen.append(args) or ("no esperado", "overview"))
+    monkeypatch.setattr("app.galancito_general_runtime.settings", lambda: SimpleNamespace(
+        galancito_local_ai_enabled=True, galancito_local_model=QWEN_4B,
+    ))
+    monkeypatch.setattr("app.galancito_general_runtime.generate_local_text",
+                        lambda *_args, **_kwargs: "La planificación organiza el trabajo.")
+    monkeypatch.setattr("app.galancito_general_runtime.infer",
+                        lambda _db, fn, **_kwargs: fn())
+    response = n["send"](n["admin"], "/galancito/chat", {
+        "area": "general", "message": "¿Qué significa planificación?",
+    })
+    assert response.status_code == 200, response.text
+    assert response.json()["source"] == "ollama_4b"
+    assert seen == []
