@@ -325,8 +325,6 @@ def galancito_chat(body: ChatInput, user: User = Depends(authorized_user),
                 "conversation_id": conversation_id, "history_saved": history_saved,
                 "analysis_generated": analysis_generated,
                 "notice": history_notice}
-    if sync_org_global_lightning(db, user.org_id):
-        db.commit()
     text = body.message.strip()
     if not text:
         raise HTTPException(422, "Ingresa una consulta")
@@ -346,6 +344,9 @@ def galancito_chat(body: ChatInput, user: User = Depends(authorized_user),
         db.commit()
         return {"name": "Galancito", "answer": quick_reply(text), "source": "local",
                 "read_only": True, "run_id": run.id, "references": [], "notice": None}
+    # Do not wait for synchronization before answering deterministic greetings.
+    if sync_org_global_lightning(db, user.org_id):
+        db.commit()
     # Los datos se obtienen solo del módulo Red de Obras de la organización.
     titles: list[str] = []
     live: dict = {}
