@@ -65,6 +65,7 @@ class RoundInput(BaseModel):
     profile_review: bool = False
     focus_categories: list[str] = Field(default_factory=list, max_length=20)
     stop_after_clean_cycles: int = Field(default=3, ge=0, le=10)
+    allow_extended_duration: bool = False
     judge: str = Field(default="rules", max_length=36)
     corrector: str = Field(default="rules", max_length=36)
 
@@ -78,6 +79,8 @@ class RoundInput(BaseModel):
             raise ValueError("La evaluación operativa exige respuestas reales de Qwen, no reglas ni API externa")
         if self.suite == "live" and self.cases > MAX_LIVE_CASES:
             raise ValueError(f"Para datos reales admite como máximo {MAX_LIVE_CASES} casos por ciclo")
+        if self.allow_extended_duration and (self.profile != "interno" or self.suite == "live"):
+            raise ValueError("La autorización extendida solo corresponde a práctica sintética interna")
         if self.stop_after_clean_cycles == 1:
             raise ValueError("La parada anticipada requiere al menos dos ciclos limpios o cero para desactivarla")
         if self.focus_categories:
@@ -195,10 +198,12 @@ def start(db, user, body, *, previous=None, compare_profile=False):
     config = body.model_dump()
     config["seed"] = secrets.randbelow(2**31) if body.seed is None else body.seed
     internal = body.profile == "interno"
-    # A new focused synthetic practice should not silently plan an 8-hour
-    # session. Explicitly configured longer sessions remain user-controlled.
-    if internal and body.suite in ("practice", "reference", "holdout") and "minutes" not in body.model_fields_set:
-        config["minutes"] = 45
+    # Legacy frontend always transmits minutes=480, even if unchanged.
+    # An actual long synthetic practice requires separate explicit opt-in.
+    if internal and body.suite in ("practice", "reference", "holdout"):
+        config["duration_capped"] = bool(body.minutes > 45 and not body.allow_extended_duration)
+        if config["duration_capped"]:
+            config["minutes"] = 45
     if internal and body.model == "ollama" and settings().galancito_local_model != QWEN_4B:
         raise HTTPException(422, "Galancito General requiere activar y verificar Qwen3.5 4B antes de practicar con Ollama. Puedes usar reglas sintéticas.")
     live = internal and body.suite == "live"
