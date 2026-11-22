@@ -43,6 +43,11 @@ const dateFormat = new Intl.DateTimeFormat("es-CL", {
 const price = new Intl.NumberFormat("es-CL", { style: "currency", currency: "USD", maximumFractionDigits: 6 });
 const number = (value?: number | null) => value == null ? "—" : format.format(value);
 const percent = (value?: number | null) => value == null ? "—" : number(100 * value) + "%";
+const duration = (seconds?: number | null) => {
+  if (seconds == null || !Number.isFinite(seconds)) return "—";
+  const total = Math.max(0, Math.floor(seconds));
+  return [Math.floor(total / 3600), Math.floor(total % 3600 / 60), total % 60].map(v => String(v).padStart(2, "0")).join(":");
+};
 const timestamp = (value?: string | null) => value ? dateFormat.format(new Date(value)) : "—";
 const displayField = (value: unknown) => Array.isArray(value) ? (value.join(", ") || "Sin datos") :
   typeof value === "boolean" ? (value ? "Sí" : "No") : (value == null || value === "" ? "Sin datos" : String(value));
@@ -59,11 +64,12 @@ type Metrics = {
   cycles?: Record<string, {passed:number;failed:number;critical:number;pass_rate?:number;improved_vs_first?:boolean;holdout?:boolean;holdout_role?: "baseline" | "candidate" | null}>;
   real_coaching?: string[]; real_holdout_pass_rate?: number; real_holdout_baseline_pass_rate?: number;
   real_holdout_gain_cases?: number; real_holdout_regressions?: number; real_learning_demonstrated?: boolean;
+  elapsed_seconds?: number;
 };
 type Round = {
   id: string; state: string; target: number; completed: number; reason: string | null; next_at: string;
-  created_at: string; previous_id: string | null; dataset_hash: string; leased: boolean;
-  config: { profile?: "postulantes" | "interno"; cycles?: number; cases?: number; level: number; suite: string; model: Model; judge: Model; night: boolean; evaluation_version?: number; profile_review?: boolean; snapshot_reused?: boolean };
+  created_at: string; finished_at?: string | null; previous_id: string | null; dataset_hash: string; leased: boolean;
+  config: { profile?: "postulantes" | "interno"; cycles?: number; cases?: number; level: number; suite: string; focus?: string; model: Model; judge: Model; night: boolean; evaluation_version?: number; profile_review?: boolean; snapshot_reused?: boolean };
   metrics: Metrics;
 };
 type Overview = {
@@ -85,7 +91,7 @@ type Case = {
 };
 type Failures = { cases: Case[]; more: boolean; proposals: Record<string, string> };
 const defaults = {
-  profile: "interno" as "postulantes" | "interno", level: 1, cases: 100, cycles: 1, suite: "reference", seed: "",
+  profile: "interno" as "postulantes" | "interno", level: 1, cases: 100, cycles: 1, suite: "reference", focus: "", seed: "",
   model: "ollama", judge: "rules", corrector: "rules", profile_review: false, night_start: 23, night_end: 7, minutes: 480,
   concurrency: 0, ram_limit_mb: 0, cpu_limit_percent: 75, token_budget: 6000000, cost_budget: 0,
 };
@@ -100,9 +106,12 @@ const fields = [
   ["night_end", "Hora nocturna final en Chile", 0, 23, 1],
 ] as const;
 
-export default function GalancitoTraining({ back }: { back: () => void }) {
+export default function GalancitoTraining({ back, initialProfile = "interno", initialFocus = "" }: {
+  back: () => void; initialProfile?: "postulantes" | "interno"; initialFocus?: string;
+}) {
   const [data, setData] = useState<Overview | null>(null);
-  const [form, setForm] = useState(defaults);
+  const [form, setForm] = useState({ ...defaults, profile: initialProfile, focus: initialProfile === "interno" ? initialFocus : "" });
+  const [clock, setClock] = useState(() => Date.now());
   const [selection, setSelection] = useState<string | null>(null);
   const [failureRound, setFailureRound] = useState("");
   const [failures, setFailures] = useState<Failures | null>(null);
@@ -132,6 +141,11 @@ export default function GalancitoTraining({ back }: { back: () => void }) {
   }, []);
 
   const active = data?.rounds.find(round => round.id === data.active_id);
+  useEffect(() => {
+    if (!active) return;
+    const timer = window.setInterval(() => setClock(Date.now()), 1000);
+    return () => window.clearInterval(timer);
+  }, [active?.id]);
   const history = (data?.rounds ?? []).filter(item => (item.config.profile ?? "postulantes") === form.profile);
   const round = history.find(item => item.id === selection) ??
     (active && (active.config.profile ?? "postulantes") === form.profile ? active : undefined) ?? history[0];
@@ -200,50 +214,34 @@ export default function GalancitoTraining({ back }: { back: () => void }) {
 
   return <div className="ai-center training" data-testid="galancito-training">
     <button className="training-back" onClick={back}><ArrowLeft size={16} /> Inteligencia artificial</button>
-    <div className="ai-banner training-banner">
-      <div>
-        <span className="ai-eyebrow"><Beaker size={15} /> GALANT AI TRAINING LAB</span>
-        <h1>Práctica Bot · Galancito</h1>
-        <p>{form.profile === "interno" ? (form.suite === "live" ? "Evaluación de Qwen3.5 4B con registros agregados reales de GALANT, cálculos comprobables y prueba reservada. No modifica pesos ni datos de negocio." : "Ejercicios sintéticos de control de contratistas, seguridad y contexto; sin consultar datos productivos.") :
-          "Simula conversaciones de construcción chilena y evalúa las fichas, las respuestas y el contexto."}</p>
-      </div>
-      <span className={"training-status " + (active?.state ?? (data?.worker.available ? "available" : ""))}>
-        <span aria-hidden="true" />
-        {!data ? "Cargando" : !data.worker.available ? "Servicio sin conexión" : active ? labels[active.state] : "Disponible"}
+    <div className="training-compact-head">
+      <div><span className="ai-eyebrow"><Beaker size={14} /> EVALUACIÓN CONTROLADA</span>
+        <h1>Práctica Bot</h1></div>
+      <span className={"training-pill " + (active?.state ?? (data?.worker.available ? "completed" : "error"))}>
+        {!data ? "Consultando" : !data.worker.available ? "Servicio desconectado" : active ? labels[active.state] : "Disponible"}
       </span>
     </div>
-    <div className="training-profile-tabs" role="group" aria-label="Perfil de Galancito que se evalúa">
+    <div className="training-profile-tabs" role="group" aria-label="Canal a evaluar">
       {(["postulantes", "interno"] as const).map(profile =>
         <button type="button" key={profile} aria-pressed={form.profile === profile}
           className={"training-profile-tab" + (form.profile === profile ? " is-active" : "")}
           onClick={() => {
-            setForm(prev => ({ ...prev, profile, judge: "rules", corrector: "rules", profile_review: false,
-              cases: profile === "interno" ? 4 : 100, cycles: 1,
-              suite: "reference", model: "ollama" }));
+            setForm(prev => ({ ...prev, profile, focus: "", judge: "rules", corrector: "rules",
+              profile_review: false, cases: profile === "interno" ? 4 : 100,
+              cycles: 1, suite: "reference", model: "ollama" }));
             setSelection(null); setFailures(null);
-          }}>
-          {profiles[profile]}
-        </button>
-      )}
+          }}>{profiles[profile]}</button>)}
     </div>
-    {form.profile === "interno" && <div className="ai-panel" role="note">
-      <strong>{form.suite === "live" ? "Razonamiento con datos operativos reales" : "Galancito General · 20 categorías sintéticas"}</strong>
-      <p className="training-muted">{form.suite === "live"
-        ? "Consulta recuentos reales de obras, contratistas, documentos, necesidades y seguimientos. Anonimiza las obras, congela las cifras al comenzar, mide cálculos de Qwen con razonamiento privado y reserva problemas no usados para validación. No altera datos productivos."
-        : "Incluye navegación, obras, contratistas, fichas, publicaciones, informes, versiones y seguridad. Estos ejercicios son sintéticos; no indican aprendizaje del modelo."}</p>
-      <p className="training-muted">Elige «Datos reales · medición» para evaluar respuestas generadas por Qwen, nunca reglas predefinidas. La corrección del comportamiento entre ciclos no entrena pesos; las mejoras solo llegan al chat tras superar la prueba reservada y una aprobación administrativa.</p>
-    </div>}
-    {data && <div className="ai-panel" aria-label="Motores de Galancito">
-      <strong>Motor principal: Ollama · {data.local_model}</strong>
-      {form.profile === "interno" && data.local_model !== "qwen3.5:4b-q4_K_M" &&
-        <p className="ai-warning" role="alert">Qwen3.5 4B todavía no figura como modelo principal. Para ejecutar una práctica REAL del chat general con Ollama debes activar y verificar 4B en el VPS. Puedes practicar con reglas sintéticas sin consumir IA.</p>}
-      <p className="training-muted">Próximas prácticas con Ollama: {data.local_model} · {data.training_mode === "motor_principal_compartido" ? "motor local compartido, sin duplicar el modelo en RAM" : "motor de entrenamiento separado"}.</p>
-      <p className="training-muted">Las rondas anteriores conservan el modelo con el que se realizaron. {data.worker.available ? "Servicio de prácticas conectado." : "Entrenador detenido; no hay prácticas automáticas en ejecución."}</p>
-    </div>}
+    <div className="training-model-line">
+      <span>Motor: <strong>{data?.local_model ?? "Consultando"}</strong></span>
+      <span>Origen: <strong>{form.suite === "live" ? "Agregados reales de GALANT" : "Simulación sintética"}</strong></span>
+    </div>
     {loadError && <p role="alert" className="ai-error">{loadError}</p>}
     {error && <p role="alert" className="ai-error">{error}</p>}
     {notice && <p role="status" className="ai-notice">{notice}</p>}
-    {data && !data.worker.available && <p className="ai-warning" role="status">El servidor de entrenamiento está desconectado. Tu ronda guardada continuará cuando vuelva a estar disponible.</p>}
+    {data && !data.worker.available && <p className="ai-warning" role="alert">No hay trabajador disponible para ejecutar prácticas.</p>}
+    {form.profile === "interno" && data?.local_model !== "qwen3.5:4b-q4_K_M" && form.model === "ollama" &&
+      <p className="ai-warning" role="alert">El motor Qwen3.5 4B aún no está confirmado para esta práctica.</p>}
 
     <div className="training-grid">
       <section className="ai-panel training-launch">
@@ -261,10 +259,16 @@ export default function GalancitoTraining({ back }: { back: () => void }) {
             <label>Conjunto<select value={form.suite} onChange={event => {
               const live = event.target.value === "live";
               setForm({ ...form, suite: event.target.value, model: live ? "ollama" : form.model,
-                cases: live ? 4 : Math.max(10, form.cases), cycles: live ? 5 : 1 });
+                cases: live ? 4 : Math.max(10, form.cases), cycles: live ? 5 : 1, focus: live ? "" : form.focus });
             }}>
               {Object.entries(suites).filter(([key]) => form.profile === "interno" || key !== "live").map(([key, label]) => <option key={key} value={key}>{label}</option>)}
             </select></label>
+            {form.profile === "interno" && form.suite !== "live" && <label>Categoría enfocada
+              <select value={form.focus} onChange={event => setForm({ ...form, focus: event.target.value })}>
+                <option value="">Todas las categorías</option>
+                {(data?.internal_categories ?? []).map(category => <option key={category} value={category}>{category.replaceAll("_", " ")}</option>)}
+              </select>
+            </label>}
             <label>Modelo de respuesta<select value={form.model} onChange={event => setForm({ ...form, model: event.target.value })}>
               <option value="ollama">Ollama · {data?.local_model ?? "Modelo local"}</option>{form.suite !== "live" && <option value="guided">Reglas locales</option>}{form.suite !== "live" && modelOptions}
             </select></label>
@@ -293,8 +297,8 @@ export default function GalancitoTraining({ back }: { back: () => void }) {
             {form.suite === "live" ? "Los dos últimos ciclos prueban los mismos datos reales: primero sin correcciones y luego con correcciones, con la misma semilla. Se cuentan mejoras y regresiones. No se ajustan pesos." : "Los ciclos son pruebas repetidas, no entrenamiento de pesos. El máximo es 10.000 casos por ejecución."}
           </p>}
           <div className="training-actions">
-            <button type="submit" className="gc-primary" disabled={busy || Boolean(active)}><Play size={16} /> Iniciar entrenamiento</button>
-            <button type="button" className="gc-secondary" disabled={busy || Boolean(active)} onClick={() => start(true)}><Moon size={16} /> Entrenamiento nocturno</button>
+            <button type="submit" className="gc-primary" disabled={busy || Boolean(active)}><Play size={16} /> Iniciar evaluación</button>
+            <button type="button" className="gc-secondary" disabled={busy || Boolean(active)} onClick={() => start(true)}><Moon size={16} /> Programar nocturna</button>
           </div>
         </form>
       </section>
@@ -305,7 +309,7 @@ export default function GalancitoTraining({ back }: { back: () => void }) {
         {round ? <>
           <div className="training-progress">
             <div><strong>{number(round.completed)}</strong><span> / {number(round.target)} casos</span></div>
-            <span>{profiles[round.config.profile ?? "postulantes"]} · {suites[round.config.suite]} · Nivel {round.config.level} · {round.config.model.model}</span>
+            <span>{profiles[round.config.profile ?? "postulantes"]} · {suites[round.config.suite]}{round.config.focus ? " · " + round.config.focus.replaceAll("_", " ") : ""} · Nivel {round.config.level} · {round.config.model.model}</span>
             <progress aria-label="Casos completados" value={round.completed} max={round.target} />
           </div>
           {(round.config.profile === "interno") && stats?.cycles && Object.keys(stats.cycles).length > 0 &&
@@ -324,6 +328,12 @@ export default function GalancitoTraining({ back }: { back: () => void }) {
             <div><dt>Correctos</dt><dd>{number(stats?.passed)}</dd></div>
             <div><dt>Incorrectos</dt><dd>{number(stats?.failed)}</dd></div>
             <div><dt>Pendientes</dt><dd>{number(round.target - round.completed)}</dd></div>
+            <div><dt>Tiempo activo</dt><dd>{duration(stats?.elapsed_seconds)}</dd></div>
+            <div><dt>Transcurrido desde el inicio</dt><dd>{duration(
+              round.state === "completed" || round.state === "stopped" || round.state === "error"
+                ? (new Date(round.finished_at ?? round.created_at).getTime() - new Date(round.created_at).getTime()) / 1000
+                : (clock - new Date(round.created_at).getTime()) / 1000
+            )}</dd></div>
             <div><dt>Alertas críticas</dt><dd className={stats?.critical ? "training-danger" : ""}>{number(stats?.critical)}</dd></div>
             <div><dt>{form.profile === "interno" ? "Exactitud factual" : "Exactitud de fichas"}</dt><dd>{percent(form.profile === "interno" ? stats?.dimensions.accuracy : stats?.profile_accuracy)}</dd></div>
             <div><dt>Comprensión del contexto</dt><dd>{percent(stats?.dimensions.context)}</dd></div>
