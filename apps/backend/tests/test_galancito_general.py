@@ -1,7 +1,7 @@
 """Unified Galancito: one routing surface, Qwen 4B, external privacy, permissions."""
 from types import SimpleNamespace
 from test_network import network, request_body
-from app.galancito_general import QWEN_4B, general_intent, is_complex, external_safe
+from app.galancito_general import QWEN_4B, general_intent, is_complex, external_safe, safe_generated
 
 
 def test_unified_route_classifies_greetings_and_general_help():
@@ -225,3 +225,12 @@ def test_legacy_chat_never_bills_external_for_simple_question_or_leaks_org_conte
     assert "Brisas de Junquillar" not in calls[0]
     assert "Indicadores comprobables:" not in calls[0]
     assert "Necesidades publicadas" not in calls[0]
+
+
+def test_generated_complex_analysis_can_use_step_lists_but_no_invented_metrics():
+    steps = "1. Revisar alternativas de coordinación.\n2. Comparar riesgos y plazos."
+    checked = safe_generated(steps, question="Analiza estrategias de coordinación")
+    assert checked is not None
+    assert checked.startswith("- Revisar alternativas")
+    assert "- Comparar riesgos" in checked
+    assert safe_generated("La obra tiene 28 trabajadores.", question="Analiza estrategias") is None
