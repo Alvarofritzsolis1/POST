@@ -12,7 +12,7 @@ const labels: Record<string, string> = {
   paused: "Pausado", completed: "Completado", stopped: "Detenido", error: "Error",
 };
 const internalDimensions: Record<string, string> = {
-  accuracy: "Exactitud factual", grounding: "Evidencia simulada", context: "Contexto",
+  accuracy: "Exactitud factual", grounding: "Evidencia comprobada", context: "Contexto",
   usefulness: "Utilidad", security: "Seguridad", limits: "Reconoce límites",
 };
 const profiles: Record<string, string> = { postulantes: "Postulantes Messenger", interno: "Galancito General" };
@@ -34,7 +34,7 @@ const fieldNames: Record<string, string> = {
   documents_state: "Documentos", contact_status: "Estado del contacto", match: "Compatibilidad",
 };
 const levels = ["Básico", "Intermedio", "Avanzado", "Experto", "Casos difíciles"];
-const suites: Record<string, string> = { reference: "Referencia", practice: "Práctica", holdout: "Prueba reservada" };
+const suites: Record<string, string> = { live: "Datos reales · medición", reference: "Referencia sintética", practice: "Práctica sintética", holdout: "Prueba sintética reservada" };
 const running = ["queued", "practicing", "evaluating", "correcting", "paused"];
 const format = new Intl.NumberFormat("es-CL", { maximumFractionDigits: 1 });
 const dateFormat = new Intl.DateTimeFormat("es-CL", {
@@ -56,12 +56,13 @@ type Metrics = {
   input_tokens: number; output_tokens: number; reserved_tokens: number;
   estimated_cost_usd: number; reserved_cost_usd: number; repetition_rate: number | null; judged_turns: number;
   reply_sources: Record<string, number> | null; questions: number; repeated_questions: number;
-  cycles?: Record<string, {passed:number;failed:number;critical:number}>;
+  cycles?: Record<string, {passed:number;failed:number;critical:number;pass_rate?:number;improved_vs_first?:boolean;holdout?:boolean}>;
+  real_coaching?: string[]; real_holdout_pass_rate?: number; real_learning_demonstrated?: boolean;
 };
 type Round = {
   id: string; state: string; target: number; completed: number; reason: string | null; next_at: string;
   created_at: string; previous_id: string | null; dataset_hash: string; leased: boolean;
-  config: { profile?: "postulantes" | "interno"; cycles?: number; cases?: number; level: number; suite: string; model: Model; judge: Model; night: boolean; evaluation_version?: number; profile_review?: boolean };
+  config: { profile?: "postulantes" | "interno"; cycles?: number; cases?: number; level: number; suite: string; model: Model; judge: Model; night: boolean; evaluation_version?: number; profile_review?: boolean; snapshot_reused?: boolean };
   metrics: Metrics;
 };
 type Overview = {
@@ -79,6 +80,7 @@ type Overview = {
 type Case = {
   id: string; critical: number; errors: Record<string, number>; ai_proposal?: string | null;
   turns?: { turn: number; message: string; reply: string; issues?: string[]; expected: Record<string, unknown>; differences: Record<string, unknown> }[];
+  evidence?: {source?: string;verified?: boolean;evidence_hash?:string;recorded_at?:string;formula?:string};
 };
 type Failures = { cases: Case[]; more: boolean; proposals: Record<string, string> };
 const defaults = {
@@ -199,7 +201,7 @@ export default function GalancitoTraining({ back }: { back: () => void }) {
       <div>
         <span className="ai-eyebrow"><Beaker size={15} /> GALANT AI TRAINING LAB</span>
         <h1>Práctica Bot · Galancito</h1>
-        <p>{form.profile === "interno" ? "Practica el único chat general: datos, permisos, contexto, Qwen3.5 4B y decisión segura de API. Usa ejemplos sintéticos, sin acceder a producción." :
+        <p>{form.profile === "interno" ? (form.suite === "live" ? "Evaluación de Qwen3.5 4B con registros agregados reales de GALANT, cálculos comprobables y prueba reservada. No modifica pesos ni datos de negocio." : "Ejercicios sintéticos de control de contratistas, seguridad y contexto; sin consultar datos productivos.") :
           "Simula conversaciones de construcción chilena y evalúa las fichas, las respuestas y el contexto."}</p>
       </div>
       <span className={"training-status " + (active?.state ?? (data?.worker.available ? "available" : ""))}>
@@ -213,7 +215,8 @@ export default function GalancitoTraining({ back }: { back: () => void }) {
           className={"training-profile-tab" + (form.profile === profile ? " is-active" : "")}
           onClick={() => {
             setForm(prev => ({ ...prev, profile, judge: "rules", corrector: "rules", profile_review: false,
-              cases: profile === "interno" ? 400 : 100, cycles: 1 }));
+              cases: profile === "interno" ? 4 : 100, cycles: 1,
+              suite: "reference", model: "ollama" }));
             setSelection(null); setFailures(null);
           }}>
           {profiles[profile]}
@@ -221,12 +224,11 @@ export default function GalancitoTraining({ back }: { back: () => void }) {
       )}
     </div>
     {form.profile === "interno" && <div className="ai-panel" role="note">
-      <strong>Galancito General · 20 categorías de práctica específica</strong>
-      <p className="training-muted">Incluye navegación, obras, contratistas, fichas, publicaciones, informes,
-        versiones, rendimiento, permisos y búsqueda web. Los 400 casos son ejemplos sintéticos,
-        no lecturas del VPS ni entrenamiento de pesos del modelo.</p>
-      <p className="training-muted">Elige Ollama para evaluar respuestas generadas por IA.
-        “Reglas locales” solo valida la referencia determinista.</p>
+      <strong>{form.suite === "live" ? "Razonamiento con datos operativos reales" : "Galancito General · 20 categorías sintéticas"}</strong>
+      <p className="training-muted">{form.suite === "live"
+        ? "Consulta recuentos reales de obras, contratistas, documentos, necesidades y seguimientos. Anonimiza las obras, congela las cifras al comenzar, mide cálculos de Qwen con razonamiento privado y reserva problemas no usados para validación. No altera datos productivos."
+        : "Incluye navegación, obras, contratistas, fichas, publicaciones, informes, versiones y seguridad. Estos ejercicios son sintéticos; no indican aprendizaje del modelo."}</p>
+      <p className="training-muted">Elige «Datos reales · medición» para evaluar respuestas generadas por Qwen, nunca reglas predefinidas. La corrección del comportamiento entre ciclos no entrena pesos; las mejoras solo llegan al chat tras superar la prueba reservada y una aprobación administrativa.</p>
     </div>}
     {data && <div className="ai-panel" aria-label="Motores de Galancito">
       <strong>Motor principal: Ollama · {data.local_model}</strong>
@@ -248,16 +250,20 @@ export default function GalancitoTraining({ back }: { back: () => void }) {
             <label>Nivel<select value={form.level} onChange={event => setForm({ ...form, level: Number(event.target.value) })}>
               {levels.map((level, index) => <option key={level} value={index + 1}>{index + 1} · {level}</option>)}
             </select></label>
-            <label>Casos por ciclo<input required min="1" max="10000" type="number" value={form.cases} onChange={event => setForm({ ...form, cases: Number(event.target.value) })} /></label>
+            <label>Casos por ciclo<input required min={form.suite === "live" ? 4 : 1} max={form.suite === "live" ? 12 : 10000} type="number" value={form.cases} onChange={event => setForm({ ...form, cases: Number(event.target.value) })} /></label>
             {form.profile === "interno" && <label>Ciclos de evaluación<select value={form.cycles}
               onChange={event => { const cycles = Number(event.target.value); setForm(prev => ({ ...prev, cycles, cases: Math.min(prev.cases, Math.floor(10000 / cycles)) })); }}>
-              {[1,5,10,20,40].map(value => <option value={value} key={value}>{value} {value === 1 ? "ciclo" : "ciclos"}</option>)}
+              {(form.suite === "live" ? [3,5,10,20,40] : [1,5,10,20,40]).map(value => <option value={value} key={value}>{value} {value === 1 ? "ciclo" : "ciclos"}</option>)}
             </select></label>}
-            <label>Conjunto<select value={form.suite} onChange={event => setForm({ ...form, suite: event.target.value })}>
-              {Object.entries(suites).map(([key, label]) => <option key={key} value={key}>{label}</option>)}
+            <label>Conjunto<select value={form.suite} onChange={event => {
+              const live = event.target.value === "live";
+              setForm({ ...form, suite: event.target.value, model: live ? "ollama" : form.model,
+                cases: live ? 4 : Math.max(10, form.cases), cycles: live ? 5 : 1 });
+            }}>
+              {Object.entries(suites).filter(([key]) => form.profile === "interno" || key !== "live").map(([key, label]) => <option key={key} value={key}>{label}</option>)}
             </select></label>
             <label>Modelo de respuesta<select value={form.model} onChange={event => setForm({ ...form, model: event.target.value })}>
-              <option value="ollama">Ollama · {data?.local_model ?? "Modelo local"}</option><option value="guided">Reglas locales</option>{modelOptions}
+              <option value="ollama">Ollama · {data?.local_model ?? "Modelo local"}</option>{form.suite !== "live" && <option value="guided">Reglas locales</option>}{form.suite !== "live" && modelOptions}
             </select></label>
           </div>
           <details className="training-details">
@@ -281,7 +287,7 @@ export default function GalancitoTraining({ back }: { back: () => void }) {
           </details>
           {form.profile === "interno" && <p className="training-muted">
             Total previsto: <strong>{number(form.cases * form.cycles)} evaluaciones</strong>.
-            Los ciclos son pruebas repetidas, no entrenamiento de pesos. Se limita automáticamente la cantidad de casos por ciclo a 10.000 ÷ ciclos para proteger el VPS.
+            {form.suite === "live" ? "Datos numéricos realmente consultados al iniciar; último ciclo reservado para validación sin correcciones. Los cambios de instrucciones son aprendizaje contextual, no ajuste de pesos." : "Los ciclos son pruebas repetidas, no entrenamiento de pesos. El máximo es 10.000 casos por ejecución."}
           </p>}
           <div className="training-actions">
             <button type="submit" className="gc-primary" disabled={busy || Boolean(active)}><Play size={16} /> Iniciar entrenamiento</button>
