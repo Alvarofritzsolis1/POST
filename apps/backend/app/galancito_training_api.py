@@ -202,8 +202,8 @@ def start(db, user, body, *, previous=None, compare_profile=False):
             raise HTTPException(422, str(exc)) from None
         if body.cases * 2 > len(config["live_cases"]):
             raise HTTPException(422, f"Hay {len(config['live_cases'])} escenarios reales. Reduce a {len(config['live_cases']) // 2} casos por ciclo para reservar otros tantos sin usar para validación")
-        if body.cycles < 3 or body.cases < 4:
-            raise HTTPException(422, "Se requieren al menos 4 casos y 3 ciclos: referencia, corrección y prueba reservada")
+        if body.cycles < 4 or body.cases < 4:
+            raise HTTPException(422, "Se requieren al menos 4 casos y 4 ciclos: práctica, corrección y prueba reservada A/B")
     config["model"] = model_info(db, user, body.model, "model")
     config["judge"] = model_info(db, user, body.judge, "judge")
     config["corrector"] = model_info(db, user, body.corrector, "corrector")
@@ -368,7 +368,9 @@ def promote_live(round_id: str, user: User = Depends(administrator), db: Session
             and row.config.get("model", {}).get("id") == "ollama"
             and row.state == "completed" and row.completed == row.target
             and row.metrics.get("real_learning_demonstrated") is True
-            and last.get("holdout") is True and last.get("critical") == 0
+            and last.get("holdout_role") == "candidate" and last.get("critical") == 0
+            and row.metrics.get("real_holdout_gain_cases", 0) >= 1
+            and row.metrics.get("real_holdout_regressions", 1) == 0
             and row.metrics.get("real_holdout_pass_rate", 0) >= 0.75):
         raise HTTPException(409, "Sin aprendizaje verificable, ciclo completo y prueba reservada aprobada")
     from .galancito_real_learning import PRODUCTION_COACHING
