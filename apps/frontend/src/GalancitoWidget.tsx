@@ -1,14 +1,17 @@
 import { useEffect, useRef, useState, type FormEvent } from "react";
 import { Bot, MessageCircle, Send, ShieldCheck, Sparkles, X, Maximize2, Minimize2, RotateCcw, Download } from "lucide-react";
-import { ApiError, request, downloadInternalReport } from "./api";
+import { ApiError, request, downloadInternalReport, deleteInternalConversation } from "./api";
 import { change, net } from "./networkApi";
 import "./galancito.css";
 
 type Area = "red_obras" | "interno";
 type ChatLine = { role: "user" | "assistant"; text: string; runId?: string; question?: string; rated?: boolean; reportable?: boolean };
 type Reply = { name: string; answer: string; source: string; notice?: string; run_id?: string;
-  references?: {id: string; version: number; title: string}[]; reportable?: boolean };
+  references?: {id: string; version: number; title: string}[]; reportable?: boolean;
+  conversation_id?: string | null; history_saved?: boolean };
 type Status = { name: string; local_ai_available: boolean; external_ai_available: boolean; read_only: boolean; can_teach?: boolean; internal_available?: boolean; web_available?: boolean };
+type SavedConversation = {id:string;title:string;updated_at:string;expires_at:string;turns:number};
+type SavedTurn = {role:"user"|"assistant";text:string;run_id?:string;reportable?:boolean;question?:string};
 const EXAMPLES = [
   "¿Cómo publicar una necesidad?",
   "¿Qué documentos necesita un contratista?",
@@ -30,10 +33,47 @@ export default function GalancitoWidget({ area = "red_obras" }: { area?: Area })
     setHistory(profileHistory.current[next]);
     setError(""); setLastFailed(""); setFeedbackNotice("");
     setWebConsent(false);
+    if (next === "interno" && saveMemory) void loadSaved();
   }
   const [status, setStatus] = useState<Status | null>(null);
   const [consent, setConsent] = useState(false);
   const [webConsent, setWebConsent] = useState(false);
+  const [saveMemory, setSaveMemory] = useState(false);
+  const [conversationId, setConversationId] = useState<string | null>(null);
+  const [savedList, setSavedList] = useState<SavedConversation[]>([]);
+  const [showSaved, setShowSaved] = useState(false);
+  const [memoryBusy, setMemoryBusy] = useState(false);
+  async function loadSaved() {
+    try {
+      const result = await net<{conversations:SavedConversation[]}>("/galancito/conversations");
+      setSavedList(result.conversations);
+    } catch { setError("No pude cargar tus conversaciones guardadas."); }
+  }
+  async function restoreSaved(id:string) {
+    if (busy || memoryBusy) return;
+    setMemoryBusy(true); setError("");
+    try {
+      const result = await net<{id:string;turns:SavedTurn[]}>("/galancito/conversations/"+encodeURIComponent(id));
+      const turns:ChatLine[] = result.turns.map(turn=>turn.role === "assistant"
+        ? {role:"assistant",text:turn.text,runId:turn.run_id,reportable:turn.reportable,question:turn.question}
+        : {role:"user",text:turn.text});
+      setHistory(turns); setConversationId(result.id); setSaveMemory(true); setShowSaved(false);
+      profileHistory.current.interno = turns;
+    } catch { setError("No pude restaurar la conversación seleccionada."); }
+    finally { setMemoryBusy(false); }
+  }
+  async function eraseSaved(id:string) {
+    if (busy || memoryBusy) return;
+    setMemoryBusy(true); setError("");
+    try {
+      await deleteInternalConversation(id);
+      setSavedList(prev=>prev.filter(item=>item.id!==id));
+      if (conversationId===id) {
+        setConversationId(null); setHistory([]); profileHistory.current.interno=[];
+      }
+    } catch { setError("No pude eliminar la conversación."); }
+    finally { setMemoryBusy(false); }
+  }
   const [exporting, setExporting] = useState(false);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState("");
@@ -74,8 +114,14 @@ export default function GalancitoWidget({ area = "red_obras" }: { area?: Area })
           ({role: "user", text: item.text.slice(0, 500)})) : [],
         allow_external_ai: mode === "red_obras" && consent && !!status?.external_ai_available,
         allow_web: mode === "interno" && webConsent && !!status?.web_available,
+        save_history: mode === "interno" && saveMemory,
+        conversation_id: mode === "interno" && saveMemory ? conversationId : null,
         }),
       });
+      if (mode === "interno" && saveMemory && reply.conversation_id) {
+        setConversationId(reply.conversation_id);
+        if (reply.history_saved) void loadSaved();
+      }
       setHistory((prev) => [...prev, {role: "assistant", runId: reply.run_id, question,
         reportable: mode === "interno" && Boolean(reply.reportable), text: reply.answer + (reply.references?.length ? "\nReferencia: " + reply.references.map(r => `${r.title} (v${r.version})`).join(", ") : "") +
         (reply.notice ? "\n" + reply.notice : "")}]);
@@ -142,7 +188,7 @@ export default function GalancitoWidget({ area = "red_obras" }: { area?: Area })
           {expanded ? <Minimize2 size={18}/> : <Maximize2 size={18}/>}
         </button>
         <button className="galancito-close" type="button" disabled={busy}
-          onClick={() => { setHistory([]); profileHistory.current[mode] = []; setError(""); setLastFailed(""); }}
+          onClick={() => { setHistory([]); profileHistory.current[mode] = []; setConversationId(null); setError(""); setLastFailed(""); }}
           title="Nueva conversación" aria-label="Nueva conversación"><RotateCcw size={16}/></button>
         <button className="galancito-close" type="button" onClick={() => setOpen(false)} aria-label="Cerrar Galancito"><X size={19}/></button>
       </header>
@@ -152,6 +198,25 @@ export default function GalancitoWidget({ area = "red_obras" }: { area?: Area })
         <button type="button" disabled={busy} className={mode === "interno" ? "selected" : ""} aria-pressed={mode === "interno"}
           onClick={() => switchProfile("interno")}>Interno 360°</button>
       </nav>}
+      {mode === "interno" && <div className="galancito-memory">
+        <label><input type="checkbox" checked={saveMemory} disabled={busy || memoryBusy}
+          onChange={e=>{ setSaveMemory(e.target.checked); if(!e.target.checked) setConversationId(null); }} />
+          Guardar conversación (30 días, sin consultas sensibles)
+        </label>
+        <button type="button" disabled={busy || memoryBusy}
+          onClick={()=>{const next=!showSaved;setShowSaved(next);if(next) void loadSaved();}}>
+          {showSaved ? "Ocultar historial" : "Conversaciones guardadas"}
+        </button>
+        {showSaved && <div className="galancito-memory-list">
+          {!savedList.length && <small>No tienes conversaciones guardadas.</small>}
+          {savedList.map(saved=><div key={saved.id} className="galancito-memory-entry">
+            <button type="button" disabled={busy || memoryBusy} title="Abrir conversación"
+              onClick={()=>void restoreSaved(saved.id)}>{saved.title}</button>
+            <button type="button" disabled={busy || memoryBusy} aria-label={"Eliminar " + saved.title}
+              onClick={()=>void eraseSaved(saved.id)}>Eliminar</button>
+          </div>)}
+        </div>}
+      </div>}
       <div className="galancito-history" role="log" aria-label="Conversación con Galancito" aria-live="polite">
         {!history.length && <div className="galancito-greeting">
           <MessageCircle size={24}/>
