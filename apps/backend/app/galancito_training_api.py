@@ -19,6 +19,8 @@ from .galancito_knowledge_models import Knowledge, KnowledgeVersion
 from .config import settings
 from .galancito_general import QWEN_4B
 from .galancito_local import MODEL
+from .galancito_real_learning import (LIVE_DATASET_VERSION, LIVE_EVALUATION_VERSION,
+                                      MAX_LIVE_CASES, collect_live_cases, live_hash)
 from .galancito_internal_training import (
     INTERNAL_CATEGORIES, INTERNAL_DATASET_VERSION, INTERNAL_EVALUATION_VERSION,
     INTERNAL_PROMPT, INTERNAL_PROPOSALS, INTERNAL_WEIGHTS, internal_case, internal_dataset_hash,
@@ -48,7 +50,7 @@ class RoundInput(BaseModel):
     cases: int = Field(default=100, ge=1, le=MAX_CASES)
     cycles: int = Field(default=1, ge=1, le=40)
     seed: int | None = Field(default=None, ge=0, le=2**31 - 1)
-    suite: Literal["practice", "reference", "holdout"] = "reference"
+    suite: Literal["practice", "reference", "holdout", "live"] = "reference"
     night: bool = False
     night_start: int = Field(default=23, ge=0, le=23)
     night_end: int = Field(default=7, ge=0, le=23)
@@ -67,6 +69,12 @@ class RoundInput(BaseModel):
     def validate_night(self):
         if self.night and self.night_start == self.night_end:
             raise ValueError("La hora inicial y final deben ser distintas")
+        if self.suite == "live" and self.profile != "interno":
+            raise ValueError("Los datos operativos reales solo corresponden a Galancito General")
+        if self.suite == "live" and self.model != "ollama":
+            raise ValueError("La evaluación operativa exige respuestas reales de Qwen, no reglas ni API externa")
+        if self.suite == "live" and self.cases > MAX_LIVE_CASES:
+            raise ValueError(f"Para datos reales admite como máximo {MAX_LIVE_CASES} casos por ciclo")
         if self.profile != "interno" and self.cycles != 1:
             raise ValueError("Los ciclos automáticos se reservan a Galancito Interno")
         if self.cases * self.cycles > MAX_CASES:
@@ -178,14 +186,25 @@ def start(db, user, body, *, previous=None, compare_profile=False):
     internal = body.profile == "interno"
     if internal and body.model == "ollama" and settings().galancito_local_model != QWEN_4B:
         raise HTTPException(422, "Galancito General requiere activar y verificar Qwen3.5 4B antes de practicar con Ollama. Puedes usar reglas sintéticas.")
-    config["dataset_version"] = INTERNAL_DATASET_VERSION if internal else DATASET_VERSION
-    config["evaluation_version"] = INTERNAL_EVALUATION_VERSION if internal else EVALUATION_VERSION
+    live = internal and body.suite == "live"
+    config["dataset_version"] = (LIVE_DATASET_VERSION if live else
+                                 INTERNAL_DATASET_VERSION if internal else DATASET_VERSION)
+    config["evaluation_version"] = (LIVE_EVALUATION_VERSION if live else
+                                    INTERNAL_EVALUATION_VERSION if internal else EVALUATION_VERSION)
+    if live:
+        try:
+            config["live_cases"] = collect_live_cases(db, user)
+        except ValueError as exc:
+            raise HTTPException(422, str(exc)) from None
+        if body.cases > len(config["live_cases"]):
+            raise HTTPException(422, f"Solo hay {len(config['live_cases'])} casos verificables distintos; reduce casos por ciclo")
     config["model"] = model_info(db, user, body.model, "model")
     config["judge"] = model_info(db, user, body.judge, "judge")
     config["corrector"] = model_info(db, user, body.corrector, "corrector")
     if any(config[role].get("priced") for role in ("model", "judge", "corrector")) and not body.cost_budget:
         raise HTTPException(422, "Indica un presupuesto en USD para la conexión seleccionada")
-    fingerprint = internal_dataset_hash(config) if internal else dataset_hash(config)
+    fingerprint = (live_hash(config) if live else
+                   internal_dataset_hash(config) if internal else dataset_hash(config))
     if previous is not None and fingerprint != previous.dataset_hash:
         raise HTTPException(409, "El generador cambió desde la ronda anterior. Inicia una nueva referencia.")
     # Serialize starts and approvals for a consistent knowledge snapshot.
@@ -207,7 +226,8 @@ def start(db, user, body, *, previous=None, compare_profile=False):
         raise HTTPException(409, "Completa todos los casos de la ronda base antes de comparar.")
     if compare_profile and (
         previous.config.get("evaluation_version") != config["evaluation_version"]
-        or previous.prompt_version != (INTERNAL_PROMPT_VERSION if internal else PROMPT_VERSION)
+        or previous.prompt_version != (digest(["operational", LIVE_DATASET_VERSION, LIVE_EVALUATION_VERSION]) if live
+                                      else INTERNAL_PROMPT_VERSION if internal else PROMPT_VERSION)
         or previous.knowledge != knowledge or previous.aliases != aliases
         or any(previous.config.get(role) != config[role] for role in ("model", "judge", "corrector"))
     ):
@@ -215,7 +235,8 @@ def start(db, user, body, *, previous=None, compare_profile=False):
     scheduled = eligible_at(config, utcnow())
     row = TrainingRound(org_id=user.org_id, created_by=user.id, target=body.cases * body.cycles, config=config,
                         dataset_hash=fingerprint, system_version=f"{VERSION}@{SOURCE_COMMIT}",
-                        prompt_version=INTERNAL_PROMPT_VERSION if internal else PROMPT_VERSION,
+                        prompt_version=(digest(["operational", LIVE_DATASET_VERSION, LIVE_EVALUATION_VERSION]) if live else
+                                        INTERNAL_PROMPT_VERSION if internal else PROMPT_VERSION),
                         previous_id=comparable.id if comparable else None,
                         aliases=aliases, knowledge=knowledge, next_at=scheduled)
     try:
