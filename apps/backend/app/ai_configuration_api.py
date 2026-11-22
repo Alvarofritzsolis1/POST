@@ -174,6 +174,139 @@ def bootstrap(user: User = Depends(administrator), db: Session = Depends(get_db)
     }
 
 
+def _percentile_ms(values: list[int], percentile: float) -> int | None:
+    """Nearest rank over actual recorded requests; never infer missing timings."""
+    if not values:
+        return None
+    from math import ceil
+    ordered = sorted(values)
+    return ordered[max(0, ceil(len(ordered) * percentile) - 1)]
+
+
+def _observed_channel(rows: list[AssistantRun], *, messenger: bool = False) -> dict:
+    """Real observed timestamps. The Messenger end-to-end latency excludes
+    cancelled and unconfirmed deliveries, never substitutes a guessed duration.
+    """
+    feedback = {
+        "useful": sum(row.feedback == "useful" for row in rows),
+        "incorrect": sum(row.feedback == "incorrect" for row in rows),
+    }
+    reviewed = feedback["useful"] + feedback["incorrect"]
+    if messenger:
+        timings = [(row.timings or {}).get("conversation_ms") for row in rows
+                   if not (row.timings or {}).get("delivery_error")
+                   and not (row.timings or {}).get("cancelled")]
+    else:
+        timings = [row.elapsed_ms for row in rows]
+    timings = [value for value in timings if type(value) in (int, float) and 0 <= value < 86400000]
+    return {
+        "runs": len(rows),
+        "latency_sample": len(timings),
+        "latency_basis": "inbound_to_confirmed_delivery" if messenger else "request_processing",
+        "sample_capped": len(rows) >= 2000,
+        "p50_ms": _percentile_ms(timings, 0.50),
+        "p95_ms": _percentile_ms(timings, 0.95),
+        "feedback": {**feedback, "total": reviewed,
+                     "useful_percent": round(feedback["useful"] * 100 / reviewed, 1) if reviewed else None},
+        "model_errors": sum(bool((row.timings or {}).get("model_error")) for row in rows),
+        "delivery_errors": sum(bool((row.timings or {}).get("delivery_error")) for row in rows),
+        "cancelled": sum(bool((row.timings or {}).get("cancelled")) for row in rows),
+        # Feedback and synthetic evaluations cannot establish factual quality.
+        "quality_score": None,
+        "quality_source": "pendiente_revision_humana_de_casos_reales",
+    }
+
+
+@router.get("/quality-overview")
+def quality_overview(days: int = Query(default=30, ge=1, le=90),
+                     user: User = Depends(administrator), db: Session = Depends(get_db)):
+    """Read-only production telemetry by channel; never pretend synthetic tests are live quality."""
+    from .facebook_crm_models import FacebookChatMessage
+    from .galancito_training_models import TrainingRound
+
+    since = utcnow() - timedelta(days=days)
+    def sampled(channels: tuple[str, ...], *, is_messenger: bool = False) -> dict:
+        records = list(db.scalars(select(AssistantRun).where(
+            AssistantRun.org_id == user.org_id, AssistantRun.channel.in_(channels),
+            AssistantRun.created_at >= since,
+        ).order_by(AssistantRun.created_at.desc()).limit(2000)))
+        return _observed_channel(records, messenger=is_messenger)
+
+    messenger = sampled(("messenger",), is_messenger=True)
+    general = sampled(("galant_internal", "red_obras"))
+    from .ai_quality_audit import reviewed_sample
+    # A measured human audit of a subset is not a population-wide accuracy estimate.
+    messenger.update(reviewed_sample(db, user.org_id, "messenger", since))
+    general.update(reviewed_sample(db, user.org_id, "general", since))
+    delivery_states = dict(db.execute(
+        select(FacebookChatMessage.state, func.count(FacebookChatMessage.id)).where(
+            FacebookChatMessage.org_id == user.org_id,
+            FacebookChatMessage.created_at >= since,
+            FacebookChatMessage.direction == "outbound",
+            FacebookChatMessage.ai_generated.is_(True),
+        ).group_by(FacebookChatMessage.state)).all())
+    messenger["delivery_states"] = delivery_states
+    # Last completed operational test: derived from actual database aggregates,
+    # NOT actual users' conversations or verified production correctness.
+    last_operational = None
+    recent = list(db.scalars(select(TrainingRound).where(
+        TrainingRound.org_id == user.org_id, TrainingRound.state == "completed",
+    ).order_by(TrainingRound.created_at.desc()).limit(40)))
+    for round_ in recent:
+        if round_.config.get("profile") == "interno" and round_.config.get("suite") == "live":
+            from .galancito_training import summarize
+            measure = summarize(round_.metrics, "interno")
+            last_operational = {
+                "id": round_.id, "created_at": round_.created_at,
+                "cases": measure["passed"] + measure["failed"],
+                "passed": measure["passed"], "score": measure["score"],
+                "source": "agregados_reales_evaluacion_laboratorio",
+                "model": round_.config.get("model", {}).get("model"),
+                "holdout_gain_cases": measure["real_holdout_gain_cases"],
+                "holdout_regressions": measure["real_holdout_regressions"],
+            }
+            break
+
+    findings = []
+    # Only verified human labels. A finding means "observed in reviewed
+    # conversations", not an estimate for all production conversations.
+    focus_names = {
+        "understanding": "comprensión y modismos", "profile": "fichas y contacto",
+        "context": "continuidad del chat", "naturalness": "naturalidad",
+        "safety": "seguridad", "helpfulness": "respuestas útiles",
+    }
+    for criterion, errors in messenger["failed_review_counts"].items():
+        if errors:
+            findings.append({
+                "channel": "messenger", "type": "audited_" + criterion,
+                "count": errors,
+                "label": "Fallos revisados: " + focus_names[criterion],
+                "focus": criterion,
+            })
+    if messenger["delivery_errors"]:
+        findings.append({"channel": "messenger", "type": "delivery", "count": messenger["delivery_errors"],
+                         "label": "Errores registrados al entregar mensajes", "focus": ""})
+    if messenger["model_errors"]:
+        findings.append({"channel": "messenger", "type": "model", "count": messenger["model_errors"],
+                         "label": "Fallos del modelo durante respuestas", "focus": ""})
+    for channel, stats in (("messenger", messenger), ("general", general)):
+        if stats["feedback"]["incorrect"]:
+            findings.append({"channel": channel, "type": "feedback",
+                             "count": stats["feedback"]["incorrect"],
+                             "label": "Respuestas calificadas como incorrectas", "focus": ""})
+        if stats["p95_ms"] is not None and stats["p95_ms"] > 10000:
+            findings.append({"channel": channel, "type": "latency", "count": None,
+                             "label": "Latencia p95 superior a 10 segundos", "focus": ""})
+    return {
+        "period_days": days,
+        "generated_at": utcnow(),
+        "score_method": "Las calificaciones de exactitud necesitan auditorías humanas trazables de respuestas reales.",
+        "channels": {"messenger": messenger, "general": general},
+        "operational_lab": last_operational,
+        "findings": findings,
+    }
+
+
 @router.post("/local-model/test")
 def test_local_model(user: User = Depends(administrator)):
     """A synthetic, keyless Ollama test of the actual deployed Galancito model."""

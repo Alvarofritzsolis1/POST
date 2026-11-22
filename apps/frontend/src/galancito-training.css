@@ -75,3 +75,30 @@
 .training-cycle-results span { font-weight:800; font-size:12px; color:#14655d; }
 .training-cycle-results strong { font-size:12px; color:#234b50; }
 .training-cycle-results small { color:#607a7c; font-size:11px; }
+
+/* 20.9.19 – operational-first laboratory. */
+.training-compact-head { display:flex; align-items:center; justify-content:space-between; gap:12px; background:linear-gradient(110deg,#122e44,#1c536a); color:#fff; border-radius:15px; padding:17px 20px; }
+.training-compact-head h1 { font-size:clamp(1.25rem,2vw,1.65rem); letter-spacing:-.03em; color:#fff; margin:4px 0 0; }
+.training-compact-head .ai-eyebrow { color:#92ead8; }
+.training-compact-head .training-pill { background:#ffffff1d; color:#fff; border:1px solid #ffffff38; }
+.training-model-line { display:flex; gap:8px 25px; flex-wrap:wrap; align-items:center; border:1px solid #dce7ee; background:#f8fbfd; padding:10px 14px; border-radius:10px; font-size:12px; color:#627789; }
+.training-model-line strong { color:#244258; overflow-wrap:anywhere; }
+.training .training-profile-tabs { margin:0; }
+.training .training-current { position:relative; }
+.training .training-current .training-metrics { grid-template-columns:repeat(2,minmax(0,1fr)); }
+.training .training-metrics dt { color:#658096; }
+.training .training-metrics dd { font-size:17px; }
+.training .training-launch,.training .training-current { gap:12px; padding:17px; }
+.training .training-launch .training-fields { gap:10px; }
+.training .training-current .training-progress { padding:7px 0; }
+.training .training-current .training-actions { padding-top:4px; }
+@media(max-width:700px) { .training-compact-head { padding:14px; } .training .training-current .training-metrics { grid-template-columns:repeat(2,minmax(0,1fr)); } }
+
+.training-lab-comparison { display:grid; grid-template-columns:repeat(2,minmax(0,1fr)); gap:8px; padding:12px; background:#edf6ff; border:1px solid #c7dfef; border-radius:10px; color:#254e67; }
+.training-lab-comparison > strong,.training-lab-comparison > small { grid-column:1/-1; }
+.training-lab-comparison > strong { font-size:12px; }
+.training-lab-comparison > div { display:grid; gap:4px; border-radius:8px; background:#fff; padding:9px; border:1px solid #e0eaf3; }
+.training-lab-comparison span { font-size:11px; color:#66808e; }
+.training-lab-comparison b { font-size:18px; }
+.training-lab-comparison small { font-size:11px; line-height:1.5; color:#5e7888; }
+@media(max-width:450px){.training-lab-comparison{grid-template-columns:1fr}}

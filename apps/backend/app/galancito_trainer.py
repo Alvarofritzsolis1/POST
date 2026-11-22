@@ -19,7 +19,7 @@ from .galancito_runtime import infer
 from .galancito_memory import aware
 from .galancito_training import (DETAIL_DAYS, HISTORY_DAYS, LEASE_SECONDS, LOCAL_CONTEXT_LIMIT,
                                   LOCAL_OUTPUT_LIMIT, ResourceSampler, eligible_at, resource_slots)
-from .galancito_training_data import DATASET_VERSION, scenario
+from .galancito_training_data import DATASET_VERSION, MESSENGER_FOCUS, scenario
 from .galancito_real_learning import (LIVE_DATASET_VERSION, LIVE_EVALUATION_VERSION,
                                        LIVE_PROMPT, COACHING, evaluate_live,
                                        paired_holdout_metrics)
@@ -27,7 +27,7 @@ from .galancito_internal_training import (
     INTERNAL_DATASET_VERSION, INTERNAL_EVALUATION_VERSION,
     INTERNAL_PROMPT, internal_case, evaluate_internal,
 )
-from .galancito_training_eval import CORRECTOR_PROMPT, EVALUATION_VERSION, JUDGE_PROMPT, PROMPT, evaluate
+from .galancito_training_eval import CORRECTOR_PROMPT, EVALUATION_VERSION, JUDGE_PROMPT, PROMPT, PROPOSALS, evaluate
 from .galancito_training_model import TrainingModel
 from .galancito_training_models import TERMINAL, TrainingCase, TrainingRound, TrainingWorker
 from .models import uid, utcnow
@@ -162,6 +162,10 @@ def claim(factory, snapshot, *, maintenance=False, training_model=None):
             row.state, row.reason = "practicing", None
             row.lease, row.lease_until = uid(), now + timedelta(seconds=LEASE_SECONDS)
             row.attempts += 1
+            # Specialized cycles must checkpoint the previous cycle's
+            # corrections before the next case. Never parallelize across its boundary.
+            if row.config.get("focus") in MESSENGER_FOCUS:
+                slots = 1
             return row, min(slots, row.target - row.completed)
     return None
 
@@ -284,7 +288,7 @@ def checkpoints(factory, claim, results, snapshot, elapsed):
         sources = dict(metrics.get("reply_sources", {}))
         cycles = dict(metrics.get("cycles", {}))
         for result in results:
-            if row.config.get("profile") == "interno":
+            if row.config.get("profile") == "interno" or row.config.get("focus") in MESSENGER_FOCUS:
                 cycle = str(row.completed // row.config["cases"] + 1)
                 item = dict(cycles.get(cycle, {"passed": 0, "failed": 0, "critical": 0, "errors": {}}))
                 item["passed" if result["passed"] else "failed"] += 1
@@ -314,6 +318,56 @@ def checkpoints(factory, claim, results, snapshot, elapsed):
                 errors[key] = errors.get(key, 0) + value
         metrics.update(dimensions=dims, errors=errors, reply_sources=sources, cycles=cycles,
                        elapsed_seconds=metrics.get("elapsed_seconds", 0) + elapsed)
+        # Focused Messenger loops can adjust bounded prompt instructions between
+        # cycles. The last paired A/B cycles use independent synthetic holdout
+        # fixtures; they are NEVER evidence of real-world learning or fine-tuning.
+        focused = (row.config.get("profile") == "postulantes"
+                   and row.config.get("focus") in MESSENGER_FOCUS)
+        if focused and row.completed % row.config["cases"] == 0:
+            cycle_no = row.completed // row.config["cases"]
+            cycle = str(cycle_no)
+            item = cycles[cycle]
+            item["pass_rate"] = round(item["passed"] / max(1, item["passed"] + item["failed"]), 4)
+            cycles_total = row.config.get("cycles", 1)
+            reserved = cycles_total >= 4 and cycle_no >= cycles_total - 1
+            item["holdout"] = reserved
+            item["holdout_role"] = ("baseline" if cycle_no == cycles_total - 1 else
+                                    "candidate" if cycle_no == cycles_total else None) if reserved else None
+            cycles[cycle] = item
+            if not reserved:
+                coaching = list(metrics.get("messenger_coaching", []))
+                for name in item.get("errors", {}):
+                    proposal = PROPOSALS.get(name)
+                    if proposal and proposal not in coaching:
+                        coaching.append(proposal)
+                metrics["messenger_coaching"] = coaching[:3]
+            if reserved and cycle_no == cycles_total:
+                size = row.config["cases"]
+                db.flush()
+                a = list(db.scalars(select(TrainingCase).where(
+                    TrainingCase.round_id == row.id,
+                    TrainingCase.position >= (cycles_total - 2) * size,
+                    TrainingCase.position < (cycles_total - 1) * size,
+                ).order_by(TrainingCase.position)))
+                b = list(db.scalars(select(TrainingCase).where(
+                    TrainingCase.round_id == row.id,
+                    TrainingCase.position >= (cycles_total - 1) * size,
+                    TrainingCase.position < cycles_total * size,
+                ).order_by(TrainingCase.position)))
+                if len(a) == len(b) == size:
+                    comparison = paired_holdout_metrics(
+                        [case.passed for case in a], [case.passed for case in b])
+                    metrics["synthetic_holdout_baseline_rate"] = comparison["baseline_pass_rate"]
+                    metrics["synthetic_holdout_candidate_rate"] = comparison["candidate_pass_rate"]
+                    metrics["synthetic_holdout_gains"] = comparison["gain_cases"]
+                    metrics["synthetic_holdout_regressions"] = comparison["regressions"]
+                # A grade on the same reserved synthetic cases is ONLY a lab finding.
+                metrics["synthetic_improvement_observed"] = bool(
+                    metrics.get("messenger_coaching")
+                    and metrics.get("synthetic_holdout_gains", 0) > 0
+                    and metrics.get("synthetic_holdout_regressions", 1) == 0
+                    and item["critical"] == 0)
+            metrics["cycles"] = cycles
         if row.config.get("suite") == "live":
             metrics["evidence_type"] = "live_database"
         if row.config.get("suite") == "live" and row.completed % row.config["cases"] == 0:
@@ -443,26 +497,46 @@ def process_next(factory=SessionLocal, sampler=None, *, maintenance=False, train
                     stage=(lambda state: _update_stage(factory, row, state))
                           if count == 1 else (lambda _: None),
                 )
+            focused = (row.config.get("profile", "postulantes") == "postulantes"
+                       and row.config.get("focus") in MESSENGER_FOCUS)
+            cycle_number = position // row.config["cases"] + 1
+            cycle_total = row.config.get("cycles", 1)
+            reserved = focused and cycle_total >= 4 and cycle_number >= cycle_total - 1
+            baseline = reserved and cycle_number == cycle_total - 1
+            case_index = position % row.config["cases"]
+            scenario_config = ({**row.config, "suite": "holdout"} if reserved else row.config)
+            scenario_position = case_index if reserved else position
+            case_seed = ((int(row.dataset_hash[:8], 16) ^ case_index ^ 48171) % (2**31)
+                         if reserved else seed % (2**31))
+
             def ask(context):
                 instructions = PROMPT
+                if focused and not baseline:
+                    approved_hints = row.metrics.get("messenger_coaching", [])
+                    if approved_hints:
+                        instructions += "\nAjustes medidos en ciclos sintéticos anteriores (sin datos reales):\n" + (
+                            "\n".join(approved_hints[:3])[:520])
                 if model["id"] == "ollama" and knowledge:
                     instructions += "\nCriterios revisados del laboratorio:\n" + "\n".join(
                         item["instruction"] for item in knowledge)[:500]
-                return _charge(factory, row, model, instructions, context, seed % (2**31), role="reply", sampler=sampler)
+                return _charge(factory, row, model, instructions, context, case_seed, role="reply", sampler=sampler)
 
             def score(context):
-                return _charge(factory, row, judge, JUDGE_PROMPT, context, seed % (2**31), role="judge", sampler=sampler)
+                return _charge(factory, row, judge, JUDGE_PROMPT, context, case_seed, role="judge", sampler=sampler)
 
             def suggest(context):
-                return _charge(factory, row, corrector, CORRECTOR_PROMPT, context, seed % (2**31),
+                return _charge(factory, row, corrector, CORRECTOR_PROMPT, context, case_seed,
                                role="correction", sampler=sampler)
 
-            return evaluate(scenario(row.config, position), row.aliases, knowledge,
+            result = evaluate(scenario(scenario_config, scenario_position), row.aliases, knowledge,
                             answer=ask if model["id"] != "guided" else None,
                             judge=score if judge["id"] != "rules" else None,
                             corrector=suggest if corrector["id"] != "rules" else None,
                             stage=(lambda state: _update_stage(factory, row, state)) if count == 1 else (lambda _: None),
                             profile_review=row.config.get("profile_review", False))
+            if focused and reserved:
+                result["id"] += "-c" + str(cycle_number)
+            return result
 
         try:
             positions = range(row.completed, row.completed + count)

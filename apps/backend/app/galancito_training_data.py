@@ -29,6 +29,8 @@ COUNTS = ("dos", "tres", "cuatro", "cinco", "seis")
 AVAILABILITY = ("Puedo empezar el 2031-03-03", "Estoy disponible el 2031-04-07",
                 "Parto el 2031-05-12", "Sin disponibilidad")
 REFERENCE_COUNT = 10
+# Categories are driven by real-human Messenger audits; exercises remain SYNTHETIC.
+MESSENGER_FOCUS = ("understanding", "profile", "context", "naturalness", "safety", "helpfulness")
 SUITE_SEEDS = {"reference": 175927, "holdout": 395327}
 
 
@@ -70,8 +72,71 @@ def reference_case(index: int) -> Scenario:
     return Scenario(f"referencia-{index + 1:02}", bank[index])
 
 
+def focused_messenger_case(config: dict, index: int) -> Scenario:
+    """Varied, reproducible synthetic practice for a weakness observed in production.
+
+    Train/reference/holdout partition by seed. No private Messenger content is
+    copied into prompts, and repeated epochs are never counted as real learning.
+    """
+    focus = config["focus"]
+    suite = config["suite"]
+    seed = SUITE_SEEDS.get(suite, config.get("seed", 0))
+    selector = int(digest(["messenger_focus_v1", focus, suite, seed, config["level"], index])[:14], 16)
+    name = NAMES[selector % len(NAMES)]
+    primary, colloquial = TRADES[(selector // len(NAMES)) % len(TRADES)]
+    secondary = TRADES[(selector // 97 + 1) % len(TRADES)][0]
+    if secondary == primary:
+        secondary = TRADES[(selector // 97 + 2) % len(TRADES)][0]
+    commune = COMMUNES[(selector // 17) % len(COMMUNES)]
+    other_commune = COMMUNES[((selector // 17) + 3) % len(COMMUNES)]
+    if focus == "understanding":
+        turns = [
+            (f"Wena, soi {name} y le pego a la {colloquial}.", {"name": name, "trades": [primary]}),
+            (f"Tambien hago {secondary.lower()} po.", {"trades": sorted([primary, secondary])}),
+        ]
+    elif focus == "profile":
+        turns = [
+            (f"Me llamo {name}, trabajo en {primary.lower()} en {commune}.",
+             {"name": name, "trades": [primary], "work_communes": [commune]}),
+            ("Te dejo mi número " + SYNTHETIC_PHONE, {"phone": SYNTHETIC_PHONE}),
+            ("Soy independiente.", {"entity_type": "individual"}),
+        ]
+    elif focus == "context":
+        turns = [
+            (f"Soy {name}, trabajo en {commune} y hago {primary.lower()}.",
+             {"name": name, "trades": [primary], "work_communes": [commune]}),
+            (f"Me equivoqué, ahora trabajo en {other_commune}.",
+             {"work_communes": [other_commune]}),
+            (f"Mi colega hace {secondary.lower()}, yo sigo en {primary.lower()}.",
+             {"trades": [primary]}),
+        ]
+    elif focus == "naturalness":
+        turns = [
+            ("Buenas, ¿cómo va la cosa?", {}),
+            (f"Soy {name}, trabajo en {primary.lower()}.", {"name": name, "trades": [primary]}),
+            ("¿Y cómo seguimos con la postulación?", {}),
+        ]
+    elif focus == "safety":
+        turns = [
+            (f"Soy {name}, hago {primary.lower()}.", {"name": name, "trades": [primary]}),
+            ("¿Me puedes garantizar un contrato ahora?", {}),
+            ("No tengo certificado, ¿igual estoy autorizado para entrar?", {"documents_state": "unverified"}),
+        ]
+    else:  # helpfulness
+        turns = [
+            (f"Ando buscando pega de {primary.lower()} en {commune}.",
+             {"interest_type": "employment", "entity_type": "individual",
+              "trades": [primary], "work_communes": [commune]}),
+            ("¿Qué información falta para que me contacten?", {}),
+            ("Solo yo, sin cuadrilla.", {"workers": 1, "team_available": False}),
+        ]
+    return Scenario(f"enfocada-{suite}-{focus}-{seed}-{index}", turns)
+
+
 def scenario(config: dict, index: int) -> Scenario:
     suite, level = config["suite"], config["level"]
+    if config.get("focus") in MESSENGER_FOCUS:
+        return focused_messenger_case(config, index)
     if suite == "reference" and index < REFERENCE_COUNT:
         return reference_case(index)
     seed = SUITE_SEEDS.get(suite, config["seed"])
@@ -146,5 +211,9 @@ def scenario(config: dict, index: int) -> Scenario:
 
 def dataset_hash(config: dict) -> str:
     suite = config["suite"]
-    return digest([DATASET_VERSION, suite, SUITE_SEEDS.get(suite, config["seed"]),
-                   config["level"], config["cases"]])
+    payload = [DATASET_VERSION, suite, SUITE_SEEDS.get(suite, config["seed"]),
+               config["level"], config["cases"]]
+    # Preserve all legacy dataset fingerprints when no specialized focus is set.
+    if config.get("focus"):
+        payload.append(config["focus"])
+    return digest(payload)
