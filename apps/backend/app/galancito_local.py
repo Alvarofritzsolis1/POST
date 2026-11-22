@@ -83,7 +83,7 @@ def interactive_timeout_seconds(cfg) -> float:
 
 
 def generate_local_text(instructions: str, data: str,
-                        max_chars: int = 550) -> str:
+                        max_chars: int = 550, *, thinking: bool = False) -> str:
     """Synchronous bounded chat with a single small model, no external APIs."""
     last_timings.set({})
     if not 1 <= max_chars <= 1200:
@@ -106,12 +106,13 @@ def generate_local_text(instructions: str, data: str,
         last_timings.set({"queue_ms": 0, "busy": True})
         raise RuntimeError("Galancito está ocupado")
     try:
-        return _generate(instructions, data, max_chars, cfg)
+        return _generate(instructions, data, max_chars, cfg, thinking=thinking)
     finally:
         _slot.release()
 
 
-def _generate(instructions, data, max_chars, cfg, *, url=None, seed=None, allow_training=False):
+def _generate(instructions, data, max_chars, cfg, *, url=None, seed=None, allow_training=False,
+              thinking=False):
     payload = {
         "model": getattr(cfg, "galancito_local_model", MODEL) if allow_training else cfg.galancito_local_model,
         "messages": [
@@ -119,11 +120,11 @@ def _generate(instructions, data, max_chars, cfg, *, url=None, seed=None, allow_
             {"role": "user", "content": data[:MAX_CONTEXT_CHARS]},
         ],
         "stream": False,
-        "think": False,  # nunca incluir razonamiento interno en respuestas
+        "think": bool(thinking),  # Ollama entrega razonamiento separado; jamás mostrarlo
         "keep_alive": cfg.galancito_keep_alive,
         "options": {
             "num_ctx": cfg.galancito_num_ctx,
-            "num_predict": cfg.galancito_num_predict,
+            "num_predict": min(640, max(cfg.galancito_num_predict, 512)) if thinking else cfg.galancito_num_predict,
             "num_thread": min(cfg.galancito_num_thread, os.cpu_count() or 1),
             "temperature": 0.2,
         },
@@ -153,7 +154,8 @@ def _generate(instructions, data, max_chars, cfg, *, url=None, seed=None, allow_
     last_timings.set({**last_timings.get(), "load_ms": ms("load_duration"), "prompt_ms": ms("prompt_eval_duration"),
                       "generation_ms": ms("eval_duration"), "ollama_total_ms": ms("total_duration"),
                       "transport_ms": max(0, elapsed - ms("total_duration")), "queue_ms": 0,
-                      "eval_count": result.get("eval_count", 0)})
+                      "eval_count": result.get("eval_count", 0),
+                      "reasoning_enabled": bool(thinking)})
     record_model_tokens(result.get("prompt_eval_count"), result.get("eval_count"))
     msg = result.get("message")
     content = msg.get("content") if isinstance(msg, dict) else None
@@ -169,11 +171,12 @@ def _generate(instructions, data, max_chars, cfg, *, url=None, seed=None, allow_
     return clean[:max_chars]
 
 
-def generate_training_text(instructions: str, data: str, seed: int, cfg) -> str:
+def generate_training_text(instructions: str, data: str, seed: int, cfg, *, thinking=False) -> str:
     """Only the isolated trainer calls this; it never queues on Messenger's model."""
     last_timings.set({})
     # Historical 1.7B rounds retain the isolated trainer. New 4B rounds reuse
     # the already-installed private production Ollama, avoiding a second 4B in RAM.
     target = getattr(cfg, "galancito_local_model", MODEL)
     url = INTERNAL_URL if target == "qwen3.5:4b-q4_K_M" else TRAINING_OLLAMA + "/api/chat"
-    return _generate(instructions, data, 650, cfg, seed=seed, allow_training=True, url=url)
+    return _generate(instructions, data, 650, cfg, seed=seed, allow_training=True,
+                     url=url, thinking=thinking)
