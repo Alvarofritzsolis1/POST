@@ -1261,7 +1261,7 @@ export default function GeneralConfiguration({ onBack }: { onBack: () => void })
           <span>Documentos y cumplimiento</span>
         </div>
         <nav className="gc-section-tabs" aria-label="Secciones documentales">
-          {sections.filter(([key]) => key !== "ia" && key !== "usuarios").map(([key, label, Icon]) => (
+          {sections.filter(([key]) => key !== "usuarios").map(([key, label, Icon]) => (
             <a
               key={key}
               href={ROOT + (key ? "/" + key : "")}
