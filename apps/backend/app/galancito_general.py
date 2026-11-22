@@ -35,7 +35,12 @@ DATA_TERMS = ("cuantas", "cuantos", "registros", "registradas", "registrados",
               "publicadas", "vigentes", "atrasadas", "falta", "faltan",
               "pendientes", "esta desplegad", "estado actual", "estado de las", "como estan las publicaciones",
               "cuantos hay", "cuantas hay", "informe mensual", "resumen de",
-              "dame los datos", "verifica en el sistema")
+              "dame los datos", "verifica en el sistema",
+              "version", "vps", "ram", "cpu", "servidor",
+              "entrenamiento", "practica bot", "rondas", "obras",
+              "contratistas", "trabajadores", "candidatos", "postulantes",
+              "donde", "modulo", "menu", "despliegue",
+              "facebook", "documentacion", "documentos", "f30")
 COMPLEX = ("analiza", "compara", "evaluacion", "estrategia", "optimiza",
            "planifica", "investiga", "integracion", "arquitectura",
            "razona", "profundidad", "informe complejo", "riesgos y",
@@ -63,7 +68,9 @@ def general_intent(message: str) -> str:
         return "verified"
     if any(term in normalized for term in HOW_TO):
         return "advice"
-    return "verified"
+    # Unspecified questions are general guidance: do not query a database
+    # merely to discover that no structured GALANT intent was requested.
+    return "advice"
 
 
 def is_complex(message: str) -> bool:
