@@ -61,6 +61,10 @@ def summarize(metrics: dict, profile: str = "postulantes") -> dict:
     score = round(100 * sum(ratios[key] * weight for key, weight in measured.items()) /
                   sum(measured.values()), 2) if measured else None
     cases = metrics.get("passed", 0) + metrics.get("failed", 0)
+    if metrics.get("evidence_type") == "live_database":
+        # In real-data evaluations the headline score is the actual share of
+        # completely correct cases, not a weighted synthetic-looking average.
+        score = round(metrics.get("passed", 0) * 100 / cases, 2) if cases else None
     return {
         "case_pass_interval_95": case_confidence(metrics.get("passed", 0), cases),
         "passed": metrics.get("passed", 0), "failed": metrics.get("failed", 0),
@@ -79,6 +83,10 @@ def summarize(metrics: dict, profile: str = "postulantes") -> dict:
         "estimated_cost_usd": round(metrics.get("cost", 0), 6),
         "reserved_cost_usd": round(metrics.get("reserved_cost_usd", 0), 6),
         "elapsed_seconds": round(metrics.get("elapsed_seconds", 0), 1),
+        "evidence_type": metrics.get("evidence_type", "synthetic"),
+        "real_coaching": metrics.get("real_coaching", []),
+        "real_learning_demonstrated": metrics.get("real_learning_demonstrated", False),
+        "real_holdout_pass_rate": metrics.get("real_holdout_pass_rate"),
         "peak_worker_ram_mb": metrics.get("peak_worker_ram_mb"),
         "peak_host_cpu_percent": metrics.get("peak_host_cpu_percent"),
     }
