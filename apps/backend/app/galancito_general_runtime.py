@@ -56,7 +56,8 @@ def general_answer(db: Session, user, message: str,
             return answer, subtype, "verified_local", False
     # General advice never sees private database values. If there is no
     # verified result, the fallback acknowledges missing evidence.
-    if allow_external and is_complex(message) and external_ready(db, user):
+    if (allow_external and is_complex(message) and external_safe(message)
+            and external_ready(db, user)):
         if external_safe(message, internal_names=internal_names_for_privacy(db, user)):
             try:
                 generated = infer(db, lambda: orchestrated_text(
@@ -74,9 +75,10 @@ def general_answer(db: Session, user, message: str,
     # Never silently downgrade the general assistant to the legacy 1.7B.
     if cfg.galancito_local_ai_enabled and cfg.galancito_local_model == QWEN_4B:
         try:
-            previous = "\n".join((history or [])[-3:])[:500]
-            prompt = ("Preguntas anteriores del usuario, solo como contexto:\n" + previous +
-                      "\nPregunta actual:\n" + message[:700])
+            previous = "\n".join((history or [])[-3:])[:350]
+            # Minimize prompt prefill latency when no useful prior context exists.
+            prompt = (("Contexto previo del usuario:\n" + previous + "\n")
+                      if previous else "") + "Consulta:\n" + message[:650]
             generated = infer(db, lambda: generate_local_text(
                 GENERAL_INSTRUCTIONS, prompt, max_chars=1100))
             answer = safe_generated(generated, question=message)
