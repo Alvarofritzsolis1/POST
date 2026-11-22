@@ -457,7 +457,7 @@ def checkpoints(factory, claim, results, snapshot, elapsed):
                 "skipped_cases": row.target - row.completed,
                 "completed_cycles": row.completed // row.config["cases"],
             }}
-            finish(row, "completed", reason, utcnow())
+            finish(row, "stopped", reason, utcnow())
         elif row.state != "paused":
             row.state, row.next_at = "queued", utcnow()
 
