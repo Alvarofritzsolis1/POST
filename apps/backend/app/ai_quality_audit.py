@@ -198,11 +198,15 @@ def reviewed_sample(db: Session, org_id: str, channel: Literal["messenger", "gen
     criteria = CRITERIA[channel]
     per_dimension = {name: round(100 * sum(bool(item.ratings.get(name)) for item in rows) / count, 1)
                      if count else None for name in criteria}
+    # Count only observed failures from actual reviewed exchanges. Do not
+    # extrapolate from a self-selected sample to the Messenger population.
+    failures = {name: sum(not item.ratings[name] for item in rows) for name in criteria}
     score = round(sum(value for value in per_dimension.values() if value is not None)
                   / len(criteria), 1) if count >= MIN_REVIEWED_SAMPLE else None
     return {"quality_score": score, "reviewed_cases": count,
             "minimum_cases": MIN_REVIEWED_SAMPLE, "rubric_version": RUBRIC_VERSION,
             "dimension_scores": per_dimension,
+            "failed_review_counts": failures,
             "quality_source": ("human_reviewed_production_sample" if score is not None
                                else "insufficient_verified_human_reviews"),
             "limitation": "Muestra de respuestas revisadas, no estimación representativa de toda la producción."}
