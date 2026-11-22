@@ -26,6 +26,7 @@ from .galancito_real_learning import (LIVE_DATASET_VERSION, LIVE_EVALUATION_VERS
 from .galancito_internal_training import (
     INTERNAL_DATASET_VERSION, INTERNAL_EVALUATION_VERSION,
     INTERNAL_PROMPT, internal_case, evaluate_internal,
+    propose_synthetic_coaching, synthetic_practice_prompt,
 )
 from .galancito_training_eval import CORRECTOR_PROMPT, EVALUATION_VERSION, JUDGE_PROMPT, PROMPT, evaluate
 from .galancito_training_model import TrainingModel
@@ -315,6 +316,8 @@ def checkpoints(factory, claim, results, snapshot, elapsed):
             metrics["turns"] = metrics.get("turns", 0) + len(result["turns"])
             status = "passed" if result["passed"] else "failed"
             metrics[status] = metrics.get(status, 0) + 1
+            if result.get("coaching_applied"):
+                metrics["synthetic_coached_cases"] = metrics.get("synthetic_coached_cases", 0) + 1
             for turn in result["turns"]:
                 timing = turn.get("ollama_timing", {})
                 if timing:
@@ -334,6 +337,17 @@ def checkpoints(factory, claim, results, snapshot, elapsed):
                 errors[key] = errors.get(key, 0) + value
         metrics.update(dimensions=dims, errors=errors, reply_sources=sources, cycles=cycles,
                        elapsed_seconds=metrics.get("elapsed_seconds", 0) + elapsed)
+        if (row.config.get("profile") == "interno"
+                and row.config.get("suite") == "practice"
+                and row.completed % row.config["cases"] == 0):
+            # Only completed synthetic cycles may propose changes for LATER
+            # synthetic cycles. Never promote these into production knowledge.
+            finished_cycle = str(row.completed // row.config["cases"])
+            previous = metrics.get("synthetic_coaching", [])
+            proposed = propose_synthetic_coaching(
+                cycles[finished_cycle].get("errors", {}), previous)
+            metrics["synthetic_coaching"] = proposed
+            cycles[finished_cycle]["coaching_proposed_for_next_cycle"] = proposed
         if row.config.get("suite") == "live":
             metrics["evidence_type"] = "live_database"
         if row.config.get("suite") == "live" and row.completed % row.config["cases"] == 0:
@@ -455,9 +469,12 @@ def process_next(factory=SessionLocal, sampler=None, *, maintenance=False, train
                 return result
             if row.config.get("profile", "postulantes") == "interno":
                 fixture = internal_case(row.config, position)
+                coaching = (list(row.metrics.get("synthetic_coaching", []))
+                            if row.config.get("suite") == "practice" else [])
+                practice_system = synthetic_practice_prompt(row.config["suite"], coaching)
                 timings = []
                 def internal_answer(context):
-                    reply = _charge(factory, row, model, INTERNAL_PROMPT, context,
+                    reply = _charge(factory, row, model, practice_system, context,
                                     seed % (2**31), role="reply", sampler=sampler)
                     # Actual Ollama response metrics, never simulated timing.
                     measured = last_timings.get()
@@ -473,6 +490,7 @@ def process_next(factory=SessionLocal, sampler=None, *, maintenance=False, train
                 )
                 for turn, timing in zip(result["turns"], timings):
                     turn["ollama_timing"] = timing
+                result["coaching_applied"] = coaching if model["id"] != "guided" else []
                 return result
             def ask(context):
                 instructions = PROMPT
