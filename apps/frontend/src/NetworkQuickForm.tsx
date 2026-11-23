@@ -64,6 +64,7 @@ export function NetworkQuickForm({
   const [copySource, setCopySource] = useState("");
   const [copyBusy, setCopyBusy] = useState(false);
   const [copyError, setCopyError] = useState("");
+  const [detailQuestion, setDetailQuestion] = useState("");
   const [copyCycle, setCopyCycle] = useState(0);
   const [start, setStart] = useState("");
   const [workers, setWorkers] = useState(1);
@@ -92,24 +93,44 @@ export function NetworkQuickForm({
     .filter(Boolean).length;
   const canPublish = pending === 0;
 
+  // An immediate, conservative preview avoids blocking the resident on Ollama.
+  // The model may offer better wording later, but manual edits always take priority.
+  function localCopyDraft(source: string) {
+    const concise = source.replace(/\s+/g, " ").trim().replace(/[.:;,\s]+$/, "");
+    if (/^(?:realizar\s+)?pintura\s+(?:en\s+)?exterior(?:es)?$/i.test(concise)) {
+      return "Trabajos de pintura en exteriores.";
+    }
+    if (/^(?:realizar\s+)?pintura\s+(?:en\s+)?interior(?:es)?$/i.test(concise)) {
+      return "Trabajos de pintura en interiores.";
+    }
+    const plain = concise.replace(/^realizar\s+/i, "");
+    const sentence = plain === plain.toUpperCase() ? plain.toLocaleLowerCase("es-CL") : plain;
+    return sentence ? sentence[0].toLocaleUpperCase("es-CL") + sentence.slice(1).slice(0, 218) + "." : "";
+  }
+
   // Debounced, bounded model call. Never overwrite edits made by the resident.
   useEffect(() => {
     if (!publishFacebook || !siteId || !tradeOk || !descriptionOk || copyEdited) return;
     let active = true;
+    setPublicSummary(localCopyDraft(summary));
+    setCopySource("Redacción inicial · en revisión");
     const timer = window.setTimeout(() => {
       setCopyBusy(true);
       setCopyError("");
-      void change<{ suggestion: string; source: string }>("/requirements/summary-suggestion", {
+      void change<{
+        suggestion: string; source: string; needs_detail: boolean; detail_question: string;
+      }>("/requirements/summary-suggestion", {
         site_id: siteId, specialty: specialty.trim(), description: summary.trim(),
       }).then((result) => {
         if (!active) return;
         setPublicSummary(result.suggestion);
-        setCopySource(result.source === "ia" ? "Mejorado con IA" : "Resumen automático");
+        setDetailQuestion(result.needs_detail ? result.detail_question : "");
+        setCopySource(result.source === "ia" ? "Propuesta de IA · editable" : "Redacción automática · editable");
       }).catch(() => {
         if (!active) return;
-        setPublicSummary(summary.trim().replace(/\s+/g, " ").slice(0, 220));
-        setCopySource("Resumen básico · revisa antes de publicar");
-        setCopyError("La IA no pudo mejorar el texto. Puedes editarlo directamente.");
+        setPublicSummary(localCopyDraft(summary));
+        setCopySource("Redacción inicial · editable");
+        setCopyError("No se pudo completar la sugerencia de IA. Puedes editar el resumen.");
       }).finally(() => { if (active) setCopyBusy(false); });
     }, 1000);
     return () => { active = false; window.clearTimeout(timer); };
@@ -199,7 +220,11 @@ export function NetworkQuickForm({
         </div>
         <div ref={roleRef} className="nq-field">
           <NetworkSpecialtyPicker value={specialty}
-            onChange={(value) => { setSpecialty(value); setConfirmedMismatch(false); if (copyEdited) setCopyNeedsReview(true); }}
+            onChange={(value) => {
+              setSpecialty(value); setConfirmedMismatch(false);
+              setDetailQuestion("");
+              if (copyEdited) setCopyNeedsReview(true);
+            }}
             suggestions={[...TRADES, ...catalog.specialties]} invalid={submitted && !tradeOk}/>
           <div className="nq-field-progress"><StateMark ok={tradeOk}/></div>
         </div>
@@ -209,6 +234,7 @@ export function NetworkQuickForm({
             aria-invalid={submitted && !descriptionOk}
             onChange={(e) => {
               setSummary(e.target.value);
+              setDetailQuestion("");
               setConfirmedMismatch(false);
               if (copyEdited) setCopyNeedsReview(true);
               if (!copyEdited) { setPublicSummary(""); setCopySource(""); }
@@ -219,14 +245,16 @@ export function NetworkQuickForm({
         {publishFacebook && <div className="nq-copy">
           <div className="nq-copy-title">
             <label htmlFor="nq-public-copy"><Sparkles size={15}/> Resumen para Facebook
-              <StateMark ok={copyOk} pending="Por revisar"/></label>
+              {copyOk && detailQuestion
+                ? <span className="nq-copy-basic" role="status">Información básica</span>
+                : <StateMark ok={copyOk} pending="Por revisar"/>}</label>
             <button type="button" disabled={!tradeOk || !descriptionOk || copyBusy}
               onClick={() => { setPublicSummary(""); setCopyEdited(false); setCopyNeedsReview(false); setCopySource(""); setCopyCycle(v => v + 1); }}
               aria-label="Volver a mejorar el resumen con IA">
-              <Sparkles size={14}/> {copyBusy ? "Preparando…" : "Mejorar con IA"}
+              <Sparkles size={14}/> {copyBusy ? "Mejorando…" : "Mejorar redacción"}
             </button>
           </div>
-          <textarea id="nq-public-copy" rows={2} maxLength={400}
+          <textarea id="nq-public-copy" rows={3} maxLength={400}
             aria-invalid={submitted && !copyOk}
             value={publicSummary}
             onChange={(e) => {
@@ -238,6 +266,13 @@ export function NetworkQuickForm({
             <small>{copyNeedsReview ? "El oficio o las labores cambiaron. Revisa el resumen editado." : (copyError || copySource || "Basado en la descripción, sin inventar datos.")}</small>
             <small>{publicSummary.length}/400</small>
           </div>
+          {detailQuestion && <div className="nq-detail-tip" role="note">
+            <span className="nq-tip-icon" aria-hidden="true">i</span>
+            <span><strong>Para que el anuncio sea más específico</strong>
+              <small>{detailQuestion}</small>
+              <small>Agrega la respuesta a la descripción original y GALANT actualizará el resumen. No se incluirán datos supuestos.</small>
+            </span>
+          </div>}
         </div>}
         <div className="nq-two">
           <div className="nq-field">

@@ -53,3 +53,28 @@ color:var(--nw-accent);font-size:11px;font-weight:800;padding:8px 10px;cursor:po
   .nsp-compact .nsp-poster{max-height:355px}
 }
 @media (prefers-reduced-motion:reduce){.nsp-compact *{transition:none!important;animation:none!important}}
+
+
+/* Editorial clarity patch: readability takes priority over decoration. */
+.nsp-compact .nsp-facebook{max-width:390px;width:100%}
+.nsp-compact .nsp-facebook.mobile{max-width:340px}
+.nsp-compact .nsp-caption{gap:10px;padding:15px 17px 14px;text-align:left}
+.nsp-compact .nsp-copy-headline{font-size:clamp(14px,1.5vw,17px);line-height:1.35;
+  font-weight:850;letter-spacing:-.012em;color:#182a35;overflow-wrap:anywhere}
+.nsp-compact .nsp-work-summary{font-size:14px;line-height:1.55;color:#293d48;
+  font-weight:520;white-space:pre-line;overflow-wrap:anywhere;margin:0}
+.nsp-compact .nsp-facts{display:flex;flex-wrap:wrap;gap:6px;font-size:11px;color:#37596b}
+.nsp-compact .nsp-facts>span{display:inline-flex;align-items:center;gap:4px;
+  background:#f0f5f7;border-radius:6px;padding:5px 8px}
+.nsp-compact .nsp-copy-cta{font-size:12px;line-height:1.45;color:#086d7b;
+  font-weight:700;margin:0}
+.nsp-compact .nsp-caption-more{padding-top:3px}
+.nsp-compact .nsp-caption-more summary{color:#446b78;font-size:11px}
+.nsp-compact .nsp-caption-more pre{font-size:12px;line-height:1.5;color:#314650}
+.nsp-compact .nsp-fbhead b{font-size:12px}
+.nsp-compact .nsp-fbhead small{font-size:11px}
+@media(max-width:580px){
+  .nsp-compact .nsp-copy-headline{font-size:15px}
+  .nsp-compact .nsp-work-summary{font-size:13.5px}
+  .nsp-compact .nsp-caption{padding:13px 14px}
+}
