@@ -23,8 +23,8 @@ AI_PERMISSION_DECLINED = (
 )
 
 
-def permission_question(provider: str, repeat: bool = False) -> str:
-    """Explain where messages are processed before seeking explicit consent."""
+def _legacy_permission_question(provider: str, repeat: bool = False) -> str:
+    """Recognize prompts already delivered before the wording changed."""
     if provider == "team":
         opening = "" if repeat else "¡Hola! Soy Galancito de Red de Obras. "
         return (opening + "Puedo orientarte usando los proveedores de IA externos "
@@ -42,13 +42,24 @@ def permission_question(provider: str, repeat: bool = False) -> str:
     return AI_PERMISSION_REASK if repeat else AI_PERMISSION_QUESTION
 
 
+def permission_question(provider: str, repeat: bool = False) -> str:
+    if provider == "ollama":
+        request = ("Si te acomoda, puedo revisar tu consulta con la IA de GALANT en nuestro servidor. ¿Me autorizas?"
+                   if repeat else "Puedo usar la IA local de GALANT. Tu mensaje se procesa en nuestro servidor. ¿Me autorizas?")
+    else:
+        service = "los proveedores de IA externos de GALANT" if provider == "team" else "la IA de OpenAI"
+        request = (f"Para responderte con IA tendría que compartir estos mensajes con {service}. ¿Me autorizas?"
+                   if repeat else f"Puedo revisar tu consulta con {service}. ¿Me autorizas a compartir tus mensajes?")
+    return request + " Si prefieres, te puede atender alguien del equipo."
+
+
 def _plain(message: str) -> str:
     return " ".join("".join(c for c in unicodedata.normalize("NFKD", message.lower())
                              if not unicodedata.combining(c)).split()).strip(" .!¿?¡")
 
 
 def consent_decision(message: str) -> bool | None:
-    value = _plain(message)
+    value = " ".join(re.sub(r"[,;]+", " ", _plain(message)).split())
     if value in {
         "si", "sí", "si autorizo", "autorizo", "si acepto",
         "acepto", "de acuerdo", "estoy de acuerdo", "acepto usar ia",
@@ -157,6 +168,7 @@ def is_permission_prompt(lead, message: str) -> bool:
     provider = lead.ai_consent_provider
     return bool(provider and message in {
         permission_question(provider), permission_question(provider, repeat=True),
+        _legacy_permission_question(provider), _legacy_permission_question(provider, repeat=True),
     })
 
 

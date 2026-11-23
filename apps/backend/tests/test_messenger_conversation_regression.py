@@ -53,6 +53,26 @@ def _contact(n):
     return n["admin"].get("/api/v1/network/facebook/leads/" + lead["id"]).json()
 
 
+def test_seen_job_post_asks_for_notice_without_permission_or_assumed_trade(network, monkeypatch):
+    n = network
+    _local_messenger(n, monkeypatch)
+    replies = []
+    monkeypatch.setattr("app.facebook_chat_worker.graph_send",
+                        lambda *args: replies.append(args[2]) or f"synthetic-job-{len(replies)}")
+    assert incoming(n, "Hola", "posting-hello").status_code == 200
+    assert process_chat_next(n["Session"])
+    assert incoming(n, "Vi una postulacion de trabajo", "posting-interest").status_code == 200
+    assert process_chat_next(n["Session"])
+    assert replies[-1].startswith("¿Qué aviso viste?")
+    assert "autorizas" not in replies[-1] and "Galancito" not in replies[-1]
+    assert incoming(n, "De pintura en Coronel", "posting-trade").status_code == 200
+    assert process_chat_next(n["Session"])
+    lead = _contact(n)["lead"]
+    assert not lead["specialty"]
+    assert not lead["work_area"]
+    assert lead["ai_consent_state"] == "not_requested"
+
+
 def test_screenshot_greeting_gets_help_without_permission_or_inference(network, monkeypatch):
     n = network
     _local_messenger(n, monkeypatch)

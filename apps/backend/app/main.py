@@ -42,6 +42,7 @@ from .network_api import router as network_router
 from .network_candidates import router as network_candidates_router
 from .network_facebook_manual import router as network_facebook_manual_router
 from .facebook_crm import router as facebook_crm_router
+from .facebook_simulator import router as facebook_simulator_router
 from .facebook_publication_api import router as facebook_publications_router
 from .galancito_api import router as galancito_router
 from .galancito_knowledge_api import router as galancito_knowledge_router
@@ -104,6 +105,7 @@ app.include_router(network_router)
 app.include_router(network_candidates_router)
 app.include_router(network_facebook_manual_router)
 app.include_router(facebook_crm_router)
+app.include_router(facebook_simulator_router)
 app.include_router(facebook_publications_router)
 app.include_router(galancito_router)
 app.include_router(galancito_knowledge_router)

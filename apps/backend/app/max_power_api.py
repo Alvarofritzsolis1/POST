@@ -13,14 +13,15 @@ from .ai_quality_models import AIResponseReview
 from .db import get_db
 from .galancito_memory import aware
 from .galancito_training_models import ACTIVE, TrainingRound, TrainingWorker
-from .max_power_decisions import latency_diagnosis, priority_from_reviews
+from .max_power_decisions import QWEN_MIN_RAM_MB, latency_diagnosis, priority_from_reviews
 from .max_power_models import MaxPowerEvent, MaxPowerState, MaxPowerMessengerTrial
 from .max_power_export import build_report, MAX_EVENTS, safe_metrics
-from .max_power_practice import EVENT as PRACTICE_EVENT, QWEN_CRITERION
+from .max_power_practice import EVENT as PRACTICE_EVENT, QWEN_CRITERION, generate_scenarios
 from .models import AuditEvent, Organization, User, utcnow
 from .security import administrator
 
 router = APIRouter(prefix="/api/v1/admin/ai/max-power", tags=["MAX POWER"])
+PRACTICE_CASES = len(generate_scenarios())
 
 def _sample(db, org_id, since):
     return {channel: reviewed_sample(db, org_id, channel, since)
@@ -71,6 +72,49 @@ def _automatic_quality(messenger_trials, events):
     }
     return automatic
 
+def _qwen_activity(db, row, controller_online, trials, resources, now):
+    if not row or not row.enabled:
+        return {"state": "off", "reason": "Qwen 4B en pausa"}
+    if not controller_online:
+        return {"state": "waiting", "reason": "Esperando el controlador de MAX POWER"}
+
+    trial = next((item for item in trials if item.status == "running" and item.lease_until
+                  and aware(item.lease_until) > now), None)
+    if trial:
+        phase = (trial.metrics or {}).get("active_phase")
+        reason, completed = {
+            "reference": ("Generando la respuesta de referencia", 0),
+            "candidate": ("Generando la respuesta candidata", 1),
+        }.get(phase, ("Preparando la evaluación", None))
+        return {"state": "running", "reason": reason, "completed": completed, "total": 2,
+                "unit": "respuestas", "started_at": (trial.metrics or {}).get("phase_started_at") or trial.started_at}
+
+    if row.active_round_id:
+        round_ = db.scalar(select(TrainingRound).where(
+            TrainingRound.id == row.active_round_id, TrainingRound.org_id == row.org_id,
+            TrainingRound.state.in_(ACTIVE)))
+        if round_:
+            running = bool(round_.lease and round_.lease_until and aware(round_.lease_until) > now)
+            return {"state": "running" if running else "waiting",
+                    "reason": "Evaluando casos de la ronda operativa" if running else
+                    round_.reason or "Ronda operativa a la espera de un turno",
+                    "completed": round_.completed, "total": round_.target, "unit": "casos"}
+
+    available = resources.get("available_ram_mb")
+    if row.last_status in {"cpu_neural_training", "manual_round_busy", "permission_required", "isolation_unavailable"} or (
+        row.last_status == "resource_guard" and "Messenger tiene prioridad" in row.last_reason
+    ):
+        return {"state": "waiting", "reason": row.last_reason}
+    if isinstance(available, (int, float)) and available < QWEN_MIN_RAM_MB:
+        return {"state": "waiting", "reason": "RAM disponible por debajo del mínimo de Qwen 4B para proteger Messenger",
+                "required_ram_mb": QWEN_MIN_RAM_MB}
+    queued = min((item for item in trials if item.status == "queued"), key=lambda item: aware(item.next_at), default=None)
+    if queued:
+        return {"state": "waiting", "reason": queued.reason or "Ensayo en cola",
+                "retry_at": queued.next_at if aware(queued.next_at) > now else None}
+    return {"state": "waiting", "reason": row.last_reason}
+
+
 def _view(db, user, row):
     now = utcnow()
     since = now - timedelta(days=30)
@@ -110,6 +154,7 @@ def _view(db, user, row):
         MaxPowerEvent.org_id == user.org_id, MaxPowerEvent.event == PRACTICE_EVENT,
     ).order_by(MaxPowerEvent.created_at.desc()).limit(1))
     synthetic_replies = None
+    trials = []
     if practice:
         trials = list(db.scalars(select(MaxPowerMessengerTrial).where(
             MaxPowerMessengerTrial.org_id == user.org_id, MaxPowerMessengerTrial.criterion == QWEN_CRITERION,
@@ -119,6 +164,7 @@ def _view(db, user, row):
         reserved = [t for t in trials if t.status == "completed" and t.metrics.get("split") == "holdout"]
         synthetic_replies = {
             "queued_or_running": sum(t.status in ("queued", "running") for t in trials),
+            "completed": sum(t.status == "completed" for t in trials),
             "blocked": sum(t.status == "blocked" for t in trials),
             "reserved_pairs": len(reserved),
             "baseline_passes": sum(t.metrics["baseline"]["understanding_check"] is True for t in reserved),
@@ -135,6 +181,7 @@ def _view(db, user, row):
     ).limit(1))
     controller_online = bool(row and row.worker_seen_at and
                              aware(row.worker_seen_at) >= aware(now) - timedelta(seconds=30))
+    resources = safe_metrics(worker.resources) if trainer_online else {}
     recent = row.latest_result if row else {}
     timing = recent.get("ollama_avg") or {}
     improvement = {}
@@ -176,7 +223,14 @@ def _view(db, user, row):
         "automatic_quality": _automatic_quality(messenger_trials, events),
         "synthetic_practice": {**practice.evidence, "at": practice.created_at} if practice else None,
         "synthetic_qwen": synthetic_replies,
-        "resource_snapshot": safe_metrics(worker.resources) if trainer_online else {},
+        "resource_snapshot": resources,
+        "live_activity": {
+            "updated_at": now,
+            "controller_at": row.worker_seen_at if row else None,
+            "next_check_at": row.next_at if row and row.enabled and aware(row.next_at) > now else None,
+            "practice_cases": PRACTICE_CASES,
+            "qwen": _qwen_activity(db, row, controller_online, messenger_trials + trials, resources, now),
+        },
         "quality": current,
         "quality_deltas": improvement,
         "latest_result": recent,

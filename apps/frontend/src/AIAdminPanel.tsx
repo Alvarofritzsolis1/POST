@@ -1,5 +1,5 @@
-import { useEffect, useState } from "react";
-import { ArrowLeft, Bot, FlaskConical, GraduationCap, LayoutDashboard, Settings2, Zap } from "lucide-react";
+import { lazy, Suspense, useEffect, useState } from "react";
+import { ArrowLeft, Bot, FlaskConical, GraduationCap, LayoutDashboard, MessageCircle, Settings2, Zap } from "lucide-react";
 import AIConfiguration from "./AIConfiguration";
 import AIQualityOverview from "./AIQualityOverview";
 import AIHumanAudit from "./AIHumanAudit";
@@ -7,12 +7,15 @@ import GalancitoTraining from "./GalancitoTraining";
 import MaxPowerPanel from "./MaxPowerPanel";
 import "./ai-admin-panel.css";
 
-type Section = "resumen" | "conexiones" | "practica" | "aprendizaje" | "max-power";
+const MessengerSimulator = lazy(() => import("./MessengerSimulator"));
+
+type Section = "resumen" | "conexiones" | "practica" | "aprendizaje" | "max-power" | "simulador";
 type Channel = "messenger" | "general";
 
 const sectionFromPath = (): Section => {
   const path = window.location.pathname;
   if (path.endsWith("/max-power")) return "max-power";
+  if (path.endsWith("/simulador-messenger")) return "simulador";
   if (path.endsWith("/entrenamiento")) return "practica";
   if (path.endsWith("/conexiones")) return "conexiones";
   if (path.endsWith("/aprendizaje")) return "aprendizaje";
@@ -22,6 +25,7 @@ const route: Record<Section, string> = {
   resumen: "/admin/ia", conexiones: "/admin/ia/conexiones",
   practica: "/admin/ia/entrenamiento", aprendizaje: "/admin/ia/aprendizaje",
   "max-power": "/admin/ia/max-power",
+  simulador: "/admin/ia/simulador-messenger",
 };
 
 /** Centro de IA separado de la configuración general, sin rutas ni datos duplicados. */
@@ -50,6 +54,7 @@ export default function AIAdminPanel({ onBack }: { onBack: () => void }) {
     { id: "resumen", label: "Resumen", icon: LayoutDashboard },
     { id: "conexiones", label: "Conexiones", icon: Settings2 },
     { id: "practica", label: "Práctica Bot", icon: FlaskConical },
+    { id: "simulador", label: "Simulador Messenger", icon: MessageCircle },
     { id: "aprendizaje", label: "Aprendizaje", icon: GraduationCap },
     { id: "max-power", label: "MAX POWER", icon: Zap },
   ];
@@ -74,6 +79,9 @@ export default function AIAdminPanel({ onBack }: { onBack: () => void }) {
       {section === "practica" && <GalancitoTraining initialProfile={practiceTarget.channel === "messenger" ? "postulantes" : "interno"}
         initialFocus={practiceTarget.focus} back={() => navigate("resumen")} />}
       {section === "max-power" && <MaxPowerPanel />}
+      {section === "simulador" && <Suspense fallback={<p role="status">Abriendo el simulador…</p>}>
+        <MessengerSimulator />
+      </Suspense>}
       {section === "aprendizaje" && <div className="ai-admin-learning">
         <AIConfiguration section="aprendizaje" openTraining={() => openPractice("general")} />
         <AIHumanAudit onPractice={openPractice} />

@@ -4,6 +4,10 @@ from app.galancito_flow import permission_question, safe_ai_reply
 from app.galancito_triage import quick_reply
 
 
+def test_generated_intro_from_the_old_template_is_removed():
+    assert natural_messenger_reply("Hola, te habla Galancito de GALANT. ¿Qué aviso viste?") == "¿Qué aviso viste?"
+
+
 def test_local_small_talk_answers_without_model():
     assert "gracias" in small_talk_reply("hola como estas").lower()
     assert small_talk_reply("¿Cómo estás?") is not None

@@ -7,7 +7,10 @@ from sqlalchemy.orm import Session
 
 from .facebook_crm_models import FacebookChatMessage
 from .galancito_knowledge import exact_answer, retrieve
-from .galancito_triage import analyze, plain, private_data
+from .galancito_triage import (
+    ASK_APPLICATION, ASK_APPLICATION_LINK, analyze, asks_about_application, is_pure_greeting,
+    plain, private_data, referring_to_application,
+)
 from .network_models import NetworkFacebookPost, NetworkRequirement
 from .models import utcnow
 from .network_service import today
@@ -50,7 +53,54 @@ def _matches_public_notice(message, notices):
     )]
 
 
-def worksite_reply(db: Session, lead, message: str, prior_prompt: str = "") -> str | None:
+def published_notices(db, org_id, page_id):
+    notices = db.execute(
+        select(Worksite.name.label("site_name"), NetworkRequirement.title, NetworkFacebookPost.post_id)
+        .select_from(NetworkFacebookPost)
+        .join(NetworkRequirement, NetworkRequirement.id == NetworkFacebookPost.requirement_id)
+        .join(Worksite, Worksite.id == NetworkRequirement.site_id)
+        .where(NetworkFacebookPost.org_id == org_id,
+               NetworkFacebookPost.page_id == page_id,
+               NetworkFacebookPost.state == "published",
+               NetworkFacebookPost.post_id.is_not(None),
+               NetworkRequirement.org_id == org_id,
+               NetworkRequirement.state == "published",
+               NetworkRequirement.deadline >= today(),
+               Worksite.org_id == org_id)
+        .order_by(NetworkFacebookPost.updated_at.desc()).limit(100)
+    ).all()
+    return [row for row in notices if re.fullmatch(r"[0-9]+_[0-9]+", row.post_id)]
+
+
+def application_reply(db: Session, lead, message: str, prior_prompt: str = "", *, notices=None) -> str | None:
+    follow_up = referring_to_application(prior_prompt)
+    value = plain(message)
+    asks = asks_about_application(message)
+    if not (asks or follow_up) or private_data(message) or is_pure_greeting(message):
+        return None
+    if follow_up and (value == "no" or value.startswith(("no tengo el link", "no lo tengo", "no tengo el enlace"))):
+        return "Está bien. Si encuentras el aviso, por acá podemos ver cómo postular."
+    if not value or value in {"si", "no", "gracias", "vale"}:
+        return None
+    intent = analyze(message).intent
+    if intent in {"human", "restricted"} or (not asks and ("?" in message or intent in {"documents", "requirements", "about", "publish"})):
+        return None
+    notices = published_notices(db, lead.org_id, lead.page_id) if notices is None else notices
+    matches = _matches_public_notice(message, notices)
+    if len(matches) == 1:
+        notice = matches[0]
+        return (f"Este es el aviso de {notice.title}: https://www.facebook.com/{notice.post_id}. "
+                "Revisa ahí cómo reciben las postulaciones.")[:550]
+    if asks and not follow_up:
+        return ASK_APPLICATION
+    if _POST_LINK.search(message):
+        return "Con ese enlace no pude ubicar el aviso aquí. Si la publicación indica cómo postular, sigue ese paso."
+    if prior_prompt == ASK_APPLICATION_LINK:
+        return "Todavía no ubico la publicación. Si trae instrucciones para postular, sigue lo que indique el aviso."
+    return ASK_APPLICATION_LINK
+
+
+def worksite_reply(db: Session, lead, message: str, prior_prompt: str = "", *, notices=None) -> str | None:
     follow_up = prior_prompt == ASK_WORKSITE
     if not (follow_up or is_worksite_location(message)):
         return None
@@ -58,22 +108,7 @@ def worksite_reply(db: Session, lead, message: str, prior_prompt: str = "") -> s
     if (not value or private_data(message) or analyze(message).intent in {"human", "restricted"}
             or value in {"si", "no", "gracias", "hola", "buenas", "vale"}):
         return None
-    notices = db.execute(
-        select(Worksite.name.label("site_name"), NetworkRequirement.title, NetworkFacebookPost.post_id)
-        .select_from(NetworkFacebookPost)
-        .join(NetworkRequirement, NetworkRequirement.id == NetworkFacebookPost.requirement_id)
-        .join(Worksite, Worksite.id == NetworkRequirement.site_id)
-        .where(NetworkFacebookPost.org_id == lead.org_id,
-               NetworkFacebookPost.page_id == lead.page_id,
-               NetworkFacebookPost.state == "published",
-               NetworkFacebookPost.post_id.is_not(None),
-               NetworkRequirement.org_id == lead.org_id,
-               NetworkRequirement.state == "published",
-               NetworkRequirement.deadline >= today(),
-               Worksite.org_id == lead.org_id)
-        .order_by(NetworkFacebookPost.updated_at.desc()).limit(100)
-    ).all()
-    notices = [row for row in notices if re.fullmatch(r"[0-9]+_[0-9]+", row.post_id)]
+    notices = published_notices(db, lead.org_id, lead.page_id) if notices is None else notices
     matches = _matches_public_notice(message, notices)
     remaining = _TOPIC.sub(" ", _LOCATION.sub(" ", value)).split()
     generic = set(remaining) <= {"la", "el", "las", "los", "de", "del", "esa", "ese", "esta", "este",

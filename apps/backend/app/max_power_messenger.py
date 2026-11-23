@@ -270,7 +270,7 @@ def schedule_synthetic_reply(db, org_id, scenarios):
     return False
 
 
-def evaluate_synthetic_reply(org_id, case_id, digest):
+def evaluate_synthetic_reply(org_id, case_id, digest, *, set_phase=None):
     scenarios = generate_scenarios()
     if digest != dataset_digest(scenarios) or case_id not in reply_cases(scenarios):
         raise ValueError("La versión de la práctica sintética cambió")
@@ -279,8 +279,12 @@ def evaluate_synthetic_reply(org_id, case_id, digest):
     instruction = ("\nSi hay una pregunta sobre pago, cupos o una obra, explica primero qué puede confirmar el equipo. "
                    "En ese turno omite las preguntas de ficha, aunque el mensaje también declare un oficio. "
                    "Si el historial no indica un monto, fecha o cupo, no los supongas.")
-    answers = [_answer(policy, prompt, seed, org_id) for policy in
-               (LOCAL_REPLY_INSTRUCTIONS, LOCAL_REPLY_INSTRUCTIONS + instruction)]
+    if set_phase:
+        set_phase("reference")
+    baseline = _answer(LOCAL_REPLY_INSTRUCTIONS, prompt, seed, org_id)
+    if set_phase:
+        set_phase("candidate")
+    candidate = _answer(LOCAL_REPLY_INSTRUCTIONS + instruction, prompt, seed, org_id)
 
     def checks(raw):
         answer, result = _grounded_checks({"question": turn.message}, raw, prompt, known_fields=known)
@@ -288,7 +292,7 @@ def evaluate_synthetic_reply(org_id, case_id, digest):
                                          and not intake_question_fields(answer or ""))
         return result
 
-    before, after = [checks(raw) for raw, _ in answers]
+    before, after = checks(baseline[0]), checks(candidate[0])
     gain = bool(before["safe"] and after["safe"] and after["understanding_check"] and not before["understanding_check"])
     if not after["safe"]:
         outcome = "safety_regression"
@@ -301,12 +305,12 @@ def evaluate_synthetic_reply(org_id, case_id, digest):
         "source": SOURCE, "case_id": case_id, "dataset_sha256": digest, "protocol": PROTOCOL,
         "split": "holdout" if case_id in RESERVED else "development", "model": QWEN_4B,
         "baseline": before, "candidate": after, "objective_gain": gain, "sample_pairs": 1,
-        "before_timing_ms": answers[0][1], "after_timing_ms": answers[1][1],
+        "before_timing_ms": baseline[1], "after_timing_ms": candidate[1],
         "production_verified": False, "weights_changed": False,
     }
 
 
-def evaluate_trial(trial_id):
+def evaluate_trial(trial_id, *, set_phase=None):
     """Baseline and candidate are both real local Qwen runs, no external API."""
     with SessionLocal() as db:
         trial = db.get(MaxPowerMessengerTrial, trial_id)
@@ -323,7 +327,7 @@ def evaluate_trial(trial_id):
         else:
             synthetic = None
     if synthetic:
-        return evaluate_synthetic_reply(*synthetic)
+        return evaluate_synthetic_reply(*synthetic, set_phase=set_phase)
     with SessionLocal() as db:
         trial = db.get(MaxPowerMessengerTrial, trial_id)
         run = db.get(AssistantRun, trial.source_run_id) if trial.source_run_id else None
@@ -352,7 +356,11 @@ def evaluate_trial(trial_id):
         org_id, source_id = trial.org_id, trial.source_run_id
         criterion, variant = trial.criterion, trial.variant
     seed = crc32((source_id + criterion + variant).encode()) & 0x7fffffff
+    if set_phase:
+        set_phase("reference")
     baseline, timing_before = _answer(base, prompt, seed, org_id)
+    if set_phase:
+        set_phase("candidate")
     candidate, timing_after = _answer(candidate_instructions, prompt, seed, org_id)
     _, baseline_checks = _grounded_checks(evidence, baseline, prompt)
     _, candidate_checks = _grounded_checks(evidence, candidate, prompt)
@@ -407,9 +415,26 @@ def process_one():
         claim_token = uuid4().hex
         generation = state.session_generation
         row.claim_token = claim_token
+        row.metrics = {key: value for key, value in row.metrics.items()
+                       if key not in {"active_phase", "phase_started_at"}}
         trial_id = row.id
+
+    def set_phase(phase):
+        # OFF invalidates the token under the same trial row lock. A stale
+        # inference must not start a second call or publish its progress.
+        with SessionLocal.begin() as db:
+            active = db.scalar(select(MaxPowerMessengerTrial).where(
+                MaxPowerMessengerTrial.id == trial_id, MaxPowerMessengerTrial.status == "running",
+                MaxPowerMessengerTrial.claim_token == claim_token,
+            ).with_for_update())
+            if active is None:
+                raise RuntimeError("El ensayo ya no tiene un turno activo")
+            stamp = utcnow()
+            active.metrics = {**active.metrics, "active_phase": phase, "phase_started_at": stamp.isoformat()}
+            active.lease_until = stamp + timedelta(seconds=300)
+
     try:
-        outcome,reason,metrics=evaluate_trial(trial_id)
+        outcome,reason,metrics=evaluate_trial(trial_id, set_phase=set_phase)
     except (RuntimeError, ValueError, HTTPException) as exc:
         with SessionLocal.begin() as db:
             # Same lock order as power OFF and successful result commit.
