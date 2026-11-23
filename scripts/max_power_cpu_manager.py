@@ -380,7 +380,12 @@ def run_once(secret: str, plan: dict, public_key: str, last_preflight: dict,
                     else "preparing_synthetic") if synthetic else "training")  # supervised heartbeat
     code = child.wait()
     if code == 0:
-        report("finished_synthetic" if synthetic else "finished")
+        if verified_finished_run(output, bundle["dataset_digest"]):
+            report("finished_synthetic" if synthetic else "finished")
+        else:
+            # Exit zero alone is not proof of a completed gradient update.
+            record_failure(root, bundle["dataset_digest"])
+            report("failed")
     elif code == 3 or (code == -15 and paused_since is not None):
         report("paused")
     else:
