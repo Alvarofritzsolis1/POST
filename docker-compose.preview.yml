@@ -101,6 +101,7 @@ services:
     logging: *logs
   facebook-publisher:
     build: {context: ., dockerfile: apps/backend/Dockerfile, args: {SOURCE_COMMIT: "${SOURCE_COMMIT:-unknown}"}}
+    volumes: ["./preview-storage:/data/private:ro"]
     restart: unless-stopped
     command: ["python", "-m", "app.network_facebook"]
     environment:

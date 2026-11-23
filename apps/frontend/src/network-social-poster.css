@@ -1,0 +1,26 @@
+/* Self-contained social studio. No GALANT or employer mark appears inside the JPEG. */
+.nsp { padding:20px; margin-top:14px; border:1px solid #d4e5e7; border-radius:15px; background:#f7fafb; color:#183e48; min-width:0; }
+.nsp-heading {display:flex;align-items:center;justify-content:space-between;gap:12px;margin-bottom:15px}
+.nsp-heading strong,.nsp-heading small {display:block}.nsp-heading strong{font-size:15px;font-weight:800}.nsp-heading small{font-size:11px;color:#6c8790;margin-top:3px}.nsp-heading>span{font-size:10px;color:#49717d;font-weight:750;white-space:nowrap}
+.nsp-layout{display:grid;grid-template-columns:minmax(220px,.8fr) minmax(280px,1.2fr);gap:18px;align-items:start}
+.nsp-editor{display:grid;gap:15px;min-width:0}.nsp-editor label{display:grid;gap:5px;font-size:12px;color:#355764;font-weight:700}
+.nsp-editor select{margin-top:0}.nsp-editor input[type=range]{min-height:28px;padding:0;margin:0;accent-color:#069b93}
+.nsp-gallery{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:8px}
+.nsp-gallery button{height:85px;padding:0;overflow:hidden;border-radius:9px;border:2px solid transparent;background:#e8f0f2;cursor:pointer}
+.nsp-gallery button.selected{border-color:#049789;outline:2px solid #c1f2e9}
+.nsp-gallery img{display:block;width:100%;height:100%;object-fit:cover}
+.nsp-editor .nsp-upload{margin:0;height:85px;display:flex;justify-content:center;align-items:center;flex-direction:column;gap:4px;border:1px dashed #9ab7bb;background:white;border-radius:9px;color:#166f78;cursor:pointer;font-size:11px;font-weight:700;text-align:center}
+.nsp-upload input{display:none}
+.nsp-editor p{font-size:11px;line-height:1.55;color:#607b86;margin:0}.nsp-reset{display:flex;gap:7px;align-items:center;justify-content:center;cursor:pointer;border:1px solid #c8d7dc;background:white;border-radius:9px;color:#22566a;padding:9px;font-size:12px;font-weight:750}
+.nsp-right{min-width:0}.nsp-switch{display:flex;align-items:center;justify-content:space-between;gap:10px;margin-bottom:10px;flex-wrap:wrap}.nsp-switch strong{font-size:11px}.nsp-switch>div{display:flex;gap:3px;border-radius:9px;background:#eaf0f2;padding:3px}.nsp-switch button{border:0;background:transparent;color:#5d7680;padding:7px 10px;font-weight:650;font-size:11px;cursor:pointer;border-radius:6px}.nsp-switch button.active{color:#134555;background:white;box-shadow:0 1px 3px #19374416}
+.nsp-facebook{width:100%;max-width:440px;margin:auto;background:white;border:1px solid #dce5e9;border-radius:11px;overflow:hidden;box-shadow:0 8px 22px #122f3c0d;transition:max-width .18s}
+.nsp-facebook.mobile{max-width:320px}.nsp-fbhead{display:flex;gap:9px;align-items:center;padding:11px 12px 8px}.nsp-profile{background:#edf1f3;display:grid;place-items:center;width:36px;height:36px;border-radius:50%;color:#457584}.nsp-fbhead>span:nth-child(2){flex:1;min-width:0}.nsp-fbhead b,.nsp-fbhead small{display:block}.nsp-fbhead b{font-size:11px;color:#202c35}.nsp-fbhead small{font-size:10px;color:#838f98;margin-top:3px}.nsp-fbhead .nsp-more{letter-spacing:2px;color:#9a9da0}
+.nsp-caption{white-space:pre-wrap;font-size:11px;line-height:1.55;margin:0!important;padding:6px 13px 11px;color:#1b252e!important}
+.nsp-poster{display:block;aspect-ratio:4/5;width:100%;object-fit:contain;background:#0b323e}.nsp-empty{height:280px;display:grid;place-items:center;background:#e8eef1;color:#5d7f8d;font-size:12px;text-align:center;padding:20px}
+.nsp-reactions{padding:11px 8px;display:flex;justify-content:space-around;border-top:1px solid #e8edef;font-size:10px;color:#68737d;font-weight:700}
+.nsp-error{padding:10px 13px;background:#fff1eb;border-radius:9px;font-size:11px;color:#9d4b26;line-height:1.4}
+.nsp-disclaimer{display:flex;gap:7px;align-items:start;font-size:11px!important;line-height:1.5!important;color:#607d87!important;margin-top:12px!important}
+[data-theme="dark"] .nsp{background:#142831;border-color:#28515b;color:#ecf7f7}
+[data-theme="dark"] .nsp-heading small,[data-theme="dark"] .nsp-editor p,[data-theme="dark"] .nsp-disclaimer{color:#9ec3cd!important}
+@media (max-width:980px){.nsp-layout{grid-template-columns:1fr}.nsp-facebook{max-width:440px}}
+@media (max-width:560px){.nsp{padding:12px}.nsp-gallery button,.nsp-editor .nsp-upload{height:72px}.nsp-heading{align-items:start;flex-direction:column}}

@@ -78,6 +78,9 @@ class NetworkRequirement(Record, Base):
     deadline: Mapped[date] = mapped_column(Date)
     state: Mapped[str] = mapped_column(String(16), default="published")
     publish_to_facebook: Mapped[bool] = mapped_column(Boolean, nullable=False, default=False, server_default="false")
+    # Public metadata is distinct from the private worksite and internal requirement.
+    public_location: Mapped[str] = mapped_column(String(120), nullable=False, default="", server_default="")
+    poster_path: Mapped[str] = mapped_column(Text, nullable=False, default="", server_default="")
     client_key: Mapped[str] = mapped_column(String(80))
     version: Mapped[int] = mapped_column(Integer, default=1)
     updated_at: Mapped[datetime] = mapped_column(

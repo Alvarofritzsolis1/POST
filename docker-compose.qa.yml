@@ -14,6 +14,10 @@ services:
     cpus: 0.3
     volumes:
       - ./qa-storage:/data/private
+  facebook-publisher:
+    # Prevent the isolated QA stack from mounting real preview poster files.
+    volumes:
+      - ./qa-storage:/data/private:ro
   frontend:
     mem_limit: 110m
   proxy:

@@ -390,6 +390,8 @@ def requirement_view(db, user, req, detailed=False):
         "specialty": req.specialty,
         "priority": req.priority,
         "publish_to_facebook": req.publish_to_facebook,
+        "public_location": req.public_location if own else "",
+        "poster_available": bool(req.poster_path) if own else False,
         "workers": req.workers,
         "start_date": req.start_date,
         "end_date": req.end_date,

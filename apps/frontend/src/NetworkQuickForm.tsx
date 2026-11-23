@@ -2,6 +2,7 @@ import { useRef, useState, type FormEvent } from "react";
 import { Facebook, Check, CalendarDays, BriefcaseBusiness, Users, Send } from "lucide-react";
 import { change, type Catalog, type Requirement } from "./networkApi";
 import { errorText, todayISO } from "./NetworkUI";
+import SocialPoster, { type SocialPosterHandle } from "./NetworkSocialPoster";
 
 /** Publicación rápida: una fecha y partidas globales, sin alterar expedientes históricos. */
 const QUICK_PARTS = ["Instalaciones", "Terminaciones", "Estructura", "Obras exteriores", "Otras"];
@@ -15,6 +16,7 @@ export function NetworkQuickForm({
 }) {
   const sites = catalog.sites.filter((site) => site.editable);
   const key = useRef(crypto.randomUUID());
+  const posterEditor = useRef<SocialPosterHandle>(null);
   const [siteId, setSiteId] = useState(sites[0]?.id ?? "");
   const [specialty, setSpecialty] = useState("");
   const [title, setTitle] = useState("");
@@ -24,6 +26,7 @@ export function NetworkQuickForm({
   const [priority, setPriority] = useState("normal");
   const [parts, setParts] = useState<string[]>([]);
   const [publishFacebook, setPublishFacebook] = useState(true);
+  const [publicLocation, setPublicLocation] = useState(sites[0]?.public_location ?? "");
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState("");
 
@@ -42,6 +45,12 @@ export function NetworkQuickForm({
     setBusy(true);
     setError("");
     try {
+      const posterData = publishFacebook && intent === "published"
+        ? await posterEditor.current?.exportJpeg()
+        : "";
+      if (publishFacebook && intent === "published" && !posterData) {
+        throw new Error("No se pudo preparar la imagen para Facebook.");
+      }
       const entries = parts.length ? parts : [specialty.trim()];
       const response = await change<Requirement>("/requirements", {
         site_id: siteId,
@@ -64,6 +73,8 @@ export function NetworkQuickForm({
           notes: "Partida global preliminar; confirmar programación y cantidades antes de adjudicar.",
         })),
         publish_to_facebook: publishFacebook,
+        public_location: publicLocation.trim(),
+        poster_data: posterData,
         state: intent,
         client_key: key.current,
       });
@@ -86,7 +97,10 @@ export function NetworkQuickForm({
           {sites.length === 1 ? (
             <span className="nw-site-locked">{sites[0].name}</span>
           ) : (
-            <select value={siteId} onChange={(e) => setSiteId(e.target.value)} required>
+            <select value={siteId} onChange={(e) => {
+              setSiteId(e.target.value);
+              setPublicLocation(sites.find((item) => item.id === e.target.value)?.public_location ?? "");
+            }} required>
               <option value="">Selecciona una obra</option>
               {sites.map((site) => <option key={site.id} value={site.id}>{site.name}</option>)}
             </select>
@@ -149,19 +163,17 @@ export function NetworkQuickForm({
             <Facebook size={24} aria-hidden="true" />
             <strong>Publicar también en Facebook</strong>
           </label>
-          <small>Se enviará al conectar Facebook.</small>
-          {publishFacebook && (
-            <details className="nw-quick-preview">
-              <summary>Vista previa del anuncio</summary>
-              <div className="nw-quick-facebook-preview">
-                <b><Facebook size={16} /> Facebook</b>
-                <span>{title.trim() || `Se necesita contratista de ${specialty || "tu oficio"}`}</span>
-                <small>{sites.find((site) => site.id === siteId)?.name || "Obra"} · Inicio: {start} · {workers} {workers === 1 ? "trabajador" : "trabajadores"}</small>
-                <small>Sin notas privadas ni documentos.</small>
-              </div>
-            </details>
-          )}
+          <small>El anuncio incluirá la fotografía aprobada. No se mostrará el nombre de la obra.</small>
+          {publishFacebook && <label>Ubicación aproximada para Facebook
+            <input type="text" value={publicLocation}
+              onChange={(e) => setPublicLocation(e.target.value)}
+              maxLength={120} placeholder="Ej. Sector San Pedro de la Paz, Biobío"
+              aria-describedby="nsp-location-help" />
+            <small id="nsp-location-help">Solo comuna o sector. Se reutilizará automáticamente para esta obra en futuras convocatorias.</small>
+          </label>}
         </div>
+        <SocialPoster ref={posterEditor} enabled={publishFacebook} specialty={specialty}
+          publicLocation={publicLocation} workers={workers} start={start} />
       </section>
       {error && <p className="nw-error nw-quick-error" role="alert">{error}</p>}
       <div className="nw-form-actions nw-quick-actions">

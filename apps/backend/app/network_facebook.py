@@ -7,6 +7,7 @@ import re
 import signal
 import time
 import threading
+from uuid import uuid4
 from urllib.error import HTTPError, URLError
 from urllib.parse import urlencode
 from urllib.request import HTTPRedirectHandler, Request, build_opener
@@ -17,10 +18,8 @@ from sqlalchemy.orm import Session
 from .config import settings
 from .db import SessionLocal
 from .models import utcnow
-from .network_models import NetworkFacebookPost, NetworkFacebookManual, NetworkItem, NetworkRequirement
-from .ops_models import Worksite
-from .facebook_ai import generate_text, AD_INSTRUCTIONS, verified_ad_copy
-from .galancito_runtime import infer
+from .network_models import NetworkFacebookPost, NetworkFacebookManual, NetworkRequirement
+from .network_posters import verified_poster_path
 
 log = logging.getLogger("galant.facebook")
 stopping = False
@@ -76,24 +75,18 @@ def status_view(db: Session, req: NetworkRequirement) -> dict:
 
 
 def public_message(db: Session, req: NetworkRequirement) -> str:
-    """Solo campos explícitamente seguros para publicación; no se envía req.description."""
-    site = db.scalar(select(Worksite.name).where(Worksite.id == req.site_id, Worksite.org_id == req.org_id)) or "Obra"
-    items = list(db.scalars(select(NetworkItem.name).where(
-        NetworkItem.org_id == req.org_id, NetworkItem.requirement_id == req.id
-    ).order_by(NetworkItem.position).limit(6)))
+    """Public copy: never expose worksite, title, notes or operational items."""
     lines = [
-        "CONVOCATORIA PARA EMPRESAS CONTRATISTAS", "",
-        req.title,
-        "Obra: " + site,
+        "BUSCAMOS EMPRESAS CONTRATISTAS",
+        "",
         "Especialidad: " + req.specialty,
+        "Sector: " + req.public_location,
         "Dotación estimada: " + str(req.workers) + " trabajadores",
         "Inicio estimado: " + req.start_date.strftime("%d/%m/%Y"),
+        "",
+        "¿Tu empresa realiza estos trabajos? Escríbenos por mensaje privado.",
+        "Convocatoria sujeta a evaluación y adjudicación.",
     ]
-    if items:
-        lines.extend(["", "Partidas: " + ", ".join(items)])
-    lines.extend(["", "¿Tu empresa realiza estos trabajos?",
-        "Envíanos un mensaje privado a esta página con los antecedentes de tu empresa.",
-        "Convocatoria sujeta a evaluación y adjudicación."])
     return "\n".join(lines)[:3900]
 
 
@@ -124,6 +117,39 @@ def graph_request(method: str, path: str, token: str, message: str | None = None
     if not isinstance(value, dict):
         raise ValueError("Respuesta inesperada de Meta")
     return value
+
+
+def graph_photo_post(page_id: str, token: str, message: str, path: str, org_id: str) -> dict:
+    """Post the exact reviewed JPEG, never just an HTML mockup.
+
+    Graph API /photos supports binary source. A transport timeout is uncertain:
+    the queue must NOT retry and accidentally duplicate the photo.
+    """
+    if not re.fullmatch(r"[0-9]{5,30}", page_id):
+        raise ValueError("Página de Facebook inválida")
+    source = verified_poster_path(path, org_id).read_bytes()
+    boundary = "galant-" + uuid4().hex
+    prefix = (
+        "--" + boundary + "\r\n"
+        'Content-Disposition: form-data; name="caption"\r\n\r\n'
+        + message + "\r\n"
+        "--" + boundary + "\r\n"
+        'Content-Disposition: form-data; name="source"; filename="convocatoria.jpg"\r\n'
+        "Content-Type: image/jpeg\r\n\r\n"
+    ).encode("utf-8")
+    payload = prefix + source + ("\r\n--" + boundary + "--\r\n").encode()
+    request = Request(
+        "https://graph.facebook.com/v27.0/" + page_id + "/photos",
+        method="POST",
+        data=payload,
+        headers={"Authorization": "Bearer " + token,
+                 "Content-Type": "multipart/form-data; boundary=" + boundary},
+    )
+    with _NO_REDIRECT.open(request, timeout=30) as response:
+        result = json.loads(response.read(16384).decode("utf-8"))
+    if not isinstance(result, dict):
+        raise ValueError("Respuesta inesperada de Meta")
+    return result
 
 
 def meta_http_error(exc: HTTPError) -> str:
@@ -194,7 +220,16 @@ def process_next(session_factory=SessionLocal) -> bool:
         if row.action == "cancel":
             row.state = "cancelled"
             return True
+        if row.action == "publish" and (not req.poster_path or not req.public_location):
+            row.state = "failed"
+            row.last_error = "Falta imagen aprobada o sector aproximado; no se publicó nada."
+            return True
+        if row.action == "update" and req.poster_path:
+            row.state = "failed"
+            row.last_error = "La foto publicada no se reemplaza automáticamente. Revisar y volver a publicar con autorización."
+            return True
         action, post_id, job_id, revision = row.action, row.post_id, row.id, row.target_version
+        poster_path, poster_org = req.poster_path, req.org_id
         if action in ("update", "delete") and not post_id:
             row.state = "uncertain"
             row.last_error = "Falta el ID remoto; revisión manual requerida."
@@ -205,28 +240,15 @@ def process_next(session_factory=SessionLocal) -> bool:
         row.updated_at = utcnow()
 
     outcome_id, error, uncertain = None, None, False
-    # Generar solo una introducción breve local; los datos oficiales nunca
-    # se reemplazan. Esta opción requiere selección Facebook + permiso de anuncio.
-    if (message and cfg.facebook_ai_provider == "ollama" and
-            cfg.galancito_local_ai_enabled and cfg.facebook_ai_ad_enabled):
-        try:
-            with session_factory.begin() as db:
-                message, _generated = infer(db, lambda: verified_ad_copy(message, req.title, req.specialty))
-        except RuntimeError:
-            pass  # Keep the verified original when the shared inference slot is busy.
-    # Opt-in, solo desde datos comerciales públicos, sin demorar la transacción SQL.
-    if (message and cfg.facebook_ai_provider == "openai" and cfg.facebook_ai_ad_enabled
-            and cfg.facebook_ai_enabled and cfg.facebook_ai_api_key):
-        try:
-            message = generate_text(AD_INSTRUCTIONS, message, 1200) or message
-        except RuntimeError:
-            pass  # Mantener anuncio factual y seguro si falla el modelo.
+    # Solo texto determinístico aprobado: la IA no debe inventar marcas, fechas,
+    # beneficios, ubicaciones exactas ni reutilizar el título interno de la obra.
     try:
         if action == "publish":
-            response = graph_request("POST", "/" + cfg.facebook_page_id + "/feed", cfg.facebook_page_token, message)
-            outcome_id = response.get("id")
+            response = graph_photo_post(cfg.facebook_page_id, cfg.facebook_page_token,
+                                        message, poster_path, poster_org)
+            outcome_id = response.get("post_id")
             if not isinstance(outcome_id, str) or not re.fullmatch(r"[0-9]+_[0-9]+", outcome_id):
-                error, uncertain = "Meta no confirmó el ID de publicación.", True
+                error, uncertain = "Meta no confirmó el ID del post con foto; revisar antes de reintentar.", True
         elif action == "update":
             result = graph_request("POST", "/" + post_id, cfg.facebook_page_token, message)
             if result.get("success") is not True:
@@ -239,7 +261,7 @@ def process_next(session_factory=SessionLocal) -> bool:
             error = "Acción de publicación desconocida."
     except HTTPError as exc:
         error = meta_http_error(exc)
-    except (URLError, TimeoutError, OSError, ValueError) as exc:
+    except (URLError, TimeoutError, OSError, ValueError, FileNotFoundError) as exc:
         error, uncertain = "No se confirmó el envío (" + type(exc).__name__ + "); revisar Facebook.", True
 
     with session_factory.begin() as db:

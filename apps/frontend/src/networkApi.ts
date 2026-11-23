@@ -7,7 +7,7 @@ export const change = <T>(path: string, body?: unknown, method = "POST") =>
   });
 export type Page<T> = { rows: T[]; total: number };
 export type Catalog = {
-  sites: { id: string; name: string; editable: boolean }[];
+  sites: { id: string; name: string; editable: boolean; public_location?: string }[];
   contractors: {
     id: string;
     name: string;
@@ -82,6 +82,8 @@ export type Requirement = {
   specialty: string;
   priority: string;
   publish_to_facebook: boolean;
+  public_location: string;
+  poster_available: boolean;
   workers: number;
   start_date: string;
   end_date: string;

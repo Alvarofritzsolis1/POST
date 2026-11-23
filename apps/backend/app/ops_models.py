@@ -21,6 +21,8 @@ class Worksite(Base):
     id: Mapped[str] = mapped_column(String(36), primary_key=True, default=uid)
     org_id: Mapped[str] = mapped_column(ForeignKey("organizations.id"), nullable=False, index=True)
     name: Mapped[str] = mapped_column(String(180), nullable=False)
+    # A broad, explicitly confirmed area for external public recruitment.
+    public_area: Mapped[str] = mapped_column(String(120), nullable=False, default="", server_default="")
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow, nullable=False)
 
 
