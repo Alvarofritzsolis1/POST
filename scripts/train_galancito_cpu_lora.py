@@ -87,11 +87,16 @@ def safe_output(args, bundle, attestation):
                        and (p / "trainer_state.json").is_file()]
         if not checkpoints:
             raise SystemExit("Falta checkpoint recuperable: no se inventa progreso")
-        resume_from = str(max(checkpoints, key=lambda p: int(p.name.rsplit("-", 1)[-1])))
+        latest = max(checkpoints, key=lambda p: int(p.name.rsplit("-", 1)[-1]))
+        if int(latest.name.rsplit("-", 1)[-1]) >= args.max_steps:
+            raise SystemExit("El checkpoint ya completó los pasos programados")
+        resume_from = str(latest)
     else:
         if target.exists() and any(target.iterdir()):
             raise SystemExit("Utiliza un directorio nuevo y vacío para no mezclar ejecuciones")
         target.mkdir(mode=0o700, parents=True, exist_ok=True)
+        if os.name == "posix":
+            target.chmod(0o700)
         metadata = {**parameters, "run_id": str(uuid4())}
         metadata_path.write_text(json.dumps(metadata, sort_keys=True), encoding="utf-8")
         metadata_path.chmod(0o600)
@@ -186,7 +191,7 @@ def main(argv=None):
     # Heavy ML libraries load only *after* permission and hardware gates.
     try:
         import torch
-        from transformers import (AutoTokenizer, Qwen3_5ForConditionalGeneration,
+        from transformers import (AutoTokenizer, Qwen3_5ForCausalLM,
                                   Trainer, TrainingArguments, TrainerCallback,
                                   DataCollatorForSeq2Seq)
         from peft import LoraConfig, get_peft_model
@@ -208,21 +213,25 @@ def main(argv=None):
         tokenizer = AutoTokenizer.from_pretrained(MODEL, trust_remote_code=False)
         if tokenizer.pad_token is None:
             tokenizer.pad_token = tokenizer.eos_token
-        # BF16 cuts base weight memory vs FP32; CPU kernels may still be slow.
-        # Load OFFICIAL multimodal checkpoint but freeze everything except
-        # language decoder adapters; never load 4B production weights.
-        model = Qwen3_5ForConditionalGeneration.from_pretrained(
+        # Use the OFFICIAL Qwen text-only class with the OFFICIAL 0.8B
+        # checkpoint, as tested by Hugging Face Transformers. This avoids
+        # loading the vision tower, critical for our 5GiB cgroup.
+        model, loading = Qwen3_5ForCausalLM.from_pretrained(
             MODEL, dtype=torch.bfloat16, low_cpu_mem_usage=True,
-            trust_remote_code=False, device_map=None)
+            trust_remote_code=False, device_map=None,
+            output_loading_info=True)
+        missing = [key for key in loading.get("missing_keys", ())
+                   if key.startswith(("model.", "lm_head"))]
+        if missing:
+            raise RuntimeError("Qwen3.5 texto incompleto: se rechazan parámetros inicializados al azar")
         model.config.use_cache = False
         for parameter in model.parameters():
             parameter.requires_grad_(False)
         linear = [name for name,layer in model.named_modules()
-                  if "language_model" in name
-                  and isinstance(layer,torch.nn.Linear)
-                  and not name.endswith(("lm_head","output"))]
+                  if name.startswith("model.layers.")
+                  and isinstance(layer,torch.nn.Linear)]
         if not linear:
-            raise RuntimeError("No se localizaron capas del decodificador Qwen3.5")
+            raise RuntimeError("No se localizaron capas del decodificador de texto Qwen3.5")
         model = get_peft_model(model,LoraConfig(
             r=4,lora_alpha=8,lora_dropout=0.05,bias="none",
             target_modules=linear,task_type="CAUSAL_LM"))
