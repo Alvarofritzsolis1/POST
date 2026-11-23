@@ -1,60 +1,82 @@
-# GALANT · 20.9.21-rc1 · Aprendizaje dirigido por fallas reales
+# GALANT 20.9.21-rc1 · Aprendizaje guiado por errores reales (candidato, sin desplegar)
 
-Este parche no entrena pesos de Qwen y no declara que una mejora haya sido
-demostrada en producción. Resuelve una brecha previa: feedback real del chat
-se registraba, pero no existía un circuito verificable hacia una corrección
-que pudiera utilizarse posteriormente en la respuesta.
+**Estado:** Pull request en borrador. No se afirma que Qwen haya cambiado sus
+pesos, mejorado globalmente ni que el VPS haya superado pruebas reales.
+No fusionar ni desplegar sin CI completo, QA de Ollama local y rollback preparado.
 
-## Qué implementa
+## Qué funciona en código
 
-1. **Diagnóstico humano trazable:** \`/admin/ai/real-learning/plan\` separa por
-   canal, criterio y ventana temporal. Indica tamaño de muestra, errores, prioridad
-   y estado de evidencia. Sin revisiones reales: sin nota y sin mejora inventada.
-2. **Práctica de Qwen sobre una conversación real:** el administrador audita
-   la respuesta entregada, marca una dimensión fallida y solicita una prueba
-   local con Qwen3.5 4B. El modelo recibe el historial disponible y una corrección
-   general delimitada. No se envía ninguna respuesta a Meta y no se llama a
-   proveedores externos. Se compara con la respuesta original de producción.
-3. **Evaluación humana vinculada:** el administrador indica «mejoró», «igual»
-   o «empeoró». Se guardan únicamente identificadores, criterio, modelo,
-   duración y veredicto: nunca texto de mensajes ni respuesta candidata.
-4. **Propuesta de guía:** exige dos fallas humanas de ese criterio y dos
-   pruebas de conversaciones distintas evaluadas como mejores, sin regresiones
-   en el período. Aún así crea una propuesta **pendiente** que el administrador
-   debe aprobar en Conocimientos. El texto permitido es una regla genérica
-   y fija: no incluye conversaciones, nombres ni propuestas libres del modelo.
-5. **Uso controlado:** una guía aprobada coincidente con la lista de políticas
-   entra al prompt del canal correspondiente. Ediciones desactivan su aprobación;
-   nada se aplica si el criterio no ha sido validado por el sistema de guías.
-6. **UX:** los criterios están etiquetados con las claves correctas del backend,
-   se ven cifras de la muestra aunque todavía no haya 30 auditorías, la interfaz
-   describe la causa y permite lanzar una reproducción real desde la auditoría.
+1. **Diagnóstico**: auditoría humana de conversaciones auténticas accesibles y
+   resultados por criterio, canal, tamaño de muestra y prioridad. Las fallas de
+   reglas, recuperación y modelo se diferencian como hipótesis, no causa probada.
+   Se registran contadores de contexto y truncamiento sin almacenar texto de chat.
+2. **Práctica focalizada**: el motor selecciona, sin azar, el siguiente error
+   humano elegible (`/next`) o permite elegir uno (`/cases`). Rechaza datos
+   sensibles detectados, requiere Qwen 3.5 4B local y un modelo de origen
+   verificado para habilitar futuras propuestas. No hace inferencia externa.
+3. **Comparación pareada**: para una conversación auditada se ejecutan dos
+   inferencias locales bajo el mismo contexto, modelo, semilla y parámetros:
+   Qwen base y Qwen con una instrucción candidata de lista permitida.
+   Se muestra además la respuesta de producción como referencia separada.
+   Si ambas salidas coinciden o un filtro de seguridad rechaza alguna, no
+   se contabiliza éxito. El tiempo incluye ambas inferencias.
+4. **Dos estrategias distintas por criterio**, sin producción de ejemplos
+   ficticios. No se prueban variantes con regresiones ya observadas; el
+   sistema no prueba ilimitadamente el mismo caso.
+5. **Revisión humana estricta**: para contar «mejor», la persona debe afirmar
+   expresamente que el defecto auditado quedó resuelto y que la seguridad
+   sigue intacta. Una nota mejor pero todavía incorrecta no cuenta.
+6. **Ensayos recuperables**: solo se guarda estado, variante, procedencia,
+   duración, comprobante efímero y veredicto. Si se pierde la pestaña, se
+   puede cancelar el ensayo no evaluado y repetir; no se puede calificar
+   una candidata cuyo texto ya no está a la vista.
+7. **Separación práctica/reserva**: una variante necesita dos casos
+   de práctica favorables y cuatro casos distintos de evaluación reservada
+   favorables, sin regresiones observadas y con procedencia de Qwen verificable,
+   para proponer una guía genérica **pendiente**. No se mezcla una misma
+   conversación entre práctica y reserva.
+8. **Transferencia controlada**: solo una guía aprobada por administración,
+   con contenido en lista permitida y un evento auditado de propuesta,
+   puede integrarse a las instrucciones del canal pertinente.
+9. **UX**: vista por competencia, casos previos auditados, práctica focalizada
+   automática, dos estrategias, comparación triple y estado de aprobación.
+   La biblioteca de guías temáticas no se denomina «entrenamiento de pesos».
 
-## Interpretación rigurosa
+## Límites explícitos
 
-- Una reproducción real no es una comparación A/B aleatorizada y cegada;
-  el veredicto humano puede tener sesgo. Las dos comparaciones exigidas solo
-  habilitan una **propuesta supervisada**, no acreditan mejora general.
-- Los 20 aprendizajes predeterminados son guías, no épocas ni fine-tuning.
-- Los ensayos sintéticos existentes sirven para regresión complementaria,
-  nunca para aumentar una nota de producción.
-- Solo una nueva evaluación posterior al despliegue, idealmente con casos
-  reservados y métricas por versión, puede acreditar mejora real generalizada.
-- Las prácticas sobre chats con datos privados son rechazadas.
-- Un VPS sin Qwen3.5 4B activo devuelve 409; no se simula inferencia.
-- No se toca el módulo documental ni el envío de Meta fuera de añadir
-  instrucciones preaprobadas en el momento de generación.
+- La reproducción utiliza historial accesible y puede no incluir todas las
+  condiciones exactas de la ejecución original: permisos, ficha, herramientas,
+  estado temporal o sistema de reglas. La telemetría revela parte de la ruta,
+  pero **no identifica causalidad automáticamente**.
+- Las cuatro evaluaciones reservadas son casos distintos, pero no constituyen
+  por sí mismas un ensayo aleatorizado, cegado o una muestra representativa.
+  Requieren nueva validación posterior al despliegue.
+- Son revisiones humanas supervisadas, no aprendizaje por gradientes, DPO,
+  fine-tuning ni una implementación completa de DSPy/GEPA.
+- El filtro de privacidad por expresiones regulares no garantiza detección
+  universal de datos personales. El acceso a reproducción debe mantenerse
+  limitado a administradores y al entorno local privado.
+- Las prácticas comparten la capacidad limitada de inferencia con producción;
+  cada ensayo usa dos generaciones y se aborta si el motor está ocupado.
+- Sin conversaciones auditadas suficientes, la pantalla debe informar
+  «sin evidencia», nunca fabricar porcentajes o declarar «100%».
 
-## Validar antes de desplegar
+## Puertas de validación obligatorias
 
-Ejecutar pruebas de backend, el build del frontend y pruebas de regresión de
-Messenger. Verificar permisos por organización, protección CSRF, migración
-aditiva \`20.9.21_real_defect_learning\`, casos que no tengan contexto accesible
-y ausencia de texto de chats en registros de práctica. Después del despliegue,
-hacer pruebas de Qwen real sobre conversaciones auditadas y comparar nuevas
-respuestas de producción; no anunciar «100 %» sin esa verificación.
+1. CI del último commit del PR: Python y migraciones, frontend, Messenger,
+   protección multiempresa, respaldos y regresiones.
+2. Evaluación manual real de Qwen en un VPS o QA aislada con recursos y
+   privacidad adecuados; confirmar respuesta del modelo vía telemetría.
+3. Pruebas con carga concurrente y confirmación de que Messenger mantiene
+   prioridad y sus límites de latencia y memoria.
+4. Verificar que la reproducción de errores reales relacionados con reglas
+   se derive a diagnóstico de código y no declare corregido el modelo.
+5. Comprobar que no se guardan textos privados en la tabla de prácticas, que
+   la aprobación deja traza y que se puede cancelar/repetir ensayos perdidos.
+6. Aprobación administrativa con despliegue gradual, observación en nuevas
+   conversaciones reales y reversión si aparece degradación.
 
-Fuentes de metodología:
+Fuentes:
 - https://developers.openai.com/api/docs/guides/evaluation-best-practices
 - https://www.anthropic.com/research/demystifying-evals-for-ai-agents
 - https://dspy.ai/current/tutorials/gepa_ai_program/
