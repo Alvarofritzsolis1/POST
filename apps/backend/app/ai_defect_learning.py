@@ -6,6 +6,7 @@ Only approved Knowledge rows matching this allowlist affect inference.
 """
 from sqlalchemy import select
 from .galancito_knowledge_models import Knowledge
+from .models import AuditEvent
 
 PREFIX = "Mejora por evidencia · "
 POLICIES = {
@@ -70,13 +71,21 @@ def approved_coaching(db, org_id: str, channel: str) -> str:
         return ""
     rows = list(db.scalars(select(Knowledge).where(
         Knowledge.org_id == org_id, Knowledge.status == "approved",
-        Knowledge.scope == SCOPE[channel], Knowledge.title.startswith(PREFIX + channel + " · "),
+        Knowledge.scope == SCOPE[channel],
+        Knowledge.category == "Práctica real auditada",
+        Knowledge.title.startswith(PREFIX + channel + " · "),
     ).order_by(Knowledge.updated_at.desc()).limit(12)))
     approved = []
     for row in rows:
         for key, (_, expected, _) in POLICIES[channel].items():
-            if row.title == policy_title(channel, key) and row.content == expected:
-                approved.append(expected)
+            if (row.title == policy_title(channel, key) and
+                    row.content in {expected, ALTERNATIVE_POLICIES[channel][key]} and
+                    db.scalar(select(AuditEvent.id).where(
+                        AuditEvent.org_id == org_id,
+                        AuditEvent.resource_id == row.id,
+                        AuditEvent.action == "ai.real_learning.proposed",
+                    )) is not None):
+                approved.append(row.content)
                 break
     return "\n".join(approved[:3])[:950]
 
