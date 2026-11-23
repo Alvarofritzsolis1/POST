@@ -388,9 +388,14 @@ def process_chat_next(session_factory=SessionLocal) -> bool:
                     timings = last_timings.get()
             if generated:
                 body = natural_messenger_reply(safe_ai_reply(generated))
+            elif not model_needed:
+                # Never treat an empty permission-acceptance turn as a model
+                # outage or tell a greeting-only contact that humans were paged.
+                body = "Te leo. Cuéntame qué necesitas y seguimos por aquí."
+                source = "local_recovery"
             else:
-                # Si Ollama está saturado o apagado, Messenger continúa
-                # funcionando y la persona puede recibir apoyo humano.
+                # A genuine unresolved question must be visible for human
+                # review; do not invent a job, wage or hiring decision.
                 body = ("Ahora no tengo una respuesta confirmada. "
                         "Dejé tu consulta para que la revise nuestro equipo.")
                 failed_ai = True

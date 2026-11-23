@@ -43,6 +43,19 @@ TRADES = {
 }
 
 
+def is_pure_greeting(message: str) -> bool:
+    """Accept natural Chilean greetings without swallowing a real question."""
+    value = plain(message)
+    return bool(re.fullmatch(
+        r"(?:hola+|ola+|buenas|buen dia|buenos dias|muy buenos dias|buenas tardes|muy buenas tardes|"
+        r"buenas noches|que tal|como estas|como estai|como estan|todo bien)"
+        r"(?: (?:galancito|buenos dias|buen dia|muy buenos dias|"
+        r"buenas tardes|muy buenas tardes|buenas noches|buenas|"
+        r"que tal|como estas|como estai|como estan|todo bien))*",
+        value,
+    ))
+
+
 def contains(text: str, phrase: str) -> bool:
     return f" {plain(phrase)} " in f" {text} "
 
@@ -115,14 +128,7 @@ def analyze(message: str, trades: dict | None = None) -> Intake:
         intent = "about"
     elif specialty:
         intent = "trade_offer"
-    elif text in {"hola", "ola", "buenas", "buenos dias", "buenas tardes", "hola galancito",
-                 "como estas", "como estai", "que tal", "todo bien"} or re.fullmatch(
-        r"(?:hola|ola|buenas|buenos dias|buenas tardes|buenas noches)"
-        r"(?: (?:galancito|como estas|como estai|como estan|que tal|todo bien|buen dia))*",
-        text,
-    ):
-        # Pure greetings should never consume inference tokens or wait on Ollama.
-        # Mixed messages ("hola busco pega") still follow their actual intent.
+    elif is_pure_greeting(message):
         intent = "greeting"
     return Intake(intent, specialty, entity, workers, availability)
 
