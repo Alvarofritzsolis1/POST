@@ -87,14 +87,46 @@ def main(argv=None) -> int:
         ),
         processing_class=tokenizer,
     )
-    before = trainer.evaluate(eval_dataset=test, metric_key_prefix="test_before")
-    trainer.train()  # Actual gradient updates to LoRA weights; NOT Ollama.
-    after = trainer.evaluate(eval_dataset=test, metric_key_prefix="test_after")
-    before_loss = before.get("test_before_loss")
-    after_loss = after.get("test_after_loss")
-    improved = (isinstance(before_loss, float) and isinstance(after_loss, float)
-                and after_loss < before_loss)
-    # Held-out loss is NOT automatically equivalent to better reasoning.
+    # Deterministic, human-referenced *held-out answer* checks, not self-grading.
+    # Test examples never participate in training or validation selection.
+    def checked_answers():
+        trainer.model.eval()
+        outcomes = []
+        for example in bundle["samples"]["test"]:
+            prompt = [
+                {"role": "system", "content": "Responde en español. Razona con evidencias sin inventar hechos."},
+                example["messages"][0],
+            ]
+            input_ids = tokenizer.apply_chat_template(
+                prompt, add_generation_prompt=True, return_tensors="pt"
+            ).to(trainer.model.device)
+            with torch.inference_mode():
+                generated = trainer.model.generate(
+                    input_ids, max_new_tokens=160, do_sample=False,
+                    pad_token_id=tokenizer.eos_token_id,
+                )
+            response = tokenizer.decode(generated[0, input_ids.shape[1]:],
+                                        skip_special_tokens=True)
+            if "</think>" in response:
+                response = response.split("</think>")[-1].strip()
+            outcomes.append(verified_match(
+                response, example["reference_answer"], example["verifier"]))
+        return outcomes
+
+    before_loss = trainer.evaluate(eval_dataset=test, metric_key_prefix="test_before").get("test_before_loss")
+    before_checks = checked_answers()
+    trainer.train()  # Real LoRA gradient updates in isolated GPU, NOT Ollama.
+    after_loss = trainer.evaluate(eval_dataset=test, metric_key_prefix="test_after").get("test_after_loss")
+    after_checks = checked_answers()
+    regressions = sum(x and not y for x, y in zip(before_checks, after_checks))
+    recovered = sum(not x and y for x, y in zip(before_checks, after_checks))
+    improved = (
+        isinstance(before_loss, float) and isinstance(after_loss, float)
+        and after_loss < before_loss and recovered >= 2 and regressions == 0
+        and sum(after_checks) > sum(before_checks)
+    )
+    # The exact/contains verifier measures only documented reference checks.
+    # Neither a lowered loss nor these checks establishes generalized reasoning.
     report = {
         "status": "candidate_held_for_review" if improved else "rejected_no_heldout_loss_gain",
         "weights_trained": True, "production_promoted": False,
@@ -103,6 +135,9 @@ def main(argv=None) -> int:
         "validation_examples": bundle["sizes"]["validation"],
         "heldout_examples": bundle["sizes"]["test"],
         "heldout_loss_before": before_loss, "heldout_loss_after": after_loss,
+        "heldout_verified_pass_before": sum(before_checks),
+        "heldout_verified_pass_after": sum(after_checks),
+        "heldout_recovered": recovered, "heldout_regressions": regressions,
         "reasoning_improvement_proven": False,
         "requires": "independent deterministic reasoning checks, safety regression, "
                     "latency, production canary approval and reversible deployment",
@@ -112,6 +147,10 @@ def main(argv=None) -> int:
         json.dumps(report, ensure_ascii=False, indent=2), encoding="utf-8")
     if improved:
         trainer.save_model(str(output_dir / "candidate-adapter"))
+    else:
+        # Never leave rejected LoRA checkpoints available for accidental rollout.
+        from shutil import rmtree
+        rmtree(output_dir / "checkpoints", ignore_errors=True)
     print(json.dumps(report, ensure_ascii=False))
     return 0 if improved else 2
 
