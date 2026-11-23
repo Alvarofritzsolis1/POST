@@ -170,6 +170,16 @@ if (( ${#max_power_services[@]} )); then
         echo "MAX POWER no quedó operativo; se revierte el despliegue." >&2
         exit 1
     }
+    controller_id="$("${compose[@]}" ps --quiet max-power-controller)"
+    for i in {1..15}; do
+        health="$(docker inspect --format '{{.State.Health.Status}}' "$controller_id" 2>/dev/null || true)"
+        [[ "$health" == "healthy" ]] && break
+        sleep 4
+    done
+    [[ "$health" == "healthy" ]] || {
+        echo "MAX POWER no supera su comprobación de controlador y base de datos." >&2
+        exit 1
+    }
     "${compose[@]}" exec -T api python -c "from app.max_power_api import router; from app.max_power_models import MaxPowerState, MaxPowerEvent, MaxPowerMessengerTrial; assert any(r.path.endswith('/export') for r in router.routes)"
 fi
 "${compose[@]}" exec -T api python -m app.deploy_verify --expected-commit "$target_ref" --training-worker-only

@@ -163,6 +163,12 @@ services:
     build: {context: ., dockerfile: apps/backend/Dockerfile, args: {SOURCE_COMMIT: "${SOURCE_COMMIT:-unknown}"}}
     restart: unless-stopped
     command: ["python", "-m", "app.max_power_worker"]
+    healthcheck:
+      test: ["CMD-SHELL", "python -c 'import os,time,sys; p=\"/tmp/max_power_controller_heartbeat\"; sys.exit(0 if os.path.isfile(p) and time.time()-os.path.getmtime(p)<60 else 1)'"]
+      interval: 20s
+      timeout: 5s
+      retries: 3
+      start_period: 60s
     environment:
       APP_SECRET: ${APP_SECRET:?Missing APP_SECRET}
       DATABASE_URL: postgresql+psycopg://galant:${POSTGRES_PASSWORD}@db:5432/galant

@@ -303,6 +303,8 @@ def main():
                         heartbeat(db, sampler.sample(), utcnow())
                 with SessionLocal() as db:
                     tick(db, sampler)
+                # Container-health probe reflects a successfully completed DB tick.
+                Path("/tmp/max_power_controller_heartbeat").touch()
                 if task is not None and task.done():
                     try:
                         task.result()
