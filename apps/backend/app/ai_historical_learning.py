@@ -12,7 +12,7 @@ from sqlalchemy.orm import Session
 from .ai_quality_audit import CRITERIA
 from .ai_quality_models import AIRealPracticeTrial, AIResponseReview
 from .facebook_crm_models import FacebookChatMessage
-from .galancito_knowledge_models import AssistantRun, InternalConversation
+from .galancito_knowledge_models import AssistantRun
 from .models import utcnow
 
 
@@ -176,12 +176,8 @@ def historical_overview(db: Session, org_id: str, *, months: int = 0) -> dict:
         ),
     }
 
-    # Strict privacy: even administrators cannot bulk-read another user's
-    # saved internal conversation; only count retained rows and expired date.
-    retained = db.scalar(select(func.count()).select_from(InternalConversation).where(
-        InternalConversation.org_id == org_id,
-        InternalConversation.expires_at >= utcnow(),
-    ))
+    # No organisation-wide inspection of another person's opt-in internal chat,
+    # not even a count: those histories are separately user-owned and expiring.
     return {
         "window": "all_retained" if not months else "last_months",
         "months": months,
@@ -189,7 +185,8 @@ def historical_overview(db: Session, org_id: str, *, months: int = 0) -> dict:
         "runs_by_channel": by_channel, "audited_deficiencies": labels,
         "practice_outcomes": trials,
         "diagnostic_telemetry": forensic,
-        "internal_opt_in_conversations_retained": int(retained or 0),
+        "internal_opt_in_conversations_retained": None,
+        "internal_private_history_access": "not_available_for_bulk_audit",
         "historical_quality_grade": None,
         "weights_updated": False,
         "training_dataset_approved": False,
