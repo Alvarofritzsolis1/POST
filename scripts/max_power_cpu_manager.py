@@ -80,7 +80,9 @@ def approved_inputs(root: Path, data: Path, manifest: Path, public_key: str):
     """Reject missing consent evidence, weak file permissions and unsignable data."""
     if not re.fullmatch(r"[0-9a-fA-F]{64}", public_key or ""):
         return None
-    if (not root.is_dir() or not data.is_file() or not manifest.is_file()
+    if (not root.is_dir() or root.is_symlink()
+            or (root / "runs").is_symlink()
+            or not data.is_file() or not manifest.is_file()
             or data.is_symlink() or manifest.is_symlink()):
         return None
     if (data.stat().st_mode & 0o077) or (manifest.stat().st_mode & 0o077):
