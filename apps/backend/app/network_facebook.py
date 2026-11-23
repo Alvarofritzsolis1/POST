@@ -133,7 +133,7 @@ def graph_photo_post(page_id: str, token: str, message: str, path: str, org_id: 
     boundary = "galant-" + uuid4().hex
     prefix = (
         "--" + boundary + "\r\n"
-        'Content-Disposition: form-data; name="message"\r\n\r\n'
+        'Content-Disposition: form-data; name="caption"\r\n\r\n'
         + message + "\r\n"
         "--" + boundary + "\r\n"
         'Content-Disposition: form-data; name="source"; filename="convocatoria.jpg"\r\n'
