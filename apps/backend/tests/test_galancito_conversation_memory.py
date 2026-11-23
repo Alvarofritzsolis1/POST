@@ -252,8 +252,9 @@ def test_consent_confusion_and_relative_date_resume_the_conversation(network, mo
     # resumes automation. The prior test incorrectly expected the bot to
     # answer while the person was still assigned to a human.
     assert _detail(n)["lead"]["ai_paused"] is True
-    resumed = n["admin"].patch(f"/api/v1/network/facebook/leads/{lead['id']}",
-                               json={"needs_support": False, "ai_paused": False})
+    resumed = n["send"](
+        n["admin"], f"/facebook/leads/{lead['id']}",
+        {"needs_support": False, "ai_paused": False}, method="PATCH")
     assert resumed.status_code == 200
     assert incoming(n, "pero yo puedo en 1 semana mas", mid="date-answer").status_code == 200
     assert process_chat_next(n["Session"])
