@@ -39,9 +39,8 @@ STOPWORDS = frozenset(
     "de del la las el los un una unos unas para por en con y e o a al se "
     "que necesita requiere realizar trabajo trabajos servicios servicio "
     "instalacion instalaciones empresa empresas contratista contratistas "
-    "etapa sector obra trabajos ejecutar ejecucion trabajos exterior exteriores "
-    "pintura pintar electricidad gasfiteria carpinteria albañileria "
-    "trabajos de en exteriores ejecutar realizar y montaje"
+    "etapa sector obra ejecutar ejecucion redactar realizado "
+    "colocar hacer servicio servicios actividad actividades labores"
     .split()
 )
 
