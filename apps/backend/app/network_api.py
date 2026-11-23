@@ -8,6 +8,7 @@ from datetime import date, timedelta
 
 from fastapi import APIRouter, Depends, HTTPException, Query
 from fastapi.responses import FileResponse, Response
+from pydantic import BaseModel, Field
 from sqlalchemy import delete, func, select
 from sqlalchemy.orm import Session
 
@@ -30,6 +31,7 @@ from .network_models import (
 from .network_history import history_view
 from .network_facebook import enqueue, status_view
 from .network_posters import store_poster, verified_poster_path
+from .network_ad_copy import draft_summary, summary_safe
 from .network_schemas import (
     AmendmentInput,
     AwardEdit,
@@ -203,6 +205,30 @@ def requirements(
     return {"rows": [requirement_view(db, user, r) for r in rows], "total": total}
 
 
+class DraftCopyInput(BaseModel):
+    site_id: str
+    specialty: str = Field(min_length=2, max_length=100)
+    description: str = Field(min_length=8, max_length=2500)
+
+
+@router.post("/requirements/summary-suggestion")
+def requirement_summary_suggestion(body: DraftCopyInput, user: User = Depends(authorized_user),
+                                   db: Session = Depends(get_db)):
+    """User-initiated/idle drafting, never publishes; actual AI is optional."""
+    site = require_site(db, user, body.site_id, write=True)
+    # Internal site name must never be sent to the model or returned in public copy.
+    if len(site.name) >= 6 and site.name.casefold() in body.description.casefold():
+        raise HTTPException(422, "Quita el nombre interno de la obra de las labores públicas")
+    if re.search(r"(?:https?://|www\.|@|\+?\d[\d .-]{7,}\d|\b(?:rut|telefono|correo|direccion|dirección|calle|avenida|pasaje)\b)",
+                 body.description, flags=re.IGNORECASE):
+        raise HTTPException(422, "Quita direcciones y datos de contacto antes de mejorar el anuncio con IA")
+    suggestion, source = draft_summary(db, org_id=user.org_id, description=body.description,
+                                       specialty=body.specialty)
+    if not summary_safe(suggestion, body.description, site_name=site.name):
+        raise HTTPException(422, "La descripción incluye datos que deben revisarse antes de publicar")
+    return {"suggestion": suggestion, "source": source}
+
+
 @router.get("/requirements/{record_id}/poster")
 def requirement_poster(record_id: str, user: User = Depends(authorized_user), db: Session = Depends(get_db)):
     """Private authenticated preview; enforce site permissions on every read."""
@@ -225,9 +251,12 @@ def check_public_location(body, site):
     # Internal project names and specific street addresses are never public.
     if len(site.name.strip()) >= 7 and site.name.casefold() in public.casefold():
         raise HTTPException(422, "La ubicación pública no debe contener el nombre de la obra")
+    if body.public_summary and not summary_safe(body.public_summary, body.description,
+                                                site_name=site.name):
+        raise HTTPException(422, "El resumen público contiene datos no permitidos o no tiene descripción")
     if len(site.name.strip()) >= 7 and site.name.casefold() in body.specialty.casefold():
         raise HTTPException(422, "El oficio público no debe incluir el nombre de la obra")
-    if re.search(r"\\d", public):
+    if re.search(r"\d", public):
         raise HTTPException(422, "El sector público no admite numeración ni dirección exacta")
     if re.search(r"\b(?:calle|avenida|pasaje|n[uú]mero)\b|#\s*\d", public, flags=re.IGNORECASE):
         raise HTTPException(422, "Publica solo comuna o sector, sin calle ni dirección exacta")
@@ -1540,6 +1569,7 @@ def sync(user: User = Depends(authorized_user), db: Session = Depends(get_db)):
     for req in db.scalars(
         scoped_requirements(db, user).where(
             NetworkRequirement.state == "published",
+            NetworkRequirement.start_date_pending.is_(False),
             NetworkRequirement.start_date >= today(),
             NetworkRequirement.start_date <= today() + timedelta(days=3),
         )
@@ -1719,6 +1749,7 @@ def calendar(
     events = []
     query = scoped_requirements(db, user).where(
         NetworkRequirement.state == "published",
+        NetworkRequirement.start_date_pending.is_(False),
         NetworkRequirement.start_date <= end,
         NetworkRequirement.end_date >= start,
     )

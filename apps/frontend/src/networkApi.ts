@@ -83,6 +83,8 @@ export type Requirement = {
   priority: string;
   publish_to_facebook: boolean;
   public_location: string;
+  public_summary: string;
+  start_date_pending: boolean;
   poster_available: boolean;
   workers: number;
   start_date: string;

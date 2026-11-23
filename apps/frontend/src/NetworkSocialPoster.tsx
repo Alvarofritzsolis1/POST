@@ -1,5 +1,5 @@
 import { forwardRef, useCallback, useEffect, useImperativeHandle, useMemo, useState } from "react";
-import { Camera, ImagePlus, MapPin, RefreshCw } from "lucide-react";
+import { Camera, ImagePlus, MapPin, RefreshCw, Pencil } from "lucide-react";
 import "./network-social-poster.css";
 
 export type SocialPosterHandle = { exportJpeg: () => Promise<string> };
@@ -8,7 +8,9 @@ type Props = {
   publicLocation: string;
   workers: number;
   start: string;
+  publicSummary?: string;
   enabled: boolean;
+  compact?: boolean;
 };
 
 // Curated stock-photo slots. Administrators should replace/approve photographs
@@ -72,21 +74,23 @@ function format(date: string) {
   if (!/^\d{4}-\d{2}-\d{2}$/.test(date)) return "Por confirmar";
   return date.slice(8, 10) + "/" + date.slice(5, 7) + "/" + date.slice(0, 4);
 }
-export function publicCaption(specialty: string, location: string, workers: number, start: string) {
+export function publicCaption(specialty: string, location: string, workers: number, start: string, publicSummary = "") {
   return [
-    "BUSCAMOS EMPRESAS CONTRATISTAS",
+    "Buscamos empresas contratistas de " + (specialty.trim().toLowerCase() || "especialidad por confirmar") + ".",
     "",
-    "Especialidad: " + (specialty || "Por confirmar"),
-    "Sector: " + (location || "Por confirmar"),
-    "Dotación estimada: " + (workers || 1) + " trabajadores",
-    "Inicio estimado: " + format(start),
+    publicSummary.trim(),
+    "",
+    "📍 Sector: " + (location || "Por confirmar"),
+    "👷 Dotación estimada: " + (workers || 1) + " personas",
+    ...(start ? ["📅 Inicio estimado: " + format(start)] : []),
     "",
     "¿Tu empresa realiza estos trabajos? Escríbenos por mensaje privado.",
-  ].join("\n");
+    "Convocatoria sujeta a evaluación y adjudicación.",
+  ].join("\n").replace(/\n{3,}/g, "\n\n").trim();
 }
 
 const SocialPoster = forwardRef<SocialPosterHandle, Props>(function SocialPoster(
-  { specialty, publicLocation, workers, start, enabled }, ref,
+  { specialty, publicLocation, publicSummary = "", workers, start, enabled, compact = false }, ref,
 ) {
   const category = categoryFor(specialty);
   const candidates = useMemo(() => PHOTO_SETS[category].map(urlFor), [category]);
@@ -98,6 +102,7 @@ const SocialPoster = forwardRef<SocialPosterHandle, Props>(function SocialPoster
   const [preview, setPreview] = useState("");
   const [error, setError] = useState("");
   const [mobile, setMobile] = useState(false);
+  const [editImage, setEditImage] = useState(false);
   const photo = uploaded || candidates[choice % candidates.length];
 
   useEffect(() => {
@@ -133,12 +138,12 @@ const SocialPoster = forwardRef<SocialPosterHandle, Props>(function SocialPoster
     ctx.textAlign = "left";
     ctx.fillStyle = "#fff";
     ctx.font = "800 40px Arial, sans-serif";
-    ctx.fillText("CONVOCATORIA A CONTRATISTAS", 76, 810);
+    ctx.fillText("CONVOCATORIA PARA EMPRESAS", 76, 810);
     ctx.fillStyle = "#73eee0";
     ctx.fillRect(76, 874, 125, 7);
     ctx.fillStyle = "#fff";
-    ctx.font = "900 92px Arial, sans-serif";
-    ctx.fillText("BUSCAMOS", 74, 908);
+    ctx.font = "900 80px Arial, sans-serif";
+    ctx.fillText("CONTRATISTAS", 74, 908);
     let role = specialty.trim().toLocaleUpperCase("es-CL");
     const roleSize = shrink(ctx, role, 930, 100, 39);
     ctx.font = "900 " + roleSize + "px Arial, sans-serif";
@@ -189,13 +194,16 @@ const SocialPoster = forwardRef<SocialPosterHandle, Props>(function SocialPoster
   }
   if (!enabled) return null;
   return (
-    <div className="nsp">
+    <div className={"nsp" + (compact ? " nsp-compact" : "")}>
       <div className="nsp-heading">
-        <div><strong>Imagen automática</strong><small>Se prepara a partir del oficio y el sector público</small></div>
-        <span>1080 × 1350 · 4:5</span>
+        <div><strong>{compact ? "Vista previa del anuncio" : "Imagen automática"}</strong>
+          <small>{compact ? "Actualizada con los datos del formulario" : "Se prepara a partir del oficio y el sector público"}</small></div>
+        {compact ? <button type="button" className="nsp-edit-button" onClick={() => setEditImage((value) => !value)}
+          aria-expanded={editImage}><Pencil size={14}/> {editImage ? "Cerrar edición" : "Editar fotografía"}</button>
+          : <span>1080 × 1350 · 4:5</span>}
       </div>
       <div className="nsp-layout">
-        <div className="nsp-editor">
+        <div className={"nsp-editor" + (compact && !editImage ? " nsp-editor-collapsed" : "")}>
           <div className="nsp-gallery">
             {candidates.map((src, index) => (
               <button type="button" key={src} aria-label={"Fotografía " + (index + 1)}
@@ -237,7 +245,15 @@ const SocialPoster = forwardRef<SocialPosterHandle, Props>(function SocialPoster
           </div>
           <div className={"nsp-facebook" + (mobile ? " mobile" : "")}>
             <div className="nsp-fbhead"><span className="nsp-profile"><Camera size={16}/></span><span><b>Página de Facebook</b><small>Vista previa · Público</small></span><b className="nsp-more">···</b></div>
-            <p className="nsp-caption">{publicCaption(specialty, publicLocation, workers, start)}</p>
+            <div className="nsp-caption">
+              <strong>Buscamos empresas contratistas de {specialty.trim().toLowerCase() || "…"}</strong>
+              <p>{publicSummary.trim() || "El resumen editable de las labores aparecerá aquí."}</p>
+              <small><MapPin size={13} aria-hidden="true"/> {publicLocation || "Ubicación pendiente"} · {workers || 1} personas
+                {start ? " · " + format(start) : ""}</small>
+              <details className="nsp-caption-more"><summary>Ver texto completo de Facebook</summary>
+                <pre>{publicCaption(specialty, publicLocation, workers, start, publicSummary)}</pre>
+              </details>
+            </div>
             {preview ? <img className="nsp-poster" src={preview} alt={"Anuncio para " + specialty + " en " + publicLocation}/> :
               <div className="nsp-empty">{error || "Generando imagen…"}</div>}
             <div className="nsp-reactions"><span>♡ Me gusta</span><span>▤ Comentar</span><span>↗ Compartir</span></div>

@@ -81,6 +81,10 @@ class NetworkRequirement(Record, Base):
     # Public metadata is distinct from the private worksite and internal requirement.
     public_location: Mapped[str] = mapped_column(String(120), nullable=False, default="", server_default="")
     poster_path: Mapped[str] = mapped_column(Text, nullable=False, default="", server_default="")
+    # User-reviewed public summary is independent from private technical description.
+    public_summary: Mapped[str] = mapped_column(String(400), nullable=False, default="", server_default="")
+    # Dates remain populated for existing matching/aggregation schemas, but are unconfirmed.
+    start_date_pending: Mapped[bool] = mapped_column(Boolean, nullable=False, default=False, server_default="false")
     client_key: Mapped[str] = mapped_column(String(80))
     version: Mapped[int] = mapped_column(Integer, default=1)
     updated_at: Mapped[datetime] = mapped_column(
