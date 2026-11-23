@@ -29,7 +29,9 @@ def test_historical_inventory_is_private_and_includes_old_records(ai_env):
                                    direction="outbound", state="sent", ai_generated=True,
                                    body="CONFIDENTIAL-HISTORIC-MESSAGE", created_at=old))
         run = AssistantRun(org_id=org_id, channel="messenger", source="ai",
-                           elapsed_ms=1350, feedback="incorrect", created_at=old)
+                           elapsed_ms=16000, feedback="incorrect", created_at=old,
+                           timings={"trace_version": 1, "context_truncated": True,
+                                    "model_requested": True, "context_turns": 0})
         db.add(run)
         db.flush()
         review = AIResponseReview(
@@ -60,6 +62,11 @@ def test_historical_inventory_is_private_and_includes_old_records(ai_env):
     assert result["audited_deficiencies"]["messenger"]["context"]["failure_percent"] == 100
     assert result["audited_deficiencies"]["messenger"]["safety"]["assessed"] == 0
     assert result["runs_by_channel"]["messenger"]["reported_incorrect"] == 1
+    forensic = result["diagnostic_telemetry"]
+    assert forensic["full_coverage"] is True
+    assert forensic["signals"]["context_truncated"] == 1
+    assert forensic["signals"]["model_called_without_history"] == 1
+    assert forensic["signals"]["slow_turns_over_15s"] == 1
     assert result["historical_quality_grade"] is None
     assert result["weights_updated"] is False
     assert "CONFIDENTIAL-HISTORIC-MESSAGE" not in response.text
