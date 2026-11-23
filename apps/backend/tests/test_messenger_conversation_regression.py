@@ -58,7 +58,7 @@ def test_screenshot_greeting_gets_help_without_permission_or_inference(network, 
     _local_messenger(n, monkeypatch)
     replies = []
     monkeypatch.setattr("app.facebook_chat_worker.graph_send",
-                        lambda *args: replies.append(args[2]) or "synthetic-delivered-1")
+                        lambda *args: replies.append(args[2]) or f"synthetic-delivered-{len(replies)}")
     monkeypatch.setattr("app.facebook_chat_worker.generate_text",
                         lambda *a, **kw: (_ for _ in ()).throw(AssertionError("No inference for greeting")))
     assert incoming(n, "hola buenos dias", "screenshot-greeting").status_code == 200
