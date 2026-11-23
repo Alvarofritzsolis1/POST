@@ -486,7 +486,8 @@ def ingest_facebook_payload(db, payload, cfg, *, notices=None):
                     reply = (("Ya avisé al equipo para que te atienda una persona. "
                               "No necesitas enviar documentos por aquí.") if wants_human(body) else
                              AI_PERMISSION_DECLINED if lead.ai_consent_state == "declined" else
-                             reply_for_support(signal, bool(lead.specialty)))
+                             ("Dejé tu consulta para que la revise una persona del equipo. "
+                              "Te pueden ayudar por este chat; no necesitas enviar documentos."))
             elif direct:
                 reply = direct
             elif local and identity_reply(body):
