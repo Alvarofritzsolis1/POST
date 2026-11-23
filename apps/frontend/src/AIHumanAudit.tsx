@@ -34,7 +34,7 @@ export default function AIHumanAudit({ onPractice }: { onPractice: (channel: Cha
   const [channel, setChannel] = useState<Channel>("messenger");
   const [queue, setQueue] = useState<Queue | null>(null);
   const [evidence, setEvidence] = useState<Evidence | null>(null);
-  const [ratings, setRatings] = useState<Record<string, boolean>>({});
+  const [ratings, setRatings] = useState<Record<string, boolean | null>>({});
   const [attested, setAttested] = useState(false);
   const [busy, setBusy] = useState(false);
   const [revision, setRevision] = useState(0);
@@ -290,11 +290,12 @@ export default function AIHumanAudit({ onPractice }: { onPractice: (channel: Cha
       <p className="ai-human-audit-hint">Verifica cada criterio sobre esta conversación real. Si falta evidencia para comprobarlo, no apruebes ese criterio.</p>
       <div className="ai-human-audit-ratings">
         {evidence.criteria.map(key => <label key={key}>{criterionNames[key] ?? key}
-          <select value={ratings[key] === undefined ? "" : ratings[key] ? "pass" : "fail"}
-            onChange={event => setRatings(prev => ({ ...prev, [key]: event.target.value === "pass" }))}>
+          <select value={ratings[key] === undefined ? "" : ratings[key] === null ? "unknown" : ratings[key] ? "pass" : "fail"}
+            onChange={event => setRatings(prev => ({ ...prev, [key]: event.target.value === "unknown" ? null : event.target.value === "pass" }))}>
             <option value="" disabled>Sin evaluar</option>
             <option value="pass">Cumple</option>
             <option value="fail">No cumple</option>
+            <option value="unknown">No comprobable</option>
           </select>
         </label>)}
       </div>
@@ -303,7 +304,7 @@ export default function AIHumanAudit({ onPractice }: { onPractice: (channel: Cha
         He revisado personalmente el mensaje y la respuesta originales.
       </label>
       <div className="ai-human-audit-actions">
-        <button type="button" disabled={busy || !attested || evidence.criteria.some(key => ratings[key] === undefined)}
+        <button type="button" disabled={busy || !attested || evidence.criteria.some(key => ratings[key] === undefined) || evidence.criteria.every(key => ratings[key] === null)}
           onClick={() => void submit()}>Guardar evaluación verificada</button>
       </div>
     </div>}

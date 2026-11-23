@@ -37,22 +37,27 @@ def policy_title(channel: str, criterion: str) -> str:
 def learning_plan(reviews, channel: str) -> dict:
     """Pure diagnosis of real human labels; no estimated grade or mock cases."""
     counts = {key: 0 for key in POLICIES[channel]}
+    assessed = {key: 0 for key in POLICIES[channel]}
     total = len(reviews)
     for review in reviews:
         for criterion in counts:
+            if review.ratings.get(criterion) is not None:
+                assessed[criterion] += 1
             if review.ratings.get(criterion) is False:
                 counts[criterion] += 1
     items = []
     for key, errors in counts.items():
         name, _, method = POLICIES[channel][key]
-        rate = round(100 * errors / total, 1) if total else None
-        priority = ("sin_evidencia" if not total else
+        observed = assessed[key]
+        rate = round(100 * errors / observed, 1) if observed else None
+        priority = ("sin_evidencia" if not observed else
                     "critica" if key == "safety" and errors else
                     "alta" if errors >= 3 and rate >= 30 else
                     "observada" if errors else "sin_falla_observada")
         items.append({
-            "criterion": key, "label": name, "reviewed": total,
-            "failed": errors, "failure_percent": rate,
+            "criterion": key, "label": name, "reviewed": observed,
+            "failed": errors, "not_assessable": total - observed,
+            "failure_percent": rate,
             "priority": priority, "method": method,
             "ready_for_practice": errors > 0,
             "evidence": "human_reviewed_production",
