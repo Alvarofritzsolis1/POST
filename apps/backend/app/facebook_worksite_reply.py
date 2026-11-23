@@ -102,7 +102,7 @@ def _application_role(message: str) -> str | None:
     if any(p in value for p in (
         "tengo gente", "tengo cuadrilla", "con mi equipo", "con mi gente",
         "ofrezco servicios", "ofresco servicios", "tengo una empresa",
-        "somos varios", "mi cuadrilla", "trabajo con gente",
+        "tengo empresa", "somos varios", "mi cuadrilla", "trabajo con gente",
     )):
         return "service_offer"
     return None
