@@ -23,6 +23,7 @@ from .galancito_general import GENERAL_INSTRUCTIONS, QWEN_4B
 from .galancito_knowledge_api import KnowledgeInput, create
 from .galancito_knowledge_models import Knowledge
 from .galancito_local import generate_local_text
+from .galancito_memory import aware
 from .galancito_runtime import infer
 from .galancito_triage import private_data
 from .models import AuditEvent, User, utcnow
@@ -116,7 +117,8 @@ def replay(body: ReplayInput, user: User = Depends(administrator),
     if private_data(prompt) or len(prompt) > 3200:
         raise HTTPException(422, "Hay datos privados; esta conversación no se reproduce")
     instructions = (REPLY_INSTRUCTIONS if channel == "messenger" else GENERAL_INSTRUCTIONS)
-    instructions += "\nCorrección experimental (no aprobada):\n" + POLICIES[channel][body.criterion][1]
+    instructions = ("Corrección experimental de una falla revisada (no aprobada):\n" +
+                    POLICIES[channel][body.criterion][1] + "\n\n" + instructions)
     started = perf_counter()
     try:
         candidate = infer(db, lambda: generate_local_text(
@@ -150,7 +152,7 @@ def review_trial(trial_id: str, body: TrialRating,
         raise HTTPException(404, "Práctica no encontrada")
     if row.outcome != "pending":
         raise HTTPException(409, "Esta práctica ya fue evaluada")
-    if row.created_at < utcnow() - timedelta(minutes=30):
+    if aware(row.created_at) < utcnow() - timedelta(minutes=30):
         raise HTTPException(409, "Evaluación caducada; no se permite inventar un resultado")
     row.outcome, row.reviewed_at = body.outcome, utcnow()
     db.add(AuditEvent(org_id=user.org_id, user_id=user.id,
