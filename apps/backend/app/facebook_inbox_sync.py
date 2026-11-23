@@ -185,6 +185,7 @@ def sync_page_inbox(*, page_id: str, page_token: str, org_id: str,
                     pending.state = "cancelled"
                 preceding = latest_new.get(psid)
                 if (preceding and decision is None and not identity_reply(body)
+                        and not wants_human(body)
                         and (needs_deeper_response(preceding[1]) or is_worksite_location(preceding[1]))
                         and not (needs_deeper_response(body) or is_worksite_location(body))
                         and declared_relative_start(body) is None):
