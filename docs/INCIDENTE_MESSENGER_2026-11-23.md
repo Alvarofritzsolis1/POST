@@ -16,7 +16,7 @@ Un contacto escribió «hola buenos dias». La página respondió con un permiso
 ## Corrección candidata
 
 - Una sola función `is_pure_greeting`, reutilizada por triage e intake, admite saludos combinados comunes sin tragar frases con solicitudes o preguntas.
-- El primer saludo obtiene una respuesta local inmediata, con presentación breve de automatización una sola vez, sin pedir autorización innecesaria ni API.
+- El primer saludo obtiene una respuesta local inmediata y conversacional sin una presentación técnica repetitiva, autorización innecesaria ni API. No afirma falsamente que sea humano; las preguntas explícitas sobre identidad se responden con transparencia.
 - El worker no declara fracaso de inferencia ni atención humana por un turno de autorización cuyo contenido no requiere modelo.
 - La reconciliación de Inbox usa la misma ruta rápida que el webhook, incluso para contactos previamente consentidos.
 - El control de seguridad para preguntas complejas, revalidación antes del envío, derivación humana real y ventanas de Meta se mantienen.
