@@ -314,7 +314,7 @@ def tick(db, sampler, *, sampled=None, training_model=None):
             MaxPowerEvent.round_id == row.org_id,
             MaxPowerEvent.event == "cpu_supervisor_status"))
         if (cpu_event is not None
-                and (cpu_event.evidence or {}).get("state") in ("training", "training_synthetic", "pausing", "cpu_waiting_turn")
+                and (cpu_event.evidence or {}).get("state") in ("training", "preparing_synthetic", "training_synthetic", "pausing", "cpu_waiting_turn")
                 and aware(cpu_event.created_at) >= aware(now) - timedelta(seconds=55)):
             set_wait(row, now, "cpu_neural_training",
                      ("Reservando turno para LoRA CPU verificado; práctica 4B en espera" if
