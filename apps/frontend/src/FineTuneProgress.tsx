@@ -67,13 +67,12 @@ export default function FineTuneProgress(){
   const spread=Math.max(1e-10,max-min);
   const coords=samples.map((p,i)=>({
     p, x:36+(samples.length===1?320:i*640/(samples.length-1)),
-    y:164-(p[metric] as number-min)/spread*128,
+    y:164-((p[metric] as number)-min)/spread*128,
   }));
   const line=coords.map(({x,y})=>x.toFixed(1)+","+y.toFixed(1)).join(" ");
   const current=selected==null?coords[coords.length-1]:coords.find(p=>p.p.sequence===selected);
   const lastUpdate=run?.last_update_at?new Date(run.last_update_at).getTime():0;
   const stale=!!run && run.stage!=="finished" && Date.now()-lastUpdate>60000;
-  const latest=run?.points.at(-1);
   const lastBy=(key:keyof MetricPoint):number|null=>{
     for(const p of [...(run?.points||[])].reverse()){
       const value=p[key];
