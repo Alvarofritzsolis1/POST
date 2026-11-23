@@ -29,14 +29,14 @@ def test_ai_falls_back_without_model_and_does_not_fabricate(monkeypatch):
     assert answer == "Instalación de canalizaciones eléctricas en edificios."
 
 
-def test_ai_uses_grounded_valid_summary(monkeypatch):
+def test_ai_does_not_claim_a_near_verbatim_rewrite_as_an_improvement(monkeypatch):
     from app import network_ad_copy
     source = "Realizar pintura de exteriores de edificios y terminaciones."
     monkeypatch.setattr(network_ad_copy, "infer", lambda *args, **kwargs:
                         "Pintura de exteriores de edificios y terminaciones.")
     answer, mode = draft_summary(None, org_id="org", description=source,
                                  specialty="Pintura")
-    assert mode == "ia"
+    assert mode == "automatico"
     assert answer == "Pintura de exteriores de edificios y terminaciones."
 
 
