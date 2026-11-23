@@ -98,6 +98,13 @@ def test_supervisor_rejects_unsafe_paths_and_never_signs_unapproved_dataset(tmp_
     manifest.chmod(0o600)
     assert mod.approved_inputs(folder, data, manifest, "") is None
     assert mod.approved_inputs(folder, data, manifest, "a" * 64) is None
+    spoof = tmp_path / "other-org"
+    spoof.symlink_to(folder, target_is_directory=True)
+    assert mod.approved_inputs(spoof, spoof / "approved.jsonl",
+                               spoof / "approval.json", "a" * 64) is None
+    (folder / "runs").symlink_to(tmp_path, target_is_directory=True)
+    assert mod.approved_inputs(folder, data, manifest, "a" * 64) is None
+    (folder / "runs").unlink()
 
     path, resume, state = mod.select_run(folder, "f" * 64)
     assert not resume and state == "new"
