@@ -85,6 +85,12 @@ def _view(db, user, row):
         MaxPowerEvent.org_id == user.org_id,
         ~MaxPowerEvent.event.like("ft_%"),
     ).order_by(MaxPowerEvent.created_at.desc()).limit(30)))
+    cpu_event = db.scalar(select(MaxPowerEvent).where(
+        MaxPowerEvent.org_id == user.org_id,
+        MaxPowerEvent.round_id == user.org_id,
+        MaxPowerEvent.event == "cpu_supervisor_status"))
+    cpu_state = (cpu_event.evidence or {}).get("state") if cpu_event else None
+    cpu_online = bool(cpu_event and aware(cpu_event.created_at) >= aware(now) - timedelta(seconds=55))
     messenger_trials = list(db.scalars(select(MaxPowerMessengerTrial).where(
         MaxPowerMessengerTrial.org_id == user.org_id
     ).order_by(MaxPowerMessengerTrial.created_at.desc()).limit(150)))
@@ -128,6 +134,15 @@ def _view(db, user, row):
         "reason": row.last_reason if row else "MAX POWER todavía no se ha encendido",
         "controller_online": controller_online,
         "trainer_online": trainer_online,
+        "cpu_learning": {
+            "status": cpu_state if cpu_online else "manager_offline",
+            "reason": (cpu_event.reason if cpu_online else
+                       "El controlador neuronal no ha informado recientemente"),
+            "last_update_at": cpu_event.created_at if cpu_event else None,
+            "manager_online": cpu_online,
+            "weights_trained": False,
+            "model": "Qwen/Qwen3.5-0.8B",
+        },
         "priorities": priority_from_reviews(priorities),
         "messenger_experiments": messenger_summary,
         "automatic_quality": _automatic_quality(messenger_trials, events),
@@ -221,6 +236,16 @@ def control(action: Literal["on", "off"], user: User = Depends(administrator),
         row.last_stopped_at = now
         row.last_status = "off"
         row.last_reason = "Detenido por administración; progreso y evidencia conservados"
+        # Make OFF visible synchronously; the sidecar may be finishing one
+        # slow optimizer step before noticing the changed session generation.
+        cpu_event = db.scalar(select(MaxPowerEvent).where(
+            MaxPowerEvent.org_id == user.org_id,
+            MaxPowerEvent.round_id == user.org_id,
+            MaxPowerEvent.event == "cpu_supervisor_status").with_for_update())
+        if cpu_event is not None:
+            cpu_event.reason = "MAX POWER apagado: entrenamiento neuronal detenido"
+            cpu_event.evidence = {"state": "off", "generation": row.session_generation}
+            cpu_event.created_at = now
         if row.active_round_id:
             running = db.scalar(select(TrainingRound).where(
                 TrainingRound.id == row.active_round_id,
