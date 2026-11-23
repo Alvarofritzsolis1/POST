@@ -170,9 +170,8 @@ def run_once(secret: str, plan: dict, public_key: str, last_preflight: dict,
     if plan.get("messenger_busy"):
         report("messenger_priority")
         return
-    if plan.get("practice_busy"):
-        report("practice_priority")
-        return
+    # Do not reserve CPU time until signed private examples and sufficient
+    # real resources exist; evaluation practice must otherwise keep running.
     resources = snapshot(root if root.exists() else HOME)
     gate = capacity_gate(resources)
     key = f"{org}:{generation}"
@@ -211,6 +210,11 @@ def run_once(secret: str, plan: dict, public_key: str, last_preflight: dict,
         return
     if run_state == "cannot_resume":
         report("cannot_resume")
+        return
+    if plan.get("practice_busy"):
+        # Give already-running 4B practice its full turn; prevent new rounds
+        # from starting so authorized CPU LoRA eventually gets CPU time.
+        report("cpu_waiting_turn")
         return
     control = root / ".max-power-automatic-control.json"
     write_control(control, org, generation, True)
