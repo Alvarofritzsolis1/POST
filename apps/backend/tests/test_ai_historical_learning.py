@@ -282,3 +282,25 @@ def test_model_does_not_claim_learning_when_context_was_truncated(ai_env):
     assert body["engineering_findings"][0]["hypothesis"] == "contexto_truncado"
     assert body["engineering_findings"][0]["mechanism"] == "reducir_contexto_o_priorizar_memoria"
     assert body["automatic_approval"] is False
+
+
+
+def test_training_cli_fails_closed_without_separately_signed_manifest(tmp_path):
+    """A spoofed 'approved' flag cannot authorize any gradient execution."""
+    import importlib.util
+    from pathlib import Path
+
+    repo_root = Path(__file__).resolve().parents[3]
+    spec = importlib.util.spec_from_file_location(
+        "galant_offline_training_cli", repo_root / "scripts" / "train_galancito_lora.py")
+    module = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(module)
+    dataset = tmp_path / "spoofed.jsonl"
+    dataset.write_text(
+        "\n".join(json.dumps(_example(n), ensure_ascii=False) for n in range(200)) + "\n",
+        encoding="utf-8",
+    )
+    # No torch imports or GPU work should occur before authorization.
+    with pytest.raises(SystemExit, match="approval-manifest"):
+        module.main(["--dataset", str(dataset), "--execute",
+                     "--output", str(tmp_path / "candidate")])
