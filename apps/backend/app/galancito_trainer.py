@@ -6,7 +6,7 @@ import logging
 from time import monotonic, sleep
 from types import SimpleNamespace
 
-from sqlalchemy import delete, exists, select, text
+from sqlalchemy import delete, exists, or_, select, text
 from sqlalchemy.exc import SQLAlchemyError
 
 from .ai_gateway import AIServiceError, invoke, monthly_tokens, record_usage
@@ -129,7 +129,14 @@ def claim(factory, snapshot, *, maintenance=False, training_model=None, only_orc
             TrainingRound.next_at <= now,
         )
         if only_orchestrator is not None:
+            # MAX POWER uses its own isolated Ollama and must opt in explicitly.
             query = query.where(TrainingRound.config["orchestrator"].as_string() == only_orchestrator)
+        else:
+            # The ordinary trainer may never steal a MAX POWER round: it could
+            # otherwise send Qwen3.5 work to the production Ollama instance.
+            # Preserve old rounds whose JSON config has no orchestrator key.
+            assigned = TrainingRound.config["orchestrator"].as_string()
+            query = query.where(or_(assigned.is_(None), assigned != "max_power"))
         rows = db.scalars(query.order_by(TrainingRound.next_at, TrainingRound.created_at)
                           .limit(8).with_for_update(skip_locked=True)).all()
         for row in rows:
