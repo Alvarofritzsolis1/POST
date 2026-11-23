@@ -86,6 +86,7 @@ AUTOMATION_STATES = {
     "awaiting_resources": "RAM o disco insuficientes; se protege Messenger",
     "messenger_priority": "Messenger activo; entrenamiento neuronal en pausa",
     "practice_priority": "Prueba MAX POWER activa; entrenamiento neuronal en espera",
+    "cpu_waiting_turn": "Datos autorizados listos; esperando que termine la práctica 4B para entrenar pesos",
     "preflight": "Comprobando RAM y disco del VPS",
     "training": "Actualizando pesos LoRA de Qwen3.5 0.8B",
     "pausing": "Guardando checkpoint y pausando entrenamiento",
@@ -118,7 +119,7 @@ class SupervisorStatus(BaseModel):
     org_id: UUID
     generation: int = Field(ge=1)
     status: Literal["off", "awaiting_approved_dataset", "awaiting_resources",
-                    "messenger_priority", "practice_priority", "preflight", "training", "pausing",
+                    "messenger_priority", "practice_priority", "cpu_waiting_turn", "preflight", "training", "pausing",
                     "paused", "finished", "awaiting_new_dataset",
                     "cannot_resume", "failed"]
 
