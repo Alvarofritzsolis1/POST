@@ -1,0 +1,163 @@
+"""Autonomous low-priority conductor; loops indefinitely until switched off.
+
+Only schedules existing real-database Qwen evaluations. Never silently changes
+production prompts, weights, permissions or external API settings.
+"""
+from datetime import timedelta
+import logging
+from time import sleep
+from sqlalchemy import select
+from sqlalchemy.exc import SQLAlchemyError
+
+from .db import SessionLocal
+from .galancito_memory import aware
+from .galancito_real_learning import collect_live_cases
+from .galancito_trainer import messenger_busy
+from .galancito_training import ResourceSampler
+from .galancito_training_api import RoundInput, start
+from .galancito_training_models import ACTIVE, TrainingRound, TrainingWorker
+from .max_power_decisions import can_run, classify_outcome, evidence_fingerprint
+from .max_power_models import MaxPowerEvent, MaxPowerState
+from .models import User, utcnow
+
+logger = logging.getLogger(__name__)
+IDLE_SECONDS = 20
+RECHECK_SECONDS = 300
+
+def set_wait(row, now, code, reason, seconds=RECHECK_SECONDS):
+    row.last_status, row.last_reason = code, reason[:280]
+    row.next_at = now + timedelta(seconds=seconds)
+
+def _result(db, row, completed, now):
+    metrics = completed.metrics or {}
+    outcome = classify_outcome(metrics)
+    samples = int(metrics.get("ollama_timing_samples") or 0)
+    totals = metrics.get("ollama_timing_totals") or {}
+    timing = {k: round(v / samples, 2) for k, v in totals.items()
+              if samples > 0 and isinstance(v, (int, float))}
+    row.experiments += 1
+    row.examined_cases += int(completed.completed or 0)
+    row.lab_gains += outcome["holdout_wins"]
+    row.regressions += outcome["holdout_losses"]
+    row.last_round_id = completed.id
+    row.active_round_id = None
+    row.latest_result = {**outcome, "completed_at": now.isoformat(),
+                         "round_state": completed.state, "model": (completed.config or {}).get("model", {}).get("model"),
+                         "evaluated_cases": completed.completed, "ollama_avg": timing,
+                         "inference_p50_ms": None, "inference_p95_ms": None}
+    # No falsely asserted production gain. A lab win still awaits review/promotion.
+    db.add(MaxPowerEvent(org_id=row.org_id, event="experiment_completed",
+                         reason=outcome["reason"], round_id=completed.id,
+                         evidence={k: row.latest_result[k] for k in
+                                   ("holdout_pairs", "holdout_wins", "holdout_losses",
+                                    "p_value", "lab_verified", "production_verified",
+                                    "weights_changed")}))
+    set_wait(row, now, outcome["code"], outcome["reason"] + ". " + outcome["next"])
+
+def tick(db, sampler):
+    """One transactional decision per organization, protected by row locks."""
+    now = utcnow()
+    rows = list(db.scalars(select(MaxPowerState).where(
+        MaxPowerState.enabled.is_(True),
+    ).with_for_update(skip_locked=True).limit(12)))
+    snapshot = sampler.sample()
+    for row in rows:
+        row.worker_seen_at = now
+        if row.last_tick_at:
+            # Count actual controller uptime, not days when the VPS was powered off.
+            seconds = max(0, (aware(now) - aware(row.last_tick_at)).total_seconds())
+            row.on_seconds += int(min(seconds, 15))
+        row.last_tick_at = now
+        row.updated_at = now
+        if row.active_round_id:
+            current = db.scalar(select(TrainingRound).where(
+                TrainingRound.id == row.active_round_id, TrainingRound.org_id == row.org_id))
+            if current is not None and current.state in ACTIVE:
+                row.last_status = "evaluating"
+                row.last_reason = f"Prueba operativa: {current.completed} de {current.target} casos"
+                continue
+            if current is not None:
+                _result(db, row, current, now)
+            else:
+                row.active_round_id = None
+                set_wait(row, now, "missing_round", "Ronda no encontrada; se conservan datos anteriores")
+            continue
+        if aware(row.next_at) > aware(now):
+            continue
+        # Existing manual practice always takes precedence.
+        current = db.scalar(select(TrainingRound.id).where(
+            TrainingRound.org_id == row.org_id, TrainingRound.state.in_(ACTIVE)))
+        if current:
+            set_wait(row, now, "manual_round_busy", "Práctica Bot está ocupado; MAX POWER espera", 60)
+            continue
+        worker = db.get(TrainingWorker, 1)
+        if not (worker and aware(worker.updated_at) >= aware(now) - timedelta(seconds=150)):
+            set_wait(row, now, "trainer_unavailable", "El motor de práctica no está operativo", 30)
+            continue
+        ok, reason = can_run(snapshot, messenger_pending=bool(messenger_busy(db)))
+        if not ok:
+            set_wait(row, now, "resource_guard", reason, 30)
+            continue
+        owner = db.get(User, row.owner_id)
+        if not owner or owner.org_id != row.org_id or owner.role != "admin":
+            set_wait(row, now, "permission_required", "No hay administrador autorizado para prácticas", 300)
+            continue
+        try:
+            cases = collect_live_cases(db, owner)
+        except ValueError as exc:
+            set_wait(row, now, "insufficient_evidence", str(exc))
+            continue
+        # Eight reserved pairs are the minimum required for this live evaluator.
+        if len(cases) < 16:
+            set_wait(row, now, "insufficient_evidence",
+                     "Se necesitan 16 casos operativos autorizados para obtener 8 pares reservados")
+            continue
+        fingerprint = evidence_fingerprint(cases)
+        if row.last_evidence_hash == fingerprint:
+            set_wait(row, now, "awaiting_new_evidence",
+                     "No hay datos nuevos: repetir las mismas preguntas no demuestra mejora", 600)
+            continue
+        try:
+            result = start(db, owner, RoundInput(
+                profile="interno", suite="live", model="ollama",
+                cases=min(8, len(cases) // 2), cycles=4,
+                minutes=60, cpu_limit_percent=70,
+                ram_limit_mb=0, token_budget=30000,
+                cost_budget=0, night=False))
+        except Exception as exc:
+            # A blocked start must not invent a completed experiment or success.
+            logger.warning("MAX POWER could not schedule a round: %s", type(exc).__name__)
+            db.rollback()
+            locked = db.get(MaxPowerState, row.org_id)
+            if locked is not None:
+                set_wait(locked, now, "cannot_schedule",
+                         "No se pudo iniciar una ronda real; revisar Qwen, datos y motor", 300)
+                db.commit()
+            continue
+        row.active_round_id = result["id"]
+        row.last_evidence_hash = fingerprint
+        row.last_status = "evaluating"
+        row.last_reason = "Prueba A/B operativa: muestras reales, sin cambiar pesos"
+        row.next_at = now + timedelta(seconds=20)
+        db.add(MaxPowerEvent(org_id=row.org_id, event="experiment_queued",
+                             reason=row.last_reason, round_id=result["id"],
+                             evidence={"evidence_fingerprint": fingerprint,
+                                       "planned_cases": result["target"], "data_type": "db_aggregate"}))
+    db.commit()
+
+def main():
+    from . import main as _application  # registers all SQLAlchemy models
+    logging.basicConfig(level=logging.INFO)
+    sampler = ResourceSampler()
+    while True:
+        try:
+            with SessionLocal() as db:
+                tick(db, sampler)
+        except SQLAlchemyError as exc:
+            logger.warning("MAX POWER waiting for database: %s", type(exc).__name__)
+        except Exception:
+            logger.exception("MAX POWER controller cycle failed")
+        sleep(5)
+
+if __name__ == "__main__":
+    main()
