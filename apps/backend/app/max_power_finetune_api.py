@@ -108,7 +108,8 @@ async def ingest(request: Request,
         return {"accepted": True, "duplicate": True}
     db.add(MaxPowerEvent(
         org_id=str(sample.org_id), round_id=str(sample.run_id),
-        event=key, reason="Gradientes QLoRA GPU: " + sample.kind,
+        event=key, reason=("Gradientes LoRA CPU: " if sample.model.endswith("0.8B")
+                            else "Gradientes QLoRA GPU: ") + sample.kind,
         evidence=sample.model_dump(mode="json", exclude={"org_id", "run_id"}, exclude_none=True),
     ))
     try:
