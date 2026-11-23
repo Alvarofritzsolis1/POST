@@ -84,6 +84,14 @@ def test_real_chat_trial_requires_audited_failure_and_human_review(ai_env, monke
         return "Entiendo que ya trabajas en gasfitería. ¿En qué comuna puedes trabajar?"
     monkeypatch.setattr(ai_real_learning_api, "generate_local_text", model)
     monkeypatch.setattr(ai_real_learning_api, "infer", lambda db, fn: fn())
+    monkeypatch.setattr(ai_real_learning_api, "last_timings",
+                        SimpleNamespace(get=lambda: {"response_model": "wrong/model"}))
+    mismatch = client.post(base + "/real-learning/replay", headers=headers,
+                           json={"source_id": ids[0], "criterion": "context"})
+    assert mismatch.status_code == 503 and "no confirmó" in mismatch.text
+    monkeypatch.setattr(ai_real_learning_api, "last_timings",
+                        SimpleNamespace(get=lambda: {"response_model": "qwen3.5:4b-q4_K_M",
+                                                     "generation_ms": 1800}))
     for ident in ids:
         reply = client.post(base + "/real-learning/replay", headers=headers,
                             json={"source_id": ident, "criterion": "context"})
