@@ -153,6 +153,32 @@ jobs:
               print(f"QWEN4B_QA_{i}=respuesta_verificable LATENCIA_MS={elapsed} CARACTERES={len(text)}")
           print("QWEN4B_QA=real_model_ran_privately_no_production_changes")
           PY
+      - name: Probar el cliente Qwen 4B real de MAX POWER (no solo Ollama)
+        shell: bash
+        run: |
+          set -Eeuo pipefail
+          python3 -m pip install --quiet 'pydantic-settings>=2,<3'
+          GALANT_MAX_POWER_ISOLATED=true python3 - <<'PY'
+          import sys
+          from types import SimpleNamespace
+          sys.path.insert(0,"apps/backend")
+          from app import galancito_local as client
+          from app.galancito_general import QWEN_4B
+          assert client.MAX_POWER_ISOLATED is True
+          # Isolated GitHub runner endpoint, NEVER a production service.
+          client.TRAINING_OLLAMA="http://127.0.0.1:11536"
+          cfg=SimpleNamespace(galancito_local_model=QWEN_4B,
+              galancito_keep_alive="1m",galancito_num_ctx=1024,
+              galancito_num_predict=96,galancito_num_thread=2)
+          reply=client.generate_training_text(
+              "Asesor de oficios. Español claro, amable, una pregunta a la vez. Sin suponer cupos ni pagos.",
+              "Hola, soy electricista, ¿cómo puedo ofrecer mis servicios?",25,cfg,thinking=False)
+          source=client.last_timings.get().get("response_model")
+          assert source==QWEN_4B,(source,repr(reply))
+          assert isinstance(reply,str) and len(reply.strip())>=10
+          print("MAX_POWER_QWEN4B_CLIENT=verified_real_isolated_inference")
+          PY
+
       - name: Eliminar Ollama de pruebas
         if: always()
         run: docker rm -f galant-maxpower-qwen4b-qa || true
