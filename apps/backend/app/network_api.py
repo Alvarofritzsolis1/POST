@@ -31,7 +31,7 @@ from .network_models import (
 from .network_history import history_view
 from .network_facebook import enqueue, status_view
 from .network_posters import store_poster, verified_poster_path
-from .network_ad_copy import draft_summary, summary_safe
+from .network_ad_copy import draft_summary, summary_safe, editorial_diagnostics
 from .network_schemas import (
     AmendmentInput,
     AwardEdit,
@@ -226,7 +226,8 @@ def requirement_summary_suggestion(body: DraftCopyInput, user: User = Depends(au
                                        specialty=body.specialty)
     if not summary_safe(suggestion, body.description, site_name=site.name):
         raise HTTPException(422, "La descripción incluye datos que deben revisarse antes de publicar")
-    return {"suggestion": suggestion, "source": source}
+    return {"suggestion": suggestion, "source": source,
+            **editorial_diagnostics(body.description, body.specialty)}
 
 
 @router.get("/requirements/{record_id}/poster")
