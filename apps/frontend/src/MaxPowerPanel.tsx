@@ -15,6 +15,7 @@ type Status = {
   priorities: Array<{channel: string; criterion: string; failures: number}>;
   quality: Record<string, Sample>; quality_deltas: Record<string, Delta>;
   messenger_experiments?: {trials: number; objective_gains: number; regressions: number; inconclusive: number; active: number};
+  automatic_quality?: Record<string,{pairs:number; baseline:number|null;candidate:number|null;delta_points:number|null;scope:string;minimum_cases:number;notes:string}>;
   latest_result: Record<string, unknown>;
   latency_diagnosis: {code: string; reason: string; measured_ms?: number; suggestion?: string};
   events: Event[]; limitations: string;
@@ -90,22 +91,17 @@ export default function MaxPowerPanel(){
     <div className="max-power-section-title"><Gauge size={17}/><h3>Mejora medida desde el inicio</h3></div>
     <div className="max-power-channel-grid">
       {channels.map(c=>{
-        const delta=data?.quality_deltas[c.id];
-        const sample=data?.quality[c.id];
+        const score=data?.automatic_quality?.[c.id];
         return <article key={c.id} className="max-power-card">
-          <div className="max-power-card-top"><strong>{c.label}</strong><span>Auditoría humana</span></div>
+          <div className="max-power-card-top"><strong>{c.label}</strong><span>Evaluación automática</span></div>
           <div className="max-power-scores">
-            <div><small>Nota al encender</small><strong>{grade(delta?.initial)}</strong></div>
-            <div><small>Nota reciente</small><strong>{grade(delta?.latest)}</strong></div>
-            <div><small>Diferencia observada</small><strong>{delta?.delta_points==null?"Sin evidencia":(delta.delta_points>0?"+":"")+delta.delta_points.toLocaleString("es-CL")+" pts"}</strong></div>
+            <div><small>Nota al encender</small><strong>{grade(score?.baseline)}</strong></div>
+            <div><small>Nota reciente</small><strong>{grade(score?.candidate)}</strong></div>
+            <div><small>Diferencia observada</small><strong>{score?.delta_points==null?"Sin evidencia":(score.delta_points>0?"+":"")+score.delta_points.toLocaleString("es-CL")+" pts"}</strong></div>
           </div>
-          <p>{sample?f(sample.reviewed_cases)+" auditorías en el período; mínimo "+sample.minimum_cases+" por criterio.":"Sin auditorías disponibles."} Las calificaciones de muestras no demuestran por sí solas causalidad.</p>
+          <p>{score ? f(score.pairs)+" pares evaluados automáticamente; mínimo "+score.minimum_cases+"." : "Sin pruebas automáticas terminadas."} {score?.notes || "Las notas aparecen solo con casos verificables."}</p>
           <div className="max-power-competencies">
-            {Object.entries(sample?.dimension_scores || {}).map(([key,value])=>
-              <div className="max-power-competency" key={key}>
-                <span>{pretty[key]||key}</span><span>{value==null?"Sin datos":value.toLocaleString("es-CL")+"%"}</span>
-                <div className="max-power-track"><div style={{width:(value??0)+"%"}}/></div>
-              </div>)}
+            <div className="max-power-competency"><span>Ámbito de evaluación</span><span>{score?.scope.replaceAll("_"," ")||"No evaluado"}</span></div>
           </div>
         </article>;
       })}

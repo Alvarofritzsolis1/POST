@@ -21,6 +21,51 @@ def _sample(db, org_id, since):
     return {channel: reviewed_sample(db, org_id, channel, since)
             for channel in ("messenger", "general")}
 
+def _automatic_quality(messenger_trials, events):
+    """Real model comparisons; no human labels and no invented global IQ score."""
+    first_per_source = {}
+    for t in reversed(messenger_trials):
+        if t.status != "completed" or not t.source_run_id:
+            continue
+        key = (t.source_run_id, t.criterion)
+        if key not in first_per_source:
+            first_per_source[key] = t
+    measured = []
+    categories = {"context":"context_pass", "profile":"context_pass",
+                  "naturalness":"naturalness_check", "safety":"safety_check"}
+    for trial in first_per_source.values():
+        col = categories.get(trial.criterion)
+        before = (trial.metrics or {}).get("baseline", {}).get(col)
+        after = (trial.metrics or {}).get("candidate", {}).get(col)
+        if type(before) is bool and type(after) is bool:
+            measured.append((int(before), int(after)))
+    pairs = len(measured)
+    automatic = {"messenger":{
+        "pairs":pairs,"scope":"controles_objetivos_parciales",
+        "baseline":round(100*sum(x for x,_ in measured)/pairs,1) if pairs >= 8 else None,
+        "candidate":round(100*sum(y for _,y in measured)/pairs,1) if pairs >= 8 else None,
+        "delta_points":round(100*sum(y-x for x,y in measured)/pairs,1) if pairs >= 8 else None,
+        "production_verified":False,"minimum_cases":8,
+        "notes":"Evaluaciones autónomas sobre casos reales; no equivale a calidad total ni a cambios publicados",
+    }}
+    general = next((event.evidence for event in events
+        if event.event=="experiment_completed" and
+        isinstance(event.evidence,dict) and
+        event.evidence.get("holdout_baseline_rate") is not None and
+        event.evidence.get("holdout_candidate_rate") is not None),None)
+    gpairs = int(general.get("holdout_pairs") or 0) if general else 0
+    gbase = float(general["holdout_baseline_rate"])*100 if general else None
+    gcandidate = float(general["holdout_candidate_rate"])*100 if general else None
+    automatic["general"]={
+        "pairs":gpairs, "scope":"exactitud_aritmetica_sobre_agregados_reales",
+        "baseline":round(gbase,1) if gpairs>=8 else None,
+        "candidate":round(gcandidate,1) if gpairs>=8 else None,
+        "delta_points":round(gcandidate-gbase,1) if gpairs>=8 else None,
+        "production_verified":False,"minimum_cases":8,
+        "notes":"Comparación reservada con respuestas de referencia; no mide razonamiento general completo",
+    }
+    return automatic
+
 def _view(db, user, row):
     now = utcnow()
     since = now - timedelta(days=30)
@@ -78,6 +123,7 @@ def _view(db, user, row):
         "trainer_online": trainer_online,
         "priorities": priority_from_reviews(priorities),
         "messenger_experiments": messenger_summary,
+        "automatic_quality": _automatic_quality(messenger_trials, events),
         "quality": current,
         "quality_deltas": improvement,
         "latest_result": recent,
@@ -85,8 +131,9 @@ def _view(db, user, row):
         "events": [{"id": e.id, "at": e.created_at, "event": e.event,
                     "reason": e.reason, "round_id": e.round_id, "evidence": e.evidence}
                    for e in events],
-        "limitations": ("Pruebas del laboratorio no equivalen a aprendizaje de pesos ni a "
-                        "mejora global en producción. Sin auditorías suficientes no hay nota."),
+        "limitations": ("MAX POWER selecciona y evalúa automáticamente casos verificables. "
+                        "Una puntuación de laboratorio no significa mejora desplegada "
+                        "ni aprendizaje de pesos; resultados no verificables quedan sin nota."),
     }
 
 @router.get("")
