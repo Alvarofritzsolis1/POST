@@ -217,7 +217,7 @@ jobs:
     steps:
       - uses: actions/checkout@v4
       - run: bash -n scripts/install-preview.sh scripts/diagnose.sh scripts/backup-preview.sh scripts/verify-restore-preview.sh scripts/update-preview.sh scripts/start-qa-preview.sh scripts/wait-for-final-postgres.sh
-      - run: python3 -m py_compile scripts/soak_24h.py scripts/qa_stack_smoke.py scripts/qa_operational_smoke.py scripts/qa_network_browser.py scripts/qa_v1010_browser.py scripts/qa_ux_2026_browser.py scripts/qa_galant_premium_motion_browser.py scripts/qa_v1501_focus_browser.py scripts/qa_v1502_scroll_browser.py scripts/qa_v1504_creator_browser.py scripts/qa_javiera_v16_browser.py scripts/qa_javiera_v165_workflow_browser.py scripts/qa_javiera_ux_bot.py scripts/qa_javiera_v196_simple_browser.py scripts/qa_javiera_v201_browser.py scripts/qa_javiera_documentary_irl_browser.py scripts/qa_configuration_browser.py
+      - run: python3 -m py_compile scripts/soak_24h.py scripts/qa_stack_smoke.py scripts/qa_operational_smoke.py scripts/qa_network_browser.py scripts/qa_v1010_browser.py scripts/qa_ux_2026_browser.py scripts/qa_galant_premium_motion_browser.py scripts/qa_v1501_focus_browser.py scripts/qa_v1502_scroll_browser.py scripts/qa_v1504_creator_browser.py scripts/qa_javiera_v16_browser.py scripts/qa_javiera_v165_workflow_browser.py scripts/qa_javiera_ux_bot.py scripts/qa_javiera_v196_simple_browser.py scripts/qa_javiera_v201_browser.py scripts/qa_javiera_documentary_irl_browser.py scripts/qa_configuration_browser.py scripts/qa_max_power_button_browser.py
       - name: Validate manual/automatic VPS deployment security contracts
         run: python3 scripts/qa_manual_deploy_contract.py
       - name: Validate automatic release gate with synthetic Git commits
@@ -468,6 +468,10 @@ jobs:
           # If a required runtime library is missing the browser test MUST
           # fail rather than reporting a false positive.
           python3 -m playwright install chromium
+      - name: MAX POWER — comprobar clic ON/OFF real en Chromium, persistencia y móvil
+        run: |
+          set -Eeuo pipefail
+          python3 scripts/qa_max_power_button_browser.py
       - name: QA GALANT 15.0.4 - firma elegante en portada y móviles
         run: |
           set -Eeuo pipefail
