@@ -134,3 +134,30 @@ def test_inference_started_before_off_on_cannot_record_fake_improvement(ai_env, 
             MaxPowerEvent.org_id == ai_env["org_id"],
             MaxPowerEvent.event == "messenger_experiment")))
         assert accepted == []
+
+
+def test_legacy_trainer_never_claims_max_power_isolated_round(ai_env):
+    """A normal trainer must not steal a 4B round onto production Ollama."""
+    from datetime import timedelta
+    from app.galancito_trainer import claim
+    from app.models import User, utcnow
+    sessions = ai_env["sessions"]
+    with sessions.begin() as db:
+        admin = db.scalar(select(User).where(
+            User.org_id == ai_env["org_id"], User.role == "admin"))
+        row = TrainingRound(
+            org_id=ai_env["org_id"], created_by=admin.id,
+            state="queued", target=8, completed=0,
+            next_at=utcnow() - timedelta(seconds=5),
+            config={"orchestrator": "max_power"},
+            dataset_hash="a" * 64, prompt_version="b" * 64,
+            system_version="20.9.23-rc1@test",
+            knowledge=[], aliases={}, metrics={})
+        db.add(row)
+        db.flush()
+        round_id = row.id
+    assert claim(sessions, StaticSampler().sample()) is None
+    with sessions() as db:
+        unchanged = db.get(TrainingRound, round_id)
+        assert unchanged.state == "queued"
+        assert unchanged.attempts == 0
