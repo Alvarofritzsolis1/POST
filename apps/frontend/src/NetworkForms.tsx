@@ -260,6 +260,11 @@ export function RequirementForm({
               }}
               required
             />
+            <small>{startPending ? "Inicio por confirmar; no se difunde la fecha provisional." : "Fecha de inicio estimada registrada."}</small>
+            {current && <span style={{display:"inline-flex",alignItems:"center",gap:7,fontSize:12}}>
+              <input type="checkbox" checked={startPending} onChange={(e) => setStartPending(e.target.checked)}/>
+              Inicio todavía por confirmar
+            </span>}
           </label>
           <label>
             Término estimado
