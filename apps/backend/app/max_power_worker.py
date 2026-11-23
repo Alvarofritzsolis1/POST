@@ -267,6 +267,19 @@ def tick(db, sampler):
         if current:
             set_wait(row, now, "manual_round_busy", "Práctica Bot está ocupado; MAX POWER espera", 60)
             continue
+        # CPU LoRA and 4B practice must never compete for the same six CPUs.
+        # The separate, signed supervisor refreshes this durable heartbeat
+        # while genuine optimizer steps run.
+        cpu_event = db.scalar(select(MaxPowerEvent).where(
+            MaxPowerEvent.org_id == row.org_id,
+            MaxPowerEvent.round_id == row.org_id,
+            MaxPowerEvent.event == "cpu_supervisor_status"))
+        if (cpu_event is not None
+                and (cpu_event.evidence or {}).get("state") in ("training", "pausing")
+                and aware(cpu_event.created_at) >= aware(now) - timedelta(seconds=55)):
+            set_wait(row, now, "cpu_neural_training",
+                     "LoRA CPU actualiza pesos en un contenedor aislado; prueba 4B en espera", 30)
+            continue
         if not MAX_POWER_ISOLATED:
             set_wait(row, now, "isolation_unavailable",
                      "MAX POWER requiere un Ollama de práctica aislado", 300)
