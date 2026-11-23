@@ -98,7 +98,7 @@ def test_ai_copy_is_discarded_when_fabricated_or_near_verbatim(monkeypatch):
 
 def test_ai_can_rewrite_only_grounded_facts(monkeypatch):
     from app import network_ad_copy
-    source = "EJECUTAR PINTURA EXTERIOR DE FACHADAS Y REJAS"
+    source = "PINTURA EXTERIOR: FACHADAS, REJAS"
     monkeypatch.setattr(
         network_ad_copy, "infer",
         lambda *args, **kwargs: "Pintura exterior de fachadas y rejas."
