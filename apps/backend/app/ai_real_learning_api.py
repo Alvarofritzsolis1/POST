@@ -22,7 +22,7 @@ from .facebook_ai import REPLY_INSTRUCTIONS
 from .galancito_general import GENERAL_INSTRUCTIONS, QWEN_4B
 from .galancito_knowledge_api import KnowledgeInput, create
 from .galancito_knowledge_models import Knowledge
-from .galancito_local import generate_local_text
+from .galancito_local import generate_local_text, last_timings
 from .galancito_memory import aware
 from .galancito_runtime import infer
 from .galancito_triage import private_data
@@ -127,6 +127,10 @@ def replay(body: ReplayInput, user: User = Depends(administrator),
         raise HTTPException(503, "Qwen local no terminó; no se registró ninguna mejora") from None
     if not candidate or not str(candidate).strip():
         raise HTTPException(503, "Qwen no produjo una respuesta para comparar")
+    # The actual model identity must be reported by Ollama, not merely configured.
+    observed = last_timings.get()
+    if not isinstance(observed, dict) or observed.get("response_model", "").casefold() != QWEN_4B.casefold():
+        raise HTTPException(503, "Ollama no confirmó Qwen3.5 4B; no se registra aprendizaje")
     elapsed = round((perf_counter() - started) * 1000)
     trial = AIRealPracticeTrial(
         org_id=user.org_id, review_id=review.id, reviewer_id=user.id,
@@ -138,6 +142,9 @@ def replay(body: ReplayInput, user: User = Depends(administrator),
             "model": QWEN_4B, "source": "actual_local_qwen_on_audited_production_chat",
             "original": evidence["answer"], "candidate": str(candidate)[:1000],
             "elapsed_ms": elapsed,
+            "ollama_timings_ms": {name: round(float(observed[name]), 1)
+                                 for name in ("load_ms", "prompt_ms", "generation_ms")
+                                 if isinstance(observed.get(name), (int, float))},
             "disclaimer": "Comparación exploratoria de un caso real; no es prueba reservada ni se envía a Messenger."}
 
 
