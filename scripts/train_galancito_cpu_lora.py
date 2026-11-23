@@ -132,6 +132,23 @@ def verified_optimizer_update(*, start_hash: str | None, end_hash: str,
             and end_step > start_step >= 0)
 
 
+def prepare_supervised_example(prompt_ids: list[int], answer_ids: list[int],
+                               length: int) -> dict:
+    """Make a completion-only example; NEVER train on a truncated answer."""
+    reserve = len(answer_ids)
+    if reserve > length - 24:
+        raise ValueError(
+            "Respuesta autorizada supera la ventana de entrenamiento; "
+            "reduce el ejemplo o aumenta --max-tokens sin exceder los límites")
+    prompt_ids = prompt_ids[-min(128, length - reserve):]
+    if len(prompt_ids) < 8 or not answer_ids:
+        raise ValueError("Ejemplo demasiado corto para entrenamiento supervisado")
+    ids = prompt_ids + answer_ids
+    return {"input_ids": ids,
+            "attention_mask": [1] * len(ids),
+            "labels": [-100] * len(prompt_ids) + answer_ids}
+
+
 def encode_cases(tokenizer, cases, length):
     from torch.utils.data import Dataset
     class FixedCases(Dataset):
@@ -145,23 +162,8 @@ def encode_cases(tokenizer, cases, length):
                 answer_ids = tokenizer.encode(
                     case["messages"][1]["content"] + tokenizer.eos_token,
                     add_special_tokens=False)
-                # Never teach incomplete answers: truncation silently corrupts
-                # the supervision signal and makes reported loss misleading.
-                # Shorten context, preserving a minimum of 24 prompt tokens.
-                reserve = len(answer_ids)
-                if reserve > length - 24:
-                    raise ValueError(
-                        "Respuesta autorizada supera la ventana de entrenamiento; "
-                        "reduce el ejemplo o aumenta --max-tokens sin exceder los límites")
-                prompt_ids = prompt_ids[-min(128, length-reserve):]
-                if len(prompt_ids) < 8 or not answer_ids:
-                    raise ValueError("Ejemplo demasiado corto para entrenamiento supervisado")
-                ids = prompt_ids + answer_ids
-                self.rows.append({
-                    "input_ids": ids,
-                    "attention_mask": [1]*len(ids),
-                    "labels": [-100]*len(prompt_ids)+answer_ids,
-                })
+                self.rows.append(
+                    prepare_supervised_example(prompt_ids, answer_ids, length))
         def __len__(self): return len(self.rows)
         def __getitem__(self, index): return self.rows[index]
     return FixedCases(cases)
