@@ -7,6 +7,7 @@ import SocialPoster, { type SocialPosterHandle } from "./NetworkSocialPoster";
 import "./network-quick-premium.css";
 
 /** Compact publication flow. Nonessential programming remains in the full editor. */
+const QUICK_PARTS = ["Instalaciones", "Terminaciones", "Estructura", "Obras exteriores", "Otras"];
 const TRADES = ["Carpintería", "Electricidad", "Gasfitería", "Albañilería", "Pintura",
   "Enfierradura", "Terminaciones", "Cerámica", "Impermeabilización", "Techumbre",
   "Soldadura", "Ventanas", "Climatización", "Jardinería", "Paisajismo", "Excavaciones"];
@@ -67,6 +68,7 @@ export function NetworkQuickForm({
   const [start, setStart] = useState("");
   const [workers, setWorkers] = useState(1);
   const [priority, setPriority] = useState("normal");
+  const [parts, setParts] = useState<string[]>([]);
   const [title, setTitle] = useState("");
   const [publishFacebook, setPublishFacebook] = useState(true);
   const [publicLocation, setPublicLocation] = useState(sites[0]?.public_location ?? "");
@@ -149,17 +151,13 @@ export function NetworkQuickForm({
         start_date_pending: !start,
         end_date: effectiveStart,
         deadline: effectiveStart,
-        items: [{
-          name: specialty.trim(),
-          description: summary.trim(),
-          quantity: 1,
-          unit: "gl",
-          start_date: effectiveStart,
-          end_date: effectiveStart,
+        items: (parts.length ? parts : [specialty.trim()]).map((name) => ({
+          name, description: summary.trim(), quantity: 1, unit: "gl",
+          start_date: effectiveStart, end_date: effectiveStart,
           notes: start
             ? "Partida preliminar: precisar programación antes de adjudicar."
             : "Fecha pendiente: coordinar programación antes de adjudicar.",
-        }],
+        })),
         publish_to_facebook: publishFacebook,
         public_location: publicLocation.trim(),
         poster_data: poster,
@@ -285,6 +283,15 @@ export function NetworkQuickForm({
               <option value="normal">Normal</option><option value="high">Alta</option>
               <option value="urgent">Urgente</option>
             </select>
+            <span className="nq-parts-label">Partidas clave <small>(opcional)</small></span>
+            <div className="nq-part-chips" role="group" aria-label="Partidas clave">
+              {QUICK_PARTS.map((part) => <button type="button" key={part}
+                className={parts.includes(part) ? "active" : ""} aria-pressed={parts.includes(part)}
+                onClick={() => setParts((current) => current.includes(part)
+                  ? current.filter((entry) => entry !== part) : [...current, part])}>
+                {parts.includes(part) ? "✓ " : "+ "}{part}
+              </button>)}
+            </div>
           </div>
         </details>
         {mismatch && <div className="nq-mismatch" role="alert">
