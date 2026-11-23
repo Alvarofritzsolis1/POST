@@ -32,6 +32,38 @@ def _visual(body):
     return body
 
 
+def test_social_art_requires_explicit_area_and_jpg(network, monkeypatch):
+    n = network
+    _enable(monkeypatch)
+    body = request_body(n)
+    body["publish_to_facebook"] = True
+    missing_location = n["send"](n["a"], "/requirements", body)
+    assert missing_location.status_code == 422
+    assert "sector aproximado" in missing_location.text
+
+    body["public_location"] = "San Pedro de la Paz, Biobío"
+    missing_photo = n["send"](n["a"], "/requirements", body)
+    assert missing_photo.status_code == 422
+    assert "fotografía" in missing_photo.text
+
+    body = _visual(body)
+    body["public_location"] = "Brisas de Junquillar"
+    internal_name = n["send"](n["a"], "/requirements", body)
+    assert internal_name.status_code == 422
+    assert "nombre de la obra" in internal_name.text
+
+    body["public_location"] = "San Pedro de la Paz, Biobío"
+    created = n["send"](n["a"], "/requirements", body)
+    assert created.status_code == 201, created.text
+    public_art = n["a"].get("/api/v1/network/requirements/" + created.json()["id"] + "/poster")
+    assert public_art.status_code == 200
+    assert public_art.headers["content-type"].startswith("image/jpeg")
+    assert n["b"].get("/api/v1/network/requirements/" + created.json()["id"] + "/poster").status_code == 403
+    catalog = n["send"](n["a"], "/catalog", method="GET").json()
+    site = next(s for s in catalog["sites"] if s["id"] == body["site_id"])
+    assert site["public_location"] == "San Pedro de la Paz, Biobío"
+
+
 def test_facebook_publishes_once_updates_and_deletes(network, monkeypatch):
     n = network
     _enable(monkeypatch)
