@@ -10,12 +10,12 @@ import pytest
 
 SCRIPTS = Path(__file__).resolve().parents[3] / "scripts"
 sys.path.insert(0, str(SCRIPTS))
-from max_power_synthetic_lab import dataset_bytes, examples, prepare_lab, verify_dataset
+from max_power_synthetic_lab import VERSION, dataset_bytes, examples, prepare_lab, verify_dataset
 
 
 def test_curated_corpus_is_large_partitioned_unique_and_never_real(tmp_path):
     lab, bundle = prepare_lab(tmp_path / "org")
-    assert lab.name == "synthetic-lab"
+    assert lab.name == "synthetic-lab-" + VERSION
     assert bundle["data_kind"] == "curated_synthetic"
     assert bundle["human_approval_independently_verified"] is False
     assert bundle["attestations_present"] is False
@@ -23,7 +23,7 @@ def test_curated_corpus_is_large_partitioned_unique_and_never_real(tmp_path):
     assert bundle["sizes"]["validation"] >= 10
     assert bundle["sizes"]["test"] >= 10
     cases = list(examples())
-    assert len(cases) >= 70
+    assert len(cases) >= 200
     assert all(item["source"] == "curated_synthetic" for item in cases)
     assert all("approved_by" not in item and "usage_authorized" not in item for item in cases)
     questions = [row["messages"][0]["content"].casefold() for row in cases]
