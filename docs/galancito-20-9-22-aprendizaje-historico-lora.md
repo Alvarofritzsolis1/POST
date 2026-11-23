@@ -47,15 +47,15 @@ el hash SHA256 de un dataset revisado. La clave privada y los registros de
 consentimiento quedan fuera de GitHub y del equipo de entrenamiento. El
 manifiesto JSON incluye exactamente los campos:
 
-- \`dataset_sha256\`: SHA256 del JSONL privado.
-- \`approved_by\`: UUID de responsable.
-- \`approved_at\`: fecha UTC \`YYYY-MM-DDTHH:MM:SSZ\`.
-- \`privacy_reviewed\` y \`usage_authorized\`: booleanos verdaderos.
-- \`training_model\`: \`Qwen/Qwen3.5-4B\`.
-- \`purpose\`: \`offline_galant_finetune_qwen\`.
-- \`signature_ed25519\`: firma en hexadecimal sobre el JSON **sin la firma**,
-  serializado con \`json.dumps(fields, ensure_ascii=False, sort_keys=True,
-  separators=(",", ":")).encode("utf-8")\`.
+- `dataset_sha256`: SHA256 del JSONL privado.
+- `approved_by`: UUID de responsable.
+- `approved_at`: fecha UTC `YYYY-MM-DDTHH:MM:SSZ`.
+- `privacy_reviewed` y `usage_authorized`: booleanos verdaderos.
+- `training_model`: `Qwen/Qwen3.5-4B`.
+- `purpose`: `offline_galant_finetune_qwen`.
+- `signature_ed25519`: firma en hexadecimal sobre el JSON **sin la firma**,
+  serializado con `json.dumps(fields, ensure_ascii=False, sort_keys=True,
+  separators=(",", ":")).encode("utf-8")`.
 
 Este control autentica quién firmó las declaraciones y detecta modificaciones
 del dataset, pero **no prueba** por sí mismo que existió consentimiento. Eso
@@ -67,16 +67,18 @@ no garantiza que el entrenamiento quepa en cualquier GPU; deben vigilarse
 memoria, temperatura y fallos CUDA. No usar el VPS donde atiende Messenger.
 
 Luego de revisar el dataset, aprobarlo con la clave privada externa y verificar
-la firma en un host CUDA dedicado:
+la firma en un host CUDA dedicado. La variable `GALANT_PUBLIC_KEY_HEX` debe
+provenir del custodio de la clave y contener 64 caracteres hexadecimales.
+Nunca cargues la clave privada ni mensajes personales a GitHub:
 
-\`\`\`bash
+```bash
 GALANT_OFFLINE_TRAINING_APPROVED=yes \
-GALANT_DATASET_APPROVAL_PUBLIC_KEY=<clave-publica-ed25519-64-hex> \
+GALANT_DATASET_APPROVAL_PUBLIC_KEY="${GALANT_PUBLIC_KEY_HEX}" \
 python scripts/train_galancito_lora.py \
   --dataset /ruta/privada/curado.jsonl \
   --approval-manifest /ruta/privada/aprobacion.json \
   --output /ruta/privada/adapter-2026-11 --execute
-\`\`\`
+```
 
 La herramienta carga pesos HF de Qwen/Qwen3.5-4B, entrena adaptadores QLoRA con
 TRL y PEFT, y compara pérdida en ejemplos reservados. Una disminución de
