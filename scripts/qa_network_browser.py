@@ -233,11 +233,11 @@ def main():
         expect(drawer.get_by_text(destination["name"], exact=True)).to_be_visible()
         assert drawer.get_by_role("combobox", name="Obra", exact=True).count() == 0
         drawer.get_by_label("Oficio o especialidad", exact=True).fill("Carpintería")
-        drawer.locator(".nw-quick-more summary").click()
-        drawer.get_by_label("Título personalizado", exact=True).fill(title)
-        drawer.get_by_label("Trabajadores aprox.", exact=True).fill("3")
+        drawer.locator(".nq-extra summary").click()
+        drawer.get_by_label("Título interno personalizado", exact=True).fill(title)
+        drawer.get_by_label("Personas aprox.", exact=True).fill("3")
         drawer.get_by_label("Inicio estimado", exact=True).fill(start)
-        drawer.get_by_label("¿Qué labores se realizarán?", exact=True).fill(
+        drawer.get_by_label("¿Qué trabajos se realizarán?", exact=True).fill(
             "Instalación de puertas, guardapolvos y terminaciones interiores."
         )
         fb = drawer.get_by_role("checkbox", name="Publicar también en Facebook")
@@ -246,16 +246,16 @@ def main():
         assert not fb.is_checked()
         # Un clic fuera del panel no debe cerrar ni perder el formulario.
         a.mouse.click(3, 3)
-        expect(drawer.get_by_label("Título personalizado", exact=True)).to_have_value(title)
+        expect(drawer.get_by_label("Título interno personalizado", exact=True)).to_have_value(title)
         # Cerrar con cambios requiere confirmación; rechazarla mantiene lo escrito.
         a.once("dialog", lambda prompt: prompt.dismiss())
         drawer.get_by_role("button", name="Cerrar panel").click()
         expect(drawer).to_be_visible()
-        expect(drawer.get_by_label("Título personalizado", exact=True)).to_have_value(title)
+        expect(drawer.get_by_label("Título interno personalizado", exact=True)).to_have_value(title)
         drawer.get_by_role("button", name="Publicar necesidad", exact=True).click()
         # La publicación vuelve al feed, sin abrir otro diálogo.
         expect(drawer).to_have_count(0)
-        expect(a.locator(".nw-success")).to_contain_text("Necesidad publicada solo en GALANT.")
+        expect(a.locator(".nw-success")).to_contain_text("Necesidad publicada en Red de Obras.")
         card = a.locator(".nw-feed-card").filter(has_text=title)
         expect(card).to_be_visible()
         card.get_by_role("button", name="Ver solicitud").click()
