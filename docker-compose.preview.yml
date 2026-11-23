@@ -216,6 +216,7 @@ services:
   # Actual gradients execute inside this 1.5 CPU / 5 GiB container, without
   # a Docker socket or direct database/Messenger volume access.
   cpu-lora-manager:
+    profiles: [max-power-auto]
     image: galant-post-preview-cpu-lora:latest
     build: {context: ., dockerfile: infrastructure/Dockerfile.cpu-lora}
     entrypoint: ["python", "/src/scripts/max_power_cpu_manager.py"]
