@@ -220,6 +220,12 @@ services:
     build: {context: ., dockerfile: infrastructure/Dockerfile.cpu-lora}
     entrypoint: ["python", "/src/scripts/max_power_cpu_manager.py"]
     restart: unless-stopped
+    healthcheck:
+      test: ["CMD-SHELL", "python -c 'import os,time,sys; p=\"/tmp/max_power_cpu_manager_heartbeat\"; sys.exit(0 if os.path.isfile(p) and time.time()-os.path.getmtime(p)<60 else 1)'"]
+      interval: 20s
+      timeout: 5s
+      retries: 4
+      start_period: 45s
     read_only: true
     init: true
     environment:
