@@ -1,5 +1,6 @@
 import { useEffect, useRef, useState, type FormEvent } from "react";
 import { ArrowDown, ArrowUp, Facebook, Plus, Trash2 } from "lucide-react";
+import SocialPoster, { type SocialPosterHandle } from "./NetworkSocialPoster";
 import {
   attach,
   change,
@@ -68,6 +69,11 @@ export function RequirementForm({
   const [error, setError] = useState(""),
     [busy, setBusy] = useState(false);
   const [publishFacebook, setPublishFacebook] = useState(current?.publish_to_facebook ?? false);
+  const [publicLocation, setPublicLocation] = useState(current?.public_location ?? "");
+  const [editPoster, setEditPoster] = useState(!current?.poster_available);
+  const [specialtyPreview, setSpecialtyPreview] = useState(current?.specialty ?? "");
+  const [workersPreview, setWorkersPreview] = useState(current?.workers ?? 1);
+  const posterEditor = useRef<SocialPosterHandle>(null);
   const clientKey = useRef(crypto.randomUUID());
   const ownSites = catalog.sites.filter((s) => s.editable);
   const update = (i: number, field: keyof Part, value: string | number) =>
@@ -90,6 +96,9 @@ export function RequirementForm({
     setBusy(true);
     setError("");
     try {
+      const imageRequired = publishFacebook && state === "published" && (editPoster || !current?.poster_available);
+      const posterData = imageRequired ? await posterEditor.current?.exportJpeg() : "";
+      if (imageRequired && !posterData) throw new Error("No se pudo generar la imagen para Facebook.");
       const body = {
         site_id: dataText(data, "site_id"),
         specialty: dataText(data, "specialty"),
@@ -102,6 +111,8 @@ export function RequirementForm({
         deadline: dataText(data, "deadline"),
         items: parts,
         publish_to_facebook: publishFacebook,
+        public_location: publicLocation.trim(),
+        poster_data: posterData,
         state,
         client_key: clientKey.current,
         ...(current
@@ -169,6 +180,7 @@ export function RequirementForm({
             name="specialty"
             list="network-specialties"
             defaultValue={current?.specialty}
+            onChange={(e) => setSpecialtyPreview(e.target.value)}
             required
             minLength={2}
             maxLength={100}
@@ -218,6 +230,7 @@ export function RequirementForm({
               min={1}
               max={10000}
               defaultValue={current?.workers || 1}
+              onChange={(e) => setWorkersPreview(Number(e.target.value))}
             />
           </label>
         </div>
@@ -415,10 +428,26 @@ export function RequirementForm({
             <strong>Publicar también en Facebook</strong>
           </label>
           <p>{publishFacebook
-            ? "El aviso se enviará o se mantendrá actualizado en la página autorizada."
+            ? "Para las fotos ya publicadas, una nueva imagen requiere revisión y una republicación autorizada. No se publica automáticamente una segunda copia."
             : "Al guardar, se solicitará retirar la publicación externa existente, si la hay."}</p>
+          {publishFacebook && <>
+            <label>Ubicación aproximada para Facebook
+              <input value={publicLocation} onChange={(e) => setPublicLocation(e.target.value)}
+                required maxLength={120} placeholder="Ej. Sector San Pedro de la Paz, Biobío"/>
+              <small>No se mostrará el nombre interno de la obra.</small>
+            </label>
+            {current?.poster_available && !editPoster && <button type="button" className="nw-btn" onClick={() => setEditPoster(true)}>
+              Editar o cambiar imagen
+            </button>}
+            {current?.poster_available && !editPoster && <img style={{width:240,maxWidth:"100%",borderRadius:12}}
+              src={"/api/v1/network/requirements/" + current.id + "/poster"} alt="Imagen guardada para Facebook"/>}
+          </>}
+
         </div>
       )}
+      {current && <SocialPoster ref={posterEditor} enabled={publishFacebook && editPoster}
+        specialty={specialtyPreview} publicLocation={publicLocation}
+        workers={workersPreview} start={start} />}
       {current && (
         <label>
           Motivo del cambio
