@@ -236,6 +236,10 @@ def sync_page_inbox(*, page_id: str, page_token: str, org_id: str,
                 source = "disabled" if direct else messenger_ai_source(db, org_id, cfg)
                 if direct:
                     state, reply = "pending", direct
+                elif small_talk_reply(body):
+                    # Recovered greetings use the same local fast path as the
+                    # webhook, even when consent was granted in an older chat.
+                    state, reply = "pending", small_talk_reply(body)
                 elif consented_for(lead, source):
                     state, reply = "ai_pending", ""
                 else:

@@ -485,9 +485,11 @@ async def webhook(request: Request, db: Session = Depends(get_db)):
                 reply = direct
             elif local and identity_reply(body):
                 reply = local
-            elif (local and not waiting_for_ai and not waiting_for_permission and not lead.needs_support and
-                  (lead.ai_consent or lead.ai_consent_state == "declined" or recent > 0)):
-                # Sin costos de inferencia para cortesías simples.
+            elif local and not waiting_for_ai and not lead.needs_support:
+                # Courtesy replies must sound conversational from the first turn.
+                # Never insert a canned self-introduction into an ordinary hello.
+                # Explicit identity questions are answered honestly by identity_reply().
+                # AI provider consent is still required before any model processing.
                 reply = local
             elif lead.ai_consent_state == "declined":
                 # No insistir con IA a quien ya la rechazó.
