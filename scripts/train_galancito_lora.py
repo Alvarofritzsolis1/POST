@@ -232,7 +232,16 @@ def main(argv=None) -> int:
         reporter.emit("baseline", step=0, total_steps=planned_steps,
                       holdout_loss_before=before_loss, holdout_pass_before=sum(before_checks),
                       **gpu_metrics())
-    trainer.train(resume_from_checkpoint=resume_checkpoint)  # Actual GPU gradients
+    try:
+        trainer.train(resume_from_checkpoint=resume_checkpoint)  # Actual GPU gradients
+    except Exception:
+        # Keep signed dataset, local metrics and checkpoints for diagnosis.
+        # Do not publish raw exception strings or any private training examples.
+        reporter.emit("failed", step=trainer.state.global_step,
+                      total_steps=trainer.state.max_steps or planned_steps,
+                      **gpu_metrics())
+        reporter.close()
+        raise
     after_loss = trainer.evaluate(eval_dataset=test, metric_key_prefix="test_after").get("test_after_loss")
     after_checks = checked_answers()
     regressions = sum(x and not y for x, y in zip(before_checks, after_checks))
