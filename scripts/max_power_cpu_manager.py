@@ -33,6 +33,7 @@ PREFLIGHT_RECHECK = 600
 MAX_GRACE_SECONDS = 90
 MAX_STEPS = 4
 CHECKPOINT_STEPS = 2
+MAX_FAILED_ATTEMPTS = 3
 
 
 def manager_headers(secret: str, when: str | None = None) -> dict:
@@ -136,6 +137,35 @@ def select_run(root: Path, digest: str) -> tuple[Path, bool, str]:
     return path, False, "cannot_resume"
 
 
+def retry_state(root: Path, digest: str) -> tuple[int, float]:
+    """Persistent bounded retries: resource failures never cause a tight loop."""
+    path = root / "runs" / ("cpu-automatic-" + digest[:24] + ".failures.json")
+    if not path.is_file() or path.is_symlink():
+        return 0, 0.0
+    try:
+        data = json.loads(path.read_text(encoding="utf-8"))
+        return max(0, min(MAX_FAILED_ATTEMPTS, int(data["count"]))), max(0.0, float(data["at"]))
+    except (OSError, ValueError, KeyError, TypeError, json.JSONDecodeError):
+        return MAX_FAILED_ATTEMPTS, time()  # fail closed on corrupt retry state
+
+
+def record_failure(root: Path, digest: str):
+    previous, _ = retry_state(root, digest)
+    path = root / "runs" / ("cpu-automatic-" + digest[:24] + ".failures.json")
+    path.parent.mkdir(parents=True, exist_ok=True)
+    payload = json.dumps({"count": min(MAX_FAILED_ATTEMPTS, previous+1), "at": time()})
+    tmp = path.with_name(path.name + ".tmp")
+    tmp.write_text(payload, encoding="utf-8")
+    tmp.replace(path)
+
+
+def retry_ready(root: Path, digest: str) -> bool:
+    attempts, when = retry_state(root, digest)
+    if attempts >= MAX_FAILED_ATTEMPTS:
+        return False
+    return time() - when >= (min(900, 45 * 2**(attempts-1)) if attempts else 0)
+
+
 def write_control(path: Path, org: str, generation: int, allowed: bool):
     """Atomic heartbeat consumed by the Trainer callback at every optimizer step."""
     data = {"org_id": org, "generation": generation, "allowed": bool(allowed)}
@@ -226,6 +256,10 @@ def run_once(secret: str, plan: dict, public_key: str, last_preflight: dict,
         return
     bundle, _ = approved
     output, resume, run_state = select_run(root, bundle["dataset_digest"])
+    if not retry_ready(root, bundle["dataset_digest"]):
+        report("retry_cooldown" if retry_state(root, bundle["dataset_digest"])[0] < MAX_FAILED_ATTEMPTS
+               else "retry_exhausted")
+        return
     if run_state == "finished":
         report("awaiting_new_dataset")
         return
@@ -269,9 +303,10 @@ def run_once(secret: str, plan: dict, public_key: str, last_preflight: dict,
     code = child.wait()
     if code == 0:
         report("finished")
-    elif code == 3:
+    elif code == 3 or (code == -15 and paused_since is not None):
         report("paused")
     else:
+        record_failure(root, bundle["dataset_digest"])
         report("failed")
 
 
