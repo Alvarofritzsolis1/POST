@@ -3,10 +3,11 @@
 from __future__ import annotations
 
 import hashlib
+import re
 from datetime import date, timedelta
 
 from fastapi import APIRouter, Depends, HTTPException, Query
-from fastapi.responses import Response
+from fastapi.responses import FileResponse, Response
 from sqlalchemy import delete, func, select
 from sqlalchemy.orm import Session
 
@@ -28,6 +29,7 @@ from .network_models import (
 )
 from .network_history import history_view
 from .network_facebook import enqueue, status_view
+from .network_posters import store_poster, verified_poster_path
 from .network_schemas import (
     AmendmentInput,
     AwardEdit,
@@ -201,6 +203,34 @@ def requirements(
     return {"rows": [requirement_view(db, user, r) for r in rows], "total": total}
 
 
+@router.get("/requirements/{record_id}/poster")
+def requirement_poster(record_id: str, user: User = Depends(authorized_user), db: Session = Depends(get_db)):
+    """Private authenticated preview; enforce site permissions on every read."""
+    row = requirement_for(db, user, record_id, detail=True)
+    try:
+        path = verified_poster_path(row.poster_path, user.org_id)
+    except (FileNotFoundError, ValueError):
+        raise HTTPException(404, "La imagen no está disponible") from None
+    return FileResponse(path, media_type="image/jpeg",
+                        headers={"Cache-Control": "private, no-store",
+                                 "X-Content-Type-Options": "nosniff"})
+
+
+def check_public_location(body, site):
+    if not body.publish_to_facebook or body.state != "published":
+        return
+    public = body.public_location.strip()
+    if len(public) < 3:
+        raise HTTPException(422, "Indica comuna o sector aproximado para Facebook")
+    # Internal project names and specific street addresses are never public.
+    if len(site.name.strip()) >= 7 and site.name.casefold() in public.casefold():
+        raise HTTPException(422, "La ubicación pública no debe contener el nombre de la obra")
+    if re.search(r"\b(?:calle|avenida|pasaje|n[uú]mero)\b|#\s*\d", public, flags=re.IGNORECASE):
+        raise HTTPException(422, "Publica solo comuna o sector, sin calle ni dirección exacta")
+    if "\n" in public or "\r" in public:
+        raise HTTPException(422, "La ubicación debe tener una sola línea")
+
+
 @router.get("/requirements/{record_id}")
 def requirement(
     record_id: str, user: User = Depends(authorized_user), db: Session = Depends(get_db)
@@ -259,7 +289,8 @@ def create_requirement(
     db: Session = Depends(get_db),
 ):
     lock_org(db, user)
-    require_site(db, user, body.site_id, write=True)
+    site = require_site(db, user, body.site_id, write=True)
+    check_public_location(body, site)
     prior = db.scalar(
         select(NetworkRequirement).where(
             NetworkRequirement.org_id == user.org_id,
@@ -278,12 +309,16 @@ def create_requirement(
         org_id=user.org_id,
         created_by=user.id,
         specialty_key=key(body.specialty),
-        **body.model_dump(exclude={"items", "version", "reason"}),
+        **body.model_dump(exclude={"items", "version", "reason", "poster_data"}),
     )
     db.add(row)
     db.flush()
+    if body.poster_data:
+        row.poster_path = store_poster(body.poster_data, user.org_id, row.id)
+    if row.publish_to_facebook and row.state == "published" and not row.poster_path:
+        raise HTTPException(422, "Genera y aprueba la fotografía antes de publicar en Facebook")
     save_items(db, user, row, body)
-    event(db, user, "requirement", row.id, None, body.model_dump(mode="json"))
+    event(db, user, "requirement", row.id, None, body.model_dump(mode="json", exclude={"poster_data"}))
     if row.state == "published":
         residents = db.scalars(
             select(User.id).where(User.org_id == user.org_id, User.role == "resident")
@@ -312,7 +347,8 @@ def update_requirement(
 ):
     lock_org(db, user)
     row = requirement_for(db, user, record_id, write=True)
-    require_site(db, user, body.site_id, write=True)
+    site = require_site(db, user, body.site_id, write=True)
+    check_public_location(body, site)
     check_version(row, body.version)
     if row.state != "draft" and not body.reason:
         raise HTTPException(422, "Indica el motivo de la modificación")
@@ -331,9 +367,13 @@ def update_requirement(
             409, "Revoca las adjudicaciones antes de cancelar o convertir en borrador"
         )
     for field, value in body.model_dump(
-        exclude={"items", "client_key", "version", "reason"}
+        exclude={"items", "client_key", "version", "reason", "poster_data"}
     ).items():
         setattr(row, field, value)
+    if body.poster_data:
+        row.poster_path = store_poster(body.poster_data, user.org_id, row.id)
+    if row.publish_to_facebook and row.state == "published" and not row.poster_path:
+        raise HTTPException(422, "Guarda una imagen de convocatoria antes de difundir en Facebook")
     row.version += 1
     row.specialty_key = key(body.specialty)
     row.updated_at = utcnow()
@@ -344,7 +384,7 @@ def update_requirement(
         "requirement",
         row.id,
         before,
-        body.model_dump(mode="json"),
+        body.model_dump(mode="json", exclude={"poster_data"}),
         body.reason,
     )
     rebuild_matches(db, user)
