@@ -196,7 +196,7 @@ def test_next_practice_uses_historic_reviews_to_prioritize_recent_evidence(ai_en
     assert result["available"] is True
     assert result["criterion"] == "profile"
     assert result["observed_defects"] == 5
-    assert result["historically_assessed"] == 5
+    assert result["historically_assessed"] == 6
     assert result["recent_defects"] == 1
     assert result["recently_assessed"] == 2
     assert result["source_id"]

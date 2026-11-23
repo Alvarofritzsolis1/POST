@@ -195,7 +195,8 @@ def next_target(channel: Literal["messenger", "general"] = "messenger",
         if private_data(context):
             continue
         for key in case["failed_criteria"]:
-            route = diagnostic_route(original, key)
+            linked_run = _linked_original_run(db, user, evidence, original)
+            route = diagnostic_route(linked_run, key)
             if route["hypothesis"] in {"contexto_truncado", "sin_historial_en_prompt",
                                       "ruta_sin_modelo", "modelo_externo"}:
                 # These routes require restoring context/code/provider first,
