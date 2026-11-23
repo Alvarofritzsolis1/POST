@@ -97,6 +97,12 @@ jobs:
     runs-on: ubuntu-24.04
     timeout-minutes: 35
     steps:
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
       - name: Iniciar Ollama exclusivo de pruebas
         shell: bash
         run: |
