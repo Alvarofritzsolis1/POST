@@ -5,6 +5,7 @@ approved-for-trial instruction. The human verdict is a *case-specific* signal,
 not a blinded A/B study or proof of general model improvement.
 """
 from datetime import timedelta
+from zlib import crc32
 from time import perf_counter
 from typing import Literal
 
@@ -301,10 +302,11 @@ def replay(body: ReplayInput, user: User = Depends(administrator),
     prompt = "\n".join(lines) + "\nÚltima consulta:\n" + evidence["question"][:650]
     if private_data(prompt) or len(prompt) > 3200:
         raise HTTPException(422, "Hay datos privados; esta conversación no se reproduce")
-    instructions = (LOCAL_REPLY_INSTRUCTIONS if channel == "messenger" else GENERAL_INSTRUCTIONS)
+    base_instructions = (LOCAL_REPLY_INSTRUCTIONS if channel == "messenger" else GENERAL_INSTRUCTIONS)
     correction = candidate_policy(channel, body.criterion, body.variant)
-    # Never sacrifice existing safety rules to a correction or silent truncation.
-    instructions = instructions + "\n\nCORRECCIÓN EN ENSAYO (no aprobada):\n" + correction
+    # Only the correction varies; both answers use the same model, context,
+    # inference parameters and seed, not two unrelated historical runs.
+    instructions = base_instructions + "\n\nCORRECCIÓN EN ENSAYO (no aprobada):\n" + correction
     from .galancito_local import MAX_INSTRUCTIONS_CHARS
     if len(instructions) > MAX_INSTRUCTIONS_CHARS:
         raise HTTPException(422, "La corrección excede las instrucciones seguras; se cancela la prueba")
@@ -316,22 +318,31 @@ def replay(body: ReplayInput, user: User = Depends(administrator),
         raise HTTPException(409, "La estrategia tiene regresiones; requiere investigación")
     stage = "holdout" if trained >= 2 and not previous else "practice"
     started = perf_counter()
+    seed = crc32((evidence["source_id"] + body.criterion + body.variant).encode("utf-8")) & 0x7fffffff
+    outputs = []
+    measures = []
     try:
-        candidate = infer(db, lambda: generate_local_text(
-            instructions, prompt, max_chars=550, thinking=(channel == "general")))
+        for instruction_set in (base_instructions, instructions):
+            raw = infer(db, lambda current=instruction_set: generate_local_text(
+                current, prompt, max_chars=550, thinking=(channel == "general"), seed=seed))
+            observed = dict(last_timings.get() or {})
+            if (not isinstance(observed.get("response_model"), str)
+                    or observed["response_model"].casefold() != QWEN_4B.casefold()):
+                raise HTTPException(503, "Ollama no confirmó Qwen3.5 4B en ambas ejecuciones")
+            if not raw or not str(raw).strip():
+                raise HTTPException(503, "Qwen no produjo ambas respuestas comparables")
+            clean = (grounded_reply(raw, prompt) if channel == "messenger"
+                     else safe_generated(raw, question=prompt))
+            if not clean or private_data(clean):
+                raise HTTPException(422, "La respuesta incumple seguridad; no puede contarse como mejora")
+            outputs.append(clean)
+            measures.append(observed)
     except (RuntimeError, TimeoutError, OSError, ValueError):
-        raise HTTPException(503, "Qwen local no terminó; no se registró ninguna mejora") from None
-    if not candidate or not str(candidate).strip():
-        raise HTTPException(503, "Qwen no produjo una respuesta para comparar")
-    validated = (grounded_reply(candidate, prompt) if channel == "messenger"
-                 else safe_generated(candidate, question=prompt))
-    if not validated or private_data(validated):
-        raise HTTPException(422, "La respuesta candidata incumple el filtro de seguridad; no se registra como mejora")
-    # The actual model identity must be reported by Ollama, not merely configured.
-    observed = last_timings.get()
-    if (not isinstance(observed, dict) or not isinstance(observed.get("response_model"), str)
-            or observed["response_model"].casefold() != QWEN_4B.casefold()):
-        raise HTTPException(503, "Ollama no confirmó Qwen3.5 4B; no se registra aprendizaje")
+        raise HTTPException(503, "Qwen local no completó ambas pruebas; no se registró aprendizaje") from None
+    if outputs[0].strip().casefold() == outputs[1].strip().casefold():
+        raise HTTPException(409, "La corrección no cambió la respuesta de Qwen; no se atribuye mejora")
+    observed = measures[1]
+    baseline, validated = outputs
     elapsed = round((perf_counter() - started) * 1000)
     trial = AIRealPracticeTrial(
         org_id=user.org_id, review_id=review.id, reviewer_id=user.id,
@@ -346,12 +357,13 @@ def replay(body: ReplayInput, user: User = Depends(administrator),
             "variant": body.variant, "stage": stage, "diagnosis": diagnosis,
             "provenance": trial.provenance,
             "model": QWEN_4B, "source": "actual_local_qwen_on_audited_production_chat",
-            "original": evidence["answer"], "candidate": str(validated)[:1000],
-            "elapsed_ms": elapsed,
+            "original": evidence["answer"],
+            "baseline": str(baseline)[:1000], "candidate": str(validated)[:1000],
+            "seed": seed, "elapsed_ms": elapsed,
             "ollama_timings_ms": {name: round(float(observed[name]), 1)
                                  for name in ("load_ms", "prompt_ms", "generation_ms")
                                  if isinstance(observed.get(name), (int, float))},
-            "disclaimer": "Comparación exploratoria de un caso real; no es prueba reservada ni se envía a Messenger."}
+            "disclaimer": "Dos inferencias locales con el mismo contexto y semilla; no reproduce todos los componentes ni prueba calidad general."}
 
 
 @router.post("/trials/{trial_id}/review")
