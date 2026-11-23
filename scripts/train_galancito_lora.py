@@ -13,9 +13,9 @@ from pathlib import Path
 import sys
 from uuid import uuid4
 
-from galancito_lora_progress import ProgressReporter
-
+sys.path.insert(0, str(Path(__file__).resolve().parent))
 sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "apps" / "backend"))
+from galancito_lora_progress import ProgressReporter
 from app.galancito_finetune_dataset import (MODEL, load_approved, verified_match,
                                              verified_training_manifest)
 
