@@ -83,6 +83,11 @@ def scoped_token(org_id: str) -> str:
 AUTOMATION_STATES = {
     "off": "MAX POWER apagado: entrenamiento neuronal detenido",
     "awaiting_approved_dataset": "Falta un conjunto real autorizado y firmado para LoRA CPU",
+    "approval_public_key_missing": "Falta configurar la clave pública Ed25519 del firmante autorizado",
+    "approved_dataset_missing": "Faltan ejemplos reales autorizados para esta organización; no se entrena",
+    "approval_manifest_missing": "Falta el manifiesto firmado que autoriza este conjunto y modelo",
+    "private_file_permissions": "Los archivos privados necesitan permisos 0600; por seguridad no se utilizan",
+    "approved_dataset_rejected": "El conjunto no supera la validación de firma, privacidad o formato; revisarlo",
     "awaiting_resources": "RAM o disco insuficientes; se protege Messenger",
     "messenger_priority": "Messenger activo; entrenamiento neuronal en pausa",
     "practice_priority": "Prueba MAX POWER activa; entrenamiento neuronal en espera",
@@ -120,7 +125,10 @@ class SupervisorStatus(BaseModel):
     model_config = ConfigDict(extra="forbid")
     org_id: UUID
     generation: int = Field(ge=1)
-    status: Literal["off", "awaiting_approved_dataset", "awaiting_resources",
+    status: Literal["off", "awaiting_approved_dataset", "approval_public_key_missing",
+                    "approved_dataset_missing", "approval_manifest_missing",
+                    "private_file_permissions", "approved_dataset_rejected",
+                    "awaiting_resources",
                     "messenger_priority", "practice_priority", "cpu_waiting_turn",
                     "retry_cooldown", "retry_exhausted", "preflight", "training", "pausing",
                     "paused", "finished", "awaiting_new_dataset",
@@ -134,10 +142,42 @@ def automated_plan(x_galant_manager_timestamp: str = Header(default=""),
     verify_manager(x_galant_manager_timestamp, x_galant_manager_signature)
     enabled = list(db.scalars(select(MaxPowerState).where(
         MaxPowerState.enabled.is_(True)
-    ).order_by(MaxPowerState.session_started_at, MaxPowerState.org_id).limit(2)))
+    ).order_by(MaxPowerState.session_started_at, MaxPowerState.org_id).limit(100)))
     if not enabled:
         return {"enabled": False}
-    row = enabled[0]
+    # A single CPU supervisor serves all enabled organizations fairly, while
+    # preserving an in-progress optimizer's current turn. Previously choosing
+    # enabled[0] permanently starved every subsequent organization.
+    ids = [item.org_id for item in enabled]
+    previous = list(db.scalars(select(MaxPowerEvent).where(
+        MaxPowerEvent.org_id.in_(ids),
+        MaxPowerEvent.round_id == MaxPowerEvent.org_id,
+        MaxPowerEvent.event == "cpu_supervisor_status",
+    )))
+    by_org = {event.org_id: event for event in previous}
+    now_stamp = datetime.now(timezone.utc).timestamp()
+
+    def event_stamp(event):
+        if event is None:
+            return 0.0
+        when = event.created_at
+        if when.tzinfo is None:
+            when = when.replace(tzinfo=timezone.utc)
+        return when.timestamp()
+
+    def is_active(owner):
+        item = by_org.get(owner.org_id)
+        if not item or (item.evidence or {}).get("generation") != owner.session_generation:
+            return False
+        if (item.evidence or {}).get("state") not in ("training", "pausing"):
+            return False
+        return 0 <= now_stamp - event_stamp(item) <= 60
+
+    active = next((owner for owner in enabled if is_active(owner)), None)
+    row = active or min(enabled, key=lambda owner: (
+        event_stamp(by_org.get(owner.org_id)),
+        str(owner.org_id),
+    ))
     from .galancito_trainer import messenger_busy
     from .max_power_worker import messenger_recent
     busy = bool(messenger_busy(db) or messenger_recent(db))
