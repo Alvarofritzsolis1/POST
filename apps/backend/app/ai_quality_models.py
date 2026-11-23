@@ -33,8 +33,6 @@ class AIRealPracticeTrial(Base):
     """Real Qwen execution and human outcome; no private conversation text stored."""
     __tablename__ = "ai_real_practice_trials"
     __table_args__ = (
-        UniqueConstraint("review_id", "criterion", "policy_version",
-                         name="uq_ai_real_trial_source_policy"),
         Index("ix_ai_real_trial_org_channel", "org_id", "channel", "created_at"),
     )
     id: Mapped[str] = mapped_column(String(36), primary_key=True, default=uid)
@@ -46,6 +44,9 @@ class AIRealPracticeTrial(Base):
     model: Mapped[str] = mapped_column(String(80), nullable=False)
     elapsed_ms: Mapped[int] = mapped_column(Integer, nullable=False)
     policy_version: Mapped[int] = mapped_column(Integer, nullable=False, default=1)
+    variant: Mapped[str] = mapped_column(String(36), nullable=False, default="focused")
+    provenance: Mapped[str] = mapped_column(String(32), nullable=False, default="reconstructed")
+    stage: Mapped[str] = mapped_column(String(20), nullable=False, default="practice")
     outcome: Mapped[str] = mapped_column(String(12), nullable=False, default="pending")
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False, default=utcnow)
     reviewed_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
