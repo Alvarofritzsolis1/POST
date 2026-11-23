@@ -118,6 +118,9 @@ def test_signed_cpu_lora_progress_is_visible_without_faking_gpu_metrics(ai_env, 
         "dataset_sha256": "d" * 64, "model": "Qwen/Qwen3.5-0.8B",
         "step": 6, "total_steps": 40, "cpu_memory_mb": 3130.5,
         "weights_trained": True, "candidate_accepted": False,
+        "optimizer_start_sha256": "a" * 64,
+        "optimizer_end_sha256": "b" * 64,
+        "optimizer_steps_new": 2,
     }
     raw=json.dumps(payload,sort_keys=True,separators=(",",":")).encode()
     stamp=str(int(time()))
@@ -136,6 +139,7 @@ def test_signed_cpu_lora_progress_is_visible_without_faking_gpu_metrics(ai_env, 
     assert row["points"][0]["cpu_memory_mb"]==3130.5
     assert row["points"][0]["gpu_memory_mb"] is None
     assert row["weights_trained"] is True
+    assert row["points"][0]["optimizer_steps_new"] == 2
     assert row["candidate_accepted"] is False
     assert status["production_promoted"] is False
     report=client.get("/api/v1/admin/ai/max-power/export",headers=admin).json()
