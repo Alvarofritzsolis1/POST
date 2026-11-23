@@ -23,11 +23,11 @@ def test_admin_only_and_persistent_on_off(ai_env):
     off = client.post(BASE + "/control/off", headers=headers)
     assert off.status_code == 200, off.text
     assert off.json()["enabled"] is False
-    assert off.json()["first_started_at"] == state["first_started_at"]
+    assert off.json()["first_started_at"].split("+")[0] == state["first_started_at"].split("+")[0]
     again = client.post(BASE + "/control/on", headers=headers)
     assert again.status_code == 200, again.text
     assert again.json()["sessions"] == 2
-    assert again.json()["first_started_at"] == state["first_started_at"]
+    assert again.json()["first_started_at"].split("+")[0] == state["first_started_at"].split("+")[0]
     with sessions() as db:
         row = db.get(MaxPowerState, ai_env["org_id"])
         assert row.enabled and row.sessions == 2

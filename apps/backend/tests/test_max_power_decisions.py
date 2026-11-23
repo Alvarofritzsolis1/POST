@@ -6,9 +6,14 @@ from app.max_power_decisions import (
 )
 
 def test_fingerprint_stable_across_order():
-    a = [{"evidence_hash": "a"}, {"evidence_hash": "b"}]
+    def case(label, count):
+        return {"id": label, "category": "arithmetic", "question": "¿Cuántos?",
+                "expected": count, "formula": "count",
+                "evidence": {"agregados_reales": {"contratistas": count}},
+                "evidence_hash": "volatile_time_must_not_affect_fingerprint"}
+    a = [case("a", 1), case("b", 3)]
     assert evidence_fingerprint(a) == evidence_fingerprint(list(reversed(a)))
-    assert evidence_fingerprint(a) != evidence_fingerprint([{"evidence_hash": "c"}])
+    assert evidence_fingerprint(a) != evidence_fingerprint([case("c", 2)])
 
 def test_no_holdout_never_reports_gain():
     result = classify_outcome({"passed": 99, "failed": 1})
