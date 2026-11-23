@@ -2,6 +2,7 @@ import { useCallback, useEffect, useState } from "react";
 import { Activity, AlertTriangle, BrainCircuit, CheckCircle2, Clock3, Download, Gauge, History, Power, RefreshCw, ShieldCheck, Zap } from "lucide-react";
 import { request } from "./api";
 import "./max-power.css";
+import FineTuneProgress from "./FineTuneProgress";
 
 type Sample = { quality_score: number | null; reviewed_cases: number; minimum_cases: number;
   dimension_scores: Record<string, number | null>; quality_source: string };
@@ -130,6 +131,7 @@ export default function MaxPowerPanel(){
       <strong>{data.status.replaceAll("_"," ")}</strong>
       <span>{data.reason}</span>
     </div>}
+    <FineTuneProgress/>
     <div className="max-power-section-title"><Gauge size={17}/><h3>Resultados verificables de cada experimento</h3></div>
     <div className="max-power-channel-grid">
       {channels.map(c=>{

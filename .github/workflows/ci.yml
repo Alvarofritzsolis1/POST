@@ -39,6 +39,8 @@ jobs:
           tests/test_max_power_messenger.py
           tests/test_max_power_recovery.py
           tests/test_max_power_isolation.py
+          tests/test_max_power_finetune_api.py
+          tests/test_galancito_lora_progress.py
       - name: Comprobar sintaxis del controlador y exportación
         run: python -m compileall -q app/max_power_*.py
   backend:
