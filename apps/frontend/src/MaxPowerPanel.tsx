@@ -76,7 +76,8 @@ const checks = (count: CheckCount) => count.passed == null || count.samples === 
   ? "Datos insuficientes" : f(count.passed) + " / " + f(count.samples);
 const controllerStatus: Record<string,string> = {
   resource_guard:"En espera de recursos", synthetic_practice_completed:"Práctica de fichas terminada",
-  awaiting_new_evidence:"En espera de datos nuevos", synthetic_model_evaluation:"Evaluación de Qwen 4B",
+  awaiting_new_evidence:"En espera de datos nuevos", preparing_qwen:"Preparando Qwen 4B privado",
+  cpu_neural_training:"Turno reservado para LoRA CPU", synthetic_model_evaluation:"Evaluación de Qwen 4B",
   messenger_evaluation:"Evaluación de Messenger", starting:"Iniciando", off:"En pausa",
 };
 
