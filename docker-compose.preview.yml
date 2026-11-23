@@ -225,6 +225,7 @@ services:
     environment:
       GALANT_FINETUNE_METRICS_SECRET: ${GALANT_FINETUNE_METRICS_SECRET:-}
       GALANT_DATASET_APPROVAL_PUBLIC_KEY: ${GALANT_DATASET_APPROVAL_PUBLIC_KEY:-}
+      GALANT_FINETUNE_ALLOW_PRIVATE_HTTP: "yes"
       HF_HOME: /private/cache
     volumes:
       - ${GALANT_CPU_LORA_PRIVATE_DIR:-/opt/galant-cpu-lora-private}:/private
