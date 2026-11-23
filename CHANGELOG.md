@@ -1,3 +1,12 @@
+## 20.9.26-rc1 — MAX POWER: LoRA real con CPU del VPS actual
+
+- Agrega ejecutor de entrenamiento neuronal por CPU para Qwen3.5-0.8B, usando únicamente el decodificador de texto oficial, con PyTorch y PEFT y actualizaciones verdaderas de parámetros LoRA. **NO** entrena ni altera el Qwen3.5-4B de producción.
+- Perfil Docker opcional cpu-lora: arranque únicamente por orden explícita, 1,5 vCPU, 5 GiB RAM, sin swap, sin puerto abierto y sin acceso a DB, documentos ni Docker.sock. El despliegue normal **no lo inicia**.
+- Antes de cargar pesos requiere RAM real disponible (host/cgroup), disco, dataset privado de ejemplos reales autorizado y manifest Ed25519 firmado específicamente para el 0.8B.
+- Monitor de RAM durante la optimización, pausa bajo presión, checkpoints recuperables, historial JSONL seguro y comprobación de huella real de tensores LoRA modificados.
+- Actualiza la telemetría por organización para distinguir CPU LoRA de GPU QLoRA, registrar RAM de proceso y mostrar gráficos interactivos medidos. No inventa puntos, cifras ni mejoras de razonamiento; un adaptador entrenado requiere evaluación independiente.
+- Pruebas unitarias de preflight, límites, privacidad, recuperación, API de métricas CPU y carga de clase de texto oficial. Sin dataset firmado ni hardware comprobado la CI no puede probar gradientes en el VPS y el panel permanecerá sin mediciones.
+
 ## 20.9.25-rc1 — MAX POWER: QLoRA real con telemetría de GPU
 
 - Integra el ejecutor de ajuste fino **real** Qwen3.5-4B en una máquina CUDA aislada. La GPU actual del VPS no está confirmada: encender MAX POWER local sigue ejecutando evaluaciones, no gradientes.
