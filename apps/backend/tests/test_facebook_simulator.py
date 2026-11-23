@@ -23,7 +23,7 @@ def test_simulator_is_admin_scoped_and_retains_only_its_test_profile(ai_env, mon
         return response.json()
 
     first = send("Vi una postulacion de trabajo")
-    assert first["reply"].startswith("¿Qué aviso viste?")
+    assert first["reply"].startswith("Claro, te ayudo.")
     assert first["source"] == "local" and first["intent"] == "apply"
     assert first["checks"]["safe"] and not first["profile"]["specialty"]
 

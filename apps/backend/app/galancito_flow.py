@@ -95,6 +95,11 @@ def wants_human(message: str) -> bool:
         "retirar consentimiento", "revoco mi autorizacion",
         "quiero hablar con una persona", "hablar con administracion",
         "quiero hablar con administracion", "quiero un humano", "humano",
+        "me puede atender una persona", "me atiende una persona",
+        "quiero que me atienda alguien", "necesito que me atienda una persona",
+        "quiero hablar con alguien del equipo", "quiero hablar con una persona real",
+        "me pueden pasar con alguien", "quiero atencion de una persona",
+        "quiero hablar con un trabajador del equipo",
     }
     return any(value == phrase or value.startswith(phrase + " ") for phrase in phrases)
 

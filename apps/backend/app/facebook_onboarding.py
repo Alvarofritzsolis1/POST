@@ -26,6 +26,14 @@ def assistance_signal(message: str, is_audio: bool = False) -> str | None:
     text = _normal(message)
     if re.search(r"\b(no necesito ayuda|ya entiendo|no tengo dudas)\b", text):
         return None
+    # No considerar falta de manejo de Facebook/enlaces una incapacidad ni
+    # forzar derivación humana: ofrecer orientación directamente por Messenger.
+    digital_help = ("no tengo link", "no tengo enlace", "no se mandar link",
+                    "no se mandar el link", "no se que es link", "no se que es enlace",
+                    "no cacho el link", "no se usar facebook", "no tengo facebook",
+                    "no puedo copiar", "no se copiar", "no entiendo el enlace")
+    if any(term in text for term in digital_help):
+        return None
     confusion = [
         "no entiendo", "no comprendo", "no cacho", "me confundo",
         "no se como", "no se sacar", "no se que es", "no se que son",

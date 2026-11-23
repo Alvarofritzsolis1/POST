@@ -13,8 +13,9 @@ from .galancito_intake import (
 )
 from .galancito_contact_email import redact_email_for_intake, remember_shared_email
 from .galancito_phone import redact_mobile_for_intake, remember_shared_phone
-from .galancito_links import audit_event, record_declared_trades, trade_declarations
-from .galancito_triage import analyze, asks_about_application, plain, private_data, referring_to_application
+from .galancito_links import audit_event, record_declared_trades, trade_declarations, trade_terms
+from .galancito_triage import (ASK_APPLICATION_INTEREST, ASK_APPLICATION_OWN,
+                              analyze, asks_about_application, plain, private_data, referring_to_application)
 
 FIELDS = (
     "display_name", "name_opt_out", "specialty", "entity_type", "interest_type",
@@ -108,6 +109,23 @@ def apply_messenger_message(db, lead, message, prior, *, remote_id, at, historic
                             replay=False, aliases=None) -> bool:
     if not message or private_data(message) or analyze(message).intent in {"human", "restricted"}:
         return False
+    # Treat an answer to a specific, just-asked question as the person's own
+    # declaration, while never turning the advertised trade into experience.
+    normalized = plain(message)
+    if prior.startswith(ASK_APPLICATION_OWN) and normalized in {
+            "si", "si claro", "si ese es mi oficio", "si trabajo en eso",
+            "claro", "exacto"}:
+        trade = trade_terms(prior)
+        if len(trade) == 1:
+            message = "trabajo en " + trade[0]
+            prior = ""
+    elif prior.endswith(ASK_APPLICATION_INTEREST):
+        if normalized in {"yo", "yo solo", "yo sola", "solo yo", "solamente yo",
+                          "yo no mas", "yo nomas", "pa mi", "para mi", "soy yo"}:
+            message, prior = "busco trabajo", ""
+        elif normalized in {"mi equipo", "con mi gente", "tengo cuadrilla", "somos varios",
+                                 "tengo gente", "yo con mi gente", "con mi cuadrilla"}:
+            message, prior = "ofrezco servicios", ""
     if asking_about_notice := (asks_about_application(message) or referring_to_application(prior)):
         # An oficio or comuna quoted from an advert belongs to that advert.
         # Preserve separate first-person declarations in the same message.

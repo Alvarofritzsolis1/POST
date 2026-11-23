@@ -8,13 +8,14 @@ from sqlalchemy.orm import Session
 from .facebook_crm_models import FacebookChatMessage
 from .galancito_knowledge import exact_answer, retrieve
 from .galancito_triage import (
-    ASK_APPLICATION, ASK_APPLICATION_LINK, analyze, asks_about_application, is_pure_greeting,
-    plain, private_data, referring_to_application,
+    ASK_APPLICATION, ASK_APPLICATION_LINK, ASK_APPLICATION_INTEREST, ASK_APPLICATION_OWN,
+    analyze, asks_about_application, is_pure_greeting, plain, private_data, referring_to_application,
 )
 from .network_models import NetworkFacebookPost, NetworkRequirement
 from .models import utcnow
 from .network_service import today
 from .ops_models import Worksite
+from .galancito_links import trade_terms
 
 ASK_WORKSITE = "¿Cuál obra viste? Mándame el nombre o el link del aviso."
 
@@ -72,32 +73,107 @@ def published_notices(db, org_id, page_id):
     return [row for row in notices if re.fullmatch(r"[0-9]+_[0-9]+", row.post_id)]
 
 
-def application_reply(db: Session, lead, message: str, prior_prompt: str = "", *, notices=None) -> str | None:
-    follow_up = referring_to_application(prior_prompt)
+def _simple_digital_help(message: str) -> bool:
     value = plain(message)
+    return any(term in value for term in (
+        "no tengo link", "no tengo enlace", "no se mandar", "no se copiar",
+        "no se usar facebook", "no tengo facebook", "que es un link",
+        "que es el enlace", "no cacho el link", "no entiendo el enlace",
+        "no se de eso", "no se como mandar el aviso", "no puedo mandar",
+    ))
+
+
+def digital_help_reply(message: str, prior_prompt: str = "") -> str | None:
+    """Help people who cannot copy a link; no model or technical training needed."""
+    if private_data(message) or not _simple_digital_help(message):
+        return None
+    if referring_to_application(prior_prompt):
+        return None  # Preserve the original job-ad context in application_reply.
+    return ASK_APPLICATION_LINK
+
+
+def _application_role(message: str) -> str | None:
+    value = plain(message)
+    if value in {"yo", "yo solo", "yo sola", "solo yo", "solamente yo",
+                 "yo no mas", "yo nomas", "pa mi", "para mi",
+                 "busco pega", "busco trabajo", "quiero trabajar",
+                 "quiero postular", "para trabajar", "busco empleo", "soy yo"}:
+        return "employment"
+    if any(p in value for p in (
+        "tengo gente", "tengo cuadrilla", "con mi equipo", "con mi gente",
+        "ofrezco servicios", "ofresco servicios", "tengo una empresa",
+        "somos varios", "mi cuadrilla", "trabajo con gente",
+    )):
+        return "service_offer"
+    return None
+
+
+def application_reply(db: Session, lead, message: str, prior_prompt: str = "", *, notices=None) -> str | None:
+    """Advance a real conversation, not a Facebook link-gathering script.
+
+    An advert's trade is not the applicant's verified profession.
+    """
+    follow_up = referring_to_application(prior_prompt)
     asks = asks_about_application(message)
     if not (asks or follow_up) or private_data(message) or is_pure_greeting(message):
         return None
-    if follow_up and (value == "no" or value.startswith(("no tengo el link", "no lo tengo", "no tengo el enlace"))):
-        return "Está bien. Si encuentras el aviso, por acá podemos ver cómo postular."
-    if not value or value in {"si", "no", "gracias", "vale"}:
+    norm = plain(message)
+    info = analyze(message)
+    if info.intent in {"human", "restricted"}:
         return None
-    intent = analyze(message).intent
-    if intent in {"human", "restricted"} or (not asks and ("?" in message or intent in {"documents", "requirements", "about", "publish"})):
+    if follow_up and not asks and "?" in message and not _simple_digital_help(message):
+        return None  # The person is asking a new question; let its router answer.
+    if prior_prompt.startswith(ASK_APPLICATION_OWN):
+        value = norm
+        if value in {"si", "si claro", "si ese es mi oficio", "si trabajo en eso", "claro", "exacto"}:
+            return "Perfecto, gracias por aclararlo. ¿En qué comuna puedes trabajar?"
+        if value in {"no", "no es mi oficio", "no trabajo en eso", "todavia no"}:
+            return "Está bien, no voy a asumir tu oficio. ¿Qué trabajo realizas?"
         return None
+    if prior_prompt.endswith(ASK_APPLICATION_INTEREST):
+        role = _application_role(message)
+        if role == "employment":
+            trades = trade_terms(prior_prompt)
+            if len(trades) == 1:
+                return ASK_APPLICATION_OWN + trades[0].lower() + "?"
+            return "Entiendo, quieres postular tú. ¿Qué oficio realizas?"
+        if role == "service_offer":
+            return "Entiendo, ofreces tus servicios. ¿En qué comuna puedes trabajar?"
+        if norm in {"no entiendo", "que significa", "no cacho", "como es eso"}:
+            return "Te explico: ¿buscas trabajo para ti o quieres llevar una cuadrilla?"
+        # If a person volunteers an occupational fact, do not force an unrelated role menu.
+        if any(p in norm for p in ("soy ", "soi ", "trabajo ", "hago ", "me dedico ")):
+            return None
+        return "¿El trabajo lo buscas para ti o para tu equipo?"
+    if _simple_digital_help(message):
+        # Reassure; after repeated difficulty, keep helping instead of looping.
+        if prior_prompt == ASK_APPLICATION_LINK:
+            return "Está bien, no necesitas enlaces. " + ASK_APPLICATION_INTEREST
+        return ASK_APPLICATION_LINK
+    if follow_up and norm in {"no se", "no recuerdo", "no me acuerdo", "no lo tengo",
+                              "no tengo", "no lo se", "ni idea", "nose", "no cacho"}:
+        return "Está bien, podemos seguir igual. " + ASK_APPLICATION_INTEREST
     notices = published_notices(db, lead.org_id, lead.page_id) if notices is None else notices
     matches = _matches_public_notice(message, notices)
     if len(matches) == 1:
         notice = matches[0]
-        return (f"Este es el aviso de {notice.title}: https://www.facebook.com/{notice.post_id}. "
-                "Revisa ahí cómo reciben las postulaciones.")[:550]
+        # A verified match is useful; do not force a link or a confirmation loop.
+        return ("Encontré un aviso de " + notice.title[:95] + " en " + notice.site_name[:70] +
+                ". " + ASK_APPLICATION_INTEREST)[:550]
+    trades = trade_terms(message)
+    if follow_up and len(trades) == 1:
+        name = trades[0].lower()
+        return ("Ah, era un aviso de " + name + ". " + ASK_APPLICATION_INTEREST)[:550]
+    if len(matches) > 1:
+        return "Encontré varios avisos parecidos; no quiero confundirte. " + ASK_APPLICATION_INTEREST
     if asks and not follow_up:
         return ASK_APPLICATION
-    if _POST_LINK.search(message):
-        return "Con ese enlace no pude ubicar el aviso aquí. Si la publicación indica cómo postular, sigue ese paso."
-    if prior_prompt == ASK_APPLICATION_LINK:
-        return "Todavía no ubico la publicación. Si trae instrucciones para postular, sigue lo que indique el aviso."
-    return ASK_APPLICATION_LINK
+    if follow_up:
+        # A partial clue is useful. Never loop back to "send the link".
+        if norm:
+            return "Gracias, ya tengo ese dato. " + ASK_APPLICATION_INTEREST
+        return ASK_APPLICATION
+    return None
 
 
 def worksite_reply(db: Session, lead, message: str, prior_prompt: str = "", *, notices=None) -> str | None:

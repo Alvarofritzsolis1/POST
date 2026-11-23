@@ -19,7 +19,7 @@ from .config import settings
 from .db import SessionLocal
 from .facebook_ai import messenger_ai_source
 from .facebook_availability_reply import availability_reply
-from .facebook_worksite_reply import is_worksite_location, worksite_reply, application_reply
+from .facebook_worksite_reply import is_worksite_location, worksite_reply, application_reply, digital_help_reply
 from .facebook_crm_models import FacebookChatMessage, FacebookLead
 from .facebook_lead_insights import trace_unique_requirement
 from .galancito_flow import apply_permission_reply, consented_for, explain_permission, set_permission_request, wants_human
@@ -231,6 +231,7 @@ def sync_page_inbox(*, page_id: str, page_token: str, org_id: str,
                 direct = (follow_up or explain_permission(lead, body, prior)
                           or worksite_reply(db, lead, body, prior)
                           or application_reply(db, lead, body, prior)
+                          or digital_help_reply(body, prior)
                           or everyday_question_reply(body))
                 if not direct and not lead.needs_support:
                     direct = phone_question_when_agreed(lead, body)

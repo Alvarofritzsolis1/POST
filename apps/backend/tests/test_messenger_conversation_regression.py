@@ -63,7 +63,7 @@ def test_seen_job_post_asks_for_notice_without_permission_or_assumed_trade(netwo
     assert process_chat_next(n["Session"])
     assert incoming(n, "Vi una postulacion de trabajo", "posting-interest").status_code == 200
     assert process_chat_next(n["Session"])
-    assert replies[-1].startswith("¿Qué aviso viste?")
+    assert replies[-1].startswith("Claro, te ayudo.")
     assert "autorizas" not in replies[-1] and "Galancito" not in replies[-1]
     assert incoming(n, "De pintura en Coronel", "posting-trade").status_code == 200
     assert process_chat_next(n["Session"])
