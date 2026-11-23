@@ -82,6 +82,8 @@ export type Requirement = {
   specialty: string;
   priority: string;
   publish_to_facebook: boolean;
+  public_location: string;
+  poster_available: boolean;
   workers: number;
   start_date: string;
   end_date: string;
