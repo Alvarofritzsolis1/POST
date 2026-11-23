@@ -194,7 +194,7 @@ def launch(root: Path, output: Path, resume: bool, org: str, generation: int,
         args.append("--resume")
     env = dict(os.environ)
     env["GALANT_SYNTHETIC_DEV_TRAINING"] = "yes" if synthetic else "no"
-    env["GALANT_OFFLINE_TRAINING_APPROVED"] = "yes"
+    env["GALANT_OFFLINE_TRAINING_APPROVED"] = "no" if synthetic else "yes"
     env["GALANT_DATASET_APPROVAL_PUBLIC_KEY"] = public_key
     env["GALANT_FINETUNE_TELEMETRY_TOKEN"] = telemetry_token
     env["GALANT_FINETUNE_ALLOW_PRIVATE_HTTP"] = "yes"
