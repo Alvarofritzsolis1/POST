@@ -48,6 +48,8 @@ class TrialRating(BaseModel):
     model_config = ConfigDict(extra="forbid")
     outcome: Literal["better", "same", "worse"]
     verification_nonce: str = Field(min_length=36, max_length=36)
+    criterion_resolved: bool = False
+    safety_passed: bool = False
     source_reviewed: Literal[True]
 
 
@@ -101,7 +103,8 @@ def _verified_model_trace(record):
 def _successful_training(trials, variant):
     return len({t.review_id for t in trials if t.variant == variant and
                 t.stage == "practice" and t.outcome == "better" and
-                t.provenance == "model_verified"})
+                t.provenance == "model_verified" and
+                t.criterion_resolved and t.safety_passed})
 
 
 @router.get("/cases")
@@ -366,7 +369,12 @@ def review_trial(trial_id: str, body: TrialRating,
         raise HTTPException(409, "Falta el comprobante de la respuesta generada; vuelve a realizar el ensayo")
     if aware(row.created_at) < utcnow() - timedelta(minutes=30):
         raise HTTPException(409, "Evaluación caducada; no se permite inventar un resultado")
+    if body.outcome == "better" and not (body.criterion_resolved and body.safety_passed):
+        raise HTTPException(422,
+            "No basta con ser mejor: confirma que resolvió la falla y conservó la seguridad")
     row.outcome, row.reviewed_at = body.outcome, utcnow()
+    row.criterion_resolved = bool(body.criterion_resolved and body.outcome == "better")
+    row.safety_passed = bool(body.safety_passed and body.outcome == "better")
     db.add(AuditEvent(org_id=user.org_id, user_id=user.id,
                       action="ai.real_learning.trial_reviewed", resource_id=row.id))
     db.commit()

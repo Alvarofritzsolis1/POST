@@ -162,7 +162,9 @@ def eligible_for_proposal(trials, *, min_holdout=MIN_HOLDOUT_WINS) -> dict:
         record = by_variant.setdefault(variant, {"practice": set(), "holdout": set(), "worse": 0})
         if trial.outcome == "worse":
             record["worse"] += 1
-        if trial.outcome == "better":
+        if (trial.outcome == "better" and
+                bool(getattr(trial, "criterion_resolved", False)) and
+                bool(getattr(trial, "safety_passed", False))):
             record[trial.stage if trial.stage in {"practice", "holdout"} else "practice"].add(trial.review_id)
     for variant, record in by_variant.items():
         if (len(record["practice"]) >= 2 and len(record["holdout"]) >= min_holdout

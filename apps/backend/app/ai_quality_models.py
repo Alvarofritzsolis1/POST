@@ -1,7 +1,7 @@
 """Human-reviewed, evidence-linked AI response ratings. No chat content is persisted."""
 from datetime import datetime
 
-from sqlalchemy import DateTime, ForeignKey, Index, Integer, JSON, String, UniqueConstraint
+from sqlalchemy import Boolean, DateTime, ForeignKey, Index, Integer, JSON, String, UniqueConstraint
 from sqlalchemy.orm import Mapped, mapped_column
 
 from .db import Base
@@ -49,5 +49,7 @@ class AIRealPracticeTrial(Base):
     stage: Mapped[str] = mapped_column(String(20), nullable=False, default="practice")
     verification_nonce: Mapped[str] = mapped_column(String(36), nullable=False, default=uid)
     outcome: Mapped[str] = mapped_column(String(12), nullable=False, default="pending")
+    criterion_resolved: Mapped[bool] = mapped_column(Boolean, nullable=False, default=False)
+    safety_passed: Mapped[bool] = mapped_column(Boolean, nullable=False, default=False)
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False, default=utcnow)
     reviewed_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
