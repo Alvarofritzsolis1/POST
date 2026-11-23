@@ -77,6 +77,28 @@ def private_files(org: str) -> tuple[Path, Path, Path]:
     return root, root / "approved.jsonl", root / "approval.json"
 
 
+def readiness_blocker(root: Path, data: Path, manifest: Path, public_key: str) -> str | None:
+    """Classify missing prerequisites without opening or exporting private examples."""
+    if not re.fullmatch(r"[0-9a-fA-F]{64}", public_key or ""):
+        return "approval_public_key_missing"
+    if not root.is_dir():
+        return "approved_dataset_missing"
+    if root.is_symlink() or (root / "runs").is_symlink():
+        return "approved_dataset_rejected"
+    if not data.is_file():
+        return "approved_dataset_missing"
+    if not manifest.is_file():
+        return "approval_manifest_missing"
+    if data.is_symlink() or manifest.is_symlink():
+        return "approved_dataset_rejected"
+    try:
+        if (data.stat().st_mode & 0o077) or (manifest.stat().st_mode & 0o077):
+            return "private_file_permissions"
+    except OSError:
+        return "approved_dataset_rejected"
+    return None
+
+
 def approved_inputs(root: Path, data: Path, manifest: Path, public_key: str):
     """Reject missing consent evidence, weak file permissions and unsignable data."""
     if not re.fullmatch(r"[0-9a-fA-F]{64}", public_key or ""):
@@ -250,9 +272,13 @@ def run_once(secret: str, plan: dict, public_key: str, last_preflight: dict,
     if not gate["ready"]:
         report("awaiting_resources")
         return
+    missing = readiness_blocker(root, data, manifest, public_key)
+    if missing:
+        report(missing)
+        return
     approved = approved_inputs(root, data, manifest, public_key)
     if approved is None:
-        report("awaiting_approved_dataset")
+        report("approved_dataset_rejected")
         return
     bundle, _ = approved
     output, resume, run_state = select_run(root, bundle["dataset_digest"])
