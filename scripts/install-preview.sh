@@ -32,12 +32,14 @@ if ss -lntH 'sport = :18512' | grep -q . && ! docker ps --format '{{.Names}}' | 
 fi
 install -d -m 0700 preview-storage
 chown 10001:10001 preview-storage
+install -d -o 10001 -g 10001 -m 0700 /opt/galant-cpu-lora-private
+python3 scripts/ensure-finetune-metrics-key.py .env.preview
 compose=(docker compose --profile training --env-file .env.preview -f docker-compose.preview.yml)
 "${compose[@]}" config --quiet
-COMPOSE_PARALLEL_LIMIT=1 "${compose[@]}" build api worker facebook-publisher frontend galancito-trainer
+COMPOSE_PARALLEL_LIMIT=1 "${compose[@]}" build api worker facebook-publisher frontend galancito-trainer max-power-controller cpu-lora-manager
 "${compose[@]}" up -d db api worker facebook-publisher frontend proxy
 "${compose[@]}" exec -T api python -m app.cli init-db
-"${compose[@]}" up -d --no-build galancito-trainer galancito-training-ollama
+"${compose[@]}" up -d --no-build galancito-trainer galancito-training-ollama max-power-controller cpu-lora-manager
 "${compose[@]}" exec -T api python -m app.deploy_verify \
     --expected-commit "${SOURCE_COMMIT:-unknown}" --training-worker-only
 ok=0
