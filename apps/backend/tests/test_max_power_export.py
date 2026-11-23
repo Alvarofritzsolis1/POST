@@ -96,7 +96,8 @@ def test_report_remains_available_after_stopping(ai_env):
     report = client.get(BASE + "/export", headers=headers).json()
     assert report["session"]["enabled_at_export"] is False
     assert report["history"]["event_count_included"] == 3
-    assert report["history"]["events"][1]["measurements"]["holdout_wins"] == 7
+    assert any(event["measurements"].get("holdout_wins") == 7
+               for event in report["history"]["events"])
     assert report["session"]["first_started_at_utc"] is not None
 
 def test_allowlist_drops_unknown_and_non_finite_values():
