@@ -355,7 +355,8 @@ def process_chat_next(session_factory=SessionLocal) -> bool:
                                 not consented_for(current, ai_source) or messenger_ai_source(db, org_id, cfg) != ai_source):
                             return True
                         verified_policy = approved_coaching(db, org_id, "messenger")
-                        prepared_context = (context + "\nGuía aprobada de atención:\n" + verified_policy) if verified_policy else context
+                        prepared_context = (context[:1000] + "\nGuía aprobada de atención:\n" + verified_policy +
+                                            "\n" + context[1000:]) if verified_policy else context
                         drafted = infer(db, lambda: (
                             orchestrated_text(db, org_id, task="messenger",
                                               instructions=REPLY_INSTRUCTIONS, prompt=prepared_context,
