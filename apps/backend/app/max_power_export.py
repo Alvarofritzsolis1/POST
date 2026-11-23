@@ -125,12 +125,17 @@ def safe_metrics(metrics):
         value = metrics.get(key)
         if isinstance(value, str) and value in options:
             cleaned[key] = value
-    for key in ("system_version", "prompt_version", "dataset_hash"):
-        safe = _safe_identifier(metrics.get(key))
-        if safe:
-            cleaned[key] = safe
-    if metrics.get("model") in ALLOWED_MODELS:
-        cleaned["model"] = metrics["model"]
+    # Dataset/prompt fingerprints must be genuine SHA-256, never arbitrary text.
+    safe = _safe_identifier(metrics.get("system_version"))
+    if safe:
+        cleaned["system_version"] = safe
+    for key in ("prompt_version", "dataset_hash"):
+        value = metrics.get(key)
+        if isinstance(value, str) and re.fullmatch(r"[a-fA-F0-9]{64}", value):
+            cleaned[key] = value
+    model = metrics.get("model")
+    if isinstance(model, str) and model in ALLOWED_MODELS:
+        cleaned["model"] = model
     for key in ("baseline", "candidate", "original_production", "paired_speed",
                 "before_timing_ms", "after_timing_ms", "baseline_ollama_timing_ms",
                 "candidate_ollama_timing_ms"):
