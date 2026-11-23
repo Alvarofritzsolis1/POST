@@ -82,10 +82,19 @@ def _result(db, row, completed, now):
             if clustered:
                 metrics = {**metrics, **clustered}
     outcome = classify_outcome(metrics)
-    if completed.state != "completed" or completed.completed != completed.target:
+    interrupted = completed.state != "completed" or completed.completed != completed.target
+    fingerprint = row.last_evidence_hash
+    previous = row.latest_result or {}
+    repeat_failures = (int(previous.get("consecutive_failures") or 0)
+                       if previous.get("evidence_fingerprint") == fingerprint else 0)
+    failures = repeat_failures + 1 if interrupted else 0
+    if interrupted:
+        # Include only the already-sanitized worker reason, never private text.
+        detail = str(completed.reason or "motivo no registrado")[:110]
         outcome = {**outcome, "code": "interrupted",
-                   "reason": "Ronda incompleta o detenida: ninguna mejora confirmada",
-                   "next": "Revisar el motivo de detención y reanudar con nueva evidencia",
+                   "reason": f"Ronda {completed.state}: {detail}; mejora no verificada",
+                   "next": "Reintento controlado del mismo conjunto" if failures < 3
+                           else "Esperar datos nuevos tras tres rondas fallidas",
                    "lab_verified": False}
     samples = int(metrics.get("ollama_timing_samples") or 0)
     totals = metrics.get("ollama_timing_totals") or {}
@@ -145,7 +154,9 @@ def _result(db, row, completed, now):
                          "inference_p50_ms": statistics["inference_p50_ms"],
                          "inference_p95_ms": statistics["inference_p95_ms"],
                          "inference_samples": statistics["inference_samples"],
-                         "paired_speed": paired_speed}
+                         "paired_speed": paired_speed,
+                         "evidence_fingerprint": fingerprint,
+                         "consecutive_failures": failures}
     # No falsely asserted production gain. A lab win still awaits review/promotion.
     # Keep value-bearing aggregate evidence even after routine training-case pruning.
     audit_snapshot = {
@@ -170,7 +181,21 @@ def _result(db, row, completed, now):
     db.add(MaxPowerEvent(org_id=row.org_id, event="experiment_completed",
                          reason=outcome["reason"], round_id=completed.id,
                          evidence=audit_snapshot))
-    set_wait(row, now, outcome["code"], outcome["reason"] + ". " + outcome["next"])
+    if interrupted:
+        # The old code consumed this evidence when queuing, even if all A/B
+        # comparisons failed. Retry it with backoff, then stop until new facts
+        # arrive to avoid burning CPU forever on a persistently broken model.
+        if failures < 3:
+            row.last_evidence_hash = None
+            set_wait(row, now, "retry_after_failure",
+                     outcome["reason"] + ". " + outcome["next"],
+                     seconds=600 * 2 ** (failures - 1))
+        else:
+            set_wait(row, now, "awaiting_new_evidence",
+                     outcome["reason"] + ". " + outcome["next"],
+                     seconds=600)
+    else:
+        set_wait(row, now, outcome["code"], outcome["reason"] + ". " + outcome["next"])
 
 def tick(db, sampler):
     """One transactional decision per organization, protected by row locks."""
