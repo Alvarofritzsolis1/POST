@@ -3,6 +3,7 @@ from concurrent.futures import ThreadPoolExecutor
 from contextlib import contextmanager
 from datetime import timedelta
 import logging
+import os
 from time import monotonic, sleep
 from types import SimpleNamespace
 
@@ -43,8 +44,18 @@ CPU_THREADS = ThreadPoolExecutor(max_workers=4, thread_name_prefix="training-cas
 LIVE_REASONING_CATEGORIES = frozenset({"resta", "suma", "diferencia", "riesgos"})
 
 
-def practice_threads(snapshot: dict) -> int:
-    """Respect measured worker CPU allocation; never force a single thread."""
+def practice_threads(snapshot: dict, *, isolated: bool = False) -> int:
+    """Select threads for the Ollama *server*, not the small controller cgroup.
+
+    Only MAX POWER isolated rounds use the separately capped training Ollama.
+    Manual practice and live Messenger preserve their existing behavior.
+    """
+    if isolated:
+        try:
+            requested = int(os.environ.get("GALANT_TRAINING_OLLAMA_THREADS", "2"))
+        except (TypeError, ValueError):
+            requested = 2
+        return min(4, max(1, requested))
     try:
         # Docker commonly reports 1.5 CPU. int(1.5) incorrectly rounds down
         # to one thread and recreates the original Qwen bottleneck.
@@ -266,7 +277,9 @@ def _charge(factory, claim, spec, instructions, prompt, seed, *, role, sampler, 
         sent = True
         if local:
             cfg = SimpleNamespace(galancito_num_ctx=LOCAL_CONTEXT_LIMIT, galancito_num_predict=output_limit,
-                                  galancito_num_thread=practice_threads(snapshot), galancito_keep_alive="2m",
+                                  galancito_num_thread=practice_threads(
+                                      snapshot, isolated=row.config.get("orchestrator") == "max_power"),
+                                  galancito_keep_alive="2m",
                                   galancito_local_model=spec["model"])
             def invoke_local():
                 return (generate_training_text(instructions, prompt, seed, cfg, thinking=True)
@@ -305,12 +318,20 @@ def _charge(factory, claim, spec, instructions, prompt, seed, *, role, sampler, 
                 metrics["cost"] = metrics.get("cost", 0) + cost
                 row.metrics = metrics
         return answer
-    except (AIServiceError, RuntimeError):
+    except (AIServiceError, RuntimeError) as exc:
+        # Expose only explicitly sanitized operational failure codes to the
+        # durable training round. Never retain a raw provider error or prompt.
+        safe = str(exc)
+        if local and (safe.startswith("Tiempo de espera agotado en Ollama de práctica")
+                      or safe.startswith("Ollama de práctica respondió HTTP ")):
+            explanation = safe
+        else:
+            explanation = "El modelo de práctica no respondió"
         if not local and sent:
             with factory.begin() as db:
                 record_usage(db, conn, "training_" + role, status="error",
                              duration_ms=round((monotonic() - started) * 1000))
-        raise ProviderUnavailable("El modelo de práctica no respondió") from None
+        raise ProviderUnavailable(explanation) from None
 
 
 def checkpoints(factory, claim, results, snapshot, elapsed):
