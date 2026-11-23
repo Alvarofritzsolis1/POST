@@ -17,6 +17,7 @@ from .ai_quality_models import AIResponseReview
 from .ai_real_learning_api import _linked_original_run, _verified_model_trace
 from .config import settings
 from .db import SessionLocal
+from .galancito_trainer import messenger_busy
 from .facebook_ai import LOCAL_REPLY_INSTRUCTIONS
 from .galancito_flow import grounded_reply
 from .galancito_general import QWEN_4B
@@ -125,6 +126,8 @@ def _answer(instructions,prompt,seed,org_id):
         state = db.get(MaxPowerState,org_id)
         if not state or not state.enabled:
             raise RuntimeError("MAX POWER apagado")
+        if messenger_busy(db):
+            raise RuntimeError("Messenger tiene prioridad sobre experimentos")
         result = infer(db,lambda:generate_local_text(
             instructions,prompt,max_chars=550,thinking=False,seed=seed))
         timing = dict(last_timings.get() or {})

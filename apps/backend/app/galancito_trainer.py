@@ -118,16 +118,20 @@ def messenger_busy(db):
         FacebookChatMessage.updated_at >= utcnow() - timedelta(minutes=2))))
 
 
-def claim(factory, snapshot, *, maintenance=False, training_model=None):
+def claim(factory, snapshot, *, maintenance=False, training_model=None, only_orchestrator=None):
     now = utcnow()
     with factory.begin() as db:
         heartbeat(db, snapshot, now)
         if maintenance:
             collect_old(db, now)
-        rows = db.scalars(select(TrainingRound).where(
+        query = select(TrainingRound).where(
             TrainingRound.state.in_(("queued", "practicing", "evaluating", "correcting")),
             TrainingRound.next_at <= now,
-        ).order_by(TrainingRound.next_at, TrainingRound.created_at).limit(8).with_for_update(skip_locked=True)).all()
+        )
+        if only_orchestrator is not None:
+            query = query.where(TrainingRound.config["orchestrator"].as_string() == only_orchestrator)
+        rows = db.scalars(query.order_by(TrainingRound.next_at, TrainingRound.created_at)
+                          .limit(8).with_for_update(skip_locked=True)).all()
         for row in rows:
             if row.lease and db.bind.dialect.name != "postgresql" and aware(row.lease_until) > now:
                 continue
@@ -533,13 +537,14 @@ def defer(factory, claim, elapsed, error, *, budget=False, pressure=False):
             row.state, row.next_at = "queued", eligible_at(row.config, retry)
 
 
-def process_next(factory=SessionLocal, sampler=None, *, maintenance=False, training_model=None):
+def process_next(factory=SessionLocal, sampler=None, *, maintenance=False, training_model=None, only_orchestrator=None):
     sampler = sampler or ResourceSampler()
     with worker_lock(factory) as granted:
         if not granted:
             return False
         snapshot = sampler.sample()
-        claimed = claim(factory, snapshot, maintenance=maintenance, training_model=training_model)
+        claimed = claim(factory, snapshot, maintenance=maintenance, training_model=training_model,
+                        only_orchestrator=only_orchestrator)
         if not claimed:
             return False
         row, count = claimed
