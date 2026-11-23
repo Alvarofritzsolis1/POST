@@ -115,6 +115,8 @@ def verified_finished_run(path: Path, digest: str) -> bool:
         return bool(
             report.get("dataset_sha256") == digest
             and metadata.get("dataset_sha256") == digest
+            and report.get("data_kind") in ("curated_synthetic", "human_reviewed_real")
+            and report.get("data_kind") == metadata.get("data_kind")
             and report.get("base_model") == MODEL
             and report.get("weights_trained") is True
             and report.get("lora_weights_changed") is True
