@@ -19,6 +19,27 @@ concurrency:
 permissions:
   contents: read
 jobs:
+  max_power:
+    name: MAX POWER — estado, aprendizaje y exportación privados
+    runs-on: ubuntu-24.04
+    timeout-minutes: 12
+    defaults: {run: {working-directory: apps/backend}}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with: {python-version: "3.12"}
+      - name: Instalar dependencias backend
+        run: python -m pip install -r requirements-dev.txt
+      - name: Validar persistencia, aislamiento y diagnóstico sin Ollama externo
+        run: >-
+          python -m pytest -q
+          tests/test_max_power_decisions.py
+          tests/test_max_power_api.py
+          tests/test_max_power_export.py
+          tests/test_max_power_messenger.py
+          tests/test_max_power_recovery.py
+      - name: Comprobar sintaxis del controlador y exportación
+        run: python -m compileall -q app/max_power_*.py
   backend:
     # Imagen estable para dependencias OCR/LibreOffice: evita los mirrors
     # resolute de Ubuntu latest que fallaron DNS en el runner anterior.
