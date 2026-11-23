@@ -47,6 +47,7 @@ class AIRealPracticeTrial(Base):
     variant: Mapped[str] = mapped_column(String(36), nullable=False, default="focused")
     provenance: Mapped[str] = mapped_column(String(32), nullable=False, default="reconstructed")
     stage: Mapped[str] = mapped_column(String(20), nullable=False, default="practice")
+    verification_nonce: Mapped[str] = mapped_column(String(36), nullable=False, default=uid)
     outcome: Mapped[str] = mapped_column(String(12), nullable=False, default="pending")
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False, default=utcnow)
     reviewed_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
