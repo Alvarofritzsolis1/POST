@@ -361,17 +361,19 @@ def process_chat_next(session_factory=SessionLocal) -> bool:
                                 not consented_for(current, ai_source) or messenger_ai_source(db, org_id, cfg) != ai_source):
                             return True
                         verified_policy = approved_coaching(db, org_id, "messenger")
-                        prepared_context = (context[:1000] + "\nGuía aprobada de atención:\n" + verified_policy +
-                                            "\n" + context[1000:]) if verified_policy else context
+                        prepared_context = context
                         trace["context_truncated"] = len(prepared_context) > MAX_CONTEXT_CHARS
                         trace["context_chars"] = len(prepared_context)
                         trace["approved_coaching"] = bool(verified_policy)
                         drafted = infer(db, lambda: (
                             orchestrated_text(db, org_id, task="messenger",
-                                              instructions=REPLY_INSTRUCTIONS, prompt=prepared_context,
+                                              instructions=(REPLY_INSTRUCTIONS +
+                                                            ("\nGuía aprobada:\n" + verified_policy if verified_policy else "")),
+                                              prompt=prepared_context,
                                               max_output_tokens=230)
                             if ai_source == "team" else
-                            generate_text(REPLY_INSTRUCTIONS, prepared_context, 550)),
+                            generate_text(REPLY_INSTRUCTIONS, prepared_context, 550,
+                                          approved_policy=verified_policy)),
                             org_id=org_id if ai_source == "team" else None)
                         timings = last_timings.get()
                     if drafted:

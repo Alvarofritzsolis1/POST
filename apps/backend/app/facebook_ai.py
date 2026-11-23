@@ -5,7 +5,7 @@ from urllib.request import Request, urlopen
 
 from .config import settings
 from .ai_gateway import orchestration_available, orchestration_selected
-from .galancito_local import generate_local_text, record_model_attempt, record_model_tokens
+from .galancito_local import generate_local_text, record_model_attempt, record_model_tokens, MAX_INSTRUCTIONS_CHARS
 
 ASSISTANT_NAME = "Galancito"
 
@@ -182,17 +182,23 @@ def galancito_red_ai_available(cfg=None) -> bool:
     return bool(cfg.galancito_ai_provider == "openai" and cfg.galancito_ai_api_key)
 
 
-def generate_text(instructions: str, supplied_data: str, max_chars: int = 1200) -> str | None:
+def generate_text(instructions: str, supplied_data: str, max_chars: int = 1200,
+                  *, approved_policy: str = "") -> str | None:
     """Messenger replies; Red de Obras ads use the separate fact-preserving helper."""
     cfg = settings()
     if cfg.facebook_ai_provider == "ollama":
         if instructions != REPLY_INSTRUCTIONS or not facebook_reply_ai_available(cfg):
             return None
-        return generate_local_text(LOCAL_REPLY_INSTRUCTIONS, supplied_data, min(max_chars, 1200))
+        complete = (LOCAL_REPLY_INSTRUCTIONS + "\nGuías verificadas y aprobadas:\n" +
+                    approved_policy) if approved_policy else LOCAL_REPLY_INSTRUCTIONS
+        if len(complete) > MAX_INSTRUCTIONS_CHARS:
+            raise ValueError("Las guías aprobadas exceden el límite de instrucciones")
+        return generate_local_text(complete, supplied_data, min(max_chars, 1200))
     if not (cfg.facebook_ai_provider == "openai" and cfg.facebook_ai_enabled and
             cfg.facebook_ai_api_key):
         return None
-    return _generate(instructions, supplied_data, max_chars,
+    return _generate(instructions + ("\nGuía aprobada:\n" + approved_policy if approved_policy else ""),
+                     supplied_data, max_chars,
                      cfg.facebook_ai_model, cfg.facebook_ai_api_key)
 
 
