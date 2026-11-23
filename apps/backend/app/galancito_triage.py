@@ -86,6 +86,23 @@ class Intake:
     availability: str = ""
 
 
+_APPLICATION = re.compile(
+    r"\b(?:vi|lei|encontre|me aparecio|me interesa|escribo por|vengo por) "
+    r"(?:\w+ ){0,3}(?:aviso|publicacion|postulacion|oferta|vacante|anuncio|pega)\b|"
+    r"\b(?:(?:como|quiero|puedo) (?:puedo )?postul(?:o|ar)(?:me)?|me quiero postular)\b"
+)
+ASK_APPLICATION = "¿Qué aviso viste? Con el nombre de la obra o el link te puedo orientar para postular."
+ASK_APPLICATION_LINK = "Con ese dato aún no ubico el aviso. ¿Tienes el link de la publicación?"
+
+
+def asks_about_application(message: str) -> bool:
+    return bool(_APPLICATION.search(plain(message)))
+
+
+def referring_to_application(prompt: str) -> bool:
+    return prompt in {ASK_APPLICATION, ASK_APPLICATION_LINK}
+
+
 def analyze(message: str, trades: dict | None = None) -> Intake:
     text = plain(message)
     intent = "unknown"
@@ -122,7 +139,7 @@ def analyze(message: str, trades: dict | None = None) -> Intake:
         intent = "requirements"
     elif any(contains(text, p) for p in ("papeles", "documentos", "f30", "mutualidad")):
         intent = "documents"
-    elif any(contains(text, p) for p in ("como postulo", "postular a una obra")):
+    elif asks_about_application(message) or contains(text, "postular a una obra"):
         intent = "apply"
     elif any(contains(text, p) for p in ("como funciona red de obras", "que es red de obras")):
         intent = "about"

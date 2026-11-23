@@ -246,7 +246,7 @@ def test_galancito_conversation_auto_reply_only_after_messenger_consent(network,
     assert lead["ai_consent"] is False and lead["ai_consent_state"] == "requested"
     pending = n["admin"].get("/api/v1/network/facebook/leads/" + lead["id"]).json()["messages"]
     assert len(pending) == 2
-    assert "Galancito" in pending[-1]["body"] and "autorizas" in pending[-1]["body"]
+    assert "OpenAI" in pending[-1]["body"] and "autorizas" in pending[-1]["body"]
     calls, ai_calls = [], []
 
     def send_mock(page_id, psid, msg, token):

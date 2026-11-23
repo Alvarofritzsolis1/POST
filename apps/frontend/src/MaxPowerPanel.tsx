@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import { Activity, AlertTriangle, BrainCircuit, CheckCircle2, Clock3, Download, Gauge, History, Power, RefreshCw, ShieldCheck, Zap } from "lucide-react";
 import { request } from "./api";
 import "./max-power.css";
@@ -16,6 +16,14 @@ type PracticeSample = {
   style_signals: CheckCount;
   safety: {gate_passed: boolean; unsupported_values: number; privacy_or_promise_failures: number};
 };
+type LiveActivity = {
+  updated_at: string;
+  controller_at: string | null;
+  next_check_at: string | null;
+  practice_cases: number;
+  qwen: {state: "off" | "waiting" | "running"; reason: string; completed?: number | null;
+         total?: number; unit?: string; started_at?: string | null; retry_at?: string | null; required_ram_mb?: number};
+};
 type Status = {
   enabled: boolean; controller_online: boolean; trainer_online: boolean;
   cpu_learning?: {status:string;reason:string;last_update_at:string|null;
@@ -29,10 +37,11 @@ type Status = {
   automatic_quality?: Record<string,{pairs:number; baseline:number|null;candidate:number|null;delta_points:number|null;scope:string;minimum_cases:number;notes:string}>;
   synthetic_practice?: {at: string; development: PracticeSample; holdout: PracticeSample;
                        target_weights: Record<string,number>} | null;
-  synthetic_qwen?: {queued_or_running: number; blocked: number; reserved_pairs: number;
+  synthetic_qwen?: {queued_or_running: number; completed?: number; blocked: number; reserved_pairs: number;
                     baseline_passes: number; candidate_passes: number; gains: number;
                     regressions: number; safety_failures: number} | null;
   resource_snapshot?: Record<string,number | null>;
+  live_activity?: LiveActivity;
   latest_result: Record<string, unknown>;
   latency_diagnosis: {code: string; reason: string; measured_ms?: number; suggestion?: string};
   events: Event[]; limitations: string;
@@ -49,7 +58,10 @@ const pretty: Record<string,string> = {
 };
 const channels = [{id:"messenger", label:"Messenger"},{id:"general",label:"Galancito General"}];
 const grade = (n:number|null|undefined) => n == null ? "Sin nota" : n.toLocaleString("es-CL",{maximumFractionDigits:1}) + "/100";
-const date = (v:string|null) => v ? new Date(v).toLocaleString("es-CL") : "—";
+const date = (v:string|null) => v ? new Date(v).toLocaleString("es-CL", {timeZone:"America/Santiago"}) : "—";
+const clock = (value: string) => new Date(value).toLocaleTimeString("es-CL", {
+  timeZone: "America/Santiago", hour: "2-digit", minute: "2-digit", second: "2-digit",
+});
 const practiceDimensions = {profile:"Precisión de ficha", understanding:"Comprensión",
   humanity:"Trato humano", continuity:"Continuidad"};
 const profileFields: Record<string,string> = {
@@ -61,29 +73,54 @@ const profileFields: Record<string,string> = {
 };
 const checks = (count: CheckCount) => count.passed == null || count.samples === 0
   ? "Datos insuficientes" : f(count.passed) + " / " + f(count.samples);
+const controllerStatus: Record<string,string> = {
+  resource_guard:"En espera de recursos", synthetic_practice_completed:"Práctica de fichas terminada",
+  awaiting_new_evidence:"En espera de datos nuevos", synthetic_model_evaluation:"Evaluación de Qwen 4B",
+  messenger_evaluation:"Evaluación de Messenger", starting:"Iniciando", off:"En pausa",
+};
 
 export default function MaxPowerPanel(){
   const [data,setData] = useState<Status|null>(null);
   const [busy,setBusy] = useState(false);
   const [downloading,setDownloading] = useState(false);
   const [error,setError] = useState("");
+  const refreshing = useRef<AbortController | null>(null);
+  const changingPower = useRef(false);
   const refresh = useCallback(async()=> {
-    try { const next=await request<Status>("/admin/ai/max-power"); setData(next); setError(""); }
-    catch(e){setError(e instanceof Error ? e.message : "No se pudo leer MAX POWER");}
+    if (refreshing.current || changingPower.current) return;
+    const controller = new AbortController();
+    refreshing.current = controller;
+    try {
+      const next = await request<Status>("/admin/ai/max-power", {signal: controller.signal});
+      if (!controller.signal.aborted) {setData(next); setError("");}
+    } catch(e) {
+      if (!controller.signal.aborted) setError(e instanceof Error ? e.message : "No se pudo leer MAX POWER");
+    } finally {
+      if (refreshing.current === controller) refreshing.current = null;
+    }
   },[]);
   useEffect(()=>{
     void refresh();
-    const timer=window.setInterval(()=>void refresh(),10000);
-    return ()=>window.clearInterval(timer);
+    const whenVisible = () => {if (!document.hidden) void refresh();};
+    const timer = window.setInterval(whenVisible, 5000);
+    document.addEventListener("visibilitychange", whenVisible);
+    return ()=>{
+      window.clearInterval(timer);
+      document.removeEventListener("visibilitychange", whenVisible);
+      refreshing.current?.abort();
+      refreshing.current = null;
+    };
   },[refresh]);
   const toggle=async()=>{
-    if(!data || busy) return;
+    if(!data || changingPower.current) return;
+    changingPower.current = true;
+    refreshing.current?.abort();
     setBusy(true);
     try {
       const next=await request<Status>("/admin/ai/max-power/control/" + (data.enabled?"off":"on"),{method:"POST"});
       setData(next);setError("");
     } catch(e){setError(e instanceof Error?e.message:"No se pudo cambiar el estado");}
-    finally{setBusy(false);}
+    finally{changingPower.current = false; setBusy(false);}
   };
   const downloadForChatGPT=async()=>{
     if(downloading)return;
@@ -114,6 +151,11 @@ export default function MaxPowerPanel(){
   const practice = data?.synthetic_practice;
   const qwen = data?.synthetic_qwen;
   const resources = data?.resource_snapshot;
+  const live = data?.live_activity;
+  const model = live?.qwen;
+  const practiceCompleted = practice ? practice.development.cases + practice.holdout.cases : null;
+  const cpuStatus = data?.cpu_learning;
+  const cpuRunning = data?.enabled && cpuStatus?.status === "training";
   // Unmodified, measured experimental latency. Differences in workload mix
   // mean this chart must never be labelled a causal speed improvement.
   const latencyHistory=(data?.events || [])
@@ -134,7 +176,7 @@ export default function MaxPowerPanel(){
     <header className="max-power-header">
       <div><span className="max-power-eyebrow"><BrainCircuit size={14}/> APRENDIZAJE ADAPTATIVO</span>
         <h2>MAX POWER</h2>
-        <p>Un solo botón: evalúa Galancito y gestiona entrenamiento neuronal real de forma aislada cuando existen datos autorizados y recursos disponibles.</p>
+        <p>Práctica de fichas, evaluación de Galancito y entrenamiento LoRA.</p>
       </div>
       <button className="max-power-refresh" type="button" title="Actualizar datos" onClick={()=>void refresh()}><RefreshCw size={17}/></button>
     </header>
@@ -158,18 +200,49 @@ export default function MaxPowerPanel(){
     </div>
     {data && <div className="max-power-status">
       <span className={"max-power-dot" + (data.enabled && data.controller_online?" live":"")}/>
-      <strong>{data.status.replaceAll("_"," ")}</strong>
+      <strong>{controllerStatus[data.status] ?? data.status.replaceAll("_"," ")}</strong>
       <span>{data.reason}</span>
     </div>}
-    {data && <div className="max-power-status" role="status" aria-live="polite">
-      <span className={"max-power-dot"+(data.enabled && data.cpu_learning?.manager_online?" live":"")}/>
-      <strong>Entrenamiento neuronal CPU · Qwen3.5 0.8B</strong>
-      <span>{!data.enabled
-        ? "Apagado. Los checkpoints y resultados se conservan."
-        : data.cpu_learning?.reason ?? "Comprobando controlador y datos autorizados"}</span>
-      {data.enabled && <small>Automático: recursos → datos firmados → gradientes → checkpoint → validación. No se inventan avances.</small>}
-    </div>}
-    <FineTuneProgress/>
+    <article className="max-power-card max-power-live">
+      <div className="max-power-live-header">
+        <div className="max-power-section-title"><Activity size={17}/><h3>Actividad en vivo</h3></div>
+        {live && <small>{error ? "Última lectura" : "Lectura del panel"} {clock(live.updated_at)} · se consulta cada 5 s</small>}
+      </div>
+      <div className="max-power-live-grid">
+        <div className="max-power-stage" data-state={practice ? "complete" : data?.enabled ? "waiting" : "off"}>
+          <h4>Práctica de fichas</h4>
+          <strong>{practiceCompleted != null ? `${f(practiceCompleted)} fichas evaluadas` : data?.enabled ? "Pendiente" : "En pausa"}</strong>
+          {practiceCompleted != null && live && <progress aria-label="Fichas sintéticas evaluadas"
+            value={practiceCompleted} max={Math.max(practiceCompleted, live.practice_cases)} />}
+          <p>{practice ? `Resultado guardado ${date(practice.at)}`
+            : live ? `${f(live.practice_cases)} casos sintéticos preparados.` : "Esperando el resultado del controlador."}</p>
+        </div>
+        <div className="max-power-stage" data-state={model?.state ?? "off"}>
+          <h4>Evaluación · Qwen 4B</h4>
+          <strong>{model?.state === "running" ? "En ejecución" : data?.enabled ? "En espera" : "En pausa"}</strong>
+          <p>{model?.reason ?? data?.reason ?? "Esperando el estado del controlador."}</p>
+          {model?.required_ram_mb && typeof resources?.available_ram_mb === "number" &&
+            <small>{f(resources.available_ram_mb)} MB libres de {f(model.required_ram_mb)} MB requeridos</small>}
+          {model?.completed != null && model.total != null && model.total > 0 && <>
+            <progress aria-label={`Progreso Qwen 4B por ${model.unit}`} value={model.completed} max={model.total} />
+            <small>{f(model.completed)} de {f(model.total)} {model.unit}</small>
+          </>}
+          {model?.started_at && <small>Etapa iniciada a las {clock(model.started_at)}</small>}
+          {model?.retry_at && <small>Próximo intento a partir de las {clock(model.retry_at)}</small>}
+          {qwen?.completed != null && qwen.completed > 0 && <small>{f(qwen.completed)} ensayos sintéticos terminados</small>}
+        </div>
+        <div className="max-power-stage" data-state={cpuRunning ? "running" : data?.enabled ? "waiting" : "off"}>
+          <h4>Entrenamiento LoRA CPU</h4>
+          <strong>{cpuRunning ? "Proceso activo" : data?.enabled ? "En espera" : "En pausa"}</strong>
+          <p>{data?.enabled ? cpuStatus?.reason ?? "Esperando al supervisor" : "Se conservan los checkpoints."}</p>
+          {cpuStatus?.last_update_at && <small>Supervisor {clock(cpuStatus.last_update_at)}</small>}
+        </div>
+      </div>
+      {data?.enabled && live?.controller_at && <small>
+        Última comprobación del controlador {clock(live.controller_at)}
+        {live.next_check_at && ` · Próxima comprobación a partir de las ${clock(live.next_check_at)}`}
+      </small>}
+    </article>
     <article className="max-power-card max-power-practice">
       <div className="max-power-section-title"><ShieldCheck size={17}/><h3>Práctica sintética de fichas y conversación</h3></div>
       {practice ? <>
@@ -207,6 +280,7 @@ export default function MaxPowerPanel(){
         {typeof resources.disk_free_mb === "number" && " · Disco libre " + f(resources.disk_free_mb) + " MB"}
       </p>}
     </article>
+    <FineTuneProgress/>
     <div className="max-power-section-title"><Gauge size={17}/><h3>Resultados verificables de cada experimento</h3></div>
     <div className="max-power-channel-grid">
       {channels.map(c=>{

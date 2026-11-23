@@ -9,16 +9,17 @@ import re
 from time import perf_counter
 from urllib.error import HTTPError, URLError
 from urllib.request import HTTPRedirectHandler, Request, build_opener
+from uuid import uuid4
 
 from sqlalchemy import select
 
 from .config import settings
 from .db import SessionLocal
 from .facebook_availability_reply import availability_reply
-from .facebook_worksite_reply import worksite_reply
-from .facebook_ai import REPLY_INSTRUCTIONS, generate_text, messenger_ai_source
+from .facebook_worksite_reply import application_reply, worksite_reply
+from .facebook_ai import LOCAL_REPLY_INSTRUCTIONS, REPLY_INSTRUCTIONS, generate_text, messenger_ai_source
 from .ai_gateway import orchestrated_text
-from .galancito_flow import safe_ai_reply, consented_for, grounded_reply, permission_question
+from .galancito_flow import safe_ai_reply, consented_for, grounded_reply, is_permission_prompt
 from .facebook_crm_models import FacebookLead, FacebookChatMessage, FacebookTradeGuide, FacebookLeadTrade
 from .models import utcnow
 from .network_service import key
@@ -27,7 +28,7 @@ from .galancito_intake import identity_reply, next_intake_reply, small_talk_repl
 from .galancito_memory import aware, note_profile_sources, prior_delivered_prompt, profile_facts, reply_focus
 from .galancito_knowledge import retrieve, exact_answer, evidence_context
 from .galancito_runtime import infer, record_run
-from .galancito_local import last_timings, MAX_CONTEXT_CHARS
+from .galancito_local import generate_local_text, last_timings, MAX_CONTEXT_CHARS
 from .galancito_escalation import flag_for_human
 from .ai_defect_learning import approved_coaching
 
@@ -211,9 +212,12 @@ def _within_24h(lead: FacebookLead) -> bool:
     return bool(incoming and incoming >= utcnow() - timedelta(hours=24))
 
 
-def process_chat_next(session_factory=SessionLocal) -> bool:
+def process_chat_next(session_factory=SessionLocal, *, simulation_config=None, notices=None) -> bool:
     started = perf_counter()
-    cfg = settings()
+    simulated = simulation_config is not None
+    if simulated and session_factory is SessionLocal:
+        raise ValueError("La simulación requiere almacenamiento aislado")
+    cfg = simulation_config if simulated else settings()
     if not (cfg.facebook_messaging_enabled and cfg.facebook_page_token and
             cfg.facebook_page_id and cfg.facebook_org_id):
         return False
@@ -240,7 +244,7 @@ def process_chat_next(session_factory=SessionLocal) -> bool:
                      if job.state == "ai_pending" or permission_request else "disabled")
         if permission_request and (ai_source == "disabled" or lead.ai_consent_provider != ai_source or
                 lead.ai_consent_state not in {"requested", "requested_team"} or
-                job.body not in {permission_question(ai_source), permission_question(ai_source, repeat=True)}):
+                not is_permission_prompt(lead, job.body)):
             job.state, job.error = "cancelled", "Solicitud de consentimiento superada"
             return True
         if job.state == "ai_pending" and lead.needs_support:
@@ -270,17 +274,18 @@ def process_chat_next(session_factory=SessionLocal) -> bool:
                 any(origin.get("message_id") == focus.remote_id for origin in lead.profile_sources.values())))
             prior_question = (prior_delivered_prompt(db, lead, at=focus.created_at)
                               if focus else "")
-            location = worksite_reply(db, lead, latest, prior_question)
+            location = worksite_reply(db, lead, latest, prior_question, notices=notices)
             follow_up = availability_reply(db, lead, latest, prior_question, focus.created_at) if focus else None
-            intake = location or follow_up or small_talk_reply(latest, prior_question) or next_intake_reply(latest, facts, prior_question)
-            intent = "worksite_location" if location else analyze(latest).intent
+            apply = None if location or follow_up else application_reply(db, lead, latest, prior_question, notices=notices)
+            intake = location or follow_up or apply or small_talk_reply(latest, prior_question) or next_intake_reply(latest, facts, prior_question)
+            intent = "worksite_location" if location else "apply" if apply else analyze(latest).intent
             fast = intake or quick_reply(latest, known=facts)
             evidence = []
             if not intake and not private_data(latest) and intent not in {"human", "restricted"}:
                 evidence = retrieve(db, lead.org_id, latest, "messenger")
                 if learned := exact_answer(evidence):
                     fast, fast_source = learned, "knowledge"
-            model_needed = (bool(latest) and not (location or follow_up) and not private_data(latest) and not identity_reply(latest)
+            model_needed = (bool(latest) and not (location or follow_up or apply) and not private_data(latest) and not identity_reply(latest)
                             and intent not in {"human", "restricted"} and fast_source != "knowledge"
                             and (not fast or needs_deeper_response(latest)))
             trace["model_requested"] = bool(model_needed)
@@ -327,7 +332,7 @@ def process_chat_next(session_factory=SessionLocal) -> bool:
     typing_started = False
     graph_calls = 0
     try:
-        if state == "ai_pending" and model_needed:
+        if state == "ai_pending" and model_needed and not simulated:
             # The worker is actively handling this contact now. Do not claim
             # "seen" when a webhook merely stores a message or the bot is paused.
             try:
@@ -366,17 +371,21 @@ def process_chat_next(session_factory=SessionLocal) -> bool:
                         trace["context_truncated"] = len(prepared_context) > MAX_CONTEXT_CHARS
                         trace["context_chars"] = len(prepared_context)
                         trace["approved_coaching"] = bool(verified_policy)
-                        drafted = infer(db, lambda: (
-                            orchestrated_text(db, org_id, task="messenger",
-                                              instructions=(REPLY_INSTRUCTIONS +
-                                                            ("\nGuía aprobada:\n" + verified_policy if verified_policy else "")),
-                                              prompt=prepared_context,
-                                              max_output_tokens=230)
-                            if ai_source == "team" else
-                            (generate_text(REPLY_INSTRUCTIONS, prepared_context, 550,
-                                           approved_policy=verified_policy) if verified_policy else
-                             generate_text(REPLY_INSTRUCTIONS, prepared_context, 550))),
-                            org_id=org_id if ai_source == "team" else None)
+                        if simulated:
+                            # The simulator is never permitted to call an external provider.
+                            drafted = (infer(db, lambda: generate_local_text(LOCAL_REPLY_INSTRUCTIONS, prepared_context, 550))
+                                       if ai_source == "ollama" else None)
+                        else:
+                            drafted = infer(db, lambda: (
+                                orchestrated_text(db, org_id, task="messenger",
+                                                  instructions=(REPLY_INSTRUCTIONS +
+                                                                ("\nGuía aprobada:\n" + verified_policy if verified_policy else "")),
+                                                  prompt=prepared_context, max_output_tokens=230)
+                                if ai_source == "team" else
+                                (generate_text(REPLY_INSTRUCTIONS, prepared_context, 550,
+                                               approved_policy=verified_policy) if verified_policy else
+                                 generate_text(REPLY_INSTRUCTIONS, prepared_context, 550))),
+                                org_id=org_id if ai_source == "team" else None)
                         timings = last_timings.get()
                     if drafted:
                         drafted = grounded_reply(drafted, context)
@@ -421,8 +430,11 @@ def process_chat_next(session_factory=SessionLocal) -> bool:
                 return True
             if automated_reply:
                 current_job.state, current_job.updated_at = "sending", utcnow()
-        graph_calls += 1
-        result_id = graph_send(cfg.facebook_page_id, psid, body, cfg.facebook_page_token)
+        if simulated:
+            result_id = "simulated-" + uuid4().hex
+        else:
+            graph_calls += 1
+            result_id = graph_send(cfg.facebook_page_id, psid, body, cfg.facebook_page_token)
     except HTTPError as exc:
         problem = meta_messenger_error(exc)
     except (URLError, TimeoutError, OSError, RuntimeError, ValueError) as exc:

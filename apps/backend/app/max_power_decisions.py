@@ -85,6 +85,9 @@ def priority_from_reviews(reviews):
     return [{"channel": channel, "criterion": criterion, "failures": count}
             for (channel, criterion), count in sorted(counts.items(), key=lambda pair: -pair[1])][:6]
 
+QWEN_MIN_RAM_MB = 8192
+
+
 def can_run(snapshot: dict, *, messenger_pending=False):
     if messenger_pending:
         return False, "Messenger tiene prioridad sobre MAX POWER"
