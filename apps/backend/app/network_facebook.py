@@ -77,17 +77,18 @@ def status_view(db: Session, req: NetworkRequirement) -> dict:
 def public_message(db: Session, req: NetworkRequirement) -> str:
     """Public copy: never expose worksite, title, notes or operational items."""
     lines = [
-        "BUSCAMOS EMPRESAS CONTRATISTAS",
+        "Buscamos empresas contratistas de " + req.specialty.strip().lower() + ".",
         "",
-        "Especialidad: " + req.specialty,
-        "Sector: " + req.public_location,
-        "Dotación estimada: " + str(req.workers) + " trabajadores",
-        "Inicio estimado: " + req.start_date.strftime("%d/%m/%Y"),
+        req.public_summary.strip() if req.public_summary else "",
+        "",
+        "📍 Sector: " + req.public_location,
+        "👷 Dotación estimada: " + str(req.workers) + " personas",
+        "📅 Inicio estimado: " + req.start_date.strftime("%d/%m/%Y") if not req.start_date_pending else "",
         "",
         "¿Tu empresa realiza estos trabajos? Escríbenos por mensaje privado.",
         "Convocatoria sujeta a evaluación y adjudicación.",
     ]
-    return "\n".join(lines)[:3900]
+    return "\n".join(line for line in lines if line or line == "").strip()[:3900]
 
 
 class _NoRedirect(HTTPRedirectHandler):
