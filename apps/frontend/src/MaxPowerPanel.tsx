@@ -10,6 +10,8 @@ type Delta = { initial: number | null; latest: number | null; delta_points: numb
 type Event = { id: string; at: string; event: string; reason: string; evidence: Record<string, unknown> };
 type Status = {
   enabled: boolean; controller_online: boolean; trainer_online: boolean;
+  cpu_learning?: {status:string;reason:string;last_update_at:string|null;
+                  manager_online:boolean;weights_trained:boolean;model:string};
   status: string; reason: string; active_seconds: number; sessions: number; experiments: number;
   examined_cases: number; observed_holdout_wins: number; observed_holdout_regressions: number;
   first_started_at: string | null; session_started_at: string | null; active_round_id: string | null;
@@ -104,7 +106,7 @@ export default function MaxPowerPanel(){
     <header className="max-power-header">
       <div><span className="max-power-eyebrow"><BrainCircuit size={14}/> APRENDIZAJE ADAPTATIVO</span>
         <h2>MAX POWER</h2>
-        <p>Prueba automáticamente lo que puede verificar. Conserva cada resultado y explica por qué una mejora no se logró.</p>
+        <p>Un solo botón: evalúa Galancito y gestiona entrenamiento neuronal real de forma aislada cuando existen datos autorizados y recursos disponibles.</p>
       </div>
       <button className="max-power-refresh" type="button" title="Actualizar datos" onClick={()=>void refresh()}><RefreshCw size={17}/></button>
     </header>
@@ -130,6 +132,14 @@ export default function MaxPowerPanel(){
       <span className={"max-power-dot" + (data.enabled && data.controller_online?" live":"")}/>
       <strong>{data.status.replaceAll("_"," ")}</strong>
       <span>{data.reason}</span>
+    </div>}
+    {data && <div className="max-power-status" role="status" aria-live="polite">
+      <span className={"max-power-dot"+(data.enabled && data.cpu_learning?.manager_online?" live":"")}/>
+      <strong>Entrenamiento neuronal CPU · Qwen3.5 0.8B</strong>
+      <span>{!data.enabled
+        ? "Apagado. Los checkpoints y resultados se conservan."
+        : data.cpu_learning?.reason ?? "Comprobando controlador y datos autorizados"}</span>
+      {data.enabled && <small>Automático: recursos → datos firmados → gradientes → checkpoint → validación. No se inventan avances.</small>}
     </div>}
     <FineTuneProgress/>
     <div className="max-power-section-title"><Gauge size={17}/><h3>Resultados verificables de cada experimento</h3></div>
