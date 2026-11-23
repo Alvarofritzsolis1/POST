@@ -110,7 +110,7 @@ def catalog(user: User = Depends(authorized_user), db: Session = Depends(get_db)
     )
     return {
         "sites": [
-            {"id": s.id, "name": s.name, "editable": manages(db, user, s.id)}
+            {"id": s.id, "name": s.name, "editable": manages(db, user, s.id), "public_location": s.public_area}
             for s in sites
         ],
         "contractors": [
@@ -291,6 +291,8 @@ def create_requirement(
     lock_org(db, user)
     site = require_site(db, user, body.site_id, write=True)
     check_public_location(body, site)
+    if body.publish_to_facebook and body.state == "published" and body.public_location and not site.public_area:
+        site.public_area = body.public_location
     prior = db.scalar(
         select(NetworkRequirement).where(
             NetworkRequirement.org_id == user.org_id,
