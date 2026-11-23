@@ -87,6 +87,17 @@ jobs:
                      and x["data_kind"]=="curated_synthetic" for x in journal)
           print("LO-RA CPU: PESOS MODIFICADOS Y ADAPTADOR RECUPERABLE EN LABORATORIO")
           '
+      - name: Probar supervisor real y sus 4 gradientes detrás de MAX POWER ON
+        shell: bash
+        run: |
+          set -Eeuo pipefail
+          docker run --rm --memory 5g --memory-swap 5g --cpus 1.5 \
+            --pids-limit 96 --security-opt no-new-privileges --cap-drop ALL \
+            -e GALANT_MAX_POWER_SYNTHETIC_LORA=yes \
+            -e GALANT_CI_ISOLATED_CPU_SMOKE=yes \
+            -v "$RUNNER_TEMP/maxpower-private:/private" \
+            --entrypoint python galant-cpu-lora-smoke:ci \
+            /src/scripts/max_power_end_to_end_smoke.py
       - name: Interrumpir Qwen LoRA a mitad de entrenamiento y comprobar checkpoint 2
         shell: bash
         run: |
