@@ -242,13 +242,14 @@ def next_target(channel: Literal["messenger", "general"] = "messenger",
                                -c["recent_failed"],
                                -(recent_rate if recent_rate is not None else -1.0),
                                -(history_rate if history_rate is not None else -1.0),
+                               -c["failed"],  # recurrence only as a tie-break, never a score
                                -aware(case["source_at"]).timestamp(),
                                case["source_id"], key, variant))
     if not candidates:
         return {"available": False,
                 "reason": "No hay ensayos Qwen elegibles. Prioriza diagnósticos de infraestructura si existen.",
                 "engineering_findings": engineering[:15], "automatic_approval": False}
-    _, _, _, _, _, source_id, criterion, variant = min(candidates)
+    _, _, _, _, _, _, source_id, criterion, variant = min(candidates)
     result = counts[criterion]
     return {"available": True, "source_id": source_id, "criterion": criterion,
             "variant": variant, "observed_defects": result["failed"],
