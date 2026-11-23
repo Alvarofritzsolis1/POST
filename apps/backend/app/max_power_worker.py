@@ -60,7 +60,25 @@ def set_wait(row, now, code, reason, seconds=RECHECK_SECONDS):
 
 def _result(db, row, completed, now):
     metrics = completed.metrics or {}
+    # Count independently represented worksites, not 8 correlated questions
+    # about one worksite as 8 independent empirical observations.
+    cases = int((completed.config or {}).get("cases") or 0)
+    cycles = int((completed.config or {}).get("cycles") or 0)
+    if cases and cycles >= 4 and completed.completed == completed.target:
+        final_cases = list(db.scalars(select(TrainingCase.case_id).where(
+            TrainingCase.round_id == completed.id,
+            TrainingCase.position >= (cycles - 1) * cases,
+        ).order_by(TrainingCase.position)))
+        worksites = {item.split("-")[1] for item in final_cases
+                     if isinstance(item, str) and item.startswith("live-")
+                     and len(item.split("-")) >= 3}
+        metrics = {**metrics, "independent_worksite_groups": len(worksites)}
     outcome = classify_outcome(metrics)
+    if completed.state != "completed" or completed.completed != completed.target:
+        outcome = {**outcome, "code": "interrupted",
+                   "reason": "Ronda incompleta o detenida: ninguna mejora confirmada",
+                   "next": "Revisar el motivo de detención y reanudar con nueva evidencia",
+                   "lab_verified": False}
     samples = int(metrics.get("ollama_timing_samples") or 0)
     totals = metrics.get("ollama_timing_totals") or {}
     timing = {k: round(v / samples, 2) for k, v in totals.items()
@@ -84,8 +102,6 @@ def _result(db, row, completed, now):
     row.active_round_id = None
     statistics = summarize(metrics, "interno")
     # Only paired, identical reserved questions support a latency comparison.
-    cases = int((completed.config or {}).get("cases") or 0)
-    cycles = int((completed.config or {}).get("cycles") or 0)
     paired_speed = None
     if cases and cycles >= 4 and completed.completed == completed.target:
         rows = list(db.scalars(select(TrainingCase).where(
@@ -137,6 +153,7 @@ def _result(db, row, completed, now):
         "paired_speed": paired_speed,
         **{k: row.latest_result[k] for k in
            ("holdout_pairs", "holdout_wins", "holdout_losses", "p_value",
+            "independent_worksite_groups",
             "lab_verified", "production_verified", "weights_changed")},
     }
     db.add(MaxPowerEvent(org_id=row.org_id, event="experiment_completed",

@@ -35,7 +35,8 @@ def test_no_improvement_explained():
 def test_verified_is_lab_only():
     x = classify_outcome({"real_holdout_gain_cases": 6, "real_holdout_regressions": 0,
                          "real_holdout_paired_cases": 8, "real_holdout_one_sided_p_value": 0.02,
-                         "real_learning_demonstrated": True, "real_coaching": ["guide"]})
+                         "real_learning_demonstrated": True, "real_coaching": ["guide"],
+                         "independent_worksite_groups": 4})
     assert x["lab_verified"] is True
     assert x["production_verified"] is False
 

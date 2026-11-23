@@ -21,7 +21,13 @@ def classify_outcome(metrics: dict) -> dict:
     pairs = int(metrics.get("real_holdout_paired_cases") or 0)
     p = metrics.get("real_holdout_one_sided_p_value")
     hints = metrics.get("real_coaching") or []
-    confirmed = bool(metrics.get("real_learning_demonstrated")) and pairs >= MIN_INDEPENDENT_PAIRS and losses == 0
+    groups = int(metrics.get("independent_worksite_groups") or 0)
+    # Individual arithmetic questions within one worksite are correlated.
+    # A small raw pair count alone never establishes independent evidence.
+    confirmed = (bool(metrics.get("real_learning_demonstrated"))
+                 and pairs >= MIN_INDEPENDENT_PAIRS and groups >= 3
+                 and gains >= 5 and losses == 0 and bool(hints)
+                 and isinstance(p, (int, float)) and 0 <= p <= 0.05)
     if not pairs:
         code, why, next_step = "no_holdout", "No terminó la comparación reservada", "Revisar errores y capacidad antes de repetir"
     elif losses:
@@ -30,7 +36,7 @@ def classify_outcome(metrics: dict) -> dict:
         code, why, next_step = "no_correction", "No se generó una corrección aplicable a los errores", "Inspeccionar reglas, datos o recuperación de contexto"
     elif not gains:
         code, why, next_step = "plateau", "Las correcciones no resolvieron casos reservados adicionales", "Cambiar de estrategia o ampliar evidencia real"
-    elif pairs < MIN_INDEPENDENT_PAIRS or p is None or float(p) > 0.05:
+    elif pairs < MIN_INDEPENDENT_PAIRS or groups < 3 or p is None or float(p) > 0.05:
         code, why, next_step = "insufficient_significance", "La ganancia observada no supera el umbral de evidencia", "Obtener más casos independientes sin repetir el mismo holdout"
     elif confirmed:
         code, why, next_step = "lab_gain", "Mejora en comparación reservada; falta validar en producción", "Solicitar revisión antes de promover y medir chats posteriores"
@@ -38,6 +44,7 @@ def classify_outcome(metrics: dict) -> dict:
         code, why, next_step = "not_verified", "La comparación no cumple todos los criterios de aprobación", "Revisar integridad del conjunto y criterios de seguridad"
     return {"code": code, "reason": why, "next": next_step, "holdout_pairs": pairs,
             "holdout_wins": gains, "holdout_losses": losses, "p_value": p,
+            "independent_worksite_groups": groups,
             "lab_verified": confirmed, "production_verified": False,
             "method": "instrucciones_locales_sobre_agregados_reales",
             "weights_changed": False}
