@@ -17,6 +17,7 @@ from .db import SessionLocal
 from .galancito_memory import aware
 from .galancito_real_learning import collect_live_cases
 from .galancito_trainer import messenger_busy, heartbeat, process_next
+from .facebook_crm_models import FacebookChatMessage
 from .galancito_training import ResourceSampler, summarize, inference_percentile_ms
 from .galancito_training_api import RoundInput, start
 from .galancito_training_models import ACTIVE, TrainingCase, TrainingRound, TrainingWorker
@@ -29,6 +30,19 @@ from .galancito_general import QWEN_4B
 from .models import Organization, User, utcnow
 
 logger = logging.getLogger(__name__)
+QUIET_WINDOW_SECONDS = 90
+
+def messenger_recent(db):
+    """A training job must yield while Messenger has recent inbound traffic.
+
+    An outbound queue check alone misses the interval before the reply is queued.
+    This is conservative admission control, not inference preemption.
+    """
+    return db.scalar(select(FacebookChatMessage.id).where(
+        FacebookChatMessage.direction == "inbound",
+        FacebookChatMessage.created_at >= utcnow() - timedelta(seconds=QUIET_WINDOW_SECONDS),
+    ).limit(1)) is not None
+
 IDLE_SECONDS = 20
 RECHECK_SECONDS = 300
 
@@ -204,7 +218,8 @@ def tick(db, sampler):
         if not (worker and aware(worker.updated_at) >= aware(now) - timedelta(seconds=150)):
             set_wait(row, now, "trainer_unavailable", "El motor de práctica no está operativo", 30)
             continue
-        ok, reason = can_run(snapshot, messenger_pending=bool(messenger_busy(db)))
+        ok, reason = can_run(snapshot, messenger_pending=bool(
+            messenger_busy(db) or messenger_recent(db)))
         if not ok:
             set_wait(row, now, "resource_guard", reason, 30)
             continue
@@ -303,7 +318,7 @@ def main():
                           MaxPowerMessengerTrial.next_at <= utcnow()).limit(1))
                     if due:
                         with SessionLocal() as db:
-                            pending = bool(messenger_busy(db))
+                            pending = bool(messenger_busy(db) or messenger_recent(db))
                         snapshot = {**practice_sampler.sample(),
                                     "cpu_pressure_avg10": _pressure("cpu"),
                                     "memory_pressure_avg10": _pressure("memory"),

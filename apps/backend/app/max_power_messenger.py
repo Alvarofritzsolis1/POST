@@ -21,6 +21,7 @@ from .facebook_crm_models import FacebookChatMessage, FacebookLead
 from .config import settings
 from .db import SessionLocal
 from .galancito_trainer import messenger_busy
+from .facebook_crm_models import FacebookChatMessage
 from .facebook_ai import LOCAL_REPLY_INSTRUCTIONS
 from .galancito_flow import grounded_reply
 from .galancito_general import QWEN_4B
@@ -186,7 +187,10 @@ def _answer(instructions,prompt,seed,org_id):
         state = db.get(MaxPowerState,org_id)
         if not state or not state.enabled:
             raise RuntimeError("MAX POWER apagado")
-        if messenger_busy(db):
+        if messenger_busy(db) or db.scalar(select(FacebookChatMessage.id).where(
+            FacebookChatMessage.direction == "inbound",
+            FacebookChatMessage.created_at >= utcnow() - timedelta(seconds=90),
+        ).limit(1)) is not None:
             raise RuntimeError("Messenger tiene prioridad sobre experimentos")
         result = infer(db,lambda:generate_local_text(
             instructions,prompt,max_chars=550,thinking=False,seed=seed))
