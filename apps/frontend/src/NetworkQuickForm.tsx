@@ -277,7 +277,7 @@ export function NetworkQuickForm({
           <summary><span><FileText size={16}/> Opciones adicionales <small>(opcional)</small></span><ChevronDown size={15}/></summary>
           <div className="nq-extra-body">
             <label htmlFor="nq-title">Título interno personalizado <span className="nq-optional">Opcional</span></label>
-            <input id="nq-title" value={title} maxLength={180}
+            <input id="nq-title" aria-label="Título interno personalizado" value={title} maxLength={180}
               placeholder="Se genera automáticamente si lo dejas vacío"
               onChange={(e) => setTitle(e.target.value)}/>
             <label htmlFor="nq-priority">Prioridad <span className="nq-optional">Opcional</span></label>
