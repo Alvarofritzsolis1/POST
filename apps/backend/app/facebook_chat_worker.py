@@ -272,7 +272,7 @@ def process_chat_next(session_factory=SessionLocal) -> bool:
                               if focus else "")
             location = worksite_reply(db, lead, latest, prior_question)
             follow_up = availability_reply(db, lead, latest, prior_question, focus.created_at) if focus else None
-            intake = location or follow_up or small_talk_reply(latest) or next_intake_reply(latest, facts, prior_question)
+            intake = location or follow_up or small_talk_reply(latest, prior_question) or next_intake_reply(latest, facts, prior_question)
             intent = "worksite_location" if location else analyze(latest).intent
             fast = intake or quick_reply(latest, known=facts)
             evidence = []
@@ -297,7 +297,8 @@ def process_chat_next(session_factory=SessionLocal) -> bool:
                 professional_facts = {k: v for k, v in facts.items()
                                       if k not in {"display_name", "name_opt_out", "turn_changed"}}
                 trace["context_turns"] = len(context_turns)
-                trace["known_fields"] = sum(bool(value) for value in professional_facts.values())
+                trace["known_fields"] = sum(bool(value) for key, value in professional_facts.items()
+                                            if key != "field_states")
                 context = ("Consulta actual: " + latest[:800] +
                            "\nÚltimos turnos de esta conversación:\n" +
                            "\n".join(context_turns)[-1100:] +

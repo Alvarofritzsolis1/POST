@@ -37,6 +37,46 @@ def is_intake_prompt(prompt: str) -> bool:
     return any(key in normalized for key in _PROMPTS)
 
 
+def intake_question_fields(prompt: str) -> set[str]:
+    """Identify the professional fields asked for in visible questions."""
+    value = " ".join(plain(part.rsplit("¿", 1)[-1]) for part in prompt.split("?")[:-1])
+    patterns = {
+        "display_name": _NAME_PROMPTS,
+        "specialty": (*_TRADE_PROMPTS, "que trabajo haces", "a que te dedicas", "en que trabajas"),
+        "interest_type": (_INTEREST_QUESTION, "buscas empleo o", "buscas empleo como trabajador"),
+        "entity_type": ("representas una empresa", "con una empresa o a tu propio nombre"),
+        "team_available": (_TEAM_QUESTION, "puedes venir con"),
+        "workers": ("cuantas personas", "con cuantas", "cuantos puedes traer"),
+        "has_employees": ("tienes trabajadores contratados", "tienes empleados"),
+        "employee_count": ("cuantos trabajadores contratados", "cuantos empleados"),
+        "experience": (_EXPERIENCE_QUESTION, "cuantos anos", "cuanta experiencia"),
+        "work_communes": (_COMMUNE_QUESTION, "en cuales comunas", "en que comunas"),
+        "availability": ("desde cuando", "cuando podrias comenzar", "cuando puedes empezar"),
+        "contact_phone": ("tu telefono", "tu celular", "numero de celular"),
+        "contact_email": ("tu correo", "tu email"),
+    }
+    return {field for field, phrases in patterns.items() if any(phrase in value for phrase in phrases)}
+
+
+def unresolved_declarations(message: str, prior: str) -> dict[str, str]:
+    value = plain(declaration_text(message))
+    fields = intake_question_fields(prior)
+    if value in _REFUSAL:
+        return dict.fromkeys(fields, "rechazado_por_usuario")
+    if re.search(r"\b(?:aun no se|no se todavia|no tengo claro|no estoy segur[ao])\b", value):
+        return dict.fromkeys(fields, "ambiguo")
+    if "specialty" in fields and re.search(r"\b(?:o|quizas|tal vez)\b", value):
+        return {"specialty": "ambiguo"}
+    if re.search(_COUNT + r" (?:o|a) " + _COUNT + r"\b", value) and (
+        "workers" in fields or re.search(r"\b(?:somos|iremos|voy con|puedo ir con|puedo llevar)\b", value)
+    ):
+        return {"workers": "ambiguo"}
+    if re.search(r"\b(?:quizas|tal vez|puede que|no se si)\b|\b(?:lunes|martes|miercoles|jueves|viernes|sabado|domingo|hoy|manana) o (?:el )?\w+", value):
+        if "availability" in fields or re.search(r"\b(?:puedo (?:empezar|partir|comenzar)|disponibilidad|disponible)\b", value):
+            return {"availability": "ambiguo"}
+    return {}
+
+
 _ROLE_SERVICE = (
     "ofrezco servicios", "ofresco servicios", "mis servicios", "por mi cuenta",
     "tengo un emprendimiento", "somos contratistas", "soy contratista",
@@ -54,6 +94,10 @@ _NAME_PROMPTS = (
 )
 _TRADE_PROMPTS = (_TRADE_QUESTION, "que oficio", "que servicio", "a que oficio")
 _CORRECTION = re.compile(r"\b(?:corrijo|correccion|me equivoque|en realidad|quise decir|al final|ahora|ya no|cambio de fecha)\b")
+_REFUSAL = {"paso", "prefiero no decir", "prefiero no indicar", "no quiero dar ese dato"}
+_NUMBERS = {"un": 1, "uno": 1, "una": 1, "dos": 2, "tres": 3, "cuatro": 4, "cinco": 5,
+            "seis": 6, "siete": 7, "ocho": 8, "nueve": 9, "diez": 10}
+_COUNT = r"([0-9]{1,4}|" + "|".join(_NUMBERS) + r")"
 _OFFERS = re.compile(r"\b(?:pega|trabaj|servici|contrat|postul|dispon|equipo|cuadrill|"
                      r"ofici|ayudant|empresa|experienc|person|comuna|maestr|habl|gracia)\w*\b|"
                      r"\b(?:si|no|dale|bueno|obvio|ok|listo|bien|paso)\b")
@@ -112,15 +156,28 @@ def _role_update(lead, value: str, previous: str) -> None:
             lead.interest_type = "both"
     if _affirmed(value, ("tengo una empresa", "tengo empresa", "somos una empresa", "represento una empresa")):
         lead.entity_type = "company"
-    elif _affirmed(value, ("no tengo empresa", "soy independiente", "a mi nombre")):
+    elif _affirmed(value, ("no tengo empresa", "soy independiente", "a mi nombre", "por mi cuenta")):
         lead.entity_type = "individual"
-    elif getattr(lead, "entity_type", "unknown") == "unknown" and (
-            worker or _affirmed(value, ("trabajo solo", "trabajo sola"))):
-        lead.entity_type = "individual"
+
+
+def _employment_update(lead, value: str) -> None:
+    if not hasattr(lead, "has_employees"):
+        return
+    if re.search(r"\b(?:no tengo|no tenemos|no cuento con|sin|no hay) (?:trabajadores|personal|gente)(?: propios?)? (?:contratad[oa]s?|con contrato)\b", value):
+        lead.has_employees = False
+        lead.employee_count = 0
+    elif match := re.search(r"\b(?:tengo|tenemos|cuento con) (?:" + _COUNT + r" )?"
+                            r"(?:trabajador(?:es)?|personal|gente|personas?) (?:contratad[oa]s?|con contrato)\b", value):
+        count = (int(match[1]) if match[1].isdecimal() else _NUMBERS[match[1]]) if match[1] else None
+        lead.has_employees = count != 0
+        if count is not None and count <= 5000:
+            lead.employee_count = count
+        elif getattr(lead, "employee_count", None) == 0:
+            lead.employee_count = None
 
 
 def _name_update(lead, message: str, previous: str) -> None:
-    if not hasattr(lead, "display_name") or getattr(lead, "name_opt_out", False):
+    if not hasattr(lead, "display_name"):
         return
     asked = any(question in previous for question in _NAME_PROMPTS)
     value = plain(message)
@@ -129,6 +186,8 @@ def _name_update(lead, message: str, previous: str) -> None:
         lead.name_opt_out = True
         return
     explicit = re.search(r"\b(?:me llamo|mi nombre es)\s+([^,;.!?¿¡\n]+)", message, re.I)
+    if getattr(lead, "name_opt_out", False) and not explicit:
+        return
     introduction = declaration_for_review(message)
     informal = re.fullmatch(r"[Ss]oy\s+([A-ZÁÉÍÓÚÜÑ][^,;.!?¿¡\n]+)[.!]?", introduction.strip())
     candidate = (explicit[1] if explicit else informal[1] if informal else message if asked else "").strip()
@@ -143,30 +202,35 @@ def _name_update(lead, message: str, previous: str) -> None:
     known = lead.display_name not in UNKNOWN_NAMES
     if not known or (explicit and _CORRECTION.search(value)):
         lead.display_name = candidate
+        lead.name_opt_out = False
 
 
 def _commune_update(lead, message: str, previous: str) -> None:
     value = plain(message)
     asked = _COMMUNE_QUESTION in previous
     found = []
+    continues_area = False
     for fragment in re.split(r"[,;.!\n]+|\bpero\b", message, flags=re.I):
         clause = plain(fragment)
         cue = _AREA_CUE.search(clause)
-        if re.search(r"\b(?:no trabajo en|no voy a|no puedo ir a|no puedo trabajar en)\b", clause):
+        if re.search(r"\b(?:vivo en|resido en|no trabajo en|no voy a|no puedo ir a|no puedo trabajar en)\b", clause):
+            continues_area = False
             continue
-        if not cue and not asked and not clause.startswith(("tambien en ", "y en ", "en ")):
+        if not cue and not asked and not continues_area and not clause.startswith(("tambien en ", "y en ", "en ")):
             # "Hago aseo en Hualpén" relates the commune to the work.
             match = re.search(r"\b(?:hago|hacemos|instalo|reparo) (?:\w+ ){1,4}en\b", clause)
             if not match:
                 continue
             cue = match
-        found.extend(find_communes(clause[cue.end():] if cue else clause))
+        communes = find_communes(clause[cue.end():] if cue else clause)
+        found.extend(communes)
+        continues_area = bool(communes)
     if not found:
         return
     current = list(getattr(lead, "work_communes", None) or [])
     if not current and lead.work_area:
         current = find_communes(lead.work_area)
-    replace = bool(_CORRECTION.search(value) and not value.startswith("tambien ")) or "solo en " in value
+    replace = bool(_CORRECTION.search(value) and not re.search(r"\b(?:tambien|ademas)\b", value)) or "solo en " in value
     communes = list(dict.fromkeys([*([] if replace else current), *found]))
     lead.work_communes = communes
     lead.work_area = ", ".join(communes)[:120]
@@ -192,10 +256,11 @@ def _team_update(lead, value: str, previous: str) -> None:
             lead.workers = None
         lead.team_available = True
 
-    count = r"([1-9]\d{0,3}|uno|una|dos|tres|cuatro|cinco|seis|siete|ocho|nueve|diez)"
-    total = re.search(r"\b(?:somos|equipo de|iremos) " + count + r"\b", value)
+    count = _COUNT
+    total = re.search(r"\b(?:somos|equipo de|iremos) " + count +
+                      r"(?= (?:personas?|maestros?|trabajadores?|ayudantes?|cabros?|en total)\b|\s*(?:\||$))", value)
     if not total:
-        total = re.search(r"\btengo " + count + r" (?:ayudantes?|trabajadores?|personas?|maestros?)\b", value)
+        total = re.search(r"\btengo " + count + r" (?:ayudantes?|personas?|maestros?|trabajadores?) disponibles\b", value)
     helpers = re.search(
         r"\b(?:puedo ir con|voy con|llevo|puedo llevar) " + count
         + r" (?:ayudantes?|personas?|maestros?|trabajadores?)\b", value)
@@ -209,9 +274,7 @@ def _team_update(lead, value: str, previous: str) -> None:
     if not _affirmed(value, (matched[0],)):
         return
     token = matched[1]
-    numbers = {"uno": 1, "una": 1, "dos": 2, "tres": 3, "cuatro": 4, "cinco": 5,
-               "seis": 6, "siete": 7, "ocho": 8, "nueve": 9, "diez": 10}
-    number = (int(token) if token.isdecimal() else numbers[token]) + bool(helpers and not total)
+    number = (int(token) if token.isdecimal() else _NUMBERS[token]) + bool(helpers and not total)
     if 1 <= number <= 5000:
         lead.workers, lead.team_available = number, number > 1
 
@@ -274,6 +337,10 @@ def _availability_update(lead, message: str, previous: str, *, on_date=None) -> 
     clean = message.strip()
     value = plain(clean)
     asked = _AVAILABILITY_QUESTION in previous or "desde cuando puedes" in previous
+    if (asked or "disponib" in value or "puedo" in value) and re.search(
+        r"\b(?:quizas|tal vez|puede que|no se si|depende)\b|\b(?:lunes|martes|miercoles|jueves|viernes|sabado|domingo|hoy|manana) o\b", value
+    ):
+        return
     if confirmation := work_date_answer(message, previous):
         if confirmation[0]:
             lead.availability = confirmation[1].isoformat()
@@ -328,24 +395,27 @@ def apply_intake(lead, message: str, prior_prompt: str = "", *,
     if declarations is None:
         declarations = trade_declarations(message, prior_prompt, allow_bare=True)
     positives = [trade for trade, present in declarations.items() if present]
-    if positives and (not lead.specialty or
-                      (lead.specialty_source == "message" and declarations.get(lead.specialty) is False)):
+    explicit_main = re.search(r"\b(?:mi oficio (?:principal )?es|mi especialidad (?:principal )?es)\b", value)
+    if positives and (not lead.specialty or (lead.specialty_source == "message" and
+                      (explicit_main or declarations.get(lead.specialty) is False))):
         lead.specialty, lead.specialty_source = positives[0][:100], "message"
     if not value:
         return
     _role_update(lead, value, prev)
+    _employment_update(lead, value)
     _name_update(lead, statement, prev)
     _team_update(lead, value, prev)
     _commune_update(lead, statement, prev)
     _availability_update(lead, statement, prev, on_date=on_date)
-    if not lead.experience:
+    if not lead.experience or lead.experience == "No informado por el interesado" or _CORRECTION.search(value):
         experience = re.search(r"\b(\d{1,2})\s+(anos?|mes(?:es)?)\b", value)
         asked = any(s in prev for s in (_EXPERIENCE_QUESTION, "cuanta experiencia", "cuantos anos"))
-        volunteered = bool(re.search(r"\b(?:experiencia|llevo|llevamos)\b", value))
+        volunteered = (bool(re.search(r"\b(?:experiencia|llevo|llevamos)\b", value))
+                       and not re.search(r"\b(?:viviendo|residiendo)\b", value))
         if value in {"sin experiencia", "no tengo experiencia", "recien comienzo"} or (
                 asked and value in {"ninguna", "no tengo", "nuevo", "nuevo en esto"}):
             lead.experience = "Sin experiencia declarada"
-        elif asked and value in {"prefiero no decir", "prefiero no indicar", "paso"}:
+        elif asked and value in _REFUSAL:
             lead.experience = "No informado por el interesado"
         elif asked and re.fullmatch(r"\d{1,2}", value):
             lead.experience = value + " años declarados"
@@ -419,27 +489,38 @@ def next_intake_reply(message: str, facts: dict, prior_prompt: str = "") -> str 
     )
     if not engaged:
         return None
+    states = facts.get("field_states", {})
+
+    def missing(field):
+        return states.get(field) not in {"rechazado_por_usuario", "ambiguo"}
+
     intent = facts.get("interest_type", "unknown")
-    if not (facts.get("specialty") or facts.get("trades")):
+    if not (facts.get("specialty") or facts.get("trades")) and missing("specialty"):
         question = "¿Qué trabajo realizas?"
-    elif intent == "unknown":
+    elif intent == "unknown" and missing("interest_type"):
         question = "¿Ofreces trabajos por tu cuenta, buscas empleo o haces las dos cosas?"
-    elif facts.get("team_available") is None:
+    elif facts.get("team_available") is None and missing("team_available"):
         question = "¿Trabajas solo o puedes venir con otras personas?"
-    elif facts.get("team_available") is True and facts.get("workers") is None:
+    elif facts.get("team_available") is True and facts.get("workers") is None and missing("workers"):
         question = "¿Cuántas personas pueden trabajar contigo en total?"
-    elif not facts.get("experience"):
+    elif not facts.get("experience") and missing("experience"):
         question = "¿Cuánto tiempo llevas en ese oficio?"
-    elif not facts.get("work_area"):
+    elif not facts.get("work_area") and missing("work_communes"):
         question = "¿En qué comuna puedes trabajar?"
-    elif not facts.get("availability"):
+    elif not facts.get("availability") and missing("availability"):
         question = "¿Desde cuándo podrías comenzar?"
     elif ("display_name" in facts and facts.get("display_name") in {
         "", "Interesado de Facebook", "Contacto sin nombre", None
-    } and not facts.get("name_opt_out")):
+    } and not facts.get("name_opt_out") and missing("display_name")):
         question = "¿Cómo prefieres que te llamemos? Si prefieres no decirlo, escribe paso."
     else:
-        return "Listo, registré tus datos para que el equipo pueda revisarlos."
+        if facts.get("turn_changed"):
+            return "Gracias, quedó anotado. Si cambia algún dato, me puedes avisar por acá."
+        return "Si necesitas orientación o quieres actualizar algún dato, seguimos por acá."
+    if plain(question) in plain(prior_prompt):
+        if facts.get("turn_changed"):
+            return "Ya, tomé nota de eso. Podemos seguir por acá si quieres agregar algo."
+        return "Está bien. Podemos seguir con esto cuando tengas el dato o conversar sobre otra duda."
     return (_friendly_ack(message, facts, question, prior_prompt) + " " + question).strip()[:540]
 
 
@@ -464,9 +545,7 @@ def needs_deeper_response(message: str) -> bool:
         "que requisitos", "que papeles", "me sirve", "que hago ahora",
         "a que obra", "como funciona", "donde postulo",
     )
-    if ("?" in message or "¿" in message) and any(
-        phrase in text for phrase in short_questions
-    ):
+    if any(phrase in text for phrase in short_questions):
         return True
     if len(text.split()) >= 15 and ("?" in message or "¿" in message):
         return True
@@ -478,7 +557,7 @@ def needs_deeper_response(message: str) -> bool:
         ("?" in message or "¿" in message) and len(text.split()) >= 6)
 
 
-def small_talk_reply(message: str) -> str | None:
+def small_talk_reply(message: str, prior_prompt: str = "") -> str | None:
     """Respuestas locales inmediatas: no requieren modelo ni consentimiento de IA."""
     if answer := identity_reply(message):
         return answer
@@ -489,6 +568,8 @@ def small_talk_reply(message: str) -> str | None:
     if norm in {"gracias", "muchas gracias", "vale gracias", "te pasaste"}:
         return "¡De nada! Aquí estamos para ayudarte."
     if is_pure_greeting(message):
+        if plain(prior_prompt).startswith(("hola", "buenas", "buenos dias", "que tal")):
+            return "Te leo. ¿En qué te puedo ayudar?"
         return "¡Hola! Cuéntame, ¿en qué te puedo ayudar?"
     return None
 

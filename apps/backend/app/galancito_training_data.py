@@ -4,7 +4,7 @@ from hashlib import sha256
 import json
 from math import gcd
 
-DATASET_VERSION = 1
+DATASET_VERSION = 2
 SYNTHETIC_PHONE = "+56900000000"
 MAX_CASES = 10_000
 
@@ -50,7 +50,7 @@ def reference_case(index: int) -> Scenario:
     bank = (
         [("Hola, soy Pedro.", {"name": "Pedro"}), ("Hago gasfitería y cerámica.", {"trades": ["Cerámica", "Gasfitería"]}),
          ("Voy con dos maestros.", {"workers": 3, "team_available": True})],
-        [("Buena compadre, ando buscando pega.", {"interest_type": "employment", "entity_type": "individual"}),
+        [("Buena compadre, ando buscando pega.", {"interest_type": "employment", "entity_type": "unknown"}),
          ("Trabajo solo no más.", {"workers": 1, "team_available": False})],
         [("Represento una empresa. Hacemos tabiquería.", {"entity_type": "company", "interest_type": "service_offer", "trades": ["Tabiquería"]}),
          ("Somos cuatro cabros.", {"workers": 4, "team_available": True})],
@@ -125,7 +125,7 @@ def focused_messenger_case(config: dict, index: int) -> Scenario:
     else:  # helpfulness
         turns = [
             (f"Ando buscando pega de {primary.lower()} en {commune}.",
-             {"interest_type": "employment", "entity_type": "individual",
+             {"interest_type": "employment", "entity_type": "unknown",
               "trades": [primary], "work_communes": [commune]}),
             ("¿Qué información falta para que me contacten?", {}),
             ("Solo yo, sin cuadrilla.", {"workers": 1, "team_available": False}),
@@ -168,14 +168,14 @@ def scenario(config: dict, index: int) -> Scenario:
     literal = alias if level >= 3 and intro != len(INTRO) - 1 else primary.lower()
     professional_facts = {"trades": [primary]}
     if intro < 2:
-        professional_facts.update(interest_type="employment", entity_type="individual")
+        professional_facts.update(interest_type="employment", entity_type="unknown")
     elif intro == 3:
         professional_facts["interest_type"] = "service_offer"
     professional = (INTRO[intro].format(literal) + ".", professional_facts)
     available = (AVAILABILITY[availability] + ".", {"availability": (
         AVAILABILITY[availability].split()[-1] if availability < 3 else "Sin disponibilidad")})
     if level == 1:
-        crew = (("Trabajo solo no más.", {"workers": 1, "team_available": False, "entity_type": "individual"}) if count == 0
+        crew = (("Trabajo solo no más.", {"workers": 1, "team_available": False}) if count == 0
                 else ("Somos dos.", {"workers": 2, "team_available": True}))
         middle = [professional, (f"Trabajo en {commune}.", {"work_communes": [commune]}), available]
         turns.extend(middle if order == 0 else reversed(middle))
@@ -213,7 +213,7 @@ def dataset_hash(config: dict) -> str:
     suite = config["suite"]
     payload = [DATASET_VERSION, suite, SUITE_SEEDS.get(suite, config["seed"]),
                config["level"], config["cases"]]
-    # Preserve all legacy dataset fingerprints when no specialized focus is set.
+    # The version separates each dataset from prior extraction expectations.
     if config.get("focus"):
         payload.append(config["focus"])
     return digest(payload)

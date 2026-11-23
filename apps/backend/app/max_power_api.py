@@ -15,7 +15,8 @@ from .galancito_memory import aware
 from .galancito_training_models import ACTIVE, TrainingRound, TrainingWorker
 from .max_power_decisions import latency_diagnosis, priority_from_reviews
 from .max_power_models import MaxPowerEvent, MaxPowerState, MaxPowerMessengerTrial
-from .max_power_export import build_report, MAX_EVENTS
+from .max_power_export import build_report, MAX_EVENTS, safe_metrics
+from .max_power_practice import EVENT as PRACTICE_EVENT, QWEN_CRITERION
 from .models import AuditEvent, Organization, User, utcnow
 from .security import administrator
 
@@ -35,7 +36,7 @@ def _automatic_quality(messenger_trials, events):
         if key not in first_per_source:
             first_per_source[key] = t
     measured = []
-    categories = {"context":"context_pass", "profile":"context_pass",
+    categories = {"context":"context_pass", "understanding":"answer_priority_check",
                   "naturalness":"naturalness_check", "safety":"safety_check"}
     for trial in first_per_source.values():
         col = categories.get(trial.criterion)
@@ -92,7 +93,7 @@ def _view(db, user, row):
     cpu_state = (cpu_event.evidence or {}).get("state") if cpu_event else None
     cpu_online = bool(cpu_event and aware(cpu_event.created_at) >= aware(now) - timedelta(seconds=55))
     messenger_trials = list(db.scalars(select(MaxPowerMessengerTrial).where(
-        MaxPowerMessengerTrial.org_id == user.org_id
+        MaxPowerMessengerTrial.org_id == user.org_id, MaxPowerMessengerTrial.criterion != QWEN_CRITERION,
     ).order_by(MaxPowerMessengerTrial.created_at.desc()).limit(150)))
     messenger_summary = {
         "trials": len(messenger_trials),
@@ -105,6 +106,33 @@ def _view(db, user, row):
     }
     worker = db.get(TrainingWorker, 1)
     trainer_online = bool(worker and aware(worker.updated_at) >= aware(now) - timedelta(seconds=150))
+    practice = db.scalar(select(MaxPowerEvent).where(
+        MaxPowerEvent.org_id == user.org_id, MaxPowerEvent.event == PRACTICE_EVENT,
+    ).order_by(MaxPowerEvent.created_at.desc()).limit(1))
+    synthetic_replies = None
+    if practice:
+        trials = list(db.scalars(select(MaxPowerMessengerTrial).where(
+            MaxPowerMessengerTrial.org_id == user.org_id, MaxPowerMessengerTrial.criterion == QWEN_CRITERION,
+            MaxPowerMessengerTrial.metrics["dataset_sha256"].as_string() == practice.evidence.get("dataset_sha256"),
+            MaxPowerMessengerTrial.metrics["protocol"].as_string() == practice.evidence.get("protocol"),
+        )))
+        reserved = [t for t in trials if t.status == "completed" and t.metrics.get("split") == "holdout"]
+        synthetic_replies = {
+            "queued_or_running": sum(t.status in ("queued", "running") for t in trials),
+            "blocked": sum(t.status == "blocked" for t in trials),
+            "reserved_pairs": len(reserved),
+            "baseline_passes": sum(t.metrics["baseline"]["understanding_check"] is True for t in reserved),
+            "candidate_passes": sum(t.metrics["candidate"]["understanding_check"] is True for t in reserved),
+            "gains": sum(t.outcome == "objective_gain" for t in reserved),
+            "regressions": sum(t.outcome in ("objective_regression", "safety_regression") for t in reserved),
+            "safety_failures": sum(t.outcome == "safety_regression" for t in reserved),
+        }
+    verified_cpu_update = db.scalar(select(MaxPowerEvent.id).where(
+        MaxPowerEvent.org_id == user.org_id,
+        MaxPowerEvent.event.like("ft_%"),
+        MaxPowerEvent.evidence["model"].as_string() == "Qwen/Qwen3.5-0.8B",
+        MaxPowerEvent.evidence["weights_trained"].as_boolean().is_(True),
+    ).limit(1))
     controller_online = bool(row and row.worker_seen_at and
                              aware(row.worker_seen_at) >= aware(now) - timedelta(seconds=30))
     recent = row.latest_result if row else {}
@@ -140,12 +168,15 @@ def _view(db, user, row):
                        "El controlador neuronal no ha informado recientemente"),
             "last_update_at": cpu_event.created_at if cpu_event else None,
             "manager_online": cpu_online,
-            "weights_trained": False,
+            "weights_trained": bool(verified_cpu_update),
             "model": "Qwen/Qwen3.5-0.8B",
         },
         "priorities": priority_from_reviews(priorities),
         "messenger_experiments": messenger_summary,
         "automatic_quality": _automatic_quality(messenger_trials, events),
+        "synthetic_practice": {**practice.evidence, "at": practice.created_at} if practice else None,
+        "synthetic_qwen": synthetic_replies,
+        "resource_snapshot": safe_metrics(worker.resources) if trainer_online else {},
         "quality": current,
         "quality_deltas": improvement,
         "latest_result": recent,

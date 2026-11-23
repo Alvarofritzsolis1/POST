@@ -46,17 +46,14 @@ from .galancito_intake import (
     natural_messenger_reply,
 )
 from .galancito_memory import (
-    apply_messenger_message, approved_trade_aliases, aware, note_profile_sources,
-    prior_delivered_prompt, profile_facts,
+    apply_messenger_message, approved_trade_aliases, aware, capture_voluntary_contact, note_profile_sources,
+    prior_delivered_prompt, professional_message, profile_facts,
 )
 from .galancito_contact_profile import contact_profile
 from .galancito_conversation_summary import (
     summarize_conversation, safe_model_input, validate_ai_brief, brief_contains_private_data,
 )
-from .galancito_phone import (QUESTION as CONTACT_PHONE_QUESTION, normalize_mobile,
-                              remember_shared_phone, phone_question_when_agreed,
-                              redact_mobile_for_intake)
-from .galancito_contact_email import remember_shared_email, redact_email_for_intake
+from .galancito_phone import (QUESTION as CONTACT_PHONE_QUESTION, normalize_mobile, phone_question_when_agreed)
 from .galancito_communes import find_communes
 from .galancito_links import (record_manual_trade,
                               suggest_requirements, link_requirement,
@@ -153,6 +150,7 @@ def _lead_view(db: Session, lead: FacebookLead) -> dict:
         "support_reason": lead.support_reason,
         "entity_type": lead.entity_type,
         "has_employees": lead.has_employees,
+        "employee_count": lead.employee_count,
         "team_available": lead.team_available,
         "interest_type": lead.interest_type,
         "work_area": lead.work_area, "work_communes": lead.work_communes,
@@ -194,6 +192,7 @@ class LeadEdit(BaseModel):
     needs_support: bool = False
     entity_type: str = Field(default="unknown", pattern=r"^(unknown|company|individual)$")
     has_employees: bool | None = None
+    employee_count: int | None = Field(default=None, ge=0, le=5000)
     team_available: bool | None = None
     interest_type: str = Field(default="unknown", pattern="^(unknown|service_offer|employment|both)$")
     work_area: str = Field(default="", max_length=120)
@@ -390,18 +389,11 @@ async def webhook(request: Request, db: Session = Depends(get_db)):
         ) if not audio_received else "")
         consent = (apply_permission_reply(lead, body, previous_question)
                    if not historical and not audio_received else None)
-        phone_saved = (remember_shared_phone(lead, body, previous_question, at=event_at)
-                       if not historical and not audio_received else False)
-        if phone_saved:
-            note_profile_sources(lead, ["contact_phone"], source="message", at=event_at, remote_id=mid)
-            audit_event(db, lead, "field_contact_phone", source="message", remote_id=mid)
-        email_saved = (remember_shared_email(lead, body, previous_question, at=event_at)
-                       if not historical and not audio_received else False)
-        if email_saved:
-            note_profile_sources(lead, ["contact_email"], source="message", at=event_at, remote_id=mid)
-            audit_event(db, lead, "field_contact_email", source="message", remote_id=mid)
+        phone_saved = False
+        if not historical and not audio_received:
+            phone_saved, _ = capture_voluntary_contact(db, lead, body, previous_question, at=event_at, remote_id=mid)
         changed = False
-        intake_body = redact_email_for_intake(redact_mobile_for_intake(body))
+        intake_body = professional_message(body)
         if consent is None and not audio_received and not private_data(intake_body):
             if aliases is None:
                 aliases = approved_trade_aliases(db, lead.org_id)
@@ -432,7 +424,7 @@ async def webhook(request: Request, db: Session = Depends(get_db)):
                 and (needs_deeper_response(earlier[1]) or is_worksite_location(earlier[1]))
                 and not (needs_deeper_response(body) or is_worksite_location(body))
                 and declared_relative_start(body) is None):
-            body, previous_question = earlier[1], earlier[2]
+            intake_body, previous_question = earlier[1], earlier[2]
         reply_turns[lead.id] = (lead, intake_body, previous_question, changed or bool(earlier and earlier[3]),
                                signal or (earlier[4] if earlier else None), mid,
                                consent is True or bool(earlier and earlier[6]),
@@ -464,7 +456,7 @@ async def webhook(request: Request, db: Session = Depends(get_db)):
                 if phone_prompt:
                     direct = phone_prompt
                     lead.phone_requested_at = utcnow()
-            if phone_saved and not signal:
+            if phone_saved and not signal and not direct and not needs_deeper_response(body):
                 direct = "Gracias, registré el número que compartiste para coordinación. No confirma contratación."
             ai_source = "disabled" if direct else messenger_ai_source(db, lead.org_id, cfg)
             recent = db.scalar(select(func.count(FacebookChatMessage.id)).where(
@@ -474,7 +466,7 @@ async def webhook(request: Request, db: Session = Depends(get_db)):
                 FacebookChatMessage.state != "cancelled",
             )) or 0
             reply, use_ai = None, False
-            local = small_talk_reply(body)
+            local = small_talk_reply(body, previous_question)
             if signal:
                 if recent < 3:
                     reply = (("Ya avisé al equipo para que te atienda una persona. "
@@ -1177,7 +1169,17 @@ def update_lead(lead_id: str, body: LeadEdit, user: User = Depends(administrator
     previous_requirement_id = lead.requirement_id
     manual_fields = set()
     tracked_fields = profile_facts(lead)
-    for field, value in body.model_dump(exclude_unset=True).items():
+    edits = body.model_dump(exclude_unset=True)
+    if (employee_count := edits.get("employee_count")) is not None:
+        if "has_employees" in edits and edits["has_employees"] is not (employee_count > 0):
+            raise HTTPException(422, "La cantidad declarada debe coincidir con el estado de contratación")
+        edits["has_employees"] = employee_count > 0
+    elif "has_employees" in edits:
+        if edits["has_employees"] is False:
+            edits["employee_count"] = 0
+        elif edits["has_employees"] is None or lead.employee_count == 0:
+            edits["employee_count"] = None
+    for field, value in edits.items():
         tracked = "display_name" if field == "name" else field
         if tracked in tracked_fields and getattr(lead, tracked) != value:
             manual_fields.add(tracked)

@@ -267,7 +267,7 @@ def test_messenger_preserves_facts_without_creating_a_contractor(network, monkey
     enable_messaging(n, monkeypatch)
     assert incoming(n, text="busco pega de carpintero", mid="worker").status_code == 200
     first = n["admin"].get("/api/v1/network/facebook/center").json()["leads"][0]
-    assert first["entity_type"] == "individual" and first["specialty"] == "Carpintería"
+    assert first["entity_type"] == "unknown" and first["specialty"] == "Carpintería"
     assert incoming(n, text="tengo 4 trabajadores disponibles", mid="team").status_code == 200
     updated = n["admin"].get("/api/v1/network/facebook/center").json()["leads"][0]
     assert updated["workers"] == 4 and updated["specialty"] == "Carpintería"

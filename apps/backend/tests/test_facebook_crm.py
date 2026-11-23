@@ -674,7 +674,7 @@ def test_lead_insights_proposes_name_without_editing_and_ranks_needs(network, mo
 
     n = network
     enable_messaging(n, monkeypatch)
-    response = incoming(n, "Hola, me llamo Juan Pérez, soy gasfiter. Tengo 3 trabajadores",
+    response = incoming(n, "Hola, me llamo Juan Pérez, soy gasfiter. Puedo ir con dos trabajadores",
                         mid="juan-profile-1")
     assert response.status_code == 200
     lead = n["admin"].get("/api/v1/network/facebook/center").json()["leads"][0]

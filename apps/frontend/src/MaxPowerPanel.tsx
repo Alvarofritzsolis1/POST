@@ -8,6 +8,14 @@ type Sample = { quality_score: number | null; reviewed_cases: number; minimum_ca
   dimension_scores: Record<string, number | null>; quality_source: string };
 type Delta = { initial: number | null; latest: number | null; delta_points: number | null; sample_count: number };
 type Event = { id: string; at: string; event: string; reason: string; evidence: Record<string, unknown> };
+type CheckCount = { passed: number | null; samples: number };
+type PracticeSample = {
+  cases: number;
+  dimensions: Record<string, CheckCount>;
+  fields: Record<string, CheckCount>;
+  style_signals: CheckCount;
+  safety: {gate_passed: boolean; unsupported_values: number; privacy_or_promise_failures: number};
+};
 type Status = {
   enabled: boolean; controller_online: boolean; trainer_online: boolean;
   cpu_learning?: {status:string;reason:string;last_update_at:string|null;
@@ -19,6 +27,12 @@ type Status = {
   quality: Record<string, Sample>; quality_deltas: Record<string, Delta>;
   messenger_experiments?: {trials: number; objective_gains: number; regressions: number; inconclusive: number; active: number};
   automatic_quality?: Record<string,{pairs:number; baseline:number|null;candidate:number|null;delta_points:number|null;scope:string;minimum_cases:number;notes:string}>;
+  synthetic_practice?: {at: string; development: PracticeSample; holdout: PracticeSample;
+                       target_weights: Record<string,number>} | null;
+  synthetic_qwen?: {queued_or_running: number; blocked: number; reserved_pairs: number;
+                    baseline_passes: number; candidate_passes: number; gains: number;
+                    regressions: number; safety_failures: number} | null;
+  resource_snapshot?: Record<string,number | null>;
   latest_result: Record<string, unknown>;
   latency_diagnosis: {code: string; reason: string; measured_ms?: number; suggestion?: string};
   events: Event[]; limitations: string;
@@ -36,6 +50,17 @@ const pretty: Record<string,string> = {
 const channels = [{id:"messenger", label:"Messenger"},{id:"general",label:"Galancito General"}];
 const grade = (n:number|null|undefined) => n == null ? "Sin nota" : n.toLocaleString("es-CL",{maximumFractionDigits:1}) + "/100";
 const date = (v:string|null) => v ? new Date(v).toLocaleString("es-CL") : "—";
+const practiceDimensions = {profile:"Precisión de ficha", understanding:"Comprensión",
+  humanity:"Trato humano", continuity:"Continuidad"};
+const profileFields: Record<string,string> = {
+  availability:"Disponibilidad", contact_email:"Correo voluntario", contact_phone:"Teléfono voluntario",
+  contact_state:"Canal de contacto", display_name:"Nombre declarado", entity_type:"Empresa o independiente",
+  experience:"Experiencia", has_employees:"Tiene personal contratado", employee_count:"Personas contratadas", interest_type:"Interés laboral",
+  specialty:"Oficio principal", trades:"Oficios declarados", team_available:"Disponibilidad de cuadrilla",
+  workers:"Capacidad de cuadrilla", work_communes:"Comunas de trabajo", name_opt_out:"Decisión sobre compartir nombre"
+};
+const checks = (count: CheckCount) => count.passed == null || count.samples === 0
+  ? "Datos insuficientes" : f(count.passed) + " / " + f(count.samples);
 
 export default function MaxPowerPanel(){
   const [data,setData] = useState<Status|null>(null);
@@ -86,6 +111,9 @@ export default function MaxPowerPanel(){
     finally{setDownloading(false);}
   };
   const result=data?.latest_result || {};
+  const practice = data?.synthetic_practice;
+  const qwen = data?.synthetic_qwen;
+  const resources = data?.resource_snapshot;
   // Unmodified, measured experimental latency. Differences in workload mix
   // mean this chart must never be labelled a causal speed improvement.
   const latencyHistory=(data?.events || [])
@@ -142,6 +170,43 @@ export default function MaxPowerPanel(){
       {data.enabled && <small>Automático: recursos → datos firmados → gradientes → checkpoint → validación. No se inventan avances.</small>}
     </div>}
     <FineTuneProgress/>
+    <article className="max-power-card max-power-practice">
+      <div className="max-power-section-title"><ShieldCheck size={17}/><h3>Práctica sintética de fichas y conversación</h3></div>
+      {practice ? <>
+        <p>{f(practice.development.cases)} casos de desarrollo · {f(practice.holdout.cases)} reservados · {date(practice.at)}</p>
+        <div className="max-power-competencies">
+          {Object.entries(practiceDimensions).map(([key,label]) => <div className="max-power-competency" key={key}>
+            <span>{label} · peso objetivo {practice.target_weights[key]}%</span>
+            <span>{checks(practice.holdout.dimensions[key])}</span>
+          </div>)}
+          <div className="max-power-competency"><span>Señales objetivas de estilo</span>
+            <span>{checks(practice.holdout.style_signals)}</span></div>
+          <div className="max-power-competency"><span>Privacidad y datos inventados</span>
+            <span>{practice.holdout.safety.gate_passed ? "Sin incidentes detectados" :
+              f(practice.holdout.safety.unsupported_values + practice.holdout.safety.privacy_or_promise_failures) + " fallas"}</span></div>
+        </div>
+        <details><summary>Ver aciertos por campo en casos reservados</summary>
+          {Object.entries(practice.holdout.fields).map(([key,count]) => <div className="max-power-competency" key={key}>
+            <span>{profileFields[key] ?? (profileFields[key.replace("_estado", "")] + " · estado y origen")}</span>
+            <span>{checks(count)}</span>
+          </div>)}
+        </details>
+      </> : <p>Esperando una evaluación con casos sintéticos. Los resultados se guardan al terminar.</p>}
+      {qwen && <div className="max-power-competencies">
+        <div className="max-power-competency"><span>Qwen 4B aislado · respuestas sintéticas</span>
+          <span>{qwen.reserved_pairs ? `A/B ${qwen.baseline_passes} → ${qwen.candidate_passes} de ${qwen.reserved_pairs} pares reservados`
+            : "Datos insuficientes"}</span></div>
+        {(qwen.reserved_pairs > 0 || qwen.queued_or_running > 0 || qwen.blocked > 0) && <p>
+          {qwen.gains} ganancias y {qwen.regressions} regresiones en reserva, con {qwen.safety_failures} fallas de seguridad.
+          {" "}{qwen.queued_or_running} ensayos pendientes y {qwen.blocked} bloqueados.
+        </p>}
+      </div>}
+      {resources && typeof resources.host_cpu_percent === "number" && <p>
+        CPU {f(Math.round(resources.host_cpu_percent))}%
+        {typeof resources.available_ram_mb === "number" && " · RAM disponible " + f(resources.available_ram_mb) + " MB"}
+        {typeof resources.disk_free_mb === "number" && " · Disco libre " + f(resources.disk_free_mb) + " MB"}
+      </p>}
+    </article>
     <div className="max-power-section-title"><Gauge size={17}/><h3>Resultados verificables de cada experimento</h3></div>
     <div className="max-power-channel-grid">
       {channels.map(c=>{

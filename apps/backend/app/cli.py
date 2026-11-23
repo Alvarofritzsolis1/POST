@@ -22,6 +22,7 @@ from . import galancito_knowledge_models
 from . import ai_models
 from .migrations import v20_7_5_galancito_learning, v20_8_0_ai_control_center, v20_8_1_ai_collaboration, v20_8_7_global_lightning, v20_8_8_galancito_intake
 from .migrations import galancito_training
+from .migrations import v20_9_32_employee_count
 from .migrations import v20_9_0_galancito_links, v20_9_1_galancito_memory, v20_9_4_facebook_contact_sheet, v20_9_7_facebook_publications, v20_9_8_facebook_interactions, v20_9_9_network_candidates, v20_9_14_contact_email, v20_9_14_internal_conversation
 from . import ai_quality_models  # registro de evaluaciones auditadas
 from .migrations import v20_9_19_ai_quality_review, v20_9_21_real_defect_learning, v20_9_23_max_power, v20_9_27_social_posters, v20_9_31_network_quick_copy
@@ -155,6 +156,9 @@ def migrate(db):
     if not db.get(SchemaVersion, v20_9_31_network_quick_copy.MIGRATION_ID):
         v20_9_31_network_quick_copy.upgrade(db.connection())
         db.add(SchemaVersion(version=v20_9_31_network_quick_copy.MIGRATION_ID))
+    if not db.get(SchemaVersion, v20_9_32_employee_count.MIGRATION_ID):
+        v20_9_32_employee_count.upgrade(db.connection())
+        db.add(SchemaVersion(version=v20_9_32_employee_count.MIGRATION_ID))
 
 
 

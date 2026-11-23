@@ -6,8 +6,9 @@ or measuring a targeted problem. No auto-promotion or fabricated quality scores.
 Never copies private message text into trial records, logs or external services.
 """
 from datetime import timedelta
-from uuid import uuid4
+from uuid import NAMESPACE_URL, uuid4, uuid5
 from time import perf_counter
+from types import SimpleNamespace
 from zlib import crc32
 import re
 
@@ -21,21 +22,22 @@ from .facebook_crm_models import FacebookChatMessage, FacebookLead
 from .config import settings
 from .db import SessionLocal
 from .galancito_trainer import messenger_busy
-from .facebook_crm_models import FacebookChatMessage
 from .facebook_ai import LOCAL_REPLY_INSTRUCTIONS
 from .galancito_flow import grounded_reply
 from .galancito_general import QWEN_4B
-from .galancito_links import trade_declarations
+from .galancito_intake import UNKNOWN_NAMES, apply_intake, identity_reply, intake_question_fields, needs_deeper_response
 from .galancito_local import MAX_INSTRUCTIONS_CHARS, generate_training_text, last_timings, MAX_POWER_ISOLATED
 from .galancito_triage import plain, private_data
 from .max_power_models import MaxPowerEvent, MaxPowerMessengerTrial, MaxPowerState
+from .max_power_practice import PROTOCOL, QWEN_CRITERION, RESERVED, SOURCE, dataset_digest, generate_scenarios, reply_cases, reply_reference
 from .models import Organization
 from .models import User, utcnow
 
 TRADE_QUESTION = re.compile(
     r"(?:que|cual) (?:tipo de )?(?:trabajo|oficio|especialidad) "
     r"(?:haces|realizas|tienes|es|ofreces)|a que te dedicas|en que trabajas")
-INTRO = re.compile(r"hola.{0,5}soy galancito|soy (?:un )?asistente virtual")
+INTRO = re.compile(r"\bsoy galancito\b|\bsoy (?:el |un )?asistente virtual\b")
+NUMBERED_MENU = re.compile(r"(?m)^\s*1[.)].+\n\s*2[.)]")
 CLAIM = re.compile(r"ya (?:te contrate|te registre|te certifique|publique|"
                    r"modifique|envie)|contratacion garantizada")
 SECRET = re.compile(r"(?:dame|enviame|mandame|necesito) "
@@ -43,32 +45,65 @@ SECRET = re.compile(r"(?:dame|enviame|mandame|necesito) "
 PRIORITY = {"safety":0,"context":1,"profile":2,"understanding":3,
             "naturalness":4,"helpfulness":5}
 
-def objective_checks(evidence, answer):
+def objective_checks(evidence, answer, *, known_fields=None):
     """Partial, auditable checks; subjective criteria MUST stay ungraded."""
-    history = [str(x.get("text","")) for x in evidence.get("history",[])
-               if x.get("role") in ("user","inbound")]
-    if evidence.get("question") not in history:
-        history.append(str(evidence.get("question") or ""))
-    trades = {}
-    for message in history:
-        trades.update(trade_declarations(message))
-    has_trade = any(trades.values())
+    history = list(evidence.get("history", []))
+    question = str(evidence.get("question") or "")
+    if not history or history[-1].get("text") != question:
+        history.append({"role": "inbound", "text": question})
+    if known_fields is None:
+        # Only replay professional declarations available before the original
+        # reply. This estimates known context and cannot grade persisted fields.
+        facts = SimpleNamespace(display_name="", name_opt_out=False, specialty="", specialty_source="message",
+                                entity_type="unknown", interest_type="unknown", team_available=None,
+                                workers=None, has_employees=None, experience="", work_area="",
+                                work_communes=[], availability="")
+        prior = ""
+        for item in history:
+            message = str(item.get("text", ""))
+            if item.get("role") in ("inbound", "user"):
+                apply_intake(facts, message, prior)
+                prior = ""
+            else:
+                prior = message
+        known_fields = {field for field, value in vars(facts).items()
+                        if value not in (None, "", "unknown", [])}
+        if facts.display_name in UNKNOWN_NAMES and not facts.name_opt_out:
+            known_fields.discard("display_name")
+        if facts.name_opt_out:
+            known_fields.add("display_name")
+    has_trade = "specialty" in known_fields
     norm = plain(answer)
+    asked = intake_question_fields(answer)
     repeat_trade = bool(has_trade and TRADE_QUESTION.search(norm))
-    intro = bool(len(history) > 1 and INTRO.search(norm))
+    intro = bool(len(history) > 1 and INTRO.search(norm) and not identity_reply(question))
+    repeated = asked & known_fields
+    if repeat_trade:
+        repeated.add("specialty")
+    menu = bool(NUMBERED_MENU.search(answer))
+    pure_question = bool(answer.strip().startswith("¿") and answer.strip().count("?") == 1)
+    priority_check = not (asked and pure_question) if needs_deeper_response(question) else None
     unsafe = bool(private_data(answer) or CLAIM.search(norm) or SECRET.search(norm))
     return {"safe": not unsafe, "known_trade": has_trade,
             "repeated_trade_question": repeat_trade,
             "repeated_intro": intro,
-            "context_pass": not repeat_trade if has_trade else None,
-            "naturalness_check": not intro if len(history) > 1 else None,
+            "repeated_fields": sorted(repeated), "numbered_menu": menu,
+            "question_displaced": priority_check is False, "answer_priority_check": priority_check,
+            "context_pass": not repeated if known_fields & {
+                "specialty", "display_name", "interest_type", "entity_type", "team_available", "workers",
+                "has_employees", "experience", "work_communes", "availability", "contact_phone", "contact_email"
+            } else None,
+            "naturalness_check": not (intro or menu) if len(history) > 1 or menu else None,
             "safety_check": not unsafe}
 
 def classify_messenger(criterion, baseline, candidate):
     if not candidate["safe"]:
         return "safety_regression", "La candidata incumple controles de seguridad", False
-    key = {"context":"context_pass", "profile":"context_pass",
+    key = {"context":"context_pass", "understanding":"answer_priority_check",
            "naturalness":"naturalness_check", "safety":"safety_check"}.get(criterion)
+    if any(baseline.get(metric) is True and candidate.get(metric) is False
+           for metric in ("context_pass", "answer_priority_check", "naturalness_check")):
+        return "objective_regression", "La candidata empeora un control objetivo", False
     if key is None or baseline.get(key) is None or candidate.get(key) is None:
         return "unverifiable", "Sin respuesta de referencia confiable; resultado indeterminado", False
     before, after = bool(baseline[key]), bool(candidate[key])
@@ -82,13 +117,24 @@ def detected_defects(evidence):
     """Select ONLY failures supported by observable facts, never an AI self-grade."""
     answer = objective_checks(evidence, evidence.get("answer", ""))
     failures = []
-    if answer["repeated_trade_question"]:
+    if answer["repeated_fields"]:
         failures.append("context")
-    if answer["repeated_intro"]:
+    if answer["question_displaced"]:
+        failures.append("understanding")
+    if answer["repeated_intro"] or answer["numbered_menu"]:
         failures.append("naturalness")
     if not answer["safe"]:
         failures.append("safety")
     return failures
+
+
+def _grounded_checks(evidence, raw, prompt, *, known_fields=None):
+    answer = grounded_reply(raw, prompt)
+    checks = objective_checks(evidence, answer or raw, known_fields=known_fields)
+    raw_safe = objective_checks({}, raw, known_fields=set())["safe"]
+    checks["safe"] = bool(answer) and checks["safe"] and raw_safe
+    checks["safety_check"] = checks["safe"]
+    return answer, checks
 
 def _consented_record(db, owner, run):
     """Access existing Messenger messages only for a consented local replay."""
@@ -143,6 +189,7 @@ def schedule_next(db, user):
         return False
     pending = db.scalar(select(MaxPowerMessengerTrial.id).where(
         MaxPowerMessengerTrial.org_id == user.org_id,
+        MaxPowerMessengerTrial.criterion != QWEN_CRITERION,
         MaxPowerMessengerTrial.status.in_(("queued","running"))).limit(1))
     if pending:
         return True
@@ -204,15 +251,82 @@ def _answer(instructions,prompt,seed,org_id):
                                    "ollama_total_ms","transport_ms")
                         and isinstance(v,(int,float))}
 
+
+def schedule_synthetic_reply(db, org_id, scenarios):
+    digest = dataset_digest(scenarios)
+    pending = db.scalar(select(MaxPowerMessengerTrial.id).where(
+        MaxPowerMessengerTrial.org_id == org_id, MaxPowerMessengerTrial.criterion == QWEN_CRITERION,
+        MaxPowerMessengerTrial.status.in_(("queued", "running"))).limit(1))
+    if pending:
+        return True
+    for case_id in sorted(reply_cases(scenarios), key=lambda key: (key in RESERVED, key)):
+        trial_id = str(uuid5(NAMESPACE_URL, f"{org_id}:{digest}:{PROTOCOL}:qwen-reply:{case_id}"))
+        if db.get(MaxPowerMessengerTrial, trial_id) is not None:
+            continue
+        db.add(MaxPowerMessengerTrial(id=trial_id, org_id=org_id, criterion=QWEN_CRITERION,
+                                     variant="focused", metrics={"source": SOURCE, "case_id": case_id, "protocol": PROTOCOL,
+                                                                 "dataset_sha256": digest}))
+        return True
+    return False
+
+
+def evaluate_synthetic_reply(org_id, case_id, digest):
+    scenarios = generate_scenarios()
+    if digest != dataset_digest(scenarios) or case_id not in reply_cases(scenarios):
+        raise ValueError("La versión de la práctica sintética cambió")
+    prompt, turn, known = reply_reference(scenarios, case_id)
+    seed = crc32(case_id.encode()) & 0x7fffffff
+    instruction = ("\nSi hay una pregunta sobre pago, cupos o una obra, explica primero qué puede confirmar el equipo. "
+                   "En ese turno omite las preguntas de ficha, aunque el mensaje también declare un oficio. "
+                   "Si el historial no indica un monto, fecha o cupo, no los supongas.")
+    answers = [_answer(policy, prompt, seed, org_id) for policy in
+               (LOCAL_REPLY_INSTRUCTIONS, LOCAL_REPLY_INSTRUCTIONS + instruction)]
+
+    def checks(raw):
+        answer, result = _grounded_checks({"question": turn.message}, raw, prompt, known_fields=known)
+        result["understanding_check"] = (result["safe"] and all(word in plain(answer or "") for word in turn.topic)
+                                         and not intake_question_fields(answer or ""))
+        return result
+
+    before, after = [checks(raw) for raw, _ in answers]
+    gain = bool(before["safe"] and after["safe"] and after["understanding_check"] and not before["understanding_check"])
+    if not after["safe"]:
+        outcome = "safety_regression"
+    elif before["understanding_check"] and not after["understanding_check"]:
+        outcome = "objective_regression"
+    else:
+        outcome = "objective_gain" if gain else "no_objective_gain"
+    detail = "Comparación Qwen 4B de respuesta a una consulta sintética"
+    return outcome, detail, {
+        "source": SOURCE, "case_id": case_id, "dataset_sha256": digest, "protocol": PROTOCOL,
+        "split": "holdout" if case_id in RESERVED else "development", "model": QWEN_4B,
+        "baseline": before, "candidate": after, "objective_gain": gain, "sample_pairs": 1,
+        "before_timing_ms": answers[0][1], "after_timing_ms": answers[1][1],
+        "production_verified": False, "weights_changed": False,
+    }
+
+
 def evaluate_trial(trial_id):
     """Baseline and candidate are both real local Qwen runs, no external API."""
     with SessionLocal() as db:
         trial = db.get(MaxPowerMessengerTrial, trial_id)
-        if trial is None or not trial.source_run_id:
+        if trial is None:
             raise ValueError("Prueba automática sin fuente trazable")
         state = db.get(MaxPowerState, trial.org_id)
         user = db.get(User, state.owner_id) if state else None
-        run = db.get(AssistantRun, trial.source_run_id)
+        if not (state and state.enabled and user and user.enabled and user.role == "admin" and user.org_id == trial.org_id):
+            raise ValueError("El administrador de la práctica ya no está autorizado")
+        if trial.criterion == QWEN_CRITERION:
+            if trial.metrics.get("protocol") != PROTOCOL:
+                raise ValueError("La versión de la práctica sintética cambió")
+            synthetic = (trial.org_id, trial.metrics.get("case_id"), trial.metrics.get("dataset_sha256"))
+        else:
+            synthetic = None
+    if synthetic:
+        return evaluate_synthetic_reply(*synthetic)
+    with SessionLocal() as db:
+        trial = db.get(MaxPowerMessengerTrial, trial_id)
+        run = db.get(AssistantRun, trial.source_run_id) if trial.source_run_id else None
         if not (user and user.enabled and user.role == "admin" and run
                 and user.org_id == run.org_id == trial.org_id):
             raise ValueError("El propietario autorizado o la fuente ya no existen")
@@ -240,12 +354,8 @@ def evaluate_trial(trial_id):
     seed = crc32((source_id + criterion + variant).encode()) & 0x7fffffff
     baseline, timing_before = _answer(base, prompt, seed, org_id)
     candidate, timing_after = _answer(candidate_instructions, prompt, seed, org_id)
-    before = grounded_reply(baseline, prompt)
-    after = grounded_reply(candidate, prompt)
-    if not before or not after:
-        raise RuntimeError("Respuestas sanitizadas no disponibles")
-    baseline_checks = objective_checks(evidence, before)
-    candidate_checks = objective_checks(evidence, after)
+    _, baseline_checks = _grounded_checks(evidence, baseline, prompt)
+    _, candidate_checks = _grounded_checks(evidence, candidate, prompt)
     result, reason, gain = classify_messenger(criterion, baseline_checks, candidate_checks)
     latency_delta = (round(timing_after["ollama_total_ms"] - timing_before["ollama_total_ms"], 2)
                      if "ollama_total_ms" in timing_before and "ollama_total_ms" in timing_after else None)
@@ -258,7 +368,7 @@ def evaluate_trial(trial_id):
         "weights_changed": False, "before_timing_ms": timing_before,
         "after_timing_ms": timing_after, "paired_latency_delta_ms": latency_delta,
         "sample_pairs": 1, "raw_content_stored": False,
-        "ground_truth": "rule_verified_from_consented_conversation",
+        "ground_truth": "partial_rules_on_consented_history",
     }
 
 def process_one():
@@ -315,7 +425,14 @@ def process_one():
                 final=isinstance(exc,ValueError) or row.attempts>=3
                 row.status="blocked" if final else "queued"
                 row.next_at=utcnow()+timedelta(minutes=2**row.attempts)
-                row.reason="Evidencia o modelo no disponible; sin aprendizaje demostrado"
+                detail = str(exc)
+                row.reason = (detail if detail in {
+                    "MAX POWER no ejecuta ensayos de Messenger sobre Ollama de producción",
+                    "Messenger tiene prioridad sobre experimentos", "El modelo no confirmó Qwen3.5 4B",
+                    "Qwen no entregó una respuesta evaluable", "La versión de la práctica sintética cambió",
+                    "El administrador de la práctica ya no está autorizado",
+                } else "La fuente perdió autorización o trazabilidad" if isinstance(exc, ValueError)
+                    else "Ollama aislado no completó la inferencia; revisar la salud del servicio y el modelo")
                 row.lease_until=None
                 row.claim_token=None
         return True
@@ -335,6 +452,12 @@ def process_one():
         row.completed_at,row.lease_until=utcnow(),None
         row.claim_token=None
         row.metrics=metrics
+        if row.criterion == QWEN_CRITERION:
+            state.last_status = "synthetic_model_evaluated"
+            state.last_reason = reason
+            db.add(MaxPowerEvent(org_id=row.org_id, event="synthetic_qwen_trial", round_id=row.id,
+                                 reason=reason, evidence={**metrics, "outcome": outcome}))
+            return True
         if state:
             state.experiments+=1
             state.examined_cases+=1

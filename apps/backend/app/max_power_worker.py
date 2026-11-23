@@ -1,7 +1,7 @@
 """Autonomous low-priority conductor; loops indefinitely until switched off.
 
-Only schedules existing real-database Qwen evaluations. Never silently changes
-production prompts, weights, permissions or external API settings.
+Schedules real Qwen experiments and lightweight synthetic intake evaluation.
+Production prompts, weights, permissions and external API settings are fixed.
 """
 from datetime import timedelta
 from concurrent.futures import ThreadPoolExecutor
@@ -24,7 +24,8 @@ from .galancito_training_models import ACTIVE, TrainingCase, TrainingRound, Trai
 from .galancito_training_model import TrainingModel
 from .max_power_decisions import can_run, classify_outcome, evidence_fingerprint, select_experiment_plan, worksite_holdout_sign_test
 from .max_power_models import MaxPowerEvent, MaxPowerState, MaxPowerMessengerTrial
-from .max_power_messenger import schedule_next, process_one
+from .max_power_messenger import schedule_next, process_one, schedule_synthetic_reply
+from .max_power_practice import EVENT as PRACTICE_EVENT, generate_scenarios, practice_id, run_practice
 from .config import settings
 from .galancito_general import QWEN_4B
 from .galancito_local import MAX_POWER_ISOLATED
@@ -58,6 +59,26 @@ def _pressure(name):
 def set_wait(row, now, code, reason, seconds=RECHECK_SECONDS):
     row.last_status, row.last_reason = code, reason[:280]
     row.next_at = now + timedelta(seconds=seconds)
+
+
+def _practice_or_wait(db, row, now, reason, *, qwen_ready):
+    scenarios = generate_scenarios()
+    run_id = practice_id(scenarios)
+    recorded = db.scalar(select(MaxPowerEvent.id).where(
+        MaxPowerEvent.org_id == row.org_id, MaxPowerEvent.event == PRACTICE_EVENT,
+        MaxPowerEvent.round_id == run_id))
+    if recorded:
+        if qwen_ready and schedule_synthetic_reply(db, row.org_id, scenarios):
+            set_wait(row, now, "synthetic_model_evaluation", "Qwen 4B evalúa respuestas sintéticas en el laboratorio", 30)
+            return
+        set_wait(row, now, "awaiting_new_evidence", reason + ". La práctica sintética vigente ya se evaluó", 600)
+        return
+    result = run_practice(scenarios)
+    count = result["development"]["cases"] + result["holdout"]["cases"]
+    detail = f"Práctica sintética completada: {count} fichas evaluadas en almacenamiento aislado"
+    db.add(MaxPowerEvent(org_id=row.org_id, event=PRACTICE_EVENT, round_id=run_id,
+                         reason=detail, evidence=result))
+    set_wait(row, now, "synthetic_practice_completed", detail + ". " + reason, 60)
 
 def _result(db, row, completed, now):
     metrics = completed.metrics or {}
@@ -282,30 +303,19 @@ def tick(db, sampler):
                       (cpu_event.evidence or {}).get("state") == "cpu_waiting_turn" else
                       "LoRA CPU actualiza pesos en un contenedor aislado; prueba 4B en espera"), 30)
             continue
-        if not MAX_POWER_ISOLATED:
-            set_wait(row, now, "isolation_unavailable",
-                     "MAX POWER requiere un Ollama de práctica aislado", 300)
-            continue
-        if snapshot.get("available_ram_mb", 0) < 8192:
-            set_wait(row, now, "resource_guard",
-                     "Se requieren 8 GB de RAM disponible para proteger el modelo de producción", 300)
-            continue
-        worker = db.get(TrainingWorker, 1)
-        if not (worker and aware(worker.updated_at) >= aware(now) - timedelta(seconds=150)):
-            set_wait(row, now, "trainer_unavailable", "El motor de práctica no está operativo", 30)
-            continue
         ok, reason = can_run(snapshot, messenger_pending=bool(
             messenger_busy(db) or messenger_recent(db)))
         if not ok:
             set_wait(row, now, "resource_guard", reason, 30)
             continue
         owner = db.get(User, row.owner_id)
-        if not owner or owner.org_id != row.org_id or owner.role != "admin":
+        if not owner or not owner.enabled or owner.org_id != row.org_id or owner.role != "admin":
             set_wait(row, now, "permission_required", "No hay administrador autorizado para prácticas", 300)
             continue
-        # Messenger reviewed failures take precedence; no synthetic grades.
         cfg = settings()
-        if cfg.galancito_local_ai_enabled and cfg.galancito_local_model == QWEN_4B:
+        isolated_model_ready = MAX_POWER_ISOLATED and snapshot.get("available_ram_mb", 0) >= 8192
+        qwen_ready = isolated_model_ready and cfg.galancito_local_ai_enabled and cfg.galancito_local_model == QWEN_4B
+        if qwen_ready:
             if schedule_next(db, owner):
                 set_wait(row, now, "messenger_evaluation",
                          "Probando fallas de Messenger auditadas con Qwen local", 30)
@@ -313,12 +323,23 @@ def tick(db, sampler):
         try:
             cases = collect_live_cases(db, owner)
         except ValueError as exc:
-            set_wait(row, now, "insufficient_evidence", str(exc))
+            _practice_or_wait(db, row, now, str(exc).rstrip("."), qwen_ready=qwen_ready)
             continue
         # Eight reserved pairs are the minimum required for this live evaluator.
         if len(cases) < 16:
-            set_wait(row, now, "insufficient_evidence",
-                     "Se necesitan 16 casos operativos autorizados para obtener 8 pares reservados")
+            _practice_or_wait(db, row, now,
+                              "Se necesitan 16 casos operativos autorizados para obtener 8 pares reservados",
+                              qwen_ready=qwen_ready)
+            continue
+        if not MAX_POWER_ISOLATED:
+            set_wait(row, now, "isolation_unavailable", "MAX POWER requiere un Ollama de práctica aislado")
+            continue
+        if not isolated_model_ready:
+            set_wait(row, now, "resource_guard", "Se requieren 8 GB de RAM disponible para proteger el modelo de producción")
+            continue
+        worker = db.get(TrainingWorker, 1)
+        if not (worker and aware(worker.updated_at) >= aware(now) - timedelta(seconds=150)):
+            set_wait(row, now, "trainer_unavailable", "El motor de práctica no está operativo", 30)
             continue
         fingerprint = evidence_fingerprint(cases)
         if row.last_evidence_hash == fingerprint:
@@ -402,14 +423,19 @@ def main():
                                     "memory_pressure_avg10": _pressure("memory"),
                                     "io_pressure_avg10": _pressure("io")}
                         allowed, block_reason = can_run(snapshot, messenger_pending=pending)
-                        if allowed:
+                        if allowed and MAX_POWER_ISOLATED and snapshot.get("available_ram_mb", 0) >= 8192:
                             task = executor.submit(process_one)
                         else:
                             logger.debug("MAX POWER Messenger practice yielded: %s", block_reason)
                     else:
-                        task = executor.submit(process_next, sampler=practice_sampler,
-                                               training_model=local_model,
-                                               only_orchestrator="max_power")
+                        with SessionLocal() as db:
+                            active = db.scalar(select(TrainingRound.id).where(
+                                TrainingRound.state.in_(ACTIVE),
+                                TrainingRound.config["orchestrator"].as_string() == "max_power").limit(1))
+                        if active:
+                            task = executor.submit(process_next, sampler=practice_sampler,
+                                                   training_model=local_model,
+                                                   only_orchestrator="max_power")
             except SQLAlchemyError as exc:
                 logger.warning("MAX POWER waiting for database: %s", type(exc).__name__)
             except Exception:

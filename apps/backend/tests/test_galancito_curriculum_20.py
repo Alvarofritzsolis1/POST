@@ -27,8 +27,9 @@ def blank_lead(**changes):
 
 
 def respond(lead, question: str, reply: str) -> str | None:
+    before = vars(lead).copy()
     apply_intake(lead, reply, question)
-    return next_intake_reply(reply, vars(lead), question)
+    return next_intake_reply(reply, {**vars(lead), 'turn_changed': before != vars(lead)}, question)
 
 
 def test_small_contractor_with_natural_questions_and_legacy_answers():
@@ -52,7 +53,7 @@ def test_small_contractor_with_natural_questions_and_legacy_answers():
     assert "Desde cuándo" in next_question
     last = respond(lead, next_question, "mañana")
     assert lead.availability == "mañana"
-    assert "registré" in last
+    assert "quedó anotado" in last
     assert lead.entity_type == "unknown"  # No assumed company or employees.
     assert lead.has_employees is None
 
@@ -83,10 +84,17 @@ def test_worker_is_not_a_contractor_and_human_requests_interrupt_intake():
     lead = blank_lead()
     question = respond(lead, "", "busco pega de pintor")
     assert lead.interest_type == "employment"
-    assert lead.entity_type == "individual"
+    assert lead.entity_type == "unknown"
     assert lead.specialty == "Pintura"
     assert "Trabajas solo" in question
     assert next_intake_reply("quiero hablar con una persona", vars(lead), question) is None
+
+
+def test_unspecified_worker_availability_and_residence_do_not_fill_professional_fields():
+    lead = blank_lead()
+    apply_intake(lead, "Tengo 3 trabajadores. Llevo 5 años viviendo en Coronel.")
+    assert lead.workers is None and lead.has_employees is None
+    assert not lead.experience and not lead.work_area
 
 
 @pytest.mark.parametrize("message, specialty", [
@@ -206,7 +214,8 @@ def test_local_profile_progress_is_not_employment_approval():
     profile = contact_profile(lead)
     assert profile["percent"] < 100
     assert profile["completed"] == profile["total"] - 1
-    assert "Teléfono o correo para coordinar" in profile["missing"]
+    assert "Ofrece servicios como independiente o empresa" in profile["missing"]
+    assert profile["contact_state"] == "solo_messenger"
     assert "no ha compartido teléfono ni correo" in profile["summary"]
     assert not hasattr(lead, "documents_state")
 
@@ -239,7 +248,7 @@ def test_optional_name_does_not_block_or_fake_identity():
     final = respond(lead, question, "paso")
     assert lead.name_opt_out is True
     assert lead.display_name == "Interesado de Facebook"
-    assert "registré" in final
+    assert "quedó anotado" in final
 
 
 def test_opt_in_name_and_professional_data_are_separate():
