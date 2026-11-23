@@ -32,6 +32,22 @@ type RealLearningPlan = {channels: Record<"messenger" | "general", {
     reviewed: number; priority: string; method: string; active_coaching: boolean;
     proposal_ready: boolean; practice: {better: number; worse: number} }>;
 }>};
+type HistoricalLearning = {
+  sources: Record<"runs"|"delivered_messenger"|"reviews"|"practice_trials", {
+    count: number; first_at: string | null; last_at: string | null;
+  }>;
+  timeline: {runs: Array<{month: string; channel: string; count: number}>;
+    messenger_delivered: Array<{month: string; count: number}>};
+  diagnostic_telemetry: {
+    inspected_runs: number; available_runs: number; full_coverage: boolean;
+    signals: { context_truncated: number; model_called_without_history: number;
+      slow_turns_over_15s: number; missing_trace: number };
+    interpretation: string;
+  };
+  audited_deficiencies: Record<string, Record<string, {
+    assessed: number; failed: number; failure_percent: number | null;
+  }>>;
+};
 type LearningProgress = {
   total: number; approved: number; pending: number; percent: number;
   remaining: string[]; metric: string;
@@ -88,6 +104,7 @@ export default function AIConfiguration({ openTraining, section }: { openTrainin
   const [data, setData] = useState<Bootstrap | null>(null);
   const [learningProgress, setLearningProgress] = useState<LearningProgress | null>(null);
   const [realLearning, setRealLearning] = useState<RealLearningPlan | null>(null);
+  const [history, setHistory] = useState<HistoricalLearning | null>(null);
   const [usage, setUsage] = useState<Usage | null>(null);
   const [policy, setPolicy] = useState<Policy>({ enabled: false, fallback_enabled: false, review_enabled: false, monthly_token_limit: 0, task_routes: {} });
   const [days, setDays] = useState(30);
@@ -102,19 +119,21 @@ export default function AIConfiguration({ openTraining, section }: { openTrainin
   const initializedPolicy = useRef(false);
 
   const refresh = useCallback(async (resetPolicy = false) => {
-    const [b, u, learning, real] = await Promise.all([
+    const [b, u, learning, real, historical] = await Promise.all([
       request<Bootstrap>(base + "/bootstrap"),
       request<Usage>(base + "/usage?days=" + days),
       request<LearningProgress>("/network/galancito/knowledge-curriculum/progress")
         .catch(() => null),
       request<RealLearningPlan>("/admin/ai/real-learning/plan?days=" + Math.min(days, 90)).catch(() => null),
+      section === "aprendizaje" ? request<HistoricalLearning>("/admin/ai/real-learning/history?months=0").catch(() => null) : Promise.resolve(null),
     ]);
     setData(b);
     setUsage(u);
     setLearningProgress(learning);
       setRealLearning(real);
+    setHistory(historical);
     if (resetPolicy) setPolicy(b.policy);
-  }, [days]);
+  }, [days, section]);
 
   useEffect(() => {
     let cancelled = false;
@@ -125,17 +144,19 @@ export default function AIConfiguration({ openTraining, section }: { openTrainin
       request<LearningProgress>("/network/galancito/knowledge-curriculum/progress")
         .catch(() => null),
       request<RealLearningPlan>("/admin/ai/real-learning/plan?days=" + Math.min(days, 90)).catch(() => null),
-    ]).then(([b, u, learning, real]) => {
+      section === "aprendizaje" ? request<HistoricalLearning>("/admin/ai/real-learning/history?months=0").catch(() => null) : Promise.resolve(null),
+    ]).then(([b, u, learning, real, historical]) => {
       if (cancelled) return;
       setData(b);
       setUsage(u);
       setLearningProgress(learning);
       setRealLearning(real);
+    setHistory(historical);
       if (!initializedPolicy.current) { setPolicy(b.policy); initializedPolicy.current = true; }
     }).catch((e) => { if (!cancelled) setError(errorMessage(e)); })
       .finally(() => { if (!cancelled) setLoading(false); });
     return () => { cancelled = true; };
-  }, [days]);
+  }, [days, section]);
 
   const summary = useMemo(() => ({
     verified: data?.connections.filter(c => c.has_key && c.status === "verified" && c.enabled).length || 0,
@@ -466,14 +487,72 @@ export default function AIConfiguration({ openTraining, section }: { openTrainin
       <section className="ai-panel ai-learning-panel">
         <div className="ai-panel-head"><div><h3>Aprendizaje validado</h3><p>Guías aprobadas y correcciones controladas.</p></div><span className="ai-secure"><ShieldCheck size={16} /> Con aprobación humana</span></div>
         <div className="ai-learning-steps"><strong>Cómo se valida una mejora</strong><span>1. Medir fallas reales → 2. Corregir → 3. Evaluar casos reservados → 4. Revisar regresiones → 5. Aprobar.</span><small>La práctica sintética no constituye mejora demostrada. Las pruebas con agregados operativos no equivalen a calidad comprobada en conversaciones reales.</small><button type="button" className="gc-secondary" onClick={openTraining}>Abrir pruebas</button></div>
+        <section className="ai-history-view" aria-label="Histórico verificable de Galancito">
+          <div className="ai-history-head">
+            <strong>Histórico real disponible</strong>
+            <small>Todos los períodos conservados · solo datos agregados</small>
+          </div>
+          <div className="ai-history-stats">
+            <div><b>{history ? nice(history.sources.runs.count) : "—"}</b><span>Ejecuciones registradas</span></div>
+            <div><b>{history ? nice(history.sources.delivered_messenger.count) : "—"}</b><span>Mensajes IA entregados</span></div>
+            <div><b>{history ? nice(history.sources.reviews.count) : "—"}</b><span>Auditorías humanas</span></div>
+            <div><b>{history ? nice(history.sources.practice_trials.count) : "—"}</b><span>Ensayos registrados</span></div>
+          </div>
+          {history ? <>
+            <div className="ai-history-training">
+              <b>Señales técnicas comprobadas</b>
+              <span>{history.diagnostic_telemetry.inspected_runs} de {history.diagnostic_telemetry.available_runs} registros de ejecución analizados.
+                {history.diagnostic_telemetry.full_coverage ? " Cobertura completa." : " Muestra reciente; no extrapolable."}</span>
+              <span>Contextos truncados: {history.diagnostic_telemetry.signals.context_truncated} ·
+                Modelo sin turnos previos: {history.diagnostic_telemetry.signals.model_called_without_history} ·
+                Respuestas sobre 15 s: {history.diagnostic_telemetry.signals.slow_turns_over_15s} ·
+                Sin traza: {history.diagnostic_telemetry.signals.missing_trace}</span>
+              <span>Estas son señales para investigar memoria, contexto y rendimiento; no acreditan errores de razonamiento automáticamente.</span>
+            </div>
+
+            <details className="ai-history-details">
+              <summary>Fallas históricas por competencia</summary>
+              {(["messenger", "general"] as const).map(channel => <div key={channel} className="ai-history-group">
+                <b>{channel === "messenger" ? "Messenger" : "Galancito General"}</b>
+                {Object.entries(history.audited_deficiencies[channel] || {}).map(([name, result]) => <div key={name}>
+                  <span>{name}</span>
+                  <span>{result.assessed === 0 ? "Sin evidencia" :
+                    `${result.failed} fallas / ${result.assessed} revisiones (${result.failure_percent}%)`}</span>
+                </div>)}
+              </div>)}
+            </details>
+            <details className="ai-history-details">
+              <summary>Actividad por mes (incluye Messenger anterior a la telemetría)</summary>
+              <div className="ai-history-months">
+                {history.timeline.messenger_delivered.map(item => <div key={"ms-" + item.month}>
+                  <span>{item.month} · Messenger entregado</span><b>{nice(item.count)}</b>
+                </div>)}
+                {history.timeline.runs.map((item, index) => <div key={item.month + item.channel + index}>
+                  <span>{item.month} · Ejecuciones {item.channel}</span><b>{nice(item.count)}</b>
+                </div>)}
+                {!history.timeline.runs.length && !history.timeline.messenger_delivered.length &&
+                  <p>No se conservaron registros para este período.</p>}
+              </div>
+            </details>
+            <small>El historial sin una conversación original autorizada no permite diagnosticar su razonamiento.
+              Los porcentajes se refieren exclusivamente a respuestas auditadas, no a toda la producción.</small>
+          </> : <small>Historial no disponible; no se muestran cifras estimadas.</small>}
+          <div className="ai-history-training">
+            <b>Entrenamiento neuronal LoRA</b>
+            <span>GALANT todavía no registra pruebas de fine-tuning ni adaptadores evaluados en este módulo.
+              No se puede inferir desde aquí si existe un proceso externo. El parche prepara entrenamiento con GPU aislada,
+              datos corregidos y autorización explícita; nunca se activa automáticamente con mensajes históricos.</span>
+          </div>
+        </section>
         <section className="ai-real-learning-plan" aria-label="Diagnóstico de fallas reales">
           <strong>Aprendizaje basado en deficiencias comprobadas</strong>
           {(["messenger", "general"] as const).map(channel => {
             const diagnosis = realLearning?.channels[channel];
             const problems = diagnosis?.items.filter(item => item.failed > 0) ?? [];
             return <div key={channel} className="ai-real-learning-channel">
-              <b>{channel === "messenger" ? "Messenger" : "Galancito General"} · {diagnosis?.reviewed_cases ?? 0} conversaciones auditadas</b>
-              {!diagnosis?.reviewed_cases ? <p>Sin auditorías reales. No se asignan notas ni épocas al azar.</p> :
+              <b>{channel === "messenger" ? "Messenger" : "Galancito General"} · {diagnosis ? diagnosis.reviewed_cases + " conversaciones auditadas" : "diagnóstico no disponible"}</b>
+              {!diagnosis ? <p>No se pudo obtener la evaluación de esta competencia. No se presentan cifras estimadas.</p> :
+                !diagnosis.reviewed_cases ? <p>Sin auditorías reales. No se asignan notas ni épocas al azar.</p> :
                 problems.length === 0 ? <p>No se observaron fallas en la muestra; esto no confirma calidad perfecta.</p> :
                 problems.map(item => <div className="ai-real-learning-defect" key={item.criterion}>
                   <b>{item.label} · {item.failed} de {item.reviewed} fallas</b>

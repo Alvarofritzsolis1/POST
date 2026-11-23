@@ -1,3 +1,11 @@
+## 20.9.22-rc1 — Histórico verificable y preparación LoRA de Qwen (parche aislado)
+
+- Inventario histórico completo **de los registros conservados**: metadatos de ejecuciones, mensajes IA entregados, feedback, revisiones humanas y ensayos, separados por período y competencia. No lee ni almacena el texto privado de conversaciones.
+- Vista de Aprendizaje con cobertura por competencia y meses, sin extrapolar una calidad que no se evaluó; aislamiento multiempresa y límite de 30 días para auditar el contenido original intactos.
+- Herramienta opcional de entrenamiento LoRA real para Qwen3.5-4B, **solo en GPU aislada**, con dataset revisado y autorización explícita, filtro de datos sensibles, separación de grupos, pruebas reservadas, rechazo de regresiones y sin despliegue automático.
+- Este parche NO ejecuta todavía el entrenamiento neuronal ni demuestra una ganancia de razonamiento: exige datos consentidos y una GPU externa compatible antes de entrenar.
+- Pruebas de rutas administrativas, aislamiento histórico, privacidad y preparación de dataset. La PR debe pasar CI antes de cualquier fusión y requiere aprobación humana para uso de datos.
+
 ## 20.9.21-rc1 — Aprendizaje por deficiencias reales (candidato aislado)
 
 - Diagnóstico por criterio sobre auditorías humanas reales, separando muestra y calificación global. Corrección de etiquetas de rúbricas.
