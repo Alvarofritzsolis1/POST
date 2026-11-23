@@ -185,6 +185,17 @@ if (( ${#max_power_services[@]} )); then
         exit 1
     }
     "${compose[@]}" exec -T api python -c "from app.max_power_api import router; from app.max_power_models import MaxPowerState, MaxPowerEvent, MaxPowerMessengerTrial; assert any(r.path.endswith('/export') for r in router.routes)"
+    # The one-button training supervisor is a required authenticated service.
+    manager_id="$("${compose[@]}" ps --quiet cpu-lora-manager)"
+    [[ -n "$manager_id" ]] || { echo "Supervisor neuronal CPU ausente; se revierte." >&2; exit 1; }
+    manager_health=""
+    for i in {1..15}; do
+        manager_health="$(docker inspect --format '{{.State.Health.Status}}' "$manager_id" 2>/dev/null || true)"
+        [[ "$manager_health" == "healthy" ]] && break
+        sleep 4
+    done
+    [[ "$manager_health" == "healthy" ]] || { echo "Supervisor neuronal sin heartbeat; se revierte." >&2; exit 1; }
+    echo "MAX POWER: supervisor neuronal operativo; no se entrenan pesos sin dataset firmado."
 fi
 "${compose[@]}" exec -T api python -m app.deploy_verify --expected-commit "$target_ref" --training-worker-only
 # Check the exact build and additive migration, and exercise the authenticated
