@@ -156,9 +156,11 @@ def sync_page_inbox(*, page_id: str, page_token: str, org_id: str,
             if phone_saved:
                 note_profile_sources(lead, ["contact_phone"], source="message", at=timestamp, remote_id=mid)
                 audit_event(db, lead, "field_contact_phone", source="message", remote_id=mid)
-            if decision is False:
-                flag_for_human(db, lead, "Solicitó atención humana" if wants_human(body)
-                               else "Prefirió atención humana y no autorizó IA")
+            if fresh and wants_human(body):
+                flag_for_human(db, lead, "Solicitó atención humana" if decision is not False
+                               else "Revocó autorización de IA y pidió atención humana")
+            elif decision is False:
+                flag_for_human(db, lead, "Prefirió atención humana y no autorizó IA")
             changed = False
             intake_body = redact_mobile_for_intake(body) if phone_saved else body
             if decision is None and not private_data(intake_body):
@@ -199,7 +201,8 @@ def sync_page_inbox(*, page_id: str, page_token: str, org_id: str,
                 if (timestamp < utcnow() - timedelta(hours=24) or
                         last_inbound != timestamp or
                         page_replies.get(cid, datetime.min.replace(tzinfo=timezone.utc)) >= timestamp or
-                        (lead.ai_paused and decision is not False) or private_data(body)):
+                        (lead.ai_paused and decision is not False and not wants_human(body))
+                        or private_data(body)):
                     continue
                 # Do not answer if the operator already replied or a send is
                 # pending/uncertain. Never replay a thread just because it was synced.
