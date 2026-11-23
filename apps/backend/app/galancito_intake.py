@@ -427,7 +427,7 @@ def identity_reply(message: str) -> str | None:
     value = plain(message)
     if re.search(r"\b(?:eres|soi|er[ií]s|hablo con|me (?:responde|atiende)|estoy hablando con) "
                  r"(?:una? |el )?(?:bot|robot|ia|inteligencia artificial|persona|humano)\b", value):
-        return "Soy Galancito, el asistente de IA de GALANT. Si quieres hablar con alguien del equipo, avísame."
+        return "Este chat lo atiende un asistente de IA de GALANT. Si prefieres, te puede atender alguien del equipo."
     return None
 
 
@@ -499,9 +499,10 @@ def next_intake_reply(message: str, facts: dict, prior_prompt: str = "") -> str 
         question = "¿Qué trabajo realizas?"
     elif intent == "unknown" and missing("interest_type"):
         question = "¿Ofreces trabajos por tu cuenta, buscas empleo o haces las dos cosas?"
-    elif facts.get("team_available") is None and missing("team_available"):
+    elif intent in {"service_offer", "both"} and facts.get("team_available") is None and missing("team_available"):
         question = "¿Trabajas solo o puedes venir con otras personas?"
-    elif facts.get("team_available") is True and facts.get("workers") is None and missing("workers"):
+    elif (intent in {"service_offer", "both"} and facts.get("team_available") is True
+          and facts.get("workers") is None and missing("workers")):
         question = "¿Cuántas personas pueden trabajar contigo en total?"
     elif not facts.get("experience") and missing("experience"):
         question = "¿Cuánto tiempo llevas en ese oficio?"
@@ -587,6 +588,9 @@ def natural_messenger_reply(text: str, prior_ai_replies: int = 0) -> str:
     for beginning in (
         "Soy Galancito, asistente virtual de GALANT. ",
         "Soy Galancito, el asistente virtual de GALANT. ",
+        "Soy Galancito, el asistente de IA de GALANT. ",
+        "Hola, te habla Galancito de GALANT. ",
+        "Hola, soy Galancito de GALANT. ",
         "Soy Galancito. ",
     ):
         if clean.casefold().startswith(beginning.casefold()):
@@ -594,6 +598,7 @@ def natural_messenger_reply(text: str, prior_ai_replies: int = 0) -> str:
             break
     # Un proveedor podría ignorar la instrucción y presentarse como bot.
     clean = re.sub(r"^(?:¡?hola[,!.]?\s+)?(?:soy|te habla|te saluda)\s+"
-                   r"(?:Galancito(?:,\s*(?:el\s+)?asistente virtual)?|(?:el\s+|un\s+)?asistente virtual)"
+                   r"(?:Galancito(?:,?\s*(?:(?:el|un)\s+)?(?:asistente virtual|asistente de IA|de GALANT|de Red de Obras)"
+                   r"(?:\s+de\s+(?:GALANT|Red de Obras))?)?|(?:el\s+|un\s+)?asistente virtual)"
                    r"(?: de (?:GALANT|Red de Obras))?[.!]?\s*", "", clean, flags=re.I)
     return clean[:550]

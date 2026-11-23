@@ -406,8 +406,8 @@ def process_chat_next(session_factory=SessionLocal, *, simulation_config=None, n
             else:
                 # A genuine unresolved question must be visible for human
                 # review; do not invent a job, wage or hiring decision.
-                body = ("Ahora no tengo una respuesta confirmada. "
-                        "Dejé tu consulta para que la revise nuestro equipo.")
+                body = ("Aún no puedo confirmar ese dato. "
+                        "Dejé tu consulta para que la revise el equipo.")
                 failed_ai = True
         # Re-check after slow inference: a human may have taken over or the
         # contact may have revoked permission/sent a newer question meanwhile.

@@ -150,6 +150,25 @@ def analyze(message: str, trades: dict | None = None) -> Intake:
     return Intake(intent, specialty, entity, workers, availability)
 
 
+def everyday_question_reply(message: str) -> str | None:
+    """Short, generic job questions do not need a model or technical consent.
+
+    Never assume open vacancies, employers or salary amounts.
+    """
+    if private_data(message):
+        return None
+    value = plain(message)
+    if value in {"cuanto pagan", "cuanto se paga", "hay pega",
+                 "tienen pega", "tienen cupos", "hay cupos", "hay obras"}:
+        return quick_reply(message)
+    if value == "tienen trabajo":
+        return "La disponibilidad la confirma el equipo de cada obra. ¿Qué oficio buscas?"
+    if value in {"necesito ayuda", "me ayudas", "quiero informacion",
+                 "tengo una consulta"}:
+        return "Claro, cuéntame qué trabajo o publicación quieres consultar."
+    return None
+
+
 def quick_reply(message: str, *, titles: list[str] | None = None,
                 known: dict | None = None, trades: dict | None = None) -> str | None:
     info = analyze(message, trades)
