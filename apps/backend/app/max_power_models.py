@@ -33,7 +33,10 @@ class MaxPowerState(Base):
 
 class MaxPowerEvent(Base):
     __tablename__ = "ai_max_power_events"
-    __table_args__ = (Index("ix_ai_max_power_events_org_time", "org_id", "created_at"),)
+    __table_args__ = (
+        Index("ix_ai_max_power_events_org_time", "org_id", "created_at"),
+        UniqueConstraint("org_id", "event", "round_id", name="uq_ai_max_power_round_event"),
+    )
     id: Mapped[str] = mapped_column(String(36), primary_key=True, default=uid)
     org_id: Mapped[str] = mapped_column(ForeignKey("organizations.id"), nullable=False)
     event: Mapped[str] = mapped_column(String(40), nullable=False)

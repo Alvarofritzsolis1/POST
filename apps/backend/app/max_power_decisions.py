@@ -7,8 +7,11 @@ MIN_INDEPENDENT_PAIRS = 8
 
 def evidence_fingerprint(cases):
     """Stable over time and across restarts; never includes chat content."""
-    records = sorted((str(case["id"]), case["category"], case["question"],
-                      case["expected"], case["formula"], case["evidence"]["agregados_reales"])
+    # Avoid comparing unorderable dicts in tuple tie-breakers.
+    records = sorted(json.dumps((str(case["id"]), case["category"],
+                      case["question"], case["expected"], case["formula"],
+                      case["evidence"]["agregados_reales"]),
+                      ensure_ascii=False, sort_keys=True, separators=(",", ":"))
                      for case in cases)
     return sha256(json.dumps(records, separators=(",", ":")).encode()).hexdigest()
 

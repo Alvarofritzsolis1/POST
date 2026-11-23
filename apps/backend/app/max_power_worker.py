@@ -10,7 +10,7 @@ import re
 from pathlib import Path
 from time import sleep
 from fastapi import HTTPException
-from sqlalchemy import select
+from sqlalchemy import select, and_
 from sqlalchemy.exc import SQLAlchemyError
 
 from .db import SessionLocal
@@ -51,6 +51,17 @@ def _result(db, row, completed, now):
     totals = metrics.get("ollama_timing_totals") or {}
     timing = {k: round(v / samples, 2) for k, v in totals.items()
               if samples > 0 and isinstance(v, (int, float))}
+    # Durable idempotency: a terminal round may be revisited after a restart.
+    already = db.scalar(select(MaxPowerEvent.id).where(
+        MaxPowerEvent.org_id == row.org_id,
+        MaxPowerEvent.event == "experiment_completed",
+        MaxPowerEvent.round_id == completed.id))
+    if already:
+        row.active_round_id = None
+        row.last_round_id = completed.id
+        set_wait(row, now, "awaiting_new_evidence",
+                 "Experimento ya registrado; no se duplicó el resultado", 60)
+        return
     row.experiments += 1
     row.examined_cases += int(completed.completed or 0)
     row.lab_gains += outcome["holdout_wins"]
@@ -148,11 +159,24 @@ def tick(db, sampler):
         row.updated_at = now
         if not row.active_round_id:
             # Recover a committed queue after interruption between start() and checkpoint.
+            # Recover active work first, then the oldest terminal round with no
+            # recorded completion. Do not reprocess historical completed rounds.
             orphan = db.scalar(select(TrainingRound).where(
                 TrainingRound.org_id == row.org_id,
                 TrainingRound.config["orchestrator"].as_string() == "max_power",
-                TrainingRound.id != (row.last_round_id or ""),
+                TrainingRound.state.in_(ACTIVE),
             ).order_by(TrainingRound.created_at.desc()).limit(1))
+            if orphan is None:
+                orphan = db.scalar(select(TrainingRound).outerjoin(
+                    MaxPowerEvent, and_(MaxPowerEvent.org_id == TrainingRound.org_id,
+                        MaxPowerEvent.round_id == TrainingRound.id,
+                        MaxPowerEvent.event == "experiment_completed")
+                ).where(
+                    TrainingRound.org_id == row.org_id,
+                    TrainingRound.config["orchestrator"].as_string() == "max_power",
+                    TrainingRound.state.in_(("completed", "stopped", "error")),
+                    MaxPowerEvent.id.is_(None),
+                ).order_by(TrainingRound.created_at.asc()).limit(1))
             if orphan:
                 row.active_round_id = orphan.id
         if row.active_round_id:
@@ -218,7 +242,7 @@ def tick(db, sampler):
                 cases=plan["cases"], cycles=plan["cycles"],
                 minutes=plan["minutes"], cpu_limit_percent=70,
                 ram_limit_mb=0, token_budget=plan["token_budget"],
-                cost_budget=0, night=False), orchestrator="max_power")
+                cost_budget=0, night=False), orchestrator="max_power", commit=False)
         except Exception as exc:
             # A blocked start must not invent a completed experiment or success.
             logger.warning("MAX POWER could not schedule a round: %s", type(exc).__name__)

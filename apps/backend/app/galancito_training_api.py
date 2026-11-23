@@ -203,7 +203,7 @@ def overview(user: User = Depends(administrator), db: Session = Depends(get_db))
                              else "ollama_entrenamiento_aislado"}
 
 
-def start(db, user, body, *, previous=None, compare_profile=False, orchestrator=None):
+def start(db, user, body, *, previous=None, compare_profile=False, orchestrator=None, commit=True):
     config = body.model_dump()
     config["seed"] = secrets.randbelow(2**31) if body.seed is None else body.seed
     internal = body.profile == "interno"
@@ -279,7 +279,9 @@ def start(db, user, body, *, previous=None, compare_profile=False, orchestrator=
         db.add(row)
         db.flush()
         audit(db, user, "queue", row.id)
-        db.commit()
+        # Commit the queue and MAX POWER state together; API routes keep prior behavior.
+        if commit:
+            db.commit()
     except IntegrityError:
         db.rollback()
         raise HTTPException(409, "Ya existe una ronda activa para esta organización") from None
