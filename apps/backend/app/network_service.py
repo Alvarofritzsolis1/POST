@@ -392,6 +392,8 @@ def requirement_view(db, user, req, detailed=False):
         "publish_to_facebook": req.publish_to_facebook,
         "public_location": req.public_location if own else "",
         "poster_available": bool(req.poster_path) if own else False,
+        "public_summary": req.public_summary if own else "",
+        "start_date_pending": req.start_date_pending,
         "workers": req.workers,
         "start_date": req.start_date,
         "end_date": req.end_date,
@@ -484,6 +486,7 @@ def committed_workers(db, cap, start, end):
 def match_score(db, req, cap):
     if (
         req.state != "published"
+        or req.start_date_pending
         or cap.state != "published"
         or req.site_id == cap.site_id
         or key(req.specialty) != key(cap.specialty)

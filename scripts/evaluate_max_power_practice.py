@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Run the same synthetic reference checks on this release or the 20.9.30 checkout."""
+"""Run the same synthetic reference checks on this release or a checkout before the intake update."""
 import argparse
 import ast
 import importlib.util
@@ -58,15 +58,15 @@ def adapt_reference():
 
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
-    parser.add_argument("--reference", type=Path, help="Path to a checkout of GALANT 20.9.30")
+    parser.add_argument("--reference", type=Path, help="Path to a checkout of GALANT 20.9.30 or 20.9.31")
     parser.add_argument("--output", type=Path, help="Write evaluation metadata to this JSON file")
     args = parser.parse_args()
     sys.path.insert(0, str(args.reference / "apps" / "backend" if args.reference else BACKEND))
     import app.main  # registers ORM models
     if args.reference:
         from app.version import VERSION
-        if VERSION != "20.9.30-rc1":
-            parser.error("--reference debe apuntar a GALANT 20.9.30-rc1")
+        if VERSION not in {"20.9.30-rc1", "20.9.31-rc1"}:
+            parser.error("--reference debe apuntar a GALANT 20.9.30-rc1 o 20.9.31-rc1")
         evaluator = adapt_reference()
     else:
         from app import max_power_practice as evaluator

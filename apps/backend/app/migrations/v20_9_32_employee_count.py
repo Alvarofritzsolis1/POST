@@ -1,7 +1,7 @@
 """Keep declared employment count separate from worksite capacity."""
 from sqlalchemy import inspect, text
 
-MIGRATION_ID = "20.9.31_employee_count"
+MIGRATION_ID = "20.9.32_employee_count"
 
 
 def upgrade(connection):

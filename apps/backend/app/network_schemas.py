@@ -94,6 +94,8 @@ class RequirementInput(Dated):
     specialty: str = Field(min_length=2, max_length=100)
     title: str = Field(min_length=3, max_length=180)
     description: str = Field(default="", max_length=10000)
+    public_summary: str = Field(default="", max_length=400)
+    start_date_pending: bool = False
     priority: Literal["low", "normal", "high", "urgent"] = "normal"
     workers: int = Field(ge=1, le=10000)
     deadline: date

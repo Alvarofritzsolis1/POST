@@ -22,7 +22,7 @@ SOURCE = "sintetico_generado"
 EVENT = "synthetic_intake_completed"
 WEIGHTS = {"profile": 45, "understanding": 25, "humanity": 20, "continuity": 10}
 # Bump when extraction or the evaluation protocol changes, even with the same fixtures.
-PROTOCOL = "20.9.31.1"
+PROTOCOL = "20.9.32.1"
 QWEN_CRITERION = "synthetic_reply"
 ANCHOR = datetime(2026, 11, 23, 15, tzinfo=timezone.utc)
 

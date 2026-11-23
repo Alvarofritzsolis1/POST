@@ -1,6 +1,6 @@
-# GALANT 20.9.31-rc1 · MAX POWER y fichas profesionales
+# GALANT 20.9.32-rc1 · MAX POWER y fichas profesionales
 
-La candidata parte de `main` en `7c1f567`. La migración agrega `facebook_leads.employee_count` como columna opcional. Las fichas anteriores conservan sus valores y su historial.
+La candidata parte de `main` en `c8384bc`. La migración agrega `facebook_leads.employee_count` como columna opcional. Las fichas anteriores conservan sus valores y su historial.
 
 ## Conversación y ficha
 
@@ -21,9 +21,9 @@ El panel da los denominadores de las verificaciones y muestra 45/25/20/10 como p
 
 ## Comparación reproducible de reglas
 
-Casos sintéticos diseñados para esta evaluación, con resultados esperados definidos por caso. La referencia es el código de 20.9.30-rc1. Doce casos quedaron reservados para la comparación. Las cifras cuentan verificaciones y no equivalen a un porcentaje de calidad en producción.
+Casos sintéticos diseñados para esta evaluación, con resultados esperados definidos por caso. La referencia es el código de 20.9.31-rc1. Doce casos quedaron reservados para la comparación. Las cifras cuentan verificaciones y no equivalen a un porcentaje de calidad en producción.
 
-| Casos reservados | 20.9.30-rc1 | 20.9.31-rc1 |
+| Casos reservados | 20.9.31-rc1 | 20.9.32-rc1 |
 | --- | ---: | ---: |
 | Valores o estados de ficha correctos | 30 / 45 | 45 / 45 |
 | Consultas con respuesta pertinente según la comprobación | 0 / 2 | 2 / 2 |
@@ -34,8 +34,8 @@ Casos sintéticos diseñados para esta evaluación, con resultados esperados def
 La referencia usa su extracción y respuestas originales. El evaluador adapta las firmas de las funciones antiguas, reproduce sus llamadas de contacto y aplica a ambas versiones la misma comprobación de preguntas. La disponibilidad de estados y sus referencias se evalúa como parte del contrato de ficha.
 
 ```bash
-git worktree add --detach ../galant-20-9-30 7c1f567
-python scripts/evaluate_max_power_practice.py --reference ../galant-20-9-30 --output /tmp/galant-reference.json
+git worktree add --detach ../galant-20-9-31 c8384bc
+python scripts/evaluate_max_power_practice.py --reference ../galant-20-9-31 --output /tmp/galant-reference.json
 python scripts/evaluate_max_power_practice.py --output /tmp/galant-candidate.json
 cd apps/backend
 python -m pytest -q tests/test_max_power_practice.py tests/test_max_power_recovery.py tests/test_max_power_messenger.py
