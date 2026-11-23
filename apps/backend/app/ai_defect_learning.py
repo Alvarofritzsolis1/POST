@@ -27,26 +27,6 @@ POLICIES = {
         "helpfulness": ("Utilidad", "Responde primero lo solicitado y, si hace falta, explica el siguiente paso concreto usando únicamente hechos comprobados.", "instrucciones"),
     },
 }
-COMPACT_COACHING = {
-    "messenger": {
-        "understanding": "Relaciona expresiones chilenas y respuestas breves con el último turno para interpretar su intención.",
-        "profile": "Registra solo oficio, empresa, personal y contacto declarados; si falta evidencia, mantén el campo pendiente.",
-        "context": "No repitas preguntas sobre oficio, comuna, cantidad o disponibilidad si ya fueron confirmados.",
-        "naturalness": "Responde primero y con frases cortas; evita presentarte de nuevo, menús y lenguaje robótico.",
-        "safety": "No pidas RUT, credenciales, documentos ni pagos; no prometas contratos ni estados sin verificación.",
-        "helpfulness": "Contesta la duda antes de preguntar una sola cosa necesaria; reconoce límites verificables.",
-    },
-    "general": {
-        "accuracy": "Comprueba cálculos, cifras y relaciones con evidencias; si faltan datos, indica la limitación.",
-        "grounding": "Separa registro real de GALANT, inferencias y datos que todavía no fueron consultados.",
-        "context": "Respeta obra, período, usuario y permisos; nunca mezcles datos de otro ámbito.",
-        "reasoning": "Comprueba contradicciones y resultados antes de concluir; no inventes acciones ejecutadas.",
-        "safety": "Nunca reveles datos privados ni atribuyas cambios no efectuados al sistema.",
-        "helpfulness": "Responde con un paso verificable y evita afirmaciones sin información suficiente.",
-    },
-}
-assert all(len("\n".join(items.values())) <= 950 for items in COMPACT_COACHING.values())
-
 SCOPE = {"messenger": "messenger", "general": "red_obras"}
 
 
@@ -112,13 +92,13 @@ def approved_coaching(db, org_id: str, channel: str) -> str:
                         AuditEvent.action == "ai.real_learning.proposed",
                     )) is not None):
                 seen.add(key)
-                approved.append(COMPACT_COACHING[channel][key])
+                approved.append(row.content)
                 break
-    # All six approved criteria fit. No invisible 'fourth guide' and no
-    # arbitrary truncation of a safety-critical instruction.
+    # Preserve the exact instruction evaluated in the A/B comparison.
+    # Six guides must fit the Ollama system budget without paraphrasing.
     combined = "\n".join(approved)
-    if len(combined) > 950:
-        raise RuntimeError("Las guías compactas superan el presupuesto de contexto")
+    if len(combined) > 1100:
+        raise RuntimeError("Las guías aprobadas exceden el presupuesto del motor")
     return combined
 
 
@@ -220,3 +200,10 @@ def eligible_for_proposal(trials, *, min_holdout=MIN_HOLDOUT_WINS) -> dict:
             "practice_wins": max((len(x["practice"]) for x in by_variant.values()), default=0),
             "holdout_wins": max((len(x["holdout"]) for x in by_variant.values()), default=0),
             "regressions": sum(x["worse"] for x in by_variant.values())}
+
+# Validate the maximum actual approved text budget at import time.
+for _channel in POLICIES:
+    _longest = sum(max(len(POLICIES[_channel][key][1]),
+                       len(ALTERNATIVE_POLICIES[_channel][key]))
+                   for key in POLICIES[_channel]) + len(POLICIES[_channel]) - 1
+    assert _longest <= 1100, "Las estrategias no caben completas en Qwen"

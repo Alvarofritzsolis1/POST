@@ -303,6 +303,10 @@ def replay(body: ReplayInput, user: User = Depends(administrator),
     if private_data(prompt) or len(prompt) > 3200:
         raise HTTPException(422, "Hay datos privados; esta conversación no se reproduce")
     base_instructions = (LOCAL_REPLY_INSTRUCTIONS if channel == "messenger" else GENERAL_INSTRUCTIONS)
+    from .ai_defect_learning import approved_coaching
+    current_coaching = approved_coaching(db, user.org_id, channel)
+    if current_coaching:
+        base_instructions += "\nGuías ya aprobadas:\n" + current_coaching
     correction = candidate_policy(channel, body.criterion, body.variant)
     # Only the correction varies; both answers use the same model, context,
     # inference parameters and seed, not two unrelated historical runs.
