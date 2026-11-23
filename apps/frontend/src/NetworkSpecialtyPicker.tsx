@@ -64,6 +64,7 @@ export function NetworkSpecialtyPicker({
         <input
           ref={inputRef}
           id={inputId}
+          aria-label="Oficio o especialidad"
           value={value}
           type="text"
           role="combobox"
