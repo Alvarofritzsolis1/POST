@@ -230,7 +230,7 @@ export function NetworkQuickForm({
             aria-invalid={submitted && !copyOk}
             value={publicSummary}
             onChange={(e) => {
-              setPublicSummary(e.target.value); setCopyEdited(true);
+              setPublicSummary(e.target.value); setCopyEdited(true); setCopyBusy(false);
               setCopySource("Editado por ti"); setCopyError("");
             }}
             placeholder={copyBusy ? "Analizando las labores…" : "El resumen editable aparecerá aquí"}/>
