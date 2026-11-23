@@ -53,6 +53,7 @@ from .ai_configuration_api import router as ai_configuration_router
 from .ai_quality_audit import router as ai_quality_audit_router
 from .ai_real_learning_api import router as ai_real_learning_router
 from .max_power_api import router as max_power_router
+from .max_power_finetune_api import router as max_power_finetune_router
 from .javiera_api import router as javiera_router
 from .javiera_v166_api import router as javiera_v166_router
 from .javiera_v17_api import router as javiera_v17_router
