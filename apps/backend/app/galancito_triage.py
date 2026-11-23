@@ -35,7 +35,7 @@ TRADES = {
     "Techumbres": ("techumbre", "techumbres", "techero", "techera", "cubiertas", "cubierta"),
     "Ventanas": ("ventanero", "ventanas", "aluminio", "vidrios", "ventaneria"),
     "Pavimentación": ("pavimentos", "pavimentacion", "pavimentador"),
-    "Jardinería": ("jardinero", "jardineria", "paisajismo"),
+    "Jardinería": ("jardinero", "jardinera", "jardineria", "paisajismo"),
     "Excavación": ("excavacion",),
     "Terminaciones": ("terminaciones",),
     "Maquinaria": ("maquinaria",),
@@ -143,12 +143,19 @@ def quick_reply(message: str, *, titles: list[str] | None = None,
         return "Solo oriento sobre Messenger y Red de Obras. Los permisos y adjudicaciones los gestiona el equipo autorizado."
     if private_data(message):
         return "No compartas datos personales ni contraseñas por aquí. Para revisarlos, solicita un canal seguro a administración."
+    text = plain(message)
+    if any(contains(text, phrase) for phrase in ("cuanto pagan", "cuanto se paga")):
+        return "El pago depende de la obra y del acuerdo con quien contrata. Si viste un aviso, puedo orientarte sobre qué consultar al equipo."
+    if not (titles and info.intent == "requirements") and any(
+        contains(text, phrase) for phrase in ("hay pega", "tienen pega", "tienen cupos", "hay cupos", "hay obras")
+    ):
+        return "El equipo de cada obra confirma los cupos. Si viste un aviso en Red de Obras, podemos revisar por acá cómo postular."
     replies = {
         "greeting": "¡Hola! ¿En qué te puedo ayudar con Red de Obras?",
         "about": "Red de Obras conecta necesidades de las obras con servicios y disponibilidad de contratistas. El equipo autorizado revisa cada caso; no garantiza contratación.",
         "publish": "En Red de Obras, crea una necesidad e indica especialidad, resumen y fechas conocidas. La publicación debe revisarla el equipo autorizado. ¿Qué especialidad necesitas?",
         "availability": "En Red de Obras puedes informar tu especialidad, dotación y disponibilidad. ¿Qué especialidad ofreces?",
-        "apply": "Podemos orientar tu interés para revisión del equipo, sin garantizar un cupo. ¿Buscas empleo como trabajador o ofreces servicios de una empresa?",
+        "apply": "Si el aviso indica cómo postular, sigue ese paso. También puedes consultar por acá y el equipo revisará tu caso.",
         "contractor_request": "Puedes registrar una necesidad en Red de Obras para revisión. ¿Qué especialidad necesitas?",
     }
     if info.intent in replies:

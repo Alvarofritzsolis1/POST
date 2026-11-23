@@ -8,13 +8,16 @@ from sqlalchemy import select
 from .facebook_crm_models import FacebookChatMessage, FacebookTradeGuide
 from .galancito_intake import (
     UNKNOWN_NAMES, apply_intake, needs_deeper_response, requested_relative_start, unanswered_intake_question,
+    unresolved_declarations,
 )
+from .galancito_contact_email import redact_email_for_intake, remember_shared_email
+from .galancito_phone import redact_mobile_for_intake, remember_shared_phone
 from .galancito_links import audit_event, record_declared_trades, trade_declarations
 from .galancito_triage import analyze, private_data
 
 FIELDS = (
     "display_name", "name_opt_out", "specialty", "entity_type", "interest_type",
-    "team_available", "workers", "experience", "work_area", "work_communes", "availability",
+    "team_available", "workers", "has_employees", "employee_count", "experience", "work_area", "work_communes", "availability",
 )
 CHILE = ZoneInfo("America/Santiago")
 
@@ -25,16 +28,48 @@ def aware(timestamp):
 
 def profile_facts(lead, *, changed=False) -> dict:
     return {**{field: getattr(lead, field) for field in FIELDS},
-            "has_employees": lead.has_employees, "turn_changed": changed}
+            "field_states": {field: evidence.get("state") for field, evidence in (lead.profile_sources or {}).items()
+                             if field in FIELDS and evidence.get("state")},
+            "turn_changed": changed}
 
 
-def note_profile_sources(lead, fields, *, source, at, remote_id=None):
+def note_profile_sources(lead, fields, *, source, at, remote_id=None, states=None):
     if fields:
         lead.profile_sources = {
             **(lead.profile_sources or {}),
             **{field: {"source": source, "at": at.isoformat(),
-                       "message_id": remote_id} for field in fields},
+                       "message_id": remote_id, "state": (states or {}).get(field, "confirmado_por_declaracion")}
+               for field in fields},
         }
+
+
+def capture_voluntary_contact(db, lead, message, prior, *, at, remote_id):
+    """Store only channels volunteered by the sender, with independent source evidence."""
+    before = (lead.contact_phone, lead.contact_email, lead.phone_opt_out, lead.email_opt_out)
+    phone_saved = remember_shared_phone(lead, message, prior, at=at)
+    email_saved = remember_shared_email(lead, message, prior, at=at)
+    states = {}
+    for field, saved, old, opted_out, old_opt_out in (
+        ("contact_phone", phone_saved, before[0], lead.phone_opt_out, before[2]),
+        ("contact_email", email_saved, before[1], lead.email_opt_out, before[3]),
+    ):
+        if saved:
+            states[field] = "corregido" if old else "confirmado_por_declaracion"
+            audit_event(db, lead, "field_" + field, source="message", remote_id=remote_id)
+        elif opted_out and not old_opt_out and not old:
+            states[field] = "rechazado_por_usuario"
+    note_profile_sources(lead, states, source="message", at=at, remote_id=remote_id, states=states)
+    return phone_saved, email_saved
+
+
+def professional_message(message):
+    return redact_email_for_intake(redact_mobile_for_intake(message))
+
+
+def _known(field, value):
+    if field == "display_name":
+        return value not in UNKNOWN_NAMES
+    return value is not None and value not in ("", "unknown", [])
 
 
 def prior_delivered_prompt(db, lead, *, at, since=None) -> str:
@@ -71,16 +106,16 @@ def apply_messenger_message(db, lead, message, prior, *, remote_id, at, historic
     before = {field: getattr(lead, field) for field in FIELDS}
     candidate = SimpleNamespace(**before, specialty_source=lead.specialty_source)
     apply_intake(candidate, message, prior, declarations=declarations,
-                 on_date=at.astimezone(CHILE).date())
+                 on_date=aware(at).astimezone(CHILE).date())
     prior_sources = lead.profile_sources or {}
     accepted = {}
+    unresolved = unresolved_declarations(message, prior) if not (historical or replay) else {}
     for field, old in before.items():
         value = getattr(candidate, field)
-        if old == value:
+        if old == value or (field in unresolved and field != "experience"):
             continue
         origin = prior_sources.get(field, {})
-        known = (old not in UNKNOWN_NAMES if field == "display_name" else
-                 old is not None and old not in ("", "unknown", []))
+        known = _known(field, old)
         if ((origin.get("source") == "manual" and (known or not replay)) or
                 ((historical or replay) and known and field not in {"work_communes", "work_area"})):
             continue
@@ -99,6 +134,11 @@ def apply_messenger_message(db, lead, message, prior, *, remote_id, at, historic
         accepted.pop("workers", None)
     if "work_communes" in accepted and "work_area" not in accepted and candidate.work_area != before["work_area"]:
         accepted.pop("work_communes")
+    employees = accepted.get("has_employees", before["has_employees"])
+    employee_count = accepted.get("employee_count", before["employee_count"])
+    if employee_count is not None and employees is not (employee_count > 0):
+        accepted.pop("has_employees", None)
+        accepted.pop("employee_count", None)
     for field, value in accepted.items():
         setattr(lead, field, value)
     changed = list(accepted)
@@ -107,10 +147,19 @@ def apply_messenger_message(db, lead, message, prior, *, remote_id, at, historic
     if "specialty" in changed:
         lead.specialty_source = candidate.specialty_source
     elif (not historical and not replay and lead.specialty and lead.specialty_source == "message"
+          and prior_sources.get("specialty", {}).get("source") != "manual"
           and declarations.get(lead.specialty) is False and lead.specialty not in active):
         lead.specialty = active[0][:100] if active else ""
         changed.append("specialty")
-    note_profile_sources(lead, changed, source="message", at=at, remote_id=remote_id)
+    states = {field: "corregido" if _known(field, before[field]) and field != "name_opt_out"
+              else "confirmado_por_declaracion" for field in changed}
+    if "name_opt_out" in changed and lead.name_opt_out:
+        unresolved["display_name"] = "rechazado_por_usuario"
+    for field, status in unresolved.items():
+        if (field in before and not _known(field, before[field])
+                and prior_sources.get(field, {}).get("source") != "manual"):
+            states[field] = status
+    note_profile_sources(lead, states, source="message", at=at, remote_id=remote_id, states=states)
     for field in changed:
         if field != "work_area":  # The same evidence is recorded for work_communes.
             audit_event(db, lead, "field_" + field, source="message", remote_id=remote_id)

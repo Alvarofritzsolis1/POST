@@ -25,6 +25,7 @@ from .migrations import galancito_training
 from .migrations import v20_9_0_galancito_links, v20_9_1_galancito_memory, v20_9_4_facebook_contact_sheet, v20_9_7_facebook_publications, v20_9_8_facebook_interactions, v20_9_9_network_candidates, v20_9_14_contact_email, v20_9_14_internal_conversation
 from . import ai_quality_models  # registro de evaluaciones auditadas
 from .migrations import v20_9_19_ai_quality_review, v20_9_21_real_defect_learning, v20_9_23_max_power, v20_9_27_social_posters
+from .migrations import v20_9_31_employee_count
 from . import max_power_models  # Tablas persistentes de MAX POWER
 from .ai_global_lightning import sync_org as sync_org_global_lightning
 
@@ -152,6 +153,9 @@ def migrate(db):
     if not db.get(SchemaVersion, v20_9_27_social_posters.MIGRATION_ID):
         v20_9_27_social_posters.upgrade(db.connection())
         db.add(SchemaVersion(version=v20_9_27_social_posters.MIGRATION_ID))
+    if not db.get(SchemaVersion, v20_9_31_employee_count.MIGRATION_ID):
+        v20_9_31_employee_count.upgrade(db.connection())
+        db.add(SchemaVersion(version=v20_9_31_employee_count.MIGRATION_ID))
 
 
 

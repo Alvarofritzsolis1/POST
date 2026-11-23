@@ -30,16 +30,18 @@ def contact_profile(lead) -> dict:
     fields = [
         ("interest_type", "Tipo de interés"),
         ("specialty", "Trabajo u oficio"),
+        *([("entity_type", "Ofrece servicios como independiente o empresa")]
+          if choice in {"service_offer", "both"} else []),
         ("team_available", "Trabaja solo o con equipo"),
         *([("workers", "Personas que pueden acudir")] if team is True else []),
         ("experience", "Experiencia"),
         ("work_area", "Comunas donde puede trabajar"),
         ("availability", "Disponibilidad"),
-        ("contact", "Teléfono o correo para coordinar"),
     ]
     counts = {
         "interest_type": choice in {"service_offer", "employment", "both"},
         "specialty": bool(_value(lead, "specialty")),
+        "entity_type": _value(lead, "entity_type") not in {"", "unknown"},
         "team_available": team is not None,
         "workers": workers is not None,
         "experience": bool(_value(lead, "experience")),
@@ -47,13 +49,29 @@ def contact_profile(lead) -> dict:
         # A relative answer such as 'mañana' is known as a declaration,
         # but it cannot confirm a calendar date for a specific worksite.
         "availability": bool(_value(lead, "availability")),
-        "contact": bool(contact_phone or contact_email),
     }
-    missing = [label for key, label in fields if not counts[key]]
+    sources = getattr(lead, "profile_sources", None) or {}
+    known = {**counts, "work_communes": counts["work_area"],
+             "has_employees": getattr(lead, "has_employees", None) is not None,
+             "employee_count": getattr(lead, "employee_count", None) is not None,
+             "contact_phone": bool(contact_phone), "contact_email": bool(contact_email)}
     name = _value(lead, "display_name")
     known_name = bool(name and name not in {"Interesado de Facebook", "Contacto sin nombre"})
-    if not known_name and not getattr(lead, "name_opt_out", False):
-        missing.append("Nombre de la persona (opcional)")
+    known["display_name"] = known_name
+    states = {}
+    for field, present in known.items():
+        recorded = sources.get(field, {}).get("state")
+        if recorded and (present or recorded != "confirmado_por_declaracion"):
+            states[field] = recorded
+        else:
+            states[field] = "confirmado_por_declaracion" if present else "pendiente"
+    for field, opt_out in (("display_name", "name_opt_out"), ("contact_phone", "phone_opt_out"),
+                           ("contact_email", "email_opt_out")):
+        if not known[field] and getattr(lead, opt_out, False):
+            states[field] = "rechazado_por_usuario"
+    if _value(lead, "experience") == "No informado por el interesado":
+        states["experience"] = "rechazado_por_usuario"
+    missing = [label for key, label in fields if not counts[key] and states[key] != "rechazado_por_usuario"]
 
     subject = name[:75] if known_name else "Este contacto"
     trade = _value(lead, "specialty")
@@ -74,6 +92,16 @@ def contact_profile(lead) -> dict:
         chunks.append(f"Señaló que puede acudir con {workers} {'persona' if workers == 1 else 'personas'} en total.")
     elif team is True:
         chunks.append("Puede trabajar con un equipo, pero falta confirmar cuántas personas.")
+
+    employees = getattr(lead, "employee_count", None)
+    if getattr(lead, "has_employees", None) is False:
+        chunks.append("Declaró que trabaja sin personal contratado.")
+    elif employees == 1:
+        chunks.append("Declaró una persona contratada.")
+    elif employees is not None:
+        chunks.append(f"Declaró {employees} personas contratadas.")
+    elif getattr(lead, "has_employees", None):
+        chunks.append("Declaró que tiene personal contratado, sin indicar cuántas personas.")
 
     experience = _value(lead, "experience")
     if experience:
@@ -98,15 +126,18 @@ def contact_profile(lead) -> dict:
         channels = ("teléfono y correo" if contact_phone and contact_email
                     else "teléfono" if contact_phone else "correo")
         chunks.append("Datos de contacto disponibles: " + channels + ".")
-    answered = sum(bool(counts[key]) for key, _ in fields)
+    answered = sum(counts[key] and states[key] != "rechazado_por_usuario" for key, _ in fields)
+    applicable = sum(states[key] != "rechazado_por_usuario" for key, _ in fields)
     return {
         "summary": " ".join(chunks),
-        "completed": answered, "total": len(fields),
-        "percent": round(answered * 100 / len(fields)),
+        "completed": answered, "total": applicable,
+        "percent": round(answered * 100 / applicable) if applicable else None,
         "missing": missing,
+        "field_states": states,
+        "contact_state": ("canal_voluntario" if contact_phone or contact_email else "solo_messenger"),
         "next_field": missing[0] if missing else None,
         "evidence": "Datos declarados en Messenger o registrados por un operador; no acreditan experiencia ni cumplimiento documental.",
-        "sources": getattr(lead, "profile_sources", None) or {},
+        "sources": sources,
         "specialty_origin": (
             "Registrado por administración" if getattr(lead, "specialty_source", "") == "manual"
             else "Interpretado del mensaje; requiere confirmación"

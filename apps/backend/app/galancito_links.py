@@ -51,7 +51,8 @@ def trade_terms(value: str) -> list[str]:
 
 _OWN_TRADE = re.compile(
     r"\b(?:soy|soi|trabajo|trabajamos|hago|hacemos|ofrezco|ofresco|instalo|reparo|"
-    r"me dedico|me manejo|le pego|tengo experiencia|trabajar en|quiero ofrecer|busco (?:pega|empleo|trabajo) (?:de|en|como))\b"
+    r"me dedico|me manejo|le pego|tengo experiencia|trabajar en|quiero ofrecer|"
+    r"mi (?:oficio|especialidad) (?:principal )?es|busco (?:pega|empleo|trabajo) (?:de|en|como))\b"
 )
 _TRADE_NEGATIVE = re.compile(r"\b(?:no|dej[eé] de) (?:soy|hago|trabajo|trabajamos|ofrezco|me dedico)?")
 _TRADE_TOPIC = re.compile(r"\b(?:buscan|necesitan|necesito|buscamos|hay|tienen|"
@@ -92,6 +93,9 @@ def trade_declarations(message: str, prior_prompt: str = "", *,
             continuation = False
             continue
         mentions = list(dict.fromkeys(catalog[match[0]] for match in matcher.finditer(norm)))
+        if len(mentions) > 1 and re.search(r"\b(?:o|tal vez|quizas)\b", norm):
+            continuation = False
+            continue
         own = bool(_OWN_TRADE.search(norm))
         bare = bool(mentions and len(norm.split()) <= 9 and not re.search(r"[?¿]", message)
                     and set(matcher.sub(" ", norm).split()) <= {"y", "e", "o", "de", "en", "tambien", "igual", "no"})

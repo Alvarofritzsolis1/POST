@@ -38,6 +38,7 @@ class FacebookLead(Base):
     support_reason: Mapped[str] = mapped_column(String(250), default="")
     entity_type: Mapped[str] = mapped_column(String(20), nullable=False, default="unknown", server_default="unknown")
     has_employees: Mapped[bool | None] = mapped_column(Boolean, nullable=True)
+    employee_count: Mapped[int | None] = mapped_column(Integer, nullable=True)
     # Volunteered professional intake, distinct from legal employment status.
     interest_type: Mapped[str] = mapped_column(String(20), default="unknown", server_default="unknown")
     team_available: Mapped[bool | None] = mapped_column(Boolean, nullable=True)

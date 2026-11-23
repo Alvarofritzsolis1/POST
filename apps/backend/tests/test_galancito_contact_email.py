@@ -55,9 +55,11 @@ def test_profiles_are_readable_without_hiding_missing_contact():
     assert "Disponibilidad declarada: «mañana»" in profile["summary"]
     assert "no ha compartido teléfono ni correo" in profile["summary"]
     assert profile["percent"] < 100
-    assert "Teléfono o correo para coordinar" in profile["missing"]
+    assert profile["field_states"]["contact_email"] == "pendiente"
+    assert profile["contact_state"] == "solo_messenger"
     person.contact_email = "contacto@obra.cl"
     profile = contact_profile(person)
     assert "correo" in profile["summary"]
-    assert "Teléfono o correo para coordinar" not in profile["missing"]
+    assert profile["field_states"]["contact_email"] == "confirmado_por_declaracion"
+    assert profile["contact_state"] == "canal_voluntario"
     assert phone_question_when_agreed(person, "Me pueden llamar") is None

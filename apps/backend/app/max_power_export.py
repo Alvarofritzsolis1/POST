@@ -15,6 +15,7 @@ from sqlalchemy.orm import Session
 
 from .galancito_training_models import TrainingRound, TrainingWorker
 from .max_power_models import MaxPowerEvent, MaxPowerMessengerTrial, MaxPowerState
+from .max_power_practice import EVENT as PRACTICE_EVENT, SOURCE as PRACTICE_SOURCE, WEIGHTS
 from .models import User
 from .version import VERSION, SOURCE_COMMIT
 
@@ -35,7 +36,8 @@ NUMERIC_KEYS = (
     "baseline_p95_ms", "candidate_p95_ms", "pairs", "sample_pairs",
     "load_ms", "prompt_ms", "generation_ms", "transport_ms",
     "ollama_total_ms", "timing_samples", "passed", "failed", "critical",
-    "turns", "questions", "skipped", "sample_count",
+    "turns", "questions", "skipped", "sample_count", "samples", "cases", "response_turns",
+    "unsupported_values", "privacy_or_promise_failures",
     "peak_worker_ram_mb", "peak_host_cpu_percent", "worker_ram_mb", "cpu_memory_mb",
     "worker_ram_limit_mb", "host_cpu_percent", "available_ram_mb",
     "disk_free_mb", "cpu_pressure_avg10", "memory_pressure_avg10",
@@ -46,14 +48,16 @@ BOOLEAN_KEYS = (
     "objective_gain", "automatic_objective_gain", "human_confirmed_gain",
     "safety_check", "safe", "known_trade", "repeated_trade_question",
     "repeated_intro", "context_pass", "naturalness_check",
-    "verified_in_production",
+    "verified_in_production", "gate_passed", "numbered_menu", "question_displaced", "understanding_check",
+    "answer_priority_check",
 )
 ENUM_KEYS = {
     "criterion": {"context", "profile", "understanding", "naturalness",
-                  "safety", "helpfulness", "accuracy", "grounding", "reasoning"},
+                  "safety", "helpfulness", "accuracy", "grounding", "reasoning", "synthetic_reply"},
     "variant": {"focused", "alternative"},
     "source": {"real_db_aggregate", "human_reviewed_production",
-               "consented_production_objective"},
+               "consented_production_objective", PRACTICE_SOURCE},
+    "split": {"development", "holdout"},
     "data_type": {"db_aggregate"},
     "plan_basis": {"resource_guard_and_recorded_p95", "conservative_initial_budget"},
     "outcome": {"objective_gain", "objective_regression", "safety_regression",
@@ -61,7 +65,7 @@ ENUM_KEYS = {
 }
 EVENT_KINDS = {
     "power_on", "power_off", "experiment_queued", "experiment_completed",
-    "messenger_queued", "messenger_experiment",
+    "messenger_queued", "messenger_experiment", PRACTICE_EVENT, "synthetic_qwen_trial",
 }
 TRIAL_STATES = {"queued", "running", "completed", "blocked"}
 ROUND_STATES = {"queued", "practicing", "evaluating", "correcting",
@@ -74,7 +78,8 @@ SAFE_CODES = {
     "no_correction", "plateau", "insufficient_significance",
     "lab_gain", "not_verified", "messenger_objective_gain",
     "messenger_unverifiable", "messenger_no_objective_gain",
-    "messenger_safety_regression", "messenger_objective_regression",
+    "messenger_safety_regression", "messenger_objective_regression", "synthetic_practice_completed",
+    "synthetic_model_evaluation", "synthetic_model_evaluated",
 }
 # Text identifiers are only included if they are code-generated and resemble
 # a model/version, NEVER inferred from arbitrary user content.
@@ -136,7 +141,7 @@ def safe_metrics(metrics):
     safe = _safe_identifier(metrics.get("system_version"))
     if safe:
         cleaned["system_version"] = safe
-    for key in ("prompt_version", "dataset_hash"):
+    for key in ("prompt_version", "dataset_hash", "dataset_sha256"):
         value = metrics.get(key)
         if isinstance(value, str) and re.fullmatch(r"[a-fA-F0-9]{64}", value):
             cleaned[key] = value
@@ -145,9 +150,12 @@ def safe_metrics(metrics):
         cleaned["model"] = model
     for key in ("baseline", "candidate", "original_production", "paired_speed",
                 "before_timing_ms", "after_timing_ms", "baseline_ollama_timing_ms",
-                "candidate_ollama_timing_ms"):
+                "candidate_ollama_timing_ms", "development", "holdout", "style_signals", "safety"):
         if isinstance(metrics.get(key), dict):
             cleaned[key] = safe_metrics(metrics[key])
+    dimensions = metrics.get("dimensions")
+    if isinstance(dimensions, dict):
+        cleaned["dimensions"] = {key: safe_metrics(dimensions[key]) for key in WEIGHTS if key in dimensions}
     # Aggregated summaries: numbers and booleans only, limited to 40 buckets.
     for key in ("failed_by_criterion", "cycle_summaries"):
         records = metrics.get(key)
@@ -256,6 +264,9 @@ def build_report(db: Session, user: User, *, max_events=MAX_EVENTS):
     # Complete, honest scope: the presence of eight or more cases is NOT proof of
     # a production improvement; automation may report no measurable baseline.
     quality = _automatic_quality(latest_trials, latest_events)
+    practice = db.scalar(select(MaxPowerEvent).where(
+        MaxPowerEvent.org_id == user.org_id, MaxPowerEvent.event == PRACTICE_EVENT,
+    ).order_by(MaxPowerEvent.created_at.desc()).limit(1))
     return {
         "schema": SCHEMA,
         "kind": "max_power_chatgpt_handoff",
@@ -269,6 +280,7 @@ def build_report(db: Session, user: User, *, max_events=MAX_EVENTS):
             "source_paths": [
                 "apps/backend/app/max_power_worker.py",
                 "apps/backend/app/max_power_messenger.py",
+                "apps/backend/app/max_power_practice.py",
                 "apps/backend/app/max_power_decisions.py",
                 "apps/backend/app/galancito_trainer.py",
                 "apps/frontend/src/MaxPowerPanel.tsx",
@@ -294,6 +306,7 @@ def build_report(db: Session, user: User, *, max_events=MAX_EVENTS):
             "recommended_investigation": DIAGNOSES.get(state.last_status, (None, None))[1] if state else None,
         },
         "measured_quality": quality,
+        "synthetic_practice": safe_metrics(practice.evidence) if practice else None,
         "last_experiment": safe_metrics(state.latest_result) if state else {},
         "resource_snapshot": resource_snapshot,
         "finetuning": finetune,
