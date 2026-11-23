@@ -7,7 +7,7 @@ legal employment, suitability, or award work. No external model is required.
 """
 import re
 from datetime import date, timedelta
-from .galancito_triage import analyze, declaration_text, plain, private_data
+from .galancito_triage import analyze, declaration_text, is_pure_greeting, plain, private_data
 from .galancito_links import trade_declarations
 from .galancito_communes import find_communes
 from .galancito_profile_review import declaration_for_review, JOB_ROLES
@@ -365,7 +365,7 @@ def _friendly_ack(message: str, facts: dict, question: str, prior: str = "") -> 
     """Brief, grounded acknowledgement, not a repetitive scripted self-introduction."""
     norm = plain(message)
     trade = (facts.get("specialty") or "").strip()
-    if norm in {"hola", "ola", "buenas", "buen dia", "buenos dias", "buenas tardes"}:
+    if is_pure_greeting(message):
         return "¡Hola, qué tal!"
     if not _CORRECTION.search(norm) and any(q in plain(prior) for q in ("cual es tu nombre", "como te llamas", "como prefieres que te llamemos")):
         if facts.get("display_name") not in (None, "", "Interesado de Facebook", "Contacto sin nombre"):
@@ -483,13 +483,13 @@ def small_talk_reply(message: str) -> str | None:
     if answer := identity_reply(message):
         return answer
     norm = plain(message)
-    if norm in {"hola", "ola", "buenas", "buen dia", "buenos dias", "buenas tardes", "hola galancito"}:
-        return "¡Hola! Cuéntame, ¿en qué te puedo ayudar?"
     if norm in {"como estas", "hola como estas", "ola como estas", "como estai",
                 "que tal", "hola que tal", "todo bien", "como va"}:
         return "¡Bien, gracias por preguntar! Cuéntame, ¿en qué te puedo ayudar?"
     if norm in {"gracias", "muchas gracias", "vale gracias", "te pasaste"}:
         return "¡De nada! Aquí estamos para ayudarte."
+    if is_pure_greeting(message):
+        return "¡Hola! Cuéntame, ¿en qué te puedo ayudar?"
     return None
 
 
