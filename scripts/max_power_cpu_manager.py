@@ -212,6 +212,7 @@ def run_once(secret: str, plan: dict, public_key: str, last_preflight: dict) -> 
         sleep(LOOP_SECONDS)
         try:
             latest = api_call("/automation/plan", secret)
+            Path("/tmp/max_power_cpu_manager_heartbeat").touch()
             latest_key = valid_plan(latest)
             allowed = (latest_key == (org, generation)
                        and not latest.get("messenger_busy")
@@ -251,6 +252,7 @@ def main():
     while True:
         try:
             plan = api_call("/automation/plan", secret)
+            Path("/tmp/max_power_cpu_manager_heartbeat").touch()
             if valid_plan(plan):
                 run_once(secret, plan, public_key, last_preflight)
         except (OSError, ValueError) as exc:
