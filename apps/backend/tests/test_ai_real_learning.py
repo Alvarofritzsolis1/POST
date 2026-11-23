@@ -82,9 +82,10 @@ def test_real_chat_trial_requires_provenance_nonoverlap_and_human_review(ai_env,
     settings.cache_clear()
     calls = []
 
-    def real_model(instructions, prompt, max_chars, thinking):
-        calls.append((instructions, prompt, thinking))
-        return "Ya me contaste que haces gasfitería. ¿En qué comuna puedes trabajar?"
+    def real_model(instructions, prompt, max_chars, thinking, seed):
+        calls.append((instructions, prompt, thinking, seed))
+        return ("Ya me contaste que haces gasfitería. ¿En qué comuna puedes trabajar?"
+                if "CORRECCIÓN EN ENSAYO" in instructions else "¿Qué trabajo realizas?")
 
     monkeypatch.setattr(ai_real_learning_api, "generate_local_text", real_model)
     monkeypatch.setattr(ai_real_learning_api, "infer", lambda db, fn: fn())
@@ -112,7 +113,8 @@ def test_real_chat_trial_requires_provenance_nonoverlap_and_human_review(ai_env,
         assert "hago gasfitería" in calls[-1][1]
         assert calls[-1][2] is False
         assert body["original"] == "¿Qué trabajo realizas?"
-        assert body["candidate"]
+        assert body["candidate"] and body["baseline"] and body["candidate"] != body["baseline"]
+        assert calls[-1][3] == calls[-2][3]
         assert client.get(base + "/real-learning/pending").json()["items"]
         trial_id = body["trial_id"]
         assert client.post(base + "/real-learning/replay", headers=headers,
@@ -212,7 +214,9 @@ def test_cancel_lost_trial_and_retry_without_fabricating_result(ai_env, monkeypa
     settings.cache_clear()
     monkeypatch.setattr(ai_real_learning_api, "infer", lambda _db, fn: fn())
     monkeypatch.setattr(ai_real_learning_api, "generate_local_text",
-                        lambda *_a, **_kw: "Ya me dijiste carpintería. ¿En qué comuna trabajas?")
+                        lambda instructions, *_a, **_kw: (
+                            "Ya me dijiste carpintería. ¿En qué comuna trabajas?"
+                            if "CORRECCIÓN EN ENSAYO" in instructions else "¿En qué oficio trabajas?"))
     monkeypatch.setattr(ai_real_learning_api, "last_timings",
                         SimpleNamespace(get=lambda: {"response_model": "qwen3.5:4b-q4_K_M"}))
     first = client.post(base + "/real-learning/replay", headers=headers,

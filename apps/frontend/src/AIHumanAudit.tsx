@@ -8,7 +8,8 @@ type Candidate = { run_id: string; created_at: string; channel: Channel; source:
 type Queue = {
   channel: Channel; rubric_version: number; criteria: string[]; items: Candidate[];
 };
-type RealTrial = {trial_id: string; verification_nonce: string; original: string; candidate: string;
+type RealTrial = {trial_id: string; verification_nonce: string; original: string;
+  baseline: string; candidate: string; seed: number;
   elapsed_ms: number; model: string; criterion: string; variant: string; stage: string;
   provenance: string; diagnosis: {hypothesis: string; reason: string; mechanism: string}};
 type AuditedCase = {source_id: string; source_at: string; failed_criteria: string[];
@@ -204,8 +205,9 @@ export default function AIHumanAudit({ onPractice }: { onPractice: (channel: Cha
         Origen: {trial.provenance === "model_verified" ? "Modelo original trazado" : "Reconstrucción parcial"}.</p>
       <p>Hipótesis: {trial.diagnosis.reason} El ensayo no demuestra por sí solo qué componente causó el error.</p>
       <div className="ai-real-trial-comparison">
-        <article><b>Respuesta de producción</b><p>{trial.original}</p></article>
-        <article><b>Candidata generada con corrección</b><p>{trial.candidate}</p></article>
+        <article><b>Respuesta de producción (referencia)</b><p>{trial.original}</p></article>
+        <article><b>Qwen base · misma semilla</b><p>{trial.baseline}</p></article>
+        <article><b>Qwen con corrección · misma semilla</b><p>{trial.candidate}</p></article>
       </div>
       <p>Para contar una mejora tienes que comprobar dos condiciones; una respuesta distinta no es suficiente.</p>
       <label className="ai-human-audit-ack">

@@ -75,3 +75,6 @@
 .ai-real-practice-action button{justify-self:start;display:inline-flex;gap:8px;align-items:center;background:#117b68;border:0;color:#fff;border-radius:9px;padding:10px 13px;font-size:12px;font-weight:750;cursor:pointer}
 .ai-real-practice-action button:disabled{opacity:.5;cursor:wait}
 .ai-real-practice-action small{font-size:11px;color:#527569;line-height:1.45}
+
+.ai-real-trial-comparison { grid-template-columns:repeat(3,minmax(0,1fr)); }
+@media(max-width:950px){.ai-real-trial-comparison {grid-template-columns:1fr;}}
