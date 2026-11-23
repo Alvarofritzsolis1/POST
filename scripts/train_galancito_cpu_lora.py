@@ -42,6 +42,8 @@ def args_parser():
     parser.add_argument("--max-tokens", type=int, default=192, help="Ventana pequeña para proteger la RAM")
     parser.add_argument("--telemetry-url", help="URL HTTPS opcional de GALANT")
     parser.add_argument("--telemetry-org", help="UUID organización autorizada para ver el gráfico")
+    parser.add_argument("--control-file", help="Archivo interno de encendido/apagado del supervisor")
+    parser.add_argument("--expected-generation", type=int, help="Generación MAX POWER que autorizó la ronda")
     return parser
 
 
@@ -56,6 +58,10 @@ def validate_parameters(args):
         raise SystemExit("--resume requiere --execute")
     if bool(args.telemetry_url) != bool(args.telemetry_org):
         raise SystemExit("La telemetría requiere URL y organización juntas")
+    if bool(args.control_file) != (args.expected_generation is not None):
+        raise SystemExit("El control automático exige archivo y generación de sesión")
+    if args.expected_generation is not None and args.expected_generation < 1:
+        raise SystemExit("Generación de sesión inválida")
 
 
 def safe_output(args, bundle, attestation):
@@ -123,6 +129,22 @@ def hash_trainable(model, torch):
     if found == 0:
         raise RuntimeError("No se encontraron pesos LoRA entrenables")
     return digest.hexdigest(), found
+
+
+def automation_allowed(path: str | None, *, org: str | None, generation: int | None) -> bool:
+    if not path:
+        return True  # Manual, explicitly approved and opted-in executions only.
+    from uuid import UUID
+    try:
+        control_path = Path(path).resolve(strict=True)
+        if not control_path.is_relative_to(Path("/private").resolve()):
+            return False
+        data = json.loads(control_path.read_text(encoding="utf-8"))
+        return (str(UUID(str(data.get("org_id")))) == str(UUID(str(org)))
+                and int(data.get("generation")) == generation
+                and data.get("allowed") is True)
+    except (OSError, ValueError, TypeError, KeyError, json.JSONDecodeError):
+        return False
 
 
 def verified_optimizer_update(*, start_hash: str | None, end_hash: str,
@@ -235,6 +257,9 @@ def main(argv=None):
         raise SystemExit("Faltan dependencias CPU: torch, transformers 5+, peft y accelerate") from exc
     if torch.cuda.is_available():
         raise SystemExit("Este ejecutor está diseñado solo para CPU aislada")
+    if not automation_allowed(args.control_file, org=args.telemetry_org,
+                              generation=args.expected_generation):
+        raise SystemExit("MAX POWER apagado o permiso de sesión inválido")
     target, metadata_path, metadata, checkpoint = safe_output(args, bundle, attestation)
     torch.set_num_threads(min(2, os.cpu_count() or 1))
     torch.set_num_interop_threads(1)
@@ -317,7 +342,10 @@ def main(argv=None):
                               cpu_memory_mb=process_memory_mb())
             def on_step_end(self, args, state_, control, **kwargs):
                 state["step"]=state_.global_step
-                if should_pause(snapshot(target)):
+                if (should_pause(snapshot(target))
+                        or not automation_allowed(
+                            args.control_file, org=args.telemetry_org,
+                            generation=args.expected_generation)):
                     state["paused"]=True
                     control.should_save=True
                     control.should_training_stop=True
@@ -345,6 +373,12 @@ def main(argv=None):
             metadata_path.chmod(0o600)
             reporter.emit("baseline",step=0,total_steps=args.max_steps,
                           holdout_loss_before=baseline,cpu_memory_mb=process_memory_mb())
+        if not automation_allowed(args.control_file, org=args.telemetry_org,
+                                  generation=args.expected_generation):
+            state["paused"] = True
+            reporter.emit("paused", step=state["step"], total_steps=args.max_steps,
+                          cpu_memory_mb=process_memory_mb(), weights_trained=False)
+            return 3
         trainer.train(resume_from_checkpoint=checkpoint)
         end_digest, _ = hash_trainable(model,torch)
         state["weights_changed"] = verified_optimizer_update(
