@@ -133,6 +133,10 @@ switched=1
 # The secret is generated once on the VPS, before recreating the API container.
 # The existing value is never overwritten and no key is printed in Actions logs.
 python3 scripts/ensure-ai-key.py .env.preview
+# Allow the new CPU LoRA / GPU QLoRA dashboard to receive authenticated
+# measurements without requiring manual secret provisioning. Never starts
+# training or logs the generated secret.
+python3 scripts/ensure-finetune-metrics-key.py .env.preview
 configure_compose
 "${compose[@]}" config --quiet
 # Antes de sustituir contenedores, restaurar el respaldo en PostgreSQL aislado.
