@@ -230,6 +230,7 @@ def run_once(secret: str, plan: dict, public_key: str, last_preflight: dict) -> 
                 child.terminate()
         else:
             paused_since = None
+            report("training")  # heartbeat: prevent simultaneous 4B practice
     code = child.wait()
     if code == 0:
         report("finished")
