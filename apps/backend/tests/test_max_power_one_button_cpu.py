@@ -119,9 +119,9 @@ def test_supervisor_rejects_unsafe_paths_and_never_signs_unapproved_dataset(tmp_
     assert mod.select_run(folder, "f" * 64)[2] == "cannot_resume"
     (path / "candidate-adapter").mkdir()
     (path / "candidate-adapter" / "adapter_model.safetensors").write_bytes(b"checkpoint")
-    (path / "run-metadata.json").write_text(json.dumps({"dataset_sha256": "f" * 64}))
+    (path / "run-metadata.json").write_text(json.dumps({"dataset_sha256": "f" * 64, "data_kind": "curated_synthetic"}))
     (path / "evaluation.json").write_text(json.dumps({
-        "dataset_sha256": "f" * 64, "base_model": mod.MODEL,
+        "dataset_sha256": "f" * 64, "base_model": mod.MODEL, "data_kind": "curated_synthetic",
         "weights_trained": True, "lora_weights_changed": True,
         "production_promoted": False, "new_optimizer_steps": 2,
         "optimizer_start_sha256": "a" * 64, "optimizer_end_sha256": "b" * 64,
