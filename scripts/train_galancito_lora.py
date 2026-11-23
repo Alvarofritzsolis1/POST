@@ -12,13 +12,16 @@ from pathlib import Path
 import sys
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "apps" / "backend"))
-from app.galancito_finetune_dataset import MODEL, load_approved, verified_match
+from app.galancito_finetune_dataset import (MODEL, load_approved, verified_match,
+                                             verified_training_manifest)
 
 
 def main(argv=None) -> int:
     p = argparse.ArgumentParser(description="GALANT · entrenamiento neuronal supervisado aislado")
     p.add_argument("--dataset", required=True, help="JSONL privado, curado, con permisos explícitos")
     p.add_argument("--output", help="Directorio privado de resultados (obligatorio para --execute)")
+    p.add_argument("--approval-manifest",
+                   help="Manifest firmado independientemente que autoriza exactamente el SHA256 del JSONL")
     p.add_argument("--execute", action="store_true",
                    help="Ejecuta gradientes LoRA con GPU, sin afectar el modelo de producción")
     p.add_argument("--epochs", type=int, default=1, choices=[1, 2, 3])
@@ -34,6 +37,14 @@ def main(argv=None) -> int:
     }, ensure_ascii=False))
     if not args.execute:
         return 0
+    if not args.approval_manifest:
+        raise SystemExit("--execute exige --approval-manifest Ed25519 firmado por un responsable")
+    key = os.environ.get("GALANT_DATASET_APPROVAL_PUBLIC_KEY", "")
+    try:
+        attestation = verified_training_manifest(args.dataset, args.approval_manifest,
+                                                 key, dataset_digest=bundle["dataset_digest"])
+    except ValueError as exc:
+        raise SystemExit("Dataset NO autorizado: " + str(exc)) from exc
     if not args.output or not Path(args.output).is_absolute():
         raise SystemExit("--execute exige --output con ruta absoluta y privada")
     repo_root = Path(__file__).resolve().parents[1]
@@ -49,8 +60,8 @@ def main(argv=None) -> int:
     try:
         import torch
         from datasets import Dataset
-        from peft import LoraConfig
-        from transformers import AutoTokenizer, Qwen3_5ForCausalLM
+        from peft import LoraConfig, prepare_model_for_kbit_training
+        from transformers import AutoTokenizer, BitsAndBytesConfig, Qwen3_5ForCausalLM
         from trl import SFTConfig, SFTTrainer
     except ImportError as exc:
         raise SystemExit("Instala PyTorch CUDA, Transformers 5+, datasets, peft y trl "
@@ -58,17 +69,25 @@ def main(argv=None) -> int:
     if not torch.cuda.is_available():
         raise SystemExit("Sin GPU CUDA: no se entrena en el VPS de atención")
     free, _ = torch.cuda.mem_get_info()
-    if free < 9 * 1024 ** 3:
-        raise SystemExit("Menos de 9 GiB libres de GPU; no se arriesga un proceso incompleto")
+    if free < 16 * 1024 ** 3:
+        raise SystemExit("Menos de 16 GiB libres de GPU: insuficiente para habilitar este perfil "
+                         "conservador QLoRA; se recomienda una GPU dedicada con más margen")
     output_dir = Path(args.output).resolve()
     if output_dir.exists() and any(output_dir.iterdir()):
         raise SystemExit("El directorio de salida debe estar vacío para evitar mezclas de versiones")
     output_dir.mkdir(parents=True, mode=0o700, exist_ok=True)
     tokenizer = AutoTokenizer.from_pretrained(MODEL, trust_remote_code=False)
-    model = Qwen3_5ForCausalLM.from_pretrained(
-        MODEL, dtype=torch.bfloat16 if torch.cuda.is_bf16_supported() else torch.float16,
-        device_map="auto", trust_remote_code=False,
+    compute_dtype = torch.bfloat16 if torch.cuda.is_bf16_supported() else torch.float16
+    quantization = BitsAndBytesConfig(
+        load_in_4bit=True, bnb_4bit_quant_type="nf4",
+        bnb_4bit_use_double_quant=True, bnb_4bit_compute_dtype=compute_dtype,
     )
+    model = Qwen3_5ForCausalLM.from_pretrained(
+        MODEL, torch_dtype=compute_dtype, quantization_config=quantization,
+        device_map={"": torch.cuda.current_device()}, trust_remote_code=False,
+    )
+    model.config.use_cache = False
+    model = prepare_model_for_kbit_training(model, use_gradient_checkpointing=True)
     def examples(split):
         return Dataset.from_list([{
             "prompt": [{"role": "system", "content": "Responde en español. Razona con evidencias sin inventar hechos."},
@@ -79,7 +98,7 @@ def main(argv=None) -> int:
     config = SFTConfig(
         output_dir=str(output_dir / "checkpoints"), num_train_epochs=args.epochs,
         learning_rate=8e-5, per_device_train_batch_size=1, gradient_accumulation_steps=8,
-        max_length=1024, completion_only_loss=True,
+        max_length=1024, completion_only_loss=True, gradient_checkpointing=True,
         eval_strategy="epoch", save_strategy="epoch",
         load_best_model_at_end=True, metric_for_best_model="eval_loss",
         greater_is_better=False, report_to="none", logging_steps=10,
@@ -135,9 +154,11 @@ def main(argv=None) -> int:
     # The exact/contains verifier measures only documented reference checks.
     # Neither a lowered loss nor these checks establishes generalized reasoning.
     report = {
-        "status": "candidate_held_for_review" if improved else "rejected_no_heldout_loss_gain",
+        "status": "candidate_held_for_review" if improved else "rejected_heldout_gate",
         "weights_trained": True, "production_promoted": False,
         "base_model": MODEL, "dataset_digest": bundle["dataset_digest"],
+        "approval_key_fingerprint": attestation["key_fingerprint"],
+        "approval_verified": True, "method": "QLoRA_4bit_NF4",
         "train_examples": bundle["sizes"]["train"],
         "validation_examples": bundle["sizes"]["validation"],
         "heldout_examples": bundle["sizes"]["test"],
