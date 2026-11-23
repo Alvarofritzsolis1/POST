@@ -138,6 +138,9 @@ python3 scripts/ensure-ai-key.py .env.preview
 # measurements without requiring manual secret provisioning. Never starts
 # training or logs the generated secret.
 python3 scripts/ensure-finetune-metrics-key.py .env.preview
+# Provision only the dedicated isolated trainer volume (never user data).
+# The model container is UID 10001 and must not run as root.
+install -d -o 10001 -g 10001 -m 0700 /opt/galant-cpu-lora-private
 configure_compose
 "${compose[@]}" config --quiet
 # Antes de sustituir contenedores, restaurar el respaldo en PostgreSQL aislado.
