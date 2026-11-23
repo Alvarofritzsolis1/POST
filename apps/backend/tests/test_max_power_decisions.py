@@ -51,3 +51,11 @@ def test_resources_are_fail_closed():
     assert not can_run({"available_ram_mb": 8000, "host_cpu_percent": 15, "disk_free_mb": 4000},
                        messenger_pending=True)[0]
     assert can_run({"available_ram_mb": 8000, "host_cpu_percent": 15, "disk_free_mb": 4000})[0]
+
+def test_adaptive_plan_uses_resources_and_p95():
+    from app.max_power_decisions import select_experiment_plan
+    slow = select_experiment_plan({"available_ram_mb": 4200, "host_cpu_percent": 60}, 24, 88000)
+    fast = select_experiment_plan({"available_ram_mb": 9000, "host_cpu_percent": 20}, 24, 2000)
+    assert slow["cases"] == 8 and fast["cases"] == 12
+    assert slow["minutes"] > fast["minutes"]
+    assert slow["token_budget"] >= slow["cases"] * 4 * 2048

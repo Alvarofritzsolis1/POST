@@ -1,7 +1,7 @@
 """Pure evidence-based decisions. Never equate simulations with learned model weights."""
 from hashlib import sha256
 import json
-from statistics import median
+from math import ceil
 
 MIN_INDEPENDENT_PAIRS = 8
 
@@ -79,6 +79,25 @@ def can_run(snapshot: dict, *, messenger_pending=False):
         return False, "RAM insuficiente o no medible para inferencia segura"
     if cpu is None or cpu >= 70:
         return False, "CPU ocupada o sin medición confiable"
+    if snapshot.get("cpu_pressure_avg10", 0) > 25:
+        return False, "Procesos esperando CPU; inferencia de prueba suspendida"
+    if snapshot.get("memory_pressure_avg10", 0) > 5:
+        return False, "Presión real de memoria; reserva protegida"
+    if snapshot.get("io_pressure_avg10", 0) > 8:
+        return False, "Demasiados procesos esperando disco"
     if disk is None or disk < 2048:
         return False, "Disco insuficiente o sin medición"
     return True, None
+
+def select_experiment_plan(snapshot: dict, available_cases: int, previous_p95_ms=None) -> dict:
+    """Select cases and bounded round budget from current capacity and observed speed."""
+    pairs = min(12 if snapshot.get("available_ram_mb", 0) >= 6144
+                and snapshot.get("host_cpu_percent", 100) < 45 else 8,
+                available_cases // 2)
+    if pairs < MIN_INDEPENDENT_PAIRS:
+        raise ValueError("No hay suficientes casos reales para comparación reservada")
+    p95 = previous_p95_ms if isinstance(previous_p95_ms, (int, float)) and previous_p95_ms > 0 else 30000
+    minutes = max(30, min(180, ceil(pairs * 4 * p95 * 1.8 / 60000)))
+    return {"cases": pairs, "cycles": 4, "minutes": minutes,
+            "token_budget": max(120000, pairs * 4 * 2500),
+            "basis": "resource_guard_and_recorded_p95" if previous_p95_ms else "conservative_initial_budget"}

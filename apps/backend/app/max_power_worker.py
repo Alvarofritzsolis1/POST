@@ -5,6 +5,8 @@ production prompts, weights, permissions or external API settings.
 """
 from datetime import timedelta
 import logging
+import re
+from pathlib import Path
 from time import sleep
 from sqlalchemy import select
 from sqlalchemy.exc import SQLAlchemyError
@@ -13,16 +15,24 @@ from .db import SessionLocal
 from .galancito_memory import aware
 from .galancito_real_learning import collect_live_cases
 from .galancito_trainer import messenger_busy
-from .galancito_training import ResourceSampler, summarize
+from .galancito_training import ResourceSampler, summarize, inference_percentile_ms
 from .galancito_training_api import RoundInput, start
-from .galancito_training_models import ACTIVE, TrainingRound, TrainingWorker
-from .max_power_decisions import can_run, classify_outcome, evidence_fingerprint
+from .galancito_training_models import ACTIVE, TrainingCase, TrainingRound, TrainingWorker
+from .max_power_decisions import can_run, classify_outcome, evidence_fingerprint, select_experiment_plan
 from .max_power_models import MaxPowerEvent, MaxPowerState
 from .models import Organization, User, utcnow
 
 logger = logging.getLogger(__name__)
 IDLE_SECONDS = 20
 RECHECK_SECONDS = 300
+
+def _pressure(name):
+    try:
+        line = next(x for x in Path("/proc/pressure/" + name).read_text().splitlines() if x.startswith("some "))
+        result = re.search(r"avg10=([0-9.]+)", line)
+        return float(result.group(1)) if result else 0
+    except (OSError, StopIteration, ValueError):
+        return 0
 
 def set_wait(row, now, code, reason, seconds=RECHECK_SECONDS):
     row.last_status, row.last_reason = code, reason[:280]
@@ -42,12 +52,43 @@ def _result(db, row, completed, now):
     row.last_round_id = completed.id
     row.active_round_id = None
     statistics = summarize(metrics, "interno")
+    # Only paired, identical reserved questions support a latency comparison.
+    cases = int((completed.config or {}).get("cases") or 0)
+    cycles = int((completed.config or {}).get("cycles") or 0)
+    paired_speed = None
+    if cases and cycles >= 4 and completed.completed == completed.target:
+        rows = list(db.scalars(select(TrainingCase).where(
+            TrainingCase.round_id == completed.id,
+            TrainingCase.position >= (cycles - 2) * cases,
+        ).order_by(TrainingCase.position)))
+        baseline, candidate = rows[:cases], rows[cases:]
+        def sample(case):
+            try:
+                return float(case.result["turns"][0]["inference_ms"])
+            except (KeyError, IndexError, TypeError, ValueError):
+                return None
+        if len(baseline) == len(candidate) == cases and all(
+            a.result.get("evidence", {}).get("evidence_hash") == b.result.get("evidence", {}).get("evidence_hash")
+            for a, b in zip(baseline, candidate)):
+            before = [sample(a) for a in baseline]
+            after = [sample(b) for b in candidate]
+            if all(v is not None and v >= 0 for v in before + after):
+                p50_before = inference_percentile_ms(before, 0.5)
+                p50_after = inference_percentile_ms(after, 0.5)
+                paired_speed = {"pairs": cases, "baseline_p50_ms": p50_before,
+                                "candidate_p50_ms": p50_after,
+                                "delta_p50_ms": round(p50_after - p50_before, 2),
+                                "baseline_p95_ms": inference_percentile_ms(before, 0.95),
+                                "candidate_p95_ms": inference_percentile_ms(after, 0.95),
+                                "verified_in_production": False,
+                                "note": "Prueba exploratoria pareada; no demuestra ganancia de rendimiento sostenida"}
     row.latest_result = {**outcome, "completed_at": now.isoformat(),
                          "round_state": completed.state, "model": (completed.config or {}).get("model", {}).get("model"),
                          "evaluated_cases": completed.completed, "ollama_avg": timing,
                          "inference_p50_ms": statistics["inference_p50_ms"],
                          "inference_p95_ms": statistics["inference_p95_ms"],
-                         "inference_samples": statistics["inference_samples"]}
+                         "inference_samples": statistics["inference_samples"],
+                         "paired_speed": paired_speed}
     # No falsely asserted production gain. A lab win still awaits review/promotion.
     db.add(MaxPowerEvent(org_id=row.org_id, event="experiment_completed",
                          reason=outcome["reason"], round_id=completed.id,
@@ -64,7 +105,10 @@ def tick(db, sampler):
     # This avoids deadlocks when an admin presses off during a new queue operation.
     org_ids = list(db.scalars(select(MaxPowerState.org_id).where(
         MaxPowerState.enabled.is_(True)).limit(12)))
-    snapshot = sampler.sample()
+    snapshot = {**sampler.sample(),
+                "cpu_pressure_avg10": _pressure("cpu"),
+                "memory_pressure_avg10": _pressure("memory"),
+                "io_pressure_avg10": _pressure("io")}
     for org_id in org_ids:
         locked_org = db.scalar(select(Organization.id).where(
             Organization.id == org_id).with_for_update(skip_locked=True))
@@ -138,12 +182,14 @@ def tick(db, sampler):
             set_wait(row, now, "awaiting_new_evidence",
                      "No hay datos nuevos: repetir las mismas preguntas no demuestra mejora", 600)
             continue
+        plan = select_experiment_plan(snapshot, len(cases),
+                (row.latest_result or {}).get("inference_p95_ms"))
         try:
             result = start(db, owner, RoundInput(
                 profile="interno", suite="live", model="ollama",
-                cases=min(8, len(cases) // 2), cycles=4,
-                minutes=60, cpu_limit_percent=70,
-                ram_limit_mb=0, token_budget=30000,
+                cases=plan["cases"], cycles=plan["cycles"],
+                minutes=plan["minutes"], cpu_limit_percent=70,
+                ram_limit_mb=0, token_budget=plan["token_budget"],
                 cost_budget=0, night=False), orchestrator="max_power")
         except Exception as exc:
             # A blocked start must not invent a completed experiment or success.
@@ -163,7 +209,8 @@ def tick(db, sampler):
         db.add(MaxPowerEvent(org_id=row.org_id, event="experiment_queued",
                              reason=row.last_reason, round_id=result["id"],
                              evidence={"evidence_fingerprint": fingerprint,
-                                       "planned_cases": result["target"], "data_type": "db_aggregate"}))
+                                       "planned_cases": result["target"], "data_type": "db_aggregate",
+                                       "budget_minutes": plan["minutes"], "plan_basis": plan["basis"]}))
     db.commit()
 
 def main():
