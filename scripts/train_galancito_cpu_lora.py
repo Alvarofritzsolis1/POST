@@ -178,6 +178,25 @@ def main(argv=None):
     observed = snapshot(storage)
     gate = capacity_gate(observed)
     if args.preflight:
+        if args.telemetry_url and args.telemetry_org:
+            # A measured host/cgroup preflight, not a training run or weight
+            # update.  Only authorized admins can see its signed metrics.
+            report_id = str(uuid4())
+            reporter = ProgressReporter(
+                Path("/private") / "preflights" / report_id,
+                run_id=report_id, org_id=args.telemetry_org,
+                dataset_sha256="0" * 64, model=MODEL,
+                telemetry_url=args.telemetry_url,
+                telemetry_token=os.environ.get("GALANT_FINETUNE_TELEMETRY_TOKEN"))
+            try:
+                reporter.emit("preflight", step=0, total_steps=0,
+                              preflight_ready=gate["ready"],
+                              host_free_mb=observed["host_free_mb"],
+                              cgroup_free_mb=observed["cgroup_free_mb"],
+                              cgroup_limit_mb=observed["cgroup_limit_mb"],
+                              disk_free_mb=observed["disk_free_mb"])
+            finally:
+                reporter.close()
         print(json.dumps({"mode":"cpu_lora_preflight_only","model":MODEL,
                           "weights_changed":False,**gate}, ensure_ascii=False))
         return 0 if gate["ready"] else 3
