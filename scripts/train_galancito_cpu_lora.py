@@ -352,10 +352,16 @@ def main(argv=None):
             end_hash=end_digest,
             start_step=state["optimizer_start_step"],
             end_step=int(trainer.state.global_step))
+        new_updates = max(0, int(trainer.state.global_step) - state["optimizer_start_step"])
+        proof = {
+            "optimizer_start_sha256": state["optimizer_start_hash"],
+            "optimizer_end_sha256": end_digest,
+            "optimizer_steps_new": new_updates,
+        } if state["weights_changed"] else {}
         if state["paused"]:
             reporter.emit("paused",step=trainer.state.global_step,
                           total_steps=args.max_steps,cpu_memory_mb=process_memory_mb(),
-                          weights_trained=state["weights_changed"])
+                          weights_trained=state["weights_changed"], **proof)
             return 3
         if not state["weights_changed"]:
             raise RuntimeError(
@@ -371,7 +377,9 @@ def main(argv=None):
             "lora_weights_changed":True,
             "trainable_parameters":trainable_count,
             "steps":trainer.state.global_step,
-            "new_optimizer_steps":int(trainer.state.global_step)-state["optimizer_start_step"],
+            "new_optimizer_steps":new_updates,
+            "optimizer_start_sha256":proof["optimizer_start_sha256"],
+            "optimizer_end_sha256":proof["optimizer_end_sha256"],
             "dataset_sha256":bundle["dataset_digest"],
             "heldout_loss_before":baseline,"heldout_loss_after":final,
             "reasoning_improvement_proven":False,
@@ -382,7 +390,7 @@ def main(argv=None):
         reporter.emit("finished",step=trainer.state.global_step,
                       total_steps=args.max_steps,holdout_loss_before=baseline,
                       holdout_loss_after=final,cpu_memory_mb=process_memory_mb(),
-                      weights_trained=True,candidate_accepted=False)
+                      weights_trained=True,candidate_accepted=False,**proof)
         print(json.dumps(report,ensure_ascii=False))
         return 0
     except Exception:
