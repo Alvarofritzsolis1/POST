@@ -86,7 +86,7 @@ def test_worker_is_not_a_contractor_and_human_requests_interrupt_intake():
     assert lead.interest_type == "employment"
     assert lead.entity_type == "unknown"
     assert lead.specialty == "Pintura"
-    assert "Trabajas solo" in question
+    assert "Cuánto tiempo" in question and "Trabajas solo" not in question
     assert next_intake_reply("quiero hablar con una persona", vars(lead), question) is None
 
 
