@@ -96,7 +96,7 @@ def draft_summary(db, *, org_id: str, description: str, specialty: str):
     except (RuntimeError, ValueError):
         response = None
     if response:
-        proposed = re.sub(r"\s+", " ", response).strip(' "\'.')
+        proposed = re.sub(r"\s+", " ", response).strip().strip('"').strip("'")
         proposed = proposed[:320].strip(" .") + "."
         if candidate_grounded(proposed, description):
             return proposed, "ia"
