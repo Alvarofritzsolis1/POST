@@ -109,3 +109,23 @@ def test_paired_holdout_reports_statistical_evidence_without_inventing_learning(
                                        [True, False, False])
     assert regressed["gain_cases"] == 1 and regressed["regressions"] == 1
     assert regressed["one_sided_p_value"] == 0.75
+
+
+
+def test_real_case_balance_covers_six_worksites_and_all_reasoning_categories():
+    from app.galancito_real_learning import balance_live_cases
+    categories = ["contratistas", "resta", "documentos", "suma",
+                  "necesidades", "riesgos", "seguimientos", "diferencia"]
+    cases = [
+        {"id": f"live-{site:02}-{category}", "category": category,
+         "expected": site * 100 + index, "source": "db_aggregate"}
+        for site in range(1, 7)
+        for index, category in enumerate(categories)
+    ]
+    selected = balance_live_cases(cases)
+    assert len(selected) == 24
+    assert len({c["id"].split("-")[1] for c in selected}) == 6
+    assert {c["category"] for c in selected} == set(categories)
+    assert all(c in cases and c["source"] == "db_aggregate" for c in selected)
+    assert len(set(c["id"] for c in selected)) == len(selected)
+    assert selected == balance_live_cases(cases)
