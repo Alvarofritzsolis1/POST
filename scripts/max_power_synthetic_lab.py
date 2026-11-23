@@ -13,10 +13,7 @@ from pathlib import Path
 SPECIALTIES = (
     "carpintería", "albañilería", "electricidad", "gasfitería",
     "pintura", "cerámica", "yesería", "soldadura", "enfierradura",
-    "techumbre", "impermeabilización", "paisajismo", "excavación",
-    "topografía", "climatización", "hormigonado", "andamios",
-    "aislación", "aseo industrial", "montaje", "ventanas",
-    "terminaciones", "instalaciones sanitarias", "movimiento de tierras",
+    "techumbre",
 )
 VERSION = "galant-curated-synthetic-intake-1"
 
