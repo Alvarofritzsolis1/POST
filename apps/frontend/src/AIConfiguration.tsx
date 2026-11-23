@@ -37,6 +37,12 @@ type HistoricalLearning = {
     count: number; first_at: string | null; last_at: string | null;
   }>;
   timeline: {runs: Array<{month: string; channel: string; count: number}>};
+  diagnostic_telemetry: {
+    inspected_runs: number; available_runs: number; full_coverage: boolean;
+    signals: { context_truncated: number; model_called_without_history: number;
+      slow_turns_over_15s: number; missing_trace: number };
+    interpretation: string;
+  };
   audited_deficiencies: Record<string, Record<string, {
     assessed: number; failed: number; failure_percent: number | null;
   }>>;
@@ -492,6 +498,17 @@ export default function AIConfiguration({ openTraining, section }: { openTrainin
             <div><b>{nice(history?.sources.practice_trials.count ?? 0)}</b><span>Ensayos registrados</span></div>
           </div>
           {history ? <>
+            <div className="ai-history-training">
+              <b>Señales técnicas comprobadas</b>
+              <span>{history.diagnostic_telemetry.inspected_runs} de {history.diagnostic_telemetry.available_runs} registros de ejecución analizados.
+                {history.diagnostic_telemetry.full_coverage ? " Cobertura completa." : " Muestra reciente; no extrapolable."}</span>
+              <span>Contextos truncados: {history.diagnostic_telemetry.signals.context_truncated} ·
+                Modelo sin turnos previos: {history.diagnostic_telemetry.signals.model_called_without_history} ·
+                Respuestas sobre 15 s: {history.diagnostic_telemetry.signals.slow_turns_over_15s} ·
+                Sin traza: {history.diagnostic_telemetry.signals.missing_trace}</span>
+              <span>Estas son señales para investigar memoria, contexto y rendimiento; no acreditan errores de razonamiento automáticamente.</span>
+            </div>
+
             <details className="ai-history-details">
               <summary>Fallas históricas por competencia</summary>
               {(["messenger", "general"] as const).map(channel => <div key={channel} className="ai-history-group">
