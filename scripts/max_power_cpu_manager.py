@@ -112,6 +112,27 @@ def select_run(root: Path, digest: str) -> tuple[Path, bool, str]:
             and (p / "scheduler.pt").is_file()]
     if good:
         return path, True, "resume"
+    # An interrupted model load or the first optimizer step may have written
+    # metadata but not a checkpoint. Do not remain deadlocked forever. Preserve
+    # the failed attempt under its organization (no deletion or model promotion)
+    # and allow up to two bounded, fresh retries. Never replace a candidate.
+    meta = path / "run-metadata.json"
+    if not meta.is_file() or path.is_symlink() or (path / "candidate-adapter").exists():
+        return path, False, "cannot_resume"
+    try:
+        parsed = json.loads(meta.read_text(encoding="utf-8"))
+        if parsed.get("dataset_sha256") != digest or parsed.get("model") != MODEL:
+            return path, False, "cannot_resume"
+        if (path / "checkpoints").is_symlink():
+            return path, False, "cannot_resume"
+        for attempt in (1, 2):
+            archive = path.with_name(path.name + f".interrupted-{attempt}")
+            if not archive.exists() and not archive.is_symlink():
+                path.rename(archive)
+                LOG.warning("Checkpoint no iniciado; ronda privada conservada para reintentar: %s", attempt)
+                return path, False, "new"
+    except (OSError, ValueError, TypeError, json.JSONDecodeError):
+        pass
     return path, False, "cannot_resume"
 
 
