@@ -142,7 +142,7 @@ def test_automatic_cpu_training_honors_off_and_preserves_checkpoint(tmp_path):
         "Dummy", (), {"emit": lambda self,*a,**kw: {}, "close": lambda self: None})()
     plan = {"enabled": True, "org_id": org, "generation": 2, "messenger_busy": False}
     mod.run_once("a" * 64, plan, "", {})
-    assert called[-1]["status"] == "awaiting_approved_dataset"
+    assert called[-1]["status"] == "approval_public_key_missing"
     assert not list(folder.glob("runs/*"))
     assert not list(folder.glob("candidate-adapter"))
 
@@ -193,6 +193,7 @@ def test_signed_cpu_work_reserves_next_slot_without_interrupting_existing_practi
     mod.ProgressReporter = lambda *a, **kw: type(
         "Fake", (), {"emit": lambda self, *a, **kw: {}, "close": lambda self: None})()
     mod.approved_inputs = lambda *a: ({"dataset_digest": "f" * 64}, {"signed": True})
+    mod.readiness_blocker = lambda *a: None
     mod.launch = lambda *a, **kw: pytest.fail("No iniciar gradientes durante la práctica 4B")
     mod.run_once("x" * 64, {
         "enabled": True, "org_id": org, "generation": 1,
@@ -246,3 +247,26 @@ def test_failed_cpu_runs_have_persistent_exponential_backoff_and_hard_cap(tmp_pa
     clock[0] += 999999
     assert mod.retry_state(root, digest)[0] == 3
     assert not mod.retry_ready(root, digest)
+
+
+def test_one_button_diagnoses_exact_missing_approvals_without_reading_private_text(tmp_path):
+    mod = manager()
+    org = str(uuid4())
+    root = tmp_path / org
+    data = root / "approved.jsonl"
+    manifest = root / "approval.json"
+    assert mod.readiness_blocker(root, data, manifest, "") == "approval_public_key_missing"
+    assert mod.readiness_blocker(root, data, manifest, "a"*64) == "approved_dataset_missing"
+    root.mkdir()
+    data.write_text("PRIVATE TEXT must never be returned")
+    data.chmod(0o600)
+    assert mod.readiness_blocker(root, data, manifest, "a"*64) == "approval_manifest_missing"
+    manifest.write_text("{}")
+    manifest.chmod(0o600)
+    assert mod.readiness_blocker(root, data, manifest, "a"*64) is None
+    data.chmod(0o644)
+    assert mod.readiness_blocker(root, data, manifest, "a"*64) == "private_file_permissions"
+    data.chmod(0o600)
+    manifest.unlink()
+    manifest.symlink_to(data)
+    assert mod.readiness_blocker(root, data, manifest, "a"*64) == "approved_dataset_rejected"
