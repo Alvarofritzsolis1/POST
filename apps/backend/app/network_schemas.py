@@ -100,6 +100,9 @@ class RequirementInput(Dated):
     state: Literal["draft", "published", "cancelled"] = "published"
     items: list[ItemInput] = Field(min_length=1)
     publish_to_facebook: bool = False
+    public_location: str = Field(default="", max_length=120)
+    # Ephemeral data URI; validated and stored privately, never logged in history.
+    poster_data: str = Field(default="", max_length=3_400_000, repr=False)
     client_key: str = Field(
         default_factory=lambda: str(uuid4()), min_length=8, max_length=80
     )
