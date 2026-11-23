@@ -353,8 +353,11 @@ def tick(db, sampler, *, sampled=None):
             continue
         fingerprint = evidence_fingerprint(cases)
         if row.last_evidence_hash == fingerprint:
-            set_wait(row, now, "awaiting_new_evidence",
-                     "No hay datos nuevos: repetir las mismas preguntas no demuestra mejora", 600)
+            # The unchanged live A/B set cannot be rerun as a new gain, but
+            # this must not starve a separate pending synthetic intake lab.
+            _practice_or_wait(db, row, now,
+                "No hay datos operativos nuevos: no se repite la comparación A/B",
+                qwen_ready=qwen_ready)
             continue
         plan = select_experiment_plan(snapshot, len(cases),
                 (row.latest_result or {}).get("inference_p95_ms"))
