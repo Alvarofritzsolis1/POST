@@ -6,6 +6,7 @@ uses the user's reviewed public_summary, with a deterministic fallback.
 """
 from __future__ import annotations
 
+import math
 import re
 import unicodedata
 
@@ -79,7 +80,7 @@ def candidate_grounded(candidate: str, source: str) -> bool:
     # Stemming by common prefix keeps 'instalar/instalación' and case endings.
     known = [w for w in candidate_words if any(w == s or
              (len(w) >= 5 and len(s) >= 5 and w[:5] == s[:5]) for s in source_words)]
-    return len(known) >= max(1, int(len(candidate_words) * 0.8))
+    return len(known) >= max(1, math.ceil(len(candidate_words) * 0.8))
 
 
 def draft_summary(db, *, org_id: str, description: str, specialty: str):
