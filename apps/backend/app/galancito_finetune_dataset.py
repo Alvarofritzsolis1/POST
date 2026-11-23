@@ -48,7 +48,7 @@ def _checked(item: dict, line: int) -> dict:
             item["usage_authorized"] is not True or item["privacy_reviewed"] is not True):
         raise ValueError(f"Línea {line}: no autorizado como dato de entrenamiento real")
     if not isinstance(item["approved_by"], str) or not re.fullmatch(
-            r"[0-9a-f-]{36}", item["approved_by"]):
+            r"[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}", item["approved_by"]):
         raise ValueError(f"Línea {line}: aprobación humana individual no verificable")
     if item["criterion"] not in ALLOWED_CRITERIA:
         raise ValueError(f"Línea {line}: competencia no permitida")
@@ -72,6 +72,8 @@ def _checked(item: dict, line: int) -> dict:
         raise ValueError(f"Línea {line}: respuesta de referencia ausente")
     if any(PROHIBITED.search(value) for value in (*raw, expected)):
         raise ValueError(f"Línea {line}: contiene dato personal o credencial; no se entrena")
+    if not verified_match(raw[1], expected, item["verifier"]):
+        raise ValueError(f"Línea {line}: la respuesta corregida no coincide con la referencia verificada")
     split = bucket(item["case_group"])
     return {
         "split": split, "group": item["case_group"], "criterion": item["criterion"],
