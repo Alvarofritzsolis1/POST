@@ -1,0 +1,31 @@
+name: GALANT - histórico y dataset neuronal
+on:
+  pull_request:
+    paths:
+      - 'apps/backend/app/ai_historical_learning.py'
+      - 'apps/backend/app/galancito_finetune_dataset.py'
+      - 'apps/backend/app/ai_real_learning_api.py'
+      - 'apps/backend/tests/test_ai_historical_learning.py'
+      - 'scripts/train_galancito_lora.py'
+      - '.github/workflows/galancito-historico-lora-ci.yml'
+  workflow_dispatch:
+permissions:
+  contents: read
+jobs:
+  targeted:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    defaults:
+      run:
+        working-directory: apps/backend
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - name: Dependencias de prueba
+        run: python -m pip install -r requirements-dev.txt
+      - name: Prueba funcional histórica, permisos y dataset real
+        run: python -m pytest -q tests/test_ai_historical_learning.py tests/test_ai_real_learning.py
+      - name: Sintaxis del ejecutor de gradientes
+        run: python -m py_compile ../../scripts/train_galancito_lora.py
