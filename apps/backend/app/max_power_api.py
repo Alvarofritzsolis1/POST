@@ -79,8 +79,11 @@ def _view(db, user, row):
         AIResponseReview.org_id == user.org_id,
         AIResponseReview.created_at >= since,
     ).order_by(AIResponseReview.created_at.desc()).limit(400)))
+    # QLoRA step telemetry has a dedicated graph; do not flood the ordinary
+    # MAX POWER experiment history with thousands of optimizer steps.
     events = list(db.scalars(select(MaxPowerEvent).where(
         MaxPowerEvent.org_id == user.org_id,
+        ~MaxPowerEvent.event.like("ft_%"),
     ).order_by(MaxPowerEvent.created_at.desc()).limit(30)))
     messenger_trials = list(db.scalars(select(MaxPowerMessengerTrial).where(
         MaxPowerMessengerTrial.org_id == user.org_id
