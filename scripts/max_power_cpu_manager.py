@@ -20,6 +20,7 @@ from time import monotonic, sleep, time
 from urllib.request import Request, urlopen
 from uuid import UUID
 
+sys.path.insert(0, "/src/apps/backend")
 from galant_cpu_lora_resources import capacity_gate, snapshot
 from galancito_lora_progress import ProgressReporter
 
