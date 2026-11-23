@@ -14,6 +14,7 @@ from pydantic import BaseModel, ConfigDict, Field
 from sqlalchemy import select
 from sqlalchemy.orm import Session
 
+from .ai_historical_learning import historical_overview
 from .ai_defect_learning import (
     POLICIES, SCOPE, VARIANTS, REPLAY_LIMIT_PER_CRITERION, MIN_HOLDOUT_WINS,
     candidate_policy, diagnostic_route, eligible_for_proposal, learning_plan, policy_title,
@@ -106,6 +107,16 @@ def _successful_training(trials, variant):
                 t.stage == "practice" and t.outcome == "better" and
                 t.provenance == "model_verified" and
                 t.criterion_resolved and t.safety_passed})
+
+
+@router.get("/history")
+def historical_inventory(
+    months: int = Query(default=0, ge=0, le=60),
+    user: User = Depends(administrator),
+    db: Session = Depends(get_db),
+):
+    """All retained metadata; the endpoint never reads any conversation body."""
+    return historical_overview(db, user.org_id, months=months)
 
 
 @router.get("/cases")
