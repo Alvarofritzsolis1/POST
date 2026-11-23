@@ -301,5 +301,6 @@ def test_one_button_with_no_real_dataset_launches_isolated_curated_lab(tmp_path,
     assert (launches[0]["root"] / "synthetic.jsonl").is_file()
     assert "preparing_synthetic" in reports
     assert "training_synthetic" not in reports
-    assert reports[-1] == "finished_synthetic"
+    # A fake child returning exit 0 cannot invent an optimizer result.
+    assert reports[-1] == "failed"
     assert mod.select_run(launches[0]["root"], "0" * 64)[2] == "new"
