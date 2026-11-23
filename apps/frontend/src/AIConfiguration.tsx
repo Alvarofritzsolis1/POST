@@ -493,10 +493,10 @@ export default function AIConfiguration({ openTraining, section }: { openTrainin
             <small>Todos los períodos conservados · solo datos agregados</small>
           </div>
           <div className="ai-history-stats">
-            <div><b>{nice(history?.sources.runs.count ?? 0)}</b><span>Ejecuciones registradas</span></div>
-            <div><b>{nice(history?.sources.delivered_messenger.count ?? 0)}</b><span>Mensajes IA entregados</span></div>
-            <div><b>{nice(history?.sources.reviews.count ?? 0)}</b><span>Auditorías humanas</span></div>
-            <div><b>{nice(history?.sources.practice_trials.count ?? 0)}</b><span>Ensayos registrados</span></div>
+            <div><b>{history ? nice(history.sources.runs.count) : "—"}</b><span>Ejecuciones registradas</span></div>
+            <div><b>{history ? nice(history.sources.delivered_messenger.count) : "—"}</b><span>Mensajes IA entregados</span></div>
+            <div><b>{history ? nice(history.sources.reviews.count) : "—"}</b><span>Auditorías humanas</span></div>
+            <div><b>{history ? nice(history.sources.practice_trials.count) : "—"}</b><span>Ensayos registrados</span></div>
           </div>
           {history ? <>
             <div className="ai-history-training">
@@ -550,8 +550,9 @@ export default function AIConfiguration({ openTraining, section }: { openTrainin
             const diagnosis = realLearning?.channels[channel];
             const problems = diagnosis?.items.filter(item => item.failed > 0) ?? [];
             return <div key={channel} className="ai-real-learning-channel">
-              <b>{channel === "messenger" ? "Messenger" : "Galancito General"} · {diagnosis?.reviewed_cases ?? 0} conversaciones auditadas</b>
-              {!diagnosis?.reviewed_cases ? <p>Sin auditorías reales. No se asignan notas ni épocas al azar.</p> :
+              <b>{channel === "messenger" ? "Messenger" : "Galancito General"} · {diagnosis ? diagnosis.reviewed_cases + " conversaciones auditadas" : "diagnóstico no disponible"}</b>
+              {!diagnosis ? <p>No se pudo obtener la evaluación de esta competencia. No se presentan cifras estimadas.</p> :
+                !diagnosis.reviewed_cases ? <p>Sin auditorías reales. No se asignan notas ni épocas al azar.</p> :
                 problems.length === 0 ? <p>No se observaron fallas en la muestra; esto no confirma calidad perfecta.</p> :
                 problems.map(item => <div className="ai-real-learning-defect" key={item.criterion}>
                   <b>{item.label} · {item.failed} de {item.reviewed} fallas</b>
