@@ -89,7 +89,16 @@ def historical_overview(db: Session, org_id: str, *, months: int = 0) -> dict:
         "count": int(delivered or 0), "first_at": first.isoformat() if first else None,
         "last_at": last.isoformat() if last else None,
     }
+    msg_year = extract("year", FacebookChatMessage.created_at)
+    msg_month = extract("month", FacebookChatMessage.created_at)
+    monthly_sent = [{
+        "month": f"{int(year):04d}-{int(month):02d}", "count": int(total)
+    } for year, month, total in db.execute(
+        select(msg_year, msg_month, func.count()).where(*sent_filters)
+        .group_by(msg_year, msg_month).order_by(msg_year.desc(), msg_month.desc())
+    ) if year is not None and month is not None]
     timeline = {
+        "messenger_delivered": monthly_sent,
         "runs": _monthly(db, AssistantRun, org_id, since, channel=AssistantRun.channel),
         "reviews": _monthly(db, AIResponseReview, org_id, since,
                             clock=AIResponseReview.source_at, channel=AIResponseReview.channel),

@@ -36,7 +36,8 @@ type HistoricalLearning = {
   sources: Record<"runs"|"delivered_messenger"|"reviews"|"practice_trials", {
     count: number; first_at: string | null; last_at: string | null;
   }>;
-  timeline: {runs: Array<{month: string; channel: string; count: number}>};
+  timeline: {runs: Array<{month: string; channel: string; count: number}>;
+    messenger_delivered: Array<{month: string; count: number}>};
   diagnostic_telemetry: {
     inspected_runs: number; available_runs: number; full_coverage: boolean;
     signals: { context_truncated: number; model_called_without_history: number;
@@ -521,11 +522,16 @@ export default function AIConfiguration({ openTraining, section }: { openTrainin
               </div>)}
             </details>
             <details className="ai-history-details">
-              <summary>Actividad mensual ({new Set(history.timeline.runs.map(item => item.month)).size} meses)</summary>
+              <summary>Actividad por mes (incluye Messenger anterior a la telemetría)</summary>
               <div className="ai-history-months">
-                {history.timeline.runs.length ? history.timeline.runs.map((item, index) => <div key={item.month + item.channel + index}>
-                  <span>{item.month} · {item.channel}</span><b>{nice(item.count)}</b>
-                </div>) : <p>No hay ejecuciones conservadas.</p>}
+                {history.timeline.messenger_delivered.map(item => <div key={"ms-" + item.month}>
+                  <span>{item.month} · Messenger entregado</span><b>{nice(item.count)}</b>
+                </div>)}
+                {history.timeline.runs.map((item, index) => <div key={item.month + item.channel + index}>
+                  <span>{item.month} · Ejecuciones {item.channel}</span><b>{nice(item.count)}</b>
+                </div>)}
+                {!history.timeline.runs.length && !history.timeline.messenger_delivered.length &&
+                  <p>No se conservaron registros para este período.</p>}
               </div>
             </details>
             <small>El historial sin una conversación original autorizada no permite diagnosticar su razonamiento.

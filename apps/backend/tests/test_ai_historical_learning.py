@@ -56,6 +56,7 @@ def test_historical_inventory_is_private_and_includes_old_records(ai_env):
     assert result["window"] == "all_retained"
     assert result["sources"]["runs"]["count"] == 1
     assert result["sources"]["delivered_messenger"]["count"] == 1
+    assert sum(row["count"] for row in result["timeline"]["messenger_delivered"]) == 1
     assert result["sources"]["reviews"]["count"] == 1
     assert result["sources"]["practice_trials"]["count"] == 1
     assert result["audited_deficiencies"]["messenger"]["context"]["failed"] == 1
