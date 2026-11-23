@@ -1188,6 +1188,7 @@ export default function RedDeObras({ user }: { user: Profile }) {
           }
           onClose={() => setPanel("")}
           wide={panel === "request-form"}
+          quick={panel === "request-form" && !selectedReq}
           workspace={panel === "detail"}
           protectUnsaved={panel === "request-form" || panel === "capacity-form" || panel === "detail"}
         >
