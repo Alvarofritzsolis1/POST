@@ -297,7 +297,7 @@ def test_multiple_organizations_get_turns_without_interrupting_active_gradients(
     first = client.get(plan_endpoint, headers=headers()).json()
     assert first["enabled"] is True
     assert first["other_organizations_waiting"] is True
-    assert first["org_id"] == ai_env["org_id"]
+    assert first["org_id"]  # Either eligible organization can go first.
     first_status = {"org_id": first["org_id"], "generation": first["generation"],
                     "status": "approved_dataset_missing"}
     assert post_status(client, root + "/finetune/automation/status", first_status).status_code == 200
@@ -313,6 +313,10 @@ def test_multiple_organizations_get_turns_without_interrupting_active_gradients(
     # a different organization. Different orgs cannot read one another's data.
     sticky = client.get(plan_endpoint, headers=headers()).json()
     assert sticky["org_id"] == second["org_id"]
-    assert client.get(root, headers=outside).json()["cpu_learning"]["status"] == "training"
+    expected_outside = ("training" if second["org_id"] != ai_env["org_id"]
+                        else "approved_dataset_missing")
+    assert client.get(root, headers=outside).json()["cpu_learning"]["status"] == expected_outside
     signin(client, "admin")
-    assert client.get(root).json()["cpu_learning"]["status"] == "approved_dataset_missing"
+    expected_admin = ("training" if second["org_id"] == ai_env["org_id"]
+                      else "approved_dataset_missing")
+    assert client.get(root).json()["cpu_learning"]["status"] == expected_admin
