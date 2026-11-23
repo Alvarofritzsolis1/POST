@@ -365,3 +365,43 @@ def test_real_api_button_off_revokes_manager_training_lease(ai_env, tmp_path, mo
     assert result["enabled"] is False
     assert result["cpu_learning"]["status"] == "off"
     assert result["cpu_learning"]["synthetic_weights_trained"] is False
+
+
+def test_auto_plan_reserves_cpu_for_queued_qwen4b_before_lora(ai_env, monkeypatch):
+    """Queued work about to start cannot race the separate LoRA process."""
+    from datetime import timedelta
+    from app.models import utcnow
+    from app.max_power_models import MaxPowerMessengerTrial
+
+    monkeypatch.setenv("GALANT_FINETUNE_METRICS_SECRET", MASTER)
+    client = ai_env["client"]
+    admin = signin(client, "admin")
+    assert client.post(BASE + "/control/on", headers=admin).status_code == 200
+    url = BASE + "/finetune/automation/plan"
+    assert client.get(url, headers=headers()).json()["practice_busy"] is False
+
+    with ai_env["sessions"].begin() as db:
+        trial = MaxPowerMessengerTrial(
+            org_id=ai_env["org_id"], criterion="synthetic_reply",
+            variant="baseline", status="queued",
+            next_at=utcnow() + timedelta(seconds=30))
+        db.add(trial)
+        db.flush()
+        trial_id = trial.id
+    assert client.get(url, headers=headers()).json()["practice_busy"] is True
+
+    with ai_env["sessions"].begin() as db:
+        trial = db.get(MaxPowerMessengerTrial, trial_id)
+        trial.next_at = utcnow() + timedelta(hours=2)
+    assert client.get(url, headers=headers()).json()["practice_busy"] is False
+
+    with ai_env["sessions"].begin() as db:
+        trial = db.get(MaxPowerMessengerTrial, trial_id)
+        trial.status = "running"
+        trial.lease_until = utcnow() + timedelta(minutes=3)
+    assert client.get(url, headers=headers()).json()["practice_busy"] is True
+
+    with ai_env["sessions"].begin() as db:
+        trial = db.get(MaxPowerMessengerTrial, trial_id)
+        trial.lease_until = utcnow() - timedelta(seconds=1)
+    assert client.get(url, headers=headers()).json()["practice_busy"] is False
