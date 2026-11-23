@@ -69,12 +69,19 @@ def test_screenshot_greeting_gets_help_without_permission_or_inference(network, 
     assert "en qué te puedo ayudar" in first["messages"][-1]["body"].lower()
     assert process_chat_next(n["Session"])
     assert len(replies) == 1
-    assert "atención automática" in replies[0]
+    assert "en qué te puedo ayudar" in replies[0].lower()
+    assert not any(phrase in replies[0].lower() for phrase in (
+        "atención automática", "asistente virtual", "soy un bot", "soy galancito",
+        "ia local", "openai", "autoriza"
+    ))
 
     assert incoming(n, "hola buenas tardes", "second-greeting").status_code == 200
     assert process_chat_next(n["Session"])
     assert len(replies) == 2
-    assert "atención automática" not in replies[1].lower()
+    assert not any(phrase in replies[1].lower() for phrase in (
+        "atención automática", "asistente virtual", "soy un bot", "soy galancito",
+        "ia local", "openai"
+    ))
     assert _contact(n)["lead"]["ai_consent_state"] == "not_requested"
 
 
