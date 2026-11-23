@@ -199,7 +199,7 @@ def sync_page_inbox(*, page_id: str, page_token: str, org_id: str,
                 if (timestamp < utcnow() - timedelta(hours=24) or
                         last_inbound != timestamp or
                         page_replies.get(cid, datetime.min.replace(tzinfo=timezone.utc)) >= timestamp or
-                        lead.ai_paused or private_data(body)):
+                        (lead.ai_paused and decision is not False) or private_data(body)):
                     continue
                 # Do not answer if the operator already replied or a send is
                 # pending/uncertain. Never replay a thread just because it was synced.
