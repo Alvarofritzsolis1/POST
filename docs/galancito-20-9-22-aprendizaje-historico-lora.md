@@ -40,14 +40,45 @@ información personal de contratistas ni otras empresas. El validador rechaza
 marcadores habituales de correos, teléfonos, RUT y credenciales, pero no es
 una garantía total de anonimización: se exige revisión humana y base legal.
 
-Para entrenar realmente en un host CUDA dedicado, después de revisión de
-privacidad y aceptación del dataset:
+### Firma de autorización y QLoRA
 
-  GALANT_OFFLINE_TRAINING_APPROVED=yes python scripts/train_galancito_lora.py \
-    --dataset /ruta/privada/curado.jsonl \
-    --output /ruta/privada/adapter-2026-11 --execute
+El script requiere **un manifiesto firmado con Ed25519** que apruebe exactamente
+el hash SHA256 de un dataset revisado. La clave privada y los registros de
+consentimiento quedan fuera de GitHub y del equipo de entrenamiento. El
+manifiesto JSON incluye exactamente los campos:
 
-La herramienta carga pesos HF de Qwen/Qwen3.5-4B, entrena adaptadores LoRA con
+- \`dataset_sha256\`: SHA256 del JSONL privado.
+- \`approved_by\`: UUID de responsable.
+- \`approved_at\`: fecha UTC \`YYYY-MM-DDTHH:MM:SSZ\`.
+- \`privacy_reviewed\` y \`usage_authorized\`: booleanos verdaderos.
+- \`training_model\`: \`Qwen/Qwen3.5-4B\`.
+- \`purpose\`: \`offline_galant_finetune_qwen\`.
+- \`signature_ed25519\`: firma en hexadecimal sobre el JSON **sin la firma**,
+  serializado con \`json.dumps(fields, ensure_ascii=False, sort_keys=True,
+  separators=(",", ":")).encode("utf-8")\`.
+
+Este control autentica quién firmó las declaraciones y detecta modificaciones
+del dataset, pero **no prueba** por sí mismo que existió consentimiento. Eso
+debe contrastarse con registros reales antes de firmar.
+
+Para reducir la memoria GPU se entrena por **QLoRA NF4 (bitsandbytes + PEFT)**.
+La configuración actual exige como criterio preventivo 16 GiB de VRAM libre:
+no garantiza que el entrenamiento quepa en cualquier GPU; deben vigilarse
+memoria, temperatura y fallos CUDA. No usar el VPS donde atiende Messenger.
+
+Luego de revisar el dataset, aprobarlo con la clave privada externa y verificar
+la firma en un host CUDA dedicado:
+
+\`\`\`bash
+GALANT_OFFLINE_TRAINING_APPROVED=yes \
+GALANT_DATASET_APPROVAL_PUBLIC_KEY=<clave-publica-ed25519-64-hex> \
+python scripts/train_galancito_lora.py \
+  --dataset /ruta/privada/curado.jsonl \
+  --approval-manifest /ruta/privada/aprobacion.json \
+  --output /ruta/privada/adapter-2026-11 --execute
+\`\`\`
+
+La herramienta carga pesos HF de Qwen/Qwen3.5-4B, entrena adaptadores QLoRA con
 TRL y PEFT, y compara pérdida en ejemplos reservados. Una disminución de
 pérdida **no demuestra por sí sola razonamiento mejorado**. La adaptación queda
 como candidata fuera de producción; nunca se instala en Ollama automáticamente.
@@ -58,5 +89,6 @@ pruebas de integración y un despliegue canario reversible para habilitarla.
 - https://huggingface.co/docs/transformers/main/model_doc/qwen3_5
 - https://huggingface.co/docs/trl/sft_trainer
 - https://huggingface.co/docs/trl/peft_integration
+- https://huggingface.co/docs/peft/developer_guides/quantization
 - https://developers.openai.com/api/docs/guides/agent-evals
 - https://stanfordnlp.github.io/dspy/

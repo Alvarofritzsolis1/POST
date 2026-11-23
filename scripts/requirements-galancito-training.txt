@@ -5,3 +5,5 @@ trl>=0.27,<2
 peft>=0.18,<1
 datasets>=4,<6
 accelerate>=1.10,<2
+bitsandbytes>=0.47,<1
+cryptography>=44,<49
