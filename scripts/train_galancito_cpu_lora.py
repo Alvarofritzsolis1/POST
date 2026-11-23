@@ -61,14 +61,16 @@ def validate_parameters(args):
 def safe_output(args, bundle, attestation):
     repo = Path(__file__).resolve().parents[1]
     source = Path(args.dataset).resolve()
-    target = Path(args.output).resolve()
+    raw_target = Path(args.output)
+    # Check symlinks BEFORE resolving; otherwise .resolve() conceals them.
+    if raw_target.is_symlink():
+        raise SystemExit("Directorio simbólico de salida no permitido")
+    target = raw_target.resolve()
     if (not source.is_file() or source.is_relative_to(repo)
             or target.is_relative_to(repo)):
         raise SystemExit("Los datos privados y el destino no pueden estar dentro del repositorio")
     if os.name == "posix" and source.stat().st_mode & 0o077:
         raise SystemExit("El JSONL privado exige permisos 0600")
-    if target.exists() and target.is_symlink():
-        raise SystemExit("Directorio simbólico de salida no permitido")
     metadata_path = target / "run-metadata.json"
     parameters = {
         "model": MODEL, "dataset_sha256": bundle["dataset_digest"],
@@ -84,7 +86,9 @@ def safe_output(args, bundle, attestation):
             raise SystemExit("El manifest, modelo, organización o parámetros cambiaron")
         checkpoints = [p for p in (target / "checkpoints").glob("checkpoint-*")
                        if p.is_dir() and p.name.rsplit("-", 1)[-1].isdigit()
-                       and (p / "trainer_state.json").is_file()]
+                       and (p / "trainer_state.json").is_file()
+                       and (p / "optimizer.pt").is_file()
+                       and (p / "scheduler.pt").is_file()]
         if not checkpoints:
             raise SystemExit("Falta checkpoint recuperable: no se inventa progreso")
         latest = max(checkpoints, key=lambda p: int(p.name.rsplit("-", 1)[-1]))
@@ -121,6 +125,13 @@ def hash_trainable(model, torch):
     return digest.hexdigest(), found
 
 
+def verified_optimizer_update(*, start_hash: str | None, end_hash: str,
+                              start_step: int, end_step: int) -> bool:
+    """Confirm fresh optimizer updates, NOT merely loading a prior LoRA checkpoint."""
+    return (bool(start_hash) and start_hash != end_hash
+            and end_step > start_step >= 0)
+
+
 def encode_cases(tokenizer, cases, length):
     from torch.utils.data import Dataset
     class FixedCases(Dataset):
@@ -134,11 +145,17 @@ def encode_cases(tokenizer, cases, length):
                 answer_ids = tokenizer.encode(
                     case["messages"][1]["content"] + tokenizer.eos_token,
                     add_special_tokens=False)
-                # Reserve at least 32 answer tokens; only completion is supervised.
-                prompt_ids = prompt_ids[-min(128, length - 32):]
-                answer_ids = answer_ids[:length-len(prompt_ids)]
-                if not answer_ids:
-                    raise RuntimeError("Ejemplo sin tokens de respuesta supervisados")
+                # Never teach incomplete answers: truncation silently corrupts
+                # the supervision signal and makes reported loss misleading.
+                # Shorten context, preserving a minimum of 24 prompt tokens.
+                reserve = len(answer_ids)
+                if reserve > length - 24:
+                    raise ValueError(
+                        "Respuesta autorizada supera la ventana de entrenamiento; "
+                        "reduce el ejemplo o aumenta --max-tokens sin exceder los límites")
+                prompt_ids = prompt_ids[-min(128, length-reserve):]
+                if len(prompt_ids) < 8 or not answer_ids:
+                    raise ValueError("Ejemplo demasiado corto para entrenamiento supervisado")
                 ids = prompt_ids + answer_ids
                 self.rows.append({
                     "input_ids": ids,
@@ -205,7 +222,8 @@ def main(argv=None):
         dataset_sha256=bundle["dataset_digest"],model=MODEL,
         telemetry_url=args.telemetry_url,
         telemetry_token=os.environ.get("GALANT_FINETUNE_TELEMETRY_TOKEN") if args.telemetry_url else None)
-    state = {"step":0,"paused":False,"weights_changed":False}
+    state = {"step":0,"paused":False,"weights_changed":False,
+             "optimizer_start_hash":None,"optimizer_start_step":0}
     try:
         reporter.emit("start",step=0,total_steps=args.max_steps,
                       cpu_memory_mb=process_memory_mb())
@@ -236,7 +254,7 @@ def main(argv=None):
             target_modules=linear,task_type="CAUSAL_LM"))
         if hasattr(model,"enable_input_require_grads"):
             model.enable_input_require_grads()
-        start_digest, trainable_count = hash_trainable(model,torch)
+        _, trainable_count = hash_trainable(model,torch)
         model.config.use_cache = False
         train_data = encode_cases(tokenizer,bundle["samples"]["train"],args.max_tokens)
         validation = encode_cases(tokenizer,bundle["samples"]["validation"],args.max_tokens)
@@ -256,6 +274,16 @@ def main(argv=None):
             save_safetensors=True,seed=42,
         )
         class Monitor(TrainerCallback):
+            def on_train_begin(self, args, state_, control, **kwargs):
+                # Trainer loads the checkpoint *before* on_train_begin.
+                # Hash restored adapters here, never the fresh random LoRA.
+                live_model = kwargs.get("model")
+                if live_model is None:
+                    raise RuntimeError("No se pudo verificar el modelo entrenable")
+                state["optimizer_start_hash"], _ = hash_trainable(live_model, torch)
+                state["optimizer_start_step"] = int(state_.global_step)
+                state["step"] = int(state_.global_step)
+
             def on_log(self, args, state_, control, logs=None, **kwargs):
                 values = logs or {}
                 k = "eval" if "eval_loss" in values else "metric"
@@ -297,14 +325,20 @@ def main(argv=None):
                           holdout_loss_before=baseline,cpu_memory_mb=process_memory_mb())
         trainer.train(resume_from_checkpoint=checkpoint)
         end_digest, _ = hash_trainable(model,torch)
-        state["weights_changed"] = (start_digest != end_digest)
+        state["weights_changed"] = verified_optimizer_update(
+            start_hash=state["optimizer_start_hash"],
+            end_hash=end_digest,
+            start_step=state["optimizer_start_step"],
+            end_step=int(trainer.state.global_step))
         if state["paused"]:
             reporter.emit("paused",step=trainer.state.global_step,
                           total_steps=args.max_steps,cpu_memory_mb=process_memory_mb(),
                           weights_trained=state["weights_changed"])
             return 3
-        if trainer.state.global_step < 1 or not state["weights_changed"]:
-            raise RuntimeError("No se verificó actualización de tensores LoRA")
+        if not state["weights_changed"]:
+            raise RuntimeError(
+                "No se verificaron pasos NUEVOS de optimización ni cambios "
+                "de pesos LoRA después de restaurar el checkpoint")
         final = trainer.evaluate(eval_dataset=holdout,metric_key_prefix="holdout_after").get("holdout_after_loss")
         # Loss alone does not establish improved reasoning. Candidate stays
         # held until independently checked against reserved responses.
@@ -315,6 +349,7 @@ def main(argv=None):
             "lora_weights_changed":True,
             "trainable_parameters":trainable_count,
             "steps":trainer.state.global_step,
+            "new_optimizer_steps":int(trainer.state.global_step)-state["optimizer_start_step"],
             "dataset_sha256":bundle["dataset_digest"],
             "heldout_loss_before":baseline,"heldout_loss_after":final,
             "reasoning_improvement_proven":False,
