@@ -8,6 +8,7 @@ type Candidate = { run_id: string; created_at: string; channel: Channel; source:
 type Queue = {
   channel: Channel; rubric_version: number; criteria: string[]; items: Candidate[];
 };
+type RealTrial = {trial_id: string; original: string; candidate: string; elapsed_ms: number; model: string; criterion: string};
 type Evidence = {
   run_id: string; channel: Channel; question: string; answer: string;
   created_at: string; rubric_version: number; criteria: string[];
@@ -34,6 +35,8 @@ export default function AIHumanAudit({ onPractice }: { onPractice: (channel: Cha
   const [error, setError] = useState("");
   const [notice, setNotice] = useState("");
   const [weaknesses, setWeaknesses] = useState<string[]>([]);
+  const [lastReviewed, setLastReviewed] = useState("");
+  const [trial, setTrial] = useState<RealTrial | null>(null);
 
   useEffect(() => {
     let mounted = true;
@@ -65,7 +68,46 @@ export default function AIHumanAudit({ onPractice }: { onPractice: (channel: Cha
       });
       setNotice("Evaluación humana registrada. No se modificó el modelo ni se guardó la conversación.");
       setWeaknesses(evidence.criteria.filter(key => ratings[key] === false));
+      setLastReviewed(evidence.run_id);
+      setTrial(null);
       setEvidence(null); setRevision(i => i + 1);
+    } catch (err) { setError(errorText(err)); }
+    finally { setBusy(false); }
+  }
+
+  async function replayReal(criterion: string) {
+    if (!lastReviewed) return;
+    setBusy(true); setError(""); setTrial(null);
+    try {
+      const result = await request<RealTrial>("/admin/ai/real-learning/replay", {
+        method: "POST", body: JSON.stringify({source_id: lastReviewed, criterion}),
+      });
+      setTrial(result);
+      setNotice("Qwen respondió sobre un caso real. Compara ambas respuestas; no se ha aprobado ninguna mejora.");
+    } catch (err) { setError(errorText(err)); }
+    finally { setBusy(false); }
+  }
+
+  async function rateReal(outcome: "better" | "same" | "worse") {
+    if (!trial) return;
+    setBusy(true); setError("");
+    try {
+      await request("/admin/ai/real-learning/trials/" + trial.trial_id + "/review", {
+        method: "POST", body: JSON.stringify({outcome, source_reviewed: true}),
+      });
+      setTrial(null); setRevision(v => v + 1);
+      setNotice("Resultado humano guardado. Una muestra individual no demuestra aprendizaje general.");
+    } catch (err) { setError(errorText(err)); }
+    finally { setBusy(false); }
+  }
+
+  async function propose(criterion: string) {
+    setBusy(true); setError("");
+    try {
+      const result = await request<{message: string}>("/admin/ai/real-learning/proposals", {
+        method: "POST", body: JSON.stringify({channel, criterion}),
+      });
+      setNotice(result.message);
     } catch (err) { setError(errorText(err)); }
     finally { setBusy(false); }
   }
@@ -84,7 +126,7 @@ export default function AIHumanAudit({ onPractice }: { onPractice: (channel: Cha
       {(["messenger", "general"] as const).map(item =>
         <button key={item} type="button" aria-pressed={channel === item}
           className={channel === item ? "active" : ""}
-          onClick={() => { setChannel(item); setEvidence(null); setQueue(null); setNotice(""); setWeaknesses([]); }}>
+          onClick={() => { setChannel(item); setEvidence(null); setQueue(null); setNotice(""); setWeaknesses([]); setLastReviewed(""); setTrial(null); }}>
           {item === "messenger" ? "Messenger" : "Galancito General"}
         </button>)}
     </div>
@@ -92,11 +134,34 @@ export default function AIHumanAudit({ onPractice }: { onPractice: (channel: Cha
     {notice && <p className="ai-human-audit-notice" role="status"><Check size={15} /> {notice}</p>}
     {weaknesses.length > 0 && <div className="ai-human-audit-focus" role="group" aria-label="Práctica de fallas detectadas">
       <strong>Se encontraron fallas reales en esta respuesta:</strong>
-      <div>{weaknesses.map(key => <button key={key} type="button" onClick={() => onPractice(channel, key)}>
-        Practicar {criterionNames[key] ?? key} <ChevronRight size={14} />
-      </button>)}</div>
-      <small>La práctica usa escenarios sintéticos similares. La calificación de Messenger solo cambia con nuevas respuestas reales auditadas.</small>
+      <div>{weaknesses.map(key => <div className="ai-human-audit-focus-actions" key={key}>
+        <b>{criterionNames[key] ?? key}</b>
+        <button type="button" disabled={busy} onClick={() => void replayReal(key)}>
+          Probar Qwen con el caso real <ChevronRight size={14} />
+        </button>
+        <button type="button" disabled={busy} onClick={() => void propose(key)}>
+          Proponer guía revisada
+        </button>
+        <button type="button" disabled={busy} onClick={() => onPractice(channel, key)}>
+          Laboratorio complementario
+        </button>
+      </div>)}</div>
+      <small>La propuesta necesita al menos dos pruebas reales distintas consideradas mejores, sin regresiones, y aprobación administrativa. Ninguna práctica modifica pesos ni envía mensajes.</small>
     </div>}
+    {trial && <section className="ai-real-trial" aria-label="Comparación de respuestas de Qwen">
+      <strong>Práctica real · {criterionNames[trial.criterion] ?? trial.criterion}</strong>
+      <p>Modelo local: {trial.model} · {Math.round(trial.elapsed_ms / 100) / 10} s de ejecución. La comparación no es una prueba A/B ciega.</p>
+      <div className="ai-real-trial-comparison">
+        <article><b>Respuesta de producción</b><p>{trial.original}</p></article>
+        <article><b>Candidata generada con corrección</b><p>{trial.candidate}</p></article>
+      </div>
+      <p>¿Resuelve mejor la misma intención sin inventar datos ni perder seguridad?</p>
+      <div className="ai-real-trial-actions">
+        <button type="button" disabled={busy} onClick={() => void rateReal("better")}>Mejoró</button>
+        <button type="button" disabled={busy} onClick={() => void rateReal("same")}>Igual</button>
+        <button type="button" disabled={busy} onClick={() => void rateReal("worse")}>Empeoró</button>
+      </div>
+    </section>}
     {busy && !evidence && <p role="status" className="ai-human-audit-hint">Consultando registros verificables…</p>}
     {!busy && queue?.items.length === 0 &&
       <p className="ai-human-audit-hint">No hay respuestas pendientes con conversación original accesible en este canal. No se generarán casos ficticios.</p>}

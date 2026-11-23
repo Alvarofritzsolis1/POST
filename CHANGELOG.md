@@ -1,3 +1,11 @@
+## 20.9.21-rc1 — Aprendizaje por deficiencias reales (candidato aislado)
+
+- Diagnóstico por criterio sobre auditorías humanas reales, separando muestra y calificación global. Corrección de etiquetas de rúbricas.
+- Prueba local real de Qwen3.5 4B sobre conversaciones auditadas accesibles, sin envíos a Meta, sin modelos externos y sin persistir texto del chat en la tabla de ensayos.
+- Comparación humana del candidato, registro de mejoras/regresiones y propuestas pendientes solo tras dos casos reales distintos evaluados positivamente, sin regresiones observadas.
+- Las guías aprobadas y exactamente coincidentes con políticas revisadas pueden alimentar el canal correspondiente; no se modifican pesos, ni se declara una mejora global automática.
+- Migración aditiva, tests de trazabilidad y permisos. Requiere CI, prueba Qwen en VPS y validación posterior de respuestas de producción antes de desplegar.
+
 ## 20.9.19-rc1 — Centro de IA: datos verificables y laboratorio compacto
 
 - Nuevo **Resumen** de IA con canales separados «Responder mensajes» y «Galancito General»: recuentos de interacciones reales, mediana, latencia p95, señales de error y feedback realmente registrado. Se informa explícitamente el límite de 2.000 registros por canal y período.

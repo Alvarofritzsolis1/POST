@@ -49,3 +49,17 @@
 .ai-human-audit-focus button { display:inline-flex; align-items:center; gap:5px; border:1px solid #9bd0be; background:#fff; color:#16665b; border-radius:9px; padding:7px 10px; font-size:12px; font-weight:750; cursor:pointer; }
 .ai-human-audit-focus button:hover { background:#dff5ee; }
 .ai-human-audit-focus small { font-size:11px; color:#4f796c; line-height:1.5; }
+
+.ai-human-audit-focus-actions { display:flex; align-items:center; flex-wrap:wrap; gap:7px; padding:5px 0; }
+.ai-human-audit-focus-actions b { font-size:12px; min-width:130px; color:#1e6159; }
+.ai-real-trial { display:grid; gap:10px; padding:14px; border:1px solid #b7d6db; border-radius:12px; background:#f5fafb; }
+.ai-real-trial strong { color:#234959; font-size:13px; }
+.ai-real-trial > p { font-size:12px; color:#5a7180; }
+.ai-real-trial-comparison { display:grid; grid-template-columns:repeat(2,minmax(0,1fr)); gap:10px; }
+.ai-real-trial-comparison article { min-width:0; padding:11px; background:#fff; border:1px solid #dce9ed; border-radius:9px; }
+.ai-real-trial-comparison b { font-size:12px; }
+.ai-real-trial-comparison p { padding-top:7px; font-size:12px; white-space:pre-wrap; overflow-wrap:anywhere; }
+.ai-real-trial-actions { display:flex; flex-wrap:wrap; gap:8px; }
+.ai-real-trial-actions button { border:1px solid #b3d7d0; background:#fff; color:#145f58; padding:8px 11px; border-radius:8px; cursor:pointer; }
+.ai-real-trial-actions button:disabled { opacity:.5; }
+@media(max-width:650px) { .ai-real-trial-comparison { grid-template-columns:1fr; } }

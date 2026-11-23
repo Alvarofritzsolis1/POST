@@ -27,3 +27,25 @@ class AIResponseReview(Base):
     ratings: Mapped[dict] = mapped_column(JSON, nullable=False)
     source_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False, default=utcnow)
+
+
+class AIRealPracticeTrial(Base):
+    """Real Qwen execution and human outcome; no private conversation text stored."""
+    __tablename__ = "ai_real_practice_trials"
+    __table_args__ = (
+        UniqueConstraint("review_id", "criterion", "policy_version",
+                         name="uq_ai_real_trial_source_policy"),
+        Index("ix_ai_real_trial_org_channel", "org_id", "channel", "created_at"),
+    )
+    id: Mapped[str] = mapped_column(String(36), primary_key=True, default=uid)
+    org_id: Mapped[str] = mapped_column(ForeignKey("organizations.id"), nullable=False, index=True)
+    review_id: Mapped[str] = mapped_column(ForeignKey("ai_response_reviews.id"), nullable=False)
+    reviewer_id: Mapped[str] = mapped_column(ForeignKey("users.id"), nullable=False)
+    channel: Mapped[str] = mapped_column(String(16), nullable=False)
+    criterion: Mapped[str] = mapped_column(String(30), nullable=False)
+    model: Mapped[str] = mapped_column(String(80), nullable=False)
+    elapsed_ms: Mapped[int] = mapped_column(Integer, nullable=False)
+    policy_version: Mapped[int] = mapped_column(Integer, nullable=False, default=1)
+    outcome: Mapped[str] = mapped_column(String(12), nullable=False, default="pending")
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False, default=utcnow)
+    reviewed_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)

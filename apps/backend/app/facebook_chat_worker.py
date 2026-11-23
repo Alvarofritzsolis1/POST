@@ -29,6 +29,7 @@ from .galancito_knowledge import retrieve, exact_answer, evidence_context
 from .galancito_runtime import infer, record_run
 from .galancito_local import last_timings
 from .galancito_escalation import flag_for_human
+from .ai_defect_learning import approved_coaching
 
 class NoRedirect(HTTPRedirectHandler):
     def redirect_request(self, req, fp, code, msg, headers, newurl):
@@ -353,12 +354,14 @@ def process_chat_next(session_factory=SessionLocal) -> bool:
                                 current.last_inbound_at != inbound_at or current.ai_paused or current.needs_support or
                                 not consented_for(current, ai_source) or messenger_ai_source(db, org_id, cfg) != ai_source):
                             return True
+                        verified_policy = approved_coaching(db, org_id, "messenger")
+                        prepared_context = (context + "\nGuía aprobada de atención:\n" + verified_policy) if verified_policy else context
                         drafted = infer(db, lambda: (
                             orchestrated_text(db, org_id, task="messenger",
-                                              instructions=REPLY_INSTRUCTIONS, prompt=context,
+                                              instructions=REPLY_INSTRUCTIONS, prompt=prepared_context,
                                               max_output_tokens=230)
                             if ai_source == "team" else
-                            generate_text(REPLY_INSTRUCTIONS, context, 550)),
+                            generate_text(REPLY_INSTRUCTIONS, prepared_context, 550)),
                             org_id=org_id if ai_source == "team" else None)
                         timings = last_timings.get()
                     if drafted:
