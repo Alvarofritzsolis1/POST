@@ -10,3 +10,6 @@ def upgrade(connection):
         connection.execute(text("ALTER TABLE network_requirements ADD COLUMN public_location VARCHAR(120) NOT NULL DEFAULT ''"))
     if "poster_path" not in found:
         connection.execute(text("ALTER TABLE network_requirements ADD COLUMN poster_path TEXT NOT NULL DEFAULT ''"))
+    sites = {row["name"] for row in inspect(connection).get_columns("worksites")}
+    if "public_area" not in sites:
+        connection.execute(text("ALTER TABLE worksites ADD COLUMN public_area VARCHAR(120) NOT NULL DEFAULT ''"))
