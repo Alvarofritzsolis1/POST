@@ -66,6 +66,7 @@ services:
       GALANCITO_NUM_THREAD: ${GALANCITO_NUM_THREAD:-1}
       GALANCITO_TIMEOUT_SECONDS: ${GALANCITO_TIMEOUT_SECONDS:-24}
       GALANCITO_MEMORY_RESERVE_MB: ${GALANCITO_MEMORY_RESERVE_MB:-1536}
+      GALANT_FINETUNE_METRICS_SECRET: ${GALANT_FINETUNE_METRICS_SECRET:-}
 
     volumes: ["./preview-storage:/data/private"]
     depends_on: {db: {condition: service_healthy}}
