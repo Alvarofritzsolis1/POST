@@ -8,8 +8,12 @@ production chats. --execute requires a dedicated CUDA GPU and explicit action.
 import argparse
 import json
 import os
+from math import ceil
 from pathlib import Path
 import sys
+from uuid import uuid4
+
+from galancito_lora_progress import ProgressReporter
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "apps" / "backend"))
 from app.galancito_finetune_dataset import (MODEL, load_approved, verified_match,
@@ -25,6 +29,9 @@ def main(argv=None) -> int:
     p.add_argument("--execute", action="store_true",
                    help="Ejecuta gradientes LoRA con GPU, sin afectar el modelo de producción")
     p.add_argument("--epochs", type=int, default=1, choices=[1, 2, 3])
+    p.add_argument("--resume", action="store_true", help="Reanuda un checkpoint de la misma ejecución autorizada")
+    p.add_argument("--telemetry-url", help="URL HTTPS del endpoint firmado de GALANT")
+    p.add_argument("--telemetry-org", help="UUID de organización que verá las métricas")
     args = p.parse_args(argv)
     bundle = load_approved(args.dataset)
     print(json.dumps({
@@ -61,7 +68,7 @@ def main(argv=None) -> int:
         import torch
         from datasets import Dataset
         from peft import LoraConfig, prepare_model_for_kbit_training, get_peft_model
-        from transformers import AutoTokenizer, BitsAndBytesConfig, Qwen3_5ForCausalLM
+        from transformers import AutoTokenizer, BitsAndBytesConfig, Qwen3_5ForCausalLM, TrainerCallback
         from trl import SFTConfig, SFTTrainer
     except ImportError as exc:
         raise SystemExit("Instala PyTorch CUDA, Transformers 5+, datasets, peft y trl "
@@ -73,9 +80,49 @@ def main(argv=None) -> int:
         raise SystemExit("Menos de 16 GiB libres de GPU: insuficiente para habilitar este perfil "
                          "conservador QLoRA; se recomienda una GPU dedicada con más margen")
     output_dir = Path(args.output).resolve()
-    if output_dir.exists() and any(output_dir.iterdir()):
-        raise SystemExit("El directorio de salida debe estar vacío para evitar mezclas de versiones")
-    output_dir.mkdir(parents=True, mode=0o700, exist_ok=True)
+    metadata_path = output_dir / "run-metadata.json"
+    if args.resume:
+        if not metadata_path.is_file():
+            raise SystemExit("--resume requiere un manifiesto previo con el mismo dataset autorizado")
+        metadata = json.loads(metadata_path.read_text(encoding="utf-8"))
+        if (metadata.get("dataset_sha256") != bundle["dataset_digest"]
+                or metadata.get("approval_fingerprint") != attestation["key_fingerprint"]
+                or metadata.get("epochs") != args.epochs or metadata.get("base_model") != MODEL
+                or metadata.get("telemetry_org") != args.telemetry_org):
+            raise SystemExit("El checkpoint no coincide con el dataset, permiso, organización o parámetros")
+        checkpoints = sorted(
+            (output_dir / "checkpoints").glob("checkpoint-*"),
+            key=lambda path: int(path.name.rsplit("-", 1)[-1])
+            if path.name.rsplit("-", 1)[-1].isdigit() else -1
+        )
+        if not checkpoints:
+            raise SystemExit("No existe un checkpoint neuronal recuperable")
+        resume_checkpoint = str(checkpoints[-1])
+    else:
+        if output_dir.exists() and any(output_dir.iterdir()):
+            raise SystemExit("El directorio de salida debe estar vacío para evitar mezclar versiones")
+        output_dir.mkdir(parents=True, mode=0o700, exist_ok=True)
+        metadata = {
+            "run_id": str(uuid4()), "base_model": MODEL,
+            "dataset_sha256": bundle["dataset_digest"],
+            "approval_fingerprint": attestation["key_fingerprint"],
+            "epochs": args.epochs, "telemetry_org": args.telemetry_org,
+        }
+        metadata_path.write_text(json.dumps(metadata, sort_keys=True), encoding="utf-8")
+        metadata_path.chmod(0o600)
+        resume_checkpoint = None
+    reporter = ProgressReporter(
+        output_dir, run_id=metadata["run_id"],
+        org_id=args.telemetry_org, dataset_sha256=bundle["dataset_digest"],
+        telemetry_url=args.telemetry_url,
+        telemetry_token=os.environ.get("GALANT_FINETUNE_TELEMETRY_TOKEN") if args.telemetry_url else None,
+    )
+    def gpu_metrics():
+        return {
+            "gpu_memory_mb": round(torch.cuda.memory_allocated() / 1048576, 2),
+            "gpu_memory_reserved_mb": round(torch.cuda.memory_reserved() / 1048576, 2),
+        }
+    reporter.emit("start", step=0, total_steps=0, **gpu_metrics())
     tokenizer = AutoTokenizer.from_pretrained(MODEL, trust_remote_code=False)
     compute_dtype = torch.bfloat16 if torch.cuda.is_bf16_supported() else torch.float16
     quantization = BitsAndBytesConfig(
@@ -106,14 +153,18 @@ def main(argv=None) -> int:
             "completion": row["messages"][1]["content"] + tokenizer.eos_token,
         } for row in bundle["samples"][split]])
     train, validation, test = examples("train"), examples("validation"), examples("test")
+    steps_per_epoch = ceil(len(train) / 8)
+    planned_steps = steps_per_epoch * args.epochs
+    checkpoint_steps = max(1, min(10, ceil(steps_per_epoch / 2)))
     config = SFTConfig(
         output_dir=str(output_dir / "checkpoints"), num_train_epochs=args.epochs,
         learning_rate=8e-5, per_device_train_batch_size=1, gradient_accumulation_steps=8,
         max_length=1024, completion_only_loss=True, gradient_checkpointing=True,
         eos_token=tokenizer.eos_token,
-        eval_strategy="epoch", save_strategy="epoch",
+        eval_strategy="steps", eval_steps=checkpoint_steps,
+        save_strategy="steps", save_steps=checkpoint_steps, save_total_limit=3,
         load_best_model_at_end=True, metric_for_best_model="eval_loss",
-        greater_is_better=False, report_to="none", logging_steps=10,
+        greater_is_better=False, report_to="none", logging_steps=1,
         bf16=torch.cuda.is_bf16_supported(), fp16=not torch.cuda.is_bf16_supported(),
     )
     trainer = SFTTrainer(
@@ -121,6 +172,28 @@ def main(argv=None) -> int:
         train_dataset=train, eval_dataset=validation,
         processing_class=tokenizer,
     )
+
+    class MeasuredProgress(TrainerCallback):
+        def on_train_begin(self, args, state, control, **kwargs):
+            reporter.emit("start", step=state.global_step,
+                          total_steps=state.max_steps or planned_steps, **gpu_metrics())
+
+        def on_log(self, args, state, control, logs=None, **kwargs):
+            logs = logs or {}
+            kind = "eval" if "eval_loss" in logs else "metric"
+            values = {k: logs.get(k) for k in (
+                "loss", "eval_loss", "learning_rate", "grad_norm",
+                "train_samples_per_second")}
+            reporter.emit(kind, step=state.global_step,
+                          total_steps=state.max_steps or planned_steps,
+                          epoch=state.epoch, **values, **gpu_metrics())
+
+        def on_save(self, args, state, control, **kwargs):
+            reporter.emit("checkpoint", step=state.global_step,
+                          total_steps=state.max_steps or planned_steps,
+                          epoch=state.epoch, **gpu_metrics())
+
+    trainer.add_callback(MeasuredProgress())
     # Deterministic, human-referenced *held-out answer* checks, not self-grading.
     # Test examples never participate in training or validation selection.
     def checked_answers():
@@ -145,9 +218,21 @@ def main(argv=None) -> int:
                 response, example["reference_answer"], example["verifier"]))
         return outcomes
 
-    before_loss = trainer.evaluate(eval_dataset=test, metric_key_prefix="test_before").get("test_before_loss")
-    before_checks = checked_answers()
-    trainer.train()  # Real LoRA gradient updates in isolated GPU, NOT Ollama.
+    if args.resume:
+        if "baseline" not in metadata:
+            raise SystemExit("No existe evaluación original intacta para reanudar el entrenamiento")
+        before_loss = metadata["baseline"]["loss"]
+        before_checks = metadata["baseline"]["checks"]
+    else:
+        before_loss = trainer.evaluate(eval_dataset=test, metric_key_prefix="test_before").get("test_before_loss")
+        before_checks = checked_answers()
+        metadata["baseline"] = {"loss": before_loss, "checks": before_checks}
+        metadata_path.write_text(json.dumps(metadata, sort_keys=True), encoding="utf-8")
+        metadata_path.chmod(0o600)
+        reporter.emit("baseline", step=0, total_steps=planned_steps,
+                      holdout_loss_before=before_loss, holdout_pass_before=sum(before_checks),
+                      **gpu_metrics())
+    trainer.train(resume_from_checkpoint=resume_checkpoint)  # Actual GPU gradients
     after_loss = trainer.evaluate(eval_dataset=test, metric_key_prefix="test_after").get("test_after_loss")
     after_checks = checked_answers()
     regressions = sum(x and not y for x, y in zip(before_checks, after_checks))
@@ -185,6 +270,13 @@ def main(argv=None) -> int:
         # Never leave rejected LoRA checkpoints available for accidental rollout.
         from shutil import rmtree
         rmtree(output_dir / "checkpoints", ignore_errors=True)
+    reporter.emit("finished", step=trainer.state.global_step,
+                  total_steps=trainer.state.max_steps or planned_steps,
+                  holdout_loss_before=before_loss, holdout_loss_after=after_loss,
+                  holdout_pass_before=sum(before_checks), holdout_pass_after=sum(after_checks),
+                  holdout_regressions=regressions,
+                  weights_trained=True, candidate_accepted=improved, **gpu_metrics())
+    reporter.close()
     print(json.dumps(report, ensure_ascii=False))
     return 0 if improved else 2
 
