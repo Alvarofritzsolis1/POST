@@ -372,8 +372,9 @@ def process_chat_next(session_factory=SessionLocal) -> bool:
                                               prompt=prepared_context,
                                               max_output_tokens=230)
                             if ai_source == "team" else
-                            generate_text(REPLY_INSTRUCTIONS, prepared_context, 550,
-                                          approved_policy=verified_policy)),
+                            (generate_text(REPLY_INSTRUCTIONS, prepared_context, 550,
+                                           approved_policy=verified_policy) if verified_policy else
+                             generate_text(REPLY_INSTRUCTIONS, prepared_context, 550))),
                             org_id=org_id if ai_source == "team" else None)
                         timings = last_timings.get()
                     if drafted:
