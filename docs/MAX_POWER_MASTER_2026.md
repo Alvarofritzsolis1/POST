@@ -81,9 +81,10 @@ las dos ramas y ejecutar toda la CI.
    apagar, reiniciar el contenedor y matar el proceso en mitad de una inferencia.
 3. Medir consumo de CPU y RAM del VPS y calibrar umbrales, sin degradar p95 de
    Messenger; comprobar OOM, cola, latencias y presión PSI/cgroup.
-4. Crear un corpus real **autorizado** de evaluación de Messenger; auditar su
-   precisión y seguridad. No confundir replays de Qwen con el canal real si
-   la respuesta original llegó de reglas o API.
+4. Ampliar el evaluador automático de Messenger con referencias independientes,
+   muestras reservadas y criterios de calidad abiertos; las detecciones actuales
+   de repetición de oficio, saludos repetidos y afirmaciones no autorizadas son
+   **parciales**. No convertir la evaluación de Qwen en una falsa nota global.
 5. Completar optimización de estrategia entre rondas y experimentos pareados
    de velocidad. La candidata actual detecta causas y pruebas de razonamiento
    numérico; **todavía no modifica automáticamente parámetros de producción**
@@ -104,3 +105,25 @@ las dos ramas y ejecutar toda la CI.
 **Criterio de éxito:** una ganancia solo se anuncia como verificada tras
 evidencia A/B reservada y, para el canal productivo, auditoría posterior.
 La ausencia de ganancia debe enseñar el motivo y el próximo experimento posible.
+
+## Actualización: aprendizaje automático sin auditores obligatorios
+
+El nuevo `max_power_messenger.py` estudia interacciones reales consentidas y
+comprueba por reglas si Galancito repite el oficio ya declarado, repite su
+introducción o emite solicitudes/afirmaciones inseguras. Selecciona sin
+intervención humana el siguiente caso y una de las estrategias de prueba.
+La respuesta base y la candidata se generan con **el mismo Qwen local**.
+Guardamos solo la decisión, la evidencia objetiva resumida, versiones y
+telemetría. Nunca copiamos textos privados a los experimentos.
+
+Una ganancia automática en estos controles es **evidencia de laboratorio por
+competencia**, no una mejora desplegada ni una evaluación subjetiva general.
+Las preguntas sin respuesta verificable quedan sin nota; un LLM no puede ser
+su propio juez definitivo. También se preservan supervisión, permisos y
+reversión para decisiones de mayor impacto; esto no impide el funcionamiento
+continuo sin que el usuario esté presente.
+
+Fuentes y límites de los evaluadores:
+- https://deepeval.com/docs/metrics-introduction
+- https://docs.ragas.io/en/latest/concepts/metrics/available_metrics/
+- https://arxiv.org/abs/2606.19544
