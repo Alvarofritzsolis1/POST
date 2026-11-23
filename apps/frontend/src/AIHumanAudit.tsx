@@ -8,7 +8,12 @@ type Candidate = { run_id: string; created_at: string; channel: Channel; source:
 type Queue = {
   channel: Channel; rubric_version: number; criteria: string[]; items: Candidate[];
 };
-type RealTrial = {trial_id: string; original: string; candidate: string; elapsed_ms: number; model: string; criterion: string};
+type RealTrial = {trial_id: string; verification_nonce: string; original: string; candidate: string;
+  elapsed_ms: number; model: string; criterion: string; variant: string; stage: string;
+  provenance: string; diagnosis: {hypothesis: string; reason: string; mechanism: string}};
+type AuditedCase = {source_id: string; source_at: string; failed_criteria: string[];
+  model_verified: boolean; route: {hypothesis: string; reason: string; mechanism: string}};
+type PendingTrial = {id: string; criterion: string; variant: string; created_at: string; can_cancel: boolean};
 type Evidence = {
   run_id: string; channel: Channel; question: string; answer: string;
   created_at: string; rubric_version: number; criteria: string[];
@@ -37,12 +42,20 @@ export default function AIHumanAudit({ onPractice }: { onPractice: (channel: Cha
   const [weaknesses, setWeaknesses] = useState<string[]>([]);
   const [lastReviewed, setLastReviewed] = useState("");
   const [trial, setTrial] = useState<RealTrial | null>(null);
+  const [auditedCases, setAuditedCases] = useState<AuditedCase[]>([]);
+  const [pendingTrials, setPendingTrials] = useState<PendingTrial[]>([]);
 
   useEffect(() => {
     let mounted = true;
     setBusy(true);
-    request<Queue>("/admin/ai/audit/queue?channel=" + channel)
-      .then(result => { if (mounted) { setQueue(result); setError(""); } })
+    Promise.all([
+      request<Queue>("/admin/ai/audit/queue?channel=" + channel),
+      request<{items: AuditedCase[]}>("/admin/ai/real-learning/cases?channel=" + channel),
+      request<{items: PendingTrial[]}>("/admin/ai/real-learning/pending?channel=" + channel),
+    ])
+      .then(([result, cases, pending]) => { if (mounted) {
+        setQueue(result); setAuditedCases(cases.items); setPendingTrials(pending.items); setError("");
+      } })
       .catch(err => { if (mounted) setError(errorText(err)); })
       .finally(() => { if (mounted) setBusy(false); });
     return () => { mounted = false; };
@@ -75,15 +88,16 @@ export default function AIHumanAudit({ onPractice }: { onPractice: (channel: Cha
     finally { setBusy(false); }
   }
 
-  async function replayReal(criterion: string) {
-    if (!lastReviewed) return;
+  async function replayReal(criterion: string, sourceId = lastReviewed, variant: "focused" | "alternative" = "focused") {
+    if (!sourceId) return;
     setBusy(true); setError(""); setTrial(null);
     try {
       const result = await request<RealTrial>("/admin/ai/real-learning/replay", {
-        method: "POST", body: JSON.stringify({source_id: lastReviewed, criterion}),
+        method: "POST", body: JSON.stringify({source_id: sourceId, criterion, variant}),
       });
       setTrial(result);
-      setNotice("Qwen respondió sobre un caso real. Compara ambas respuestas; no se ha aprobado ninguna mejora.");
+      setNotice("Qwen respondió sobre un caso real. La comparación puede usar contexto parcial y no prueba mejora global.");
+      setRevision(v => v + 1);
     } catch (err) { setError(errorText(err)); }
     finally { setBusy(false); }
   }
@@ -93,10 +107,21 @@ export default function AIHumanAudit({ onPractice }: { onPractice: (channel: Cha
     setBusy(true); setError("");
     try {
       await request("/admin/ai/real-learning/trials/" + trial.trial_id + "/review", {
-        method: "POST", body: JSON.stringify({outcome, source_reviewed: true}),
+        method: "POST", body: JSON.stringify({outcome, source_reviewed: true, verification_nonce: trial.verification_nonce}),
       });
       setTrial(null); setRevision(v => v + 1);
       setNotice("Resultado humano guardado. Una muestra individual no demuestra aprendizaje general.");
+    } catch (err) { setError(errorText(err)); }
+    finally { setBusy(false); }
+  }
+
+  async function cancelReal(trialId: string) {
+    setBusy(true); setError("");
+    try {
+      await request("/admin/ai/real-learning/trials/" + trialId + "/cancel", {method: "POST"});
+      setTrial(current => current?.trial_id === trialId ? null : current);
+      setRevision(v => v + 1);
+      setNotice("Ensayo interrumpido descartado. Ahora puedes repetir el caso sin inventar una valoración.");
     } catch (err) { setError(errorText(err)); }
     finally { setBusy(false); }
   }
@@ -137,20 +162,26 @@ export default function AIHumanAudit({ onPractice }: { onPractice: (channel: Cha
       <div>{weaknesses.map(key => <div className="ai-human-audit-focus-actions" key={key}>
         <b>{criterionNames[key] ?? key}</b>
         <button type="button" disabled={busy} onClick={() => void replayReal(key)}>
-          Probar Qwen con el caso real <ChevronRight size={14} />
+          Probar estrategia 1 <ChevronRight size={14} />
+        </button>
+        <button type="button" disabled={busy} onClick={() => void replayReal(key, lastReviewed, "alternative")}>
+          Probar estrategia 2
         </button>
         <button type="button" disabled={busy} onClick={() => void propose(key)}>
-          Proponer guía revisada
+          Proponer tras validar casos reservados
         </button>
         <button type="button" disabled={busy} onClick={() => onPractice(channel, key)}>
           Laboratorio complementario
         </button>
       </div>)}</div>
-      <small>La propuesta necesita al menos dos pruebas reales distintas consideradas mejores, sin regresiones, y aprobación administrativa. Ninguna práctica modifica pesos ni envía mensajes.</small>
+      <small>La propuesta exige 2 casos de práctica y 4 casos reservados independientes favorables, origen de Qwen verificable y 0 regresiones. Ninguna prueba modifica pesos ni envía mensajes.</small>
     </div>}
     {trial && <section className="ai-real-trial" aria-label="Comparación de respuestas de Qwen">
       <strong>Práctica real · {criterionNames[trial.criterion] ?? trial.criterion}</strong>
-      <p>Modelo local: {trial.model} · {Math.round(trial.elapsed_ms / 100) / 10} s de ejecución. La comparación no es una prueba A/B ciega.</p>
+      <p>Modelo local: {trial.model} · {Math.round(trial.elapsed_ms / 100) / 10} s.
+        Estrategia {trial.variant === "focused" ? "1" : "2"} · {trial.stage === "holdout" ? "Caso reservado" : "Práctica"}.
+        Origen: {trial.provenance === "model_verified" ? "Modelo original trazado" : "Reconstrucción parcial"}.</p>
+      <p>Hipótesis: {trial.diagnosis.reason} El ensayo no demuestra por sí solo qué componente causó el error.</p>
       <div className="ai-real-trial-comparison">
         <article><b>Respuesta de producción</b><p>{trial.original}</p></article>
         <article><b>Candidata generada con corrección</b><p>{trial.candidate}</p></article>
@@ -160,8 +191,34 @@ export default function AIHumanAudit({ onPractice }: { onPractice: (channel: Cha
         <button type="button" disabled={busy} onClick={() => void rateReal("better")}>Mejoró</button>
         <button type="button" disabled={busy} onClick={() => void rateReal("same")}>Igual</button>
         <button type="button" disabled={busy} onClick={() => void rateReal("worse")}>Empeoró</button>
+        <button type="button" disabled={busy} onClick={() => void cancelReal(trial.trial_id)}>Descartar ensayo</button>
       </div>
     </section>}
+    {pendingTrials.length > 0 && <details className="ai-human-audit-history">
+      <summary>Ensayos pendientes o interrumpidos ({pendingTrials.length})</summary>
+      <div>{pendingTrials.map(item => <div key={item.id} className="ai-human-audit-recovery">
+        <span>{criterionNames[item.criterion] ?? item.criterion} · {item.variant} · {date(item.created_at)}</span>
+        <button type="button" disabled={busy} onClick={() => void cancelReal(item.id)}>
+          Cancelar para repetir
+        </button>
+      </div>)}</div>
+    </details>}
+    {auditedCases.length > 0 && <details className="ai-human-audit-history">
+      <summary>Fallas reales ya auditadas ({auditedCases.length})</summary>
+      <div>{auditedCases.map(item => <div key={item.source_id} className="ai-human-audit-recovery">
+        <b>{date(item.source_at)} · {item.model_verified ? "Qwen trazado" : "Ruta no confirmada"}</b>
+        <small>{item.route.reason}</small>
+        {item.failed_criteria.map(key => <div key={key}>
+          <span>{criterionNames[key] ?? key}</span>
+          <button type="button" disabled={busy} onClick={() => void replayReal(key, item.source_id, "focused")}>
+            Estrategia 1
+          </button>
+          <button type="button" disabled={busy} onClick={() => void replayReal(key, item.source_id, "alternative")}>
+            Estrategia 2
+          </button>
+        </div>)}
+      </div>)}</div>
+    </details>}
     {busy && !evidence && <p role="status" className="ai-human-audit-hint">Consultando registros verificables…</p>}
     {!busy && queue?.items.length === 0 &&
       <p className="ai-human-audit-hint">No hay respuestas pendientes con conversación original accesible en este canal. No se generarán casos ficticios.</p>}
