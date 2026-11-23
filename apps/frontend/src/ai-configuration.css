@@ -127,3 +127,10 @@
 .ai-learning-steps small { color:#5a756d; font-size:11px; line-height:1.5; }
 .ai-learning-steps button { width:fit-content; margin-top:5px; font-size:12px; }
 @media(max-width:640px) { .ai-learning-steps span { font-size:12px; } }
+
+.ai-real-learning-plan{display:grid;gap:10px;background:#f8fcfb;border:1px solid #d2e5e3;border-radius:12px;padding:14px}
+.ai-real-learning-plan>strong{font-size:13px;color:#1c5b53}.ai-real-learning-plan>small{font-size:11px;color:#567974}
+.ai-real-learning-channel{display:grid;gap:8px;padding-top:9px;border-top:1px solid #dfece9}
+.ai-real-learning-channel>b{font-size:12px;color:#24574f}.ai-real-learning-channel p{font-size:12px;color:#647e78;margin:0}
+.ai-real-learning-defect{display:grid;gap:5px;padding:10px;border:1px solid #e0eae8;border-radius:9px;background:#fff}
+.ai-real-learning-defect b{font-size:12px}.ai-real-learning-defect span{font-size:11px;color:#647a76;line-height:1.4}
