@@ -34,7 +34,7 @@ jobs:
           docker run --rm --memory 5g --memory-swap 5g --cpus 2 \
             -v "$RUNNER_TEMP/maxpower-private:/private" \
             --entrypoint python galant-cpu-lora-smoke:ci \
-            -c 'import sys;sys.path.insert(0,"/src/scripts");from max_power_synthetic_lab import prepare_lab;from pathlib import Path;r,b=prepare_lab(Path("/private/ci"));print("CASOS:",sum(b["sizes"].values()),"PARTICIONES:",b["sizes"],"TIPO:",b["data_kind"])'
+            -c 'import sys;sys.path.insert(0,"/src/scripts");sys.path.insert(0,"/src/apps/backend");from max_power_synthetic_lab import prepare_lab;from pathlib import Path;r,b=prepare_lab(Path("/private/ci"));print("CASOS:",sum(b["sizes"].values()),"PARTICIONES:",b["sizes"],"TIPO:",b["data_kind"])'
       - name: Medir cgroup y memoria, sin entrenar
         run: |
           set -Eeuo pipefail
