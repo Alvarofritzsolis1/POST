@@ -60,7 +60,7 @@ def main(argv=None) -> int:
     try:
         import torch
         from datasets import Dataset
-        from peft import LoraConfig, prepare_model_for_kbit_training
+        from peft import LoraConfig, prepare_model_for_kbit_training, get_peft_model
         from transformers import AutoTokenizer, BitsAndBytesConfig, Qwen3_5ForCausalLM
         from trl import SFTConfig, SFTTrainer
     except ImportError as exc:
@@ -83,22 +83,34 @@ def main(argv=None) -> int:
         bnb_4bit_use_double_quant=True, bnb_4bit_compute_dtype=compute_dtype,
     )
     model = Qwen3_5ForCausalLM.from_pretrained(
-        MODEL, torch_dtype=compute_dtype, quantization_config=quantization,
+        MODEL, dtype=compute_dtype, quantization_config=quantization,
         device_map={"": torch.cuda.current_device()}, trust_remote_code=False,
     )
     model.config.use_cache = False
     model = prepare_model_for_kbit_training(model, use_gradient_checkpointing=True)
+    model = get_peft_model(model, LoraConfig(
+        r=16, lora_alpha=32, lora_dropout=0.05,
+        target_modules="all-linear", bias="none", task_type="CAUSAL_LM",
+    ))
+    SYSTEM_POLICY = "Responde en español. Razona con evidencias sin inventar hechos."
+    def formatted_prompt(message):
+        return tokenizer.apply_chat_template(
+            [{"role": "system", "content": SYSTEM_POLICY}, dict(message)],
+            tokenize=False, add_generation_prompt=True, enable_thinking=False,
+        )
     def examples(split):
+        # Explicit textual prompt/completion avoids training on internal
+        # <think> tokens or instructing the model to disclose hidden reasoning.
         return Dataset.from_list([{
-            "prompt": [{"role": "system", "content": "Responde en español. Razona con evidencias sin inventar hechos."},
-                       dict(row["messages"][0])],
-            "completion": [dict(row["messages"][1])],
+            "prompt": formatted_prompt(row["messages"][0]),
+            "completion": row["messages"][1]["content"] + tokenizer.eos_token,
         } for row in bundle["samples"][split]])
     train, validation, test = examples("train"), examples("validation"), examples("test")
     config = SFTConfig(
         output_dir=str(output_dir / "checkpoints"), num_train_epochs=args.epochs,
         learning_rate=8e-5, per_device_train_batch_size=1, gradient_accumulation_steps=8,
         max_length=1024, completion_only_loss=True, gradient_checkpointing=True,
+        eos_token=tokenizer.eos_token,
         eval_strategy="epoch", save_strategy="epoch",
         load_best_model_at_end=True, metric_for_best_model="eval_loss",
         greater_is_better=False, report_to="none", logging_steps=10,
@@ -107,10 +119,6 @@ def main(argv=None) -> int:
     trainer = SFTTrainer(
         model=model, args=config,
         train_dataset=train, eval_dataset=validation,
-        peft_config=LoraConfig(
-            r=16, lora_alpha=32, lora_dropout=0.05,
-            target_modules="all-linear", bias="none", task_type="CAUSAL_LM",
-        ),
         processing_class=tokenizer,
     )
     # Deterministic, human-referenced *held-out answer* checks, not self-grading.
@@ -119,12 +127,10 @@ def main(argv=None) -> int:
         trainer.model.eval()
         outcomes = []
         for example in bundle["samples"]["test"]:
-            prompt = [
-                {"role": "system", "content": "Responde en español. Razona con evidencias sin inventar hechos."},
-                example["messages"][0],
-            ]
             input_ids = tokenizer.apply_chat_template(
-                prompt, add_generation_prompt=True, return_tensors="pt"
+                [{"role": "system", "content": SYSTEM_POLICY}, example["messages"][0]],
+                add_generation_prompt=True, enable_thinking=False,
+                return_tensors="pt",
             ).to(trainer.model.device)
             with torch.inference_mode():
                 generated = trainer.model.generate(
