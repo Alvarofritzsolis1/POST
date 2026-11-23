@@ -141,6 +141,41 @@ def historical_overview(db: Session, org_id: str, *, months: int = 0) -> dict:
         entry = trials.setdefault(channel, {})
         entry[f"{stage}:{result}"] = int(amount)
 
+    # Diagnose only telemetry actually recorded. Inspect a bounded recent slice
+    # so an admin dashboard cannot monopolize the production database.
+    # All-time historical COUNTS above remain complete even if this detail is
+    # sampled. No prompt, message body or identity ever enters this query.
+    diagnostic_limit = 2500
+    technical = {
+        "context_truncated": 0, "model_called_without_history": 0,
+        "slow_turns_over_15s": 0, "missing_trace": 0,
+    }
+    diagnostic_rows = db.execute(select(
+        AssistantRun.channel, AssistantRun.elapsed_ms, AssistantRun.timings
+    ).where(*_scope(AssistantRun, org_id, since))
+     .order_by(AssistantRun.created_at.desc()).limit(diagnostic_limit)).all()
+    for channel, duration, trace in diagnostic_rows:
+        if isinstance(duration, (int, float)) and duration >= 15_000:
+            technical["slow_turns_over_15s"] += 1
+        if not isinstance(trace, dict) or trace.get("trace_version") != 1:
+            technical["missing_trace"] += 1
+            continue
+        if trace.get("context_truncated") is True:
+            technical["context_truncated"] += 1
+        if (channel == "messenger" and trace.get("model_requested") is True
+                and trace.get("context_turns") == 0):
+            technical["model_called_without_history"] += 1
+    forensic = {
+        "inspected_runs": len(diagnostic_rows),
+        "available_runs": sources["runs"]["count"],
+        "full_coverage": len(diagnostic_rows) == sources["runs"]["count"],
+        "signals": technical,
+        "interpretation": (
+            "Son eventos técnicos observados, no notas de razonamiento. "
+            "Una traza incompleta no confirma que el modelo haya cometido un error."
+        ),
+    }
+
     # Strict privacy: even administrators cannot bulk-read another user's
     # saved internal conversation; only count retained rows and expired date.
     retained = db.scalar(select(func.count()).select_from(InternalConversation).where(
@@ -153,6 +188,7 @@ def historical_overview(db: Session, org_id: str, *, months: int = 0) -> dict:
         "sources": sources, "timeline": timeline,
         "runs_by_channel": by_channel, "audited_deficiencies": labels,
         "practice_outcomes": trials,
+        "diagnostic_telemetry": forensic,
         "internal_opt_in_conversations_retained": int(retained or 0),
         "historical_quality_grade": None,
         "weights_updated": False,
