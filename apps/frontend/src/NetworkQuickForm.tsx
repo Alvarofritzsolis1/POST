@@ -1,11 +1,47 @@
 import { useRef, useState, type FormEvent } from "react";
-import { Facebook, Check, CalendarDays, BriefcaseBusiness, Users, Send } from "lucide-react";
+import { AlertCircle, CalendarDays, CheckCircle2, ChevronDown, Facebook, FileText, MapPin, Send, Users } from "lucide-react";
 import { change, type Catalog, type Requirement } from "./networkApi";
-import { errorText, todayISO } from "./NetworkUI";
+import { todayISO, errorText } from "./NetworkUI";
+import { NetworkSpecialtyPicker } from "./NetworkSpecialtyPicker";
 import SocialPoster, { type SocialPosterHandle } from "./NetworkSocialPoster";
+import "./network-quick-premium.css";
 
-/** Publicación rápida: una fecha y partidas globales, sin alterar expedientes históricos. */
-const QUICK_PARTS = ["Instalaciones", "Terminaciones", "Estructura", "Obras exteriores", "Otras"];
+/** Compact publication flow. Nonessential programming remains in the full editor. */
+const TRADES = ["Carpintería", "Electricidad", "Gasfitería", "Albañilería", "Pintura",
+  "Enfierradura", "Terminaciones", "Cerámica", "Impermeabilización", "Techumbre",
+  "Soldadura", "Ventanas", "Climatización", "Jardinería", "Paisajismo", "Excavaciones"];
+
+const normalize = (s: string) =>
+  s.normalize("NFD").replace(/[\u0300-\u036f]/g, "").toLowerCase().trim();
+
+const CATEGORY_WORDS: Record<string, RegExp> = {
+  electricidad: /electri|tablero|cablead|conexion electrica|luminaria/,
+  pintura: /pintur|pintar|pintado|esmalte|latex/,
+  carpinteria: /carpinter|puertas de madera|muebl|tabiqueria madera/,
+  gasfiteria: /gasfiter|sanitari|alcantarill|tuber|griferia|agua potable/,
+  albañileria: /albanil|ladrillo|mortero|mamposteria/,
+};
+function category(s: string) {
+  return Object.entries(CATEGORY_WORDS).find(([, pattern]) => pattern.test(normalize(s)))?.[0] ?? "";
+}
+/** Only flag a clear one-trade contradiction. Do not silently rewrite either field. */
+function contradiction(specialty: string, notes: string) {
+  const specified = category(specialty);
+  const described = Object.entries(CATEGORY_WORDS)
+    .filter(([, re]) => re.test(normalize(notes))).map(([name]) => name);
+  return specified && described.length === 1 && described[0] !== specified
+    ? described[0] : "";
+}
+function labelForCategory(name: string) {
+  return { electricidad: "electricidad", pintura: "pintura", carpinteria: "carpintería",
+    gasfiteria: "gasfitería", albañileria: "albañilería" }[name] || name;
+}
+function StateMark({ ok, pending }: {ok: boolean; pending?: string}) {
+  return <span className={"nq-state " + (ok ? "valid" : "invalid")} aria-label={ok ? "Campo correcto" : "Campo pendiente"}>
+    {ok ? <CheckCircle2 size={14} aria-hidden="true"/> : <AlertCircle size={14} aria-hidden="true"/>}
+    {ok ? "Correcto" : pending || "Pendiente"}
+  </span>;
+}
 
 export function NetworkQuickForm({
   catalog,
@@ -14,174 +50,207 @@ export function NetworkQuickForm({
   catalog: Catalog;
   done: (message: string, req?: Requirement) => void;
 }) {
-  const sites = catalog.sites.filter((site) => site.editable);
+  const sites = catalog.sites.filter((s) => s.editable);
   const key = useRef(crypto.randomUUID());
   const posterEditor = useRef<SocialPosterHandle>(null);
+  const roleRef = useRef<HTMLDivElement>(null);
   const [siteId, setSiteId] = useState(sites[0]?.id ?? "");
   const [specialty, setSpecialty] = useState("");
-  const [title, setTitle] = useState("");
   const [summary, setSummary] = useState("");
-  const [start, setStart] = useState(todayISO());
+  const [start, setStart] = useState("");
   const [workers, setWorkers] = useState(1);
   const [priority, setPriority] = useState("normal");
-  const [parts, setParts] = useState<string[]>([]);
+  const [title, setTitle] = useState("");
   const [publishFacebook, setPublishFacebook] = useState(true);
   const [publicLocation, setPublicLocation] = useState(sites[0]?.public_location ?? "");
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState("");
+  const [submitted, setSubmitted] = useState(false);
+  const [confirmedMismatch, setConfirmedMismatch] = useState(false);
+  const [mobilePane, setMobilePane] = useState<"fields" | "preview">("fields");
+  const [expandedMore, setExpandedMore] = useState(false);
 
-  function togglePart(part: string) {
-    setParts((current) => current.includes(part) ? current.filter((item) => item !== part) : [...current, part]);
-  }
+  const tradeOk = specialty.trim().length >= 2;
+  const locationOk = publicLocation.trim().length >= 3 && !/\d/.test(publicLocation);
+  const staffOk = Number.isInteger(workers) && workers >= 1 && workers <= 10000;
+  const siteOk = Boolean(siteId);
+  const mismatch = contradiction(specialty, summary);
+  const reviewOk = !mismatch || confirmedMismatch;
+  const pending = [!siteOk, !tradeOk, !staffOk, publishFacebook && !locationOk, !reviewOk]
+    .filter(Boolean).length;
+  const canPublish = pending === 0;
 
   async function submit(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
     const intent = (event.nativeEvent as SubmitEvent).submitter?.getAttribute("value") || "published";
-    const suggestedTitle = (title.trim() || `Se necesita contratista de ${specialty.trim()}`).slice(0, 180);
-    if (!siteId || specialty.trim().length < 2 || suggestedTitle.length < 3 || summary.trim().length < 3 || !start || !Number.isFinite(workers) || workers < 1) {
-      setError("Completa el oficio, la descripción, la fecha y los trabajadores.");
+    setSubmitted(true);
+    setError("");
+    if (intent !== "draft" && !canPublish) {
+      setError("Revisa los campos marcados en rojo antes de publicar.");
+      setMobilePane("fields");
+      if (!tradeOk) roleRef.current?.scrollIntoView({ behavior: "smooth", block: "nearest" });
       return;
     }
+    if (!siteOk || (intent === "draft" && !tradeOk)) {
+      setError("Selecciona la obra y escribe al menos el oficio para guardar."); return;
+    }
     setBusy(true);
-    setError("");
     try {
-      const posterData = publishFacebook && intent === "published"
-        ? await posterEditor.current?.exportJpeg()
-        : "";
-      if (publishFacebook && intent === "published" && !posterData) {
-        throw new Error("No se pudo preparar la imagen para Facebook.");
+      const effectiveStart = start || todayISO();
+      const poster = publishFacebook && intent === "published"
+        ? await posterEditor.current?.exportJpeg() : "";
+      if (publishFacebook && intent === "published" && !poster) {
+        throw new Error("La fotografía aún no está lista. Cambia de imagen o súbela nuevamente.");
       }
-      const entries = parts.length ? parts : [specialty.trim()];
       const response = await change<Requirement>("/requirements", {
         site_id: siteId,
         specialty: specialty.trim(),
-        title: suggestedTitle,
+        title: (title.trim() || "Contratistas de " + specialty.trim()).slice(0, 180),
         description: summary.trim(),
         priority,
-        workers,
-        start_date: start,
-        // Programación preliminar: el periodo se podrá precisar al editar.
-        end_date: start,
-        deadline: start,
-        items: entries.map((name) => ({
-          name,
+        workers: staffOk ? workers : 1,
+        // Existing scheduling and item matching require dates. The pending flag
+        // prevents exposing a synthetic date as a confirmed user decision.
+        start_date: effectiveStart,
+        start_date_pending: !start,
+        end_date: effectiveStart,
+        deadline: effectiveStart,
+        items: [{
+          name: specialty.trim(),
           description: summary.trim(),
           quantity: 1,
           unit: "gl",
-          start_date: start,
-          end_date: start,
-          notes: "Partida global preliminar; confirmar programación y cantidades antes de adjudicar.",
-        })),
+          start_date: effectiveStart,
+          end_date: effectiveStart,
+          notes: start
+            ? "Partida preliminar: precisar programación antes de adjudicar."
+            : "Fecha pendiente: coordinar programación antes de adjudicar.",
+        }],
         publish_to_facebook: publishFacebook,
         public_location: publicLocation.trim(),
-        poster_data: posterData,
+        poster_data: poster,
         state: intent,
         client_key: key.current,
       });
       done(intent === "draft" ? "Borrador guardado." :
-        publishFacebook ? "Necesidad guardada. Consulta el estado de difusión en Facebook en el detalle." :
-          "Necesidad publicada solo en GALANT.", response);
-    } catch (e) {
-      setError(errorText(e));
+        publishFacebook ? "Necesidad guardada. Revisa el estado de Facebook en su ficha." :
+          "Necesidad publicada en Red de Obras.", response);
+    } catch (cause) {
+      setError(errorText(cause));
     } finally {
       setBusy(false);
     }
   }
-
   return (
-    <form className="nw-form nw-quick-form" onSubmit={(e) => void submit(e)}>
-      <div className="nw-quick-intro"><p>Indica el oficio y el trabajo. Completa los detalles después.</p></div>
-      <section className="nw-quick-fields" aria-label="Datos de la necesidad">
-        <h3>1. ¿Qué necesitas?</h3>
-        <label>Obra
-          {sites.length === 1 ? (
-            <span className="nw-site-locked">{sites[0].name}</span>
-          ) : (
-            <select value={siteId} onChange={(e) => {
-              setSiteId(e.target.value);
-              setPublicLocation(sites.find((item) => item.id === e.target.value)?.public_location ?? "");
-            }} required>
-              <option value="">Selecciona una obra</option>
+    <form noValidate className="nw-form nq-form" onSubmit={(event) => void submit(event)}>
+      <div className="nq-mobile-tabs" role="group" aria-label="Secciones de creación">
+        <button type="button" className={mobilePane === "fields" ? "active" : ""}
+          aria-pressed={mobilePane === "fields"} onClick={() => setMobilePane("fields")}>1. Necesidad</button>
+        <button type="button" className={mobilePane === "preview" ? "active" : ""}
+          aria-pressed={mobilePane === "preview"} onClick={() => setMobilePane("preview")}>2. Vista previa</button>
+      </div>
+      <section className={"nq-main" + (mobilePane === "fields" ? " nq-mobile-active" : "")}
+        aria-label="Datos de la necesidad">
+        <div className="nq-head"><b>Datos de la necesidad</b><span>Lo esencial, sin pasos innecesarios</span></div>
+        <div className="nq-field">
+          <label htmlFor="nq-site">Obra <StateMark ok={siteOk}/></label>
+          {sites.length === 1
+            ? <div className="nq-fixed-site">{sites[0].name}</div>
+            : <select id="nq-site" value={siteId}
+                aria-invalid={!siteOk} onChange={(event) => {
+                  setSiteId(event.target.value);
+                  setPublicLocation(sites.find((s) => s.id === event.target.value)?.public_location ?? "");
+                }}>
+              <option value="">Seleccionar obra</option>
               {sites.map((site) => <option key={site.id} value={site.id}>{site.name}</option>)}
+            </select>}
+        </div>
+        <div ref={roleRef} className="nq-field">
+          <NetworkSpecialtyPicker value={specialty}
+            onChange={(value) => { setSpecialty(value); setConfirmedMismatch(false); }}
+            suggestions={[...TRADES, ...catalog.specialties]} invalid={submitted && !tradeOk}/>
+          <div className="nq-field-progress"><StateMark ok={tradeOk}/></div>
+        </div>
+        <div className="nq-two">
+          <div className="nq-field">
+            <label htmlFor="nq-workers">Personas aprox. <StateMark ok={staffOk}/></label>
+            <div className="nq-count">
+              <button type="button" aria-label="Reducir dotación" onClick={() => setWorkers((n) => Math.max(1, n - 1))}>−</button>
+              <input id="nq-workers" type="number" value={workers} min="1" max="10000"
+                aria-invalid={!staffOk} onChange={(e) => setWorkers(Number(e.target.value))}/>
+              <button type="button" aria-label="Aumentar dotación" onClick={() => setWorkers((n) => Math.min(10000, n + 1))}>+</button>
+            </div>
+          </div>
+          <div className="nq-field">
+            <label htmlFor="nq-date"><CalendarDays size={14} aria-hidden="true"/> Inicio estimado <span className="nq-optional">Opcional</span></label>
+            <input id="nq-date" type="date" value={start} onChange={(e) => setStart(e.target.value)}/>
+            {!start && <small className="nq-soft">Por confirmar · no se anuncia fecha</small>}
+          </div>
+        </div>
+        <div className="nq-facebook">
+          <label className="nq-facebook-choice">
+            <input type="checkbox" checked={publishFacebook} onChange={(e) => setPublishFacebook(e.target.checked)}/>
+            <Facebook size={17} aria-hidden="true"/>
+            <span>Publicar también en Facebook</span>
+          </label>
+          {publishFacebook && <div className="nq-field">
+            <label htmlFor="nq-location"><MapPin size={14} aria-hidden="true"/> Sector aproximado
+              <StateMark ok={locationOk}/></label>
+            <input id="nq-location" value={publicLocation} maxLength={120}
+              aria-invalid={submitted && !locationOk}
+              placeholder="Ej. San Pedro de la Paz, Biobío"
+              onChange={(e) => setPublicLocation(e.target.value)}/>
+            <small className="nq-soft">Solo comuna o sector; el nombre de la obra es privado.</small>
+          </div>}
+        </div>
+        <details className="nq-extra" open={expandedMore} onToggle={(e) => setExpandedMore(e.currentTarget.open)}>
+          <summary><span><FileText size={16}/> Detalles del trabajo <small>(opcional)</small></span><ChevronDown size={15}/></summary>
+          <div className="nq-extra-body">
+            <label htmlFor="nq-summary">Descripción para el seguimiento interno</label>
+            <textarea id="nq-summary" value={summary} maxLength={2500} rows={2}
+              onChange={(e) => { setSummary(e.target.value); setConfirmedMismatch(false); }}
+              placeholder="Ej. Instalación de tabiques de madera. Puedes completarlo después."/>
+            <small>Ayuda a evaluar contratistas y coordinar partidas. No se publica automáticamente en Facebook.</small>
+            <label htmlFor="nq-title">Título interno personalizado <span className="nq-optional">Opcional</span></label>
+            <input id="nq-title" value={title} maxLength={180}
+              placeholder="Se genera automáticamente si lo dejas vacío"
+              onChange={(e) => setTitle(e.target.value)}/>
+            <label htmlFor="nq-priority">Prioridad <span className="nq-optional">Opcional</span></label>
+            <select id="nq-priority" value={priority} onChange={(e) => setPriority(e.target.value)}>
+              <option value="normal">Normal</option><option value="high">Alta</option>
+              <option value="urgent">Urgente</option>
             </select>
-          )}
-        </label>
-        <label>Oficio o especialidad
-          <input list="network-specialties" value={specialty} onChange={(e) => setSpecialty(e.target.value)}
-            minLength={2} maxLength={100} placeholder="Ej. Gasfitería" required />
-        </label>
-        <div className="nw-form-grid">
-          <label><span className="nw-quick-label"><CalendarDays size={16} /> Inicio estimado</span>
-            <input type="date" value={start} onChange={(e) => setStart(e.target.value)} required />
-          </label>
-          <label><span className="nw-quick-label"><Users size={16} /> Trabajadores aprox.</span>
-            <input type="number" min={1} max={10000} value={workers}
-              onChange={(e) => setWorkers(Number(e.target.value))} required />
-          </label>
-        </div>
-        <div className="nw-quick-priority">
-          <span>Urgencia</span>
-          <div className="nw-quick-options" role="group" aria-label="Nivel de urgencia">
-            {[["normal", "Normal"], ["high", "Alta"], ["urgent", "Urgente"]].map(([value, label]) => (
-              <button key={value} type="button" aria-pressed={priority === value}
-                className={"nw-quick-priority-btn " + (priority === value ? "selected" : "")}
-                onClick={() => setPriority(value)}>
-                <span className={"nw-quick-dot nw-quick-dot-" + value} /> {label}
-              </button>
-            ))}
           </div>
-        </div>
-      </section>
-      <section className="nw-quick-details" aria-label="Alcance y difusión">
-        <h3><BriefcaseBusiness size={18} /> 2. Describe el trabajo</h3>
-        <label>¿Qué labores se realizarán?
-          <textarea value={summary} onChange={(e) => setSummary(e.target.value)}
-            required minLength={3} maxLength={2500} rows={3}
-            placeholder="Ej. Instalación de redes sanitarias en departamentos, etapa terminaciones." />
-        </label>
-        <details className="nw-quick-more">
-          <summary>Más opciones (opcional)</summary>
-          <label>Título personalizado
-            <input value={title} onChange={(e) => setTitle(e.target.value)}
-              minLength={3} maxLength={180} placeholder={`Se necesita contratista de ${specialty || "tu oficio"}`} />
-          </label>
-          <div className="nw-quick-chips">
-          <span>Partidas clave <small>(opcional)</small></span>
-          <div className="nw-quick-chip-row">
-            {QUICK_PARTS.map((part) => (
-              <button className={parts.includes(part) ? "selected" : ""} key={part} type="button"
-                aria-pressed={parts.includes(part)} onClick={() => togglePart(part)}>
-                {parts.includes(part) ? <Check size={14} /> : <span aria-hidden="true">+</span>} {part}
-              </button>
-            ))}
-          </div>
-        </div>
         </details>
-        <div className="nw-quick-facebook">
-          <label className="nw-quick-facebook-heading">
-            <input type="checkbox" checked={publishFacebook} onChange={(e) => setPublishFacebook(e.target.checked)} />
-            <Facebook size={24} aria-hidden="true" />
-            <strong>Publicar también en Facebook</strong>
-          </label>
-          <small>El anuncio incluirá la fotografía aprobada. No se mostrará el nombre de la obra.</small>
-          {publishFacebook && <label>Ubicación aproximada para Facebook
-            <input type="text" value={publicLocation}
-              onChange={(e) => setPublicLocation(e.target.value)}
-              maxLength={120} placeholder="Ej. Sector San Pedro de la Paz, Biobío"
-              aria-describedby="nsp-location-help" />
-            <small id="nsp-location-help">Solo comuna o sector. Se reutilizará automáticamente para esta obra en futuras convocatorias.</small>
-          </label>}
-        </div>
-        <SocialPoster ref={posterEditor} enabled={publishFacebook} specialty={specialty}
-          publicLocation={publicLocation} workers={workers} start={start} />
+        {mismatch && <div className="nq-mismatch" role="alert">
+          <AlertCircle size={18} aria-hidden="true"/>
+          <div><strong>Revisa el oficio y la descripción</strong>
+            <p>Seleccionaste {specialty}, pero el texto parece corresponder a {labelForCategory(mismatch)}.</p>
+            <label><input type="checkbox" checked={confirmedMismatch}
+              onChange={(e) => setConfirmedMismatch(e.target.checked)}/>
+              Confirmo que ambos datos son correctos.</label>
+          </div>
+        </div>}
+        {error && <p className="nq-error" role="alert">{error}</p>}
       </section>
-      {error && <p className="nw-error nw-quick-error" role="alert">{error}</p>}
-      <div className="nw-form-actions nw-quick-actions">
-        <p><Send size={15} /> Puedes editar la necesidad después.</p>
-        <button type="submit" value="draft" className="nw-btn" disabled={busy}>Guardar borrador</button>
-        <button type="submit" value="published" className="nw-btn nw-primary" disabled={busy || !sites.length}>
-          {busy ? "Publicando..." : "Publicar necesidad"}
-        </button>
+      <section className={"nq-preview" + (mobilePane === "preview" ? " nq-mobile-active" : "")}
+        aria-label="Vista previa de Facebook">
+        <SocialPoster ref={posterEditor} compact enabled={publishFacebook} specialty={specialty}
+          publicLocation={publicLocation} workers={workers} start={start}/>
+        {!publishFacebook && <div className="nq-internal-only"><CheckCircle2 size={18}/> La necesidad solo se compartirá dentro de Red de Obras.</div>}
+      </section>
+      <div className="nq-footer">
+        <div className={"nq-progress " + (canPublish ? "ready" : "pending")} aria-live="polite">
+          {canPublish ? <CheckCircle2 size={19} aria-hidden="true"/> : <AlertCircle size={19} aria-hidden="true"/>}
+          <div><strong>{canPublish ? "Lista para publicar" : pending + (pending === 1 ? " dato pendiente" : " datos pendientes")}</strong>
+            <small>{canPublish ? "Verifica la imagen antes de compartir." : "Completa lo marcado en rojo."}</small></div>
+        </div>
+        <div className="nq-actions">
+          <button type="submit" value="draft" className="nw-btn" disabled={busy}>Guardar borrador</button>
+          <button type="submit" value="published" className="nw-btn nw-primary" disabled={busy || !sites.length}>
+            <Send size={16}/> {busy ? "Guardando…" : "Publicar necesidad"}
+          </button>
+        </div>
       </div>
     </form>
   );
