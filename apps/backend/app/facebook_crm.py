@@ -40,7 +40,7 @@ from .facebook_publication_models import FacebookPostSnapshot, FacebookPostJob
 from .network_service import key, today
 from .galancito_triage import classify_lead, dashboard
 from .security import administrator
-from .galancito_triage import analyze, private_data, quick_reply
+from .galancito_triage import analyze, private_data, quick_reply, everyday_question_reply
 from .galancito_intake import (
     declared_relative_start, identity_reply, needs_deeper_response, next_intake_reply, small_talk_reply,
     natural_messenger_reply,
@@ -459,6 +459,8 @@ def ingest_facebook_payload(db, payload, cfg, *, notices=None):
                                   availability_reply(db, lead, body, previous_question, lead.last_inbound_at)
                                   if not signal and lead.ai_consent_state != "declined" else None)
             if not signal and not direct and not lead.needs_support:
+                direct = everyday_question_reply(body)
+            if not signal and not direct and not lead.needs_support:
                 phone_prompt = phone_question_when_agreed(lead, body)
                 if phone_prompt:
                     direct = phone_prompt
@@ -527,8 +529,8 @@ def ingest_facebook_payload(db, payload, cfg, *, notices=None):
             if not use_ai and not reply and not lead.needs_support and lead.ai_consent_state != "declined":
                 flag_for_human(db, lead,
                                "Galancito no encontró una respuesta confirmada; revisión humana pendiente")
-                reply = ("No tengo una respuesta confirmada para eso. "
-                         "Avisé al equipo para que pueda ayudarte.")
+                reply = ("Aún no puedo confirmar ese dato. "
+                         "Dejé tu consulta para que la revise el equipo.")
             if use_ai and recent < 30 and ai_source != "disabled":
                 queue_locked = (db.bind.dialect.name != "postgresql" or db.scalar(
                     sql_text("SELECT pg_try_advisory_xact_lock(2075002)")))
@@ -544,8 +546,8 @@ def ingest_facebook_payload(db, payload, cfg, *, notices=None):
                 else:
                     flag_for_human(db, lead,
                                    "Cola del asistente ocupada; requiere revisión humana")
-                    reply = ("Galancito no pudo preparar una respuesta ahora. "
-                             "Avisé al equipo para que revise tu consulta.")
+                    reply = ("Ahora no puedo resolver esa consulta por aquí. "
+                             "La dejé para que la revise el equipo.")
                     db.add(FacebookChatMessage(
                         org_id=lead.org_id, lead_id=lead.id, page_id=lead.page_id,
                         direction="outbound", state="pending", body=reply,

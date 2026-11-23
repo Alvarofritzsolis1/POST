@@ -120,10 +120,18 @@ def safe_ai_reply(draft: str) -> str:
         r"(ya estas contratado|te contratamos|ya estas habilitado|te adjudicamos)",
         r"(paga primero|paga una comision|depositame)",
     )
-    if not clean or clean.count("?") > 1 or any(re.search(p, normalized) for p in forbidden):
+    if not clean or any(re.search(p, normalized) for p in forbidden):
         return "Para revisar esos datos, solicita orientación de administración por un canal seguro."
     if numbered_menu(clean):
-        return "Cuéntame con tus palabras y seguimos."
+        # Keep helpful advice; only remove numbered-choice markers.
+        clean = re.sub(r"\(\s*\d{1,2}\s*\)", "", clean)
+        clean = re.sub(r"(?m)^\s*\d{1,2}[.)]\s*", "", clean)
+        clean = re.sub(r"\s+", " ", clean).strip()
+        if numbered_menu(clean) or not clean:
+            return "¿Me cuentas un poco más para orientarte?"
+    if clean.count("?") > 1:
+        # One question at a time, without deleting the useful answer.
+        clean = clean.split("?", 1)[0].strip() + "?"
     return galancito_prefix(clean)
 
 

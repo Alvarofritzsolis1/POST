@@ -19,7 +19,7 @@ from .config import settings
 from .db import SessionLocal
 from .facebook_ai import messenger_ai_source
 from .facebook_availability_reply import availability_reply
-from .facebook_worksite_reply import is_worksite_location, worksite_reply
+from .facebook_worksite_reply import is_worksite_location, worksite_reply, application_reply
 from .facebook_crm_models import FacebookChatMessage, FacebookLead
 from .facebook_lead_insights import trace_unique_requirement
 from .galancito_flow import apply_permission_reply, consented_for, explain_permission, set_permission_request, wants_human
@@ -28,7 +28,7 @@ from .galancito_intake import declared_relative_start, identity_reply, needs_dee
 from .galancito_memory import (
     apply_messenger_message, approved_trade_aliases, aware, prior_delivered_prompt, profile_facts,
 )
-from .galancito_triage import private_data, quick_reply
+from .galancito_triage import private_data, quick_reply, everyday_question_reply
 from .galancito_phone import remember_shared_phone, phone_question_when_agreed, redact_mobile_for_intake
 from .galancito_links import audit_event
 from .galancito_memory import note_profile_sources
@@ -228,7 +228,10 @@ def sync_page_inbox(*, page_id: str, page_token: str, org_id: str,
                         ai_generated=False))
                     queued += 1
                     continue
-                direct = follow_up or explain_permission(lead, body, prior) or worksite_reply(db, lead, body, prior)
+                direct = (follow_up or explain_permission(lead, body, prior)
+                          or worksite_reply(db, lead, body, prior)
+                          or application_reply(db, lead, body, prior)
+                          or everyday_question_reply(body))
                 if not direct and not lead.needs_support:
                     direct = phone_question_when_agreed(lead, body)
                     if direct:
@@ -241,7 +244,11 @@ def sync_page_inbox(*, page_id: str, page_token: str, org_id: str,
                     # webhook, even when consent was granted in an older chat.
                     state, reply = "pending", small_talk_reply(body)
                 elif consented_for(lead, source):
-                    state, reply = "ai_pending", ""
+                    facts = profile_facts(lead, changed=changed)
+                    local = next_intake_reply(body, facts, prior)
+                    if not local and not needs_deeper_response(body):
+                        local = quick_reply(body, known=facts)
+                    state, reply = ("pending", local) if local else ("ai_pending", "")
                 else:
                     facts = profile_facts(lead, changed=changed)
                     reply = small_talk_reply(body) or next_intake_reply(body, facts, prior)
