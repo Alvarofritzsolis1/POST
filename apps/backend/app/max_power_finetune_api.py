@@ -18,7 +18,7 @@ from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
 
 from .db import get_db
-from .max_power_models import MaxPowerEvent, MaxPowerState
+from .max_power_models import MaxPowerEvent, MaxPowerState, MaxPowerMessengerTrial
 from .models import User, utcnow
 from .security import administrator
 
@@ -149,6 +149,11 @@ def automated_plan(x_galant_manager_timestamp: str = Header(default=""),
     from .galancito_training_models import ACTIVE, TrainingRound
     practice_busy = bool(db.scalar(select(TrainingRound.id).where(
         TrainingRound.state.in_(ACTIVE)).limit(1)))
+    # Synthetic Qwen reply runs are not TrainingRound rows; honor their lease.
+    practice_busy = practice_busy or bool(db.scalar(select(MaxPowerMessengerTrial.id).where(
+        MaxPowerMessengerTrial.status == "running",
+        MaxPowerMessengerTrial.lease_until > utcnow()
+    ).limit(1)))
     return {
         "enabled": True, "org_id": row.org_id,
         "generation": row.session_generation,
