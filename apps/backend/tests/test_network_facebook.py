@@ -1,5 +1,8 @@
 """Pruebas de seguridad, idempotencia y publicación sin contacto real con Meta."""
+import base64
 from io import BytesIO
+
+from PIL import Image
 from urllib.error import HTTPError, URLError
 
 from app.config import settings
@@ -17,24 +20,42 @@ def _enable(monkeypatch):
     settings.cache_clear()
 
 
+
+def _visual(body):
+    """JPG sintético verificado; sin contenido privado ni acceso real a Meta."""
+    image = Image.new("RGB", (1080, 1350), "#0f4048")
+    buffer = BytesIO()
+    image.save(buffer, format="JPEG", quality=80)
+    body["publish_to_facebook"] = True
+    body["public_location"] = "San Pedro de la Paz, Biobío"
+    body["poster_data"] = "data:image/jpeg;base64," + base64.b64encode(buffer.getvalue()).decode()
+    return body
+
+
 def test_facebook_publishes_once_updates_and_deletes(network, monkeypatch):
     n = network
     _enable(monkeypatch)
-    body = request_body(n, items=2)
-    body["publish_to_facebook"] = True
+    body = _visual(request_body(n, items=2))
     created = n["send"](n["a"], "/requirements", body)
     assert created.status_code == 201, created.text
     req = created.json()
     assert req["facebook"]["state"] == "pending"
+    assert req["poster_available"] is True
     calls = []
+
+    def photo(page_id, token, message, poster_path, org_id):
+        calls.append(("PHOTO", page_id, message))
+        assert token == "token_sintetico_no_real"
+        assert "Observación privada de la obra" not in message
+        assert req["site"] not in message
+        assert "San Pedro de la Paz" in message
+        return {"post_id": "1489275590928529_99887766"}
 
     def graph(method, path, token, message=None):
         calls.append((method, path, message))
-        assert token == "token_sintetico_no_real"
-        assert "Observación privada de la obra" not in (message or "")
-        assert "Carpintería" in (message or "") or method == "DELETE"
-        return {"id": "1489275590928529_99887766"} if path.endswith("/feed") else {"success": True}
+        return {"success": True}
 
+    monkeypatch.setattr("app.network_facebook.graph_photo_post", photo)
     monkeypatch.setattr("app.network_facebook.graph_request", graph)
     assert process_next(n["Session"]) is True
     assert process_next(n["Session"]) is False
@@ -42,24 +63,26 @@ def test_facebook_publishes_once_updates_and_deletes(network, monkeypatch):
     current = n["a"].get("/api/v1/network/requirements/" + req["id"]).json()
     assert current["facebook"]["state"] == "published"
     assert current["facebook"]["post_url"]
+    # No auto-republicación de una foto; requiere revisión y nuevo consentimiento.
     assert n["send"](n["admin"], "/requirements/" + req["id"] + "/facebook/sync").status_code == 200
-    assert process_next(n["Session"]) is True  # actualización del mismo post
-    assert calls[-1][:2] == ("POST", "/1489275590928529_99887766")
+    assert process_next(n["Session"]) is True
+    assert len(calls) == 1
+    check = n["a"].get("/api/v1/network/requirements/" + req["id"]).json()
+    assert check["facebook"]["state"] == "failed"
 
     edit = request_body(n, items=2)
-    edit["publish_to_facebook"] = True
-    edit.update({"version": current["version"], "reason": "Cambio de fecha",
+    edit.update({"publish_to_facebook": True,
+                 "public_location": "San Pedro de la Paz, Biobío",
+                 "version": current["version"], "reason": "Cambio de fecha",
                  "title": "Carpinteros para terminaciones, segunda etapa"})
     updated = n["send"](n["a"], "/requirements/" + req["id"], edit, "PUT")
     assert updated.status_code == 200, updated.text
     assert process_next(n["Session"]) is True
-    assert len(calls) == 3  # no nueva publicación para cambios
-    assert calls[-1][1] == "/1489275590928529_99887766"
-    assert "segunda etapa" in calls[-1][2]
+    assert len(calls) == 1
 
     cancel = request_body(n, items=2)
-    cancel["publish_to_facebook"] = True
-    cancel.update({"state": "cancelled", "version": updated.json()["version"],
+    cancel.update({"publish_to_facebook": True,
+                   "state": "cancelled", "version": updated.json()["version"],
                    "reason": "Partida cancelada"})
     response = n["send"](n["a"], "/requirements/" + req["id"], cancel, "PUT")
     assert response.status_code == 200, response.text
@@ -72,7 +95,7 @@ def test_facebook_ambiguous_response_requires_manual_review(network, monkeypatch
     n = network
     _enable(monkeypatch)
     body = request_body(n)
-    body["publish_to_facebook"] = True
+    _visual(body)
     created = n["send"](n["a"], "/requirements", body)
     assert created.status_code == 201
     req_id = created.json()["id"]
@@ -80,7 +103,7 @@ def test_facebook_ambiguous_response_requires_manual_review(network, monkeypatch
     def lost_response(*_args, **_kwargs):
         raise URLError("Simulación de respuesta perdida")
 
-    monkeypatch.setattr("app.network_facebook.graph_request", lost_response)
+    monkeypatch.setattr("app.network_facebook.graph_photo_post", lost_response)
     assert process_next(n["Session"])
     assert not process_next(n["Session"])
     state = n["a"].get("/api/v1/network/requirements/" + req_id).json()["facebook"]
@@ -119,33 +142,21 @@ def test_facebook_opt_out_never_creates_external_job(network, monkeypatch):
 def test_facebook_can_be_disabled_on_an_existing_post(network, monkeypatch):
     n = network
     _enable(monkeypatch)
-    body = request_body(n)
-    body["publish_to_facebook"] = True
-    created = n["send"](n["a"], "/requirements", body)
+    created = n["send"](n["a"], "/requirements", _visual(request_body(n)))
     assert created.status_code == 201, created.text
     req_id = created.json()["id"]
     calls = []
-
-    def graph(method, path, token, message=None):
-        calls.append((method, path))
-        return {"id": "1489275590928529_445566"} if path.endswith("/feed") else {"success": True}
-
-    monkeypatch.setattr("app.network_facebook.graph_request", graph)
+    monkeypatch.setattr("app.network_facebook.graph_photo_post", lambda *args: calls.append("PHOTO") or {"post_id": "1489275590928529_445566"})
+    monkeypatch.setattr("app.network_facebook.graph_request", lambda method, path, token, message=None: calls.append((method, path)) or {"success": True})
     assert process_next(n["Session"])
     current = n["a"].get("/api/v1/network/requirements/" + req_id).json()
     edit = request_body(n)
-    edit.update({
-        "publish_to_facebook": False,
-        "version": current["version"],
-        "reason": "Desactivar difusión externa",
-    })
+    edit.update({"publish_to_facebook": False, "version": current["version"],
+                 "reason": "Desactivar difusión externa"})
     updated = n["send"](n["a"], "/requirements/" + req_id, edit, "PUT")
     assert updated.status_code == 200, updated.text
     assert process_next(n["Session"])
-    assert calls == [
-        ("POST", "/1489275590928529/feed"),
-        ("DELETE", "/1489275590928529_445566"),
-    ]
+    assert calls == ["PHOTO", ("DELETE", "/1489275590928529_445566")]
 
 
 def test_galancito_local_writes_only_hook_for_selected_automatic_ad(network, monkeypatch):
@@ -155,24 +166,17 @@ def test_galancito_local_writes_only_hook_for_selected_automatic_ad(network, mon
     monkeypatch.setenv("GALANCITO_LOCAL_AI_ENABLED", "true")
     monkeypatch.setenv("FACEBOOK_AI_AD_ENABLED", "true")
     settings.cache_clear()
-    body = request_body(n)
-    body["publish_to_facebook"] = True
-    made = n["send"](n["a"], "/requirements", body)
+    made = n["send"](n["a"], "/requirements", _visual(request_body(n)))
     assert made.status_code == 201, made.text
-    calls, generated = [], []
-    monkeypatch.setattr("app.facebook_ai.generate_ad_opening",
-                        lambda title, trade: generated.append((title, trade)) or
-                        "Buscamos especialistas en " + trade)
-    def send(method, path, token, message=None):
-        calls.append(message or "")
-        return {"id": "1489275590928529_909090"} if method == "POST" and path.endswith("/feed") else {"success": True}
-    monkeypatch.setattr("app.network_facebook.graph_request", send)
+    calls = []
+    monkeypatch.setattr("app.network_facebook.graph_photo_post",
+                        lambda page, token, msg, path, org: calls.append(msg) or {"post_id": "1489275590928529_909090"})
     assert process_next(n["Session"]) is True
-    assert len(generated) == 1 and len(calls) == 1
-    assert calls[0].startswith("Buscamos especialistas en")
+    assert len(calls) == 1
     assert "Dotación estimada:" in calls[0]
     assert "Inicio estimado:" in calls[0]
     assert "Convocatoria sujeta a evaluación" in calls[0]
+    assert "San Pedro de la Paz" in calls[0]
     settings.cache_clear()
 
 
@@ -183,17 +187,12 @@ def test_galancito_local_auto_ad_falls_back_without_hallucinations(network, monk
     monkeypatch.setenv("GALANCITO_LOCAL_AI_ENABLED", "true")
     monkeypatch.setenv("FACEBOOK_AI_AD_ENABLED", "true")
     settings.cache_clear()
-    body = request_body(n)
-    body["publish_to_facebook"] = True
-    assert n["send"](n["a"], "/requirements", body).status_code == 201
-    monkeypatch.setattr("app.facebook_ai.generate_ad_opening",
-                        lambda *_: "Carpintería con sueldo garantizado $2000000")
+    assert n["send"](n["a"], "/requirements", _visual(request_body(n))).status_code == 201
     content = []
-    monkeypatch.setattr("app.network_facebook.graph_request",
-                        lambda method, path, token, msg=None:
-                        content.append(msg or "") or {"id": "1489275590928529_737373"})
+    monkeypatch.setattr("app.network_facebook.graph_photo_post",
+                        lambda page, token, msg, path, org: content.append(msg) or {"post_id": "1489275590928529_737373"})
     assert process_next(n["Session"]) is True
-    assert content[0].startswith("CONVOCATORIA PARA EMPRESAS CONTRATISTAS")
+    assert content[0].startswith("BUSCAMOS EMPRESAS CONTRATISTAS")
     assert "$2000000" not in content[0]
     settings.cache_clear()
 
@@ -223,16 +222,11 @@ def test_meta_token_expired_has_specific_recovery_hint():
 def test_facebook_center_shows_confirmed_publications_not_false_not_queued(network, monkeypatch):
     n = network
     _enable(monkeypatch)
-    body = request_body(n)
-    body["publish_to_facebook"] = True
-    created = n["send"](n["a"], "/requirements", body)
-    assert created.status_code == 201
+    created = n["send"](n["a"], "/requirements", _visual(request_body(n)))
+    assert created.status_code == 201, created.text
     req_id = created.json()["id"]
-
-    def graph(method, path, token, message=None):
-        return {"id": "1489275590928529_321987"} if method == "POST" else {"success": True}
-
-    monkeypatch.setattr("app.network_facebook.graph_request", graph)
+    monkeypatch.setattr("app.network_facebook.graph_photo_post",
+                        lambda *args: {"post_id": "1489275590928529_321987"})
     assert process_next(n["Session"])
     result = n["send"](n["admin"], "/facebook/center", method="GET")
     assert result.status_code == 200, result.text
@@ -249,16 +243,14 @@ def test_facebook_center_shows_confirmed_publications_not_false_not_queued(netwo
 def test_meta_400_in_worker_sets_actionable_failed_status(network, monkeypatch):
     n = network
     _enable(monkeypatch)
-    body = request_body(n)
-    body["publish_to_facebook"] = True
-    created = n["send"](n["a"], "/requirements", body)
+    created = n["send"](n["a"], "/requirements", _visual(request_body(n)))
     assert created.status_code == 201
 
     def denied(*args, **kwargs):
         raise HTTPError("https://graph.facebook.com/ignored", 400, "Bad Request",
                         {}, BytesIO(b'{"error":{"code":200,"message":"private"}}'))
 
-    monkeypatch.setattr("app.network_facebook.graph_request", denied)
+    monkeypatch.setattr("app.network_facebook.graph_photo_post", denied)
     assert process_next(n["Session"])
     requirement = n["send"](n["admin"], "/requirements/" + created.json()["id"], method="GET")
     assert requirement.status_code == 200
