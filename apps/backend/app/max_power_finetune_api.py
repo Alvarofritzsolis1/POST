@@ -85,6 +85,7 @@ AUTOMATION_STATES = {
     "awaiting_approved_dataset": "Falta un conjunto real autorizado y firmado para LoRA CPU",
     "awaiting_resources": "RAM o disco insuficientes; se protege Messenger",
     "messenger_priority": "Messenger activo; entrenamiento neuronal en pausa",
+    "practice_priority": "Prueba MAX POWER activa; entrenamiento neuronal en espera",
     "preflight": "Comprobando RAM y disco del VPS",
     "training": "Actualizando pesos LoRA de Qwen3.5 0.8B",
     "pausing": "Guardando checkpoint y pausando entrenamiento",
@@ -117,7 +118,7 @@ class SupervisorStatus(BaseModel):
     org_id: UUID
     generation: int = Field(ge=1)
     status: Literal["off", "awaiting_approved_dataset", "awaiting_resources",
-                    "messenger_priority", "preflight", "training", "pausing",
+                    "messenger_priority", "practice_priority", "preflight", "training", "pausing",
                     "paused", "finished", "awaiting_new_dataset",
                     "cannot_resume", "failed"]
 
@@ -136,10 +137,14 @@ def automated_plan(x_galant_manager_timestamp: str = Header(default=""),
     from .galancito_trainer import messenger_busy
     from .max_power_worker import messenger_recent
     busy = bool(messenger_busy(db) or messenger_recent(db))
+    from .galancito_training_models import ACTIVE, TrainingRound
+    practice_busy = bool(db.scalar(select(TrainingRound.id).where(
+        TrainingRound.state.in_(ACTIVE)).limit(1)))
     return {
         "enabled": True, "org_id": row.org_id,
         "generation": row.session_generation,
         "messenger_busy": busy,
+        "practice_busy": practice_busy,
         "other_organizations_waiting": len(enabled) > 1,
     }
 
