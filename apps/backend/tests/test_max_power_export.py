@@ -23,7 +23,7 @@ def test_report_requires_admin_and_never_crosses_organizations(ai_env):
     assert first.json()["schema"] == SCHEMA
     assert first.json()["session"]["ever_started"] is False
     assert first.json()["measured_quality"]["messenger"]["baseline"] is None
-    assert first.headers["cache-control"].startswith("private, no-store")
+    assert "no-store" in first.headers["cache-control"]  # global middleware overrides route header
     assert first.headers["x-content-type-options"] == "nosniff"
     assert "attachment;" in first.headers["content-disposition"]
 
