@@ -41,7 +41,7 @@ jobs:
           docker run --rm --memory 5g --memory-swap 5g --cpus 2 \
             -v "$RUNNER_TEMP/maxpower-private:/private" \
             galant-cpu-lora-smoke:ci --preflight
-      - name: Ejecutar 1 paso REAL de optimización LoRA Qwen 0.8B con datos ficticios
+      - name: Ejecutar los 4 pasos REALES de LoRA del supervisor de MAX POWER
         shell: bash
         run: |
           set -Eeuo pipefail
@@ -53,8 +53,8 @@ jobs:
             galant-cpu-lora-smoke:ci \
             --dataset /private/ci/synthetic-lab-galant-curated-synthetic-intake-2/synthetic.jsonl \
             --output /private/ci/synthetic-lab-galant-curated-synthetic-intake-2/runs/ci-gradient-smoke \
-            --execute --synthetic-development --max-steps 1 \
-            --checkpoint-steps 1 --max-tokens 96
+            --execute --synthetic-development --max-steps 4 \
+            --checkpoint-steps 2 --max-tokens 96
       - name: Verificar pasos, pesos, checkpoints, holdout y ausencia de promoción
         run: |
           set -Eeuo pipefail
@@ -68,12 +68,13 @@ jobs:
           assert report["data_kind"]=="curated_synthetic", report
           assert report["base_model"]=="Qwen/Qwen3.5-0.8B", report
           assert report["weights_trained"] is True
-          assert report["new_optimizer_steps"]>=1, report
+          assert report["new_optimizer_steps"]==4, report
           assert report["optimizer_start_sha256"] != report["optimizer_end_sha256"]
           assert report["reasoning_improvement_proven"] is False
           assert report["production_promoted"] is False
           assert (output/"candidate-adapter"/"adapter_model.safetensors").is_file()
           assert list((output/"checkpoints").glob("checkpoint-*/optimizer.pt"))
+          assert any(p.name=="checkpoint-4" for p in (output/"checkpoints").glob("checkpoint-*"))
           # The same manager that runs behind the MAX POWER button must
           # accept the REAL training artifacts, not only this CI assertion.
           import sys
