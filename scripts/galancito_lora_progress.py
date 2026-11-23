@@ -109,6 +109,8 @@ class ProgressReporter:
             "weights_trained": bool(weights_trained),
             "candidate_accepted": bool(candidate_accepted),
         }
+        if getattr(self, "data_kind", None) in ("curated_synthetic", "human_reviewed_real"):
+            entry["data_kind"] = self.data_kind
         if kind == "preflight" and isinstance(metrics.get("preflight_ready"), bool):
             entry["preflight_ready"] = metrics["preflight_ready"]
         # Hashes identify changes in adapter tensors without revealing their
