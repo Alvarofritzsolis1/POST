@@ -1,0 +1,138 @@
+"""Historical evidence covers all retained metadata, without using raw chat text."""
+from datetime import timedelta
+from hashlib import sha256
+import json
+from types import SimpleNamespace
+
+import pytest
+
+from app.ai_quality_models import AIResponseReview, AIRealPracticeTrial
+from app.facebook_crm_models import FacebookChatMessage, FacebookLead
+from app.galancito_knowledge_models import AssistantRun
+from app.galancito_finetune_dataset import bucket, load_approved, verified_match
+from app.models import User, utcnow
+from test_ai_control_center import ai_env, signin
+
+
+BASE = "/api/v1/admin/ai/real-learning"
+
+
+def test_historical_inventory_is_private_and_includes_old_records(ai_env):
+    client, sessions, org_id = ai_env["client"], ai_env["sessions"], ai_env["org_id"]
+    old = utcnow() - timedelta(days=160)
+    with sessions.begin() as db:
+        reviewer = db.query(User).filter(User.org_id == org_id, User.role == "admin").one()
+        lead = FacebookLead(org_id=org_id, page_id="history-page", psid="historic-only")
+        db.add(lead)
+        db.flush()
+        db.add(FacebookChatMessage(org_id=org_id, lead_id=lead.id, page_id="history-page",
+                                   direction="outbound", state="sent", ai_generated=True,
+                                   body="CONFIDENTIAL-HISTORIC-MESSAGE", created_at=old))
+        run = AssistantRun(org_id=org_id, channel="messenger", source="ai",
+                           elapsed_ms=1350, feedback="incorrect", created_at=old)
+        db.add(run)
+        db.flush()
+        review = AIResponseReview(
+            org_id=org_id, reviewer_id=reviewer.id, channel="messenger",
+            rubric_version=1, evidence_kind="messenger_message",
+            evidence_id="11111111-1111-1111-1111-111111111111",
+            source_at=old, ratings={"context": False, "safety": None})
+        db.add(review)
+        db.flush()
+        db.add(AIRealPracticeTrial(org_id=org_id, review_id=review.id,
+                                   reviewer_id=reviewer.id, channel="messenger",
+                                   criterion="context", model="qwen3.5:4b-q4_K_M",
+                                   elapsed_ms=1500, outcome="better", created_at=old))
+
+    assert client.get(BASE + "/history").status_code == 401
+    signin(client, "resident")
+    assert client.get(BASE + "/history").status_code == 403
+    signin(client, "admin")
+    response = client.get(BASE + "/history?months=0")
+    assert response.status_code == 200, response.text
+    result = response.json()
+    assert result["window"] == "all_retained"
+    assert result["sources"]["runs"]["count"] == 1
+    assert result["sources"]["delivered_messenger"]["count"] == 1
+    assert result["sources"]["reviews"]["count"] == 1
+    assert result["sources"]["practice_trials"]["count"] == 1
+    assert result["audited_deficiencies"]["messenger"]["context"]["failed"] == 1
+    assert result["audited_deficiencies"]["messenger"]["context"]["failure_percent"] == 100
+    assert result["audited_deficiencies"]["messenger"]["safety"]["assessed"] == 0
+    assert result["runs_by_channel"]["messenger"]["reported_incorrect"] == 1
+    assert result["historical_quality_grade"] is None
+    assert result["weights_updated"] is False
+    assert "CONFIDENTIAL-HISTORIC-MESSAGE" not in response.text
+    recent = client.get(BASE + "/history?months=1").json()
+    assert recent["sources"]["runs"]["count"] == 0
+    assert recent["sources"]["reviews"]["count"] == 0
+    assert client.get(BASE + "/history?months=61").status_code == 422
+    signin(client, "outside")
+    other = client.get(BASE + "/history").json()
+    assert other["sources"]["runs"]["count"] == 0
+    assert other["sources"]["reviews"]["count"] == 0
+
+
+def _example(number):
+    return {
+        "source": "human_reviewed_real",
+        "approved_by": "00000000-0000-0000-0000-000000000001",
+        "usage_authorized": True, "privacy_reviewed": True,
+        "case_group": sha256(f"group:{number}".encode()).hexdigest(),
+        "criterion": "reasoning", "verifier": "exact",
+        "reference_answer": f"Resultado {number + 2}",
+        "messages": [
+            {"role": "user", "content": f"Calcula: {number} más dos"},
+            {"role": "assistant", "content": f"Resultado {number + 2}"},
+        ],
+    }
+
+
+def test_training_data_gate_rejects_synthetic_private_and_duplicate(tmp_path):
+    path = tmp_path / "training.jsonl"
+    examples = [_example(n) for n in range(200)]
+    path.write_text("\n".join(json.dumps(x, ensure_ascii=False) for x in examples) + "\n",
+                    encoding="utf-8")
+    ready = load_approved(path)
+    assert all(ready["sizes"][name] >= minimum
+               for name, minimum in {"train": 30, "validation": 10, "test": 10}.items())
+    assert sum(ready["sizes"].values()) == 200
+    assert ready["all_real_approved"] is True
+    assert ready["dataset_digest"] and "samples" in ready
+    assert verified_match("Respuesta final", "respuesta final", "exact") is True
+    assert verified_match("No es respuesta final", "respuesta final", "exact") is False
+    assert verified_match("Valor 14", "14", "contains") is True
+
+    bad = _example(1000)
+    bad["source"] = "synthetic"
+    path.write_text(json.dumps(bad), encoding="utf-8")
+    with pytest.raises(ValueError, match="no autorizado"):
+        load_approved(path, enforce_minimum=False)
+    bad["source"] = "human_reviewed_real"
+    bad["usage_authorized"] = False
+    path.write_text(json.dumps(bad), encoding="utf-8")
+    with pytest.raises(ValueError, match="no autorizado"):
+        load_approved(path, enforce_minimum=False)
+    bad["usage_authorized"] = True
+    bad["messages"][0]["content"] = "Mi correo es nombre@example.cl"
+    path.write_text(json.dumps(bad), encoding="utf-8")
+    with pytest.raises(ValueError, match="dato personal"):
+        load_approved(path, enforce_minimum=False)
+    one = _example(800)
+    path.write_text(json.dumps(one), encoding="utf-8")
+    with pytest.raises(ValueError, match="insuficientes"):
+        load_approved(path)
+    path.write_text(json.dumps(one) + "\n" + json.dumps(one), encoding="utf-8")
+    with pytest.raises(ValueError, match="pregunta repetida"):
+        load_approved(path, enforce_minimum=False)
+
+
+def test_historical_history_is_sql_aggregated_not_chat_content(ai_env):
+    client = ai_env["client"]
+    signin(client)
+    response = client.get(BASE + "/history")
+    assert response.status_code == 200
+    result = response.json()
+    assert result["sources"]["delivered_messenger"]["count"] == 0
+    assert result["historical_quality_grade"] is None
+    assert all(item for item in result["limitations"])
