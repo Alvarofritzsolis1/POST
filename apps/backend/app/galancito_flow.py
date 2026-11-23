@@ -195,8 +195,18 @@ def explain_permission(lead, message: str, previous: str) -> str | None:
 
 def apply_permission_reply(lead, message: str, delivered_prompt: str) -> bool | None:
     """Treat a bare yes/no as consent only when it answers the permission prompt."""
-    if wants_human(message) or _plain(message) in {"no autorizo", "no acepto usar ia"}:
+    value = _plain(message)
+    explicit_revocation = value in {
+        "no autorizo", "no acepto usar ia", "no quiero ia", "sin ia",
+        "no usar ia", "no mas ia", "no mas bot",
+        "retirar consentimiento", "revoco mi autorizacion",
+    }
+    if explicit_revocation:
         result = False
+    elif wants_human(message):
+        # Human handoff pauses automation but does NOT revoke an earlier,
+        # explicitly accepted provider consent. The person can return later.
+        return None
     elif (lead.ai_consent_state in {"requested", "requested_team"} and
           is_permission_prompt(lead, delivered_prompt)):
         result = consent_decision(message)
