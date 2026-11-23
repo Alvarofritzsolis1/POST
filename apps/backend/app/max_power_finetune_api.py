@@ -87,6 +87,8 @@ AUTOMATION_STATES = {
     "messenger_priority": "Messenger activo; entrenamiento neuronal en pausa",
     "practice_priority": "Prueba MAX POWER activa; entrenamiento neuronal en espera",
     "cpu_waiting_turn": "Datos autorizados listos; esperando que termine la práctica 4B para entrenar pesos",
+    "retry_cooldown": "Entrenador liberó recursos y reintentará con pausa segura después del error",
+    "retry_exhausted": "Tres fallos reales: se suspenden reintentos para proteger GALANT; revisar recursos o datos",
     "preflight": "Comprobando RAM y disco del VPS",
     "training": "Actualizando pesos LoRA de Qwen3.5 0.8B",
     "pausing": "Guardando checkpoint y pausando entrenamiento",
@@ -119,7 +121,8 @@ class SupervisorStatus(BaseModel):
     org_id: UUID
     generation: int = Field(ge=1)
     status: Literal["off", "awaiting_approved_dataset", "awaiting_resources",
-                    "messenger_priority", "practice_priority", "cpu_waiting_turn", "preflight", "training", "pausing",
+                    "messenger_priority", "practice_priority", "cpu_waiting_turn",
+                    "retry_cooldown", "retry_exhausted", "preflight", "training", "pausing",
                     "paused", "finished", "awaiting_new_dataset",
                     "cannot_resume", "failed"]
 
