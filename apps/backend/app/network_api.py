@@ -225,6 +225,10 @@ def check_public_location(body, site):
     # Internal project names and specific street addresses are never public.
     if len(site.name.strip()) >= 7 and site.name.casefold() in public.casefold():
         raise HTTPException(422, "La ubicación pública no debe contener el nombre de la obra")
+    if len(site.name.strip()) >= 7 and site.name.casefold() in body.specialty.casefold():
+        raise HTTPException(422, "El oficio público no debe incluir el nombre de la obra")
+    if re.search(r"\\d", public):
+        raise HTTPException(422, "El sector público no admite numeración ni dirección exacta")
     if re.search(r"\b(?:calle|avenida|pasaje|n[uú]mero)\b|#\s*\d", public, flags=re.IGNORECASE):
         raise HTTPException(422, "Publica solo comuna o sector, sin calle ni dirección exacta")
     if "\n" in public or "\r" in public:
