@@ -270,3 +270,39 @@ def test_one_button_diagnoses_exact_missing_approvals_without_reading_private_te
     manifest.unlink()
     manifest.symlink_to(data)
     assert mod.readiness_blocker(root, data, manifest, "a"*64) == "approved_dataset_rejected"
+
+
+def test_multiple_organizations_get_turns_without_interrupting_active_gradients(ai_env, monkeypatch):
+    monkeypatch.setenv("GALANT_FINETUNE_METRICS_SECRET", MASTER)
+    client = ai_env["client"]
+    root = BASE
+    admin = signin(client, "admin")
+    assert client.post(root + "/control/on", headers=admin).status_code == 200
+    outside = signin(client, "outside")
+    assert client.post(root + "/control/on", headers=outside).status_code == 200
+
+    plan_endpoint = root + "/finetune/automation/plan"
+    first = client.get(plan_endpoint, headers=headers()).json()
+    assert first["enabled"] is True
+    assert first["other_organizations_waiting"] is True
+    assert first["org_id"] == ai_env["org_id"]
+    first_status = {"org_id": first["org_id"], "generation": first["generation"],
+                    "status": "approved_dataset_missing"}
+    assert client.post(root + "/finetune/automation/status",
+                       headers=headers(), json=first_status).status_code == 200
+
+    second = client.get(plan_endpoint, headers=headers()).json()
+    assert second["enabled"] is True
+    assert second["org_id"] != first["org_id"]
+    second_status = {"org_id": second["org_id"], "generation": second["generation"],
+                     "status": "training"}
+    assert client.post(root + "/finetune/automation/status",
+                       headers=headers(), json=second_status).status_code == 200
+
+    # An active optimizer retains the turn instead of being killed to serve
+    # a different organization. Different orgs cannot read one another's data.
+    sticky = client.get(plan_endpoint, headers=headers()).json()
+    assert sticky["org_id"] == second["org_id"]
+    assert client.get(root, headers=outside).json()["cpu_learning"]["status"] == "training"
+    signin(client, "admin")
+    assert client.get(root).json()["cpu_learning"]["status"] == "approved_dataset_missing"
