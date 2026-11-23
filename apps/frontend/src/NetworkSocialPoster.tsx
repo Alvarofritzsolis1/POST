@@ -246,11 +246,15 @@ const SocialPoster = forwardRef<SocialPosterHandle, Props>(function SocialPoster
           <div className={"nsp-facebook" + (mobile ? " mobile" : "")}>
             <div className="nsp-fbhead"><span className="nsp-profile"><Camera size={16}/></span><span><b>Página de Facebook</b><small>Vista previa · Público</small></span><b className="nsp-more">···</b></div>
             <div className="nsp-caption">
-              <strong>Buscamos empresas contratistas de {specialty.trim().toLowerCase() || "…"}</strong>
-              <p>{publicSummary.trim() || "El resumen editable de las labores aparecerá aquí."}</p>
-              <small><MapPin size={13} aria-hidden="true"/> {publicLocation || "Ubicación pendiente"} · {workers || 1} personas
-                {start ? " · " + format(start) : ""}</small>
-              <details className="nsp-caption-more"><summary>Ver texto completo de Facebook</summary>
+              <strong className="nsp-copy-headline">Buscamos empresas contratistas de {specialty.trim().toLowerCase() || "…"}</strong>
+              <p className="nsp-work-summary">{publicSummary.trim() || "El resumen de las labores aparecerá aquí."}</p>
+              <div className="nsp-facts" aria-label="Datos de la convocatoria">
+                <span><MapPin size={13} aria-hidden="true"/> {publicLocation || "Ubicación por confirmar"}</span>
+                <span>{workers || 1} {(workers || 1) === 1 ? "persona estimada" : "personas estimadas"}</span>
+                {start && <span>Inicio: {format(start)}</span>}
+              </div>
+              <p className="nsp-copy-cta">¿Tu empresa realiza estos trabajos? Escríbenos por mensaje privado.</p>
+              <details className="nsp-caption-more"><summary>Ver el texto exacto para Facebook</summary>
                 <pre>{publicCaption(specialty, publicLocation, workers, start, publicSummary)}</pre>
               </details>
             </div>
