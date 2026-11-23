@@ -27,8 +27,9 @@ from .galancito_intake import identity_reply, next_intake_reply, small_talk_repl
 from .galancito_memory import aware, note_profile_sources, prior_delivered_prompt, profile_facts, reply_focus
 from .galancito_knowledge import retrieve, exact_answer, evidence_context
 from .galancito_runtime import infer, record_run
-from .galancito_local import last_timings
+from .galancito_local import last_timings, MAX_CONTEXT_CHARS
 from .galancito_escalation import flag_for_human
+from .ai_defect_learning import approved_coaching
 
 class NoRedirect(HTTPRedirectHandler):
     def redirect_request(self, req, fp, code, msg, headers, newurl):
@@ -256,6 +257,8 @@ def process_chat_next(session_factory=SessionLocal) -> bool:
         inbound_at = lead.last_inbound_at
         outbound_queue_ms = max(0, round((utcnow() - aware(job.created_at)).total_seconds() * 1000))
         fast, intent, fast_source, model_needed, context = None, "unknown", "local", False, ""
+        trace = {"trace_version": 1, "context_turns": 0, "known_fields": 0,
+                 "knowledge_count": 0, "model_requested": False, "context_truncated": False}
         if state == "ai_pending":
             turns = list(db.scalars(select(FacebookChatMessage).where(
                 FacebookChatMessage.lead_id == lead.id,
@@ -280,6 +283,8 @@ def process_chat_next(session_factory=SessionLocal) -> bool:
             model_needed = (bool(latest) and not (location or follow_up) and not private_data(latest) and not identity_reply(latest)
                             and intent not in {"human", "restricted"} and fast_source != "knowledge"
                             and (not fast or needs_deeper_response(latest)))
+            trace["model_requested"] = bool(model_needed)
+            trace["knowledge_count"] = len(evidence)
             if model_needed:
                 facts["trades"] = list(db.scalars(select(FacebookLeadTrade.trade).where(
                     FacebookLeadTrade.lead_id == lead.id, FacebookLeadTrade.active.is_(True))))
@@ -291,6 +296,8 @@ def process_chat_next(session_factory=SessionLocal) -> bool:
                 ]
                 professional_facts = {k: v for k, v in facts.items()
                                       if k not in {"display_name", "name_opt_out", "turn_changed"}}
+                trace["context_turns"] = len(context_turns)
+                trace["known_fields"] = sum(bool(value) for value in professional_facts.values())
                 context = ("Consulta actual: " + latest[:800] +
                            "\nÚltimos turnos de esta conversación:\n" +
                            "\n".join(context_turns)[-1100:] +
@@ -353,12 +360,21 @@ def process_chat_next(session_factory=SessionLocal) -> bool:
                                 current.last_inbound_at != inbound_at or current.ai_paused or current.needs_support or
                                 not consented_for(current, ai_source) or messenger_ai_source(db, org_id, cfg) != ai_source):
                             return True
+                        verified_policy = approved_coaching(db, org_id, "messenger")
+                        prepared_context = context
+                        trace["context_truncated"] = len(prepared_context) > MAX_CONTEXT_CHARS
+                        trace["context_chars"] = len(prepared_context)
+                        trace["approved_coaching"] = bool(verified_policy)
                         drafted = infer(db, lambda: (
                             orchestrated_text(db, org_id, task="messenger",
-                                              instructions=REPLY_INSTRUCTIONS, prompt=context,
+                                              instructions=(REPLY_INSTRUCTIONS +
+                                                            ("\nGuía aprobada:\n" + verified_policy if verified_policy else "")),
+                                              prompt=prepared_context,
                                               max_output_tokens=230)
                             if ai_source == "team" else
-                            generate_text(REPLY_INSTRUCTIONS, context, 550)),
+                            (generate_text(REPLY_INSTRUCTIONS, prepared_context, 550,
+                                           approved_policy=verified_policy) if verified_policy else
+                             generate_text(REPLY_INSTRUCTIONS, prepared_context, 550))),
                             org_id=org_id if ai_source == "team" else None)
                         timings = last_timings.get()
                     if drafted:
@@ -425,7 +441,7 @@ def process_chat_next(session_factory=SessionLocal) -> bool:
         if automated_reply:
             record_run(db, org_id=org_id, channel="messenger", source=source,
                        intent=intent, started=started, db_ms=db_ms,
-                       timings={**timings, "graph_calls": graph_calls, "outbound_queue_ms": outbound_queue_ms,
+                       timings={**timings, **trace, "graph_calls": graph_calls, "outbound_queue_ms": outbound_queue_ms,
                                 "conversation_ms": max(0, round((outcome_at - aware(inbound_at)).total_seconds() * 1000)),
                                 "delivery_error": not bool(result_id), "model_error": failed_ai,
                                 "outbound_message_id": row.id})

@@ -44,10 +44,23 @@ type Bootstrap = {
 const fmt = new Intl.NumberFormat("es-CL");
 const ms = (value: number | null) => value == null ? "Sin medición" : (value / 1000).toLocaleString("es-CL", { maximumFractionDigits: 2 }) + " s";
 const names: Record<ChannelName, string> = { messenger: "Responder mensajes", general: "Galancito General" };
-const reviewCriteria: Record<ChannelName, string[]> = {
-  messenger: ["Comprensión", "Oficios", "Fichas y contacto", "Continuidad", "Naturalidad", "Seguridad"],
-  general: ["Exactitud", "Contexto", "Datos fundamentados", "Permisos", "Razonamiento", "Utilidad"],
+const reviewCriteria: Record<ChannelName, Array<{key: string; label: string}>> = {
+  messenger: [
+    {key: "understanding", label: "Comprensión"}, {key: "profile", label: "Ficha y oficio"},
+    {key: "context", label: "Continuidad"}, {key: "naturalness", label: "Naturalidad"},
+    {key: "safety", label: "Seguridad"}, {key: "helpfulness", label: "Utilidad"},
+  ],
+  general: [
+    {key: "accuracy", label: "Exactitud"}, {key: "grounding", label: "Datos fundamentados"},
+    {key: "context", label: "Contexto"}, {key: "reasoning", label: "Razonamiento"},
+    {key: "safety", label: "Permisos"}, {key: "helpfulness", label: "Utilidad"},
+  ],
 };
+type Defect = {criterion: string; label: string; reviewed: number; failed: number;
+  failure_percent: number | null; priority: string; method: string; ready_for_practice: boolean;
+  proposal_ready: boolean; active_coaching: boolean;
+  practice: {better: number; same: number; worse: number; pending: number} };
+type Plan = {channels: Record<ChannelName, {reviewed_cases: number; items: Defect[]}>};
 
 export default function AIQualityOverview({
   onPractice, onConnections, onLearning,
@@ -62,6 +75,8 @@ export default function AIQualityOverview({
   const [busy, setBusy] = useState(true);
   const [error, setError] = useState("");
   const [revision, setRevision] = useState(0);
+  const [plan, setPlan] = useState<Plan | null>(null);
+  const [expanded, setExpanded] = useState<ChannelName | null>(null);
   const reload = useCallback(() => setRevision(value => value + 1), []);
 
   useEffect(() => {
@@ -70,10 +85,12 @@ export default function AIQualityOverview({
     Promise.all([
       request<Overview>("/admin/ai/quality-overview?days=" + days),
       request<Bootstrap>("/admin/ai/bootstrap"),
-    ]).then(([quality, config]) => {
+      request<Plan>("/admin/ai/real-learning/plan?days=" + days),
+    ]).then(([quality, config, learning]) => {
       if (!active) return;
       setOverview(quality);
       setBootstrap(config);
+      setPlan(learning);
       setError("");
     }).catch((reason: unknown) => {
       if (active) setError(reason instanceof Error ? reason.message : "No se pudo consultar el servidor");
@@ -145,17 +162,37 @@ export default function AIQualityOverview({
               : "Sin valoraciones de personas para este período."}
             {data?.sample_capped ? " Últimas 2.000 interacciones (muestra acotada)." : ""}
             {channel === "messenger" && data ? ` Latencia de ${data.latency_sample} entregas confirmadas (desde el mensaje recibido).` : ""}
+            {data && data.latency_sample < 20 ? " El p95 procede de pocas muestras y puede variar mucho." : ""}
             {data?.quality_score != null ? " Nota de muestra auditada, sin representatividad poblacional garantizada." : ""}
           </p>
-          <details className="ai-quality-technical ai-quality-criteria"><summary>Criterios de evaluación</summary>
-            {reviewCriteria[channel].map((criterion, index) => {
-              const apiKey = (channel === "messenger"
-                ? ["understanding", "profile", "context", "naturalness", "safety", "helpfulness"]
-                : ["accuracy", "context", "grounding", "safety", "reasoning", "helpfulness"])[index];
-              const value = data?.quality_score == null ? null : data?.dimension_scores?.[apiKey];
-              return <span key={criterion}>{criterion}: {value == null ? "sin nota validada" : value + "%"}</span>;
+          <button type="button" className="ai-quality-inspect" aria-expanded={expanded === channel}
+            onClick={() => setExpanded(expanded === channel ? null : channel)}>
+            {expanded === channel ? "Cerrar diagnóstico" : "Ver diagnóstico por competencia"} <ArrowRight size={14}/>
+          </button>
+          {expanded === channel && <section className="ai-quality-breakdown" aria-label={"Diagnóstico real de " + names[channel]}>
+            <p>{data?.reviewed_cases || 0} conversaciones auditadas. Las proporciones por criterio solo describen esta muestra,
+              incluso si hay menos de 30. No son una nota global.</p>
+            {reviewCriteria[channel].map(({key, label}) => {
+              const dimension = data?.dimension_scores?.[key];
+              const item = plan?.channels[channel]?.items.find(row => row.criterion === key);
+              return <article key={key}>
+                <div className="ai-quality-breakdown-head">
+                  <b>{label}</b>
+                  <strong>{dimension == null ? "Sin muestras" : dimension.toLocaleString("es-CL") + "% en muestra"}</strong>
+                </div>
+                <p>{item ? `${item.failed} fallas de ${item.reviewed} revisiones · Prioridad: ${item.priority.replaceAll("_", " ")}` : "Sin evaluación disponible"}
+                  {item?.active_coaching ? " · Guía aprobada y activa" : ""}
+                </p>
+                {item && <p>Corrección propuesta: {item.method} · Qwen real: {item.practice.better} mejoras revisadas,
+                  {" "}{item.practice.same} sin cambio y {item.practice.worse} regresiones. No demuestra mejora general.</p>}
+                {item?.ready_for_practice && <button type="button" onClick={() => onPractice(channel, key)}>
+                  Práctica complementaria <ArrowRight size={13}/>
+                </button>}
+              </article>;
             })}
-          </details>
+            <small>Para una prueba con mensajes reales, utiliza «Revisar respuestas de producción» y evalúa cada candidata.
+              Nunca se entrena con mensajes privados en servicios externos.</small>
+          </section>}
           {channel === "messenger" && data?.delivery_states && Object.keys(data.delivery_states).length > 0 &&
             <details className="ai-quality-technical"><summary>Estados reales de entrega</summary>
               {Object.entries(data.delivery_states).map(([state, count]) => <span key={state}>{state}: {fmt.format(count)}</span>)}

@@ -49,3 +49,32 @@
 .ai-human-audit-focus button { display:inline-flex; align-items:center; gap:5px; border:1px solid #9bd0be; background:#fff; color:#16665b; border-radius:9px; padding:7px 10px; font-size:12px; font-weight:750; cursor:pointer; }
 .ai-human-audit-focus button:hover { background:#dff5ee; }
 .ai-human-audit-focus small { font-size:11px; color:#4f796c; line-height:1.5; }
+
+.ai-human-audit-focus-actions { display:flex; align-items:center; flex-wrap:wrap; gap:7px; padding:5px 0; }
+.ai-human-audit-focus-actions b { font-size:12px; min-width:130px; color:#1e6159; }
+.ai-real-trial { display:grid; gap:10px; padding:14px; border:1px solid #b7d6db; border-radius:12px; background:#f5fafb; }
+.ai-real-trial strong { color:#234959; font-size:13px; }
+.ai-real-trial > p { font-size:12px; color:#5a7180; }
+.ai-real-trial-comparison { display:grid; grid-template-columns:repeat(2,minmax(0,1fr)); gap:10px; }
+.ai-real-trial-comparison article { min-width:0; padding:11px; background:#fff; border:1px solid #dce9ed; border-radius:9px; }
+.ai-real-trial-comparison b { font-size:12px; }
+.ai-real-trial-comparison p { padding-top:7px; font-size:12px; white-space:pre-wrap; overflow-wrap:anywhere; }
+.ai-real-trial-actions { display:flex; flex-wrap:wrap; gap:8px; }
+.ai-real-trial-actions button { border:1px solid #b3d7d0; background:#fff; color:#145f58; padding:8px 11px; border-radius:8px; cursor:pointer; }
+.ai-real-trial-actions button:disabled { opacity:.5; }
+@media(max-width:650px) { .ai-real-trial-comparison { grid-template-columns:1fr; } }
+
+.ai-human-audit-recovery { display:grid; gap:8px; padding:10px; border:1px solid #dce9e9; border-radius:9px; background:#fff; }
+.ai-human-audit-recovery > div { display:flex; flex-wrap:wrap; align-items:center; gap:7px; }
+.ai-human-audit-recovery > span,.ai-human-audit-recovery b { color:#315c5a; font-size:12px; }
+.ai-human-audit-recovery small { font-size:11px; color:#637b78; }
+.ai-human-audit-recovery button { border:1px solid #b5d8d2; background:#f1faf8; padding:7px 9px; border-radius:8px; color:#14695d; font-weight:700; font-size:11px; cursor:pointer; justify-self:start; }
+.ai-human-audit-recovery button:disabled { opacity:.5; cursor:wait; }
+
+.ai-real-practice-action{display:grid;gap:6px;padding:12px;border:1px solid #c6e2d7;border-radius:10px;background:#eff9f4}
+.ai-real-practice-action button{justify-self:start;display:inline-flex;gap:8px;align-items:center;background:#117b68;border:0;color:#fff;border-radius:9px;padding:10px 13px;font-size:12px;font-weight:750;cursor:pointer}
+.ai-real-practice-action button:disabled{opacity:.5;cursor:wait}
+.ai-real-practice-action small{font-size:11px;color:#527569;line-height:1.45}
+
+.ai-real-trial-comparison { grid-template-columns:repeat(3,minmax(0,1fr)); }
+@media(max-width:950px){.ai-real-trial-comparison {grid-template-columns:1fr;}}

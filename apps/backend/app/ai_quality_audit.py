@@ -37,7 +37,7 @@ CRITERIA = {
 class ReviewInput(BaseModel):
     model_config = ConfigDict(extra="forbid")
     run_id: str = Field(min_length=36, max_length=36)
-    ratings: dict[str, StrictBool]
+    ratings: dict[str, StrictBool | None]
     source_reviewed: Literal[True]  # human attests reading the linked real exchange
 
 
@@ -212,6 +212,8 @@ def save_review(body: ReviewInput, user: User = Depends(administrator),
     channel = evidence["channel"]
     if set(body.ratings) != set(CRITERIA[channel]):
         raise HTTPException(422, "Evalúa todos los criterios de esta versión sin agregar otros")
+    if all(value is None for value in body.ratings.values()):
+        raise HTTPException(422, "Revisa al menos un criterio; los demás pueden ser no comprobables")
     if db.scalar(select(AIResponseReview.id).where(
         AIResponseReview.org_id == user.org_id,
         AIResponseReview.channel == channel,
@@ -250,16 +252,20 @@ def reviewed_sample(db: Session, org_id: str, channel: Literal["messenger", "gen
     )))
     count = len(rows)
     criteria = CRITERIA[channel]
-    per_dimension = {name: round(100 * sum(bool(item.ratings.get(name)) for item in rows) / count, 1)
-                     if count else None for name in criteria}
-    # Count only observed failures from actual reviewed exchanges. Do not
-    # extrapolate from a self-selected sample to the Messenger population.
-    failures = {name: sum(not item.ratings[name] for item in rows) for name in criteria}
-    score = round(sum(value for value in per_dimension.values() if value is not None)
-                  / len(criteria), 1) if count >= MIN_REVIEWED_SAMPLE else None
+    assessed = {name: sum(row.ratings.get(name) is not None for row in rows) for name in criteria}
+    per_dimension = {
+        name: (round(100 * sum(row.ratings.get(name) is True for row in rows) /
+                     assessed[name], 1) if assessed[name] else None)
+        for name in criteria
+    }
+    # Unknown/no-evidence is neither correct nor incorrect.
+    failures = {name: sum(row.ratings.get(name) is False for row in rows) for name in criteria}
+    score = (round(sum(per_dimension.values()) / len(criteria), 1)
+             if all(n >= MIN_REVIEWED_SAMPLE for n in assessed.values()) else None)
     return {"quality_score": score, "reviewed_cases": count,
             "minimum_cases": MIN_REVIEWED_SAMPLE, "rubric_version": RUBRIC_VERSION,
             "dimension_scores": per_dimension,
+            "dimension_sample_counts": assessed,
             "failed_review_counts": failures,
             "quality_source": ("human_reviewed_production_sample" if score is not None
                                else "insufficient_verified_human_reviews"),

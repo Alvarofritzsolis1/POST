@@ -27,6 +27,11 @@ type UsageGroup = {
   total_tokens: number; estimated_cost_usd: number | null; priced_calls: number;
   average_duration_ms: number;
 };
+type RealLearningPlan = {channels: Record<"messenger" | "general", {
+  reviewed_cases: number; items: Array<{criterion: string; label: string; failed: number;
+    reviewed: number; priority: string; method: string; active_coaching: boolean;
+    proposal_ready: boolean; practice: {better: number; worse: number} }>;
+}>};
 type LearningProgress = {
   total: number; approved: number; pending: number; percent: number;
   remaining: string[]; metric: string;
@@ -82,6 +87,7 @@ const errorMessage = (error: unknown) => error instanceof Error ? error.message 
 export default function AIConfiguration({ openTraining, section }: { openTraining: () => void; section: "conexiones" | "aprendizaje" }) {
   const [data, setData] = useState<Bootstrap | null>(null);
   const [learningProgress, setLearningProgress] = useState<LearningProgress | null>(null);
+  const [realLearning, setRealLearning] = useState<RealLearningPlan | null>(null);
   const [usage, setUsage] = useState<Usage | null>(null);
   const [policy, setPolicy] = useState<Policy>({ enabled: false, fallback_enabled: false, review_enabled: false, monthly_token_limit: 0, task_routes: {} });
   const [days, setDays] = useState(30);
@@ -96,15 +102,17 @@ export default function AIConfiguration({ openTraining, section }: { openTrainin
   const initializedPolicy = useRef(false);
 
   const refresh = useCallback(async (resetPolicy = false) => {
-    const [b, u, learning] = await Promise.all([
+    const [b, u, learning, real] = await Promise.all([
       request<Bootstrap>(base + "/bootstrap"),
       request<Usage>(base + "/usage?days=" + days),
       request<LearningProgress>("/network/galancito/knowledge-curriculum/progress")
         .catch(() => null),
+      request<RealLearningPlan>("/admin/ai/real-learning/plan?days=" + Math.min(days, 90)).catch(() => null),
     ]);
     setData(b);
     setUsage(u);
     setLearningProgress(learning);
+      setRealLearning(real);
     if (resetPolicy) setPolicy(b.policy);
   }, [days]);
 
@@ -116,11 +124,13 @@ export default function AIConfiguration({ openTraining, section }: { openTrainin
       request<Usage>(base + "/usage?days=" + days),
       request<LearningProgress>("/network/galancito/knowledge-curriculum/progress")
         .catch(() => null),
-    ]).then(([b, u, learning]) => {
+      request<RealLearningPlan>("/admin/ai/real-learning/plan?days=" + Math.min(days, 90)).catch(() => null),
+    ]).then(([b, u, learning, real]) => {
       if (cancelled) return;
       setData(b);
       setUsage(u);
       setLearningProgress(learning);
+      setRealLearning(real);
       if (!initializedPolicy.current) { setPolicy(b.policy); initializedPolicy.current = true; }
     }).catch((e) => { if (!cancelled) setError(errorMessage(e)); })
       .finally(() => { if (!cancelled) setLoading(false); });
@@ -456,6 +466,27 @@ export default function AIConfiguration({ openTraining, section }: { openTrainin
       <section className="ai-panel ai-learning-panel">
         <div className="ai-panel-head"><div><h3>Aprendizaje validado</h3><p>Guías aprobadas y correcciones controladas.</p></div><span className="ai-secure"><ShieldCheck size={16} /> Con aprobación humana</span></div>
         <div className="ai-learning-steps"><strong>Cómo se valida una mejora</strong><span>1. Medir fallas reales → 2. Corregir → 3. Evaluar casos reservados → 4. Revisar regresiones → 5. Aprobar.</span><small>La práctica sintética no constituye mejora demostrada. Las pruebas con agregados operativos no equivalen a calidad comprobada en conversaciones reales.</small><button type="button" className="gc-secondary" onClick={openTraining}>Abrir pruebas</button></div>
+        <section className="ai-real-learning-plan" aria-label="Diagnóstico de fallas reales">
+          <strong>Aprendizaje basado en deficiencias comprobadas</strong>
+          {(["messenger", "general"] as const).map(channel => {
+            const diagnosis = realLearning?.channels[channel];
+            const problems = diagnosis?.items.filter(item => item.failed > 0) ?? [];
+            return <div key={channel} className="ai-real-learning-channel">
+              <b>{channel === "messenger" ? "Messenger" : "Galancito General"} · {diagnosis?.reviewed_cases ?? 0} conversaciones auditadas</b>
+              {!diagnosis?.reviewed_cases ? <p>Sin auditorías reales. No se asignan notas ni épocas al azar.</p> :
+                problems.length === 0 ? <p>No se observaron fallas en la muestra; esto no confirma calidad perfecta.</p> :
+                problems.map(item => <div className="ai-real-learning-defect" key={item.criterion}>
+                  <b>{item.label} · {item.failed} de {item.reviewed} fallas</b>
+                  <span>Prioridad: {item.priority.replaceAll("_", " ")} · Mejora propuesta: {item.method}</span>
+                  <span>Qwen real: {item.practice.better} mejoras revisadas y {item.practice.worse} regresiones.</span>
+                  <span>{item.active_coaching ? "Guía aprobada y activa" :
+                    item.proposal_ready ? "Propuesta habilitada para revisión" :
+                    "Pendiente de práctica real y evaluación humana"}</span>
+                </div>)}
+            </div>;
+          })}
+          <small>Para practicar con Qwen sobre chats auténticos, primero audita la respuesta en «Revisar respuestas de producción».</small>
+        </section>
         <div className="ai-learning-stats">
           <div><b>{nice(data?.learning.approved || 0)}</b><span>Guías aprobadas</span></div>
           <div><b>{nice(data?.learning.pending || 0)}</b><span>Propuestas por revisar</span></div>
@@ -463,17 +494,17 @@ export default function AIConfiguration({ openTraining, section }: { openTrainin
         </div>
         <div className="ai-curriculum">
           <div className="ai-curriculum-title">
-            <div><b>{learningProgress?.percent ?? "—"}%</b><span>Conocimiento validado de Galancito · {learningProgress?.approved ?? 0} de 20 unidades</span></div>
+            <div><b>{learningProgress?.percent ?? "—"}%</b><span>Biblioteca temática (no entrenamiento) · {learningProgress?.approved ?? 0} de 20 guías</span></div>
             <button type="button" disabled={Boolean(busy)} onClick={() => void perform("curriculum", async () => {
               const result = await request<{created: number}>("/network/galancito/knowledge-curriculum", {method: "POST", body: JSON.stringify({})});
               setNotice(result.created ? result.created + " unidades añadidas para revisar y aprobar en Conocimientos." :
                 "Las 20 unidades ya están cargadas. Revisa cuáles faltan aprobar.");
-            })}>{busy === "curriculum" ? "Cargando…" : "Cargar 20 aprendizajes"}</button>
+            })}>{busy === "curriculum" ? "Cargando…" : "Cargar 20 guías temáticas"}</button>
           </div>
           <progress max={100} value={learningProgress?.percent ?? 0} aria-label="Porcentaje de guías validadas de Galancito" />
           <small>El porcentaje mide guías aprobadas y disponibles, no entrenamiento de pesos de un modelo.</small>
           {!!learningProgress?.remaining.length && <details>
-            <summary>Qué le falta aprender ({learningProgress.remaining.length})</summary>
+            <summary>Guías temáticas pendientes ({learningProgress.remaining.length})</summary>
             <ul>{learningProgress.remaining.map(title => <li key={title}>{title}</li>)}</ul>
           </details>}
         </div>

@@ -17,6 +17,7 @@ from .galancito_flow import grounded_reply
 from .galancito_knowledge_models import Knowledge
 from .galancito_real_learning import GENERAL_COACH_TITLE, GENERAL_COACH_SCOPE
 from .galancito_local import generate_local_text
+from .ai_defect_learning import approved_coaching
 from .galancito_runtime import infer
 from .galancito_triage import quick_reply
 from .ops_models import Worksite, Contractor
@@ -48,7 +49,7 @@ def _verified_coach(db: Session, org_id: str) -> str:
     row = db.scalar(select(Knowledge).where(
         Knowledge.org_id == org_id, Knowledge.scope == GENERAL_COACH_SCOPE,
         Knowledge.title == GENERAL_COACH_TITLE, Knowledge.status == "approved"))
-    return row.content[:700] if row else ""
+    return ((row.content[:700] if row else "") + "\n" + approved_coaching(db, org_id, "general"))[:1600]
 
 
 def general_answer(db: Session, user, message: str,

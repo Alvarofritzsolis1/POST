@@ -105,7 +105,8 @@ def interactive_timeout_seconds(cfg) -> float:
 
 
 def generate_local_text(instructions: str, data: str,
-                        max_chars: int = 550, *, thinking: bool = False) -> str:
+                        max_chars: int = 550, *, thinking: bool = False,
+                        seed: int | None = None) -> str:
     """Synchronous bounded chat with a single small model, no external APIs."""
     last_timings.set({})
     if not 1 <= max_chars <= 1200:
@@ -128,7 +129,7 @@ def generate_local_text(instructions: str, data: str,
         last_timings.set({"queue_ms": 0, "busy": True})
         raise RuntimeError("Galancito está ocupado")
     try:
-        return _generate(instructions, data, max_chars, cfg, thinking=thinking)
+        return _generate(instructions, data, max_chars, cfg, thinking=thinking, seed=seed)
     finally:
         _slot.release()
 
