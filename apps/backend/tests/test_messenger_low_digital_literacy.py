@@ -191,8 +191,9 @@ def test_explicit_handoff_stops_ai_and_one_operator_action_resumes_it(network, m
     assert "persona" in sent[-1].lower()
     assert incoming(n, "Hola, necesito ayuda", "human-third").status_code == 200
     assert not process_chat_next(n["Session"])
-    assert n["admin"].patch("/api/v1/network/facebook/leads/" + lead["id"],
-                            json={"needs_support": False, "ai_paused": False}).status_code == 200
+    assert n["send"](
+        n["admin"], "/facebook/leads/" + lead["id"],
+        {"needs_support": False, "ai_paused": False}, method="PATCH").status_code == 200
     after = _contact(n)["lead"]
     assert not after["needs_support"] and not after["ai_paused"]
     assert after["ai_consent_state"] == "not_requested"
