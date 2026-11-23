@@ -159,21 +159,33 @@ def next_target(channel: Literal["messenger", "general"] = "messenger",
                 user: User = Depends(administrator), db: Session = Depends(get_db)):
     """Pick next verified deficiency deterministically. Never invent cases."""
     results = audited_cases(channel=channel, user=user, db=db)["items"]
-    # Prioritize with ALL retained human review metadata, not only 30 days.
-    # Reproduction still requires an authorized, recent original conversation.
-    counts = {}
-    historical_labels = db.execute(select(AIResponseReview.ratings).where(
-        AIResponseReview.org_id == user.org_id,
-        AIResponseReview.channel == channel,
-        AIResponseReview.rubric_version == 1,
-    )).yield_per(500)
-    for (ratings,) in historical_labels:
+    # All retained human audits inform recurrence, but normalize by each
+    # criterion's observed denominator and favor the last 30 days. Old fixes
+    # must not dominate merely because a channel had more historic traffic.
+    cutoff = utcnow() - timedelta(days=30)
+    counts = {key: {"assessed": 0, "failed": 0, "recent_assessed": 0,
+                    "recent_failed": 0} for key in POLICIES[channel]}
+    historical_labels = db.execute(select(
+        AIResponseReview.ratings, AIResponseReview.source_at,
+    ).where(AIResponseReview.org_id == user.org_id,
+            AIResponseReview.channel == channel,
+            AIResponseReview.rubric_version == 1)).yield_per(500)
+    for ratings, at in historical_labels:
         if not isinstance(ratings, dict):
             continue
-        for key in POLICIES[channel]:
-            if ratings.get(key) is False:
-                counts[key] = counts.get(key, 0) + 1
+        is_recent = aware(at) >= cutoff
+        for key, count in counts.items():
+            if ratings.get(key) is None:
+                continue
+            count["assessed"] += 1
+            if is_recent:
+                count["recent_assessed"] += 1
+            if ratings[key] is False:
+                count["failed"] += 1
+                if is_recent:
+                    count["recent_failed"] += 1
     candidates = []
+    engineering = []
     for case in results:
         if not case["model_verified"]:
             continue
@@ -183,6 +195,15 @@ def next_target(channel: Literal["messenger", "general"] = "messenger",
         if private_data(context):
             continue
         for key in case["failed_criteria"]:
+            route = diagnostic_route(original, key)
+            if route["hypothesis"] in {"contexto_truncado", "sin_historial_en_prompt",
+                                      "ruta_sin_modelo", "modelo_externo"}:
+                # These routes require restoring context/code/provider first,
+                # rather than claiming a prompt or LoRA correction is causal.
+                engineering.append({"criterion": key, "source_id": case["source_id"],
+                                    "hypothesis": route["hypothesis"],
+                                    "mechanism": route["mechanism"]})
+                continue
             previous = list(db.scalars(select(AIRealPracticeTrial).where(
                 AIRealPracticeTrial.org_id == user.org_id,
                 AIRealPracticeTrial.channel == channel,
@@ -211,16 +232,32 @@ def next_target(channel: Literal["messenger", "general"] = "messenger",
             if not strategies:
                 continue
             _, variant = min(strategies)
-            candidates.append((0 if key == "safety" else 1, -counts.get(key, 0),
-                               case["source_at"], case["source_id"], key, variant))
+            c = counts[key]
+            recent_rate = c["recent_failed"] / c["recent_assessed"] if c["recent_assessed"] >= 5 else None
+            history_rate = c["failed"] / c["assessed"] if c["assessed"] >= 10 else None
+            # Severe safety, recent failure count, then comparable rates.
+            # Unknown rates rank below observed rates; never invent them.
+            candidates.append((0 if key == "safety" else 1,
+                               -c["recent_failed"],
+                               -(recent_rate if recent_rate is not None else -1.0),
+                               -(history_rate if history_rate is not None else -1.0),
+                               -aware(case["source_at"]).timestamp(),
+                               case["source_id"], key, variant))
     if not candidates:
-        return {"available": False, "reason": "No hay casos reales auditados, autorizados y elegibles para práctica local."}
-    _, minus_count, _, source_id, criterion, variant = min(candidates)
+        return {"available": False,
+                "reason": "No hay ensayos Qwen elegibles. Prioriza diagnósticos de infraestructura si existen.",
+                "engineering_findings": engineering[:15], "automatic_approval": False}
+    _, _, _, _, _, source_id, criterion, variant = min(candidates)
+    result = counts[criterion]
     return {"available": True, "source_id": source_id, "criterion": criterion,
-            "variant": variant, "observed_defects": -minus_count,
-            "reason": "Priorizado por deficiencias actuales y frecuencia histórica auditada, sin regresiones observadas.",
+            "variant": variant, "observed_defects": result["failed"],
+            "historically_assessed": result["assessed"],
+            "recently_assessed": result["recent_assessed"],
+            "recent_defects": result["recent_failed"],
+            "engineering_findings": engineering[:15],
+            "reason": "Priorizado por frecuencia histórica auditada y fallas recientes verificadas, sin regresiones observadas.",
             "model": QWEN_4B, "automatic_approval": False,
-            "caution": "La hipótesis de fallo no prueba la causa ni el éxito de una corrección."}
+            "caution": "No se practican errores confirmados de truncamiento, memoria o proveedor como si fueran fallas de Qwen."}
 
 
 @router.get("/pending")
