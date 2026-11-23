@@ -1,6 +1,6 @@
 """Durable, organization-scoped MAX POWER state; no conversation text stored."""
 from datetime import datetime
-from sqlalchemy import Boolean, DateTime, ForeignKey, Index, Integer, JSON, String
+from sqlalchemy import Boolean, DateTime, ForeignKey, Index, Integer, JSON, String, UniqueConstraint
 from sqlalchemy.orm import Mapped, mapped_column
 from .db import Base
 from .models import uid, utcnow
@@ -40,4 +40,32 @@ class MaxPowerEvent(Base):
     reason: Mapped[str] = mapped_column(String(280), nullable=False)
     round_id: Mapped[str | None] = mapped_column(String(36))
     evidence: Mapped[dict] = mapped_column(JSON, nullable=False, default=dict)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow)
+
+class MaxPowerMessengerTrial(Base):
+    """Audited Messenger replay without copied messages or personal information.
+
+    A human review identifies a defect; automatic objective checks identify
+    narrow improvements, not general-purpose learning or production success.
+    """
+    __tablename__ = "ai_max_power_messenger_trials"
+    __table_args__ = (
+        UniqueConstraint("org_id", "review_id", "criterion", "variant",
+                         name="uq_max_power_messenger_review_variant"),
+        Index("ix_max_power_messenger_queue", "status", "next_at"),
+    )
+    id: Mapped[str] = mapped_column(String(36), primary_key=True, default=uid)
+    org_id: Mapped[str] = mapped_column(ForeignKey("organizations.id"), nullable=False)
+    review_id: Mapped[str] = mapped_column(ForeignKey("ai_response_reviews.id"), nullable=False)
+    criterion: Mapped[str] = mapped_column(String(30), nullable=False)
+    variant: Mapped[str] = mapped_column(String(20), nullable=False)
+    status: Mapped[str] = mapped_column(String(24), nullable=False, default="queued")
+    attempts: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
+    next_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow)
+    started_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    lease_until: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    completed_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    outcome: Mapped[str | None] = mapped_column(String(36))
+    reason: Mapped[str | None] = mapped_column(String(280))
+    metrics: Mapped[dict] = mapped_column(JSON, nullable=False, default=dict)
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow)
