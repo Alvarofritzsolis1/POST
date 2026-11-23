@@ -13,7 +13,7 @@ import re
 from sqlalchemy import func, select
 from sqlalchemy.orm import Session
 
-from .galancito_training_models import TrainingRound
+from .galancito_training_models import TrainingRound, TrainingWorker
 from .max_power_models import MaxPowerEvent, MaxPowerMessengerTrial, MaxPowerState
 from .models import User
 from .version import VERSION, SOURCE_COMMIT
@@ -34,6 +34,10 @@ NUMERIC_KEYS = (
     "load_ms", "prompt_ms", "generation_ms", "transport_ms",
     "ollama_total_ms", "timing_samples", "passed", "failed", "critical",
     "turns", "questions", "skipped", "sample_count",
+    "peak_worker_ram_mb", "peak_host_cpu_percent", "worker_ram_mb",
+    "worker_ram_limit_mb", "host_cpu_percent", "available_ram_mb",
+    "disk_free_mb", "cpu_pressure_avg10", "memory_pressure_avg10",
+    "io_pressure_avg10",
 )
 BOOLEAN_KEYS = (
     "lab_verified", "production_verified", "weights_changed",
@@ -102,9 +106,10 @@ def _date(dt):
     return dt.astimezone(timezone.utc).isoformat()
 
 def _number(value):
-    if type(value) is int or type(value) is float:
-        if isfinite(value) and abs(value) <= 1_000_000_000:
-            return value
+    if type(value) is int:
+        return value if abs(value) <= 1_000_000_000 else None
+    if type(value) is float and isfinite(value) and abs(value) <= 1_000_000_000:
+        return value
     return None
 
 def _safe_identifier(value):
@@ -197,6 +202,9 @@ def build_report(db: Session, user: User, *, max_events=MAX_EVENTS):
             "attempts": _number(trial.attempts),
             "measurements": safe_metrics(trial.metrics),
         })
+    # Read-only host snapshot from trainer, excluding all unrecognized keys.
+    worker = db.get(TrainingWorker, 1)
+    resource_snapshot = safe_metrics(worker.resources) if worker and worker.resources else {}
     # A round may still be active. Export aggregate status only; never round config
     # because its saved prompts, knowledge and aliases may carry private data.
     last_round = db.scalar(select(TrainingRound).where(
@@ -214,6 +222,7 @@ def build_report(db: Session, user: User, *, max_events=MAX_EVENTS):
             "dataset_hash": _safe_identifier(last_round.dataset_hash),
             "system_version": _safe_identifier(last_round.system_version),
             "prompt_version": _safe_identifier(last_round.prompt_version),
+            "resource_peaks": safe_metrics(last_round.metrics),
         }
     # Complete, honest scope: the presence of eight or more cases is NOT proof of
     # a production improvement; automation may report no measurable baseline.
@@ -257,6 +266,7 @@ def build_report(db: Session, user: User, *, max_events=MAX_EVENTS):
         },
         "measured_quality": quality,
         "last_experiment": safe_metrics(state.latest_result) if state else {},
+        "resource_snapshot": resource_snapshot,
         "last_round": round_status,
         "history": {
             "event_count_total": total_events,
