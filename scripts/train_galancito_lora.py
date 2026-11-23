@@ -25,11 +25,12 @@ def main(argv=None) -> int:
     args = p.parse_args(argv)
     bundle = load_approved(args.dataset)
     print(json.dumps({
-        "status": "dataset_verified_not_trained",
+        "status": "format_and_attestations_checked_not_trained",
         "model": MODEL, "sizes": bundle["sizes"],
         "criteria": bundle["criteria"], "digest": bundle["dataset_digest"],
-        "warning": "Un filtro automático no sustituye privacidad y consentimiento. "
-                   "Los datos de entrenamiento no se generan desde Messenger automáticamente.",
+        "warning": "La autoría, consentimiento y procedencia NO se autentican criptográficamente; "
+                   "el operador debe verificar la evidencia y el permiso de cada ejemplo. "
+                   "El script jamás extrae conversaciones de Messenger.",
     }, ensure_ascii=False))
     if not args.execute:
         return 0

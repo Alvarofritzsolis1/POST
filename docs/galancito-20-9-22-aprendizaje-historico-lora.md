@@ -29,6 +29,12 @@ para evitar usar el mismo grupo en distintas fases. Los registros requieren:
    "criterion":"reasoning","verifier":"exact","reference_answer":"...",
    "messages":[{"role":"user","content":"..."},{"role":"assistant","content":"..."}]}
 
+Las banderas `approved_by`, `privacy_reviewed` y `usage_authorized` son
+**declaraciones en el archivo**, no verificaciones criptográficas ni consultas a
+los registros originales. Antes de usar `--execute`, el responsable debe
+comprobar fuera de banda la trazabilidad de cada aprobación y consentimiento.
+Si no existe esa evidencia, NO entrenar y NO anunciar aprendizaje real.
+
 Los ejemplos anteriores representan el **esquema**, no un dataset real. No incluir
 información personal de contratistas ni otras empresas. El validador rechaza
 marcadores habituales de correos, teléfonos, RUT y credenciales, pero no es

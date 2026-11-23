@@ -104,7 +104,8 @@ def test_training_data_gate_rejects_synthetic_private_and_duplicate(tmp_path):
     assert all(ready["sizes"][name] >= minimum
                for name, minimum in {"train": 30, "validation": 10, "test": 10}.items())
     assert sum(ready["sizes"].values()) == 200
-    assert ready["all_real_approved"] is True
+    assert ready["attestations_present"] is True
+    assert ready["human_approval_independently_verified"] is False
     assert ready["dataset_digest"] and "samples" in ready
     assert verified_match("Respuesta final", "respuesta final", "exact") is True
     assert verified_match("No es respuesta final", "respuesta final", "exact") is False

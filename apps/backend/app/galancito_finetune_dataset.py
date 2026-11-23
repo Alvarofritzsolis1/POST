@@ -122,7 +122,8 @@ def load_approved(path: str | Path, *, enforce_minimum: bool = True) -> dict:
         )
     return {"samples": partitions, "sizes": sizes, "criteria": dict(counts),
             "dataset_digest": sha256(dataset_path.read_bytes()).hexdigest(),
-            "all_real_approved": True}
+            "attestations_present": True,
+            "human_approval_independently_verified": False}
 
 
 def verified_match(answer: str, expected: str, verifier: str) -> bool:
