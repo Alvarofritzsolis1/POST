@@ -123,14 +123,14 @@ def test_gentle_non_technical_guidance(previous, answer, expected):
     assert expected in _app(answer, previous).lower()
 
 
-@pytest.mark.parametrize("request", [
+@pytest.mark.parametrize("human_phrase", [
     "quiero hablar con una persona",
     "quiero hablar con alguien del equipo",
     "quiero que me atienda alguien",
     "me puede atender una persona",
 ])
-def test_explicit_human_requests_are_recognized(request):
-    assert wants_human(request)
+def test_explicit_human_requests_are_recognized(human_phrase):
+    assert wants_human(human_phrase)
 
 
 def test_signed_messenger_conversation_retains_context_and_never_claims_own_trade(network, monkeypatch):
