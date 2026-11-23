@@ -127,3 +127,48 @@ Fuentes y límites de los evaluadores:
 - https://deepeval.com/docs/metrics-introduction
 - https://docs.ragas.io/en/latest/concepts/metrics/available_metrics/
 - https://arxiv.org/abs/2606.19544
+
+## Endurecimiento de la candidata 20.9.23-rc1 (23 de noviembre de 2026)
+
+- Una ronda A/B se guarda de forma atómica con su checkpoint y su evento.
+  El identificador de ronda tiene una restricción de unicidad por resultado;
+  recuperar un trabajo completado no vuelve a contabilizarlo.
+- Apagar y volver a encender incrementa la generación de sesión. Cualquier
+  inferencia Messenger iniciada bajo una generación anterior pierde permiso
+  de confirmar resultados. El texto de chat nunca se almacena en MAX POWER.
+- La historia de Messenger se reconstruye solo con mensajes creados ANTES del
+  envío original, nunca usando el último update del mensaje.
+- Las preguntas de agregados reales se alternan entre obras para aumentar
+  diversidad. La significancia se calcula con prueba de signos por
+  **grupos de obras**, nunca asignando independencia a muchas preguntas
+  correlacionadas de la misma obra. Menos de cinco grupos independientes o
+  evidencia insuficiente deja la mejora sin verificar.
+- Las respuestas de Messenger permanecen en su Ollama productivo.
+  **MAX POWER usa galancito-training-ollama** para Qwen3.5 4B y para
+  ensayos Messenger. El servidor aislado tiene 5 GB RAM máxima, CPU 1.5
+  y un único modelo/inferencia. Si falta RAM disponible (reserva de 8 GB)
+  MAX POWER espera y explica la causa; no redirige en silencio al servidor
+  productivo. La primera ejecución puede descargar el modelo 4B al volumen
+  de práctica, sin exponer puertos HTTP.
+- Integración CI dedicada verifica SQLite, permisos, huella, exportación y
+  aislamiento sin servicios externos. La QA Docker comprueba el contenedor,
+  ON/OFF, disponibilidad del controlador y persistencia después de reiniciar.
+
+### Restricciones aún no superadas
+
+Estas pruebas son de integración y laboratorio. La entrega final requiere
+mediciones reales en el VPS de producción, verificación de CPU y RAM,
+pruebas de concurrencia con Messenger, error rate, p95 de respuesta de usuario,
+backups probados y comparación posterior a un despliegue controlado.
+
+MAX POWER todavía no modifica pesos de Qwen ni publica automáticamente
+variaciones de instrucciones; para que eso ocurra sin degradaciones es
+necesario un protocolo de autorización restringida, evaluación con casos
+no contaminados, activación gradual y reversión automática. Nunca declarar
+que el aprendizaje de pesos ocurrió basándose solo en práctica A/B.
+
+Referencias técnicas:
+- https://docs.docker.com/compose/how-tos/profiles/
+- https://docs.docker.com/engine/containers/resource_constraints/
+- https://github.com/ollama/ollama/blob/main/docs/faq.mdx
+- https://www.postgresql.org/docs/current/explicit-locking.html
