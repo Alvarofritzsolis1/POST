@@ -143,18 +143,25 @@ def launch(root: Path, output: Path, resume: bool, org: str, generation: int,
     return subprocess.Popen(args, env=env, close_fds=True)
 
 
-def run_once(secret: str, plan: dict, public_key: str, last_preflight: dict) -> None:
+def run_once(secret: str, plan: dict, public_key: str, last_preflight: dict,
+             status_cache: dict | None = None) -> None:
     chosen = valid_plan(plan)
     if chosen is None:
         return
     org, generation = chosen
+    status_cache = status_cache if status_cache is not None else {}
     root, data, manifest = private_files(org)
     token = hmac.new(secret.encode(), org.encode(), sha256).hexdigest()
 
     def report(code: str):
+        marker = (org, generation)
+        old = status_cache.get(marker)
+        if old and old[0] == code and monotonic() - old[1] < 25:
+            return
         try:
             api_call("/automation/status", secret, body={
                 "org_id": org, "generation": generation, "status": code})
+            status_cache[marker] = (code, monotonic())
         except (OSError, ValueError) as exc:
             LOG.warning("Estado neuronal no enviado: %s", type(exc).__name__)
 
@@ -164,11 +171,11 @@ def run_once(secret: str, plan: dict, public_key: str, last_preflight: dict) -> 
     if plan.get("practice_busy"):
         report("practice_priority")
         return
-    report("preflight")
     resources = snapshot(root if root.exists() else HOME)
     gate = capacity_gate(resources)
     key = f"{org}:{generation}"
     if last_preflight.get(key) is None or monotonic() - last_preflight[key] >= PREFLIGHT_RECHECK:
+        report("preflight")
         try:
             preflight_dir = HOME / "preflights" / org
             preflight_dir.mkdir(parents=True, exist_ok=True)
@@ -249,12 +256,13 @@ def main():
     public_key = os.environ.get("GALANT_DATASET_APPROVAL_PUBLIC_KEY", "").strip()
     HOME.mkdir(exist_ok=True, parents=True)
     last_preflight = {}
+    status_cache = {}
     while True:
         try:
             plan = api_call("/automation/plan", secret)
             Path("/tmp/max_power_cpu_manager_heartbeat").touch()
             if valid_plan(plan):
-                run_once(secret, plan, public_key, last_preflight)
+                run_once(secret, plan, public_key, last_preflight, status_cache)
         except (OSError, ValueError) as exc:
             LOG.warning("MAX POWER CPU en espera: %s", type(exc).__name__)
         except Exception:
