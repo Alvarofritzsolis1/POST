@@ -139,6 +139,8 @@ def test_signed_cpu_lora_progress_is_visible_without_faking_gpu_metrics(ai_env, 
     assert row["points"][0]["cpu_memory_mb"]==3130.5
     assert row["points"][0]["gpu_memory_mb"] is None
     assert row["weights_trained"] is True
+    regular = client.get("/api/v1/admin/ai/max-power", headers=admin).json()
+    assert regular["cpu_learning"]["weights_trained"] is True
     assert row["points"][0]["optimizer_steps_new"] == 2
     assert row["candidate_accepted"] is False
     assert status["production_promoted"] is False
