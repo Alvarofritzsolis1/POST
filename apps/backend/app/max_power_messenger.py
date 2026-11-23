@@ -1,7 +1,9 @@
-"""Experimental MAX POWER Messenger learning on real, human-audited exchanges.
+"""MAX POWER autonomous evidence-backed Messenger lab.
 
-The original messages are used in memory and never copied into trial records,
-logs, external services or permanent training artifacts. No auto-promotion.
+Runs on real, consented conversation records and independently checkable facts.
+Human review is optional, NOT a prerequisite for detecting, selecting, replaying
+or measuring a targeted problem. No auto-promotion or fabricated quality scores.
+Never copies private message text into trial records, logs or external services.
 """
 from datetime import timedelta
 from time import perf_counter
@@ -12,9 +14,10 @@ from fastapi import HTTPException
 from sqlalchemy import select
 
 from .ai_defect_learning import POLICIES, VARIANTS, approved_coaching, candidate_policy
-from .ai_quality_audit import _audit_source
-from .ai_quality_models import AIResponseReview
-from .ai_real_learning_api import _linked_original_run, _verified_model_trace
+from .ai_quality_audit import linked_evidence
+from .ai_real_learning_api import _verified_model_trace
+from .galancito_knowledge_models import AssistantRun
+from .facebook_crm_models import FacebookChatMessage, FacebookLead
 from .config import settings
 from .db import SessionLocal
 from .galancito_trainer import messenger_busy
@@ -66,7 +69,7 @@ def classify_messenger(criterion, baseline, candidate):
     key = {"context":"context_pass", "profile":"context_pass",
            "naturalness":"naturalness_check", "safety":"safety_check"}.get(criterion)
     if key is None or baseline.get(key) is None or candidate.get(key) is None:
-        return "unverifiable", "Necesita juez independiente o revisión humana", False
+        return "unverifiable", "Sin respuesta de referencia confiable; resultado indeterminado", False
     before, after = bool(baseline[key]), bool(candidate[key])
     if before and not after:
         return "objective_regression", "La candidata empeora un control objetivo", False
@@ -74,8 +77,49 @@ def classify_messenger(criterion, baseline, candidate):
         return "objective_gain", "Ganancia objetiva en caso auditado; falta validación general", True
     return "no_objective_gain", "No mejoró en controles objetivos", False
 
+def detected_defects(evidence):
+    """Select ONLY failures supported by observable facts, never an AI self-grade."""
+    answer = objective_checks(evidence, evidence.get("answer", ""))
+    failures = []
+    if answer["repeated_trade_question"]:
+        failures.append("context")
+    if answer["repeated_intro"]:
+        failures.append("naturalness")
+    if not answer["safe"]:
+        failures.append("safety")
+    return failures
+
+def _consented_record(db, owner, run):
+    """Access existing Messenger messages only for a consented local replay."""
+    if run.org_id != owner.org_id or not _verified_model_trace(run):
+        return None
+    msg_id = (run.timings or {}).get("outbound_message_id")
+    if not isinstance(msg_id, str):
+        return None
+    message = db.scalar(select(FacebookChatMessage).where(
+        FacebookChatMessage.id == msg_id,
+        FacebookChatMessage.org_id == owner.org_id,
+        FacebookChatMessage.direction == "outbound",
+        FacebookChatMessage.ai_generated.is_(True),
+        FacebookChatMessage.state == "sent"))
+    if message is None:
+        return None
+    lead = db.scalar(select(FacebookLead).where(
+        FacebookLead.id == message.lead_id,
+        FacebookLead.org_id == owner.org_id,
+        FacebookLead.ai_consent.is_(True)))
+    if lead is None or lead.ai_paused:
+        return None
+    evidence = linked_evidence(db, owner, run)
+    if not evidence:
+        return None
+    text = " ".join(str(x.get("text",""))[:650] for x in evidence["history"][-12:])
+    if private_data(text + evidence.get("question", "") + evidence.get("answer", "")):
+        return None
+    return evidence
+
 def schedule_next(db, user):
-    """Choose reviewed Qwen failures and untried interventions, one at a time."""
+    """Autonomously discover objectively wrong answers in authorized real chats."""
     if user.role != "admin" or not user.enabled:
         return False
     pending = db.scalar(select(MaxPowerMessengerTrial.id).where(
@@ -84,39 +128,36 @@ def schedule_next(db, user):
     if pending:
         return True
     since = utcnow() - timedelta(days=30)
-    reviews = list(db.scalars(select(AIResponseReview).where(
-        AIResponseReview.org_id == user.org_id,
-        AIResponseReview.channel == "messenger",
-        AIResponseReview.rubric_version == 1,
-        AIResponseReview.source_at >= since).limit(100)))
-    reviews.sort(key=lambda r: r.source_at)
-    cases = sorted(((PRIORITY.get(k,10),r,k) for r in reviews for k in
-                    POLICIES["messenger"] if r.ratings.get(k) is False),
-                   key=lambda item: (item[0],item[1].source_at))
-    for _, review, criterion in cases:
-        try:
-            original, evidence = _audit_source(db, user, review.evidence_id)
-            original = _linked_original_run(db,user,evidence,original)
-            if not _verified_model_trace(original):
-                continue
-            text = " ".join(str(x.get("text",""))[:500] for x in evidence["history"][-5:])
-            if private_data(text + str(evidence.get("question",""))):
-                continue
-        except HTTPException:
+    runs = list(db.scalars(select(AssistantRun).where(
+        AssistantRun.org_id == user.org_id,
+        AssistantRun.channel == "messenger",
+        AssistantRun.created_at >= since
+    ).order_by(AssistantRun.created_at.desc()).limit(200)))
+    for run in runs:
+        evidence = _consented_record(db, user, run)
+        if not evidence:
             continue
-        for variant in VARIANTS:
-            exists = db.scalar(select(MaxPowerMessengerTrial.id).where(
-                MaxPowerMessengerTrial.org_id == user.org_id,
-                MaxPowerMessengerTrial.review_id == review.id,
-                MaxPowerMessengerTrial.criterion == criterion,
-                MaxPowerMessengerTrial.variant == variant).limit(1))
-            if not exists:
-                db.add(MaxPowerMessengerTrial(org_id=user.org_id,review_id=review.id,
-                      criterion=criterion,variant=variant,status="queued"))
-                db.add(MaxPowerEvent(org_id=user.org_id,event="messenger_queued",
-                      reason="Prueba de falla auditada: " + criterion,
-                      evidence={"criterion":criterion,"variant":variant,
-                                "source":"human_reviewed","production_verified":False}))
+        for criterion in sorted(detected_defects(evidence),
+                                key=lambda k: PRIORITY.get(k, 10)):
+            for variant in VARIANTS:
+                used = db.scalar(select(MaxPowerMessengerTrial.id).where(
+                    MaxPowerMessengerTrial.org_id == user.org_id,
+                    MaxPowerMessengerTrial.source_run_id == run.id,
+                    MaxPowerMessengerTrial.criterion == criterion,
+                    MaxPowerMessengerTrial.variant == variant).limit(1))
+                if used:
+                    continue
+                db.add(MaxPowerMessengerTrial(
+                    org_id=user.org_id, source_run_id=run.id,
+                    criterion=criterion, variant=variant,
+                    review_id=None, status="queued"))
+                db.add(MaxPowerEvent(org_id=user.org_id,
+                    event="messenger_queued",
+                    reason="Falla objetiva detectada automáticamente: " + criterion,
+                    evidence={"criterion": criterion, "variant": variant,
+                              "source": "consented_production_objective",
+                              "human_review_required": False,
+                              "production_verified": False}))
                 db.flush()
                 return True
     return False
@@ -139,53 +180,61 @@ def _answer(instructions,prompt,seed,org_id):
                         and isinstance(v,(int,float))}
 
 def evaluate_trial(trial_id):
+    """Baseline and candidate are both real local Qwen runs, no external API."""
     with SessionLocal() as db:
-        trial = db.get(MaxPowerMessengerTrial,trial_id)
-        if trial is None:
-            raise ValueError("No existe prueba")
-        state = db.get(MaxPowerState,trial.org_id)
-        user = db.get(User,state.owner_id) if state else None
-        review = db.get(AIResponseReview,trial.review_id)
-        if not (user and user.enabled and user.role=="admin" and review
-                and user.org_id==review.org_id==trial.org_id
-                and review.ratings.get(trial.criterion) is False):
-            raise ValueError("No existe evidencia autorizada para evaluar")
-        original,evidence = _audit_source(db,user,review.evidence_id)
-        original = _linked_original_run(db,user,evidence,original)
-        if not _verified_model_trace(original):
-            raise ValueError("La traza histórica no confirma Qwen 4B")
+        trial = db.get(MaxPowerMessengerTrial, trial_id)
+        if trial is None or not trial.source_run_id:
+            raise ValueError("Prueba automática sin fuente trazable")
+        state = db.get(MaxPowerState, trial.org_id)
+        user = db.get(User, state.owner_id) if state else None
+        run = db.get(AssistantRun, trial.source_run_id)
+        if not (user and user.enabled and user.role == "admin" and run
+                and user.org_id == run.org_id == trial.org_id):
+            raise ValueError("El propietario autorizado o la fuente ya no existen")
+        evidence = _consented_record(db, user, run)
+        if not evidence:
+            raise ValueError("El caso dejó de tener consentimiento o evidencia íntegra")
+        if trial.criterion not in detected_defects(evidence):
+            raise ValueError("La falla ya no puede verificarse en la fuente")
         prompt = "\n".join(("Persona: " if x.get("role") in ("inbound","user")
                             else "GALANT: ") + str(x.get("text",""))[:500]
                            for x in evidence["history"][-5:])
-        prompt += "\nÚltima consulta:\n" + str(evidence.get("question",""))[:650]
-        if private_data(prompt) or len(prompt)>3200:
-            raise ValueError("Caso privado o excede los límites de contexto")
+        prompt += "\nÚltima consulta:\n" + str(evidence.get("question", ""))[:650]
+        if private_data(prompt) or len(prompt) > 3200:
+            raise ValueError("Caso privado o excede el contexto seguro")
         base = LOCAL_REPLY_INSTRUCTIONS
-        approved = approved_coaching(db,user.org_id,"messenger")
-        if approved: base += "\nGuías aprobadas:\n" + approved
+        approved = approved_coaching(db, user.org_id, "messenger")
+        if approved:
+            base += "\nGuías aprobadas:\n" + approved
         candidate_instructions = base + "\nCorrección solo en laboratorio:\n" + candidate_policy(
-            "messenger",trial.criterion,trial.variant)
-        if len(candidate_instructions)>MAX_INSTRUCTIONS_CHARS:
-            raise ValueError("Instrucciones exceden presupuesto")
-        org_id,review_id,criterion,variant = trial.org_id,trial.review_id,trial.criterion,trial.variant
-    seed = crc32((review_id+criterion+variant).encode()) & 0x7fffffff
-    baseline,timing_before = _answer(base,prompt,seed,org_id)
-    candidate,timing_after = _answer(candidate_instructions,prompt,seed,org_id)
-    before = grounded_reply(baseline,prompt)
-    after = grounded_reply(candidate,prompt)
+            "messenger", trial.criterion, trial.variant)
+        if len(candidate_instructions) > MAX_INSTRUCTIONS_CHARS:
+            raise ValueError("Instrucciones exceden el límite")
+        org_id, source_id = trial.org_id, trial.source_run_id
+        criterion, variant = trial.criterion, trial.variant
+    seed = crc32((source_id + criterion + variant).encode()) & 0x7fffffff
+    baseline, timing_before = _answer(base, prompt, seed, org_id)
+    candidate, timing_after = _answer(candidate_instructions, prompt, seed, org_id)
+    before = grounded_reply(baseline, prompt)
+    after = grounded_reply(candidate, prompt)
     if not before or not after:
         raise RuntimeError("Respuestas sanitizadas no disponibles")
-    baseline_checks = objective_checks(evidence,before)
-    candidate_checks = objective_checks(evidence,after)
-    result,reason,gain = classify_messenger(criterion,baseline_checks,candidate_checks)
-    latency_delta = (round(timing_after["ollama_total_ms"]-timing_before["ollama_total_ms"],2)
+    baseline_checks = objective_checks(evidence, before)
+    candidate_checks = objective_checks(evidence, after)
+    result, reason, gain = classify_messenger(criterion, baseline_checks, candidate_checks)
+    latency_delta = (round(timing_after["ollama_total_ms"] - timing_before["ollama_total_ms"], 2)
                      if "ollama_total_ms" in timing_before and "ollama_total_ms" in timing_after else None)
-    return result,reason,{"channel":"messenger","criterion":criterion,"variant":variant,
-          "model":QWEN_4B,"baseline":baseline_checks,"candidate":candidate_checks,
-          "objective_gain":gain,"human_confirmed_gain":False,"production_verified":False,
-          "weights_changed":False,"before_timing_ms":timing_before,
-          "after_timing_ms":timing_after,"paired_latency_delta_ms":latency_delta,
-          "sample_pairs":1,"raw_content_stored":False}
+    return result, reason, {
+        "channel": "messenger", "criterion": criterion, "variant": variant,
+        "model": QWEN_4B, "baseline": baseline_checks, "candidate": candidate_checks,
+        "original_production": objective_checks(evidence, evidence.get("answer", "")),
+        "objective_gain": gain, "auto_evaluated": True,
+        "human_confirmed_gain": False, "production_verified": False,
+        "weights_changed": False, "before_timing_ms": timing_before,
+        "after_timing_ms": timing_after, "paired_latency_delta_ms": latency_delta,
+        "sample_pairs": 1, "raw_content_stored": False,
+        "ground_truth": "rule_verified_from_consented_conversation",
+    }
 
 def process_one():
     now = utcnow()

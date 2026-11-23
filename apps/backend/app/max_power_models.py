@@ -52,11 +52,14 @@ class MaxPowerMessengerTrial(Base):
     __table_args__ = (
         UniqueConstraint("org_id", "review_id", "criterion", "variant",
                          name="uq_max_power_messenger_review_variant"),
+        UniqueConstraint("org_id", "source_run_id", "criterion", "variant",
+                         name="uq_max_power_messenger_auto_run_variant"),
         Index("ix_max_power_messenger_queue", "status", "next_at"),
     )
     id: Mapped[str] = mapped_column(String(36), primary_key=True, default=uid)
     org_id: Mapped[str] = mapped_column(ForeignKey("organizations.id"), nullable=False)
-    review_id: Mapped[str] = mapped_column(ForeignKey("ai_response_reviews.id"), nullable=False)
+    review_id: Mapped[str | None] = mapped_column(ForeignKey("ai_response_reviews.id"), nullable=True)
+    source_run_id: Mapped[str | None] = mapped_column(ForeignKey("galancito_runs.id"), nullable=True)
     criterion: Mapped[str] = mapped_column(String(30), nullable=False)
     variant: Mapped[str] = mapped_column(String(20), nullable=False)
     status: Mapped[str] = mapped_column(String(24), nullable=False, default="queued")
