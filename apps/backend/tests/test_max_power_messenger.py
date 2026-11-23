@@ -1,5 +1,6 @@
 """Messenger trials: objective checks only, never imaginary general grading."""
 from app.max_power_messenger import objective_checks, classify_messenger
+from test_ai_control_center import ai_env  # reusable isolated SQLite auth fixture
 
 def evidence():
     return {"question": "Ya te dije mi oficio",
