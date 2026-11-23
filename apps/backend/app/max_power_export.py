@@ -204,6 +204,32 @@ def build_report(db: Session, user: User, *, max_events=MAX_EVENTS):
             "attempts": _number(trial.attempts),
             "measurements": safe_metrics(trial.metrics),
         })
+    # Optional, signed GPU fine-tuning stream: only numerical evidence.
+    # No raw dataset, conversation or adapter ever leaves this report.
+    gpu_events = [e for e in latest_events if e.event.startswith("ft_")
+                  and e.event[3:].isdigit() and isinstance(e.evidence, dict)]
+    latest_gpu = gpu_events[0] if gpu_events else None
+    gpu_run = [e.evidence for e in gpu_events if e.round_id == latest_gpu.round_id] if latest_gpu else []
+    def gpu_last(key):
+        for event in sorted(gpu_run, key=lambda x: int(x.get("sequence") or 0), reverse=True):
+            if _number(event.get(key)) is not None:
+                return _number(event[key])
+        return None
+    finetune = {
+        "reported_events": len(gpu_run),
+        "weights_training_reported": any(bool(event.get("weights_trained")) for event in gpu_run),
+        "candidate_accepted_in_lab": any(bool(event.get("candidate_accepted")) for event in gpu_run),
+        "step": gpu_last("step"), "total_steps": gpu_last("total_steps"),
+        "loss_last": gpu_last("loss"), "eval_loss_last": gpu_last("eval_loss"),
+        "gpu_memory_mb_last": gpu_last("gpu_memory_mb"),
+        "holdout_loss_before": gpu_last("holdout_loss_before"),
+        "holdout_loss_after": gpu_last("holdout_loss_after"),
+        "holdout_pass_before": gpu_last("holdout_pass_before"),
+        "holdout_pass_after": gpu_last("holdout_pass_after"),
+        "holdout_regressions": gpu_last("holdout_regressions"),
+        "production_promoted": False,
+        "source": "signed_external_cuda_qlora_telemetry",
+    }
     # Read-only host snapshot from trainer, excluding all unrecognized keys.
     worker = db.get(TrainingWorker, 1)
     resource_snapshot = safe_metrics(worker.resources) if worker and worker.resources else {}
@@ -269,6 +295,7 @@ def build_report(db: Session, user: User, *, max_events=MAX_EVENTS):
         "measured_quality": quality,
         "last_experiment": safe_metrics(state.latest_result) if state else {},
         "resource_snapshot": resource_snapshot,
+        "finetuning": finetune,
         "last_round": round_status,
         "history": {
             "event_count_total": total_events,
