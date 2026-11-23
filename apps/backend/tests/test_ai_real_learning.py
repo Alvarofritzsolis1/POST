@@ -26,6 +26,24 @@ def test_diagnosis_never_creates_fake_evidence():
     assert plan["quality_grade"] is None
 
 
+def test_unverifiable_criteria_are_not_counted_as_real_failures():
+    from app.ai_quality_audit import ReviewInput
+    valid = ReviewInput(run_id="0" * 36,
+                        ratings={"context": None, "safety": True},
+                        source_reviewed=True)
+    assert valid.ratings["context"] is None
+    sample = learning_plan([
+        SimpleNamespace(ratings={"context": None, "safety": True}),
+        SimpleNamespace(ratings={"context": False, "safety": None}),
+    ], "messenger")
+    context = next(row for row in sample["items"] if row["criterion"] == "context")
+    assert context["reviewed"] == 1
+    assert context["failed"] == 1 and context["failure_percent"] == 100
+    assert context["not_assessable"] == 1
+    safety = next(row for row in sample["items"] if row["criterion"] == "safety")
+    assert safety["failed"] == 0 and safety["reviewed"] == 1
+
+
 def test_real_chat_trial_requires_provenance_nonoverlap_and_human_review(ai_env, monkeypatch):
     from app import ai_real_learning_api
     from app.config import settings
