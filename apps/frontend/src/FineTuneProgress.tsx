@@ -6,6 +6,7 @@ import "./fine-tune-progress.css";
 type MetricPoint = {
   sequence: number; timestamp: string; kind: string; step: number; epoch?: number | null;
   loss?: number | null; eval_loss?: number | null; grad_norm?: number | null;
+  cpu_memory_mb?: number | null;
   learning_rate?: number | null; gpu_memory_mb?: number | null;
   gpu_memory_reserved_mb?: number | null; elapsed_seconds?: number | null;
   train_samples_per_second?: number | null; holdout_loss_before?: number | null;
@@ -22,18 +23,19 @@ type FineTuneStatus = {
   configured: boolean; source: string; refresh_seconds: number; runs: FineTuneRun[];
   production_promoted: boolean; disclaimer: string;
 };
-type Metric = "loss" | "eval_loss" | "grad_norm" | "gpu_memory_mb" | "learning_rate";
+type Metric = "loss" | "eval_loss" | "grad_norm" | "gpu_memory_mb" | "cpu_memory_mb" | "learning_rate";
 const metrics: Array<{id:Metric; title:string; unit:string}> = [
   {id:"loss",title:"Pérdida de entrenamiento",unit:""},
   {id:"eval_loss",title:"Pérdida de validación",unit:""},
   {id:"grad_norm",title:"Norma del gradiente",unit:""},
   {id:"gpu_memory_mb",title:"Memoria GPU",unit:" MB"},
+  {id:"cpu_memory_mb",title:"RAM del entrenamiento CPU",unit:" MB"},
   {id:"learning_rate",title:"Tasa de aprendizaje",unit:""},
 ];
 const stageLabels: Record<string,string> = {
   start:"Preparando entrenamiento", baseline:"Evaluando referencia", metric:"Actualizando pesos LoRA",
   eval:"Validando", checkpoint:"Checkpoint guardado", finished:"Entrenamiento terminado",
-  failed:"Entrenamiento interrumpido", unknown:"Estado no verificable"
+  failed:"Entrenamiento interrumpido", paused:"Pausado para proteger recursos", unknown:"Estado no verificable"
 };
 const fmt = (n:number|null|undefined,digits=3) =>
   typeof n==="number" && Number.isFinite(n) ? n.toLocaleString("es-CL",{maximumFractionDigits:digits}) : "—";
@@ -72,7 +74,8 @@ export default function FineTuneProgress(){
   const line=coords.map(({x,y})=>x.toFixed(1)+","+y.toFixed(1)).join(" ");
   const current=selected==null?coords[coords.length-1]:coords.find(p=>p.p.sequence===selected);
   const lastUpdate=run?.last_update_at?new Date(run.last_update_at).getTime():0;
-  const stale=!!run && run.stage!=="finished" && Date.now()-lastUpdate>60000;
+  const stale=!!run && !["finished","failed","paused"].includes(run.stage) && Date.now()-lastUpdate>60000;
+  const cpuRun=run?.model==="Qwen/Qwen3.5-0.8B";
   const lastBy=(key:keyof MetricPoint):number|null=>{
     for(const p of [...(run?.points||[])].reverse()){
       const value=p[key];
@@ -92,34 +95,34 @@ export default function FineTuneProgress(){
         "GALANT_FINETUNE_TELEMETRY_URL="+window.location.origin+"/api/v1/admin/ai/max-power/finetune/telemetry"
       ].join("\n");
       await navigator.clipboard.writeText(text);
-      setConnectedMessage("Credenciales copiadas. Utilízalas solo en el equipo GPU autorizado.");
+      setConnectedMessage("Credenciales copiadas. Utilízalas solo en el equipo de entrenamiento autorizado.");
     }catch(e){setConnectedMessage(e instanceof Error?e.message:"No se pudo copiar la conexión");}
     finally{setCopyBusy(false);}
   };
   return <section className="ft-panel" aria-label="Entrenamiento neuronal Qwen">
     <div className="ft-heading">
-      <div><span className="ft-eyebrow"><BrainCircuit size={15}/> GPU · QLORA</span>
+      <div><span className="ft-eyebrow"><BrainCircuit size={15}/> CPU LORA · GPU QLORA</span>
         <h3>Entrenamiento real de pesos</h3>
-        <p>Datos medidos por el trabajador de GPU, nunca resultados simulados.</p></div>
+        <p>Métricas de entrenamiento de pesos en trabajador aislado. Qwen3.5 4B de Messenger permanece intacto.</p></div>
       <button type="button" className="ft-refresh" onClick={()=>void refresh()} title="Actualizar ahora"><RefreshCw size={17}/></button>
     </div>
     {error && <p role="alert" className="ft-error">{error}</p>}
-    {!data?.configured && <p className="ft-warning">Canal de GPU no configurado. Se necesita GALANT_FINETUNE_METRICS_SECRET en el servidor y un trabajador CUDA independiente. MAX POWER local no modifica pesos.</p>}
+    {!data?.configured && <p className="ft-warning">Canal de métricas sin configurar. Para entrenar con el VPS actual existe una opción LoRA por CPU aislada (Qwen3.5 0.8B), sujeta a autorización de datos y memoria disponible. MAX POWER local por sí solo todavía no modifica pesos.</p>}
     {data?.configured && <div className="ft-connect">
       <button type="button" onClick={()=>setShowConnect(x=>!x)}>
-        <ShieldCheck size={16}/> {showConnect?"Ocultar conexión":"Vincular trabajador GPU"}
+        <ShieldCheck size={16}/> {showConnect?"Ocultar conexión":"Vincular entrenamiento CPU/GPU"}
       </button>
       {showConnect && <div className="ft-connect-details">
-        <p>Solo el administrador puede generar la credencial por organización. Guárdala en el trabajador privado, nunca en GitHub.</p>
+        <p>Solo el administrador puede generar la credencial por organización. Guárdala en el trabajador aislado, nunca en GitHub.</p>
         <button type="button" disabled={copyBusy} onClick={()=>void copyConnection()}>
-          {copyBusy?"Generando…":"Copiar credenciales GPU"}
+          {copyBusy?"Generando…":"Copiar credenciales de entrenamiento"}
         </button>
         {connectedMessage && <span role="status">{connectedMessage}</span>}
       </div>}
     </div>}
     {(!data?.runs.length) ? <div className="ft-empty"><Cpu size={28}/>
       <strong>Sin pasos de entrenamiento neuronal registrados</strong>
-      <p>Cuando el trabajador GPU comience a entrenar con datos autorizados y se conecte mediante HTTPS, aparecerán la pérdida, los pasos, los checkpoints y la validación.</p>
+      <p>Cuando el trabajador CPU o GPU entrene con datos autorizados y reporte por HTTPS, aparecerán la pérdida, los pasos, los checkpoints y la validación.</p>
       </div> : <>
       <div className="ft-run-select">
         <label htmlFor="ft-run">Ejecución</label>
@@ -131,7 +134,7 @@ export default function FineTuneProgress(){
       <div className="ft-status-line">
         <span className={"ft-led"+(!stale && run?.stage!=="finished"?" active":"")}/>
         <strong>{stageLabels[run?.stage||"unknown"]??"No verificable"}</strong>
-        <span>{stale?"Señal detenida o sin conexión":run?.stage==="finished"?"Resultado guardado":"Actualiza cada 5 segundos"}</span>
+        <span>{stale?"Señal detenida o sin conexión":run?.stage==="finished"?"Resultado guardado":run?.stage==="paused"?"Pausado por recursos":run?.stage==="failed"?"Interrumpido":"Actualiza cada 5 segundos"}</span>
       </div>
       <div className="ft-progress-label">
         <strong>{fmt(run?.percent,1)}{run?.percent!=null?"%":""}</strong>
@@ -144,7 +147,7 @@ export default function FineTuneProgress(){
       <div className="ft-kpis">
         <div><span>Pérdida entrenamiento</span><strong>{fmt(lastBy("loss"))}</strong></div>
         <div><span>Pérdida validación</span><strong>{fmt(lastBy("eval_loss"))}</strong></div>
-        <div><span>Memoria GPU medida</span><strong>{fmt(lastBy("gpu_memory_mb"),0)} MB</strong></div>
+        <div><span>{cpuRun?"RAM CPU medida":"Memoria GPU medida"}</span><strong>{fmt(lastBy(cpuRun?"cpu_memory_mb":"gpu_memory_mb"),0)} MB</strong></div>
         <div><span>Checkpoint / época</span><strong>{fmt(lastBy("epoch"),1)}</strong></div>
       </div>
       <div className="ft-chart-header">
