@@ -486,12 +486,11 @@ async def webhook(request: Request, db: Session = Depends(get_db)):
             elif local and identity_reply(body):
                 reply = local
             elif local and not waiting_for_ai and not lead.needs_support:
-                # A greeting is always handled locally, even on the first turn
-                # or while a stale consent prompt is awaiting delivery.
-                # Disclose automation briefly once, never on every message.
-                reply = ("¡Hola! Soy Galancito, atención automática de GALANT. "
-                         "¿En qué te puedo ayudar?" if recent == 0 and
-                         analyze(body).intent == "greeting" else local)
+                # Courtesy replies must sound conversational from the first turn.
+                # Never insert a canned self-introduction into an ordinary hello.
+                # Explicit identity questions are answered honestly by identity_reply().
+                # AI provider consent is still required before any model processing.
+                reply = local
             elif lead.ai_consent_state == "declined":
                 # No insistir con IA a quien ya la rechazó.
                 reply = None
