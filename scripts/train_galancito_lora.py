@@ -68,7 +68,7 @@ def main(argv=None) -> int:
         import torch
         from datasets import Dataset
         from peft import LoraConfig, prepare_model_for_kbit_training, get_peft_model
-        from transformers import AutoTokenizer, BitsAndBytesConfig, Qwen3_5ForCausalLM, TrainerCallback
+        from transformers import AutoTokenizer, BitsAndBytesConfig, Qwen3_5ForConditionalGeneration, TrainerCallback
         from trl import SFTConfig, SFTTrainer
     except ImportError as exc:
         raise SystemExit("Instala PyTorch CUDA, Transformers 5+, datasets, peft y trl "
@@ -129,16 +129,29 @@ def main(argv=None) -> int:
         load_in_4bit=True, bnb_4bit_quant_type="nf4",
         bnb_4bit_use_double_quant=True, bnb_4bit_compute_dtype=compute_dtype,
     )
-    model = Qwen3_5ForCausalLM.from_pretrained(
+    model = Qwen3_5ForConditionalGeneration.from_pretrained(
         MODEL, dtype=compute_dtype, quantization_config=quantization,
         device_map={"": torch.cuda.current_device()}, trust_remote_code=False,
     )
     model.config.use_cache = False
     model = prepare_model_for_kbit_training(model, use_gradient_checkpointing=True)
+    # Qwen3.5-4B is multimodal. PEFT must target the genuine language decoder
+    # in the official ConditionalGeneration architecture, not the vision
+    # tower and not a differently mapped text-only wrapper.
+    decoder_linear = [
+        name for name, layer in model.named_modules()
+        if "language_model" in name and isinstance(layer, torch.nn.Linear)
+        and not name.endswith(("lm_head", "output"))
+    ]
+    if not decoder_linear:
+        raise SystemExit("Arquitectura Qwen3.5 incompatible: no se localizaron capas lineales del decodificador")
     model = get_peft_model(model, LoraConfig(
         r=16, lora_alpha=32, lora_dropout=0.05,
-        target_modules="all-linear", bias="none", task_type="CAUSAL_LM",
+        target_modules=decoder_linear, bias="none", task_type="CAUSAL_LM",
     ))
+    if any("visual" in name or "vision" in name
+           for name, weight in model.named_parameters() if weight.requires_grad):
+        raise SystemExit("La torre visual no debe actualizarse en el entrenamiento de texto")
     SYSTEM_POLICY = "Responde en español. Razona con evidencias sin inventar hechos."
     def formatted_prompt(message):
         return tokenizer.apply_chat_template(
