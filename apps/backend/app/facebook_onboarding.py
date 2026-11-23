@@ -19,11 +19,20 @@ def _normal(text: str) -> str:
     return " ".join(re.sub(r"[^a-z0-9 ]+", " ", value).split())
 
 
-def assistance_signal(message: str, is_audio: bool = False) -> str | None:
-    """Only explicit, observable questions or requests; don't infer education or ability."""
+def assistance_signal(message: str, is_audio: bool = False,
+                      prior_prompt: str = "") -> str | None:
+    """Escalate substantive difficulty, not ordinary trouble with an advert."""
     if is_audio:
         return "Solicitó comunicación por audio; requiere atención humana para escucharlo"
     text = _normal(message)
+    # In a job-ad dialogue, "no cacho" is a request for a simpler
+    # explanation; it isn't proof that a person requires human intervention.
+    # Explicit requests for a person are handled independently.
+    if prior_prompt and text in {"no cacho", "no entiendo", "no comprendo",
+                                 "no se", "nose", "no recuerdo", "no me acuerdo"}:
+        from .galancito_triage import referring_to_application
+        if referring_to_application(prior_prompt):
+            return None
     if re.search(r"\b(no necesito ayuda|ya entiendo|no tengo dudas)\b", text):
         return None
     # No considerar falta de manejo de Facebook/enlaces una incapacidad ni
