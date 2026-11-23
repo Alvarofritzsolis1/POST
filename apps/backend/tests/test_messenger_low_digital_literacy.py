@@ -240,3 +240,18 @@ def test_real_webhook_does_not_handoff_after_a_single_no_cacho(network, monkeypa
     assert len(sent) == 2 and "seguir igual" in sent[-1].lower()
     lead = _contact(n)["lead"]
     assert not lead["needs_support"] and not lead["ai_paused"]
+
+
+def test_human_handoff_is_not_a_revocation_of_accepted_ai_permission():
+    from app.galancito_flow import apply_permission_reply
+    lead = SimpleNamespace(ai_consent=True, ai_consent_state="accepted",
+                           ai_consent_provider="ollama")
+    assert apply_permission_reply(lead, "quiero hablar con una persona", "") is None
+    assert lead.ai_consent is True
+    assert lead.ai_consent_state == "accepted"
+    assert lead.ai_consent_provider == "ollama"
+    # A conscious refusal is different: operator cannot override consent.
+    assert apply_permission_reply(lead, "no quiero IA", "") is False
+    assert not lead.ai_consent
+    assert lead.ai_consent_state == "declined"
+    assert lead.ai_consent_provider == ""
