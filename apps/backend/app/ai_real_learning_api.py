@@ -14,6 +14,7 @@ from pydantic import BaseModel, ConfigDict, Field
 from sqlalchemy import select
 from sqlalchemy.orm import Session
 
+from .ai_historical_learning import historical_overview
 from .ai_defect_learning import (
     POLICIES, SCOPE, VARIANTS, REPLAY_LIMIT_PER_CRITERION, MIN_HOLDOUT_WINS,
     candidate_policy, diagnostic_route, eligible_for_proposal, learning_plan, policy_title,
@@ -108,6 +109,16 @@ def _successful_training(trials, variant):
                 t.criterion_resolved and t.safety_passed})
 
 
+@router.get("/history")
+def historical_inventory(
+    months: int = Query(default=0, ge=0, le=60),
+    user: User = Depends(administrator),
+    db: Session = Depends(get_db),
+):
+    """All retained metadata; the endpoint never reads any conversation body."""
+    return historical_overview(db, user.org_id, months=months)
+
+
 @router.get("/cases")
 def audited_cases(channel: Literal["messenger", "general"] = "messenger",
                   user: User = Depends(administrator), db: Session = Depends(get_db)):
@@ -148,13 +159,33 @@ def next_target(channel: Literal["messenger", "general"] = "messenger",
                 user: User = Depends(administrator), db: Session = Depends(get_db)):
     """Pick next verified deficiency deterministically. Never invent cases."""
     results = audited_cases(channel=channel, user=user, db=db)["items"]
-    since = utcnow() - timedelta(days=30)
-    counts = {}
-    for row in reviews_for(db, user.org_id, channel, since):
-        for key in POLICIES[channel]:
-            if row.ratings.get(key) is False:
-                counts[key] = counts.get(key, 0) + 1
+    # All retained human audits inform recurrence, but normalize by each
+    # criterion's observed denominator and favor the last 30 days. Old fixes
+    # must not dominate merely because a channel had more historic traffic.
+    cutoff = utcnow() - timedelta(days=30)
+    counts = {key: {"assessed": 0, "failed": 0, "recent_assessed": 0,
+                    "recent_failed": 0} for key in POLICIES[channel]}
+    historical_labels = db.execute(select(
+        AIResponseReview.ratings, AIResponseReview.source_at,
+    ).where(AIResponseReview.org_id == user.org_id,
+            AIResponseReview.channel == channel,
+            AIResponseReview.rubric_version == 1)).yield_per(500)
+    for ratings, at in historical_labels:
+        if not isinstance(ratings, dict):
+            continue
+        is_recent = aware(at) >= cutoff
+        for key, count in counts.items():
+            if ratings.get(key) is None:
+                continue
+            count["assessed"] += 1
+            if is_recent:
+                count["recent_assessed"] += 1
+            if ratings[key] is False:
+                count["failed"] += 1
+                if is_recent:
+                    count["recent_failed"] += 1
     candidates = []
+    engineering = []
     for case in results:
         if not case["model_verified"]:
             continue
@@ -164,6 +195,16 @@ def next_target(channel: Literal["messenger", "general"] = "messenger",
         if private_data(context):
             continue
         for key in case["failed_criteria"]:
+            linked_run = _linked_original_run(db, user, evidence, original)
+            route = diagnostic_route(linked_run, key)
+            if route["hypothesis"] in {"contexto_truncado", "sin_historial_en_prompt",
+                                      "ruta_sin_modelo", "modelo_externo"}:
+                # These routes require restoring context/code/provider first,
+                # rather than claiming a prompt or LoRA correction is causal.
+                engineering.append({"criterion": key, "source_id": case["source_id"],
+                                    "hypothesis": route["hypothesis"],
+                                    "mechanism": route["mechanism"]})
+                continue
             previous = list(db.scalars(select(AIRealPracticeTrial).where(
                 AIRealPracticeTrial.org_id == user.org_id,
                 AIRealPracticeTrial.channel == channel,
@@ -192,16 +233,33 @@ def next_target(channel: Literal["messenger", "general"] = "messenger",
             if not strategies:
                 continue
             _, variant = min(strategies)
-            candidates.append((0 if key == "safety" else 1, -counts.get(key, 0),
-                               case["source_at"], case["source_id"], key, variant))
+            c = counts[key]
+            recent_rate = c["recent_failed"] / c["recent_assessed"] if c["recent_assessed"] >= 5 else None
+            history_rate = c["failed"] / c["assessed"] if c["assessed"] >= 10 else None
+            # Severe safety, recent failure count, then comparable rates.
+            # Unknown rates rank below observed rates; never invent them.
+            candidates.append((0 if key == "safety" else 1,
+                               -c["recent_failed"],
+                               -(recent_rate if recent_rate is not None else -1.0),
+                               -(history_rate if history_rate is not None else -1.0),
+                               -c["failed"],  # recurrence only as a tie-break, never a score
+                               -aware(case["source_at"]).timestamp(),
+                               case["source_id"], key, variant))
     if not candidates:
-        return {"available": False, "reason": "No hay casos reales auditados, autorizados y elegibles para práctica local."}
-    _, minus_count, _, source_id, criterion, variant = min(candidates)
+        return {"available": False,
+                "reason": "No hay ensayos Qwen elegibles. Prioriza diagnósticos de infraestructura si existen.",
+                "engineering_findings": engineering[:15], "automatic_approval": False}
+    _, _, _, _, _, _, source_id, criterion, variant = min(candidates)
+    result = counts[criterion]
     return {"available": True, "source_id": source_id, "criterion": criterion,
-            "variant": variant, "observed_defects": -minus_count,
-            "reason": "Seleccionado por fallas humanas verificadas y estrategia sin regresiones observadas.",
+            "variant": variant, "observed_defects": result["failed"],
+            "historically_assessed": result["assessed"],
+            "recently_assessed": result["recent_assessed"],
+            "recent_defects": result["recent_failed"],
+            "engineering_findings": engineering[:15],
+            "reason": "Priorizado por frecuencia histórica auditada y fallas recientes verificadas, sin regresiones observadas.",
             "model": QWEN_4B, "automatic_approval": False,
-            "caution": "La hipótesis de fallo no prueba la causa ni el éxito de una corrección."}
+            "caution": "No se practican errores confirmados de truncamiento, memoria o proveedor como si fueran fallas de Qwen."}
 
 
 @router.get("/pending")
