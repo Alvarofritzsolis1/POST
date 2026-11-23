@@ -165,7 +165,7 @@ export function NetworkQuickForm({
             <input type="text" value={publicLocation}
               onChange={(e) => setPublicLocation(e.target.value)}
               maxLength={120} placeholder="Ej. Sector San Pedro de la Paz, Biobío"
-              aria-describedby="nsp-location-help" required />
+              aria-describedby="nsp-location-help" />
             <small id="nsp-location-help">Solo comuna o sector. Nunca dirección ni nombre interno de la obra.</small>
           </label>}
         </div>
