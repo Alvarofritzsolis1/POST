@@ -114,6 +114,7 @@ def _view(db, user, row):
         trials = list(db.scalars(select(MaxPowerMessengerTrial).where(
             MaxPowerMessengerTrial.org_id == user.org_id, MaxPowerMessengerTrial.criterion == QWEN_CRITERION,
             MaxPowerMessengerTrial.metrics["dataset_sha256"].as_string() == practice.evidence.get("dataset_sha256"),
+            MaxPowerMessengerTrial.metrics["protocol"].as_string() == practice.evidence.get("protocol"),
         )))
         reserved = [t for t in trials if t.status == "completed" and t.metrics.get("split") == "holdout"]
         synthetic_replies = {

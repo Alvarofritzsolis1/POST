@@ -15,7 +15,7 @@ from sqlalchemy.orm import Session
 
 from .galancito_training_models import TrainingRound, TrainingWorker
 from .max_power_models import MaxPowerEvent, MaxPowerMessengerTrial, MaxPowerState
-from .max_power_practice import EVENT as PRACTICE_EVENT, SOURCE as PRACTICE_SOURCE, WEIGHTS
+from .max_power_practice import EVENT as PRACTICE_EVENT, SOURCE as PRACTICE_SOURCE, WEIGHTS, generate_scenarios
 from .models import User
 from .version import VERSION, SOURCE_COMMIT
 
@@ -88,6 +88,8 @@ ALLOWED_MODELS = {"qwen3:1.7b", "qwen3.5:4b-q4_K_M"}
 ALLOWED_CRITERIA = set(ENUM_KEYS["criterion"]) | {
     "usefulness", "security", "numeric_accuracy", "calculation", "data_grounding"
 }
+PRACTICE_FIELDS = {field for turns in generate_scenarios().values() for turn in turns for field in turn.expected} | {
+    field + "_estado" for turns in generate_scenarios().values() for turn in turns for field in turn.states}
 DIAGNOSES = {
     "resource_guard": ("Servidor con capacidad insuficiente", "Medir CPU, memoria, PSI y cola antes de repetir"),
     "insufficient_evidence": ("Faltan casos autorizados verificables", "Ampliar muestras reales y conservar conjuntos reservados"),
@@ -156,6 +158,9 @@ def safe_metrics(metrics):
     dimensions = metrics.get("dimensions")
     if isinstance(dimensions, dict):
         cleaned["dimensions"] = {key: safe_metrics(dimensions[key]) for key in WEIGHTS if key in dimensions}
+    fields = metrics.get("fields")
+    if isinstance(fields, dict):
+        cleaned["fields"] = {key: safe_metrics(fields[key]) for key in sorted(PRACTICE_FIELDS & fields.keys())}
     # Aggregated summaries: numbers and booleans only, limited to 40 buckets.
     for key in ("failed_by_criterion", "cycle_summaries"):
         records = metrics.get(key)

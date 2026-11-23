@@ -29,7 +29,7 @@ from .galancito_intake import UNKNOWN_NAMES, apply_intake, identity_reply, intak
 from .galancito_local import MAX_INSTRUCTIONS_CHARS, generate_training_text, last_timings, MAX_POWER_ISOLATED
 from .galancito_triage import plain, private_data
 from .max_power_models import MaxPowerEvent, MaxPowerMessengerTrial, MaxPowerState
-from .max_power_practice import QWEN_CRITERION, RESERVED, SOURCE, dataset_digest, generate_scenarios, reply_cases, reply_reference
+from .max_power_practice import PROTOCOL, QWEN_CRITERION, RESERVED, SOURCE, dataset_digest, generate_scenarios, reply_cases, reply_reference
 from .models import Organization
 from .models import User, utcnow
 
@@ -260,11 +260,11 @@ def schedule_synthetic_reply(db, org_id, scenarios):
     if pending:
         return True
     for case_id in sorted(reply_cases(scenarios), key=lambda key: (key in RESERVED, key)):
-        trial_id = str(uuid5(NAMESPACE_URL, f"{org_id}:{digest}:qwen-reply-v1:{case_id}"))
+        trial_id = str(uuid5(NAMESPACE_URL, f"{org_id}:{digest}:{PROTOCOL}:qwen-reply:{case_id}"))
         if db.get(MaxPowerMessengerTrial, trial_id) is not None:
             continue
         db.add(MaxPowerMessengerTrial(id=trial_id, org_id=org_id, criterion=QWEN_CRITERION,
-                                     variant="focused", metrics={"source": SOURCE, "case_id": case_id,
+                                     variant="focused", metrics={"source": SOURCE, "case_id": case_id, "protocol": PROTOCOL,
                                                                  "dataset_sha256": digest}))
         return True
     return False
@@ -285,7 +285,7 @@ def evaluate_synthetic_reply(org_id, case_id, digest):
     def checks(raw):
         answer, result = _grounded_checks({"question": turn.message}, raw, prompt, known_fields=known)
         result["understanding_check"] = (result["safe"] and all(word in plain(answer or "") for word in turn.topic)
-                                         and not intake_question_fields(answer))
+                                         and not intake_question_fields(answer or ""))
         return result
 
     before, after = [checks(raw) for raw, _ in answers]
@@ -298,7 +298,7 @@ def evaluate_synthetic_reply(org_id, case_id, digest):
         outcome = "objective_gain" if gain else "no_objective_gain"
     detail = "Comparación Qwen 4B de respuesta a una consulta sintética"
     return outcome, detail, {
-        "source": SOURCE, "case_id": case_id, "dataset_sha256": digest,
+        "source": SOURCE, "case_id": case_id, "dataset_sha256": digest, "protocol": PROTOCOL,
         "split": "holdout" if case_id in RESERVED else "development", "model": QWEN_4B,
         "baseline": before, "candidate": after, "objective_gain": gain, "sample_pairs": 1,
         "before_timing_ms": answers[0][1], "after_timing_ms": answers[1][1],
@@ -317,6 +317,8 @@ def evaluate_trial(trial_id):
         if not (state and state.enabled and user and user.enabled and user.role == "admin" and user.org_id == trial.org_id):
             raise ValueError("El administrador de la práctica ya no está autorizado")
         if trial.criterion == QWEN_CRITERION:
+            if trial.metrics.get("protocol") != PROTOCOL:
+                raise ValueError("La versión de la práctica sintética cambió")
             synthetic = (trial.org_id, trial.metrics.get("case_id"), trial.metrics.get("dataset_sha256"))
         else:
             synthetic = None
