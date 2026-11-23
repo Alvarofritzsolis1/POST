@@ -433,7 +433,7 @@ export function RequirementForm({
           {publishFacebook && <>
             <label>Ubicación aproximada para Facebook
               <input value={publicLocation} onChange={(e) => setPublicLocation(e.target.value)}
-                required maxLength={120} placeholder="Ej. Sector San Pedro de la Paz, Biobío"/>
+                maxLength={120} placeholder="Ej. Sector San Pedro de la Paz, Biobío"/>
               <small>No se mostrará el nombre interno de la obra.</small>
             </label>
             {current?.poster_available && !editPoster && <button type="button" className="nw-btn" onClick={() => setEditPoster(true)}>
