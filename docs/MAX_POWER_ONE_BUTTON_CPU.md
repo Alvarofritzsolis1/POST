@@ -1,4 +1,4 @@
-# GALANT MAX POWER 20.9.30 — Un botón para práctica y LoRA CPU
+# GALANT MAX POWER 20.9.31 — Un botón para práctica y LoRA CPU
 
 ## Qué sucede cuando enciendes MAX POWER
 
@@ -11,6 +11,21 @@
 7. Al apagar MAX POWER, el proceso deja de autorizar pasos y guarda el checkpoint del último paso confirmado. Una llamada de Qwen en curso puede tardar en terminar; si el proceso no se detiene, se termina conservando el checkpoint anterior.
 8. Al volver a encender, reanuda únicamente desde checkpoints íntegros del mismo dataset y manifest. No suma pasos antiguos como aprendizaje nuevo.
 9. Después de cuatro pasos, el adaptador candidato espera evaluación independiente; no se repite indefinidamente el mismo dataset ni se instala en producción.
+
+## Auditoría de requisitos y estados (20.9.31)
+
+MAX POWER muestra ahora cuál es el requisito exacto pendiente. Al encenderlo, distingue entre:
+
+- **Falta la clave pública Ed25519:** aún no existe una identidad de firma de datasets confiable configurada en el servidor. Esto NO autoriza a inventar una clave privada o a firmar conversaciones automáticamente.
+- **Faltan ejemplos reales autorizados:** no existe el archivo privado por organización `approved.jsonl`. No se extraen mensajes de Messenger sin permiso.
+- **Falta el manifiesto firmado:** existe el conjunto de ejemplos, pero falta la autorización criptográfica `approval.json` para ese hash SHA256 y modelo 0.8B.
+- **Permisos inseguros:** los archivos deben ser de lectura/escritura solo para UID 10001 (0600); no se relajan permisos en automático.
+- **Datos rechazados:** la firma, el contenido, el formato, la revisión de privacidad o el número de ejemplos no son válidos. No se usará ese conjunto.
+- **RAM insuficiente o entrenamiento en espera:** se conservan las reservas para Messenger, se dan turnos a las organizaciones activas y se muestran mediciones, sin falsear progreso.
+
+Los estados de error y de espera no constituyen entrenamientos. Los pesos solo se consideran entrenados si se recibieron eventos firmados con pasos nuevos y dos huellas distintas del adaptador. Los pasos LoRA 0.8B no cambian los pesos del 4B de Messenger.
+
+Para habilitar gradientes reales falta **una autorización verificable del dueño de los datos**, más un conjunto privado anonimizado revisado y firmado por el responsable. MAX POWER no puede sustituir esa autorización con ejemplos artificiales o con el hecho de estar encendido.
 
 ## Única preparación imprescindible: datos reales autorizados
 
