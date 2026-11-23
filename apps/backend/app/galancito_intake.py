@@ -258,16 +258,12 @@ def _team_update(lead, value: str, previous: str) -> None:
 
     count = _COUNT
     total = re.search(r"\b(?:somos|equipo de|iremos) " + count +
-                      r"(?= (?:personas?|maestros?|trabajadores?|ayudantes?|en total)\b|\s*(?:\||$))", value)
+                      r"(?= (?:personas?|maestros?|trabajadores?|ayudantes?|cabros?|en total)\b|\s*(?:\||$))", value)
+    if not total:
+        total = re.search(r"\btengo " + count + r" (?:ayudantes?|personas?|maestros?|trabajadores?) disponibles\b", value)
     helpers = re.search(
-        r"\b(?:puedo ir con|voy con|llevo|puedo llevar|tengo) " + count
+        r"\b(?:puedo ir con|voy con|llevo|puedo llevar) " + count
         + r" (?:ayudantes?|personas?|maestros?|trabajadores?)\b", value)
-    if helpers and helpers[0].startswith("tengo ") and re.match(
-        r" (?:contratad[oa]s?|con contrato)\b", value[helpers.end():]
-    ):
-        helpers = None  # Payroll does not establish attendance capacity.
-    if helpers and helpers[0].startswith("tengo ") and "disponibles" in value[helpers.end():]:
-        total, helpers = helpers, None
     if not helpers:
         helpers = re.fullmatch(r"yo y " + count + r" mas", value)
     if not total and not helpers and ("cuantas personas" in previous or "con cuantas" in previous):
@@ -414,7 +410,8 @@ def apply_intake(lead, message: str, prior_prompt: str = "", *,
     if not lead.experience or lead.experience == "No informado por el interesado" or _CORRECTION.search(value):
         experience = re.search(r"\b(\d{1,2})\s+(anos?|mes(?:es)?)\b", value)
         asked = any(s in prev for s in (_EXPERIENCE_QUESTION, "cuanta experiencia", "cuantos anos"))
-        volunteered = bool(re.search(r"\b(?:experiencia|llevo|llevamos)\b", value))
+        volunteered = (bool(re.search(r"\b(?:experiencia|llevo|llevamos)\b", value))
+                       and not re.search(r"\b(?:viviendo|residiendo)\b", value))
         if value in {"sin experiencia", "no tengo experiencia", "recien comienzo"} or (
                 asked and value in {"ninguna", "no tengo", "nuevo", "nuevo en esto"}):
             lead.experience = "Sin experiencia declarada"

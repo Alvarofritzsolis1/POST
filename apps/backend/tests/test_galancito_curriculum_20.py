@@ -90,6 +90,13 @@ def test_worker_is_not_a_contractor_and_human_requests_interrupt_intake():
     assert next_intake_reply("quiero hablar con una persona", vars(lead), question) is None
 
 
+def test_unspecified_worker_availability_and_residence_do_not_fill_professional_fields():
+    lead = blank_lead()
+    apply_intake(lead, "Tengo 3 trabajadores. Llevo 5 años viviendo en Coronel.")
+    assert lead.workers is None and lead.has_employees is None
+    assert not lead.experience and not lead.work_area
+
+
 @pytest.mark.parametrize("message, specialty", [
     ("ola soy gasfite", "Gasfitería"), ("soi carpintreo", "Carpintería"),
     ("soy sodador", "Soldadura"), ("soy eletricista", "Electricidad"),

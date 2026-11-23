@@ -16,9 +16,8 @@ from .galancito_flow import grounded_reply, numbered_menu
 from .galancito_intake import (UNKNOWN_NAMES, identity_reply, natural_messenger_reply,
                                needs_deeper_response, next_intake_reply, small_talk_reply)
 from .galancito_links import suggest_requirements
-from .galancito_memory import apply_messenger_message, note_profile_sources, profile_facts
+from .galancito_memory import apply_messenger_message, capture_voluntary_contact, professional_message, profile_facts
 from .galancito_profile_review import declaration_for_review, reviewed_trade_aliases
-from .galancito_phone import remember_shared_phone, redact_mobile_for_intake
 from .galancito_triage import plain, private_data, quick_reply
 
 PROMPT = REPLY_INSTRUCTIONS + """
@@ -151,10 +150,8 @@ def evaluate(case, aliases, knowledge, answer=None, judge=None, corrector=None, 
         for index, (message, delta) in enumerate(case.turns, 1):
             timestamp = datetime(2031, 1, 7, 15, tzinfo=timezone.utc) + timedelta(minutes=index)
             remote_id = f"turno-{index}"
-            shared = remember_shared_phone(lead, message, previous, at=timestamp)
-            if shared:
-                note_profile_sources(lead, ["contact_phone"], source="message", at=timestamp, remote_id=remote_id)
-            clean = redact_mobile_for_intake(message) if shared else message
+            capture_voluntary_contact(db, lead, message, previous, at=timestamp, remote_id=remote_id)
+            clean = professional_message(message)
             registered_message = declaration_for_review(clean) if profile_review else clean
             changed = apply_messenger_message(db, lead, registered_message, previous, remote_id=remote_id,
                                               at=timestamp, aliases=aliases)
@@ -171,7 +168,7 @@ def evaluate(case, aliases, knowledge, answer=None, judge=None, corrector=None, 
             prior = next_intake_reply(clean, facts, previous)
             asks_match = match is not None and bool(re.search(r"\bcompatible\b", plain(message))) and "?" in message
             fast = identity or (match_reply(match) if asks_match else None)
-            fast = fast or small_talk_reply(clean) or prior or quick_reply(clean, known=facts)
+            fast = fast or small_talk_reply(clean, previous) or prior or quick_reply(clean, known=facts)
             reviewed = next((item.get("reply") for item in knowledge
                              if item.get("phrase") and plain(item["phrase"]) == plain(clean)), None)
             # Preserve identity, private turn and need handling before candidate knowledge.
@@ -244,8 +241,8 @@ def evaluate(case, aliases, knowledge, answer=None, judge=None, corrector=None, 
                 "menu_numerado": numbered_draft or numbered_menu(reply),
             }.items() if detected]
             errors.update(issues)
-            history.append([redact_mobile_for_intake(visible(message)), visible(reply)])
-            turns.append({"turn": index, "message": visible(redact_mobile_for_intake(message)),
+            history.append([professional_message(visible(message)), visible(reply)])
+            turns.append({"turn": index, "message": visible(professional_message(message)),
                           "reply": visible(reply), "reply_source": source,
                           "candidate_reply": visible(draft) if draft else None, "checks": checks,
                           "issues": issues, "critical": severe,

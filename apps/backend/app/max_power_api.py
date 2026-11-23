@@ -123,6 +123,8 @@ def _view(db, user, row):
             "reserved_pairs": len(reserved),
             "baseline_passes": sum(t.metrics["baseline"]["understanding_check"] is True for t in reserved),
             "candidate_passes": sum(t.metrics["candidate"]["understanding_check"] is True for t in reserved),
+            "gains": sum(t.outcome == "objective_gain" for t in reserved),
+            "regressions": sum(t.outcome in ("objective_regression", "safety_regression") for t in reserved),
             "safety_failures": sum(t.outcome == "safety_regression" for t in reserved),
         }
     verified_cpu_update = db.scalar(select(MaxPowerEvent.id).where(

@@ -30,7 +30,8 @@ type Status = {
   synthetic_practice?: {at: string; development: PracticeSample; holdout: PracticeSample;
                        target_weights: Record<string,number>} | null;
   synthetic_qwen?: {queued_or_running: number; blocked: number; reserved_pairs: number;
-                    baseline_passes: number; candidate_passes: number; safety_failures: number} | null;
+                    baseline_passes: number; candidate_passes: number; gains: number;
+                    regressions: number; safety_failures: number} | null;
   resource_snapshot?: Record<string,number | null>;
   latest_result: Record<string, unknown>;
   latency_diagnosis: {code: string; reason: string; measured_ms?: number; suggestion?: string};
@@ -195,8 +196,9 @@ export default function MaxPowerPanel(){
         <div className="max-power-competency"><span>Qwen 4B aislado · respuestas sintéticas</span>
           <span>{qwen.reserved_pairs ? `A/B ${qwen.baseline_passes} → ${qwen.candidate_passes} de ${qwen.reserved_pairs} pares reservados`
             : "Datos insuficientes"}</span></div>
-        {(qwen.queued_or_running > 0 || qwen.blocked > 0 || qwen.safety_failures > 0) && <p>
-          {qwen.queued_or_running} pendientes · {qwen.blocked} bloqueadas · {qwen.safety_failures} fallas de seguridad en reserva
+        {(qwen.reserved_pairs > 0 || qwen.queued_or_running > 0 || qwen.blocked > 0) && <p>
+          {qwen.gains} ganancias y {qwen.regressions} regresiones en reserva, con {qwen.safety_failures} fallas de seguridad.
+          {" "}{qwen.queued_or_running} ensayos pendientes y {qwen.blocked} bloqueados.
         </p>}
       </div>}
       {resources && typeof resources.host_cpu_percent === "number" && <p>

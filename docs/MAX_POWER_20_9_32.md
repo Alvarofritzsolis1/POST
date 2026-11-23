@@ -41,11 +41,19 @@ cd apps/backend
 python -m pytest -q tests/test_max_power_practice.py tests/test_max_power_recovery.py tests/test_max_power_messenger.py
 ```
 
+## Ensayo con Qwen 4B real
+
+Ollama ejecutó `qwen3.5:4b-q4_K_M` en un contenedor de laboratorio limitado a 5 GB de RAM y dos CPU. Se completaron dos pares de desarrollo y dos reservados, con el mismo modelo y semilla dentro de cada par. La comprobación buscó palabras del tema y ausencia de preguntas de ficha en ese turno. En reserva, ambas instrucciones pasaron 1 de 2 verificaciones. La variante mejoró la consulta por cupos después de un oficio y empeoró el turno que combinaba un oficio con una consulta de pago. Los cuatro pares quedaron libres de incidentes según los controles ejecutados. La variante permanece en laboratorio.
+
 ## Despliegue y recuperación
 
 Validar CI y el respaldo de PostgreSQL y de los archivos persistentes antes de programar la publicación. Usar el procedimiento de [despliegue de GALANT](DESPLIEGUE_VPS_UN_CLIC.md), que aplica las migraciones antes de iniciar los contenedores. Validar el webhook, el panel y un contacto de prueba de la organización antes de encender MAX POWER. La práctica de reglas funciona con SQLite aislado. Para la prueba de Qwen se requiere el servicio de Ollama de laboratorio y el modelo exacto `qwen3.5:4b-q4_K_M`.
 
 Ante una degradación, apagar MAX POWER desde Administración, conservar PostgreSQL y los volúmenes y seguir el procedimiento de reversión del despliegue. La columna agregada admite valores nulos y puede permanecer al volver al código anterior. El resultado sintético persistido se deduplica por organización, huella del dataset y versión del protocolo. Para recuperar LoRA, el supervisor revisa la huella y el checkpoint que corresponde al modelo y al conjunto autorizado.
+
+Las rondas antiguas de Práctica Bot para postulantes conservan su evidencia. La nueva referencia lleva una versión de dataset distinta porque la ficha ya no deduce el tipo de entidad a partir del interés laboral.
+
+Se comprobó en Chromium el encendido, el resultado sintético, el detalle por campo, la descarga del informe, el apagado y la persistencia al recargar. Las pruebas de migración desde bases anteriores se ejecutaron en SQLite y PostgreSQL. Las pruebas de Messenger usaron mensajes sintéticos y el webhook firmado con un transporte de Meta de prueba.
 
 ## Límites de la evidencia
 
