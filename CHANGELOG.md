@@ -1,3 +1,14 @@
+## 20.9.25-rc1 — MAX POWER: QLoRA real con telemetría de GPU
+
+- Integra el ejecutor de ajuste fino **real** Qwen3.5-4B en una máquina CUDA aislada. La GPU actual del VPS no está confirmada: encender MAX POWER local sigue ejecutando evaluaciones, no gradientes.
+- Corrige la carga de la arquitectura oficial Qwen3.5-4B (ConditionalGeneration) y limita LoRA a capas lineales del decodificador; la torre visual queda congelada.
+- Mejora checkpoints recurrentes y permite reanudar solo con dataset, aprobación y parámetros idénticos. Registra cada paso, loss, eval_loss, grad_norm, épocas y VRAM mediante callbacks reales de TRL, sin gráficos ficticios.
+- Telemetría HTTPS firmada HMAC por organización, token exclusivo del administrador, API solo numérica y eventos idempotentes con almacenamiento local JSONL duradero; sin mensajes de Messenger, credenciales ni datos de trabajadores.
+- Panel MAX POWER con gráficos SVG interactivos, series seleccionables y actualizaciones cada 5 s; señal estancada se muestra como desconectada. El historial general se mantiene separado de miles de pasos neuronales.
+- El informe ChatGPT incorpora medidas neuronales agregadas y resultados de test reservado. Entrenamiento de pesos, ganancia de razonamiento y promoción a producción permanecen estados distintos.
+- Entrenamiento neuronal no se inicia sin GPU CUDA externa, dataset privado real consentido y manifest Ed25519 válido. Los adaptadores jamás se publican automáticamente.
+- Pruebas nuevas de autenticación, aislamiento entre organizaciones, idempotencia, progreso verificable, privacidad y recuperación. La CI valida el código, NO demuestra fine-tuning ejecutado en GPU.
+
 ## 20.9.24-rc1 — MAX POWER: recuperación, CPU y pruebas reales (parche aislado)
 
 - Corrige el cuello de botella de un hilo: el controlador MAX POWER tiene solo 0,35 CPU, pero el Ollama aislado ahora recibe una cuota configurable inicial de 2 CPU y dos hilos. No altera las cuotas ni el timeout de Messenger.
