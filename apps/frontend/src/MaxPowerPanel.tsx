@@ -65,7 +65,7 @@ export default function MaxPowerPanel(){
         credentials:"include",cache:"no-store",headers:{"Accept":"application/json"}
       });
       if(!response.ok){
-        if(response.status===401)window.dispatchEvent(new Event("galant-session-ended"));
+        if(response.status===401)window.dispatchEvent(new window.Event("galant-session-ended"));
         throw new Error("No se pudo generar el informe (HTTP "+response.status+").");
       }
       const blob=await response.blob();
