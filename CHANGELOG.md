@@ -1,3 +1,12 @@
+## 20.9.31-rc1 — MAX POWER: auditoría de preparación y evidencia de pesos
+
+- Diagnóstico preciso del motivo que impide entrenar LoRA CPU 0.8B: falta de clave pública Ed25519, JSONL real autorizado, manifiesto firmado, permisos privados o datos rechazados. Nunca fabrica consentimiento, respuestas de referencia ni métricas.
+- El supervisor alterna turnos entre organizaciones con MAX POWER encendido y mantiene la prioridad del trabajo de gradientes en curso, en lugar de elegir siempre la primera organización.
+- El panel traduce el estado técnico «Awaiting New Evidence» y presenta acciones de preparación con claridad, separando evidencias nuevas de comprobaciones de RAM.
+- El resumen MAX POWER deja de fijar «pesos entrenados» en falso: solo indica pesos reportados cuando existen pruebas firmadas de pasos nuevos y cambios de SHA-256 del adaptador. Una carga de modelo o un checkpoint recuperado no bastan.
+- Pruebas de condiciones faltantes, separación entre organizaciones, turnos justos y evidencia real en panel. Sin cambios a Messenger 4B ni a los módulos de Facebook de GALANT.
+- La CI asegura integridad del código y despliegue; no equivale a una prueba de backpropagation con datos reales, que continúa condicionada a autorización independiente.
+
 ## 20.9.30-rc1 — MAX POWER de un solo botón: evaluaciones + pesos LoRA reales
 
 - El mismo interruptor MAX POWER coordina el motor existente de pruebas Qwen3.5 4B y el entrenador neuronal Qwen3.5 0.8B. El supervisor CPU consulta el estado ON/OFF, la generación de sesión y las prioridades de Messenger mediante una API interna firmada HMAC; no accede a la base de datos, al socket Docker ni a documentos laborales.
