@@ -219,6 +219,9 @@ def requirement_summary_suggestion(body: DraftCopyInput, user: User = Depends(au
     # Internal site name must never be sent to the model or returned in public copy.
     if len(site.name) >= 6 and site.name.casefold() in body.description.casefold():
         raise HTTPException(422, "Quita el nombre interno de la obra de las labores públicas")
+    if re.search(r"(?:https?://|www\\.|@|\\+?\\d[\\d .-]{7,}\\d|\\b(?:rut|telefono|correo|direccion|dirección|calle|avenida|pasaje)\\b)",
+                 body.description, flags=re.IGNORECASE):
+        raise HTTPException(422, "Quita direcciones y datos de contacto antes de mejorar el anuncio con IA")
     suggestion, source = draft_summary(db, org_id=user.org_id, description=body.description,
                                        specialty=body.specialty)
     if not summary_safe(suggestion, body.description, site_name=site.name):
