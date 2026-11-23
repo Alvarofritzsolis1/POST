@@ -83,6 +83,22 @@ export default function MaxPowerPanel(){
     finally{setDownloading(false);}
   };
   const result=data?.latest_result || {};
+  // Unmodified, measured experimental latency. Differences in workload mix
+  // mean this chart must never be labelled a causal speed improvement.
+  const latencyHistory=(data?.events || [])
+    .filter(e=>e.event==="experiment_completed" &&
+      typeof e.evidence.inference_p95_ms==="number" &&
+      Number.isFinite(e.evidence.inference_p95_ms) &&
+      (e.evidence.inference_p95_ms as number)>=0)
+    .slice(0,30).reverse()
+    .map(e=>({at:e.at,p95:e.evidence.inference_p95_ms as number}));
+  const latencyMin=latencyHistory.length?Math.min(...latencyHistory.map(e=>e.p95)):0;
+  const latencyMax=latencyHistory.length?Math.max(...latencyHistory.map(e=>e.p95)):0;
+  const latencyLine=latencyHistory.map((event,i)=>{
+    const x=16+i*668/Math.max(1,latencyHistory.length-1);
+    const y=92-(event.p95-latencyMin)*68/Math.max(1,latencyMax-latencyMin);
+    return x.toFixed(1)+","+y.toFixed(1);
+  }).join(" ");
   return <section className="max-power">
     <header className="max-power-header">
       <div><span className="max-power-eyebrow"><BrainCircuit size={14}/> APRENDIZAJE ADAPTATIVO</span>
@@ -132,6 +148,25 @@ export default function MaxPowerPanel(){
         </article>;
       })}
     </div>
+    <article className="max-power-card max-power-latency-history">
+      <div className="max-power-section-title"><Activity size={17}/><h3>Evolución de latencia del laboratorio</h3></div>
+      {latencyHistory.length>=2 ? <>
+        <svg viewBox="0 0 700 114" width="100%" role="img" aria-label={"Latencia p95 observada en "+latencyHistory.length+" experimentos"}>
+          <path d="M16 92 H684" stroke="#d6e5e1" strokeWidth="1" fill="none"/>
+          <polyline points={latencyLine} stroke="#177a68" strokeWidth="3" fill="none" strokeLinecap="round" strokeLinejoin="round"/>
+          {latencyHistory.map((event,i)=>{
+            const x=16+i*668/Math.max(1,latencyHistory.length-1);
+            const y=92-(event.p95-latencyMin)*68/Math.max(1,latencyMax-latencyMin);
+            return <circle key={event.at+"-"+i} cx={x} cy={y} r={3} fill="#177a68"/>;
+          })}
+        </svg>
+        <div className="max-power-chart-labels">
+          <span>{date(latencyHistory[0].at)} · {(latencyHistory[0].p95/1000).toFixed(2)} s</span>
+          <span>{date(latencyHistory[latencyHistory.length-1].at)} · {(latencyHistory[latencyHistory.length-1].p95/1000).toFixed(2)} s</span>
+        </div>
+        <p className="max-power-note">Valores reales por experimento. La carga, los modelos y las preguntas pueden variar; una curva descendente no demuestra una mejora causada por MAX POWER.</p>
+      </> : <p>Se necesitan al menos dos experimentos con latencia p95 medida. No se generan valores de demostración.</p>}
+    </article>
     <div className="max-power-lower">
       <article className="max-power-card">
         <div className="max-power-section-title"><AlertTriangle size={18}/><h3>Qué impide mejorar</h3></div>
