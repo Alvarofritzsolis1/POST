@@ -30,7 +30,7 @@ jobs:
           set -Eeuo pipefail
           mkdir -p "$RUNNER_TEMP/maxpower-private"
           sudo chown 10001:10001 "$RUNNER_TEMP/maxpower-private"
-          chmod 0700 "$RUNNER_TEMP/maxpower-private"
+          sudo chmod 0700 "$RUNNER_TEMP/maxpower-private"
           docker run --rm --memory 5g --memory-swap 5g --cpus 2 \
             -v "$RUNNER_TEMP/maxpower-private:/private" \
             --entrypoint python galant-cpu-lora-smoke:ci \
