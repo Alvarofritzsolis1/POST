@@ -19,10 +19,12 @@ from urllib.parse import urlsplit
 from urllib.request import Request, urlopen
 from uuid import UUID
 
-KINDS = frozenset(("start", "baseline", "metric", "eval", "checkpoint", "finished", "failed", "paused"))
+KINDS = frozenset(("preflight", "start", "baseline", "metric", "eval", "checkpoint", "finished", "failed", "paused"))
 NUMBERS = frozenset((
     "epoch", "loss", "eval_loss", "learning_rate", "grad_norm",
-    "gpu_memory_mb", "gpu_memory_reserved_mb", "cpu_memory_mb", "elapsed_seconds",
+    "gpu_memory_mb", "gpu_memory_reserved_mb", "cpu_memory_mb",
+    "host_free_mb", "cgroup_free_mb", "cgroup_limit_mb", "disk_free_mb",
+    "elapsed_seconds",
     "train_samples_per_second", "holdout_loss_before", "holdout_loss_after",
     "holdout_pass_before", "holdout_pass_after", "holdout_regressions",
 ))
@@ -102,6 +104,12 @@ class ProgressReporter:
             "step": int(step), "total_steps": int(total_steps),
             "weights_trained": bool(weights_trained),
             "candidate_accepted": bool(candidate_accepted),
+        }
+        if kind == "preflight" and isinstance(metrics.get("preflight_ready"), bool):
+            entry["preflight_ready"] = metrics["preflight_ready"]
+        # Only numerical metrics and the one boolean readiness gate are accepted.
+        # No example text, secret or identifiers are ever serialized.
+        metadata = {
         }
         for key in NUMBERS:
             val = _number(metrics.get(key))
