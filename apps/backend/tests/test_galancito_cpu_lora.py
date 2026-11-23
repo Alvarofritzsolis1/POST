@@ -118,6 +118,9 @@ def test_cpu_training_script_requires_real_gradients_and_human_signed_dataset():
     assert "verified_training_manifest(" in code
     assert "training_model=MODEL" in code
     assert "trainer.train(resume_from_checkpoint=checkpoint)" in code
+    assert "Qwen3_5ForCausalLM.from_pretrained(" in code
+    assert "output_loading_info=True" in code
+    assert "Qwen3_5ForConditionalGeneration" not in code
     assert "hash_trainable(model,torch)" in code
     assert "start_digest != end_digest" in code
     assert "candidate_accepted=False" in code
