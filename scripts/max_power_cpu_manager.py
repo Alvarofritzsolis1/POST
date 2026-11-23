@@ -161,6 +161,9 @@ def run_once(secret: str, plan: dict, public_key: str, last_preflight: dict) -> 
     if plan.get("messenger_busy"):
         report("messenger_priority")
         return
+    if plan.get("practice_busy"):
+        report("practice_priority")
+        return
     report("preflight")
     resources = snapshot(root if root.exists() else HOME)
     gate = capacity_gate(resources)
@@ -210,7 +213,9 @@ def run_once(secret: str, plan: dict, public_key: str, last_preflight: dict) -> 
         try:
             latest = api_call("/automation/plan", secret)
             latest_key = valid_plan(latest)
-            allowed = latest_key == (org, generation) and not latest.get("messenger_busy")
+            allowed = (latest_key == (org, generation)
+                       and not latest.get("messenger_busy")
+                       and not latest.get("practice_busy"))
         except (OSError, ValueError):
             # Fail closed: protect Messenger when supervision cannot be proven.
             allowed = False
