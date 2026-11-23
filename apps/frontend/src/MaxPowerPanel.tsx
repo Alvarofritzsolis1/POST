@@ -117,7 +117,7 @@ export default function MaxPowerPanel(){
         <p><strong>Rendimiento:</strong> {data?.latency_diagnosis.reason||"Sin mediciones"}
           {data?.latency_diagnosis.suggestion ? " · " + data.latency_diagnosis.suggestion : ""}</p>
         <p><strong>Latencia p50/p95 del último laboratorio:</strong> {typeof result.inference_p50_ms==="number" ? (result.inference_p50_ms/1000).toFixed(2)+" s" : "Sin medición"} / {typeof result.inference_p95_ms==="number" ? (result.inference_p95_ms/1000).toFixed(2)+" s" : "Sin medición"}</p>
-        {result.paired_speed && typeof result.paired_speed==="object" && <p><strong>Prueba pareada de velocidad:</strong> {JSON.stringify(result.paired_speed)}. Exploratoria, no mejora productiva confirmada.</p>
+        {result.paired_speed && typeof result.paired_speed==="object" && <p><strong>Prueba pareada de velocidad:</strong> {JSON.stringify(result.paired_speed)}. Exploratoria, no mejora productiva confirmada.</p>}
         <div className="max-power-mini">
           <span>Casos corregidos en reserva <strong>{data?f(data.observed_holdout_wins):"—"}</strong></span>
           <span>Regresiones detectadas <strong>{data?f(data.observed_holdout_regressions):"—"}</strong></span>
