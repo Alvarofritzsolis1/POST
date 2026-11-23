@@ -333,7 +333,7 @@ def main(argv=None):
             dataloader_num_workers=0,report_to="none",use_cpu=True,
             fp16=False,bf16=False,remove_unused_columns=False,
             optim="adamw_torch",disable_tqdm=True,
-            save_safetensors=True,seed=42,
+            seed=42,
         )
         class Monitor(TrainerCallback):
             def on_train_begin(self, args, state_, control, **kwargs):
