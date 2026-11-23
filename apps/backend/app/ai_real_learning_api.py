@@ -129,7 +129,8 @@ def replay(body: ReplayInput, user: User = Depends(administrator),
         raise HTTPException(503, "Qwen no produjo una respuesta para comparar")
     # The actual model identity must be reported by Ollama, not merely configured.
     observed = last_timings.get()
-    if not isinstance(observed, dict) or observed.get("response_model", "").casefold() != QWEN_4B.casefold():
+    if (not isinstance(observed, dict) or not isinstance(observed.get("response_model"), str)
+            or observed["response_model"].casefold() != QWEN_4B.casefold()):
         raise HTTPException(503, "Ollama no confirmó Qwen3.5 4B; no se registra aprendizaje")
     elapsed = round((perf_counter() - started) * 1000)
     trial = AIRealPracticeTrial(
