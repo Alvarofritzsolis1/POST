@@ -224,10 +224,11 @@ def main(argv=None):
         dataset_sha256=bundle["dataset_digest"],model=MODEL,
         telemetry_url=args.telemetry_url,
         telemetry_token=os.environ.get("GALANT_FINETUNE_TELEMETRY_TOKEN") if args.telemetry_url else None)
-    state = {"step":0,"paused":False,"weights_changed":False,
-             "optimizer_start_hash":None,"optimizer_start_step":0}
+    resume_step = int(Path(checkpoint).name.rsplit("-", 1)[-1]) if checkpoint else 0
+    state = {"step":resume_step,"paused":False,"weights_changed":False,
+             "optimizer_start_hash":None,"optimizer_start_step":resume_step}
     try:
-        reporter.emit("start",step=0,total_steps=args.max_steps,
+        reporter.emit("start",step=resume_step,total_steps=args.max_steps,
                       cpu_memory_mb=process_memory_mb())
         tokenizer = AutoTokenizer.from_pretrained(MODEL, trust_remote_code=False)
         if tokenizer.pad_token is None:
