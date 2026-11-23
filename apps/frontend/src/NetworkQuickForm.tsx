@@ -104,7 +104,7 @@ export function NetworkQuickForm({
         setCopySource(result.source === "ia" ? "Mejorado con IA" : "Resumen automático");
       }).catch(() => {
         if (!active) return;
-        setPublicSummary(summary.trim().replace(/\\s+/g, " ").slice(0, 220));
+        setPublicSummary(summary.trim().replace(/\s+/g, " ").slice(0, 220));
         setCopySource("Resumen básico · revisa antes de publicar");
         setCopyError("La IA no pudo mejorar el texto. Puedes editarlo directamente.");
       }).finally(() => { if (active) setCopyBusy(false); });
@@ -221,7 +221,7 @@ export function NetworkQuickForm({
             <label htmlFor="nq-public-copy"><Sparkles size={15}/> Resumen para Facebook
               <StateMark ok={copyOk} pending="Por revisar"/></label>
             <button type="button" disabled={!tradeOk || !descriptionOk || copyBusy}
-              onClick={() => { setCopyEdited(false); setCopySource(""); setCopyCycle(v => v + 1); }}
+              onClick={() => { setPublicSummary(""); setCopyEdited(false); setCopySource(""); setCopyCycle(v => v + 1); }}
               aria-label="Volver a mejorar el resumen con IA">
               <Sparkles size={14}/> {copyBusy ? "Preparando…" : "Mejorar con IA"}
             </button>
