@@ -47,6 +47,9 @@ export default function AIHumanAudit({ onPractice }: { onPractice: (channel: Cha
   const [safetyPassed, setSafetyPassed] = useState(false);
   const [auditedCases, setAuditedCases] = useState<AuditedCase[]>([]);
   const [pendingTrials, setPendingTrials] = useState<PendingTrial[]>([]);
+  const [engineeringFindings, setEngineeringFindings] = useState<Array<{
+    source_id: string; criterion: string; hypothesis: string; mechanism: string;
+  }>>([]);
 
   useEffect(() => {
     let mounted = true;
@@ -110,8 +113,12 @@ export default function AIHumanAudit({ onPractice }: { onPractice: (channel: Cha
     setBusy(true); setError("");
     try {
       const target = await request<{available: boolean; reason: string; source_id?: string;
-        criterion?: string; variant?: "focused" | "alternative"}>(
+        criterion?: string; variant?: "focused" | "alternative";
+        engineering_findings?: Array<{
+          source_id: string; criterion: string; hypothesis: string; mechanism: string;
+        }>; }>(
           "/admin/ai/real-learning/next?channel=" + channel);
+      setEngineeringFindings(target.engineering_findings || []);
       if (!target.available || !target.source_id || !target.criterion || !target.variant) {
         setNotice(target.reason);
         return;
@@ -232,6 +239,14 @@ export default function AIHumanAudit({ onPractice }: { onPractice: (channel: Cha
       <small>GALANT prioriza fallas auditadas, comprueba la ruta y selecciona una estrategia.
         Solo se registra mejora si revisas la respuesta, y ninguna guía se activa automáticamente.</small>
     </div>
+    {engineeringFindings.length > 0 && <details className="ai-human-audit-history" open>
+      <summary>{engineeringFindings.length} casos requieren corregir la infraestructura, no entrenar Qwen</summary>
+      <div>{engineeringFindings.map((item, index) => <div key={item.source_id + item.criterion + index}
+        className="ai-human-audit-recovery">
+        <b>{criterionNames[item.criterion] || item.criterion} · {item.hypothesis.replaceAll("_", " ")}</b>
+        <small>Revisar: {item.mechanism.replaceAll("_", " ")}. No se declara aprendizaje mientras el origen técnico esté pendiente.</small>
+      </div>)}</div>
+    </details>}
     {pendingTrials.length > 0 && <details className="ai-human-audit-history">
       <summary>Ensayos pendientes o interrumpidos ({pendingTrials.length})</summary>
       <div>{pendingTrials.map(item => <div key={item.id} className="ai-human-audit-recovery">
