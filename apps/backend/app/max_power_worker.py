@@ -4,6 +4,7 @@ Only schedules existing real-database Qwen evaluations. Never silently changes
 production prompts, weights, permissions or external API settings.
 """
 from datetime import timedelta
+from concurrent.futures import ThreadPoolExecutor
 import logging
 import re
 from pathlib import Path
@@ -15,10 +16,11 @@ from sqlalchemy.exc import SQLAlchemyError
 from .db import SessionLocal
 from .galancito_memory import aware
 from .galancito_real_learning import collect_live_cases
-from .galancito_trainer import messenger_busy
+from .galancito_trainer import messenger_busy, heartbeat, process_next
 from .galancito_training import ResourceSampler, summarize, inference_percentile_ms
 from .galancito_training_api import RoundInput, start
 from .galancito_training_models import ACTIVE, TrainingCase, TrainingRound, TrainingWorker
+from .galancito_training_model import TrainingModel
 from .max_power_decisions import can_run, classify_outcome, evidence_fingerprint, select_experiment_plan
 from .max_power_models import MaxPowerEvent, MaxPowerState
 from .models import Organization, User, utcnow
@@ -235,15 +237,37 @@ def main():
     from . import main as _application  # registers all SQLAlchemy models
     logging.basicConfig(level=logging.INFO)
     sampler = ResourceSampler()
-    while True:
-        try:
-            with SessionLocal() as db:
-                tick(db, sampler)
-        except SQLAlchemyError as exc:
-            logger.warning("MAX POWER waiting for database: %s", type(exc).__name__)
-        except Exception:
-            logger.exception("MAX POWER controller cycle failed")
-        sleep(5)
+    practice_sampler = ResourceSampler()
+    local_model = TrainingModel()
+    task = None
+    # Integrate the preexisting practice engine: ON works with a single button,
+    # even if the separate optional 'training' Docker profile is not running.
+    # The trainer uses a PostgreSQL advisory lock to prevent duplicate claims.
+    with ThreadPoolExecutor(max_workers=1, thread_name_prefix="max-power-practice") as executor:
+        while True:
+            try:
+                with SessionLocal() as db:
+                    enabled = db.scalar(select(MaxPowerState.org_id).where(
+                        MaxPowerState.enabled.is_(True)).limit(1)) is not None
+                if enabled:
+                    with SessionLocal.begin() as db:
+                        heartbeat(db, sampler.sample(), utcnow())
+                with SessionLocal() as db:
+                    tick(db, sampler)
+                if task is not None and task.done():
+                    try:
+                        task.result()
+                    except Exception:
+                        logger.exception("MAX POWER practice cycle failed; durable state preserved")
+                    task = None
+                if enabled and task is None:
+                    task = executor.submit(process_next, sampler=practice_sampler,
+                                           training_model=local_model)
+            except SQLAlchemyError as exc:
+                logger.warning("MAX POWER waiting for database: %s", type(exc).__name__)
+            except Exception:
+                logger.exception("MAX POWER controller cycle failed")
+            sleep(5)
 
 if __name__ == "__main__":
     main()
