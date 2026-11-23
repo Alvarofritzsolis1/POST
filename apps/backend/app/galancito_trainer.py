@@ -6,7 +6,7 @@ import logging
 from time import monotonic, sleep
 from types import SimpleNamespace
 
-from sqlalchemy import delete, exists, select, text
+from sqlalchemy import delete, exists, or_, select, text
 from sqlalchemy.exc import SQLAlchemyError
 
 from .ai_gateway import AIServiceError, invoke, monthly_tokens, record_usage
@@ -118,16 +118,27 @@ def messenger_busy(db):
         FacebookChatMessage.updated_at >= utcnow() - timedelta(minutes=2))))
 
 
-def claim(factory, snapshot, *, maintenance=False, training_model=None):
+def claim(factory, snapshot, *, maintenance=False, training_model=None, only_orchestrator=None):
     now = utcnow()
     with factory.begin() as db:
         heartbeat(db, snapshot, now)
         if maintenance:
             collect_old(db, now)
-        rows = db.scalars(select(TrainingRound).where(
+        query = select(TrainingRound).where(
             TrainingRound.state.in_(("queued", "practicing", "evaluating", "correcting")),
             TrainingRound.next_at <= now,
-        ).order_by(TrainingRound.next_at, TrainingRound.created_at).limit(8).with_for_update(skip_locked=True)).all()
+        )
+        if only_orchestrator is not None:
+            # MAX POWER uses its own isolated Ollama and must opt in explicitly.
+            query = query.where(TrainingRound.config["orchestrator"].as_string() == only_orchestrator)
+        else:
+            # The ordinary trainer may never steal a MAX POWER round: it could
+            # otherwise send Qwen3.5 work to the production Ollama instance.
+            # Preserve old rounds whose JSON config has no orchestrator key.
+            assigned = TrainingRound.config["orchestrator"].as_string()
+            query = query.where(or_(assigned.is_(None), assigned != "max_power"))
+        rows = db.scalars(query.order_by(TrainingRound.next_at, TrainingRound.created_at)
+                          .limit(8).with_for_update(skip_locked=True)).all()
         for row in rows:
             if row.lease and db.bind.dialect.name != "postgresql" and aware(row.lease_until) > now:
                 continue
@@ -533,13 +544,14 @@ def defer(factory, claim, elapsed, error, *, budget=False, pressure=False):
             row.state, row.next_at = "queued", eligible_at(row.config, retry)
 
 
-def process_next(factory=SessionLocal, sampler=None, *, maintenance=False, training_model=None):
+def process_next(factory=SessionLocal, sampler=None, *, maintenance=False, training_model=None, only_orchestrator=None):
     sampler = sampler or ResourceSampler()
     with worker_lock(factory) as granted:
         if not granted:
             return False
         snapshot = sampler.sample()
-        claimed = claim(factory, snapshot, maintenance=maintenance, training_model=training_model)
+        claimed = claim(factory, snapshot, maintenance=maintenance, training_model=training_model,
+                        only_orchestrator=only_orchestrator)
         if not claimed:
             return False
         row, count = claimed
@@ -562,15 +574,24 @@ def process_next(factory=SessionLocal, sampler=None, *, maintenance=False, train
                 # Paired held-out cases use identical generation seeds.
                 model_seed = (int(row.dataset_hash[:8], 16) ^ case_index ^
                               (314159 if held_out else cycle_number)) % (2**31)
+                timings = []
                 def real_answer(context, instructions):
                     system = LIVE_PROMPT + ("\nConsejos revisados tras errores anteriores:\n" +
                                             "\n".join(instructions) if instructions else "")
                     deeper = fixture["category"] in LIVE_REASONING_CATEGORIES
                     budget = 320 if deeper else 128
-                    return _charge(factory, row, model, system, context,
-                                   model_seed, role="reply", sampler=sampler,
-                                   thinking=deeper, output_budget=budget)
+                    reply = _charge(factory, row, model, system, context,
+                                    model_seed, role="reply", sampler=sampler,
+                                    thinking=deeper, output_budget=budget)
+                    measured = last_timings.get() if model["id"] == "ollama" else {}
+                    timings.append({key: measured[key] for key in (
+                        "load_ms", "prompt_ms", "generation_ms", "ollama_total_ms",
+                        "transport_ms", "input_tokens", "output_tokens")
+                        if isinstance(measured.get(key), (float, int))})
+                    return reply
                 result = evaluate_live(fixture, answer=real_answer, coach=coach)
+                if timings:
+                    result["turns"][0]["ollama_timing"] = timings[0]
                 result["id"] = fixture["id"] + "-c" + str(cycle_number)
                 return result
             if row.config.get("profile", "postulantes") == "interno":
