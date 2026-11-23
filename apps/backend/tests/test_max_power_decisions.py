@@ -1,0 +1,53 @@
+"""MAX POWER: real evidence and honest limits (not fake improvement scores)."""
+from types import SimpleNamespace
+from app.max_power_decisions import (
+    evidence_fingerprint, classify_outcome, latency_diagnosis,
+    priority_from_reviews, can_run,
+)
+
+def test_fingerprint_stable_across_order():
+    a = [{"evidence_hash": "a"}, {"evidence_hash": "b"}]
+    assert evidence_fingerprint(a) == evidence_fingerprint(list(reversed(a)))
+    assert evidence_fingerprint(a) != evidence_fingerprint([{"evidence_hash": "c"}])
+
+def test_no_holdout_never_reports_gain():
+    result = classify_outcome({"passed": 99, "failed": 1})
+    assert result["code"] == "no_holdout"
+    assert not result["lab_verified"] and not result["production_verified"]
+    assert result["weights_changed"] is False
+
+def test_regressions_block():
+    x = classify_outcome({"real_holdout_gain_cases": 7, "real_holdout_regressions": 1,
+                         "real_holdout_paired_cases": 8,
+                         "real_learning_demonstrated": True, "real_coaching": ["foo"]})
+    assert x["code"] == "regression" and not x["lab_verified"]
+
+def test_no_improvement_explained():
+    x = classify_outcome({"real_holdout_gain_cases": 0, "real_holdout_regressions": 0,
+                         "real_holdout_paired_cases": 8, "real_coaching": ["guide"]})
+    assert x["code"] == "plateau" and x["next"]
+
+def test_verified_is_lab_only():
+    x = classify_outcome({"real_holdout_gain_cases": 6, "real_holdout_regressions": 0,
+                         "real_holdout_paired_cases": 8, "real_holdout_one_sided_p_value": 0.02,
+                         "real_learning_demonstrated": True, "real_coaching": ["guide"]})
+    assert x["lab_verified"] is True
+    assert x["production_verified"] is False
+
+def test_latency_components_and_missing():
+    assert latency_diagnosis({})["code"] == "no_latency_evidence"
+    x = latency_diagnosis({"load_ms": 2, "prompt_ms": 5, "generation_ms": 350})
+    assert x["code"] == "generation_ms"
+    assert x["measured_ms"] == 350
+
+def test_audited_priorities_only():
+    reviews = [SimpleNamespace(channel="messenger", ratings={"context": False, "safety": None}),
+               SimpleNamespace(channel="messenger", ratings={"context": False, "safety": True})]
+    assert priority_from_reviews(reviews)[0]["criterion"] == "context"
+    assert priority_from_reviews(reviews)[0]["failures"] == 2
+
+def test_resources_are_fail_closed():
+    assert not can_run({"available_ram_mb": None, "host_cpu_percent": 1, "disk_free_mb": 4000})[0]
+    assert not can_run({"available_ram_mb": 8000, "host_cpu_percent": 15, "disk_free_mb": 4000},
+                       messenger_pending=True)[0]
+    assert can_run({"available_ram_mb": 8000, "host_cpu_percent": 15, "disk_free_mb": 4000})[0]

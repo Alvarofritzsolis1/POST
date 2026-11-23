@@ -159,6 +159,24 @@ services:
     cpu_shares: 64
     pids_limit: 60
     logging: *logs
+  max-power-controller:
+    build: {context: ., dockerfile: apps/backend/Dockerfile, args: {SOURCE_COMMIT: "${SOURCE_COMMIT:-unknown}"}}
+    restart: unless-stopped
+    command: ["python", "-m", "app.max_power_worker"]
+    environment:
+      APP_SECRET: ${APP_SECRET:?Missing APP_SECRET}
+      DATABASE_URL: postgresql+psycopg://galant:${POSTGRES_PASSWORD}@db:5432/galant
+      GALANCITO_LOCAL_MODEL: ${GALANCITO_LOCAL_MODEL:-qwen3:1.7b}
+      GALANCITO_MEMORY_RESERVE_MB: ${GALANCITO_MEMORY_RESERVE_MB:-1536}
+    depends_on: {db: {condition: service_healthy}}
+    networks: [internal]
+    security_opt: [no-new-privileges:true]
+    cap_drop: [ALL]
+    mem_limit: 384m
+    cpus: 0.35
+    cpu_shares: 32
+    pids_limit: 48
+    logging: *logs
   galancito-training-ollama:
     image: ollama/ollama:latest
     profiles: [training]
