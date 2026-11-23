@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useState } from "react";
-import { Activity, AlertTriangle, BrainCircuit, CheckCircle2, Clock3, Gauge, History, Power, RefreshCw, ShieldCheck, Zap } from "lucide-react";
+import { Activity, AlertTriangle, BrainCircuit, CheckCircle2, Clock3, Download, Gauge, History, Power, RefreshCw, ShieldCheck, Zap } from "lucide-react";
 import { request } from "./api";
 import "./max-power.css";
 
@@ -37,6 +37,7 @@ const date = (v:string|null) => v ? new Date(v).toLocaleString("es-CL") : "—";
 export default function MaxPowerPanel(){
   const [data,setData] = useState<Status|null>(null);
   const [busy,setBusy] = useState(false);
+  const [downloading,setDownloading] = useState(false);
   const [error,setError] = useState("");
   const refresh = useCallback(async()=> {
     try { const next=await request<Status>("/admin/ai/max-power"); setData(next); setError(""); }
@@ -55,6 +56,31 @@ export default function MaxPowerPanel(){
       setData(next);setError("");
     } catch(e){setError(e instanceof Error?e.message:"No se pudo cambiar el estado");}
     finally{setBusy(false);}
+  };
+  const downloadForChatGPT=async()=>{
+    if(downloading)return;
+    setDownloading(true);
+    try{
+      const response=await fetch("/api/v1/admin/ai/max-power/export",{
+        credentials:"include",cache:"no-store",headers:{"Accept":"application/json"}
+      });
+      if(!response.ok){
+        if(response.status===401)window.dispatchEvent(new Event("galant-session-ended"));
+        throw new Error("No se pudo generar el informe (HTTP "+response.status+").");
+      }
+      const blob=await response.blob();
+      if(!blob.size)throw new Error("El informe generado está vacío.");
+      const localUrl=URL.createObjectURL(blob);
+      const anchor=document.createElement("a");
+      anchor.href=localUrl;
+      anchor.download="galant-max-power-chatgpt-"+new Date().toISOString().replace(/[:.]/g,"-")+".json";
+      document.body.appendChild(anchor);
+      anchor.click();
+      anchor.remove();
+      window.setTimeout(()=>URL.revokeObjectURL(localUrl),1500);
+      setError("");
+    }catch(e){setError(e instanceof Error?e.message:"No se pudo descargar el informe.");}
+    finally{setDownloading(false);}
   };
   const result=data?.latest_result || {};
   return <section className="max-power">
@@ -133,6 +159,15 @@ export default function MaxPowerPanel(){
           </div>)}
         </div>
       </article>
+    </div>
+    <div className="max-power-export">
+      <div><strong>Informe para analizar con ChatGPT</strong>
+        <p>Descarga un archivo JSON con errores, métricas, experimentos e historial. No incluye conversaciones privadas ni credenciales.</p>
+      </div>
+      <button className="max-power-download" type="button" onClick={()=>void downloadForChatGPT()}
+        disabled={downloading} aria-label="Descargar informe para ChatGPT">
+        <Download size={16}/>{downloading?"Preparando informe…":"Descargar informe"}
+      </button>
     </div>
     <p className="max-power-disclaimer">{data?.limitations||"Las calificaciones solo aparecen tras reunir evidencia real suficiente."}</p>
   </section>;
