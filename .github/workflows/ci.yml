@@ -393,6 +393,27 @@ jobs:
           with SessionLocal() as db:
               ensure_sites(db, org_id)
           PY
+      - name: MAX POWER — real controller health and ON/OFF persistence in isolated QA
+        run: |
+          set -Eeuo pipefail
+          COMPOSE_PARALLEL_LIMIT=1 docker compose -p galant-post-qa --env-file .env.qa -f docker-compose.preview.yml -f docker-compose.qa.yml up -d --build max-power-controller
+          controller_id="$(docker compose -p galant-post-qa --env-file .env.qa -f docker-compose.preview.yml -f docker-compose.qa.yml ps -q max-power-controller)"
+          [[ -n "$controller_id" ]]
+          for i in {1..18}; do
+            controller_health="$(docker inspect --format '{{.State.Health.Status}}' "$controller_id")"
+            [[ "$controller_health" == "healthy" ]] && break
+            sleep 4
+          done
+          [[ "$controller_health" == "healthy" ]]
+          python3 scripts/qa_max_power_smoke.py
+          docker compose -p galant-post-qa --env-file .env.qa -f docker-compose.preview.yml -f docker-compose.qa.yml restart max-power-controller
+          for i in {1..18}; do
+            controller_health="$(docker inspect --format '{{.State.Health.Status}}' "$controller_id")"
+            [[ "$controller_health" == "healthy" ]] && break
+            sleep 4
+          done
+          [[ "$controller_health" == "healthy" ]]
+          python3 scripts/qa_max_power_smoke.py --verify-only
       - name: Verify shared state and restart persistence
         run: |
           set -Eeuo pipefail
