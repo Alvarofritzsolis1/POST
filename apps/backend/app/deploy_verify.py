@@ -25,6 +25,7 @@ from .migrations.v20_0_0 import MIGRATION_ID
 from .migrations.v20_8_0_ai_control_center import MIGRATION_ID as AI_MIGRATION_ID
 from .migrations.v20_8_1_ai_collaboration import MIGRATION_ID as AI_REVIEW_MIGRATION_ID
 from .migrations.v20_8_8_galancito_intake import MIGRATION_ID as GALANCITO_INTAKE_MIGRATION_ID
+from .migrations.v20_9_21_real_defect_learning import MIGRATION_ID as REAL_LEARNING_MIGRATION_ID
 from .models import utcnow
 from .platform_models import SchemaVersion
 from .version import SOURCE_COMMIT, VERSION
@@ -51,6 +52,7 @@ def verify(expected_commit: str):
         "javiera_workbooks", "javiera_workbook_heads", "javiera_workbook_validations",
         "javiera_resets", "javiera_archives",
         "ai_connections", "ai_orchestration", "ai_usage",
+        "ai_response_reviews", "ai_real_practice_trials",
     }
     if not expected_tables <= tables:
         raise RuntimeError("Faltan tablas de GALANT (JAVIERA o Centro IA)")
@@ -65,7 +67,7 @@ def verify(expected_commit: str):
         raise RuntimeError("Falta aplicar la migración de fichas Galancito")
     with SessionLocal() as db:
         for required in (MIGRATION_ID, AI_MIGRATION_ID, AI_REVIEW_MIGRATION_ID,
-                         GALANCITO_INTAKE_MIGRATION_ID):
+                         GALANCITO_INTAKE_MIGRATION_ID, REAL_LEARNING_MIGRATION_ID):
             if not db.get(SchemaVersion, required):
                 raise RuntimeError("Falta una migración verificada: " + required)
     private = Path(settings().document_dir)
@@ -76,7 +78,8 @@ def verify(expected_commit: str):
         if stream.read() != b"galant-private-storage-check":
             raise RuntimeError("El almacenamiento privado no permite lectura y escritura")
     for path in ("/api/v1/javiera/workbook", "/api/v1/javiera/dossiers",
-                 "/api/v1/admin/ai/bootstrap"):
+                 "/api/v1/admin/ai/bootstrap",
+                 "/api/v1/admin/ai/real-learning/plan"):
         try:
             with urlopen("http://127.0.0.1:8000" + path, timeout=5):
                 raise RuntimeError("Una ruta privada permite acceso anónimo")
@@ -108,6 +111,7 @@ def verify(expected_commit: str):
             raise RuntimeError("Calc exportó una hoja no seleccionada")
     return {"version": VERSION, "commit": SOURCE_COMMIT, "migration": MIGRATION_ID,
             "ai_migration": AI_MIGRATION_ID, "ai_review_migration": AI_REVIEW_MIGRATION_ID,
+            "real_learning_migration": REAL_LEARNING_MIGRATION_ID,
             "private_storage": "ok", "anonymous_access": "blocked",
             "calc_recalculation": "ok", "selected_sheet_pdf": "ok",
             "calc_engine_ms": result.get("engine_ms")}
