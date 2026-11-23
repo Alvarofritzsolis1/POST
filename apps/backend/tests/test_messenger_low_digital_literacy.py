@@ -219,3 +219,24 @@ def test_detected_unresolved_case_also_pauses_and_requires_operator_resume(netwo
     lead = _contact(n)["lead"]
     assert not lead["needs_support"] and not lead["ai_paused"]
     assert lead["support_reason"] == ""
+
+
+@pytest.mark.parametrize("message", ["no cacho", "no entiendo", "nose", "no me acuerdo"])
+def test_confused_reply_to_an_ad_is_clarified_before_escalating(message):
+    from app.facebook_onboarding import assistance_signal
+    assert assistance_signal(message, prior_prompt=ASK_APPLICATION) is None
+    assert _app(message, ASK_APPLICATION) is not None
+
+
+def test_real_webhook_does_not_handoff_after_a_single_no_cacho(network, monkeypatch):
+    n = network
+    _local_messenger(n, monkeypatch)
+    sent = []
+    monkeypatch.setattr("app.facebook_chat_worker.graph_send",
+                        lambda *a: sent.append(a[2]) or "sent-" + str(len(sent)))
+    for i, msg in enumerate(["Vi una postulacion de trabajo", "No cacho"], 1):
+        assert incoming(n, msg, f"clarify-{i}").status_code == 200
+        assert process_chat_next(n["Session"])
+    assert len(sent) == 2 and "seguir igual" in sent[-1].lower()
+    lead = _contact(n)["lead"]
+    assert not lead["needs_support"] and not lead["ai_paused"]
