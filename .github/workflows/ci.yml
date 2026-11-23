@@ -42,6 +42,7 @@ jobs:
           tests/test_max_power_finetune_api.py
           tests/test_galancito_lora_progress.py
           tests/test_galancito_cpu_lora.py
+          tests/test_max_power_one_button_cpu.py
       - name: Comprobar sintaxis del controlador y exportación
         run: python -m compileall -q app/max_power_*.py
   backend:
@@ -243,6 +244,15 @@ jobs:
           c=json.loads(subprocess.check_output(cmd,text=True))
           assert c["name"] == "galant-post-preview"
           assert set(c["services"]) == {"db","api","worker","facebook-publisher","frontend","proxy","max-power-controller","galancito-training-ollama"}
+          # CPU supervisor is profile-scoped: never expose private trainer files in QA.
+          profiled=["docker","compose","--profile","max-power-auto","--env-file",".env.preview",
+                    "-f","docker-compose.preview.yml","config","--format","json"]
+          mgr=json.loads(subprocess.check_output(profiled,text=True))["services"]["cpu-lora-manager"]
+          assert not mgr.get("ports")
+          assert "DATABASE_URL" not in mgr["environment"]
+          assert "FACEBOOK_PAGE_TOKEN" not in mgr["environment"]
+          assert not any("/var/run/docker.sock" in str(x) for x in mgr.get("volumes", []))
+          assert str(mgr["mem_limit"]).lower() in ("5g","5368709120")
           assert "FACEBOOK_PAGE_TOKEN" not in c["services"]["max-power-controller"]["environment"]
           assert not c["services"]["max-power-controller"].get("ports")
           assert c["services"]["max-power-controller"]["environment"]["GALANT_MAX_POWER_ISOLATED"] == "true"
