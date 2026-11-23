@@ -104,6 +104,41 @@ def _successful_training(trials, variant):
                 t.provenance == "model_verified"})
 
 
+@router.get("/cases")
+def audited_cases(channel: Literal["messenger", "general"] = "messenger",
+                  user: User = Depends(administrator), db: Session = Depends(get_db)):
+    """Cases with human-confirmed deficits; list without original/private text."""
+    since = utcnow() - timedelta(days=30)
+    rows = list(db.scalars(select(AIResponseReview).where(
+        AIResponseReview.org_id == user.org_id,
+        AIResponseReview.channel == channel,
+        AIResponseReview.source_at >= since,
+        AIResponseReview.rubric_version == 1,
+    ).order_by(AIResponseReview.source_at.desc()).limit(80)))
+    cases = []
+    for review in rows:
+        weak = [criterion for criterion in POLICIES[channel]
+                if review.ratings.get(criterion) is False]
+        if not weak:
+            continue
+        try:
+            original_run, evidence = _audit_source(db, user, review.evidence_id)
+        except HTTPException:
+            continue
+        original_run = _linked_original_run(db, user, evidence, original_run)
+        cases.append({
+            "source_id": review.evidence_id,
+            "source_at": review.source_at,
+            "failed_criteria": weak,
+            "route": diagnostic_route(original_run, weak[0]),
+            "model_verified": _verified_model_trace(original_run),
+        })
+        if len(cases) >= 25:
+            break
+    return {"channel": channel, "items": cases,
+            "note": "Casos reales auditados, sin copiar las conversaciones ni afirmar causalidad."}
+
+
 @router.get("/pending")
 def pending_trials(channel: Literal["messenger", "general"] = "messenger",
                    user: User = Depends(administrator), db: Session = Depends(get_db)):
