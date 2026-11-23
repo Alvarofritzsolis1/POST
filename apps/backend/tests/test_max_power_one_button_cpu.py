@@ -330,7 +330,8 @@ def test_real_api_button_off_revokes_manager_training_lease(ai_env, tmp_path, mo
         url = BASE + "/finetune" + path
         response = (client.get(url, headers=headers()) if body is None
                     else client.post(url, headers=headers(), json=body))
-        response.raise_for_status()
+        if response.status_code >= 400:
+            raise OSError("La sesión apagada rechaza estados obsoletos")
         return response.json()
     mod.api_call = signed_api
     started = client.post(BASE + "/control/on", headers=admin)
