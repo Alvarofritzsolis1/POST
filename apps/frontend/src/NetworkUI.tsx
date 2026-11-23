@@ -93,6 +93,7 @@ export function Drawer({
   children,
   wide = false,
   workspace = false,
+  quick = false,
   protectUnsaved = false,
 }: {
   title: string;
@@ -100,6 +101,7 @@ export function Drawer({
   children: ReactNode;
   wide?: boolean;
   workspace?: boolean;
+  quick?: boolean;
   protectUnsaved?: boolean;
 }) {
   const ref = useRef<HTMLDialogElement>(null);
@@ -133,7 +135,7 @@ export function Drawer({
   }, []);
   return (
     <dialog
-      className={"nw nw-drawer" + (wide ? " nw-drawer--wide" : "") + (workspace ? " nw-drawer--workspace" : "")}
+      className={"nw nw-drawer" + (wide ? " nw-drawer--wide" : "") + (quick ? " nw-drawer--quick" : "") + (workspace ? " nw-drawer--workspace" : "")}
       ref={ref}
       aria-label={title}
       onInputCapture={(event) => { if (!workspace || (event.target as HTMLElement).closest(".nwc-track")) dirty.current = true; }}
