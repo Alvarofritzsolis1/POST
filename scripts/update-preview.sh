@@ -44,6 +44,10 @@ configure_compose() {
     calc_services=()
     facebook_services=()
     training_services=()
+    max_power_services=()
+    if grep -q "^  max-power-controller:" docker-compose.preview.yml; then
+        max_power_services=(max-power-controller)
+    fi
     if grep -q "^  facebook-publisher:" docker-compose.preview.yml; then
         facebook_services=(facebook-publisher)
     fi
@@ -61,6 +65,12 @@ configure_compose() {
 }
 configure_compose
 previous_training=()
+previous_max_power=()
+for service in "${max_power_services[@]}"; do
+    if [[ -n "$("${compose[@]}" ps --status running --quiet "$service")" ]]; then
+        previous_max_power+=("$service")
+    fi
+done
 for service in "${training_services[@]}"; do
     if [[ -n "$("${compose[@]}" ps --status running --quiet "$service")" ]]; then
         previous_training+=("$service")
@@ -94,6 +104,9 @@ rollback() {
         if (( ${#training_services[@]} )); then
             "${compose[@]}" stop "${training_services[@]}" || true
         fi
+        if (( ${#max_power_services[@]} )); then
+            "${compose[@]}" stop "${max_power_services[@]}" || true
+        fi
         if (( ! previous_has_calc && ${#calc_services[@]} )); then
             "${compose[@]}" stop javiera-calc || true
         fi
@@ -101,7 +114,7 @@ rollback() {
         if git checkout --detach "$previous_ref" \
             && configure_compose \
             && "${compose[@]}" config --quiet \
-            && COMPOSE_PARALLEL_LIMIT=1 "${compose[@]}" up -d --build db api worker "${facebook_services[@]}" frontend proxy "${previous_training[@]}" \
+            && COMPOSE_PARALLEL_LIMIT=1 "${compose[@]}" up -d --build db api worker "${facebook_services[@]}" frontend proxy "${previous_training[@]}" "${previous_max_power[@]}" \
             && "${compose[@]}" exec -T api python -m app.cli init-db \
             && wait_for_health; then
             echo "Se restauró la versión anterior." >&2
@@ -138,15 +151,27 @@ export SOURCE_COMMIT="$target_ref"
 if (( ${#training_services[@]} )); then
     "${compose[@]}" pull galancito-training-ollama
 fi
-COMPOSE_PARALLEL_LIMIT=1 "${compose[@]}" build api worker "${facebook_services[@]}" frontend "${calc_services[@]}" galancito-trainer
+COMPOSE_PARALLEL_LIMIT=1 "${compose[@]}" build api worker "${facebook_services[@]}" frontend "${calc_services[@]}" galancito-trainer "${max_power_services[@]}"
 # Freeze writers before reprojecting legacy attendance. Old rows remain intact.
 # On failure the EXIT trap restores the previous containers; no volumes are removed.
-"${compose[@]}" stop api worker "${facebook_services[@]}" "${training_services[@]}"
+"${compose[@]}" stop api worker "${facebook_services[@]}" "${training_services[@]}" "${max_power_services[@]}"
 "${compose[@]}" run --rm --no-deps api python -m app.cli migrate-db --verified-backup-sha256 "$backup_sha256"
-COMPOSE_PARALLEL_LIMIT=1 "${compose[@]}" up -d --no-build db "${calc_services[@]}" api worker "${facebook_services[@]}" frontend proxy "${training_services[@]}"
+COMPOSE_PARALLEL_LIMIT=1 "${compose[@]}" up -d --no-build db "${calc_services[@]}" api worker "${facebook_services[@]}" frontend proxy "${training_services[@]}" "${max_power_services[@]}"
 # Fail the release if the actual running API cannot encrypt stored credentials.
 "${compose[@]}" exec -T api python -c "from app.ai_gateway import encryption_ready; assert encryption_ready(), 'Cifrado IA sin inicializar'"
 wait_for_health "$target_ref"
+# An API health check alone does not prove the MAX POWER conductor runs.
+if (( ${#max_power_services[@]} )); then
+    for i in {1..12}; do
+        [[ -n "$("${compose[@]}" ps --status running --quiet max-power-controller)" ]] && break
+        sleep 2
+    done
+    [[ -n "$("${compose[@]}" ps --status running --quiet max-power-controller)" ]] || {
+        echo "MAX POWER no quedó operativo; se revierte el despliegue." >&2
+        exit 1
+    }
+    "${compose[@]}" exec -T api python -c "from app.max_power_api import router; from app.max_power_models import MaxPowerState, MaxPowerEvent, MaxPowerMessengerTrial; assert any(r.path.endswith('/export') for r in router.routes)"
+fi
 "${compose[@]}" exec -T api python -m app.deploy_verify --expected-commit "$target_ref" --training-worker-only
 # Check the exact build and additive migration, and exercise the authenticated
 # Calc transport with a disposable workbook. No production dossier is created.
