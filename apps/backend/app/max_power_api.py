@@ -11,7 +11,7 @@ from .db import get_db
 from .galancito_memory import aware
 from .galancito_training_models import ACTIVE, TrainingRound, TrainingWorker
 from .max_power_decisions import latency_diagnosis, priority_from_reviews
-from .max_power_models import MaxPowerEvent, MaxPowerState
+from .max_power_models import MaxPowerEvent, MaxPowerState, MaxPowerMessengerTrial
 from .models import AuditEvent, Organization, User, utcnow
 from .security import administrator
 
@@ -33,6 +33,18 @@ def _view(db, user, row):
     events = list(db.scalars(select(MaxPowerEvent).where(
         MaxPowerEvent.org_id == user.org_id,
     ).order_by(MaxPowerEvent.created_at.desc()).limit(30)))
+    messenger_trials = list(db.scalars(select(MaxPowerMessengerTrial).where(
+        MaxPowerMessengerTrial.org_id == user.org_id
+    ).order_by(MaxPowerMessengerTrial.created_at.desc()).limit(150)))
+    messenger_summary = {
+        "trials": len(messenger_trials),
+        "objective_gains": sum(t.outcome == "objective_gain" for t in messenger_trials),
+        "regressions": sum(t.outcome in ("objective_regression", "safety_regression") for t in messenger_trials),
+        "inconclusive": sum(t.outcome in ("unverifiable", "no_objective_gain") for t in messenger_trials),
+        "active": sum(t.status in ("queued", "running") for t in messenger_trials),
+        "basis": "partial_objective_checks_not_human_quality_score",
+        "limited_to_recent_150": True,
+    }
     worker = db.get(TrainingWorker, 1)
     trainer_online = bool(worker and aware(worker.updated_at) >= aware(now) - timedelta(seconds=150))
     controller_online = bool(row and row.worker_seen_at and
@@ -65,6 +77,7 @@ def _view(db, user, row):
         "controller_online": controller_online,
         "trainer_online": trainer_online,
         "priorities": priority_from_reviews(priorities),
+        "messenger_experiments": messenger_summary,
         "quality": current,
         "quality_deltas": improvement,
         "latest_result": recent,

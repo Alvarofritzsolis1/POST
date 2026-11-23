@@ -167,6 +167,7 @@ services:
       APP_SECRET: ${APP_SECRET:?Missing APP_SECRET}
       DATABASE_URL: postgresql+psycopg://galant:${POSTGRES_PASSWORD}@db:5432/galant
       GALANCITO_LOCAL_MODEL: ${GALANCITO_LOCAL_MODEL:-qwen3:1.7b}
+      GALANCITO_LOCAL_AI_ENABLED: ${GALANCITO_LOCAL_AI_ENABLED:-false}
       GALANCITO_MEMORY_RESERVE_MB: ${GALANCITO_MEMORY_RESERVE_MB:-1536}
     depends_on: {db: {condition: service_healthy}}
     networks: [internal]

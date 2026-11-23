@@ -14,6 +14,7 @@ type Status = {
   first_started_at: string | null; session_started_at: string | null; active_round_id: string | null;
   priorities: Array<{channel: string; criterion: string; failures: number}>;
   quality: Record<string, Sample>; quality_deltas: Record<string, Delta>;
+  messenger_experiments?: {trials: number; objective_gains: number; regressions: number; inconclusive: number; active: number};
   latest_result: Record<string, unknown>;
   latency_diagnosis: {code: string; reason: string; measured_ms?: number; suggestion?: string};
   events: Event[]; limitations: string;
@@ -118,6 +119,7 @@ export default function MaxPowerPanel(){
           {data?.latency_diagnosis.suggestion ? " · " + data.latency_diagnosis.suggestion : ""}</p>
         <p><strong>Latencia p50/p95 del último laboratorio:</strong> {typeof result.inference_p50_ms==="number" ? (result.inference_p50_ms/1000).toFixed(2)+" s" : "Sin medición"} / {typeof result.inference_p95_ms==="number" ? (result.inference_p95_ms/1000).toFixed(2)+" s" : "Sin medición"}</p>
         {typeof result.paired_speed==="object" && result.paired_speed!==null ? <p><strong>Prueba pareada de velocidad:</strong> {JSON.stringify(result.paired_speed)}. Exploratoria, no mejora productiva confirmada.</p> : null}
+        {data?.messenger_experiments && <p><strong>Messenger real:</strong> {f(data.messenger_experiments.trials)} ensayos; {f(data.messenger_experiments.objective_gains)} correcciones objetivas observadas; {f(data.messenger_experiments.regressions)} regresiones. No son una nota de calidad general.</p>}
         <div className="max-power-mini">
           <span>Casos corregidos en reserva <strong>{data?f(data.observed_holdout_wins):"—"}</strong></span>
           <span>Regresiones detectadas <strong>{data?f(data.observed_holdout_regressions):"—"}</strong></span>

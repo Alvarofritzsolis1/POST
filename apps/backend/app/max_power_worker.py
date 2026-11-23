@@ -22,7 +22,10 @@ from .galancito_training_api import RoundInput, start
 from .galancito_training_models import ACTIVE, TrainingCase, TrainingRound, TrainingWorker
 from .galancito_training_model import TrainingModel
 from .max_power_decisions import can_run, classify_outcome, evidence_fingerprint, select_experiment_plan
-from .max_power_models import MaxPowerEvent, MaxPowerState
+from .max_power_models import MaxPowerEvent, MaxPowerState, MaxPowerMessengerTrial
+from .max_power_messenger import schedule_next, process_one
+from .config import settings
+from .galancito_general import QWEN_4B
 from .models import Organization, User, utcnow
 
 logger = logging.getLogger(__name__)
@@ -185,6 +188,13 @@ def tick(db, sampler):
         if not owner or owner.org_id != row.org_id or owner.role != "admin":
             set_wait(row, now, "permission_required", "No hay administrador autorizado para prácticas", 300)
             continue
+        # Messenger reviewed failures take precedence; no synthetic grades.
+        cfg = settings()
+        if cfg.galancito_local_ai_enabled and cfg.galancito_local_model == QWEN_4B:
+            if schedule_next(db, owner):
+                set_wait(row, now, "messenger_evaluation",
+                         "Probando fallas de Messenger auditadas con Qwen local", 30)
+                continue
         try:
             cases = collect_live_cases(db, owner)
         except ValueError as exc:
@@ -261,8 +271,18 @@ def main():
                         logger.exception("MAX POWER practice cycle failed; durable state preserved")
                     task = None
                 if enabled and task is None:
-                    task = executor.submit(process_next, sampler=practice_sampler,
-                                           training_model=local_model)
+                    with SessionLocal() as db:
+                        due = db.scalar(select(MaxPowerMessengerTrial.id).join(
+                            MaxPowerState, MaxPowerMessengerTrial.org_id == MaxPowerState.org_id
+                        ).where(MaxPowerState.enabled.is_(True),
+                          MaxPowerMessengerTrial.status.in_(("queued", "running")),
+                          MaxPowerMessengerTrial.next_at <= utcnow()).limit(1))
+                    if due:
+                        task = executor.submit(process_one)
+                    else:
+                        task = executor.submit(process_next, sampler=practice_sampler,
+                                               training_model=local_model,
+                                               only_orchestrator="max_power")
             except SQLAlchemyError as exc:
                 logger.warning("MAX POWER waiting for database: %s", type(exc).__name__)
             except Exception:
