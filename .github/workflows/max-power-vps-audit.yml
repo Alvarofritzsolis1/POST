@@ -42,7 +42,7 @@ jobs:
             "$VPS_USER@$VPS_HOST" "bash -s" <<'REMOTE'
           set -Eeuo pipefail
           cd /opt/galant-post
-          dc() { docker compose --env-file .env.preview -f docker-compose.preview.yml "$@"; }
+          dc() { docker compose --env-file .env.preview -f docker-compose.preview.yml "$@" </dev/null; }
           echo "== VERSION ACTIVA (API CONTAINER) =="
           dc exec -T api python -c 'from app.version import VERSION, SOURCE_COMMIT; print("VERSION:",VERSION); print("COMMIT:",SOURCE_COMMIT)'
           echo "== SERVICIOS (DOCKER) =="
