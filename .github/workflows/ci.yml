@@ -243,7 +243,7 @@ jobs:
           assert not c["services"]["max-power-controller"].get("ports")
           assert c["services"]["max-power-controller"]["environment"]["GALANT_MAX_POWER_ISOLATED"] == "true"
           assert not c["services"]["galancito-training-ollama"].get("ports")
-          assert c["services"]["galancito-training-ollama"]["mem_limit"] > 0
+          assert str(c["services"]["galancito-training-ollama"]["mem_limit"]).lower() in ("5g","5368709120")
           assert "FACEBOOK_PAGE_TOKEN" not in c["services"]["api"]["environment"]
           assert "FACEBOOK_PAGE_TOKEN" in c["services"]["facebook-publisher"]["environment"]
           for key,v in c["services"].items():
