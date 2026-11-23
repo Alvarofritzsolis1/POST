@@ -106,18 +106,31 @@ AUTOMATION_STATES = {
 }
 
 
-def manager_signature(timestamp: str) -> str:
-    return hmac.new(master_secret(), (timestamp + ".cpu-lora-supervisor").encode(),
-                    sha256).hexdigest()
+def manager_signature(timestamp: str, method: str, route: str, raw: bytes) -> str:
+    """Bind each signed supervisor request to its HTTP method, route and bytes."""
+    if (method, route) not in {
+        ("GET", "/automation/plan"), ("POST", "/automation/status")
+    }:
+        raise HTTPException(401, "Acción interna no autorizada")
+    digest = sha256(raw).hexdigest()
+    canonical = f"{timestamp}.{method}.{route}.{digest}".encode("ascii")
+    return hmac.new(master_secret(), canonical, sha256).hexdigest()
 
 
-def verify_manager(timestamp: str, signature: str):
+async def authorized_supervisor(
+    request: Request,
+    x_galant_manager_timestamp: str = Header(default=""),
+    x_galant_manager_signature: str = Header(default=""),
+):
+    stamp = x_galant_manager_timestamp
     try:
-        if abs(int(datetime.now(timezone.utc).timestamp()) - int(timestamp)) > 120:
+        if abs(int(datetime.now(timezone.utc).timestamp()) - int(stamp)) > 120:
             raise ValueError()
     except (TypeError, ValueError):
         raise HTTPException(401, "Autenticación interna expirada") from None
-    if not hmac.compare_digest(manager_signature(timestamp), signature):
+    route = request.url.path.removeprefix(router.prefix)
+    expected = manager_signature(stamp, request.method, route, await request.body())
+    if not hmac.compare_digest(expected, x_galant_manager_signature):
         raise HTTPException(401, "Controlador de entrenamiento no autorizado")
 
 
@@ -136,10 +149,8 @@ class SupervisorStatus(BaseModel):
 
 
 @router.get("/automation/plan")
-def automated_plan(x_galant_manager_timestamp: str = Header(default=""),
-                   x_galant_manager_signature: str = Header(default=""),
+def automated_plan(_authorized: None = Depends(authorized_supervisor),
                    db: Session = Depends(get_db)):
-    verify_manager(x_galant_manager_timestamp, x_galant_manager_signature)
     enabled = list(db.scalars(select(MaxPowerState).where(
         MaxPowerState.enabled.is_(True)
     ).order_by(MaxPowerState.session_started_at, MaxPowerState.org_id).limit(100)))
@@ -195,10 +206,8 @@ def automated_plan(x_galant_manager_timestamp: str = Header(default=""),
 
 @router.post("/automation/status")
 def automated_status(status: SupervisorStatus,
-                     x_galant_manager_timestamp: str = Header(default=""),
-                     x_galant_manager_signature: str = Header(default=""),
+                     _authorized: None = Depends(authorized_supervisor),
                      db: Session = Depends(get_db)):
-    verify_manager(x_galant_manager_timestamp, x_galant_manager_signature)
     org_id = str(status.org_id)
     state = db.get(MaxPowerState, org_id)
     if not state or state.session_generation != status.generation:
