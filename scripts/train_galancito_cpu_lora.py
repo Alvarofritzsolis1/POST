@@ -21,6 +21,7 @@ sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "apps" / "backend")
 from galant_cpu_lora_resources import capacity_gate, process_memory_mb, should_pause, snapshot
 from galancito_lora_progress import ProgressReporter
 from app.galancito_finetune_dataset import load_approved, verified_training_manifest, verified_match
+from max_power_synthetic_lab import verify_dataset
 
 MODEL = "Qwen/Qwen3.5-0.8B"
 SYSTEM = "Responde en español con precisión. No inventes información ni identificadores."
@@ -36,6 +37,8 @@ def args_parser():
     parser.add_argument("--approval-manifest", help="Manifest Ed25519 firmado para Qwen3.5-0.8B")
     parser.add_argument("--output", help="Directorio privado ABSOLUTO de checkpoints y métricas")
     parser.add_argument("--execute", action="store_true", help="Habilita actualizaciones REALES de pesos LoRA por CPU")
+    parser.add_argument("--synthetic-development", action="store_true",
+                        help="Laboratorio aislado con datos ficticios del código; nunca producción")
     parser.add_argument("--resume", action="store_true", help="Reanuda exactamente el mismo dataset y configuración")
     parser.add_argument("--max-steps", type=int, default=40, help="Actualizaciones LoRA previstas, 1-1000")
     parser.add_argument("--checkpoint-steps", type=int, default=5, help="Guardar progreso recuperable cada N pasos")
@@ -80,6 +83,7 @@ def safe_output(args, bundle, attestation):
     metadata_path = target / "run-metadata.json"
     parameters = {
         "model": MODEL, "dataset_sha256": bundle["dataset_digest"],
+        "data_kind": bundle.get("data_kind", "human_reviewed_real"),
         "approval_fingerprint": attestation["key_fingerprint"],
         "max_steps": args.max_steps, "checkpoint_steps": args.checkpoint_steps,
         "max_tokens": args.max_tokens, "org_id": args.telemetry_org,
@@ -224,28 +228,38 @@ def main(argv=None):
         return 0 if gate["ready"] else 3
     if not args.dataset:
         raise SystemExit("Proporciona --dataset o --preflight")
-    bundle = load_approved(args.dataset)
-    print(json.dumps({"status":"approved_examples_format_checked_not_trained",
+    # The synthetic path is integrity-checked against code-owned examples.
+    bundle = verify_dataset(args.dataset) if args.synthetic_development else load_approved(args.dataset)
+    kind = "curated_synthetic" if args.synthetic_development else "human_reviewed_real"
+    print(json.dumps({"status":"synthetic_lab_checked_not_trained" if args.synthetic_development
+                      else "approved_examples_format_checked_not_trained", "data_kind":kind,
                       "model":MODEL,"sizes":bundle["sizes"],
                       "digest":bundle["dataset_digest"],
-                      "note":"No se modifica el modelo Qwen3.5 4B; consentimiento requiere comprobación independiente."},
+                      "note":"Prueba ficticia: no demuestra mejora productiva." if args.synthetic_development
+                      else "Los datos reales requieren consentimiento revisado independientemente."},
                      ensure_ascii=False))
     if not args.execute:
         return 0
     if not gate["ready"]:
         raise SystemExit("Recursos insuficientes: "+",".join(gate["blockers"]))
     if (not args.output or not Path(args.output).is_absolute()
-            or not args.approval_manifest):
+            or (not args.synthetic_development and not args.approval_manifest)):
         raise SystemExit("--execute exige --output absoluto y --approval-manifest firmado")
-    if os.environ.get("GALANT_OFFLINE_TRAINING_APPROVED") != "yes":
-        raise SystemExit("GALANT_OFFLINE_TRAINING_APPROVED=yes es obligatorio")
-    try:
-        attestation = verified_training_manifest(
-            args.dataset, args.approval_manifest,
-            os.environ.get("GALANT_DATASET_APPROVAL_PUBLIC_KEY", ""),
-            dataset_digest=bundle["dataset_digest"], training_model=MODEL)
-    except ValueError as exc:
-        raise SystemExit("Dataset no autorizado para Qwen3.5-0.8B: " + str(exc)) from exc
+    if args.synthetic_development:
+        if os.environ.get("GALANT_SYNTHETIC_DEV_TRAINING") != "yes":
+            raise SystemExit("El laboratorio requiere GALANT_SYNTHETIC_DEV_TRAINING=yes")
+        # A code-verified integrity ID, NOT a fake authorization signature.
+        attestation = {"key_fingerprint": "synthetic-dev-" + bundle["dataset_digest"][:16]}
+    else:
+        if os.environ.get("GALANT_OFFLINE_TRAINING_APPROVED") != "yes":
+            raise SystemExit("GALANT_OFFLINE_TRAINING_APPROVED=yes es obligatorio")
+        try:
+            attestation = verified_training_manifest(
+                args.dataset, args.approval_manifest,
+                os.environ.get("GALANT_DATASET_APPROVAL_PUBLIC_KEY", ""),
+                dataset_digest=bundle["dataset_digest"], training_model=MODEL)
+        except ValueError as exc:
+            raise SystemExit("Dataset no autorizado para Qwen3.5-0.8B: " + str(exc)) from exc
     # Heavy ML libraries load only *after* permission and hardware gates.
     try:
         import torch
@@ -405,7 +419,9 @@ def main(argv=None):
         # Loss alone does not establish improved reasoning. Candidate stays
         # held until independently checked against reserved responses.
         report={
-            "status":"trained_adapter_requires_holdout_reasoning_checks",
+            "status":"synthetic_development_adapter_not_for_production" if args.synthetic_development
+                     else "trained_adapter_requires_holdout_reasoning_checks",
+            "data_kind":kind,
             "base_model":MODEL,"production_promoted":False,
             "weights_trained":True,
             "lora_weights_changed":True,
