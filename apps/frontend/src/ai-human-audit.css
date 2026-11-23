@@ -70,3 +70,8 @@
 .ai-human-audit-recovery small { font-size:11px; color:#637b78; }
 .ai-human-audit-recovery button { border:1px solid #b5d8d2; background:#f1faf8; padding:7px 9px; border-radius:8px; color:#14695d; font-weight:700; font-size:11px; cursor:pointer; justify-self:start; }
 .ai-human-audit-recovery button:disabled { opacity:.5; cursor:wait; }
+
+.ai-real-practice-action{display:grid;gap:6px;padding:12px;border:1px solid #c6e2d7;border-radius:10px;background:#eff9f4}
+.ai-real-practice-action button{justify-self:start;display:inline-flex;gap:8px;align-items:center;background:#117b68;border:0;color:#fff;border-radius:9px;padding:10px 13px;font-size:12px;font-weight:750;cursor:pointer}
+.ai-real-practice-action button:disabled{opacity:.5;cursor:wait}
+.ai-real-practice-action small{font-size:11px;color:#527569;line-height:1.45}
