@@ -59,6 +59,7 @@ export function NetworkQuickForm({
   const [summary, setSummary] = useState("");
   const [publicSummary, setPublicSummary] = useState("");
   const [copyEdited, setCopyEdited] = useState(false);
+  const [copyNeedsReview, setCopyNeedsReview] = useState(false);
   const [copySource, setCopySource] = useState("");
   const [copyBusy, setCopyBusy] = useState(false);
   const [copyError, setCopyError] = useState("");
@@ -78,7 +79,7 @@ export function NetworkQuickForm({
 
   const tradeOk = specialty.trim().length >= 2;
   const descriptionOk = summary.trim().length >= 8;
-  const copyOk = publicSummary.trim().length >= 8 && publicSummary.trim().length <= 400;
+  const copyOk = publicSummary.trim().length >= 8 && publicSummary.trim().length <= 400 && !copyNeedsReview;
   const locationOk = publicLocation.trim().length >= 3 && !/\d/.test(publicLocation);
   const staffOk = Number.isInteger(workers) && workers >= 1 && workers <= 10000;
   const siteOk = Boolean(siteId);
@@ -200,7 +201,7 @@ export function NetworkQuickForm({
         </div>
         <div ref={roleRef} className="nq-field">
           <NetworkSpecialtyPicker value={specialty}
-            onChange={(value) => { setSpecialty(value); setConfirmedMismatch(false); }}
+            onChange={(value) => { setSpecialty(value); setConfirmedMismatch(false); if (copyEdited) setCopyNeedsReview(true); }}
             suggestions={[...TRADES, ...catalog.specialties]} invalid={submitted && !tradeOk}/>
           <div className="nq-field-progress"><StateMark ok={tradeOk}/></div>
         </div>
@@ -211,6 +212,7 @@ export function NetworkQuickForm({
             onChange={(e) => {
               setSummary(e.target.value);
               setConfirmedMismatch(false);
+              if (copyEdited) setCopyNeedsReview(true);
               if (!copyEdited) { setPublicSummary(""); setCopySource(""); }
             }}
             placeholder="Ej. Instalación y pintura de fachadas exteriores en edificios."/>
@@ -221,7 +223,7 @@ export function NetworkQuickForm({
             <label htmlFor="nq-public-copy"><Sparkles size={15}/> Resumen para Facebook
               <StateMark ok={copyOk} pending="Por revisar"/></label>
             <button type="button" disabled={!tradeOk || !descriptionOk || copyBusy}
-              onClick={() => { setPublicSummary(""); setCopyEdited(false); setCopySource(""); setCopyCycle(v => v + 1); }}
+              onClick={() => { setPublicSummary(""); setCopyEdited(false); setCopyNeedsReview(false); setCopySource(""); setCopyCycle(v => v + 1); }}
               aria-label="Volver a mejorar el resumen con IA">
               <Sparkles size={14}/> {copyBusy ? "Preparando…" : "Mejorar con IA"}
             </button>
@@ -230,12 +232,12 @@ export function NetworkQuickForm({
             aria-invalid={submitted && !copyOk}
             value={publicSummary}
             onChange={(e) => {
-              setPublicSummary(e.target.value); setCopyEdited(true); setCopyBusy(false);
+              setPublicSummary(e.target.value); setCopyEdited(true); setCopyNeedsReview(false); setCopyBusy(false);
               setCopySource("Editado por ti"); setCopyError("");
             }}
             placeholder={copyBusy ? "Analizando las labores…" : "El resumen editable aparecerá aquí"}/>
           <div className="nq-copy-foot">
-            <small>{copyError || copySource || "Basado en la descripción, sin inventar datos."}</small>
+            <small>{copyNeedsReview ? "El oficio o las labores cambiaron. Revisa el resumen editado." : (copyError || copySource || "Basado en la descripción, sin inventar datos.")}</small>
             <small>{publicSummary.length}/400</small>
           </div>
         </div>}
