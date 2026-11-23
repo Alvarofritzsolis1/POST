@@ -85,6 +85,11 @@ def test_signed_telemetry_is_idempotent_private_and_tenant_scoped(ai_env, monkey
             MaxPowerEvent.org_id==org,MaxPowerEvent.round_id==run)))
         assert len(entries)==3
         assert all("message" not in (e.evidence or {}) for e in entries)
+    report=client.get("/api/v1/admin/ai/max-power/export",headers=admin).json()
+    assert report["finetuning"]["step"] == 4
+    assert report["finetuning"]["loss_last"] == 1.25
+    assert report["finetuning"]["weights_training_reported"] is False
+    assert report["finetuning"]["production_promoted"] is False
     outsider=signin(client,"outside")
     assert client.get(URL,headers=outsider).json()["runs"] == []
 
