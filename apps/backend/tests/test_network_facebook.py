@@ -224,7 +224,7 @@ def test_galancito_local_auto_ad_falls_back_without_hallucinations(network, monk
     monkeypatch.setattr("app.network_facebook.graph_photo_post",
                         lambda page, token, msg, path, org: content.append(msg) or {"post_id": "1489275590928529_737373"})
     assert process_next(n["Session"]) is True
-    assert content[0].startswith("BUSCAMOS EMPRESAS CONTRATISTAS")
+    assert content[0].startswith("Buscamos empresas contratistas de ")
     assert "$2000000" not in content[0]
     settings.cache_clear()
 
