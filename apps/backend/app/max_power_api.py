@@ -91,6 +91,24 @@ def _view(db, user, row):
         MaxPowerEvent.event == "cpu_supervisor_status"))
     cpu_state = (cpu_event.evidence or {}).get("state") if cpu_event else None
     cpu_online = bool(cpu_event and aware(cpu_event.created_at) >= aware(now) - timedelta(seconds=55))
+    # The former hard-coded False hid real LoRA success even after signed,
+    # independently stored proof of new optimizer steps. Do not equate CPU
+    # readiness, restored checkpoints or validation loss with trained weights.
+    signed_cpu_events = list(db.scalars(select(MaxPowerEvent).where(
+        MaxPowerEvent.org_id == user.org_id,
+        MaxPowerEvent.event.like("ft_%"),
+    ).order_by(MaxPowerEvent.created_at.desc()).limit(300)))
+    weights_reported = any(
+        (event.evidence or {}).get("model") == "Qwen/Qwen3.5-0.8B"
+        and (event.evidence or {}).get("kind") in ("finished", "paused")
+        and (event.evidence or {}).get("weights_trained") is True
+        and ((event.evidence or {}).get("optimizer_steps_new") or 0) > 0
+        and (event.evidence or {}).get("optimizer_start_sha256")
+        and (event.evidence or {}).get("optimizer_end_sha256")
+        and (event.evidence or {}).get("optimizer_start_sha256") !=
+            (event.evidence or {}).get("optimizer_end_sha256")
+        for event in signed_cpu_events
+    )
     messenger_trials = list(db.scalars(select(MaxPowerMessengerTrial).where(
         MaxPowerMessengerTrial.org_id == user.org_id
     ).order_by(MaxPowerMessengerTrial.created_at.desc()).limit(150)))
@@ -140,7 +158,7 @@ def _view(db, user, row):
                        "El controlador neuronal no ha informado recientemente"),
             "last_update_at": cpu_event.created_at if cpu_event else None,
             "manager_online": cpu_online,
-            "weights_trained": False,
+            "weights_trained": bool(weights_reported),
             "model": "Qwen/Qwen3.5-0.8B",
         },
         "priorities": priority_from_reviews(priorities),
