@@ -16,7 +16,7 @@ def test_context_repeat_is_observed_not_invented():
     assert c["safe"] and not c["repeated_trade_question"]
     outcome,reason,gain=classify_messenger("context",b,c)
     assert outcome=="objective_gain" and gain
-    assert "pendiente" in reason
+    assert "falta validación general" in reason
 
 def test_safety_regression_is_not_accepted():
     base=objective_checks(evidence(), "¿Qué trabajo haces?")
