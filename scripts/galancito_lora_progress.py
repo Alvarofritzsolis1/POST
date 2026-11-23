@@ -1,4 +1,4 @@
-"""Durable per-step telemetry for isolated CUDA QLoRA (Python stdlib only).
+"""Durable per-step telemetry for isolated CPU LoRA and CUDA QLoRA (Python stdlib only).
 
 Every recorded sample is a real callback measurement, never a simulated demo.
 Metric JSONL never contains conversation text, model outputs, passwords or keys.
@@ -19,10 +19,10 @@ from urllib.parse import urlsplit
 from urllib.request import Request, urlopen
 from uuid import UUID
 
-KINDS = frozenset(("start", "baseline", "metric", "eval", "checkpoint", "finished", "failed"))
+KINDS = frozenset(("start", "baseline", "metric", "eval", "checkpoint", "finished", "failed", "paused"))
 NUMBERS = frozenset((
     "epoch", "loss", "eval_loss", "learning_rate", "grad_norm",
-    "gpu_memory_mb", "gpu_memory_reserved_mb", "elapsed_seconds",
+    "gpu_memory_mb", "gpu_memory_reserved_mb", "cpu_memory_mb", "elapsed_seconds",
     "train_samples_per_second", "holdout_loss_before", "holdout_loss_after",
     "holdout_pass_before", "holdout_pass_after", "holdout_regressions",
 ))
@@ -39,13 +39,17 @@ def _number(value):
 class ProgressReporter:
     def __init__(self, directory: Path, *, run_id: str, org_id: str | None,
                  dataset_sha256: str, telemetry_url: str | None = None,
-                 telemetry_token: str | None = None):
+                 telemetry_token: str | None = None,
+                 model: str = "Qwen/Qwen3.5-4B"):
         self.directory = Path(directory)
         self.directory.mkdir(parents=True, exist_ok=True, mode=0o700)
         self.path = self.directory / "training-metrics.jsonl"
         self.run_id = str(UUID(run_id))
         self.org_id = str(UUID(org_id)) if org_id else None
         self.digest = dataset_sha256
+        if model not in {"Qwen/Qwen3.5-4B", "Qwen/Qwen3.5-0.8B"}:
+            raise ValueError("Modelo sin perfil de telemetría autorizado")
+        self.model = model
         self.url = telemetry_url
         self.token = telemetry_token
         if bool(self.url) != bool(self.token) or bool(self.url) != bool(self.org_id):
@@ -72,7 +76,8 @@ class ProgressReporter:
                 if not line.strip():
                     continue
                 item = json.loads(line)
-                if item.get("run_id") != self.run_id or item.get("dataset_sha256") != self.digest:
+                if (item.get("run_id") != self.run_id or item.get("dataset_sha256") != self.digest
+                        or item.get("model") != self.model):
                     raise ValueError("Historial de métricas incompatible con esta ejecución")
                 self.sequence = max(self.sequence, int(item["sequence"]))
                 if self.url:
@@ -93,7 +98,7 @@ class ProgressReporter:
         entry = {
             "org_id": self.org_id, "run_id": self.run_id,
             "sequence": self.sequence, "kind": kind,
-            "dataset_sha256": self.digest, "model": "Qwen/Qwen3.5-4B",
+            "dataset_sha256": self.digest, "model": self.model,
             "step": int(step), "total_steps": int(total_steps),
             "weights_trained": bool(weights_trained),
             "candidate_accepted": bool(candidate_accepted),
