@@ -56,6 +56,18 @@ def _pressure(name):
     except (OSError, StopIteration, ValueError):
         return 0
 
+def isolated_qwen_ready(snapshot: dict, training_model=None) -> bool:
+    """Only the private lab decides Qwen4B readiness; no Messenger setting gate.
+
+    The live controller passes a TrainingModel which discovers/downloads the
+    isolated 4B. Tests can inject a deterministic, side-effect-free checker.
+    """
+    ready = MAX_POWER_ISOLATED and snapshot.get("available_ram_mb", 0) >= QWEN_MIN_RAM_MB
+    if ready and training_model is not None:
+        return training_model.waiting_reason(snapshot["disk_free_mb"], QWEN_4B) is None
+    return bool(ready)
+
+
 def set_wait(row, now, code, reason, seconds=RECHECK_SECONDS):
     row.last_status, row.last_reason = code, reason[:280]
     row.next_at = now + timedelta(seconds=seconds)
@@ -319,13 +331,8 @@ def tick(db, sampler, *, sampled=None, training_model=None):
             set_wait(row, now, "permission_required", "No hay administrador autorizado para prácticas", 300)
             continue
         isolated_model_ready = MAX_POWER_ISOLATED and snapshot["available_ram_mb"] >= QWEN_MIN_RAM_MB
-        # Model experiments belong to the ISOLATED training Ollama and must
-        # never depend on the production Messenger model/configuration.
-        # The one-button controller prepares a missing 4B on demand.
-        qwen_ready = isolated_model_ready
-        if qwen_ready and training_model is not None:
-            model_problem = training_model.waiting_reason(snapshot["disk_free_mb"], QWEN_4B)
-            qwen_ready = model_problem is None
+        # Separate training Ollama, independent of Messenger production model.
+        qwen_ready = isolated_qwen_ready(snapshot, training_model)
         if qwen_ready:
             if schedule_next(db, owner):
                 set_wait(row, now, "messenger_evaluation",
