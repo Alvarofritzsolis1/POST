@@ -198,3 +198,44 @@ def test_next_practice_uses_historic_reviews_to_prioritize_recent_evidence(ai_en
     assert result["observed_defects"] == 5
     assert result["source_id"]
     assert "frecuencia histórica" in result["reason"]
+
+
+
+def test_signed_training_manifest_requires_exact_dataset_and_known_ed25519_key(tmp_path):
+    from cryptography.hazmat.primitives.asymmetric.ed25519 import Ed25519PrivateKey
+    from cryptography.hazmat.primitives.serialization import Encoding, PublicFormat
+    from app.galancito_finetune_dataset import MODEL, verified_training_manifest
+
+    dataset_path = tmp_path / "human-reviewed.jsonl"
+    dataset_path.write_text(json.dumps(_example(95), ensure_ascii=False) + "\n",
+                            encoding="utf-8")
+    digest = sha256(dataset_path.read_bytes()).hexdigest()
+    signing_key = Ed25519PrivateKey.generate()
+    public = signing_key.public_key().public_bytes(Encoding.Raw, PublicFormat.Raw).hex()
+    statement = {
+        "dataset_sha256": digest,
+        "approved_by": "00000000-0000-0000-0000-000000000001",
+        "approved_at": "2026-11-23T02:00:00Z",
+        "privacy_reviewed": True, "usage_authorized": True,
+        "training_model": MODEL, "purpose": "offline_galant_finetune_qwen",
+    }
+    canonical = json.dumps(statement, sort_keys=True, ensure_ascii=False,
+                           separators=(",", ":")).encode()
+    signature = signing_key.sign(canonical).hex()
+    manifest = tmp_path / "approval.json"
+    manifest.write_text(json.dumps({**statement, "signature_ed25519": signature}),
+                        encoding="utf-8")
+    verified = verified_training_manifest(dataset_path, manifest, public)
+    assert verified["signed"] is True
+    assert verified["dataset_digest"] == digest
+    with pytest.raises(ValueError, match="Firma"):
+        verified_training_manifest(dataset_path, manifest, "00" * 32)
+    dataset_path.write_text(dataset_path.read_text() + "\n", encoding="utf-8")
+    with pytest.raises(ValueError, match="manifiesto no aprueba|manifiesto no aprueba|no aprueba"):
+        verified_training_manifest(dataset_path, manifest, public)
+    dataset_path.write_text(json.dumps(_example(95)) + "\n", encoding="utf-8")
+    statement["usage_authorized"] = False
+    manifest.write_text(json.dumps({**statement, "signature_ed25519": signature}),
+                        encoding="utf-8")
+    with pytest.raises(ValueError, match="Firma"):
+        verified_training_manifest(dataset_path, manifest, public)
