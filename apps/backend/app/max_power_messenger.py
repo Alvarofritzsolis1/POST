@@ -228,6 +228,11 @@ def schedule_next(db, user):
                 return True
     return False
 
+def isolated_qwen_config():
+    """One-button lab always uses Qwen4B; never mutates production Messenger."""
+    return settings().model_copy(update={"galancito_local_model": QWEN_4B})
+
+
 def _answer(instructions,prompt,seed,org_id):
     if not MAX_POWER_ISOLATED:
         raise RuntimeError("MAX POWER no ejecuta ensayos de Messenger sobre Ollama de producción")
@@ -245,7 +250,7 @@ def _answer(instructions,prompt,seed,org_id):
     # MAX POWER always exercises the isolated Qwen 4B, even when the
     # production Messenger model is a different local model or is disabled.
     # model_copy makes an ephemeral config; production settings never change.
-    isolated_cfg = settings().model_copy(update={"galancito_local_model": QWEN_4B})
+    isolated_cfg = isolated_qwen_config()
     result = generate_training_text(instructions, prompt, seed, isolated_cfg, thinking=False)
     timing = dict(last_timings.get() or {})
     if str(timing.get("response_model") or "").casefold() != QWEN_4B.casefold():
