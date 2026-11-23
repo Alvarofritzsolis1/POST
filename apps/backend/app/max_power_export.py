@@ -36,7 +36,7 @@ NUMERIC_KEYS = (
     "load_ms", "prompt_ms", "generation_ms", "transport_ms",
     "ollama_total_ms", "timing_samples", "passed", "failed", "critical",
     "turns", "questions", "skipped", "sample_count",
-    "peak_worker_ram_mb", "peak_host_cpu_percent", "worker_ram_mb",
+    "peak_worker_ram_mb", "peak_host_cpu_percent", "worker_ram_mb", "cpu_memory_mb",
     "worker_ram_limit_mb", "host_cpu_percent", "available_ram_mb",
     "disk_free_mb", "cpu_pressure_avg10", "memory_pressure_avg10",
     "io_pressure_avg10",
@@ -222,13 +222,14 @@ def build_report(db: Session, user: User, *, max_events=MAX_EVENTS):
         "step": gpu_last("step"), "total_steps": gpu_last("total_steps"),
         "loss_last": gpu_last("loss"), "eval_loss_last": gpu_last("eval_loss"),
         "gpu_memory_mb_last": gpu_last("gpu_memory_mb"),
+        "cpu_memory_mb_last": gpu_last("cpu_memory_mb"),
         "holdout_loss_before": gpu_last("holdout_loss_before"),
         "holdout_loss_after": gpu_last("holdout_loss_after"),
         "holdout_pass_before": gpu_last("holdout_pass_before"),
         "holdout_pass_after": gpu_last("holdout_pass_after"),
         "holdout_regressions": gpu_last("holdout_regressions"),
         "production_promoted": False,
-        "source": "signed_external_cuda_qlora_telemetry",
+        "source": "signed_isolated_cpu_or_gpu_lora_telemetry",
     }
     # Read-only host snapshot from trainer, excluding all unrecognized keys.
     worker = db.get(TrainingWorker, 1)

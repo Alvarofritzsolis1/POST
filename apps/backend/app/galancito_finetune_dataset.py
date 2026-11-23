@@ -128,7 +128,8 @@ def load_approved(path: str | Path, *, enforce_minimum: bool = True) -> dict:
 
 
 def verified_training_manifest(dataset_file: str | Path, manifest_file: str | Path,
-                               public_key_hex: str, *, dataset_digest: str | None = None) -> dict:
+                               public_key_hex: str, *, dataset_digest: str | None = None,
+                               training_model: str = MODEL) -> dict:
     """Verify a separate administrator signature over the exact approved data.
 
     Ed25519 authenticates the *signer's assertion* (not the truth of a
@@ -164,7 +165,7 @@ def verified_training_manifest(dataset_file: str | Path, manifest_file: str | Pa
     except (ValueError, InvalidSignature) as exc:
         raise ValueError("Firma del conjunto de datos inválida o no autorizada") from exc
     digest = dataset_digest or sha256(Path(dataset_file).read_bytes()).hexdigest()
-    if (wrapper["dataset_sha256"] != digest or wrapper["training_model"] != MODEL
+    if (wrapper["dataset_sha256"] != digest or wrapper["training_model"] != training_model
             or wrapper["usage_authorized"] is not True
             or wrapper["privacy_reviewed"] is not True
             or wrapper["purpose"] != "offline_galant_finetune_qwen"):

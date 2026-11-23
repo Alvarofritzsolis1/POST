@@ -104,3 +104,40 @@ def test_telemetry_rejects_replayed_time_and_invalid_progress(ai_env, monkeypatc
     assert client.post(URL+"/telemetry",content=raw,headers=headers).status_code==422
     headers["x-galant-telemetry-timestamp"]="1"
     assert client.post(URL+"/telemetry",content=raw,headers=headers).status_code==422
+
+
+
+def test_signed_cpu_lora_progress_is_visible_without_faking_gpu_metrics(ai_env, monkeypatch):
+    monkeypatch.setenv("GALANT_FINETUNE_METRICS_SECRET", MASTER)
+    client = ai_env["client"]
+    admin = signin(client, "admin")
+    org = ai_env["org_id"]
+    run_id = str(uuid4())
+    payload = {
+        "org_id": org, "run_id": run_id, "sequence": 1, "kind": "paused",
+        "dataset_sha256": "d" * 64, "model": "Qwen/Qwen3.5-0.8B",
+        "step": 6, "total_steps": 40, "cpu_memory_mb": 3130.5,
+        "weights_trained": True, "candidate_accepted": False,
+    }
+    raw=json.dumps(payload,sort_keys=True,separators=(",",":")).encode()
+    stamp=str(int(time()))
+    token=hmac.new(MASTER.encode(),org.encode(),sha256).hexdigest()
+    signature=hmac.new(bytes.fromhex(token),(stamp+".").encode()+raw,sha256).hexdigest()
+    headers={"content-type":"application/json",
+             "x-galant-telemetry-timestamp":stamp,
+             "x-galant-telemetry-signature":signature}
+    received=client.post(URL+"/telemetry",content=raw,headers=headers)
+    assert received.status_code==200,received.text
+    status=client.get(URL,headers=admin).json()
+    row=status["runs"][0]
+    assert row["model"]=="Qwen/Qwen3.5-0.8B"
+    assert row["stage"]=="paused"
+    assert row["percent"]==15.0
+    assert row["points"][0]["cpu_memory_mb"]==3130.5
+    assert row["points"][0]["gpu_memory_mb"] is None
+    assert row["weights_trained"] is True
+    assert row["candidate_accepted"] is False
+    assert status["production_promoted"] is False
+    report=client.get("/api/v1/admin/ai/max-power/export",headers=admin).json()
+    assert report["finetuning"]["cpu_memory_mb_last"]==3130.5
+    assert report["finetuning"]["production_promoted"] is False
