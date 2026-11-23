@@ -245,7 +245,9 @@ export function NetworkQuickForm({
         {publishFacebook && <div className="nq-copy">
           <div className="nq-copy-title">
             <label htmlFor="nq-public-copy"><Sparkles size={15}/> Resumen para Facebook
-              <StateMark ok={copyOk} pending="Por revisar"/></label>
+              {copyOk && detailQuestion
+                ? <span className="nq-copy-basic" role="status">Información básica</span>
+                : <StateMark ok={copyOk} pending="Por revisar"/>}</label>
             <button type="button" disabled={!tradeOk || !descriptionOk || copyBusy}
               onClick={() => { setPublicSummary(""); setCopyEdited(false); setCopyNeedsReview(false); setCopySource(""); setCopyCycle(v => v + 1); }}
               aria-label="Volver a mejorar el resumen con IA">
