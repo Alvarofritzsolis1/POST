@@ -282,6 +282,7 @@ def main(argv=None):
         dataset_sha256=bundle["dataset_digest"],model=MODEL,
         telemetry_url=args.telemetry_url,
         telemetry_token=os.environ.get("GALANT_FINETUNE_TELEMETRY_TOKEN") if args.telemetry_url else None)
+    reporter.data_kind = kind  # Propagate provenance to signed telemetry, never infer consent.
     resume_step = int(Path(checkpoint).name.rsplit("-", 1)[-1]) if checkpoint else 0
     state = {"step":resume_step,"paused":False,"weights_changed":False,
              "optimizer_start_hash":None,"optimizer_start_step":resume_step}
