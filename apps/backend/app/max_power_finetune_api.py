@@ -85,6 +85,7 @@ AUTOMATION_STATES = {
     "off": "MAX POWER apagado: entrenamiento neuronal detenido",
     "awaiting_approved_dataset": "Falta un conjunto real autorizado y firmado para LoRA CPU",
     "synthetic_data_invalid": "Corpus sintético no válido o modificado: entrenamiento de prueba detenido",
+    "preparing_synthetic": "Preparando Qwen 0.8B y datos ficticios; todavía no hay pasos de entrenamiento",
     "training_synthetic": "Entrenando adaptador LoRA 0.8B con datos ficticios en laboratorio; no modifica Messenger",
     "finished_synthetic": "Prueba LoRA con datos ficticios finalizada; requiere casos reales autorizados para avanzar",
     "awaiting_resources": "RAM o disco insuficientes; se protege Messenger",
@@ -125,7 +126,7 @@ class SupervisorStatus(BaseModel):
     org_id: UUID
     generation: int = Field(ge=1)
     status: Literal["off", "awaiting_approved_dataset", "awaiting_resources",
-                    "synthetic_data_invalid", "training_synthetic", "finished_synthetic",
+                    "synthetic_data_invalid", "preparing_synthetic", "training_synthetic", "finished_synthetic",
                     "messenger_priority", "practice_priority", "cpu_waiting_turn",
                     "retry_cooldown", "retry_exhausted", "preflight", "training", "pausing",
                     "paused", "finished", "awaiting_new_dataset",
