@@ -63,3 +63,10 @@
 .ai-real-trial-actions button { border:1px solid #b3d7d0; background:#fff; color:#145f58; padding:8px 11px; border-radius:8px; cursor:pointer; }
 .ai-real-trial-actions button:disabled { opacity:.5; }
 @media(max-width:650px) { .ai-real-trial-comparison { grid-template-columns:1fr; } }
+
+.ai-human-audit-recovery { display:grid; gap:8px; padding:10px; border:1px solid #dce9e9; border-radius:9px; background:#fff; }
+.ai-human-audit-recovery > div { display:flex; flex-wrap:wrap; align-items:center; gap:7px; }
+.ai-human-audit-recovery > span,.ai-human-audit-recovery b { color:#315c5a; font-size:12px; }
+.ai-human-audit-recovery small { font-size:11px; color:#637b78; }
+.ai-human-audit-recovery button { border:1px solid #b5d8d2; background:#f1faf8; padding:7px 9px; border-radius:8px; color:#14695d; font-weight:700; font-size:11px; cursor:pointer; justify-self:start; }
+.ai-human-audit-recovery button:disabled { opacity:.5; cursor:wait; }
