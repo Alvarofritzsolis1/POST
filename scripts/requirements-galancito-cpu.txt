@@ -1,0 +1,8 @@
+# Optional CPU-only fine-tuning. Never install this in production GALANT API.
+# The dedicated Dockerfile installs the CPU wheel for torch first.
+transformers>=5.2,<6
+peft>=0.18,<1
+accelerate>=1.10,<2
+safetensors>=0.5,<1
+cryptography>=44,<49
+tokenizers>=0.21,<1
