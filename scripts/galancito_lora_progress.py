@@ -58,8 +58,12 @@ class ProgressReporter:
             raise ValueError("Telemetría remota requiere URL HTTPS, organización y token")
         if self.url:
             parsed = urlsplit(self.url)
-            if (parsed.scheme != "https" or not parsed.netloc or parsed.username
-                    or parsed.password or parsed.fragment or parsed.query
+            private_container_transport = (
+                os.environ.get("GALANT_FINETUNE_ALLOW_PRIVATE_HTTP") == "yes"
+                and parsed.scheme == "http" and parsed.netloc == "api:8000")
+            if ((parsed.scheme != "https" and not private_container_transport)
+                    or not parsed.netloc or parsed.username or parsed.password
+                    or parsed.fragment or parsed.query
                     or not parsed.path.endswith("/admin/ai/max-power/finetune/telemetry")):
                 raise ValueError("Endpoint de telemetría debe ser HTTPS y tener una ruta GALANT válida")
             if not isinstance(self.token, str) or len(self.token) != 64:

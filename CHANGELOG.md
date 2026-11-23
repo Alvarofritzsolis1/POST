@@ -1,3 +1,12 @@
+## 20.9.30-rc1 — MAX POWER de un solo botón: evaluaciones + pesos LoRA reales
+
+- El mismo interruptor MAX POWER coordina el motor existente de pruebas Qwen3.5 4B y el entrenador neuronal Qwen3.5 0.8B. El supervisor CPU consulta el estado ON/OFF, la generación de sesión y las prioridades de Messenger mediante una API interna firmada HMAC; no accede a la base de datos, al socket Docker ni a documentos laborales.
+- Nuevo servicio permanente cpu-lora-manager aislado, 1,5 CPU y 5 GiB RAM, con comprobación de salud real, respaldo/reversión en el despliegue. En reposo no descarga ni entrena modelos.
+- Si hay datos reales autorizados y firmados con Ed25519, capacidad suficiente y ninguna práctica prioritaria, inicia automáticamente cuatro pasos de gradiente, checkpoints cada dos pasos y telemetría firmada al panel. Si falta algo, publica el bloqueo específico sin inventar resultados.
+- OFF, cambio de sesión, presión RAM y actividad de Messenger detienen nuevos pasos con checkpoint, recuperación de rondas incompletas y salvaguarda de finalización si una llamada no cede. No se repite el mismo dataset sin nueva evidencia.
+- El panel presenta por separado el estado del controlador neuronal, evaluaciones y gráficos de pesos reales. Ningún adaptador 0.8B se transfiere al 4B ni se aplica a producción automáticamente.
+- Pruebas de HMAC, sesión, privacidad, autorización de dataset, estado OFF, aislamiento y límites Docker. Los tests de CI no sustituyen un piloto de gradientes en el VPS ni validan calidad general.
+
 ## 20.9.27-rc1 — MAX POWER: integridad de entrenamiento CPU y configuración automática
 
 - Corrige el aprendizaje aparente al reanudar checkpoints: el digest de pesos LoRA se captura después de restaurar el estado del entrenador y se exigen pasos NUEVOS y cambios de tensores antes de marcar pesos entrenados.

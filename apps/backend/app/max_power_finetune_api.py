@@ -18,7 +18,7 @@ from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
 
 from .db import get_db
-from .max_power_models import MaxPowerEvent
+from .max_power_models import MaxPowerEvent, MaxPowerState
 from .models import User, utcnow
 from .security import administrator
 
@@ -75,6 +75,114 @@ def master_secret() -> bytes:
 
 def scoped_token(org_id: str) -> str:
     return hmac.new(master_secret(), org_id.encode("ascii"), sha256).hexdigest()
+
+
+# The autonomous CPU worker has NO database, Docker socket or access to
+# Messenger records. It reads the one-button ON/OFF intent over the API using
+# a short-lived HMAC derived from the server-only metrics secret.
+AUTOMATION_STATES = {
+    "off": "MAX POWER apagado: entrenamiento neuronal detenido",
+    "awaiting_approved_dataset": "Falta un conjunto real autorizado y firmado para LoRA CPU",
+    "awaiting_resources": "RAM o disco insuficientes; se protege Messenger",
+    "messenger_priority": "Messenger activo; entrenamiento neuronal en pausa",
+    "practice_priority": "Prueba MAX POWER activa; entrenamiento neuronal en espera",
+    "cpu_waiting_turn": "Datos autorizados listos; esperando que termine la práctica 4B para entrenar pesos",
+    "retry_cooldown": "Entrenador liberó recursos y reintentará con pausa segura después del error",
+    "retry_exhausted": "Tres fallos reales: se suspenden reintentos para proteger GALANT; revisar recursos o datos",
+    "preflight": "Comprobando RAM y disco del VPS",
+    "training": "Actualizando pesos LoRA de Qwen3.5 0.8B",
+    "pausing": "Guardando checkpoint y pausando entrenamiento",
+    "paused": "Entrenamiento pausado; checkpoints conservados",
+    "finished": "Adaptador entrenado: pendiente de evaluación independiente",
+    "awaiting_new_dataset": "Ronda finalizada; esperando nuevos ejemplos autorizados",
+    "cannot_resume": "Checkpoint incompatible o incompleto; no se reanuda",
+    "failed": "Falló la ejecución de pesos; se conserva evidencia sin inventar avances",
+    "manager_offline": "Controlador neuronal sin comunicación reciente",
+}
+
+
+def manager_signature(timestamp: str) -> str:
+    return hmac.new(master_secret(), (timestamp + ".cpu-lora-supervisor").encode(),
+                    sha256).hexdigest()
+
+
+def verify_manager(timestamp: str, signature: str):
+    try:
+        if abs(int(datetime.now(timezone.utc).timestamp()) - int(timestamp)) > 120:
+            raise ValueError()
+    except (TypeError, ValueError):
+        raise HTTPException(401, "Autenticación interna expirada") from None
+    if not hmac.compare_digest(manager_signature(timestamp), signature):
+        raise HTTPException(401, "Controlador de entrenamiento no autorizado")
+
+
+class SupervisorStatus(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+    org_id: UUID
+    generation: int = Field(ge=1)
+    status: Literal["off", "awaiting_approved_dataset", "awaiting_resources",
+                    "messenger_priority", "practice_priority", "cpu_waiting_turn",
+                    "retry_cooldown", "retry_exhausted", "preflight", "training", "pausing",
+                    "paused", "finished", "awaiting_new_dataset",
+                    "cannot_resume", "failed"]
+
+
+@router.get("/automation/plan")
+def automated_plan(x_galant_manager_timestamp: str = Header(default=""),
+                   x_galant_manager_signature: str = Header(default=""),
+                   db: Session = Depends(get_db)):
+    verify_manager(x_galant_manager_timestamp, x_galant_manager_signature)
+    enabled = list(db.scalars(select(MaxPowerState).where(
+        MaxPowerState.enabled.is_(True)
+    ).order_by(MaxPowerState.session_started_at, MaxPowerState.org_id).limit(2)))
+    if not enabled:
+        return {"enabled": False}
+    row = enabled[0]
+    from .galancito_trainer import messenger_busy
+    from .max_power_worker import messenger_recent
+    busy = bool(messenger_busy(db) or messenger_recent(db))
+    from .galancito_training_models import ACTIVE, TrainingRound
+    practice_busy = bool(db.scalar(select(TrainingRound.id).where(
+        TrainingRound.state.in_(ACTIVE)).limit(1)))
+    return {
+        "enabled": True, "org_id": row.org_id,
+        "generation": row.session_generation,
+        "messenger_busy": busy,
+        "practice_busy": practice_busy,
+        "other_organizations_waiting": len(enabled) > 1,
+    }
+
+
+@router.post("/automation/status")
+def automated_status(status: SupervisorStatus,
+                     x_galant_manager_timestamp: str = Header(default=""),
+                     x_galant_manager_signature: str = Header(default=""),
+                     db: Session = Depends(get_db)):
+    verify_manager(x_galant_manager_timestamp, x_galant_manager_signature)
+    org_id = str(status.org_id)
+    state = db.get(MaxPowerState, org_id)
+    if not state or state.session_generation != status.generation:
+        raise HTTPException(409, "Sesión MAX POWER obsoleta")
+    if not state.enabled and status.status != "off":
+        raise HTTPException(409, "MAX POWER apagado")
+    from .models import utcnow
+    row = db.scalar(select(MaxPowerEvent).where(
+        MaxPowerEvent.org_id == org_id,
+        MaxPowerEvent.round_id == org_id,
+        MaxPowerEvent.event == "cpu_supervisor_status",
+    ).with_for_update())
+    if row is None:
+        row = MaxPowerEvent(
+            org_id=org_id, round_id=org_id,
+            event="cpu_supervisor_status", reason=AUTOMATION_STATES[status.status],
+            evidence={"state": status.status, "generation": status.generation})
+        db.add(row)
+    else:
+        row.reason = AUTOMATION_STATES[status.status]
+        row.evidence = {"state": status.status, "generation": status.generation}
+        row.created_at = utcnow()
+    db.commit()
+    return {"accepted": True, "status": status.status}
 
 
 @router.post("/token")

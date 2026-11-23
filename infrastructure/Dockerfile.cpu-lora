@@ -12,6 +12,7 @@ RUN python -m pip install --no-cache-dir --index-url https://download.pytorch.or
 COPY scripts/galant_cpu_lora_resources.py scripts/galant_cpu_lora_resources.py
 COPY scripts/galancito_lora_progress.py scripts/galancito_lora_progress.py
 COPY scripts/train_galancito_cpu_lora.py scripts/train_galancito_cpu_lora.py
+COPY scripts/max_power_cpu_manager.py scripts/max_power_cpu_manager.py
 COPY apps/backend/app/__init__.py apps/backend/app/__init__.py
 COPY apps/backend/app/galancito_finetune_dataset.py apps/backend/app/galancito_finetune_dataset.py
 RUN useradd --uid 10001 --create-home --shell /usr/sbin/nologin trainer \
