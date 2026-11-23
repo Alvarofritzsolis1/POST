@@ -51,8 +51,8 @@ jobs:
             -e GALANT_SYNTHETIC_DEV_TRAINING=yes \
             -v "$RUNNER_TEMP/maxpower-private:/private" \
             galant-cpu-lora-smoke:ci \
-            --dataset /private/ci/synthetic-lab/synthetic.jsonl \
-            --output /private/ci/synthetic-lab/runs/ci-gradient-smoke \
+            --dataset /private/ci/synthetic-lab-galant-curated-synthetic-intake-2/synthetic.jsonl \
+            --output /private/ci/synthetic-lab-galant-curated-synthetic-intake-2/runs/ci-gradient-smoke \
             --execute --synthetic-development --max-steps 1 \
             --checkpoint-steps 1 --max-tokens 96
       - name: Verificar pasos, pesos, checkpoints, holdout y ausencia de promoción
@@ -63,7 +63,7 @@ jobs:
             --entrypoint python galant-cpu-lora-smoke:ci -c '
           import json
           from pathlib import Path
-          output=Path("/private/ci/synthetic-lab/runs/ci-gradient-smoke")
+          output=Path("/private/ci/synthetic-lab-galant-curated-synthetic-intake-2/runs/ci-gradient-smoke")
           report=json.loads((output/"evaluation.json").read_text())
           assert report["data_kind"]=="curated_synthetic", report
           assert report["base_model"]=="Qwen/Qwen3.5-0.8B", report
