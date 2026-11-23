@@ -137,6 +137,17 @@ def generate_local_text(instructions: str, data: str,
         _slot.release()
 
 
+def training_timeout_seconds(tokens: int, *, thinking: bool = False) -> int:
+    """Bound a laboratory request using its actual generation budget.
+
+    The timeout is NOT a measure of model improvement. A slow CPU-only 4B run
+    may spend ~60s on prefill and ~0.4s per token; keep an upper safety limit.
+    Interactive Messenger retains its separate, shorter deadline.
+    """
+    output = max(1, min(512, int(tokens)))
+    return min(360, max(180, int(75 + output * (0.60 if thinking else 0.48))))
+
+
 def _generate(instructions, data, max_chars, cfg, *, url=None, seed=None, allow_training=False,
               thinking=False):
     payload = {
@@ -169,10 +180,19 @@ def _generate(instructions, data, max_chars, cfg, *, url=None, seed=None, allow_
     started = time.perf_counter()
     record_model_attempt(external=False)
     try:
-        with _opener.open(request, timeout=120 if allow_training else interactive_timeout_seconds(cfg)) as response:
+        with _opener.open(request, timeout=(training_timeout_seconds(cfg.galancito_num_predict, thinking=thinking)
+                                            if allow_training else interactive_timeout_seconds(cfg))) as response:
             result = json.loads(response.read(100000).decode("utf-8"))
-    except (HTTPError, URLError, TimeoutError, OSError, ValueError):
-        # No incluir mensajes de trabajadores, secretos o direcciones internas en logs.
+    except HTTPError as exc:
+        if allow_training:
+            raise RuntimeError(f"Ollama de práctica respondió HTTP {exc.code}") from None
+        raise RuntimeError("Galancito local no disponible") from None
+    except (TimeoutError, URLError, OSError) as exc:
+        if allow_training and (isinstance(exc, TimeoutError)
+                              or isinstance(getattr(exc, "reason", None), TimeoutError)):
+            raise RuntimeError("Tiempo de espera agotado en Ollama de práctica") from None
+        raise RuntimeError("Galancito local no disponible") from None
+    except ValueError:
         raise RuntimeError("Galancito local no disponible") from None
     if not isinstance(result, dict):
         raise RuntimeError("Galancito local devolvió datos inválidos")

@@ -161,3 +161,45 @@ def test_legacy_trainer_never_claims_max_power_isolated_round(ai_env):
         unchanged = db.get(TrainingRound, round_id)
         assert unchanged.state == "queued"
         assert unchanged.attempts == 0
+
+
+
+def test_failed_round_preserves_evidence_and_retries_with_bounded_backoff(ai_env):
+    """A timeout must not mark its unchanged live dataset as fully evaluated."""
+    client, sessions = ai_env["client"], ai_env["sessions"]
+    admin = signin(client, "admin")
+    assert client.post(BASE + "/control/on", headers=admin).status_code == 200
+    fingerprint = "f" * 64
+    with sessions.begin() as db:
+        state = db.get(MaxPowerState, ai_env["org_id"])
+        round_row = TrainingRound(
+            org_id=ai_env["org_id"], created_by=state.owner_id,
+            state="error", reason="Tiempo de espera agotado en Ollama de práctica",
+            target=32, completed=3, attempts=3,
+            config={"orchestrator": "max_power", "cases": 8, "cycles": 4,
+                    "profile": "interno", "suite": "live",
+                    "model": {"model": "qwen3.5:4b-q4_K_M"}},
+            dataset_hash="d" * 64, prompt_version="a" * 64,
+            system_version="20.9.24-rc1@test", knowledge=[], aliases={},
+            metrics={"passed": 3, "failed": 0, "turns": 3})
+        db.add(round_row)
+        db.flush()
+        state.active_round_id = round_row.id
+        state.last_evidence_hash = fingerprint
+    with sessions() as db:
+        tick(db, StaticSampler())
+        state = db.get(MaxPowerState, ai_env["org_id"])
+        assert state.active_round_id is None
+        assert state.last_evidence_hash is None
+        assert state.last_status == "retry_after_failure"
+        assert state.latest_result["consecutive_failures"] == 1
+        assert state.latest_result["evidence_fingerprint"] == fingerprint
+        assert state.latest_result["lab_verified"] is False
+        assert "Tiempo de espera agotado" in state.last_reason
+        assert state.examined_cases == 3
+        assert state.lab_gains == 0
+        events = list(db.scalars(select(MaxPowerEvent).where(
+            MaxPowerEvent.org_id == ai_env["org_id"],
+            MaxPowerEvent.event == "experiment_completed")))
+        assert len(events) == 1
+        assert events[0].evidence["holdout_pairs"] == 0

@@ -20,7 +20,7 @@ from .ops_models import ContractorWorksite, MonthlyDocument
 from .galancito_triage import private_data
 from .network_service import today
 
-LIVE_DATASET_VERSION = 3
+LIVE_DATASET_VERSION = 4
 LIVE_EVALUATION_VERSION = 1
 GENERAL_COACH_TITLE = "Razonamiento operacional verificado de Galancito"
 GENERAL_COACH_SCOPE = "general_coach"
@@ -60,6 +60,28 @@ PRODUCTION_COACHING = {
 
 def _count(db: Session, statement) -> int:
     return int(db.scalar(statement) or 0)
+
+
+def balance_live_cases(cases: list[dict], limit: int = MAX_LIVE_CASES) -> list[dict]:
+    """Use distinct authorized worksites and diverse reasoning categories.
+
+    Previously [:24] sampled only the first three worksites (eight tasks each),
+    while laboratory verification required at least five independent worksites.
+    Deterministic rotation prevents one category or one worksite dominating.
+    Existing true source measurements and expected answers stay unchanged.
+    """
+    grouped: dict[str, list[dict]] = {}
+    for case in cases:
+        key = str(case["id"]).split("-", 2)[1]
+        grouped.setdefault(key, []).append(case)
+    selected: list[dict] = []
+    for round_index in range(max((len(group) for group in grouped.values()), default=0)):
+        for site_index, group in enumerate(grouped.values()):
+            if round_index < len(group):
+                selected.append(group[(round_index + site_index * 2) % len(group)])
+                if len(selected) >= limit:
+                    return selected
+    return selected
 
 
 def collect_live_cases(db: Session, user) -> list[dict]:
@@ -114,7 +136,7 @@ def collect_live_cases(db: Session, user) -> list[dict]:
     if not any(value for case in all_cases for key, value in
                case["evidence"]["agregados_reales"].items() if key != "id"):
         raise ValueError("Hay obras autorizadas, pero no hay registros operativos para medir aprendizaje real")
-    return all_cases[:MAX_LIVE_CASES]
+    return balance_live_cases(all_cases)
 
 
 

@@ -175,6 +175,7 @@ services:
       GALANCITO_LOCAL_MODEL: ${GALANCITO_LOCAL_MODEL:-qwen3:1.7b}
       GALANCITO_LOCAL_AI_ENABLED: ${GALANCITO_LOCAL_AI_ENABLED:-false}
       GALANT_MAX_POWER_ISOLATED: "true"
+      GALANT_TRAINING_OLLAMA_THREADS: ${GALANT_TRAINING_OLLAMA_THREADS:-2}
       GALANCITO_MEMORY_RESERVE_MB: ${GALANCITO_MEMORY_RESERVE_MB:-1536}
     depends_on:
       db: {condition: service_healthy}
@@ -202,7 +203,8 @@ services:
       - galancito_training_models:/root/.ollama
     networks: [internal, galancito-egress]
     mem_limit: 5g
-    cpus: 1.5
+    # Only the isolated training model gets more CPU; production stays unchanged.
+    cpus: ${GALANT_TRAINING_OLLAMA_CPUS:-2.0}
     cpu_shares: 32
     pids_limit: 180
     security_opt: [no-new-privileges:true]

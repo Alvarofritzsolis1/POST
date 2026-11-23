@@ -32,3 +32,43 @@ def test_messenger_experiments_fail_closed_without_isolation(monkeypatch):
     monkeypatch.setattr(messenger, "MAX_POWER_ISOLATED", False)
     with pytest.raises(RuntimeError, match="no ejecuta ensayos"):
         messenger._answer("instructions", "context", 3, "nonexistent-org")
+
+
+
+def test_max_power_timeout_tracks_token_budget_without_extending_messenger(monkeypatch):
+    from app.galancito_trainer import practice_threads
+    monkeypatch.setattr(local, "MAX_POWER_ISOLATED", True)
+    monkeypatch.setenv("GALANT_TRAINING_OLLAMA_THREADS", "2")
+    snapshot = {"worker_cores": 0.35}
+    assert practice_threads(snapshot) == 1
+    assert practice_threads(snapshot, isolated=True) == 2
+    assert local.training_timeout_seconds(320, thinking=True) > 120
+    assert local.training_timeout_seconds(320, thinking=True) <= 360
+    assert local.training_timeout_seconds(128) < local.training_timeout_seconds(320, thinking=True)
+
+    observed = {}
+    def fail_after_timeout(req, timeout):
+        observed["timeout"] = timeout
+        observed["request"] = req
+        raise TimeoutError("internal socket details must not escape")
+    monkeypatch.setattr(local._opener, "open", fail_after_timeout)
+    cfg = SimpleNamespace(galancito_num_ctx=2048, galancito_num_predict=320,
+                          galancito_num_thread=2, galancito_keep_alive="2m",
+                          galancito_local_model="qwen3.5:4b-q4_K_M")
+    with pytest.raises(RuntimeError, match="Tiempo de espera agotado en Ollama de práctica") as err:
+        local.generate_training_text("Cálculo", "Datos reales", 42, cfg, thinking=True)
+    assert "internal socket details" not in str(err.value)
+    assert observed["timeout"] == local.training_timeout_seconds(320, thinking=True)
+    assert observed["request"].full_url == local.TRAINING_OLLAMA + "/api/chat"
+
+
+def test_isolated_ollama_cpu_is_capped_without_changing_production():
+    from pathlib import Path
+    compose = (Path(__file__).resolve().parents[3] / "docker-compose.preview.yml").read_text()
+    isolated = compose.split("  galancito-training-ollama:\n", 1)[1].split("\n  frontend:", 1)[0]
+    controller = compose.split("  max-power-controller:\n", 1)[1].split("\n  galancito-training-ollama:", 1)[0]
+    production = compose.split("  galancito-ollama:\n", 1)[1].split("\n  galancito-trainer:", 1)[0]
+    assert "GALANT_TRAINING_OLLAMA_CPUS" in isolated
+    assert "GALANT_TRAINING_OLLAMA_THREADS" in controller
+    assert "GALANCITO_OLLAMA_CPUS" in production
+    assert "ports:" not in isolated
