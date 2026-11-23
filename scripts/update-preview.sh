@@ -46,7 +46,7 @@ configure_compose() {
     training_services=()
     max_power_services=()
     if grep -q "^  max-power-controller:" docker-compose.preview.yml; then
-        max_power_services=(max-power-controller galancito-training-ollama)
+        max_power_services=(max-power-controller galancito-training-ollama cpu-lora-manager)
     fi
     if grep -q "^  facebook-publisher:" docker-compose.preview.yml; then
         facebook_services=(facebook-publisher)
