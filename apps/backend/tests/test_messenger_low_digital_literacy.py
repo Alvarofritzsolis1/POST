@@ -214,8 +214,9 @@ def test_detected_unresolved_case_also_pauses_and_requires_operator_resume(netwo
     lead = _contact(n)["lead"]
     assert lead["needs_support"] and lead["ai_paused"]
     assert "verificar" in lead["support_reason"]
-    result = n["admin"].patch("/api/v1/network/facebook/leads/" + lead_id,
-                              json={"ai_paused": False, "needs_support": False})
+    result = n["send"](
+        n["admin"], "/facebook/leads/" + lead_id,
+        {"ai_paused": False, "needs_support": False}, method="PATCH")
     assert result.status_code == 200
     lead = _contact(n)["lead"]
     assert not lead["needs_support"] and not lead["ai_paused"]
