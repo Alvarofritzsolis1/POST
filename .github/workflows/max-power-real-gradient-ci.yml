@@ -163,7 +163,7 @@ jobs:
           from types import SimpleNamespace
           sys.path.insert(0,"apps/backend")
           from app import galancito_local as client
-          from app.galancito_general import QWEN_4B
+          QWEN_4B="qwen3.5:4b-q4_K_M"
           assert client.MAX_POWER_ISOLATED is True
           # Isolated GitHub runner endpoint, NEVER a production service.
           client.TRAINING_OLLAMA="http://127.0.0.1:11536"
