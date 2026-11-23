@@ -85,8 +85,13 @@ class TrainingModel:
         if model_name == ADVANCED_MODEL and not MAX_POWER_ISOLATED:
             # Production training mode never auto-pulls a second 4B onto main.
             return "Qwen3.5 4B no está descargado en el motor principal"
-        if disk_free_mb < (6144 if model_name == ADVANCED_MODEL else 2048):
-            return "No hay disco libre suficiente para instalar el modelo de práctica aislado"
+        required_disk_mb = 6144 if model_name == ADVANCED_MODEL else 2048
+        if disk_free_mb < required_disk_mb:
+            minimum_gb = required_disk_mb // 1024
+            return (
+                f"No hay disco libre suficiente: se necesitan al menos {minimum_gb} GB "
+                "para instalar el modelo de práctica aislado"
+            )
         self.active_model = model_name
         self.problem, self.retry_at = None, 0
         self.download = Thread(target=self._pull, name="training-model-download", daemon=True)
