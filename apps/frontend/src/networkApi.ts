@@ -7,7 +7,7 @@ export const change = <T>(path: string, body?: unknown, method = "POST") =>
   });
 export type Page<T> = { rows: T[]; total: number };
 export type Catalog = {
-  sites: { id: string; name: string; editable: boolean }[];
+  sites: { id: string; name: string; editable: boolean; public_location?: string }[];
   contractors: {
     id: string;
     name: string;
