@@ -101,6 +101,13 @@
 
 
 /* Required factual description and visibly optional, user-reviewed AI draft. */
+.nq-parts-label{font-size:11px;font-weight:750;color:var(--nw-ink)}
+.nq-parts-label small{font-size:10px;color:var(--nw-muted);font-weight:500}
+.nq-part-chips{display:flex;gap:6px;flex-wrap:wrap}
+.nq-part-chips button{border:1px solid var(--nw-border);border-radius:999px;padding:6px 10px;
+background:var(--nw-paper);color:var(--nw-ink);font-weight:650;font-size:11px;cursor:pointer}
+.nq-part-chips button.active{background:#e2f5ef;border-color:#169b88;color:#08765e}
+[data-theme="dark"] .nq-part-chips button.active{background:#1d5946;color:#c3f9de}
 .nq-description textarea,.nq-copy textarea{
   display:block;width:100%;min-height:60px;resize:vertical;
   border:1px solid var(--nw-border);border-radius:9px;padding:9px 11px;
