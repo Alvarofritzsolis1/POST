@@ -177,6 +177,14 @@ def _view(db, user, row):
         MaxPowerEvent.org_id == user.org_id,
         MaxPowerEvent.event.like("ft_%"),
         MaxPowerEvent.evidence["model"].as_string() == "Qwen/Qwen3.5-0.8B",
+        MaxPowerEvent.evidence["data_kind"].as_string() == "human_reviewed_real",
+        MaxPowerEvent.evidence["weights_trained"].as_boolean().is_(True),
+    ).limit(1))
+    synthetic_cpu_update = db.scalar(select(MaxPowerEvent.id).where(
+        MaxPowerEvent.org_id == user.org_id,
+        MaxPowerEvent.event.like("ft_%"),
+        MaxPowerEvent.evidence["model"].as_string() == "Qwen/Qwen3.5-0.8B",
+        MaxPowerEvent.evidence["data_kind"].as_string() == "curated_synthetic",
         MaxPowerEvent.evidence["weights_trained"].as_boolean().is_(True),
     ).limit(1))
     controller_online = bool(row and row.worker_seen_at and
@@ -216,6 +224,8 @@ def _view(db, user, row):
             "last_update_at": cpu_event.created_at if cpu_event else None,
             "manager_online": cpu_online,
             "weights_trained": bool(verified_cpu_update),
+            "synthetic_weights_trained": bool(synthetic_cpu_update),
+            "training_kind": "curated_synthetic" if cpu_state in {"training_synthetic", "finished_synthetic"} else "human_reviewed_real" if cpu_state == "training" else "none",
             "model": "Qwen/Qwen3.5-0.8B",
         },
         "priorities": priority_from_reviews(priorities),

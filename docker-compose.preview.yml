@@ -233,6 +233,7 @@ services:
     environment:
       GALANT_FINETUNE_METRICS_SECRET: ${GALANT_FINETUNE_METRICS_SECRET:-}
       GALANT_DATASET_APPROVAL_PUBLIC_KEY: ${GALANT_DATASET_APPROVAL_PUBLIC_KEY:-}
+      GALANT_MAX_POWER_SYNTHETIC_LORA: "yes"  # Corpus ficticio integrado; no autoriza datos reales
       GALANT_FINETUNE_ALLOW_PRIVATE_HTTP: "yes"
       HF_HOME: /private/cache
     volumes:

@@ -18,7 +18,7 @@ from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
 
 from .db import get_db
-from .max_power_models import MaxPowerEvent, MaxPowerState
+from .max_power_models import MaxPowerEvent, MaxPowerState, MaxPowerMessengerTrial
 from .models import User, utcnow
 from .security import administrator
 
@@ -36,6 +36,7 @@ class Telemetry(BaseModel):
     sequence: int = Field(ge=1, le=99_999_999)
     kind: Literal["preflight", "start", "baseline", "metric", "eval", "checkpoint", "finished", "failed", "paused"]
     dataset_sha256: str = Field(pattern=r"^[a-f0-9]{64}$")
+    data_kind: Literal["unspecified", "human_reviewed_real", "curated_synthetic"] = "unspecified"
     model: Literal["Qwen/Qwen3.5-4B", "Qwen/Qwen3.5-0.8B"] = "Qwen/Qwen3.5-4B"
     step: int = Field(ge=0, le=10_000_000)
     total_steps: int = Field(ge=0, le=10_000_000)
@@ -83,6 +84,9 @@ def scoped_token(org_id: str) -> str:
 AUTOMATION_STATES = {
     "off": "MAX POWER apagado: entrenamiento neuronal detenido",
     "awaiting_approved_dataset": "Falta un conjunto real autorizado y firmado para LoRA CPU",
+    "synthetic_data_invalid": "Corpus sintético no válido o modificado: entrenamiento de prueba detenido",
+    "training_synthetic": "Entrenando adaptador LoRA 0.8B con datos ficticios en laboratorio; no modifica Messenger",
+    "finished_synthetic": "Prueba LoRA con datos ficticios finalizada; requiere casos reales autorizados para avanzar",
     "awaiting_resources": "RAM o disco insuficientes; se protege Messenger",
     "messenger_priority": "Messenger activo; entrenamiento neuronal en pausa",
     "practice_priority": "Prueba MAX POWER activa; entrenamiento neuronal en espera",
@@ -121,6 +125,7 @@ class SupervisorStatus(BaseModel):
     org_id: UUID
     generation: int = Field(ge=1)
     status: Literal["off", "awaiting_approved_dataset", "awaiting_resources",
+                    "synthetic_data_invalid", "training_synthetic", "finished_synthetic",
                     "messenger_priority", "practice_priority", "cpu_waiting_turn",
                     "retry_cooldown", "retry_exhausted", "preflight", "training", "pausing",
                     "paused", "finished", "awaiting_new_dataset",
@@ -144,6 +149,11 @@ def automated_plan(x_galant_manager_timestamp: str = Header(default=""),
     from .galancito_training_models import ACTIVE, TrainingRound
     practice_busy = bool(db.scalar(select(TrainingRound.id).where(
         TrainingRound.state.in_(ACTIVE)).limit(1)))
+    # Synthetic Qwen reply runs are not TrainingRound rows; honor their lease.
+    practice_busy = practice_busy or bool(db.scalar(select(MaxPowerMessengerTrial.id).where(
+        MaxPowerMessengerTrial.status == "running",
+        MaxPowerMessengerTrial.lease_until > utcnow()
+    ).limit(1)))
     return {
         "enabled": True, "org_id": row.org_id,
         "generation": row.session_generation,
@@ -239,7 +249,8 @@ async def ingest(request: Request,
         return {"accepted": True, "duplicate": True}
     db.add(MaxPowerEvent(
         org_id=str(sample.org_id), round_id=str(sample.run_id),
-        event=key, reason=("Gradientes LoRA CPU: " if sample.model.endswith("0.8B")
+        event=key, reason=(("Prueba LoRA CPU sintética: " if sample.data_kind == "curated_synthetic"
+                            else "Gradientes LoRA CPU: ") if sample.model.endswith("0.8B")
                             else "Gradientes QLoRA GPU: ") + sample.kind,
         evidence=sample.model_dump(mode="json", exclude={"org_id", "run_id"}, exclude_none=True),
     ))

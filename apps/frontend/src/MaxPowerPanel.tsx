@@ -27,7 +27,8 @@ type LiveActivity = {
 type Status = {
   enabled: boolean; controller_online: boolean; trainer_online: boolean;
   cpu_learning?: {status:string;reason:string;last_update_at:string|null;
-                  manager_online:boolean;weights_trained:boolean;model:string};
+                  manager_online:boolean;weights_trained:boolean;synthetic_weights_trained?:boolean;
+                  training_kind?:string;model:string};
   status: string; reason: string; active_seconds: number; sessions: number; experiments: number;
   examined_cases: number; observed_holdout_wins: number; observed_holdout_regressions: number;
   first_started_at: string | null; session_started_at: string | null; active_round_id: string | null;
@@ -155,7 +156,7 @@ export default function MaxPowerPanel(){
   const model = live?.qwen;
   const practiceCompleted = practice ? practice.development.cases + practice.holdout.cases : null;
   const cpuStatus = data?.cpu_learning;
-  const cpuRunning = data?.enabled && cpuStatus?.status === "training";
+  const cpuRunning = data?.enabled && ["training", "training_synthetic"].includes(cpuStatus?.status ?? "");
   // Unmodified, measured experimental latency. Differences in workload mix
   // mean this chart must never be labelled a causal speed improvement.
   const latencyHistory=(data?.events || [])
@@ -232,9 +233,10 @@ export default function MaxPowerPanel(){
           {qwen?.completed != null && qwen.completed > 0 && <small>{f(qwen.completed)} ensayos sintéticos terminados</small>}
         </div>
         <div className="max-power-stage" data-state={cpuRunning ? "running" : data?.enabled ? "waiting" : "off"}>
-          <h4>Entrenamiento LoRA CPU</h4>
+          <h4>{cpuStatus?.training_kind === "curated_synthetic" ? "LoRA CPU · laboratorio sintético" : "Entrenamiento LoRA CPU"}</h4>
           <strong>{cpuRunning ? "Proceso activo" : data?.enabled ? "En espera" : "En pausa"}</strong>
           <p>{data?.enabled ? cpuStatus?.reason ?? "Esperando al supervisor" : "Se conservan los checkpoints."}</p>
+          {cpuStatus?.synthetic_weights_trained && <small>Pesos de prueba actualizados con ejemplos ficticios. No hay mejora comprobada del modelo de Messenger.</small>}
           {cpuStatus?.last_update_at && <small>Supervisor {clock(cpuStatus.last_update_at)}</small>}
         </div>
       </div>
