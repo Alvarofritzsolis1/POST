@@ -304,3 +304,63 @@ def test_one_button_with_no_real_dataset_launches_isolated_curated_lab(tmp_path,
     # A fake child returning exit 0 cannot invent an optimizer result.
     assert reports[-1] == "failed"
     assert mod.select_run(launches[0]["root"], "0" * 64)[2] == "new"
+
+
+
+def test_real_api_button_off_revokes_manager_training_lease(ai_env, tmp_path, monkeypatch):
+    """Real admin API and HMAC manager handshake; synthetic model child is mocked.
+
+    Neural gradient bytes are tested separately on actual Qwen in ML CI.
+    """
+    client = ai_env["client"]
+    admin = signin(client, "admin")
+    monkeypatch.setenv("GALANT_FINETUNE_METRICS_SECRET", MASTER)
+    monkeypatch.setenv("GALANT_MAX_POWER_SYNTHETIC_LORA", "yes")
+    mod = manager()
+    mod.HOME = tmp_path
+    mod.snapshot = lambda target: {
+        "host_free_mb": 9600, "cgroup_limit_mb": 5120,
+        "cgroup_free_mb": 5070, "cgroup_used_mb": 50,
+        "disk_free_mb": 140000, "logical_cpu_count": 6,
+        "process_rss_mb": 20,
+    }
+    mod.ProgressReporter = lambda *args, **kwargs: type(
+        "Fake", (), {"emit": lambda self,*a,**kw:{}, "close":lambda self:None})()
+    def signed_api(path, secret, *, body=None):
+        url = BASE + "/finetune" + path
+        response = (client.get(url, headers=headers()) if body is None
+                    else client.post(url, headers=headers(), json=body))
+        response.raise_for_status()
+        return response.json()
+    mod.api_call = signed_api
+    started = client.post(BASE + "/control/on", headers=admin)
+    assert started.status_code == 200
+    plan = signed_api("/automation/plan", MASTER)
+    assert plan["enabled"] is True
+    launched = []
+    class Child:
+        seen = 0
+        def poll(self):
+            self.seen += 1
+            return None if self.seen == 1 else 3
+        def wait(self): return 3
+        def terminate(self): pass
+    def child_launch(root, output, resume, org, generation, token, public_key,
+                     control, *, synthetic=False):
+        assert synthetic is True and generation == plan["generation"]
+        launched.append(control)
+        return Child()
+    mod.launch = child_launch
+    def power_off_during_training(_seconds):
+        res = client.post(BASE + "/control/off", headers=admin)
+        assert res.status_code == 200
+    mod.sleep = power_off_during_training
+    mod.run_once(MASTER, plan, "", {}, {})
+    assert launched, "El botón no inició el supervisor sintético"
+    lease = json.loads(launched[0].read_text())
+    assert lease["allowed"] is False
+    assert lease["generation"] == plan["generation"]
+    result = client.get(BASE, headers=admin).json()
+    assert result["enabled"] is False
+    assert result["cpu_learning"]["status"] == "off"
+    assert result["cpu_learning"]["synthetic_weights_trained"] is False
