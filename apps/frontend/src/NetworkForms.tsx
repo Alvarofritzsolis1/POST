@@ -70,6 +70,8 @@ export function RequirementForm({
     [busy, setBusy] = useState(false);
   const [publishFacebook, setPublishFacebook] = useState(current?.publish_to_facebook ?? false);
   const [publicLocation, setPublicLocation] = useState(current?.public_location ?? "");
+  const [publicSummary, setPublicSummary] = useState(current?.public_summary ?? "");
+  const [startPending, setStartPending] = useState(current?.start_date_pending ?? false);
   const [editPoster, setEditPoster] = useState(!current?.poster_available);
   const [specialtyPreview, setSpecialtyPreview] = useState(current?.specialty ?? "");
   const [workersPreview, setWorkersPreview] = useState(current?.workers ?? 1);
@@ -104,6 +106,8 @@ export function RequirementForm({
         specialty: dataText(data, "specialty"),
         title: dataText(data, "title"),
         description: dataText(data, "description"),
+        public_summary: publicSummary,
+        start_date_pending: startPending,
         priority: dataText(data, "priority"),
         workers: Number(data.get("workers")),
         start_date: start,
@@ -247,6 +251,7 @@ export function RequirementForm({
               onChange={(e) => {
                 const value = e.target.value;
                 setStart(value);
+                setStartPending(false);
                 setParts((old) =>
                   old.map((p) =>
                     p.start_date === start ? { ...p, start_date: value } : p,
@@ -436,6 +441,12 @@ export function RequirementForm({
                 maxLength={120} placeholder="Ej. Sector San Pedro de la Paz, Biobío"/>
               <small>No se mostrará el nombre interno de la obra.</small>
             </label>
+            <label>Resumen público (editable)
+              <textarea value={publicSummary} maxLength={400} rows={2}
+                onChange={(e) => setPublicSummary(e.target.value)}
+                placeholder="Resumen de las labores que se verá en Facebook"/>
+              <small>Este texto aparece en Facebook. No incluyas datos privados de la obra.</small>
+            </label>
             {current?.poster_available && !editPoster && <button type="button" className="nw-btn" onClick={() => setEditPoster(true)}>
               Editar o cambiar imagen
             </button>}
@@ -446,8 +457,8 @@ export function RequirementForm({
         </div>
       )}
       {current && <SocialPoster ref={posterEditor} enabled={publishFacebook && editPoster}
-        specialty={specialtyPreview} publicLocation={publicLocation}
-        workers={workersPreview} start={start} />}
+        specialty={specialtyPreview} publicLocation={publicLocation} publicSummary={publicSummary}
+        workers={workersPreview} start={startPending ? "" : start} />}
       {current && (
         <label>
           Motivo del cambio
