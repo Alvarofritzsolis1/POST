@@ -111,7 +111,8 @@ def test_inference_started_before_off_on_cannot_record_fake_improvement(ai_env, 
             org_id=ai_env["org_id"], review_id=None, source_run_id=None,
             criterion="context", variant="focused", status="queued"))
     monkeypatch.setattr(messenger, "SessionLocal", sessions)
-    def after_slow_inference(_trial_id):
+    def after_slow_inference(_trial_id, *, set_phase):
+        set_phase("reference")
         stopped = client.post(BASE + "/control/off", headers=admin)
         assert stopped.status_code == 200, stopped.text
         restarted = client.post(BASE + "/control/on", headers=admin)

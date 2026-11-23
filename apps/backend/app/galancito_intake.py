@@ -7,7 +7,7 @@ legal employment, suitability, or award work. No external model is required.
 """
 import re
 from datetime import date, timedelta
-from .galancito_triage import analyze, declaration_text, is_pure_greeting, plain, private_data
+from .galancito_triage import analyze, asks_about_application, declaration_text, is_pure_greeting, plain, private_data
 from .galancito_links import trade_declarations
 from .galancito_communes import find_communes
 from .galancito_profile_review import declaration_for_review, JOB_ROLES
@@ -532,6 +532,8 @@ def needs_deeper_response(message: str) -> bool:
     """
     if private_data(message):
         return False
+    if asks_about_application(message):
+        return True
     text = plain(message)
     if text in {"si", "no", "1", "2", "uno", "dos", "hola", "ola",
                 "solito", "solo", "sola", "gracias"}:
@@ -591,5 +593,7 @@ def natural_messenger_reply(text: str, prior_ai_replies: int = 0) -> str:
             clean = clean[len(beginning):].strip()
             break
     # Un proveedor podría ignorar la instrucción y presentarse como bot.
-    clean = re.sub(r"^(?:¡?hola[,!.]?\s+)?soy\s+(?:Galancito(?:,\s*(?:el\s+)?asistente virtual(?: de (?:GALANT|Red de Obras))?)?|(?:el\s+|un\s+)?asistente virtual(?: de (?:GALANT|Red de Obras))?)[.!]?\s*", "", clean, flags=re.I)
+    clean = re.sub(r"^(?:¡?hola[,!.]?\s+)?(?:soy|te habla|te saluda)\s+"
+                   r"(?:Galancito(?:,\s*(?:el\s+)?asistente virtual)?|(?:el\s+|un\s+)?asistente virtual)"
+                   r"(?: de (?:GALANT|Red de Obras))?[.!]?\s*", "", clean, flags=re.I)
     return clean[:550]

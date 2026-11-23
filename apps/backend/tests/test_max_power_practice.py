@@ -1,13 +1,17 @@
 """Synthetic practice, durable evidence and the public Messenger intake path."""
+from datetime import timedelta
+
 from sqlalchemy import func, select
 
 from app.config import settings
 from app.facebook_chat_worker import process_chat_next
 from app.facebook_crm_models import FacebookLead
+from app.galancito_trainer import heartbeat
 from app.max_power_messenger import objective_checks, process_one, schedule_synthetic_reply
 from app.max_power_models import MaxPowerEvent, MaxPowerMessengerTrial, MaxPowerState
 from app.max_power_practice import EVENT, SOURCE, generate_scenarios, practice_id, reply_cases, run_practice
 from app.max_power_worker import tick
+from app.models import utcnow
 from test_ai_control_center import ai_env, signin
 from test_facebook_crm import enable_messaging, incoming
 from test_max_power_recovery import StaticSampler
@@ -70,6 +74,66 @@ def test_recent_messenger_traffic_delays_practice(ai_env, monkeypatch):
         tick(db, StaticSampler())
         assert db.get(MaxPowerState, ai_env["org_id"]).last_status == "resource_guard"
         assert db.scalar(select(func.count()).select_from(MaxPowerEvent).where(MaxPowerEvent.event == EVENT)) == 0
+
+
+def test_low_ram_still_runs_fichas_once_with_real_cases_available(ai_env, monkeypatch):
+    monkeypatch.setattr("app.max_power_worker.MAX_POWER_ISOLATED", True)
+    monkeypatch.setattr("app.max_power_worker._pressure", lambda name: 0)
+    monkeypatch.setattr("app.max_power_worker.collect_live_cases", lambda db, owner: list(range(16)))
+    client, sessions = ai_env["client"], ai_env["sessions"]
+    admin = signin(client, "admin")
+    assert client.post(BASE + "/control/on", headers=admin).status_code == 200
+    snapshot = {**StaticSampler().sample(), "available_ram_mb": 6224}
+    with sessions.begin() as db:
+        heartbeat(db, snapshot, utcnow())
+        existing = db.get(MaxPowerState, ai_env["org_id"])
+        existing.last_status = "resource_guard"
+        existing.last_reason = "Se requieren 8 GB de RAM disponible para proteger el modelo de producción"
+        existing.next_at = utcnow() + timedelta(minutes=5)
+    with sessions() as db:
+        tick(db, StaticSampler(), sampled=snapshot)
+    status = client.get(BASE, headers=admin).json()
+    assert status["status"] == "synthetic_practice_completed"
+    live = status["live_activity"]
+    assert live["controller_at"] and live["updated_at"] and live["next_check_at"]
+    assert live["practice_cases"] == len(generate_scenarios())
+    assert status["synthetic_practice"]["holdout"]["cases"] > 0
+    assert status["resource_snapshot"]["available_ram_mb"] == 6224
+    assert live["qwen"]["state"] == "waiting" and live["qwen"]["required_ram_mb"] == 8192
+    assert status["experiments"] == 0
+    with sessions.begin() as db:
+        db.get(MaxPowerState, ai_env["org_id"]).next_at = utcnow() - timedelta(seconds=1)
+    with sessions() as db:
+        tick(db, StaticSampler(), sampled=snapshot)
+        assert db.get(MaxPowerState, ai_env["org_id"]).last_status == "resource_guard"
+        assert db.scalar(select(func.count()).select_from(MaxPowerEvent).where(MaxPowerEvent.event == EVENT)) == 1
+
+
+def test_qwen_live_progress_uses_completed_inferences(ai_env, monkeypatch):
+    monkeypatch.setattr("app.max_power_worker.MAX_POWER_ISOLATED", False)
+    monkeypatch.setattr("app.max_power_worker._pressure", lambda name: 0)
+    client, sessions = ai_env["client"], ai_env["sessions"]
+    admin = signin(client, "admin")
+    assert client.post(BASE + "/control/on", headers=admin).status_code == 200
+    org_id = ai_env["org_id"]
+    with sessions() as db:
+        tick(db, StaticSampler())
+    with sessions.begin() as db:
+        assert schedule_synthetic_reply(db, org_id, generate_scenarios())
+
+    observed = []
+    def answer(policy, prompt, seed, org):
+        activity = client.get(BASE, headers=admin).json()["live_activity"]["qwen"]
+        observed.append((activity["state"], activity["completed"], activity["total"]))
+        return "El equipo de la obra confirma el pago y los cupos.", {"ollama_total_ms": 50}
+
+    monkeypatch.setattr("app.max_power_messenger.SessionLocal", sessions)
+    monkeypatch.setattr("app.max_power_messenger._answer", answer)
+    assert process_one()
+    assert observed == [("running", 0, 2), ("running", 1, 2)]
+    status = client.get(BASE, headers=admin).json()
+    assert status["synthetic_qwen"]["completed"] == 1
+    assert status["live_activity"]["qwen"]["state"] == "waiting"
 
 
 def test_webhook_answers_question_preserves_manual_count_and_sources(network, monkeypatch):

@@ -22,7 +22,7 @@ from .galancito_training import ResourceSampler, summarize, inference_percentile
 from .galancito_training_api import RoundInput, start
 from .galancito_training_models import ACTIVE, TrainingCase, TrainingRound, TrainingWorker
 from .galancito_training_model import TrainingModel
-from .max_power_decisions import can_run, classify_outcome, evidence_fingerprint, select_experiment_plan, worksite_holdout_sign_test
+from .max_power_decisions import QWEN_MIN_RAM_MB, can_run, classify_outcome, evidence_fingerprint, select_experiment_plan, worksite_holdout_sign_test
 from .max_power_models import MaxPowerEvent, MaxPowerState, MaxPowerMessengerTrial
 from .max_power_messenger import schedule_next, process_one, schedule_synthetic_reply
 from .max_power_practice import EVENT as PRACTICE_EVENT, generate_scenarios, practice_id, run_practice
@@ -47,6 +47,7 @@ def messenger_recent(db):
 
 IDLE_SECONDS = 20
 RECHECK_SECONDS = 300
+RESOURCE_RECHECK_SECONDS = 30
 
 def _pressure(name):
     try:
@@ -61,7 +62,7 @@ def set_wait(row, now, code, reason, seconds=RECHECK_SECONDS):
     row.next_at = now + timedelta(seconds=seconds)
 
 
-def _practice_or_wait(db, row, now, reason, *, qwen_ready):
+def _practice_or_wait(db, row, now, reason, *, qwen_ready, wait_status="awaiting_new_evidence", retry_seconds=600):
     scenarios = generate_scenarios()
     run_id = practice_id(scenarios)
     recorded = db.scalar(select(MaxPowerEvent.id).where(
@@ -71,7 +72,7 @@ def _practice_or_wait(db, row, now, reason, *, qwen_ready):
         if qwen_ready and schedule_synthetic_reply(db, row.org_id, scenarios):
             set_wait(row, now, "synthetic_model_evaluation", "Qwen 4B evalúa respuestas sintéticas en el laboratorio", 30)
             return
-        set_wait(row, now, "awaiting_new_evidence", reason + ". La práctica sintética vigente ya se evaluó", 600)
+        set_wait(row, now, wait_status, reason + ". La práctica sintética vigente ya se evaluó", retry_seconds)
         return
     result = run_practice(scenarios)
     count = result["development"]["cases"] + result["holdout"]["cases"]
@@ -218,14 +219,16 @@ def _result(db, row, completed, now):
     else:
         set_wait(row, now, outcome["code"], outcome["reason"] + ". " + outcome["next"])
 
-def tick(db, sampler):
+def tick(db, sampler, *, sampled=None):
     """One transactional decision per organization, protected by row locks."""
     now = utcnow()
     # Lock Organization before MaxPowerState, matching the API/start() lock order.
     # This avoids deadlocks when an admin presses off during a new queue operation.
     org_ids = list(db.scalars(select(MaxPowerState.org_id).where(
         MaxPowerState.enabled.is_(True)).limit(12)))
-    snapshot = {**sampler.sample(),
+    if not org_ids:
+        return
+    snapshot = {**(sampler.sample() if sampled is None else sampled),
                 "cpu_pressure_avg10": _pressure("cpu"),
                 "memory_pressure_avg10": _pressure("memory"),
                 "io_pressure_avg10": _pressure("io")}
@@ -280,7 +283,11 @@ def tick(db, sampler):
                 row.active_round_id = None
                 set_wait(row, now, "missing_round", "Ronda no encontrada; se conservan datos anteriores")
             continue
-        if aware(row.next_at) > aware(now):
+        remaining_wait = aware(row.next_at) - aware(now)
+        # Older releases applied a five-minute wait to the memory gate. Recheck
+        # that inherited wait on startup so enabled organizations can practice.
+        if remaining_wait > timedelta() and not (row.last_status == "resource_guard" and
+                                                  remaining_wait > timedelta(seconds=RESOURCE_RECHECK_SECONDS)):
             continue
         # Existing manual practice always takes precedence.
         current = db.scalar(select(TrainingRound.id).where(
@@ -306,14 +313,14 @@ def tick(db, sampler):
         ok, reason = can_run(snapshot, messenger_pending=bool(
             messenger_busy(db) or messenger_recent(db)))
         if not ok:
-            set_wait(row, now, "resource_guard", reason, 30)
+            set_wait(row, now, "resource_guard", reason, RESOURCE_RECHECK_SECONDS)
             continue
         owner = db.get(User, row.owner_id)
         if not owner or not owner.enabled or owner.org_id != row.org_id or owner.role != "admin":
             set_wait(row, now, "permission_required", "No hay administrador autorizado para prácticas", 300)
             continue
         cfg = settings()
-        isolated_model_ready = MAX_POWER_ISOLATED and snapshot.get("available_ram_mb", 0) >= 8192
+        isolated_model_ready = MAX_POWER_ISOLATED and snapshot["available_ram_mb"] >= QWEN_MIN_RAM_MB
         qwen_ready = isolated_model_ready and cfg.galancito_local_ai_enabled and cfg.galancito_local_model == QWEN_4B
         if qwen_ready:
             if schedule_next(db, owner):
@@ -332,14 +339,17 @@ def tick(db, sampler):
                               qwen_ready=qwen_ready)
             continue
         if not MAX_POWER_ISOLATED:
-            set_wait(row, now, "isolation_unavailable", "MAX POWER requiere un Ollama de práctica aislado")
+            _practice_or_wait(db, row, now, "Qwen 4B requiere un Ollama de práctica aislado",
+                              qwen_ready=False, wait_status="isolation_unavailable", retry_seconds=300)
             continue
         if not isolated_model_ready:
-            set_wait(row, now, "resource_guard", "Se requieren 8 GB de RAM disponible para proteger el modelo de producción")
+            _practice_or_wait(db, row, now, "Qwen 4B requiere 8 GB de RAM disponible para proteger Messenger",
+                              qwen_ready=False, wait_status="resource_guard", retry_seconds=RESOURCE_RECHECK_SECONDS)
             continue
         worker = db.get(TrainingWorker, 1)
         if not (worker and aware(worker.updated_at) >= aware(now) - timedelta(seconds=150)):
-            set_wait(row, now, "trainer_unavailable", "El motor de práctica no está operativo", 30)
+            _practice_or_wait(db, row, now, "El motor de práctica de Qwen 4B no está operativo",
+                              qwen_ready=False, wait_status="trainer_unavailable", retry_seconds=30)
             continue
         fingerprint = evidence_fingerprint(cases)
         if row.last_evidence_hash == fingerprint:
@@ -395,11 +405,12 @@ def main():
                 with SessionLocal() as db:
                     enabled = db.scalar(select(MaxPowerState.org_id).where(
                         MaxPowerState.enabled.is_(True)).limit(1)) is not None
-                if enabled:
+                sampled = sampler.sample() if enabled else None
+                if sampled is not None:
                     with SessionLocal.begin() as db:
-                        heartbeat(db, sampler.sample(), utcnow())
+                        heartbeat(db, sampled, utcnow())
                 with SessionLocal() as db:
-                    tick(db, sampler)
+                    tick(db, sampler, sampled=sampled)
                 # Container-health probe reflects a successfully completed DB tick.
                 Path("/tmp/max_power_controller_heartbeat").touch()
                 if task is not None and task.done():
@@ -423,7 +434,7 @@ def main():
                                     "memory_pressure_avg10": _pressure("memory"),
                                     "io_pressure_avg10": _pressure("io")}
                         allowed, block_reason = can_run(snapshot, messenger_pending=pending)
-                        if allowed and MAX_POWER_ISOLATED and snapshot.get("available_ram_mb", 0) >= 8192:
+                        if allowed and MAX_POWER_ISOLATED and snapshot["available_ram_mb"] >= QWEN_MIN_RAM_MB:
                             task = executor.submit(process_one)
                         else:
                             logger.debug("MAX POWER Messenger practice yielded: %s", block_reason)

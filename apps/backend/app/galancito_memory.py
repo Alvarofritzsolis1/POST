@@ -1,5 +1,6 @@
 """Transactional conversational memory shared by Messenger ingestion paths."""
 from datetime import timedelta, timezone
+import re
 from types import SimpleNamespace
 from zoneinfo import ZoneInfo
 
@@ -13,13 +14,17 @@ from .galancito_intake import (
 from .galancito_contact_email import redact_email_for_intake, remember_shared_email
 from .galancito_phone import redact_mobile_for_intake, remember_shared_phone
 from .galancito_links import audit_event, record_declared_trades, trade_declarations
-from .galancito_triage import analyze, private_data
+from .galancito_triage import analyze, asks_about_application, plain, private_data, referring_to_application
 
 FIELDS = (
     "display_name", "name_opt_out", "specialty", "entity_type", "interest_type",
     "team_available", "workers", "has_employees", "employee_count", "experience", "work_area", "work_communes", "availability",
 )
 CHILE = ZoneInfo("America/Santiago")
+_PERSONAL_DECLARATION = re.compile(
+    r"^(?:corrijo |aclaro )?(?:soy|soi|me llamo|mi nombre es|trabajo|trabajamos|hago|ofrezco|ofresco|busco|"
+    r"puedo|estoy disponible|tengo|somos|llevo|voy con|me dedico)\b"
+)
 
 
 def aware(timestamp):
@@ -87,6 +92,7 @@ def prior_delivered_prompt(db, lead, *, at, since=None) -> str:
         return ""
     prompt, sent_at, operator_id = latest
     if (not since or aware(sent_at) >= since or unanswered_intake_question(lead, prompt)
+            or referring_to_application(prompt)
             or (operator_id and requested_relative_start(prompt) is not None)):
         return prompt
     return ""
@@ -102,7 +108,15 @@ def apply_messenger_message(db, lead, message, prior, *, remote_id, at, historic
                             replay=False, aliases=None) -> bool:
     if not message or private_data(message) or analyze(message).intent in {"human", "restricted"}:
         return False
-    declarations = trade_declarations(message, prior, extra=aliases, allow_bare=True)
+    if asking_about_notice := (asks_about_application(message) or referring_to_application(prior)):
+        # An oficio or comuna quoted from an advert belongs to that advert.
+        # Preserve separate first-person declarations in the same message.
+        fragments = re.split(r"(?<=[,.!?;])\s+|\by\s+(?=soy\b|soi\b|hago\b|ofrezco\b)", message, flags=re.I)
+        message = " ".join(part for part in fragments if _PERSONAL_DECLARATION.match(plain(part))
+                           and not asks_about_application(part)).strip()
+        if not message:
+            return False
+    declarations = trade_declarations(message, prior, extra=aliases, allow_bare=not asking_about_notice)
     before = {field: getattr(lead, field) for field in FIELDS}
     candidate = SimpleNamespace(**before, specialty_source=lead.specialty_source)
     apply_intake(candidate, message, prior, declarations=declarations,

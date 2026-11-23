@@ -12,7 +12,7 @@ from functools import lru_cache
 from sqlalchemy import select
 from sqlalchemy.orm import Session
 
-from .galancito_triage import TRADES, declaration_text, plain, private_data
+from .galancito_triage import TRADES, asks_about_application, declaration_text, plain, private_data
 from .models import utcnow
 from .network_service import today
 from .facebook_crm_models import FacebookLeadTrade, FacebookNeedAssociation, FacebookLeadTrace
@@ -58,7 +58,8 @@ _TRADE_NEGATIVE = re.compile(r"\b(?:no|dej[eé] de) (?:soy|hago|trabajo|trabajam
 _TRADE_TOPIC = re.compile(r"\b(?:buscan|necesitan|necesito|buscamos|hay|tienen|"
                           r"mi (?:hermano|amigo|pap[aá]|jefe)|"
                           r"el (?:maestro|vecino)|mi (?:cuadrilla|equipo) (?:necesita|busca))\b")
-_TRADE_FRAGMENTS = re.compile(r"[,;.!?¿¡\n]+|\b(?:pero|aunque|sino|y(?=\s+(?:no|mi|el|la)\b))\b", re.I)
+_TRADE_FRAGMENTS = re.compile(
+    r"[,;.!?¿¡\n]+|\b(?:pero|aunque|sino|y(?=\s+(?:no|mi|el|la|soy|soi|hago|ofrezco)\b))\b", re.I)
 
 
 @lru_cache(maxsize=16)
@@ -89,7 +90,8 @@ def trade_declarations(message: str, prior_prompt: str = "", *,
         norm = plain(fragment)
         if not norm:
             continue
-        if _TRADE_TOPIC.search(norm) or re.match(r"^(?:como|cuanto|cuando|donde)\b", norm):
+        if (asks_about_application(fragment) or _TRADE_TOPIC.search(norm)
+                or re.match(r"^(?:como|cuanto|cuando|donde)\b", norm)):
             continuation = False
             continue
         mentions = list(dict.fromkeys(catalog[match[0]] for match in matcher.finditer(norm)))
