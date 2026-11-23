@@ -88,7 +88,7 @@ def public_message(db: Session, req: NetworkRequirement) -> str:
         "¿Tu empresa realiza estos trabajos? Escríbenos por mensaje privado.",
         "Convocatoria sujeta a evaluación y adjudicación.",
     ]
-    return "\n".join(line for line in lines if line or line == "").strip()[:3900]
+    return re.sub(r"\n{3,}", "\n\n", "\n".join(lines)).strip()[:3900]
 
 
 class _NoRedirect(HTTPRedirectHandler):
