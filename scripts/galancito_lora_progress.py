@@ -24,7 +24,7 @@ NUMBERS = frozenset((
     "epoch", "loss", "eval_loss", "learning_rate", "grad_norm",
     "gpu_memory_mb", "gpu_memory_reserved_mb", "cpu_memory_mb",
     "host_free_mb", "cgroup_free_mb", "cgroup_limit_mb", "disk_free_mb",
-    "elapsed_seconds",
+    "optimizer_steps_new", "elapsed_seconds",
     "train_samples_per_second", "holdout_loss_before", "holdout_loss_after",
     "holdout_pass_before", "holdout_pass_after", "holdout_regressions",
 ))
@@ -107,6 +107,16 @@ class ProgressReporter:
         }
         if kind == "preflight" and isinstance(metrics.get("preflight_ready"), bool):
             entry["preflight_ready"] = metrics["preflight_ready"]
+        # Hashes identify changes in adapter tensors without revealing their
+        # contents. Only allow a pair of genuine 64-digit SHA-256 digests.
+        before = metrics.get("optimizer_start_sha256")
+        after = metrics.get("optimizer_end_sha256")
+        if (kind in {"finished", "paused"}
+                and isinstance(before, str) and isinstance(after, str)
+                and len(before) == len(after) == 64
+                and all(c in "0123456789abcdef" for c in before + after)):
+            entry["optimizer_start_sha256"] = before
+            entry["optimizer_end_sha256"] = after
         # Only numerical measurements and a boolean readiness state are serialized.
         for key in NUMBERS:
             val = _number(metrics.get(key))
