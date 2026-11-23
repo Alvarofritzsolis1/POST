@@ -175,20 +175,25 @@ def write_control(path: Path, org: str, generation: int, allowed: bool):
 
 
 def launch(root: Path, output: Path, resume: bool, org: str, generation: int,
-           telemetry_token: str, public_key: str, control_file: Path):
+           telemetry_token: str, public_key: str, control_file: Path, *,
+           synthetic: bool = False):
     args = [
         sys.executable, "/src/scripts/train_galancito_cpu_lora.py",
-        "--dataset", str(root / "approved.jsonl"),
-        "--approval-manifest", str(root / "approval.json"),
+        "--dataset", str(root / ("synthetic.jsonl" if synthetic else "approved.jsonl")),
         "--output", str(output), "--max-steps", str(MAX_STEPS),
         "--checkpoint-steps", str(CHECKPOINT_STEPS), "--execute",
         "--control-file", str(control_file),
         "--expected-generation", str(generation),
         "--telemetry-url", API + "/telemetry", "--telemetry-org", org,
     ]
+    if synthetic:
+        args.append("--synthetic-development")
+    else:
+        args.extend(["--approval-manifest", str(root / "approval.json")])
     if resume:
         args.append("--resume")
     env = dict(os.environ)
+    env["GALANT_SYNTHETIC_DEV_TRAINING"] = "yes" if synthetic else "no"
     env["GALANT_OFFLINE_TRAINING_APPROVED"] = "yes"
     env["GALANT_DATASET_APPROVAL_PUBLIC_KEY"] = public_key
     env["GALANT_FINETUNE_TELEMETRY_TOKEN"] = telemetry_token
@@ -251,17 +256,30 @@ def run_once(secret: str, plan: dict, public_key: str, last_preflight: dict,
         report("awaiting_resources")
         return
     approved = approved_inputs(root, data, manifest, public_key)
+    synthetic = False
     if approved is None:
-        report("awaiting_approved_dataset")
-        return
-    bundle, _ = approved
+        if os.environ.get("GALANT_MAX_POWER_SYNTHETIC_LORA") != "yes":
+            report("awaiting_approved_dataset")
+            return
+        # Synthetic laboratory never reads Messenger or private labor records.
+        # Its input is recreated solely from the known code-owned fixtures.
+        try:
+            from max_power_synthetic_lab import prepare_lab
+            root, bundle = prepare_lab(root)
+            synthetic = True
+        except (OSError, ValueError) as exc:
+            LOG.warning("Corpus de laboratorio no utilizable: %s", type(exc).__name__)
+            report("synthetic_data_invalid")
+            return
+    else:
+        bundle, _ = approved
     output, resume, run_state = select_run(root, bundle["dataset_digest"])
     if not retry_ready(root, bundle["dataset_digest"]):
         report("retry_cooldown" if retry_state(root, bundle["dataset_digest"])[0] < MAX_FAILED_ATTEMPTS
                else "retry_exhausted")
         return
     if run_state == "finished":
-        report("awaiting_new_dataset")
+        report("finished_synthetic" if synthetic else "awaiting_new_dataset")
         return
     if run_state == "cannot_resume":
         report("cannot_resume")
@@ -273,8 +291,9 @@ def run_once(secret: str, plan: dict, public_key: str, last_preflight: dict,
         return
     control = root / ".max-power-automatic-control.json"
     write_control(control, org, generation, True)
-    report("training")
-    child = launch(root, output, resume, org, generation, token, public_key, control)
+    report("training_synthetic" if synthetic else "training")
+    child = launch(root, output, resume, org, generation, token, public_key, control,
+                   synthetic=synthetic)
     paused_since = None
     while child.poll() is None:
         sleep(LOOP_SECONDS)
@@ -299,10 +318,10 @@ def run_once(secret: str, plan: dict, public_key: str, last_preflight: dict,
                 child.terminate()
         else:
             paused_since = None
-            report("training")  # heartbeat: prevent simultaneous 4B practice
+            report("training_synthetic" if synthetic else "training")  # supervised heartbeat
     code = child.wait()
     if code == 0:
-        report("finished")
+        report("finished_synthetic" if synthetic else "finished")
     elif code == 3 or (code == -15 and paused_since is not None):
         report("paused")
     else:
