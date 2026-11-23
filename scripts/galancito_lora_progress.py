@@ -107,10 +107,7 @@ class ProgressReporter:
         }
         if kind == "preflight" and isinstance(metrics.get("preflight_ready"), bool):
             entry["preflight_ready"] = metrics["preflight_ready"]
-        # Only numerical metrics and the one boolean readiness gate are accepted.
-        # No example text, secret or identifiers are ever serialized.
-        metadata = {
-        }
+        # Only numerical measurements and a boolean readiness state are serialized.
         for key in NUMBERS:
             val = _number(metrics.get(key))
             if val is not None:
