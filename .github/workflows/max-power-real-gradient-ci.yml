@@ -74,6 +74,13 @@ jobs:
           assert report["production_promoted"] is False
           assert (output/"candidate-adapter"/"adapter_model.safetensors").is_file()
           assert list((output/"checkpoints").glob("checkpoint-*/optimizer.pt"))
+          # The same manager that runs behind the MAX POWER button must
+          # accept the REAL training artifacts, not only this CI assertion.
+          import sys
+          sys.path.insert(0, "/src/scripts")
+          from max_power_cpu_manager import verified_finished_run
+          assert verified_finished_run(output, report["dataset_sha256"])
+          assert not verified_finished_run(output, "0"*64)
           journal=[json.loads(line) for line in (output/"training-metrics.jsonl").read_text().splitlines()]
           assert any(x["kind"]=="finished" and x["weights_trained"] is True
                      and x["data_kind"]=="curated_synthetic" for x in journal)
