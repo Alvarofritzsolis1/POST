@@ -196,6 +196,9 @@ def test_next_practice_uses_historic_reviews_to_prioritize_recent_evidence(ai_en
     assert result["available"] is True
     assert result["criterion"] == "profile"
     assert result["observed_defects"] == 5
+    assert result["historically_assessed"] == 5
+    assert result["recent_defects"] == 1
+    assert result["recently_assessed"] == 2
     assert result["source_id"]
     assert "frecuencia histórica" in result["reason"]
 
@@ -239,3 +242,43 @@ def test_signed_training_manifest_requires_exact_dataset_and_known_ed25519_key(t
                         encoding="utf-8")
     with pytest.raises(ValueError, match="Firma"):
         verified_training_manifest(dataset_path, manifest, public)
+
+
+
+def test_model_does_not_claim_learning_when_context_was_truncated(ai_env):
+    from app.galancito_knowledge_models import AssistantRun
+    client, sessions, org_id = ai_env["client"], ai_env["sessions"], ai_env["org_id"]
+    with sessions.begin() as db:
+        reviewer = db.query(User).filter(User.org_id == org_id, User.role == "admin").one()
+        lead = FacebookLead(org_id=org_id, page_id="context-page", psid="context-lead")
+        db.add(lead)
+        db.flush()
+        db.add(FacebookChatMessage(
+            org_id=org_id, lead_id=lead.id, page_id="context-page",
+            direction="inbound", state="received", body="Hago electricidad, ya lo expliqué"))
+        db.flush()
+        reply = FacebookChatMessage(
+            org_id=org_id, lead_id=lead.id, page_id="context-page",
+            direction="outbound", state="sent", ai_generated=True,
+            body="¿En qué oficio trabajas?")
+        db.add(reply)
+        db.flush()
+        db.add(AssistantRun(org_id=org_id, channel="messenger",
+                            source="ai", elapsed_ms=2500,
+                            timings={"response_model": "qwen3.5:4b-q4_K_M",
+                                     "context_truncated": True,
+                                     "outbound_message_id": reply.id}))
+        db.add(AIResponseReview(
+            org_id=org_id, reviewer_id=reviewer.id,
+            channel="messenger", evidence_kind="messenger_message",
+            evidence_id=reply.id, source_at=utcnow(),
+            ratings={"context": False, "profile": True},
+            rubric_version=1))
+    signin(client)
+    result = client.get(BASE + "/next?channel=messenger")
+    assert result.status_code == 200, result.text
+    body = result.json()
+    assert body["available"] is False
+    assert body["engineering_findings"][0]["hypothesis"] == "contexto_truncado"
+    assert body["engineering_findings"][0]["mechanism"] == "reducir_contexto_o_priorizar_memoria"
+    assert body["automatic_approval"] is False
