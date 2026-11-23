@@ -201,6 +201,32 @@ def launch(root: Path, output: Path, resume: bool, org: str, generation: int,
     return subprocess.Popen(args, env=env, close_fds=True)
 
 
+def newly_recorded_optimizer_step(output: Path, initial_bytes: int) -> bool:
+    """Only report training after a NEW optimizer step appears in journal.
+
+    A process, a model download or an inherited checkpoint is not learning.
+    """
+    journal = output / "training-metrics.jsonl"
+    try:
+        if journal.is_symlink() or not journal.is_file():
+            return False
+        with journal.open("rb") as stream:
+            stream.seek(initial_bytes)
+            for line in stream:
+                try:
+                    item = json.loads(line)
+                except (ValueError, UnicodeDecodeError):
+                    continue
+                if (item.get("data_kind") == "curated_synthetic"
+                        and item.get("kind") in ("metric", "checkpoint")
+                        and type(item.get("step")) is int
+                        and item["step"] > 0):
+                    return True
+    except (OSError, ValueError):
+        return False
+    return False
+
+
 def run_once(secret: str, plan: dict, public_key: str, last_preflight: dict,
              status_cache: dict | None = None) -> None:
     chosen = valid_plan(plan)
@@ -291,7 +317,9 @@ def run_once(secret: str, plan: dict, public_key: str, last_preflight: dict,
         return
     control = root / ".max-power-automatic-control.json"
     write_control(control, org, generation, True)
-    report("training_synthetic" if synthetic else "training")
+    journal = output / "training-metrics.jsonl"
+    initial_bytes = journal.stat().st_size if journal.is_file() and not journal.is_symlink() else 0
+    report("preparing_synthetic" if synthetic else "training")
     child = launch(root, output, resume, org, generation, token, public_key, control,
                    synthetic=synthetic)
     paused_since = None
@@ -318,7 +346,8 @@ def run_once(secret: str, plan: dict, public_key: str, last_preflight: dict,
                 child.terminate()
         else:
             paused_since = None
-            report("training_synthetic" if synthetic else "training")  # supervised heartbeat
+            report(("training_synthetic" if newly_recorded_optimizer_step(output, initial_bytes)
+                    else "preparing_synthetic") if synthetic else "training")  # supervised heartbeat
     code = child.wait()
     if code == 0:
         report("finished_synthetic" if synthetic else "finished")
