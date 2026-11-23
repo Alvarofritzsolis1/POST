@@ -130,6 +130,18 @@ def diagnostic_route(run, criterion: str) -> dict:
                 "mechanism": "recopilar_traza", "replay_fidelity": "parcial",
                 "reason": "No existe telemetría vinculada al mensaje original."}
     source = str(getattr(run, "source", "") or "")
+    timings = getattr(run, "timings", {}) or {}
+    if isinstance(timings, dict):
+        if timings.get("context_truncated") is True:
+            return {"source": source, "hypothesis": "contexto_truncado",
+                    "mechanism": "reducir_contexto_o_priorizar_memoria",
+                    "replay_fidelity": "parcial",
+                    "reason": "La telemetría confirma que el prompt superó el máximo; falta comprobar si el recorte causó este error."}
+        if (criterion == "context" and timings.get("model_requested") is True and
+                timings.get("context_turns") == 0):
+            return {"source": source, "hypothesis": "sin_historial_en_prompt",
+                    "mechanism": "revisar_recuperacion_de_memoria", "replay_fidelity": "parcial",
+                    "reason": "La telemetría confirma que no entraron turnos previos; debe revisarse la memoria."}
     if source in {"verified_local", "knowledge", "fallback", "local", "social_context", "greeting"}:
         return {"source": source, "hypothesis": "ruta_sin_modelo",
                 "mechanism": "revisar_logica_o_datos", "replay_fidelity": "parcial",
