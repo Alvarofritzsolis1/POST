@@ -226,6 +226,10 @@ def start(db, user, body, *, previous=None, compare_profile=False, orchestrator=
                                     if previous is not None and previous.config.get("suite") == "live"
                                     else collect_live_cases(db, user))
             config["snapshot_reused"] = previous is not None
+            if orchestrator == "max_power" and previous is None:
+                # Avoid testing all reserved cases on just one worksite.
+                from .max_power_decisions import spread_live_cases_by_worksite
+                config["live_cases"] = spread_live_cases_by_worksite(config["live_cases"])
         except ValueError as exc:
             raise HTTPException(422, str(exc)) from None
         if body.cases * 2 > len(config["live_cases"]):

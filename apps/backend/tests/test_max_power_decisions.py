@@ -65,3 +65,14 @@ def test_adaptive_plan_uses_resources_and_p95():
     assert slow["cases"] == 8 and fast["cases"] == 12
     assert slow["minutes"] > fast["minutes"]
     assert slow["token_budget"] >= slow["cases"] * 4 * 2048
+
+def test_balanced_operational_cases_come_from_distinct_worksites():
+    from app.max_power_decisions import spread_live_cases_by_worksite
+    cases=[{"id": f"live-{site:02}-{category}", "expected": site}
+           for site in range(1,5) for category in range(1,9)]
+    reordered=spread_live_cases_by_worksite(cases)
+    assert len(reordered)==len(cases)
+    assert sorted(row["id"] for row in reordered)==sorted(row["id"] for row in cases)
+    # With 8 training + 8 reserved questions, both groups represent 4 sites.
+    assert len({row["id"].split("-")[1] for row in reordered[8:16]})==4
+    assert reordered==spread_live_cases_by_worksite(reordered)

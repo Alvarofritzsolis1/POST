@@ -111,3 +111,22 @@ def select_experiment_plan(snapshot: dict, available_cases: int, previous_p95_ms
     return {"cases": pairs, "cycles": 4, "minutes": minutes,
             "token_budget": max(120000, pairs * 4 * 2500),
             "basis": "resource_guard_and_recorded_p95" if previous_p95_ms else "conservative_initial_budget"}
+
+def spread_live_cases_by_worksite(cases: list[dict]) -> list[dict]:
+    """Round-robin real worksite groups so reserved A/B uses varied sites.
+
+    Deterministic across restarts and only reorders existing, verified records;
+    never synthesizes examples, changes expected answers or invents evidence.
+    """
+    sites: dict[str, list[dict]] = {}
+    for case in cases:
+        fields = str(case.get("id", "")).split("-")
+        key = fields[1] if len(fields) >= 3 and fields[0] == "live" else "unknown"
+        sites.setdefault(key, []).append(case)
+    ordered = []
+    for index in range(max((len(group) for group in sites.values()), default=0)):
+        for key in sorted(sites):
+            group = sites[key]
+            if index < len(group):
+                ordered.append(group[index])
+    return ordered

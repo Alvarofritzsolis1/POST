@@ -96,7 +96,9 @@ def _result(db, row, completed, now):
         return
     row.experiments += 1
     row.examined_cases += int(completed.completed or 0)
-    row.lab_gains += outcome["holdout_wins"]
+    # Interrupted work may preserve evidence, but is never tallied as a gain.
+    if completed.state == "completed" and completed.completed == completed.target:
+        row.lab_gains += outcome["holdout_wins"]
     row.regressions += outcome["holdout_losses"]
     row.last_round_id = completed.id
     row.active_round_id = None
