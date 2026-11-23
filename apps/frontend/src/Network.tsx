@@ -491,7 +491,7 @@ export default function RedDeObras({ user }: { user: Profile }) {
         <h3><button className="nw-text-button" onClick={() => void openReq(r.id)}>{r.title}</button></h3>
         <div className="nw-feed-meta">
           <span><Users size={15} /> {r.workers} {r.workers === 1 ? "trabajador" : "trabajadores"}</span>
-          <span><CalendarDays size={15} /> {dateText(r.start_date)}</span>
+          <span><CalendarDays size={15} /> {r.start_date_pending ? "Inicio por confirmar" : dateText(r.start_date)}</span>
         </div>
         <div className="nw-feed-flags">
           {r.state === "draft" && <Badge value="draft" />}
@@ -1322,8 +1322,7 @@ export default function RedDeObras({ user }: { user: Profile }) {
                     : "Sin descripción adicional.")}
               </p>
               <p>
-                {dateText(selectedReq.start_date)} →{" "}
-                {dateText(selectedReq.end_date)} · {selectedReq.workers}{" "}
+                {selectedReq.start_date_pending ? "Inicio por confirmar" : dateText(selectedReq.start_date) + " → " + dateText(selectedReq.end_date)} · {selectedReq.workers}{" "}
                 trabajadores
               </p>
               {selectedReq.editable && (
