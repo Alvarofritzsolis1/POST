@@ -107,3 +107,10 @@ def test_ai_can_rewrite_only_grounded_facts(monkeypatch):
                                     description=source, specialty="Pintura")
     assert proposed == "Pintura exterior de fachadas y rejas."
     assert label == "ia"
+
+
+def test_ai_cannot_invent_a_different_trade_or_work_location():
+    source = "Pintura de fachadas."
+    assert not candidate_grounded("Electricidad de fachadas.", source)
+    assert not candidate_grounded("Pintura exterior de fachadas.", source)
+    assert candidate_grounded("Pintura de fachadas.", source)
