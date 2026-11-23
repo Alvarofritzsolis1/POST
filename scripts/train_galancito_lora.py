@@ -35,6 +35,12 @@ def main(argv=None) -> int:
         return 0
     if not args.output or not Path(args.output).is_absolute():
         raise SystemExit("--execute exige --output con ruta absoluta y privada")
+    repo_root = Path(__file__).resolve().parents[1]
+    source = Path(args.dataset).resolve()
+    if source.is_relative_to(repo_root):
+        raise SystemExit("El JSONL privado no puede estar dentro del repositorio")
+    if os.name == "posix" and (source.stat().st_mode & 0o077):
+        raise SystemExit("El JSONL requiere permisos 0600 para que otros usuarios no lo lean")
     if not os.environ.get("GALANT_OFFLINE_TRAINING_APPROVED") == "yes":
         raise SystemExit("Se requiere GALANT_OFFLINE_TRAINING_APPROVED=yes")
     if Path(args.output).resolve().is_relative_to(Path(__file__).resolve().parents[1]):
