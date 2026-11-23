@@ -46,7 +46,8 @@ configure_compose() {
     training_services=()
     max_power_services=()
     if grep -q "^  max-power-controller:" docker-compose.preview.yml; then
-        max_power_services=(max-power-controller galancito-training-ollama)
+        max_power_services=(max-power-controller galancito-training-ollama cpu-lora-manager)
+        compose+=(--profile max-power-auto)
     fi
     if grep -q "^  facebook-publisher:" docker-compose.preview.yml; then
         facebook_services=(facebook-publisher)
@@ -137,6 +138,9 @@ python3 scripts/ensure-ai-key.py .env.preview
 # measurements without requiring manual secret provisioning. Never starts
 # training or logs the generated secret.
 python3 scripts/ensure-finetune-metrics-key.py .env.preview
+# Provision only the dedicated isolated trainer volume (never user data).
+# The model container is UID 10001 and must not run as root.
+install -d -o 10001 -g 10001 -m 0700 /opt/galant-cpu-lora-private
 configure_compose
 "${compose[@]}" config --quiet
 # Antes de sustituir contenedores, restaurar el respaldo en PostgreSQL aislado.
@@ -185,6 +189,17 @@ if (( ${#max_power_services[@]} )); then
         exit 1
     }
     "${compose[@]}" exec -T api python -c "from app.max_power_api import router; from app.max_power_models import MaxPowerState, MaxPowerEvent, MaxPowerMessengerTrial; assert any(r.path.endswith('/export') for r in router.routes)"
+    # The one-button training supervisor is a required authenticated service.
+    manager_id="$("${compose[@]}" ps --quiet cpu-lora-manager)"
+    [[ -n "$manager_id" ]] || { echo "Supervisor neuronal CPU ausente; se revierte." >&2; exit 1; }
+    manager_health=""
+    for i in {1..15}; do
+        manager_health="$(docker inspect --format '{{.State.Health.Status}}' "$manager_id" 2>/dev/null || true)"
+        [[ "$manager_health" == "healthy" ]] && break
+        sleep 4
+    done
+    [[ "$manager_health" == "healthy" ]] || { echo "Supervisor neuronal sin heartbeat; se revierte." >&2; exit 1; }
+    echo "MAX POWER: supervisor neuronal operativo; no se entrenan pesos sin dataset firmado."
 fi
 "${compose[@]}" exec -T api python -m app.deploy_verify --expected-commit "$target_ref" --training-worker-only
 # Check the exact build and additive migration, and exercise the authenticated
