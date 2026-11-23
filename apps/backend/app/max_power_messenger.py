@@ -15,7 +15,6 @@ from fastapi import HTTPException
 from sqlalchemy import select
 
 from .ai_defect_learning import POLICIES, VARIANTS, approved_coaching, candidate_policy
-from .ai_quality_audit import linked_evidence
 from .ai_real_learning_api import _verified_model_trace
 from .galancito_knowledge_models import AssistantRun
 from .facebook_crm_models import FacebookChatMessage, FacebookLead
@@ -112,11 +111,29 @@ def _consented_record(db, owner, run):
         FacebookLead.ai_consent.is_(True)))
     if lead is None or lead.ai_paused:
         return None
-    evidence = linked_evidence(db, owner, run)
-    if not evidence:
+    # Freeze history strictly *before the AI response was created*, not at
+    # message.updated_at (which can change after a later user message).
+    # An evaluation must never see a reply or user message from its own future.
+    previous = list(db.scalars(select(FacebookChatMessage).where(
+        FacebookChatMessage.org_id == owner.org_id,
+        FacebookChatMessage.lead_id == lead.id,
+        FacebookChatMessage.direction.in_(("inbound", "outbound")),
+        FacebookChatMessage.created_at < message.created_at,
+    ).order_by(FacebookChatMessage.created_at.desc(),
+               FacebookChatMessage.id.desc()).limit(12)))
+    previous.reverse()
+    inbound = [item for item in previous
+               if item.direction == "inbound" and (item.body or "").strip()]
+    if not inbound or not (message.body or "").strip():
         return None
-    text = " ".join(str(x.get("text",""))[:650] for x in evidence["history"][-12:])
-    if private_data(text + evidence.get("question", "") + evidence.get("answer", "")):
+    evidence = {
+        "question": inbound[-1].body[:800],
+        "answer": message.body[:1800],
+        "history": [{"role": item.direction, "text": item.body[:650]}
+                    for item in previous if (item.body or "").strip()],
+    }
+    text = " ".join(str(x.get("text","")) for x in evidence["history"])
+    if private_data(text + evidence["question"] + evidence["answer"]):
         return None
     return evidence
 
@@ -279,8 +296,13 @@ def process_one():
         outcome,reason,metrics=evaluate_trial(trial_id)
     except (RuntimeError, ValueError, HTTPException) as exc:
         with SessionLocal.begin() as db:
-            row=db.get(MaxPowerMessengerTrial,trial_id)
-            state=db.get(MaxPowerState,row.org_id) if row else None
+            # Same lock order as power OFF and successful result commit.
+            db.scalar(select(Organization.id).where(
+                Organization.id == candidate.org_id).with_for_update())
+            state = db.scalar(select(MaxPowerState).where(
+                MaxPowerState.org_id == candidate.org_id).with_for_update())
+            row = db.scalar(select(MaxPowerMessengerTrial).where(
+                MaxPowerMessengerTrial.id == trial_id).with_for_update())
             if (row and state and state.enabled and
                 state.session_generation == generation and
                 row.status == "running" and row.claim_token == claim_token):
