@@ -53,7 +53,6 @@ export default function FineTuneProgress(){
   const [showConnect,setShowConnect]=useState(false);
   const [copyBusy,setCopyBusy]=useState(false);
   const [connectedMessage,setConnectedMessage]=useState("");
-  const [preflightMessage,setPreflightMessage]=useState("");
   const refresh=useCallback(async()=>{
     try {
       const next=await request<FineTuneStatus>("/admin/ai/max-power/finetune");
@@ -69,14 +68,6 @@ export default function FineTuneProgress(){
   },[refresh]);
   const run= data?.runs.find(x=>x.run_id===runId) ?? data?.runs[0];
   const lastPreflight=data?.cpu_preflight?.points.at(-1);
-  const copyPreflight=async()=>{
-    const command="cd /opt/galant-post\n"+
-      "docker compose --env-file .env.preview -f docker-compose.preview.yml "+
-      "--profile cpu-lora run --build --rm --no-deps cpu-lora --preflight";
-    try{await navigator.clipboard.writeText(command);
-      setPreflightMessage("Comando copiado. Ejecútalo en tu VPS; solo comprueba recursos, no entrena.");}
-    catch{setPreflightMessage("No se pudo copiar. Abre la guía de CPU LoRA.");}
-  };
   const samples=useMemo(()=>run?.points.filter(p=>typeof p[metric]==="number" && Number.isFinite(p[metric]))??[],[run,metric]);
   const values=samples.map(p=>p[metric] as number);
   const min=values.length?Math.min(...values):0, max=values.length?Math.max(...values):1;
@@ -124,10 +115,10 @@ export default function FineTuneProgress(){
     {!data?.configured && <p className="ft-warning">Canal de métricas sin configurar. Para entrenar con el VPS actual existe una opción LoRA por CPU aislada (Qwen3.5 0.8B), sujeta a autorización de datos y memoria disponible. MAX POWER local por sí solo todavía no modifica pesos.</p>}
     {data?.configured && <div className="ft-connect">
       <button type="button" onClick={()=>setShowConnect(x=>!x)}>
-        <ShieldCheck size={16}/> {showConnect?"Ocultar conexión":"Vincular entrenamiento CPU/GPU"}
+        <ShieldCheck size={16}/> {showConnect?"Ocultar conexión avanzada":"Conexión de GPU externa (opcional)"}
       </button>
       {showConnect && <div className="ft-connect-details">
-        <p>Solo el administrador puede generar la credencial por organización. Guárdala en el trabajador aislado, nunca en GitHub.</p>
+        <p>MAX POWER conecta el entrenador CPU automáticamente. Esta opción sirve únicamente para vincular un entrenador GPU externo autorizado.</p>
         <button type="button" disabled={copyBusy} onClick={()=>void copyConnection()}>
           {copyBusy?"Generando…":"Copiar credenciales de entrenamiento"}
         </button>
@@ -140,23 +131,17 @@ export default function FineTuneProgress(){
         ? lastPreflight.preflight_ready
           ? "Última comprobación: recursos iniciales suficientes; no significa que los pesos ya se hayan entrenado."
           : "Última comprobación: recursos insuficientes; no iniciar entrenamiento."
-        : "Sin comprobación de recursos registrada. El entrenamiento continúa desactivado."}</span>
+        : "Al encender MAX POWER se comprobarán recursos automáticamente; aún no hay una medición registrada."}</span>
       {lastPreflight && <span>
         RAM del servidor libre: {fmt(lastPreflight.host_free_mb,0)} MB ·
         RAM disponible en contenedor: {fmt(lastPreflight.cgroup_free_mb,0)} MB ·
         Disco libre: {fmt(lastPreflight.disk_free_mb,0)} MB
       </span>}
-      <button type="button" className="ft-refresh" onClick={()=>void copyPreflight()}>
-        <Cpu size={16}/> Copiar comprobación del VPS
-      </button>
-      {preflightMessage && <small role="status">{preflightMessage}</small>}
-      <small>Esta orden puede construir la imagen opcional y descargar dependencias. No ejecuta gradientes.
-        Para mostrar resultados aquí, conecta antes la telemetría y ejecuta el preflight con sus parámetros HTTPS.
-        No se emplean datos de Messenger.</small>
+      <small>Sin comandos manuales: MAX POWER comprueba recursos, autorización y estado del entrenamiento CPU. Las métricas se actualizan automáticamente cuando hay una ejecución real.</small>
     </div>
     {(!data?.runs.length) ? <div className="ft-empty"><Cpu size={28}/>
       <strong>Sin pasos de entrenamiento neuronal registrados</strong>
-      <p>Cuando el trabajador CPU o GPU entrene con datos autorizados y reporte por HTTPS, aparecerán la pérdida, los pasos, los checkpoints y la validación.</p>
+      <p>MAX POWER iniciará una ronda LoRA automáticamente cuando exista un dataset firmado, haya RAM suficiente y Messenger esté libre. Si falta alguno de esos requisitos, arriba verás el motivo.</p>
       </div> : <>
       <div className="ft-run-select">
         <label htmlFor="ft-run">Ejecución</label>
