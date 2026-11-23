@@ -1,7 +1,7 @@
 """Pure evidence-based decisions. Never equate simulations with learned model weights."""
 from hashlib import sha256
 import json
-from math import ceil
+from math import ceil, comb
 
 MIN_INDEPENDENT_PAIRS = 8
 
@@ -19,13 +19,17 @@ def classify_outcome(metrics: dict) -> dict:
     gains = int(metrics.get("real_holdout_gain_cases") or 0)
     losses = int(metrics.get("real_holdout_regressions") or 0)
     pairs = int(metrics.get("real_holdout_paired_cases") or 0)
-    p = metrics.get("real_holdout_one_sided_p_value")
+    # Case-level McNemar counts correlated cases from the same worksite.
+    # Only a worksite-level sign test can authorize a cluster-independent gain.
+    p = metrics.get("worksite_p_value")
     hints = metrics.get("real_coaching") or []
     groups = int(metrics.get("independent_worksite_groups") or 0)
     # Individual arithmetic questions within one worksite are correlated.
     # A small raw pair count alone never establishes independent evidence.
     confirmed = (bool(metrics.get("real_learning_demonstrated"))
-                 and pairs >= MIN_INDEPENDENT_PAIRS and groups >= 3
+                 and pairs >= MIN_INDEPENDENT_PAIRS and groups >= 5
+                 and int(metrics.get("worksite_wins") or 0) >= 5
+                 and int(metrics.get("worksite_losses") or 0) == 0
                  and gains >= 5 and losses == 0 and bool(hints)
                  and isinstance(p, (int, float)) and 0 <= p <= 0.05)
     if not pairs:
@@ -36,7 +40,7 @@ def classify_outcome(metrics: dict) -> dict:
         code, why, next_step = "no_correction", "No se generó una corrección aplicable a los errores", "Inspeccionar reglas, datos o recuperación de contexto"
     elif not gains:
         code, why, next_step = "plateau", "Las correcciones no resolvieron casos reservados adicionales", "Cambiar de estrategia o ampliar evidencia real"
-    elif pairs < MIN_INDEPENDENT_PAIRS or groups < 3 or p is None or float(p) > 0.05:
+    elif pairs < MIN_INDEPENDENT_PAIRS or groups < 5 or p is None or float(p) > 0.05:
         code, why, next_step = "insufficient_significance", "La ganancia observada no supera el umbral de evidencia", "Obtener más casos independientes sin repetir el mismo holdout"
     elif confirmed:
         code, why, next_step = "lab_gain", "Mejora en comparación reservada; falta validar en producción", "Solicitar revisión antes de promover y medir chats posteriores"
@@ -45,6 +49,8 @@ def classify_outcome(metrics: dict) -> dict:
     return {"code": code, "reason": why, "next": next_step, "holdout_pairs": pairs,
             "holdout_wins": gains, "holdout_losses": losses, "p_value": p,
             "independent_worksite_groups": groups,
+            "worksite_wins": int(metrics.get("worksite_wins") or 0),
+            "worksite_losses": int(metrics.get("worksite_losses") or 0),
             "lab_verified": confirmed, "production_verified": False,
             "method": "instrucciones_locales_sobre_agregados_reales",
             "weights_changed": False}
@@ -130,3 +136,38 @@ def spread_live_cases_by_worksite(cases: list[dict]) -> list[dict]:
             if index < len(group):
                 ordered.append(group[index])
     return ordered
+
+def worksite_holdout_sign_test(baseline: list[dict], candidate: list[dict]) -> dict | None:
+    """Paired sign test on independent worksite clusters, not question count.
+
+    All records must have a traceable matching evidence hash and Boolean pass
+    measurement. A single absent or mismatched pair invalidates verification.
+    Group independence is an assumption, not proof of deployability.
+    """
+    if len(baseline) != len(candidate) or not baseline:
+        return None
+    groups: dict[str, int] = {}
+    for before, after in zip(baseline, candidate):
+        before_id = str(before.get("case_id", ""))
+        after_id = str(after.get("case_id", ""))
+        case_before = before_id.rsplit("-c", 1)[0]
+        case_after = after_id.rsplit("-c", 1)[0]
+        segments = case_before.split("-")
+        evidence = before.get("evidence_hash")
+        if (case_before != case_after or len(segments) < 3
+                or segments[0] != "live"
+                or not isinstance(evidence, str) or len(evidence) < 16
+                or evidence != after.get("evidence_hash")
+                or type(before.get("passed")) is not bool
+                or type(after.get("passed")) is not bool):
+            return None
+        site = segments[1]
+        groups[site] = groups.get(site, 0) + int(after["passed"]) - int(before["passed"])
+    wins = sum(gain > 0 for gain in groups.values())
+    losses = sum(gain < 0 for gain in groups.values())
+    discordant = wins + losses
+    p = sum(comb(discordant, k) for k in range(wins, discordant + 1)) / (2 ** discordant) if discordant else 1.0
+    return {"independent_worksite_groups": len(groups),
+            "worksite_wins": wins, "worksite_losses": losses,
+            "worksite_p_value": round(p, 6),
+            "sign_test_method": "paired_worksite_cluster_sign_test"}

@@ -26,7 +26,8 @@ MAX_TRIALS = 4000
 # metadata from model outputs, exception text, message bodies or prompts.
 NUMERIC_KEYS = (
     "evaluated_cases", "holdout_pairs", "holdout_wins", "holdout_losses",
-    "independent_worksite_groups",
+    "independent_worksite_groups", "worksite_wins", "worksite_losses",
+    "worksite_p_value",
     "p_value", "holdout_baseline_rate", "holdout_candidate_rate",
     "inference_p50_ms", "inference_p95_ms", "planned_cases",
     "budget_minutes", "paired_latency_delta_ms",

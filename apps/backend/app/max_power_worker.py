@@ -22,7 +22,7 @@ from .galancito_training import ResourceSampler, summarize, inference_percentile
 from .galancito_training_api import RoundInput, start
 from .galancito_training_models import ACTIVE, TrainingCase, TrainingRound, TrainingWorker
 from .galancito_training_model import TrainingModel
-from .max_power_decisions import can_run, classify_outcome, evidence_fingerprint, select_experiment_plan
+from .max_power_decisions import can_run, classify_outcome, evidence_fingerprint, select_experiment_plan, worksite_holdout_sign_test
 from .max_power_models import MaxPowerEvent, MaxPowerState, MaxPowerMessengerTrial
 from .max_power_messenger import schedule_next, process_one
 from .config import settings
@@ -65,14 +65,21 @@ def _result(db, row, completed, now):
     cases = int((completed.config or {}).get("cases") or 0)
     cycles = int((completed.config or {}).get("cycles") or 0)
     if cases and cycles >= 4 and completed.completed == completed.target:
-        final_cases = list(db.scalars(select(TrainingCase.case_id).where(
+        paired_rows = list(db.scalars(select(TrainingCase).where(
             TrainingCase.round_id == completed.id,
-            TrainingCase.position >= (cycles - 1) * cases,
+            TrainingCase.position >= (cycles - 2) * cases,
         ).order_by(TrainingCase.position)))
-        worksites = {item.split("-")[1] for item in final_cases
-                     if isinstance(item, str) and item.startswith("live-")
-                     and len(item.split("-")) >= 3}
-        metrics = {**metrics, "independent_worksite_groups": len(worksites)}
+        if len(paired_rows) == 2 * cases:
+            def comparable(entry):
+                result = entry.result or {}
+                return {"case_id": entry.case_id,
+                        "passed": result.get("passed"),
+                        "evidence_hash": (result.get("evidence") or {}).get("evidence_hash")}
+            clustered = worksite_holdout_sign_test(
+                [comparable(e) for e in paired_rows[:cases]],
+                [comparable(e) for e in paired_rows[cases:]])
+            if clustered:
+                metrics = {**metrics, **clustered}
     outcome = classify_outcome(metrics)
     if completed.state != "completed" or completed.completed != completed.target:
         outcome = {**outcome, "code": "interrupted",
@@ -155,7 +162,8 @@ def _result(db, row, completed, now):
         "paired_speed": paired_speed,
         **{k: row.latest_result[k] for k in
            ("holdout_pairs", "holdout_wins", "holdout_losses", "p_value",
-            "independent_worksite_groups",
+            "independent_worksite_groups", "worksite_wins",
+            "worksite_losses",
             "lab_verified", "production_verified", "weights_changed")},
     }
     db.add(MaxPowerEvent(org_id=row.org_id, event="experiment_completed",

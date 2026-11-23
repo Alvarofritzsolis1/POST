@@ -36,7 +36,9 @@ def test_verified_is_lab_only():
     x = classify_outcome({"real_holdout_gain_cases": 6, "real_holdout_regressions": 0,
                          "real_holdout_paired_cases": 8, "real_holdout_one_sided_p_value": 0.02,
                          "real_learning_demonstrated": True, "real_coaching": ["guide"],
-                         "independent_worksite_groups": 4})
+                         "independent_worksite_groups": 5,
+                         "worksite_wins": 5, "worksite_losses": 0,
+                         "worksite_p_value": 0.03125})
     assert x["lab_verified"] is True
     assert x["production_verified"] is False
 
@@ -76,3 +78,32 @@ def test_balanced_operational_cases_come_from_distinct_worksites():
     # With 8 training + 8 reserved questions, both groups represent 4 sites.
     assert len({row["id"].split("-")[1] for row in reordered[8:16]})==4
     assert reordered==spread_live_cases_by_worksite(reordered)
+
+def test_cluster_sign_test_requires_independent_worksites():
+    from app.max_power_decisions import worksite_holdout_sign_test
+    evidence="a"*64
+    baseline=[{"case_id":f"live-{i:02}-suma-c3", "passed":False,
+               "evidence_hash":evidence} for i in range(1,6)]
+    candidate=[{"case_id":f"live-{i:02}-suma-c4", "passed":True,
+                "evidence_hash":evidence} for i in range(1,6)]
+    good=worksite_holdout_sign_test(baseline,candidate)
+    assert good["independent_worksite_groups"]==5
+    assert good["worksite_wins"]==5 and good["worksite_losses"]==0
+    assert good["worksite_p_value"]==0.03125
+    # Five separate questions about ONE worksite are not five independent sites.
+    same_baseline=[{**r,"case_id":f"live-01-cat{i}-c3"} for i,r in enumerate(baseline)]
+    same_candidate=[{**r,"case_id":f"live-01-cat{i}-c4"} for i,r in enumerate(candidate)]
+    related=worksite_holdout_sign_test(same_baseline,same_candidate)
+    assert related["independent_worksite_groups"]==1
+    assert related["worksite_p_value"]==0.5
+    assert worksite_holdout_sign_test(baseline,candidate[:-1]) is None
+    assert worksite_holdout_sign_test(baseline,[{**x,"evidence_hash":"b"*64} for x in candidate]) is None
+
+def test_unclustered_case_level_p_value_is_not_verification():
+    x=classify_outcome({"real_holdout_gain_cases":8, "real_holdout_regressions":0,
+                        "real_holdout_paired_cases":8,
+                        "real_holdout_one_sided_p_value":0.003906,
+                        "independent_worksite_groups":1, "real_coaching":["rule"],
+                        "real_learning_demonstrated":True})
+    assert x["lab_verified"] is False
+    assert x["code"]=="insufficient_significance"
