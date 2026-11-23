@@ -107,16 +107,22 @@ def can_run(snapshot: dict, *, messenger_pending=False):
 
 def select_experiment_plan(snapshot: dict, available_cases: int, previous_p95_ms=None) -> dict:
     """Select cases and bounded round budget from current capacity and observed speed."""
-    pairs = min(12 if snapshot.get("available_ram_mb", 0) >= 6144
+    measured = isinstance(previous_p95_ms, (int, float)) and 0 < previous_p95_ms < 1_000_000
+    # An unseen CPU-only 4B model must first establish a latency baseline on
+    # eight pairs. Expand only if real measured p95 supports it.
+    fast_enough = measured and previous_p95_ms < 60000
+    pairs = min(12 if fast_enough and snapshot.get("available_ram_mb", 0) >= 6144
                 and snapshot.get("host_cpu_percent", 100) < 45 else 8,
                 available_cases // 2)
     if pairs < MIN_INDEPENDENT_PAIRS:
         raise ValueError("No hay suficientes casos reales para comparación reservada")
-    p95 = previous_p95_ms if isinstance(previous_p95_ms, (int, float)) and previous_p95_ms > 0 else 30000
-    minutes = max(30, min(180, ceil(pairs * 4 * p95 * 1.8 / 60000)))
+    p95 = previous_p95_ms if measured else 90000
+    # This is a bounded ROUND budget, not the maximum MAX POWER on-time.
+    # Controller may stay on indefinitely; partial rounds never claim a gain.
+    minutes = max(45, min(240, ceil(pairs * 4 * p95 * 1.55 / 60000)))
     return {"cases": pairs, "cycles": 4, "minutes": minutes,
             "token_budget": max(120000, pairs * 4 * 2500),
-            "basis": "resource_guard_and_recorded_p95" if previous_p95_ms else "conservative_initial_budget"}
+            "basis": "resource_guard_and_recorded_p95" if measured else "conservative_initial_budget"}
 
 def spread_live_cases_by_worksite(cases: list[dict]) -> list[dict]:
     """Round-robin real worksite groups so reserved A/B uses varied sites.
