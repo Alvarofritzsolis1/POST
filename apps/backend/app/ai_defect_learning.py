@@ -27,6 +27,26 @@ POLICIES = {
         "helpfulness": ("Utilidad", "Responde primero lo solicitado y, si hace falta, explica el siguiente paso concreto usando únicamente hechos comprobados.", "instrucciones"),
     },
 }
+COMPACT_COACHING = {
+    "messenger": {
+        "understanding": "Relaciona expresiones chilenas y respuestas breves con el último turno para interpretar su intención.",
+        "profile": "Registra solo oficio, empresa, personal y contacto declarados; si falta evidencia, mantén el campo pendiente.",
+        "context": "No repitas preguntas sobre oficio, comuna, cantidad o disponibilidad si ya fueron confirmados.",
+        "naturalness": "Responde primero y con frases cortas; evita presentarte de nuevo, menús y lenguaje robótico.",
+        "safety": "No pidas RUT, credenciales, documentos ni pagos; no prometas contratos ni estados sin verificación.",
+        "helpfulness": "Contesta la duda antes de preguntar una sola cosa necesaria; reconoce límites verificables.",
+    },
+    "general": {
+        "accuracy": "Comprueba cálculos, cifras y relaciones con evidencias; si faltan datos, indica la limitación.",
+        "grounding": "Separa registro real de GALANT, inferencias y datos que todavía no fueron consultados.",
+        "context": "Respeta obra, período, usuario y permisos; nunca mezcles datos de otro ámbito.",
+        "reasoning": "Comprueba contradicciones y resultados antes de concluir; no inventes acciones ejecutadas.",
+        "safety": "Nunca reveles datos privados ni atribuyas cambios no efectuados al sistema.",
+        "helpfulness": "Responde con un paso verificable y evita afirmaciones sin información suficiente.",
+    },
+}
+assert all(len("\n".join(items.values())) <= 950 for items in COMPACT_COACHING.values())
+
 SCOPE = {"messenger": "messenger", "general": "red_obras"}
 
 
@@ -81,18 +101,25 @@ def approved_coaching(db, org_id: str, channel: str) -> str:
         Knowledge.title.startswith(PREFIX + channel + " · "),
     ).order_by(Knowledge.updated_at.desc()).limit(12)))
     approved = []
+    seen = set()
     for row in rows:
         for key, (_, expected, _) in POLICIES[channel].items():
-            if (row.title == policy_title(channel, key) and
+            if (key not in seen and row.title == policy_title(channel, key) and
                     row.content in {expected, ALTERNATIVE_POLICIES[channel][key]} and
                     db.scalar(select(AuditEvent.id).where(
                         AuditEvent.org_id == org_id,
                         AuditEvent.resource_id == row.id,
                         AuditEvent.action == "ai.real_learning.proposed",
                     )) is not None):
-                approved.append(row.content)
+                seen.add(key)
+                approved.append(COMPACT_COACHING[channel][key])
                 break
-    return "\n".join(approved[:3])[:950]
+    # All six approved criteria fit. No invisible 'fourth guide' and no
+    # arbitrary truncation of a safety-critical instruction.
+    combined = "\n".join(approved)
+    if len(combined) > 950:
+        raise RuntimeError("Las guías compactas superan el presupuesto de contexto")
+    return combined
 
 
 # Different interventions, not synthetic conversation/answers. The model must
