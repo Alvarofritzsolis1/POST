@@ -35,6 +35,16 @@ const pretty: Record<string,string> = {
 };
 const channels = [{id:"messenger", label:"Messenger"},{id:"general",label:"Galancito General"}];
 const grade = (n:number|null|undefined) => n == null ? "Sin nota" : n.toLocaleString("es-CL",{maximumFractionDigits:1}) + "/100";
+const stateLabel: Record<string,string> = {
+  off:"Apagado", idle:"Sin iniciar", awaiting_new_evidence:"Esperando evidencias nuevas",
+  awaiting_resources:"Esperando recursos", messenger_priority:"Prioridad Messenger",
+  cpu_neural_training:"Entrenamiento neuronal en curso",
+  running:"Analizando", evaluating:"Evaluando resultados",
+  failed:"Ejecución interrumpida", completed:"Experimento finalizado",
+};
+const pendingCpu = new Set(["approval_public_key_missing","approved_dataset_missing",
+  "approval_manifest_missing","private_file_permissions","approved_dataset_rejected",
+  "awaiting_approved_dataset","retry_exhausted","cannot_resume"]);
 const date = (v:string|null) => v ? new Date(v).toLocaleString("es-CL") : "—";
 
 export default function MaxPowerPanel(){
@@ -130,7 +140,7 @@ export default function MaxPowerPanel(){
     </div>
     {data && <div className="max-power-status">
       <span className={"max-power-dot" + (data.enabled && data.controller_online?" live":"")}/>
-      <strong>{data.status.replaceAll("_"," ")}</strong>
+      <strong>{stateLabel[data.status]??data.status.replaceAll("_"," ")}</strong>
       <span>{data.reason}</span>
     </div>}
     {data && <div className="max-power-status" role="status" aria-live="polite">
@@ -139,7 +149,10 @@ export default function MaxPowerPanel(){
       <span>{!data.enabled
         ? "Apagado. Los checkpoints y resultados se conservan."
         : data.cpu_learning?.reason ?? "Comprobando controlador y datos autorizados"}</span>
-      {data.enabled && <small>Automático: recursos → datos firmados → gradientes → checkpoint → validación. No se inventan avances.</small>}
+      {data.enabled && pendingCpu.has(data.cpu_learning?.status||"") &&
+        <small role="note">Pendiente de preparación, no de potencia del VPS. Comprueba la clave pública y los ejemplos autorizados en la guía MAX POWER. El interruptor sigue supervisando sin entrenar datos no aprobados.</small>}
+      {data.enabled && !pendingCpu.has(data.cpu_learning?.status||"") &&
+        <small>Automático: recursos → datos firmados → gradientes → checkpoint → validación. No se inventan avances.</small>}
     </div>}
     <FineTuneProgress/>
     <div className="max-power-section-title"><Gauge size={17}/><h3>Resultados verificables de cada experimento</h3></div>
