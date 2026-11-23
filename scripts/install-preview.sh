@@ -34,7 +34,7 @@ install -d -m 0700 preview-storage
 chown 10001:10001 preview-storage
 install -d -o 10001 -g 10001 -m 0700 /opt/galant-cpu-lora-private
 python3 scripts/ensure-finetune-metrics-key.py .env.preview
-compose=(docker compose --profile training --env-file .env.preview -f docker-compose.preview.yml)
+compose=(docker compose --profile training --profile max-power-auto --env-file .env.preview -f docker-compose.preview.yml)
 "${compose[@]}" config --quiet
 COMPOSE_PARALLEL_LIMIT=1 "${compose[@]}" build api worker facebook-publisher frontend galancito-trainer max-power-controller cpu-lora-manager
 "${compose[@]}" up -d db api worker facebook-publisher frontend proxy
