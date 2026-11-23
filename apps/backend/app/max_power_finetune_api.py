@@ -13,7 +13,7 @@ from uuid import UUID
 
 from fastapi import APIRouter, Depends, Header, HTTPException, Request
 from pydantic import BaseModel, ConfigDict, Field
-from sqlalchemy import select
+from sqlalchemy import and_, or_, select
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
 
@@ -150,10 +150,17 @@ def automated_plan(x_galant_manager_timestamp: str = Header(default=""),
     from .galancito_training_models import ACTIVE, TrainingRound
     practice_busy = bool(db.scalar(select(TrainingRound.id).where(
         TrainingRound.state.in_(ACTIVE)).limit(1)))
-    # Synthetic Qwen reply runs are not TrainingRound rows; honor their lease.
+    # Qwen4B evaluations are NOT TrainingRound rows. Reserve the shared CPU
+    # for queued work due shortly as well as in-progress leases. Otherwise the
+    # LoRA manager could start at exactly the moment a Qwen job gets claimed.
+    now = utcnow()
     practice_busy = practice_busy or bool(db.scalar(select(MaxPowerMessengerTrial.id).where(
-        MaxPowerMessengerTrial.status == "running",
-        MaxPowerMessengerTrial.lease_until > utcnow()
+        or_(
+            and_(MaxPowerMessengerTrial.status == "queued",
+                 MaxPowerMessengerTrial.next_at <= now + timedelta(seconds=90)),
+            and_(MaxPowerMessengerTrial.status == "running",
+                 MaxPowerMessengerTrial.lease_until > now),
+        )
     ).limit(1)))
     return {
         "enabled": True, "org_id": row.org_id,
