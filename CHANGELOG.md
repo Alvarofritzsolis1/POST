@@ -1,3 +1,13 @@
+## 20.9.24-rc1 — MAX POWER: recuperación, CPU y pruebas reales (parche aislado)
+
+- Corrige el cuello de botella de un hilo: el controlador MAX POWER tiene solo 0,35 CPU, pero el Ollama aislado ahora recibe una cuota configurable inicial de 2 CPU y dos hilos. No altera las cuotas ni el timeout de Messenger.
+- Solicitudes de laboratorio con timeout acotado según tokens previstos (máximo 360 s); se preservan los motivos sanitizados de errores HTTP y tiempos de espera, sin registros de mensajes privados.
+- Evidencia real de hasta 12 obras distribuida entre obras y categorías de razonamiento, en vez de truncar a las primeras tres obras. La versión de dataset sube a 4; las comparaciones A/B siguen separadas y requieren evidencia independiente.
+- La planificación inicial deja de suponer 30 segundos de p95: inicia con ocho pares y presupuesto de ronda prudente, sin limitar el tiempo total durante el que MAX POWER puede permanecer encendido.
+- Una ronda interrumpida no queda bloqueada para siempre por la huella de evidencia: hasta dos nuevos intentos de ronda con espera progresiva; tras tres rondas fallidas, detiene reintentos repetitivos hasta que cambien los datos.
+- Ningún cambio de pesos, promoción a producción ni mejora demostrada de razonamiento: se exigirán pruebas de laboratorio, evaluación estadística, CI y medición real en VPS antes de declarar el parche operativo.
+- Pruebas de regresión nuevas: aislamiento, timeout, recuperación tras fallo, selección de obras y verificación de que Messenger no cambió.
+
 ## 20.9.22-rc1 — Histórico verificable y preparación LoRA de Qwen (parche aislado)
 
 - Inventario histórico completo **de los registros conservados**: metadatos de ejecuciones, mensajes IA entregados, feedback, revisiones humanas y ensayos, separados por período y competencia. No lee ni almacena el texto privado de conversaciones.
