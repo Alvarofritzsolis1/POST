@@ -65,7 +65,10 @@ assert "POST_DEPLOY_SSH_KEY" not in auto
 installer = (ROOT / "scripts/install-preview.sh").read_text(encoding="utf-8")
 assert "--profile training" in updater and "--profile training" in installer
 assert "training_services=(galancito-trainer)" in updater
-assert "max_power_services=(max-power-controller galancito-training-ollama)" in updater
+assert "max_power_services=(max-power-controller galancito-training-ollama cpu-lora-manager)" in updater
+assert 'manager_id="$("${compose[@]}" ps --quiet cpu-lora-manager)"' in updater
+assert 'manager_health' in updater and '[[ "$manager_health" == "healthy" ]]' in updater
+assert "docker.sock" not in updater  # Never give the CPU model Docker control
 assert '"${compose[@]}" stop "${max_power_services[@]}"' in updater
 assert '"${compose[@]}" stop "${training_services[@]}"' in updater
 assert any(line.startswith('COMPOSE_PARALLEL_LIMIT=1') and 'up -d --no-build db' in line
