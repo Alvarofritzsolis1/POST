@@ -418,7 +418,8 @@ def ingest_facebook_payload(db, payload, cfg, *, notices=None):
         if historical or event_at < received_at - timedelta(hours=24):
             continue
         signal = ("Solicitó atención humana" if wants_human(body) else
-                  assistance_signal(body, is_audio=audio_received)
+                  assistance_signal(body, is_audio=audio_received,
+                                    prior_prompt=previous_question)
                   if consent is None and not explain_permission(lead, body, previous_question) else None)
         if consent is False:
             signal = "Prefirió atención humana y no autorizó IA externa"
