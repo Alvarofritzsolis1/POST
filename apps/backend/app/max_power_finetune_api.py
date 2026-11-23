@@ -46,6 +46,9 @@ class Telemetry(BaseModel):
     grad_norm: float | None = Field(default=None, ge=0, le=1_000_000, allow_inf_nan=False)
     gpu_memory_mb: float | None = Field(default=None, ge=0, le=1_000_000, allow_inf_nan=False)
     cpu_memory_mb: float | None = Field(default=None, ge=0, le=1_000_000, allow_inf_nan=False)
+    optimizer_start_sha256: str | None = Field(default=None, pattern=r"^[0-9a-f]{64}$")
+    optimizer_end_sha256: str | None = Field(default=None, pattern=r"^[0-9a-f]{64}$")
+    optimizer_steps_new: int | None = Field(default=None, ge=0, le=10_000_000)
     preflight_ready: bool | None = None
     host_free_mb: float | None = Field(default=None, ge=0, le=1_000_000, allow_inf_nan=False)
     cgroup_free_mb: float | None = Field(default=None, ge=0, le=1_000_000, allow_inf_nan=False)
@@ -111,6 +114,13 @@ async def ingest(request: Request,
             raise HTTPException(422, "Preflight no puede declarar entrenamiento")
     elif sample.preflight_ready is not None:
         raise HTTPException(422, "Preparación solo para eventos de preflight")
+    if sample.model == "Qwen/Qwen3.5-0.8B" and sample.weights_trained:
+        if (sample.kind not in ("finished", "paused")
+                or not sample.optimizer_start_sha256
+                or not sample.optimizer_end_sha256
+                or sample.optimizer_start_sha256 == sample.optimizer_end_sha256
+                or not sample.optimizer_steps_new):
+            raise HTTPException(422, "Sin evidencia de gradientes y pesos nuevos")
     key = f"{PREFIX}{sample.sequence:08d}"
     prior = db.scalar(select(MaxPowerEvent).where(
         MaxPowerEvent.org_id == str(sample.org_id), MaxPowerEvent.round_id == str(sample.run_id),
@@ -163,6 +173,7 @@ def _run_view(rows):
             "learning_rate": e.evidence.get("learning_rate"),
             "gpu_memory_mb": e.evidence.get("gpu_memory_mb"),
             "cpu_memory_mb": e.evidence.get("cpu_memory_mb"),
+            "optimizer_steps_new": e.evidence.get("optimizer_steps_new"),
             "preflight_ready": e.evidence.get("preflight_ready"),
             "host_free_mb": e.evidence.get("host_free_mb"),
             "cgroup_free_mb": e.evidence.get("cgroup_free_mb"),
