@@ -107,6 +107,12 @@ def control(action: Literal["on", "off"], user: User = Depends(administrator),
         if row.first_started_at is None:
             row.first_started_at = now
     else:
+        if not row.active_round_id:
+            orphan = db.scalar(select(TrainingRound).where(
+                TrainingRound.org_id == user.org_id,
+                TrainingRound.config["orchestrator"].as_string() == "max_power",
+                TrainingRound.state.in_(ACTIVE)).order_by(TrainingRound.created_at.desc()).limit(1))
+            row.active_round_id = orphan.id if orphan else None
         row.enabled = False
         row.session_started_at = None
         row.last_stopped_at = now

@@ -203,7 +203,7 @@ def overview(user: User = Depends(administrator), db: Session = Depends(get_db))
                              else "ollama_entrenamiento_aislado"}
 
 
-def start(db, user, body, *, previous=None, compare_profile=False):
+def start(db, user, body, *, previous=None, compare_profile=False, orchestrator=None):
     config = body.model_dump()
     config["seed"] = secrets.randbelow(2**31) if body.seed is None else body.seed
     internal = body.profile == "interno"
@@ -266,6 +266,8 @@ def start(db, user, body, *, previous=None, compare_profile=False):
         or any(previous.config.get(role) != config[role] for role in ("model", "judge", "corrector"))
     ):
         raise HTTPException(409, "La evaluación, la conexión o el conocimiento cambió. Repite primero la ronda base.")
+    if orchestrator == "max_power":
+        config["orchestrator"] = "max_power"  # Recoverable after a crash between queue and checkpoint.
     scheduled = eligible_at(config, utcnow())
     row = TrainingRound(org_id=user.org_id, created_by=user.id, target=body.cases * body.cycles, config=config,
                         dataset_hash=fingerprint, system_version=f"{VERSION}@{SOURCE_COMMIT}",

@@ -562,15 +562,24 @@ def process_next(factory=SessionLocal, sampler=None, *, maintenance=False, train
                 # Paired held-out cases use identical generation seeds.
                 model_seed = (int(row.dataset_hash[:8], 16) ^ case_index ^
                               (314159 if held_out else cycle_number)) % (2**31)
+                timings = []
                 def real_answer(context, instructions):
                     system = LIVE_PROMPT + ("\nConsejos revisados tras errores anteriores:\n" +
                                             "\n".join(instructions) if instructions else "")
                     deeper = fixture["category"] in LIVE_REASONING_CATEGORIES
                     budget = 320 if deeper else 128
-                    return _charge(factory, row, model, system, context,
-                                   model_seed, role="reply", sampler=sampler,
-                                   thinking=deeper, output_budget=budget)
+                    reply = _charge(factory, row, model, system, context,
+                                    model_seed, role="reply", sampler=sampler,
+                                    thinking=deeper, output_budget=budget)
+                    measured = last_timings.get() if model["id"] == "ollama" else {}
+                    timings.append({key: measured[key] for key in (
+                        "load_ms", "prompt_ms", "generation_ms", "ollama_total_ms",
+                        "transport_ms", "input_tokens", "output_tokens")
+                        if isinstance(measured.get(key), (float, int))})
+                    return reply
                 result = evaluate_live(fixture, answer=real_answer, coach=coach)
+                if timings:
+                    result["turns"][0]["ollama_timing"] = timings[0]
                 result["id"] = fixture["id"] + "-c" + str(cycle_number)
                 return result
             if row.config.get("profile", "postulantes") == "interno":

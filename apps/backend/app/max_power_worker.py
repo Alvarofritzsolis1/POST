@@ -13,12 +13,12 @@ from .db import SessionLocal
 from .galancito_memory import aware
 from .galancito_real_learning import collect_live_cases
 from .galancito_trainer import messenger_busy
-from .galancito_training import ResourceSampler
+from .galancito_training import ResourceSampler, summarize
 from .galancito_training_api import RoundInput, start
 from .galancito_training_models import ACTIVE, TrainingRound, TrainingWorker
 from .max_power_decisions import can_run, classify_outcome, evidence_fingerprint
 from .max_power_models import MaxPowerEvent, MaxPowerState
-from .models import User, utcnow
+from .models import Organization, User, utcnow
 
 logger = logging.getLogger(__name__)
 IDLE_SECONDS = 20
@@ -41,10 +41,13 @@ def _result(db, row, completed, now):
     row.regressions += outcome["holdout_losses"]
     row.last_round_id = completed.id
     row.active_round_id = None
+    statistics = summarize(metrics, "interno")
     row.latest_result = {**outcome, "completed_at": now.isoformat(),
                          "round_state": completed.state, "model": (completed.config or {}).get("model", {}).get("model"),
                          "evaluated_cases": completed.completed, "ollama_avg": timing,
-                         "inference_p50_ms": None, "inference_p95_ms": None}
+                         "inference_p50_ms": statistics["inference_p50_ms"],
+                         "inference_p95_ms": statistics["inference_p95_ms"],
+                         "inference_samples": statistics["inference_samples"]}
     # No falsely asserted production gain. A lab win still awaits review/promotion.
     db.add(MaxPowerEvent(org_id=row.org_id, event="experiment_completed",
                          reason=outcome["reason"], round_id=completed.id,
@@ -57,11 +60,20 @@ def _result(db, row, completed, now):
 def tick(db, sampler):
     """One transactional decision per organization, protected by row locks."""
     now = utcnow()
-    rows = list(db.scalars(select(MaxPowerState).where(
-        MaxPowerState.enabled.is_(True),
-    ).with_for_update(skip_locked=True).limit(12)))
+    # Lock Organization before MaxPowerState, matching the API/start() lock order.
+    # This avoids deadlocks when an admin presses off during a new queue operation.
+    org_ids = list(db.scalars(select(MaxPowerState.org_id).where(
+        MaxPowerState.enabled.is_(True)).limit(12)))
     snapshot = sampler.sample()
-    for row in rows:
+    for org_id in org_ids:
+        locked_org = db.scalar(select(Organization.id).where(
+            Organization.id == org_id).with_for_update(skip_locked=True))
+        if not locked_org:
+            continue
+        row = db.scalar(select(MaxPowerState).where(MaxPowerState.org_id == org_id,
+            MaxPowerState.enabled.is_(True)).with_for_update(skip_locked=True))
+        if row is None:
+            continue
         row.worker_seen_at = now
         if row.last_tick_at:
             # Count actual controller uptime, not days when the VPS was powered off.
@@ -69,6 +81,15 @@ def tick(db, sampler):
             row.on_seconds += int(min(seconds, 15))
         row.last_tick_at = now
         row.updated_at = now
+        if not row.active_round_id:
+            # Recover a committed queue after interruption between start() and checkpoint.
+            orphan = db.scalar(select(TrainingRound).where(
+                TrainingRound.org_id == row.org_id,
+                TrainingRound.config["orchestrator"].as_string() == "max_power",
+                TrainingRound.id != (row.last_round_id or ""),
+            ).order_by(TrainingRound.created_at.desc()).limit(1))
+            if orphan:
+                row.active_round_id = orphan.id
         if row.active_round_id:
             current = db.scalar(select(TrainingRound).where(
                 TrainingRound.id == row.active_round_id, TrainingRound.org_id == row.org_id))
@@ -123,7 +144,7 @@ def tick(db, sampler):
                 cases=min(8, len(cases) // 2), cycles=4,
                 minutes=60, cpu_limit_percent=70,
                 ram_limit_mb=0, token_budget=30000,
-                cost_budget=0, night=False))
+                cost_budget=0, night=False), orchestrator="max_power")
         except Exception as exc:
             # A blocked start must not invent a completed experiment or success.
             logger.warning("MAX POWER could not schedule a round: %s", type(exc).__name__)
