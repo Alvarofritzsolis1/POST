@@ -211,6 +211,32 @@ services:
     security_opt: [no-new-privileges:true]
     cap_drop: [ALL]
     logging: *logs
+  # Optional REAL neural weight training on the current Contabo CPU VPS.
+  # This profile NEVER starts in a normal deployment: explicit run only,
+  # after signed private data and capacity checks. No DB or Messenger mounts.
+  cpu-lora:
+    profiles: [cpu-lora]
+    build: {context: ., dockerfile: infrastructure/Dockerfile.cpu-lora}
+    restart: "no"
+    read_only: true
+    init: true
+    environment:
+      GALANT_DATASET_APPROVAL_PUBLIC_KEY: ${GALANT_DATASET_APPROVAL_PUBLIC_KEY:-}
+      GALANT_OFFLINE_TRAINING_APPROVED: ${GALANT_OFFLINE_TRAINING_APPROVED:-no}
+      GALANT_FINETUNE_TELEMETRY_TOKEN: ${GALANT_FINETUNE_TELEMETRY_TOKEN:-}
+    volumes:
+      - ${GALANT_CPU_LORA_PRIVATE_DIR:-/opt/galant-cpu-lora-private}:/private
+    tmpfs:
+      - /tmp:size=128m,mode=1777
+    networks: [cpu-lora-egress]
+    security_opt: [no-new-privileges:true]
+    cap_drop: [ALL]
+    pids_limit: 96
+    mem_limit: 5g
+    memswap_limit: 5g
+    cpus: 1.5
+    cpu_shares: 16
+    logging: *logs
   frontend:
     build: {context: ., dockerfile: apps/frontend/Dockerfile}
     restart: unless-stopped
@@ -235,6 +261,7 @@ networks:
   frontend-network: {}
   # Outbound HTTPS for explicit Galancito AI, without exposing an API port.
   galancito-egress: {}
+  cpu-lora-egress: {}
 volumes:
   post_db: {}
   galancito_models: {}
