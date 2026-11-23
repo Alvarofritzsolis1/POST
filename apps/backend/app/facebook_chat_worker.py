@@ -263,7 +263,8 @@ def process_chat_next(session_factory=SessionLocal, *, simulation_config=None, n
         handoff_ack = (state == "pending" and (
             body.startswith("Ya avisé al equipo para que te atienda una persona.")
             or body.startswith("Entendido, no usaré IA con tus mensajes.")
-            or body.startswith("Entendido. No usaré IA con tus mensajes.")))
+            or body.startswith("Entendido. No usaré IA con tus mensajes.")
+            or body.startswith("Dejé tu consulta para que la revise una persona del equipo.")))
         inbound_at = lead.last_inbound_at
         outbound_queue_ms = max(0, round((utcnow() - aware(job.created_at)).total_seconds() * 1000))
         fast, intent, fast_source, model_needed, context = None, "unknown", "local", False, ""
