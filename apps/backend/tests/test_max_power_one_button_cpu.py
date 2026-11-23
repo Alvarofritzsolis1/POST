@@ -171,3 +171,78 @@ def test_compose_manager_has_no_db_or_docker_socket():
     assert 'docker.sock' not in sidecar
     assert 'DATABASE_URL' not in sidecar
     assert 'post_db:' not in sidecar
+
+
+
+def test_signed_cpu_work_reserves_next_slot_without_interrupting_existing_practice(tmp_path):
+    mod = manager()
+    org = str(uuid4())
+    root = tmp_path / org
+    root.mkdir()
+    mod.HOME = tmp_path
+    statuses = []
+    mod.api_call = lambda path, secret, body=None: (
+        statuses.append(body["status"]) or {"accepted": True}
+        if body is not None else {"enabled": True})
+    mod.snapshot = lambda path: {
+        "host_free_mb": 9600, "cgroup_limit_mb": 5120,
+        "cgroup_free_mb": 5060, "cgroup_used_mb": 60,
+        "disk_free_mb": 140000, "logical_cpu_count": 6,
+        "process_rss_mb": 30,
+    }
+    mod.ProgressReporter = lambda *a, **kw: type(
+        "Fake", (), {"emit": lambda self, *a, **kw: {}, "close": lambda self: None})()
+    mod.approved_inputs = lambda *a: ({"dataset_digest": "f" * 64}, {"signed": True})
+    mod.launch = lambda *a, **kw: pytest.fail("No iniciar gradientes durante la práctica 4B")
+    mod.run_once("x" * 64, {
+        "enabled": True, "org_id": org, "generation": 1,
+        "messenger_busy": False, "practice_busy": True,
+    }, "a" * 64, {})
+    assert "cpu_waiting_turn" in statuses
+    assert "training" not in statuses
+
+
+def test_interrupted_precheckpoint_round_is_preserved_and_retried_only_twice(tmp_path):
+    mod = manager()
+    root = tmp_path / str(uuid4())
+    (root / "runs").mkdir(parents=True)
+    digest = "e" * 64
+    path, _, state = mod.select_run(root, digest)
+    assert state == "new"
+    for index in (1, 2):
+        path.mkdir()
+        (path / "run-metadata.json").write_text(json.dumps({
+            "dataset_sha256": digest, "model": mod.MODEL
+        }))
+        result, resume, state = mod.select_run(root, digest)
+        assert result == path and resume is False and state == "new"
+        assert path.with_name(path.name + f".interrupted-{index}").is_dir()
+    path.mkdir()
+    (path / "run-metadata.json").write_text(json.dumps({
+        "dataset_sha256": digest, "model": mod.MODEL
+    }))
+    assert mod.select_run(root, digest)[2] == "cannot_resume"
+    assert path.is_dir()
+
+
+def test_failed_cpu_runs_have_persistent_exponential_backoff_and_hard_cap(tmp_path, monkeypatch):
+    mod = manager()
+    root = tmp_path / str(uuid4())
+    (root / "runs").mkdir(parents=True)
+    digest = "b" * 64
+    clock = [10000.0]
+    monkeypatch.setattr(mod, "time", lambda: clock[0])
+    assert mod.retry_ready(root, digest)
+    mod.record_failure(root, digest)
+    assert mod.retry_state(root, digest)[0] == 1
+    assert not mod.retry_ready(root, digest)
+    clock[0] += 50
+    assert mod.retry_ready(root, digest)
+    mod.record_failure(root, digest)
+    assert not mod.retry_ready(root, digest)
+    clock[0] += 100
+    assert mod.retry_ready(root, digest)
+    mod.record_failure(root, digest)
+    clock[0] += 999999
+    assert mod.retry_state(root, digest)[0] == 3
+    assert not mod.retry_ready(root, digest)
