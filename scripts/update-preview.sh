@@ -46,13 +46,13 @@ configure_compose() {
     training_services=()
     max_power_services=()
     if grep -q "^  max-power-controller:" docker-compose.preview.yml; then
-        max_power_services=(max-power-controller)
+        max_power_services=(max-power-controller galancito-training-ollama)
     fi
     if grep -q "^  facebook-publisher:" docker-compose.preview.yml; then
         facebook_services=(facebook-publisher)
     fi
     if grep -q "^  galancito-trainer:" docker-compose.preview.yml; then
-        training_services=(galancito-trainer galancito-training-ollama)
+        training_services=(galancito-trainer)
         compose+=(--profile training)
     fi
     if [[ -f docker-compose.javiera20.yml ]]; then

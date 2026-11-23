@@ -174,8 +174,11 @@ services:
       DATABASE_URL: postgresql+psycopg://galant:${POSTGRES_PASSWORD}@db:5432/galant
       GALANCITO_LOCAL_MODEL: ${GALANCITO_LOCAL_MODEL:-qwen3:1.7b}
       GALANCITO_LOCAL_AI_ENABLED: ${GALANCITO_LOCAL_AI_ENABLED:-false}
+      GALANT_MAX_POWER_ISOLATED: "true"
       GALANCITO_MEMORY_RESERVE_MB: ${GALANCITO_MEMORY_RESERVE_MB:-1536}
-    depends_on: {db: {condition: service_healthy}}
+    depends_on:
+      db: {condition: service_healthy}
+      galancito-training-ollama: {condition: service_started}
     networks: [internal]
     security_opt: [no-new-privileges:true]
     cap_drop: [ALL]
@@ -186,7 +189,6 @@ services:
     logging: *logs
   galancito-training-ollama:
     image: ollama/ollama:latest
-    profiles: [training]
     restart: unless-stopped
     environment:
       OLLAMA_HOST: 0.0.0.0:11434
@@ -195,12 +197,13 @@ services:
       OLLAMA_MAX_LOADED_MODELS: "1"
       OLLAMA_MAX_QUEUE: "1"
       OLLAMA_CONTEXT_LENGTH: "2048"
+      OLLAMA_KEEP_ALIVE: "1m"
     volumes:
       - galancito_training_models:/root/.ollama
     networks: [internal, galancito-egress]
-    mem_limit: 3g
+    mem_limit: 5g
     cpus: 1.5
-    cpu_shares: 64
+    cpu_shares: 32
     pids_limit: 180
     security_opt: [no-new-privileges:true]
     cap_drop: [ALL]

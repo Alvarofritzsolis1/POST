@@ -27,6 +27,7 @@ from .max_power_models import MaxPowerEvent, MaxPowerState, MaxPowerMessengerTri
 from .max_power_messenger import schedule_next, process_one
 from .config import settings
 from .galancito_general import QWEN_4B
+from .galancito_local import MAX_POWER_ISOLATED
 from .models import Organization, User, utcnow
 
 logger = logging.getLogger(__name__)
@@ -240,6 +241,14 @@ def tick(db, sampler):
             TrainingRound.org_id == row.org_id, TrainingRound.state.in_(ACTIVE)))
         if current:
             set_wait(row, now, "manual_round_busy", "Práctica Bot está ocupado; MAX POWER espera", 60)
+            continue
+        if not MAX_POWER_ISOLATED:
+            set_wait(row, now, "isolation_unavailable",
+                     "MAX POWER requiere un Ollama de práctica aislado", 300)
+            continue
+        if snapshot.get("available_ram_mb", 0) < 8192:
+            set_wait(row, now, "resource_guard",
+                     "Se requieren 8 GB de RAM disponible para proteger el modelo de producción", 300)
             continue
         worker = db.get(TrainingWorker, 1)
         if not (worker and aware(worker.updated_at) >= aware(now) - timedelta(seconds=150)):

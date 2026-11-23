@@ -26,8 +26,7 @@ from .facebook_ai import LOCAL_REPLY_INSTRUCTIONS
 from .galancito_flow import grounded_reply
 from .galancito_general import QWEN_4B
 from .galancito_links import trade_declarations
-from .galancito_local import MAX_INSTRUCTIONS_CHARS, generate_local_text, last_timings
-from .galancito_runtime import infer
+from .galancito_local import MAX_INSTRUCTIONS_CHARS, generate_training_text, last_timings, MAX_POWER_ISOLATED
 from .galancito_triage import plain, private_data
 from .max_power_models import MaxPowerEvent, MaxPowerMessengerTrial, MaxPowerState
 from .models import Organization
@@ -183,7 +182,9 @@ def schedule_next(db, user):
     return False
 
 def _answer(instructions,prompt,seed,org_id):
-    with SessionLocal.begin() as db:
+    if not MAX_POWER_ISOLATED:
+        raise RuntimeError("MAX POWER no ejecuta ensayos de Messenger sobre Ollama de producción")
+    with SessionLocal() as db:
         state = db.get(MaxPowerState,org_id)
         if not state or not state.enabled:
             raise RuntimeError("MAX POWER apagado")
@@ -192,9 +193,10 @@ def _answer(instructions,prompt,seed,org_id):
             FacebookChatMessage.created_at >= utcnow() - timedelta(seconds=90),
         ).limit(1)) is not None:
             raise RuntimeError("Messenger tiene prioridad sobre experimentos")
-        result = infer(db,lambda:generate_local_text(
-            instructions,prompt,max_chars=550,thinking=False,seed=seed))
-        timing = dict(last_timings.get() or {})
+    # No database lock or live model gate is held during isolated inference.
+    # CPU and RAM remain capped by the distinct Docker Ollama service.
+    result = generate_training_text(instructions, prompt, seed, settings(), thinking=False)
+    timing = dict(last_timings.get() or {})
     if str(timing.get("response_model") or "").casefold() != QWEN_4B.casefold():
         raise RuntimeError("El modelo no confirmó Qwen3.5 4B")
     return str(result),{key:round(float(v),2) for key,v in timing.items()

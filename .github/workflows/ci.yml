@@ -237,9 +237,12 @@ jobs:
           cmd=["docker","compose","--env-file",".env.preview","-f","docker-compose.preview.yml","config","--format","json"]
           c=json.loads(subprocess.check_output(cmd,text=True))
           assert c["name"] == "galant-post-preview"
-          assert set(c["services"]) == {"db","api","worker","facebook-publisher","frontend","proxy","max-power-controller"}
+          assert set(c["services"]) == {"db","api","worker","facebook-publisher","frontend","proxy","max-power-controller","galancito-training-ollama"}
           assert "FACEBOOK_PAGE_TOKEN" not in c["services"]["max-power-controller"]["environment"]
           assert not c["services"]["max-power-controller"].get("ports")
+          assert c["services"]["max-power-controller"]["environment"]["GALANT_MAX_POWER_ISOLATED"] == "true"
+          assert not c["services"]["galancito-training-ollama"].get("ports")
+          assert c["services"]["galancito-training-ollama"]["mem_limit"] > 0
           assert "FACEBOOK_PAGE_TOKEN" not in c["services"]["api"]["environment"]
           assert "FACEBOOK_PAGE_TOKEN" in c["services"]["facebook-publisher"]["environment"]
           for key,v in c["services"].items():

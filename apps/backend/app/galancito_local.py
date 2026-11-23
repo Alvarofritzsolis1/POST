@@ -20,6 +20,9 @@ from .config import settings
 MODEL = "qwen3:1.7b"  # isolated training baseline, unchanged for existing rounds
 INTERNAL_URL = "http://galancito-ollama:11434/api/chat"
 TRAINING_OLLAMA = "http://galancito-training-ollama:11434"
+# Explicit runtime guard: MAX POWER must never send model experiments to
+# the production Ollama instance while this isolation mode is enabled.
+MAX_POWER_ISOLATED = os.environ.get("GALANT_MAX_POWER_ISOLATED", "").lower() == "true"
 MAX_CONTEXT_CHARS = 3000
 MAX_INSTRUCTIONS_CHARS = 3300
 
@@ -144,7 +147,7 @@ def _generate(instructions, data, max_chars, cfg, *, url=None, seed=None, allow_
         ],
         "stream": False,
         "think": bool(thinking),  # Ollama entrega razonamiento separado; jamás mostrarlo
-        "keep_alive": cfg.galancito_keep_alive,
+        "keep_alive": "1m" if allow_training and MAX_POWER_ISOLATED else cfg.galancito_keep_alive,
         "options": {
             "num_ctx": cfg.galancito_num_ctx,
             # Interactive thinking retains its production safety allowance.
@@ -207,6 +210,7 @@ def generate_training_text(instructions: str, data: str, seed: int, cfg, *, thin
     # Historical 1.7B rounds retain the isolated trainer. New 4B rounds reuse
     # the already-installed private production Ollama, avoiding a second 4B in RAM.
     target = getattr(cfg, "galancito_local_model", MODEL)
-    url = INTERNAL_URL if target == "qwen3.5:4b-q4_K_M" else TRAINING_OLLAMA + "/api/chat"
+    url = (TRAINING_OLLAMA + "/api/chat") if MAX_POWER_ISOLATED else (
+        INTERNAL_URL if target == "qwen3.5:4b-q4_K_M" else TRAINING_OLLAMA + "/api/chat")
     return _generate(instructions, data, 650, cfg, seed=seed, allow_training=True,
                      url=url, thinking=thinking)

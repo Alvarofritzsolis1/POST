@@ -6,7 +6,7 @@ from time import monotonic
 from urllib.error import HTTPError
 from urllib.request import Request
 
-from .galancito_local import MODEL, INTERNAL_URL, TRAINING_OLLAMA, _opener
+from .galancito_local import MODEL, INTERNAL_URL, TRAINING_OLLAMA, _opener, MAX_POWER_ISOLATED
 
 ADVANCED_MODEL = "qwen3.5:4b-q4_K_M"
 
@@ -14,7 +14,7 @@ logger = logging.getLogger(__name__)
 
 
 def _request(path, data, model_name=MODEL):
-    base = INTERNAL_URL.rsplit("/api/", 1)[0] if model_name == ADVANCED_MODEL else TRAINING_OLLAMA
+    base = TRAINING_OLLAMA if MAX_POWER_ISOLATED or model_name != ADVANCED_MODEL else INTERNAL_URL.rsplit("/api/", 1)[0]
     return Request(base + path, data=json.dumps(data).encode(),
                    headers={"Content-Type": "application/json"})
 
@@ -82,11 +82,11 @@ class TrainingModel:
                 return None
         except OSError:
             return "En espera del servicio privado de Ollama"
-        if model_name == ADVANCED_MODEL:
-            # Do not auto-pull onto the live server or duplicate 4B models.
+        if model_name == ADVANCED_MODEL and not MAX_POWER_ISOLATED:
+            # Production training mode never auto-pulls a second 4B onto main.
             return "Qwen3.5 4B no está descargado en el motor principal"
-        if disk_free_mb < 2048:
-            return "Qwen necesita al menos 2 GB libres para terminar de descargarse"
+        if disk_free_mb < (6144 if model_name == ADVANCED_MODEL else 2048):
+            return "No hay disco libre suficiente para instalar el modelo de práctica aislado"
         self.active_model = model_name
         self.problem, self.retry_at = None, 0
         self.download = Thread(target=self._pull, name="training-model-download", daemon=True)
