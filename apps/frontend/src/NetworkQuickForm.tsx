@@ -26,7 +26,7 @@ export function NetworkQuickForm({
   const [priority, setPriority] = useState("normal");
   const [parts, setParts] = useState<string[]>([]);
   const [publishFacebook, setPublishFacebook] = useState(true);
-  const [publicLocation, setPublicLocation] = useState("");
+  const [publicLocation, setPublicLocation] = useState(sites[0]?.public_location ?? "");
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState("");
 
@@ -97,7 +97,10 @@ export function NetworkQuickForm({
           {sites.length === 1 ? (
             <span className="nw-site-locked">{sites[0].name}</span>
           ) : (
-            <select value={siteId} onChange={(e) => setSiteId(e.target.value)} required>
+            <select value={siteId} onChange={(e) => {
+              setSiteId(e.target.value);
+              setPublicLocation(sites.find((item) => item.id === e.target.value)?.public_location ?? "");
+            }} required>
               <option value="">Selecciona una obra</option>
               {sites.map((site) => <option key={site.id} value={site.id}>{site.name}</option>)}
             </select>
@@ -166,7 +169,7 @@ export function NetworkQuickForm({
               onChange={(e) => setPublicLocation(e.target.value)}
               maxLength={120} placeholder="Ej. Sector San Pedro de la Paz, Biobío"
               aria-describedby="nsp-location-help" />
-            <small id="nsp-location-help">Solo comuna o sector. Nunca dirección ni nombre interno de la obra.</small>
+            <small id="nsp-location-help">Solo comuna o sector. Se reutilizará automáticamente para esta obra en futuras convocatorias.</small>
           </label>}
         </div>
         <SocialPoster ref={posterEditor} enabled={publishFacebook} specialty={specialty}
