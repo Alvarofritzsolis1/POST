@@ -153,7 +153,7 @@ def encode_cases(tokenizer, cases, length):
 def main(argv=None):
     args = args_parser().parse_args(argv)
     validate_parameters(args)
-    storage = Path(args.output).parent if args.output else Path("/tmp")
+    storage = Path(args.output).parent if args.output else Path("/private")
     if not storage.exists():
         storage = storage.parent if storage.parent.exists() else Path("/")
     observed = snapshot(storage)
@@ -186,8 +186,6 @@ def main(argv=None):
             dataset_digest=bundle["dataset_digest"], training_model=MODEL)
     except ValueError as exc:
         raise SystemExit("Dataset no autorizado para Qwen3.5-0.8B: " + str(exc)) from exc
-    target, metadata_path, metadata, checkpoint = safe_output(args, bundle, attestation)
-
     # Heavy ML libraries load only *after* permission and hardware gates.
     try:
         import torch
@@ -199,6 +197,7 @@ def main(argv=None):
         raise SystemExit("Faltan dependencias CPU: torch, transformers 5+, peft y accelerate") from exc
     if torch.cuda.is_available():
         raise SystemExit("Este ejecutor está diseñado solo para CPU aislada")
+    target, metadata_path, metadata, checkpoint = safe_output(args, bundle, attestation)
     torch.set_num_threads(min(2, os.cpu_count() or 1))
     torch.set_num_interop_threads(1)
     reporter = ProgressReporter(
@@ -235,6 +234,8 @@ def main(argv=None):
         model = get_peft_model(model,LoraConfig(
             r=4,lora_alpha=8,lora_dropout=0.05,bias="none",
             target_modules=linear,task_type="CAUSAL_LM"))
+        if hasattr(model,"enable_input_require_grads"):
+            model.enable_input_require_grads()
         start_digest, trainable_count = hash_trainable(model,torch)
         model.config.use_cache = False
         train_data = encode_cases(tokenizer,bundle["samples"]["train"],args.max_tokens)
