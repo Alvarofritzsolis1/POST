@@ -4,7 +4,8 @@
 - El supervisor alterna turnos entre organizaciones con MAX POWER encendido y mantiene la prioridad del trabajo de gradientes en curso, en lugar de elegir siempre la primera organización.
 - El panel traduce el estado técnico «Awaiting New Evidence» y presenta acciones de preparación con claridad, separando evidencias nuevas de comprobaciones de RAM.
 - El resumen MAX POWER deja de fijar «pesos entrenados» en falso: solo indica pesos reportados cuando existen pruebas firmadas de pasos nuevos y cambios de SHA-256 del adaptador. Una carga de modelo o un checkpoint recuperado no bastan.
-- Pruebas de condiciones faltantes, separación entre organizaciones, turnos justos y evidencia real en panel. Sin cambios a Messenger 4B ni a los módulos de Facebook de GALANT.
+- Firma HMAC reforzada: cada instrucción interna se vincula al método HTTP, la ruta y el hash de su cuerpo exacto; no se puede reutilizar una firma válida para cambiar otra orden.
+- Pruebas de condiciones faltantes, separación entre organizaciones, turnos justos, rechazo de firmas reutilizadas y evidencia real en panel. Sin cambios a Messenger 4B ni a los módulos de Facebook de GALANT.
 - La CI asegura integridad del código y despliegue; no equivale a una prueba de backpropagation con datos reales, que continúa condicionada a autorización independiente.
 
 ## 20.9.30-rc1 — MAX POWER de un solo botón: evaluaciones + pesos LoRA reales
