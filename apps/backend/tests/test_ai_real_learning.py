@@ -270,3 +270,33 @@ def test_corrections_dont_exceed_local_prompt_or_override_safety():
                 assert len(prompt) < MAX_INSTRUCTIONS_CHARS
     assert diagnostic_route(None, "context")["replay_fidelity"] == "parcial"
     assert not eligible_for_proposal([])["ready"]
+
+
+
+def test_approved_coaching_uses_system_instructions_and_rejects_truncation(monkeypatch):
+    from app import facebook_ai
+    from app.galancito_local import MAX_INSTRUCTIONS_CHARS
+    cfg = SimpleNamespace(facebook_ai_provider="ollama", facebook_ai_enabled=True,
+                          galancito_local_ai_enabled=True)
+    monkeypatch.setattr(facebook_ai, "settings", lambda: cfg)
+    captured = []
+    def fake_model(instructions, supplied, max_chars):
+        captured.append((instructions, supplied, max_chars))
+        return "Mensaje de prueba"
+    monkeypatch.setattr(facebook_ai, "generate_local_text", fake_model)
+    policy = "No repitas una pregunta respondida."
+    output = facebook_ai.generate_text(facebook_ai.REPLY_INSTRUCTIONS,
+                                       "¿En qué comuna trabajas?", 550,
+                                       approved_policy=policy)
+    assert output == "Mensaje de prueba"
+    instructions, supplied, _ = captured[0]
+    assert instructions.startswith(facebook_ai.LOCAL_REPLY_INSTRUCTIONS)
+    assert instructions.endswith(policy)
+    assert len(instructions) < MAX_INSTRUCTIONS_CHARS
+    assert supplied == "¿En qué comuna trabajas?"
+    from pytest import raises
+    with raises(ValueError):
+        facebook_ai.generate_text(facebook_ai.REPLY_INSTRUCTIONS,
+                                  "Consulta breve", 550,
+                                  approved_policy="no" * MAX_INSTRUCTIONS_CHARS)
+    assert len(captured) == 1
