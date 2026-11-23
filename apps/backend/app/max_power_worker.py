@@ -26,7 +26,6 @@ from .max_power_decisions import QWEN_MIN_RAM_MB, can_run, classify_outcome, evi
 from .max_power_models import MaxPowerEvent, MaxPowerState, MaxPowerMessengerTrial
 from .max_power_messenger import schedule_next, process_one, schedule_synthetic_reply
 from .max_power_practice import EVENT as PRACTICE_EVENT, generate_scenarios, practice_id, run_practice
-from .config import settings
 from .galancito_general import QWEN_4B
 from .galancito_local import MAX_POWER_ISOLATED
 from .models import Organization, User, utcnow
@@ -219,7 +218,7 @@ def _result(db, row, completed, now):
     else:
         set_wait(row, now, outcome["code"], outcome["reason"] + ". " + outcome["next"])
 
-def tick(db, sampler, *, sampled=None):
+def tick(db, sampler, *, sampled=None, training_model=None):
     """One transactional decision per organization, protected by row locks."""
     now = utcnow()
     # Lock Organization before MaxPowerState, matching the API/start() lock order.
@@ -319,9 +318,14 @@ def tick(db, sampler, *, sampled=None):
         if not owner or not owner.enabled or owner.org_id != row.org_id or owner.role != "admin":
             set_wait(row, now, "permission_required", "No hay administrador autorizado para prácticas", 300)
             continue
-        cfg = settings()
         isolated_model_ready = MAX_POWER_ISOLATED and snapshot["available_ram_mb"] >= QWEN_MIN_RAM_MB
-        qwen_ready = isolated_model_ready and cfg.galancito_local_ai_enabled and cfg.galancito_local_model == QWEN_4B
+        # Model experiments belong to the ISOLATED training Ollama and must
+        # never depend on the production Messenger model/configuration.
+        # The one-button controller prepares a missing 4B on demand.
+        qwen_ready = isolated_model_ready
+        if qwen_ready and training_model is not None:
+            model_problem = training_model.waiting_reason(snapshot["disk_free_mb"], QWEN_4B)
+            qwen_ready = model_problem is None
         if qwen_ready:
             if schedule_next(db, owner):
                 set_wait(row, now, "messenger_evaluation",
@@ -413,7 +417,7 @@ def main():
                     with SessionLocal.begin() as db:
                         heartbeat(db, sampled, utcnow())
                 with SessionLocal() as db:
-                    tick(db, sampler, sampled=sampled)
+                    tick(db, sampler, sampled=sampled, training_model=local_model)
                 # Container-health probe reflects a successfully completed DB tick.
                 Path("/tmp/max_power_controller_heartbeat").touch()
                 if task is not None and task.done():
