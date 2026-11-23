@@ -58,3 +58,6 @@ def test_neuronal_script_remains_off_by_default_and_requires_signed_approval():
     assert "torch.cuda.is_available()" in source
     assert "trainer.train(resume_from_checkpoint=" in source
     assert "reporter.emit(" in source
+    assert "Qwen3_5ForConditionalGeneration" in source
+    assert '"language_model" in name' in source
+    assert "target_modules=decoder_linear" in source
