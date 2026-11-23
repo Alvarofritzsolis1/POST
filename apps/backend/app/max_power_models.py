@@ -18,6 +18,8 @@ class MaxPowerState(Base):
     next_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow)
     on_seconds: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
     sessions: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
+    # Fences results from an inference started before an OFF/ON transition.
+    session_generation: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
     experiments: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
     examined_cases: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
     lab_gains: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
@@ -70,6 +72,7 @@ class MaxPowerMessengerTrial(Base):
     next_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow)
     started_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
     lease_until: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    claim_token: Mapped[str | None] = mapped_column(String(36), nullable=True)
     completed_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
     outcome: Mapped[str | None] = mapped_column(String(36))
     reason: Mapped[str | None] = mapped_column(String(280))

@@ -6,6 +6,7 @@ or measuring a targeted problem. No auto-promotion or fabricated quality scores.
 Never copies private message text into trial records, logs or external services.
 """
 from datetime import timedelta
+from uuid import uuid4
 from time import perf_counter
 from zlib import crc32
 import re
@@ -29,6 +30,7 @@ from .galancito_local import MAX_INSTRUCTIONS_CHARS, generate_local_text, last_t
 from .galancito_runtime import infer
 from .galancito_triage import plain, private_data
 from .max_power_models import MaxPowerEvent, MaxPowerMessengerTrial, MaxPowerState
+from .models import Organization
 from .models import User, utcnow
 
 TRADE_QUESTION = re.compile(
@@ -239,39 +241,72 @@ def evaluate_trial(trial_id):
 def process_one():
     now = utcnow()
     with SessionLocal.begin() as db:
+        eligible = select(MaxPowerMessengerTrial.id, MaxPowerMessengerTrial.org_id).join(
+            MaxPowerState, MaxPowerState.org_id == MaxPowerMessengerTrial.org_id
+        ).where(MaxPowerState.enabled.is_(True), MaxPowerMessengerTrial.next_at<=now,
+            (MaxPowerMessengerTrial.status=="queued") |
+            ((MaxPowerMessengerTrial.status=="running") &
+             (MaxPowerMessengerTrial.lease_until<now))
+        ).order_by(MaxPowerMessengerTrial.created_at).limit(1)
+        candidate = db.execute(eligible).first()
+        if candidate is None:
+            return False
+        org_lock = db.scalar(select(Organization.id).where(
+            Organization.id == candidate.org_id).with_for_update(skip_locked=True))
+        if not org_lock:
+            return False
+        state = db.scalar(select(MaxPowerState).where(
+            MaxPowerState.org_id == candidate.org_id,
+            MaxPowerState.enabled.is_(True)).with_for_update(skip_locked=True))
+        if state is None:
+            return False
         row = db.scalar(select(MaxPowerMessengerTrial).where(
+            MaxPowerMessengerTrial.id == candidate.id,
             MaxPowerMessengerTrial.next_at<=now,
             (MaxPowerMessengerTrial.status=="queued") |
             ((MaxPowerMessengerTrial.status=="running") &
              (MaxPowerMessengerTrial.lease_until<now))
-        ).order_by(MaxPowerMessengerTrial.created_at).with_for_update(skip_locked=True).limit(1))
+        ).with_for_update(skip_locked=True).limit(1))
         if row is None:
             return False
-        state = db.get(MaxPowerState,row.org_id)
-        if not state or not state.enabled:
-            return False
-        row.status, row.attempts, row.started_at = "running",row.attempts+1,now
-        row.lease_until=now+timedelta(seconds=300)
-        trial_id=row.id
+        row.status, row.attempts, row.started_at = "running", row.attempts + 1, now
+        row.lease_until = now + timedelta(seconds=300)
+        claim_token = uuid4().hex
+        generation = state.session_generation
+        row.claim_token = claim_token
+        trial_id = row.id
     try:
         outcome,reason,metrics=evaluate_trial(trial_id)
-    except (RuntimeError,ValueError,HTTPException) as exc:
+    except (RuntimeError, ValueError, HTTPException) as exc:
         with SessionLocal.begin() as db:
             row=db.get(MaxPowerMessengerTrial,trial_id)
-            if row and row.status=="running":
+            state=db.get(MaxPowerState,row.org_id) if row else None
+            if (row and state and state.enabled and
+                state.session_generation == generation and
+                row.status == "running" and row.claim_token == claim_token):
                 final=isinstance(exc,ValueError) or row.attempts>=3
                 row.status="blocked" if final else "queued"
                 row.next_at=utcnow()+timedelta(minutes=2**row.attempts)
                 row.reason="Evidencia o modelo no disponible; sin aprendizaje demostrado"
                 row.lease_until=None
+                row.claim_token=None
         return True
     with SessionLocal.begin() as db:
-        row=db.get(MaxPowerMessengerTrial,trial_id)
-        if not row or row.status!="running": return True
+        # Lock organization before state and trial: the same order as power OFF.
+        org = db.scalar(select(Organization.id).where(
+            Organization.id == candidate.org_id).with_for_update())
+        state=db.scalar(select(MaxPowerState).where(
+            MaxPowerState.org_id == candidate.org_id).with_for_update())
+        row=db.scalar(select(MaxPowerMessengerTrial).where(
+            MaxPowerMessengerTrial.id == trial_id).with_for_update())
+        if not (org and state and state.enabled and
+                state.session_generation == generation and
+                row and row.status == "running" and row.claim_token == claim_token):
+            return True  # The run was switched off or reclaimed; discard stale output.
         row.status,row.outcome,row.reason="completed",outcome,reason
         row.completed_at,row.lease_until=utcnow(),None
+        row.claim_token=None
         row.metrics=metrics
-        state=db.get(MaxPowerState,row.org_id)
         if state:
             state.experiments+=1
             state.examined_cases+=1

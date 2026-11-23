@@ -180,6 +180,7 @@ def control(action: Literal["on", "off"], user: User = Depends(administrator),
         db.add(row)
     if row.enabled == (action == "on"):
         raise HTTPException(409, "MAX POWER ya está en ese estado")
+    row.session_generation = (row.session_generation or 0) + 1
     if action == "on":
         row.enabled = True
         row.owner_id = user.id
@@ -198,6 +199,20 @@ def control(action: Literal["on", "off"], user: User = Depends(administrator),
                 TrainingRound.config["orchestrator"].as_string() == "max_power",
                 TrainingRound.state.in_(ACTIVE)).order_by(TrainingRound.created_at.desc()).limit(1))
             row.active_round_id = orphan.id if orphan else None
+        # Cancel all outstanding Messenger claims without deleting evidence.
+        # A running Qwen call may finish, but the fenced claim cannot commit.
+        trials = list(db.scalars(select(MaxPowerMessengerTrial).where(
+            MaxPowerMessengerTrial.org_id == user.org_id,
+            MaxPowerMessengerTrial.status == "running").with_for_update()))
+        for trial in trials:
+            trial.status = "queued"
+            trial.lease_until = None
+            trial.claim_token = None
+            trial.next_at = now
+        if row.last_tick_at:
+            row.on_seconds += int(min(15, max(0, (
+                aware(now) - aware(row.last_tick_at)).total_seconds())))
+            row.last_tick_at = None
         row.enabled = False
         row.session_started_at = None
         row.last_stopped_at = now
