@@ -248,6 +248,13 @@ def test_consent_confusion_and_relative_date_resume_the_conversation(network, mo
     day = utcnow().astimezone(CHILE).date()
     assert incoming(n, "vale", mid="date-ack").status_code == 200
     assert not process_chat_next(n["Session"])
+    # Human takeover must stay active until the administrator explicitly
+    # resumes automation. The prior test incorrectly expected the bot to
+    # answer while the person was still assigned to a human.
+    assert _detail(n)["lead"]["ai_paused"] is True
+    resumed = n["admin"].patch(f"/api/v1/network/facebook/leads/{lead['id']}",
+                               json={"needs_support": False, "ai_paused": False})
+    assert resumed.status_code == 200
     assert incoming(n, "pero yo puedo en 1 semana mas", mid="date-answer").status_code == 200
     assert process_chat_next(n["Session"])
     early, requested = day + timedelta(days=7), day + timedelta(days=14)
@@ -255,7 +262,7 @@ def test_consent_confusion_and_relative_date_resume_the_conversation(network, mo
     assert sent[-1].endswith("¿También puedes ese día?")
     updated = _detail(n)["lead"]
     assert updated["availability"] == str(early)
-    assert not updated["ai_consent"] and updated["needs_support"]
+    assert not updated["ai_consent"] and not updated["needs_support"]
     assert not updated["trades"]
     assert incoming(n, "sí", mid="date-confirmed").status_code == 200
     assert process_chat_next(n["Session"])
