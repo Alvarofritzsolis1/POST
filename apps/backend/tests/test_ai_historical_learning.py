@@ -144,3 +144,55 @@ def test_historical_history_is_sql_aggregated_not_chat_content(ai_env):
     assert result["sources"]["delivered_messenger"]["count"] == 0
     assert result["historical_quality_grade"] is None
     assert all(item for item in result["limitations"])
+
+
+
+def test_next_practice_uses_historic_reviews_to_prioritize_recent_evidence(ai_env):
+    """Old approved labels steer new practice; old private chat is never replayed."""
+    client, sessions, org_id = ai_env["client"], ai_env["sessions"], ai_env["org_id"]
+    old = utcnow() - timedelta(days=160)
+    now = utcnow()
+    with sessions.begin() as db:
+        reviewer = db.query(User).filter(User.org_id == org_id, User.role == "admin").one()
+        for n in range(4):
+            db.add(AIResponseReview(
+                org_id=org_id, reviewer_id=reviewer.id, channel="messenger",
+                rubric_version=1, evidence_kind="messenger_message",
+                evidence_id=f"22222222-2222-2222-2222-{n:012d}",
+                source_at=old, ratings={"profile": False, "context": True}))
+        for n, failed in enumerate(("context", "profile")):
+            lead = FacebookLead(org_id=org_id, page_id="recent-page",
+                                psid=f"priority-lead-{n}")
+            db.add(lead)
+            db.flush()
+            db.add(FacebookChatMessage(
+                org_id=org_id, lead_id=lead.id, page_id="recent-page",
+                direction="inbound", state="received",
+                body="Soy carpintero de obra y busco trabajo", created_at=now))
+            db.flush()
+            outbound = FacebookChatMessage(
+                org_id=org_id, lead_id=lead.id, page_id="recent-page",
+                direction="outbound", state="sent", ai_generated=True,
+                body="¿Cuál es tu oficio?", created_at=now)
+            db.add(outbound)
+            db.flush()
+            db.add(AssistantRun(
+                org_id=org_id, channel="messenger", source="ai",
+                elapsed_ms=1234, created_at=now,
+                timings={"response_model": "qwen3.5:4b-q4_K_M",
+                         "outbound_message_id": outbound.id}))
+            db.add(AIResponseReview(
+                org_id=org_id, reviewer_id=reviewer.id, channel="messenger",
+                rubric_version=1, evidence_kind="messenger_message",
+                evidence_id=outbound.id, source_at=now,
+                ratings={"context": failed != "context",
+                         "profile": failed != "profile"}))
+    signin(client)
+    next_case = client.get(BASE + "/next?channel=messenger")
+    assert next_case.status_code == 200, next_case.text
+    result = next_case.json()
+    assert result["available"] is True
+    assert result["criterion"] == "profile"
+    assert result["observed_defects"] == 5
+    assert result["source_id"]
+    assert "frecuencia histórica" in result["reason"]
