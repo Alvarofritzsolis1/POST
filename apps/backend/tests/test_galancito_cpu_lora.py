@@ -193,3 +193,45 @@ def test_incomplete_checkpoint_is_not_recognized_as_restorable(tmp_path):
     args.resume = True
     with pytest.raises(SystemExit, match="checkpoint recuperable"):
         mod.safe_output(args, bundle, approved)
+
+
+
+def test_telemetry_secret_is_created_once_without_printing_or_exposing_it(tmp_path, monkeypatch):
+    monkeypatch.delenv("GALANT_FINETUNE_METRICS_SECRET", raising=False)
+    spec = importlib.util.spec_from_file_location(
+        "finetune_secret", SCRIPTS / "ensure-finetune-metrics-key.py")
+    module = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(module)
+    target = tmp_path / ".env.preview"
+    target.write_text("APP_SECRET=existing\nGALANT_FINETUNE_METRICS_SECRET=\n", encoding="utf-8")
+    target.chmod(0o600)
+    assert module.ensure(target) == "generated"
+    original = target.read_text(encoding="utf-8")
+    key = original.split("GALANT_FINETUNE_METRICS_SECRET=", 1)[1].splitlines()[0]
+    assert len(key) >= 48
+    assert target.stat().st_mode & 0o077 == 0
+    assert module.ensure(target) == "existing"
+    assert target.read_text(encoding="utf-8") == original
+    assert module.main(["ensure-finetune-metrics-key.py", str(target)]) == 0
+    duplicate = tmp_path / "duplicate.env"
+    duplicate.write_text("GALANT_FINETUNE_METRICS_SECRET=" + key + "\n"
+                         + "GALANT_FINETUNE_METRICS_SECRET=other\n", encoding="utf-8")
+    duplicate.chmod(0o600)
+    with pytest.raises(RuntimeError, match="duplicadas"):
+        module.ensure(duplicate)
+
+
+def test_cpu_preflight_event_is_not_weight_learning(tmp_path):
+    reporter = ProgressReporter(tmp_path, run_id=str(uuid4()), org_id=None,
+                                dataset_sha256="0" * 64, model="Qwen/Qwen3.5-0.8B")
+    item = reporter.emit(
+        "preflight", step=0, total_steps=0, preflight_ready=False,
+        host_free_mb=5120, cgroup_free_mb=4400, cgroup_limit_mb=5120,
+        disk_free_mb=8000, private_prompt="NEVER EXPORT")
+    reporter.close()
+    assert item["kind"] == "preflight"
+    assert item["preflight_ready"] is False
+    assert item["weights_trained"] is False
+    assert item["host_free_mb"] == 5120
+    assert item["cgroup_free_mb"] == 4400
+    assert "private_prompt" not in item
