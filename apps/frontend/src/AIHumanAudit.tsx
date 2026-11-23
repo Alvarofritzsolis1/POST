@@ -42,6 +42,8 @@ export default function AIHumanAudit({ onPractice }: { onPractice: (channel: Cha
   const [weaknesses, setWeaknesses] = useState<string[]>([]);
   const [lastReviewed, setLastReviewed] = useState("");
   const [trial, setTrial] = useState<RealTrial | null>(null);
+  const [criterionResolved, setCriterionResolved] = useState(false);
+  const [safetyPassed, setSafetyPassed] = useState(false);
   const [auditedCases, setAuditedCases] = useState<AuditedCase[]>([]);
   const [pendingTrials, setPendingTrials] = useState<PendingTrial[]>([]);
 
@@ -91,6 +93,7 @@ export default function AIHumanAudit({ onPractice }: { onPractice: (channel: Cha
   async function replayReal(criterion: string, sourceId = lastReviewed, variant: "focused" | "alternative" = "focused") {
     if (!sourceId) return;
     setBusy(true); setError(""); setTrial(null);
+    setCriterionResolved(false); setSafetyPassed(false);
     try {
       const result = await request<RealTrial>("/admin/ai/real-learning/replay", {
         method: "POST", body: JSON.stringify({source_id: sourceId, criterion, variant}),
@@ -123,7 +126,9 @@ export default function AIHumanAudit({ onPractice }: { onPractice: (channel: Cha
     setBusy(true); setError("");
     try {
       await request("/admin/ai/real-learning/trials/" + trial.trial_id + "/review", {
-        method: "POST", body: JSON.stringify({outcome, source_reviewed: true, verification_nonce: trial.verification_nonce}),
+        method: "POST", body: JSON.stringify({outcome, source_reviewed: true, verification_nonce: trial.verification_nonce,
+          criterion_resolved: outcome === "better" && criterionResolved,
+          safety_passed: outcome === "better" && safetyPassed}),
       });
       setTrial(null); setRevision(v => v + 1);
       setNotice("Resultado humano guardado. Una muestra individual no demuestra aprendizaje general.");
@@ -202,9 +207,17 @@ export default function AIHumanAudit({ onPractice }: { onPractice: (channel: Cha
         <article><b>Respuesta de producción</b><p>{trial.original}</p></article>
         <article><b>Candidata generada con corrección</b><p>{trial.candidate}</p></article>
       </div>
-      <p>¿Resuelve mejor la misma intención sin inventar datos ni perder seguridad?</p>
+      <p>Para contar una mejora tienes que comprobar dos condiciones; una respuesta distinta no es suficiente.</p>
+      <label className="ai-human-audit-ack">
+        <input type="checkbox" checked={criterionResolved} onChange={value => setCriterionResolved(value.target.checked)} />
+        El error específico auditado quedó resuelto en la candidata
+      </label>
+      <label className="ai-human-audit-ack">
+        <input type="checkbox" checked={safetyPassed} onChange={value => setSafetyPassed(value.target.checked)} />
+        La candidata conserva privacidad, permisos y seguridad
+      </label>
       <div className="ai-real-trial-actions">
-        <button type="button" disabled={busy} onClick={() => void rateReal("better")}>Mejoró</button>
+        <button type="button" disabled={busy || !criterionResolved || !safetyPassed} onClick={() => void rateReal("better")}>Error resuelto y seguro</button>
         <button type="button" disabled={busy} onClick={() => void rateReal("same")}>Igual</button>
         <button type="button" disabled={busy} onClick={() => void rateReal("worse")}>Empeoró</button>
         <button type="button" disabled={busy} onClick={() => void cancelReal(trial.trial_id)}>Descartar ensayo</button>
