@@ -24,7 +24,7 @@ from .security import administrator
 
 router = APIRouter(prefix="/api/v1/admin/ai/max-power/finetune",
                    tags=["MAX POWER fine-tuning"])
-KINDS = ("start", "baseline", "metric", "eval", "checkpoint", "finished", "failed", "paused")
+KINDS = ("preflight", "start", "baseline", "metric", "eval", "checkpoint", "finished", "failed", "paused")
 PREFIX = "ft_"
 MAX_POINTS = 300
 
@@ -34,7 +34,7 @@ class Telemetry(BaseModel):
     org_id: UUID
     run_id: UUID
     sequence: int = Field(ge=1, le=99_999_999)
-    kind: Literal["start", "baseline", "metric", "eval", "checkpoint", "finished", "failed", "paused"]
+    kind: Literal["preflight", "start", "baseline", "metric", "eval", "checkpoint", "finished", "failed", "paused"]
     dataset_sha256: str = Field(pattern=r"^[a-f0-9]{64}$")
     model: Literal["Qwen/Qwen3.5-4B", "Qwen/Qwen3.5-0.8B"] = "Qwen/Qwen3.5-4B"
     step: int = Field(ge=0, le=10_000_000)
@@ -46,6 +46,14 @@ class Telemetry(BaseModel):
     grad_norm: float | None = Field(default=None, ge=0, le=1_000_000, allow_inf_nan=False)
     gpu_memory_mb: float | None = Field(default=None, ge=0, le=1_000_000, allow_inf_nan=False)
     cpu_memory_mb: float | None = Field(default=None, ge=0, le=1_000_000, allow_inf_nan=False)
+    optimizer_start_sha256: str | None = Field(default=None, pattern=r"^[0-9a-f]{64}$")
+    optimizer_end_sha256: str | None = Field(default=None, pattern=r"^[0-9a-f]{64}$")
+    optimizer_steps_new: int | None = Field(default=None, ge=0, le=10_000_000)
+    preflight_ready: bool | None = None
+    host_free_mb: float | None = Field(default=None, ge=0, le=1_000_000, allow_inf_nan=False)
+    cgroup_free_mb: float | None = Field(default=None, ge=0, le=1_000_000, allow_inf_nan=False)
+    cgroup_limit_mb: float | None = Field(default=None, ge=0, le=1_000_000, allow_inf_nan=False)
+    disk_free_mb: float | None = Field(default=None, ge=0, le=1_000_000, allow_inf_nan=False)
     gpu_memory_reserved_mb: float | None = Field(default=None, ge=0, le=1_000_000, allow_inf_nan=False)
     elapsed_seconds: float | None = Field(default=None, ge=0, le=100_000_000, allow_inf_nan=False)
     train_samples_per_second: float | None = Field(default=None, ge=0, le=1_000_000, allow_inf_nan=False)
@@ -98,6 +106,21 @@ async def ingest(request: Request,
         raise HTTPException(401, "Firma de telemetría inválida")
     if sample.step > sample.total_steps and sample.total_steps > 0:
         raise HTTPException(422, "Paso fuera del total")
+    if sample.kind == "preflight":
+        if (sample.model != "Qwen/Qwen3.5-0.8B" or
+                sample.preflight_ready is None or sample.step != 0 or
+                sample.total_steps != 0 or sample.weights_trained or
+                sample.candidate_accepted):
+            raise HTTPException(422, "Preflight no puede declarar entrenamiento")
+    elif sample.preflight_ready is not None:
+        raise HTTPException(422, "Preparación solo para eventos de preflight")
+    if sample.model == "Qwen/Qwen3.5-0.8B" and sample.weights_trained:
+        if (sample.kind not in ("finished", "paused")
+                or not sample.optimizer_start_sha256
+                or not sample.optimizer_end_sha256
+                or sample.optimizer_start_sha256 == sample.optimizer_end_sha256
+                or not sample.optimizer_steps_new):
+            raise HTTPException(422, "Sin evidencia de gradientes y pesos nuevos")
     key = f"{PREFIX}{sample.sequence:08d}"
     prior = db.scalar(select(MaxPowerEvent).where(
         MaxPowerEvent.org_id == str(sample.org_id), MaxPowerEvent.round_id == str(sample.run_id),
@@ -108,7 +131,8 @@ async def ingest(request: Request,
         return {"accepted": True, "duplicate": True}
     db.add(MaxPowerEvent(
         org_id=str(sample.org_id), round_id=str(sample.run_id),
-        event=key, reason="Gradientes QLoRA GPU: " + sample.kind,
+        event=key, reason=("Gradientes LoRA CPU: " if sample.model.endswith("0.8B")
+                            else "Gradientes QLoRA GPU: ") + sample.kind,
         evidence=sample.model_dump(mode="json", exclude={"org_id", "run_id"}, exclude_none=True),
     ))
     try:
@@ -149,6 +173,12 @@ def _run_view(rows):
             "learning_rate": e.evidence.get("learning_rate"),
             "gpu_memory_mb": e.evidence.get("gpu_memory_mb"),
             "cpu_memory_mb": e.evidence.get("cpu_memory_mb"),
+            "optimizer_steps_new": e.evidence.get("optimizer_steps_new"),
+            "preflight_ready": e.evidence.get("preflight_ready"),
+            "host_free_mb": e.evidence.get("host_free_mb"),
+            "cgroup_free_mb": e.evidence.get("cgroup_free_mb"),
+            "cgroup_limit_mb": e.evidence.get("cgroup_limit_mb"),
+            "disk_free_mb": e.evidence.get("disk_free_mb"),
             "gpu_memory_reserved_mb": e.evidence.get("gpu_memory_reserved_mb"),
             "elapsed_seconds": e.evidence.get("elapsed_seconds"),
             "train_samples_per_second": e.evidence.get("train_samples_per_second"),
@@ -175,11 +205,17 @@ def progress(user: User = Depends(administrator), db: Session = Depends(get_db))
         if row.event.startswith(PREFIX) and row.event[3:].isdigit():
             runs.setdefault(row.round_id, []).append(row)
     latest = sorted(runs.values(), key=lambda items: max(r.created_at for r in items), reverse=True)
+    preflight_runs = [items for items in latest
+                      if all((e.evidence or {}).get("kind") == "preflight" for e in items)]
+    training_runs = [items for items in latest
+                     if not all((e.evidence or {}).get("kind") == "preflight" for e in items)]
+    latest_preflight = _run_view(preflight_runs[0]) if preflight_runs else None
     return {
         "configured": len(os.environ.get("GALANT_FINETUNE_METRICS_SECRET", "")) >= 48,
+        "cpu_preflight": latest_preflight,
         "source": "signed_cpu_or_gpu_lora_gradient_training_events",
         "refresh_seconds": 5,
-        "runs": [_run_view(rows) for rows in latest[:5]],
+        "runs": [_run_view(rows) for rows in training_runs[:5]],
         "production_promoted": False,
         "disclaimer": "Solo pasos reportados por un trabajador CPU o GPU autorizado; "
                       "una pérdida descendente no demuestra mejora general.",

@@ -1,3 +1,13 @@
+## 20.9.27-rc1 — MAX POWER: integridad de entrenamiento CPU y configuración automática
+
+- Corrige el aprendizaje aparente al reanudar checkpoints: el digest de pesos LoRA se captura después de restaurar el estado del entrenador y se exigen pasos NUEVOS y cambios de tensores antes de marcar pesos entrenados.
+- El evento final de entrenamiento CPU ahora aporta los SHA-256 inicial/final del adaptador y los pasos nuevos de optimización. La API rechaza afirmaciones de entrenamiento sin esa evidencia. No se confunde checkpoint cargado con gradiente calculado.
+- Rechaza respuestas autorizadas truncadas y checkpoints parciales sin estado de optimizador/planificador; corrige la protección de enlaces simbólicos del directorio de salida privado.
+- Preflight CPU firmado: registra RAM host, límite del contenedor, espacio libre y resultado real en MAX POWER por organización. Se presenta separado de las rondas de gradientes; no genera progreso falso.
+- El despliegue seguro aprovisiona una vez en el VPS el secreto de telemetría, sin revelarlo ni reemplazar claves configuradas. La interfaz permite copiar el comando de comprobación del VPS.
+- Qwen3.5 4B de Messenger no cambia, LoRA CPU 0.8B sigue apagado por defecto. No se entrenan pesos sin dataset privado real autorizado y sin capacidad comprobada; no hay promoción automática.
+- Pruebas de reanudación, consistencia de gradientes, seguridad del entorno, preflight numérico y aislamiento entre organizaciones.
+
 ## 20.9.26-rc1 — MAX POWER: LoRA real con CPU del VPS actual
 
 - Agrega ejecutor de entrenamiento neuronal por CPU para Qwen3.5-0.8B, usando únicamente el decodificador de texto oficial, con PyTorch y PEFT y actualizaciones verdaderas de parámetros LoRA. **NO** entrena ni altera el Qwen3.5-4B de producción.

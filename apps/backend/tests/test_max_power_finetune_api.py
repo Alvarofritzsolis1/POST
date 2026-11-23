@@ -118,6 +118,9 @@ def test_signed_cpu_lora_progress_is_visible_without_faking_gpu_metrics(ai_env, 
         "dataset_sha256": "d" * 64, "model": "Qwen/Qwen3.5-0.8B",
         "step": 6, "total_steps": 40, "cpu_memory_mb": 3130.5,
         "weights_trained": True, "candidate_accepted": False,
+        "optimizer_start_sha256": "a" * 64,
+        "optimizer_end_sha256": "b" * 64,
+        "optimizer_steps_new": 2,
     }
     raw=json.dumps(payload,sort_keys=True,separators=(",",":")).encode()
     stamp=str(int(time()))
@@ -136,8 +139,54 @@ def test_signed_cpu_lora_progress_is_visible_without_faking_gpu_metrics(ai_env, 
     assert row["points"][0]["cpu_memory_mb"]==3130.5
     assert row["points"][0]["gpu_memory_mb"] is None
     assert row["weights_trained"] is True
+    assert row["points"][0]["optimizer_steps_new"] == 2
     assert row["candidate_accepted"] is False
     assert status["production_promoted"] is False
     report=client.get("/api/v1/admin/ai/max-power/export",headers=admin).json()
     assert report["finetuning"]["cpu_memory_mb_last"]==3130.5
     assert report["finetuning"]["production_promoted"] is False
+
+
+
+def test_signed_cpu_preflight_shows_actual_capacity_but_never_learning(ai_env, monkeypatch):
+    monkeypatch.setenv("GALANT_FINETUNE_METRICS_SECRET", MASTER)
+    client = ai_env["client"]
+    admin = signin(client, "admin")
+    org = ai_env["org_id"]
+    run_id = str(uuid4())
+    sample = {
+        "org_id": org, "run_id": run_id, "sequence": 1, "kind": "preflight",
+        "dataset_sha256": "0" * 64, "model": "Qwen/Qwen3.5-0.8B",
+        "step": 0, "total_steps": 0, "preflight_ready": False,
+        "host_free_mb": 4945.0, "cgroup_free_mb": 4490.0,
+        "cgroup_limit_mb": 5120.0, "disk_free_mb": 9100.0,
+        "weights_trained": False, "candidate_accepted": False,
+    }
+    raw = json.dumps(sample, sort_keys=True, separators=(",", ":")).encode()
+    stamp = str(int(time()))
+    token = hmac.new(MASTER.encode(), org.encode(), sha256).hexdigest()
+    sig = hmac.new(bytes.fromhex(token), (stamp + ".").encode() + raw, sha256).hexdigest()
+    headers = {"content-type": "application/json",
+               "x-galant-telemetry-timestamp": stamp,
+               "x-galant-telemetry-signature": sig}
+    result = client.post(URL + "/telemetry", content=raw, headers=headers)
+    assert result.status_code == 200, result.text
+    snapshot = client.get(URL, headers=admin).json()
+    assert snapshot["runs"] == []  # Checking RAM is not a training run.
+    preflight = snapshot["cpu_preflight"]
+    assert preflight["stage"] == "preflight"
+    assert preflight["step"] == 0
+    assert preflight["percent"] is None
+    assert preflight["points"][0]["preflight_ready"] is False
+    assert preflight["points"][0]["host_free_mb"] == 4945.0
+    assert preflight["weights_trained"] is False
+    assert snapshot["production_promoted"] is False
+    sample["weights_trained"] = True  # Forbidden false evidence.
+    raw = json.dumps(sample, sort_keys=True, separators=(",", ":")).encode()
+    sig = hmac.new(bytes.fromhex(token), (stamp + ".").encode() + raw, sha256).hexdigest()
+    invalid = client.post(URL + "/telemetry", content=raw,
+                          headers={**headers, "x-galant-telemetry-signature": sig})
+    assert invalid.status_code == 422
+    outsider = signin(client, "outside")
+    other = client.get(URL, headers=outsider).json()
+    assert other["cpu_preflight"] is None

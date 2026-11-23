@@ -10,6 +10,9 @@ type MetricPoint = {
   learning_rate?: number | null; gpu_memory_mb?: number | null;
   gpu_memory_reserved_mb?: number | null; elapsed_seconds?: number | null;
   train_samples_per_second?: number | null; holdout_loss_before?: number | null;
+  preflight_ready?: boolean | null; host_free_mb?: number | null;
+  cgroup_free_mb?: number | null; cgroup_limit_mb?: number | null;
+  disk_free_mb?: number | null;
   holdout_loss_after?: number | null; holdout_pass_before?: number | null;
   holdout_pass_after?: number | null; holdout_regressions?: number | null;
 };
@@ -21,6 +24,7 @@ type FineTuneRun = {
 };
 type FineTuneStatus = {
   configured: boolean; source: string; refresh_seconds: number; runs: FineTuneRun[];
+  cpu_preflight?: FineTuneRun | null;
   production_promoted: boolean; disclaimer: string;
 };
 type Metric = "loss" | "eval_loss" | "grad_norm" | "gpu_memory_mb" | "cpu_memory_mb" | "learning_rate";
@@ -33,7 +37,7 @@ const metrics: Array<{id:Metric; title:string; unit:string}> = [
   {id:"learning_rate",title:"Tasa de aprendizaje",unit:""},
 ];
 const stageLabels: Record<string,string> = {
-  start:"Preparando entrenamiento", baseline:"Evaluando referencia", metric:"Actualizando pesos LoRA",
+  preflight:"Revisión de recursos CPU", start:"Preparando entrenamiento", baseline:"Evaluando referencia", metric:"Actualizando pesos LoRA",
   eval:"Validando", checkpoint:"Checkpoint guardado", finished:"Entrenamiento terminado",
   failed:"Entrenamiento interrumpido", paused:"Pausado para proteger recursos", unknown:"Estado no verificable"
 };
@@ -49,6 +53,7 @@ export default function FineTuneProgress(){
   const [showConnect,setShowConnect]=useState(false);
   const [copyBusy,setCopyBusy]=useState(false);
   const [connectedMessage,setConnectedMessage]=useState("");
+  const [preflightMessage,setPreflightMessage]=useState("");
   const refresh=useCallback(async()=>{
     try {
       const next=await request<FineTuneStatus>("/admin/ai/max-power/finetune");
@@ -63,6 +68,15 @@ export default function FineTuneProgress(){
     return ()=>{window.clearInterval(timer);document.removeEventListener("visibilitychange",visible);};
   },[refresh]);
   const run= data?.runs.find(x=>x.run_id===runId) ?? data?.runs[0];
+  const lastPreflight=data?.cpu_preflight?.points.at(-1);
+  const copyPreflight=async()=>{
+    const command="cd /opt/galant-post\n"+
+      "docker compose --env-file .env.preview -f docker-compose.preview.yml "+
+      "--profile cpu-lora run --build --rm --no-deps cpu-lora --preflight";
+    try{await navigator.clipboard.writeText(command);
+      setPreflightMessage("Comando copiado. Ejecútalo en tu VPS; solo comprueba recursos, no entrena.");}
+    catch{setPreflightMessage("No se pudo copiar. Abre la guía de CPU LoRA.");}
+  };
   const samples=useMemo(()=>run?.points.filter(p=>typeof p[metric]==="number" && Number.isFinite(p[metric]))??[],[run,metric]);
   const values=samples.map(p=>p[metric] as number);
   const min=values.length?Math.min(...values):0, max=values.length?Math.max(...values):1;
@@ -120,6 +134,26 @@ export default function FineTuneProgress(){
         {connectedMessage && <span role="status">{connectedMessage}</span>}
       </div>}
     </div>}
+    <div className="ft-heldout" aria-label="Comprobación CPU LoRA">
+      <strong>Capacidad del VPS para entrenar Qwen3.5 0.8B</strong>
+      <span>{lastPreflight
+        ? lastPreflight.preflight_ready
+          ? "Última comprobación: recursos iniciales suficientes; no significa que los pesos ya se hayan entrenado."
+          : "Última comprobación: recursos insuficientes; no iniciar entrenamiento."
+        : "Sin comprobación de recursos registrada. El entrenamiento continúa desactivado."}</span>
+      {lastPreflight && <span>
+        RAM del servidor libre: {fmt(lastPreflight.host_free_mb,0)} MB ·
+        RAM disponible en contenedor: {fmt(lastPreflight.cgroup_free_mb,0)} MB ·
+        Disco libre: {fmt(lastPreflight.disk_free_mb,0)} MB
+      </span>}
+      <button type="button" className="ft-refresh" onClick={()=>void copyPreflight()}>
+        <Cpu size={16}/> Copiar comprobación del VPS
+      </button>
+      {preflightMessage && <small role="status">{preflightMessage}</small>}
+      <small>Esta orden puede construir la imagen opcional y descargar dependencias. No ejecuta gradientes.
+        Para mostrar resultados aquí, conecta antes la telemetría y ejecuta el preflight con sus parámetros HTTPS.
+        No se emplean datos de Messenger.</small>
+    </div>
     {(!data?.runs.length) ? <div className="ft-empty"><Cpu size={28}/>
       <strong>Sin pasos de entrenamiento neuronal registrados</strong>
       <p>Cuando el trabajador CPU o GPU entrene con datos autorizados y reporte por HTTPS, aparecerán la pérdida, los pasos, los checkpoints y la validación.</p>

@@ -69,13 +69,29 @@ Para reanudar, reutilizar EXACTAMENTE el mismo dataset, manifest, output, max-st
 
 El frontend muestra ahora una opción CPU LoRA de 0.8B y la memoria RAM del proceso medida por /proc/self/status. La API admite métricas CPU/GPU con firma HMAC por organización y consulta cada cinco segundos. La telemetría NO envía ejemplos, mensajes o parámetros.
 
-El backend necesita la variable GALANT_FINETUNE_METRICS_SECRET en .env.preview (aleatoria, al menos 48 caracteres) y recrear solamente la API. El administrador abre MAX POWER, pulsa Vincular entrenamiento CPU/GPU y copia el token y UUID. En el host del trabajo, configurar las variables privadas GALANT_FINETUNE_TELEMETRY_TOKEN y GALANT_FINETUNE_ORG, además de la URL HTTPS completa GALANT_FINETUNE_TELEMETRY_URL.
+Desde la versión 20.9.27 el despliegue seguro genera una vez GALANT_FINETUNE_METRICS_SECRET (al menos 48 caracteres) dentro del archivo privado .env.preview, sin mostrar el valor y sin rotarlo en despliegues posteriores. Si existe una clave inválida o duplicada, el despliegue falla de forma controlada y no la reemplaza. El administrador abre MAX POWER, pulsa Vincular entrenamiento CPU/GPU y copia el token y UUID. En el host del trabajo, configurar las variables privadas GALANT_FINETUNE_TELEMETRY_TOKEN y GALANT_FINETUNE_ORG, además de la URL HTTPS completa GALANT_FINETUNE_TELEMETRY_URL.
 
 En el comando de entrenamiento añadir:
 
     --telemetry-url "$GALANT_FINETUNE_TELEMETRY_URL" --telemetry-org "$GALANT_FINETUNE_ORG"
 
 Si no se configura la conexión, el journal local training-metrics.jsonl seguirá almacenando los pasos reales y el panel NO mostrará gráficos ficticios. El journal, checkpoints y adaptadores quedan bajo /private/runs.
+
+### Preflight medido y registrado
+
+Con el token obtenido en MAX POWER guardado como variable de entorno privada del VPS y las otras dos variables de conexión configuradas, ejecuta:
+
+    docker compose --env-file .env.preview -f docker-compose.preview.yml \
+      --profile cpu-lora run --build --rm --no-deps cpu-lora \
+      --preflight --telemetry-url "$GALANT_FINETUNE_TELEMETRY_URL" \
+      --telemetry-org "$GALANT_FINETUNE_ORG"
+
+El preflight publica únicamente números de RAM/disco y un booleano de aptitud. Aparecerá en la sección de capacidad del panel, **nunca como una ronda de entrenamiento**. Si no has configurado telemetría, ejecuta el mismo comando sin los parámetros de URL y organización; el resultado aparece en el terminal.
+
+### Evidencia posterior a la reanudación
+
+El entrenador registra una huella SHA-256 de los tensores LoRA después de restaurar el checkpoint y otra al finalizar. MAX POWER solo acepta la afirmación de pesos entrenados cuando se completan **pasos nuevos** y esas huellas difieren. Cargar pesos guardados no contabiliza aprendizaje nuevo. Si el ejemplo correcto excede la ventana de tokens, se rechaza explícitamente; no se enseña una respuesta recortada. Los checkpoints incompletos no se consideran recuperables.
+
 
 ## Criterios de no-regresión
 
