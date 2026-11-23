@@ -1566,6 +1566,7 @@ def sync(user: User = Depends(authorized_user), db: Session = Depends(get_db)):
     for req in db.scalars(
         scoped_requirements(db, user).where(
             NetworkRequirement.state == "published",
+            NetworkRequirement.start_date_pending.is_(False),
             NetworkRequirement.start_date >= today(),
             NetworkRequirement.start_date <= today() + timedelta(days=3),
         )
@@ -1745,6 +1746,7 @@ def calendar(
     events = []
     query = scoped_requirements(db, user).where(
         NetworkRequirement.state == "published",
+        NetworkRequirement.start_date_pending.is_(False),
         NetworkRequirement.start_date <= end,
         NetworkRequirement.end_date >= start,
     )
