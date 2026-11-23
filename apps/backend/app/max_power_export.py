@@ -32,7 +32,8 @@ NUMERIC_KEYS = (
     "baseline_p50_ms", "candidate_p50_ms", "delta_p50_ms",
     "baseline_p95_ms", "candidate_p95_ms", "pairs", "sample_pairs",
     "load_ms", "prompt_ms", "generation_ms", "transport_ms",
-    "ollama_total_ms", "timing_samples",
+    "ollama_total_ms", "timing_samples", "passed", "failed", "critical",
+    "turns", "questions", "skipped", "sample_count",
 )
 BOOLEAN_KEYS = (
     "lab_verified", "production_verified", "weights_changed",
@@ -72,6 +73,26 @@ SAFE_CODES = {
 # Text identifiers are only included if they are code-generated and resemble
 # a model/version, NEVER inferred from arbitrary user content.
 IDENTIFIER = re.compile(r"^[A-Za-z0-9_.:/+-]{1,120}$")
+ALLOWED_MODELS = {"qwen3:1.7b", "qwen3.5:4b-q4_K_M"}
+ALLOWED_CRITERIA = set(ENUM_KEYS["criterion"]) | {
+    "usefulness", "security", "numeric_accuracy", "calculation", "data_grounding"
+}
+DIAGNOSES = {
+    "resource_guard": ("Servidor con capacidad insuficiente", "Medir CPU, memoria, PSI y cola antes de repetir"),
+    "insufficient_evidence": ("Faltan casos autorizados verificables", "Ampliar muestras reales y conservar conjuntos reservados"),
+    "awaiting_new_evidence": ("No aparecen datos nuevos", "Buscar nuevas fallas; no reciclar un mismo holdout"),
+    "plateau": ("Las estrategias probadas dejaron de mejorar", "Cambiar estrategia y ensayar casos nuevos"),
+    "regression": ("La candidata empeoró pruebas", "Mantener versión anterior e identificar causa"),
+    "no_correction": ("No se encontró corrección aplicable", "Revisar raíz del problema: datos, instrucciones o código"),
+    "trainer_unavailable": ("No hay trabajador activo", "Revisar salud de Ollama y del contenedor de práctica"),
+    "manual_round_busy": ("Práctica manual prioritaria", "Reintentar al liberarse el motor"),
+    "insufficient_significance": ("La diferencia no tiene evidencia estadística suficiente", "Obtener más pares independientes sin contaminación"),
+    "no_holdout": ("No hay evaluación final reservada", "Diagnosticar interrupción y falta de muestras"),
+    "cannot_schedule": ("No se logró iniciar una ronda", "Revisar esquema, permisos y capacidad"),
+    "messenger_no_objective_gain": ("Messenger no mostró corrección objetiva", "Probar estrategia distinta en nuevas conversaciones"),
+    "messenger_safety_regression": ("La candidata generó un problema de seguridad", "Rechazar inmediatamente y reforzar guardas"),
+}
+
 
 def _date(dt):
     if not isinstance(dt, datetime):
@@ -101,12 +122,15 @@ def safe_metrics(metrics):
         if type(metrics.get(key)) is bool:
             cleaned[key] = metrics[key]
     for key, options in ENUM_KEYS.items():
-        if metrics.get(key) in options if isinstance(metrics.get(key), str) else False:
-            cleaned[key] = metrics[key]
-    for key in ("model", "system_version", "prompt_version", "dataset_hash"):
+        value = metrics.get(key)
+        if isinstance(value, str) and value in options:
+            cleaned[key] = value
+    for key in ("system_version", "prompt_version", "dataset_hash"):
         safe = _safe_identifier(metrics.get(key))
         if safe:
             cleaned[key] = safe
+    if metrics.get("model") in ALLOWED_MODELS:
+        cleaned["model"] = metrics["model"]
     for key in ("baseline", "candidate", "original_production", "paired_speed",
                 "before_timing_ms", "after_timing_ms", "baseline_ollama_timing_ms",
                 "candidate_ollama_timing_ms"):
@@ -119,7 +143,10 @@ def safe_metrics(metrics):
             cleaned[key] = {
                 str(k): (safe_metrics(v) if isinstance(v, dict) else _number(v))
                 for k, v in list(records.items())[:40]
-                if isinstance(k, str) and re.fullmatch(r"[a-zA-Z0-9_-]{1,35}", k)
+                if isinstance(k, str)
+                and ((key == "failed_by_criterion" and k in ALLOWED_CRITERIA)
+                     or (key == "cycle_summaries" and k.isascii() and k.isdigit()
+                         and 1 <= int(k) <= 40))
                 and (isinstance(v, dict) or _number(v) is not None)
             }
     return cleaned
@@ -217,6 +244,11 @@ def build_report(db: Session, user: User, *, max_events=MAX_EVENTS):
             "holdout_wins_observed": state.lab_gains if state else 0,
             "holdout_regressions_observed": state.regressions if state else 0,
             "status_code": (state.last_status if state.last_status in SAFE_CODES else "other") if state else "off",
+        },
+        "diagnosis": {
+            "current_code": (state.last_status if state.last_status in SAFE_CODES else "other") if state else "off",
+            "meaning": DIAGNOSES.get(state.last_status, (None, None))[0] if state else None,
+            "recommended_investigation": DIAGNOSES.get(state.last_status, (None, None))[1] if state else None,
         },
         "measured_quality": quality,
         "last_experiment": safe_metrics(state.latest_result) if state else {},
