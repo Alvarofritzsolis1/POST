@@ -1,5 +1,5 @@
-import { useRef, useState, type FormEvent } from "react";
-import { AlertCircle, CalendarDays, CheckCircle2, ChevronDown, Facebook, FileText, MapPin, Send, Users } from "lucide-react";
+import { useEffect, useRef, useState, type FormEvent } from "react";
+import { AlertCircle, CalendarDays, CheckCircle2, ChevronDown, Facebook, FileText, MapPin, Send, Sparkles } from "lucide-react";
 import { change, type Catalog, type Requirement } from "./networkApi";
 import { todayISO, errorText } from "./NetworkUI";
 import { NetworkSpecialtyPicker } from "./NetworkSpecialtyPicker";
@@ -57,6 +57,12 @@ export function NetworkQuickForm({
   const [siteId, setSiteId] = useState(sites[0]?.id ?? "");
   const [specialty, setSpecialty] = useState("");
   const [summary, setSummary] = useState("");
+  const [publicSummary, setPublicSummary] = useState("");
+  const [copyEdited, setCopyEdited] = useState(false);
+  const [copySource, setCopySource] = useState("");
+  const [copyBusy, setCopyBusy] = useState(false);
+  const [copyError, setCopyError] = useState("");
+  const [copyCycle, setCopyCycle] = useState(0);
   const [start, setStart] = useState("");
   const [workers, setWorkers] = useState(1);
   const [priority, setPriority] = useState("normal");
@@ -71,14 +77,40 @@ export function NetworkQuickForm({
   const [expandedMore, setExpandedMore] = useState(false);
 
   const tradeOk = specialty.trim().length >= 2;
+  const descriptionOk = summary.trim().length >= 8;
+  const copyOk = publicSummary.trim().length >= 8 && publicSummary.trim().length <= 400;
   const locationOk = publicLocation.trim().length >= 3 && !/\d/.test(publicLocation);
   const staffOk = Number.isInteger(workers) && workers >= 1 && workers <= 10000;
   const siteOk = Boolean(siteId);
   const mismatch = contradiction(specialty, summary);
   const reviewOk = !mismatch || confirmedMismatch;
-  const pending = [!siteOk, !tradeOk, !staffOk, publishFacebook && !locationOk, !reviewOk]
+  const pending = [!siteOk, !tradeOk, !descriptionOk, !staffOk, publishFacebook && !locationOk,
+    publishFacebook && !copyOk, !reviewOk]
     .filter(Boolean).length;
   const canPublish = pending === 0;
+
+  // Debounced, bounded model call. Never overwrite edits made by the resident.
+  useEffect(() => {
+    if (!publishFacebook || !siteId || !tradeOk || !descriptionOk || copyEdited) return;
+    let active = true;
+    const timer = window.setTimeout(() => {
+      setCopyBusy(true);
+      setCopyError("");
+      void change<{ suggestion: string; source: string }>("/requirements/summary-suggestion", {
+        site_id: siteId, specialty: specialty.trim(), description: summary.trim(),
+      }).then((result) => {
+        if (!active) return;
+        setPublicSummary(result.suggestion);
+        setCopySource(result.source === "ia" ? "Mejorado con IA" : "Resumen automático");
+      }).catch(() => {
+        if (!active) return;
+        setPublicSummary(summary.trim().replace(/\\s+/g, " ").slice(0, 220));
+        setCopySource("Resumen básico · revisa antes de publicar");
+        setCopyError("La IA no pudo mejorar el texto. Puedes editarlo directamente.");
+      }).finally(() => { if (active) setCopyBusy(false); });
+    }, 1000);
+    return () => { active = false; window.clearTimeout(timer); };
+  }, [publishFacebook, siteId, specialty, summary, copyEdited, copyCycle, tradeOk, descriptionOk]);
 
   async function submit(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
@@ -107,6 +139,7 @@ export function NetworkQuickForm({
         specialty: specialty.trim(),
         title: (title.trim() || "Contratistas de " + specialty.trim()).slice(0, 180),
         description: summary.trim(),
+        public_summary: publishFacebook ? publicSummary.trim() : "",
         priority,
         workers: staffOk ? workers : 1,
         // Existing scheduling and item matching require dates. The pending flag
@@ -171,6 +204,41 @@ export function NetworkQuickForm({
             suggestions={[...TRADES, ...catalog.specialties]} invalid={submitted && !tradeOk}/>
           <div className="nq-field-progress"><StateMark ok={tradeOk}/></div>
         </div>
+        <div className="nq-field nq-description">
+          <label htmlFor="nq-summary">¿Qué trabajos se realizarán? <StateMark ok={descriptionOk}/></label>
+          <textarea id="nq-summary" value={summary} maxLength={2500} rows={2}
+            aria-invalid={submitted && !descriptionOk}
+            onChange={(e) => {
+              setSummary(e.target.value);
+              setConfirmedMismatch(false);
+              if (!copyEdited) { setPublicSummary(""); setCopySource(""); }
+            }}
+            placeholder="Ej. Instalación y pintura de fachadas exteriores en edificios."/>
+          <small className="nq-soft">Describe las labores reales. La IA creará un resumen más claro.</small>
+        </div>
+        {publishFacebook && <div className="nq-copy">
+          <div className="nq-copy-title">
+            <label htmlFor="nq-public-copy"><Sparkles size={15}/> Resumen para Facebook
+              <StateMark ok={copyOk} pending="Por revisar"/></label>
+            <button type="button" disabled={!tradeOk || !descriptionOk || copyBusy}
+              onClick={() => { setCopyEdited(false); setCopySource(""); setCopyCycle(v => v + 1); }}
+              aria-label="Volver a mejorar el resumen con IA">
+              <Sparkles size={14}/> {copyBusy ? "Preparando…" : "Mejorar con IA"}
+            </button>
+          </div>
+          <textarea id="nq-public-copy" rows={2} maxLength={400}
+            aria-invalid={submitted && !copyOk}
+            value={publicSummary}
+            onChange={(e) => {
+              setPublicSummary(e.target.value); setCopyEdited(true);
+              setCopySource("Editado por ti"); setCopyError("");
+            }}
+            placeholder={copyBusy ? "Analizando las labores…" : "El resumen editable aparecerá aquí"}/>
+          <div className="nq-copy-foot">
+            <small>{copyError || copySource || "Basado en la descripción, sin inventar datos."}</small>
+            <small>{publicSummary.length}/400</small>
+          </div>
+        </div>}
         <div className="nq-two">
           <div className="nq-field">
             <label htmlFor="nq-workers">Personas aprox. <StateMark ok={staffOk}/></label>
@@ -204,13 +272,8 @@ export function NetworkQuickForm({
           </div>}
         </div>
         <details className="nq-extra" open={expandedMore} onToggle={(e) => setExpandedMore(e.currentTarget.open)}>
-          <summary><span><FileText size={16}/> Detalles del trabajo <small>(opcional)</small></span><ChevronDown size={15}/></summary>
+          <summary><span><FileText size={16}/> Opciones adicionales <small>(opcional)</small></span><ChevronDown size={15}/></summary>
           <div className="nq-extra-body">
-            <label htmlFor="nq-summary">Descripción para el seguimiento interno</label>
-            <textarea id="nq-summary" value={summary} maxLength={2500} rows={2}
-              onChange={(e) => { setSummary(e.target.value); setConfirmedMismatch(false); }}
-              placeholder="Ej. Instalación de tabiques de madera. Puedes completarlo después."/>
-            <small>Ayuda a evaluar contratistas y coordinar partidas. No se publica automáticamente en Facebook.</small>
             <label htmlFor="nq-title">Título interno personalizado <span className="nq-optional">Opcional</span></label>
             <input id="nq-title" value={title} maxLength={180}
               placeholder="Se genera automáticamente si lo dejas vacío"
@@ -236,7 +299,7 @@ export function NetworkQuickForm({
       <section className={"nq-preview" + (mobilePane === "preview" ? " nq-mobile-active" : "")}
         aria-label="Vista previa de Facebook">
         <SocialPoster ref={posterEditor} compact enabled={publishFacebook} specialty={specialty}
-          publicLocation={publicLocation} workers={workers} start={start}/>
+          publicLocation={publicLocation} publicSummary={publicSummary} workers={workers} start={start}/>
         {!publishFacebook && <div className="nq-internal-only"><CheckCircle2 size={18}/> La necesidad solo se compartirá dentro de Red de Obras.</div>}
       </section>
       <div className="nq-footer">
