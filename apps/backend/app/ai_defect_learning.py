@@ -79,3 +79,89 @@ def approved_coaching(db, org_id: str, channel: str) -> str:
                 approved.append(expected)
                 break
     return "\n".join(approved[:3])[:950]
+
+
+# Different interventions, not synthetic conversation/answers. The model must
+# execute each alternative against a human-audited original exchange.
+ALTERNATIVE_POLICIES = {
+    "messenger": {
+        "understanding": "Resume mentalmente la intención del último mensaje y relaciona respuestas cortas con la pregunta previa; responde a la intención confirmada sin asumir otra.",
+        "profile": "Antes de agregar un campo a la ficha, identifica la frase exacta donde la persona lo declaró. Si no lo declaró, mantenlo pendiente y no lo deduzcas.",
+        "context": "Revisa en orden los últimos turnos y los datos profesionales confirmados; si ya existe un dato, avanza a lo pendiente, sin volver a preguntarlo.",
+        "naturalness": "Usa palabras cotidianas de Chile y una respuesta corta y pertinente; evita saludo repetitivo y una segunda pregunta si la primera consulta ya quedó resuelta.",
+        "safety": "Prioriza privacidad y no promesas: si falta confirmación administrativa, indica que está pendiente. Nunca pidas identificaciones ni credenciales por chat.",
+        "helpfulness": "Entrega primero el dato o instrucción concreta solicitada. Solo pregunta por un detalle adicional si realmente impide avanzar.",
+    },
+    "general": {
+        "accuracy": "Comprueba números y operaciones solo sobre las evidencias aportadas. Si la consulta no proporciona valores verificables, explica el límite antes de concluir.",
+        "grounding": "Distingue cada dato verificado por GALANT de las deducciones. No presentes una deducción como consulta efectuada a la base de datos.",
+        "context": "Antes de analizar, conserva explícitamente obra, período y rol solicitados y evita combinar conjuntos de datos de ámbitos diferentes.",
+        "reasoning": "Evalúa las relaciones entre hechos verificables, revisa contradicciones y entrega una conclusión concisa sin afirmar acciones no realizadas.",
+        "safety": "Nunca divulgues registros de otra organización o usuario ni afirmes que hiciste cambios. Deriva operaciones que necesitan permisos o aprobación.",
+        "helpfulness": "Entrega una recomendación accionable basada en la evidencia y una limitación clara cuando falte un dato crítico.",
+    },
+}
+VARIANTS = ("focused", "alternative")
+REPLAY_LIMIT_PER_CRITERION = 4
+MIN_HOLDOUT_WINS = 4
+
+
+def candidate_policy(channel: str, criterion: str, variant: str) -> str:
+    """Allowlist: replay cannot inject arbitrary model-generated instructions."""
+    if channel not in POLICIES or criterion not in POLICIES[channel] or variant not in VARIANTS:
+        raise ValueError("Corrección experimental no permitida")
+    return (POLICIES[channel][criterion][1] if variant == "focused"
+            else ALTERNATIVE_POLICIES[channel][criterion])
+
+
+def diagnostic_route(run, criterion: str) -> dict:
+    """A route-based hypothesis; never pretend a trace proves cognitive causality."""
+    if run is None:
+        return {"source": "sin_traza", "hypothesis": "causa_desconocida",
+                "mechanism": "recopilar_traza", "replay_fidelity": "parcial",
+                "reason": "No existe telemetría vinculada al mensaje original."}
+    source = str(getattr(run, "source", "") or "")
+    if source in {"verified_local", "knowledge", "fallback", "local", "social_context", "greeting"}:
+        return {"source": source, "hypothesis": "ruta_sin_modelo",
+                "mechanism": "revisar_logica_o_datos", "replay_fidelity": "parcial",
+                "reason": "La respuesta original no se generó mediante el mismo Qwen; un ajuste de prompt no corrige necesariamente esa ruta."}
+    if source == "external_api":
+        return {"source": source, "hypothesis": "modelo_externo",
+                "mechanism": "revisar_proveedor", "replay_fidelity": "parcial",
+                "reason": "Se utilizó otro proveedor; Qwen no reproduce el motor original."}
+    return {"source": source or "desconocida",
+            "hypothesis": "modelo_contexto_o_reglas",
+            "mechanism": "practica_qwen_exploratoria",
+            "replay_fidelity": "parcial",
+            "reason": "El origen es compatible con inferencia, pero no existe instantánea completa del prompt y la ficha del turno de producción."}
+
+
+def eligible_for_proposal(trials, *, min_holdout=MIN_HOLDOUT_WINS) -> dict:
+    """Count distinct sources, disjoint practice/holdout, no negative outcomes.
+
+    Human review remains exploratory; approval must still be manual.
+    """
+    by_variant = {}
+    for trial in trials:
+        if trial.outcome not in {"better", "same", "worse"}:
+            continue
+        if getattr(trial, "provenance", "") != "model_verified":
+            continue
+        variant = getattr(trial, "variant", "focused")
+        if variant not in VARIANTS:
+            continue
+        record = by_variant.setdefault(variant, {"practice": set(), "holdout": set(), "worse": 0})
+        if trial.outcome == "worse":
+            record["worse"] += 1
+        if trial.outcome == "better":
+            record[trial.stage if trial.stage in {"practice", "holdout"} else "practice"].add(trial.review_id)
+    for variant, record in by_variant.items():
+        if (len(record["practice"]) >= 2 and len(record["holdout"]) >= min_holdout
+                and not (record["practice"] & record["holdout"]) and record["worse"] == 0):
+            return {"ready": True, "variant": variant,
+                    "practice_wins": len(record["practice"]),
+                    "holdout_wins": len(record["holdout"]), "regressions": 0}
+    return {"ready": False, "variant": None,
+            "practice_wins": max((len(x["practice"]) for x in by_variant.values()), default=0),
+            "holdout_wins": max((len(x["holdout"]) for x in by_variant.values()), default=0),
+            "regressions": sum(x["worse"] for x in by_variant.values())}
