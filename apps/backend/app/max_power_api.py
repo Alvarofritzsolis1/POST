@@ -225,7 +225,7 @@ def _view(db, user, row):
             "manager_online": cpu_online,
             "weights_trained": bool(verified_cpu_update),
             "synthetic_weights_trained": bool(synthetic_cpu_update),
-            "training_kind": "curated_synthetic" if cpu_state in {"training_synthetic", "finished_synthetic"} else "human_reviewed_real" if cpu_state == "training" else "none",
+            "training_kind": "curated_synthetic" if cpu_state in {"preparing_synthetic", "training_synthetic", "finished_synthetic"} else "human_reviewed_real" if cpu_state == "training" else "none",
             "model": "Qwen/Qwen3.5-0.8B",
         },
         "priorities": priority_from_reviews(priorities),

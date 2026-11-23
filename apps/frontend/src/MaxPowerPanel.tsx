@@ -76,7 +76,8 @@ const checks = (count: CheckCount) => count.passed == null || count.samples === 
   ? "Datos insuficientes" : f(count.passed) + " / " + f(count.samples);
 const controllerStatus: Record<string,string> = {
   resource_guard:"En espera de recursos", synthetic_practice_completed:"Práctica de fichas terminada",
-  awaiting_new_evidence:"En espera de datos nuevos", synthetic_model_evaluation:"Evaluación de Qwen 4B",
+  awaiting_new_evidence:"En espera de datos nuevos", preparing_qwen:"Preparando Qwen 4B privado",
+  cpu_neural_training:"Turno reservado para LoRA CPU", synthetic_model_evaluation:"Evaluación de Qwen 4B",
   messenger_evaluation:"Evaluación de Messenger", starting:"Iniciando", off:"En pausa",
 };
 
@@ -156,7 +157,19 @@ export default function MaxPowerPanel(){
   const model = live?.qwen;
   const practiceCompleted = practice ? practice.development.cases + practice.holdout.cases : null;
   const cpuStatus = data?.cpu_learning;
-  const cpuRunning = data?.enabled && ["training", "training_synthetic"].includes(cpuStatus?.status ?? "");
+  const cpuRunning = Boolean(data?.enabled && ["training", "training_synthetic"].includes(cpuStatus?.status ?? ""));
+  const cpuPreparing = Boolean(data?.enabled && cpuStatus?.status === "preparing_synthetic");
+  const cpuLabFinished = cpuStatus?.status === "finished_synthetic";
+  const hasMeasuredActivity = Boolean(data?.enabled && data.controller_online &&
+    (model?.state === "running" || cpuRunning || cpuPreparing));
+  const powerTitle = !data?.enabled ? "MAX POWER apagado"
+    : !data.controller_online ? "MAX POWER encendido · controlador desconectado"
+    : hasMeasuredActivity ? "MAX POWER encendido · trabajando"
+    : "MAX POWER encendido · en espera";
+  const powerExplanation = !data?.enabled ? "Los resultados se mantienen guardados"
+    : !data.controller_online ? "Sin conexión con el controlador; no hay ejecución verificada"
+    : hasMeasuredActivity ? "Hay tareas reales en ejecución; consulta sus resultados abajo"
+    : data.reason || "Sin nuevas tareas verificables; el controlador sigue conectado";
   // Unmodified, measured experimental latency. Differences in workload mix
   // mean this chart must never be labelled a causal speed improvement.
   const latencyHistory=(data?.events || [])
@@ -189,8 +202,8 @@ export default function MaxPowerPanel(){
           className={"max-power-switch" + (data?.enabled?" on":"")} aria-pressed={data?.enabled??false}>
           <Power size={26}/>
         </button>
-        <div><strong>{data?.enabled?"MAX POWER encendido":"MAX POWER apagado"}</strong>
-          <span>{data?.enabled ? (data.controller_online?"Controlador conectado":"En espera del controlador") : "Los resultados se mantienen guardados"}</span>
+        <div><strong>{powerTitle}</strong>
+          <span>{powerExplanation}</span>
         </div>
       </div>
       <div className="max-power-pulse">
@@ -232,9 +245,9 @@ export default function MaxPowerPanel(){
           {model?.retry_at && <small>Próximo intento a partir de las {clock(model.retry_at)}</small>}
           {qwen?.completed != null && qwen.completed > 0 && <small>{f(qwen.completed)} ensayos sintéticos terminados</small>}
         </div>
-        <div className="max-power-stage" data-state={cpuRunning ? "running" : data?.enabled ? "waiting" : "off"}>
+        <div className="max-power-stage" data-state={cpuRunning ? "running" : cpuLabFinished ? "complete" : data?.enabled ? "waiting" : "off"}>
           <h4>{cpuStatus?.training_kind === "curated_synthetic" ? "LoRA CPU · laboratorio sintético" : "Entrenamiento LoRA CPU"}</h4>
-          <strong>{cpuRunning ? "Proceso activo" : data?.enabled ? "En espera" : "En pausa"}</strong>
+          <strong>{cpuRunning ? "Entrenando pesos" : cpuPreparing ? "Preparando entrenamiento" : cpuLabFinished ? "Prueba LoRA sintética completada" : data?.enabled ? "En espera" : "En pausa"}</strong>
           <p>{data?.enabled ? cpuStatus?.reason ?? "Esperando al supervisor" : "Se conservan los checkpoints."}</p>
           {cpuStatus?.synthetic_weights_trained && <small>Pesos de prueba actualizados con ejemplos ficticios. No hay mejora comprobada del modelo de Messenger.</small>}
           {cpuStatus?.last_update_at && <small>Supervisor {clock(cpuStatus.last_update_at)}</small>}

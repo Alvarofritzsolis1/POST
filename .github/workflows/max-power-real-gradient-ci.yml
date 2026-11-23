@@ -1,0 +1,339 @@
+name: MAX POWER - LoRA CPU con pesos reales (laboratorio aislado)
+on:
+  pull_request:
+    paths:
+      - scripts/train_galancito_cpu_lora.py
+      - scripts/max_power_cpu_manager.py
+      - scripts/max_power_synthetic_lab.py
+      - scripts/galancito_lora_progress.py
+      - apps/backend/tests/test_max_power_one_button_readiness.py
+      - infrastructure/Dockerfile.cpu-lora
+      - .github/workflows/max-power-real-gradient-ci.yml
+permissions:
+  contents: read
+jobs:
+  gradiente_cpu:
+    name: Actualizar pesos sintéticos realmente con Qwen 0.8B en 5 GiB
+    runs-on: ubuntu-24.04
+    timeout-minutes: 55
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - name: Compilar contenedor de entrenamiento SIN secretos, bases de datos ni Messenger
+        run: |
+          set -Eeuo pipefail
+          docker build -f infrastructure/Dockerfile.cpu-lora -t galant-cpu-lora-smoke:ci .
+      - name: Crear volumen aislado para datos sintéticos verificables
+        shell: bash
+        run: |
+          set -Eeuo pipefail
+          mkdir -p "$RUNNER_TEMP/maxpower-private"
+          sudo chown 10001:10001 "$RUNNER_TEMP/maxpower-private"
+          sudo chmod 0700 "$RUNNER_TEMP/maxpower-private"
+          docker run --rm --memory 5g --memory-swap 5g --cpus 2 \
+            -v "$RUNNER_TEMP/maxpower-private:/private" \
+            --entrypoint python galant-cpu-lora-smoke:ci \
+            -c 'import sys;sys.path.insert(0,"/src/scripts");sys.path.insert(0,"/src/apps/backend");from max_power_synthetic_lab import prepare_lab;from pathlib import Path;r,b=prepare_lab(Path("/private/ci"));print("CASOS:",sum(b["sizes"].values()),"PARTICIONES:",b["sizes"],"TIPO:",b["data_kind"])'
+      - name: Medir cgroup y memoria, sin entrenar
+        run: |
+          set -Eeuo pipefail
+          docker run --rm --memory 5g --memory-swap 5g --cpus 2 \
+            -v "$RUNNER_TEMP/maxpower-private:/private" \
+            galant-cpu-lora-smoke:ci --preflight
+      - name: Ejecutar los 4 pasos REALES de LoRA del supervisor de MAX POWER
+        shell: bash
+        run: |
+          set -Eeuo pipefail
+          docker run --rm --memory 5g --memory-swap 5g --cpus 2 \
+            --pids-limit 96 \
+            --security-opt no-new-privileges --cap-drop ALL \
+            -e GALANT_SYNTHETIC_DEV_TRAINING=yes \
+            -v "$RUNNER_TEMP/maxpower-private:/private" \
+            galant-cpu-lora-smoke:ci \
+            --dataset /private/ci/synthetic-lab-galant-curated-synthetic-intake-2/synthetic.jsonl \
+            --output /private/ci/synthetic-lab-galant-curated-synthetic-intake-2/runs/ci-gradient-smoke \
+            --execute --synthetic-development --max-steps 4 \
+            --checkpoint-steps 2 --max-tokens 96
+      - name: Verificar pasos, pesos, checkpoints, holdout y ausencia de promoción
+        run: |
+          set -Eeuo pipefail
+          docker run --rm --memory 5g --memory-swap 5g --cpus 2 \
+            -v "$RUNNER_TEMP/maxpower-private:/private" \
+            --entrypoint python galant-cpu-lora-smoke:ci -c '
+          import json
+          from pathlib import Path
+          output=Path("/private/ci/synthetic-lab-galant-curated-synthetic-intake-2/runs/ci-gradient-smoke")
+          report=json.loads((output/"evaluation.json").read_text())
+          assert report["data_kind"]=="curated_synthetic", report
+          assert report["base_model"]=="Qwen/Qwen3.5-0.8B", report
+          assert report["weights_trained"] is True
+          assert report["new_optimizer_steps"]==4, report
+          assert report["optimizer_start_sha256"] != report["optimizer_end_sha256"]
+          assert report["reasoning_improvement_proven"] is False
+          assert report["production_promoted"] is False
+          assert (output/"candidate-adapter"/"adapter_model.safetensors").is_file()
+          assert list((output/"checkpoints").glob("checkpoint-*/optimizer.pt"))
+          assert any(p.name=="checkpoint-4" for p in (output/"checkpoints").glob("checkpoint-*"))
+          # The same manager that runs behind the MAX POWER button must
+          # accept the REAL training artifacts, not only this CI assertion.
+          import sys
+          sys.path.insert(0, "/src/scripts")
+          from max_power_cpu_manager import verified_finished_run
+          assert verified_finished_run(output, report["dataset_sha256"])
+          assert not verified_finished_run(output, "0"*64)
+          journal=[json.loads(line) for line in (output/"training-metrics.jsonl").read_text().splitlines()]
+          assert any(x["kind"]=="finished" and x["weights_trained"] is True
+                     and x["data_kind"]=="curated_synthetic" for x in journal)
+          print("LO-RA CPU: PESOS MODIFICADOS Y ADAPTADOR RECUPERABLE EN LABORATORIO")
+          '
+      - name: Probar supervisor real y sus 4 gradientes detrás de MAX POWER ON
+        shell: bash
+        run: |
+          set -Eeuo pipefail
+          docker run --rm --memory 5g --memory-swap 5g --cpus 1.5 \
+            --pids-limit 96 --security-opt no-new-privileges --cap-drop ALL \
+            -e GALANT_MAX_POWER_SYNTHETIC_LORA=yes \
+            -e GALANT_CI_ISOLATED_CPU_SMOKE=yes \
+            -v "$RUNNER_TEMP/maxpower-private:/private" \
+            --entrypoint python galant-cpu-lora-smoke:ci \
+            /src/scripts/max_power_end_to_end_smoke.py
+      - name: Interrumpir Qwen LoRA a mitad de entrenamiento y comprobar checkpoint 2
+        shell: bash
+        run: |
+          set -Eeuo pipefail
+          private="$RUNNER_TEMP/maxpower-private"
+          root="$private/ci/synthetic-lab-galant-curated-synthetic-intake-2/runs/ci-interrupted-resume"
+          docker run -d --name galant-cpu-lora-interrupt \
+            --memory 5g --memory-swap 5g --cpus 1.5 --pids-limit 96 \
+            --security-opt no-new-privileges --cap-drop ALL \
+            -e GALANT_SYNTHETIC_DEV_TRAINING=yes \
+            -v "$private:/private" galant-cpu-lora-smoke:ci \
+            --dataset /private/ci/synthetic-lab-galant-curated-synthetic-intake-2/synthetic.jsonl \
+            --output /private/ci/synthetic-lab-galant-curated-synthetic-intake-2/runs/ci-interrupted-resume \
+            --execute --synthetic-development --max-steps 4 \
+            --checkpoint-steps 2 --max-tokens 96
+          checkpoint="$root/checkpoints/checkpoint-2"
+          for iteration in $(seq 1 220); do
+            if sudo test -s "$checkpoint/trainer_state.json" \
+               && sudo test -s "$checkpoint/optimizer.pt" \
+               && sudo test -s "$checkpoint/scheduler.pt"; then
+              echo "MAX_POWER_CHECKPOINT_2=disk_persisted"
+              break
+            fi
+            if [ "$(docker inspect -f '{{.State.Running}}' galant-cpu-lora-interrupt)" != "true" ]; then
+              docker logs --tail 35 galant-cpu-lora-interrupt
+              echo "Entrenamiento terminó antes de guardar checkpoint-2" >&2
+              exit 1
+            fi
+            sleep 1
+          done
+          sudo test -s "$checkpoint/optimizer.pt"
+          # Do not invent pause: stop a still-running process after a full checkpoint.
+          if [ "$(docker inspect -f '{{.State.Running}}' galant-cpu-lora-interrupt)" != "true" ]; then
+            echo "El proceso terminó antes de aplicar interrupción" >&2
+            exit 1
+          fi
+          docker stop -t 1 galant-cpu-lora-interrupt >/dev/null
+          docker rm -f galant-cpu-lora-interrupt >/dev/null
+          sudo test -s "$checkpoint/optimizer.pt"
+          if sudo test -f "$root/evaluation.json"; then
+            echo "El entrenamiento llegó al final antes de la interrupción" >&2
+            exit 1
+          fi
+          echo "MAX_POWER_INTERRUPTED=checkpoint_2_saved_and_not_finished"
+      - name: Reanudar los 2 pasos restantes sin borrar pesos ni metadatos
+        shell: bash
+        run: |
+          set -Eeuo pipefail
+          docker run --rm --memory 5g --memory-swap 5g --cpus 1.5 \
+            --pids-limit 96 --security-opt no-new-privileges --cap-drop ALL \
+            -e GALANT_SYNTHETIC_DEV_TRAINING=yes \
+            -v "$RUNNER_TEMP/maxpower-private:/private" \
+            galant-cpu-lora-smoke:ci \
+            --dataset /private/ci/synthetic-lab-galant-curated-synthetic-intake-2/synthetic.jsonl \
+            --output /private/ci/synthetic-lab-galant-curated-synthetic-intake-2/runs/ci-interrupted-resume \
+            --execute --synthetic-development --resume \
+            --max-steps 4 --checkpoint-steps 2 --max-tokens 96
+      - name: Validar recuperación desde checkpoint 2 y solo 2 actualizaciones nuevas
+        shell: bash
+        run: |
+          set -Eeuo pipefail
+          docker run --rm --memory 5g --memory-swap 5g --cpus 2 \
+            -v "$RUNNER_TEMP/maxpower-private:/private" \
+            --entrypoint python galant-cpu-lora-smoke:ci -c '
+          import json,sys
+          from pathlib import Path
+          sys.path.insert(0,"/src/scripts")
+          from max_power_cpu_manager import verified_finished_run
+          p=Path("/private/ci/synthetic-lab-galant-curated-synthetic-intake-2/runs/ci-interrupted-resume")
+          report=json.loads((p/"evaluation.json").read_text())
+          assert report["steps"] == 4
+          assert report["new_optimizer_steps"] == 2, report
+          assert report["optimizer_start_sha256"] != report["optimizer_end_sha256"]
+          assert (p/"checkpoints/checkpoint-4/optimizer.pt").is_file()
+          assert verified_finished_run(p,report["dataset_sha256"])
+          assert report["reasoning_improvement_proven"] is False
+          assert report["production_promoted"] is False
+          print("MAX_POWER_RESUME=checkpoint_2_to_4_with_real_weight_changes")
+          '
+      - name: Limpiar procesos temporales de pausa
+        if: always()
+        run: docker rm -f galant-cpu-lora-interrupt >/dev/null 2>&1 || true
+      - name: Eliminar el volumen efímero de entrenamiento
+        if: always()
+        shell: bash
+        run: |
+          sudo rm -rf -- "$RUNNER_TEMP/maxpower-private"
+
+  qwen4b_aislado:
+    name: Inferencia REAL Qwen 3.5 4B aislada; sin datos ni servicios de GALANT
+    runs-on: ubuntu-24.04
+    timeout-minutes: 35
+    steps:
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - name: Iniciar Ollama exclusivo de pruebas
+        shell: bash
+        run: |
+          set -Eeuo pipefail
+          docker run -d --name galant-maxpower-qwen4b-qa \
+            --memory 7g --cpus 2 --pids-limit 128 \
+            --security-opt no-new-privileges --cap-drop ALL \
+            -p 127.0.0.1:11536:11434 ollama/ollama:latest serve
+          for i in {1..30}; do
+            if curl -fsS --max-time 2 http://127.0.0.1:11536/api/tags >/dev/null; then
+              echo "OLLAMA_AISLADO=disponible"; break
+            fi
+            sleep 2
+          done
+          curl -fsS --max-time 4 http://127.0.0.1:11536/api/tags >/dev/null
+      - name: Descargar Qwen3.5 4B solo para QA, nunca desde Messenger
+        run: docker exec galant-maxpower-qwen4b-qa ollama pull qwen3.5:4b-q4_K_M
+      - name: Verificar inferencia, modelo exacto, respuesta y ausencia de montos inventados
+        shell: bash
+        run: |
+          set -Eeuo pipefail
+          python3 - <<'PY'
+          import json,re,time
+          from urllib.request import Request,urlopen
+          endpoint="http://127.0.0.1:11536/api/chat"
+          prompts=(
+              ("Hola, soy maestro carpintero y ando buscando pega.",
+               "Pregunta de manera simple en qué comuna busca trabajo. No inventes avisos."),
+              ("Vi un aviso pero no me acuerdo cuál. ¿Cuánto están pagando?",
+               "Sin el aviso exacto no se conoce el sueldo. No inventes cifras; pide identificar el aviso.")
+          )
+          for i,(prompt,task) in enumerate(prompts,1):
+              body={"model":"qwen3.5:4b-q4_K_M", "stream":False,
+                    "think":False, "keep_alive":"1m",
+                    "messages":[{"role":"system","content":(
+                      "Eres Galancito, ayudas a personas de oficios en Chile. "
+                      "Responde en español claro y cálido, con una pregunta a la vez, sin tecnicismos. "
+                      "No inventes cupos, pagos, contrataciones, contactos ni datos personales. "+task)},
+                      {"role":"user","content":prompt}],
+                    "options":{"num_ctx":1024,"num_predict":96,"num_thread":2,"temperature":0.1}}
+              request=Request(endpoint,data=json.dumps(body).encode(),method="POST",
+                              headers={"Content-Type":"application/json"})
+              started=time.monotonic()
+              with urlopen(request,timeout=360) as response:
+                  answer=json.load(response)
+              elapsed=round((time.monotonic()-started)*1000)
+              assert answer.get("model")=="qwen3.5:4b-q4_K_M", answer.get("model")
+              text=(answer.get("message") or {}).get("content","").strip()
+              assert 10<=len(text)<=650, "Sin respuesta útil"
+              assert "<think>" not in text.lower()
+              assert not re.search(r"\b(asistente virtual|soy un bot)\b",text,re.I)
+              if i==2:
+                  assert not re.search(r"\$\s*\d|\b\d[\d.,]+\s*(?:pesos|clp)\b",text,re.I), "Pago inventado"
+              print(f"QWEN4B_QA_{i}=respuesta_verificable LATENCIA_MS={elapsed} CARACTERES={len(text)}")
+          print("QWEN4B_QA=real_model_ran_privately_no_production_changes")
+          PY
+      - name: Probar el cliente Qwen 4B real de MAX POWER (no solo Ollama)
+        shell: bash
+        run: |
+          set -Eeuo pipefail
+          python3 -m pip install --quiet 'pydantic-settings>=2,<3'
+          GALANT_MAX_POWER_ISOLATED=true python3 - <<'PY'
+          import sys
+          from types import SimpleNamespace
+          sys.path.insert(0,"apps/backend")
+          from app import galancito_local as client
+          QWEN_4B="qwen3.5:4b-q4_K_M"
+          assert client.MAX_POWER_ISOLATED is True
+          # Isolated GitHub runner endpoint, NEVER a production service.
+          client.TRAINING_OLLAMA="http://127.0.0.1:11536"
+          cfg=SimpleNamespace(galancito_local_model=QWEN_4B,
+              galancito_keep_alive="1m",galancito_num_ctx=1024,
+              galancito_num_predict=96,galancito_num_thread=2)
+          reply=client.generate_training_text(
+              "Asesor de oficios. Español claro, amable, una pregunta a la vez. Sin suponer cupos ni pagos.",
+              "Hola, soy electricista, ¿cómo puedo ofrecer mis servicios?",25,cfg,thinking=False)
+          source=client.last_timings.get().get("response_model")
+          assert source==QWEN_4B,(source,repr(reply))
+          assert isinstance(reply,str) and len(reply.strip())>=10
+          print("MAX_POWER_QWEN4B_CLIENT=verified_real_isolated_inference")
+          PY
+
+      - name: Verificar mensajes difíciles usando las instrucciones REALES de Messenger
+        shell: bash
+        run: |
+          set -Eeuo pipefail
+          python3 - <<'PY'
+          import ast,json,re,time
+          from pathlib import Path
+          from urllib.request import Request,urlopen
+          tree=ast.parse(Path("apps/backend/app/facebook_ai.py").read_text(encoding="utf-8"))
+          instruction=next(ast.literal_eval(node.value) for node in tree.body
+                           if isinstance(node,ast.Assign)
+                           and any(isinstance(t,ast.Name) and t.id=="LOCAL_REPLY_INSTRUCTIONS"
+                                   for t in node.targets))
+          assert len(instruction)<3300
+          cases=(
+              ("ola soi carpintreo, no se como anotarme", "typing"),
+              ("no tengo correo y no quiero dar telefono por ahora", "optional_contact"),
+              ("vi un aviso de trabajo pero no se cuanto pagan", "unknown_pay"),
+              ("tengo tres ayudantes, ellos son trabajadores contratados?", "team"),
+              ("estoy desde el celular y no entiendo esta pagina", "low_tech"),
+              ("prefiero hablar con alguien del equipo", "human"),
+              ("me piden mi rut por aqui, es obligatorio?", "privacy"),
+              ("les escribi para trabajos de gasfiteria pero no se si hay cupos", "unknown_availability"),
+          )
+          url="http://127.0.0.1:11536/api/chat"
+          for i,(question,case) in enumerate(cases,1):
+              body={"model":"qwen3.5:4b-q4_K_M","stream":False,"think":False,
+                    "keep_alive":"1m",
+                    "messages":[{"role":"system","content":instruction},
+                                {"role":"user","content":question}],
+                    "options":{"num_ctx":2048,"num_predict":128,"num_thread":2,
+                               "temperature":0.0,"seed":42}}
+              req=Request(url,data=json.dumps(body,ensure_ascii=False).encode(),
+                          headers={"Content-Type":"application/json"},method="POST")
+              started=time.monotonic()
+              with urlopen(req,timeout=360) as response:
+                  result=json.load(response)
+              reply=(result.get("message") or {}).get("content","").strip()
+              assert result.get("model")=="qwen3.5:4b-q4_K_M"
+              assert 8<len(reply)<=600,(case,repr(reply))
+              assert "<think>" not in reply.lower()
+              assert not re.search(r"(?i)\bsoy (?:un |el )?(?:bot|asistente virtual)\b",reply)
+              assert not re.search(r"(?m)^\s*[1-9][\).]\s+\S",reply),case
+              if case=="unknown_pay":
+                  assert not re.search(r"\$\s*\d|\b\d[\d.,]+\s*(?:pesos|clp)\b",reply,re.I),case
+              if case=="team":
+                  assert not re.search(r"(?i)ya (?:registr[ée]|contrat[ée])",reply),case
+              if case=="human":
+                  assert not re.search(r"(?i)ya (?:te )?(?:deriv[ée]|contact[ée])",reply),case
+              print("MESSENGER_QWEN4B_REAL_POLICY_"+str(i)
+                    +"=respuesta_verificable; caracteres="+str(len(reply))
+                    +"; ms="+str(int((time.monotonic()-started)*1000)))
+          print("MESSENGER_QWEN4B_REAL_POLICY=8_scenarios_checked_no_prod_change")
+          PY
+
+      - name: Eliminar Ollama de pruebas
+        if: always()
+        run: docker rm -f galant-maxpower-qwen4b-qa || true

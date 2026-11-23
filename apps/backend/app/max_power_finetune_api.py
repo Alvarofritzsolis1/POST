@@ -13,7 +13,7 @@ from uuid import UUID
 
 from fastapi import APIRouter, Depends, Header, HTTPException, Request
 from pydantic import BaseModel, ConfigDict, Field
-from sqlalchemy import select
+from sqlalchemy import and_, or_, select
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
 
@@ -85,6 +85,7 @@ AUTOMATION_STATES = {
     "off": "MAX POWER apagado: entrenamiento neuronal detenido",
     "awaiting_approved_dataset": "Falta un conjunto real autorizado y firmado para LoRA CPU",
     "synthetic_data_invalid": "Corpus sintético no válido o modificado: entrenamiento de prueba detenido",
+    "preparing_synthetic": "Preparando Qwen 0.8B y datos ficticios; todavía no hay pasos de entrenamiento",
     "training_synthetic": "Entrenando adaptador LoRA 0.8B con datos ficticios en laboratorio; no modifica Messenger",
     "finished_synthetic": "Prueba LoRA con datos ficticios finalizada; requiere casos reales autorizados para avanzar",
     "awaiting_resources": "RAM o disco insuficientes; se protege Messenger",
@@ -125,7 +126,7 @@ class SupervisorStatus(BaseModel):
     org_id: UUID
     generation: int = Field(ge=1)
     status: Literal["off", "awaiting_approved_dataset", "awaiting_resources",
-                    "synthetic_data_invalid", "training_synthetic", "finished_synthetic",
+                    "synthetic_data_invalid", "preparing_synthetic", "training_synthetic", "finished_synthetic",
                     "messenger_priority", "practice_priority", "cpu_waiting_turn",
                     "retry_cooldown", "retry_exhausted", "preflight", "training", "pausing",
                     "paused", "finished", "awaiting_new_dataset",
@@ -149,10 +150,17 @@ def automated_plan(x_galant_manager_timestamp: str = Header(default=""),
     from .galancito_training_models import ACTIVE, TrainingRound
     practice_busy = bool(db.scalar(select(TrainingRound.id).where(
         TrainingRound.state.in_(ACTIVE)).limit(1)))
-    # Synthetic Qwen reply runs are not TrainingRound rows; honor their lease.
+    # Qwen4B evaluations are NOT TrainingRound rows. Reserve the shared CPU
+    # for queued work due shortly as well as in-progress leases. Otherwise the
+    # LoRA manager could start at exactly the moment a Qwen job gets claimed.
+    now = utcnow()
     practice_busy = practice_busy or bool(db.scalar(select(MaxPowerMessengerTrial.id).where(
-        MaxPowerMessengerTrial.status == "running",
-        MaxPowerMessengerTrial.lease_until > utcnow()
+        or_(
+            and_(MaxPowerMessengerTrial.status == "queued",
+                 MaxPowerMessengerTrial.next_at <= now + timedelta(seconds=90)),
+            and_(MaxPowerMessengerTrial.status == "running",
+                 MaxPowerMessengerTrial.lease_until > now),
+        )
     ).limit(1)))
     return {
         "enabled": True, "org_id": row.org_id,

@@ -99,13 +99,45 @@ def approved_inputs(root: Path, data: Path, manifest: Path, public_key: str):
     return bundle, attestation
 
 
+def verified_finished_run(path: Path, digest: str) -> bool:
+    """A marker file alone never proves that optimizer weights changed."""
+    evidence = path / "evaluation.json"
+    adapter = path / "candidate-adapter" / "adapter_model.safetensors"
+    metadata_path = path / "run-metadata.json"
+    if (path.is_symlink() or evidence.is_symlink() or adapter.is_symlink()
+            or metadata_path.is_symlink() or not adapter.is_file()
+            or adapter.stat().st_size == 0 or not metadata_path.is_file()):
+        return False
+    try:
+        report = json.loads(evidence.read_text(encoding="utf-8"))
+        metadata = json.loads(metadata_path.read_text(encoding="utf-8"))
+        beginning, ending = report.get("optimizer_start_sha256"), report.get("optimizer_end_sha256")
+        return bool(
+            report.get("dataset_sha256") == digest
+            and metadata.get("dataset_sha256") == digest
+            and report.get("data_kind") in ("curated_synthetic", "human_reviewed_real")
+            and report.get("data_kind") == metadata.get("data_kind")
+            and report.get("base_model") == MODEL
+            and report.get("weights_trained") is True
+            and report.get("lora_weights_changed") is True
+            and report.get("production_promoted") is False
+            and type(report.get("new_optimizer_steps")) is int
+            and report["new_optimizer_steps"] > 0
+            and isinstance(beginning, str) and re.fullmatch(r"[0-9a-f]{64}", beginning)
+            and isinstance(ending, str) and re.fullmatch(r"[0-9a-f]{64}", ending)
+            and beginning != ending
+        )
+    except (OSError, TypeError, ValueError, KeyError, json.JSONDecodeError):
+        return False
+
+
 def select_run(root: Path, digest: str) -> tuple[Path, bool, str]:
     """One deterministic 4-step pilot per signed dataset; no endless fake epochs."""
     path = root / "runs" / ("cpu-automatic-" + digest[:24])
     if not path.exists():
         return path, False, "new"
     if (path / "evaluation.json").exists():
-        return path, False, "finished"
+        return path, False, "finished" if verified_finished_run(path, digest) else "cannot_resume"
     checkpoints = list((path / "checkpoints").glob("checkpoint-*"))
     good = [p for p in checkpoints if p.is_dir()
             and (p / "trainer_state.json").is_file()
@@ -201,6 +233,32 @@ def launch(root: Path, output: Path, resume: bool, org: str, generation: int,
     return subprocess.Popen(args, env=env, close_fds=True)
 
 
+def newly_recorded_optimizer_step(output: Path, initial_bytes: int) -> bool:
+    """Only report training after a NEW optimizer step appears in journal.
+
+    A process, a model download or an inherited checkpoint is not learning.
+    """
+    journal = output / "training-metrics.jsonl"
+    try:
+        if journal.is_symlink() or not journal.is_file():
+            return False
+        with journal.open("rb") as stream:
+            stream.seek(initial_bytes)
+            for line in stream:
+                try:
+                    item = json.loads(line)
+                except (ValueError, UnicodeDecodeError):
+                    continue
+                if (item.get("data_kind") == "curated_synthetic"
+                        and item.get("kind") in ("metric", "checkpoint")
+                        and type(item.get("step")) is int
+                        and item["step"] > 0):
+                    return True
+    except (OSError, ValueError):
+        return False
+    return False
+
+
 def run_once(secret: str, plan: dict, public_key: str, last_preflight: dict,
              status_cache: dict | None = None) -> None:
     chosen = valid_plan(plan)
@@ -291,7 +349,9 @@ def run_once(secret: str, plan: dict, public_key: str, last_preflight: dict,
         return
     control = root / ".max-power-automatic-control.json"
     write_control(control, org, generation, True)
-    report("training_synthetic" if synthetic else "training")
+    journal = output / "training-metrics.jsonl"
+    initial_bytes = journal.stat().st_size if journal.is_file() and not journal.is_symlink() else 0
+    report("preparing_synthetic" if synthetic else "training")
     child = launch(root, output, resume, org, generation, token, public_key, control,
                    synthetic=synthetic)
     paused_since = None
@@ -318,10 +378,16 @@ def run_once(secret: str, plan: dict, public_key: str, last_preflight: dict,
                 child.terminate()
         else:
             paused_since = None
-            report("training_synthetic" if synthetic else "training")  # supervised heartbeat
+            report(("training_synthetic" if newly_recorded_optimizer_step(output, initial_bytes)
+                    else "preparing_synthetic") if synthetic else "training")  # supervised heartbeat
     code = child.wait()
     if code == 0:
-        report("finished_synthetic" if synthetic else "finished")
+        if verified_finished_run(output, bundle["dataset_digest"]):
+            report("finished_synthetic" if synthetic else "finished")
+        else:
+            # Exit zero alone is not proof of a completed gradient update.
+            record_failure(root, bundle["dataset_digest"])
+            report("failed")
     elif code == 3 or (code == -15 and paused_since is not None):
         report("paused")
     else:

@@ -116,7 +116,19 @@ def test_supervisor_rejects_unsafe_paths_and_never_signs_unapproved_dataset(tmp_
         (checkpoint / name).write_text("placeholder")
     assert mod.select_run(folder, "f" * 64)[1:] == (True, "resume")
     (path / "evaluation.json").write_text("{}")
+    assert mod.select_run(folder, "f" * 64)[2] == "cannot_resume"
+    (path / "candidate-adapter").mkdir()
+    (path / "candidate-adapter" / "adapter_model.safetensors").write_bytes(b"checkpoint")
+    (path / "run-metadata.json").write_text(json.dumps({"dataset_sha256": "f" * 64, "data_kind": "curated_synthetic"}))
+    (path / "evaluation.json").write_text(json.dumps({
+        "dataset_sha256": "f" * 64, "base_model": mod.MODEL, "data_kind": "curated_synthetic",
+        "weights_trained": True, "lora_weights_changed": True,
+        "production_promoted": False, "new_optimizer_steps": 2,
+        "optimizer_start_sha256": "a" * 64, "optimizer_end_sha256": "b" * 64,
+    }))
     assert mod.select_run(folder, "f" * 64)[2] == "finished"
+    (path / "evaluation.json").write_text(json.dumps({"weights_trained": True}))
+    assert mod.select_run(folder, "f" * 64)[2] == "cannot_resume"
 
 
 def test_automatic_cpu_training_honors_off_and_preserves_checkpoint(tmp_path):
@@ -246,3 +258,150 @@ def test_failed_cpu_runs_have_persistent_exponential_backoff_and_hard_cap(tmp_pa
     clock[0] += 999999
     assert mod.retry_state(root, digest)[0] == 3
     assert not mod.retry_ready(root, digest)
+
+
+
+def test_one_button_with_no_real_dataset_launches_isolated_curated_lab(tmp_path, monkeypatch):
+    """Button ON schedules a real child execution; only signed telemetry proves gradients."""
+    mod = manager()
+    mod.HOME = tmp_path
+    monkeypatch.setenv("GALANT_MAX_POWER_SYNTHETIC_LORA", "yes")
+    org = str(uuid4())
+    plan = {"enabled": True, "org_id": org, "generation": 7,
+            "messenger_busy": False, "practice_busy": False}
+    reports, launches = [], []
+    def api_call(path, secret, body=None):
+        if path == "/automation/status":
+            reports.append(body["status"])
+            return {"accepted": True}
+        return plan
+    mod.api_call = api_call
+    mod.snapshot = lambda target: {
+        "host_free_mb": 9600, "cgroup_limit_mb": 5120,
+        "cgroup_free_mb": 5060, "cgroup_used_mb": 60,
+        "disk_free_mb": 140000, "logical_cpu_count": 6,
+        "process_rss_mb": 30,
+    }
+    mod.ProgressReporter = lambda *args, **kwargs: type(
+        "Fake", (), {"emit": lambda self,*a,**kw:{}, "close":lambda self:None})()
+    class FinishedProcess:
+        def poll(self): return 0
+        def wait(self): return 0
+    def fake_launch(root, output, resume, org_arg, generation, token, public_key, control,
+                    *, synthetic=False):
+        launches.append({"root": root, "output": output, "synthetic": synthetic,
+                         "resume": resume, "org": org_arg})
+        return FinishedProcess()
+    mod.launch = fake_launch
+    mod.run_once("a" * 64, plan, "", {})
+    assert launches and launches[0]["synthetic"] is True
+    assert launches[0]["root"].name == "synthetic-lab-galant-curated-synthetic-intake-2"
+    assert launches[0]["org"] == org
+    assert launches[0]["resume"] is False
+    assert (launches[0]["root"] / "synthetic.jsonl").is_file()
+    assert "preparing_synthetic" in reports
+    assert "training_synthetic" not in reports
+    # A fake child returning exit 0 cannot invent an optimizer result.
+    assert reports[-1] == "failed"
+    assert mod.select_run(launches[0]["root"], "0" * 64)[2] == "new"
+
+
+
+def test_real_api_button_off_revokes_manager_training_lease(ai_env, tmp_path, monkeypatch):
+    """Real admin API and HMAC manager handshake; synthetic model child is mocked.
+
+    Neural gradient bytes are tested separately on actual Qwen in ML CI.
+    """
+    client = ai_env["client"]
+    admin = signin(client, "admin")
+    monkeypatch.setenv("GALANT_FINETUNE_METRICS_SECRET", MASTER)
+    monkeypatch.setenv("GALANT_MAX_POWER_SYNTHETIC_LORA", "yes")
+    mod = manager()
+    mod.HOME = tmp_path
+    mod.snapshot = lambda target: {
+        "host_free_mb": 9600, "cgroup_limit_mb": 5120,
+        "cgroup_free_mb": 5070, "cgroup_used_mb": 50,
+        "disk_free_mb": 140000, "logical_cpu_count": 6,
+        "process_rss_mb": 20,
+    }
+    mod.ProgressReporter = lambda *args, **kwargs: type(
+        "Fake", (), {"emit": lambda self,*a,**kw:{}, "close":lambda self:None})()
+    def signed_api(path, secret, *, body=None):
+        url = BASE + "/finetune" + path
+        response = (client.get(url, headers=headers()) if body is None
+                    else client.post(url, headers=headers(), json=body))
+        if response.status_code >= 400:
+            raise OSError("La sesión apagada rechaza estados obsoletos")
+        return response.json()
+    mod.api_call = signed_api
+    started = client.post(BASE + "/control/on", headers=admin)
+    assert started.status_code == 200
+    plan = signed_api("/automation/plan", MASTER)
+    assert plan["enabled"] is True
+    launched = []
+    class Child:
+        seen = 0
+        def poll(self):
+            self.seen += 1
+            return None if self.seen == 1 else 3
+        def wait(self): return 3
+        def terminate(self): pass
+    def child_launch(root, output, resume, org, generation, token, public_key,
+                     control, *, synthetic=False):
+        assert synthetic is True and generation == plan["generation"]
+        launched.append(control)
+        return Child()
+    mod.launch = child_launch
+    def power_off_during_training(_seconds):
+        res = client.post(BASE + "/control/off", headers=admin)
+        assert res.status_code == 200
+    mod.sleep = power_off_during_training
+    mod.run_once(MASTER, plan, "", {}, {})
+    assert launched, "El botón no inició el supervisor sintético"
+    lease = json.loads(launched[0].read_text())
+    assert lease["allowed"] is False
+    assert lease["generation"] == plan["generation"]
+    result = client.get(BASE, headers=admin).json()
+    assert result["enabled"] is False
+    assert result["cpu_learning"]["status"] == "off"
+    assert result["cpu_learning"]["synthetic_weights_trained"] is False
+
+
+def test_auto_plan_reserves_cpu_for_queued_qwen4b_before_lora(ai_env, monkeypatch):
+    """Queued work about to start cannot race the separate LoRA process."""
+    from datetime import timedelta
+    from app.models import utcnow
+    from app.max_power_models import MaxPowerMessengerTrial
+
+    monkeypatch.setenv("GALANT_FINETUNE_METRICS_SECRET", MASTER)
+    client = ai_env["client"]
+    admin = signin(client, "admin")
+    assert client.post(BASE + "/control/on", headers=admin).status_code == 200
+    url = BASE + "/finetune/automation/plan"
+    assert client.get(url, headers=headers()).json()["practice_busy"] is False
+
+    with ai_env["sessions"].begin() as db:
+        trial = MaxPowerMessengerTrial(
+            org_id=ai_env["org_id"], criterion="synthetic_reply",
+            variant="baseline", status="queued",
+            next_at=utcnow() + timedelta(seconds=30))
+        db.add(trial)
+        db.flush()
+        trial_id = trial.id
+    assert client.get(url, headers=headers()).json()["practice_busy"] is True
+
+    with ai_env["sessions"].begin() as db:
+        trial = db.get(MaxPowerMessengerTrial, trial_id)
+        trial.next_at = utcnow() + timedelta(hours=2)
+    assert client.get(url, headers=headers()).json()["practice_busy"] is False
+
+    with ai_env["sessions"].begin() as db:
+        trial = db.get(MaxPowerMessengerTrial, trial_id)
+        trial.status = "running"
+        trial.lease_until = utcnow() + timedelta(minutes=3)
+    assert client.get(url, headers=headers()).json()["practice_busy"] is True
+
+    with ai_env["sessions"].begin() as db:
+        trial = db.get(MaxPowerMessengerTrial, trial_id)
+        trial.lease_until = utcnow() - timedelta(seconds=1)
+    assert client.get(url, headers=headers()).json()["practice_busy"] is False

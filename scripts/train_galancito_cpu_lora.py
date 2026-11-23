@@ -333,8 +333,13 @@ def main(argv=None):
             dataloader_num_workers=0,report_to="none",use_cpu=True,
             fp16=False,bf16=False,remove_unused_columns=False,
             optim="adamw_torch",disable_tqdm=True,
-            save_safetensors=True,seed=42,
+            seed=42,
         )
+        # Keep CLI control fields separate from the TrainerCallback's
+        # TrainingArguments parameter (also named 'args').
+        session_control_file = args.control_file
+        session_org = args.telemetry_org
+        session_generation = args.expected_generation
         class Monitor(TrainerCallback):
             def on_train_begin(self, args, state_, control, **kwargs):
                 # Trainer loads the checkpoint *before* on_train_begin.
@@ -359,8 +364,8 @@ def main(argv=None):
                 state["step"]=state_.global_step
                 if (should_pause(snapshot(target))
                         or not automation_allowed(
-                            args.control_file, org=args.telemetry_org,
-                            generation=args.expected_generation)):
+                            session_control_file, org=session_org,
+                            generation=session_generation)):
                     state["paused"]=True
                     control.should_save=True
                     control.should_training_stop=True

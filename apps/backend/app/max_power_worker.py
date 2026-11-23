@@ -26,7 +26,6 @@ from .max_power_decisions import QWEN_MIN_RAM_MB, can_run, classify_outcome, evi
 from .max_power_models import MaxPowerEvent, MaxPowerState, MaxPowerMessengerTrial
 from .max_power_messenger import schedule_next, process_one, schedule_synthetic_reply
 from .max_power_practice import EVENT as PRACTICE_EVENT, generate_scenarios, practice_id, run_practice
-from .config import settings
 from .galancito_general import QWEN_4B
 from .galancito_local import MAX_POWER_ISOLATED
 from .models import Organization, User, utcnow
@@ -57,6 +56,24 @@ def _pressure(name):
     except (OSError, StopIteration, ValueError):
         return 0
 
+def isolated_qwen_status(snapshot: dict, training_model=None) -> tuple[bool, str | None]:
+    """Report actual isolated Qwen4B readiness independently of Messenger."""
+    if not MAX_POWER_ISOLATED:
+        return False, "No existe un Ollama privado para la práctica"
+    if snapshot.get("available_ram_mb", 0) < QWEN_MIN_RAM_MB:
+        return False, "Qwen 4B necesita al menos 8 GB disponibles para proteger Messenger"
+    if training_model is not None:
+        problem = training_model.waiting_reason(snapshot["disk_free_mb"], QWEN_4B)
+        if problem:
+            return False, problem
+    return True, None
+
+
+def isolated_qwen_ready(snapshot: dict, training_model=None) -> bool:
+    """Boolean-compatible wrapper for existing readiness checks."""
+    return isolated_qwen_status(snapshot, training_model)[0]
+
+
 def set_wait(row, now, code, reason, seconds=RECHECK_SECONDS):
     row.last_status, row.last_reason = code, reason[:280]
     row.next_at = now + timedelta(seconds=seconds)
@@ -72,7 +89,9 @@ def _practice_or_wait(db, row, now, reason, *, qwen_ready, wait_status="awaiting
         if qwen_ready and schedule_synthetic_reply(db, row.org_id, scenarios):
             set_wait(row, now, "synthetic_model_evaluation", "Qwen 4B evalúa respuestas sintéticas en el laboratorio", 30)
             return
-        set_wait(row, now, wait_status, reason + ". La práctica sintética vigente ya se evaluó", retry_seconds)
+        detail = (". La evaluación de Qwen sigue pendiente" if not qwen_ready
+                  else ". La práctica sintética vigente ya se evaluó")
+        set_wait(row, now, wait_status, reason + detail, retry_seconds)
         return
     result = run_practice(scenarios)
     count = result["development"]["cases"] + result["holdout"]["cases"]
@@ -219,7 +238,7 @@ def _result(db, row, completed, now):
     else:
         set_wait(row, now, outcome["code"], outcome["reason"] + ". " + outcome["next"])
 
-def tick(db, sampler, *, sampled=None):
+def tick(db, sampler, *, sampled=None, training_model=None):
     """One transactional decision per organization, protected by row locks."""
     now = utcnow()
     # Lock Organization before MaxPowerState, matching the API/start() lock order.
@@ -303,12 +322,14 @@ def tick(db, sampler, *, sampled=None):
             MaxPowerEvent.round_id == row.org_id,
             MaxPowerEvent.event == "cpu_supervisor_status"))
         if (cpu_event is not None
-                and (cpu_event.evidence or {}).get("state") in ("training", "training_synthetic", "pausing", "cpu_waiting_turn")
+                and (cpu_event.evidence or {}).get("state") in ("training", "preparing_synthetic", "training_synthetic", "pausing", "cpu_waiting_turn")
                 and aware(cpu_event.created_at) >= aware(now) - timedelta(seconds=55)):
             set_wait(row, now, "cpu_neural_training",
                      ("Reservando turno para LoRA CPU verificado; práctica 4B en espera" if
                       (cpu_event.evidence or {}).get("state") == "cpu_waiting_turn" else
-                      "LoRA CPU actualiza pesos en un contenedor aislado; prueba 4B en espera"), 30)
+                      ("Preparando LoRA CPU, sin pasos nuevos verificados" if
+                       (cpu_event.evidence or {}).get("state") == "preparing_synthetic" else
+                       "LoRA CPU ejecuta pasos verificados; prueba 4B en espera")), 30)
             continue
         ok, reason = can_run(snapshot, messenger_pending=bool(
             messenger_busy(db) or messenger_recent(db)))
@@ -319,9 +340,9 @@ def tick(db, sampler, *, sampled=None):
         if not owner or not owner.enabled or owner.org_id != row.org_id or owner.role != "admin":
             set_wait(row, now, "permission_required", "No hay administrador autorizado para prácticas", 300)
             continue
-        cfg = settings()
         isolated_model_ready = MAX_POWER_ISOLATED and snapshot["available_ram_mb"] >= QWEN_MIN_RAM_MB
-        qwen_ready = isolated_model_ready and cfg.galancito_local_ai_enabled and cfg.galancito_local_model == QWEN_4B
+        # Separate training Ollama, independent of Messenger production model.
+        qwen_ready, model_problem = isolated_qwen_status(snapshot, training_model)
         if qwen_ready:
             if schedule_next(db, owner):
                 set_wait(row, now, "messenger_evaluation",
@@ -330,13 +351,19 @@ def tick(db, sampler, *, sampled=None):
         try:
             cases = collect_live_cases(db, owner)
         except ValueError as exc:
-            _practice_or_wait(db, row, now, str(exc).rstrip("."), qwen_ready=qwen_ready)
+            _practice_or_wait(db, row, now, str(exc).rstrip("."), qwen_ready=qwen_ready,
+                              wait_status="preparing_qwen" if model_problem and isolated_model_ready
+                              else "awaiting_new_evidence",
+                              retry_seconds=30 if model_problem and isolated_model_ready else 600)
             continue
         # Eight reserved pairs are the minimum required for this live evaluator.
         if len(cases) < 16:
             _practice_or_wait(db, row, now,
                               "Se necesitan 16 casos operativos autorizados para obtener 8 pares reservados",
-                              qwen_ready=qwen_ready)
+                              qwen_ready=qwen_ready,
+                              wait_status="preparing_qwen" if model_problem and isolated_model_ready
+                              else "awaiting_new_evidence",
+                              retry_seconds=30 if model_problem and isolated_model_ready else 600)
             continue
         if not MAX_POWER_ISOLATED:
             _practice_or_wait(db, row, now, "Qwen 4B requiere un Ollama de práctica aislado",
@@ -345,6 +372,10 @@ def tick(db, sampler, *, sampled=None):
         if not isolated_model_ready:
             _practice_or_wait(db, row, now, "Qwen 4B requiere 8 GB de RAM disponible para proteger Messenger",
                               qwen_ready=False, wait_status="resource_guard", retry_seconds=RESOURCE_RECHECK_SECONDS)
+            continue
+        if model_problem:
+            _practice_or_wait(db, row, now, model_problem, qwen_ready=False,
+                              wait_status="preparing_qwen", retry_seconds=30)
             continue
         worker = db.get(TrainingWorker, 1)
         if not (worker and aware(worker.updated_at) >= aware(now) - timedelta(seconds=150)):
@@ -413,7 +444,7 @@ def main():
                     with SessionLocal.begin() as db:
                         heartbeat(db, sampled, utcnow())
                 with SessionLocal() as db:
-                    tick(db, sampler, sampled=sampled)
+                    tick(db, sampler, sampled=sampled, training_model=local_model)
                 # Container-health probe reflects a successfully completed DB tick.
                 Path("/tmp/max_power_controller_heartbeat").touch()
                 if task is not None and task.done():
