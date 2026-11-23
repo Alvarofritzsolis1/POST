@@ -126,6 +126,64 @@ def load_approved(path: str | Path, *, enforce_minimum: bool = True) -> dict:
             "human_approval_independently_verified": False}
 
 
+
+def verified_training_manifest(dataset_file: str | Path, manifest_file: str | Path,
+                               public_key_hex: str, *, dataset_digest: str | None = None) -> dict:
+    """Verify a separate administrator signature over the exact approved data.
+
+    Ed25519 authenticates the *signer's assertion* (not the truth of a
+    conversation). The signing key and approval evidence never enter GALANT.
+    """
+    from cryptography.exceptions import InvalidSignature
+    from cryptography.hazmat.primitives.asymmetric.ed25519 import Ed25519PublicKey
+
+    if not isinstance(public_key_hex, str) or not re.fullmatch(r"[0-9a-fA-F]{64}", public_key_hex):
+        raise ValueError("Falta clave pública Ed25519 válida, de 32 bytes")
+    path = Path(manifest_file)
+    if not path.is_file() or path.stat().st_size > 4096:
+        raise ValueError("Manifest de autorización no disponible o demasiado grande")
+    try:
+        wrapper = json.loads(path.read_text(encoding="utf-8"))
+    except (ValueError, UnicodeDecodeError) as exc:
+        raise ValueError("Manifest de autorización corrupto") from exc
+    expected_fields = {
+        "dataset_sha256", "approved_by", "approved_at", "privacy_reviewed",
+        "usage_authorized", "training_model", "purpose", "signature_ed25519",
+    }
+    if not isinstance(wrapper, dict) or set(wrapper) != expected_fields:
+        raise ValueError("Manifest de autorización incompleto o no permitido")
+    signature = wrapper.pop("signature_ed25519")
+    if not isinstance(signature, str) or not re.fullmatch(r"[0-9a-fA-F]{128}", signature):
+        raise ValueError("Firma Ed25519 no válida")
+    statement = json.dumps(wrapper, ensure_ascii=False, sort_keys=True,
+                           separators=(",", ":")).encode("utf-8")
+    try:
+        Ed25519PublicKey.from_public_bytes(bytes.fromhex(public_key_hex)).verify(
+            bytes.fromhex(signature), statement,
+        )
+    except (ValueError, InvalidSignature) as exc:
+        raise ValueError("Firma del conjunto de datos inválida o no autorizada") from exc
+    digest = dataset_digest or sha256(Path(dataset_file).read_bytes()).hexdigest()
+    if (wrapper["dataset_sha256"] != digest or wrapper["training_model"] != MODEL
+            or wrapper["usage_authorized"] is not True
+            or wrapper["privacy_reviewed"] is not True
+            or wrapper["purpose"] != "offline_galant_finetune_qwen"):
+        raise ValueError("El manifiesto no aprueba exactamente estos datos y este modelo")
+    if not isinstance(wrapper["approved_by"], str) or not re.fullmatch(
+            r"[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}",
+            wrapper["approved_by"]):
+        raise ValueError("Identificador del aprobador no válido")
+    if not isinstance(wrapper["approved_at"], str) or not re.fullmatch(
+            r"\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}Z", wrapper["approved_at"]):
+        raise ValueError("Fecha de autorización en UTC no válida")
+    return {
+        "signed": True, "dataset_digest": digest,
+        "approved_by": wrapper["approved_by"],
+        "approved_at": wrapper["approved_at"],
+        "key_fingerprint": sha256(bytes.fromhex(public_key_hex)).hexdigest()[:16],
+    }
+
+
 def verified_match(answer: str, expected: str, verifier: str) -> bool:
     """Deterministic *limited* check; not a judge of general reasoning."""
     norm = lambda x: " ".join(str(x).strip().casefold().split())
