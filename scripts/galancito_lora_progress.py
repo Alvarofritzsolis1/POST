@@ -67,6 +67,7 @@ class ProgressReporter:
         self.stop = Event()
         self.worker = None
         if self.path.exists():
+            replay = []
             for line in self.path.read_text(encoding="utf-8").splitlines():
                 if not line.strip():
                     continue
@@ -75,7 +76,11 @@ class ProgressReporter:
                     raise ValueError("Historial de métricas incompatible con esta ejecución")
                 self.sequence = max(self.sequence, int(item["sequence"]))
                 if self.url:
-                    self.queued.put_nowait(item)  # abort safely if history is over capacity
+                    replay.append(item)
+            # The complete history stays on disk; replay the latest bounded
+            # window without blocking checkpoint recovery on an old long run.
+            for item in replay[-512:]:
+                self.queued.put_nowait(item)
         if self.url:
             self.worker = Thread(target=self._send_loop, daemon=True, name="galant-lora-telemetry")
             self.worker.start()
