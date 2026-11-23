@@ -139,6 +139,67 @@ def audited_cases(channel: Literal["messenger", "general"] = "messenger",
             "note": "Casos reales auditados, sin copiar las conversaciones ni afirmar causalidad."}
 
 
+@router.get("/next")
+def next_target(channel: Literal["messenger", "general"] = "messenger",
+                user: User = Depends(administrator), db: Session = Depends(get_db)):
+    """Pick next verified deficiency deterministically. Never invent cases."""
+    results = audited_cases(channel=channel, user=user, db=db)["items"]
+    since = utcnow() - timedelta(days=30)
+    counts = {}
+    for row in reviews_for(db, user.org_id, channel, since):
+        for key in POLICIES[channel]:
+            if row.ratings.get(key) is False:
+                counts[key] = counts.get(key, 0) + 1
+    candidates = []
+    for case in results:
+        if not case["model_verified"]:
+            continue
+        original, evidence = _audit_source(db, user, case["source_id"])
+        history = evidence["history"][-5:]
+        context = "\n".join(str(item["text"])[:500] for item in history) + evidence["question"][:650]
+        if private_data(context):
+            continue
+        for key in case["failed_criteria"]:
+            previous = list(db.scalars(select(AIRealPracticeTrial).where(
+                AIRealPracticeTrial.org_id == user.org_id,
+                AIRealPracticeTrial.channel == channel,
+                AIRealPracticeTrial.criterion == key,
+            ).order_by(AIRealPracticeTrial.created_at.desc()).limit(300)))
+            done = [x for x in previous if x.review_id ==
+                    db.scalar(select(AIResponseReview.id).where(
+                        AIResponseReview.org_id == user.org_id,
+                        AIResponseReview.evidence_id == case["source_id"],
+                        AIResponseReview.channel == channel))]
+            if any(t.outcome == "pending" for t in done) or len(done) >= REPLAY_LIMIT_PER_CRITERION:
+                continue
+            # Select the strategy with strongest training evidence; explore the
+            # alternate only after a first non-successful or cancelled attempt.
+            strategies = []
+            for variant in VARIANTS:
+                seen = [x for x in previous if x.variant == variant]
+                if any(x.outcome == "worse" for x in seen):
+                    continue
+                training_wins = _successful_training(seen, variant)
+                prior_attempts = sum(x.variant == variant for x in done)
+                if training_wins >= 2 and not done:
+                    strategies.append((0, variant))
+                elif not prior_attempts:
+                    strategies.append((1 if variant == "focused" else 2, variant))
+            if not strategies:
+                continue
+            _, variant = min(strategies)
+            candidates.append((0 if key == "safety" else 1, -counts.get(key, 0),
+                               case["source_at"], case["source_id"], key, variant))
+    if not candidates:
+        return {"available": False, "reason": "No hay casos reales auditados, autorizados y elegibles para práctica local."}
+    _, minus_count, _, source_id, criterion, variant = min(candidates)
+    return {"available": True, "source_id": source_id, "criterion": criterion,
+            "variant": variant, "observed_defects": -minus_count,
+            "reason": "Seleccionado por fallas humanas verificadas y estrategia sin regresiones observadas.",
+            "model": QWEN_4B, "automatic_approval": False,
+            "caution": "La hipótesis de fallo no prueba la causa ni el éxito de una corrección."}
+
+
 @router.get("/pending")
 def pending_trials(channel: Literal["messenger", "general"] = "messenger",
                    user: User = Depends(administrator), db: Session = Depends(get_db)):
