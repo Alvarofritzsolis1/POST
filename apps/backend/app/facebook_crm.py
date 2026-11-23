@@ -485,10 +485,13 @@ async def webhook(request: Request, db: Session = Depends(get_db)):
                 reply = direct
             elif local and identity_reply(body):
                 reply = local
-            elif (local and not waiting_for_ai and not waiting_for_permission and not lead.needs_support and
-                  (lead.ai_consent or lead.ai_consent_state == "declined" or recent > 0)):
-                # Sin costos de inferencia para cortesías simples.
-                reply = local
+            elif local and not waiting_for_ai and not lead.needs_support:
+                # A greeting is always handled locally, even on the first turn
+                # or while a stale consent prompt is awaiting delivery.
+                # Disclose automation briefly once, never on every message.
+                reply = ("¡Hola! Soy Galancito, atención automática de GALANT. "
+                         "¿En qué te puedo ayudar?" if recent == 0 and
+                         analyze(body).intent == "greeting" else local)
             elif lead.ai_consent_state == "declined":
                 # No insistir con IA a quien ya la rechazó.
                 reply = None
