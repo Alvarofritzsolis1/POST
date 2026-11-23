@@ -102,6 +102,22 @@ export default function AIHumanAudit({ onPractice }: { onPractice: (channel: Cha
     finally { setBusy(false); }
   }
 
+  async function practiceNext() {
+    setBusy(true); setError("");
+    try {
+      const target = await request<{available: boolean; reason: string; source_id?: string;
+        criterion?: string; variant?: "focused" | "alternative"}>(
+          "/admin/ai/real-learning/next?channel=" + channel);
+      if (!target.available || !target.source_id || !target.criterion || !target.variant) {
+        setNotice(target.reason);
+        return;
+      }
+      setBusy(false);
+      await replayReal(target.criterion, target.source_id, target.variant);
+    } catch (err) { setError(errorText(err)); }
+    finally { setBusy(false); }
+  }
+
   async function rateReal(outcome: "better" | "same" | "worse") {
     if (!trial) return;
     setBusy(true); setError("");
@@ -194,6 +210,13 @@ export default function AIHumanAudit({ onPractice }: { onPractice: (channel: Cha
         <button type="button" disabled={busy} onClick={() => void cancelReal(trial.trial_id)}>Descartar ensayo</button>
       </div>
     </section>}
+    <div className="ai-real-practice-action">
+      <button type="button" disabled={busy} onClick={() => void practiceNext()}>
+        <Check size={14} /> Ejecutar siguiente práctica focalizada con Qwen real
+      </button>
+      <small>GALANT prioriza fallas auditadas, comprueba la ruta y selecciona una estrategia.
+        Solo se registra mejora si revisas la respuesta, y ninguna guía se activa automáticamente.</small>
+    </div>
     {pendingTrials.length > 0 && <details className="ai-human-audit-history">
       <summary>Ensayos pendientes o interrumpidos ({pendingTrials.length})</summary>
       <div>{pendingTrials.map(item => <div key={item.id} className="ai-human-audit-recovery">
