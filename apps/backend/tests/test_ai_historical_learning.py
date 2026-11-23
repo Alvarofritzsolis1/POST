@@ -68,7 +68,8 @@ def test_historical_inventory_is_private_and_includes_old_records(ai_env):
     assert forensic["signals"]["model_called_without_history"] == 1
     assert forensic["signals"]["slow_turns_over_15s"] == 1
     assert result["historical_quality_grade"] is None
-    assert result["weights_updated"] is False
+    assert result["weights_updated"] is None
+    assert result["neural_training_evidence"] == "not_recorded_in_galant"
     assert "CONFIDENTIAL-HISTORIC-MESSAGE" not in response.text
     recent = client.get(BASE + "/history?months=1").json()
     assert recent["sources"]["runs"]["count"] == 0

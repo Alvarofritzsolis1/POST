@@ -533,8 +533,9 @@ export default function AIConfiguration({ openTraining, section }: { openTrainin
           </> : <small>Historial no disponible; no se muestran cifras estimadas.</small>}
           <div className="ai-history-training">
             <b>Entrenamiento neuronal LoRA</b>
-            <span>Sin pesos nuevos instalados. El parche prepara entrenamiento GPU con datos reales corregidos,
-              consentidos y revisados fuera del VPS; no se activa con los registros históricos automáticamente.</span>
+            <span>GALANT todavía no registra pruebas de fine-tuning ni adaptadores evaluados en este módulo.
+              No se puede inferir desde aquí si existe un proceso externo. El parche prepara entrenamiento con GPU aislada,
+              datos corregidos y autorización explícita; nunca se activa automáticamente con mensajes históricos.</span>
           </div>
         </section>
         <section className="ai-real-learning-plan" aria-label="Diagnóstico de fallas reales">

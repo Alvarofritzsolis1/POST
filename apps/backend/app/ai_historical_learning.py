@@ -188,8 +188,9 @@ def historical_overview(db: Session, org_id: str, *, months: int = 0) -> dict:
         "internal_opt_in_conversations_retained": None,
         "internal_private_history_access": "not_available_for_bulk_audit",
         "historical_quality_grade": None,
-        "weights_updated": False,
-        "training_dataset_approved": False,
+        "weights_updated": None,
+        "training_dataset_approved": None,
+        "neural_training_evidence": "not_recorded_in_galant",
         "limitations": [
             "Solo se analizan registros que todavía existen en la base de datos.",
             "Las respuestas anteriores a la telemetría pueden carecer de trazas del modelo.",
