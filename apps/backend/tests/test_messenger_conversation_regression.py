@@ -85,6 +85,21 @@ def test_screenshot_greeting_gets_help_without_permission_or_inference(network, 
     assert _contact(n)["lead"]["ai_consent_state"] == "not_requested"
 
 
+def test_identity_question_is_answered_truthfully_not_as_human(network, monkeypatch):
+    n = network
+    _local_messenger(n, monkeypatch)
+    sent = []
+    monkeypatch.setattr("app.facebook_chat_worker.graph_send",
+                        lambda *a: sent.append(a[2]) or f"synthetic-identity-{len(sent)}")
+    assert incoming(n, "¿Eres una IA o una persona?", "explicit-identity").status_code == 200
+    detail = _contact(n)
+    assert detail["lead"]["ai_consent_state"] == "not_requested"
+    assert process_chat_next(n["Session"])
+    assert len(sent) == 1
+    assert "ia" in sent[0].lower() or "inteligencia artificial" in sent[0].lower()
+    assert "soy humano" not in sent[0].lower()
+
+
 def test_complex_question_resumes_after_one_permission_and_real_worker(network, monkeypatch):
     n = network
     _local_messenger(n, monkeypatch)
