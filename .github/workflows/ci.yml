@@ -242,7 +242,12 @@ jobs:
           cmd=["docker","compose","--env-file",".env.preview","-f","docker-compose.preview.yml","config","--format","json"]
           c=json.loads(subprocess.check_output(cmd,text=True))
           assert c["name"] == "galant-post-preview"
-          assert set(c["services"]) == {"db","api","worker","facebook-publisher","frontend","proxy","max-power-controller","galancito-training-ollama"}
+          assert set(c["services"]) == {"db","api","worker","facebook-publisher","frontend","proxy","max-power-controller","galancito-training-ollama","cpu-lora-manager"}
+assert not c["services"]["cpu-lora-manager"].get("ports")
+assert "DATABASE_URL" not in c["services"]["cpu-lora-manager"]["environment"]
+assert "FACEBOOK_PAGE_TOKEN" not in c["services"]["cpu-lora-manager"]["environment"]
+assert not any("/var/run/docker.sock" in str(x) for x in c["services"]["cpu-lora-manager"].get("volumes", []))
+assert str(c["services"]["cpu-lora-manager"]["mem_limit"]).lower() in ("5g","5368709120")
           assert "FACEBOOK_PAGE_TOKEN" not in c["services"]["max-power-controller"]["environment"]
           assert not c["services"]["max-power-controller"].get("ports")
           assert c["services"]["max-power-controller"]["environment"]["GALANT_MAX_POWER_ISOLATED"] == "true"
