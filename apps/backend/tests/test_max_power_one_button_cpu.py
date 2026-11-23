@@ -116,7 +116,19 @@ def test_supervisor_rejects_unsafe_paths_and_never_signs_unapproved_dataset(tmp_
         (checkpoint / name).write_text("placeholder")
     assert mod.select_run(folder, "f" * 64)[1:] == (True, "resume")
     (path / "evaluation.json").write_text("{}")
+    assert mod.select_run(folder, "f" * 64)[2] == "cannot_resume"
+    (path / "candidate-adapter").mkdir()
+    (path / "candidate-adapter" / "adapter_model.safetensors").write_bytes(b"checkpoint")
+    (path / "run-metadata.json").write_text(json.dumps({"dataset_sha256": "f" * 64}))
+    (path / "evaluation.json").write_text(json.dumps({
+        "dataset_sha256": "f" * 64, "base_model": mod.MODEL,
+        "weights_trained": True, "lora_weights_changed": True,
+        "production_promoted": False, "new_optimizer_steps": 2,
+        "optimizer_start_sha256": "a" * 64, "optimizer_end_sha256": "b" * 64,
+    }))
     assert mod.select_run(folder, "f" * 64)[2] == "finished"
+    (path / "evaluation.json").write_text(json.dumps({"weights_trained": True}))
+    assert mod.select_run(folder, "f" * 64)[2] == "cannot_resume"
 
 
 def test_automatic_cpu_training_honors_off_and_preserves_checkpoint(tmp_path):
@@ -246,3 +258,48 @@ def test_failed_cpu_runs_have_persistent_exponential_backoff_and_hard_cap(tmp_pa
     clock[0] += 999999
     assert mod.retry_state(root, digest)[0] == 3
     assert not mod.retry_ready(root, digest)
+
+
+
+def test_one_button_with_no_real_dataset_launches_isolated_curated_lab(tmp_path, monkeypatch):
+    """Button ON schedules a real child execution; only signed telemetry proves gradients."""
+    mod = manager()
+    mod.HOME = tmp_path
+    monkeypatch.setenv("GALANT_MAX_POWER_SYNTHETIC_LORA", "yes")
+    org = str(uuid4())
+    plan = {"enabled": True, "org_id": org, "generation": 7,
+            "messenger_busy": False, "practice_busy": False}
+    reports, launches = [], []
+    def api_call(path, secret, body=None):
+        if path == "/automation/status":
+            reports.append(body["status"])
+            return {"accepted": True}
+        return plan
+    mod.api_call = api_call
+    mod.snapshot = lambda target: {
+        "host_free_mb": 9600, "cgroup_limit_mb": 5120,
+        "cgroup_free_mb": 5060, "cgroup_used_mb": 60,
+        "disk_free_mb": 140000, "logical_cpu_count": 6,
+        "process_rss_mb": 30,
+    }
+    mod.ProgressReporter = lambda *args, **kwargs: type(
+        "Fake", (), {"emit": lambda self,*a,**kw:{}, "close":lambda self:None})()
+    class FinishedProcess:
+        def poll(self): return 0
+        def wait(self): return 0
+    def fake_launch(root, output, resume, org_arg, generation, token, public_key, control,
+                    *, synthetic=False):
+        launches.append({"root": root, "output": output, "synthetic": synthetic,
+                         "resume": resume, "org": org_arg})
+        return FinishedProcess()
+    mod.launch = fake_launch
+    mod.run_once("a" * 64, plan, "", {})
+    assert launches and launches[0]["synthetic"] is True
+    assert launches[0]["root"].name == "synthetic-lab"
+    assert launches[0]["org"] == org
+    assert launches[0]["resume"] is False
+    assert (launches[0]["root"] / "synthetic.jsonl").is_file()
+    assert "preparing_synthetic" in reports
+    assert "training_synthetic" not in reports
+    assert reports[-1] == "finished_synthetic"
+    assert mod.select_run(launches[0]["root"], "0" * 64)[2] == "new"
