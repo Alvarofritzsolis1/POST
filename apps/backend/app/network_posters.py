@@ -7,6 +7,7 @@ from __future__ import annotations
 
 import base64
 import binascii
+import hashlib
 import os
 import re
 from io import BytesIO
@@ -58,7 +59,9 @@ def store_poster(data: str, org_id: str, requirement_id: str) -> str:
         raise HTTPException(422, "Identificador de convocatoria inválido")
     folder = poster_directory(org_id)
     folder.mkdir(mode=0o700, parents=True, exist_ok=True)
-    destination = folder / (requirement_id + ".jpg")
+    # Immutable revision: a queued worker never reads a different picture after editing.
+    revision = hashlib.sha256(raw).hexdigest()[:20]
+    destination = folder / (requirement_id + "-" + revision + ".jpg")
     temp = folder / ("." + uuid4().hex + ".tmp")
     try:
         with temp.open("xb") as stream:
