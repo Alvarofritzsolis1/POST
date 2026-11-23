@@ -1,8 +1,8 @@
-"""Signed, org-scoped telemetry for REAL GPU QLoRA steps.
+"""Signed, org-scoped telemetry for REAL CPU LoRA and GPU QLoRA steps.
 
 No chat contents, gradients, prompts, credentials, adapters or model files cross
 this interface. An independent CUDA worker sends only allowlisted measurements.
-No endpoint can start a remote GPU, promote an adapter or change production.
+No endpoint can start a trainer, promote an adapter or change production.
 """
 from datetime import datetime, timezone, timedelta
 from hashlib import sha256
@@ -24,7 +24,7 @@ from .security import administrator
 
 router = APIRouter(prefix="/api/v1/admin/ai/max-power/finetune",
                    tags=["MAX POWER fine-tuning"])
-KINDS = ("start", "baseline", "metric", "eval", "checkpoint", "finished", "failed")
+KINDS = ("start", "baseline", "metric", "eval", "checkpoint", "finished", "failed", "paused")
 PREFIX = "ft_"
 MAX_POINTS = 300
 
@@ -34,9 +34,9 @@ class Telemetry(BaseModel):
     org_id: UUID
     run_id: UUID
     sequence: int = Field(ge=1, le=99_999_999)
-    kind: Literal["start", "baseline", "metric", "eval", "checkpoint", "finished", "failed"]
+    kind: Literal["start", "baseline", "metric", "eval", "checkpoint", "finished", "failed", "paused"]
     dataset_sha256: str = Field(pattern=r"^[a-f0-9]{64}$")
-    model: Literal["Qwen/Qwen3.5-4B"] = "Qwen/Qwen3.5-4B"
+    model: Literal["Qwen/Qwen3.5-4B", "Qwen/Qwen3.5-0.8B"] = "Qwen/Qwen3.5-4B"
     step: int = Field(ge=0, le=10_000_000)
     total_steps: int = Field(ge=0, le=10_000_000)
     epoch: float | None = Field(default=None, ge=0, le=10_000, allow_inf_nan=False)
@@ -45,6 +45,7 @@ class Telemetry(BaseModel):
     learning_rate: float | None = Field(default=None, ge=0, le=1, allow_inf_nan=False)
     grad_norm: float | None = Field(default=None, ge=0, le=1_000_000, allow_inf_nan=False)
     gpu_memory_mb: float | None = Field(default=None, ge=0, le=1_000_000, allow_inf_nan=False)
+    cpu_memory_mb: float | None = Field(default=None, ge=0, le=1_000_000, allow_inf_nan=False)
     gpu_memory_reserved_mb: float | None = Field(default=None, ge=0, le=1_000_000, allow_inf_nan=False)
     elapsed_seconds: float | None = Field(default=None, ge=0, le=100_000_000, allow_inf_nan=False)
     train_samples_per_second: float | None = Field(default=None, ge=0, le=1_000_000, allow_inf_nan=False)
@@ -147,6 +148,7 @@ def _run_view(rows):
             "grad_norm": e.evidence.get("grad_norm"),
             "learning_rate": e.evidence.get("learning_rate"),
             "gpu_memory_mb": e.evidence.get("gpu_memory_mb"),
+            "cpu_memory_mb": e.evidence.get("cpu_memory_mb"),
             "gpu_memory_reserved_mb": e.evidence.get("gpu_memory_reserved_mb"),
             "elapsed_seconds": e.evidence.get("elapsed_seconds"),
             "train_samples_per_second": e.evidence.get("train_samples_per_second"),
@@ -175,10 +177,10 @@ def progress(user: User = Depends(administrator), db: Session = Depends(get_db))
     latest = sorted(runs.values(), key=lambda items: max(r.created_at for r in items), reverse=True)
     return {
         "configured": len(os.environ.get("GALANT_FINETUNE_METRICS_SECRET", "")) >= 48,
-        "source": "signed_gpu_gradient_training_events",
+        "source": "signed_cpu_or_gpu_lora_gradient_training_events",
         "refresh_seconds": 5,
         "runs": [_run_view(rows) for rows in latest[:5]],
         "production_promoted": False,
-        "disclaimer": "Solo pasos reales reportados por un trabajador GPU autorizado; "
+        "disclaimer": "Solo pasos reportados por un trabajador CPU o GPU autorizado; "
                       "una pérdida descendente no demuestra mejora general.",
     }
