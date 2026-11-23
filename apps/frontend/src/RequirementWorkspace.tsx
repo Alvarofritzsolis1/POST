@@ -171,7 +171,7 @@ export default function RequirementWorkspace({
         <div>
           <span className="nwc-eyebrow">CENTRO DE SEGUIMIENTO · {requirement.site}</span>
           <h2>{requirement.title}</h2>
-          <p>{requirement.specialty} · {requirement.workers} {requirement.workers === 1 ? "trabajador" : "trabajadores"} · Inicio {dateText(requirement.start_date)}</p>
+          <p>{requirement.specialty} · {requirement.workers} {requirement.workers === 1 ? "trabajador" : "trabajadores"} · Inicio {requirement.start_date_pending ? "por confirmar" : dateText(requirement.start_date)}</p>
         </div>
       </div>
       <div className="nwc-header-actions">
