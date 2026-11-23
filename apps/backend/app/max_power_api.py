@@ -1,7 +1,10 @@
 """One-button MAX POWER management with persistent measurements and no fake scores."""
-from datetime import timedelta
+from datetime import datetime, timedelta, timezone
+from hashlib import sha256
+import json
 from typing import Literal
-from fastapi import APIRouter, Depends, HTTPException
+from fastapi import APIRouter, Depends, HTTPException, Query
+from fastapi.responses import Response
 from sqlalchemy import select
 from sqlalchemy.orm import Session
 
@@ -12,6 +15,7 @@ from .galancito_memory import aware
 from .galancito_training_models import ACTIVE, TrainingRound, TrainingWorker
 from .max_power_decisions import latency_diagnosis, priority_from_reviews
 from .max_power_models import MaxPowerEvent, MaxPowerState, MaxPowerMessengerTrial
+from .max_power_export import build_report, MAX_EVENTS
 from .models import AuditEvent, Organization, User, utcnow
 from .security import administrator
 
@@ -139,6 +143,27 @@ def _view(db, user, row):
 @router.get("")
 def status(user: User = Depends(administrator), db: Session = Depends(get_db)):
     return _view(db, user, db.get(MaxPowerState, user.org_id))
+
+@router.get("/export", response_class=Response)
+def export_chatgpt_report(max_events: int = Query(default=MAX_EVENTS, ge=1, le=MAX_EVENTS),
+                          user: User = Depends(administrator), db: Session = Depends(get_db)):
+    """One-click, offline JSON handoff; does not upload data to ChatGPT."""
+    report = build_report(db, user, max_events=max_events)
+    canonical = json.dumps(report, ensure_ascii=False, allow_nan=False,
+                           sort_keys=True, separators=(",", ":")).encode("utf-8")
+    report["integrity"] = {
+        "algorithm": "SHA-256",
+        "canonical_payload_without_integrity": sha256(canonical).hexdigest(),
+    }
+    content = json.dumps(report, ensure_ascii=False, allow_nan=False,
+                         indent=2, sort_keys=True).encode("utf-8")
+    stamp = datetime.now(timezone.utc).strftime("%Y%m%dT%H%M%SZ")
+    return Response(content=content, media_type="application/json", headers={
+        "Content-Disposition": f'attachment; filename="galant-max-power-chatgpt-{stamp}.json"',
+        "Cache-Control": "private, no-store, max-age=0",
+        "Pragma": "no-cache",
+        "X-Content-Type-Options": "nosniff",
+    })
 
 @router.post("/control/{action}")
 def control(action: Literal["on", "off"], user: User = Depends(administrator),
