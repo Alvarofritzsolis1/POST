@@ -141,7 +141,7 @@ export function Drawer({
       onInputCapture={(event) => { if (!workspace || (event.target as HTMLElement).closest(".nwc-track")) dirty.current = true; }}
       onChangeCapture={(event) => { if (!workspace || (event.target as HTMLElement).closest(".nwc-track")) dirty.current = true; }}
       onClickCapture={(event) => {
-        if ((event.target as HTMLElement).closest(".nw-quick-chip-row button, .nw-quick-priority-btn")) {
+        if ((event.target as HTMLElement).closest(".nw-quick-chip-row button, .nw-quick-priority-btn, .nq-part-chips button")) {
           dirty.current = true;
         }
       }}
