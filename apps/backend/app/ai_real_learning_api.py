@@ -159,11 +159,19 @@ def next_target(channel: Literal["messenger", "general"] = "messenger",
                 user: User = Depends(administrator), db: Session = Depends(get_db)):
     """Pick next verified deficiency deterministically. Never invent cases."""
     results = audited_cases(channel=channel, user=user, db=db)["items"]
-    since = utcnow() - timedelta(days=30)
+    # Prioritize with ALL retained human review metadata, not only 30 days.
+    # Reproduction still requires an authorized, recent original conversation.
     counts = {}
-    for row in reviews_for(db, user.org_id, channel, since):
+    historical_labels = db.execute(select(AIResponseReview.ratings).where(
+        AIResponseReview.org_id == user.org_id,
+        AIResponseReview.channel == channel,
+        AIResponseReview.rubric_version == 1,
+    )).yield_per(500)
+    for (ratings,) in historical_labels:
+        if not isinstance(ratings, dict):
+            continue
         for key in POLICIES[channel]:
-            if row.ratings.get(key) is False:
+            if ratings.get(key) is False:
                 counts[key] = counts.get(key, 0) + 1
     candidates = []
     for case in results:
@@ -210,7 +218,7 @@ def next_target(channel: Literal["messenger", "general"] = "messenger",
     _, minus_count, _, source_id, criterion, variant = min(candidates)
     return {"available": True, "source_id": source_id, "criterion": criterion,
             "variant": variant, "observed_defects": -minus_count,
-            "reason": "Seleccionado por fallas humanas verificadas y estrategia sin regresiones observadas.",
+            "reason": "Priorizado por deficiencias actuales y frecuencia histórica auditada, sin regresiones observadas.",
             "model": QWEN_4B, "automatic_approval": False,
             "caution": "La hipótesis de fallo no prueba la causa ni el éxito de una corrección."}
 
