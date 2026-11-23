@@ -26,7 +26,7 @@ from .facebook_ai import (AD_INSTRUCTIONS, REPLY_INSTRUCTIONS, generate_text,
                           generate_triage_note)
 from .ai_gateway import orchestrated_text, AIServiceError
 from .facebook_availability_reply import availability_reply
-from .facebook_worksite_reply import application_reply, is_worksite_location, worksite_reply
+from .facebook_worksite_reply import application_reply, digital_help_reply, is_worksite_location, worksite_reply
 from .facebook_onboarding import assistance_signal, reply_for_support, onboarding_guide
 from .galancito_flow import (
     AI_PERMISSION_DECLINED, apply_permission_reply, consented_for, explain_permission, set_permission_request, wants_human,
@@ -418,7 +418,8 @@ def ingest_facebook_payload(db, payload, cfg, *, notices=None):
         if historical or event_at < received_at - timedelta(hours=24):
             continue
         signal = ("Solicitó atención humana" if wants_human(body) else
-                  assistance_signal(body, is_audio=audio_received)
+                  assistance_signal(body, is_audio=audio_received,
+                                    prior_prompt=previous_question)
                   if consent is None and not explain_permission(lead, body, previous_question) else None)
         if consent is False:
             signal = "Prefirió atención humana y no autorizó IA externa"
@@ -450,12 +451,16 @@ def ingest_facebook_payload(db, payload, cfg, *, notices=None):
             waiting_for_ai |= previous.ai_generated
             waiting_for_permission |= previous.state in {"pending", "drafting"} and "autorizas" in previous.body.casefold()
             previous.state = "cancelled"
-        if cfg.facebook_ai_enabled and not lead.ai_paused:
+        # The first human-handoff turn still needs a brief acknowledgement,
+        # even though flag_for_human has already paused automation.
+        if cfg.facebook_ai_enabled and (not lead.ai_paused or bool(signal)):
             location = (worksite_reply(db, lead, body, previous_question, notices=notices)
                         if not (signal or lead.needs_support or lead.ai_consent_state == "declined") else None)
             application = (application_reply(db, lead, body, previous_question, notices=notices)
                            if not (location or signal or lead.needs_support or lead.ai_consent_state == "declined") else None)
-            direct = location or application or (explain_permission(lead, body, previous_question) or
+            digital_help = (digital_help_reply(body, previous_question)
+                            if not (location or application or signal or lead.needs_support) else None)
+            direct = location or application or digital_help or (explain_permission(lead, body, previous_question) or
                                   availability_reply(db, lead, body, previous_question, lead.last_inbound_at)
                                   if not signal and lead.ai_consent_state != "declined" else None)
             if not signal and not direct and not lead.needs_support:
@@ -481,7 +486,8 @@ def ingest_facebook_payload(db, payload, cfg, *, notices=None):
                     reply = (("Ya avisé al equipo para que te atienda una persona. "
                               "No necesitas enviar documentos por aquí.") if wants_human(body) else
                              AI_PERMISSION_DECLINED if lead.ai_consent_state == "declined" else
-                             reply_for_support(signal, bool(lead.specialty)))
+                             ("Dejé tu consulta para que la revise una persona del equipo. "
+                              "Te pueden ayudar por este chat; no necesitas enviar documentos."))
             elif direct:
                 reply = direct
             elif local and identity_reply(body):
@@ -1248,6 +1254,8 @@ def update_lead(lead_id: str, body: LeadEdit, user: User = Depends(administrator
     if body.model_fields_set.intersection({"follow_up_on", "follow_up_note"}):
         lead.follow_up_by = user.id
     if body.model_fields_set.intersection({"needs_support"}) and not lead.needs_support:
+        # An operator can explicitly resume this conversation with both flags
+        # cleared. This does NOT grant an AI provider permission.
         lead.support_reason = ""
     if ((body.model_fields_set.intersection({"ai_paused"}) and lead.ai_paused) or
             (body.model_fields_set.intersection({"needs_support"}) and lead.needs_support)):

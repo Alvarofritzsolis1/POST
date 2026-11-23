@@ -10,6 +10,9 @@ from .network_models import NetworkNotification
 def flag_for_human(db, lead: FacebookLead, reason: str) -> None:
     first_alert = not lead.needs_support
     lead.needs_support = True
+    # Neither the language model nor local automation should continue while
+    # a person is responsible for this conversation.
+    lead.ai_paused = True
     lead.support_reason = reason[:250]
     if not first_alert:
         return

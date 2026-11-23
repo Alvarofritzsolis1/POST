@@ -19,7 +19,7 @@ from .config import settings
 from .db import SessionLocal
 from .facebook_ai import messenger_ai_source
 from .facebook_availability_reply import availability_reply
-from .facebook_worksite_reply import is_worksite_location, worksite_reply, application_reply
+from .facebook_worksite_reply import is_worksite_location, worksite_reply, application_reply, digital_help_reply
 from .facebook_crm_models import FacebookChatMessage, FacebookLead
 from .facebook_lead_insights import trace_unique_requirement
 from .galancito_flow import apply_permission_reply, consented_for, explain_permission, set_permission_request, wants_human
@@ -156,9 +156,11 @@ def sync_page_inbox(*, page_id: str, page_token: str, org_id: str,
             if phone_saved:
                 note_profile_sources(lead, ["contact_phone"], source="message", at=timestamp, remote_id=mid)
                 audit_event(db, lead, "field_contact_phone", source="message", remote_id=mid)
-            if decision is False:
-                flag_for_human(db, lead, "Solicitó atención humana" if wants_human(body)
-                               else "Prefirió atención humana y no autorizó IA")
+            if fresh and wants_human(body):
+                flag_for_human(db, lead, "Solicitó atención humana" if decision is not False
+                               else "Revocó autorización de IA y pidió atención humana")
+            elif decision is False:
+                flag_for_human(db, lead, "Prefirió atención humana y no autorizó IA")
             changed = False
             intake_body = redact_mobile_for_intake(body) if phone_saved else body
             if decision is None and not private_data(intake_body):
@@ -183,6 +185,7 @@ def sync_page_inbox(*, page_id: str, page_token: str, org_id: str,
                     pending.state = "cancelled"
                 preceding = latest_new.get(psid)
                 if (preceding and decision is None and not identity_reply(body)
+                        and not wants_human(body)
                         and (needs_deeper_response(preceding[1]) or is_worksite_location(preceding[1]))
                         and not (needs_deeper_response(body) or is_worksite_location(body))
                         and declared_relative_start(body) is None):
@@ -199,7 +202,8 @@ def sync_page_inbox(*, page_id: str, page_token: str, org_id: str,
                 if (timestamp < utcnow() - timedelta(hours=24) or
                         last_inbound != timestamp or
                         page_replies.get(cid, datetime.min.replace(tzinfo=timezone.utc)) >= timestamp or
-                        lead.ai_paused or private_data(body)):
+                        (lead.ai_paused and decision is not False and not wants_human(body))
+                        or private_data(body)):
                     continue
                 # Do not answer if the operator already replied or a send is
                 # pending/uncertain. Never replay a thread just because it was synced.
@@ -231,6 +235,7 @@ def sync_page_inbox(*, page_id: str, page_token: str, org_id: str,
                 direct = (follow_up or explain_permission(lead, body, prior)
                           or worksite_reply(db, lead, body, prior)
                           or application_reply(db, lead, body, prior)
+                          or digital_help_reply(body, prior)
                           or everyday_question_reply(body))
                 if not direct and not lead.needs_support:
                     direct = phone_question_when_agreed(lead, body)

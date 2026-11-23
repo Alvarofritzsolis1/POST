@@ -91,8 +91,16 @@ _APPLICATION = re.compile(
     r"(?:\w+ ){0,3}(?:aviso|publicacion|postulacion|oferta|vacante|anuncio|pega)\b|"
     r"\b(?:(?:como|quiero|puedo) (?:puedo )?postul(?:o|ar)(?:me)?|me quiero postular)\b"
 )
-ASK_APPLICATION = "¿Qué aviso viste? Con el nombre de la obra o el link te puedo orientar para postular."
-ASK_APPLICATION_LINK = "Con ese dato aún no ubico el aviso. ¿Tienes el link de la publicación?"
+# Prompts actuales: lenguaje sencillo, sin exigir enlaces ni conocimientos de Facebook.
+ASK_APPLICATION = "Claro, te ayudo. ¿De qué trabajo era el aviso?"
+ASK_APPLICATION_LINK = "No necesitas mandar ningún enlace. ¿Recuerdas el trabajo o la comuna?"
+# Reconocer textos enviados en versiones anteriores, sin romper conversaciones.
+_LEGACY_APPLICATION_PROMPTS = {
+    "¿Qué aviso viste? Con el nombre de la obra o el link te puedo orientar para postular.",
+    "Con ese dato aún no ubico el aviso. ¿Tienes el link de la publicación?",
+}
+ASK_APPLICATION_INTEREST = "¿Buscas trabajo para ti o quieres ofrecer tus servicios?"
+ASK_APPLICATION_OWN = "Entiendo, buscas trabajo para ti. ¿Trabajas en "
 
 
 def asks_about_application(message: str) -> bool:
@@ -100,7 +108,11 @@ def asks_about_application(message: str) -> bool:
 
 
 def referring_to_application(prompt: str) -> bool:
-    return prompt in {ASK_APPLICATION, ASK_APPLICATION_LINK}
+    # Los prompts dinámicos también son estado conversacional, no una orden de
+    # buscar enlaces. Las respuestas cortas continúan el mismo tema.
+    return (prompt in {ASK_APPLICATION, ASK_APPLICATION_LINK, *_LEGACY_APPLICATION_PROMPTS}
+            or prompt.endswith(ASK_APPLICATION_INTEREST)
+            or prompt.startswith(ASK_APPLICATION_OWN))
 
 
 def analyze(message: str, trades: dict | None = None) -> Intake:

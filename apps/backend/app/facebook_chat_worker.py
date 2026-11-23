@@ -258,6 +258,13 @@ def process_chat_next(session_factory=SessionLocal, *, simulation_config=None, n
             return True
         job_id, lead_id, org_id, psid, state, body = job.id, lead.id, lead.org_id, lead.psid, job.state, job.body
         automated_reply = job.operator_id is None
+        # Only the one fixed handoff acknowledgement can be delivered after
+        # handoff has atomically paused all other automatic replies.
+        handoff_ack = (state == "pending" and (
+            body.startswith("Ya avisé al equipo para que te atienda una persona.")
+            or body.startswith("Entendido, no usaré IA con tus mensajes.")
+            or body.startswith("Entendido. No usaré IA con tus mensajes.")
+            or body.startswith("Dejé tu consulta para que la revise una persona del equipo.")))
         inbound_at = lead.last_inbound_at
         outbound_queue_ms = max(0, round((utcnow() - aware(job.created_at)).total_seconds() * 1000))
         fast, intent, fast_source, model_needed, context = None, "unknown", "local", False, ""
@@ -417,7 +424,8 @@ def process_chat_next(session_factory=SessionLocal, *, simulation_config=None, n
             if (current is None or not _within_24h(current) or
                     current_job is None or current_job.state != (
                         "drafting" if automated_reply else "sending") or
-                    (automated_reply and (current.ai_paused or current.last_inbound_at != inbound_at)) or
+                    (automated_reply and ((current.ai_paused and not handoff_ack)
+                                          or current.last_inbound_at != inbound_at)) or
                     (state == "ai_pending" and (current.needs_support or not consented_for(current, ai_source)
                      or messenger_ai_source(db, org_id, cfg) != ai_source))):
                 if current_job:

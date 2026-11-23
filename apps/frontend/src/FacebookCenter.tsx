@@ -386,6 +386,19 @@ export default function FacebookCenter({ catalog }: { catalog: Catalog }) {
     void mutate("lead", () => change("/facebook/leads/" + selectedId, patch, "PATCH"),
       "Ficha del interesado actualizada.");
   }
+  function resumeAutoReplies() {
+    if (!selectedId || !detail || saving) return;
+    if (detail.lead.ai_consent_state === "declined") {
+      setError("La persona rechazó el uso de IA. Debe autorizarlo nuevamente en Messenger.");
+      return;
+    }
+    const contactId = selectedId;
+    // A single persisted update clears BOTH human handoff flags. It never
+    // changes or manufactures the sender's provider-specific AI consent.
+    void mutate("resume-ai", () => change("/facebook/leads/" + contactId,
+      { ai_paused: false, needs_support: false }, "PATCH"),
+      "Se reactivaron las respuestas automáticas para los próximos mensajes.");
+  }
   function openSourceMessage(id: string) {
     setShowProfile(false);
     setMobilePane("chat");
@@ -736,16 +749,18 @@ export default function FacebookCenter({ catalog }: { catalog: Catalog }) {
             {lead.unread && <button type="button" className="nw-btn fbc-read-btn" onClick={() =>
               void mutate("read", () => change("/facebook/leads/" + lead.id + "/read"), "")} disabled={!!saving}>Leído</button>}
             <button type="button"
-              className={"fbc-auto-toggle " + (lead.ai_paused ? "is-off" : "is-on")}
-              aria-pressed={!lead.ai_paused}
-              aria-label={(lead.ai_paused ? "Activar" : "Pausar") + " chat automatizado para este contacto"}
-              title={center?.auto_reply_enabled ? "Control de Galancito para esta conversación" :
-                "Activa las respuestas automáticas en el servidor para usar Galancito"}
-              disabled={!!saving || !center?.auto_reply_enabled}
-              onClick={() => patchLead({ai_paused: !lead.ai_paused})}>
+              className={"fbc-auto-toggle " + ((lead.ai_paused || lead.needs_support) ? "is-off" : "is-on")}
+              aria-pressed={!lead.ai_paused && !lead.needs_support}
+              aria-label={(lead.ai_paused || lead.needs_support ? "Volver a respuestas por IA" : "Pausar IA") + " para este contacto"}
+              title={center?.auto_reply_enabled ? "Control de respuestas automáticas de esta conversación" :
+                "Las respuestas automáticas están desactivadas en el servidor"}
+              disabled={!!saving || !center?.auto_reply_enabled ||
+                ((lead.ai_paused || lead.needs_support) && lead.ai_consent_state === "declined")}
+              onClick={() => (lead.ai_paused || lead.needs_support)
+                ? resumeAutoReplies() : patchLead({ai_paused: true})}>
               <Bot size={15} aria-hidden="true" />
-              <span>Galancito</span>
-              <strong>{lead.ai_paused ? "Activar" : "Pausar"}</strong>
+              <span>Respuestas IA</span>
+              <strong>{(lead.ai_paused || lead.needs_support) ? "Volver a IA" : "Pausar"}</strong>
             </button>
             <button type="button" className="nw-btn fbc-profile-toggle" aria-expanded={showProfile}
               onClick={() => {
@@ -757,11 +772,18 @@ export default function FacebookCenter({ catalog }: { catalog: Catalog }) {
             {!center?.auto_reply_enabled && <div className="fbc-auto-unavailable" role="status">
               Las respuestas automáticas están desactivadas en el servidor. Revísalas en Configuración de Messenger.
             </div>}
-            {lead.ai_paused && <div className="fbc-bot-paused">
-              <Bot size={16}/><span>Galancito está pausado para este contacto.</span>
-              <button type="button" className="nw-btn" disabled={!!saving}
-                onClick={() => patchLead({ai_paused: false})}>
-                Reactivar
+            {(lead.ai_paused || lead.needs_support) && <div className="fbc-bot-paused" role="status">
+              <Users size={16}/>
+              <span><strong>Atención humana activa.</strong> Las respuestas automáticas están pausadas.
+                {lead.needs_support && lead.support_reason ? " Motivo: " + lead.support_reason : ""}
+                {lead.ai_consent_state === "declined"
+                  ? " La persona rechazó IA: no se puede volver a activarla sin su permiso."
+                  : ""}
+              </span>
+              <button type="button" className="nw-btn fbc-resume-ai"
+                disabled={!!saving || !center?.auto_reply_enabled || lead.ai_consent_state === "declined"}
+                onClick={resumeAutoReplies}>
+                <Bot size={15}/> Volver a respuestas por IA
               </button>
             </div>}
             <div className="fbc-chat-stream" ref={chatRef} onScroll={(e) => {
@@ -844,7 +866,7 @@ export default function FacebookCenter({ catalog }: { catalog: Catalog }) {
             <AlertTriangle size={18}/>
             <div><b>Necesita orientación paso a paso</b>
               <p>{lead.support_reason || "La persona solicitó ayuda para avanzar."}</p>
-              <small>No enviar una lista larga de documentos. Mantener revisión humana.</small>
+              <small>Responder con palabras sencillas, sin exigir enlaces ni documentos por Messenger.</small>
             </div>
           </div>}
           <section className="fbc-person-profile" aria-label="Resumen progresivo de la persona">
