@@ -186,6 +186,61 @@ jobs:
           print("MAX_POWER_QWEN4B_CLIENT=verified_real_isolated_inference")
           PY
 
+      - name: Verificar mensajes difíciles usando las instrucciones REALES de Messenger
+        shell: bash
+        run: |
+          set -Eeuo pipefail
+          python3 - <<'PY'
+          import ast,json,re,time
+          from pathlib import Path
+          from urllib.request import Request,urlopen
+          tree=ast.parse(Path("apps/backend/app/facebook_ai.py").read_text(encoding="utf-8"))
+          instruction=next(ast.literal_eval(node.value) for node in tree.body
+                           if isinstance(node,ast.Assign)
+                           and any(isinstance(t,ast.Name) and t.id=="LOCAL_REPLY_INSTRUCTIONS"
+                                   for t in node.targets))
+          assert len(instruction)<3300
+          cases=(
+              ("ola soi carpintreo, no se como anotarme", "typing"),
+              ("no tengo correo y no quiero dar telefono por ahora", "optional_contact"),
+              ("vi un aviso de trabajo pero no se cuanto pagan", "unknown_pay"),
+              ("tengo tres ayudantes, ellos son trabajadores contratados?", "team"),
+              ("estoy desde el celular y no entiendo esta pagina", "low_tech"),
+              ("prefiero hablar con alguien del equipo", "human"),
+              ("me piden mi rut por aqui, es obligatorio?", "privacy"),
+              ("les escribi para trabajos de gasfiteria pero no se si hay cupos", "unknown_availability"),
+          )
+          url="http://127.0.0.1:11536/api/chat"
+          for i,(question,case) in enumerate(cases,1):
+              body={"model":"qwen3.5:4b-q4_K_M","stream":False,"think":False,
+                    "keep_alive":"1m",
+                    "messages":[{"role":"system","content":instruction},
+                                {"role":"user","content":question}],
+                    "options":{"num_ctx":2048,"num_predict":128,"num_thread":2,
+                               "temperature":0.0,"seed":42}}
+              req=Request(url,data=json.dumps(body,ensure_ascii=False).encode(),
+                          headers={"Content-Type":"application/json"},method="POST")
+              started=time.monotonic()
+              with urlopen(req,timeout=360) as response:
+                  result=json.load(response)
+              reply=(result.get("message") or {}).get("content","").strip()
+              assert result.get("model")=="qwen3.5:4b-q4_K_M"
+              assert 8<len(reply)<=600,(case,repr(reply))
+              assert "<think>" not in reply.lower()
+              assert not re.search(r"(?i)\bsoy (?:un |el )?(?:bot|asistente virtual)\b",reply)
+              assert not re.search(r"(?m)^\s*[1-9][\).]\s+\S",reply),case
+              if case=="unknown_pay":
+                  assert not re.search(r"\$\s*\d|\b\d[\d.,]+\s*(?:pesos|clp)\b",reply,re.I),case
+              if case=="team":
+                  assert not re.search(r"(?i)ya (?:registr[ée]|contrat[ée])",reply),case
+              if case=="human":
+                  assert not re.search(r"(?i)ya (?:te )?(?:deriv[ée]|contact[ée])",reply),case
+              print("MESSENGER_QWEN4B_REAL_POLICY_"+str(i)
+                    +"=respuesta_verificable; caracteres="+str(len(reply))
+                    +"; ms="+str(int((time.monotonic()-started)*1000)))
+          print("MESSENGER_QWEN4B_REAL_POLICY=8_scenarios_checked_no_prod_change")
+          PY
+
       - name: Eliminar Ollama de pruebas
         if: always()
         run: docker rm -f galant-maxpower-qwen4b-qa || true
