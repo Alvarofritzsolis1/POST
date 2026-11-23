@@ -13,19 +13,24 @@ from pydantic import BaseModel, ConfigDict, Field
 from sqlalchemy import select
 from sqlalchemy.orm import Session
 
-from .ai_defect_learning import POLICIES, SCOPE, learning_plan, policy_title
+from .ai_defect_learning import (
+    POLICIES, SCOPE, VARIANTS, REPLAY_LIMIT_PER_CRITERION, MIN_HOLDOUT_WINS,
+    candidate_policy, diagnostic_route, eligible_for_proposal, learning_plan, policy_title,
+)
 from .ai_quality_audit import _audit_source
 from .ai_quality_models import AIRealPracticeTrial, AIResponseReview
 from .config import settings
 from .db import get_db
-from .facebook_ai import REPLY_INSTRUCTIONS
+from .facebook_ai import LOCAL_REPLY_INSTRUCTIONS
 from .galancito_general import GENERAL_INSTRUCTIONS, QWEN_4B
 from .galancito_knowledge_api import KnowledgeInput, create
-from .galancito_knowledge_models import Knowledge
+from .galancito_knowledge_models import Knowledge, AssistantRun
 from .galancito_local import generate_local_text, last_timings
 from .galancito_memory import aware
 from .galancito_runtime import infer
+from .galancito_flow import grounded_reply
 from .galancito_triage import private_data
+from .galancito_general import safe_generated
 from .models import AuditEvent, User, utcnow
 from .security import administrator
 
@@ -36,11 +41,13 @@ class ReplayInput(BaseModel):
     model_config = ConfigDict(extra="forbid")
     source_id: str = Field(min_length=36, max_length=36)
     criterion: str = Field(min_length=3, max_length=30)
+    variant: Literal["focused", "alternative"] = "focused"
 
 
 class TrialRating(BaseModel):
     model_config = ConfigDict(extra="forbid")
     outcome: Literal["better", "same", "worse"]
+    verification_nonce: str = Field(min_length=36, max_length=36)
     source_reviewed: Literal[True]
 
 
@@ -64,6 +71,76 @@ def trials_for(db, org_id, channel, criterion, since):
         AIRealPracticeTrial.created_at >= since)))
 
 
+def _linked_original_run(db, user, evidence, candidate):
+    """Resolve genuine source telemetry; do not guess by timestamp alone."""
+    if candidate is not None:
+        return candidate
+    if evidence["channel"] != "messenger":
+        return None
+    since = utcnow() - timedelta(days=30)
+    rows = db.scalars(select(AssistantRun).where(
+        AssistantRun.org_id == user.org_id,
+        AssistantRun.channel == "messenger",
+        AssistantRun.created_at >= since,
+    ).order_by(AssistantRun.created_at.desc()).limit(500))
+    return next((r for r in rows
+                 if isinstance(r.timings, dict) and
+                 r.timings.get("outbound_message_id") == evidence["source_id"]), None)
+
+
+def _verified_model_trace(record):
+    if record is None:
+        return False
+    timings = getattr(record, "timings", {}) or {}
+    return (isinstance(timings, dict)
+            and isinstance(timings.get("response_model"), str)
+            and timings["response_model"].casefold() == QWEN_4B.casefold()
+            and record.source in {"ai", "ollama_4b", "verified_reasoning"})
+
+
+def _successful_training(trials, variant):
+    return len({t.review_id for t in trials if t.variant == variant and
+                t.stage == "practice" and t.outcome == "better" and
+                t.provenance == "model_verified"})
+
+
+@router.get("/pending")
+def pending_trials(channel: Literal["messenger", "general"] = "messenger",
+                   user: User = Depends(administrator), db: Session = Depends(get_db)):
+    """No candidate text retained. Provide safe reset after tab refresh."""
+    rows = list(db.scalars(select(AIRealPracticeTrial).where(
+        AIRealPracticeTrial.org_id == user.org_id,
+        AIRealPracticeTrial.reviewer_id == user.id,
+        AIRealPracticeTrial.channel == channel,
+        AIRealPracticeTrial.outcome == "pending",
+    ).order_by(AIRealPracticeTrial.created_at.desc()).limit(25)))
+    return {"items": [{
+        "id": t.id, "criterion": t.criterion, "variant": t.variant, "created_at": t.created_at,
+        "can_cancel": True,
+    } for t in rows],
+    "note": "No se guarda el texto generado. Cancela una prueba interrumpida antes de repetirla."}
+
+
+@router.post("/trials/{trial_id}/cancel")
+def cancel_trial(trial_id: str, user: User = Depends(administrator),
+                 db: Session = Depends(get_db)):
+    trial = db.scalar(select(AIRealPracticeTrial).where(
+        AIRealPracticeTrial.id == trial_id,
+        AIRealPracticeTrial.org_id == user.org_id,
+        AIRealPracticeTrial.reviewer_id == user.id,
+    ).with_for_update())
+    if trial is None:
+        raise HTTPException(404, "Práctica no encontrada")
+    if trial.outcome != "pending":
+        raise HTTPException(409, "No puedes cancelar una práctica ya evaluada")
+    trial.outcome = "cancelled"
+    trial.reviewed_at = utcnow()
+    db.add(AuditEvent(org_id=user.org_id, user_id=user.id,
+                      action="ai.real_learning.trial_cancelled", resource_id=trial.id))
+    db.commit()
+    return {"cancelled": True, "quality_improvement_proven": False}
+
+
 @router.get("/plan")
 def plan(days: int = Query(default=30, ge=1, le=90),
          user: User = Depends(administrator), db: Session = Depends(get_db)):
@@ -76,8 +153,10 @@ def plan(days: int = Query(default=30, ge=1, le=90),
             outcome = {name: sum(t.outcome == name for t in trials)
                        for name in ("better", "same", "worse", "pending")}
             item["practice"] = outcome
-            item["proposal_ready"] = (item["failed"] >= 2 and outcome["better"] >= 2
-                                      and outcome["worse"] == 0)
+            eligibility = eligible_for_proposal(trials)
+            item["proposal_ready"] = eligibility["ready"]
+            item["holdout"] = eligibility
+            item["analysis_status"] = "observed_fault_without_verified_cause" if item["failed"] else "no_fault_observed"
             item["active_coaching"] = bool(db.scalar(select(Knowledge.id).where(
                 Knowledge.org_id == user.org_id,
                 Knowledge.title == policy_title(channel, item["criterion"]),
@@ -91,7 +170,9 @@ def plan(days: int = Query(default=30, ge=1, le=90),
 @router.post("/replay")
 def replay(body: ReplayInput, user: User = Depends(administrator),
            db: Session = Depends(get_db)):
-    _, evidence = _audit_source(db, user, body.source_id)
+    original_run, evidence = _audit_source(db, user, body.source_id)
+    original_run = _linked_original_run(db, user, evidence, original_run)
+    diagnosis = diagnostic_route(original_run, body.criterion)
     channel = evidence["channel"]
     if body.criterion not in POLICIES[channel]:
         raise HTTPException(422, "Criterio incompatible con la conversación")
@@ -103,11 +184,16 @@ def replay(body: ReplayInput, user: User = Depends(administrator),
         AIResponseReview.rubric_version == 1))
     if review is None or review.ratings.get(body.criterion) is not False:
         raise HTTPException(409, "Primero revisa una deficiencia real de este criterio")
-    if db.scalar(select(AIRealPracticeTrial.id).where(
+    previous = list(db.scalars(select(AIRealPracticeTrial).where(
         AIRealPracticeTrial.review_id == review.id,
         AIRealPracticeTrial.criterion == body.criterion,
-        AIRealPracticeTrial.policy_version == 1)):
-        raise HTTPException(409, "Esta deficiencia ya se practicó; revisa su resultado")
+    ).order_by(AIRealPracticeTrial.created_at.desc())))
+    if any(t.outcome == "pending" for t in previous):
+        raise HTTPException(409, "Existe una práctica sin calificar; revísala o cancélala")
+    if len(previous) >= REPLAY_LIMIT_PER_CRITERION:
+        raise HTTPException(409, "Límite de intentos alcanzado; revisa el diagnóstico")
+    if body.variant not in VARIANTS:
+        raise HTTPException(422, "Variante no permitida")
     cfg = settings()
     if not cfg.galancito_local_ai_enabled or cfg.galancito_local_model != QWEN_4B:
         raise HTTPException(409, "Requiere Qwen3.5 4B local activo; sin simulaciones ni API externas")
@@ -116,9 +202,20 @@ def replay(body: ReplayInput, user: User = Depends(administrator),
     prompt = "\n".join(lines) + "\nÚltima consulta:\n" + evidence["question"][:650]
     if private_data(prompt) or len(prompt) > 3200:
         raise HTTPException(422, "Hay datos privados; esta conversación no se reproduce")
-    instructions = (REPLY_INSTRUCTIONS if channel == "messenger" else GENERAL_INSTRUCTIONS)
-    instructions = ("Corrección experimental de una falla revisada (no aprobada):\n" +
-                    POLICIES[channel][body.criterion][1] + "\n\n" + instructions)
+    instructions = (LOCAL_REPLY_INSTRUCTIONS if channel == "messenger" else GENERAL_INSTRUCTIONS)
+    correction = candidate_policy(channel, body.criterion, body.variant)
+    # Never sacrifice existing safety rules to a correction or silent truncation.
+    instructions = instructions + "\n\nCORRECCIÓN EN ENSAYO (no aprobada):\n" + correction
+    from .galancito_local import MAX_INSTRUCTIONS_CHARS
+    if len(instructions) > MAX_INSTRUCTIONS_CHARS:
+        raise HTTPException(422, "La corrección excede las instrucciones seguras; se cancela la prueba")
+    same_variant = trials_for(db, user.org_id, channel, body.criterion,
+                              utcnow() - timedelta(days=30))
+    variant_trials = [t for t in same_variant if t.variant == body.variant]
+    trained = _successful_training(variant_trials, body.variant)
+    if any(t.outcome == "worse" for t in variant_trials):
+        raise HTTPException(409, "La estrategia tiene regresiones; requiere investigación")
+    stage = "holdout" if trained >= 2 and not previous else "practice"
     started = perf_counter()
     try:
         candidate = infer(db, lambda: generate_local_text(
@@ -127,6 +224,10 @@ def replay(body: ReplayInput, user: User = Depends(administrator),
         raise HTTPException(503, "Qwen local no terminó; no se registró ninguna mejora") from None
     if not candidate or not str(candidate).strip():
         raise HTTPException(503, "Qwen no produjo una respuesta para comparar")
+    validated = (grounded_reply(candidate, prompt) if channel == "messenger"
+                 else safe_generated(candidate, question=prompt))
+    if not validated or private_data(validated):
+        raise HTTPException(422, "La respuesta candidata incumple el filtro de seguridad; no se registra como mejora")
     # The actual model identity must be reported by Ollama, not merely configured.
     observed = last_timings.get()
     if (not isinstance(observed, dict) or not isinstance(observed.get("response_model"), str)
@@ -136,12 +237,17 @@ def replay(body: ReplayInput, user: User = Depends(administrator),
     trial = AIRealPracticeTrial(
         org_id=user.org_id, review_id=review.id, reviewer_id=user.id,
         channel=channel, criterion=body.criterion, model=QWEN_4B,
-        elapsed_ms=elapsed, policy_version=1, outcome="pending")
+        elapsed_ms=elapsed, policy_version=1, outcome="pending",
+        variant=body.variant, stage=stage,
+        provenance="model_verified" if _verified_model_trace(original_run) else "reconstructed")
     db.add(trial)
     db.commit()
-    return {"trial_id": trial.id, "channel": channel, "criterion": body.criterion,
+    return {"trial_id": trial.id, "verification_nonce": trial.verification_nonce,
+            "channel": channel, "criterion": body.criterion,
+            "variant": body.variant, "stage": stage, "diagnosis": diagnosis,
+            "provenance": trial.provenance,
             "model": QWEN_4B, "source": "actual_local_qwen_on_audited_production_chat",
-            "original": evidence["answer"], "candidate": str(candidate)[:1000],
+            "original": evidence["answer"], "candidate": str(validated)[:1000],
             "elapsed_ms": elapsed,
             "ollama_timings_ms": {name: round(float(observed[name]), 1)
                                  for name in ("load_ms", "prompt_ms", "generation_ms")
@@ -160,6 +266,8 @@ def review_trial(trial_id: str, body: TrialRating,
         raise HTTPException(404, "Práctica no encontrada")
     if row.outcome != "pending":
         raise HTTPException(409, "Esta práctica ya fue evaluada")
+    if row.verification_nonce != body.verification_nonce:
+        raise HTTPException(409, "Falta el comprobante de la respuesta generada; vuelve a realizar el ensayo")
     if aware(row.created_at) < utcnow() - timedelta(minutes=30):
         raise HTTPException(409, "Evaluación caducada; no se permite inventar un resultado")
     row.outcome, row.reviewed_at = body.outcome, utcnow()
@@ -178,16 +286,18 @@ def propose(body: ProposalInput, user: User = Depends(administrator),
     reviews = reviews_for(db, user.org_id, body.channel, since)
     failed = [r for r in reviews if r.ratings.get(body.criterion) is False]
     trials = trials_for(db, user.org_id, body.channel, body.criterion, since)
-    better = {t.review_id for t in trials if t.outcome == "better"}
-    if len(failed) < 2 or len(better) < 2 or any(t.outcome == "worse" for t in trials):
-        raise HTTPException(409, "Se requieren al menos dos casos reales con mejora revisada y sin regresiones")
+    result = eligible_for_proposal(trials)
+    if len(failed) < 2 or not result["ready"]:
+        raise HTTPException(409,
+            "Sin evidencia suficiente: se requieren dos prácticas y cuatro casos reservados "
+            "distintos favorables, con ruta de Qwen verificable y sin regresiones")
     title = policy_title(body.channel, body.criterion)
     existing = db.scalar(select(Knowledge).where(
         Knowledge.org_id == user.org_id, Knowledge.title == title))
     if existing:
         return {"id": existing.id, "status": existing.status,
                 "message": "La propuesta ya existe. Revisa su estado en Conocimientos."}
-    _, content, _ = POLICIES[body.channel][body.criterion]
+    content = candidate_policy(body.channel, body.criterion, result["variant"])
     result = create(db, KnowledgeInput(
         title=title, category="Práctica real auditada", kind="procedure",
         scope=SCOPE[body.channel], content=content, phrases=[]), user)
