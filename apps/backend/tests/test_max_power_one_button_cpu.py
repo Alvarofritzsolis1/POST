@@ -29,13 +29,23 @@ def manager():
     return module
 
 
-def headers(when=None, valid=True):
+def headers(when=None, valid=True, *, method="GET",
+            route="/automation/plan", body=b""):
     stamp = str(int(time())) if when is None else str(when)
-    signature = hmac.new(MASTER.encode(), (stamp + ".cpu-lora-supervisor").encode(), sha256).hexdigest()
+    signed = f"{stamp}.{method}.{route}.{sha256(body).hexdigest()}".encode("ascii")
+    signature = hmac.new(MASTER.encode(), signed, sha256).hexdigest()
     return {
         "x-galant-manager-timestamp": stamp,
         "x-galant-manager-signature": signature if valid else "0" * 64
     }
+
+
+def post_status(client, path, payload, *, signature_payload=None):
+    raw = json.dumps(payload, ensure_ascii=False, separators=(",", ":")).encode("utf-8")
+    signed_bytes = raw if signature_payload is None else signature_payload
+    h = headers(method="POST", route="/automation/status", body=signed_bytes)
+    return client.post(path, content=raw,
+                       headers={**h, "content-type": "application/json"})
 
 
 def test_one_button_plan_requires_valid_hmac_and_follows_session_generation(ai_env, monkeypatch):
@@ -61,23 +71,25 @@ def test_one_button_plan_requires_valid_hmac_and_follows_session_generation(ai_e
     status_path = BASE + "/finetune/automation/status"
     sent = {"org_id": ai_env["org_id"], "generation": plan["generation"],
             "status": "awaiting_approved_dataset"}
-    result = client.post(status_path, headers=headers(), json=sent)
+    result = post_status(client, status_path, sent)
     assert result.status_code == 200, result.text
+    bad = post_status(client, status_path, {**sent, "status": "training"},
+                      signature_payload=json.dumps(sent, ensure_ascii=False,
+                                                   separators=(",", ":")).encode("utf-8"))
+    assert bad.status_code == 401
     current = client.get(BASE, headers=admin).json()
     assert current["cpu_learning"]["status"] == "awaiting_approved_dataset"
     assert current["cpu_learning"]["weights_trained"] is False
 
     # OFF is synchronous; old supervisor messages cannot restore "training".
     assert client.post(BASE + "/control/off", headers=admin).status_code == 200
-    assert client.post(status_path, headers=headers(),
-                       json={**sent, "status": "training"}).status_code == 409
+    assert post_status(client, status_path, {**sent, "status": "training"}).status_code == 409
     current = client.get(BASE, headers=admin).json()
     assert current["cpu_learning"]["status"] == "off"
     assert client.get(target, headers=headers()).json()["enabled"] is False
 
     assert client.post(BASE + "/control/on", headers=admin).status_code == 200
-    assert client.post(status_path, headers=headers(),
-                       json={**sent, "status": "training"}).status_code == 409
+    assert post_status(client, status_path, {**sent, "status": "training"}).status_code == 409
 
 
 def test_supervisor_rejects_unsafe_paths_and_never_signs_unapproved_dataset(tmp_path):
@@ -288,16 +300,14 @@ def test_multiple_organizations_get_turns_without_interrupting_active_gradients(
     assert first["org_id"] == ai_env["org_id"]
     first_status = {"org_id": first["org_id"], "generation": first["generation"],
                     "status": "approved_dataset_missing"}
-    assert client.post(root + "/finetune/automation/status",
-                       headers=headers(), json=first_status).status_code == 200
+    assert post_status(client, root + "/finetune/automation/status", first_status).status_code == 200
 
     second = client.get(plan_endpoint, headers=headers()).json()
     assert second["enabled"] is True
     assert second["org_id"] != first["org_id"]
     second_status = {"org_id": second["org_id"], "generation": second["generation"],
                      "status": "training"}
-    assert client.post(root + "/finetune/automation/status",
-                       headers=headers(), json=second_status).status_code == 200
+    assert post_status(client, root + "/finetune/automation/status", second_status).status_code == 200
 
     # An active optimizer retains the turn instead of being killed to serve
     # a different organization. Different orgs cannot read one another's data.
