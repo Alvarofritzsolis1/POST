@@ -98,3 +98,39 @@ def test_fingerprint_accepts_repeated_ids_with_different_real_evidence():
     result=evidence_fingerprint([base,other])
     assert result == evidence_fingerprint([other,base])
     assert result != evidence_fingerprint([base])
+
+
+def test_inference_started_before_off_on_cannot_record_fake_improvement(ai_env, monkeypatch):
+    """A slow completed inference is fenced after OFF/ON, even if it looks better."""
+    from app import max_power_messenger as messenger
+    client, sessions = ai_env["client"], ai_env["sessions"]
+    admin = signin(client, "admin")
+    assert client.post(BASE + "/control/on", headers=admin).status_code == 200
+    with sessions.begin() as db:
+        db.add(MaxPowerMessengerTrial(
+            org_id=ai_env["org_id"], review_id=None, source_run_id=None,
+            criterion="context", variant="focused", status="queued"))
+    monkeypatch.setattr(messenger, "SessionLocal", sessions)
+    def after_slow_inference(_trial_id):
+        stopped = client.post(BASE + "/control/off", headers=admin)
+        assert stopped.status_code == 200, stopped.text
+        restarted = client.post(BASE + "/control/on", headers=admin)
+        assert restarted.status_code == 200, restarted.text
+        return ("objective_gain", "Se corrigió una pregunta repetida",
+                {"channel":"messenger","objective_gain":True,
+                 "paired_latency_delta_ms":-300,"production_verified":False})
+    monkeypatch.setattr(messenger, "evaluate_trial", after_slow_inference)
+    assert messenger.process_one()
+    with sessions() as db:
+        state = db.get(MaxPowerState, ai_env["org_id"])
+        trial = db.scalar(select(MaxPowerMessengerTrial).where(
+            MaxPowerMessengerTrial.org_id == ai_env["org_id"]))
+        assert state.experiments == 0
+        assert state.session_generation == 3
+        assert trial.status == "queued"
+        assert trial.outcome is None
+        assert trial.claim_token is None
+        accepted = list(db.scalars(select(MaxPowerEvent).where(
+            MaxPowerEvent.org_id == ai_env["org_id"],
+            MaxPowerEvent.event == "messenger_experiment")))
+        assert accepted == []
