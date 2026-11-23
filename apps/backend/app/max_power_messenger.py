@@ -242,7 +242,11 @@ def _answer(instructions,prompt,seed,org_id):
             raise RuntimeError("Messenger tiene prioridad sobre experimentos")
     # No database lock or live model gate is held during isolated inference.
     # CPU and RAM remain capped by the distinct Docker Ollama service.
-    result = generate_training_text(instructions, prompt, seed, settings(), thinking=False)
+    # MAX POWER always exercises the isolated Qwen 4B, even when the
+    # production Messenger model is a different local model or is disabled.
+    # model_copy makes an ephemeral config; production settings never change.
+    isolated_cfg = settings().model_copy(update={"galancito_local_model": QWEN_4B})
+    result = generate_training_text(instructions, prompt, seed, isolated_cfg, thinking=False)
     timing = dict(last_timings.get() or {})
     if str(timing.get("response_model") or "").casefold() != QWEN_4B.casefold():
         raise RuntimeError("El modelo no confirmó Qwen3.5 4B")
