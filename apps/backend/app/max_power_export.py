@@ -281,6 +281,8 @@ def build_report(db: Session, user: User, *, max_events=MAX_EVENTS):
         "interpretation": {
             "source": "read_only_operational_telemetry",
             "automatic_evaluation": True,
+            "score_baseline_is_initial_power_on": False,
+            "score_baseline_description": "La referencia es la ejecución A/B, no la nota del primer encendido.",
             "production_improvement_verified": False,
             "weights_fine_tuned_by_max_power": False,
             "disclaimer": (
