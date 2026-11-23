@@ -8,6 +8,7 @@ import logging
 import re
 from pathlib import Path
 from time import sleep
+from fastapi import HTTPException
 from sqlalchemy import select
 from sqlalchemy.exc import SQLAlchemyError
 
@@ -90,12 +91,27 @@ def _result(db, row, completed, now):
                          "inference_samples": statistics["inference_samples"],
                          "paired_speed": paired_speed}
     # No falsely asserted production gain. A lab win still awaits review/promotion.
+    # Keep value-bearing aggregate evidence even after routine training-case pruning.
+    audit_snapshot = {
+        "source": "real_db_aggregate", "model": row.latest_result["model"],
+        "system_version": completed.system_version,
+        "prompt_version": completed.prompt_version,
+        "dataset_hash": completed.dataset_hash,
+        "evaluated_cases": completed.completed,
+        "holdout_baseline_rate": metrics.get("real_holdout_baseline_pass_rate"),
+        "holdout_candidate_rate": metrics.get("real_holdout_pass_rate"),
+        "failed_by_criterion": metrics.get("errors", {}),
+        "cycle_summaries": metrics.get("cycles", {}),
+        "inference_p50_ms": statistics["inference_p50_ms"],
+        "inference_p95_ms": statistics["inference_p95_ms"],
+        "paired_speed": paired_speed,
+        **{k: row.latest_result[k] for k in
+           ("holdout_pairs", "holdout_wins", "holdout_losses", "p_value",
+            "lab_verified", "production_verified", "weights_changed")},
+    }
     db.add(MaxPowerEvent(org_id=row.org_id, event="experiment_completed",
                          reason=outcome["reason"], round_id=completed.id,
-                         evidence={k: row.latest_result[k] for k in
-                                   ("holdout_pairs", "holdout_wins", "holdout_losses",
-                                    "p_value", "lab_verified", "production_verified",
-                                    "weights_changed")}))
+                         evidence=audit_snapshot))
     set_wait(row, now, outcome["code"], outcome["reason"] + ". " + outcome["next"])
 
 def tick(db, sampler):
@@ -194,11 +210,13 @@ def tick(db, sampler):
         except Exception as exc:
             # A blocked start must not invent a completed experiment or success.
             logger.warning("MAX POWER could not schedule a round: %s", type(exc).__name__)
+            explanation = (str(exc.detail) if isinstance(exc, HTTPException) and
+                           isinstance(exc.detail, str) else
+                           "No se pudo iniciar una ronda real; revisar modelo, datos y motor")
             db.rollback()
             locked = db.get(MaxPowerState, row.org_id)
             if locked is not None:
-                set_wait(locked, now, "cannot_schedule",
-                         "No se pudo iniciar una ronda real; revisar Qwen, datos y motor", 300)
+                set_wait(locked, now, "cannot_schedule", explanation, 300)
                 db.commit()
             continue
         row.active_round_id = result["id"]
