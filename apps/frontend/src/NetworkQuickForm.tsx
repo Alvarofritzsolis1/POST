@@ -206,7 +206,7 @@ export function NetworkQuickForm({
         </div>
         <div className="nq-field nq-description">
           <label htmlFor="nq-summary">¿Qué trabajos se realizarán? <StateMark ok={descriptionOk}/></label>
-          <textarea id="nq-summary" value={summary} maxLength={2500} rows={2}
+          <textarea id="nq-summary" aria-label="¿Qué trabajos se realizarán?" value={summary} maxLength={2500} rows={2}
             aria-invalid={submitted && !descriptionOk}
             onChange={(e) => {
               setSummary(e.target.value);
@@ -244,14 +244,14 @@ export function NetworkQuickForm({
             <label htmlFor="nq-workers">Personas aprox. <StateMark ok={staffOk}/></label>
             <div className="nq-count">
               <button type="button" aria-label="Reducir dotación" onClick={() => setWorkers((n) => Math.max(1, n - 1))}>−</button>
-              <input id="nq-workers" type="number" value={workers} min="1" max="10000"
+              <input id="nq-workers" aria-label="Personas aprox." type="number" value={workers} min="1" max="10000"
                 aria-invalid={!staffOk} onChange={(e) => setWorkers(Number(e.target.value))}/>
               <button type="button" aria-label="Aumentar dotación" onClick={() => setWorkers((n) => Math.min(10000, n + 1))}>+</button>
             </div>
           </div>
           <div className="nq-field">
             <label htmlFor="nq-date"><CalendarDays size={14} aria-hidden="true"/> Inicio estimado <span className="nq-optional">Opcional</span></label>
-            <input id="nq-date" type="date" value={start} onChange={(e) => setStart(e.target.value)}/>
+            <input id="nq-date" aria-label="Inicio estimado" type="date" value={start} onChange={(e) => setStart(e.target.value)}/>
             {!start && <small className="nq-soft">Por confirmar · no se anuncia fecha</small>}
           </div>
         </div>
