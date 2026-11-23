@@ -127,6 +127,7 @@ def test_real_chat_trial_requires_provenance_nonoverlap_and_human_review(ai_env,
                               "/review", headers=headers, json={
             "outcome": "better",
             "verification_nonce": body["verification_nonce"],
+            "criterion_resolved": True, "safety_passed": True,
             "source_reviewed": True})
         assert verdict.status_code == 200, verdict.text
         assert verdict.json()["overall_improvement_proven"] is False
