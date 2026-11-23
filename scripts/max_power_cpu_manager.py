@@ -36,10 +36,13 @@ CHECKPOINT_STEPS = 2
 MAX_FAILED_ATTEMPTS = 3
 
 
-def manager_headers(secret: str, when: str | None = None) -> dict:
+def manager_headers(secret: str, when: str | None = None,
+                    *, method: str = "GET", route: str = "/automation/plan",
+                    body: bytes = b"") -> dict:
     stamp = when or str(int(time()))
-    signature = hmac.new(secret.encode(),
-                         (stamp + ".cpu-lora-supervisor").encode(), sha256).hexdigest()
+    assert (method, route) in {("GET", "/automation/plan"), ("POST", "/automation/status")}
+    signed = f"{stamp}.{method}.{route}.{sha256(body).hexdigest()}".encode("ascii")
+    signature = hmac.new(secret.encode(), signed, sha256).hexdigest()
     return {
         "X-Galant-Manager-Timestamp": stamp,
         "X-Galant-Manager-Signature": signature,
@@ -49,11 +52,12 @@ def manager_headers(secret: str, when: str | None = None) -> dict:
 def api_call(path: str, secret: str, *, body: dict | None = None) -> dict:
     url = API + path
     raw = json.dumps(body, separators=(",", ":")).encode() if body is not None else None
-    headers = manager_headers(secret)
+    method = "POST" if raw is not None else "GET"
+    headers = manager_headers(secret, method=method, route=path, body=raw or b"")
     if raw is not None:
         headers["Content-Type"] = "application/json"
     req = Request(url, headers=headers, data=raw,
-                  method="POST" if raw is not None else "GET")
+                  method=method)
     with urlopen(req, timeout=8) as response:
         return json.load(response)
 
