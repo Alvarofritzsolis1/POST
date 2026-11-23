@@ -278,7 +278,17 @@ def main():
                           MaxPowerMessengerTrial.status.in_(("queued", "running")),
                           MaxPowerMessengerTrial.next_at <= utcnow()).limit(1))
                     if due:
-                        task = executor.submit(process_one)
+                        with SessionLocal() as db:
+                            pending = bool(messenger_busy(db))
+                        snapshot = {**practice_sampler.sample(),
+                                    "cpu_pressure_avg10": _pressure("cpu"),
+                                    "memory_pressure_avg10": _pressure("memory"),
+                                    "io_pressure_avg10": _pressure("io")}
+                        allowed, block_reason = can_run(snapshot, messenger_pending=pending)
+                        if allowed:
+                            task = executor.submit(process_one)
+                        else:
+                            logger.debug("MAX POWER Messenger practice yielded: %s", block_reason)
                     else:
                         task = executor.submit(process_next, sampler=practice_sampler,
                                                training_model=local_model,
