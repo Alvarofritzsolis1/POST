@@ -84,3 +84,68 @@ jobs:
         shell: bash
         run: |
           sudo rm -rf -- "$RUNNER_TEMP/maxpower-private"
+
+  qwen4b_aislado:
+    name: Inferencia REAL Qwen 3.5 4B aislada; sin datos ni servicios de GALANT
+    runs-on: ubuntu-24.04
+    timeout-minutes: 35
+    steps:
+      - name: Iniciar Ollama exclusivo de pruebas
+        shell: bash
+        run: |
+          set -Eeuo pipefail
+          docker run -d --name galant-maxpower-qwen4b-qa \
+            --memory 7g --cpus 2 --pids-limit 128 \
+            --security-opt no-new-privileges --cap-drop ALL \
+            -p 127.0.0.1:11536:11434 ollama/ollama:latest serve
+          for i in {1..30}; do
+            if curl -fsS --max-time 2 http://127.0.0.1:11536/api/tags >/dev/null; then
+              echo "OLLAMA_AISLADO=disponible"; break
+            fi
+            sleep 2
+          done
+          curl -fsS --max-time 4 http://127.0.0.1:11536/api/tags >/dev/null
+      - name: Descargar Qwen3.5 4B solo para QA, nunca desde Messenger
+        run: docker exec galant-maxpower-qwen4b-qa ollama pull qwen3.5:4b-q4_K_M
+      - name: Verificar inferencia, modelo exacto, respuesta y ausencia de montos inventados
+        shell: bash
+        run: |
+          set -Eeuo pipefail
+          python3 - <<'PY'
+          import json,re,time
+          from urllib.request import Request,urlopen
+          endpoint="http://127.0.0.1:11536/api/chat"
+          prompts=(
+              ("Hola, soy maestro carpintero y ando buscando pega.",
+               "Pregunta de manera simple en qué comuna busca trabajo. No inventes avisos."),
+              ("Vi un aviso pero no me acuerdo cuál. ¿Cuánto están pagando?",
+               "Sin el aviso exacto no se conoce el sueldo. No inventes cifras; pide identificar el aviso.")
+          )
+          for i,(prompt,task) in enumerate(prompts,1):
+              body={"model":"qwen3.5:4b-q4_K_M", "stream":False,
+                    "think":False, "keep_alive":"1m",
+                    "messages":[{"role":"system","content":(
+                      "Eres Galancito, ayudas a personas de oficios en Chile. "
+                      "Responde en español claro y cálido, con una pregunta a la vez, sin tecnicismos. "
+                      "No inventes cupos, pagos, contrataciones, contactos ni datos personales. "+task)},
+                      {"role":"user","content":prompt}],
+                    "options":{"num_ctx":1024,"num_predict":96,"num_thread":2,"temperature":0.1}}
+              request=Request(endpoint,data=json.dumps(body).encode(),method="POST",
+                              headers={"Content-Type":"application/json"})
+              started=time.monotonic()
+              with urlopen(request,timeout=360) as response:
+                  answer=json.load(response)
+              elapsed=round((time.monotonic()-started)*1000)
+              assert answer.get("model")=="qwen3.5:4b-q4_K_M", answer.get("model")
+              text=(answer.get("message") or {}).get("content","").strip()
+              assert 10<=len(text)<=650, "Sin respuesta útil"
+              assert "<think>" not in text.lower()
+              assert not re.search(r"\b(asistente virtual|soy un bot)\b",text,re.I)
+              if i==2:
+                  assert not re.search(r"\$\s*\d|\b\d[\d.,]+\s*(?:pesos|clp)\b",text,re.I), "Pago inventado"
+              print(f"QWEN4B_QA_{i}=respuesta_verificable LATENCIA_MS={elapsed} CARACTERES={len(text)}")
+          print("QWEN4B_QA=real_model_ran_privately_no_production_changes")
+          PY
+      - name: Eliminar Ollama de pruebas
+        if: always()
+        run: docker rm -f galant-maxpower-qwen4b-qa || true
