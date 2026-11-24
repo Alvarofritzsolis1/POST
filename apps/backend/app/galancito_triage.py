@@ -233,6 +233,8 @@ def quick_reply(message: str, *, titles: list[str] | None = None,
     if private_data(message):
         return "No compartas datos personales ni contraseñas por aquí. Para revisarlos, solicita un canal seguro a administración."
     text = plain(message)
+    if text in {"hola vi un trabajo", "ola vi un trabajo", "vi un trabajo", "hola vi un aviso", "vi un aviso"}:
+        return "¡Hola! ¿Qué trabajo viste?"
     if any(contains(text, phrase) for phrase in ("cuanto pagan", "cuanto se paga")):
         return "El pago depende de la obra y del acuerdo con quien contrata. Si viste un aviso, puedo orientarte sobre qué consultar al equipo."
     if not (titles and info.intent == "requirements") and any(
@@ -275,8 +277,7 @@ def quick_reply(message: str, *, titles: list[str] | None = None,
             question = "¿Trabajas solo o con cuántas personas?"
         else:
             question = "¿En qué comuna puedes trabajar?"
-        intro = "Recibo tu interés como trabajador, sin garantizar un puesto. " if info.intent == "job_seeker" else "Gracias por informar tu disponibilidad. "
-        return "" + intro + question
+        return question
     return None
 
 
