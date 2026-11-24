@@ -39,11 +39,17 @@ def status(key, stage, **extra):
 
 def stop_child(child):
     if child.poll() is None:
-        os.killpg(child.pid, signal.SIGTERM)
+        try:
+            os.killpg(child.pid, signal.SIGTERM)
+        except ProcessLookupError:
+            return
         try:
             child.wait(timeout=20)
         except subprocess.TimeoutExpired:
-            os.killpg(child.pid, signal.SIGKILL)
+            try:
+                os.killpg(child.pid, signal.SIGKILL)
+            except ProcessLookupError:
+                pass
             child.wait()
 
 
@@ -59,14 +65,15 @@ def supervise(key, folder, fd):
             report = read_json(folder / "latest.json")
             status(key, "running", report=report)
             if intent() != key or monotonic()-started > 7200:
+                interrupted = intent() != key
                 stop_child(child)
-                status(key, "interrupted", report=read_json(folder / "latest.json"))
-                return False
+                status(key, "interrupted" if interrupted else "failed", report=read_json(folder / "latest.json"))
+                return "interrupted" if interrupted else "failed"
             sleep(2)
         report = read_json(folder / "latest.json")
         ok = child.returncode == 0 and report.get("status") == "completed"
         status(key, "completed" if ok else "failed", report=report)
-        return ok
+        return "completed" if ok else "failed"
     finally:
         stop_child(child)
 
@@ -120,8 +127,12 @@ def main():
             state = {"attempts":int(state.get("attempts",0))+1,"retry_at":time()+COOLDOWN}
             atomic_json(state_path,state)
             status(key,"starting")
-            ok = supervise(key,folder,fd)
-            atomic_json(state_path,{**state,"completed":ok,"retry_at":time()+COOLDOWN})
+            outcome = supervise(key,folder,fd)
+            # Normal priority changes are not model failures. Crash and actual
+            # timeout attempts remain bounded; resume a verified checkpoint.
+            if outcome == "interrupted":
+                state["attempts"] = max(0,state["attempts"]-1)
+            atomic_json(state_path,{**state,"completed":outcome=="completed","retry_at":time()+COOLDOWN})
             waiting_since = waiting_key = None
         finally:
             release_slot(fd)
