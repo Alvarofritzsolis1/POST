@@ -145,3 +145,23 @@ def test_contact_is_not_completion_and_model_may_choose_relevant_missing_field()
     assert contact_followup_reply(CONTACT_ACK, {**facts, "team_available": True, "workers": 3}, prior) == CONTACT_ACK
     assert contact_followup_reply(CONTACT_ACK, {**facts, "field_states": {"team_available": "rechazado_por_usuario"}}, prior) == CONTACT_ACK
     assert contact_followup_reply(CONTACT_ACK, {**facts, "interest_type": "employment"}, prior) == CONTACT_ACK
+
+
+def test_qwen_semantic_confirmation_requires_delivered_question_and_explicit_yes():
+    from types import SimpleNamespace
+    from app.galancito_semantic import decode_local_reply, remember_confirmation, consume_confirmation
+    draft = '{"reply":"Entiendo.","confirm":{"field":"team_available","value":true,"evidence":"ando con mis cabros"}}'
+    facts = complete(team_available=None, workers=None)
+    reply, proposal = decode_local_reply(draft, "ando con mis cabros", facts)
+    assert reply.endswith("¿Puedes llevar a otras personas a trabajar contigo?")
+    assert proposal["field"] == "team_available"
+    lead = SimpleNamespace(team_available=None, workers=None, profile_sources={})
+    assert consume_confirmation(lead, "sipo", reply) == {}
+    remember_confirmation(lead, proposal, reply, "synthetic-outbound")
+    assert consume_confirmation(lead, "sipo", reply) == {"team_available": True}
+    assert consume_confirmation(lead, "sipo", reply) == {}
+    remember_confirmation(lead, proposal, reply, "synthetic-outbound-2")
+    assert consume_confirmation(lead, "sí", "¿Tienes disponibilidad?") == {}
+    assert decode_local_reply(draft, "otro mensaje", facts)[1] is None
+    assert decode_local_reply(draft, "ando con mis cabros", complete())[1] is None
+    assert decode_local_reply("¿Cuántas personas pueden venir?", "hola", facts)[0]

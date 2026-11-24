@@ -27,6 +27,7 @@ from .models import utcnow
 from .network_service import key
 from .galancito_triage import analyze, quick_reply, private_data, application_ai_candidate, application_role, application_role_question
 from .galancito_phone import confirmed_phone_reply
+from .galancito_semantic import PROTOCOL, decode_local_reply, remember_confirmation
 from .galancito_intake import semantic_reasoning_needed, contact_followup_reply, contact_pending_questions, model_contact_question, compose_contact_followup, CONTACT_RECEIVED_CONTEXT, acceptable_intake_draft, intake_question_fields, clarification_reply, identity_reply, model_intake_candidate, next_intake_reply, small_talk_reply, natural_messenger_reply, needs_deeper_response
 from .galancito_memory import aware, note_profile_sources, prior_delivered_prompt, profile_facts, reply_focus, messenger_context
 from .galancito_knowledge import retrieve, exact_answer
@@ -271,6 +272,7 @@ def process_chat_next(session_factory=SessionLocal, *, simulation_config=None, n
         inbound_at = lead.last_inbound_at
         outbound_queue_ms = max(0, round((utcnow() - aware(job.created_at)).total_seconds() * 1000))
         fast, intent, fast_source, model_needed, context = None, "unknown", "local", False, ""
+        semantic_proposal = None
         trace = {"trace_version": 1, "context_turns": 0, "known_fields": 0,
                  "knowledge_count": 0, "model_requested": False, "context_truncated": False}
         if state == "ai_pending":
@@ -315,6 +317,8 @@ def process_chat_next(session_factory=SessionLocal, *, simulation_config=None, n
             semantic_reasoning = bool(model_needed and local_first_messenger(cfg) and not contact_turn and (
                 (application_role_question(prior_question) and application_role(latest, prior_question) is None)
                 or semantic_reasoning_needed(latest, prior_question, facts)))
+            semantic_protocol = bool(semantic_reasoning and ai_source == "ollama" and
+                (facts.get("interest_type") == "unknown" or facts.get("team_available") is None))
             trace["semantic_reasoning_requested"] = semantic_reasoning
             model_options = {"thinking": True} if semantic_reasoning else {}
             trace["contact_followup"] = contact_turn
@@ -329,7 +333,9 @@ def process_chat_next(session_factory=SessionLocal, *, simulation_config=None, n
                 guide = next((g for g in guides if terms.intersection(
                     {key(g.trade), *(key(a) for a in (g.aliases or []))})), None)
                 context, count = messenger_context(latest, facts, prior_question, turns, evidence, guide,
-                                                   limit=MAX_CONTEXT_CHARS)
+                    limit=MAX_CONTEXT_CHARS - (len(PROTOCOL) + 1 if semantic_protocol else 0))
+                if semantic_protocol:
+                    context = PROTOCOL + "\n" + context
                 trace["context_turns"] = count
                 trace["known_fields"] = sum(bool(value) for key, value in facts.items()
                                             if key not in {"field_states", "turn_changed"})
@@ -435,6 +441,8 @@ def process_chat_next(session_factory=SessionLocal, *, simulation_config=None, n
                                  generate_text(REPLY_INSTRUCTIONS, prepared_context, 550, **model_options))),
                                 org_id=org_id if ai_source == "team" else None)
                         timings = last_timings.get()
+                    if semantic_protocol and drafted:
+                        drafted, semantic_proposal = decode_local_reply(drafted, latest, facts)
                     if drafted:
                         drafted = grounded_reply(drafted, context)
                     if drafted and rewrite_intake and not acceptable_intake_draft(drafted, facts, intake or "", message=latest):
@@ -445,6 +453,7 @@ def process_chat_next(session_factory=SessionLocal, *, simulation_config=None, n
                     if drafted:
                         generated, source = drafted, ("fallback" if trace.get("ai_route") == "guided_fallback" else "ai")
                     else:
+                        semantic_proposal = None
                         source = "fallback"
                 except (RuntimeError, ValueError):
                     source = "fallback"
@@ -510,6 +519,10 @@ def process_chat_next(session_factory=SessionLocal, *, simulation_config=None, n
         row.remote_id = result_id
         row.state = "sent" if result_id else ("uncertain" if uncertain else "failed")
         row.error, row.updated_at = problem, utcnow()
+        if result_id and automated_reply and semantic_proposal and source == "ai":
+            contact = db.get(FacebookLead, lead_id, with_for_update=True)
+            if contact is not None and contact.last_inbound_at == inbound_at and not contact.ai_paused:
+                remember_confirmation(contact, semantic_proposal, body, result_id)
         if result_id and automated_reply and intake_question_fields(body) & {"contact_phone", "contact_email"}:
             contact = db.get(FacebookLead, lead_id, with_for_update=True)
             if contact is not None and not contact.phone_requested_at:

@@ -13,6 +13,7 @@ from .galancito_intake import (
     unresolved_declarations,
 )
 from .galancito_knowledge import evidence_context, conversation_example
+from .galancito_semantic import consume_confirmation
 from .galancito_contact_email import redact_email_for_intake, remember_shared_email
 from .galancito_phone import redact_mobile_for_intake, remember_shared_phone
 from .galancito_links import audit_event, record_declared_trades, trade_declarations, trade_terms
@@ -164,6 +165,14 @@ def apply_messenger_message(db, lead, message, prior, *, remote_id, at, historic
                             replay=False, aliases=None) -> bool:
     if not message or private_data(message) or analyze(message).intent in {"human", "restricted"}:
         return False
+    if not historical and not replay:
+        confirmed = consume_confirmation(lead, message, prior)
+        if confirmed:
+            for field, value in confirmed.items():
+                setattr(lead, field, value)
+                audit_event(db, lead, "field_" + field, source="message", remote_id=remote_id)
+            note_profile_sources(lead, confirmed, source="message", at=at, remote_id=remote_id)
+            return True
     # Treat an answer to a specific, just-asked question as the person's own
     # declaration, while never turning the advertised trade into experience.
     normalized = plain(message)
