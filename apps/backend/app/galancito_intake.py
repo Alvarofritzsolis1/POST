@@ -586,7 +586,7 @@ def next_intake_reply(message: str, facts: dict, prior_prompt: str = "") -> str 
         question = "¿Cómo te llamas?"
     elif (intent in {"service_offer", "employment", "both"}
           and (facts.get("specialty") or facts.get("trades"))
-          and facts.get("work_area") and facts.get("availability")
+          and facts.get("work_area") and facts.get("availability") not in {None, "", "Sin disponibilidad"}
           and not any(facts.get(k) for k in ("contact_available", "contact_declined", "contact_offered"))
           and "contact_phone" not in intake_question_fields(prior_prompt)
           and "contact_email" not in intake_question_fields(prior_prompt)):
