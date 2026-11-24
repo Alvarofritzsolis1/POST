@@ -531,7 +531,7 @@ def ingest_facebook_payload(db, payload, cfg, *, notices=None):
                         "requested", "requested_team") and recent < 2:
                     reply = set_permission_request(lead, ai_source, repeat=True)
                 if not reply and recent == 0:
-                    reply = "¡Hola! Puedes escribir con confianza. ¿Qué trabajo haces?"
+                    reply = "¡Hola! ¿Qué trabajo te interesa?"
             if not use_ai and not reply and not lead.needs_support and lead.ai_consent_state != "declined":
                 flag_for_human(db, lead,
                                "Galancito no encontró una respuesta confirmada; revisión humana pendiente")
@@ -559,6 +559,8 @@ def ingest_facebook_payload(db, payload, cfg, *, notices=None):
                         direction="outbound", state="pending", body=reply,
                         ai_generated=False))
             elif reply and recent < 30:
+                if "¿me dejas tu celular?" in reply and not lead.phone_requested_at:
+                    lead.phone_requested_at = utcnow()
                 db.add(FacebookChatMessage(
                     org_id=lead.org_id, lead_id=lead.id, page_id=lead.page_id,
                     direction="outbound", state="pending", body=reply[:550],
