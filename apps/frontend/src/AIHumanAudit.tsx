@@ -200,7 +200,7 @@ export default function AIHumanAudit({ onPractice }: { onPractice: (channel: Cha
           Proponer tras validar casos reservados
         </button>
         <button type="button" disabled={busy} onClick={() => onPractice(channel, key)}>
-          Laboratorio complementario
+          Ver historial del canal
         </button>
       </div>)}</div>
       <small>La propuesta exige 2 casos de práctica y 4 casos reservados independientes favorables, origen de Qwen verificable y 0 regresiones. Ninguna prueba modifica pesos ni envía mensajes.</small>
