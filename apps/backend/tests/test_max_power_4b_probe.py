@@ -123,3 +123,18 @@ def test_real_selection_balances_criteria_and_rejects_duplicate_groups():
     assert {r["criterion"] for r in selected} == {"context","safety"}
     with pytest.raises(ValueError):
         select_distinct([case("a","context"),case("a","safety")],2)
+
+
+def test_exact_hub_snapshot_revision_without_private_transformers_attribute():
+    import pytest
+    from probe_galancito_4b_cpu import snapshot_revision
+    revision = "a" * 40
+    config = Path("/cache/models--Qwen--Qwen3.5-4B/snapshots") / revision / "config.json"
+    assert snapshot_revision(config) == revision
+    assert snapshot_revision(config, revision) == revision
+    with pytest.raises(RuntimeError):
+        snapshot_revision(config, "b" * 40)
+    with pytest.raises(RuntimeError):
+        snapshot_revision(Path("/cache/models--Qwen--Qwen3.5-0.8B/snapshots") / revision / "config.json")
+    with pytest.raises(RuntimeError):
+        snapshot_revision(Path("/cache/blobs") / revision / "config.json")
