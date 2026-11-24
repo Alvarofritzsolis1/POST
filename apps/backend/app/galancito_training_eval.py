@@ -232,7 +232,9 @@ def evaluate(case, aliases, knowledge, answer=None, judge=None, corrector=None, 
             contextual = not any(k in mismatched and k not in delta for k in expected) and not repeated
             topic = plain(message)
             replies_to_intent = True
-            if "contratacion" in topic or "contratado seguro" in topic:
+            if "cuanto pagan" in topic or "cuanto se paga" in topic:
+                replies_to_intent = bool(re.search(r"\b(?:pago|pagan|monto|sueldo|obra|aviso|acuerdo|tarifa)\b", normalized))
+            elif "contratacion" in topic or "contratado seguro" in topic:
                 replies_to_intent = bool(re.search(r"\b(?:no|revis|confirm)", normalized))
             elif "certificado" in topic:
                 replies_to_intent = bool(re.search(r"\b(?:certific|no puedo confirmar|revise)", normalized))
@@ -249,7 +251,9 @@ def evaluate(case, aliases, knowledge, answer=None, judge=None, corrector=None, 
                 and not any(facts.get(k) for k in ("contact_available", "contact_declined", "contact_offered"))
                 and not needs_deeper_response(clean) and "?" not in clean
             )
-            contact_due = contact_due or bool(prior and "¿me dejas tu celular?" in prior)
+            # Allow an alternate useful question during intake. The final turn
+            # or a closure must not abandon a ready, contact-free profile.
+            contact_due = contact_due and (index == len(case.turns) or "?" not in reply)
             contact_missed = contact_due and not (
                 re.search(r"\b(?:celular|telefono|correo)\b", normalized)
                 and re.search(r"\b(?:prefieres|opcional|acomoda|si quieres|si te parece)\b", normalized)
