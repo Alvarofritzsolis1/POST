@@ -286,7 +286,7 @@ services:
     read_only: true
     init: true
     volumes:
-      - ${GALANT_CPU_LORA_PRIVATE_DIR:-/opt/galant-cpu-lora-private}/4b-diagnostic:/private
+      - galancito_4b_probe:/private
     tmpfs:
       - /tmp:size=128m,mode=1777
     networks: [cpu-lora-egress]
@@ -327,3 +327,4 @@ volumes:
   post_db: {}
   galancito_models: {}
   galancito_training_models: {}
+  galancito_4b_probe: {}
