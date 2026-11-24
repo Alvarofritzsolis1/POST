@@ -328,6 +328,27 @@ services:
     cpu_shares: 16
     stop_grace_period: 45s
     logging: *logs
+  cpu-4b-shadow:
+    profiles: [max-power-4b-shadow]
+    build: {context: ., dockerfile: infrastructure/Dockerfile.cpu-4b-probe}
+    entrypoint: ["python", "/src/scripts/validate_galant_4b_ollama_candidate.py"]
+    restart: "no"
+    read_only: true
+    init: true
+    environment:
+      GALANT_4B_RELEASE_PUBLIC_KEY: ${GALANT_4B_RELEASE_PUBLIC_KEY:-}
+    volumes:
+      - galancito_4b_probe:/private
+      - galancito_4b_control:/4b-control
+    tmpfs:
+      - /tmp:size=32m,mode=1777
+    networks: [internal]
+    security_opt: [no-new-privileges:true]
+    cap_drop: [ALL]
+    pids_limit: 32
+    mem_limit: 256m
+    cpus: 0.5
+    logging: *logs
   frontend:
     build: {context: ., dockerfile: apps/frontend/Dockerfile}
     restart: unless-stopped
