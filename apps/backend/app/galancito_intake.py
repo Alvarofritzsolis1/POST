@@ -46,7 +46,7 @@ def intake_question_fields(prompt: str) -> set[str]:
         "specialty": (*_TRADE_PROMPTS, "que trabajo haces", "que trabajos haces", "a que te dedicas", "en que trabajas"),
         "interest_type": (_INTEREST_QUESTION, "buscas empleo o", "buscas empleo como trabajador", "buscas trabajo para ti", "buscas que te contraten", "ofreces tus servicios", "trabajo por tu cuenta o", "quieres trabajar por tu cuenta como contratista", "empleo con contrato o tomar trabajos", "como trabajador o", "como contratista", "tomas trabajos por tu cuenta", "tomar trabajos por tu cuenta", "ofreces servicios por tu cuenta", "buscas un empleo", "quieres un empleo"),
         "entity_type": ("representas una empresa", "con una empresa o a tu propio nombre"),
-        "team_available": (_TEAM_QUESTION, "puedes venir con", "vas solo", "irias solo", "trabajas con alguien", "tienes cuadrilla"),
+        "team_available": (_TEAM_QUESTION, "puedes venir con", "vas solo", "irias solo", "trabajas con alguien", "tienes cuadrilla", "puedes llevar gente", "puedes llevar otras personas", "puedes traer gente", "puedes trabajar con mas gente", "trabajas por tu cuenta solo", "trabajarias solo"),
         "workers": ("cuantas personas", "con cuantas", "cuantos puedes traer", "cuantos maestros", "cuantos son en total"),
         "has_employees": ("tienes trabajadores contratados", "tienes empleados"),
         "employee_count": ("cuantos trabajadores contratados", "cuantos empleados"),
@@ -637,16 +637,14 @@ def next_intake_reply(message: str, facts: dict, prior_prompt: str = "") -> str 
         return None
     question = next(iter(pending_professional_questions(facts).values()), None)
     intent = facts.get("interest_type", "unknown")
-    if question:
-        pass
-    elif (intent in {"service_offer", "employment", "both"}
+    if not question and (intent in {"service_offer", "employment", "both"}
           and (facts.get("specialty") or facts.get("trades"))
           and facts.get("work_area") and facts.get("availability") not in {None, "", "Sin disponibilidad"}
           and not any(facts.get(k) for k in ("contact_available", "contact_declined", "contact_offered"))
           and "contact_phone" not in intake_question_fields(prior_prompt)
           and "contact_email" not in intake_question_fields(prior_prompt)):
         return "Para coordinar, ¿me dejas tu celular? Si prefieres, seguimos por aquí."
-    else:
+    if not question:
         return "Podemos seguir por aquí si tienes dudas sobre el trabajo."
     if plain(question) in plain(prior_prompt):
         if facts.get("turn_changed"):

@@ -1329,3 +1329,56 @@ def test_recovery_queues_phone_confirmation_and_deduplicates(network, monkeypatc
     with n["Session"]() as db:
         lead = db.scalar(select(FacebookLead))
         assert lead.contact_phone == "+56987654321"
+
+
+@pytest.mark.parametrize("path", ["webhook", "recovery"])
+@pytest.mark.parametrize("model_works", [True, False])
+def test_contact_followup_uses_qwen_or_pending_field_fallback(network, monkeypatch, path, model_works):
+    from datetime import datetime, timezone, timedelta
+    from app import facebook_inbox_sync as recovery, facebook_ai
+    from app.galancito_phone import normalize_mobile
+    n = network
+    org_id = enable_messaging(n, monkeypatch)
+    for key, value in {"FACEBOOK_AI_ENABLED": "true", "FACEBOOK_AI_AUTO_REPLY_ENABLED": "true",
+                       "FACEBOOK_AI_PROVIDER": "ollama", "GALANCITO_LOCAL_AI_ENABLED": "true"}.items():
+        monkeypatch.setenv(key, value)
+    settings.cache_clear()
+    contexts, sent = [], []
+    def model(instructions, context, limit, **options):
+        contexts.append(context)
+        if not model_works:
+            raise RuntimeError("synthetic outage")
+        return "¿Trabajas solo o puedes llevar gente?"
+    monkeypatch.setattr(facebook_ai, "generate_local_text", model)
+    monkeypatch.setattr("app.facebook_chat_worker.graph_send",
+                        lambda *a: sent.append(a[2]) or "capacity-ack-" + str(len(sent)))
+    page, psid = "1489275590928529", "123456789012345"
+    with n["Session"].begin() as db:
+        db.add(FacebookLead(org_id=org_id, page_id=page, psid=psid, specialty="Gasfitería",
+            interest_type="service_offer", display_name="Maestro de prueba", experience="4 años",
+            work_area="San Pedro de la Paz", availability="Inmediata", ai_consent=True,
+            ai_consent_provider="ollama", ai_consent_state="accepted",
+            last_inbound_at=datetime.now(timezone.utc)-timedelta(minutes=2)))
+    if path == "webhook":
+        assert incoming(n, "+569 87654321", "capacity-phone-synthetic").status_code == 200
+    else:
+        now = datetime.now(timezone.utc).isoformat()
+        monkeypatch.setattr(recovery, "_graph_get", lambda token, resource, edge, fields, limit:
+            {"data": [{"id": "t_capacity_synthetic"}]} if edge == "conversations" else
+            {"data": [{"id": "m_capacity_synthetic", "message": "+569 87654321",
+                       "from": {"id": psid}, "created_time": now}]})
+        result = recovery.sync_page_inbox(page_id=page, page_token="synthetic-page-token",
+                                        org_id=org_id, session_factory=n["Session"])
+        assert result["replies_queued"] == 1
+    assert process_chat_next(n["Session"])
+    assert len(contexts) == len(sent) == 1
+    assert "87654321" not in contexts[0]
+    assert "team_available" in contexts[0]
+    assert sent[0].startswith("Gracias, ya tengo tu número de contacto.")
+    assert sent[0].endswith("¿Trabajas solo o puedes llevar gente?" if model_works else
+                           "¿Trabajas solo o puedes venir con otras personas?")
+    with n["Session"]() as db:
+        lead = db.scalar(select(FacebookLead))
+        assert lead.contact_phone == normalize_mobile("+569 87654321")
+        assert lead.team_available is None
+        assert not lead.needs_support

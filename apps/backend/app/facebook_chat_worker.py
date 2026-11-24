@@ -310,7 +310,8 @@ def process_chat_next(session_factory=SessionLocal, *, simulation_config=None, n
                 model_needed = bool(local_first_messenger(cfg) and contact_pending_questions(facts, prior_question))
                 rewrite_intake = False
                 intent = "contact_followup"
-                latest = CONTACT_RECEIVED_CONTEXT  # Never send a phone to any model.
+                latest = (CONTACT_RECEIVED_CONTEXT + " Campos aplicables: " +
+                          ", ".join(contact_pending_questions(facts, prior_question)))  # No phone digits.
             semantic_reasoning = bool(model_needed and local_first_messenger(cfg)
                                       and application_role_question(prior_question)
                                       and application_role(latest, prior_question) is None)

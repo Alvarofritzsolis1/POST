@@ -126,3 +126,22 @@ def test_shared_messenger_context_redacts_contact_and_keeps_complete_evidence():
     assert "Nombre privado" not in context and "maestro@example.com" not in context
     assert "sin orden obligatorio" in context
     assert len(context) <= 3000 and included >= 1
+
+
+def test_contact_is_not_completion_and_model_may_choose_relevant_missing_field():
+    from app.galancito_intake import contact_followup_reply, model_contact_question, contact_pending_questions
+    from app.galancito_phone import CONTACT_ACK
+    facts = complete(specialty="Gasfitería", team_available=None, workers=None, contact_available=True)
+    prior = "¿Me dejas tu celular?"
+    assert set(contact_pending_questions(facts, prior)) == {"team_available"}
+    assert contact_followup_reply(CONTACT_ACK, facts, prior).endswith("¿Trabajas solo o puedes venir con otras personas?")
+    assert model_contact_question("¿Trabajas solo o puedes llevar gente?", facts, prior)
+    assert model_contact_question("¿En qué comuna puedes trabajar?", facts, prior) is None
+    assert model_contact_question("¿Me dejas tu celular?", facts, prior) is None
+    assert model_contact_question("Gracias, listo.", facts, prior) is None
+    assert model_contact_question("¿En qué comuna puedes trabajar?", {**facts, "work_area": ""}, prior)
+    assert set(contact_pending_questions({**facts, "team_available": True}, prior)) == {"workers"}
+    assert contact_followup_reply(CONTACT_ACK, {**facts, "team_available": False, "workers": 1}, prior) == CONTACT_ACK
+    assert contact_followup_reply(CONTACT_ACK, {**facts, "team_available": True, "workers": 3}, prior) == CONTACT_ACK
+    assert contact_followup_reply(CONTACT_ACK, {**facts, "field_states": {"team_available": "rechazado_por_usuario"}}, prior) == CONTACT_ACK
+    assert contact_followup_reply(CONTACT_ACK, {**facts, "interest_type": "employment"}, prior) == CONTACT_ACK
