@@ -12,6 +12,8 @@ type MetricPoint = {
   train_samples_per_second?: number | null; holdout_loss_before?: number | null;
   preflight_ready?: boolean | null; host_free_mb?: number | null;
   cgroup_free_mb?: number | null; cgroup_limit_mb?: number | null;
+  cgroup_available_mb?: number | null; cgroup_reclaimable_mb?: number | null;
+  evaluation_done?: number | null; evaluation_total?: number | null;
   disk_free_mb?: number | null;
   holdout_loss_after?: number | null; holdout_pass_before?: number | null;
   holdout_pass_after?: number | null; holdout_regressions?: number | null;
@@ -37,7 +39,7 @@ const metrics: Array<{id:Metric; title:string; unit:string}> = [
   {id:"learning_rate",title:"Tasa de aprendizaje",unit:""},
 ];
 const stageLabels: Record<string,string> = {
-  preflight:"Revisión de recursos CPU", start:"Preparando entrenamiento", baseline:"Evaluando referencia", metric:"Actualizando pesos LoRA",
+  preflight:"Revisión de recursos CPU", start:"Cargando modelo y preparando datos", baseline_progress:"Evaluando referencia inicial", baseline:"Referencia inicial calculada", metric:"Actualizando pesos LoRA",
   eval:"Validando", checkpoint:"Checkpoint guardado", finished:"Entrenamiento terminado",
   failed:"Entrenamiento interrumpido", paused:"Pausado para proteger recursos", unknown:"Estado no verificable"
 };
@@ -134,7 +136,7 @@ export default function FineTuneProgress(){
         : "Al encender MAX POWER se comprobarán recursos automáticamente; aún no hay una medición registrada."}</span>
       {lastPreflight && <span>
         RAM del servidor libre: {fmt(lastPreflight.host_free_mb,0)} MB ·
-        RAM disponible en contenedor: {fmt(lastPreflight.cgroup_free_mb,0)} MB ·
+        RAM disponible en contenedor (incluye caché recuperable): {fmt(lastPreflight.cgroup_available_mb ?? lastPreflight.cgroup_free_mb,0)} MB ·
         Disco libre: {fmt(lastPreflight.disk_free_mb,0)} MB
       </span>}
       <small>Sin comandos manuales: MAX POWER comprueba recursos, autorización y estado del entrenamiento CPU. Las métricas se actualizan automáticamente cuando hay una ejecución real.</small>
@@ -153,8 +155,9 @@ export default function FineTuneProgress(){
       <div className="ft-status-line">
         <span className={"ft-led"+(!stale && run?.stage!=="finished"?" active":"")}/>
         <strong>{stageLabels[run?.stage||"unknown"]??"No verificable"}</strong>
-        <span>{stale?"Señal detenida o sin conexión":run?.stage==="finished"?"Resultado guardado":run?.stage==="paused"?"Pausado por recursos":run?.stage==="failed"?"Interrumpido":"Actualiza cada 5 segundos"}</span>
+        <span>{stale?"Sin mediciones nuevas durante más de 60 s; no confirma desconexión":run?.stage==="finished"?"Resultado guardado":run?.stage==="paused"?"Pausado por recursos":run?.stage==="failed"?"Interrumpido":"Actualiza cada 5 segundos"}</span>
       </div>
+      {run?.stage==="baseline_progress" && <p className="ft-warning">Evaluación inicial: {fmt(lastBy("evaluation_done"),0)} / {fmt(lastBy("evaluation_total"),0)} ejemplos. Aún no hay pasos de optimización.</p>}
       <div className="ft-progress-label">
         <strong>{fmt(run?.percent,1)}{run?.percent!=null?"%":""}</strong>
         <span>{fmt(run?.step,0)} / {fmt(run?.total_steps,0)} pasos de optimización</span>
