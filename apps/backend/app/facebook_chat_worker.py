@@ -323,8 +323,12 @@ def process_chat_next(session_factory=SessionLocal, *, simulation_config=None, n
                            json.dumps(professional_facts, ensure_ascii=False) +
                            "\nReferencias aprobadas: " + evidence_context(evidence))
                 if rewrite_intake:
-                    context = ("Consulta actual: " + professional_message(latest)[:800] + "\n" +
-                               conversation_context(facts) + "\n" + context.split("\n", 1)[1])
+                    context = ("Consulta actual: " + professional_message(latest)[:600] +
+                               "\n" + conversation_context(facts) +
+                               "\nDatos profesionales declarados: " + json.dumps(professional_facts, ensure_ascii=False) +
+                               "\nReferencias aprobadas: " + evidence_context(evidence)[:650] +
+                               "\nÚltima pregunta entregada: " + professional_message(prior_question)[:250] +
+                               "\nHistorial reciente:\n" + "\n".join(context_turns)[-750:])
                 if example := conversation_example(latest, prior_question):
                     context += "\nEjemplo didáctico contextual (no es un hecho de la obra): " + example
                 guides = db.scalars(select(FacebookTradeGuide).where(
