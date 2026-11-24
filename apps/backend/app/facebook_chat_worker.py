@@ -24,7 +24,7 @@ from .facebook_crm_models import FacebookLead, FacebookChatMessage, FacebookTrad
 from .models import utcnow
 from .network_service import key
 from .galancito_triage import analyze, quick_reply, private_data
-from .galancito_intake import identity_reply, next_intake_reply, small_talk_reply, natural_messenger_reply, needs_deeper_response
+from .galancito_intake import clarification_reply, identity_reply, next_intake_reply, small_talk_reply, natural_messenger_reply, needs_deeper_response
 from .galancito_memory import aware, note_profile_sources, prior_delivered_prompt, profile_facts, reply_focus
 from .galancito_knowledge import retrieve, exact_answer, evidence_context
 from .galancito_runtime import infer, record_run
@@ -281,10 +281,11 @@ def process_chat_next(session_factory=SessionLocal, *, simulation_config=None, n
                 any(origin.get("message_id") == focus.remote_id for origin in lead.profile_sources.values())))
             prior_question = (prior_delivered_prompt(db, lead, at=focus.created_at)
                               if focus else "")
-            location = worksite_reply(db, lead, latest, prior_question, notices=notices)
-            follow_up = availability_reply(db, lead, latest, prior_question, focus.created_at) if focus else None
-            apply = None if location or follow_up else application_reply(db, lead, latest, prior_question, notices=notices)
-            intake = location or follow_up or apply or small_talk_reply(latest, prior_question) or next_intake_reply(latest, facts, prior_question)
+            help_answer = clarification_reply(latest, prior_question)
+            location = None if help_answer else worksite_reply(db, lead, latest, prior_question, notices=notices)
+            follow_up = availability_reply(db, lead, latest, prior_question, focus.created_at) if focus and not help_answer else None
+            apply = None if help_answer or location or follow_up else application_reply(db, lead, latest, prior_question, notices=notices)
+            intake = help_answer or location or follow_up or apply or small_talk_reply(latest, prior_question) or next_intake_reply(latest, facts, prior_question)
             intent = "worksite_location" if location else "apply" if apply else analyze(latest).intent
             fast = intake or quick_reply(latest, known=facts)
             evidence = []
@@ -292,7 +293,7 @@ def process_chat_next(session_factory=SessionLocal, *, simulation_config=None, n
                 evidence = retrieve(db, lead.org_id, latest, "messenger")
                 if learned := exact_answer(evidence):
                     fast, fast_source = learned, "knowledge"
-            model_needed = (bool(latest) and not (location or follow_up or apply) and not private_data(latest) and not identity_reply(latest)
+            model_needed = (bool(latest) and not (help_answer or location or follow_up or apply) and not private_data(latest) and not identity_reply(latest)
                             and intent not in {"human", "restricted"} and fast_source != "knowledge"
                             and (not fast or needs_deeper_response(latest)))
             trace["model_requested"] = bool(model_needed)
