@@ -77,9 +77,9 @@ def test_waiting_turn_does_not_block_but_active_or_draining_does():
     assert cpu_event_blocks({"state":"off","draining_until_epoch":NOW.timestamp()+10},NOW,NOW)
 
 
-def test_synthetic_4b_only_reserved_completed_verified_model():
-    from app.max_power_live import synthetic_4b_series, latency_series
-    def item(case, split="holdout", model="qwen3.5:4b-q4_K_M", status="completed"):
+def test_synthetic_2b_only_reserved_completed_verified_model():
+    from app.max_power_live import synthetic_2b_series, latency_series
+    def item(case, split="holdout", model="qwen3.5:2b-q4_K_M", status="completed"):
         return SimpleNamespace(status=status,completed_at=NOW,metrics={
             "dataset_sha256":"abc","protocol":"v1","case_id":case,
             "model":model,"split":split,"baseline":{"understanding_check":False},
@@ -87,7 +87,7 @@ def test_synthetic_4b_only_reserved_completed_verified_model():
             "before_timing_ms":{"ollama_total_ms":3000,"prompt_ms":2000},
             "after_timing_ms":{"ollama_total_ms":2000,"generation_ms":1000}})
     trials = [item("a"),item("a"),item("b","development"),item("c",model="qwen0.8b"),item("d",status="queued")]
-    points = synthetic_4b_series(trials)
+    points = synthetic_2b_series(trials)
     assert len(points) == 1
     assert points[0]["preliminary"] is True
     assert points[0]["pairs"] == 1
@@ -98,10 +98,10 @@ def test_synthetic_4b_only_reserved_completed_verified_model():
     assert times[1]["generation_seconds"] == 1
 
 
-def test_4b_memory_gate_requires_real_residency(monkeypatch):
+def test_2b_memory_gate_requires_real_residency(monkeypatch):
     from app import max_power_worker as worker
     monkeypatch.setattr(worker,"isolated_model_resident",lambda _:False)
-    assert not worker.qwen_memory_ready({"available_ram_mb":7000})
+    assert not worker.qwen_memory_ready({"available_ram_mb":4800})
     assert worker.qwen_memory_ready({"available_ram_mb":9000})
     monkeypatch.setattr(worker,"isolated_model_resident",lambda _:True)
     assert worker.qwen_memory_ready({"available_ram_mb":4000})

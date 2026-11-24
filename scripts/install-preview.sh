@@ -36,10 +36,10 @@ install -d -o 10001 -g 10001 -m 0700 /opt/galant-cpu-lora-private
 python3 scripts/ensure-finetune-metrics-key.py .env.preview
 compose=(docker compose --profile training --profile max-power-auto --env-file .env.preview -f docker-compose.preview.yml)
 "${compose[@]}" config --quiet
-COMPOSE_PARALLEL_LIMIT=1 "${compose[@]}" build api worker facebook-publisher frontend galancito-trainer max-power-controller cpu-lora-manager
+COMPOSE_PARALLEL_LIMIT=1 "${compose[@]}" build api worker facebook-publisher frontend galancito-trainer max-power-controller cpu-lora-manager cpu-2b-manager
 "${compose[@]}" up -d db api worker facebook-publisher frontend proxy
 "${compose[@]}" exec -T api python -m app.cli init-db
-"${compose[@]}" up -d --no-build galancito-trainer galancito-training-ollama max-power-controller cpu-lora-manager
+"${compose[@]}" up -d --no-build galancito-trainer galancito-training-ollama max-power-controller cpu-lora-manager cpu-2b-manager
 "${compose[@]}" exec -T api python -m app.deploy_verify \
     --expected-commit "${SOURCE_COMMIT:-unknown}" --training-worker-only
 ok=0

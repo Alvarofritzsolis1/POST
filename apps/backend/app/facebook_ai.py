@@ -3,6 +3,7 @@ import json
 from urllib.error import HTTPError, URLError
 from urllib.request import Request, urlopen
 
+from .galancito_model_config import QWEN_2B
 from .config import settings
 from .ai_gateway import orchestration_available, orchestration_selected
 from .ai_models import AIOrchestration
@@ -165,7 +166,7 @@ def _generate(instructions: str, supplied_data: str, max_chars: int,
 def local_first_messenger(cfg) -> bool:
     return bool(cfg.facebook_ai_enabled and cfg.facebook_ai_provider == "ollama"
                 and cfg.galancito_local_ai_enabled
-                and cfg.galancito_local_model == "qwen3.5:4b-q4_K_M")
+                and cfg.galancito_local_model == QWEN_2B)
 
 
 def messenger_external_fallback_selected(db, org_id: str, cfg) -> bool:
@@ -185,12 +186,12 @@ def messenger_ai_source(db, org_id: str, cfg=None) -> str:
     cfg = cfg or settings()
     if not cfg.facebook_ai_enabled:
         return "disabled"
-    if cfg.galancito_local_model == "qwen3.5:4b-q4_K_M":
+    if local_first_messenger(cfg):
         # Team consent explicitly authorizes external processing; old local consent does not.
         if messenger_external_fallback_selected(db, org_id, cfg):
             return "team"
-        return "ollama" if cfg.facebook_ai_provider == "ollama" and facebook_reply_ai_available(cfg) else "disabled"
-    if orchestration_selected(db, org_id, "messenger"):
+        return "ollama"
+    if db is not None and orchestration_selected(db, org_id, "messenger"):
         return "team" if orchestration_available(db, org_id, "messenger") else "disabled"
     return cfg.facebook_ai_provider if facebook_reply_ai_available(cfg) else "disabled"
 

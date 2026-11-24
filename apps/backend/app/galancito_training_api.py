@@ -17,8 +17,7 @@ from .galancito_flow import grounded_reply
 from .galancito_knowledge_api import persist
 from .galancito_knowledge_models import Knowledge, KnowledgeVersion
 from .config import settings
-from .galancito_general import QWEN_4B
-from .galancito_local import MODEL
+from .galancito_model_config import QWEN_2B
 from .galancito_real_learning import (LIVE_DATASET_VERSION, LIVE_EVALUATION_VERSION,
                                       MAX_LIVE_CASES, GENERAL_COACH_TITLE, GENERAL_COACH_SCOPE,
                                       collect_live_cases, live_hash)
@@ -31,7 +30,7 @@ from .galancito_phone import redact_mobile_for_intake
 from .galancito_training import DETAIL_DAYS, WORKER_STALE_SECONDS, eligible_at, round_view, summarize
 from .galancito_training_data import DATASET_VERSION, MAX_CASES, MESSENGER_FOCUS, dataset_hash, digest, scenario
 from .galancito_training_eval import CORRECTOR_PROMPT, CRITICAL, EVALUATION_VERSION, JUDGE_PROMPT, PROMPT, PROPOSALS, WEIGHTS, visible
-from .galancito_training_models import ACTIVE, TERMINAL, TrainingCase, TrainingRound, TrainingWorker
+from .galancito_training_models import ACTIVE, MODEL_ROLES, TERMINAL, TrainingCase, TrainingRound, TrainingWorker
 from .galancito_triage import plain
 from .models import AuditEvent, Organization, User, utcnow
 from .security import administrator
@@ -199,11 +198,12 @@ def overview(user: User = Depends(administrator), db: Session = Depends(get_db))
             "weights": WEIGHTS, "internal_weights": INTERNAL_WEIGHTS,
             "internal_categories": INTERNAL_CATEGORIES, "detail_days": DETAIL_DAYS,
             "local_model": settings().galancito_local_model,
-            "training_mode": "motor_principal_compartido" if settings().galancito_local_model != MODEL
-                             else "ollama_entrenamiento_aislado"}
+            "training_mode": "ollama_entrenamiento_aislado"}
 
 
 def start(db, user, body, *, previous=None, compare_profile=False, orchestrator=None, commit=True):
+    if previous is not None and not compare_profile and previous.uses_legacy_local_model():
+        previous = None
     config = body.model_dump()
     config["seed"] = secrets.randbelow(2**31) if body.seed is None else body.seed
     internal = body.profile == "interno"
@@ -213,8 +213,6 @@ def start(db, user, body, *, previous=None, compare_profile=False, orchestrator=
         config["duration_capped"] = bool(body.minutes > 45 and not body.allow_extended_duration)
         if config["duration_capped"]:
             config["minutes"] = 45
-    if internal and body.model == "ollama" and settings().galancito_local_model != QWEN_4B:
-        raise HTTPException(422, "Galancito General requiere activar y verificar Qwen3.5 4B antes de practicar con Ollama. Puedes usar reglas sintéticas.")
     live = internal and body.suite == "live"
     config["dataset_version"] = (LIVE_DATASET_VERSION if live else
                                  INTERNAL_DATASET_VERSION if internal else DATASET_VERSION)
@@ -247,13 +245,17 @@ def start(db, user, body, *, previous=None, compare_profile=False, orchestrator=
         raise HTTPException(409, "El generador cambió desde la ronda anterior. Inicia una nueva referencia.")
     # Serialize starts and approvals for a consistent knowledge snapshot.
     db.scalar(select(Organization.id).where(Organization.id == user.org_id).with_for_update())
-    current = db.scalar(select(TrainingRound.id).where(
-        TrainingRound.org_id == user.org_id, TrainingRound.state.in_(ACTIVE)))
-    if current:
+    current = db.scalar(select(TrainingRound).where(
+        TrainingRound.org_id == user.org_id, TrainingRound.state.in_(ACTIVE)).with_for_update())
+    if current is not None and not current.stop_for_model_change(utcnow()):
         raise HTTPException(409, "Ya existe una ronda activa para esta organización")
+    if current is not None:
+        db.flush()
     comparable = previous or db.scalar(select(TrainingRound).where(
         TrainingRound.org_id == user.org_id, TrainingRound.dataset_hash == fingerprint,
         TrainingRound.state == "completed",
+        *(TrainingRound.config[role]["model"].as_string() == QWEN_2B
+          for role in MODEL_ROLES if config[role]["id"] == "ollama"),
     ).order_by(TrainingRound.created_at.desc()).limit(1))
     external = any(config[role]["id"] not in {"guided", "rules", "ollama"}
                    for role in ("model", "judge", "corrector"))
@@ -402,6 +404,7 @@ def promote_live(round_id: str, user: User = Depends(administrator), db: Session
     last = cycles.get(str(row.config.get("cycles", 1)), {})
     if not (row.config.get("profile") == "interno" and row.config.get("suite") == "live"
             and row.config.get("model", {}).get("id") == "ollama"
+            and row.config["model"].get("model") == QWEN_2B
             and row.state == "completed" and row.completed == row.target
             and row.metrics.get("real_learning_demonstrated") is True
             and last.get("holdout_role") == "candidate" and last.get("critical") == 0

@@ -47,7 +47,9 @@ configure_compose() {
     max_power_services=()
     if grep -q "^  max-power-controller:" docker-compose.preview.yml; then
         max_power_services=(max-power-controller galancito-training-ollama cpu-lora-manager)
-        if grep -q "^  cpu-4b-manager:" docker-compose.preview.yml; then
+        if grep -q "^  cpu-2b-manager:" docker-compose.preview.yml; then
+            max_power_services+=(cpu-2b-manager)
+        elif grep -q "^  cpu-4b-manager:" docker-compose.preview.yml; then
             max_power_services+=(cpu-4b-manager)
         fi
         compose+=(--profile max-power-auto)
@@ -70,9 +72,14 @@ configure_compose() {
 configure_compose
 previous_training=()
 previous_max_power=()
+legacy_neural_container=""
 for service in "${max_power_services[@]}"; do
-    if [[ -n "$("${compose[@]}" ps --status running --quiet "$service")" ]]; then
+    container="$("${compose[@]}" ps --status running --quiet "$service")"
+    if [[ -n "$container" ]]; then
         previous_max_power+=("$service")
+        if [[ "$service" == "cpu-4b-manager" ]]; then
+            legacy_neural_container="$container"
+        fi
     fi
 done
 for service in "${training_services[@]}"; do
@@ -163,11 +170,32 @@ if (( ${#training_services[@]} )); then
     "${compose[@]}" pull galancito-training-ollama
 fi
 COMPOSE_PARALLEL_LIMIT=1 "${compose[@]}" build api worker "${facebook_services[@]}" frontend "${calc_services[@]}" galancito-trainer "${max_power_services[@]}"
+local_ai_services=()
+local_ai_enabled="$("${compose[@]}" config --format json | python3 -c '
+import json, sys
+env = json.load(sys.stdin)["services"]["api"]["environment"]
+print("yes" if env.get("GALANCITO_LOCAL_AI_ENABLED", "").lower() in {"1", "true", "yes", "on", "y", "t"} else "no")
+')"
+if [[ "$local_ai_enabled" == yes ]]; then
+    model="$(python3 -c 'from apps.backend.app.galancito_model_config import QWEN_2B; print(QWEN_2B)')"
+    "${compose[@]}" pull galancito-ollama
+    # Download beside the previous tag before switching the application.
+    "${compose[@]}" up -d --no-deps --no-recreate galancito-ollama
+    for attempt in {1..15}; do
+        "${compose[@]}" exec -T -e OLLAMA_HOST=http://127.0.0.1:11434 galancito-ollama ollama list && break
+        sleep 2
+    done
+    "${compose[@]}" exec -T -e OLLAMA_HOST=http://127.0.0.1:11434 galancito-ollama ollama pull "$model"
+    local_ai_services=(galancito-ollama)
+fi
 # Freeze writers before reprojecting legacy attendance. Old rows remain intact.
 # On failure the EXIT trap restores the previous containers; no volumes are removed.
+if [[ -n "$legacy_neural_container" && ! " ${max_power_services[*]} " =~ " cpu-4b-manager " ]]; then
+    docker stop "$legacy_neural_container"
+fi
 "${compose[@]}" stop api worker "${facebook_services[@]}" "${training_services[@]}" "${max_power_services[@]}"
 "${compose[@]}" run --rm --no-deps api python -m app.cli migrate-db --verified-backup-sha256 "$backup_sha256"
-COMPOSE_PARALLEL_LIMIT=1 "${compose[@]}" up -d --no-build db "${calc_services[@]}" api worker "${facebook_services[@]}" frontend proxy "${training_services[@]}" "${max_power_services[@]}"
+COMPOSE_PARALLEL_LIMIT=1 "${compose[@]}" up -d --no-build db "${calc_services[@]}" api worker "${facebook_services[@]}" frontend proxy "${training_services[@]}" "${max_power_services[@]}" "${local_ai_services[@]}"
 # Fail the release if the actual running API cannot encrypt stored credentials.
 "${compose[@]}" exec -T api python -c "from app.ai_gateway import encryption_ready; assert encryption_ready(), 'Cifrado IA sin inicializar'"
 wait_for_health "$target_ref"
@@ -202,16 +230,16 @@ if (( ${#max_power_services[@]} )); then
         sleep 4
     done
     [[ "$manager_health" == "healthy" ]] || { echo "Supervisor neuronal sin heartbeat; se revierte." >&2; exit 1; }
-    if grep -q "^  cpu-4b-manager:" docker-compose.preview.yml; then
-        fourb_id="$("${compose[@]}" ps --quiet cpu-4b-manager)"
-        [[ -n "$fourb_id" ]] || { echo "Trabajador 4B ausente; se revierte." >&2; exit 1; }
-        fourb_health=""
+    if grep -q "^  cpu-2b-manager:" docker-compose.preview.yml; then
+        neural_id="$("${compose[@]}" ps --quiet cpu-2b-manager)"
+        [[ -n "$neural_id" ]] || { echo "Trabajador 2B ausente; se revierte." >&2; exit 1; }
+        neural_health=""
         for i in {1..15}; do
-            fourb_health="$(docker inspect --format '{{.State.Health.Status}}' "$fourb_id" 2>/dev/null || true)"
-            [[ "$fourb_health" == "healthy" ]] && break
+            neural_health="$(docker inspect --format '{{.State.Health.Status}}' "$neural_id" 2>/dev/null || true)"
+            [[ "$neural_health" == "healthy" ]] && break
             sleep 4
         done
-        [[ "$fourb_health" == "healthy" ]] || { echo "Trabajador 4B sin heartbeat; se revierte." >&2; exit 1; }
+        [[ "$neural_health" == "healthy" ]] || { echo "Trabajador 2B sin heartbeat; se revierte." >&2; exit 1; }
     fi
     echo "MAX POWER: trabajadores disponibles; piloto sintético separado de datos reales firmados."
 fi
@@ -223,21 +251,21 @@ fi
 # touches production records or makes an external API call.
 "${compose[@]}" exec -T api python - <<'PY' || true
 from app.config import settings
-from app.galancito_general import QWEN_4B
+from app.galancito_model_config import QWEN_2B
 from app.galancito_local import installed_model_status, generate_local_text, last_timings
 
 cfg = settings()
-if not cfg.galancito_local_ai_enabled or cfg.galancito_local_model != QWEN_4B:
+if not cfg.galancito_local_ai_enabled or cfg.galancito_local_model != QWEN_2B:
     print("GALANCITO_MODEL_CHECK=not_configured")
-elif installed_model_status(QWEN_4B) is not True:
+elif installed_model_status(QWEN_2B) is not True:
     print("GALANCITO_MODEL_CHECK=not_confirmed_installed")
 else:
     try:
         answer = generate_local_text(
             "Verificación sin datos de usuarios. Responde solo OK.", "OK", max_chars=40)
         actual = last_timings.get().get("response_model")
-        valid = actual == QWEN_4B and answer.strip().casefold().strip(".! ") == "ok"
-        print("GALANCITO_MODEL_CHECK=" + ("verified_4b" if valid else "unverified"))
+        valid = actual == QWEN_2B and answer.strip().casefold().strip(".! ") == "ok"
+        print("GALANCITO_MODEL_CHECK=" + ("verified_2b" if valid else "unverified"))
         print("GALANCITO_MODEL_TAG=" + str(actual or "unreported"))
     except (OSError, RuntimeError, TimeoutError, ValueError):
         print("GALANCITO_MODEL_CHECK=unavailable_or_busy")

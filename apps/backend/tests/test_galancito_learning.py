@@ -241,7 +241,7 @@ def test_memory_pressure_unloads_without_inference(monkeypatch):
     monkeypatch.setattr(galancito_local._opener, "open", lambda req, **kwargs: payloads.append(json.loads(req.data)) or Response())
     with pytest.raises(RuntimeError, match="memoria"):
         galancito_local.generate_local_text("System", "Hello")
-    assert payloads == [{"model": "qwen3:1.7b", "keep_alive": 0}]
+    assert payloads == [{"model": "qwen3.5:2b-q4_K_M", "keep_alive": 0}]
 
 
 @pytest.mark.parametrize("unsafe", ["Sueldo $999999", "Te contratamos", "Envía tu RUT", "Visita https://inventada.example"])

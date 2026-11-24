@@ -77,18 +77,20 @@ def test_recent_messenger_traffic_delays_practice(ai_env, monkeypatch):
 
 
 def test_low_ram_still_runs_fichas_once_with_real_cases_available(ai_env, monkeypatch):
+    from app.max_power_decisions import QWEN_MEMORY_REASON, QWEN_MIN_RAM_MB
+    monkeypatch.setattr("app.max_power_worker.isolated_model_resident", lambda _: False)
     monkeypatch.setattr("app.max_power_worker.MAX_POWER_ISOLATED", True)
     monkeypatch.setattr("app.max_power_worker._pressure", lambda name: 0)
     monkeypatch.setattr("app.max_power_worker.collect_live_cases", lambda db, owner: list(range(16)))
     client, sessions = ai_env["client"], ai_env["sessions"]
     admin = signin(client, "admin")
     assert client.post(BASE + "/control/on", headers=admin).status_code == 200
-    snapshot = {**StaticSampler().sample(), "available_ram_mb": 6224}
+    snapshot = {**StaticSampler().sample(), "available_ram_mb": QWEN_MIN_RAM_MB - 128}
     with sessions.begin() as db:
         heartbeat(db, snapshot, utcnow())
         existing = db.get(MaxPowerState, ai_env["org_id"])
         existing.last_status = "resource_guard"
-        existing.last_reason = "Se requieren 8 GB de RAM disponible para proteger el modelo de producción"
+        existing.last_reason = QWEN_MEMORY_REASON
         existing.next_at = utcnow() + timedelta(minutes=5)
     with sessions() as db:
         tick(db, StaticSampler(), sampled=snapshot)
@@ -98,8 +100,8 @@ def test_low_ram_still_runs_fichas_once_with_real_cases_available(ai_env, monkey
     assert live["controller_at"] and live["updated_at"] and live["next_check_at"]
     assert live["practice_cases"] == len(generate_scenarios())
     assert status["synthetic_practice"]["holdout"]["cases"] > 0
-    assert status["resource_snapshot"]["available_ram_mb"] == 6224
-    assert live["qwen"]["state"] == "waiting" and live["qwen"]["required_ram_mb"] == 8192
+    assert status["resource_snapshot"]["available_ram_mb"] == snapshot["available_ram_mb"]
+    assert live["qwen"]["state"] == "waiting" and live["qwen"]["required_ram_mb"] == QWEN_MIN_RAM_MB
     assert status["experiments"] == 0
     with sessions.begin() as db:
         db.get(MaxPowerState, ai_env["org_id"]).next_at = utcnow() - timedelta(seconds=1)

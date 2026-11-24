@@ -24,7 +24,8 @@ from .ai_quality_models import AIRealPracticeTrial, AIResponseReview
 from .config import settings
 from .db import get_db
 from .facebook_ai import LOCAL_REPLY_INSTRUCTIONS
-from .galancito_general import GENERAL_INSTRUCTIONS, QWEN_4B
+from .galancito_general import GENERAL_INSTRUCTIONS
+from .galancito_model_config import QWEN_2B
 from .galancito_knowledge_api import KnowledgeInput, create
 from .galancito_knowledge_models import Knowledge, AssistantRun
 from .galancito_local import generate_local_text, last_timings
@@ -72,6 +73,7 @@ def trials_for(db, org_id, channel, criterion, since):
         AIRealPracticeTrial.org_id == org_id,
         AIRealPracticeTrial.channel == channel,
         AIRealPracticeTrial.criterion == criterion,
+        AIRealPracticeTrial.model == QWEN_2B,
         AIRealPracticeTrial.created_at >= since)))
 
 
@@ -98,8 +100,8 @@ def _verified_model_trace(record):
     timings = getattr(record, "timings", {}) or {}
     return (isinstance(timings, dict)
             and isinstance(timings.get("response_model"), str)
-            and timings["response_model"].casefold() == QWEN_4B.casefold()
-            and record.source in {"ai", "ollama_4b", "verified_reasoning"})
+            and timings["response_model"].casefold() == QWEN_2B.casefold()
+            and record.source in {"ai", "ollama_2b", "verified_reasoning"})
 
 
 def _successful_training(trials, variant):
@@ -209,6 +211,7 @@ def next_target(channel: Literal["messenger", "general"] = "messenger",
                 AIRealPracticeTrial.org_id == user.org_id,
                 AIRealPracticeTrial.channel == channel,
                 AIRealPracticeTrial.criterion == key,
+                AIRealPracticeTrial.model == QWEN_2B,
             ).order_by(AIRealPracticeTrial.created_at.desc()).limit(300)))
             done = [x for x in previous if x.review_id ==
                     db.scalar(select(AIResponseReview.id).where(
@@ -258,7 +261,7 @@ def next_target(channel: Literal["messenger", "general"] = "messenger",
             "recent_defects": result["recent_failed"],
             "engineering_findings": engineering[:15],
             "reason": "Priorizado por frecuencia histórica auditada y fallas recientes verificadas, sin regresiones observadas.",
-            "model": QWEN_4B, "automatic_approval": False,
+            "model": QWEN_2B, "automatic_approval": False,
             "caution": "No se practican errores confirmados de truncamiento, memoria o proveedor como si fueran fallas de Qwen."}
 
 
@@ -345,6 +348,7 @@ def replay(body: ReplayInput, user: User = Depends(administrator),
     previous = list(db.scalars(select(AIRealPracticeTrial).where(
         AIRealPracticeTrial.review_id == review.id,
         AIRealPracticeTrial.criterion == body.criterion,
+        AIRealPracticeTrial.model == QWEN_2B,
     ).order_by(AIRealPracticeTrial.created_at.desc())))
     if any(t.outcome == "pending" for t in previous):
         raise HTTPException(409, "Existe una práctica sin calificar; revísala o cancélala")
@@ -353,8 +357,8 @@ def replay(body: ReplayInput, user: User = Depends(administrator),
     if body.variant not in VARIANTS:
         raise HTTPException(422, "Variante no permitida")
     cfg = settings()
-    if not cfg.galancito_local_ai_enabled or cfg.galancito_local_model != QWEN_4B:
-        raise HTTPException(409, "Requiere Qwen3.5 4B local activo; sin simulaciones ni API externas")
+    if not cfg.galancito_local_ai_enabled or cfg.galancito_local_model != QWEN_2B:
+        raise HTTPException(409, "Requiere Qwen3.5 2B local activo; sin simulaciones ni API externas")
     lines = [("Persona: " if x["role"] in ("user", "inbound") else "GALANT: ") +
              str(x["text"])[:500] for x in evidence["history"][-5:]]
     prompt = "\n".join(lines) + "\nÚltima consulta:\n" + evidence["question"][:650]
@@ -389,8 +393,8 @@ def replay(body: ReplayInput, user: User = Depends(administrator),
                 current, prompt, max_chars=550, thinking=(channel == "general"), seed=seed))
             observed = dict(last_timings.get() or {})
             if (not isinstance(observed.get("response_model"), str)
-                    or observed["response_model"].casefold() != QWEN_4B.casefold()):
-                raise HTTPException(503, "Ollama no confirmó Qwen3.5 4B en ambas ejecuciones")
+                    or observed["response_model"].casefold() != QWEN_2B.casefold()):
+                raise HTTPException(503, "Ollama no confirmó Qwen3.5 2B en ambas ejecuciones")
             if not raw or not str(raw).strip():
                 raise HTTPException(503, "Qwen no produjo ambas respuestas comparables")
             clean = (grounded_reply(raw, prompt) if channel == "messenger"
@@ -408,7 +412,7 @@ def replay(body: ReplayInput, user: User = Depends(administrator),
     elapsed = round((perf_counter() - started) * 1000)
     trial = AIRealPracticeTrial(
         org_id=user.org_id, review_id=review.id, reviewer_id=user.id,
-        channel=channel, criterion=body.criterion, model=QWEN_4B,
+        channel=channel, criterion=body.criterion, model=QWEN_2B,
         elapsed_ms=elapsed, policy_version=1, outcome="pending",
         variant=body.variant, stage=stage,
         provenance="model_verified" if _verified_model_trace(original_run) else "reconstructed")
@@ -418,7 +422,7 @@ def replay(body: ReplayInput, user: User = Depends(administrator),
             "channel": channel, "criterion": body.criterion,
             "variant": body.variant, "stage": stage, "diagnosis": diagnosis,
             "provenance": trial.provenance,
-            "model": QWEN_4B, "source": "actual_local_qwen_on_audited_production_chat",
+            "model": QWEN_2B, "source": "actual_local_qwen_on_audited_production_chat",
             "original": evidence["answer"],
             "baseline": str(baseline)[:1000], "candidate": str(validated)[:1000],
             "seed": seed, "elapsed_ms": elapsed,

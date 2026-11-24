@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Optional OFFLINE LoRA fine-tuning of Qwen3.5-4B on human-approved examples.
+"""Optional OFFLINE LoRA fine-tuning of Qwen3.5-2B on human-approved examples.
 
 Never run on the live Ollama service. No model is automatically promoted.
 Dry-run validates the real dataset without installing Torch/TRL or reading
@@ -135,7 +135,7 @@ def main(argv=None) -> int:
     )
     model.config.use_cache = False
     model = prepare_model_for_kbit_training(model, use_gradient_checkpointing=True)
-    # Qwen3.5-4B is multimodal. PEFT must target the genuine language decoder
+    # Qwen3.5-2B is multimodal. PEFT must target the genuine language decoder
     # in the official ConditionalGeneration architecture, not the vision
     # tower and not a differently mapped text-only wrapper.
     decoder_linear = [

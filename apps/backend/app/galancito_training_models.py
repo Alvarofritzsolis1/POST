@@ -5,10 +5,12 @@ from sqlalchemy import DateTime, ForeignKey, Index, Integer, JSON, String, text
 from sqlalchemy.orm import Mapped, mapped_column
 
 from .db import Base
+from .galancito_model_config import QWEN_2B
 from .models import uid, utcnow
 
 ACTIVE = ("queued", "practicing", "evaluating", "correcting", "paused")
 TERMINAL = ("completed", "stopped", "error")
+MODEL_ROLES = ("model", "judge", "corrector")
 
 
 class TrainingRound(Base):
@@ -41,6 +43,19 @@ class TrainingRound(Base):
     metrics: Mapped[dict] = mapped_column(JSON, default=dict)
     reason: Mapped[str | None] = mapped_column(String(180))
     previous_id: Mapped[str | None] = mapped_column(String(36))
+
+    def uses_legacy_local_model(self) -> bool:
+        return any(spec.get("id") == "ollama" and spec.get("model") != QWEN_2B
+                   for spec in (self.config.get(role, {}) for role in MODEL_ROLES))
+
+    def stop_for_model_change(self, now: datetime) -> bool:
+        if self.state not in ACTIVE or not self.uses_legacy_local_model():
+            return False
+        self.state = "stopped"
+        self.reason = "Cambió el modelo. Repite la ronda con Qwen3.5 2B."
+        self.finished_at = now
+        self.lease = self.lease_until = None
+        return True
 
 
 class TrainingCase(Base):

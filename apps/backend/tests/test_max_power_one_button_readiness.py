@@ -2,17 +2,17 @@
 from app import max_power_worker as worker
 from app import max_power_messenger as messenger
 from app.config import Settings
-from app.galancito_general import QWEN_4B
+from app.galancito_model_config import QWEN_2B
 
 
-def test_max_power_isolated_4b_is_independent_of_production_settings(monkeypatch):
+def test_max_power_isolated_2b_is_independent_of_production_settings(monkeypatch):
     production = Settings(galancito_local_ai_enabled=False,
                           galancito_local_model="qwen3:1.7b")
     monkeypatch.setattr(messenger, "settings", lambda: production)
     lab = messenger.isolated_qwen_config()
-    assert lab.galancito_local_model == QWEN_4B
+    assert lab.galancito_local_model == QWEN_2B
     assert production.galancito_local_ai_enabled is False
-    assert production.galancito_local_model == "qwen3:1.7b"
+    assert production.galancito_local_model == QWEN_2B
 
 
 def test_one_button_prepares_model_and_protects_messenger_resources(monkeypatch):
@@ -26,7 +26,7 @@ def test_one_button_prepares_model_and_protects_messenger_resources(monkeypatch)
             return self.reason
     good = {"available_ram_mb": 9400, "disk_free_mb": 80000}
     assert worker.isolated_qwen_ready(good, FakeTrainingModel()) is True
-    assert calls == [(80000, QWEN_4B)]
+    assert calls == [(80000, QWEN_2B)]
     assert worker.isolated_qwen_ready(good, FakeTrainingModel("Descarga pendiente")) is False
     assert worker.isolated_qwen_ready({"available_ram_mb": 3000, "disk_free_mb": 80000},
                                       FakeTrainingModel()) is False

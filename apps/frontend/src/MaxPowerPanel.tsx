@@ -27,7 +27,7 @@ type LiveActivity = {
 };
 type Status = {
   enabled: boolean; controller_online: boolean; trainer_online: boolean;
-  neural_4b?: {stage:string;live:boolean;completed_steps:number;target_steps:number;data_kind:string;conversation_gate:boolean;production_promoted:boolean;holdout_loss_before:number|null;holdout_loss_after:number|null;blockers:string[]};
+  neural_2b?: {stage:string;live:boolean;completed_steps:number;target_steps:number;data_kind:string;conversation_gate:boolean;production_promoted:boolean;holdout_loss_before:number|null;holdout_loss_after:number|null;blockers:string[]};
   cpu_learning?: {status:string;reason:string;last_update_at:string|null;
                   manager_online:boolean;weights_trained:boolean;synthetic_weights_trained?:boolean;
                   training_kind?:string;model:string};
@@ -78,9 +78,19 @@ const checks = (count: CheckCount) => count.passed == null || count.samples === 
   ? "Datos insuficientes" : f(count.passed) + " / " + f(count.samples);
 const controllerStatus: Record<string,string> = {
   resource_guard:"En espera de recursos", synthetic_practice_completed:"Práctica de fichas terminada",
-  awaiting_new_evidence:"En espera de datos nuevos", preparing_qwen:"Preparando Qwen 4B privado",
-  cpu_neural_training:"Turno reservado para LoRA CPU", synthetic_model_evaluation:"Evaluación de Qwen 4B",
+  awaiting_new_evidence:"En espera de datos nuevos", preparing_qwen:"Preparando Qwen 2B privado",
+  cpu_neural_training:"Turno reservado para LoRA CPU", synthetic_model_evaluation:"Evaluación de Qwen 2B",
   messenger_evaluation:"Evaluación de Messenger", starting:"Iniciando", off:"En pausa",
+};
+const neuralStages: Record<string,string> = {
+  awaiting_resources:"En espera de memoria o disco", waiting_turn:"En espera de turno",
+  loading:"Cargando modelo", training:"Entrenando adaptador", evaluating:"Evaluando casos reservados",
+  paused:"En pausa", completed:"Ronda completada", awaiting_approved_dataset:"En espera de datos autorizados",
+  failed:"Ronda interrumpida", retry_exhausted:"Reintentos agotados",
+};
+const neuralBlockers: Record<string,string> = {
+  host_free_mb:"RAM disponible del VPS", cgroup_limit_mb:"Límite de RAM del contenedor",
+  cgroup_available_mb:"RAM disponible del contenedor", disk_free_mb:"Espacio en disco",
 };
 
 export default function MaxPowerPanel(){
@@ -159,8 +169,8 @@ export default function MaxPowerPanel(){
   const model = live?.qwen;
   const practiceCompleted = practice ? practice.development.cases + practice.holdout.cases : null;
   const cpuStatus = data?.cpu_learning;
-  const neural4b=data?.neural_4b;
-  const neuralRunning=Boolean(data?.enabled && neural4b?.live && ["loading","training","evaluating"].includes(neural4b.stage));
+  const neural2b=data?.neural_2b;
+  const neuralRunning=Boolean(data?.enabled && neural2b?.live && ["loading","training","evaluating"].includes(neural2b.stage));
   const cpuRunning = Boolean(data?.enabled && ["training", "training_synthetic"].includes(cpuStatus?.status ?? ""));
   const cpuPreparing = Boolean(data?.enabled && cpuStatus?.status === "preparing_synthetic");
   const cpuLabFinished = cpuStatus?.status === "finished_synthetic";
@@ -217,9 +227,13 @@ export default function MaxPowerPanel(){
       </div>
     </div>
     {data && <div className="max-power-status">
-      <div><strong>Entrenamiento neuronal Qwen 4B · {neural4b ? neural4b.stage.replaceAll("_"," ") : "sin informe del trabajador"}</strong>
-        <p>{neural4b ? `${neural4b.completed_steps} de ${neural4b.target_steps} pasos con pesos modificados` : "Esperando datos medidos del contenedor aislado"}</p>
-        {neural4b && <><progress value={neural4b.completed_steps} max={neural4b.target_steps}/><small>{neural4b.live ? "Informe reciente" : "Último informe guardado"} · {neural4b.blockers.join(", ") || "Sin bloqueos de preflight reportados"} · candidato sin activar en producción</small></>}
+      <div><strong>Qwen3.5 2B · QLoRA por CPU · {neural2b ? neuralStages[neural2b.stage] ?? "Estado pendiente" : "Sin informe del entrenador"}</strong>
+        <p>{neural2b ? `${neural2b.completed_steps} de ${neural2b.target_steps} pasos con pesos modificados` : "Esperando datos medidos del contenedor aislado"}</p>
+        {neural2b && <>
+          <progress aria-label="Pasos de entrenamiento QLoRA completados" value={neural2b.completed_steps} max={neural2b.target_steps}/>
+          <small>{neural2b.live ? "Informe reciente" : "Último informe guardado"}</small>
+          {neural2b.blockers.length > 0 && <small>Recursos insuficientes · {neural2b.blockers.map(key => neuralBlockers[key] ?? key).join(", ")}</small>}
+        </>}
       </div>
     </div>}
     {data && <div className="max-power-status">
@@ -243,13 +257,13 @@ export default function MaxPowerPanel(){
             : live ? `${f(live.practice_cases)} casos sintéticos preparados.` : "Esperando el resultado del controlador."}</p>
         </div>
         <div className="max-power-stage" data-state={model?.state ?? "off"}>
-          <h4>Evaluación · Qwen 4B</h4>
+          <h4>Evaluación · Qwen 2B</h4>
           <strong>{model?.state === "running" ? "En ejecución" : data?.enabled ? "En espera" : "En pausa"}</strong>
           <p>{model?.reason ?? data?.reason ?? "Esperando el estado del controlador."}</p>
           {model?.required_ram_mb && typeof resources?.available_ram_mb === "number" &&
             <small>{f(resources.available_ram_mb)} MB libres de {f(model.required_ram_mb)} MB requeridos</small>}
           {model?.completed != null && model.total != null && model.total > 0 && <>
-            <progress aria-label={`Progreso Qwen 4B por ${model.unit}`} value={model.completed} max={model.total} />
+            <progress aria-label={`Progreso Qwen 2B por ${model.unit}`} value={model.completed} max={model.total} />
             <small>{f(model.completed)} de {f(model.total)} {model.unit}</small>
           </>}
           {model?.started_at && <small>Etapa iniciada a las {clock(model.started_at)}</small>}
@@ -292,7 +306,7 @@ export default function MaxPowerPanel(){
         </details>
       </> : <p>Esperando una evaluación con casos sintéticos. Los resultados se guardan al terminar.</p>}
       {qwen && <div className="max-power-competencies">
-        <div className="max-power-competency"><span>Qwen 4B aislado · respuestas sintéticas</span>
+        <div className="max-power-competency"><span>Qwen 2B aislado · respuestas sintéticas</span>
           <span>{qwen.reserved_pairs ? `A/B ${qwen.baseline_passes} → ${qwen.candidate_passes} de ${qwen.reserved_pairs} pares reservados`
             : "Datos insuficientes"}</span></div>
         {(qwen.reserved_pairs > 0 || qwen.queued_or_running > 0 || qwen.blocked > 0) && <p>
@@ -305,19 +319,6 @@ export default function MaxPowerPanel(){
         {typeof resources.available_ram_mb === "number" && " · RAM disponible " + f(resources.available_ram_mb) + " MB"}
         {typeof resources.disk_free_mb === "number" && " · Disco libre " + f(resources.disk_free_mb) + " MB"}
       </p>}
-    </article>
-    <article className="max-power-card">
-      <div className="max-power-section-title"><BrainCircuit size={17}/><h3>Objetivo neuronal · Qwen 4B</h3></div>
-      <p>Galancito utiliza Qwen 4B. El entrenador actual de 0.8B es un laboratorio separado: sus adaptadores no se aplican al 4B.</p>
-      <div className="max-power-mini">
-        <span>RAM libre medida<strong>{typeof resources?.available_ram_mb === "number" ? f(resources.available_ram_mb)+" MB" : "Sin lectura"}</strong></span>
-        <span>Reserva inicial del diagnóstico<strong>8.500 MB</strong></span>
-        <span>Entrenamiento 4B<strong>Sin validación en VPS</strong></span>
-      </div>
-      <p>{typeof resources?.available_ram_mb !== "number" ? "No se dispone de telemetría actual para verificar capacidad." :
-        resources.available_ram_mb < 8500 ? "La RAM libre actual no alcanza el umbral del diagnóstico aislado." :
-        "La lectura de RAM del host supera el umbral inicial. Falta verificar el contenedor, el backend NF4 y los pasos reales."}</p>
-      <p className="max-power-note">La prueba 4B es aislada, no se inicia automáticamente en esta versión y no altera pesos de producción. Los avances de 0.8B no se presentan como aprendizaje neuronal de 4B.</p>
     </article>
     <FineTuneProgress/>
     <div className="max-power-section-title"><Gauge size={17}/><h3>Resultados verificables de cada experimento</h3></div>

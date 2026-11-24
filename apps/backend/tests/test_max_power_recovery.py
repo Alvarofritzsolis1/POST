@@ -29,7 +29,7 @@ def test_finished_round_is_recorded_once_across_repeated_ticks(ai_env):
             org_id=ai_env["org_id"], created_by=state.owner_id,
             target=8, completed=8, state="completed",
             config={"orchestrator":"max_power", "cases": 2, "cycles": 4,
-                    "profile":"interno", "suite":"live", "model":{"model":"qwen3.5:4b-q4_K_M"}},
+                    "profile":"interno", "suite":"live", "model":{"model":"qwen3.5:2b-q4_K_M"}},
             dataset_hash="b"*64, prompt_version="a"*64,
             system_version="20.9.22-rc1@test", knowledge=[], aliases={},
             metrics={"passed":8, "failed":0, "turns":8,
@@ -138,7 +138,7 @@ def test_inference_started_before_off_on_cannot_record_fake_improvement(ai_env, 
 
 
 def test_legacy_trainer_never_claims_max_power_isolated_round(ai_env):
-    """A normal trainer must not steal a 4B round onto production Ollama."""
+    """Manual practice leaves the MAX POWER queue to its controller."""
     from datetime import timedelta
     from app.galancito_trainer import claim
     from app.models import User, utcnow
@@ -164,6 +164,30 @@ def test_legacy_trainer_never_claims_max_power_isolated_round(ai_env):
         assert unchanged.attempts == 0
 
 
+def test_training_maintenance_retires_paused_legacy_model_without_losing_results(ai_env):
+    from app.galancito_trainer import claim
+    from app.models import User
+
+    sessions = ai_env["sessions"]
+    with sessions.begin() as db:
+        admin = db.scalar(select(User).where(
+            User.org_id == ai_env["org_id"], User.role == "admin"))
+        row = TrainingRound(
+            org_id=ai_env["org_id"], created_by=admin.id, state="paused",
+            target=8, completed=3, dataset_hash="a" * 64, prompt_version="b" * 64,
+            system_version="legacy", knowledge=[], aliases={}, metrics={"passed": 3},
+            config={"model": {"id": "ollama", "model": "qwen3.5:4b-q4_K_M"}})
+        db.add(row)
+        db.flush()
+        round_id = row.id
+    assert claim(sessions, StaticSampler().sample(), maintenance=True) is None
+    with sessions() as db:
+        row = db.get(TrainingRound, round_id)
+        assert row.state == "stopped" and row.finished_at is not None
+        assert row.completed == 3 and row.metrics == {"passed": 3}
+        assert row.config["model"]["model"] == "qwen3.5:4b-q4_K_M"
+
+
 
 def test_failed_round_preserves_evidence_and_retries_with_bounded_backoff(ai_env):
     """A timeout must not mark its unchanged live dataset as fully evaluated."""
@@ -179,7 +203,7 @@ def test_failed_round_preserves_evidence_and_retries_with_bounded_backoff(ai_env
             target=32, completed=3, attempts=3,
             config={"orchestrator": "max_power", "cases": 8, "cycles": 4,
                     "profile": "interno", "suite": "live",
-                    "model": {"model": "qwen3.5:4b-q4_K_M"}},
+                    "model": {"model": "qwen3.5:2b-q4_K_M"}},
             dataset_hash="d" * 64, prompt_version="a" * 64,
             system_version="20.9.24-rc1@test", knowledge=[], aliases={},
             metrics={"passed": 3, "failed": 0, "turns": 3})

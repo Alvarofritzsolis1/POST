@@ -1,3 +1,8 @@
+## Qwen3.5 2B en Galancito y MAX POWER
+
+- Galancito, Messenger, Red de Obras y MAX POWER usan un solo modelo local Qwen3.5 2B. Las evaluaciones de respuestas conservan el modelo que las generó.
+- MAX POWER ajusta adaptadores LoRA del mismo modelo con base NF4 y dos CPU. La validación reservada, los checkpoints y la prioridad de Messenger forman parte del mismo flujo.
+
 ## 20.9.30-rc1 — MAX POWER de un solo botón: evaluaciones + pesos LoRA reales
 
 - El mismo interruptor MAX POWER coordina el motor existente de pruebas Qwen3.5 4B y el entrenador neuronal Qwen3.5 0.8B. El supervisor CPU consulta el estado ON/OFF, la generación de sesión y las prioridades de Messenger mediante una API interna firmada HMAC; no accede a la base de datos, al socket Docker ni a documentos laborales.

@@ -1,53 +1,30 @@
-# GALANT MAX POWER 20.9.30 — Un botón para práctica y LoRA CPU
+# MAX POWER y Qwen3.5 2B
 
-## Qué sucede cuando enciendes MAX POWER
+Galancito, Messenger, Red de Obras y las prácticas de MAX POWER usan `qwen3.5:2b-q4_K_M` en Ollama. MAX POWER ejecuta sus inferencias en un contenedor privado separado de Messenger, limitado a 3 GiB y 2 CPU por defecto. El arranque en frío requiere 5.120 MB disponibles en el host. Si Ollama confirma que el modelo está cargado, se reservan 3.072 MB.
 
-1. El controlador continúa evaluando respuestas reales de Galancito en Qwen3.5 4B y Messenger.
-2. Un supervisor CPU aislado consulta automáticamente el encendido de MAX POWER, mediante firma HMAC y control de generación de sesión. No tiene acceso a Postgres, documentos laborales ni al socket Docker.
-3. Si Messenger o una práctica están ocupados, el entrenamiento espera o se pausa. Solo una carga intensiva de IA se ejecuta a la vez en las seis CPU.
-4. Mide RAM disponible del VPS, RAM del contenedor y disco. Publica el preflight real por organización y no lo cuenta como aprendizaje.
-5. Comprueba si existe un dataset firmado y consentido. Si falta, muestra «Falta un conjunto real autorizado y firmado», sin empezar gradientes ni inventar indicadores.
-6. Cuando todo está autorizado y el servidor tiene capacidad, inicia automáticamente una ronda inicial de cuatro pasos de LoRA sobre Qwen3.5 0.8B. Guarda checkpoints cada dos pasos y reporta pérdida, RAM y pasos reales cada cinco segundos.
-7. Al apagar MAX POWER, el proceso deja de autorizar pasos y guarda el checkpoint del último paso confirmado. Una llamada de Qwen en curso puede tardar en terminar; si el proceso no se detiene, se termina conservando el checkpoint anterior.
-8. Al volver a encender, reanuda únicamente desde checkpoints íntegros del mismo dataset y manifest. No suma pasos antiguos como aprendizaje nuevo.
-9. Después de cuatro pasos, el adaptador candidato espera evaluación independiente; no se repite indefinidamente el mismo dataset ni se instala en producción.
+Al encender MAX POWER, el entrenador por CPU mide la memoria y el disco. El preflight requiere 6.000 MB disponibles en el host, un contenedor de 5 GiB y 7.000 MB libres en disco. El entrenador usa NF4 en la base `Qwen/Qwen3.5-2B` y modifica un adaptador LoRA en la última proyección MLP. Una ronda inicial realiza hasta diez pasos sobre ejemplos ficticios. Guarda el adaptador y el optimizador en checkpoints verificables para reanudar. Messenger tiene prioridad sobre la práctica y el entrenamiento.
 
-## Única preparación imprescindible: datos reales autorizados
+El panel registra los pasos que modificaron el adaptador, la pérdida y el resultado de los casos reservados. Un adaptador queda como candidato de laboratorio hasta que se evalúe y se apruebe su uso en producción.
 
-No es posible demostrar consentimiento ni crear una firma Ed25519 automáticamente. Para evitar entrenar con información laboral privada, cada organización necesita una autorización explícita una sola vez.
+## Entrenamiento con datos autorizados
 
-El supervisor busca en el VPS:
+El entrenador busca estos archivos en la carpeta de la organización dentro de `GALANT_2B_APPROVED_DIR`, que apunta a `/opt/galant-2b-approved` por defecto.
 
-    /opt/galant-cpu-lora-private/UUID_ORGANIZACION/
-        approved.jsonl
-        approval.json
-        runs/
+- `<UUID_ORGANIZACION>/approved.jsonl`
+- `<UUID_ORGANIZACION>/approval.json`
 
-Los archivos JSONL y manifiesto deben estar separados, con propietario UID 10001 y permisos 0600, en un directorio con permisos 0700. El formato requiere al menos 30 ejemplos de entrenamiento, 10 de validación y 10 de prueba reservada, todos reales, aprobados, revisados y anonimizados. El manifest Ed25519 autentica SHA256 del JSONL y modelo exacto Qwen/Qwen3.5-0.8B.
+El JSONL requiere ejemplos anonimizados y autorizados, con al menos 30 casos de entrenamiento, 10 de validación y 10 reservados. El manifiesto Ed25519 autoriza el SHA-256 exacto del JSONL y el modelo `Qwen/Qwen3.5-2B`. Los archivos requieren permisos `0600` y lectura por UID 10001. Configura solo la clave pública del firmante en `GALANT_DATASET_APPROVAL_PUBLIC_KEY`. Las aprobaciones firmadas para otros modelos se conservan en su ubicación original y se requiere una firma nueva para usar esos datos con 2B.
 
-Configura la clave pública del firmante una vez en .env.preview:
+## Actualización y diagnóstico
 
-    GALANT_DATASET_APPROVAL_PUBLIC_KEY=<64 caracteres hex de clave Ed25519 pública>
+El despliegue descarga el modelo de producción antes de cambiar los servicios cuando el Ollama local está activado. El 2B se descarga junto a los modelos instalados. La configuración antigua de 1.7B o 4B se interpreta como Qwen3.5 2B en esta versión. El historial conserva los identificadores originales y las rondas pendientes con modelos anteriores se detienen cuando el trabajador intenta retomarlas.
 
-Nunca ingreses la clave privada en GALANT ni copies conversaciones o datos identificables de contratistas sin consentimiento. La configuración automática no firma ni autoriza datos por sí sola.
+```bash
+cd /opt/galant-post
+docker compose --profile max-power-auto --env-file .env.preview -f docker-compose.preview.yml \
+  ps max-power-controller galancito-training-ollama cpu-2b-manager
+docker compose --profile max-power-auto --env-file .env.preview -f docker-compose.preview.yml \
+  logs --tail 50 cpu-2b-manager
+```
 
-Con esos elementos presentes, el botón ya controla automáticamente el entrenamiento y no es necesario ejecutar comandos Docker para iniciarlo.
-
-## Seguridad y límites
-
-El contenedor cpu-lora-manager permanece encendido pero con uso mínimo de recursos en reposo. Su entrenamiento puede usar hasta 1,5 CPU y 5 GiB RAM, sin swap; no tiene acceso directo a la base de datos ni a Messenger.
-
-Qwen3.5 4B permanece en producción. Solo se actualizan los pesos del adaptador LoRA del modelo 0.8B, que NO es compatible directamente con el 4B. Un resultado de CI no demuestra una mejora de razonamiento; se requieren gradientes reales, evaluación reservada y pruebas de regresión.
-
-Los gráficos se basan exclusivamente en métricas reales firmadas. Si el VPS no admite entrenamiento o no existen datos autorizados, se muestra el motivo exacto sin resultados ficticios.
-
-## Diagnóstico técnico
-
-    cd /opt/galant-post
-    docker compose --env-file .env.preview -f docker-compose.preview.yml ps max-power-controller cpu-lora-manager
-    docker compose --env-file .env.preview -f docker-compose.preview.yml logs --tail 50 cpu-lora-manager
-    docker compose --env-file .env.preview -f docker-compose.preview.yml exec -T api python -c "from app.version import VERSION,SOURCE_COMMIT; print(VERSION,SOURCE_COMMIT)"
-
-No ejecutar docker compose down -v ni --remove-orphans para esta operación; checkpoints, datos autorizados y volúmenes se conservan.
-
-Referencias: https://huggingface.co/docs/transformers/en/trainer_callbacks ; https://docs.docker.com/compose/how-tos/startup-order
+[Modelo Ollama](https://ollama.com/library/qwen3.5:2b-q4_K_M) · [Modelo base de entrenamiento](https://huggingface.co/Qwen/Qwen3.5-2B)

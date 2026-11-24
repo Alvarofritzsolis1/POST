@@ -32,7 +32,7 @@ def test_ollama_private_endpoint_bounded_and_no_thinking(monkeypatch):
     assert req.full_url == "http://galancito-ollama:11434/api/chat"
     assert timeout <= 25
     payload = json.loads(req.data)
-    assert payload["model"] == "qwen3:1.7b"
+    assert payload["model"] == "qwen3.5:2b-q4_K_M"
     assert payload["think"] is False and payload["stream"] is False
     assert payload["keep_alive"] == "2m"
     assert payload["options"]["num_ctx"] <= 2048
@@ -91,11 +91,11 @@ def test_facebook_uses_local_ollama_after_explicit_consent(network, monkeypatch)
     center = n["admin"].get("/api/v1/network/facebook/center").json()
     lead = center["leads"][0]
     assert center["ai_provider"] == "ollama"
-    assert lead["ai_consent_state"] == "not_requested"
+    assert lead["ai_consent_state"] == "requested"
     messages = n["admin"].get("/api/v1/network/facebook/leads/" + lead["id"]).json()["messages"]
     assert messages[-1]["automated"] is True
     assert lead["specialty"] == "Gasfitería"
-    assert "cuenta" in messages[-1]["body"].lower()
+    assert "IA local" in messages[-1]["body"]
     sent, generated = [], []
     monkeypatch.setattr("app.facebook_chat_worker.graph_send",
                         lambda p, u, text, token: sent.append(text) or "mid-local-" + str(len(sent)))
@@ -105,16 +105,9 @@ def test_facebook_uses_local_ollama_after_explicit_consent(network, monkeypatch)
         AssertionError("No paid API")))
     assert process_chat_next(n["Session"])
     assert len(sent) == 1 and not generated
-    assert incoming(n, text="¿Cuáles son los requisitos para postular?", mid="local-complex").status_code == 200
-    lead = n["admin"].get("/api/v1/network/facebook/center").json()["leads"][0]
-    assert lead["ai_consent_state"] == "requested"
-    messages = n["admin"].get("/api/v1/network/facebook/leads/" + lead["id"]).json()["messages"]
-    assert "IA local" in messages[-1]["body"]
-    assert process_chat_next(n["Session"])
-    assert len(sent) == 2 and not generated
     assert incoming(n, text="sí", mid="local-2").status_code == 200
     assert process_chat_next(n["Session"])
-    assert generated and len(sent) == 3
+    assert generated and len(sent) == 2
     assert "¿En qué comuna trabajas?" in sent[-1]
     assert "asistente virtual" not in sent[-1].lower()
     settings.cache_clear()
@@ -153,9 +146,9 @@ def test_compose_optional_memory_cpu_and_no_published_port():
     assert "ports:" not in section
 
 
-def test_qwen35_candidate_private_and_training_unchanged(monkeypatch):
+def test_qwen35_routes_live_and_practice_to_separate_servers(monkeypatch):
     from app.config import Settings
-    cfg = Settings(galancito_local_model="qwen3.5:4b-q4_K_M", galancito_timeout_seconds=45)
+    cfg = Settings(galancito_local_model="qwen3.5:2b-q4_K_M", galancito_timeout_seconds=45)
     calls = []
 
     class Response:
@@ -172,23 +165,24 @@ def test_qwen35_candidate_private_and_training_unchanged(monkeypatch):
     monkeypatch.setattr(galancito_local, "available_memory_mb", lambda: 8192)
     assert galancito_local.generate_local_text("Responde breve", "hola") == "Hola, maestro."
     assert calls[0][0] == galancito_local.INTERNAL_URL
-    assert calls[0][1]["model"] == "qwen3.5:4b-q4_K_M"
+    assert calls[0][1]["model"] == "qwen3.5:2b-q4_K_M"
     assert calls[0][1]["think"] is False
     assert calls[0][2] == 45
     galancito_local.generate_training_text("Sistema", "hola", 42, cfg)
-    assert calls[1][0] == galancito_local.INTERNAL_URL
-    assert calls[1][1]["model"] == "qwen3.5:4b-q4_K_M"
+    assert calls[1][0] == galancito_local.TRAINING_OLLAMA + "/api/chat"
+    assert calls[1][1]["model"] == "qwen3.5:2b-q4_K_M"
     legacy_cfg = cfg.model_copy(update={"galancito_local_model": "qwen3:1.7b"})
-    galancito_local.generate_training_text("Sistema", "hola", 42, legacy_cfg)
-    assert calls[2][0] == galancito_local.TRAINING_OLLAMA + "/api/chat"
-    assert calls[2][1]["model"] == "qwen3:1.7b"
+    with pytest.raises(ValueError, match="Qwen3.5 2B"):
+        galancito_local.generate_training_text("Sistema", "hola", 42, legacy_cfg)
+    for legacy_model in ("qwen3:1.7b", "qwen3.5:4b-q4_K_M"):
+        assert Settings(galancito_local_model=legacy_model).galancito_local_model == "qwen3.5:2b-q4_K_M"
     with pytest.raises(ValueError):
         Settings(galancito_local_model="arbitrary-model")
 
 
 def test_qwen35_without_db_policy_never_selects_external_team(monkeypatch):
     from app.config import Settings
-    cfg = Settings(galancito_local_model="qwen3.5:4b-q4_K_M",
+    cfg = Settings(galancito_local_model="qwen3.5:2b-q4_K_M",
                    facebook_ai_enabled=True, facebook_ai_provider="ollama",
                    galancito_local_ai_enabled=True)
     def forbidden(*args):
@@ -252,7 +246,8 @@ def test_qwen35_smoke_accepts_natural_paraphrases(monkeypatch, capsys):
         def __exit__(self, *args): return False
         def __iter__(self): return self
         def read(self):
-            return b'{"message":{"content":"Hola, que tal, maestro!"},"eval_count":20}'
+            return json.dumps({"model": namespace["MODEL"], "message": {
+                "content": "Hola, que tal, maestro!"}, "eval_count": 20}).encode()
 
     class Opener:
         def open(self, request, timeout):
@@ -330,26 +325,26 @@ def test_ollama_installed_model_probe_uses_private_show_and_does_not_pull(monkey
         calls.append((request, timeout))
         return Response()
     monkeypatch.setattr(galancito_local._opener, "open", available)
-    assert galancito_local.installed_model_status("qwen3.5:4b-q4_K_M") is True
+    assert galancito_local.installed_model_status("qwen3.5:2b-q4_K_M") is True
     request, timeout = calls[0]
     assert request.full_url == "http://galancito-ollama:11434/api/show"
-    assert json.loads(request.data)["model"] == "qwen3.5:4b-q4_K_M"
+    assert json.loads(request.data)["model"] == "qwen3.5:2b-q4_K_M"
     assert timeout <= 3
     assert len(calls) == 1
 
     def missing(request, timeout):
         raise HTTPError(request.full_url, 404, "not found", {}, BytesIO(b""))
     monkeypatch.setattr(galancito_local._opener, "open", missing)
-    assert galancito_local.installed_model_status("qwen3.5:4b-q4_K_M") is False
+    assert galancito_local.installed_model_status("qwen3.5:2b-q4_K_M") is False
 
     monkeypatch.setattr(galancito_local._opener, "open",
                         lambda *_args, **_kw: (_ for _ in ()).throw(URLError("offline")))
-    assert galancito_local.installed_model_status("qwen3.5:4b-q4_K_M") is None
+    assert galancito_local.installed_model_status("qwen3.5:2b-q4_K_M") is None
 
 
 def test_training_thinking_budget_is_honored_without_changing_live_chat(monkeypatch):
     from types import SimpleNamespace
-    cfg = SimpleNamespace(galancito_local_model="qwen3.5:4b-q4_K_M",
+    cfg = SimpleNamespace(galancito_local_model="qwen3.5:2b-q4_K_M",
                           galancito_num_ctx=2048, galancito_num_predict=128,
                           galancito_num_thread=2, galancito_keep_alive="2m",
                           galancito_timeout_seconds=45)

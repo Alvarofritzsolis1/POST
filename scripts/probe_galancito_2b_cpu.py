@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Root feasibility gate: real CPU training on Qwen 3.5 4B, never production.
+"""Root feasibility gate: real CPU training on Qwen 3.5 2B, never production.
 
 Only the final MLP down projection receives a LoRA adapter. The entire frozen
 prefix runs without autograd, avoiding backwards through quantized recurrent
@@ -14,11 +14,14 @@ import re
 from pathlib import Path
 from time import monotonic, time
 from uuid import uuid4
+import sys
+
+sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "apps" / "backend"))
+from app.galancito_model_config import QWEN_TRAINING_MODEL as MODEL
 from galant_cpu_lora_resources import snapshot, should_pause
 
-MODEL = "Qwen/Qwen3.5-4B"
 PROFILE = "last-down-proj-fp32-v1"
-REVISION = "851bf6e806efd8d0a36b00ddf55e13ccb7b8cd0a"
+REVISION = "15852e8c16360a2fea060d615a32b45270f8a8fc"
 SYSTEM = "Orienta a contratistas chilenos con lenguaje sencillo. No inventes datos."
 EXAMPLES = (
     ("Ola busco peguita", "Hola, ¿qué oficio tienes?"),
@@ -43,7 +46,7 @@ def snapshot_revision(path, expected=None):
     path = Path(path)
     rev = path.parent.name
     if (path.name != "config.json" or path.parent.parent.name != "snapshots"
-            or path.parent.parent.parent.name != "models--Qwen--Qwen3.5-4B"
+            or path.parent.parent.parent.name != "models--" + MODEL.replace("/", "--")
             or not re.fullmatch(r"[0-9a-f]{40}",rev)
             or (expected is not None and rev != expected)):
         raise RuntimeError("Cannot prove exact base-model revision")
@@ -64,8 +67,8 @@ def select_target(names):
     return next(name for index,name in targets if index==max(layers))
 
 def blockers(measured):
-    required = {"host_free_mb":8500,"cgroup_limit_mb":7500,
-                "cgroup_available_mb":7000,"disk_free_mb":16000}
+    required = {"host_free_mb":6000,"cgroup_limit_mb":4800,
+                "cgroup_available_mb":4300,"disk_free_mb":7000}
     return [key for key,minimum in required.items()
             if type(measured.get(key)) not in (int,float)
             or not math.isfinite(measured[key]) or measured[key]<minimum]
@@ -90,7 +93,7 @@ def main():
     parser.add_argument("--run",action="store_true")
     parser.add_argument("--allow-download",action="store_true")
     parser.add_argument("--steps",type=int,choices=range(1,11),default=10)
-    parser.add_argument("--threads",type=int,choices=(2,4),default=4)
+    parser.add_argument("--threads",type=int,choices=(2,4),default=2)
     parser.add_argument("--stop-after",type=int,choices=range(1,11))
     parser.add_argument("--resume",action="store_true")
     parser.add_argument("--conversation-eval",action="store_true")
@@ -99,13 +102,13 @@ def main():
     parser.add_argument("--generation",type=int)
     parser.add_argument("--approved-dir",type=Path)
     parser.add_argument("--expected-dataset-sha256")
-    parser.add_argument("--output",type=Path,default=Path("/private/4b-probe"))
+    parser.add_argument("--output",type=Path,default=Path("/private/2b-probe"))
     args=parser.parse_args()
     if args.control_file and (not args.org or not args.generation):
         parser.error("Control file requires organization and generation")
     def control_guard():
         if args.control_file:
-            from max_power_4b_control import authorized,read
+            from app.max_power_2b_control import authorized,read
             if not authorized(read(args.control_file),args.org,args.generation):
                 raise InterruptedError("MAX POWER paused or session expired")
     if bool(args.approved_dir)!=bool(args.expected_dataset_sha256) or (args.approved_dir and not args.conversation_eval):
@@ -127,7 +130,7 @@ def main():
         control_guard()
         bundle=None
         if args.approved_dir:
-            from galancito_4b_approved import approved_bundle,select_groups
+            from galancito_2b_approved import approved_bundle,select_groups
             bundle=approved_bundle(args.approved_dir,os.environ.get("GALANT_DATASET_APPROVAL_PUBLIC_KEY",""))
             if bundle["dataset_digest"]!=args.expected_dataset_sha256:
                 raise RuntimeError("Approved dataset changed before training")
@@ -155,10 +158,14 @@ def main():
                                     revision=REVISION,local_files_only=options["local_files_only"],token=False)
         report["base_revision"]=snapshot_revision(config_path,REVISION)
         tokenizer=AutoTokenizer.from_pretrained(MODEL,**options)
+        # The recurrent gates have 16 outputs, below the 32-output CPU packing
+        # block. Keep those in BF16 and quantize the other linear layers once.
+        # Nested quantization spawns native workers outside the CPU thread limit.
         model,loading=Qwen3_5ForCausalLM.from_pretrained(MODEL,dtype=torch.bfloat16,
             device_map={"":"cpu"},low_cpu_mem_usage=True,attn_implementation="eager",
             quantization_config=BitsAndBytesConfig(load_in_4bit=True,bnb_4bit_quant_type="nf4",
-                bnb_4bit_use_double_quant=True,bnb_4bit_compute_dtype=torch.float32),
+                bnb_4bit_use_double_quant=False,bnb_4bit_compute_dtype=torch.float32,
+                llm_int8_skip_modules=["lm_head", "in_proj_a", "in_proj_b"]),
             output_loading_info=True,**options)
         if any(k.startswith(("model.","lm_head")) for k in loading.get("missing_keys",())):
             raise RuntimeError("Missing text weights")
@@ -340,7 +347,7 @@ def main():
             if not report["baseline_restored"] or not report["adapter_changed"]:
                 raise RuntimeError("Baseline restoration or weight change not verified")
             if args.conversation_eval:
-                from galancito_4b_conversation_gate import evaluate,compare
+                from galancito_2b_conversation_gate import evaluate,compare
                 def generate(history):
                     guard()
                     messages=[{"role":"system","content":SYSTEM}]+history
@@ -356,8 +363,8 @@ def main():
                     return tokenizer.decode(output[0,ids.shape[1]:],skip_special_tokens=True).strip()
                 model.eval()
                 def evaluate_real():
-                    from galancito_finetune_dataset import verified_match
-                    from galancito_4b_conversation_gate import safety
+                    from app.galancito_finetune_dataset import verified_match
+                    from galancito_2b_conversation_gate import safety
                     rows=[]
                     for row in reserved_real:
                         answer=generate([row["messages"][0]])

@@ -9,7 +9,8 @@ from sqlalchemy.orm import Session
 
 from .ai_gateway import AIServiceError, orchestration_available, orchestrated_text
 from .config import settings
-from .galancito_general import (QWEN_4B, GENERAL_INSTRUCTIONS, advice_fallback,
+from .galancito_model_config import QWEN_2B
+from .galancito_general import (GENERAL_INSTRUCTIONS, advice_fallback,
                                 external_safe, general_intent, is_complex, safe_generated,
                                 social_reply)
 from .galancito_internal_live import internal_reply
@@ -72,7 +73,7 @@ def general_answer(db: Session, user, message: str,
             if (is_complex(message) and subtype in {"documents", "contractors", "overview",
                                                     "followups", "publications"} and
                     settings().galancito_local_ai_enabled and
-                    settings().galancito_local_model == QWEN_4B):
+                    settings().galancito_local_model == QWEN_2B):
                 instructions = GENERAL_INSTRUCTIONS + "\n" + _verified_coach(db, user.org_id)
                 prompt = ("Consulta del usuario:\n" + message[:500] +
                           "\nDATOS REALES VERIFICADOS POR EL SERVIDOR (solo lectura):\n" + answer[:900] +
@@ -104,9 +105,7 @@ def general_answer(db: Session, user, message: str,
             except (AIServiceError, RuntimeError, OSError, TimeoutError):
                 pass
     cfg = settings()
-    # Production's Qwen3.5 4B must be deliberately activated and tested.
-    # Never silently downgrade the general assistant to the legacy 1.7B.
-    if cfg.galancito_local_ai_enabled and cfg.galancito_local_model == QWEN_4B:
+    if cfg.galancito_local_ai_enabled and cfg.galancito_local_model == QWEN_2B:
         try:
             previous = "\n".join((history or [])[-3:])[:350]
             # Minimize prompt prefill latency when no useful prior context exists.
@@ -117,7 +116,7 @@ def general_answer(db: Session, user, message: str,
                 prompt, max_chars=1100, thinking=is_complex(message)))
             answer = safe_generated(generated, question=message)
             if answer:
-                return answer, "general_advice", "ollama_4b", False
+                return answer, "general_advice", "ollama_2b", False
         except (RuntimeError, TimeoutError, OSError, ValueError):
             pass
     return advice_fallback(), "general_advice", "fallback", False

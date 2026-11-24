@@ -249,8 +249,6 @@ export default function GalancitoTraining({ back, initialProfile = "interno", in
     {error && <p role="alert" className="ai-error">{error}</p>}
     {notice && <p role="status" className="ai-notice">{notice}</p>}
     {data && !data.worker.available && <p className="ai-warning" role="alert">No hay trabajador disponible para ejecutar prácticas.</p>}
-    {form.profile === "interno" && data?.local_model !== "qwen3.5:4b-q4_K_M" && form.model === "ollama" &&
-      <p className="ai-warning" role="alert">El motor Qwen3.5 4B aún no está confirmado para esta práctica.</p>}
 
     <div className={"training-grid" + (automatic ? " training-grid-unified" : "")}>
       {!automatic && <section className="ai-panel training-launch">

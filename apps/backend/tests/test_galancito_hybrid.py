@@ -57,7 +57,7 @@ def test_privacy_gate_stops_both_callbacks():
 
 def test_route_stays_local_first_when_api_budget_runs_out(monkeypatch):
     cfg = SimpleNamespace(facebook_ai_enabled=True, facebook_ai_provider="ollama",
-        galancito_local_ai_enabled=True, galancito_local_model="qwen3.5:4b-q4_K_M")
+        galancito_local_ai_enabled=True, galancito_local_model="qwen3.5:2b-q4_K_M")
     policy = SimpleNamespace(enabled=True, fallback_enabled=True, task_routes={"messenger": "route"})
     db = Mock()
     db.get.return_value = policy

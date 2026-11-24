@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Activar Galancito con Qwen3 1.7B SIN API de pago y SIN afectar otros módulos.
+"""Activar Galancito con Qwen3.5 2B SIN API de pago y SIN afectar otros módulos.
 
 Ejecución manual desde el VPS DESPUÉS del despliegue:
   cd /opt/galant-post && sudo python3 scripts/setup-galancito-local.py
@@ -19,7 +19,7 @@ from pathlib import Path
 ROOT = Path(__file__).resolve().parents[1]
 ENV = ROOT / ".env.preview"
 COMPOSE = ROOT / "docker-compose.preview.yml"
-MODEL = "qwen3:1.7b"
+MODEL = "qwen3.5:2b-q4_K_M"
 
 # Reutilizar el guardado atómico y el respaldo privado del instalador de Meta.
 _previous = runpy.run_path(str(ROOT / "scripts" / "setup-galancito-messenger.py"))
@@ -65,7 +65,7 @@ def preflight() -> None:
 
 def install() -> None:
     preflight()
-    print("\nGALANCITO LOCAL · Qwen3 1.7B (sin costo por mensaje)")
+    print("\nGALANCITO LOCAL · Qwen3.5 2B (sin costo por mensaje)")
     print("Solo Facebook Messenger y asesor de Red de Obras. No toca otros módulos.")
     if input("¿Descargar y probar el modelo local en este VPS? [s/N]: ").strip().lower() not in {"s", "si", "sí"}:
         print("No se modificó ninguna configuración")
@@ -74,14 +74,15 @@ def install() -> None:
     command("pull", "galancito-ollama", timeout=600)
     print("2/4. Iniciando servicio con límites de RAM y CPU…")
     command("up", "-d", "galancito-ollama", timeout=180)
-    print("3/4. Descargando Qwen3 1.7B (~1,4 GB)…")
+    print("3/4. Descargando Qwen3.5 2B (~1,9 GB)…")
     try:
         command("exec", "-T", "galancito-ollama", "ollama", "pull", MODEL, timeout=900)
         # Se comprueba desde GALANT, no por un puerto expuesto en Internet.
-        code = ("from app.galancito_local import generate_local_text; "
+        code = ("from app.galancito_local import generate_local_text, last_timings; "
                 "answer=generate_local_text('Responde español claro y breve', "
                 "'¿Qué hace un carpintero?', 180); "
-                "assert bool(answer.strip()); print('Modelo local probado')")
+                "assert answer.strip() and last_timings.get().get('response_model')==" + repr(MODEL) +
+                "; print('Modelo local probado')")
         output = command("exec", "-T", "api", "python", "-c", code, timeout=90)
         if "Modelo local probado" not in output:
             raise RuntimeError("La prueba de conexión local no confirmó una respuesta")
@@ -99,6 +100,7 @@ def install() -> None:
     ads = (input("¿Agregar textos de Galancito a anuncios automáticos de Red de Obras? [s/N]: ")
            .strip().lower() in {"s", "si", "sí"})
     changes = {
+        "GALANCITO_LOCAL_MODEL": MODEL,
         "GALANCITO_LOCAL_AI_ENABLED": "true",
         "GALANCITO_AI_PROVIDER": "ollama",
         "GALANCITO_AI_ENABLED": "true",
@@ -108,12 +110,12 @@ def install() -> None:
         "FACEBOOK_AI_AD_ENABLED": "true" if ads else "false",
         # API keys previas, si existen, se conservan sin usarlas.
     }
-    print("4/4. Guardando configuración privada y reiniciando solo API y Facebook…")
+    print("4/4. Guardando configuración privada y reiniciando API, worker y Facebook…")
     backup = write_env_atomically(ENV, changes)
     print("   ✓ Respaldo de configuración: " + backup.name)
     try:
         command("up", "-d", "--no-deps", "--force-recreate",
-                "api", "facebook-publisher", timeout=240)
+                "api", "worker", "facebook-publisher", timeout=240)
     except RuntimeError:
         # Restaurar flags sin tocar base de datos ni perder tokens.
         write_env_atomically(ENV, {

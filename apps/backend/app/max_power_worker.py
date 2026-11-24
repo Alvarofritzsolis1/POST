@@ -10,7 +10,7 @@ import re
 from pathlib import Path
 from time import sleep,time
 import os
-from . import max_power_4b_control as neural
+from . import max_power_2b_control as neural
 from fastapi import HTTPException
 from sqlalchemy import select, and_, delete, or_
 from sqlalchemy.exc import SQLAlchemyError
@@ -24,12 +24,12 @@ from .galancito_training import ResourceSampler, summarize, inference_percentile
 from .galancito_training_api import RoundInput, start
 from .galancito_training_models import ACTIVE, TrainingCase, TrainingRound, TrainingWorker
 from .galancito_training_model import TrainingModel, isolated_model_resident
-from .max_power_decisions import QWEN_MIN_RAM_MB, can_run, classify_outcome, evidence_fingerprint, select_experiment_plan, worksite_holdout_sign_test
+from .max_power_decisions import QWEN_MEMORY_REASON, QWEN_MIN_RAM_MB, QWEN_RESIDENT_RAM_MB, can_run, classify_outcome, evidence_fingerprint, select_experiment_plan, worksite_holdout_sign_test
 from .max_power_live import RESOURCE_EVENT, resource_metrics, cpu_event_blocks
 from .max_power_models import MaxPowerEvent, MaxPowerState, MaxPowerMessengerTrial
 from .max_power_messenger import schedule_next, process_one, schedule_synthetic_reply
 from .max_power_practice import EVENT as PRACTICE_EVENT, generate_scenarios, practice_id, run_practice
-from .galancito_general import QWEN_4B
+from .galancito_model_config import QWEN_2B
 from .galancito_local import MAX_POWER_ISOLATED
 from .models import Organization, User, utcnow
 
@@ -63,17 +63,17 @@ def qwen_memory_ready(snapshot):
     available = snapshot.get("available_ram_mb")
     if not isinstance(available, (int, float)):
         return False
-    return available >= QWEN_MIN_RAM_MB or (available >= 3072 and isolated_model_resident(QWEN_4B))
+    return available >= QWEN_MIN_RAM_MB or (available >= QWEN_RESIDENT_RAM_MB and isolated_model_resident(QWEN_2B))
 
 
 def isolated_qwen_status(snapshot: dict, training_model=None) -> tuple[bool, str | None]:
-    """Report actual isolated Qwen4B readiness independently of Messenger."""
+    """Report actual isolated Qwen 2B readiness independently of Messenger."""
     if not MAX_POWER_ISOLATED:
         return False, "No existe un Ollama privado para la práctica"
     if not qwen_memory_ready(snapshot):
-        return False, "Qwen 4B frío requiere 8 GB libres; residente requiere 3 GB de reserva"
+        return False, QWEN_MEMORY_REASON
     if training_model is not None:
-        problem = training_model.waiting_reason(snapshot["disk_free_mb"], QWEN_4B)
+        problem = training_model.waiting_reason(snapshot["disk_free_mb"], QWEN_2B)
         if problem:
             return False, problem
     return True, None
@@ -91,7 +91,7 @@ def practice_admission(snapshot, *, messenger_pending=False):
     if not MAX_POWER_ISOLATED:
         return False, "Ollama de práctica aislado no disponible"
     if not qwen_memory_ready(snapshot):
-        return False, "RAM insuficiente para cargar o conservar Qwen 4B"
+        return False, "RAM insuficiente para cargar o conservar Qwen 2B"
     return True, None
 
 
@@ -116,7 +116,7 @@ def _practice_or_wait(db, row, now, reason, *, qwen_ready, wait_status="awaiting
         MaxPowerEvent.round_id == run_id))
     if recorded:
         if qwen_ready and schedule_synthetic_reply(db, row.org_id, scenarios):
-            set_wait(row, now, "synthetic_model_evaluation", "Qwen 4B evalúa respuestas sintéticas en el laboratorio", 30)
+            set_wait(row, now, "synthetic_model_evaluation", "Qwen 2B evalúa respuestas sintéticas en el laboratorio", 30)
             return
         detail = (". La evaluación de Qwen sigue pendiente" if not qwen_ready
                   else ". La práctica sintética vigente ya se evaluó")
@@ -358,7 +358,7 @@ def tick(db, sampler, *, sampled=None, training_model=None, neural_reserved=Fals
             set_wait(row, now, "manual_round_busy", "Evaluación anterior en curso; MAX POWER espera", 60)
             continue
         # Waiting for a turn is not an active trainer. Never make a queued
-        # 4B task wait on a supervisor which is itself waiting for that task.
+        # 2B task wait on a supervisor which is itself waiting for that task.
         if neural_reserved or cpu_execution_blocks(db, now):
             set_wait(row, now, "cpu_neural_training",
                      "Motor neuronal aislado activo o cerrándose; esperando liberación segura", 10)
@@ -398,11 +398,11 @@ def tick(db, sampler, *, sampled=None, training_model=None, neural_reserved=Fals
                               retry_seconds=30 if model_problem and isolated_model_ready else 600)
             continue
         if not MAX_POWER_ISOLATED:
-            _practice_or_wait(db, row, now, "Qwen 4B requiere un Ollama de práctica aislado",
+            _practice_or_wait(db, row, now, "Qwen 2B requiere un Ollama de práctica aislado",
                               qwen_ready=False, wait_status="isolation_unavailable", retry_seconds=300)
             continue
         if not isolated_model_ready:
-            _practice_or_wait(db, row, now, "Qwen 4B requiere 8 GB en frío o reserva comprobada cuando está residente",
+            _practice_or_wait(db, row, now, QWEN_MEMORY_REASON,
                               qwen_ready=False, wait_status="resource_guard", retry_seconds=RESOURCE_RECHECK_SECONDS)
             continue
         if model_problem:
@@ -411,10 +411,10 @@ def tick(db, sampler, *, sampled=None, training_model=None, neural_reserved=Fals
             continue
         worker = db.get(TrainingWorker, 1)
         if not (worker and aware(worker.updated_at) >= aware(now) - timedelta(seconds=150)):
-            _practice_or_wait(db, row, now, "El motor de práctica de Qwen 4B no está operativo",
+            _practice_or_wait(db, row, now, "El motor de práctica de Qwen 2B no está operativo",
                               qwen_ready=False, wait_status="trainer_unavailable", retry_seconds=30)
             continue
-        fingerprint = evidence_fingerprint(cases)
+        fingerprint = evidence_fingerprint(cases, model=QWEN_2B)
         if row.last_evidence_hash == fingerprint:
             # The unchanged live A/B set cannot be rerun as a new gain, but
             # this must not starve a separate pending synthetic intake lab.
@@ -423,7 +423,8 @@ def tick(db, sampler, *, sampled=None, training_model=None, neural_reserved=Fals
                 qwen_ready=qwen_ready)
             continue
         plan = select_experiment_plan(snapshot, len(cases),
-                (row.latest_result or {}).get("inference_p95_ms"))
+                (row.latest_result or {}).get("inference_p95_ms")
+                if (row.latest_result or {}).get("model") == QWEN_2B else None)
         try:
             result = start(db, owner, RoundInput(
                 profile="interno", suite="live", model="ollama",
@@ -475,10 +476,10 @@ def neural_intent(db, task_busy, model_download):
         evidence=neural.measured_report(status)
         if evidence:
             event=db.scalar(select(MaxPowerEvent).where(MaxPowerEvent.org_id==org,
-                     MaxPowerEvent.event=="4b_neural_status",MaxPowerEvent.round_id==org))
+                     MaxPowerEvent.event=="2b_neural_status",MaxPowerEvent.round_id==org))
             if event is None:
-                db.add(MaxPowerEvent(org_id=org,event="4b_neural_status",round_id=org,
-                                     reason="Motor neuronal Qwen 4B aislado",evidence=evidence))
+                db.add(MaxPowerEvent(org_id=org,event="2b_neural_status",round_id=org,
+                                     reason="Motor neuronal Qwen 2B aislado",evidence=evidence))
                 db.commit()
             elif (event.evidence or {}).get("at")!=evidence["at"]:
                 event.evidence=evidence
@@ -495,7 +496,7 @@ def main():
     local_model = TrainingModel()
     task = None
     task_slot = None
-    coordinate = os.environ.get('GALANT_MAX_POWER_4B_COORDINATION')=='yes'
+    coordinate = os.environ.get('GALANT_MAX_POWER_2B_COORDINATION')=='yes'
     # Integrate the preexisting practice engine: ON works with a single button,
     # even if the separate optional 'training' Docker profile is not running.
     # The trainer uses a PostgreSQL advisory lock to prevent duplicate claims.

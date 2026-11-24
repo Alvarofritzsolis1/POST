@@ -1122,7 +1122,7 @@ def test_local_qwen35_dashboard_and_keyless_test(ai_env, monkeypatch):
     client = ai_env["client"]
     headers = signin(client)
     monkeypatch.setenv("GALANCITO_LOCAL_AI_ENABLED", "true")
-    monkeypatch.setenv("GALANCITO_LOCAL_MODEL", "qwen3.5:4b-q4_K_M")
+    monkeypatch.setenv("GALANCITO_LOCAL_MODEL", "qwen3.5:2b-q4_K_M")
     monkeypatch.setenv("FACEBOOK_AI_PROVIDER", "ollama")
     monkeypatch.setenv("FACEBOOK_AI_ENABLED", "true")
     settings.cache_clear()
@@ -1132,7 +1132,7 @@ def test_local_qwen35_dashboard_and_keyless_test(ai_env, monkeypatch):
                         lambda instructions, prompt, max_chars: "¡Hola, maestro!")
     bootstrap = client.get(ROOT + "/bootstrap").json()
     engine = bootstrap["local_engine"]
-    assert engine["model"] == "qwen3.5:4b-q4_K_M"
+    assert engine["model"] == "qwen3.5:2b-q4_K_M"
     assert engine["enabled"] and engine["messenger"]
     assert engine["status"] == "available" and engine["loaded"]
     tested = client.post(ROOT + "/local-model/test", headers=headers)
@@ -1167,10 +1167,10 @@ def test_quality_overview_reports_observed_not_invented_scores(ai_env):
     with sessions.begin() as db:
         db.add_all([
             AssistantRun(org_id=ai_env["org_id"], channel="messenger",
-                         source="ollama_4b", intent="hello", elapsed_ms=1500,
+                         source="ollama_2b", intent="hello", elapsed_ms=1500,
                          timings={"graph_calls": 1, "conversation_ms": 1500}, feedback="useful"),
             AssistantRun(org_id=ai_env["org_id"], channel="messenger",
-                         source="ollama_4b", intent="profile", elapsed_ms=2700,
+                         source="ollama_2b", intent="profile", elapsed_ms=2700,
                          timings={"graph_calls": 1, "model_error": True, "conversation_ms": 2700}, feedback="incorrect"),
             AssistantRun(org_id=ai_env["org_id"], channel="galant_internal",
                          source="verified_local", intent="metrics", elapsed_ms=120,
@@ -1241,7 +1241,7 @@ def test_real_messenger_audit_reads_chat_and_scores_only_verified_human_sample(a
         db.add(outbound)
         db.flush()
         observed = AssistantRun(
-            org_id=ai_env["org_id"], channel="messenger", source="ollama_4b",
+            org_id=ai_env["org_id"], channel="messenger", source="ollama_2b",
             intent="intake", elapsed_ms=1720,
             timings={"graph_calls": 1, "outbound_message_id": outbound.id},
         )

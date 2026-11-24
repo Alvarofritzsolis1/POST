@@ -1,10 +1,10 @@
-"""Read an immutable, signed, consented 4B dataset snapshot."""
+"""Read an immutable, signed, consented 2B dataset snapshot."""
 import hashlib
 import os
 import stat
 import tempfile
 from pathlib import Path
-from galancito_finetune_dataset import load_approved,verified_training_manifest
+from app.galancito_finetune_dataset import MODEL, load_approved, verified_training_manifest
 
 def private_bytes(path,limit):
     fd=os.open(path,os.O_RDONLY|os.O_NOFOLLOW|os.O_NONBLOCK)
@@ -35,7 +35,7 @@ def approved_bundle(root,public_key):
         manifest.write_bytes(signed)
         bundle=load_approved(dataset)
         verified_training_manifest(dataset,manifest,public_key,
-            dataset_digest=bundle["dataset_digest"],training_model="Qwen/Qwen3.5-4B")
+            dataset_digest=bundle["dataset_digest"],training_model=MODEL)
         if hashlib.sha256(content).hexdigest()!=bundle["dataset_digest"]:
             raise RuntimeError("Approved digest mismatch")
         return bundle

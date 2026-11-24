@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""One-button worker for the already verified CPU 4B engine.
+"""One-button worker for CPU QLoRA on Qwen3.5 2B.
 No DB, credentials, Docker socket, production model or Messenger data.
 """
 import os
@@ -9,14 +9,14 @@ import sys
 from pathlib import Path
 from time import sleep,time,monotonic
 from uuid import UUID
-from max_power_4b_control import ROOT,read,write,fresh,matches,authorized,lock,release
-from probe_galancito_4b_cpu import blockers,PROFILE
+from app.max_power_2b_control import ROOT,read,write,authorized,lock,release
+from probe_galancito_2b_cpu import blockers,PROFILE
 from galant_cpu_lora_resources import snapshot
 
-HOME=Path("/private/4b-probe")
+HOME=Path("/private/2b-probe")
 RUN=PROFILE+"-conversation-v1"
 STOP=False
-HEARTBEAT=Path("/tmp/max_power_4b_heartbeat")
+HEARTBEAT=Path("/tmp/max_power_2b_heartbeat")
 
 def stop_signal(*_):
     global STOP
@@ -54,8 +54,8 @@ def stop_child(child):
             child.wait()
 
 def run_child(key,folder,fd,approved=None):
-    args=[sys.executable,"/src/scripts/probe_galancito_4b_cpu.py","--run",
-          "--allow-download","--steps","10","--threads","4","--conversation-eval",
+    args=[sys.executable,"/src/scripts/probe_galancito_2b_cpu.py","--run",
+          "--allow-download","--steps","10","--threads","2","--conversation-eval",
           "--output",str(folder),"--control-file",str(ROOT/"intent.json"),
           "--org",key[0],"--generation",str(key[1])]
     if approved:
@@ -113,7 +113,7 @@ def main():
         if complete(read(folder/"latest.json")):
             source=Path("/approved")/key[0]
             try:
-                from galancito_4b_approved import approved_bundle
+                from galancito_2b_approved import approved_bundle
                 bundle=approved_bundle(source,os.environ.get("GALANT_DATASET_APPROVAL_PUBLIC_KEY",""))
                 digest=bundle["dataset_digest"]
             except (OSError,ValueError,TypeError,RuntimeError):

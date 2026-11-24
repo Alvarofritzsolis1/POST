@@ -69,7 +69,7 @@ def test_real_chat_trial_requires_provenance_nonoverlap_and_human_review(ai_env,
             db.flush()
             db.add(AssistantRun(org_id=ai_env["org_id"], channel="messenger",
                                 source="ai", intent="intake", elapsed_ms=1500,
-                                timings={"response_model": "qwen3.5:4b-q4_K_M",
+                                timings={"response_model": "qwen3.5:2b-q4_K_M",
                                          "outbound_message_id": outbound.id}))
     assert client.get("/api/v1/admin/ai/real-learning/plan").status_code == 401
     signin(client, "resident")
@@ -96,7 +96,7 @@ def test_real_chat_trial_requires_provenance_nonoverlap_and_human_review(ai_env,
     assert before.status_code == 409
 
     monkeypatch.setenv("GALANCITO_LOCAL_AI_ENABLED", "true")
-    monkeypatch.setenv("GALANCITO_LOCAL_MODEL", "qwen3.5:4b-q4_K_M")
+    monkeypatch.setenv("GALANCITO_LOCAL_MODEL", "qwen3.5:2b-q4_K_M")
     settings.cache_clear()
     calls = []
 
@@ -116,7 +116,7 @@ def test_real_chat_trial_requires_provenance_nonoverlap_and_human_review(ai_env,
     assert mismatch.status_code == 503
     monkeypatch.setattr(
         ai_real_learning_api, "last_timings",
-        SimpleNamespace(get=lambda: {"response_model": "qwen3.5:4b-q4_K_M",
+        SimpleNamespace(get=lambda: {"response_model": "qwen3.5:2b-q4_K_M",
                                      "generation_ms": 1800}),
     )
     for i, source_id in enumerate(ids):
@@ -217,7 +217,7 @@ def test_cancel_lost_trial_and_retry_without_fabricating_result(ai_env, monkeypa
         db.flush()
         db.add(AssistantRun(org_id=ai_env["org_id"], channel="messenger",
                             source="ai", intent="intake", elapsed_ms=2000,
-                            timings={"response_model": "qwen3.5:4b-q4_K_M",
+                            timings={"response_model": "qwen3.5:2b-q4_K_M",
                                      "outbound_message_id": message.id}))
         source_id = message.id
     headers = signin(client)
@@ -228,7 +228,7 @@ def test_cancel_lost_trial_and_retry_without_fabricating_result(ai_env, monkeypa
                        json={"run_id": source_id, "ratings": rubric,
                              "source_reviewed": True}).status_code == 201
     monkeypatch.setenv("GALANCITO_LOCAL_AI_ENABLED", "true")
-    monkeypatch.setenv("GALANCITO_LOCAL_MODEL", "qwen3.5:4b-q4_K_M")
+    monkeypatch.setenv("GALANCITO_LOCAL_MODEL", "qwen3.5:2b-q4_K_M")
     settings.cache_clear()
     monkeypatch.setattr(ai_real_learning_api, "infer", lambda _db, fn: fn())
     monkeypatch.setattr(ai_real_learning_api, "generate_local_text",
@@ -236,7 +236,7 @@ def test_cancel_lost_trial_and_retry_without_fabricating_result(ai_env, monkeypa
                             "Ya me dijiste carpintería. ¿En qué comuna trabajas?"
                             if "CORRECCIÓN EN ENSAYO" in instructions else "¿En qué oficio trabajas?"))
     monkeypatch.setattr(ai_real_learning_api, "last_timings",
-                        SimpleNamespace(get=lambda: {"response_model": "qwen3.5:4b-q4_K_M"}))
+                        SimpleNamespace(get=lambda: {"response_model": "qwen3.5:2b-q4_K_M"}))
     first = client.post(base + "/real-learning/replay", headers=headers,
                         json={"source_id": source_id, "criterion": "context"})
     assert first.status_code == 200, first.text

@@ -1,12 +1,14 @@
 # Dedicated, opt-in CPU-only trainer. Not built by normal docker compose up.
 FROM python:3.12-slim
 ENV PYTHONUNBUFFERED=1 PYTHONDONTWRITEBYTECODE=1 \
-    OMP_NUM_THREADS=2 MKL_NUM_THREADS=2 OPENBLAS_NUM_THREADS=1 \
+    OMP_NUM_THREADS=2 MKL_NUM_THREADS=2 OPENBLAS_NUM_THREADS=1 RAYON_NUM_THREADS=2 \
     TOKENIZERS_PARALLELISM=false HF_HOME=/private/cache \
     HF_HUB_DISABLE_TELEMETRY=1
 WORKDIR /src
 COPY scripts/requirements-galancito-cpu.txt /tmp/cpu-deps.txt
-RUN python -m pip install --no-cache-dir --index-url https://download.pytorch.org/whl/cpu "torch==2.7.1" \
+RUN --mount=type=secret,id=proxy_ca,required=false \
+    if [ -s /run/secrets/proxy_ca ]; then export PIP_CERT=/run/secrets/proxy_ca; fi \
+ && python -m pip install --no-cache-dir --index-url https://download.pytorch.org/whl/cpu "torch==2.7.1" \
  && python -m pip install --no-cache-dir -r /tmp/cpu-deps.txt \
  && rm -f /tmp/cpu-deps.txt
 COPY scripts/galant_cpu_lora_resources.py scripts/galant_cpu_lora_resources.py
@@ -16,6 +18,7 @@ COPY scripts/max_power_cpu_manager.py scripts/max_power_cpu_manager.py
 COPY scripts/max_power_synthetic_lab.py scripts/max_power_synthetic_lab.py
 COPY scripts/max_power_end_to_end_smoke.py scripts/max_power_end_to_end_smoke.py
 COPY apps/backend/app/__init__.py apps/backend/app/__init__.py
+COPY apps/backend/app/galancito_model_config.py apps/backend/app/galancito_model_config.py
 COPY apps/backend/app/galancito_finetune_dataset.py apps/backend/app/galancito_finetune_dataset.py
 RUN useradd --uid 10001 --create-home --shell /usr/sbin/nologin trainer \
  && chmod -R a+rX /src

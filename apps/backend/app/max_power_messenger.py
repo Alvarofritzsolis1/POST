@@ -21,10 +21,10 @@ from .galancito_knowledge_models import AssistantRun
 from .facebook_crm_models import FacebookChatMessage, FacebookLead
 from .config import settings
 from .db import SessionLocal
-from .galancito_trainer import messenger_busy
+from .galancito_trainer import messenger_busy, practice_threads
 from .facebook_ai import LOCAL_REPLY_INSTRUCTIONS
 from .galancito_flow import grounded_reply
-from .galancito_general import QWEN_4B
+from .galancito_model_config import QWEN_2B
 from .galancito_intake import UNKNOWN_NAMES, apply_intake, identity_reply, intake_question_fields, needs_deeper_response
 from .galancito_local import MAX_INSTRUCTIONS_CHARS, generate_training_text, last_timings, MAX_POWER_ISOLATED
 from .galancito_triage import plain, private_data
@@ -229,8 +229,11 @@ def schedule_next(db, user):
     return False
 
 def isolated_qwen_config():
-    """One-button lab always uses Qwen4B; never mutates production Messenger."""
-    return settings().model_copy(update={"galancito_local_model": QWEN_4B})
+    """One-button lab always uses Qwen 2B; never mutates production Messenger."""
+    return settings().model_copy(update={
+        "galancito_local_model": QWEN_2B,
+        "galancito_num_thread": practice_threads({}, isolated=True),
+    })
 
 
 def _answer(instructions,prompt,seed,org_id):
@@ -247,14 +250,11 @@ def _answer(instructions,prompt,seed,org_id):
             raise RuntimeError("Messenger tiene prioridad sobre experimentos")
     # No database lock or live model gate is held during isolated inference.
     # CPU and RAM remain capped by the distinct Docker Ollama service.
-    # MAX POWER always exercises the isolated Qwen 4B, even when the
-    # production Messenger model is a different local model or is disabled.
-    # model_copy makes an ephemeral config; production settings never change.
     isolated_cfg = isolated_qwen_config()
     result = generate_training_text(instructions, prompt, seed, isolated_cfg, thinking=False)
     timing = dict(last_timings.get() or {})
-    if str(timing.get("response_model") or "").casefold() != QWEN_4B.casefold():
-        raise RuntimeError("El modelo no confirmó Qwen3.5 4B")
+    if str(timing.get("response_model") or "").casefold() != QWEN_2B.casefold():
+        raise RuntimeError("El modelo no confirmó Qwen3.5 2B")
     return str(result),{key:round(float(v),2) for key,v in timing.items()
                         if key in ("load_ms","prompt_ms","generation_ms",
                                    "ollama_total_ms","transport_ms")
@@ -269,12 +269,12 @@ def schedule_synthetic_reply(db, org_id, scenarios):
     if pending:
         return True
     for case_id in sorted(reply_cases(scenarios), key=lambda key: (key in RESERVED, key)):
-        trial_id = str(uuid5(NAMESPACE_URL, f"{org_id}:{digest}:{PROTOCOL}:qwen-reply:{case_id}"))
+        trial_id = str(uuid5(NAMESPACE_URL, f"{org_id}:{digest}:{PROTOCOL}:{QWEN_2B}:qwen-reply:{case_id}"))
         if db.get(MaxPowerMessengerTrial, trial_id) is not None:
             continue
         db.add(MaxPowerMessengerTrial(id=trial_id, org_id=org_id, criterion=QWEN_CRITERION,
                                      variant="focused", metrics={"source": SOURCE, "case_id": case_id, "protocol": PROTOCOL,
-                                                                 "dataset_sha256": digest}))
+                                                                 "dataset_sha256": digest, "model": QWEN_2B}))
         return True
     return False
 
@@ -311,10 +311,10 @@ def evaluate_synthetic_reply(org_id, case_id, digest, *, set_phase=None):
         outcome = "objective_regression"
     else:
         outcome = "objective_gain" if gain else "no_objective_gain"
-    detail = "Comparación Qwen 4B de respuesta a una consulta sintética"
+    detail = "Comparación Qwen 2B de respuesta a una consulta sintética"
     return outcome, detail, {
         "source": SOURCE, "case_id": case_id, "dataset_sha256": digest, "protocol": PROTOCOL,
-        "split": "holdout" if case_id in RESERVED else "development", "model": QWEN_4B,
+        "split": "holdout" if case_id in RESERVED else "development", "model": QWEN_2B,
         "baseline": before, "candidate": after, "objective_gain": gain, "sample_pairs": 1,
         "before_timing_ms": baseline[1], "after_timing_ms": candidate[1],
         "production_verified": False, "weights_changed": False,
@@ -332,7 +332,7 @@ def evaluate_trial(trial_id, *, set_phase=None):
         if not (state and state.enabled and user and user.enabled and user.role == "admin" and user.org_id == trial.org_id):
             raise ValueError("El administrador de la práctica ya no está autorizado")
         if trial.criterion == QWEN_CRITERION:
-            if trial.metrics.get("protocol") != PROTOCOL:
+            if trial.metrics.get("model") != QWEN_2B or trial.metrics.get("protocol") != PROTOCOL:
                 raise ValueError("La versión de la práctica sintética cambió")
             synthetic = (trial.org_id, trial.metrics.get("case_id"), trial.metrics.get("dataset_sha256"))
         else:
@@ -380,7 +380,7 @@ def evaluate_trial(trial_id, *, set_phase=None):
                      if "ollama_total_ms" in timing_before and "ollama_total_ms" in timing_after else None)
     return result, reason, {
         "channel": "messenger", "criterion": criterion, "variant": variant,
-        "model": QWEN_4B, "baseline": baseline_checks, "candidate": candidate_checks,
+        "model": QWEN_2B, "baseline": baseline_checks, "candidate": candidate_checks,
         "original_production": objective_checks(evidence, evidence.get("answer", "")),
         "objective_gain": gain, "auto_evaluated": True,
         "human_confirmed_gain": False, "production_verified": False,
@@ -464,7 +464,7 @@ def process_one():
                 detail = str(exc)
                 row.reason = (detail if detail in {
                     "MAX POWER no ejecuta ensayos de Messenger sobre Ollama de producción",
-                    "Messenger tiene prioridad sobre experimentos", "El modelo no confirmó Qwen3.5 4B",
+                    "Messenger tiene prioridad sobre experimentos", "El modelo no confirmó Qwen3.5 2B",
                     "Qwen no entregó una respuesta evaluable", "La versión de la práctica sintética cambió",
                     "El administrador de la práctica ya no está autorizado",
                 } else "La fuente perdió autorización o trazabilidad" if isinstance(exc, ValueError)
@@ -504,6 +504,6 @@ def process_one():
             db.add(MaxPowerEvent(org_id=row.org_id,event="messenger_experiment",
                 reason=reason,evidence={"criterion":row.criterion,"variant":row.variant,
                 "outcome":outcome,"objective_gain":metrics["objective_gain"],
-                "production_verified":False,"model":QWEN_4B,
+                "production_verified":False,"model":QWEN_2B,
                 "paired_latency_delta_ms":metrics["paired_latency_delta_ms"]}))
     return True
