@@ -51,7 +51,7 @@ def supervise(key, folder, fd):
     # Inherit the lock FD: a surviving subprocess cannot silently free the
     # engine slot if the supervisor is terminated.
     child = subprocess.Popen([sys.executable, "/src/scripts/probe_galancito_4b_cpu.py",
-        "--run","--allow-download","--steps","4","--threads","4","--conversation-eval",
+        "--run","--allow-download","--steps","4","--threads","4","--conversation-eval","--resume",
         "--output",str(folder)], start_new_session=True, pass_fds=(fd,))
     started = monotonic()
     try:
@@ -119,7 +119,6 @@ def main():
             # cause unbounded retries. No repeat of a completed fixed corpus.
             state = {"attempts":int(state.get("attempts",0))+1,"retry_at":time()+COOLDOWN}
             atomic_json(state_path,state)
-            (folder / "latest.json").unlink(missing_ok=True)
             status(key,"starting")
             ok = supervise(key,folder,fd)
             atomic_json(state_path,{**state,"completed":ok,"retry_at":time()+COOLDOWN})
