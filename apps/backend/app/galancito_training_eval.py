@@ -33,7 +33,7 @@ CORRECTOR_PROMPT = """Propón una corrección concreta para el asistente de Red 
 En dos frases breves, indica qué cambiar y cómo probarlo. Omite el resumen del caso.
 Usa hasta 250 caracteres en español y evita nombres, teléfonos y datos de contacto.
 El texto queda sujeto a revisión humana y jamás se aplica automáticamente."""
-EVALUATION_VERSION = 4
+EVALUATION_VERSION = 5
 WEIGHTS = {"understanding": 20, "context": 20, "profile": 20, "naturalness": 15,
            "trades": 10, "repetition": 10, "efficiency": 5}
 PROFILE_DEFAULTS = {
@@ -226,7 +226,9 @@ def evaluate(case, aliases, knowledge, answer=None, judge=None, corrector=None, 
             elif "certificado" in topic:
                 replies_to_intent = bool(re.search(r"\b(?:certific|no puedo confirmar|revise)", normalized))
             understanding = not any(k in mismatched for k in delta) and not no_supported_identity and replies_to_intent
-            avoids_formal_template = not re.search(r"\b(?:estimado usuario|procederemos a gestionar|su solicitud ha sido)\b", normalized)
+            avoids_formal_template = not re.search(r"\b(?:estimado usuario|procederemos a gestionar|su solicitud ha sido|me queda clara la cantidad|tengo anotada tu experiencia|ya se en que comuna|escribe paso|quedo anotado)\b", normalized)
+            contact_due = bool(prior and "¿me dejas tu celular?" in prior)
+            contact_missed = contact_due and not re.search(r"\b(?:celular|telefono|correo|messenger)\b", normalized)
             efficient = len(reply) <= 450 and reply.count("?") <= 1
             checks = {"understanding": understanding, "context": contextual,
                       "profile": not any(k != "match" for k in mismatched),
@@ -236,7 +238,7 @@ def evaluate(case, aliases, knowledge, answer=None, judge=None, corrector=None, 
             critical_count += severe
             issues = [key for key, detected in {
                 "extraccion": not checks["profile"], "repeticion": repeated, "contexto": not contextual,
-                "respuesta": not avoids_formal_template or not efficient or not replies_to_intent,
+                "respuesta": not avoids_formal_template or not efficient or not replies_to_intent or contact_missed,
                 "critico": severe, "compatibilidad": "match" in mismatched,
                 "menu_numerado": numbered_draft or numbered_menu(reply),
             }.items() if detected]
@@ -248,6 +250,8 @@ def evaluate(case, aliases, knowledge, answer=None, judge=None, corrector=None, 
                           "issues": issues, "critical": severe,
                           "expected": {k: ("reservado" if k == "phone" and v else v) for k, v in expected.items()},
                           "differences": {k: ("reservado" if k == "phone" and actual[k] else actual[k]) for k in mismatched}})
+            if "¿me dejas tu celular?" in reply and not lead.phone_requested_at:
+                lead.phone_requested_at = timestamp
             previous = reply
         evidence = {key: {"status": ("declared" if value != PROFILE_DEFAULTS.get(key) else "missing")}
                     for key, value in last_profile.items()}
