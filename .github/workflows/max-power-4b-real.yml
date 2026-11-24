@@ -4,6 +4,9 @@ on:
     paths:
       - 'scripts/probe_galancito_4b_cpu.py'
       - 'scripts/galancito_4b_validation.py'
+      - 'scripts/galancito_4b_dataset.py'
+      - 'scripts/validate_galant_4b_ollama_candidate.py'
+      - 'apps/backend/tests/test_max_power_4b_probe.py'
       - 'scripts/max_power_4b_supervisor.py'
       - 'infrastructure/Dockerfile.cpu-4b-probe'
       - 'apps/backend/app/max_power_4b_*.py'
@@ -20,6 +23,8 @@ jobs:
     timeout-minutes: 120
     steps:
       - uses: actions/checkout@v4
+      - name: Comprobar sintaxis de todos los motores nuevos
+        run: python3 -m py_compile scripts/probe_galancito_4b_cpu.py scripts/galancito_4b_validation.py scripts/galancito_4b_dataset.py scripts/max_power_4b_supervisor.py scripts/validate_galant_4b_ollama_candidate.py apps/backend/app/max_power_4b_*.py apps/backend/app/max_power_worker.py
       - name: Construir contenedor real NF4 CPU
         run: docker build -f infrastructure/Dockerfile.cpu-4b-probe -t galant-4b-pilot .
       - name: Entrenar 4B con gradientes reales y evaluar conversaciones
@@ -52,11 +57,27 @@ jobs:
           assert r["production_verified"] is False
           print("Validación real del motor de laboratorio; no certifica producción ni VPS.")
           PY
+      - name: Restaurar exactamente adaptador y optimizador guardados
+        run: |
+          docker run --rm --memory=8g --memory-swap=8g --cpus=4 \
+            -v galant-ci-4b:/private galant-4b-pilot \
+            --run --allow-download --steps 4 --threads 4 --resume
+          docker run --rm --entrypoint cat -v galant-ci-4b:/private:ro \
+            galant-4b-pilot /private/4b-probe/latest.json > evidence/4b-resume.json
+          python - <<'PY'
+          import json
+          before = json.load(open("evidence/4b-report.json"))
+          after = json.load(open("evidence/4b-resume.json"))
+          assert after["resumed_from_step"] == 4
+          assert after["latest_adapter_sha256"] == before["latest_adapter_sha256"]
+          assert after["base_revision"] == before["base_revision"]
+          assert after["candidate_id"] == before["candidate_id"]
+          PY
       - uses: actions/upload-artifact@v4
         if: always()
         with:
           name: qwen-4b-real-report
-          path: evidence/4b-report.json
+          path: evidence/*.json
           if-no-files-found: warn
       - name: Limpiar volumen aislado
         if: always()
