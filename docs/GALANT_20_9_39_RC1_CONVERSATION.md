@@ -21,3 +21,10 @@
 6. No afirmar que se entrenaron pesos, que mejoró la latencia o que el VPS se actualizó sin ejecución y pruebas verificables.
 
 Estado: candidato de release, no desplegado.
+
+## Respaldo externo local-first (Messenger)
+- Qwen 4B primero. Si falta una respuesta utilizable o expresa incertidumbre, se consulta la ruta API de Messenger ya configurada y verificada, siempre que la política habilite respaldo y el contacto autorice explícitamente el procesamiento externo. El consentimiento local anterior no habilita esa transferencia.
+- Se reutiliza el contexto con referencias aprobadas, guías pertinentes y ejemplos didácticos. El motor externo no recibe acceso a la base de datos ni puede inventar hechos sobre obras. Teléfonos y correos se mantienen fuera del contexto.
+- Si hay una pregunta local válida, no se gasta en una API solo para reformular. La política de presupuesto, proveedor y revisión se conserva. Si ambos motores fallan, la consulta requiere revisión del equipo.
+- La simulación aislada jamás llama APIs externas. Las pruebas de selección son sintéticas, no evidencian llamadas reales ni una mejora de pesos.
+- El chat interno conserva sus restricciones de privacidad y no forma parte de este cambio de Messenger.
