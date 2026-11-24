@@ -106,8 +106,20 @@ def _qwen_activity(db, row, controller_online, trials, resources, now):
         row.last_status == "resource_guard" and "Messenger tiene prioridad" in row.last_reason
     ):
         return {"state": "waiting", "reason": row.last_reason}
-    if isinstance(available, (int, float)) and available < QWEN_MIN_RAM_MB and row.last_status == "resource_guard":
-        return {"state": "waiting", "reason": row.last_reason or "Reserva de RAM de Qwen 4B insuficiente"}
+    # The synthetic ficha pass can finish even while the private Qwen cannot
+    # start. Keep the measured memory blocker visible in that intermediate
+    # state. Do not infer a cold-start blocker solely from low available RAM:
+    # the controller can admit a verified resident model with a lower reserve.
+    memory_blocked = row.last_status in {"resource_guard", "synthetic_practice_completed"} and (
+        "Qwen 4B requiere 8 GB en frío" in row.last_reason
+        or "Qwen 4B frío requiere 8 GB libres" in row.last_reason
+    )
+    if memory_blocked and type(available) in (int, float) and available < QWEN_MIN_RAM_MB:
+        return {"state": "waiting", "reason": row.last_reason,
+                "required_ram_mb": QWEN_MIN_RAM_MB,
+                "ram_requirement_kind": "cold_start"}
+    if row.last_status == "resource_guard":
+        return {"state": "waiting", "reason": row.last_reason or "Reserva de recursos insuficiente"}
     queued = min((item for item in trials if item.status == "queued"), key=lambda item: aware(item.next_at), default=None)
     if queued:
         return {"state": "waiting", "reason": queued.reason or "Ensayo en cola",
