@@ -111,7 +111,7 @@ def application_reply(db: Session, lead, message: str, prior_prompt: str = "", *
     if prior_prompt.startswith(ASK_APPLICATION_OWN):
         value = norm
         if value in {"si", "si claro", "si ese es mi oficio", "si trabajo en eso", "claro", "exacto"}:
-            return "Perfecto, gracias por aclararlo. ¿En qué comuna puedes trabajar?"
+            return "¿En qué comuna puedes trabajar?"
         if value in {"no", "no es mi oficio", "no trabajo en eso", "todavia no"}:
             return "Está bien, no voy a asumir tu oficio. ¿Qué trabajo realizas?"
         return None
@@ -123,7 +123,8 @@ def application_reply(db: Session, lead, message: str, prior_prompt: str = "", *
                 return ASK_APPLICATION_OWN + trades[0].lower() + "?"
             return "Entiendo, quieres postular tú. ¿Qué oficio realizas?"
         if role == "service_offer":
-            return "Entiendo, ofreces tus servicios. ¿En qué comuna puedes trabajar?"
+            return ("¿En qué comuna puedes trabajar?" if getattr(lead, "specialty", None) else
+                    "¿Qué trabajos haces por tu cuenta?")
         if role == "both":
             return "Entiendo, te interesan las dos opciones. ¿Qué trabajo realizas?"
         if norm in {"no entiendo", "que significa", "no cacho", "como es eso", "solo", "sola", "solito", "solita"}:
@@ -166,7 +167,7 @@ def application_reply(db: Session, lead, message: str, prior_prompt: str = "", *
     if follow_up:
         # A partial clue is useful. Never loop back to "send the link".
         if norm:
-            return "Gracias, ya tengo ese dato. " + ASK_APPLICATION_INTEREST
+            return ASK_APPLICATION_INTEREST
         return ASK_APPLICATION
     return None
 

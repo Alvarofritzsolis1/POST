@@ -156,6 +156,10 @@ jobs:
           python -m pytest -q
           tests/test_galancito_curriculum_20.py
           tests/test_galancito_conversation_memory.py
+          tests/test_galancito_natural_intake_contact.py
+          tests/test_galancito_hybrid.py
+          tests/test_messenger_low_digital_literacy.py
+          tests/test_galancito_learning.py
           tests/test_facebook_crm.py
           tests/test_messenger_conversation_regression.py
           tests/test_galancito_meta_setup.py

@@ -53,7 +53,7 @@ def test_small_contractor_with_natural_questions_and_legacy_answers():
     assert "Desde cuándo" in next_question
     last = respond(lead, next_question, "mañana")
     assert lead.availability == "mañana"
-    assert "quedó anotado" in last
+    assert "celular" in last
     assert lead.entity_type == "unknown"  # No assumed company or employees.
     assert lead.has_employees is None
 
@@ -223,7 +223,7 @@ def test_local_profile_progress_is_not_employment_approval():
 def test_human_conversational_style_without_repeated_bot_introductions():
     lead = blank_lead()
     answer = respond(lead, "", "ola soi gasfite")
-    assert "gasfitería" in answer.lower()
+    assert lead.specialty == "Gasfitería"
     assert answer.count("?") == 1
     assert "Soy Galancito" not in answer
     first = natural_messenger_reply(answer, 0)
@@ -244,11 +244,11 @@ def test_optional_name_does_not_block_or_fake_identity():
     lead.work_area = "Coronel"
     lead.availability = "desde mañana"
     question = next_intake_reply("mañana", vars(lead), "¿Desde cuándo podrías comenzar?")
-    assert "prefieres" in question
+    assert "te llamas" in question
     final = respond(lead, question, "paso")
     assert lead.name_opt_out is True
     assert lead.display_name == "Interesado de Facebook"
-    assert "quedó anotado" in final
+    assert "celular" in final
 
 
 def test_opt_in_name_and_professional_data_are_separate():

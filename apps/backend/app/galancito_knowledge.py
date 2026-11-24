@@ -1,5 +1,7 @@
 """Local, bounded retrieval: approved organization/channel-scoped evidence only."""
 import json
+from functools import lru_cache
+from pathlib import Path
 from sqlalchemy import select, or_, func, literal_column
 from sqlalchemy.orm import Session
 from .galancito_knowledge_models import Knowledge
@@ -43,6 +45,29 @@ def retrieve(db: Session, org_id: str, message: str, channel: str) -> list[dict]
                               "kind": row.kind, "content": chunk, "exact": exact}))
     ranked.sort(key=lambda x: x[0], reverse=True)
     return [item for _, item in ranked[:3]]
+
+
+@lru_cache(maxsize=1)
+def _conversation_examples():
+    """Release-reviewed examples, not tenant data or verified job availability."""
+    rows = json.loads(Path(__file__).with_name("galancito_examples.json").read_text(encoding="utf-8"))
+    return tuple(row for row in rows if row.get("kind") == "example" and row.get("scope") == "messenger"
+                 and row.get("title", "").startswith("Conversación natural — "))
+
+
+def conversation_example(message: str, prior: str = "") -> str:
+    """Small optional coaching context. Never use it as a direct answer."""
+    value = plain(message)
+    if not value:
+        return ""
+    candidates = []
+    for row in _conversation_examples():
+        for phrase in row["phrases"]:
+            normalized = plain(phrase)
+            # Single-word responses require the preceding question to disambiguate.
+            if normalized == value and (len(value.split()) > 1 or ("solo" == value and "trabajas solo" in plain(prior))):
+                candidates.append(row["content"])
+    return candidates[0][:400] if candidates else ""
 
 
 def exact_answer(evidence: list[dict]) -> str | None:

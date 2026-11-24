@@ -23,9 +23,9 @@ def test_curated_corpus_is_large_partitioned_unique_and_never_real(tmp_path):
     assert bundle["sizes"]["validation"] >= 10
     assert bundle["sizes"]["test"] >= 10
     cases = list(examples())
-    assert len(cases) == 2000
-    assert len({item["case_group"] for item in cases}) == 50
-    assert sum(bundle["sizes"].values()) == 2000
+    assert len(cases) == 2320
+    assert len({item["case_group"] for item in cases}) == 58
+    assert sum(bundle["sizes"].values()) == 2320
     partitions = [{row["case_group"] for row in bundle["samples"][key]} for key in ("train", "validation", "test")]
     assert all(not a & b for i, a in enumerate(partitions) for b in partitions[i+1:])
     for key in ("validation", "test"):

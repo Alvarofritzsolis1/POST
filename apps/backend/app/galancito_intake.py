@@ -35,7 +35,7 @@ _PROMPTS = (
 
 def is_intake_prompt(prompt: str) -> bool:
     normalized = plain(prompt)
-    return any(key in normalized for key in _PROMPTS)
+    return bool(intake_question_fields(prompt)) or any(key in normalized for key in _PROMPTS)
 
 
 def intake_question_fields(prompt: str) -> set[str]:
@@ -43,17 +43,17 @@ def intake_question_fields(prompt: str) -> set[str]:
     value = " ".join(plain(part.rsplit("¿", 1)[-1]) for part in prompt.split("?")[:-1])
     patterns = {
         "display_name": _NAME_PROMPTS,
-        "specialty": (*_TRADE_PROMPTS, "que trabajo haces", "a que te dedicas", "en que trabajas"),
-        "interest_type": (_INTEREST_QUESTION, "buscas empleo o", "buscas empleo como trabajador"),
+        "specialty": (*_TRADE_PROMPTS, "que trabajo haces", "que trabajos haces", "a que te dedicas", "en que trabajas"),
+        "interest_type": (_INTEREST_QUESTION, "buscas empleo o", "buscas empleo como trabajador", "buscas trabajo para ti", "buscas que te contraten", "ofreces tus servicios", "trabajo por tu cuenta o"),
         "entity_type": ("representas una empresa", "con una empresa o a tu propio nombre"),
-        "team_available": (_TEAM_QUESTION, "puedes venir con"),
-        "workers": ("cuantas personas", "con cuantas", "cuantos puedes traer"),
+        "team_available": (_TEAM_QUESTION, "puedes venir con", "vas solo", "irias solo", "trabajas con alguien", "tienes cuadrilla"),
+        "workers": ("cuantas personas", "con cuantas", "cuantos puedes traer", "cuantos maestros", "cuantos son en total"),
         "has_employees": ("tienes trabajadores contratados", "tienes empleados"),
         "employee_count": ("cuantos trabajadores contratados", "cuantos empleados"),
         "experience": (_EXPERIENCE_QUESTION, "cuantos anos", "cuanta experiencia", "anos o meses"),
-        "work_communes": (_COMMUNE_QUESTION, "en cuales comunas", "en que comunas"),
-        "availability": ("desde cuando", "cuando podrias comenzar", "cuando puedes empezar"),
-        "contact_phone": ("tu telefono", "tu celular", "numero de celular"),
+        "work_communes": (_COMMUNE_QUESTION, "en cuales comunas", "en que comunas", "donde puedes trabajar", "donde trabajas", "que comunas"),
+        "availability": ("desde cuando", "cuando podrias comenzar", "cuando puedes empezar", "cuando puedes partir", "cuando podrias partir", "cuando podrias empezar", "cuando puedes comenzar", "cuando estas disponible"),
+        "contact_phone": ("tu telefono", "tu celular", "numero de celular", "tu numero", "numero de telefono", "tu whatsapp"),
         "contact_email": ("tu correo", "tu email"),
     }
     return {field for field, phrases in patterns.items() if any(phrase in value for phrase in phrases)}
@@ -128,7 +128,17 @@ def unanswered_intake_question(lead, prompt: str) -> bool:
         ((_AVAILABILITY_QUESTION, "desde cuando puedes"), not lead.availability),
         (_NAME_PROMPTS, lead.display_name in UNKNOWN_NAMES and not lead.name_opt_out),
     )
-    return any(missing and any(match in value for match in phrases) for phrases, missing in pending)
+    fields = intake_question_fields(prompt)
+    facts = {field: getattr(lead, field, None) for field in (
+        "display_name", "name_opt_out", "specialty", "interest_type", "entity_type",
+        "team_available", "workers", "has_employees", "employee_count", "experience",
+        "work_area", "work_communes", "availability")}
+    known = conversation_fields(facts)
+    professional = fields - {"contact_phone", "contact_email"}
+    states = getattr(lead, "profile_sources", None) or {}
+    return (any(not known.get(field) and states.get(field, {}).get("state") != "rechazado_por_usuario"
+                for field in professional)
+            or any(missing and any(match in value for match in phrases) for phrases, missing in pending))
 
 
 def _affirmed(value: str, phrases: tuple[str, ...]) -> bool:
@@ -144,7 +154,7 @@ def _affirmed(value: str, phrases: tuple[str, ...]) -> bool:
 def _role_update(lead, value: str, previous: str) -> None:
     service = _affirmed(value, _ROLE_SERVICE)
     worker = _affirmed(value, _ROLE_WORKER)
-    if _INTEREST_QUESTION in previous:
+    if "interest_type" in intake_question_fields(previous + "?") or _INTEREST_QUESTION in previous:
         service |= value in {"1", "uno", "servicios", "contratista", "independiente", "ofrezco trabajo", "por mi cuenta"}
         worker |= value in {"2", "dos", "empleo", "pega", "trabajador", "trabajadora"}
         if value in {"ambos", "ambas", "las dos", "los dos", "las dos cosas", "ambos roles"}:
@@ -213,7 +223,7 @@ def _name_update(lead, message: str, previous: str) -> None:
 
 def _commune_update(lead, message: str, previous: str) -> None:
     value = plain(message)
-    asked = _COMMUNE_QUESTION in previous
+    asked = "work_communes" in intake_question_fields(previous + "?") or _COMMUNE_QUESTION in previous
     found = []
     continues_area = False
     for fragment in re.split(r"[,;.!\n]+|\bpero\b", message, flags=re.I):
@@ -252,9 +262,11 @@ def _team_update(lead, value: str, previous: str) -> None:
                              "voy a ir solo", "voy a ir sola", "yo solo", "yo sola", "sin equipo"))
     if value in {"no puedo llevar gente", "no tengo gente", "no tengo cuadrilla"}:
         solo = True
-    if _TEAM_QUESTION in previous or "puedes venir con" in previous:
+    if "team_available" in intake_question_fields(previous + "?") or _TEAM_QUESTION in previous or "puedes venir con" in previous:
         solo |= value in {"1", "uno", "solito", "solo", "sola", "sin gente", "sin equipo"}
         capacity |= value in {"2", "dos", "con gente", "con equipo", "con personas"}
+    if any(p in previous for p in ("vas solo", "irias solo", "trabajas solo")) and value in {"si", "si po", "sipo", "si claro"}:
+        solo = True
     if solo and not capacity:
         lead.team_available, lead.workers = False, 1
     elif capacity:
@@ -272,7 +284,7 @@ def _team_update(lead, value: str, previous: str) -> None:
         + r" (?:ayudantes?|personas?|maestros?|trabajadores?|cabros?|compas?|companeros?)\b", value)
     if not helpers:
         helpers = re.fullmatch(r"yo y " + count + r" mas", value)
-    if not total and not helpers and ("cuantas personas" in previous or "con cuantas" in previous):
+    if not total and not helpers and ("workers" in intake_question_fields(previous + "?") or "cuantas personas" in previous or "con cuantas" in previous):
         total = re.fullmatch(r"(?:con |en total )?" + count + r"(?: personas| maestros| trabajadores| gente)?", value)
     if not total and not helpers:
         return
@@ -342,7 +354,7 @@ def work_date_answer(message: str, previous: str) -> tuple[bool, date] | None:
 def _availability_update(lead, message: str, previous: str, *, on_date=None) -> None:
     clean = message.strip()
     value = plain(clean)
-    asked = _AVAILABILITY_QUESTION in previous or "desde cuando puedes" in previous
+    asked = "availability" in intake_question_fields(previous + "?") or _AVAILABILITY_QUESTION in previous or "desde cuando puedes" in previous
     if (asked or "disponib" in value or "puedo" in value) and re.search(
         r"\b(?:quizas|tal vez|puede que|no se si|depende)\b|\b(?:lunes|martes|miercoles|jueves|viernes|sabado|domingo|hoy|manana) o\b", value
     ):
@@ -447,24 +459,12 @@ def identity_reply(message: str) -> str | None:
 def _friendly_ack(message: str, facts: dict, question: str, prior: str = "") -> str:
     """Brief, grounded acknowledgement, not a repetitive scripted self-introduction."""
     norm = plain(message)
-    trade = (facts.get("specialty") or "").strip()
     if is_pure_greeting(message):
         return "¡Hola, qué tal!"
     if not _CORRECTION.search(norm) and any(q in plain(prior) for q in ("cual es tu nombre", "como te llamas", "como prefieres que te llamemos")):
         if facts.get("display_name") not in (None, "", "Interesado de Facebook", "Contacto sin nombre"):
             return "Un gusto, " + facts["display_name"].split()[0].title() + "."
-    if "trabajas solo" in plain(question) and facts.get("interest_type") == "service_offer":
-        return "Perfecto, entonces ofreces tus servicios."
-    if "cuantas personas" in plain(question):
-        return "Ya, entiendo que puedes venir con otras personas."
-    if "cuanto tiempo llevas" in plain(question) and facts.get("workers") is not None:
-        return "Gracias, me queda clara la cantidad de personas."
-    if "en que comuna" in plain(question) and facts.get("experience"):
-        return "Gracias, también tengo anotada tu experiencia."
-    if "desde cuando" in plain(question) and facts.get("work_area"):
-        return "Bien, ya sé en qué comuna puedes trabajar."
-    if "ofreces trabajos" in plain(question) and trade:
-        return "Entiendo que trabajas en " + trade.lower() + "."
+    # No narration of the extraction process. A direct question is often enough.
     if facts.get("turn_changed") and _CORRECTION.search(norm):
         return "Listo, actualicé ese dato."
     return ""
@@ -545,6 +545,8 @@ def next_intake_reply(message: str, facts: dict, prior_prompt: str = "") -> str 
         return identity
     if explanation := clarification_reply(message, prior_prompt):
         return explanation
+    if plain(message) in {"hola vi un trabajo", "ola vi un trabajo", "vi un trabajo", "hola vi un aviso", "vi un aviso"}:
+        return "¡Hola! ¿Qué trabajo viste?"
     info = analyze(message)
     capacity_statement = any(p in plain(message) for p in (
         "puedo traer gente", "puedo llevar gente", "tengo cuadrilla",
@@ -593,16 +595,99 @@ def next_intake_reply(message: str, facts: dict, prior_prompt: str = "") -> str 
     elif ("display_name" in facts and facts.get("display_name") in {
         "", "Interesado de Facebook", "Contacto sin nombre", None
     } and not facts.get("name_opt_out") and missing("display_name")):
-        question = "¿Cómo prefieres que te llamemos? Si prefieres no decirlo, escribe paso."
+        question = "¿Cómo te llamas?"
+    elif (intent in {"service_offer", "employment", "both"}
+          and (facts.get("specialty") or facts.get("trades"))
+          and facts.get("work_area") and facts.get("availability") not in {None, "", "Sin disponibilidad"}
+          and not any(facts.get(k) for k in ("contact_available", "contact_declined", "contact_offered"))
+          and "contact_phone" not in intake_question_fields(prior_prompt)
+          and "contact_email" not in intake_question_fields(prior_prompt)):
+        return "Para coordinar, ¿me dejas tu celular? Si prefieres, seguimos por aquí."
     else:
-        if facts.get("turn_changed"):
-            return "Gracias, quedó anotado. Si cambia algún dato, me puedes avisar por acá."
-        return "Si necesitas orientación o quieres actualizar algún dato, seguimos por acá."
+        return "Podemos seguir por aquí si tienes dudas sobre el trabajo."
     if plain(question) in plain(prior_prompt):
         if facts.get("turn_changed"):
-            return "Ya, tomé nota de eso. Podemos seguir por acá si quieres agregar algo."
+            return "Podemos seguir por aquí si quieres agregar algo."
         return "Está bien. Podemos seguir con esto cuando tengas el dato o conversar sobre otra duda."
     return (_friendly_ack(message, facts, question, prior_prompt) + " " + question).strip()[:540]
+
+
+def model_intake_candidate(message: str, facts: dict, prior: str, fallback: str | None) -> bool:
+    """Ordinary conversation can be decided by the model, not a fixed interview."""
+    if (not message or private_data(message) or identity_reply(message)
+            or clarification_reply(message, prior) or is_pure_greeting(message)
+            or plain(message) in {"gracias", "muchas gracias", "vale gracias"}):
+        return False
+    return analyze(message).intent not in {"human", "restricted", "publish"}
+
+
+def conversation_fields(facts: dict) -> dict:
+    """Independent availability of each professional field, without a preferred order."""
+    return {
+        "display_name": facts.get("display_name") not in UNKNOWN_NAMES or facts.get("name_opt_out"),
+        "specialty": bool(facts.get("specialty") or facts.get("trades")),
+        "interest_type": facts.get("interest_type") in {"employment", "service_offer", "both"},
+        "entity_type": facts.get("entity_type") not in {None, "", "unknown"},
+        "team_available": facts.get("team_available") is not None,
+        "workers": facts.get("workers") is not None,
+        "has_employees": facts.get("has_employees") is not None,
+        "employee_count": facts.get("employee_count") is not None,
+        "experience": bool(facts.get("experience")),
+        "work_communes": bool(facts.get("work_area") or facts.get("work_communes")),
+        "availability": bool(facts.get("availability")),
+        "contact_phone": any(facts.get(k) for k in ("contact_available", "contact_declined", "contact_offered")),
+        "contact_email": any(facts.get(k) for k in ("contact_available", "contact_declined", "contact_offered")),
+    }
+
+
+def contact_ready(facts: dict) -> bool:
+    known = conversation_fields(facts)
+    return bool(known["specialty"] and known["interest_type"] and known["work_communes"]
+                and known["availability"] and facts.get("availability") != "Sin disponibilidad"
+                and not known["contact_phone"])
+
+
+def conversation_context(facts: dict) -> str:
+    known = conversation_fields(facts)
+    pending = sorted(field for field, filled in known.items()
+                     if not filled and facts.get("field_states", {}).get(field) != "rechazado_por_usuario"
+                     and (not field.startswith("contact_") or contact_ready(facts)))
+    return ("Datos pendientes (sin orden obligatorio, pregunta solo lo útil): " + ", ".join(pending)
+            + ". Contacto opcional disponible para solicitar: " + ("sí" if contact_ready(facts) else "no")
+            + ". Responde primero la consulta actual; puedes cambiar de tema, aclarar o no preguntar.")
+
+
+def acceptable_intake_draft(draft: str, facts: dict, expected_question: str = "",
+                            *, message: str = "") -> bool:
+    """Validate independent constraints, not agreement with a scripted next question."""
+    value = plain(draft)
+    if not draft or draft.count("?") > 1 or private_data(draft) or any(p in value for p in (
+        "me queda clara la cantidad", "tengo anotada tu experiencia", "ya se en que comuna",
+        "escribe paso", "quedo anotado", "puedes escribir con confianza"
+    )):
+        return False
+    known = conversation_fields(facts)
+    asked = intake_question_fields(draft)
+    if any(known.get(field) or facts.get("field_states", {}).get(field) == "rechazado_por_usuario"
+           for field in asked):
+        return False
+    contact_fields = asked & {"contact_phone", "contact_email"}
+    if contact_fields:
+        if not contact_ready(facts) or len(contact_fields) != 1 or not any(
+            phrase in value for phrase in ("si prefieres", "si quieres", "si te acomoda", "opcional", "si te parece")
+        ):
+            return False
+    # A question about a publication or a genuine clarification is allowed.
+    # Do not force a professional field when the person has another concern.
+    if "?" in draft:
+        # Only explicit field questions or useful clarification, not a generic loop.
+        return bool(asked or not any(p in value for p in ("me cuentas mas", "cuentame mas", "que mas")))
+    # Do not accept a bare acknowledgement or premature closure of an active intake.
+    if value in {"ok", "bien", "perfecto", "gracias", "entendido", "listo", "de acuerdo"}:
+        return False
+    if expected_question and intake_question_fields(expected_question) and not needs_deeper_response(message) and "?" not in message:
+        return False
+    return True
 
 
 def needs_deeper_response(message: str) -> bool:

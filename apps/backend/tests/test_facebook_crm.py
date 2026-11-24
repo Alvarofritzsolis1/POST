@@ -272,10 +272,24 @@ def test_galancito_conversation_auto_reply_only_after_messenger_consent(network,
     assert reply.status_code == 202
     status = n["admin"].get("/api/v1/network/facebook/leads/" + lead["id"]).json()["lead"]
     assert status["ai_paused"] is False
+    # /reply only enqueues a manual message. Deliver it before emulating
+    # the contractor answering; otherwise the FIFO worker consumes it first.
+    assert process_chat_next(n["Session"]) is True
+    assert calls[-1] == "Te atiendo yo desde ahora."
+    assert len(ai_calls) == 1
     assert incoming(n, text="tengo dos ayudantes", mid="later").status_code == 200
     messages = n["admin"].get("/api/v1/network/facebook/leads/" + lead["id"]).json()["messages"]
-    assert any(msg["automated"] and msg["state"] == "pending" for msg in messages)
-    assert not any(msg["state"] == "ai_pending" for msg in messages)
+    assert any(msg["automated"] and msg["state"] == "ai_pending" for msg in messages)
+    # The consented model, rather than a fixed questionnaire, chooses the next step.
+    monkeypatch.setattr("app.facebook_chat_worker.generate_text",
+                        lambda *args, **kwargs: ai_calls.append(args[1]) or "¿En qué comuna puedes trabajar?")
+    before = len(ai_calls)
+    assert process_chat_next(n["Session"]) is True
+    assert len(ai_calls) == before + 1
+    assert "comuna" in calls[-1].lower()
+    assert "tengo dos ayudantes" in ai_calls[-1]
+    detail = n["admin"].get("/api/v1/network/facebook/leads/" + lead["id"]).json()
+    assert detail["messages"][-1]["state"] == "sent"
 
 
 def test_manual_trade_question_continues_automatically_and_can_be_paused(network, monkeypatch):
@@ -302,8 +316,8 @@ def test_manual_trade_question_continues_automatically_and_can_be_paused(network
     assert detail["lead"]["ai_paused"] is False
     queued = detail["messages"][-1]
     assert queued["state"] == "pending" and queued["automated"] is True
-    assert "gasfitería" in queued["body"].lower()
     assert "cuenta" in queued["body"].lower()
+    assert "gracias por informar" not in queued["body"].lower()
     assert process_chat_next(n["Session"])
     detail = n["admin"].get("/api/v1/network/facebook/leads/" + lead_id).json()
     assert detail["messages"][-1]["state"] == "sent"
@@ -331,7 +345,8 @@ def test_new_inbound_replaces_unsent_automatic_question(network, monkeypatch):
     assert incoming(n, text="soy gasfiter", mid="replacement-2").status_code == 200
     messages = n["admin"].get("/api/v1/network/facebook/leads/" + lead_id).json()["messages"]
     assert next(msg for msg in messages if msg["id"] == first["id"])["state"] == "cancelled"
-    assert messages[-1]["state"] == "pending" and "gasfitería" in messages[-1]["body"].lower()
+    assert messages[-1]["state"] == "pending" and "cuenta" in messages[-1]["body"].lower()
+    assert n["admin"].get("/api/v1/network/facebook/leads/" + lead_id).json()["lead"]["specialty"] == "Gasfitería"
 
 
 def test_explicit_human_request_notifies_administration(network, monkeypatch):

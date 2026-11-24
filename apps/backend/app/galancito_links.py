@@ -83,7 +83,7 @@ def trade_declarations(message: str, prior_prompt: str = "", *,
     if not message or len(message) > 3500 or private_data(message):
         return {}
     catalog, matcher = _trade_matcher(tuple((trade, tuple(aliases)) for trade, aliases in (extra or {}).items()))
-    direct = any(p in plain(prior_prompt) for p in ("oficio", "trabajo realizas", "servicio ofreces"))
+    direct = any(p in plain(prior_prompt) for p in ("oficio", "trabajo realizas", "trabajo haces", "trabajos haces", "servicio ofreces", "a que te dedicas", "en que trabajas"))
     result = {}
     continuation = False
     for fragment in _TRADE_FRAGMENTS.split(declaration_text(message)):

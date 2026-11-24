@@ -17,16 +17,18 @@ from .config import settings
 from .db import SessionLocal
 from .facebook_availability_reply import availability_reply
 from .facebook_worksite_reply import application_reply, worksite_reply
-from .facebook_ai import LOCAL_REPLY_INSTRUCTIONS, REPLY_INSTRUCTIONS, generate_text, messenger_ai_source
+from .facebook_ai import (LOCAL_REPLY_INSTRUCTIONS, REPLY_INSTRUCTIONS, generate_text,
+                          messenger_ai_source, local_first_messenger, messenger_external_fallback_enabled)
+from .galancito_hybrid import select_response
 from .ai_gateway import orchestrated_text
 from .galancito_flow import safe_ai_reply, consented_for, grounded_reply, is_permission_prompt
 from .facebook_crm_models import FacebookLead, FacebookChatMessage, FacebookTradeGuide, FacebookLeadTrade
 from .models import utcnow
 from .network_service import key
 from .galancito_triage import analyze, quick_reply, private_data
-from .galancito_intake import clarification_reply, identity_reply, next_intake_reply, small_talk_reply, natural_messenger_reply, needs_deeper_response
-from .galancito_memory import aware, note_profile_sources, prior_delivered_prompt, profile_facts, reply_focus
-from .galancito_knowledge import retrieve, exact_answer, evidence_context
+from .galancito_intake import acceptable_intake_draft, intake_question_fields, clarification_reply, identity_reply, model_intake_candidate, next_intake_reply, small_talk_reply, natural_messenger_reply, needs_deeper_response
+from .galancito_memory import aware, note_profile_sources, prior_delivered_prompt, profile_facts, reply_focus, messenger_context
+from .galancito_knowledge import retrieve, exact_answer
 from .galancito_runtime import infer, record_run
 from .galancito_local import generate_local_text, last_timings, MAX_CONTEXT_CHARS
 from .galancito_escalation import flag_for_human
@@ -289,45 +291,30 @@ def process_chat_next(session_factory=SessionLocal, *, simulation_config=None, n
             intent = "worksite_location" if location else "apply" if apply else analyze(latest).intent
             fast = intake or quick_reply(latest, known=facts)
             evidence = []
-            if not intake and not private_data(latest) and intent not in {"human", "restricted"}:
+            rewrite_intake = (not (help_answer or location or follow_up or apply) and
+                              model_intake_candidate(latest, facts, prior_question, intake))
+            if (not intake or rewrite_intake) and not private_data(latest) and intent not in {"human", "restricted"}:
                 evidence = retrieve(db, lead.org_id, latest, "messenger")
-                if learned := exact_answer(evidence):
+                if not rewrite_intake and (learned := exact_answer(evidence)):
                     fast, fast_source = learned, "knowledge"
             model_needed = (bool(latest) and not (help_answer or location or follow_up or apply) and not private_data(latest) and not identity_reply(latest)
                             and intent not in {"human", "restricted"} and fast_source != "knowledge"
-                            and (not fast or needs_deeper_response(latest)))
+                            and (not fast or needs_deeper_response(latest) or rewrite_intake))
             trace["model_requested"] = bool(model_needed)
             trace["knowledge_count"] = len(evidence)
             if model_needed:
                 facts["trades"] = list(db.scalars(select(FacebookLeadTrade.trade).where(
                     FacebookLeadTrade.lead_id == lead.id, FacebookLeadTrade.active.is_(True))))
-                context_turns = [
-                    ("Persona: " if item.direction == "inbound" else "Red de Obras: ") + item.body[:220]
-                    for item in reversed(turns[:8])
-                    if not private_data(item.body) and item.consent_decision is None
-                    and "autorizas" not in item.body.casefold()
-                ]
-                professional_facts = {k: v for k, v in facts.items()
-                                      if k not in {"display_name", "name_opt_out", "turn_changed"}}
-                trace["context_turns"] = len(context_turns)
-                trace["known_fields"] = sum(bool(value) for key, value in professional_facts.items()
-                                            if key != "field_states")
-                context = ("Consulta actual: " + latest[:800] +
-                           "\nÚltimos turnos de esta conversación:\n" +
-                           "\n".join(context_turns)[-1100:] +
-                           "\nDatos profesionales declarados: " +
-                           json.dumps(professional_facts, ensure_ascii=False) +
-                           "\nReferencias aprobadas: " + evidence_context(evidence))
                 guides = db.scalars(select(FacebookTradeGuide).where(
                     FacebookTradeGuide.org_id == lead.org_id, FacebookTradeGuide.approved.is_(True)))
                 terms = {key(t) for t in [lead.specialty, *facts["trades"]] if t}
                 guide = next((g for g in guides if terms.intersection(
                     {key(g.trade), *(key(a) for a in (g.aliases or []))})), None)
-                if guide:
-                    context += ("\nGuía administrativa validada: " + guide.explanation[:1000] +
-                                "\nOrientación documental: " + "; ".join(guide.document_guidance or [])[:700])
-                else:
-                    context += "\nNo hay guía documental validada. Deriva esas dudas al equipo."
+                context, count = messenger_context(latest, facts, prior_question, turns, evidence, guide,
+                                                   limit=MAX_CONTEXT_CHARS)
+                trace["context_turns"] = count
+                trace["known_fields"] = sum(bool(value) for key, value in facts.items()
+                                            if key not in {"field_states", "turn_changed"})
         db_ms = (perf_counter() - started) * 1000
         # A separate persisted drafting state lets the UI show real stages.
         # Do not claim to be sending before the AI has generated its reply.
@@ -360,9 +347,9 @@ def process_chat_next(session_factory=SessionLocal, *, simulation_config=None, n
             if should_model:
                 # A generic intake prompt must not stand in for an answer to a
                 # difficult question when every configured model failed.
-                generated = None
+                generated = fast if rewrite_intake and not needs_deeper_response(latest) and "?" not in latest else None
             if should_model and not private_data(context):
-                if fast:
+                if fast and not rewrite_intake:
                     context += ("\nOrientación breve disponible como alternativa: " +
                                 fast[:450] + "\nRespeta sus hechos; explica la duda "
                                 "antes de avanzar con una pregunta.")
@@ -382,7 +369,39 @@ def process_chat_next(session_factory=SessionLocal, *, simulation_config=None, n
                         if simulated:
                             # The simulator is never permitted to call an external provider.
                             drafted = (infer(db, lambda: generate_local_text(LOCAL_REPLY_INSTRUCTIONS, prepared_context, 550))
-                                       if ai_source == "ollama" else None)
+                                       if ai_source == "ollama" or local_first_messenger(cfg) else None)
+                        elif ai_source == "team" and local_first_messenger(cfg):
+                            # External consent has already been checked.
+                            def external_backup():
+                                local_stats = last_timings.get()
+                                trace["local_before_external"] = {k: local_stats[k] for k in (
+                                    "local_model_calls", "input_tokens", "output_tokens", "queue_ms", "busy") if k in local_stats}
+                                db.refresh(current)
+                                db.refresh(current_job)
+                                if (current_job.state != "drafting" or current.last_inbound_at != inbound_at
+                                        or current.ai_paused or current.needs_support
+                                        or not consented_for(current, "team")
+                                        or not messenger_external_fallback_enabled(db, org_id, cfg)):
+                                    return None
+                                return infer(db, lambda: orchestrated_text(
+                                    db, org_id, task="messenger",
+                                    instructions=(REPLY_INSTRUCTIONS + "\nUsa las referencias como evidencia; "
+                                                  "no inventes hechos de obras ni datos faltantes." +
+                                                  ("\nGuía aprobada:\n" + verified_policy if verified_policy else "")),
+                                    prompt=prepared_context, max_output_tokens=230), org_id=org_id)
+
+                            drafted, route = select_response(
+                                lambda: infer(db, lambda: generate_text(
+                                    REPLY_INSTRUCTIONS, prepared_context, 550, approved_policy=verified_policy)),
+                                external_backup, prepared_context,
+                                allow_external=consented_for(current, "team"),
+                                local_fallback=fast if rewrite_intake and intake_question_fields(fast or "")
+                                and not needs_deeper_response(latest) and "?" not in latest else None,
+                                validator=(lambda value: acceptable_intake_draft(value, facts, intake or "", message=latest))
+                                if rewrite_intake else None,
+                            )
+                            trace["ai_route"] = route
+                            trace["local_first_attempted"] = True
                         else:
                             drafted = infer(db, lambda: (
                                 orchestrated_text(db, org_id, task="messenger",
@@ -397,8 +416,10 @@ def process_chat_next(session_factory=SessionLocal, *, simulation_config=None, n
                         timings = last_timings.get()
                     if drafted:
                         drafted = grounded_reply(drafted, context)
+                    if drafted and rewrite_intake and not acceptable_intake_draft(drafted, facts, intake or "", message=latest):
+                        drafted = None
                     if drafted:
-                        generated, source = drafted, "ai"
+                        generated, source = drafted, ("fallback" if trace.get("ai_route") == "guided_fallback" else "ai")
                     else:
                         source = "fallback"
                 except (RuntimeError, ValueError):
@@ -465,6 +486,10 @@ def process_chat_next(session_factory=SessionLocal, *, simulation_config=None, n
         row.remote_id = result_id
         row.state = "sent" if result_id else ("uncertain" if uncertain else "failed")
         row.error, row.updated_at = problem, utcnow()
+        if result_id and automated_reply and intake_question_fields(body) & {"contact_phone", "contact_email"}:
+            contact = db.get(FacebookLead, lead_id, with_for_update=True)
+            if contact is not None and not contact.phone_requested_at:
+                contact.phone_requested_at = utcnow()
         if automated_reply:
             record_run(db, org_id=org_id, channel="messenger", source=source,
                        intent=intent, started=started, db_ms=db_ms,
