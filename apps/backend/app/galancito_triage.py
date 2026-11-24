@@ -134,6 +134,17 @@ def application_role_question(prompt: str) -> bool:
     ))
 
 
+def ambiguous_application_role(message: str, prior: str) -> bool:
+    return bool(application_role_question(prior)
+                and not any(plain(prior).endswith(plain(p)) for p in _LEGACY_ROLE_PROMPTS)
+                and plain(message) in {
+        "yo", "yo solo", "yo sola", "solo yo", "solamente yo", "yo no mas", "yo nomas",
+        "pa mi", "para mi", "pa mi no mas", "para mi nomas", "para mi solo", "para mi sola",
+        "para mi mismo", "para mi misma", "pami", "soy yo", "quiero trabajar", "quiero postular",
+        "para trabajar", "busco pega", "busco trabajo", "quiero pega", "nesesito pega", "necesito pega",
+    })
+
+
 def application_role(message: str, prior: str) -> str | None:
     """Shared interpretation for replies AND persisted profile; no role outside its context."""
     if not application_role_question(prior) or private_data(message) or "?" in message:
@@ -143,13 +154,7 @@ def application_role(message: str, prior: str) -> str | None:
         confirmed = _role_confirmation(prior)
         if confirmed:
             return confirmed
-    # Working alone does not distinguish employee from independent contractor.
-    if not any(plain(prior).endswith(plain(p)) for p in _LEGACY_ROLE_PROMPTS) and value in {
-        "yo", "yo solo", "yo sola", "solo yo", "solamente yo", "yo no mas", "yo nomas",
-        "pa mi", "para mi", "pa mi no mas", "para mi nomas", "para mi solo", "para mi sola",
-        "para mi mismo", "para mi misma", "pami", "soy yo", "quiero trabajar", "quiero postular",
-        "para trabajar", "busco pega", "busco trabajo", "quiero pega", "nesesito pega", "necesito pega",
-    }:
+    if ambiguous_application_role(message, prior):
         return None
     if value in {"yo", "yo solo", "yo sola", "solo yo", "solamente yo", "yo no mas",
                  "yo nomas", "pa mi", "para mi", "pa mi no mas", "para mi nomas",

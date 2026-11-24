@@ -320,6 +320,8 @@ def test_authorized_qwen_can_choose_role_response_and_receives_original_slang(ne
     assert contexts[0][1].get("thinking") is True
     assert "cuando dices eso" in sent[-1].lower()
     assert _contact(n)["lead"]["interest_type"] == "unknown"
+    assert incoming(n, "sipo", "semantic-confirmation").status_code == 200
+    assert _contact(n)["lead"]["interest_type"] == "service_offer"
 
 
 def test_ambiguous_solo_or_pega_does_not_define_role():
