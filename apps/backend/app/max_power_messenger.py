@@ -26,7 +26,7 @@ from .facebook_ai import LOCAL_REPLY_INSTRUCTIONS
 from .galancito_flow import grounded_reply
 from .galancito_general import QWEN_4B
 from .galancito_intake import UNKNOWN_NAMES, apply_intake, identity_reply, intake_question_fields, needs_deeper_response
-from .galancito_local import MAX_INSTRUCTIONS_CHARS, generate_training_text, last_timings, MAX_POWER_ISOLATED
+from .galancito_local import MAX_CONTEXT_CHARS, MAX_INSTRUCTIONS_CHARS, generate_training_text, last_timings, MAX_POWER_ISOLATED
 from .galancito_triage import plain, private_data
 from .max_power_models import MaxPowerEvent, MaxPowerMessengerTrial, MaxPowerState
 from .max_power_practice import PROTOCOL, QWEN_CRITERION, RESERVED, SOURCE, dataset_digest, generate_scenarios, reply_cases, reply_reference
@@ -324,6 +324,26 @@ def evaluate_synthetic_reply(org_id, case_id, digest, *, set_phase=None):
     }
 
 
+def replay_prompt(evidence):
+    """Retain the latest question intact within the actual local input budget."""
+    question = str(evidence.get("question", ""))[:650]
+    suffix = "Última consulta:\n" + question
+    history = list(evidence["history"][-5:])
+    if (history and history[-1].get("role") in ("inbound", "user")
+            and str(history[-1].get("text", ""))[:650] == question):
+        history.pop()
+    selected = []
+    remaining = MAX_CONTEXT_CHARS - len(suffix)
+    for item in reversed(history):
+        prefix = "Persona: " if item.get("role") in ("inbound", "user") else "GALANT: "
+        line = prefix + str(item.get("text", ""))[:500]
+        if len(line) + 1 > remaining:
+            break
+        selected.append(line)
+        remaining -= len(line) + 1
+    return "\n".join([*reversed(selected), suffix])
+
+
 def evaluate_trial(trial_id, *, set_phase=None):
     """Baseline and candidate are both real local Qwen runs, no external API."""
     with SessionLocal() as db:
@@ -353,11 +373,8 @@ def evaluate_trial(trial_id, *, set_phase=None):
             raise ValueError("El caso dejó de tener consentimiento o evidencia íntegra")
         if trial.criterion not in detected_defects(evidence):
             raise ValueError("La falla ya no puede verificarse en la fuente")
-        prompt = "\n".join(("Persona: " if x.get("role") in ("inbound","user")
-                            else "GALANT: ") + str(x.get("text",""))[:500]
-                           for x in evidence["history"][-5:])
-        prompt += "\nÚltima consulta:\n" + str(evidence.get("question", ""))[:650]
-        if private_data(prompt) or len(prompt) > 3200:
+        prompt = replay_prompt(evidence)
+        if private_data(prompt):
             raise ValueError("Caso privado o excede el contexto seguro")
         base = LOCAL_REPLY_INSTRUCTIONS
         approved = approved_coaching(db, user.org_id, "messenger")
