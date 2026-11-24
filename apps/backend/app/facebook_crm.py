@@ -22,9 +22,10 @@ from sqlalchemy.orm import Session
 from .config import settings
 from .db import get_db, SessionLocal
 from .facebook_ai import (AD_INSTRUCTIONS, REPLY_INSTRUCTIONS, generate_text,
-                          messenger_ai_source, verified_ad_copy,
+                          messenger_ai_source, verified_ad_copy, local_first_messenger, messenger_external_fallback_enabled,
                           generate_triage_note)
 from .ai_gateway import orchestrated_text, AIServiceError
+from .galancito_hybrid import select_response
 from .facebook_availability_reply import availability_reply
 from .facebook_worksite_reply import application_reply, digital_help_reply, is_worksite_location, worksite_reply
 from .facebook_onboarding import assistance_signal, reply_for_support, onboarding_guide
@@ -515,7 +516,7 @@ def ingest_facebook_payload(db, payload, cfg, *, notices=None):
                     "not_requested", "accepted", "accepted_team"):
                 facts = profile_facts(lead, changed=changed)
                 reply = next_intake_reply(body, facts, previous_question)
-                if not reply or (ai_source == "ollama" and model_intake_candidate(body, facts, previous_question, reply)):
+                if not reply or (local_first_messenger(cfg) and model_intake_candidate(body, facts, previous_question, reply)):
                     reply = set_permission_request(lead, ai_source)
             elif (ai_source != "disabled" and lead.ai_consent_state in
                   ("requested", "requested_team") and lead.ai_consent_provider != ai_source):
@@ -1386,12 +1387,21 @@ def suggest_reply(lead_id: str, user: User = Depends(administrator),
         try:
             if private_data(supplied):
                 raise RuntimeError("El contexto requiere revisión humana")
-            drafted = infer(db, lambda: (
-                orchestrated_text(db, lead.org_id, task="messenger",
+            if ai_source == "team" and local_first_messenger(settings()):
+                drafted, _route = select_response(
+                    lambda: infer(db, lambda: generate_text(REPLY_INSTRUCTIONS, supplied, 450)),
+                    lambda: infer(db, lambda: orchestrated_text(db, lead.org_id, task="messenger",
+                        instructions=REPLY_INSTRUCTIONS, prompt=supplied, max_output_tokens=160), org_id=lead.org_id),
+                    supplied, allow_external=(consented_for(lead, "team") and
+                        messenger_external_fallback_enabled(db, lead.org_id, settings())),
+                )
+            else:
+                drafted = infer(db, lambda: (
+                    orchestrated_text(db, lead.org_id, task="messenger",
                                   instructions=REPLY_INSTRUCTIONS, prompt=supplied,
                                   max_output_tokens=160)
-                if ai_source == "team" else generate_text(REPLY_INSTRUCTIONS, supplied, 450)),
-                org_id=lead.org_id if ai_source == "team" else None)
+                    if ai_source == "team" else generate_text(REPLY_INSTRUCTIONS, supplied, 450)),
+                    org_id=lead.org_id if ai_source == "team" else None)
         except RuntimeError:
             drafted = None
         if drafted:
