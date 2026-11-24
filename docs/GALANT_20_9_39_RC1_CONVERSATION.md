@@ -28,3 +28,10 @@ Estado: candidato de release, no desplegado.
 - Si hay una pregunta local válida, no se gasta en una API solo para reformular. La política de presupuesto, proveedor y revisión se conserva. Si ambos motores fallan, la consulta requiere revisión del equipo.
 - La simulación aislada jamás llama APIs externas. Las pruebas de selección son sintéticas, no evidencian llamadas reales ni una mejora de pesos.
 - El chat interno conserva sus restricciones de privacidad y no forma parte de este cambio de Messenger.
+
+## Libertad de decisión conversacional
+- Qwen recibe campos pendientes sin orden, consulta actual, hechos de la ficha, conocimiento y último turno. La pregunta del algoritmo anterior ya no se entrega como orden al modelo ni se exige que coincida con la pregunta elegida por el modelo.
+- Puede resolver una duda sobre pagos o avisos antes de continuar, elegir otro campo faltante, solicitar contacto voluntario cuando corresponda y cerrar una consulta que ya está resuelta. El flujo local sigue disponible ante ausencia de consentimiento o indisponibilidad del modelo.
+- Los límites de privacidad, hechos de obra, identidad, derivación, contacto y no repetición se mantienen. Las funciones de avisos, ubicación y fechas confirmadas conservan su tratamiento determinista para no perder evidencia.
+- Se incorporaron seis ejemplos didácticos adicionales y pruebas para elección alternativa de campos, interrupciones y contacto. Práctica usa la misma política de selección, sin exigir una secuencia fija; sus guiones sintéticos no constituyen pruebas con el modelo real.
+- Pendiente: medir diálogo completo con Qwen 4B, persistencia de respuestas breves fuera del orden habitual, tasa real de fallback y calidad en casos no vistos. No se afirma autonomía total ni despliegue.
