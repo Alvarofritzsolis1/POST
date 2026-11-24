@@ -305,7 +305,9 @@ def process_chat_next(session_factory=SessionLocal, *, simulation_config=None, n
                 if not evidence and len(plain(latest).split()) <= 3 and prior_question and not private_data(prior_question):
                     evidence = retrieve(db, lead.org_id, latest + " " + prior_question, "messenger")
                 if not rewrite_intake and (learned := exact_answer(evidence)):
-                    fast, fast_source = learned, "knowledge"
+                    fast = learned
+                    if not local_first_messenger(cfg) or not needs_deeper_response(latest):
+                        fast_source = "knowledge"
             model_needed = (bool(latest) and not (location or follow_up) and (not apply or application_model) and not private_data(latest) and not identity_reply(latest)
                             and intent not in {"human", "restricted"} and fast_source != "knowledge"
                             and (not fast or needs_deeper_response(latest) or rewrite_intake))
@@ -424,6 +426,7 @@ def process_chat_next(session_factory=SessionLocal, *, simulation_config=None, n
                                     REPLY_INSTRUCTIONS, prepared_context, 550, approved_policy=verified_policy, **model_options)),
                                 external_backup, prepared_context,
                                 allow_external=consented_for(current, "team"),
+                                prefer_external=semantic_reasoning or needs_deeper_response(latest),
                                 local_fallback=fast if rewrite_intake and intake_question_fields(fast or "")
                                 and not semantic_reasoning and not needs_deeper_response(latest) and "?" not in latest else None,
                                 validator=(lambda value: acceptable_intake_draft(value, facts, intake or "", message=latest))

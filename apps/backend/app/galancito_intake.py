@@ -673,7 +673,9 @@ def semantic_reasoning_needed(message: str, prior: str, facts: dict) -> bool:
     if is_intake_prompt(prior) and ((not facts.get("turn_changed") and analyze(message).intent == "unknown") or
             any(status == "ambiguo" for status in (facts.get("field_states") or {}).values())):
         return True
-    return needs_deeper_response(message) and len(value.split()) >= 10
+    if needs_deeper_response(message) and len(value.split()) >= 10:
+        return True
+    return bool(prior and not facts.get("turn_changed") and re.search(r"\b(?:no cacho|no entiendo|ya te dije|no era eso|como te dije)\b", value))
 
 
 def conversation_fields(facts: dict) -> dict:

@@ -105,7 +105,9 @@ def messenger_context(message, facts, prior, turns, evidence, guide=None, *, lim
 
     # Retrieve bounded older evidence from actual messages rather than inventing a summary.
     if evidence:
-        add("Referencia prioritaria: " + professional_message(evidence_context(evidence[:1])))
+        reference = professional_message(evidence_context(evidence[:1]))
+        if not private_data(reference):
+            add("Referencia prioritaria: " + reference)
     tokens = {token for token in plain(message + " " + (prior or "")).split() if len(token) > 3}
     older = [item for item in turns[8:60] if item.direction == "inbound"
              and getattr(item, "consent_decision", None) is None and not private_data(item.body)]

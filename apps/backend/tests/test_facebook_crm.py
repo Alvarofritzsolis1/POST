@@ -427,7 +427,14 @@ def test_automatic_reply_limit_alerts_instead_of_failing_silently(network, monke
     detail = n["admin"].get("/api/v1/network/facebook/leads/" + lead_id).json()
     assert detail["lead"]["needs_support"] is True
     assert "Límite" in detail["lead"]["support_reason"]
-    assert detail["messages"][-1]["direction"] == "inbound"
+    assert detail["messages"][-1]["direction"] == "outbound"
+    assert "Ya avisé al equipo" in detail["messages"][-1]["body"]
+    delivered = []
+    monkeypatch.setattr("app.facebook_chat_worker.graph_send", lambda *args: delivered.append(args[2]) or "limit-ack")
+    assert process_chat_next(n["Session"])
+    assert len(delivered) == 1
+    assert incoming(n, text="Gracias", mid="limit-next").status_code == 200
+    assert not process_chat_next(n["Session"])
     with n["Session"]() as db:
         assert db.scalar(select(NetworkNotification.id).where(
             NetworkNotification.resource_id == lead_id))
