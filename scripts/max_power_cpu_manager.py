@@ -29,7 +29,8 @@ HOME = Path("/private")
 API = "http://api:8000/api/v1/admin/ai/max-power/finetune"
 MODEL = "Qwen/Qwen3.5-0.8B"
 LOOP_SECONDS = 8
-PREFLIGHT_RECHECK = 600
+PREFLIGHT_RECHECK = 60
+RECOVERY_RECHECK = 1800
 MAX_GRACE_SECONDS = 90
 MAX_STEPS = 4
 SYNTHETIC_STEPS = 40  # bounded pilot, not a full epoch over 2,000 examples
@@ -192,11 +193,35 @@ def record_failure(root: Path, digest: str):
     tmp.replace(path)
 
 
-def retry_ready(root: Path, digest: str) -> bool:
+def retry_ready(root: Path, digest: str, *, recoverable: bool = False) -> bool:
     attempts, when = retry_state(root, digest)
     if attempts >= MAX_FAILED_ATTEMPTS:
-        return False
+        return recoverable and time() - when >= RECOVERY_RECHECK
     return time() - when >= (min(900, 45 * 2**(attempts-1)) if attempts else 0)
+
+
+def recoverable_checkpoint(root: Path, digest: str) -> bool:
+    """Only matching incomplete checkpoints can receive a delayed retry."""
+    path = root / "runs" / ("cpu-automatic-" + digest[:24])
+    meta = path / "run-metadata.json"
+    if (path.is_symlink() or meta.is_symlink() or not meta.is_file()
+            or (path / "evaluation.json").exists() or (path / "checkpoints").is_symlink()):
+        return False
+    try:
+        data = json.loads(meta.read_text(encoding="utf-8"))
+        total = data["max_steps"]
+        if (data.get("dataset_sha256") != digest or data.get("model") != MODEL
+                or type(total) is not int or not 1 <= total <= 1000):
+            return False
+        good = [p for p in (path / "checkpoints").glob("checkpoint-*")
+                if p.is_dir() and not p.is_symlink()
+                and p.name.rsplit("-", 1)[-1].isdigit()
+                and all((p / name).is_file() and not (p / name).is_symlink()
+                        for name in ("trainer_state.json", "optimizer.pt", "scheduler.pt",
+                                     "adapter_model.safetensors"))]
+        return bool(good and 0 < max(int(p.name.rsplit("-", 1)[-1]) for p in good) < total)
+    except (OSError, ValueError, TypeError, KeyError):
+        return False
 
 
 def write_control(path: Path, org: str, generation: int, allowed: bool):
@@ -270,14 +295,15 @@ def run_once(secret: str, plan: dict, public_key: str, last_preflight: dict,
     root, data, manifest = private_files(org)
     token = hmac.new(secret.encode(), org.encode(), sha256).hexdigest()
 
-    def report(code: str):
+    def report(code: str, *, blockers=None):
         marker = (org, generation)
         old = status_cache.get(marker)
         if old and old[0] == code and monotonic() - old[1] < 25:
             return
         try:
             api_call("/automation/status", secret, body={
-                "org_id": org, "generation": generation, "status": code})
+                "org_id": org, "generation": generation, "status": code,
+                **({"blockers": blockers} if blockers else {})})
             status_cache[marker] = (code, monotonic())
         except (OSError, ValueError) as exc:
             LOG.warning("Estado neuronal no enviado: %s", type(exc).__name__)
@@ -314,7 +340,7 @@ def run_once(secret: str, plan: dict, public_key: str, last_preflight: dict,
         except (OSError, ValueError) as exc:
             LOG.warning("Preflight local no enviado: %s", type(exc).__name__)
     if not gate["ready"]:
-        report("awaiting_resources")
+        report("awaiting_resources", blockers=gate["blockers"])
         return
     approved = approved_inputs(root, data, manifest, public_key)
     synthetic = False
@@ -334,22 +360,33 @@ def run_once(secret: str, plan: dict, public_key: str, last_preflight: dict,
             return
     else:
         bundle, _ = approved
-    output, resume, run_state = select_run(root, bundle["dataset_digest"])
-    if not retry_ready(root, bundle["dataset_digest"]):
-        report("retry_cooldown" if retry_state(root, bundle["dataset_digest"])[0] < MAX_FAILED_ATTEMPTS
-               else "retry_exhausted")
-        return
-    if run_state == "finished":
+    digest = bundle["dataset_digest"]
+    output = root / "runs" / ("cpu-automatic-" + digest[:24])
+    if verified_finished_run(output, digest):
         report("finished_synthetic" if synthetic else "awaiting_new_dataset")
         return
-    if run_state == "cannot_resume":
-        report("cannot_resume")
+    recoverable = recoverable_checkpoint(root, digest)
+    if not retry_ready(root, digest, recoverable=recoverable):
+        attempts, _ = retry_state(root, digest)
+        report("retry_cooldown" if attempts < MAX_FAILED_ATTEMPTS or recoverable else "retry_exhausted")
         return
     if plan.get("practice_busy"):
         # Give already-running 4B practice its full turn; prevent new rounds
         # from starting so authorized CPU LoRA eventually gets CPU time.
         report("cpu_waiting_turn")
         return
+    # select_run can archive an interrupted directory; only do so to launch.
+    output, resume, run_state = select_run(root, digest)
+    if run_state == "finished":
+        report("finished_synthetic" if synthetic else "awaiting_new_dataset")
+        return
+    if run_state == "cannot_resume":
+        report("cannot_resume")
+        return
+    if recoverable and retry_state(root, digest)[0] >= MAX_FAILED_ATTEMPTS:
+        # Reserve the next cooldown BEFORE starting; a supervisor restart
+        # cannot create an unbounded retry loop.
+        record_failure(root, digest)
     control = root / ".max-power-automatic-control.json"
     write_control(control, org, generation, True)
     journal = output / "training-metrics.jsonl"

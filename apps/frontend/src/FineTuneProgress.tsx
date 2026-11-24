@@ -27,6 +27,7 @@ type FineTuneRun = {
 type FineTuneStatus = {
   configured: boolean; source: string; refresh_seconds: number; runs: FineTuneRun[];
   cpu_preflight?: FineTuneRun | null;
+  supervisor?: {state:string; reason:string; updated_at:string|null; blockers:string[]};
   production_promoted: boolean; disclaimer: string;
 };
 type Metric = "loss" | "eval_loss" | "grad_norm" | "gpu_memory_mb" | "cpu_memory_mb" | "learning_rate";
@@ -70,6 +71,12 @@ export default function FineTuneProgress(){
   },[refresh]);
   const run= data?.runs.find(x=>x.run_id===runId) ?? data?.runs[0];
   const lastPreflight=data?.cpu_preflight?.points.at(-1);
+  const supervisor=data?.supervisor;
+  const supervisorFresh=!!supervisor?.updated_at && Date.now()-new Date(supervisor.updated_at).getTime()<65000;
+  const blockerLabels:Record<string,string>={
+    host_ram_reserve:"RAM libre del VPS insuficiente", dedicated_cgroup_limit_missing:"Límite de memoria del contenedor insuficiente",
+    cgroup_memory_headroom:"Memoria disponible del contenedor insuficiente", disk_space:"Espacio en disco insuficiente"
+  };
   const samples=useMemo(()=>run?.points.filter(p=>typeof p[metric]==="number" && Number.isFinite(p[metric]))??[],[run,metric]);
   const values=samples.map(p=>p[metric] as number);
   const min=values.length?Math.min(...values):0, max=values.length?Math.max(...values):1;
@@ -114,6 +121,12 @@ export default function FineTuneProgress(){
       <button type="button" className="ft-refresh" onClick={()=>void refresh()} title="Actualizar ahora"><RefreshCw size={17}/></button>
     </div>
     {error && <p role="alert" className="ft-error">{error}</p>}
+    {supervisor && <div className="ft-heldout" aria-label="Estado actual del supervisor">
+      <strong>Supervisor neuronal · {supervisorFresh?"señal reciente":supervisor.state==="off"?"apagado":"sin confirmación reciente"}</strong>
+      <span>{supervisor.reason}</span>
+      {supervisor.blockers.map(b=><small key={b}>{blockerLabels[b]??b}</small>)}
+      <small>Este estado es independiente del último checkpoint o de una ejecución histórica seleccionada.</small>
+    </div>}
     {!data?.configured && <p className="ft-warning">Canal de métricas sin configurar. Para entrenar con el VPS actual existe una opción LoRA por CPU aislada (Qwen3.5 0.8B), sujeta a autorización de datos y memoria disponible. MAX POWER local por sí solo todavía no modifica pesos.</p>}
     {data?.configured && <div className="ft-connect">
       <button type="button" onClick={()=>setShowConnect(x=>!x)}>

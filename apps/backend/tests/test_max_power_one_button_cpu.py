@@ -405,3 +405,47 @@ def test_auto_plan_reserves_cpu_for_queued_qwen4b_before_lora(ai_env, monkeypatc
         trial = db.get(MaxPowerMessengerTrial, trial_id)
         trial.lease_until = utcnow() - timedelta(seconds=1)
     assert client.get(url, headers=headers()).json()["practice_busy"] is False
+
+
+def test_recovery_probe_only_for_matching_incomplete_checkpoint(tmp_path, monkeypatch):
+    mod = manager()
+    digest = "a" * 64
+    root = tmp_path / str(uuid4())
+    path = root / "runs" / ("cpu-automatic-" + digest[:24])
+    checkpoint = path / "checkpoints" / "checkpoint-2"
+    checkpoint.mkdir(parents=True)
+    (path / "run-metadata.json").write_text(json.dumps({
+        "dataset_sha256": digest, "model": mod.MODEL, "max_steps": 4}))
+    for name in ("trainer_state.json", "optimizer.pt", "scheduler.pt", "adapter_model.safetensors"):
+        (checkpoint / name).write_bytes(b"test")
+    assert mod.recoverable_checkpoint(root, digest)
+    clock = [10000.0]
+    monkeypatch.setattr(mod, "time", lambda: clock[0])
+    for _ in range(3):
+        mod.record_failure(root, digest)
+    assert not mod.retry_ready(root, digest, recoverable=True)
+    clock[0] += mod.RECOVERY_RECHECK
+    assert mod.retry_ready(root, digest, recoverable=True)
+    assert not mod.retry_ready(root, digest)
+    mod.record_failure(root, digest)
+    assert not mod.retry_ready(root, digest, recoverable=True)
+    checkpoint.rename(checkpoint.with_name("checkpoint-4"))
+    assert not mod.recoverable_checkpoint(root, digest)
+    assert not mod.recoverable_checkpoint(root, "b"*64)
+
+
+def test_preflight_blockers_visible_from_signed_supervisor(ai_env, monkeypatch):
+    monkeypatch.setenv("GALANT_FINETUNE_METRICS_SECRET", MASTER)
+    client = ai_env["client"]
+    admin = signin(client, "admin")
+    assert client.post(BASE + "/control/on", headers=admin).status_code == 200
+    plan = client.get(BASE + "/finetune/automation/plan", headers=headers()).json()
+    response = client.post(BASE + "/finetune/automation/status", headers=headers(), json={
+        "org_id": ai_env["org_id"], "generation": plan["generation"],
+        "status": "awaiting_resources", "blockers": ["cgroup_memory_headroom"]})
+    assert response.status_code == 200, response.text
+    supervisor = client.get(BASE + "/finetune", headers=admin).json()["supervisor"]
+    assert supervisor["state"] == "awaiting_resources"
+    assert supervisor["blockers"] == ["cgroup_memory_headroom"]
+    assert client.post(BASE + "/control/off", headers=admin).status_code == 200
+    assert client.get(BASE + "/finetune", headers=admin).json()["supervisor"]["state"] == "off"

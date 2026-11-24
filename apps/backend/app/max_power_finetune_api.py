@@ -96,7 +96,7 @@ AUTOMATION_STATES = {
     "messenger_priority": "Messenger activo; entrenamiento neuronal en pausa",
     "practice_priority": "Prueba MAX POWER activa; entrenamiento neuronal en espera",
     "cpu_waiting_turn": "Datos autorizados listos; esperando que termine la práctica 4B para entrenar pesos",
-    "retry_cooldown": "Entrenador liberó recursos y reintentará con pausa segura después del error",
+    "retry_cooldown": "Entrenador liberó recursos; espera segura antes del siguiente intento (hasta 30 minutos con checkpoint recuperable)",
     "retry_exhausted": "Tres fallos reales: se suspenden reintentos para proteger GALANT; revisar recursos o datos",
     "preflight": "Comprobando RAM y disco del VPS",
     "training": "Actualizando pesos LoRA de Qwen3.5 0.8B",
@@ -135,6 +135,8 @@ class SupervisorStatus(BaseModel):
                     "retry_cooldown", "retry_exhausted", "preflight", "training", "pausing",
                     "paused", "finished", "awaiting_new_dataset",
                     "cannot_resume", "failed"]
+    blockers: list[Literal["host_ram_reserve", "dedicated_cgroup_limit_missing",
+                           "cgroup_memory_headroom", "disk_space"]] = Field(default_factory=list, max_length=4)
 
 
 @router.get("/automation/plan")
@@ -193,15 +195,17 @@ def automated_status(status: SupervisorStatus,
         MaxPowerEvent.round_id == org_id,
         MaxPowerEvent.event == "cpu_supervisor_status",
     ).with_for_update())
+    evidence = {"state": status.status, "generation": status.generation,
+                "blockers": status.blockers if status.status == "awaiting_resources" else []}
     if row is None:
         row = MaxPowerEvent(
             org_id=org_id, round_id=org_id,
             event="cpu_supervisor_status", reason=AUTOMATION_STATES[status.status],
-            evidence={"state": status.status, "generation": status.generation})
+            evidence=evidence)
         db.add(row)
     else:
         row.reason = AUTOMATION_STATES[status.status]
-        row.evidence = {"state": status.status, "generation": status.generation}
+        row.evidence = evidence
         row.created_at = utcnow()
     db.commit()
     return {"accepted": True, "status": status.status}
@@ -350,7 +354,20 @@ def progress(user: User = Depends(administrator), db: Session = Depends(get_db))
     training_runs = [items for items in latest
                      if not all((e.evidence or {}).get("kind") == "preflight" for e in items)]
     latest_preflight = _run_view(preflight_runs[0]) if preflight_runs else None
+    supervisor = db.scalar(select(MaxPowerEvent).where(
+        MaxPowerEvent.org_id == user.org_id, MaxPowerEvent.round_id == user.org_id,
+        MaxPowerEvent.event == "cpu_supervisor_status"))
+    power = db.get(MaxPowerState, user.org_id)
+    state = (supervisor.evidence or {}) if supervisor else {}
+    live = bool(power and power.enabled and supervisor and
+                state.get("generation") == power.session_generation)
     return {
+        "supervisor": {
+            "state": state.get("state") if live else ("off" if not power or not power.enabled else "unknown"),
+            "reason": supervisor.reason if live else ("MAX POWER apagado" if not power or not power.enabled else "Aún sin confirmación del supervisor de esta sesión"),
+            "updated_at": supervisor.created_at if live else None,
+            "blockers": state.get("blockers", []) if live else [],
+        },
         "configured": len(os.environ.get("GALANT_FINETUNE_METRICS_SECRET", "")) >= 48,
         "cpu_preflight": latest_preflight,
         "source": "signed_cpu_or_gpu_lora_gradient_training_events",
