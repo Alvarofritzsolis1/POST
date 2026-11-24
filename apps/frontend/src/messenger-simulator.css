@@ -35,3 +35,5 @@
 .messenger-lab-checks{font-size:12px;padding-left:18px;margin:10px 0;color:#375b59}
 .messenger-lab-rating{display:flex;align-items:center;flex-wrap:wrap;gap:6px;margin-top:8px;font-size:12px}
 @media(max-width:900px){.messenger-lab-grid{grid-template-columns:1fr}}
+
+.messenger-lab-annotation{display:grid;gap:8px;margin:10px 0}.messenger-lab-annotation label{display:grid;gap:4px;font-size:12px;color:#375b59}.messenger-lab-annotation textarea{width:100%;box-sizing:border-box;border:1px solid #c9dcda;border-radius:8px;padding:8px;font:inherit;resize:vertical}

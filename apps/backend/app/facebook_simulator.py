@@ -23,6 +23,8 @@ from .galancito_knowledge_models import AssistantRun
 from .galancito_triage import analyze, private_data
 from .messenger_qwen_lab import MODEL as QWEN_4B, decide
 from .galancito_runtime import infer
+from .galancito_local import last_timings
+from .version import VERSION,SOURCE_COMMIT
 from time import perf_counter
 from .max_power_messenger import objective_checks
 from .models import Organization, User, utcnow
@@ -99,7 +101,10 @@ def configuration(user: User = Depends(administrator)):
     cfg = settings()
     return {"local_model": cfg.galancito_local_model if cfg.galancito_local_ai_enabled else None,
             "max_turns": MAX_TURNS,
-            "qwen_ready": bool(cfg.galancito_local_ai_enabled and cfg.galancito_local_model == QWEN_4B)}
+            "qwen_ready": bool(cfg.galancito_local_ai_enabled and cfg.galancito_local_model == QWEN_4B),
+            "release":VERSION,"revision":SOURCE_COMMIT,
+            "qwen_settings":{"num_ctx":cfg.galancito_num_ctx,"num_thread":cfg.galancito_num_thread,
+                             "timeout_seconds":cfg.galancito_timeout_seconds}}
 
 
 @router.post("/turn")
@@ -119,16 +124,21 @@ def turn(body: TurnInput, response: Response, user: User = Depends(administrator
         # Administrator's synthetic conversation only. Never writes a live
         # lead, invokes Meta, or calls an external provider.
         if not original.galancito_local_ai_enabled or original.galancito_local_model != QWEN_4B:
-            raise HTTPException(409, "Qwen 4B no está configurado; no se reemplazará por reglas ni por otro modelo")
+            raise HTTPException(409, "model_not_configured: Qwen 4B no está configurado")
         if private_data(message):
-            raise HTTPException(422, "Usa únicamente datos ficticios, sin RUT, teléfono, correo ni credenciales")
+            raise HTTPException(422, "private_input_rejected: Usa únicamente datos ficticios, sin RUT, teléfono, correo ni credenciales")
         history=state.get("history",[])
         profile=state.get("profile",{})
         started=perf_counter()
         try:
             result=infer(database,lambda:decide(message,profile,history))
-        except (RuntimeError,ValueError):
-            raise HTTPException(503,"Qwen 4B no pudo completar una respuesta válida. No se usaron reglas de reemplazo; prueba nuevamente.") from None
+        except (RuntimeError,ValueError) as exc:
+            codes={"model_busy","memory_guard","model_transport_or_empty_response",
+                   "model_identity_or_telemetry_mismatch","invalid_or_truncated_json",
+                   "invalid_decision_schema","response_rejected_by_guard"}
+            code=str(exc) if str(exc) in codes else (
+                "model_busy" if last_timings.get().get("busy") else "context_or_runtime_error")
+            raise HTTPException(503,code+": Qwen 4B no completó el turno. No se usaron reglas de reemplazo.") from None
         fields=result["profile"]
         known={field for field,value in fields.items() if value not in (None,"","unknown",[])}
         checks=objective_checks({"question":message,"history":history},result["reply"],known_fields=known)

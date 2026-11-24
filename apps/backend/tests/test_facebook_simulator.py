@@ -179,3 +179,41 @@ def test_direct_qwen_drops_unsubstantiated_fields():
         {"field":"contact_phone","value":"555","quote":"mas personas"}],"mas personas")
     assert result=={"team_available":True}
     assert changed==["team_available"]
+
+
+def test_qwen_diagnostics_show_rejections_without_claiming_learning():
+    from app.messenger_qwen_lab import apply_updates
+    evidence=[]
+    result,changed=apply_updates({},[
+        {"field":"workers","value":12,"quote":"somos doce"},
+        {"field":"team_available","value":True,"quote":"mas personas"},
+        {"field":"workers","value":1,"quote":"mas personas"}
+    ],"mas personas",diagnostics=evidence)
+    assert evidence[0]["reason"]=="missing_literal_evidence_or_invalid_field"
+    assert any(x["status"]=="reverted" for x in evidence)
+    assert result=={} and changed==[]
+
+
+def test_qwen_exportable_diagnosis_includes_context_and_fixed_error(ai_env,monkeypatch):
+    from app.messenger_qwen_lab import MODEL
+    from app.galancito_local import last_timings
+    monkeypatch.setenv("GALANCITO_LOCAL_AI_ENABLED","true")
+    monkeypatch.setenv("GALANCITO_LOCAL_MODEL",MODEL)
+    settings.cache_clear()
+    client=ai_env["client"]
+    admin=signin(client)
+    def local(*args,**kwargs):
+        last_timings.set({"response_model":MODEL,"local_model_calls":1,"eval_count":30})
+        return '{"reply":"¿Qué oficio realizas?","updates":[]}'
+    monkeypatch.setattr("app.messenger_qwen_lab.generate_local_text",local)
+    first=client.post(BASE+"/turn",headers=admin,json={"mode":"qwen","message":"hola"}).json()
+    second=client.post(BASE+"/turn",headers=admin,json={"mode":"qwen","message":"no entendi","state":first["state"]}).json()
+    assert second["diagnostics"]["same_as_previous_reply"]
+    assert second["diagnostics"]["history_included"]==2
+    assert second["diagnostics"]["semantic_correctness"]=="not_independently_verified"
+    def broken(*args,**kwargs):
+        last_timings.set({"response_model":MODEL,"local_model_calls":1,"eval_count":220})
+        return '{"reply":'
+    monkeypatch.setattr("app.messenger_qwen_lab.generate_local_text",broken)
+    failed=client.post(BASE+"/turn",headers=admin,json={"mode":"qwen","message":"hola"})
+    assert failed.status_code==503 and failed.json()["detail"].startswith("invalid_or_truncated_json:")

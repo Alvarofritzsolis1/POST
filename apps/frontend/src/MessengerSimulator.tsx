@@ -1,11 +1,11 @@
 import { useEffect, useRef, useState, type FormEvent } from "react";
-import { MessageCircle, RotateCcw, Send } from "lucide-react";
-import { request } from "./api";
+import { Download, MessageCircle, RotateCcw, Send } from "lucide-react";
+import { ApiError, request } from "./api";
 import "./messenger-simulator.css";
 
 const path = "/admin/ai/messenger-simulator";
 type Mode = "rules" | "local" | "qwen";
-type Settings = {local_model: string | null; max_turns: number; qwen_ready?: boolean};
+type Settings = {local_model: string | null; max_turns: number; qwen_ready?: boolean; release?:string; revision?:string; qwen_settings?:Record<string,number>};
 type TurnResult = {
   state: string;
   reply: string | null;
@@ -18,6 +18,7 @@ type TurnResult = {
   checks: {safe: boolean; repeated_fields: string[]; repeated_intro: boolean;
            numbered_menu: boolean; question_displaced: boolean} | null;
   review_required: boolean;
+  diagnostics?: {protocol:string;instruction_sha256:string;context_sha256:string;context_chars:number;history_available:number;history_included:number;profile_before:TurnResult["profile"];updates:{field:string;status:string;reason:string;value?:unknown;quote?:string}[];same_as_previous_reply:boolean;semantic_correctness:string};
   model_evidence?: {model:string; calls:number; output_tokens:number; thinking:boolean; budget_tokens:number; load_ms?:number; prompt_ms?:number; generation_ms?:number; ollama_total_ms?:number; prompt_eval_count?:number};
 };
 type Exchange = {
@@ -25,7 +26,11 @@ type Exchange = {
   result: Omit<TurnResult, "state">;
   natural?: boolean;
   useful?: boolean;
+  note?: string;
+  expected?: string;
+  attempt: number;
 };
+type FailedAttempt = {attempt:number;message:string;code:string;http_status:number|null;elapsed_ms:number;at:string};
 
 const fields: Record<string,string> = {
   display_name:"Nombre", specialty:"Oficio principal", trades:"Oficios declarados",
@@ -59,6 +64,8 @@ export default function MessengerSimulator() {
   const [config, setConfig] = useState<Settings | null>(null);
   const [mode, setMode] = useState<Mode>("qwen");
   const [exchanges, setExchanges] = useState<Exchange[]>([]);
+  const [failedAttempts,setFailedAttempts]=useState<FailedAttempt[]>([]);
+  const attemptCounter=useRef(0);
   const [selected, setSelected] = useState(-1);
   const [input, setInput] = useState("");
   const [sending, setSending] = useState(false);
@@ -92,6 +99,8 @@ export default function MessengerSimulator() {
     pending.current = controller;
     setSending(true);
     setError("");
+    const attempt=++attemptCounter.current;
+    const started=performance.now();
     try {
       const {state: nextState, ...result} = await request<TurnResult>(path + "/turn", {
         method:"POST", body:JSON.stringify({message, mode, state:state.current}), signal:controller.signal,
@@ -99,10 +108,19 @@ export default function MessengerSimulator() {
       if (controller.signal.aborted) return;
       state.current = nextState;
       setSelected(exchanges.length);
-      setExchanges(current => [...current, {message, result}]);
+      setExchanges(current => [...current, {message, result, attempt}]);
       setInput("");
     } catch (problem) {
-      if (!controller.signal.aborted) setError(problem instanceof Error ? problem.message : "No se pudo responder.");
+      if (!controller.signal.aborted) {
+        const detail=problem instanceof Error ? problem.message : "No se pudo responder.";
+        setError(detail);
+        if(mode==="qwen"){
+          const code=/^[a-z_]+:/.test(detail)?detail.split(":")[0]:"request_failed";
+          setFailedAttempts(current=>[...current,{attempt,message:code==="private_input_rejected"?"[mensaje privado excluido]":message,
+              code,http_status:problem instanceof ApiError?problem.status:null,elapsed_ms:Math.round(performance.now()-started),
+              at:new Date().toISOString()}]);
+        }
+      }
     } finally {
       if (pending.current === controller) {
         pending.current = null;
@@ -115,6 +133,9 @@ export default function MessengerSimulator() {
   }
 
   function reset() {
+    if(mode==="qwen" && (exchanges.length || failedAttempts.length) && !window.confirm("¿Borrar esta práctica? Exporta el balance primero si quieres conservarlo.")) return;
+    setFailedAttempts([]);
+    attemptCounter.current=0;
     state.current = null;
     setExchanges([]);
     setSelected(-1);
@@ -125,6 +146,52 @@ export default function MessengerSimulator() {
 
   function rate(criterion: "natural" | "useful", value: boolean) {
     setExchanges(current => current.map((item, index) => index === selected ? {...item, [criterion]:value} : item));
+  }
+
+  function annotate(field:"note"|"expected",value:string){
+    setExchanges(current=>current.map((item,index)=>index===selected?{...item,[field]:value}:item));
+  }
+
+  const balance=exchanges.map((item,index)=>{
+    const r=item.result;
+    const alerts:string[]=[];
+    if(r.checks?.repeated_fields.length) alerts.push("repeated_known_field");
+    if(r.checks?.question_displaced) alerts.push("question_displaced");
+    if(r.checks?.repeated_intro) alerts.push("repeated_intro");
+    if(r.checks?.numbered_menu) alerts.push("numbered_menu");
+    if(r.checks?.safe===false) alerts.push("safety_check_failed");
+    if(r.diagnostics?.same_as_previous_reply) alerts.push("identical_previous_reply");
+    if(r.diagnostics?.updates.some(x=>x.status==="rejected"||x.status==="reverted")) alerts.push("profile_proposal_rejected");
+    if(item.natural===false) alerts.push("reviewer_unnatural");
+    if(item.useful===false) alerts.push("reviewer_unhelpful");
+    if(item.note?.trim()||item.expected?.trim()) alerts.push("reviewer_annotation");
+    return {turn:index+1,attempt:item.attempt,alerts};
+  });
+  const durations=exchanges.map(x=>x.result.elapsed_ms).filter((x):x is number=>typeof x==="number"&&Number.isFinite(x)).sort((a,b)=>a-b);
+  const percentile=(p:number)=>durations.length?durations[Math.max(0,Math.ceil(durations.length*p)-1)]:null;
+  const report={
+    schema:"galant-messenger-practice-v1",generated_at:new Date().toISOString(),scope:"synthetic_qwen_direct_only",
+    release:config?.release??null,revision:config?.revision??null,configured_model:config?.local_model??null,
+    settings:config?.qwen_settings??null,
+    summary:{successful_turns:exchanges.length,failed_attempts:failedAttempts.length,
+      verified_model_turns:exchanges.filter(x=>x.result.source==="qwen_direct"&&x.result.model_evidence?.calls===1).length,
+      turns_with_alerts:balance.filter(x=>x.alerts.length).length,
+      rated_turns:exchanges.filter(x=>x.natural!==undefined||x.useful!==undefined).length,
+      latency_ms:{samples:durations.length,p50:percentile(.5),p95:percentile(.95),max:durations.at(-1)??null},
+      alert_counts:Object.fromEntries([...new Set(balance.flatMap(x=>x.alerts))].map(code=>[code,balance.filter(x=>x.alerts.includes(code)).length])),
+      quality_score:null,quality_status:"partial_controls_and_user_review_not_an_independent_quality_score"},
+    turns:exchanges.map((item,index)=>({turn:index+1,...item,alerts:balance[index].alerts})),
+    failed_attempts:failedAttempts
+  };
+  function downloadBalance(){
+    if(mode!=="qwen"||(!exchanges.length&&!failedAttempts.length)) return;
+    const url=URL.createObjectURL(new Blob([JSON.stringify(report,null,2)],{type:"application/json"}));
+    const anchor=document.createElement("a");
+    anchor.href=url;
+    anchor.download="galant-qwen-practica-"+new Date().toISOString().replace(/[:.]/g,"-")+".json";
+    document.body.appendChild(anchor);
+    anchor.click();anchor.remove();
+    window.setTimeout(()=>URL.revokeObjectURL(url),1000);
   }
 
   const current = exchanges[selected];
@@ -138,7 +205,11 @@ export default function MessengerSimulator() {
     <header className="messenger-lab-header">
       <div><h2><MessageCircle size={22} aria-hidden="true"/> Simulador Messenger</h2>
         <p>Escribe como postulante y revisa la respuesta y la ficha. Usa datos de prueba.</p></div>
-      <button type="button" className="messenger-lab-reset" onClick={reset} disabled={sending || !exchanges.length}>
+      <button type="button" className="messenger-lab-reset" onClick={downloadBalance}
+        disabled={sending||mode!=="qwen"||(!exchanges.length&&!failedAttempts.length)}>
+        <Download size={16} aria-hidden="true"/> Descargar balance JSON
+      </button>
+      <button type="button" className="messenger-lab-reset" onClick={reset} disabled={sending || (!exchanges.length && !failedAttempts.length)}>
         <RotateCcw size={16} aria-hidden="true"/> Nueva conversación
       </button>
     </header>
@@ -147,7 +218,7 @@ export default function MessengerSimulator() {
         <header>
           <div><strong>Galancito</strong><small>Entrega simulada</small></div>
           <label>Modo
-            <select value={mode} disabled={sending || exchanges.length > 0}
+            <select value={mode} disabled={sending || exchanges.length > 0 || failedAttempts.length > 0}
               onChange={event => setMode(event.target.value as Mode)}>
               <option value="qwen">Qwen 4B · IA directa</option>
               <option value="local" disabled={!config?.local_model}>Flujo actual de Messenger con IA</option>
@@ -183,6 +254,15 @@ export default function MessengerSimulator() {
         {reachedLimit && <p className="messenger-lab-empty">La conversación llegó a {maxTurns} turnos. Puedes iniciar una nueva.</p>}
       </article>
       <aside className="messenger-lab-side">
+        {mode==="qwen" && <article><h3>Balance de práctica</h3><dl className="messenger-lab-facts">
+          <div><dt>Turnos con Qwen verificado</dt><dd>{report.summary.verified_model_turns}/{exchanges.length}</dd></div>
+          <div><dt>Turnos con alertas</dt><dd>{report.summary.turns_with_alerts}</dd></div>
+          <div><dt>Intentos fallidos</dt><dd>{failedAttempts.length}</dd></div>
+          <div><dt>Latencia mediana</dt><dd>{percentile(.5)===null?"Sin datos":(percentile(.5)!/1000).toFixed(2)+" s"}</dd></div>
+          <div><dt>Latencia p95</dt><dd>{percentile(.95)===null?"Sin datos":(percentile(.95)!/1000).toFixed(2)+" s"}</dd></div>
+          </dl><p>Los controles son parciales; no equivalen a una nota de inteligencia. El JSON incluye conversación, ficha, diagnóstico y tus observaciones.</p>
+          {failedAttempts.length>0 && <ul className="messenger-lab-checks">{failedAttempts.slice(-5).map(a=><li key={a.attempt}>Intento {a.attempt}: {a.code} ({a.elapsed_ms} ms)</li>)}</ul>}
+        </article>}
         <article>
           <h3>Evaluación del turno</h3>
           {result ? <>
@@ -198,6 +278,10 @@ export default function MessengerSimulator() {
               {result.model_evidence.ollama_total_ms != null && <div><dt>Tiempo Ollama</dt><dd>{(result.model_evidence.ollama_total_ms/1000).toFixed(2)} s</dd></div>}
               {result.model_evidence.load_ms != null && <div><dt>Carga del modelo</dt><dd>{(result.model_evidence.load_ms/1000).toFixed(2)} s</dd></div>}
             </dl>}
+            {result.diagnostics && <><p>Contexto: {result.diagnostics.history_included} de {result.diagnostics.history_available} mensajes incluidos. {result.diagnostics.same_as_previous_reply?"Repitió exactamente la respuesta anterior.":""}</p>
+              {result.diagnostics.updates.length>0 && <ul className="messenger-lab-checks">{result.diagnostics.updates.map((u,i)=><li key={i}>{fields[u.field]??u.field}: {u.status} · {u.reason}</li>)}</ul>}
+              <div className="messenger-lab-annotation"><label>¿Qué falló?<textarea maxLength={1000} rows={2} value={current.note??""} onChange={e=>annotate("note",e.target.value)} placeholder="Ej.: no comprendió que quiero ofrecer servicios"/></label>
+              <label>¿Qué debía entender o responder?<textarea maxLength={1000} rows={2} value={current.expected??""} onChange={e=>annotate("expected",e.target.value)} placeholder="Ej.: registrar interés y preguntar si tengo equipo"/></label></div></>}
             {result.review_required && <p>Derivación al equipo en este turno de prueba.</p>}
             {checks && <>
               <ul className="messenger-lab-checks">
