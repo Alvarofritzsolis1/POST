@@ -106,9 +106,8 @@ def _qwen_activity(db, row, controller_online, trials, resources, now):
         row.last_status == "resource_guard" and "Messenger tiene prioridad" in row.last_reason
     ):
         return {"state": "waiting", "reason": row.last_reason}
-    if isinstance(available, (int, float)) and available < QWEN_MIN_RAM_MB:
-        return {"state": "waiting", "reason": "RAM disponible por debajo del mínimo de Qwen 4B para proteger Messenger",
-                "required_ram_mb": QWEN_MIN_RAM_MB}
+    if isinstance(available, (int, float)) and available < QWEN_MIN_RAM_MB and row.last_status == "resource_guard":
+        return {"state": "waiting", "reason": row.last_reason or "Reserva de RAM de Qwen 4B insuficiente"}
     queued = min((item for item in trials if item.status == "queued"), key=lambda item: aware(item.next_at), default=None)
     if queued:
         return {"state": "waiting", "reason": queued.reason or "Ensayo en cola",
