@@ -304,6 +304,8 @@ def run_once(secret: str, plan: dict, public_key: str, last_preflight: dict,
                               host_free_mb=resources.get("host_free_mb"),
                               cgroup_limit_mb=resources.get("cgroup_limit_mb"),
                               cgroup_free_mb=resources.get("cgroup_free_mb"),
+                              cgroup_available_mb=resources.get("cgroup_available_mb"),
+                              cgroup_reclaimable_mb=resources.get("cgroup_reclaimable_mb"),
                               disk_free_mb=resources.get("disk_free_mb"))
             finally:
                 reporter.close()
@@ -374,7 +376,9 @@ def run_once(secret: str, plan: dict, public_key: str, last_preflight: dict,
                 report("pausing")
             # If a CPU step/model load never yields, stop it. Last completed
             # checkpoint survives; no interrupted step may claim learning.
-            if monotonic() - paused_since > MAX_GRACE_SECONDS:
+            if monotonic() - paused_since > MAX_GRACE_SECONDS + 15:
+                child.kill()
+            elif monotonic() - paused_since > MAX_GRACE_SECONDS:
                 child.terminate()
         else:
             paused_since = None
