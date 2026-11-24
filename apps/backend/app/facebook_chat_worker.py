@@ -26,7 +26,7 @@ from .facebook_crm_models import FacebookLead, FacebookChatMessage, FacebookTrad
 from .models import utcnow
 from .network_service import key
 from .galancito_triage import analyze, quick_reply, private_data
-from .galancito_intake import acceptable_intake_draft, clarification_reply, identity_reply, model_intake_candidate, next_intake_reply, small_talk_reply, natural_messenger_reply, needs_deeper_response
+from .galancito_intake import acceptable_intake_draft, conversation_context, intake_question_fields, clarification_reply, identity_reply, model_intake_candidate, next_intake_reply, small_talk_reply, natural_messenger_reply, needs_deeper_response
 from .galancito_memory import aware, note_profile_sources, prior_delivered_prompt, profile_facts, reply_focus, professional_message
 from .galancito_knowledge import retrieve, exact_answer, evidence_context, conversation_example
 from .galancito_runtime import infer, record_run
@@ -291,7 +291,8 @@ def process_chat_next(session_factory=SessionLocal, *, simulation_config=None, n
             intent = "worksite_location" if location else "apply" if apply else analyze(latest).intent
             fast = intake or quick_reply(latest, known=facts)
             evidence = []
-            rewrite_intake = model_intake_candidate(latest, facts, prior_question, intake)
+            rewrite_intake = (not (help_answer or location or follow_up or apply) and
+                              model_intake_candidate(latest, facts, prior_question, intake))
             if (not intake or rewrite_intake) and not private_data(latest) and intent not in {"human", "restricted"}:
                 evidence = retrieve(db, lead.org_id, latest, "messenger")
                 if not rewrite_intake and (learned := exact_answer(evidence)):
@@ -322,8 +323,8 @@ def process_chat_next(session_factory=SessionLocal, *, simulation_config=None, n
                            json.dumps(professional_facts, ensure_ascii=False) +
                            "\nReferencias aprobadas: " + evidence_context(evidence))
                 if rewrite_intake:
-                    context = ("Orientación de la pregunta siguiente (no copiar mecánicamente): " +
-                               (intake or "") + "\n" + context)
+                    context = ("Consulta actual: " + professional_message(latest)[:800] + "\n" +
+                               conversation_context(facts) + "\n" + context.split("\n", 1)[1])
                 if example := conversation_example(latest, prior_question):
                     context += "\nEjemplo didáctico contextual (no es un hecho de la obra): " + example
                 guides = db.scalars(select(FacebookTradeGuide).where(
@@ -368,9 +369,9 @@ def process_chat_next(session_factory=SessionLocal, *, simulation_config=None, n
             if should_model:
                 # A generic intake prompt must not stand in for an answer to a
                 # difficult question when every configured model failed.
-                generated = fast if rewrite_intake else None
+                generated = fast if rewrite_intake and not needs_deeper_response(latest) and "?" not in latest else None
             if should_model and not private_data(context):
-                if fast:
+                if fast and not rewrite_intake:
                     context += ("\nOrientación breve disponible como alternativa: " +
                                 fast[:450] + "\nRespeta sus hechos; explica la duda "
                                 "antes de avanzar con una pregunta.")
@@ -416,8 +417,9 @@ def process_chat_next(session_factory=SessionLocal, *, simulation_config=None, n
                                     REPLY_INSTRUCTIONS, prepared_context, 550, approved_policy=verified_policy)),
                                 external_backup, prepared_context,
                                 allow_external=consented_for(current, "team"),
-                                local_fallback=fast if rewrite_intake else None,
-                                validator=(lambda value: acceptable_intake_draft(value, facts, intake or ""))
+                                local_fallback=fast if rewrite_intake and intake_question_fields(fast or "")
+                                and not needs_deeper_response(latest) and "?" not in latest else None,
+                                validator=(lambda value: acceptable_intake_draft(value, facts, intake or "", message=latest))
                                 if rewrite_intake else None,
                             )
                             trace["ai_route"] = route
@@ -436,7 +438,7 @@ def process_chat_next(session_factory=SessionLocal, *, simulation_config=None, n
                         timings = last_timings.get()
                     if drafted:
                         drafted = grounded_reply(drafted, context)
-                    if drafted and rewrite_intake and not acceptable_intake_draft(drafted, facts, intake or ""):
+                    if drafted and rewrite_intake and not acceptable_intake_draft(drafted, facts, intake or "", message=latest):
                         drafted = None
                     if drafted:
                         generated, source = drafted, ("fallback" if trace.get("ai_route") == "guided_fallback" else "ai")
@@ -506,7 +508,7 @@ def process_chat_next(session_factory=SessionLocal, *, simulation_config=None, n
         row.remote_id = result_id
         row.state = "sent" if result_id else ("uncertain" if uncertain else "failed")
         row.error, row.updated_at = problem, utcnow()
-        if result_id and automated_reply and "¿me dejas tu celular?" in body:
+        if result_id and automated_reply and intake_question_fields(body) & {"contact_phone", "contact_email"}:
             contact = db.get(FacebookLead, lead_id, with_for_update=True)
             if contact is not None and not contact.phone_requested_at:
                 contact.phone_requested_at = utcnow()
