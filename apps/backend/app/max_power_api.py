@@ -188,6 +188,10 @@ def _view(db, user, row):
         MaxPowerEvent.evidence["data_kind"].as_string() == "curated_synthetic",
         MaxPowerEvent.evidence["weights_trained"].as_boolean().is_(True),
     ).limit(1))
+    benchmark_event = db.scalar(select(MaxPowerEvent).where(
+        MaxPowerEvent.org_id == user.org_id, MaxPowerEvent.event == "4b_cpu_benchmark"
+    ).order_by(MaxPowerEvent.created_at.desc()).limit(1))
+    benchmark = dict(benchmark_event.evidence or {}) if benchmark_event else None
     pilot_event = db.scalar(select(MaxPowerEvent).where(
         MaxPowerEvent.org_id == user.org_id, MaxPowerEvent.event == "4b_pilot_status",
         MaxPowerEvent.round_id == user.org_id))
@@ -227,6 +231,7 @@ def _view(db, user, row):
         "controller_online": controller_online,
         "trainer_online": trainer_online,
         "neural_4b": pilot,
+        "benchmark_4b": benchmark,
         "cpu_learning": {
             "status": cpu_state if cpu_online else "manager_offline",
             "reason": (cpu_event.reason if cpu_online else
