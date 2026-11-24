@@ -85,8 +85,8 @@ def test_forgotten_ad_does_not_dead_end(answer):
 
 
 @pytest.mark.parametrize("answer", [
-    "yo", "yo solo", "yo no mas", "pa mi", "solo yo", "para mi",
-    "quiero trabajar", "busco pega",
+    "busco empleo", "quiero un empleo", "quiero trabajar apatronado",
+    "que me contraten", "con contrato",
 ])
 def test_job_seeker_short_roles_ask_if_advertised_trade_is_their_own(answer):
     prior = "Ah, era un aviso de gasfitería. " + ASK_APPLICATION_INTEREST
@@ -108,7 +108,7 @@ def test_small_contractor_offering_services_is_not_treated_as_job_seeker(answer)
 
 def test_trade_is_only_confirmed_after_person_says_it_is_their_own():
     prior = "Ah, era un aviso de gasfitería. " + ASK_APPLICATION_INTEREST
-    followup = _app("yo solo", prior)
+    followup = _app("busco empleo", prior)
     assert followup == ASK_APPLICATION_OWN + "gasfitería?"
     assert _app("sí", followup).endswith("¿En qué comuna puedes trabajar?")
     assert "no voy a asumir" in _app("no", followup)
@@ -145,7 +145,7 @@ def test_signed_messenger_conversation_retains_context_and_never_claims_own_trad
                         lambda *a, **kw: (_ for _ in ()).throw(
                             AssertionError("Simple postulation needs no model")))
     for i, message in enumerate([
-        "Vi una postulacion de trabajo", "DE GASFITER", "yo solo", "si"
+        "Vi una postulacion de trabajo", "DE GASFITER", "busco empleo", "si"
     ], 1):
         assert incoming(n, message, f"simple-{i}").status_code == 200
         assert process_chat_next(n["Session"])
@@ -261,7 +261,7 @@ def test_human_handoff_is_not_a_revocation_of_accepted_ai_permission():
     assert lead.ai_consent_provider == ""
 
 
-@pytest.mark.parametrize("answer", ["pa mi no mas", "para mí mismo", "pami", "que me contraten", "con contrato"])
+@pytest.mark.parametrize("answer", ["que me contraten", "con contrato"])
 def test_contextual_role_survives_clarifications_and_legacy_question(answer):
     from app.galancito_triage import ASK_APPLICATION_ROLE_CLARIFY, application_role
     for prior in (ASK_APPLICATION_INTEREST, ASK_APPLICATION_ROLE_CLARIFY,
@@ -320,3 +320,17 @@ def test_authorized_qwen_can_choose_role_response_and_receives_original_slang(ne
     assert contexts[0][1].get("thinking") is True
     assert "cuando dices eso" in sent[-1].lower()
     assert _contact(n)["lead"]["interest_type"] == "unknown"
+
+
+def test_ambiguous_solo_or_pega_does_not_define_role():
+    from app.galancito_triage import application_role
+    for answer in ("yo solo", "pa mi no mas", "busco pega", "quiero trabajar"):
+        assert application_role(answer, ASK_APPLICATION_INTEREST) is None
+    assert application_role("yo solo", "¿El trabajo lo buscas para ti o para tu equipo?") == "employment"
+
+
+def test_generated_confirmation_can_persist_a_previously_unknown_role():
+    from app.galancito_triage import application_role
+    assert application_role("sipo", "Cuando dices eso, ¿te refieres a que tomas trabajos por tu cuenta?") == "service_offer"
+    assert application_role("sí", "¿Quieres un empleo con contrato?") == "employment"
+    assert application_role("sí", "¿Trabajas por tu cuenta o con una cuadrilla?") is None
