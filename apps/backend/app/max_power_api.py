@@ -14,6 +14,7 @@ from .db import get_db
 from .galancito_memory import aware
 from .galancito_training_models import ACTIVE, TrainingRound, TrainingWorker
 from .max_power_decisions import QWEN_MIN_RAM_MB, latency_diagnosis, priority_from_reviews
+from .max_power_live import RESOURCE_EVENT, general_series, messenger_series, resource_metrics
 from .max_power_models import MaxPowerEvent, MaxPowerState, MaxPowerMessengerTrial
 from .max_power_export import build_report, MAX_EVENTS, safe_metrics
 from .max_power_practice import EVENT as PRACTICE_EVENT, QWEN_CRITERION, generate_scenarios
@@ -129,6 +130,7 @@ def _view(db, user, row):
     events = list(db.scalars(select(MaxPowerEvent).where(
         MaxPowerEvent.org_id == user.org_id,
         ~MaxPowerEvent.event.like("ft_%"),
+        MaxPowerEvent.event != RESOURCE_EVENT,
     ).order_by(MaxPowerEvent.created_at.desc()).limit(30)))
     cpu_event = db.scalar(select(MaxPowerEvent).where(
         MaxPowerEvent.org_id == user.org_id,
@@ -256,6 +258,31 @@ def _view(db, user, row):
 @router.get("")
 def status(user: User = Depends(administrator), db: Session = Depends(get_db)):
     return _view(db, user, db.get(MaxPowerState, user.org_id))
+
+@router.get("/live/history")
+def live_history(user: User = Depends(administrator), db: Session = Depends(get_db)):
+    """Private, bounded historical series; no inference or external API calls."""
+    now = utcnow()
+    org = user.org_id
+    events = list(db.scalars(select(MaxPowerEvent).where(
+        MaxPowerEvent.org_id == org, MaxPowerEvent.event == "experiment_completed"
+    ).order_by(MaxPowerEvent.created_at.desc(), MaxPowerEvent.id.desc()).limit(500)))
+    trials = list(db.scalars(select(MaxPowerMessengerTrial).where(
+        MaxPowerMessengerTrial.org_id == org, MaxPowerMessengerTrial.status == "completed",
+        MaxPowerMessengerTrial.criterion != QWEN_CRITERION,
+        MaxPowerMessengerTrial.completed_at.is_not(None)
+    ).order_by(MaxPowerMessengerTrial.completed_at.desc(), MaxPowerMessengerTrial.id.desc()).limit(500)))
+    resources = list(db.scalars(select(MaxPowerEvent).where(
+        MaxPowerEvent.org_id == org, MaxPowerEvent.event == RESOURCE_EVENT,
+        MaxPowerEvent.created_at >= now - timedelta(hours=24)
+    ).order_by(MaxPowerEvent.created_at.desc()).limit(1440)))
+    return {"at": now, "general": general_series(reversed(events)),
+            "messenger": messenger_series(reversed(trials)),
+            "resources": [{"at": event.created_at, **resource_metrics(event.evidence or {})}
+                          for event in reversed(resources)],
+            "scope": "latest_500_experiments_per_channel_not_production_quality",
+            "resource_interval_seconds": 60}
+
 
 @router.get("/export", response_class=Response)
 def export_chatgpt_report(max_events: int = Query(default=MAX_EVENTS, ge=1, le=MAX_EVENTS),
