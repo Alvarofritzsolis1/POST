@@ -27,6 +27,7 @@ from .max_power_decisions import QWEN_MIN_RAM_MB, can_run, classify_outcome, evi
 from .max_power_live import RESOURCE_EVENT, resource_metrics, cpu_event_blocks
 from .max_power_4b_slot import CONTROL, acquire_slot, release_slot, atomic_json, read_json
 from .max_power_4b_report import public_report
+from .max_power_4b_benchmark import eligible as benchmark_eligible, run_benchmark
 from .max_power_models import MaxPowerEvent, MaxPowerState, MaxPowerMessengerTrial
 from .max_power_messenger import schedule_next, process_one, schedule_synthetic_reply
 from .max_power_practice import EVENT as PRACTICE_EVENT, generate_scenarios, practice_id, run_practice
@@ -489,6 +490,15 @@ def publish_4b_intent(db, neural_busy):
                 and type(stamp) in (int,float) and 0 <= time()-stamp <= 6)
 
 
+def benchmark_guard(org, generation, sampler):
+    with SessionLocal() as db:
+        row = db.get(MaxPowerState, org)
+        if not row or not row.enabled or row.session_generation != generation:
+            return False
+        pending = bool(messenger_busy(db) or messenger_recent(db))
+    return practice_admission(sampler.sample(), messenger_pending=pending)[0]
+
+
 def main():
     from . import main as _application  # registers all SQLAlchemy models
     logging.basicConfig(level=logging.INFO)
@@ -532,6 +542,19 @@ def main():
                         sleep(5)
                         continue
                     try:
+                        # One fixed, comparable speed benchmark per protocol,
+                        # only after the private engine is available.
+                        if coordinate_4b and os.environ.get("GALANT_MAX_POWER_4B_BENCHMARK") == "yes":
+                            with SessionLocal() as db:
+                                candidate = db.scalar(select(MaxPowerState).where(
+                                    MaxPowerState.enabled.is_(True)).order_by(MaxPowerState.session_started_at).limit(1))
+                                key = (candidate.org_id,candidate.session_generation) if candidate and benchmark_eligible(db,candidate.org_id,utcnow()) else None
+                            if key and benchmark_guard(*key, practice_sampler) and local_model.waiting_reason(
+                                    practice_sampler.sample()["disk_free_mb"],QWEN_4B) is None:
+                                task = executor.submit(run_benchmark,*key,
+                                    lambda org,generation: benchmark_guard(org,generation,practice_sampler))
+                                sleep(5)
+                                continue
                         with SessionLocal() as db:
                             due = db.scalar(select(MaxPowerMessengerTrial.id).join(
                                 MaxPowerState, MaxPowerMessengerTrial.org_id == MaxPowerState.org_id
