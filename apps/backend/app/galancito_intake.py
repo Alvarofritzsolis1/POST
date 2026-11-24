@@ -35,7 +35,7 @@ _PROMPTS = (
 
 def is_intake_prompt(prompt: str) -> bool:
     normalized = plain(prompt)
-    return any(key in normalized for key in _PROMPTS)
+    return bool(intake_question_fields(prompt)) or any(key in normalized for key in _PROMPTS)
 
 
 def intake_question_fields(prompt: str) -> set[str]:
@@ -144,7 +144,7 @@ def _affirmed(value: str, phrases: tuple[str, ...]) -> bool:
 def _role_update(lead, value: str, previous: str) -> None:
     service = _affirmed(value, _ROLE_SERVICE)
     worker = _affirmed(value, _ROLE_WORKER)
-    if _INTEREST_QUESTION in previous:
+    if "interest_type" in intake_question_fields(previous) or _INTEREST_QUESTION in previous:
         service |= value in {"1", "uno", "servicios", "contratista", "independiente", "ofrezco trabajo", "por mi cuenta"}
         worker |= value in {"2", "dos", "empleo", "pega", "trabajador", "trabajadora"}
         if value in {"ambos", "ambas", "las dos", "los dos", "las dos cosas", "ambos roles"}:
@@ -213,7 +213,7 @@ def _name_update(lead, message: str, previous: str) -> None:
 
 def _commune_update(lead, message: str, previous: str) -> None:
     value = plain(message)
-    asked = _COMMUNE_QUESTION in previous
+    asked = "work_communes" in intake_question_fields(previous) or _COMMUNE_QUESTION in previous
     found = []
     continues_area = False
     for fragment in re.split(r"[,;.!\n]+|\bpero\b", message, flags=re.I):
@@ -252,7 +252,7 @@ def _team_update(lead, value: str, previous: str) -> None:
                              "voy a ir solo", "voy a ir sola", "yo solo", "yo sola", "sin equipo"))
     if value in {"no puedo llevar gente", "no tengo gente", "no tengo cuadrilla"}:
         solo = True
-    if _TEAM_QUESTION in previous or "puedes venir con" in previous:
+    if "team_available" in intake_question_fields(previous) or _TEAM_QUESTION in previous or "puedes venir con" in previous:
         solo |= value in {"1", "uno", "solito", "solo", "sola", "sin gente", "sin equipo"}
         capacity |= value in {"2", "dos", "con gente", "con equipo", "con personas"}
     if solo and not capacity:
@@ -342,7 +342,7 @@ def work_date_answer(message: str, previous: str) -> tuple[bool, date] | None:
 def _availability_update(lead, message: str, previous: str, *, on_date=None) -> None:
     clean = message.strip()
     value = plain(clean)
-    asked = _AVAILABILITY_QUESTION in previous or "desde cuando puedes" in previous
+    asked = "availability" in intake_question_fields(previous) or _AVAILABILITY_QUESTION in previous or "desde cuando puedes" in previous
     if (asked or "disponib" in value or "puedo" in value) and re.search(
         r"\b(?:quizas|tal vez|puede que|no se si|depende)\b|\b(?:lunes|martes|miercoles|jueves|viernes|sabado|domingo|hoy|manana) o\b", value
     ):
@@ -533,6 +533,8 @@ def next_intake_reply(message: str, facts: dict, prior_prompt: str = "") -> str 
         return identity
     if explanation := clarification_reply(message, prior_prompt):
         return explanation
+    if plain(message) in {"hola vi un trabajo", "ola vi un trabajo", "vi un trabajo", "hola vi un aviso", "vi un aviso"}:
+        return "¡Hola! ¿Qué trabajo viste?"
     info = analyze(message)
     capacity_statement = any(p in plain(message) for p in (
         "puedo traer gente", "puedo llevar gente", "tengo cuadrilla",
@@ -609,7 +611,7 @@ def model_intake_candidate(message: str, facts: dict, prior: str, fallback: str 
                 {"human", "restricted", "documents", "requirements", "about", "publish"})
 
 
-def acceptable_intake_draft(draft: str, facts: dict) -> bool:
+def acceptable_intake_draft(draft: str, facts: dict, expected_question: str = "") -> bool:
     """Reject robotic or repetitive model rewrites; never reveal contact values."""
     value = plain(draft)
     if not draft or draft.count("?") > 1 or any(p in value for p in (
@@ -633,8 +635,11 @@ def acceptable_intake_draft(draft: str, facts: dict) -> bool:
     if any(known.get(field) or facts.get("field_states", {}).get(field) == "rechazado_por_usuario"
            for field in asked):
         return False
-    # An ordinary intake rewrite must still move the conversation forward.
-    return bool(asked or "?" in draft)
+    # The next short reply must be attributable to the intended field.
+    expected = intake_question_fields(expected_question)
+    if expected and asked != expected:
+        return False
+    return bool(asked and "?" in draft)
 
 
 def needs_deeper_response(message: str) -> bool:
