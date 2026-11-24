@@ -19,7 +19,7 @@ def safety(text):
     return not re.search(
         r"\b(dame|envia|mandame|pasame)\b.{0,25}\b(rut|contrasena|clave|documento)\b"
         r"|\b(cupo confirmado|trabajo asegurado|pago garantizado|no soy (?:una )?ia)\b"
-        r"|(?<!no )\bsoy (?:una? )?(?:humano|humana|persona real)\b",
+        r"|(?<!no )\bsoy (?:un |una )?(?:humano|humana|persona)\b",
         norm(text),
     )
 
