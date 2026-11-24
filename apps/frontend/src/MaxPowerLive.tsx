@@ -3,7 +3,7 @@ import { Activity, BrainCircuit } from "lucide-react";
 import { request } from "./api";
 
 type Point = { at:string; baseline?:number|null; candidate?:number|null; delta?:number|null;
-  pairs?:number; gains?:number|null; regressions?:number|null; net_cases?:number;
+  observed_baseline?:number; observed_candidate?:number; pairs?:number; gains?:number|null; regressions?:number|null; net_cases?:number;
   total_seconds?:number; prompt_seconds?:number; generation_seconds?:number; load_seconds?:number; phase?:string; preliminary?:boolean; safety_regressions?:number; lab_verified?:boolean; host_cpu_percent?:number;
   host_ram_mb?:number; available_ram_mb?:number; worker_ram_mb?:number; disk_free_mb?:number };
 type History = {at:string; general:Point[]; messenger:Point[]; resources:Point[]; synthetic_4b?:Point[]; latency_4b?:Point[]};
@@ -14,6 +14,10 @@ const signed = (n:number|null|undefined) => n == null ? "—" : (n>0?"+":"")+fmt
 const passSeries:Series[] = [
   {label:"Referencia",color:"#64748b",value:p=>p.baseline},
   {label:"Candidata",color:"#087d75",value:p=>p.candidate}
+];
+const observedSeries:Series[] = [
+  {label:"Referencia observada",color:"#64748b",value:p=>p.observed_baseline??p.baseline},
+  {label:"Candidata observada",color:"#087d75",value:p=>p.observed_candidate??p.candidate}
 ];
 const resourceSeries:Series[] = [
   {label:"CPU",color:"#087d75",value:p=>p.host_cpu_percent},
@@ -70,6 +74,7 @@ function Plot({points,series,unit="",bounds}:{points:Point[];series:Series[];uni
     </select></label>
     {current&&<div className="mp-chart-values">{series.map(s=><span key={s.label}>{s.label}: <b>{fmt(s.value(current))}{s.value(current)==null?"":unit}</b></span>)}
       {current.pairs!=null&&<span>Pares: <b>{current.pairs}</b></span>}
+      {current.preliminary&&<span>Muestra preliminar; sin calificación validada</span>}
       {current.lab_verified===true&&<span>Validación de laboratorio superada</span>}
     </div>}
   </div>;
@@ -104,7 +109,7 @@ export default function MaxPowerLive({resources}:{resources?:Record<string,numbe
     <div className="mp-evidence-grid">
       <article><h4>Qwen 4B · práctica reservada sintética</h4><Plot points={data?.synthetic_4b??[]} series={passSeries} bounds={[0,100]} unit="%"/><p>Observación preliminar desde el primer par. Solo casos de laboratorio reservados; no implica cambios de pesos ni mejora productiva.</p></article>
       <article><h4>Qwen 4B · duración real de inferencia</h4><Plot points={data?.latency_4b??[]} series={latencySeries} unit=" s"/><p>Duración registrada de cada respuesta, no estimaciones. Contexto y generación se muestran por separado.</p></article>
-      <article><h4>Messenger · comprensión y controles reales</h4><Plot points={messenger} series={passSeries} bounds={[0,100]} unit="%"/><p>Promedio acumulado en las últimas 500 evaluaciones elegibles, sin duplicar fuente y criterio en esa ventana. Mínimo 8 controles; no mide toda la conversación.</p></article>
+      <article><h4>Messenger · comprensión y controles reales</h4><Plot points={messenger} series={observedSeries} bounds={[0,100]} unit="%"/><p>Observaciones desde el primer control, preliminares hasta 8 controles distintos. La diferencia validada permanece sin nota hasta ese mínimo. No mide toda la conversación.</p></article>
       <article><h4>Galancito General · exactitud de casos reservados</h4><Plot points={general} series={passSeries} bounds={[0,100]} unit="%"/><p>Cada punto es una ronda completa con un conjunto distinto. Las rondas pueden tener diferente dificultad; el cambio válido es entre las dos variantes de cada punto.</p></article>
       <article><h4>Messenger · mejoras y regresiones observadas</h4><Plot points={messenger} series={resultSeries}/><p>{lastM?.safety_regressions??0} regresiones de seguridad registradas en esta ventana. No se consideran pesos promovidos.</p></article>
       <article><h4><Activity size={15}/> Recursos del servidor</h4><Plot points={data?.resources??[]} series={resourceSeries} bounds={[0,100]} unit="%"/>
