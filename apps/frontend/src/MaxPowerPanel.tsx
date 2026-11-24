@@ -25,7 +25,8 @@ type LiveActivity = {
   qwen: {state: "off" | "waiting" | "running"; reason: string; completed?: number | null;
          total?: number; unit?: string; started_at?: string | null; retry_at?: string | null; required_ram_mb?: number};
 };
-type NeuralPilot = {stage:string;phase:string|null;live:boolean;points:Array<{step:number;seconds:number|null;loss:number|null;host_free_mb:number|null;process_rss_mb:number|null;adapter_changed:boolean}>;
+type NeuralPilot = {stage:string;phase:string|null;live:boolean;data_kind?:string|null;candidate_status?:string|null;
+  real_reserved_validation?:{cases:number;baseline_passes:number;candidate_passes:number;gains:number;regressions:number;safety_failures:number}|null;points:Array<{step:number;seconds:number|null;loss:number|null;host_free_mb:number|null;process_rss_mb:number|null;adapter_changed:boolean}>;
   saved_adapter_step:number|null;adapter_changed:boolean;holdout_loss_before:number|null;holdout_loss_after:number|null;
   comparison?: {cases:number;baseline_passes:number;candidate_passes:number;wins:number;regressions:number;safety_failures:number;rollback_output_equal:boolean;lab_pass:boolean}|null};
 type Benchmark4B = {state:string;comparison?:{pairs:number;"2":{p50_ms:number;p95_ms:number};"4":{p50_ms:number;p95_ms:number};observed_p50_delta_ms:number}|null};
@@ -316,10 +317,12 @@ export default function MaxPowerPanel(){
         resources.available_ram_mb < 8500 ? "La RAM libre actual no alcanza el umbral del diagnóstico aislado." :
         "La lectura de RAM del host supera el umbral inicial. Falta verificar el contenedor, el backend NF4 y los pasos reales."}</p>
       {pilot && <>
-        <p>Fase: {pilot.phase??pilot.stage} · {pilot.points.length} pasos medidos · checkpoint {pilot.saved_adapter_step??"—"}</p>
+        <p>Fase: {pilot.phase??pilot.stage} · {pilot.points.length} pasos medidos · checkpoint {pilot.saved_adapter_step??"—"} · {pilot.data_kind==="human_reviewed_real"?"Datos reales firmados":"Laboratorio sintético"}</p>
+        {pilot.stage==="awaiting_approved_dataset"&&<p>Diagnóstico terminado; esperando un nuevo conjunto de casos reales autorizados específicamente para 4B.</p>}
         <div className="max-power-events">{pilot.points.map(p=><div key={p.step} className="max-power-event"><Activity size={15}/><div><strong>Paso {p.step} · {p.adapter_changed?"adaptador modificado":"sin cambio"}</strong><small>{p.seconds??"—"} s · pérdida {p.loss??"—"} · RAM proceso {p.process_rss_mb??"—"} MB</small></div></div>)}</div>
         <p>Pérdida reservada: {pilot.holdout_loss_before??"—"} → {pilot.holdout_loss_after??"—"}</p>
-        {pilot.comparison && <p>Conversaciones sintéticas completas: {pilot.comparison.baseline_passes}/{pilot.comparison.cases} → {pilot.comparison.candidate_passes}/{pilot.comparison.cases}; {pilot.comparison.regressions} regresiones; {pilot.comparison.safety_failures} fallos de seguridad. Reversión local: {pilot.comparison.rollback_output_equal?"salida reproducida":"no verificada"}. {pilot.comparison.lab_pass?"Candidato de laboratorio":"No aceptado como candidato" }.</p>}
+        {pilot.real_reserved_validation&&<p>Casos reales reservados: {pilot.real_reserved_validation.baseline_passes}/{pilot.real_reserved_validation.cases} → {pilot.real_reserved_validation.candidate_passes}/{pilot.real_reserved_validation.cases}; {pilot.real_reserved_validation.regressions} regresiones, {pilot.real_reserved_validation.safety_failures} fallos de seguridad.</p>}
+        {pilot.comparison && <p>Conversaciones sintéticas completas: {pilot.comparison.baseline_passes}/{pilot.comparison.cases} → {pilot.comparison.candidate_passes}/{pilot.comparison.cases}; {pilot.comparison.regressions} regresiones; {pilot.comparison.safety_failures} fallos de seguridad. Reversión local: {pilot.comparison.rollback_output_equal?"salida reproducida":"no verificada"}. {pilot.candidate_status==="lab_candidate"?"Candidato de laboratorio":"No aceptado como candidato" }.</p>}
       </>}
       <p className="max-power-note">El supervisor automático 4B requiere el perfil de diagnóstico habilitado. Evalúa y guarda adaptadores aislados; no cambia pesos de producción. Los avances de 0.8B no se atribuyen al 4B.</p>
       <h4>Rendimiento comparable · Ollama 4B</h4>
