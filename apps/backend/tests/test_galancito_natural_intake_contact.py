@@ -48,3 +48,31 @@ def test_reject_repeat_of_known_information():
 
 def test_job_advert_first():
     assert quick_reply("hola vi un trabajo") == "¡Hola! ¿Qué trabajo viste?"
+
+
+def test_rewrite_must_keep_question_semantics():
+    facts = complete(experience="", work_area="")
+    question = "¿Cuánto tiempo llevas en ese oficio?"
+    assert acceptable_intake_draft("¿Cuánta experiencia tienes?", facts, question)
+    assert not acceptable_intake_draft("¿En qué comuna puedes trabajar?", facts, question)
+    assert not acceptable_intake_draft("¿Me cuentas más?", facts, question)
+
+
+def test_advert_does_not_declare_own_trade():
+    from app.galancito_triage import asks_about_application, referring_to_application
+    from app.galancito_links import trade_declarations
+    assert asks_about_application("hola vi un trabajo de hormigon")
+    assert referring_to_application("¡Hola! ¿Qué trabajo viste?")
+    assert not trade_declarations("vi un trabajo de hormigon", allow_bare=True)
+
+
+def test_optional_phone_refusal_is_not_a_new_intake_answer():
+    from app.galancito_phone import phone_declined
+    assert phone_declined("no gracias", "¿Me dejas tu celular?")
+    assert not phone_declined("no", "¿Trabajas solo?")
+
+
+def test_curated_example_is_context_not_verbatim_reply():
+    from app.galancito_knowledge import conversation_example
+    assert not conversation_example("solo")
+    assert "Criterio:" in conversation_example("solo", "¿Trabajas solo?")
