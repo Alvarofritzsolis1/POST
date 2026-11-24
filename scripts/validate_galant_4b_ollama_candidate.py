@@ -15,6 +15,8 @@ from time import monotonic
 from urllib.request import Request, build_opener, ProxyHandler, HTTPRedirectHandler
 
 from galancito_4b_validation import evaluate_conversations, paired_report
+from max_power_4b_slot import CONTROL, acquire_slot, release_slot, read_json
+from time import time
 
 URL = "http://galancito-training-ollama:11434"
 BASE = "qwen3.5:4b-q4_K_M"
@@ -78,6 +80,8 @@ def tag_digest(name):
 def switch(source, expected):
     if source==SHADOW or tag_digest(source)!=expected:
         raise RuntimeError("Immutable source digest mismatch")
+    if tag_digest(SHADOW):
+        api("/api/generate",{"model":SHADOW,"keep_alive":0,"stream":False})
     api("/api/copy",{"source":source,"destination":SHADOW})
     if tag_digest(SHADOW)!=expected:
         raise RuntimeError("Shadow switch not confirmed")
@@ -86,7 +90,7 @@ def switch(source, expected):
 def generate(history):
     started = monotonic()
     result = api("/api/chat",{"model":SHADOW,"messages":history,"stream":False,
-        "think":False,"keep_alive":"0s","options":{"num_ctx":2048,"num_predict":96,"temperature":0,"seed":42}})
+        "think":False,"keep_alive":"2m","options":{"num_ctx":2048,"num_predict":96,"temperature":0,"seed":42}})
     if result.get("model")!=SHADOW or not result.get("done"):
         raise RuntimeError("Unexpected shadow runtime")
     answer = result.get("message",{}).get("content")
@@ -95,7 +99,7 @@ def generate(history):
     return answer,monotonic()-started
 
 
-def main():
+def run():
     p = argparse.ArgumentParser()
     p.add_argument("--manifest",type=Path,required=True)
     p.add_argument("--pilot-report",type=Path,required=True)
@@ -108,22 +112,44 @@ def main():
     if tag_digest(BASE)!=manifest["base_digest"] or tag_digest(manifest["candidate_tag"])!=manifest["candidate_digest"]:
         raise SystemExit("Isolated model digests not confirmed")
     result = {"production_verified":False,"production_promoted":False,"shadow_validated":False}
+    baseline_probe = None
     try:
         switch(BASE,manifest["base_digest"])
         baseline = evaluate_conversations(generate)
+        baseline_probe, _ = generate([{"role":"user","content":"¿Qué significa cuadrilla?"}])
         switch(manifest["candidate_tag"],manifest["candidate_digest"])
         candidate = evaluate_conversations(generate)
         result["comparison"] = paired_report(baseline,candidate)
     finally:
-        switch(BASE,manifest["base_digest"])
-        result["rollback_digest_verified"] = tag_digest(SHADOW)==manifest["base_digest"]
-        result["base_unchanged"] = tag_digest(BASE)==manifest["base_digest"]
+        try:
+            switch(BASE,manifest["base_digest"])
+            result["rollback_digest_verified"] = tag_digest(SHADOW)==manifest["base_digest"]
+            result["base_unchanged"] = tag_digest(BASE)==manifest["base_digest"]
+            restored, _ = generate([{"role":"user","content":"¿Qué significa cuadrilla?"}])
+            result["rollback_output_equal"] = baseline_probe is not None and restored == baseline_probe
+        except Exception as exc:
+            result["rollback_error_type"] = type(exc).__name__
         result["shadow_validated"] = bool(result.get("comparison",{}).get("lab_pass")
-                                        and result["rollback_digest_verified"] and result["base_unchanged"])
+            and result.get("rollback_digest_verified") and result.get("base_unchanged")
+            and result.get("rollback_output_equal"))
         temporary = args.output.with_suffix(".tmp")
         temporary.write_text(json.dumps(result,indent=2,allow_nan=False))
         temporary.replace(args.output)
     return 0 if result["shadow_validated"] else 1
+
+
+def main():
+    fd = acquire_slot()
+    if fd is None:
+        raise SystemExit("4B engine busy; isolated maintenance unavailable")
+    try:
+        intent = read_json(CONTROL / "intent.json")
+        if (intent.get("enabled") is not False or type(intent.get("at")) not in (int,float)
+                or not 0 <= time()-intent["at"] <= 20):
+            raise SystemExit("MAX POWER OFF must be confirmed by the live controller")
+        return run()
+    finally:
+        release_slot(fd)
 
 
 if __name__=="__main__":
