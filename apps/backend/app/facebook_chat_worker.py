@@ -26,7 +26,7 @@ from .network_service import key
 from .galancito_triage import analyze, quick_reply, private_data
 from .galancito_intake import acceptable_intake_draft, clarification_reply, identity_reply, model_intake_candidate, next_intake_reply, small_talk_reply, natural_messenger_reply, needs_deeper_response
 from .galancito_memory import aware, note_profile_sources, prior_delivered_prompt, profile_facts, reply_focus
-from .galancito_knowledge import retrieve, exact_answer, evidence_context
+from .galancito_knowledge import retrieve, exact_answer, evidence_context, conversation_example
 from .galancito_runtime import infer, record_run
 from .galancito_local import generate_local_text, last_timings, MAX_CONTEXT_CHARS
 from .galancito_escalation import flag_for_human
@@ -320,7 +320,10 @@ def process_chat_next(session_factory=SessionLocal, *, simulation_config=None, n
                            json.dumps(professional_facts, ensure_ascii=False) +
                            "\nReferencias aprobadas: " + evidence_context(evidence))
                 if rewrite_intake:
-                    context += "\nOrientación de la pregunta siguiente (no copiar mecánicamente): " + (intake or "")
+                    context = ("Orientación de la pregunta siguiente (no copiar mecánicamente): " +
+                               (intake or "") + "\n" + context)
+                if example := conversation_example(latest, prior_question):
+                    context += "\nEjemplo didáctico contextual (no es un hecho de la obra): " + example
                 guides = db.scalars(select(FacebookTradeGuide).where(
                     FacebookTradeGuide.org_id == lead.org_id, FacebookTradeGuide.approved.is_(True)))
                 terms = {key(t) for t in [lead.specialty, *facts["trades"]] if t}
