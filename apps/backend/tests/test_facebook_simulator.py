@@ -76,3 +76,36 @@ def test_simulator_local_mode_checks_consent_and_never_calls_external_services(a
     assert second.status_code == 200, second.text
     assert second.json()["source"] == "ai"
     assert calls and "requisitos para postular" in calls[0]
+
+
+def test_simulator_short_application_answers_do_not_loop_or_invent_trade(ai_env, monkeypatch):
+    from app.galancito_triage import ASK_APPLICATION_OWN, ASK_APPLICATION_ROLE_CLARIFY
+    client = ai_env["client"]
+    admin = signin(client)
+    def unexpected(*args, **kwargs):
+        raise AssertionError("Rules simulation must not call Meta or a model")
+    monkeypatch.setattr("app.facebook_chat_worker.graph_send", unexpected)
+    monkeypatch.setattr("app.facebook_chat_worker.generate_local_text", unexpected)
+    monkeypatch.setattr("app.facebook_chat_worker.generate_text", unexpected)
+    def send(message, state=None):
+        response = client.post(BASE + "/turn", headers=admin, json={
+            "mode": "rules", "message": message, "state": state})
+        assert response.status_code == 200, response.text
+        return response.json()
+    first = send("Vi una postulación de trabajo")
+    advert = send("de gasfiter", first["state"])
+    assert not advert["profile"]["specialty"]
+    ambiguous = send("solo", advert["state"])
+    assert ambiguous["reply"].endswith(ASK_APPLICATION_ROLE_CLARIFY)
+    assert ambiguous["profile"]["interest_type"] == "unknown"
+    assert not ambiguous["profile"]["specialty"]
+    personal = send("para mi", ambiguous["state"])
+    assert personal["profile"]["interest_type"] == "employment"
+    assert personal["reply"] == ASK_APPLICATION_OWN + "gasfitería?"
+    assert not personal["profile"]["specialty"]
+    confirmed = send("si", personal["state"])
+    assert confirmed["profile"]["specialty"] == "Gasfitería"
+    assert "comuna" in confirmed["reply"].lower()
+    repeated = send("solo", ambiguous["state"])
+    assert repeated["reply"] != ambiguous["reply"]
+    assert repeated["profile"]["interest_type"] == "unknown"

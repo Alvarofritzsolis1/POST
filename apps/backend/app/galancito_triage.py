@@ -101,6 +101,47 @@ _LEGACY_APPLICATION_PROMPTS = {
 }
 ASK_APPLICATION_INTEREST = "¿Buscas trabajo para ti o quieres ofrecer tus servicios?"
 ASK_APPLICATION_OWN = "Entiendo, buscas trabajo para ti. ¿Trabajas en "
+ASK_APPLICATION_ROLE_CLARIFY = "¿Buscas que te contraten a ti?"
+_LEGACY_ROLE_PROMPTS = (
+    "¿El trabajo lo buscas para ti o para tu equipo?",
+    "¿Buscas trabajo para ti o quieres llevar una cuadrilla?",
+)
+
+
+def application_role_question(prompt: str) -> bool:
+    value = plain(prompt)
+    return any(value.endswith(plain(p)) for p in (
+        ASK_APPLICATION_INTEREST, ASK_APPLICATION_ROLE_CLARIFY, *_LEGACY_ROLE_PROMPTS,
+    ))
+
+
+def application_role(message: str, prior: str) -> str | None:
+    """Shared interpretation for replies AND persisted profile; no role outside its context."""
+    if not application_role_question(prior) or private_data(message) or "?" in message:
+        return None
+    value = plain(message)
+    if value in {"yo", "yo solo", "yo sola", "solo yo", "solamente yo", "yo no mas",
+                 "yo nomas", "pa mi", "para mi", "pa mi no mas", "para mi nomas",
+                 "para mi solo", "para mi sola", "para mi mismo", "para mi misma",
+                 "pami", "para mi no mas", "busco pega", "busco trabajo",
+                 "quiero trabajar", "quiero postular", "para trabajar", "busco empleo",
+                 "soy yo", "que me contraten", "quiero que me contraten", "con contrato",
+                 "quiero pega", "nesesito pega", "necesito pega"}:
+        return "employment"
+    if (plain(prior).endswith(plain(ASK_APPLICATION_ROLE_CLARIFY))
+            and value in {"si", "sipo", "si po", "claro", "exacto", "asi es", "si claro"}):
+        return "employment"
+    if value in {"mi equipo", "con mi equipo", "con mi gente", "tengo gente",
+                 "tengo cuadrilla", "mi cuadrilla", "tengo una cuadrilla", "con mi cuadrilla",
+                 "yo con mi gente", "ofrezco servicios", "ofresco servicios", "tengo empresa",
+                 "tengo una empresa", "somos varios", "trabajo con gente", "por mi cuenta",
+                 "soy independiente", "independiente", "a trato", "hago pitutos"}:
+        return "service_offer"
+    if value in {"ambos", "ambas", "las dos", "las dos cosas", "los dos",
+                 "las dos opciones", "busco pega y ofrezco servicios",
+                 "busco trabajo y ofrezco servicios"}:
+        return "both"
+    return None
 
 
 def asks_about_application(message: str) -> bool:
@@ -111,7 +152,7 @@ def referring_to_application(prompt: str) -> bool:
     # Los prompts dinámicos también son estado conversacional, no una orden de
     # buscar enlaces. Las respuestas cortas continúan el mismo tema.
     return (prompt in {ASK_APPLICATION, ASK_APPLICATION_LINK, *_LEGACY_APPLICATION_PROMPTS}
-            or prompt.endswith(ASK_APPLICATION_INTEREST)
+            or application_role_question(prompt)
             or prompt.startswith(ASK_APPLICATION_OWN))
 
 
