@@ -29,6 +29,7 @@ _PROMPTS = (
     "buscas empleo como trabajador", "como prefieres que te llamemos",
     "cual es tu nombre", "como te llamas", "dime tu nombre",
     "me dices tu nombre", "me puedes decir tu nombre", "tu nombre por favor",
+    "anos o meses",
 )
 
 
@@ -49,7 +50,7 @@ def intake_question_fields(prompt: str) -> set[str]:
         "workers": ("cuantas personas", "con cuantas", "cuantos puedes traer"),
         "has_employees": ("tienes trabajadores contratados", "tienes empleados"),
         "employee_count": ("cuantos trabajadores contratados", "cuantos empleados"),
-        "experience": (_EXPERIENCE_QUESTION, "cuantos anos", "cuanta experiencia"),
+        "experience": (_EXPERIENCE_QUESTION, "cuantos anos", "cuanta experiencia", "anos o meses"),
         "work_communes": (_COMMUNE_QUESTION, "en cuales comunas", "en que comunas"),
         "availability": ("desde cuando", "cuando podrias comenzar", "cuando puedes empezar"),
         "contact_phone": ("tu telefono", "tu celular", "numero de celular"),
@@ -63,6 +64,8 @@ def unresolved_declarations(message: str, prior: str) -> dict[str, str]:
     fields = intake_question_fields(prior)
     if value in _REFUSAL:
         return dict.fromkeys(fields, "rechazado_por_usuario")
+    if "experience" in fields and ambiguous_experience_number(value, prior):
+        return {"experience": "ambiguo"}
     if re.search(r"\b(?:aun no se|no se todavia|no tengo claro|no estoy segur[ao])\b", value):
         return dict.fromkeys(fields, "ambiguo")
     if "specialty" in fields and re.search(r"\b(?:o|quizas|tal vez)\b", value):
@@ -79,6 +82,7 @@ def unresolved_declarations(message: str, prior: str) -> dict[str, str]:
 
 _ROLE_SERVICE = (
     "ofrezco servicios", "ofresco servicios", "mis servicios", "por mi cuenta",
+    "hago pitutos", "busco pitutos", "trabajo a trato",
     "tengo un emprendimiento", "somos contratistas", "soy contratista",
     "somos una empresa", "tengo empresa", "tengo una empresa", "represento una empresa",
     "tengo cuadrilla", "tengo una cuadrilla",
@@ -86,6 +90,7 @@ _ROLE_SERVICE = (
 _ROLE_WORKER = (
     "busco pega", "busco empleo", "busco trabajo", "ando buscando pega",
     "ando en busca de pega", "quiero empleo", "quiero trabajar contratado",
+    "nesesito pega", "necesito pega", "ando sin pega", "quiero pega",
     "postulo como trabajador", "postular a un empleo", "soy trabajador", "soy trabajadora",
 )
 _NAME_PROMPTS = (
@@ -118,7 +123,7 @@ def unanswered_intake_question(lead, prompt: str) -> bool:
         ((_INTEREST_QUESTION,), lead.interest_type == "unknown"),
         ((_TEAM_QUESTION, "puedes venir con"), lead.team_available is None),
         (("cuantas personas", "con cuantas"), lead.workers is None),
-        ((_EXPERIENCE_QUESTION, "cuanta experiencia", "cuantos anos"), not lead.experience),
+        ((_EXPERIENCE_QUESTION, "cuanta experiencia", "cuantos anos", "anos o meses"), not lead.experience),
         ((_COMMUNE_QUESTION,), not lead.work_area),
         ((_AVAILABILITY_QUESTION, "desde cuando puedes"), not lead.availability),
         (_NAME_PROMPTS, lead.display_name in UNKNOWN_NAMES and not lead.name_opt_out),
@@ -197,6 +202,7 @@ def _name_update(lead, message: str, previous: str) -> None:
     if (not re.fullmatch(r"[^\W\d_]+(?:[ .’'-]+[^\W\d_]+){0,4}", candidate)
             or len(candidate) > 70 or "?" in candidate
             or norm.startswith(("de ", "en ", "tu ", "un ", "una ", "el ", "la ", "hola ", "me "))
+            or norm in {"no se", "no entiendo", "no cacho", "como", "que", "no entendi", "no comprendo", "no cache", "no tengo idea", "no se que decir"}
             or not norm or norm.split()[0] in JOB_ROLES or _OFFERS.search(norm) or analyze(candidate).specialty):
         return
     known = lead.display_name not in UNKNOWN_NAMES
@@ -263,7 +269,7 @@ def _team_update(lead, value: str, previous: str) -> None:
         total = re.search(r"\btengo " + count + r" (?:ayudantes?|personas?|maestros?|trabajadores?) disponibles\b", value)
     helpers = re.search(
         r"\b(?:puedo ir con|voy con|llevo|puedo llevar) " + count
-        + r" (?:ayudantes?|personas?|maestros?|trabajadores?)\b", value)
+        + r" (?:ayudantes?|personas?|maestros?|trabajadores?|cabros?|compas?|companeros?)\b", value)
     if not helpers:
         helpers = re.fullmatch(r"yo y " + count + r" mas", value)
     if not total and not helpers and ("cuantas personas" in previous or "con cuantas" in previous):
@@ -388,6 +394,8 @@ def apply_intake(lead, message: str, prior_prompt: str = "", *,
         return
     if analyze(message).intent in {"human", "restricted"} or identity_reply(message):
         return
+    if clarification_reply(message, prior_prompt) is not None:
+        return  # A question, objection or bare ambiguous number is not a new fact.
     prev = plain(prior_prompt)
     statement = declaration_text(message)
     value = " | ".join(plain(part) for part in re.split(r"[,;.!\n]+|\bpero\b", statement, flags=re.I)
@@ -408,8 +416,8 @@ def apply_intake(lead, message: str, prior_prompt: str = "", *,
     _commune_update(lead, statement, prev)
     _availability_update(lead, statement, prev, on_date=on_date)
     if not lead.experience or lead.experience == "No informado por el interesado" or _CORRECTION.search(value):
-        experience = re.search(r"\b(\d{1,2})\s+(anos?|mes(?:es)?)\b", value)
-        asked = any(s in prev for s in (_EXPERIENCE_QUESTION, "cuanta experiencia", "cuantos anos"))
+        experience = re.search(r"\b" + _COUNT + r"\s+(anos?|mes(?:es)?)\b", value)
+        asked = any(s in prev for s in (_EXPERIENCE_QUESTION, "cuanta experiencia", "cuantos anos", "anos o meses"))
         volunteered = (bool(re.search(r"\b(?:experiencia|llevo|llevamos)\b", value))
                        and not re.search(r"\b(?:viviendo|residiendo)\b", value))
         if value in {"sin experiencia", "no tengo experiencia", "recien comienzo"} or (
@@ -417,10 +425,15 @@ def apply_intake(lead, message: str, prior_prompt: str = "", *,
             lead.experience = "Sin experiencia declarada"
         elif asked and value in _REFUSAL:
             lead.experience = "No informado por el interesado"
-        elif asked and re.fullmatch(r"\d{1,2}", value):
+        elif asked and ambiguous_experience_number(value, prior_prompt):
+            pass  # A bare number cannot distinguish months from years.
+        elif asked and re.fullmatch(r"\d{1,2}", value) and "cuantos anos" in prev:
             lead.experience = value + " años declarados"
         elif experience and (asked or volunteered):
-            lead.experience = experience[0].replace("ano", "año")
+            amount = experience[1]
+            number = int(amount) if amount.isdecimal() else _NUMBERS[amount]
+            if 0 <= number <= 99:
+                lead.experience = f"{number} {experience[2]}".replace("ano", "año")
 
 
 def identity_reply(message: str) -> str | None:
@@ -457,6 +470,71 @@ def _friendly_ack(message: str, facts: dict, question: str, prior: str = "") -> 
     return ""
 
 
+def ambiguous_experience_number(value: str, prior: str) -> bool:
+    """Do not turn a bare number into years when the question never specified units."""
+    prev = plain(prior)
+    return bool(("experience" in intake_question_fields(prior) or _EXPERIENCE_QUESTION in prev)
+                and "cuantos anos" not in prev
+                and re.fullmatch(r"(?:\d{1,2}|uno|una|dos|tres|cuatro|cinco|seis|siete|ocho|nueve|diez)", plain(value)))
+
+
+def clarification_reply(message: str, prior: str = "") -> str | None:
+    """Small, context-bound explanations before any new intake question.
+
+    Never interpret confusion as a professional declaration, or impersonate a
+    person. Questions needing actual project records remain on the normal path.
+    """
+    if private_data(message) or analyze(message).intent in {"human", "restricted"}:
+        return None
+    value = plain(message)
+    if ambiguous_experience_number(value, prior):
+        return "¿Te refieres a años o meses?"
+    definitions = (
+        (r"(?:que|ke|q) (?:es|significa|quiere decir) (?:una? )?postular(?:se)?", 
+         "Postular es decir que te interesa un trabajo para que el equipo pueda considerarte. No significa que ya tengas el puesto."),
+        (r"(?:que|ke|q) (?:es|significa|quiere decir) (?:una? )?contratista",
+         "Un contratista ofrece hacer un trabajo por su cuenta o mediante una empresa. Es distinto de buscar un empleo."),
+        (r"(?:que|ke|q) (?:es|significa|quiere decir) (?:una? )?cuadrilla",
+         "Una cuadrilla es un grupo de personas que trabaja junto. Eso no significa que sean trabajadores contratados por ti."),
+        (r"(?:que|ke|q) (?:es|significa|quiere decir) (?:una? )?comuna",
+         "La comuna es el lugar, por ejemplo Coronel o Concepción. Nos interesa dónde puedes trabajar, no tu dirección."),
+        (r"no (?:tengo|uso|se usar) (?:el )?correo(?: electronico)?",
+         "No necesitas correo para comenzar. Podemos conversar por este chat."),
+        (r"no (?:se|puedo) (?:mandar|enviar|subir) (?:una )?(?:foto|fotos|audio|audios)",
+         "No necesitas enviar fotos ni audios para una consulta inicial. Puedes contarnos por escrito lo que haces."),
+        (r"no (?:cacho|entiendo|se usar) (?:la pagina|el celular|esta pagina|esto del celular|el formulario)",
+         "Podemos avanzar por este chat, sin llenar todo de una vez. Cuéntame con tus palabras qué necesitas."),
+        (r"(?:ya te dije|me preguntai lo mismo|me preguntas lo mismo|ya respondi)",
+         "Disculpa la repetición. No hace falta que vuelvas a dar el dato. Podemos seguir con tu duda."),
+        (r"(?:ya filo|me aburri|no quiero seguir|me canse de responder)",
+         "Está bien, no hace falta responder más ahora. Si después quieres continuar, puedes escribir por aquí."),
+    )
+    for pattern, answer in definitions:
+        if re.fullmatch(pattern, value):
+            return answer
+    if value not in {"no entiendo", "no entendi", "no cacho", "no cache", "no comprendo",
+                     "no entiendo la pregunta", "como asi", "que significa", "a que te refieres"}:
+        return None
+    fields = intake_question_fields(prior)
+    if len(fields) == 1:
+        field = next(iter(fields))
+        explanations = {
+            "interest_type": "Te pregunto si buscas un empleo donde te contraten o si quieres ofrecer trabajos por tu cuenta. También pueden ser las dos cosas.",
+            "specialty": "Quiero saber qué sabes hacer. Por ejemplo, pintar, instalar cerámica o reparar techos. ¿Qué trabajo haces?",
+            "team_available": "Quiero saber si irías tú solo o si podrías llevar a otras personas para trabajar.",
+            "workers": "Cuenta a todas las personas que podrían trabajar, incluyéndote. ¿Cuántos serían?",
+            "experience": "Quiero saber desde hace cuánto haces ese trabajo. Puede ser en meses o años; si no sabes, no pasa nada.",
+            "work_communes": "Quiero saber en qué lugar puedes trabajar, por ejemplo Coronel o Concepción. No necesito tu dirección.",
+            "availability": "Quiero saber desde qué día podrías comenzar a trabajar. Si todavía no sabes, está bien.",
+            "display_name": "Solo quiero saber cómo prefieres que te llamemos. No tienes que dar tu nombre si no quieres.",
+            "contact_phone": "Es opcional dejar un teléfono para coordinar. Podemos seguir por este chat.",
+            "contact_email": "Es opcional dejar un correo para coordinar. Podemos seguir por este chat.",
+        }
+        if field in explanations:
+            return explanations[field]
+    return "Te lo explico con otras palabras. ¿Qué parte te cuesta entender?"
+
+
 def next_intake_reply(message: str, facts: dict, prior_prompt: str = "") -> str | None:
     """Respond conversationally, then ask one relevant missing question.
 
@@ -465,6 +543,8 @@ def next_intake_reply(message: str, facts: dict, prior_prompt: str = "") -> str 
     identity = identity_reply(message)
     if identity:
         return identity
+    if explanation := clarification_reply(message, prior_prompt):
+        return explanation
     info = analyze(message)
     capacity_statement = any(p in plain(message) for p in (
         "puedo traer gente", "puedo llevar gente", "tengo cuadrilla",

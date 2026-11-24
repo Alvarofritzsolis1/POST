@@ -12,6 +12,7 @@ from hashlib import sha256
 import json
 import os
 from pathlib import Path
+from time import monotonic
 import sys
 from uuid import uuid4
 
@@ -21,7 +22,7 @@ sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "apps" / "backend")
 from galant_cpu_lora_resources import capacity_gate, process_memory_mb, should_pause, snapshot
 from galancito_lora_progress import ProgressReporter
 from app.galancito_finetune_dataset import load_approved, verified_training_manifest, verified_match
-from max_power_synthetic_lab import verify_dataset
+from max_power_synthetic_lab import bounded_evaluation, verify_dataset
 
 MODEL = "Qwen/Qwen3.5-0.8B"
 SYSTEM = "Responde en español con precisión. No inventes información ni identificadores."
@@ -220,6 +221,8 @@ def main(argv=None):
                               host_free_mb=observed["host_free_mb"],
                               cgroup_free_mb=observed["cgroup_free_mb"],
                               cgroup_limit_mb=observed["cgroup_limit_mb"],
+                              cgroup_available_mb=observed.get("cgroup_available_mb"),
+                              cgroup_reclaimable_mb=observed.get("cgroup_reclaimable_mb"),
                               disk_free_mb=observed["disk_free_mb"])
             finally:
                 reporter.close()
@@ -319,8 +322,13 @@ def main(argv=None):
         _, trainable_count = hash_trainable(model,torch)
         model.config.use_cache = False
         train_data = encode_cases(tokenizer,bundle["samples"]["train"],args.max_tokens)
-        validation = encode_cases(tokenizer,bundle["samples"]["validation"],args.max_tokens)
-        holdout = encode_cases(tokenizer,bundle["samples"]["test"],args.max_tokens)
+        validation_cases = bundle["samples"]["validation"]
+        holdout_cases = bundle["samples"]["test"]
+        if args.synthetic_development:
+            validation_cases = bounded_evaluation(validation_cases)
+            holdout_cases = bounded_evaluation(holdout_cases)
+        validation = encode_cases(tokenizer,validation_cases,args.max_tokens)
+        holdout = encode_cases(tokenizer,holdout_cases,args.max_tokens)
         settings = TrainingArguments(
             output_dir=str(target/"checkpoints"),
             max_steps=args.max_steps, learning_rate=7e-5,
@@ -328,7 +336,7 @@ def main(argv=None):
             gradient_accumulation_steps=2,logging_steps=1,logging_strategy="steps",
             save_strategy="steps",save_steps=args.checkpoint_steps,
             save_total_limit=3,eval_strategy="steps",
-            eval_steps=args.checkpoint_steps,
+            eval_steps=max(args.checkpoint_steps, 10) if args.synthetic_development else args.checkpoint_steps,
             gradient_checkpointing=True,
             dataloader_num_workers=0,report_to="none",use_cpu=True,
             fp16=False,bf16=False,remove_unused_columns=False,
@@ -340,7 +348,28 @@ def main(argv=None):
         session_control_file = args.control_file
         session_org = args.telemetry_org
         session_generation = args.expected_generation
+        class BaselinePaused(Exception):
+            pass
+
+        baseline_state = {"active": False, "seen": 0, "last": 0.0}
+        def baseline_progress():
+            reporter.emit("baseline_progress", step=0, total_steps=args.max_steps,
+                          evaluation_done=baseline_state["seen"], evaluation_total=len(holdout),
+                          cpu_memory_mb=process_memory_mb())
+            baseline_state["last"] = monotonic()
+
         class Monitor(TrainerCallback):
+            def on_prediction_step(self, args, state_, control, **kwargs):
+                if not baseline_state["active"]:
+                    return
+                baseline_state["seen"] += 1
+                if (not automation_allowed(session_control_file, org=session_org,
+                                           generation=session_generation)
+                        or should_pause(snapshot(target))):
+                    raise BaselinePaused()
+                if (monotonic() - baseline_state["last"] >= 15
+                        or baseline_state["seen"] == len(holdout)):
+                    baseline_progress()
             def on_train_begin(self, args, state_, control, **kwargs):
                 # Trainer loads the checkpoint *before* on_train_begin.
                 # Hash restored adapters here, never the fresh random LoRA.
@@ -386,7 +415,19 @@ def main(argv=None):
         # Test split is excluded from optimizer and checkpoint selection.
         baseline = metadata.get("heldout_loss_before")
         if baseline is None:
-            baseline = trainer.evaluate(eval_dataset=holdout,metric_key_prefix="holdout_before").get("holdout_before_loss")
+            baseline_state["active"] = True
+            try:
+                if not automation_allowed(session_control_file, org=session_org,
+                                          generation=session_generation):
+                    raise BaselinePaused()
+                baseline_progress()
+                baseline = trainer.evaluate(eval_dataset=holdout,metric_key_prefix="holdout_before").get("holdout_before_loss")
+            except BaselinePaused:
+                reporter.emit("paused", step=0, total_steps=args.max_steps,
+                              cpu_memory_mb=process_memory_mb(), weights_trained=False)
+                return 3
+            finally:
+                baseline_state["active"] = False
             metadata["heldout_loss_before"]=baseline
             metadata["trainable_lora_parameters"]=trainable_count
             metadata_path.write_text(json.dumps(metadata,sort_keys=True),encoding="utf-8")
@@ -437,6 +478,9 @@ def main(argv=None):
             "optimizer_start_sha256":proof["optimizer_start_sha256"],
             "optimizer_end_sha256":proof["optimizer_end_sha256"],
             "dataset_sha256":bundle["dataset_digest"],
+            "dataset_partition_sizes":bundle["sizes"],
+            "validation_examples_measured":len(validation),
+            "holdout_examples_measured":len(holdout),
             "heldout_loss_before":baseline,"heldout_loss_after":final,
             "reasoning_improvement_proven":False,
             "needs":"Independent exact-answer and regression evaluation before promotion",

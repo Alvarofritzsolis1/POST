@@ -32,6 +32,7 @@ LOOP_SECONDS = 8
 PREFLIGHT_RECHECK = 600
 MAX_GRACE_SECONDS = 90
 MAX_STEPS = 4
+SYNTHETIC_STEPS = 40  # bounded pilot, not a full epoch over 2,000 examples
 CHECKPOINT_STEPS = 2
 MAX_FAILED_ATTEMPTS = 3
 
@@ -212,7 +213,7 @@ def launch(root: Path, output: Path, resume: bool, org: str, generation: int,
     args = [
         sys.executable, "/src/scripts/train_galancito_cpu_lora.py",
         "--dataset", str(root / ("synthetic.jsonl" if synthetic else "approved.jsonl")),
-        "--output", str(output), "--max-steps", str(MAX_STEPS),
+        "--output", str(output), "--max-steps", str(SYNTHETIC_STEPS if synthetic else MAX_STEPS),
         "--checkpoint-steps", str(CHECKPOINT_STEPS), "--execute",
         "--control-file", str(control_file),
         "--expected-generation", str(generation),
@@ -304,6 +305,8 @@ def run_once(secret: str, plan: dict, public_key: str, last_preflight: dict,
                               host_free_mb=resources.get("host_free_mb"),
                               cgroup_limit_mb=resources.get("cgroup_limit_mb"),
                               cgroup_free_mb=resources.get("cgroup_free_mb"),
+                              cgroup_available_mb=resources.get("cgroup_available_mb"),
+                              cgroup_reclaimable_mb=resources.get("cgroup_reclaimable_mb"),
                               disk_free_mb=resources.get("disk_free_mb"))
             finally:
                 reporter.close()
@@ -374,7 +377,9 @@ def run_once(secret: str, plan: dict, public_key: str, last_preflight: dict,
                 report("pausing")
             # If a CPU step/model load never yields, stop it. Last completed
             # checkpoint survives; no interrupted step may claim learning.
-            if monotonic() - paused_since > MAX_GRACE_SECONDS:
+            if monotonic() - paused_since > MAX_GRACE_SECONDS + 15:
+                child.kill()
+            elif monotonic() - paused_since > MAX_GRACE_SECONDS:
                 child.terminate()
         else:
             paused_since = None
@@ -388,7 +393,7 @@ def run_once(secret: str, plan: dict, public_key: str, last_preflight: dict,
             # Exit zero alone is not proof of a completed gradient update.
             record_failure(root, bundle["dataset_digest"])
             report("failed")
-    elif code == 3 or (code == -15 and paused_since is not None):
+    elif code == 3 or (code in (-15, -9) and paused_since is not None):
         report("paused")
     else:
         record_failure(root, bundle["dataset_digest"])

@@ -198,3 +198,47 @@ def test_synthetic_model_trials_checkpoint_once_per_case(ai_env, monkeypatch):
         assert all(t.status == "completed" and t.source_run_id is None for t in rows)
         assert all(t.metrics["source"] == SOURCE and t.metrics["weights_changed"] is False for t in rows)
         assert db.get(MaxPowerState, org_id).experiments == 0
+
+
+def test_low_tech_clarification_explains_before_requesting_more_data():
+    from app.galancito_intake import clarification_reply, next_intake_reply
+    cases = (
+        ("q es postular", "", "interesa un trabajo"),
+        ("ke es una cuadrilla", "", "grupo de personas"),
+        ("no tengo correo", "", "No necesitas correo"),
+        ("no cacho", "¿En qué comuna puedes trabajar?", "no necesito tu dirección"),
+        ("no entiendo", "¿Cuánto tiempo llevas en ese oficio?", "meses o años"),
+        ("2", "¿Cuánto tiempo llevas en ese oficio?", "años o meses"),
+        ("ya filo", "", "no hace falta responder más"),
+        ("me preguntai lo mismo", "", "No hace falta que vuelvas"),
+    )
+    for message, prior, expected in cases:
+        answer = clarification_reply(message, prior)
+        assert answer is not None and expected.casefold() in answer.casefold(), (message, answer)
+        assert next_intake_reply(message, {}, prior) == answer
+    assert clarification_reply("¿Cuánto pagan en la obra?", "") is None
+    assert clarification_reply("quiero hablar con alguien", "") is None
+
+
+def test_low_tech_experience_does_not_invent_units_or_name():
+    from app.galancito_intake import apply_intake, unresolved_declarations
+    from types import SimpleNamespace
+    def fresh():
+        return SimpleNamespace(display_name="", name_opt_out=False,
+                               specialty="", specialty_source="message",
+                               entity_type="unknown", interest_type="unknown",
+                               team_available=None, workers=None, has_employees=None,
+                               employee_count=None, experience="", work_area="",
+                               work_communes=[], availability="")
+    lead = fresh()
+    prior = "¿Cuánto tiempo llevas en ese oficio?"
+    apply_intake(lead, "2", prior)
+    assert not lead.experience
+    assert unresolved_declarations("2", prior) == {"experience": "ambiguo"}
+    apply_intake(lead, "dos meses", "¿Te refieres a años o meses?")
+    assert lead.experience == "2 meses"
+    apply_intake(lead, "no cacho", "¿Cómo prefieres que te llamemos?")
+    assert not lead.display_name
+    apply_intake(lead, "Puedo ir con 2 cabros")
+    assert lead.workers == 3
+    assert lead.has_employees is None

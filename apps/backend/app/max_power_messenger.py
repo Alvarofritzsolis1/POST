@@ -287,7 +287,9 @@ def evaluate_synthetic_reply(org_id, case_id, digest, *, set_phase=None):
     seed = crc32(case_id.encode()) & 0x7fffffff
     instruction = ("\nSi hay una pregunta sobre pago, cupos o una obra, explica primero qué puede confirmar el equipo. "
                    "En ese turno omite las preguntas de ficha, aunque el mensaje también declare un oficio. "
-                   "Si el historial no indica un monto, fecha o cupo, no los supongas.")
+                   "Si el historial no indica un monto, fecha o cupo, no los supongas. "
+                   "Cuando una persona no entiende una palabra o un paso, explica el concepto con palabras cotidianas; "
+                   "no agregues otra pregunta de ficha hasta resolver la duda.")
     if set_phase:
         set_phase("reference")
     baseline = _answer(LOCAL_REPLY_INSTRUCTIONS, prompt, seed, org_id)

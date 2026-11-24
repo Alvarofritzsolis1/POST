@@ -235,3 +235,29 @@ def test_cpu_preflight_event_is_not_weight_learning(tmp_path):
     assert item["host_free_mb"] == 5120
     assert item["cgroup_free_mb"] == 4400
     assert "private_prompt" not in item
+
+
+def test_inactive_file_cache_is_reclaimable_but_anonymous_memory_is_not(tmp_path, monkeypatch):
+    import galant_cpu_lora_resources as resources
+    mib = resources.MIB
+    monkeypatch.setattr(resources, "_read_int", lambda p: 5120*mib if str(p).endswith("memory.max") else 1800*mib)
+    monkeypatch.setattr(resources, "host_mem_available_mb", lambda: 9500)
+    monkeypatch.setattr(resources, "inactive_file_bytes", lambda: 1600*mib)
+    result = resources.snapshot(tmp_path)
+    assert result["cgroup_free_mb"] == 3320
+    assert result["cgroup_available_mb"] == 4920
+    assert result["cgroup_working_set_mb"] == 200
+    assert capacity_gate({**result, "disk_free_mb": 20000})["ready"]
+    monkeypatch.setattr(resources, "inactive_file_bytes", lambda: 0)
+    result = resources.snapshot(tmp_path)
+    assert "cgroup_memory_headroom" in capacity_gate({**result, "disk_free_mb": 20000})["blockers"]
+
+
+def test_baseline_progress_is_measured_without_optimizer_steps(tmp_path):
+    reporter = ProgressReporter(tmp_path, run_id=str(uuid4()), org_id=None,
+                                dataset_sha256="a"*64, model="Qwen/Qwen3.5-0.8B")
+    point = reporter.emit("baseline_progress", step=0, total_steps=40,
+                          evaluation_done=3, evaluation_total=12, cpu_memory_mb=1900)
+    reporter.close()
+    assert point["evaluation_done"] == 3 and point["evaluation_total"] == 12
+    assert point["step"] == 0 and not point["weights_trained"]

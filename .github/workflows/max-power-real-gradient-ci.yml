@@ -51,8 +51,8 @@ jobs:
             -e GALANT_SYNTHETIC_DEV_TRAINING=yes \
             -v "$RUNNER_TEMP/maxpower-private:/private" \
             galant-cpu-lora-smoke:ci \
-            --dataset /private/ci/synthetic-lab-galant-curated-synthetic-intake-2/synthetic.jsonl \
-            --output /private/ci/synthetic-lab-galant-curated-synthetic-intake-2/runs/ci-gradient-smoke \
+            --dataset /private/ci/synthetic-lab-galant-curated-synthetic-intake-3/synthetic.jsonl \
+            --output /private/ci/synthetic-lab-galant-curated-synthetic-intake-3/runs/ci-gradient-smoke \
             --execute --synthetic-development --max-steps 4 \
             --checkpoint-steps 2 --max-tokens 96
       - name: Verificar pasos, pesos, checkpoints, holdout y ausencia de promoción
@@ -63,7 +63,7 @@ jobs:
             --entrypoint python galant-cpu-lora-smoke:ci -c '
           import json
           from pathlib import Path
-          output=Path("/private/ci/synthetic-lab-galant-curated-synthetic-intake-2/runs/ci-gradient-smoke")
+          output=Path("/private/ci/synthetic-lab-galant-curated-synthetic-intake-3/runs/ci-gradient-smoke")
           report=json.loads((output/"evaluation.json").read_text())
           assert report["data_kind"]=="curated_synthetic", report
           assert report["base_model"]=="Qwen/Qwen3.5-0.8B", report
@@ -103,14 +103,14 @@ jobs:
         run: |
           set -Eeuo pipefail
           private="$RUNNER_TEMP/maxpower-private"
-          root="$private/ci/synthetic-lab-galant-curated-synthetic-intake-2/runs/ci-interrupted-resume"
+          root="$private/ci/synthetic-lab-galant-curated-synthetic-intake-3/runs/ci-interrupted-resume"
           docker run -d --name galant-cpu-lora-interrupt \
             --memory 5g --memory-swap 5g --cpus 1.5 --pids-limit 96 \
             --security-opt no-new-privileges --cap-drop ALL \
             -e GALANT_SYNTHETIC_DEV_TRAINING=yes \
             -v "$private:/private" galant-cpu-lora-smoke:ci \
-            --dataset /private/ci/synthetic-lab-galant-curated-synthetic-intake-2/synthetic.jsonl \
-            --output /private/ci/synthetic-lab-galant-curated-synthetic-intake-2/runs/ci-interrupted-resume \
+            --dataset /private/ci/synthetic-lab-galant-curated-synthetic-intake-3/synthetic.jsonl \
+            --output /private/ci/synthetic-lab-galant-curated-synthetic-intake-3/runs/ci-interrupted-resume \
             --execute --synthetic-development --max-steps 4 \
             --checkpoint-steps 2 --max-tokens 96
           checkpoint="$root/checkpoints/checkpoint-2"
@@ -151,8 +151,8 @@ jobs:
             -e GALANT_SYNTHETIC_DEV_TRAINING=yes \
             -v "$RUNNER_TEMP/maxpower-private:/private" \
             galant-cpu-lora-smoke:ci \
-            --dataset /private/ci/synthetic-lab-galant-curated-synthetic-intake-2/synthetic.jsonl \
-            --output /private/ci/synthetic-lab-galant-curated-synthetic-intake-2/runs/ci-interrupted-resume \
+            --dataset /private/ci/synthetic-lab-galant-curated-synthetic-intake-3/synthetic.jsonl \
+            --output /private/ci/synthetic-lab-galant-curated-synthetic-intake-3/runs/ci-interrupted-resume \
             --execute --synthetic-development --resume \
             --max-steps 4 --checkpoint-steps 2 --max-tokens 96
       - name: Validar recuperación desde checkpoint 2 y solo 2 actualizaciones nuevas
@@ -166,7 +166,7 @@ jobs:
           from pathlib import Path
           sys.path.insert(0,"/src/scripts")
           from max_power_cpu_manager import verified_finished_run
-          p=Path("/private/ci/synthetic-lab-galant-curated-synthetic-intake-2/runs/ci-interrupted-resume")
+          p=Path("/private/ci/synthetic-lab-galant-curated-synthetic-intake-3/runs/ci-interrupted-resume")
           report=json.loads((p/"evaluation.json").read_text())
           assert report["steps"] == 4
           assert report["new_optimizer_steps"] == 2, report

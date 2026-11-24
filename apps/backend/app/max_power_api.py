@@ -338,8 +338,21 @@ def control(action: Literal["on", "off"], user: User = Depends(administrator),
             MaxPowerEvent.round_id == user.org_id,
             MaxPowerEvent.event == "cpu_supervisor_status").with_for_update())
         if cpu_event is not None:
-            cpu_event.reason = "MAX POWER apagado: entrenamiento neuronal detenido"
-            cpu_event.evidence = {"state": "off", "generation": row.session_generation}
+            previous = cpu_event.evidence or {}
+            active = previous.get("state") in {
+                "training", "training_synthetic", "preparing_synthetic", "pausing"
+            }
+            # OFF revokes the generation immediately, but a slow child can
+            # still be winding down. Preserve a bounded reservation across
+            # OFF -> ON rather than allowing the private 4B to race LoRA.
+            prior_until = previous.get("draining_until_epoch")
+            until = max(
+                float(prior_until) if isinstance(prior_until, (int, float)) else 0,
+                aware(now).timestamp() + 180 if active else 0,
+            )
+            cpu_event.reason = "MAX POWER apagado: permiso neuronal revocado"
+            cpu_event.evidence = {"state": "off", "generation": row.session_generation,
+                                  "draining_until_epoch": until}
             cpu_event.created_at = now
         if row.active_round_id:
             running = db.scalar(select(TrainingRound).where(

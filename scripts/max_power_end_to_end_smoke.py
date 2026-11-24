@@ -40,6 +40,7 @@ def main():
             return {"accepted": True}
         raise RuntimeError("Unexpected API operation in isolated smoke")
 
+    supervisor.SYNTHETIC_STEPS = 4  # CI smoke only; production uses the 40-step pilot.
     supervisor.api_call = isolated_api
     supervisor.run_once(secret, plan, "", {}, {})
     root = Path("/private") / org

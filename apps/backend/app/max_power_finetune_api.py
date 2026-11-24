@@ -24,7 +24,7 @@ from .security import administrator
 
 router = APIRouter(prefix="/api/v1/admin/ai/max-power/finetune",
                    tags=["MAX POWER fine-tuning"])
-KINDS = ("preflight", "start", "baseline", "metric", "eval", "checkpoint", "finished", "failed", "paused")
+KINDS = ("preflight", "start", "baseline_progress", "baseline", "metric", "eval", "checkpoint", "finished", "failed", "paused")
 PREFIX = "ft_"
 MAX_POINTS = 300
 
@@ -34,7 +34,7 @@ class Telemetry(BaseModel):
     org_id: UUID
     run_id: UUID
     sequence: int = Field(ge=1, le=99_999_999)
-    kind: Literal["preflight", "start", "baseline", "metric", "eval", "checkpoint", "finished", "failed", "paused"]
+    kind: Literal["preflight", "start", "baseline_progress", "baseline", "metric", "eval", "checkpoint", "finished", "failed", "paused"]
     dataset_sha256: str = Field(pattern=r"^[a-f0-9]{64}$")
     data_kind: Literal["unspecified", "human_reviewed_real", "curated_synthetic"] = "unspecified"
     model: Literal["Qwen/Qwen3.5-4B", "Qwen/Qwen3.5-0.8B"] = "Qwen/Qwen3.5-4B"
@@ -54,6 +54,10 @@ class Telemetry(BaseModel):
     host_free_mb: float | None = Field(default=None, ge=0, le=1_000_000, allow_inf_nan=False)
     cgroup_free_mb: float | None = Field(default=None, ge=0, le=1_000_000, allow_inf_nan=False)
     cgroup_limit_mb: float | None = Field(default=None, ge=0, le=1_000_000, allow_inf_nan=False)
+    cgroup_reclaimable_mb: float | None = Field(default=None, ge=0, le=1_000_000, allow_inf_nan=False)
+    cgroup_available_mb: float | None = Field(default=None, ge=0, le=1_000_000, allow_inf_nan=False)
+    evaluation_done: int | None = Field(default=None, ge=0, le=10_000_000)
+    evaluation_total: int | None = Field(default=None, ge=0, le=10_000_000)
     disk_free_mb: float | None = Field(default=None, ge=0, le=1_000_000, allow_inf_nan=False)
     gpu_memory_reserved_mb: float | None = Field(default=None, ge=0, le=1_000_000, allow_inf_nan=False)
     elapsed_seconds: float | None = Field(default=None, ge=0, le=100_000_000, allow_inf_nan=False)
@@ -247,6 +251,11 @@ async def ingest(request: Request,
                 or sample.optimizer_start_sha256 == sample.optimizer_end_sha256
                 or not sample.optimizer_steps_new):
             raise HTTPException(422, "Sin evidencia de gradientes y pesos nuevos")
+    if sample.kind == "baseline_progress" and (sample.model != "Qwen/Qwen3.5-0.8B"
+            or sample.step != 0 or sample.weights_trained or sample.candidate_accepted
+            or sample.evaluation_done is None or not sample.evaluation_total
+            or sample.evaluation_done > sample.evaluation_total):
+        raise HTTPException(422, "Evaluación inicial no puede declarar entrenamiento")
     key = f"{PREFIX}{sample.sequence:08d}"
     prior = db.scalar(select(MaxPowerEvent).where(
         MaxPowerEvent.org_id == str(sample.org_id), MaxPowerEvent.round_id == str(sample.run_id),
@@ -305,6 +314,10 @@ def _run_view(rows):
             "host_free_mb": e.evidence.get("host_free_mb"),
             "cgroup_free_mb": e.evidence.get("cgroup_free_mb"),
             "cgroup_limit_mb": e.evidence.get("cgroup_limit_mb"),
+            "cgroup_reclaimable_mb": e.evidence.get("cgroup_reclaimable_mb"),
+            "cgroup_available_mb": e.evidence.get("cgroup_available_mb"),
+            "evaluation_done": e.evidence.get("evaluation_done"),
+            "evaluation_total": e.evidence.get("evaluation_total"),
             "disk_free_mb": e.evidence.get("disk_free_mb"),
             "gpu_memory_reserved_mb": e.evidence.get("gpu_memory_reserved_mb"),
             "elapsed_seconds": e.evidence.get("elapsed_seconds"),
