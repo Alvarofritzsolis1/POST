@@ -26,7 +26,8 @@ from .facebook_crm_models import FacebookLead, FacebookChatMessage, FacebookTrad
 from .models import utcnow
 from .network_service import key
 from .galancito_triage import analyze, quick_reply, private_data, application_ai_candidate, application_role, application_role_question
-from .galancito_intake import acceptable_intake_draft, intake_question_fields, clarification_reply, identity_reply, model_intake_candidate, next_intake_reply, small_talk_reply, natural_messenger_reply, needs_deeper_response
+from .galancito_phone import confirmed_phone_reply
+from .galancito_intake import contact_followup_reply, contact_pending_questions, model_contact_question, compose_contact_followup, CONTACT_RECEIVED_CONTEXT, acceptable_intake_draft, intake_question_fields, clarification_reply, identity_reply, model_intake_candidate, next_intake_reply, small_talk_reply, natural_messenger_reply, needs_deeper_response
 from .galancito_memory import aware, note_profile_sources, prior_delivered_prompt, profile_facts, reply_focus, messenger_context
 from .galancito_knowledge import retrieve, exact_answer
 from .galancito_runtime import infer, record_run
@@ -283,6 +284,8 @@ def process_chat_next(session_factory=SessionLocal, *, simulation_config=None, n
                 any(origin.get("message_id") == focus.remote_id for origin in lead.profile_sources.values())))
             prior_question = (prior_delivered_prompt(db, lead, at=focus.created_at)
                               if focus else "")
+            phone_ack = confirmed_phone_reply(lead, latest, prior_question)
+            contact_turn = bool(phone_ack)
             help_answer = clarification_reply(latest, prior_question)
             location = None if help_answer else worksite_reply(db, lead, latest, prior_question, notices=notices)
             follow_up = availability_reply(db, lead, latest, prior_question, focus.created_at) if focus and not help_answer else None
@@ -302,11 +305,18 @@ def process_chat_next(session_factory=SessionLocal, *, simulation_config=None, n
             model_needed = (bool(latest) and not (help_answer or location or follow_up) and (not apply or application_model) and not private_data(latest) and not identity_reply(latest)
                             and intent not in {"human", "restricted"} and fast_source != "knowledge"
                             and (not fast or needs_deeper_response(latest) or rewrite_intake))
+            if contact_turn:
+                fast = contact_followup_reply(phone_ack, facts, prior_question)
+                model_needed = bool(local_first_messenger(cfg) and contact_pending_questions(facts, prior_question))
+                rewrite_intake = False
+                intent = "contact_followup"
+                latest = CONTACT_RECEIVED_CONTEXT  # Never send a phone to any model.
             semantic_reasoning = bool(model_needed and local_first_messenger(cfg)
                                       and application_role_question(prior_question)
                                       and application_role(latest, prior_question) is None)
             trace["semantic_reasoning_requested"] = semantic_reasoning
             model_options = {"thinking": True} if semantic_reasoning else {}
+            trace["contact_followup"] = contact_turn
             trace["model_requested"] = bool(model_needed)
             trace["knowledge_count"] = len(evidence)
             if model_needed:
@@ -354,9 +364,9 @@ def process_chat_next(session_factory=SessionLocal, *, simulation_config=None, n
             if should_model:
                 # A generic intake prompt must not stand in for an answer to a
                 # difficult question when every configured model failed.
-                generated = fast if application_model or (rewrite_intake and not needs_deeper_response(latest) and "?" not in latest) else None
+                generated = fast if contact_turn or application_model or (rewrite_intake and not needs_deeper_response(latest) and "?" not in latest) else None
             if should_model and not private_data(context):
-                if fast and not rewrite_intake:
+                if fast and not rewrite_intake and not contact_turn:
                     context += ("\nOrientación breve disponible como alternativa: " +
                                 fast[:450] + "\nRespeta sus hechos; explica la duda "
                                 "antes de avanzar con una pregunta.")
@@ -377,6 +387,9 @@ def process_chat_next(session_factory=SessionLocal, *, simulation_config=None, n
                             # The simulator is never permitted to call an external provider.
                             drafted = (infer(db, lambda: generate_local_text(LOCAL_REPLY_INSTRUCTIONS, prepared_context, 550, **model_options))
                                        if ai_source == "ollama" or local_first_messenger(cfg) else None)
+                        elif contact_turn:
+                            # Contact follow-up is local-only, even with external consent.
+                            drafted = infer(db, lambda: generate_text(REPLY_INSTRUCTIONS, prepared_context, 550))
                         elif ai_source == "team" and local_first_messenger(cfg):
                             # External consent has already been checked.
                             def external_backup():
@@ -425,6 +438,9 @@ def process_chat_next(session_factory=SessionLocal, *, simulation_config=None, n
                         drafted = grounded_reply(drafted, context)
                     if drafted and rewrite_intake and not acceptable_intake_draft(drafted, facts, intake or "", message=latest):
                         drafted = None
+                    if contact_turn and drafted:
+                        question = model_contact_question(drafted, facts, prior_question)
+                        drafted = compose_contact_followup(question) if question else None
                     if drafted:
                         generated, source = drafted, ("fallback" if trace.get("ai_route") == "guided_fallback" else "ai")
                     else:

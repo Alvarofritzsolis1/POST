@@ -535,6 +535,70 @@ def clarification_reply(message: str, prior: str = "") -> str | None:
     return "Te lo explico con otras palabras. ¿Qué parte te cuesta entender?"
 
 
+def pending_professional_questions(facts: dict) -> dict[str, str]:
+    """Applicable missing fields; their order is only the outage fallback."""
+    known = conversation_fields(facts)
+    states = facts.get("field_states") or {}
+    intent = facts.get("interest_type", "unknown")
+    candidates = {
+        "specialty": "¿Qué trabajo realizas?",
+        "interest_type": "¿Buscas empleo como trabajador o quieres trabajar por tu cuenta como contratista?",
+    }
+    if intent in {"service_offer", "both"}:
+        if facts.get("team_available") is None:
+            candidates["team_available"] = "¿Trabajas solo o puedes venir con otras personas?"
+        elif facts.get("team_available") is True:
+            candidates["workers"] = "¿Cuántas personas pueden trabajar contigo en total?"
+    candidates.update({
+        "experience": "¿Cuánto tiempo llevas en ese oficio?",
+        "work_communes": "¿En qué comuna puedes trabajar?",
+        "availability": "¿Desde cuándo podrías comenzar?",
+    })
+    if "display_name" in facts:
+        candidates["display_name"] = "¿Cómo te llamas?"
+    return {field: question for field, question in candidates.items()
+            if not known.get(field) and states.get(field) not in {"rechazado_por_usuario", "ambiguo"}}
+
+
+CONTACT_RECEIVED_CONTEXT = ("La persona acaba de entregar voluntariamente su teléfono y el sistema lo guardó. "
+    "No se necesita otro contacto. Continúa según la conversación y los campos profesionales aplicables pendientes. "
+    "Devuelve una sola pregunta natural sobre un dato pendiente; no cierres la conversación.")
+
+
+def contact_pending_questions(facts: dict, prior: str = "") -> dict[str, str]:
+    known = conversation_fields(facts)
+    active = (any(known[field] for field in ("specialty", "interest_type", "experience",
+                                            "work_communes", "availability", "team_available"))
+              or bool(intake_question_fields(prior) & {"contact_phone", "contact_email"}))
+    return pending_professional_questions(facts) if active else {}
+
+
+def contact_followup_reply(ack: str, facts: dict, prior: str = "") -> str:
+    pending = contact_pending_questions(facts, prior)
+    question = next(iter(pending.values()), None)
+    return compose_contact_followup(question) if question else ack
+
+
+def compose_contact_followup(question: str) -> str:
+    return ("Gracias, ya tengo tu número de contacto. " + question)[:550]
+
+
+def model_contact_question(draft: str, facts: dict, prior: str = "") -> str | None:
+    """Keep only a useful model-generated question; never let inference suppress receipt."""
+    pending = contact_pending_questions(facts, prior)
+    if not draft or draft.count("?") != 1 or private_data(draft):
+        return None
+    question = draft[draft.rfind("¿"):].strip() if "¿" in draft else draft.strip()
+    if not question.endswith("?") or len(question) > 220:
+        return None
+    fields = intake_question_fields(question)
+    if len(fields) != 1 or not fields.issubset(pending):
+        return None
+    if not acceptable_intake_draft(question, facts):
+        return None
+    return question
+
+
 def next_intake_reply(message: str, facts: dict, prior_prompt: str = "") -> str | None:
     """Respond conversationally, then ask one relevant missing question.
 
@@ -571,31 +635,10 @@ def next_intake_reply(message: str, facts: dict, prior_prompt: str = "") -> str 
     )
     if not engaged:
         return None
-    states = facts.get("field_states", {})
-
-    def missing(field):
-        return states.get(field) not in {"rechazado_por_usuario", "ambiguo"}
-
+    question = next(iter(pending_professional_questions(facts).values()), None)
     intent = facts.get("interest_type", "unknown")
-    if not (facts.get("specialty") or facts.get("trades")) and missing("specialty"):
-        question = "¿Qué trabajo realizas?"
-    elif intent == "unknown" and missing("interest_type"):
-        question = "¿Ofreces trabajos por tu cuenta, buscas empleo o haces las dos cosas?"
-    elif intent in {"service_offer", "both"} and facts.get("team_available") is None and missing("team_available"):
-        question = "¿Trabajas solo o puedes venir con otras personas?"
-    elif (intent in {"service_offer", "both"} and facts.get("team_available") is True
-          and facts.get("workers") is None and missing("workers")):
-        question = "¿Cuántas personas pueden trabajar contigo en total?"
-    elif not facts.get("experience") and missing("experience"):
-        question = "¿Cuánto tiempo llevas en ese oficio?"
-    elif not facts.get("work_area") and missing("work_communes"):
-        question = "¿En qué comuna puedes trabajar?"
-    elif not facts.get("availability") and missing("availability"):
-        question = "¿Desde cuándo podrías comenzar?"
-    elif ("display_name" in facts and facts.get("display_name") in {
-        "", "Interesado de Facebook", "Contacto sin nombre", None
-    } and not facts.get("name_opt_out") and missing("display_name")):
-        question = "¿Cómo te llamas?"
+    if question:
+        pass
     elif (intent in {"service_offer", "employment", "both"}
           and (facts.get("specialty") or facts.get("trades"))
           and facts.get("work_area") and facts.get("availability") not in {None, "", "Sin disponibilidad"}

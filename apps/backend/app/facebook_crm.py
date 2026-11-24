@@ -45,7 +45,7 @@ from .security import administrator
 from .galancito_triage import analyze, private_data, quick_reply, everyday_question_reply, application_ai_candidate, application_role, application_role_question
 from .galancito_intake import (
     acceptable_intake_draft, declared_relative_start, identity_reply, model_intake_candidate, needs_deeper_response, next_intake_reply, small_talk_reply,
-    natural_messenger_reply,
+    natural_messenger_reply, contact_followup_reply, contact_pending_questions,
 )
 from .galancito_memory import (
     apply_messenger_message, approved_trade_aliases, aware, capture_voluntary_contact, note_profile_sources,
@@ -476,7 +476,7 @@ def ingest_facebook_payload(db, payload, cfg, *, notices=None):
                     direct = phone_prompt
                     lead.phone_requested_at = utcnow()
             if phone_ack and not signal and not lead.needs_support and lead.ai_consent_state != "declined":
-                direct = phone_ack
+                direct = contact_followup_reply(phone_ack, profile_facts(lead, changed=changed), previous_question)
             configured_source = messenger_ai_source(db, lead.org_id, cfg)
             # Generic questions should reach the consented model; confirmed
             # worksite facts and consent operations keep their verified path.
@@ -502,6 +502,12 @@ def ingest_facebook_payload(db, payload, cfg, *, notices=None):
                 direct = set_permission_request(lead, configured_source)
             else:
                 application_model = False
+            contact_model = bool(phone_ack and direct and not signal and not lead.needs_support
+                and local_first_messenger(cfg) and consented_for(lead, configured_source)
+                and contact_pending_questions(profile_facts(lead, changed=changed), previous_question))
+            contact_fallback = direct if contact_model else None
+            if contact_model:
+                direct = None
             ai_source = "disabled" if direct else configured_source
             recent = db.scalar(select(func.count(FacebookChatMessage.id)).where(
                 FacebookChatMessage.lead_id == lead.id,
@@ -520,6 +526,8 @@ def ingest_facebook_payload(db, payload, cfg, *, notices=None):
                               "Te pueden ayudar por este chat; no necesitas enviar documentos."))
             elif direct:
                 reply = direct
+            elif contact_model:
+                reply, use_ai = contact_fallback, True
             elif application_model:
                 reply, use_ai = application, True
             elif local and identity_reply(body):

@@ -25,7 +25,7 @@ from .facebook_crm_models import FacebookChatMessage, FacebookLead
 from .facebook_lead_insights import trace_unique_requirement
 from .galancito_flow import apply_permission_reply, consented_for, explain_permission, set_permission_request, wants_human
 from .galancito_escalation import flag_for_human
-from .galancito_intake import declared_relative_start, identity_reply, needs_deeper_response, next_intake_reply, small_talk_reply, model_intake_candidate
+from .galancito_intake import declared_relative_start, identity_reply, needs_deeper_response, next_intake_reply, small_talk_reply, model_intake_candidate, contact_followup_reply, contact_pending_questions
 from .galancito_memory import (
     apply_messenger_message, approved_trade_aliases, aware, prior_delivered_prompt, profile_facts,
     capture_voluntary_contact, professional_message,
@@ -238,7 +238,8 @@ def sync_page_inbox(*, page_id: str, page_token: str, org_id: str,
                     queued += 1
                     continue
                 application = application_reply(db, lead, body, prior)
-                direct = (phone_ack or follow_up or explain_permission(lead, body, prior)
+                contact_reply = contact_followup_reply(phone_ack, profile_facts(lead, changed=changed), prior) if phone_ack else None
+                direct = (contact_reply or follow_up or explain_permission(lead, body, prior)
                           or worksite_reply(db, lead, body, prior)
                           or application
                           or digital_help_reply(body, prior)
@@ -252,8 +253,13 @@ def sync_page_inbox(*, page_id: str, page_token: str, org_id: str,
                         and local_first_messenger(cfg) and consented_for(lead, configured)
                         and application_ai_candidate(body, prior)):
                     direct = None
-                source = "disabled" if direct else configured
-                if direct:
+                contact_model = bool(contact_reply and local_first_messenger(cfg)
+                    and consented_for(lead, configured)
+                    and contact_pending_questions(profile_facts(lead, changed=changed), prior))
+                source = "disabled" if direct and not contact_model else configured
+                if contact_model:
+                    state, reply = "ai_pending", ""
+                elif direct:
                     state, reply = "pending", direct
                 elif small_talk_reply(body):
                     # Recovered greetings use the same local fast path as the
