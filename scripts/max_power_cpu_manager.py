@@ -308,6 +308,11 @@ def run_once(secret: str, plan: dict, public_key: str, last_preflight: dict,
         except (OSError, ValueError) as exc:
             LOG.warning("Estado neuronal no enviado: %s", type(exc).__name__)
 
+    # Legacy 0.8B remains an opt-in laboratory only. Never compete with
+    # the actual 4B model during ordinary MAX POWER sessions.
+    if os.environ.get("GALANT_MAX_POWER_08B_AUTOMATIC", "yes").lower() != "yes":
+        report("legacy_lab_disabled")
+        return
     if plan.get("messenger_busy"):
         report("messenger_priority")
         return
