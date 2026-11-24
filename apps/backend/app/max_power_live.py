@@ -67,3 +67,61 @@ def messenger_series(trials):
                        "gains":gains, "regressions":regressions, "safety_regressions":safety,
                        "net_cases":gains-regressions})
     return points
+
+
+def cpu_event_blocks(evidence, recorded_at, now):
+    """A turn request is not a running process. Keep real drain protection."""
+    drain = number(evidence.get("draining_until_epoch"))
+    if drain is not None and drain > now.timestamp():
+        return True
+    age = (now - recorded_at).total_seconds()
+    return (0 <= age <= 55 and evidence.get("state") in
+            {"training", "training_synthetic", "preparing_synthetic", "pausing"})
+
+
+def synthetic_4b_series(trials):
+    """Separate laboratory measurements: never count as real-chat quality."""
+    points, seen = [], set()
+    before = after = 0
+    for trial in trials:
+        m = trial.metrics or {}
+        key = (m.get("dataset_sha256"), m.get("protocol"), m.get("case_id"))
+        a = (m.get("baseline") or {}).get("understanding_check")
+        b = (m.get("candidate") or {}).get("understanding_check")
+        if (trial.status != "completed" or not trial.completed_at or not all(key)
+                or key in seen or m.get("split") != "holdout"
+                or str(m.get("model", "")).casefold() != "qwen3.5:4b-q4_k_m"
+                or type(a) is not bool or type(b) is not bool):
+            continue
+        seen.add(key)
+        before += int(a)
+        after += int(b)
+        n = len(seen)
+        points.append({"at":trial.completed_at, "pairs":n,
+                       "baseline":round(100*before/n,2),
+                       "candidate":round(100*after/n,2),
+                       "preliminary":True})
+    return points
+
+
+def latency_series(trials):
+    points = []
+    for trial in trials:
+        m = trial.metrics or {}
+        if trial.status != "completed" or not trial.completed_at:
+            continue
+        if str(m.get("model", "")).casefold() != "qwen3.5:4b-q4_k_m":
+            continue
+        for phase, key in (("reference", "before_timing_ms"), ("candidate", "after_timing_ms")):
+            measured = m.get(key) or {}
+            total = number(measured.get("ollama_total_ms"))
+            if total is None or total <= 0:
+                continue
+            point = {"at":trial.completed_at, "phase":phase,
+                     "total_seconds":round(total/1000,3)}
+            for field in ("load_ms", "prompt_ms", "generation_ms"):
+                value = number(measured.get(field))
+                if value is not None:
+                    point[field.replace("_ms","_seconds")] = round(value/1000,3)
+            points.append(point)
+    return points
