@@ -13,7 +13,7 @@ from sqlalchemy.orm import Session
 from .facebook_ai import REPLY_INSTRUCTIONS
 from .facebook_crm_models import FacebookLead, FacebookLeadTrace, FacebookLeadTrade
 from .galancito_flow import grounded_reply, numbered_menu
-from .galancito_intake import (UNKNOWN_NAMES, identity_reply, natural_messenger_reply,
+from .galancito_intake import (UNKNOWN_NAMES, acceptable_intake_draft, identity_reply, natural_messenger_reply,
                                model_intake_candidate, needs_deeper_response, next_intake_reply, small_talk_reply)
 from .galancito_links import suggest_requirements
 from .galancito_memory import apply_messenger_message, capture_voluntary_contact, professional_message, profile_facts
@@ -189,6 +189,9 @@ def evaluate(case, aliases, knowledge, answer=None, judge=None, corrector=None, 
                 grounded = grounded_reply(draft, context)
                 unsupported_draft = grounded is None
                 natural = natural_messenger_reply(grounded) if grounded and not numbered_draft else ""
+                if natural and model_intake_candidate(clean, facts, previous, prior) and not acceptable_intake_draft(natural, facts):
+                    errors["respuesta"] += 1
+                    natural = ""
                 if natural and not private_data(natural):
                     fast = natural
                     source = "model" if grounded == draft.strip()[:550] else "fallback"
