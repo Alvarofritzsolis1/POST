@@ -5,6 +5,7 @@ import hashlib
 import json
 import math
 import os
+from galancito_4b_validation import evaluate_conversations, paired_report
 from uuid import uuid4
 from pathlib import Path
 from time import monotonic, time
@@ -34,8 +35,10 @@ def main():
     parser.add_argument("--allow-download", action="store_true", help="Download public model weights only")
     parser.add_argument("--steps", type=int, choices=range(1, 11), default=10)
     parser.add_argument("--threads", type=int, choices=(2, 4), default=4)
+    parser.add_argument("--conversation-eval", action="store_true")
+    parser.add_argument("--output", type=Path, default=Path("/private/4b-probe"))
     args = parser.parse_args()
-    root = Path("/private/4b-probe")
+    root = args.output
     root.mkdir(parents=True, exist_ok=True)
     # No chat or private dataset is used. Never overwrite production checkpoints.
     report_path = root / "latest.json"
@@ -191,6 +194,38 @@ def main():
         report["status"] = "candidate_evaluation"
         write_report(report_path, report)
         report["holdout_loss_after"] = heldout_loss()
+        if args.conversation_eval:
+            report["status"] = "conversation_evaluation"
+            write_report(report_path, report)
+            model.eval()
+            def guard():
+                if should_pause(snapshot(root)):
+                    raise RuntimeError("Memory reserve below safe limit during generation")
+            def generate(history):
+                guard()
+                prompt = tokenizer.apply_chat_template(history, tokenize=False,
+                    add_generation_prompt=True, enable_thinking=False)
+                ids = tokenizer(prompt, return_tensors="pt", add_special_tokens=False)["input_ids"]
+                if ids.shape[1] > 1536:
+                    raise RuntimeError("Evaluation conversation exceeds context limit")
+                t = monotonic()
+                with torch.no_grad():
+                    out = model.generate(input_ids=ids, max_new_tokens=96, do_sample=False,
+                                         pad_token_id=tokenizer.eos_token_id, use_cache=True)
+                return tokenizer.decode(out[0, ids.shape[1]:], skip_special_tokens=True), monotonic()-t
+            # Actual adapter on/off on exactly the same loaded base. Do not
+            # compare a trained HF model against an unrelated Ollama baseline.
+            with model.disable_adapter():
+                base = evaluate_conversations(generate, before_turn=guard)
+                reference, _ = generate([{"role":"user","content":"¿Qué significa cuadrilla?"}])
+            candidate = evaluate_conversations(generate, before_turn=guard)
+            with model.disable_adapter():
+                restored, _ = generate([{"role":"user","content":"¿Qué significa cuadrilla?"}])
+            validation = paired_report(base, candidate)
+            validation["rollback_output_equal"] = reference == restored
+            validation["lab_pass"] = validation["lab_pass"] and validation["rollback_output_equal"]
+            report["conversation_validation"] = validation
+            report["candidate_status"] = "lab_candidate" if validation["lab_pass"] else "rejected"
         report["status"] = "completed" if report["adapter_changed"] else "failed"
     except Exception as exc:
         report["status"] = "failed"
