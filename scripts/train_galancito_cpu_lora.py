@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
-"""Real, opt-in CPU LoRA on Qwen3.5-0.8B with an isolated 5GiB cgroup.
+"""Real, opt-in CPU LoRA on Qwen3.5-2B with an isolated 5GiB cgroup.
 
-NOT QLoRA: no 4-bit GPU, no updates to production Qwen3.5-4B.
+Trains isolated LoRA adapters; production keeps serving the base model.
 Never reads Messenger or contractor records. Requires signed, private JSONL.
 No training on --preflight, --dataset-only, or without --execute.
 """
@@ -21,10 +21,9 @@ sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "apps" / "backend")
 
 from galant_cpu_lora_resources import capacity_gate, process_memory_mb, should_pause, snapshot
 from galancito_lora_progress import ProgressReporter
-from app.galancito_finetune_dataset import load_approved, verified_training_manifest, verified_match
+from app.galancito_finetune_dataset import MODEL, load_approved, verified_training_manifest, verified_match
 from max_power_synthetic_lab import bounded_evaluation, verify_dataset
 
-MODEL = "Qwen/Qwen3.5-0.8B"
 SYSTEM = "Responde en español con precisión. No inventes información ni identificadores."
 MIN_TRAIN = 30
 MAX_STEPS = 1000
@@ -35,7 +34,7 @@ def args_parser():
     parser = argparse.ArgumentParser(description="GALANT · entrenamiento LoRA CPU auténtico y aislado")
     parser.add_argument("--preflight", action="store_true", help="Recursos medidos, sin entrenar ni descargar modelos")
     parser.add_argument("--dataset", help="Ejemplos reales anonimizados y autorizados, JSONL 0600")
-    parser.add_argument("--approval-manifest", help="Manifest Ed25519 firmado para Qwen3.5-0.8B")
+    parser.add_argument("--approval-manifest", help="Manifest Ed25519 firmado para Qwen3.5-2B")
     parser.add_argument("--output", help="Directorio privado ABSOLUTO de checkpoints y métricas")
     parser.add_argument("--execute", action="store_true", help="Habilita actualizaciones REALES de pesos LoRA por CPU")
     parser.add_argument("--synthetic-development", action="store_true",
@@ -212,7 +211,7 @@ def main(argv=None):
             reporter = ProgressReporter(
                 Path("/private") / "preflights" / report_id,
                 run_id=report_id, org_id=args.telemetry_org,
-                dataset_sha256="0" * 64, model=MODEL,
+                dataset_sha256="0" * 64, model=MODEL, device="cpu",
                 telemetry_url=args.telemetry_url,
                 telemetry_token=os.environ.get("GALANT_FINETUNE_TELEMETRY_TOKEN"))
             try:
@@ -265,7 +264,7 @@ def main(argv=None):
                 os.environ.get("GALANT_DATASET_APPROVAL_PUBLIC_KEY", ""),
                 dataset_digest=bundle["dataset_digest"], training_model=MODEL)
         except ValueError as exc:
-            raise SystemExit("Dataset no autorizado para Qwen3.5-0.8B: " + str(exc)) from exc
+            raise SystemExit("Dataset no autorizado para Qwen3.5-2B: " + str(exc)) from exc
     # Heavy ML libraries load only *after* permission and hardware gates.
     try:
         import torch
@@ -287,7 +286,7 @@ def main(argv=None):
     torch.set_num_interop_threads(1)
     reporter = ProgressReporter(
         target,run_id=metadata["run_id"],org_id=args.telemetry_org,
-        dataset_sha256=bundle["dataset_digest"],model=MODEL,
+        dataset_sha256=bundle["dataset_digest"],model=MODEL, device="cpu",
         telemetry_url=args.telemetry_url,
         telemetry_token=os.environ.get("GALANT_FINETUNE_TELEMETRY_TOKEN") if args.telemetry_url else None)
     reporter.data_kind = kind  # Propagate provenance to signed telemetry, never infer consent.
@@ -300,9 +299,9 @@ def main(argv=None):
         tokenizer = AutoTokenizer.from_pretrained(MODEL, trust_remote_code=False)
         if tokenizer.pad_token is None:
             tokenizer.pad_token = tokenizer.eos_token
-        # Use the OFFICIAL Qwen text-only class with the OFFICIAL 0.8B
+        # Use the OFFICIAL Qwen text-only class with the 2B
         # checkpoint, as tested by Hugging Face Transformers. This avoids
-        # loading the vision tower, critical for our 5GiB cgroup.
+        # loading the vision tower, to reduce memory usage.
         model, loading = Qwen3_5ForCausalLM.from_pretrained(
             MODEL, dtype=torch.bfloat16, low_cpu_mem_usage=True,
             trust_remote_code=False, device_map=None,

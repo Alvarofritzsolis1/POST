@@ -412,7 +412,7 @@ def test_recovery_probe_only_for_matching_incomplete_checkpoint(tmp_path, monkey
     mod = manager()
     digest = "a" * 64
     root = tmp_path / str(uuid4())
-    path = root / "runs" / ("cpu-automatic-" + digest[:24])
+    path = root / "runs" / (mod.RUN_PREFIX + digest[:24])
     checkpoint = path / "checkpoints" / "checkpoint-2"
     checkpoint.mkdir(parents=True)
     (path / "run-metadata.json").write_text(json.dumps({

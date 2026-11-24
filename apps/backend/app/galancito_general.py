@@ -1,14 +1,13 @@
-"""One GALANT general assistant: verified tools -> Qwen 4B -> approved API.
+"""One GALANT general assistant: verified tools -> Qwen 2B -> approved API.
 
 Never route tenant records, personal data or privileged document contents
 to external providers. Messenger remains a separate operational service.
-The production model is strictly Qwen3.5 4B; no silent downgrade to 1.7B.
+Qwen3.5 2B provides local advice.
 """
 import re
 from .network_service import key
 from .galancito_triage import private_data, analyze, quick_reply, plain
 
-QWEN_4B = "qwen3.5:4b-q4_K_M"
 GENERAL_INSTRUCTIONS = """Eres Galancito, asistente único de la plataforma GALANT en Chile.
 Contesta en español natural, claro y breve; si solicitan detalles, estructura el análisis.
 No afirmes que eres humano. No menciones ser bot en cada respuesta.

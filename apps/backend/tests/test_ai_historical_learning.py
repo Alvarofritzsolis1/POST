@@ -43,7 +43,7 @@ def test_historical_inventory_is_private_and_includes_old_records(ai_env):
         db.flush()
         db.add(AIRealPracticeTrial(org_id=org_id, review_id=review.id,
                                    reviewer_id=reviewer.id, channel="messenger",
-                                   criterion="context", model="qwen3.5:4b-q4_K_M",
+                                   criterion="context", model="qwen3.5:2b-q4_K_M",
                                    elapsed_ms=1500, outcome="better", created_at=old))
 
     assert client.get(BASE + "/history").status_code == 401
@@ -181,7 +181,7 @@ def test_next_practice_uses_historic_reviews_to_prioritize_recent_evidence(ai_en
             db.add(AssistantRun(
                 org_id=org_id, channel="messenger", source="ai",
                 elapsed_ms=1234, created_at=now,
-                timings={"response_model": "qwen3.5:4b-q4_K_M",
+                timings={"response_model": "qwen3.5:2b-q4_K_M",
                          "outbound_message_id": outbound.id}))
             db.add(AIResponseReview(
                 org_id=org_id, reviewer_id=reviewer.id, channel="messenger",
@@ -265,7 +265,7 @@ def test_model_does_not_claim_learning_when_context_was_truncated(ai_env):
         db.flush()
         db.add(AssistantRun(org_id=org_id, channel="messenger",
                             source="ai", elapsed_ms=2500,
-                            timings={"response_model": "qwen3.5:4b-q4_K_M",
+                            timings={"response_model": "qwen3.5:2b-q4_K_M",
                                      "context_truncated": True,
                                      "outbound_message_id": reply.id}))
         db.add(AIResponseReview(

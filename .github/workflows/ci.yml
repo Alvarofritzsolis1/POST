@@ -44,7 +44,7 @@ jobs:
           tests/test_galancito_cpu_lora.py
           tests/test_max_power_one_button_cpu.py
           tests/test_max_power_one_button_readiness.py
-          tests/test_max_power_4b_probe.py
+          tests/test_max_power_2b_probe.py
           tests/test_max_power_synthetic_lab.py
       - name: Comprobar sintaxis del controlador y exportación
         run: python -m compileall -q app/max_power_*.py
@@ -256,14 +256,14 @@ jobs:
                     "-f","docker-compose.preview.yml","config","--format","json"]
           managers=json.loads(subprocess.check_output(profiled,text=True))["services"]
           mgr=managers["cpu-lora-manager"]
-          fourb=managers["cpu-4b-manager"]
-          assert not fourb.get("ports")
-          assert "DATABASE_URL" not in fourb.get("environment",{})
-          assert "FACEBOOK_PAGE_TOKEN" not in fourb.get("environment",{})
-          assert not any("/var/run/docker.sock" in str(x) for x in fourb.get("volumes",[]))
-          assert str(fourb["mem_limit"]).lower() in ("8g","8589934592")
-          assert any(x["target"]=="/4b-control" for x in fourb["volumes"])
-          assert any(x["target"]=="/4b-control" for x in managers["max-power-controller"]["volumes"])
+          neural=managers["cpu-2b-manager"]
+          assert not neural.get("ports")
+          assert "DATABASE_URL" not in neural.get("environment",{})
+          assert "FACEBOOK_PAGE_TOKEN" not in neural.get("environment",{})
+          assert not any("/var/run/docker.sock" in str(x) for x in neural.get("volumes",[]))
+          assert str(neural["mem_limit"]).lower() in ("5g","5368709120")
+          assert any(x["target"]=="/2b-control" for x in neural["volumes"])
+          assert any(x["target"]=="/2b-control" for x in managers["max-power-controller"]["volumes"])
           assert not mgr.get("ports")
           assert "DATABASE_URL" not in mgr["environment"]
           assert "FACEBOOK_PAGE_TOKEN" not in mgr["environment"]
@@ -273,7 +273,7 @@ jobs:
           assert not c["services"]["max-power-controller"].get("ports")
           assert c["services"]["max-power-controller"]["environment"]["GALANT_MAX_POWER_ISOLATED"] == "true"
           assert not c["services"]["galancito-training-ollama"].get("ports")
-          assert str(c["services"]["galancito-training-ollama"]["mem_limit"]).lower() in ("5g","5368709120")
+          assert str(c["services"]["galancito-training-ollama"]["mem_limit"]).lower() in ("3g","3221225472")
           assert "FACEBOOK_PAGE_TOKEN" not in c["services"]["api"]["environment"]
           assert "FACEBOOK_PAGE_TOKEN" in c["services"]["facebook-publisher"]["environment"]
           for key,v in c["services"].items():

@@ -1,6 +1,8 @@
 """Time series from completed, bounded experiments; never an invented knowledge score."""
 from math import isfinite
 
+from .galancito_model_config import QWEN_2B
+
 RESOURCE_EVENT = "resource_sample"
 RESOURCE_KEYS = ("host_cpu_percent", "host_ram_mb", "available_ram_mb",
                  "worker_ram_mb", "disk_free_mb", "cpu_pressure_avg10",
@@ -82,7 +84,7 @@ def cpu_event_blocks(evidence, recorded_at, now):
             {"training", "training_synthetic", "preparing_synthetic", "pausing"})
 
 
-def synthetic_4b_series(trials):
+def synthetic_2b_series(trials):
     """Separate laboratory measurements: never count as real-chat quality."""
     points, seen = [], set()
     before = after = 0
@@ -93,7 +95,7 @@ def synthetic_4b_series(trials):
         b = (m.get("candidate") or {}).get("understanding_check")
         if (trial.status != "completed" or not trial.completed_at or not all(key)
                 or key in seen or m.get("split") != "holdout"
-                or str(m.get("model", "")).casefold() != "qwen3.5:4b-q4_k_m"
+                or str(m.get("model", "")).casefold() != "qwen3.5:2b-q4_k_m"
                 or type(a) is not bool or type(b) is not bool):
             continue
         seen.add(key)
@@ -113,7 +115,7 @@ def latency_series(trials):
         m = trial.metrics or {}
         if trial.status != "completed" or not trial.completed_at:
             continue
-        if str(m.get("model", "")).casefold() != "qwen3.5:4b-q4_k_m":
+        if str(m.get("model", "")).casefold() != "qwen3.5:2b-q4_k_m":
             continue
         for phase, key in (("reference", "before_timing_ms"), ("candidate", "after_timing_ms")):
             measured = m.get(key) or {}

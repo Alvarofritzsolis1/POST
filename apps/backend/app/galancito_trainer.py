@@ -16,7 +16,7 @@ from .config import settings
 from .db import SessionLocal
 from .facebook_crm_models import FacebookChatMessage
 from .galancito_local import generate_training_text, last_timings
-from .galancito_runtime import infer
+from .galancito_model_config import QWEN_2B
 from .galancito_memory import aware
 from .galancito_training import (DETAIL_DAYS, HISTORY_DAYS, LEASE_SECONDS, LOCAL_CONTEXT_LIMIT,
                                   LOCAL_OUTPUT_LIMIT, ResourceSampler, eligible_at, resource_slots)
@@ -153,6 +153,8 @@ def claim(factory, snapshot, *, maintenance=False, training_model=None, only_orc
         for row in rows:
             if row.lease and db.bind.dialect.name != "postgresql" and aware(row.lease_until) > now:
                 continue
+            if row.stop_for_model_change(now):
+                continue
             if row.attempts >= MAX_ATTEMPTS:
                 finish(row, "error", row.reason or "Se agotaron los reintentos del caso", now)
                 continue
@@ -183,14 +185,7 @@ def claim(factory, snapshot, *, maintenance=False, training_model=None, only_orc
             if slots and training_model is not None and any(
                 row.config.get(role, {}).get("id") == "ollama" for role in ("model", "judge", "corrector")
             ):
-                # The immutable round snapshot determines the actual model,
-                # including old rounds created before the Qwen3.5 upgrade.
-                targets = {row.config[role]["model"] for role in ("model", "judge", "corrector")
-                           if row.config.get(role, {}).get("id") == "ollama"}
-                if len(targets) != 1:
-                    slots, reason = 0, "La ronda contiene versiones Ollama diferentes"
-                else:
-                    reason = training_model.waiting_reason(snapshot["disk_free_mb"], next(iter(targets)))
+                reason = training_model.waiting_reason(snapshot["disk_free_mb"], QWEN_2B)
                 if reason:
                     slots = 0
             if not slots:
@@ -281,21 +276,8 @@ def _charge(factory, claim, spec, instructions, prompt, seed, *, role, sampler, 
                                       snapshot, isolated=row.config.get("orchestrator") == "max_power"),
                                   galancito_keep_alive="2m",
                                   galancito_local_model=spec["model"])
-            def invoke_local():
-                return (generate_training_text(instructions, prompt, seed, cfg, thinking=True)
-                        if thinking else generate_training_text(instructions, prompt, seed, cfg))
-            if spec["model"] == "qwen3.5:4b-q4_K_M":
-                # Same PostgreSQL gate as the authenticated GALANT chat and
-                # Messenger. Training cannot monopolize the shared 4B model.
-                try:
-                    with factory.begin() as inference_db:
-                        answer = infer(inference_db, invoke_local)
-                except RuntimeError as exc:
-                    if str(exc) == "Galancito está ocupado":
-                        raise Deferred("Chat real usando Ollama; práctica reprogramada") from None
-                    raise
-            else:
-                answer = invoke_local()
+            answer = (generate_training_text(instructions, prompt, seed, cfg, thinking=True)
+                      if thinking else generate_training_text(instructions, prompt, seed, cfg))
             measured = last_timings.get()
             counts = (measured.get("input_tokens"), measured.get("output_tokens"))
         else:
@@ -709,15 +691,24 @@ def process_next(factory=SessionLocal, sampler=None, *, maintenance=False, train
 
 def main():
     from . import main as _application  # Load related models before resolving SQLAlchemy FKs.
+    from . import max_power_2b_control as neural
 
     logging.basicConfig(level=logging.INFO)
     sampler = ResourceSampler()
     next_cleanup = 0
     training_model = TrainingModel()
+    coordinate = os.environ.get("GALANT_MAX_POWER_2B_COORDINATION") == "yes"
     while True:
         try:
+            slot = neural.lock() if coordinate else None
+            if coordinate and slot is None:
+                sleep(3)
+                continue
             maintenance = monotonic() >= next_cleanup
-            processed = process_next(sampler=sampler, maintenance=maintenance, training_model=training_model)
+            try:
+                processed = process_next(sampler=sampler, maintenance=maintenance, training_model=training_model)
+            finally:
+                neural.release(slot)
             if maintenance:
                 next_cleanup = monotonic() + 3600
             sleep(0.15 if processed else 3)

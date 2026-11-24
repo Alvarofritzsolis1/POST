@@ -218,6 +218,7 @@ export default function GalancitoWidget() {
           {entry.role === "assistant" && entry.source && <small className="galancito-source">
             {({
               verified_local: "Datos comprobados de GALANT",
+              ollama_2b: "Orientación de Qwen3.5 2B",
               ollama_4b: "Orientación de Qwen3.5 4B",
               external_api: "Análisis de API externa",
               public_web: "Búsqueda pública",
@@ -249,7 +250,7 @@ export default function GalancitoWidget() {
           {status?.general_model_ready
             ? <CheckCircle2 size={16} aria-hidden="true"/>
             : <AlertCircle size={16} aria-hidden="true"/>}
-          <strong>{status?.general_model_ready ? "Ollama 4B detectado" : "Modelo 4B no confirmado"}</strong>
+          <strong>{status?.general_model_ready ? "Qwen 2B detectado" : "Modelo 2B pendiente de verificar"}</strong>
         </div>
         {status?.can_teach && <div className="galancito-health" role="group" aria-label="Diagnóstico real de Ollama">
           <span>Estado: {({
@@ -258,7 +259,7 @@ export default function GalancitoWidget() {
           } as const)[status.local_model_status ?? "not_configured"]}</span>
           <button type="button" onClick={() => void testModel()}
             disabled={busy || probing || !status.local_ai_available}>
-            {probing ? "Comprobando…" : "Verificar modelo 4B"}
+            {probing ? "Comprobando…" : "Verificar Qwen 2B"}
           </button>
         </div>}
         {probeNotice && <p className="galancito-probe-notice" role="status">{probeNotice}</p>}
@@ -302,7 +303,7 @@ export default function GalancitoWidget() {
           {lastFailed && <button type="button" className="galancito-retry"
             onClick={() => { setMessage(lastFailed); setError(""); }}><RotateCcw size={14}/> Recuperar pregunta</button>}
         </div>}
-        <div className="galancito-safety"><ShieldCheck size={13}/> Solo lectura <span aria-hidden="true">·</span> <span>{status?.general_model_ready ? "Qwen 4B detectado" : "Modelo pendiente de verificar"}</span></div>
+        <div className="galancito-safety"><ShieldCheck size={13}/> Solo lectura <span aria-hidden="true">·</span> <span>{status?.general_model_ready ? "Qwen 2B detectado" : "Modelo pendiente de verificar"}</span></div>
       </form>
     </section>}
   </aside>;

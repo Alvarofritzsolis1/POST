@@ -108,8 +108,8 @@ def main():
         request("/api/chat", {"model": model, "keep_alive": 0}, timeout=10)
 
     available = {m["name"] for m in request("/api/tags")["models"]}
-    for model in ("qwen3:1.7b", "qwen3:0.6b", "granite3.3:2b"):
-        if args.compare_only and model != "qwen3:1.7b":
+    for model in ("qwen3.5:2b-q4_K_M", "qwen3:1.7b", "granite3.3:2b"):
+        if args.compare_only and model != "qwen3.5:2b-q4_K_M":
             continue
         if model not in available:
             report["model_info"][model] = {"state": "not installed; not downloaded"}
@@ -132,11 +132,11 @@ def main():
             chat(model, REPLY_INSTRUCTIONS, QUESTIONS[0], "cold", tokens=80, threads=1)
         for repeat in range(args.repeats):
             for question in QUESTIONS:
-                if model == "qwen3:1.7b":
+                if model == "qwen3.5:2b-q4_K_M":
                     chat(model, old, question, "baseline")
                 chat(model, REPLY_INSTRUCTIONS, question, "candidate", tokens=140 if args.compare_only else 80,
                      keep="2m" if args.compare_only else "20s", threads=1)
-        if model == "qwen3:1.7b" and not args.compare_only:
+        if model == "qwen3.5:2b-q4_K_M" and not args.compare_only:
             for tokens in (40, 60, 80, 140):
                 chat(model, REPLY_INSTRUCTIONS, QUESTIONS[0], "token_matrix", tokens=tokens, threads=1)
             for threads in (1, 2):
@@ -144,8 +144,8 @@ def main():
             with ThreadPoolExecutor(max_workers=3) as pool:
                 list(pool.map(lambda _: chat(model, REPLY_INSTRUCTIONS, QUESTIONS[0], "three_concurrent", tokens=60, threads=1), range(3)))
         unload(model)
-    if args.idle and "qwen3:1.7b" in available:
-        model = "qwen3:1.7b"
+    if args.idle and "qwen3.5:2b-q4_K_M" in available:
+        model = "qwen3.5:2b-q4_K_M"
         for keep in ("20s", "2m", "5m"):
             unload(model)
             chat(model, REPLY_INSTRUCTIONS, QUESTIONS[0], "residency_initial", tokens=60, keep=keep, threads=1)

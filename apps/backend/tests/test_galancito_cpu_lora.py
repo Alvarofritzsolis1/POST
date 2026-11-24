@@ -49,7 +49,7 @@ def test_cpu_lora_preflight_has_no_model_download_or_invented_steps(monkeypatch,
     assert out["mode"] == "cpu_lora_preflight_only"
     assert out["weights_changed"] is False
     assert out["ready"] is True
-    assert out["model"] == "Qwen/Qwen3.5-0.8B"
+    assert out["model"] == "Qwen/Qwen3.5-2B"
 
 
 def test_cpu_lora_parameter_limits_reject_unbounded_or_oversized_jobs():
@@ -76,7 +76,7 @@ def test_cpu_lora_output_is_private_and_recoverable_only_from_matching_checkpoin
     path, metadata_path, info, cp = module.safe_output(args,bundle,attest)
     assert cp is None
     assert metadata_path.stat().st_mode & 0o077 == 0
-    assert info["model"] == "Qwen/Qwen3.5-0.8B"
+    assert info["model"] == "Qwen/Qwen3.5-2B"
     assert info["dataset_sha256"] == "a"*64
     (path/"checkpoints"/"checkpoint-2").mkdir(parents=True)
     (path/"checkpoints"/"checkpoint-2"/"trainer_state.json").write_text("{}")
@@ -91,28 +91,29 @@ def test_cpu_lora_output_is_private_and_recoverable_only_from_matching_checkpoin
         module.safe_output(args,bundle,attest)
 
 
-def test_cpu_progress_is_measured_and_not_mislabeled_as_4b(tmp_path):
+def test_cpu_progress_is_identified_by_device(tmp_path):
     run = str(uuid4())
     reporter = ProgressReporter(tmp_path,run_id=run,org_id=None,
-                                dataset_sha256="c"*64,model="Qwen/Qwen3.5-0.8B")
+                                dataset_sha256="c"*64, model="Qwen/Qwen3.5-2B", device="cpu")
     a=reporter.emit("metric",step=1,total_steps=10,loss=2.3,cpu_memory_mb=1398.7,
                     worker_prompt="NOT PRIVATE DATA")
     b=reporter.emit("paused",step=2,total_steps=10,cpu_memory_mb=2030.5,
                     weights_trained=True)
     reporter.close()
-    assert a["model"] == "Qwen/Qwen3.5-0.8B"
+    assert a["model"] == "Qwen/Qwen3.5-2B"
+    assert a["device"] == "cpu"
     assert a["cpu_memory_mb"] == 1398.7
     assert "gpu_memory_mb" not in a
     assert "worker_prompt" not in a
     assert b["kind"] == "paused"
     assert b["weights_trained"] is True
     again=ProgressReporter(tmp_path,run_id=run,org_id=None,
-                           dataset_sha256="c"*64,model="Qwen/Qwen3.5-0.8B")
+                           dataset_sha256="c"*64, model="Qwen/Qwen3.5-2B", device="cpu")
     assert again.sequence == 2
     again.close()
     with pytest.raises(ValueError,match="incompatible"):
         ProgressReporter(tmp_path,run_id=run,org_id=None,
-                         dataset_sha256="c"*64,model="Qwen/Qwen3.5-4B")
+                         dataset_sha256="c"*64, model="Qwen/Qwen3.5-2B", device="gpu")
 
 
 def test_cpu_training_script_requires_real_gradients_and_human_signed_dataset():
@@ -223,7 +224,7 @@ def test_telemetry_secret_is_created_once_without_printing_or_exposing_it(tmp_pa
 
 def test_cpu_preflight_event_is_not_weight_learning(tmp_path):
     reporter = ProgressReporter(tmp_path, run_id=str(uuid4()), org_id=None,
-                                dataset_sha256="0" * 64, model="Qwen/Qwen3.5-0.8B")
+                                dataset_sha256="0" * 64, model="Qwen/Qwen3.5-2B")
     item = reporter.emit(
         "preflight", step=0, total_steps=0, preflight_ready=False,
         host_free_mb=5120, cgroup_free_mb=4400, cgroup_limit_mb=5120,
@@ -255,7 +256,7 @@ def test_inactive_file_cache_is_reclaimable_but_anonymous_memory_is_not(tmp_path
 
 def test_baseline_progress_is_measured_without_optimizer_steps(tmp_path):
     reporter = ProgressReporter(tmp_path, run_id=str(uuid4()), org_id=None,
-                                dataset_sha256="a"*64, model="Qwen/Qwen3.5-0.8B")
+                                dataset_sha256="a"*64, model="Qwen/Qwen3.5-2B")
     point = reporter.emit("baseline_progress", step=0, total_steps=40,
                           evaluation_done=3, evaluation_total=12, cpu_memory_mb=1900)
     reporter.close()

@@ -19,6 +19,8 @@ from urllib.parse import urlsplit
 from urllib.request import Request, urlopen
 from uuid import UUID
 
+from app.galancito_model_config import QWEN_TRAINING_MODEL
+
 KINDS = frozenset(("preflight", "start", "baseline_progress", "baseline", "metric", "eval", "checkpoint", "finished", "failed", "paused"))
 NUMBERS = frozenset((
     "epoch", "loss", "eval_loss", "learning_rate", "grad_norm",
@@ -43,16 +45,17 @@ class ProgressReporter:
     def __init__(self, directory: Path, *, run_id: str, org_id: str | None,
                  dataset_sha256: str, telemetry_url: str | None = None,
                  telemetry_token: str | None = None,
-                 model: str = "Qwen/Qwen3.5-4B"):
+                 model: str = QWEN_TRAINING_MODEL, device: str = "gpu"):
         self.directory = Path(directory)
         self.directory.mkdir(parents=True, exist_ok=True, mode=0o700)
         self.path = self.directory / "training-metrics.jsonl"
         self.run_id = str(UUID(run_id))
         self.org_id = str(UUID(org_id)) if org_id else None
         self.digest = dataset_sha256
-        if model not in {"Qwen/Qwen3.5-4B", "Qwen/Qwen3.5-0.8B"}:
+        if model != QWEN_TRAINING_MODEL or device not in {"cpu", "gpu"}:
             raise ValueError("Modelo sin perfil de telemetría autorizado")
         self.model = model
+        self.device = device
         self.url = telemetry_url
         self.token = telemetry_token
         if bool(self.url) != bool(self.token) or bool(self.url) != bool(self.org_id):
@@ -84,7 +87,7 @@ class ProgressReporter:
                     continue
                 item = json.loads(line)
                 if (item.get("run_id") != self.run_id or item.get("dataset_sha256") != self.digest
-                        or item.get("model") != self.model):
+                        or item.get("model") != self.model or item.get("device") != self.device):
                     raise ValueError("Historial de métricas incompatible con esta ejecución")
                 self.sequence = max(self.sequence, int(item["sequence"]))
                 if self.url:
@@ -105,7 +108,7 @@ class ProgressReporter:
         entry = {
             "org_id": self.org_id, "run_id": self.run_id,
             "sequence": self.sequence, "kind": kind,
-            "dataset_sha256": self.digest, "model": self.model,
+            "dataset_sha256": self.digest, "model": self.model, "device": self.device,
             "step": int(step), "total_steps": int(total_steps),
             "weights_trained": bool(weights_trained),
             "candidate_accepted": bool(candidate_accepted),

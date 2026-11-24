@@ -13,7 +13,7 @@ permissions:
   contents: read
 jobs:
   gradiente_cpu:
-    name: Actualizar pesos sintéticos realmente con Qwen 0.8B en 5 GiB
+    name: Actualizar pesos sintéticos realmente con Qwen 2B en 5 GiB
     runs-on: ubuntu-24.04
     timeout-minutes: 55
     steps:
@@ -74,7 +74,7 @@ jobs:
           output=Path("/private/ci")/os.environ["LAB_DIR"]/"runs/ci-gradient-smoke"
           report=json.loads((output/"evaluation.json").read_text())
           assert report["data_kind"]=="curated_synthetic", report
-          assert report["base_model"]=="Qwen/Qwen3.5-0.8B", report
+          assert report["base_model"]=="Qwen/Qwen3.5-2B", report
           assert report["weights_trained"] is True
           assert report["new_optimizer_steps"]==4, report
           assert report["optimizer_start_sha256"] != report["optimizer_end_sha256"]
@@ -195,8 +195,8 @@ jobs:
         run: |
           sudo rm -rf -- "$RUNNER_TEMP/maxpower-private"
 
-  qwen4b_aislado:
-    name: Inferencia REAL Qwen 3.5 4B aislada; sin datos ni servicios de GALANT
+  qwen2b_aislado:
+    name: Inferencia REAL Qwen 3.5 2B aislada; sin datos ni servicios de GALANT
     runs-on: ubuntu-24.04
     timeout-minutes: 35
     steps:
@@ -210,8 +210,8 @@ jobs:
         shell: bash
         run: |
           set -Eeuo pipefail
-          docker run -d --name galant-maxpower-qwen4b-qa \
-            --memory 7g --cpus 2 --pids-limit 128 \
+          docker run -d --name galant-maxpower-qwen2b-qa \
+            --memory 3g --memory-swap 3g --cpus 2 --pids-limit 128 \
             --security-opt no-new-privileges --cap-drop ALL \
             -p 127.0.0.1:11536:11434 ollama/ollama:latest serve
           for i in {1..30}; do
@@ -221,8 +221,8 @@ jobs:
             sleep 2
           done
           curl -fsS --max-time 4 http://127.0.0.1:11536/api/tags >/dev/null
-      - name: Descargar Qwen3.5 4B solo para QA, nunca desde Messenger
-        run: docker exec galant-maxpower-qwen4b-qa ollama pull qwen3.5:4b-q4_K_M
+      - name: Descargar Qwen3.5 2B solo para QA, nunca desde Messenger
+        run: docker exec galant-maxpower-qwen2b-qa ollama pull qwen3.5:2b-q4_K_M
       - name: Verificar inferencia, modelo exacto, respuesta y ausencia de montos inventados
         shell: bash
         run: |
@@ -238,7 +238,7 @@ jobs:
                "Sin el aviso exacto no se conoce el sueldo. No inventes cifras; pide identificar el aviso.")
           )
           for i,(prompt,task) in enumerate(prompts,1):
-              body={"model":"qwen3.5:4b-q4_K_M", "stream":False,
+              body={"model":"qwen3.5:2b-q4_K_M", "stream":False,
                     "think":False, "keep_alive":"1m",
                     "messages":[{"role":"system","content":(
                       "Eres Galancito, ayudas a personas de oficios en Chile. "
@@ -252,17 +252,17 @@ jobs:
               with urlopen(request,timeout=360) as response:
                   answer=json.load(response)
               elapsed=round((time.monotonic()-started)*1000)
-              assert answer.get("model")=="qwen3.5:4b-q4_K_M", answer.get("model")
+              assert answer.get("model")=="qwen3.5:2b-q4_K_M", answer.get("model")
               text=(answer.get("message") or {}).get("content","").strip()
               assert 10<=len(text)<=650, "Sin respuesta útil"
               assert "<think>" not in text.lower()
               assert not re.search(r"\b(asistente virtual|soy un bot)\b",text,re.I)
               if i==2:
                   assert not re.search(r"\$\s*\d|\b\d[\d.,]+\s*(?:pesos|clp)\b",text,re.I), "Pago inventado"
-              print(f"QWEN4B_QA_{i}=respuesta_verificable LATENCIA_MS={elapsed} CARACTERES={len(text)}")
-          print("QWEN4B_QA=real_model_ran_privately_no_production_changes")
+              print(f"QWEN2B_QA_{i}=respuesta_verificable LATENCIA_MS={elapsed} CARACTERES={len(text)}")
+          print("QWEN2B_QA=real_model_ran_privately_no_production_changes")
           PY
-      - name: Probar el cliente Qwen 4B real de MAX POWER (no solo Ollama)
+      - name: Probar el cliente Qwen 2B real de MAX POWER (no solo Ollama)
         shell: bash
         run: |
           set -Eeuo pipefail
@@ -272,20 +272,20 @@ jobs:
           from types import SimpleNamespace
           sys.path.insert(0,"apps/backend")
           from app import galancito_local as client
-          QWEN_4B="qwen3.5:4b-q4_K_M"
+          QWEN_2B="qwen3.5:2b-q4_K_M"
           assert client.MAX_POWER_ISOLATED is True
           # Isolated GitHub runner endpoint, NEVER a production service.
           client.TRAINING_OLLAMA="http://127.0.0.1:11536"
-          cfg=SimpleNamespace(galancito_local_model=QWEN_4B,
+          cfg=SimpleNamespace(galancito_local_model=QWEN_2B,
               galancito_keep_alive="1m",galancito_num_ctx=1024,
               galancito_num_predict=96,galancito_num_thread=2)
           reply=client.generate_training_text(
               "Asesor de oficios. Español claro, amable, una pregunta a la vez. Sin suponer cupos ni pagos.",
               "Hola, soy electricista, ¿cómo puedo ofrecer mis servicios?",25,cfg,thinking=False)
           source=client.last_timings.get().get("response_model")
-          assert source==QWEN_4B,(source,repr(reply))
+          assert source==QWEN_2B,(source,repr(reply))
           assert isinstance(reply,str) and len(reply.strip())>=10
-          print("MAX_POWER_QWEN4B_CLIENT=verified_real_isolated_inference")
+          print("MAX_POWER_QWEN2B_CLIENT=verified_real_isolated_inference")
           PY
 
       - name: Verificar mensajes difíciles usando las instrucciones REALES de Messenger
@@ -314,7 +314,7 @@ jobs:
           )
           url="http://127.0.0.1:11536/api/chat"
           for i,(question,case) in enumerate(cases,1):
-              body={"model":"qwen3.5:4b-q4_K_M","stream":False,"think":False,
+              body={"model":"qwen3.5:2b-q4_K_M","stream":False,"think":False,
                     "keep_alive":"1m",
                     "messages":[{"role":"system","content":instruction},
                                 {"role":"user","content":question}],
@@ -326,7 +326,7 @@ jobs:
               with urlopen(req,timeout=360) as response:
                   result=json.load(response)
               reply=(result.get("message") or {}).get("content","").strip()
-              assert result.get("model")=="qwen3.5:4b-q4_K_M"
+              assert result.get("model")=="qwen3.5:2b-q4_K_M"
               assert 8<len(reply)<=600,(case,repr(reply))
               assert "<think>" not in reply.lower()
               assert not re.search(r"(?i)\bsoy (?:un |el )?(?:bot|asistente virtual)\b",reply)
@@ -337,12 +337,12 @@ jobs:
                   assert not re.search(r"(?i)ya (?:registr[ée]|contrat[ée])",reply),case
               if case=="human":
                   assert not re.search(r"(?i)ya (?:te )?(?:deriv[ée]|contact[ée])",reply),case
-              print("MESSENGER_QWEN4B_REAL_POLICY_"+str(i)
+              print("MESSENGER_QWEN2B_REAL_POLICY_"+str(i)
                     +"=respuesta_verificable; caracteres="+str(len(reply))
                     +"; ms="+str(int((time.monotonic()-started)*1000)))
-          print("MESSENGER_QWEN4B_REAL_POLICY=8_scenarios_checked_no_prod_change")
+          print("MESSENGER_QWEN2B_REAL_POLICY=8_scenarios_checked_no_prod_change")
           PY
 
       - name: Eliminar Ollama de pruebas
         if: always()
-        run: docker rm -f galant-maxpower-qwen4b-qa || true
+        run: docker rm -f galant-maxpower-qwen2b-qa || true

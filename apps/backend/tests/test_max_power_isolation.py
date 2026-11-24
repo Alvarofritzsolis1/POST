@@ -1,4 +1,4 @@
-"""MAX POWER must never route its 4B inference to production Ollama."""
+"""MAX POWER must never route its 2B inference to production Ollama."""
 from types import SimpleNamespace
 import pytest
 from app import galancito_local as local
@@ -8,20 +8,19 @@ from app import max_power_messenger as messenger
 
 def test_model_download_and_status_use_isolated_ollama(monkeypatch):
     monkeypatch.setattr(training, "MAX_POWER_ISOLATED", True)
-    url = training._request("/api/show", {"model": training.ADVANCED_MODEL},
-                            training.ADVANCED_MODEL)
+    url = training._request("/api/show", {"model": training.MODEL})
     assert url.full_url.startswith("http://galancito-training-ollama:11434/")
     assert "galancito-ollama:11434" not in url.full_url.replace("galancito-training-ollama", "")
 
 
-def test_training_inference_routes_4b_to_isolated_service(monkeypatch):
+def test_training_inference_routes_2b_to_isolated_service(monkeypatch):
     monkeypatch.setattr(local, "MAX_POWER_ISOLATED", True)
     captured = {}
     def fake_generate(instructions, data, max_chars, cfg, **kwargs):
         captured.update(kwargs)
         return "Ensayo local"
     monkeypatch.setattr(local, "_generate", fake_generate)
-    cfg = SimpleNamespace(galancito_local_model=training.ADVANCED_MODEL)
+    cfg = SimpleNamespace(galancito_local_model=training.MODEL)
     answer = local.generate_training_text("Eres Galancito", "Hola", 41, cfg)
     assert answer == "Ensayo local"
     assert captured["url"] == local.TRAINING_OLLAMA + "/api/chat"
@@ -54,7 +53,7 @@ def test_max_power_timeout_tracks_token_budget_without_extending_messenger(monke
     monkeypatch.setattr(local._opener, "open", fail_after_timeout)
     cfg = SimpleNamespace(galancito_num_ctx=2048, galancito_num_predict=320,
                           galancito_num_thread=2, galancito_keep_alive="2m",
-                          galancito_local_model="qwen3.5:4b-q4_K_M")
+                          galancito_local_model="qwen3.5:2b-q4_K_M")
     with pytest.raises(RuntimeError, match="Tiempo de espera agotado en Ollama de práctica") as err:
         local.generate_training_text("Cálculo", "Datos reales", 42, cfg, thinking=True)
     assert "internal socket details" not in str(err.value)

@@ -31,7 +31,8 @@ from .galancito_local import (last_timings, model_status, installed_model_status
                               generate_local_text, interactive_timeout_seconds)
 from .galancito_runtime import infer, record_run
 from .galancito_internal_live import internal_reply
-from .galancito_general import QWEN_4B, external_safe, is_complex, needs_public_web
+from .galancito_general import external_safe, is_complex, needs_public_web
+from .galancito_model_config import QWEN_2B
 from .galancito_general_runtime import general_answer, external_ready, internal_names_for_privacy
 from .galancito_web import WebSearchUnavailable, public_search, format_public_search, web_available
 from .galancito_reports import MIME_TYPES, SUPPORTED_REPORTS, internal_report, export_internal_report
@@ -191,7 +192,7 @@ def galancito_status(user: User = Depends(authorized_user), db: Session = Depend
         db.commit()
     cfg = settings()
     available = galancito_red_ai_available(cfg)
-    team_available = (cfg.galancito_local_model != "qwen3.5:4b-q4_K_M" and
+    team_available = (not cfg.galancito_local_ai_enabled and
                       orchestration_available(db, user.org_id, "red_obras"))
     policy = db.get(AIOrchestration, user.org_id)
     selected_team = bool(policy and policy.enabled and (policy.task_routes or {}).get("red_obras"))
@@ -207,9 +208,9 @@ def galancito_status(user: User = Depends(authorized_user), db: Session = Depend
             "local_ai_available": cfg.galancito_local_ai_enabled,
             "local_model_status": local_state,
             "general_chat_available": user.role in {"admin", "resident"},
-            "general_model": QWEN_4B,
+            "general_model": QWEN_2B,
             "general_model_ready": (cfg.galancito_local_ai_enabled and
-                                    cfg.galancito_local_model == QWEN_4B and
+                                    cfg.galancito_local_model == QWEN_2B and
                                     local_status.get("state") == "available" and
                                     local_status.get("loaded") is True),
             "complex_api_available": external_ready(db, user),
@@ -230,7 +231,7 @@ def diagnose_local_model(user: User = Depends(authorized_user),
                          db: Session = Depends(get_db)):
     """Read-only live Ollama diagnostic: installation, actual model and inference.
 
-    A configured model name or HTTP 200 alone is NOT proof of a real Qwen4B
+    A configured model name or HTTP 200 alone is NOT proof of a real Qwen 2B
     response. We check the Ollama model registry, run inference, then require
     the exact model reported by Ollama itself. Never returns model text.
     """
@@ -238,22 +239,22 @@ def diagnose_local_model(user: User = Depends(authorized_user),
         raise HTTPException(403, "Solo administración puede probar el modelo local")
     cfg = settings()
     configured = cfg.galancito_local_model
-    base = {"configured_model": configured, "expected_model": QWEN_4B}
+    base = {"configured_model": configured, "expected_model": QWEN_2B}
     if not cfg.galancito_local_ai_enabled:
         return {**base, "status": "not_configured", "responsive": False,
                 "installed": None, "loaded": False,
                 "message": "Ollama no está habilitado en la configuración del servidor."}
-    if configured != QWEN_4B:
+    if configured != QWEN_2B:
         return {**base, "status": "wrong_model", "responsive": False,
                 "installed": None, "loaded": False,
-                "message": "GALANT está configurado con otro modelo, no con Qwen3.5 4B."}
+                "message": "GALANT está configurado con otro modelo, no con Qwen3.5 2B."}
 
     # /api/show returns 404 for an absent model and does not pull/install it.
-    installed = installed_model_status(QWEN_4B)
+    installed = installed_model_status(QWEN_2B)
     if installed is False:
         return {**base, "status": "not_installed", "responsive": False,
                 "installed": False, "loaded": False,
-                "message": "Qwen3.5 4B no está instalado en el servicio Ollama."}
+                "message": "Qwen3.5 2B no está instalado en el servicio Ollama."}
 
     started = perf_counter()
     reported = None
@@ -264,7 +265,7 @@ def diagnose_local_model(user: User = Depends(authorized_user),
         reported = last_timings.get().get("response_model")
         correct = isinstance(response, str) and response.strip().casefold().strip(".!¡ ") in {
             "ok", "listo"}
-        matched = reported == QWEN_4B
+        matched = reported == QWEN_2B
         responsive = bool(correct and matched)
         status = ("ok" if responsive else
                   "wrong_response_model" if reported and not matched else
@@ -283,11 +284,11 @@ def diagnose_local_model(user: User = Depends(authorized_user),
                      timings=last_timings.get())
     db.commit()
     messages = {
-        "ok": "Qwen3.5 4B respondió correctamente y su identidad coincide.",
+        "ok": "Qwen3.5 2B respondió correctamente y su identidad coincide.",
         "busy": "El modelo está ocupado o el servidor necesita liberar memoria.",
         "unavailable": "Ollama no respondió; revisa recursos y conectividad.",
         "invalid_response": "Ollama devolvió una respuesta que no superó la comprobación.",
-        "wrong_response_model": "Ollama respondió usando un modelo distinto a Qwen3.5 4B.",
+        "wrong_response_model": "Ollama respondió usando un modelo distinto a Qwen3.5 2B.",
         "model_identity_unverified": "Ollama respondió, pero no informó qué modelo utilizó.",
     }
     return {**base, "status": status, "responsive": responsive,
@@ -410,7 +411,7 @@ def galancito_chat(body: ChatInput, user: User = Depends(authorized_user),
         # Store timing counters only, never prompts or personal data.
         run = record_run(db, org_id=user.org_id, user_id=user.id, channel="galant_internal",
                          source=source, intent=intent, started=started,
-                         timings=last_timings.get() if source == "ollama_4b" else None)
+                         timings=last_timings.get() if source == "ollama_2b" else None)
         conversation_id, history_notice, history_saved = None, None, False
         if body.save_history:
             try:
@@ -542,7 +543,7 @@ def galancito_chat(body: ChatInput, user: User = Depends(authorized_user),
     db_ms = (perf_counter() - started) * 1000
     cfg = settings()
     available = galancito_red_ai_available(cfg)
-    team_available = (cfg.galancito_local_model != "qwen3.5:4b-q4_K_M" and
+    team_available = (not cfg.galancito_local_ai_enabled and
                       orchestration_available(db, user.org_id, "red_obras"))
     policy = db.get(AIOrchestration, user.org_id)
     selected_team = bool(policy and policy.enabled and (policy.task_routes or {}).get("red_obras"))
@@ -575,7 +576,7 @@ def galancito_chat(body: ChatInput, user: User = Depends(authorized_user),
     # Once an admin selects the new team, legacy paid providers must NOT
     # bypass its quota or a failed reviewer. Local Ollama remains permitted.
     use_legacy = available and not private_pattern and (
-        cfg.galancito_local_model != "qwen3.5:4b-q4_K_M" or cfg.galancito_ai_provider == "ollama") and (
+        not cfg.galancito_local_ai_enabled or cfg.galancito_ai_provider == "ollama") and (
         cfg.galancito_ai_provider == "ollama" or
         (public_complex and not selected_team))
     use_model = use_team or use_legacy

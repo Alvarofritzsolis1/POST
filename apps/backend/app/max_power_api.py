@@ -13,8 +13,9 @@ from .ai_quality_models import AIResponseReview
 from .db import get_db
 from .galancito_memory import aware
 from .galancito_training_models import ACTIVE, TrainingRound, TrainingWorker
-from .max_power_decisions import QWEN_MIN_RAM_MB, latency_diagnosis, priority_from_reviews
-from .max_power_live import RESOURCE_EVENT, general_series, messenger_series, resource_metrics, synthetic_4b_series, latency_series
+from .max_power_decisions import QWEN_MEMORY_REASON, QWEN_MIN_RAM_MB, latency_diagnosis, priority_from_reviews
+from .galancito_model_config import QWEN_2B, QWEN_TRAINING_MODEL
+from .max_power_live import RESOURCE_EVENT, general_series, messenger_series, resource_metrics, synthetic_2b_series, latency_series
 from .max_power_models import MaxPowerEvent, MaxPowerState, MaxPowerMessengerTrial
 from .max_power_export import build_report, MAX_EVENTS, safe_metrics
 from .max_power_practice import EVENT as PRACTICE_EVENT, QWEN_CRITERION, generate_scenarios
@@ -32,7 +33,8 @@ def _automatic_quality(messenger_trials, events):
     """Real model comparisons; no human labels and no invented global IQ score."""
     first_per_source = {}
     for t in reversed(messenger_trials):
-        if t.status != "completed" or not t.source_run_id:
+        if (t.status != "completed" or not t.source_run_id
+                or (t.metrics or {}).get("model") != QWEN_2B):
             continue
         key = (t.source_run_id, t.criterion)
         if key not in first_per_source:
@@ -58,6 +60,7 @@ def _automatic_quality(messenger_trials, events):
     general = next((event.evidence for event in events
         if event.event=="experiment_completed" and
         isinstance(event.evidence,dict) and
+        event.evidence.get("model") == QWEN_2B and
         event.evidence.get("holdout_baseline_rate") is not None and
         event.evidence.get("holdout_candidate_rate") is not None),None)
     gpairs = int(general.get("holdout_pairs") or 0) if general else 0
@@ -75,7 +78,7 @@ def _automatic_quality(messenger_trials, events):
 
 def _qwen_activity(db, row, controller_online, trials, resources, now):
     if not row or not row.enabled:
-        return {"state": "off", "reason": "Qwen 4B en pausa"}
+        return {"state": "off", "reason": "Qwen 2B en pausa"}
     if not controller_online:
         return {"state": "waiting", "reason": "Esperando el controlador de MAX POWER"}
 
@@ -111,8 +114,7 @@ def _qwen_activity(db, row, controller_online, trials, resources, now):
     # state. Do not infer a cold-start blocker solely from low available RAM:
     # the controller can admit a verified resident model with a lower reserve.
     memory_blocked = row.last_status in {"resource_guard", "synthetic_practice_completed"} and (
-        "Qwen 4B requiere 8 GB en frío" in row.last_reason
-        or "Qwen 4B frío requiere 8 GB libres" in row.last_reason
+        QWEN_MEMORY_REASON in row.last_reason
     )
     if memory_blocked and type(available) in (int, float) and available < QWEN_MIN_RAM_MB:
         return {"state": "waiting", "reason": row.last_reason,
@@ -173,6 +175,7 @@ def _view(db, user, row):
             MaxPowerMessengerTrial.org_id == user.org_id, MaxPowerMessengerTrial.criterion == QWEN_CRITERION,
             MaxPowerMessengerTrial.metrics["dataset_sha256"].as_string() == practice.evidence.get("dataset_sha256"),
             MaxPowerMessengerTrial.metrics["protocol"].as_string() == practice.evidence.get("protocol"),
+            MaxPowerMessengerTrial.metrics["model"].as_string() == QWEN_2B,
         )))
         reserved = [t for t in trials if t.status == "completed" and t.metrics.get("split") == "holdout"]
         synthetic_replies = {
@@ -189,22 +192,24 @@ def _view(db, user, row):
     verified_cpu_update = db.scalar(select(MaxPowerEvent.id).where(
         MaxPowerEvent.org_id == user.org_id,
         MaxPowerEvent.event.like("ft_%"),
-        MaxPowerEvent.evidence["model"].as_string() == "Qwen/Qwen3.5-0.8B",
+        MaxPowerEvent.evidence["model"].as_string() == QWEN_TRAINING_MODEL,
+        MaxPowerEvent.evidence["device"].as_string() == "cpu",
         MaxPowerEvent.evidence["data_kind"].as_string() == "human_reviewed_real",
         MaxPowerEvent.evidence["weights_trained"].as_boolean().is_(True),
     ).limit(1))
     synthetic_cpu_update = db.scalar(select(MaxPowerEvent.id).where(
         MaxPowerEvent.org_id == user.org_id,
         MaxPowerEvent.event.like("ft_%"),
-        MaxPowerEvent.evidence["model"].as_string() == "Qwen/Qwen3.5-0.8B",
+        MaxPowerEvent.evidence["model"].as_string() == QWEN_TRAINING_MODEL,
+        MaxPowerEvent.evidence["device"].as_string() == "cpu",
         MaxPowerEvent.evidence["data_kind"].as_string() == "curated_synthetic",
         MaxPowerEvent.evidence["weights_trained"].as_boolean().is_(True),
     ).limit(1))
     neural_event=db.scalar(select(MaxPowerEvent).where(MaxPowerEvent.org_id==user.org_id,
-        MaxPowerEvent.event=="4b_neural_status",MaxPowerEvent.round_id==user.org_id))
-    neural_4b=dict(neural_event.evidence or {}) if neural_event else None
-    if neural_4b:
-        neural_4b["live"]=bool(row and row.enabled and neural_4b.get("generation")==row.session_generation
+        MaxPowerEvent.event=="2b_neural_status",MaxPowerEvent.round_id==user.org_id))
+    neural_2b=dict(neural_event.evidence or {}) if neural_event else None
+    if neural_2b:
+        neural_2b["live"]=bool(row and row.enabled and neural_2b.get("generation")==row.session_generation
             and aware(neural_event.created_at)>=aware(now)-timedelta(seconds=45))
     controller_online = bool(row and row.worker_seen_at and
                              aware(row.worker_seen_at) >= aware(now) - timedelta(seconds=30))
@@ -236,7 +241,7 @@ def _view(db, user, row):
         "reason": row.last_reason if row else "MAX POWER todavía no se ha encendido",
         "controller_online": controller_online,
         "trainer_online": trainer_online,
-        "neural_4b": neural_4b,
+        "neural_2b": neural_2b,
         "cpu_learning": {
             "status": cpu_state if cpu_online else "manager_offline",
             "reason": (cpu_event.reason if cpu_online else
@@ -246,7 +251,7 @@ def _view(db, user, row):
             "weights_trained": bool(verified_cpu_update),
             "synthetic_weights_trained": bool(synthetic_cpu_update),
             "training_kind": "curated_synthetic" if cpu_state in {"preparing_synthetic", "training_synthetic", "finished_synthetic"} else "human_reviewed_real" if cpu_state == "training" else "none",
-            "model": "Qwen/Qwen3.5-0.8B",
+            "model": QWEN_TRAINING_MODEL,
         },
         "priorities": priority_from_reviews(priorities),
         "messenger_experiments": messenger_summary,
@@ -283,11 +288,13 @@ def live_history(user: User = Depends(administrator), db: Session = Depends(get_
     now = utcnow()
     org = user.org_id
     events = list(db.scalars(select(MaxPowerEvent).where(
-        MaxPowerEvent.org_id == org, MaxPowerEvent.event == "experiment_completed"
+        MaxPowerEvent.org_id == org, MaxPowerEvent.event == "experiment_completed",
+        MaxPowerEvent.evidence["model"].as_string() == QWEN_2B,
     ).order_by(MaxPowerEvent.created_at.desc(), MaxPowerEvent.id.desc()).limit(500)))
     trials = list(db.scalars(select(MaxPowerMessengerTrial).where(
         MaxPowerMessengerTrial.org_id == org, MaxPowerMessengerTrial.status == "completed",
         MaxPowerMessengerTrial.criterion != QWEN_CRITERION,
+        MaxPowerMessengerTrial.metrics["model"].as_string() == QWEN_2B,
         MaxPowerMessengerTrial.completed_at.is_not(None)
     ).order_by(MaxPowerMessengerTrial.completed_at.desc(), MaxPowerMessengerTrial.id.desc()).limit(500)))
     resources = list(db.scalars(select(MaxPowerEvent).where(
@@ -297,11 +304,12 @@ def live_history(user: User = Depends(administrator), db: Session = Depends(get_
     synthetic = list(db.scalars(select(MaxPowerMessengerTrial).where(
         MaxPowerMessengerTrial.org_id == org, MaxPowerMessengerTrial.status == "completed",
         MaxPowerMessengerTrial.criterion == QWEN_CRITERION,
+        MaxPowerMessengerTrial.metrics["model"].as_string() == QWEN_2B,
         MaxPowerMessengerTrial.completed_at.is_not(None)
     ).order_by(MaxPowerMessengerTrial.completed_at.desc(), MaxPowerMessengerTrial.id.desc()).limit(500)))
     return {"at": now, "general": general_series(reversed(events)),
-            "synthetic_4b": synthetic_4b_series(reversed(synthetic)),
-            "latency_4b": latency_series(sorted(trials + synthetic, key=lambda t: (aware(t.completed_at), t.id))),
+            "synthetic_2b": synthetic_2b_series(reversed(synthetic)),
+            "latency_2b": latency_series(sorted(trials + synthetic, key=lambda t: (aware(t.completed_at), t.id))),
             "messenger": messenger_series(reversed(trials)),
             "resources": [{"at": event.created_at, **resource_metrics(event.evidence or {})}
                           for event in reversed(resources)],
@@ -396,7 +404,7 @@ def control(action: Literal["on", "off"], user: User = Depends(administrator),
             }
             # OFF revokes the generation immediately, but a slow child can
             # still be winding down. Preserve a bounded reservation across
-            # OFF -> ON rather than allowing the private 4B to race LoRA.
+            # OFF -> ON rather than allowing the private 2B to race LoRA.
             prior_until = previous.get("draining_until_epoch")
             until = max(
                 float(prior_until) if isinstance(prior_until, (int, float)) else 0,

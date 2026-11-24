@@ -85,7 +85,7 @@ SAFE_CODES = {
 # Text identifiers are only included if they are code-generated and resemble
 # a model/version, NEVER inferred from arbitrary user content.
 IDENTIFIER = re.compile(r"^[A-Za-z0-9_.:/+-]{1,120}$")
-ALLOWED_MODELS = {"qwen3:1.7b", "qwen3.5:4b-q4_K_M"}
+ALLOWED_MODELS = {"qwen3.5:2b-q4_K_M", "qwen3:1.7b", "qwen3.5:4b-q4_K_M"}
 ALLOWED_CRITERIA = set(ENUM_KEYS["criterion"]) | {
     "usefulness", "security", "numeric_accuracy", "calculation", "data_grounding"
 }

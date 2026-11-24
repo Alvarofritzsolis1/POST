@@ -13,7 +13,7 @@ import json
 from pathlib import Path
 import re
 
-MODEL = "Qwen/Qwen3.5-4B"
+from .galancito_model_config import QWEN_TRAINING_MODEL as MODEL
 ALLOWED_CRITERIA = frozenset({
     "reasoning", "accuracy", "grounding", "context", "understanding",
     "profile", "naturalness", "helpfulness", "safety",

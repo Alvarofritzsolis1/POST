@@ -20,18 +20,18 @@ import time
 
 ROOT = Path(__file__).resolve().parents[1]
 ENV = ROOT / ".env.preview"
-MODEL = "qwen3.5:4b-q4_K_M"
-OLD = "qwen3:1.7b"
+MODEL = "qwen3.5:2b-q4_K_M"
+LEGACY_MODELS = {"qwen3:1.7b", "qwen3.5:4b-q4_K_M"}
 COMPOSE = ["docker", "compose", "--profile", "local-ai", "--profile", "training",
            "--env-file", str(ENV), "-f", str(ROOT / "docker-compose.preview.yml")]
 JAVIERA_OVERRIDE = ROOT / "docker-compose.javiera20.yml"
 if JAVIERA_OVERRIDE.is_file():
     COMPOSE += ["--env-file", str(ROOT / ".env.javiera20"), "-f", str(JAVIERA_OVERRIDE)]
 SERVICES = ("api", "worker", "facebook-publisher")
-CHANGES = {"GALANCITO_LOCAL_MODEL": MODEL, "GALANCITO_OLLAMA_MEM_LIMIT": "5g",
+CHANGES = {"GALANCITO_LOCAL_MODEL": MODEL, "GALANCITO_OLLAMA_MEM_LIMIT": "3g",
            "GALANCITO_OLLAMA_CPUS": "2", "GALANCITO_NUM_THREAD": "2",
            "GALANCITO_TIMEOUT_SECONDS": "45", "GALANCITO_MEMORY_RESERVE_MB": "2048",
-           "GALANCITO_KEEP_ALIVE": "5m",
+           "GALANCITO_KEEP_ALIVE": "2m",
            "GALANCITO_AI_PROVIDER": "ollama", "FACEBOOK_AI_PROVIDER": "ollama",
            "GALANCITO_LOCAL_AI_ENABLED": "true"}
 SMOKE = """import json
@@ -76,7 +76,7 @@ for stage, prompt, timeout_seconds in stages:
     elapsed = time.monotonic() - started
     message = result.get('message')
     content = message.get('content', '') if isinstance(message, dict) else ''
-    if not isinstance(content, str) or len(content.strip()) < 3 or '<think>' in content.casefold():
+    if result.get('model') != model or not isinstance(content, str) or len(content.strip()) < 3 or '<think>' in content.casefold():
         print('SMOKE_ERROR stage=%s invalid_response' % stage, file=sys.stderr)
         sys.exit(24)
     if stage == 'respuesta_caliente' and elapsed >= 45:
@@ -125,13 +125,11 @@ def preflight():
     if JAVIERA_OVERRIDE.is_file() and not (ROOT / ".env.javiera20").is_file():
         raise RuntimeError("Falta el entorno de Javiera; no se recreará el API con una configuración incompleta")
     compose("config", "--quiet")
-    if memory_mb() < 7168 or (os.cpu_count() or 0) < 4:
-        raise RuntimeError("Se requieren 7 GiB disponibles y 4 CPU antes de probar; no se modifica nada")
+    if memory_mb() < 5120 or (os.cpu_count() or 0) < 4:
+        raise RuntimeError("Se requieren 5 GiB disponibles y 4 CPU antes de probar; no se modifica nada")
     if shutil.disk_usage(ROOT).free < 8 * 1024**3 or shutil.disk_usage("/var/lib/docker" if Path("/var/lib/docker").exists() else "/").free < 8 * 1024**3:
         raise RuntimeError("Se requieren 8 GiB libres en proyecto y almacenamiento Docker")
     running = set(compose("ps", "--status", "running", "--services").split())
-    if {"galancito-trainer", "galancito-training-ollama"} & running:
-        raise RuntimeError("Entrenamiento activo o disponible. Finalizar la ronda y detener sus servicios, sin borrar volúmenes.")
     if not {"api", "db", "galancito-ollama", *SERVICES} <= running:
         raise RuntimeError("El stack activo está incompleto; revisar antes de cambiar el modelo")
     compose("exec", "-T", "api", "python", "-c", HEALTH)
@@ -140,7 +138,7 @@ def preflight():
     compose("exec", "-T", "api", "python", "-c",
             "from app.config import Settings; assert Settings(galancito_local_model=" + repr(MODEL) + ").galancito_local_model == " + repr(MODEL))
     models = compose("exec", "-T", "galancito-ollama", "ollama", "list")
-    if OLD not in {line.split()[0] for line in models.splitlines() if line.split()}:
+    if not ({MODEL} | LEGACY_MODELS) & {line.split()[0] for line in models.splitlines() if line.split()}:
         raise RuntimeError("No se encontró el modelo original: no se activará el candidato")
 
 

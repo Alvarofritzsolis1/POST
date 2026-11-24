@@ -1,4 +1,4 @@
-"""Single shared lock and expiring, session-scoped 4B intent. No chat data."""
+"""Single shared lock and expiring, session-scoped 2B intent. No chat data."""
 import fcntl
 import json
 import math
@@ -7,7 +7,9 @@ from pathlib import Path
 from time import time
 from uuid import uuid4
 
-ROOT=Path("/4b-control")
+from .galancito_model_config import QWEN_TRAINING_MODEL
+
+ROOT=Path("/2b-control")
 
 def read(path):
     try:
@@ -83,7 +85,7 @@ def measured_report(status):
     if not isinstance(approved_eval,dict):
         approved_eval={}
     out={"stage":stage,"at":status.get("at"),"generation":status.get("generation"),
-        "model":"Qwen/Qwen3.5-4B","points":points,"completed_steps":len(points),
+        "model":QWEN_TRAINING_MODEL,"points":points,"completed_steps":len(points),
         "target_steps":10,"data_kind":raw.get("data_kind") if raw.get("data_kind") in
             ("curated_synthetic","human_reviewed_real") else "curated_synthetic",
         "production_verified":False,"production_promoted":False,

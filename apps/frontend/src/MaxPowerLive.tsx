@@ -6,7 +6,7 @@ type Point = { at:string; baseline?:number|null; candidate?:number|null; delta?:
   observed_baseline?:number; observed_candidate?:number; pairs?:number; gains?:number|null; regressions?:number|null; net_cases?:number;
   total_seconds?:number; prompt_seconds?:number; generation_seconds?:number; load_seconds?:number; phase?:string; preliminary?:boolean; safety_regressions?:number; lab_verified?:boolean; host_cpu_percent?:number;
   host_ram_mb?:number; available_ram_mb?:number; worker_ram_mb?:number; disk_free_mb?:number };
-type History = {at:string; general:Point[]; messenger:Point[]; resources:Point[]; synthetic_4b?:Point[]; latency_4b?:Point[]};
+type History = {at:string; general:Point[]; messenger:Point[]; resources:Point[]; synthetic_2b?:Point[]; latency_2b?:Point[]};
 type Series = {label:string; color:string; value:(p:Point)=>number|null|undefined};
 const fmt = (v:number|null|undefined, digits=1) => v == null ? "—" : v.toLocaleString("es-CL",{maximumFractionDigits:digits});
 const stamp = (s:string) => new Date(s).toLocaleString("es-CL",{timeZone:"America/Santiago",day:"2-digit",month:"2-digit",hour:"2-digit",minute:"2-digit"});
@@ -107,8 +107,8 @@ export default function MaxPowerLive({resources}:{resources?:Record<string,numbe
       <div><small>Messenger · saldo observado</small><strong>{signed(lastM?.net_cases)}</strong><span>{lastM?.gains??0} ganancias · {lastM?.regressions??0} regresiones</span></div>
     </div>
     <div className="mp-evidence-grid">
-      <article><h4>Qwen 4B · práctica reservada sintética</h4><Plot points={data?.synthetic_4b??[]} series={passSeries} bounds={[0,100]} unit="%"/><p>Observación preliminar desde el primer par. Solo casos de laboratorio reservados; no implica cambios de pesos ni mejora productiva.</p></article>
-      <article><h4>Qwen 4B · duración real de inferencia</h4><Plot points={data?.latency_4b??[]} series={latencySeries} unit=" s"/><p>Duración registrada de cada respuesta, no estimaciones. Contexto y generación se muestran por separado.</p></article>
+      <article><h4>Qwen 2B · práctica reservada sintética</h4><Plot points={data?.synthetic_2b??[]} series={passSeries} bounds={[0,100]} unit="%"/><p>Observación preliminar desde el primer par. Solo casos de laboratorio reservados; no implica cambios de pesos ni mejora productiva.</p></article>
+      <article><h4>Qwen 2B · duración real de inferencia</h4><Plot points={data?.latency_2b??[]} series={latencySeries} unit=" s"/><p>Duración registrada de cada respuesta, no estimaciones. Contexto y generación se muestran por separado.</p></article>
       <article><h4>Messenger · comprensión y controles reales</h4><Plot points={messenger} series={observedSeries} bounds={[0,100]} unit="%"/><p>Observaciones desde el primer control, preliminares hasta 8 controles distintos. La diferencia validada permanece sin nota hasta ese mínimo. No mide toda la conversación.</p></article>
       <article><h4>Galancito General · exactitud de casos reservados</h4><Plot points={general} series={passSeries} bounds={[0,100]} unit="%"/><p>Cada punto es una ronda completa con un conjunto distinto. Las rondas pueden tener diferente dificultad; el cambio válido es entre las dos variantes de cada punto.</p></article>
       <article><h4>Messenger · mejoras y regresiones observadas</h4><Plot points={messenger} series={resultSeries}/><p>{lastM?.safety_regressions??0} regresiones de seguridad registradas en esta ventana. No se consideran pesos promovidos.</p></article>

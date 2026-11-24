@@ -16,7 +16,7 @@ MASTER = "t" * 64
 def _signed(org, run, sequence, *, kind="metric", step=2, total=10, loss=1.25):
     payload = {
         "org_id": org, "run_id": run, "sequence": sequence, "kind": kind,
-        "dataset_sha256": "a" * 64, "model": "Qwen/Qwen3.5-4B",
+        "dataset_sha256": "a" * 64, "model": "Qwen/Qwen3.5-2B", "device": "gpu",
         "step": step, "total_steps": total,
         "loss": loss, "gpu_memory_mb": 999.5, "weights_trained": False,
     }
@@ -115,7 +115,7 @@ def test_signed_cpu_lora_progress_is_visible_without_faking_gpu_metrics(ai_env, 
     run_id = str(uuid4())
     payload = {
         "org_id": org, "run_id": run_id, "sequence": 1, "kind": "paused",
-        "dataset_sha256": "d" * 64, "model": "Qwen/Qwen3.5-0.8B",
+        "dataset_sha256": "d" * 64, "model": "Qwen/Qwen3.5-2B", "device": "cpu",
         "step": 6, "total_steps": 40, "cpu_memory_mb": 3130.5,
         "weights_trained": True, "candidate_accepted": False,
         "optimizer_start_sha256": "a" * 64,
@@ -133,7 +133,7 @@ def test_signed_cpu_lora_progress_is_visible_without_faking_gpu_metrics(ai_env, 
     assert received.status_code==200,received.text
     status=client.get(URL,headers=admin).json()
     row=status["runs"][0]
-    assert row["model"]=="Qwen/Qwen3.5-0.8B"
+    assert row["model"]=="Qwen/Qwen3.5-2B"
     assert row["stage"]=="paused"
     assert row["percent"]==15.0
     assert row["points"][0]["cpu_memory_mb"]==3130.5
@@ -156,7 +156,7 @@ def test_signed_cpu_preflight_shows_actual_capacity_but_never_learning(ai_env, m
     run_id = str(uuid4())
     sample = {
         "org_id": org, "run_id": run_id, "sequence": 1, "kind": "preflight",
-        "dataset_sha256": "0" * 64, "model": "Qwen/Qwen3.5-0.8B",
+        "dataset_sha256": "0" * 64, "model": "Qwen/Qwen3.5-2B", "device": "cpu",
         "step": 0, "total_steps": 0, "preflight_ready": False,
         "host_free_mb": 4945.0, "cgroup_free_mb": 4490.0,
         "cgroup_limit_mb": 5120.0, "disk_free_mb": 9100.0,

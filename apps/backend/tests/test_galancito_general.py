@@ -1,7 +1,8 @@
-"""Unified Galancito: one routing surface, Qwen 4B, external privacy, permissions."""
+"""Unified Galancito: Qwen3.5 2B, external privacy and permissions."""
 from types import SimpleNamespace
 from test_network import network, request_body
-from app.galancito_general import QWEN_4B, general_intent, is_complex, external_safe, safe_generated, social_reply, needs_public_web
+from app.galancito_model_config import QWEN_2B
+from app.galancito_general import general_intent, is_complex, external_safe, safe_generated, social_reply, needs_public_web
 
 
 def test_unified_route_classifies_greetings_and_general_help():
@@ -53,7 +54,7 @@ def test_unified_read_only_greeting_and_real_site_scope(network):
     assert "No tienes permiso" in denied.json()["answer"]
 
 
-def test_unified_general_advice_requires_4b_not_legacy_1_7(network, monkeypatch):
+def test_unified_general_advice_requires_current_model(network, monkeypatch):
     n = network
     calls = []
     monkeypatch.setattr("app.galancito_general_runtime.external_ready", lambda *_: False)
@@ -71,7 +72,7 @@ def test_unified_general_advice_requires_4b_not_legacy_1_7(network, monkeypatch)
     assert not calls
 
     monkeypatch.setattr("app.galancito_general_runtime.settings", lambda: SimpleNamespace(
-        galancito_local_ai_enabled=True, galancito_local_model=QWEN_4B,
+        galancito_local_ai_enabled=True, galancito_local_model=QWEN_2B,
     ))
     monkeypatch.setattr("app.galancito_general_runtime.infer",
                         lambda _db, fn, **_kwargs: fn())
@@ -80,7 +81,7 @@ def test_unified_general_advice_requires_4b_not_legacy_1_7(network, monkeypatch)
         "message": "¿Cómo puedo mejorar el seguimiento de candidatos?",
     })
     assert good.status_code == 200, good.text
-    assert good.json()["source"] == "ollama_4b"
+    assert good.json()["source"] == "ollama_2b"
     assert good.json()["answer"] == "Revisa las necesidades."
     assert calls
 
@@ -204,7 +205,7 @@ def test_legacy_chat_never_bills_external_for_simple_question_or_leaks_org_conte
     n = network
     calls = []
     monkeypatch.setattr("app.galancito_api.settings", lambda: SimpleNamespace(
-        galancito_local_model="qwen3:1.7b", galancito_ai_provider="openai",
+        galancito_local_model=QWEN_2B, galancito_local_ai_enabled=False, galancito_ai_provider="openai",
     ))
     monkeypatch.setattr("app.galancito_api.galancito_red_ai_available", lambda _cfg: True)
     monkeypatch.setattr("app.galancito_api.orchestration_available", lambda *_: False)
@@ -253,7 +254,7 @@ def test_general_chat_non_operational_questions_avoid_database_lookups(network, 
     monkeypatch.setattr("app.galancito_general_runtime.internal_reply",
                         lambda *args, **kwargs: seen.append(args) or ("no esperado", "overview"))
     monkeypatch.setattr("app.galancito_general_runtime.settings", lambda: SimpleNamespace(
-        galancito_local_ai_enabled=True, galancito_local_model=QWEN_4B,
+        galancito_local_ai_enabled=True, galancito_local_model=QWEN_2B,
     ))
     monkeypatch.setattr("app.galancito_general_runtime.generate_local_text",
                         lambda *_args, **_kwargs: "La planificación organiza el trabajo.")
@@ -263,7 +264,7 @@ def test_general_chat_non_operational_questions_avoid_database_lookups(network, 
         "area": "general", "message": "¿Qué significa planificación?",
     })
     assert response.status_code == 200, response.text
-    assert response.json()["source"] == "ollama_4b"
+    assert response.json()["source"] == "ollama_2b"
     assert seen == []
 
 
@@ -382,7 +383,7 @@ def test_group_followup_is_sent_to_local_4b_with_prior_context(network, monkeypa
     n = network
     prompts = []
     monkeypatch.setattr("app.galancito_general_runtime.settings", lambda: SimpleNamespace(
-        galancito_local_ai_enabled=True, galancito_local_model=QWEN_4B,
+        galancito_local_ai_enabled=True, galancito_local_model=QWEN_2B,
     ))
     monkeypatch.setattr("app.galancito_general_runtime.infer",
                         lambda _db, fn, **_kwargs: fn())
@@ -395,7 +396,7 @@ def test_group_followup_is_sent_to_local_4b_with_prior_context(network, monkeypa
                      "Hola Galancito, te estamos viendo con mi equipo de Control de Contratistas"}],
     })
     assert reply.status_code == 200, reply.text
-    assert reply.json()["source"] == "ollama_4b"
+    assert reply.json()["source"] == "ollama_2b"
     assert len(prompts) == 1
     assert "equipo de Control de Contratistas" in prompts[0]
     assert "¿En qué nos puedes ayudar?" in prompts[0]
@@ -407,7 +408,7 @@ def test_live_qwen4b_probe_requires_actual_model_identity(network, monkeypatch):
 
     n = network
     monkeypatch.setattr("app.galancito_api.settings", lambda: SimpleNamespace(
-        galancito_local_ai_enabled=True, galancito_local_model=QWEN_4B,
+        galancito_local_ai_enabled=True, galancito_local_model=QWEN_2B,
     ))
     monkeypatch.setattr("app.galancito_api.installed_model_status", lambda _name: True)
     monkeypatch.setattr("app.galancito_api.model_status",
@@ -427,14 +428,14 @@ def test_live_qwen4b_probe_requires_actual_model_identity(network, monkeypatch):
     assert wrong.json()["responsive"] is False
     assert wrong.json()["response_model"] == "qwen3:1.7b"
 
-    monkeypatch.setattr("app.galancito_api.generate_local_text", model_response(QWEN_4B))
+    monkeypatch.setattr("app.galancito_api.generate_local_text", model_response(QWEN_2B))
     correct = n["send"](n["admin"], "/galancito/diagnostic", {})
     assert correct.status_code == 200, correct.text
     assert correct.json()["status"] == "ok"
     assert correct.json()["responsive"] is True
     assert correct.json()["installed"] is True
     assert correct.json()["loaded"] is True
-    assert correct.json()["response_model"] == QWEN_4B
+    assert correct.json()["response_model"] == QWEN_2B
 
     monkeypatch.setattr("app.galancito_api.generate_local_text", model_response(None))
     unverified = n["send"](n["admin"], "/galancito/diagnostic", {})
@@ -446,7 +447,7 @@ def test_live_qwen4b_probe_requires_actual_model_identity(network, monkeypatch):
 def test_absent_qwen4b_diagnostic_does_not_generate_or_download(network, monkeypatch):
     n = network
     monkeypatch.setattr("app.galancito_api.settings", lambda: SimpleNamespace(
-        galancito_local_ai_enabled=True, galancito_local_model=QWEN_4B,
+        galancito_local_ai_enabled=True, galancito_local_model=QWEN_2B,
     ))
     monkeypatch.setattr("app.galancito_api.installed_model_status", lambda _name: False)
     def forbidden(*_args, **_kwargs):

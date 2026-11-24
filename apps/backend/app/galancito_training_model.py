@@ -6,22 +6,19 @@ from time import monotonic
 from urllib.error import HTTPError
 from urllib.request import Request
 
-from .galancito_local import MODEL, INTERNAL_URL, TRAINING_OLLAMA, _opener, MAX_POWER_ISOLATED
-
-ADVANCED_MODEL = "qwen3.5:4b-q4_K_M"
+from .galancito_local import MODEL, MAX_POWER_ISOLATED, TRAINING_OLLAMA, _opener
 
 logger = logging.getLogger(__name__)
 
 
-def _request(path, data, model_name=MODEL):
-    base = TRAINING_OLLAMA if MAX_POWER_ISOLATED or model_name != ADVANCED_MODEL else INTERNAL_URL.rsplit("/api/", 1)[0]
-    return Request(base + path, data=json.dumps(data).encode(),
+def _request(path, data):
+    return Request(TRAINING_OLLAMA + path, data=json.dumps(data).encode(),
                    headers={"Content-Type": "application/json"})
 
 
 def model_installed(model_name=MODEL):
     try:
-        with _opener.open(_request("/api/show", {"model": model_name}, model_name), timeout=2):
+        with _opener.open(_request("/api/show", {"model": model_name}), timeout=2):
             return True
     except HTTPError as error:
         if error.code == 404:
@@ -31,7 +28,7 @@ def model_installed(model_name=MODEL):
 
 def pull_model(model_name=MODEL):
     deadline = monotonic() + 45 * 60
-    with _opener.open(_request("/api/pull", {"model": model_name, "stream": True}, model_name), timeout=90) as response:
+    with _opener.open(_request("/api/pull", {"model": model_name, "stream": True}), timeout=90) as response:
         while monotonic() < deadline:
             line = response.readline(8192)
             if not line:
@@ -44,7 +41,7 @@ def pull_model(model_name=MODEL):
     raise RuntimeError("No se pudo completar la descarga de Qwen")
 
 
-def isolated_model_resident(model_name=ADVANCED_MODEL):
+def isolated_model_resident(model_name=MODEL):
     """Verify actual residency on the private Ollama; failure is a cold start."""
     if not MAX_POWER_ISOLATED:
         return False
@@ -81,10 +78,10 @@ class TrainingModel:
             self.ready_until = monotonic() + 60
 
     def waiting_reason(self, disk_free_mb, model_name=MODEL):
-        if model_name not in {MODEL, ADVANCED_MODEL}:
-            return "Modelo histórico no disponible; requiere revisión"
+        if model_name != MODEL:
+            return "La versión histórica del modelo ya no está disponible para práctica"
         if self.download is not None and self.download.is_alive():
-            return "Descargando Qwen para una ronda anterior. Se conserva el progreso."
+            return "Descargando Qwen3.5 2B para la práctica"
         now = monotonic()
         if self.ready_model == model_name and self.ready_until > now:
             return None
@@ -97,10 +94,7 @@ class TrainingModel:
                 return None
         except OSError:
             return "En espera del servicio privado de Ollama"
-        if model_name == ADVANCED_MODEL and not MAX_POWER_ISOLATED:
-            # Production training mode never auto-pulls a second 4B onto main.
-            return "Qwen3.5 4B no está descargado en el motor principal"
-        required_disk_mb = 6144 if model_name == ADVANCED_MODEL else 2048
+        required_disk_mb = 3072
         if disk_free_mb < required_disk_mb:
             minimum_gb = required_disk_mb // 1024
             return (

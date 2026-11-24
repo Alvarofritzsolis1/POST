@@ -18,6 +18,7 @@ from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
 
 from .db import get_db
+from .galancito_model_config import QWEN_TRAINING_MODEL
 from .max_power_models import MaxPowerEvent, MaxPowerState, MaxPowerMessengerTrial
 from .models import User, utcnow
 from .security import administrator
@@ -37,7 +38,8 @@ class Telemetry(BaseModel):
     kind: Literal["preflight", "start", "baseline_progress", "baseline", "metric", "eval", "checkpoint", "finished", "failed", "paused"]
     dataset_sha256: str = Field(pattern=r"^[a-f0-9]{64}$")
     data_kind: Literal["unspecified", "human_reviewed_real", "curated_synthetic"] = "unspecified"
-    model: Literal["Qwen/Qwen3.5-4B", "Qwen/Qwen3.5-0.8B"] = "Qwen/Qwen3.5-4B"
+    model: Literal["Qwen/Qwen3.5-2B"] = QWEN_TRAINING_MODEL
+    device: Literal["cpu", "gpu"] = "gpu"
     step: int = Field(ge=0, le=10_000_000)
     total_steps: int = Field(ge=0, le=10_000_000)
     epoch: float | None = Field(default=None, ge=0, le=10_000, allow_inf_nan=False)
@@ -87,20 +89,20 @@ def scoped_token(org_id: str) -> str:
 # a short-lived HMAC derived from the server-only metrics secret.
 AUTOMATION_STATES = {
     "off": "MAX POWER apagado: entrenamiento neuronal detenido",
-    "legacy_lab_disabled": "Laboratorio 0.8B desactivado: prioridad a Qwen 4B",
+    "legacy_lab_disabled": "MAX POWER reserva el turno para el entrenador cuantizado de Qwen3.5 2B",
     "awaiting_approved_dataset": "Falta un conjunto real autorizado y firmado para LoRA CPU",
     "synthetic_data_invalid": "Corpus sintético no válido o modificado: entrenamiento de prueba detenido",
-    "preparing_synthetic": "Preparando Qwen 0.8B y datos ficticios; todavía no hay pasos de entrenamiento",
-    "training_synthetic": "Entrenando adaptador LoRA 0.8B con datos ficticios en laboratorio; no modifica Messenger",
+    "preparing_synthetic": "Preparando Qwen3.5 2B y datos ficticios para el entrenamiento",
+    "training_synthetic": "Entrenando un adaptador LoRA de Qwen3.5 2B con datos ficticios",
     "finished_synthetic": "Prueba LoRA con datos ficticios finalizada; requiere casos reales autorizados para avanzar",
     "awaiting_resources": "RAM o disco insuficientes; se protege Messenger",
     "messenger_priority": "Messenger activo; entrenamiento neuronal en pausa",
     "practice_priority": "Prueba MAX POWER activa; entrenamiento neuronal en espera",
-    "cpu_waiting_turn": "Datos autorizados listos; esperando que termine la práctica 4B para entrenar pesos",
+    "cpu_waiting_turn": "Datos autorizados listos; esperando que termine la práctica 2B para entrenar pesos",
     "retry_cooldown": "Entrenador liberó recursos; espera segura antes del siguiente intento (hasta 30 minutos con checkpoint recuperable)",
     "retry_exhausted": "Tres fallos reales: se suspenden reintentos para proteger GALANT; revisar recursos o datos",
     "preflight": "Comprobando RAM y disco del VPS",
-    "training": "Actualizando pesos LoRA de Qwen3.5 0.8B",
+    "training": "Actualizando pesos LoRA de Qwen3.5 2B",
     "pausing": "Guardando checkpoint y pausando entrenamiento",
     "paused": "Entrenamiento pausado; checkpoints conservados",
     "finished": "Adaptador entrenado: pendiente de evaluación independiente",
@@ -157,7 +159,7 @@ def automated_plan(x_galant_manager_timestamp: str = Header(default=""),
     from .galancito_training_models import ACTIVE, TrainingRound
     practice_busy = bool(db.scalar(select(TrainingRound.id).where(
         TrainingRound.state.in_(ACTIVE)).limit(1)))
-    # Qwen4B evaluations are NOT TrainingRound rows. Reserve the shared CPU
+    # Qwen 2B evaluations are NOT TrainingRound rows. Reserve the shared CPU
     # for queued work due shortly as well as in-progress leases. Otherwise the
     # LoRA manager could start at exactly the moment a Qwen job gets claimed.
     now = utcnow()
@@ -242,21 +244,21 @@ async def ingest(request: Request,
     if sample.step > sample.total_steps and sample.total_steps > 0:
         raise HTTPException(422, "Paso fuera del total")
     if sample.kind == "preflight":
-        if (sample.model != "Qwen/Qwen3.5-0.8B" or
+        if (sample.device != "cpu" or
                 sample.preflight_ready is None or sample.step != 0 or
                 sample.total_steps != 0 or sample.weights_trained or
                 sample.candidate_accepted):
             raise HTTPException(422, "Preflight no puede declarar entrenamiento")
     elif sample.preflight_ready is not None:
         raise HTTPException(422, "Preparación solo para eventos de preflight")
-    if sample.model == "Qwen/Qwen3.5-0.8B" and sample.weights_trained:
+    if sample.device == "cpu" and sample.weights_trained:
         if (sample.kind not in ("finished", "paused")
                 or not sample.optimizer_start_sha256
                 or not sample.optimizer_end_sha256
                 or sample.optimizer_start_sha256 == sample.optimizer_end_sha256
                 or not sample.optimizer_steps_new):
             raise HTTPException(422, "Sin evidencia de gradientes y pesos nuevos")
-    if sample.kind == "baseline_progress" and (sample.model != "Qwen/Qwen3.5-0.8B"
+    if sample.kind == "baseline_progress" and (sample.device != "cpu"
             or sample.step != 0 or sample.weights_trained or sample.candidate_accepted
             or sample.evaluation_done is None or not sample.evaluation_total
             or sample.evaluation_done > sample.evaluation_total):
@@ -266,13 +268,16 @@ async def ingest(request: Request,
         MaxPowerEvent.org_id == str(sample.org_id), MaxPowerEvent.round_id == str(sample.run_id),
         MaxPowerEvent.event == key))
     if prior is not None:
-        if prior.evidence.get("sequence") != sample.sequence or prior.evidence.get("dataset_sha256") != sample.dataset_sha256:
+        if (prior.evidence.get("sequence") != sample.sequence
+                or prior.evidence.get("dataset_sha256") != sample.dataset_sha256
+                or prior.evidence.get("model") != sample.model
+                or prior.evidence.get("device") != sample.device):
             raise HTTPException(409, "Evento contradictorio")
         return {"accepted": True, "duplicate": True}
     db.add(MaxPowerEvent(
         org_id=str(sample.org_id), round_id=str(sample.run_id),
         event=key, reason=(("Prueba LoRA CPU sintética: " if sample.data_kind == "curated_synthetic"
-                            else "Gradientes LoRA CPU: ") if sample.model.endswith("0.8B")
+                            else "Gradientes LoRA CPU: ") if sample.device == "cpu"
                             else "Gradientes QLoRA GPU: ") + sample.kind,
         evidence=sample.model_dump(mode="json", exclude={"org_id", "run_id"}, exclude_none=True),
     ))
@@ -297,6 +302,7 @@ def _run_view(rows):
     return {
         "run_id": last.round_id,
         "model": payload.get("model"),
+        "device": payload.get("device", "cpu" if payload.get("model") == "Qwen/Qwen3.5-0.8B" else "gpu"),
         "dataset_sha256": payload.get("dataset_sha256"),
         "stage": kind if kind in KINDS else "unknown",
         "step": step, "total_steps": total,
@@ -351,7 +357,8 @@ def progress(user: User = Depends(administrator), db: Session = Depends(get_db))
             runs.setdefault(row.round_id, []).append(row)
     latest = sorted(runs.values(), key=lambda items: max(r.created_at for r in items), reverse=True)
     preflight_runs = [items for items in latest
-                      if all((e.evidence or {}).get("kind") == "preflight" for e in items)]
+                      if all(e.evidence.get("kind") == "preflight"
+                             and e.evidence.get("model") == QWEN_TRAINING_MODEL for e in items)]
     training_runs = [items for items in latest
                      if not all((e.evidence or {}).get("kind") == "preflight" for e in items)]
     latest_preflight = _run_view(preflight_runs[0]) if preflight_runs else None

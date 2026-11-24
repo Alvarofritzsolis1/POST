@@ -1,8 +1,10 @@
 from functools import lru_cache
 from pathlib import Path
 from pydantic_settings import BaseSettings, SettingsConfigDict
-from pydantic import Field
+from pydantic import Field, field_validator
 from typing import Literal
+
+from .galancito_model_config import QWEN_2B
 
 
 class Settings(BaseSettings):
@@ -52,7 +54,7 @@ class Settings(BaseSettings):
     galancito_ai_model: str = "gpt-4.1-mini"
     galancito_ai_provider: str = "openai"
     # Ollama se habilita solo tras descargar y probar el modelo en el VPS.
-    galancito_local_model: Literal["qwen3:1.7b", "qwen3.5:4b-q4_K_M"] = "qwen3:1.7b"
+    galancito_local_model: Literal["qwen3.5:2b-q4_K_M"] = QWEN_2B
     galancito_local_ai_enabled: bool = False
     # 2m preserves warm service after 20s idle; generation limits stay bounded.
     galancito_keep_alive: Literal["20s", "2m", "5m"] = "2m"
@@ -62,6 +64,12 @@ class Settings(BaseSettings):
     galancito_timeout_seconds: float = Field(default=24, ge=1, le=60)
     galancito_memory_reserve_mb: int = Field(default=1536, ge=512, le=8192)
 
+    @field_validator("galancito_local_model", mode="before")
+    @classmethod
+    def upgrade_local_model(cls, value):
+        if value in ("qwen3:1.7b", "qwen3.5:4b-q4_K_M"):
+            return QWEN_2B
+        return value
 
 
 @lru_cache

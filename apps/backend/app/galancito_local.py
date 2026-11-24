@@ -16,8 +16,9 @@ from threading import BoundedSemaphore
 from urllib.error import HTTPError, URLError
 from urllib.request import HTTPRedirectHandler, ProxyHandler, Request, build_opener
 from .config import settings
+from .galancito_model_config import QWEN_2B
 
-MODEL = "qwen3:1.7b"  # isolated training baseline, unchanged for existing rounds
+MODEL = QWEN_2B
 INTERNAL_URL = "http://galancito-ollama:11434/api/chat"
 TRAINING_OLLAMA = "http://galancito-training-ollama:11434"
 # Explicit runtime guard: MAX POWER must never send model experiments to
@@ -140,8 +141,7 @@ def generate_local_text(instructions: str, data: str,
 def training_timeout_seconds(tokens: int, *, thinking: bool = False) -> int:
     """Bound a laboratory request using its actual generation budget.
 
-    The timeout is NOT a measure of model improvement. A slow CPU-only 4B run
-    may spend ~60s on prefill and ~0.4s per token; keep an upper safety limit.
+    Cold model loading and prefill can take extra time on CPU.
     Interactive Messenger retains its separate, shorter deadline.
     """
     output = max(1, min(512, int(tokens)))
@@ -211,6 +211,9 @@ def _generate(instructions, data, max_chars, cfg, *, url=None, seed=None, allow_
                       "reasoning_enabled": bool(thinking),
                       "response_model": reported_model if isinstance(reported_model, str) else None})
     record_model_tokens(result.get("prompt_eval_count"), result.get("eval_count"))
+    if (allow_training and isinstance(reported_model, str)
+            and reported_model.casefold() != payload["model"].casefold()):
+        raise RuntimeError("Ollama devolvió un modelo distinto al solicitado")
     msg = result.get("message")
     content = msg.get("content") if isinstance(msg, dict) else None
     if not isinstance(content, str):
@@ -226,12 +229,10 @@ def _generate(instructions, data, max_chars, cfg, *, url=None, seed=None, allow_
 
 
 def generate_training_text(instructions: str, data: str, seed: int, cfg, *, thinking=False) -> str:
-    """Only the isolated trainer calls this; it never queues on Messenger's model."""
+    """Send practice to the dedicated Ollama instance."""
     last_timings.set({})
-    # Historical 1.7B rounds retain the isolated trainer. New 4B rounds reuse
-    # the already-installed private production Ollama, avoiding a second 4B in RAM.
     target = getattr(cfg, "galancito_local_model", MODEL)
-    url = (TRAINING_OLLAMA + "/api/chat") if MAX_POWER_ISOLATED else (
-        INTERNAL_URL if target == "qwen3.5:4b-q4_K_M" else TRAINING_OLLAMA + "/api/chat")
+    if target != QWEN_2B:
+        raise ValueError("La práctica requiere Qwen3.5 2B")
     return _generate(instructions, data, 650, cfg, seed=seed, allow_training=True,
-                     url=url, thinking=thinking)
+                     url=TRAINING_OLLAMA + "/api/chat", thinking=thinking)

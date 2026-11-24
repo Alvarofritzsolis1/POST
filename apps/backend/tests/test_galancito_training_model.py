@@ -21,7 +21,7 @@ def test_first_round_downloads_once_and_waits_for_installed_model(monkeypatch):
 
     monkeypatch.setattr(model._opener, "open", download)
     setup = model.TrainingModel()
-    assert "2 GB" in setup.waiting_reason(1024)
+    assert "3 GB" in setup.waiting_reason(1024)
     assert setup.download is None
     assert "Preparando Qwen" in setup.waiting_reason(4500)
     assert started.wait(2)
@@ -47,9 +47,8 @@ def test_registry_failure_is_retried_with_a_delay(monkeypatch):
     assert "volverá a intentarlo" in setup.waiting_reason(4500)
 
 
-def test_qwen35_training_uses_existing_private_live_engine(monkeypatch):
-    """Advanced model is read from main Ollama and must never auto-pull a second 4B."""
-    import io
+def test_qwen35_training_uses_private_practice_engine(monkeypatch):
+    """An installed model in the private practice service is reused."""
     checked = []
     class Response:
         def __enter__(self): return self
@@ -59,18 +58,16 @@ def test_qwen35_training_uses_existing_private_live_engine(monkeypatch):
         return Response()
     monkeypatch.setattr(model._opener, "open", fake_open)
     setup = model.TrainingModel()
-    assert setup.waiting_reason(100, model.ADVANCED_MODEL) is None
-    assert checked[0][0] == model.INTERNAL_URL.replace("/api/chat", "/api/show")
-    assert checked[0][1]["model"] == model.ADVANCED_MODEL
+    assert setup.waiting_reason(100, model.MODEL) is None
+    assert checked[0][0] == model.TRAINING_OLLAMA + "/api/show"
+    assert checked[0][1]["model"] == model.MODEL
     assert setup.download is None
 
 
-def test_qwen35_training_does_not_pull_when_missing(monkeypatch):
-    from urllib.error import HTTPError
-    def not_found(request, timeout):
-        raise HTTPError(request.full_url, 404, "", {}, None)
-    monkeypatch.setattr(model._opener, "open", not_found)
+def test_legacy_model_is_never_downloaded_for_practice(monkeypatch):
+    def unexpected_request(request, timeout):
+        raise AssertionError("Historical model must not reach Ollama")
+    monkeypatch.setattr(model._opener, "open", unexpected_request)
     setup = model.TrainingModel()
-    reason = setup.waiting_reason(7000, model.ADVANCED_MODEL)
-    assert "no está descargado" in reason
+    assert "histórica" in setup.waiting_reason(7000, "qwen3.5:4b-q4_K_M")
     assert setup.download is None

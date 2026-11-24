@@ -50,7 +50,7 @@ def test_autodiscovery_requires_real_qwen_consent_and_no_human_review(ai_env):
     from app.max_power_models import MaxPowerMessengerTrial
     from app.galancito_knowledge_models import AssistantRun
     from app.facebook_crm_models import FacebookLead, FacebookChatMessage
-    from app.galancito_general import QWEN_4B
+    from app.galancito_model_config import QWEN_2B
     from app.models import User
     from app.models import utcnow
 
@@ -73,7 +73,7 @@ def test_autodiscovery_requires_real_qwen_consent_and_no_human_review(ai_env):
         db.flush()
         run=AssistantRun(org_id=ai_env["org_id"],channel="messenger",
                 source="ai",intent="intake",elapsed_ms=1250,
-                timings={"response_model":QWEN_4B,
+                timings={"response_model":QWEN_2B,
                          "outbound_message_id":outgoing.id})
         db.add(run)
         db.flush()

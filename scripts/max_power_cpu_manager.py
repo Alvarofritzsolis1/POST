@@ -20,14 +20,15 @@ from time import monotonic, sleep, time
 from urllib.request import Request, urlopen
 from uuid import UUID
 
-sys.path.insert(0, "/src/apps/backend")
+sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "apps" / "backend"))
 from galant_cpu_lora_resources import capacity_gate, snapshot
 from galancito_lora_progress import ProgressReporter
+from app.galancito_model_config import QWEN_TRAINING_MODEL as MODEL
 
 LOG = logging.getLogger("max_power_cpu")
 HOME = Path("/private")
 API = "http://api:8000/api/v1/admin/ai/max-power/finetune"
-MODEL = "Qwen/Qwen3.5-0.8B"
+RUN_PREFIX = "cpu-qwen35-2b-"
 LOOP_SECONDS = 8
 PREFLIGHT_RECHECK = 60
 RECOVERY_RECHECK = 1800
@@ -135,7 +136,7 @@ def verified_finished_run(path: Path, digest: str) -> bool:
 
 def select_run(root: Path, digest: str) -> tuple[Path, bool, str]:
     """One deterministic 4-step pilot per signed dataset; no endless fake epochs."""
-    path = root / "runs" / ("cpu-automatic-" + digest[:24])
+    path = root / "runs" / (RUN_PREFIX + digest[:24])
     if not path.exists():
         return path, False, "new"
     if (path / "evaluation.json").exists():
@@ -173,7 +174,7 @@ def select_run(root: Path, digest: str) -> tuple[Path, bool, str]:
 
 def retry_state(root: Path, digest: str) -> tuple[int, float]:
     """Persistent bounded retries: resource failures never cause a tight loop."""
-    path = root / "runs" / ("cpu-automatic-" + digest[:24] + ".failures.json")
+    path = root / "runs" / (RUN_PREFIX + digest[:24] + ".failures.json")
     if not path.is_file() or path.is_symlink():
         return 0, 0.0
     try:
@@ -185,7 +186,7 @@ def retry_state(root: Path, digest: str) -> tuple[int, float]:
 
 def record_failure(root: Path, digest: str):
     previous, _ = retry_state(root, digest)
-    path = root / "runs" / ("cpu-automatic-" + digest[:24] + ".failures.json")
+    path = root / "runs" / (RUN_PREFIX + digest[:24] + ".failures.json")
     path.parent.mkdir(parents=True, exist_ok=True)
     payload = json.dumps({"count": min(MAX_FAILED_ATTEMPTS, previous+1), "at": time()})
     tmp = path.with_name(path.name + ".tmp")
@@ -202,7 +203,7 @@ def retry_ready(root: Path, digest: str, *, recoverable: bool = False) -> bool:
 
 def recoverable_checkpoint(root: Path, digest: str) -> bool:
     """Only matching incomplete checkpoints can receive a delayed retry."""
-    path = root / "runs" / ("cpu-automatic-" + digest[:24])
+    path = root / "runs" / (RUN_PREFIX + digest[:24])
     meta = path / "run-metadata.json"
     if (path.is_symlink() or meta.is_symlink() or not meta.is_file()
             or (path / "evaluation.json").exists() or (path / "checkpoints").is_symlink()):
@@ -308,9 +309,8 @@ def run_once(secret: str, plan: dict, public_key: str, last_preflight: dict,
         except (OSError, ValueError) as exc:
             LOG.warning("Estado neuronal no enviado: %s", type(exc).__name__)
 
-    # Legacy 0.8B remains an opt-in laboratory only. Never compete with
-    # the actual 4B model during ordinary MAX POWER sessions.
-    if os.environ.get("GALANT_MAX_POWER_08B_AUTOMATIC", "yes").lower() != "yes":
+    # The quantized worker has priority in the standard VPS deployment.
+    if os.environ.get("GALANT_MAX_POWER_BF16_AUTOMATIC", "yes").lower() != "yes":
         report("legacy_lab_disabled")
         return
     if plan.get("messenger_busy"):
@@ -328,7 +328,7 @@ def run_once(secret: str, plan: dict, public_key: str, last_preflight: dict,
             preflight_dir.mkdir(parents=True, exist_ok=True)
             reporter = ProgressReporter(preflight_dir / str(int(time())),
                 run_id=str(__import__("uuid").uuid4()), org_id=org,
-                dataset_sha256="0" * 64, model=MODEL,
+                dataset_sha256="0" * 64, model=MODEL, device="cpu",
                 telemetry_url=API + "/telemetry", telemetry_token=token)
             try:
                 reporter.emit("preflight", step=0, total_steps=0,
@@ -366,7 +366,7 @@ def run_once(secret: str, plan: dict, public_key: str, last_preflight: dict,
     else:
         bundle, _ = approved
     digest = bundle["dataset_digest"]
-    output = root / "runs" / ("cpu-automatic-" + digest[:24])
+    output = root / "runs" / (RUN_PREFIX + digest[:24])
     if verified_finished_run(output, digest):
         report("finished_synthetic" if synthetic else "awaiting_new_dataset")
         return
@@ -376,7 +376,7 @@ def run_once(secret: str, plan: dict, public_key: str, last_preflight: dict,
         report("retry_cooldown" if attempts < MAX_FAILED_ATTEMPTS or recoverable else "retry_exhausted")
         return
     if plan.get("practice_busy"):
-        # Give already-running 4B practice its full turn; prevent new rounds
+        # Give already-running practice its full turn; prevent new rounds
         # from starting so authorized CPU LoRA eventually gets CPU time.
         report("cpu_waiting_turn")
         return

@@ -5,7 +5,7 @@ from math import ceil, comb
 
 MIN_INDEPENDENT_PAIRS = 8
 
-def evidence_fingerprint(cases):
+def evidence_fingerprint(cases, *, model=None):
     """Stable over time and across restarts; never includes chat content."""
     # Avoid comparing unorderable dicts in tuple tie-breakers.
     records = sorted(json.dumps((str(case["id"]), case["category"],
@@ -13,7 +13,7 @@ def evidence_fingerprint(cases):
                       case["evidence"]["agregados_reales"]),
                       ensure_ascii=False, sort_keys=True, separators=(",", ":"))
                      for case in cases)
-    return sha256(json.dumps(records, separators=(",", ":")).encode()).hexdigest()
+    return sha256(json.dumps([model, records] if model else records, separators=(",", ":")).encode()).hexdigest()
 
 def classify_outcome(metrics: dict) -> dict:
     gains = int(metrics.get("real_holdout_gain_cases") or 0)
@@ -85,7 +85,12 @@ def priority_from_reviews(reviews):
     return [{"channel": channel, "criterion": criterion, "failures": count}
             for (channel, criterion), count in sorted(counts.items(), key=lambda pair: -pair[1])][:6]
 
-QWEN_MIN_RAM_MB = 8192
+QWEN_MIN_RAM_MB = 5120
+QWEN_RESIDENT_RAM_MB = 3072
+QWEN_MEMORY_REASON = (
+    f"Qwen 2B frío requiere {QWEN_MIN_RAM_MB} MB disponibles. "
+    f"Con el modelo en memoria se reservan {QWEN_RESIDENT_RAM_MB} MB."
+)
 
 
 def can_run(snapshot: dict, *, messenger_pending=False, intensive=False):
@@ -111,7 +116,7 @@ def can_run(snapshot: dict, *, messenger_pending=False, intensive=False):
 def select_experiment_plan(snapshot: dict, available_cases: int, previous_p95_ms=None) -> dict:
     """Select cases and bounded round budget from current capacity and observed speed."""
     measured = isinstance(previous_p95_ms, (int, float)) and 0 < previous_p95_ms < 1_000_000
-    # An unseen CPU-only 4B model must first establish a latency baseline on
+    # An unseen CPU-only model must first establish a latency baseline on
     # eight pairs. Expand only if real measured p95 supports it.
     fast_enough = measured and previous_p95_ms < 60000
     pairs = min(12 if fast_enough and snapshot.get("available_ram_mb", 0) >= 6144

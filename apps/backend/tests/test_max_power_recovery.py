@@ -29,7 +29,7 @@ def test_finished_round_is_recorded_once_across_repeated_ticks(ai_env):
             org_id=ai_env["org_id"], created_by=state.owner_id,
             target=8, completed=8, state="completed",
             config={"orchestrator":"max_power", "cases": 2, "cycles": 4,
-                    "profile":"interno", "suite":"live", "model":{"model":"qwen3.5:4b-q4_K_M"}},
+                    "profile":"interno", "suite":"live", "model":{"model":"qwen3.5:2b-q4_K_M"}},
             dataset_hash="b"*64, prompt_version="a"*64,
             system_version="20.9.22-rc1@test", knowledge=[], aliases={},
             metrics={"passed":8, "failed":0, "turns":8,
@@ -179,7 +179,7 @@ def test_failed_round_preserves_evidence_and_retries_with_bounded_backoff(ai_env
             target=32, completed=3, attempts=3,
             config={"orchestrator": "max_power", "cases": 8, "cycles": 4,
                     "profile": "interno", "suite": "live",
-                    "model": {"model": "qwen3.5:4b-q4_K_M"}},
+                    "model": {"model": "qwen3.5:2b-q4_K_M"}},
             dataset_hash="d" * 64, prompt_version="a" * 64,
             system_version="20.9.24-rc1@test", knowledge=[], aliases={},
             metrics={"passed": 3, "failed": 0, "turns": 3})

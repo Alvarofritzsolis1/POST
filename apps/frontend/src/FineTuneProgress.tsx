@@ -19,7 +19,7 @@ type MetricPoint = {
   holdout_pass_after?: number | null; holdout_regressions?: number | null;
 };
 type FineTuneRun = {
-  run_id: string; model: string; dataset_sha256: string; stage: string;
+  run_id: string; model: string; device: "cpu" | "gpu"; dataset_sha256: string; stage: string;
   step: number; total_steps: number; percent: number | null;
   started_at: string; last_update_at: string; weights_trained: boolean;
   candidate_accepted: boolean; points: MetricPoint[];
@@ -89,7 +89,7 @@ export default function FineTuneProgress(){
   const current=selected==null?coords[coords.length-1]:coords.find(p=>p.p.sequence===selected);
   const lastUpdate=run?.last_update_at?new Date(run.last_update_at).getTime():0;
   const stale=!!run && !["finished","failed","paused"].includes(run.stage) && Date.now()-lastUpdate>60000;
-  const cpuRun=run?.model==="Qwen/Qwen3.5-0.8B";
+  const cpuRun=run?.device==="cpu";
   const lastBy=(key:keyof MetricPoint):number|null=>{
     for(const p of [...(run?.points||[])].reverse()){
       const value=p[key];
@@ -117,7 +117,7 @@ export default function FineTuneProgress(){
     <div className="ft-heading">
       <div><span className="ft-eyebrow"><BrainCircuit size={15}/> CPU LORA · GPU QLORA</span>
         <h3>Entrenamiento real de pesos</h3>
-        <p>Métricas de entrenamiento de pesos en trabajador aislado. Qwen3.5 4B de Messenger permanece intacto.</p></div>
+        <p>Historial de LoRA por CPU y QLoRA por GPU para Qwen3.5 2B.</p></div>
       <button type="button" className="ft-refresh" onClick={()=>void refresh()} title="Actualizar ahora"><RefreshCw size={17}/></button>
     </div>
     {error && <p role="alert" className="ft-error">{error}</p>}
@@ -127,13 +127,13 @@ export default function FineTuneProgress(){
       {supervisor.blockers.map(b=><small key={b}>{blockerLabels[b]??b}</small>)}
       <small>Este estado es independiente del último checkpoint o de una ejecución histórica seleccionada.</small>
     </div>}
-    {!data?.configured && <p className="ft-warning">Canal de métricas sin configurar. Para entrenar con el VPS actual existe una opción LoRA por CPU aislada (Qwen3.5 0.8B), sujeta a autorización de datos y memoria disponible. MAX POWER local por sí solo todavía no modifica pesos.</p>}
+    {!data?.configured && <p className="ft-warning">El historial del entrenador LoRA por CPU y del entrenador externo por GPU requiere configurar el canal de métricas.</p>}
     {data?.configured && <div className="ft-connect">
       <button type="button" onClick={()=>setShowConnect(x=>!x)}>
         <ShieldCheck size={16}/> {showConnect?"Ocultar conexión avanzada":"Conexión de GPU externa (opcional)"}
       </button>
       {showConnect && <div className="ft-connect-details">
-        <p>MAX POWER conecta el entrenador CPU automáticamente. Esta opción sirve únicamente para vincular un entrenador GPU externo autorizado.</p>
+        <p>Vincula un entrenador GPU externo autorizado.</p>
         <button type="button" disabled={copyBusy} onClick={()=>void copyConnection()}>
           {copyBusy?"Generando…":"Copiar credenciales de entrenamiento"}
         </button>
@@ -141,22 +141,22 @@ export default function FineTuneProgress(){
       </div>}
     </div>}
     <div className="ft-heldout" aria-label="Comprobación CPU LoRA">
-      <strong>Capacidad del VPS para entrenar Qwen3.5 0.8B</strong>
+      <strong>Capacidad para LoRA CPU en BF16</strong>
       <span>{lastPreflight
         ? lastPreflight.preflight_ready
           ? "Última comprobación: recursos iniciales suficientes; no significa que los pesos ya se hayan entrenado."
           : "Última comprobación: recursos insuficientes; no iniciar entrenamiento."
-        : "Al encender MAX POWER se comprobarán recursos automáticamente; aún no hay una medición registrada."}</span>
+        : "Aún no hay una medición del entrenador BF16."}</span>
       {lastPreflight && <span>
         RAM del servidor libre: {fmt(lastPreflight.host_free_mb,0)} MB ·
         RAM disponible en contenedor (incluye caché recuperable): {fmt(lastPreflight.cgroup_available_mb ?? lastPreflight.cgroup_free_mb,0)} MB ·
         Disco libre: {fmt(lastPreflight.disk_free_mb,0)} MB
       </span>}
-      <small>Sin comandos manuales: MAX POWER comprueba recursos, autorización y estado del entrenamiento CPU. Las métricas se actualizan automáticamente cuando hay una ejecución real.</small>
+      <small>Las métricas se actualizan cuando el entrenador informa una ejecución.</small>
     </div>
     {(!data?.runs.length) ? <div className="ft-empty"><Cpu size={28}/>
       <strong>Sin pasos de entrenamiento neuronal registrados</strong>
-      <p>MAX POWER iniciará una ronda LoRA automáticamente cuando exista un dataset firmado, haya RAM suficiente y Messenger esté libre. Si falta alguno de esos requisitos, arriba verás el motivo.</p>
+      <p>El entrenador cuantizado del VPS muestra su progreso en el panel de MAX POWER.</p>
       </div> : <>
       <div className="ft-run-select">
         <label htmlFor="ft-run">Ejecución</label>
