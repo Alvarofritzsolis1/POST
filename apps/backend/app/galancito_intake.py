@@ -603,11 +603,38 @@ def model_intake_candidate(message: str, facts: dict, prior: str, fallback: str 
     if (not fallback or private_data(message) or identity_reply(message)
             or clarification_reply(message, prior) or is_pure_greeting(message)
             or plain(message) in {"gracias", "muchas gracias", "vale gracias"}
-            or facts.get("contact_declined")
             or "¿me dejas tu celular?" in fallback):
         return False
     return bool(intake_question_fields(fallback) and analyze(message).intent not in
                 {"human", "restricted", "documents", "requirements", "about", "publish"})
+
+
+def acceptable_intake_draft(draft: str, facts: dict) -> bool:
+    """Reject robotic or repetitive model rewrites; never reveal contact values."""
+    value = plain(draft)
+    if not draft or draft.count("?") > 1 or any(p in value for p in (
+        "me queda clara la cantidad", "tengo anotada tu experiencia", "ya se en que comuna",
+        "escribe paso", "quedo anotado", "puedes escribir con confianza"
+    )):
+        return False
+    known = {
+        "display_name": facts.get("display_name") not in UNKNOWN_NAMES,
+        "specialty": bool(facts.get("specialty") or facts.get("trades")),
+        "interest_type": facts.get("interest_type") in {"employment", "service_offer", "both"},
+        "team_available": facts.get("team_available") is not None,
+        "workers": facts.get("workers") is not None,
+        "experience": bool(facts.get("experience")),
+        "work_communes": bool(facts.get("work_area") or facts.get("work_communes")),
+        "availability": bool(facts.get("availability")),
+        "contact_phone": any(facts.get(k) for k in ("contact_available", "contact_declined", "contact_offered")),
+        "contact_email": any(facts.get(k) for k in ("contact_available", "contact_declined", "contact_offered")),
+    }
+    asked = intake_question_fields(draft)
+    if any(known.get(field) or facts.get("field_states", {}).get(field) == "rechazado_por_usuario"
+           for field in asked):
+        return False
+    # An ordinary intake rewrite must still move the conversation forward.
+    return bool(asked or "?" in draft)
 
 
 def needs_deeper_response(message: str) -> bool:
