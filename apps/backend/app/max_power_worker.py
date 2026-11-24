@@ -8,7 +8,9 @@ from concurrent.futures import ThreadPoolExecutor
 import logging
 import re
 from pathlib import Path
-from time import sleep
+from time import sleep,time
+import os
+from . import max_power_4b_control as neural
 from fastapi import HTTPException
 from sqlalchemy import select, and_, delete, or_
 from sqlalchemy.exc import SQLAlchemyError
@@ -265,7 +267,7 @@ def _result(db, row, completed, now):
     else:
         set_wait(row, now, outcome["code"], outcome["reason"] + ". " + outcome["next"])
 
-def tick(db, sampler, *, sampled=None, training_model=None):
+def tick(db, sampler, *, sampled=None, training_model=None, neural_reserved=False):
     """One transactional decision per organization, protected by row locks."""
     now = utcnow()
     # Lock Organization before MaxPowerState, matching the API/start() lock order.
@@ -357,9 +359,9 @@ def tick(db, sampler, *, sampled=None, training_model=None):
             continue
         # Waiting for a turn is not an active trainer. Never make a queued
         # 4B task wait on a supervisor which is itself waiting for that task.
-        if cpu_execution_blocks(db, now):
+        if neural_reserved or cpu_execution_blocks(db, now):
             set_wait(row, now, "cpu_neural_training",
-                     "LoRA anterior activo o cerrándose; esperando liberación segura", 10)
+                     "Motor neuronal aislado activo o cerrándose; esperando liberación segura", 10)
             continue
         ok, reason = can_run(snapshot, messenger_pending=bool(
             messenger_busy(db) or messenger_recent(db)), intensive=True)
@@ -453,6 +455,38 @@ def tick(db, sampler, *, sampled=None, training_model=None):
                                        "budget_minutes": plan["minutes"], "plan_basis": plan["basis"]}))
     db.commit()
 
+def neural_intent(db, task_busy, model_download):
+    row=db.scalar(select(MaxPowerState).where(MaxPowerState.enabled.is_(True))
+                  .order_by(MaxPowerState.session_started_at,MaxPowerState.org_id).limit(1))
+    org=row.org_id if row else None
+    generation=row.session_generation if row else None
+    owner=db.get(User,row.owner_id) if row else None
+    manual_busy=bool(db.scalar(select(TrainingRound.id).where(
+        TrainingRound.state.in_(ACTIVE),
+        or_(TrainingRound.config["orchestrator"].as_string().is_(None),
+            TrainingRound.config["orchestrator"].as_string()!="max_power")).limit(1)))
+    allowed=bool(row and owner and owner.enabled and owner.role=="admin" and owner.org_id==org
+                 and not task_busy and not model_download and not manual_busy
+                 and not cpu_execution_blocks(db,utcnow()) and not messenger_busy(db)
+                 and not messenger_recent(db))
+    neural.write(neural.ROOT/"intent.json",{"org":org,"generation":generation,"at":time(),"allowed":allowed})
+    status=neural.read(neural.ROOT/"status.json")
+    if row and neural.matches(status,org,generation) and neural.fresh(status,40):
+        evidence=neural.measured_report(status)
+        if evidence:
+            event=db.scalar(select(MaxPowerEvent).where(MaxPowerEvent.org_id==org,
+                     MaxPowerEvent.event=="4b_neural_status",MaxPowerEvent.round_id==org))
+            if event is None:
+                db.add(MaxPowerEvent(org_id=org,event="4b_neural_status",round_id=org,
+                                     reason="Motor neuronal Qwen 4B aislado",evidence=evidence))
+                db.commit()
+            elif (event.evidence or {}).get("at")!=evidence["at"]:
+                event.evidence=evidence
+                event.created_at=utcnow()
+                db.commit()
+    request=neural.read(neural.ROOT/"request.json")
+    return bool(allowed and neural.matches(request,org,generation) and neural.fresh(request,20))
+
 def main():
     from . import main as _application  # registers all SQLAlchemy models
     logging.basicConfig(level=logging.INFO)
@@ -460,6 +494,8 @@ def main():
     practice_sampler = ResourceSampler()
     local_model = TrainingModel()
     task = None
+    task_slot = None
+    coordinate = os.environ.get('GALANT_MAX_POWER_4B_COORDINATION')=='yes'
     # Integrate the preexisting practice engine: ON works with a single button,
     # even if the separate optional 'training' Docker profile is not running.
     # The trainer uses a PostgreSQL advisory lock to prevent duplicate claims.
@@ -473,19 +509,29 @@ def main():
                 if sampled is not None:
                     with SessionLocal.begin() as db:
                         heartbeat(db, sampled, utcnow())
-                with SessionLocal() as db:
-                    tick(db, sampler, sampled=sampled, training_model=local_model)
-                # Container-health probe reflects a successfully completed DB tick.
-                Path("/tmp/max_power_controller_heartbeat").touch()
                 if task is not None and task.done():
                     try:
                         task.result()
                     except Exception:
                         logger.exception("MAX POWER practice cycle failed; durable state preserved")
                     task = None
+                    neural.release(task_slot)
+                    task_slot = None
+                requested=False
+                if coordinate:
+                    with SessionLocal() as db:
+                        requested=neural_intent(db,task is not None,
+                            bool(local_model.download and local_model.download.is_alive()))
+                    if task is None and not requested:
+                        task_slot=neural.lock()
+                reserved=coordinate and task is None and (requested or task_slot is None)
+                with SessionLocal() as db:
+                    tick(db, sampler, sampled=sampled, training_model=local_model,
+                         neural_reserved=reserved)
+                Path("/tmp/max_power_controller_heartbeat").touch()
                 with SessionLocal() as db:
                     neural_busy = cpu_execution_blocks(db, utcnow()) if enabled else False
-                if enabled and task is None and not neural_busy:
+                if enabled and task is None and not neural_busy and not reserved:
                     with SessionLocal() as db:
                         due = db.scalar(select(MaxPowerMessengerTrial.id).join(
                             MaxPowerState, MaxPowerMessengerTrial.org_id == MaxPowerState.org_id
@@ -520,6 +566,10 @@ def main():
                 logger.warning("MAX POWER waiting for database: %s", type(exc).__name__)
             except Exception:
                 logger.exception("MAX POWER controller cycle failed")
+            finally:
+                if task is None:
+                    neural.release(task_slot)
+                    task_slot = None
             sleep(5)
 
 if __name__ == "__main__":

@@ -93,8 +93,19 @@ def main():
     parser.add_argument("--threads",type=int,choices=(2,4),default=4)
     parser.add_argument("--stop-after",type=int,choices=range(1,11))
     parser.add_argument("--resume",action="store_true")
+    parser.add_argument("--conversation-eval",action="store_true")
+    parser.add_argument("--control-file",type=Path)
+    parser.add_argument("--org")
+    parser.add_argument("--generation",type=int)
     parser.add_argument("--output",type=Path,default=Path("/private/4b-probe"))
     args=parser.parse_args()
+    if args.control_file and (not args.org or not args.generation):
+        parser.error("Control file requires organization and generation")
+    def control_guard():
+        if args.control_file:
+            from max_power_4b_control import authorized,read
+            if not authorized(read(args.control_file),args.org,args.generation):
+                raise InterruptedError("MAX POWER paused or session expired")
     root=args.output
     root.mkdir(parents=True,exist_ok=True)
     path=root/"latest.json"
@@ -103,11 +114,13 @@ def main():
     reasons=blockers(measured)
     report={"model":MODEL,"profile":PROFILE,"status":"blocked" if reasons else "preflight_passed",
             "timestamp":time(),"preflight":measured,"blockers":reasons,"steps":[],
-            "adapter_changed":False,"production_verified":False,"quality_improvement_verified":False}
+            "adapter_changed":False,"production_verified":False,"quality_improvement_verified":False,
+            "data_kind":"curated_synthetic"}
     write_report(path,report)
     if reasons or not args.run:
         return 2 if reasons else 0
     try:
+        control_guard()
         import torch
         import bitsandbytes as bnb
         import transformers, peft
@@ -141,7 +154,9 @@ def main():
         if not quantized or not getattr(model,"is_loaded_in_4bit",False):
             raise RuntimeError("No verified 4-bit layers")
         report.update(quantized_layers=quantized,load_seconds=round(monotonic()-t,3))
-        def guard():
+        def guard(check_control=True):
+            if check_control:
+                control_guard()
             memory=snapshot(root)
             if should_pause(memory):
                 raise RuntimeError("Memory reserve below safe limit")
@@ -266,7 +281,7 @@ def main():
             if after==before or not all(torch.isfinite(p).all().item() for p in params):
                 raise RuntimeError("Optimizer did not produce a finite changed adapter")
             point={"step":step,"seconds":round(monotonic()-t,4),"loss":float(loss.detach()),
-                   "grad_norm":float(norm),"adapter_changed":True,"adapter_sha256":after,"memory":guard()}
+                   "grad_norm":float(norm),"adapter_changed":True,"adapter_sha256":after,"memory":snapshot(root)}
             report["steps"].append(point)
             checkpoint=folder/("step-"+str(step))
             temporary=folder/(".step-"+str(step)+"-"+uuid4().hex)
@@ -284,6 +299,7 @@ def main():
             report.update(status="running",saved_adapter_step=step,latest_adapter_sha256=after,
                           adapter_changed=after!=initial)
             write_report(path,report)
+            guard()
         if stop<args.steps:
             report["status"]="paused_after_verified_step"
         else:
@@ -296,7 +312,31 @@ def main():
                 report["holdout_loss_before"],rel_tol=1e-5,abs_tol=1e-5)
             if not report["baseline_restored"] or not report["adapter_changed"]:
                 raise RuntimeError("Baseline restoration or weight change not verified")
+            if args.conversation_eval:
+                from galancito_4b_conversation_gate import evaluate,compare
+                def generate(history):
+                    guard()
+                    messages=[{"role":"system","content":SYSTEM}]+history
+                    prompt=tokenizer.apply_chat_template(messages,tokenize=False,
+                                add_generation_prompt=True,enable_thinking=False)
+                    ids=tokenizer(prompt,add_special_tokens=False,return_tensors="pt")["input_ids"]
+                    if ids.shape[1]>384:
+                        raise RuntimeError("Reserved conversation exceeds context budget")
+                    with torch.no_grad():
+                        output=model.generate(input_ids=ids,attention_mask=torch.ones_like(ids),
+                            max_new_tokens=40,do_sample=False,use_cache=True,
+                            pad_token_id=tokenizer.eos_token_id)
+                    return tokenizer.decode(output[0,ids.shape[1]:],skip_special_tokens=True).strip()
+                model.eval()
+                with model.disable_adapter():
+                    base_conversations=evaluate(generate)
+                candidate_conversations=evaluate(generate)
+                report["conversation_validation"]=compare(base_conversations,candidate_conversations)
+                # No activation on a production route; these are limited synthetic checks.
+                report["quality_improvement_verified"]=False
             report["status"]="completed"
+    except InterruptedError:
+        report["status"]="paused"
     except Exception as exc:
         report.update(status="failed",error_type=type(exc).__name__,error=str(exc)[:400])
     write_report(path,report)

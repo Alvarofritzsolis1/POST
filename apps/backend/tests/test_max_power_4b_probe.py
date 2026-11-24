@@ -52,3 +52,41 @@ def test_exact_base_revision():
         snapshot_revision(config,"b"*40)
     with pytest.raises(RuntimeError):
         snapshot_revision(Path("/cache/models--Qwen--Qwen3.5-0.8B/snapshots")/REVISION/"config.json")
+
+
+def test_neural_shared_lock_and_session_fence(tmp_path):
+    from app.max_power_4b_control import lock,release,authorized,write,read
+    from time import time
+    fd=lock(tmp_path)
+    assert fd is not None
+    assert lock(tmp_path) is None
+    release(fd)
+    fd=lock(tmp_path)
+    assert fd is not None
+    release(fd)
+    value={"org":"tenant","generation":7,"allowed":True,"at":time()}
+    write(tmp_path/"intent.json",value)
+    assert authorized(read(tmp_path/"intent.json"),"tenant",7)
+    assert not authorized(value,"tenant",8)
+    assert not authorized({**value,"at":time()-60},"tenant",7)
+    assert not authorized({**value,"allowed":False},"tenant",7)
+
+
+def test_4b_gate_does_not_claim_quality_on_tie_or_regression():
+    from galancito_4b_conversation_gate import CASES,compare
+    failed=[{"passed":False,"safe":True} for _ in CASES]
+    passed=[{"passed":True,"safe":True} for _ in CASES]
+    assert compare(failed,passed)["lab_pass"]
+    assert not compare(passed,passed)["lab_pass"]
+    assert not compare(passed,failed)["lab_pass"]
+    assert not compare(failed,passed)["production_verified"]
+
+
+def test_neural_report_never_exports_raw_chat_or_promotes():
+    from app.max_power_4b_control import measured_report
+    result=measured_report({"stage":"training","at":123,"generation":1,"report":{
+        "steps":[{"step":1,"grad_norm":0.5,"loss":2,"seconds":5,"adapter_changed":True,
+                  "raw_answer":"private"}],"production_promoted":True}})
+    assert result["completed_steps"]==1
+    assert result["production_promoted"] is False
+    assert "private" not in str(result)

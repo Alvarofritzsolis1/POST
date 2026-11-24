@@ -4,6 +4,9 @@ on:
     paths:
       - 'scripts/probe_galancito_4b_cpu.py'
       - 'scripts/galant_cpu_lora_resources.py'
+      - 'scripts/galancito_4b_conversation_gate.py'
+      - 'scripts/max_power_4b_manager.py'
+      - 'apps/backend/app/max_power_4b_control.py'
       - 'infrastructure/Dockerfile.cpu-4b-probe'
       - '.github/workflows/max-power-4b-real.yml'
   workflow_dispatch:
@@ -19,7 +22,7 @@ jobs:
     steps:
       - uses: actions/checkout@v4
       - name: Sintaxis
-        run: python3 -m py_compile scripts/probe_galancito_4b_cpu.py
+        run: python3 -m py_compile scripts/probe_galancito_4b_cpu.py scripts/max_power_4b_manager.py scripts/galancito_4b_conversation_gate.py apps/backend/app/max_power_4b_control.py
       - name: Build CPU
         run: docker build -f infrastructure/Dockerfile.cpu-4b-probe -t galant-4b-root .
       - name: Primer paso neuronal real
@@ -38,7 +41,7 @@ jobs:
           PY
       - name: Restaurar optimizador y completar diez pasos reales
         run: |
-          docker run --rm --memory=8g --memory-swap=8g --cpus=4 -v galant-ci-4b:/private galant-4b-root --run --allow-download --steps 10 --resume
+          docker run --rm --memory=8g --memory-swap=8g --cpus=4 -v galant-ci-4b:/private galant-4b-root --run --allow-download --steps 10 --resume --conversation-eval
           docker run --rm --entrypoint cat -v galant-ci-4b:/private:ro galant-4b-root /private/4b-probe/latest.json > evidence/final.json
           python - <<'PY'
           import json
@@ -53,6 +56,8 @@ jobs:
           assert len({p["adapter_sha256"] for p in b["steps"]})==10
           assert all(p["grad_norm"]>0 and p["seconds"]>0 for p in b["steps"])
           assert b["baseline_restored"] is True
+          assert b["conversation_validation"]["cases"] == 4
+          assert b["conversation_validation"]["production_verified"] is False
           assert b["production_verified"] is False
           PY
       - name: Conservar evidencia incluso ante fallo
