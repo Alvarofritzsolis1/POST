@@ -92,3 +92,34 @@ def test_speed_comparison_rejects_partial_pairs():
     report = summarize_pairs([pair]*len(PROMPTS))
     assert report["observed_p50_delta_ms"] == -200
     assert report["production_verified"] is False
+
+
+def test_signed_input_requires_private_regular_file(tmp_path):
+    import pytest
+    from galancito_4b_dataset import secure_bytes
+    data = tmp_path / "approved.jsonl"
+    data.write_bytes(b"private-data")
+    data.chmod(0o644)
+    with pytest.raises(ValueError):
+        secure_bytes(data,100)
+    data.chmod(0o600)
+    assert secure_bytes(data,100) == b"private-data"
+    with pytest.raises(ValueError):
+        secure_bytes(data,2)
+    link = tmp_path / "link"
+    link.symlink_to(data)
+    with pytest.raises(OSError):
+        secure_bytes(link,100)
+
+
+def test_real_selection_balances_criteria_and_rejects_duplicate_groups():
+    import pytest
+    from galancito_4b_dataset import select_distinct
+    def case(group,criterion):
+        return {"group":group,"criterion":criterion,"messages":[{"content":"question"}]}
+    selected = select_distinct([case("a","context"),case("b","context"),
+        case("a","safety"),case("c","safety")],3)
+    assert len({r["group"] for r in selected}) == 3
+    assert {r["criterion"] for r in selected} == {"context","safety"}
+    with pytest.raises(ValueError):
+        select_distinct([case("a","context"),case("a","safety")],2)
