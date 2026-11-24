@@ -109,7 +109,8 @@ def interactive_timeout_seconds(cfg) -> float:
 
 def generate_local_text(instructions: str, data: str,
                         max_chars: int = 550, *, thinking: bool = False,
-                        seed: int | None = None) -> str:
+                        seed: int | None = None, json_schema: dict | None = None,
+                        output_tokens: int | None = None) -> str:
     """Synchronous bounded chat with a single small model, no external APIs."""
     last_timings.set({})
     if not 1 <= max_chars <= 1200:
@@ -132,7 +133,8 @@ def generate_local_text(instructions: str, data: str,
         last_timings.set({"queue_ms": 0, "busy": True})
         raise RuntimeError("Galancito está ocupado")
     try:
-        return _generate(instructions, data, max_chars, cfg, thinking=thinking, seed=seed)
+        return _generate(instructions, data, max_chars, cfg, thinking=thinking, seed=seed,
+                         **({"json_schema": json_schema, "output_tokens": output_tokens} if json_schema is not None else {}))
     finally:
         _slot.release()
 
@@ -149,7 +151,7 @@ def training_timeout_seconds(tokens: int, *, thinking: bool = False) -> int:
 
 
 def _generate(instructions, data, max_chars, cfg, *, url=None, seed=None, allow_training=False,
-              thinking=False):
+              thinking=False, json_schema=None, output_tokens=None):
     payload = {
         "model": getattr(cfg, "galancito_local_model", MODEL) if allow_training else cfg.galancito_local_model,
         "messages": [
@@ -171,6 +173,12 @@ def _generate(instructions, data, max_chars, cfg, *, url=None, seed=None, allow_
             "temperature": 0.2,
         },
     }
+    if json_schema is not None:
+        if allow_training or thinking or type(output_tokens) is not int or not 40 <= output_tokens <= 256:
+            raise ValueError("Presupuesto de salida estructurada inválido")
+        payload["format"] = json_schema
+        payload["options"]["num_predict"] = output_tokens
+        payload["options"]["temperature"] = 0.1
     if seed is not None:
         payload["options"]["seed"] = seed
     request = Request(

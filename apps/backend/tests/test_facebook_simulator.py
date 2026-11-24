@@ -109,3 +109,73 @@ def test_simulator_short_application_answers_do_not_loop_or_invent_trade(ai_env,
     repeated = send("solo", ambiguous["state"])
     assert repeated["reply"] != ambiguous["reply"]
     assert repeated["profile"]["interest_type"] == "unknown"
+
+
+def test_direct_qwen_uses_model_once_per_turn_and_keeps_semantic_facts(ai_env, monkeypatch):
+    import json
+    from app.galancito_local import last_timings
+    from app.messenger_qwen_lab import MODEL
+    monkeypatch.setenv("GALANCITO_LOCAL_AI_ENABLED","true")
+    monkeypatch.setenv("GALANCITO_LOCAL_MODEL",MODEL)
+    settings.cache_clear()
+    client=ai_env["client"]
+    admin=signin(client)
+    calls=[]
+    answers=[
+        ("¿De qué oficio era el aviso?",[]),
+        ("¿Quieres ofrecer servicios de gasfitería o buscar empleo?",[]),
+        ("¿Tú haces trabajos de gasfitería?",[{"field":"interest_type","value":"service_offer","quote":"quiero ofrecer"}]),
+        ("¿Trabajas solo o con más gente?",[{"field":"specialty","value":"Gasfitería","quote":"si"}]),
+        ("¿Cuántas personas son en total?",[{"field":"team_available","value":True,"quote":"mas personas"}]),
+        ("Te pregunto cuántos maestros trabajan contigo, incluyéndote. ¿Cuántos serían?",[]),
+    ]
+    def local(instructions,context,limit,**kw):
+        assert kw["thinking"] is False and kw["output_tokens"]==220 and kw["json_schema"]
+        calls.append(json.loads(context))
+        last_timings.set({"response_model":MODEL,"local_model_calls":1,"eval_count":40,"ollama_total_ms":500})
+        reply,updates=answers[len(calls)-1]
+        return json.dumps({"reply":reply,"updates":updates},ensure_ascii=False)
+    monkeypatch.setattr("app.messenger_qwen_lab.generate_local_text",local)
+    state=None
+    for message in ("vi una postulacion de instagram","gasfiter","quiero ofrecer","si","mas personas","no entiendio"):
+        response=client.post(BASE+"/turn",headers=admin,json={"mode":"qwen","message":message,"state":state})
+        assert response.status_code==200,response.text
+        result=response.json()
+        assert result["source"]=="qwen_direct" and result["model_evidence"]["calls"]==1
+        state=result["state"]
+    assert len(calls)==6
+    assert calls[-1]["ficha_confirmada"]["team_available"] is True
+    assert calls[-1]["ficha_confirmada"]["interest_type"]=="service_offer"
+    assert result["profile"]["specialty"]=="Gasfitería"
+    assert result["profile"].get("workers") is None
+    assert "cuántos" in result["reply"]
+    with ai_env["sessions"]() as db:
+        assert db.scalar(select(func.count()).select_from(FacebookLead))==0
+
+
+def test_direct_qwen_refuses_missing_or_unverified_model(ai_env,monkeypatch):
+    from app.galancito_local import last_timings
+    from app.messenger_qwen_lab import MODEL
+    client=ai_env["client"]
+    admin=signin(client)
+    monkeypatch.setenv("GALANCITO_LOCAL_AI_ENABLED","true")
+    monkeypatch.setenv("GALANCITO_LOCAL_MODEL","qwen3:1.7b")
+    settings.cache_clear()
+    assert client.post(BASE+"/turn",headers=admin,json={"mode":"qwen","message":"hola"}).status_code==409
+    monkeypatch.setenv("GALANCITO_LOCAL_MODEL",MODEL)
+    settings.cache_clear()
+    def wrong(*args,**kwargs):
+        last_timings.set({"response_model":"qwen3:1.7b","local_model_calls":1,"eval_count":10})
+        return '{"reply":"Hola","updates":[]}'
+    monkeypatch.setattr("app.messenger_qwen_lab.generate_local_text",wrong)
+    assert client.post(BASE+"/turn",headers=admin,json={"mode":"qwen","message":"hola"}).status_code==503
+
+
+def test_direct_qwen_drops_unsubstantiated_fields():
+    from app.messenger_qwen_lab import apply_updates
+    result,changed=apply_updates({},[
+        {"field":"workers","value":12,"quote":"somos doce"},
+        {"field":"team_available","value":True,"quote":"mas personas"},
+        {"field":"contact_phone","value":"555","quote":"mas personas"}],"mas personas")
+    assert result=={"team_available":True}
+    assert changed==["team_available"]

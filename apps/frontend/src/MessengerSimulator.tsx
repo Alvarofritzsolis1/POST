@@ -4,8 +4,8 @@ import { request } from "./api";
 import "./messenger-simulator.css";
 
 const path = "/admin/ai/messenger-simulator";
-type Mode = "rules" | "local";
-type Settings = {local_model: string | null; max_turns: number};
+type Mode = "rules" | "local" | "qwen";
+type Settings = {local_model: string | null; max_turns: number; qwen_ready?: boolean};
 type TurnResult = {
   state: string;
   reply: string | null;
@@ -18,6 +18,7 @@ type TurnResult = {
   checks: {safe: boolean; repeated_fields: string[]; repeated_intro: boolean;
            numbered_menu: boolean; question_displaced: boolean} | null;
   review_required: boolean;
+  model_evidence?: {model:string; calls:number; output_tokens:number; thinking:boolean; budget_tokens:number; load_ms?:number; prompt_ms?:number; generation_ms?:number; ollama_total_ms?:number; prompt_eval_count?:number};
 };
 type Exchange = {
   message: string;
@@ -38,7 +39,7 @@ const values: Record<string,string> = {
   company:"Empresa", individual:"Independiente", unknown:"Pendiente",
 };
 const sources: Record<string,string> = {
-  local:"Reglas de Messenger", consent:"Solicitud de permiso", ai:"Modelo local",
+  qwen_direct:"Qwen 4B · inferencia directa", local:"Reglas de Messenger", consent:"Solicitud de permiso", ai:"Modelo local",
   knowledge:"Guía aprobada", local_recovery:"Respuesta local", fallback:"Derivación",
 };
 const intents: Record<string,string> = {
@@ -56,7 +57,7 @@ function display(value: TurnResult["profile"][string]) {
 
 export default function MessengerSimulator() {
   const [config, setConfig] = useState<Settings | null>(null);
-  const [mode, setMode] = useState<Mode>("rules");
+  const [mode, setMode] = useState<Mode>("qwen");
   const [exchanges, setExchanges] = useState<Exchange[]>([]);
   const [selected, setSelected] = useState(-1);
   const [input, setInput] = useState("");
@@ -147,12 +148,14 @@ export default function MessengerSimulator() {
           <div><strong>Galancito</strong><small>Entrega simulada</small></div>
           <label>Modo
             <select value={mode} disabled={sending || exchanges.length > 0}
-              onChange={event => setMode(event.target.value === "local" ? "local" : "rules")}>
-              <option value="rules">Reglas de Messenger</option>
-              <option value="local" disabled={!config?.local_model}>Modelo local</option>
+              onChange={event => setMode(event.target.value as Mode)}>
+              <option value="qwen">Qwen 4B · IA directa</option>
+              <option value="local" disabled={!config?.local_model}>Flujo actual de Messenger con IA</option>
+              <option value="rules">Solo reglas (diagnóstico)</option>
             </select>
           </label>
         </header>
+        {mode === "qwen" && <p className="messenger-lab-empty">Práctica aislada con Qwen 4B: usa datos ficticios. Una llamada por turno, sin respuestas de reglas. {config && !config.qwen_ready ? "El 4B no está configurado en este servidor." : ""}</p>}
         <div className="messenger-lab-transcript" role="log" aria-label="Conversación de prueba" ref={transcript}>
           {!exchanges.length && <p className="messenger-lab-empty">Escribe un mensaje para comenzar.</p>}
           {exchanges.map(({message, result: reply}, index) => <div className="messenger-lab-exchange" key={index}>
@@ -188,6 +191,13 @@ export default function MessengerSimulator() {
               <div><dt>Respuesta</dt><dd>{result.source ? sources[result.source] ?? "Respuesta de Messenger" : "Sin respuesta en este turno"}</dd></div>
               {result.elapsed_ms != null && <div><dt>Tiempo de respuesta</dt><dd>{result.elapsed_ms} ms</dd></div>}
             </dl>
+            {result.model_evidence && <dl className="messenger-lab-facts">
+              <div><dt>Modelo devuelto por Ollama</dt><dd>{result.model_evidence.model}</dd></div>
+              <div><dt>Llamadas reales</dt><dd>{result.model_evidence.calls}</dd></div>
+              <div><dt>Tokens generados</dt><dd>{result.model_evidence.output_tokens}</dd></div>
+              {result.model_evidence.ollama_total_ms != null && <div><dt>Tiempo Ollama</dt><dd>{(result.model_evidence.ollama_total_ms/1000).toFixed(2)} s</dd></div>}
+              {result.model_evidence.load_ms != null && <div><dt>Carga del modelo</dt><dd>{(result.model_evidence.load_ms/1000).toFixed(2)} s</dd></div>}
+            </dl>}
             {result.review_required && <p>Derivación al equipo en este turno de prueba.</p>}
             {checks && <>
               <ul className="messenger-lab-checks">

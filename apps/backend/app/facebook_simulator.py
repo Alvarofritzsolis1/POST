@@ -20,7 +20,10 @@ from .galancito_contact_profile import contact_profile
 from .galancito_flow import is_permission_prompt
 from .galancito_intake import UNKNOWN_NAMES
 from .galancito_knowledge_models import AssistantRun
-from .galancito_triage import analyze
+from .galancito_triage import analyze, private_data
+from .messenger_qwen_lab import MODEL as QWEN_4B, decide
+from .galancito_runtime import infer
+from time import perf_counter
 from .max_power_messenger import objective_checks
 from .models import Organization, User, utcnow
 from .security import administrator
@@ -35,7 +38,7 @@ MODELS = (FacebookLead, FacebookChatMessage, FacebookLeadTrade)
 
 class TurnInput(BaseModel):
     message: str = Field(min_length=1, max_length=1500)
-    mode: Literal["rules", "local"] = "rules"
+    mode: Literal["rules", "local", "qwen"] = "rules"
     state: str | None = Field(default=None, max_length=180000)
 
 
@@ -95,7 +98,8 @@ def _profile(db, lead):
 def configuration(user: User = Depends(administrator)):
     cfg = settings()
     return {"local_model": cfg.galancito_local_model if cfg.galancito_local_ai_enabled else None,
-            "max_turns": MAX_TURNS}
+            "max_turns": MAX_TURNS,
+            "qwen_ready": bool(cfg.galancito_local_ai_enabled and cfg.galancito_local_model == QWEN_4B)}
 
 
 @router.post("/turn")
@@ -110,6 +114,35 @@ def turn(body: TurnInput, response: Response, user: User = Depends(administrator
     state = _decode(body.state, key, user, body.mode)
     if state["turn"] >= MAX_TURNS:
         raise HTTPException(409, "Esta conversación de prueba llegó a su límite. Inicia una nueva.")
+
+    if body.mode == "qwen":
+        # Administrator's synthetic conversation only. Never writes a live
+        # lead, invokes Meta, or calls an external provider.
+        if not original.galancito_local_ai_enabled or original.galancito_local_model != QWEN_4B:
+            raise HTTPException(409, "Qwen 4B no está configurado; no se reemplazará por reglas ni por otro modelo")
+        if private_data(message):
+            raise HTTPException(422, "Usa únicamente datos ficticios, sin RUT, teléfono, correo ni credenciales")
+        history=state.get("history",[])
+        profile=state.get("profile",{})
+        started=perf_counter()
+        try:
+            result=infer(database,lambda:decide(message,profile,history))
+        except (RuntimeError,ValueError):
+            raise HTTPException(503,"Qwen 4B no pudo completar una respuesta válida. No se usaron reglas de reemplazo; prueba nuevamente.") from None
+        fields=result["profile"]
+        known={field for field,value in fields.items() if value not in (None,"","unknown",[])}
+        checks=objective_checks({"question":message,"history":history},result["reply"],known_fields=known)
+        statuses={field:"confirmado_por_declaracion" for field in known}
+        for field in result["changed_fields"]:
+            if field in profile and profile[field] not in (None,"","unknown",[]):
+                statuses[field]="corregido"
+        history=[*history,{"role":"inbound","text":message},{"role":"outbound","text":result["reply"]}][-48:]
+        response.headers["Cache-Control"]="private, no-store"
+        return {**result,"state":jwt.encode({"sub":user.id,"org":user.org_id,"mode":body.mode,
+                 "exp":utcnow()+LIFETIME,"turn":state["turn"]+1,"rows":{},
+                 "profile":fields,"history":history},key,algorithm="HS256"),
+                "source":"qwen_direct","intent":analyze(message).intent,
+                "elapsed_ms":round((perf_counter()-started)*1000),"field_states":statuses,"checks":checks}
 
     notices = (published_notices(database, user.org_id, original.facebook_page_id)
                if original.facebook_page_id and original.facebook_org_id == user.org_id else [])

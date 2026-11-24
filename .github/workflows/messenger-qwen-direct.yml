@@ -1,0 +1,76 @@
+name: Messenger - Qwen 4B real en simulador
+on:
+  pull_request:
+    paths:
+      - 'apps/backend/app/messenger_qwen_lab.py'
+      - 'apps/backend/app/facebook_simulator.py'
+      - 'apps/backend/app/galancito_local.py'
+      - 'apps/backend/tests/test_facebook_simulator.py'
+      - '.github/workflows/messenger-qwen-direct.yml'
+  workflow_dispatch:
+permissions:
+  contents: read
+jobs:
+  real-qwen:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 25
+    defaults:
+      run:
+        working-directory: apps/backend
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with: {python-version: "3.12"}
+      - name: Pruebas de simulador y aislamiento
+        run: |
+          pip install -r requirements-dev.txt
+          python -m pytest -q tests/test_facebook_simulator.py tests/test_galancito_local.py
+      - name: Iniciar Ollama aislado de CI
+        run: |
+          docker run -d --name qwen-simulator-ci --memory=6g --cpus=4 -p 127.0.0.1:11434:11434 -e OLLAMA_NO_CLOUD=1 -e OLLAMA_NUM_PARALLEL=1 ollama/ollama:latest
+          for i in {1..30}; do
+            if curl -fsS --max-time 2 http://127.0.0.1:11434/api/version; then break; fi
+            sleep 2
+          done
+          docker exec qwen-simulator-ci ollama pull qwen3.5:4b-q4_K_M
+      - name: Conversación real con Qwen 4B (sin mock)
+        env:
+          GALANCITO_LOCAL_AI_ENABLED: "true"
+          GALANCITO_LOCAL_MODEL: qwen3.5:4b-q4_K_M
+          GALANCITO_NUM_THREAD: "4"
+          GALANCITO_TIMEOUT_SECONDS: "60"
+        run: |
+          mkdir -p evidence
+          python - <<'PY'
+          import json
+          from time import perf_counter
+          from app import galancito_local
+          from app.messenger_qwen_lab import decide,MODEL
+          galancito_local.INTERNAL_URL="http://127.0.0.1:11434/api/chat"
+          profile,history={},[]
+          evidence=[]
+          try:
+              for message in ("Vi un aviso en Instagram","Quiero ofrecer servicios de gasfitería por mi cuenta","Puedo ir con más personas","Somos cuatro en total","No entendí la pregunta"):
+                  start=perf_counter()
+                  result=decide(message,profile,history)
+                  profile=result["profile"]
+                  history.extend([{"role":"inbound","text":message},{"role":"outbound","text":result["reply"]}])
+                  evidence.append({"message":message,**result,"elapsed_ms":round((perf_counter()-start)*1000)})
+              assert all(x["model_evidence"]["model"].casefold()==MODEL.casefold() and x["model_evidence"]["calls"]==1 for x in evidence)
+              assert profile.get("interest_type") in ("service_offer","both")
+              assert profile.get("specialty")=="Gasfitería"
+              assert profile.get("team_available") is True
+              assert profile.get("workers")==4
+          finally:
+              with open("evidence/qwen-real.json","w") as stream:
+                  json.dump(evidence,stream,ensure_ascii=False,indent=2)
+          PY
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: messenger-qwen-real
+          path: apps/backend/evidence/qwen-real.json
+          if-no-files-found: warn
+      - name: Limpiar Ollama
+        if: always()
+        run: docker rm -f qwen-simulator-ci || true
