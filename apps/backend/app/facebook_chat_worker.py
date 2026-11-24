@@ -363,7 +363,7 @@ def process_chat_next(session_factory=SessionLocal, *, simulation_config=None, n
             if should_model:
                 # A generic intake prompt must not stand in for an answer to a
                 # difficult question when every configured model failed.
-                generated = None
+                generated = fast if rewrite_intake else None
             if should_model and not private_data(context):
                 if fast:
                     context += ("\nOrientación breve disponible como alternativa: " +
@@ -400,7 +400,7 @@ def process_chat_next(session_factory=SessionLocal, *, simulation_config=None, n
                         timings = last_timings.get()
                     if drafted:
                         drafted = grounded_reply(drafted, context)
-                    if drafted and rewrite_intake and not acceptable_intake_draft(drafted, facts):
+                    if drafted and rewrite_intake and not acceptable_intake_draft(drafted, facts, intake or ""):
                         drafted = None
                     if drafted:
                         generated, source = drafted, "ai"
@@ -470,6 +470,10 @@ def process_chat_next(session_factory=SessionLocal, *, simulation_config=None, n
         row.remote_id = result_id
         row.state = "sent" if result_id else ("uncertain" if uncertain else "failed")
         row.error, row.updated_at = problem, utcnow()
+        if result_id and automated_reply and "¿me dejas tu celular?" in body:
+            contact = db.get(FacebookLead, lead_id, with_for_update=True)
+            if contact is not None and not contact.phone_requested_at:
+                contact.phone_requested_at = utcnow()
         if automated_reply:
             record_run(db, org_id=org_id, channel="messenger", source=source,
                        intent=intent, started=started, db_ms=db_ms,
