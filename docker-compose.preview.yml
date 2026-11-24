@@ -310,9 +310,12 @@ services:
     restart: unless-stopped
     read_only: true
     init: true
+    environment:
+      GALANT_DATASET_APPROVAL_PUBLIC_KEY: ${GALANT_DATASET_APPROVAL_PUBLIC_KEY:-}
     volumes:
       - galancito_4b_probe:/private
       - galancito_4b_control:/4b-control
+      - ${GALANT_4B_APPROVED_DIR:-/opt/galant-4b-approved}:/approved:ro
     tmpfs:
       - /tmp:size=128m,mode=1777
     networks: [cpu-lora-egress]
