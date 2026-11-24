@@ -116,6 +116,12 @@ def finish(row, state, reason, now):
 
 
 def collect_old(db, now):
+    # Paused rounds are outside the claim queue, so retire legacy rounds here
+    # before they can reserve the lab indefinitely.
+    paused = db.scalars(select(TrainingRound).where(
+        TrainingRound.state == "paused").with_for_update(skip_locked=True))
+    for row in paused:
+        row.stop_for_model_change(now)
     old_details = select(TrainingRound.id).where(TrainingRound.finished_at < now - timedelta(days=DETAIL_DAYS))
     db.execute(delete(TrainingCase).where(TrainingCase.round_id.in_(old_details)))
     old_rounds = select(TrainingRound.id).where(TrainingRound.finished_at < now - timedelta(days=HISTORY_DAYS))

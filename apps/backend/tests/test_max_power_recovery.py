@@ -138,7 +138,7 @@ def test_inference_started_before_off_on_cannot_record_fake_improvement(ai_env, 
 
 
 def test_legacy_trainer_never_claims_max_power_isolated_round(ai_env):
-    """A normal trainer must not steal a 4B round onto production Ollama."""
+    """Manual practice leaves the MAX POWER queue to its controller."""
     from datetime import timedelta
     from app.galancito_trainer import claim
     from app.models import User, utcnow
@@ -162,6 +162,30 @@ def test_legacy_trainer_never_claims_max_power_isolated_round(ai_env):
         unchanged = db.get(TrainingRound, round_id)
         assert unchanged.state == "queued"
         assert unchanged.attempts == 0
+
+
+def test_training_maintenance_retires_paused_legacy_model_without_losing_results(ai_env):
+    from app.galancito_trainer import claim
+    from app.models import User
+
+    sessions = ai_env["sessions"]
+    with sessions.begin() as db:
+        admin = db.scalar(select(User).where(
+            User.org_id == ai_env["org_id"], User.role == "admin"))
+        row = TrainingRound(
+            org_id=ai_env["org_id"], created_by=admin.id, state="paused",
+            target=8, completed=3, dataset_hash="a" * 64, prompt_version="b" * 64,
+            system_version="legacy", knowledge=[], aliases={}, metrics={"passed": 3},
+            config={"model": {"id": "ollama", "model": "qwen3.5:4b-q4_K_M"}})
+        db.add(row)
+        db.flush()
+        round_id = row.id
+    assert claim(sessions, StaticSampler().sample(), maintenance=True) is None
+    with sessions() as db:
+        row = db.get(TrainingRound, round_id)
+        assert row.state == "stopped" and row.finished_at is not None
+        assert row.completed == 3 and row.metrics == {"passed": 3}
+        assert row.config["model"]["model"] == "qwen3.5:4b-q4_K_M"
 
 
 

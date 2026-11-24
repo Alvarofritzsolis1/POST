@@ -46,7 +46,12 @@ jobs:
           echo "== VERSION ACTIVA (API CONTAINER) =="
           dc exec -T api python -c 'from app.version import VERSION, SOURCE_COMMIT; print("VERSION:",VERSION); print("COMMIT:",SOURCE_COMMIT)'
           echo "== SERVICIOS (DOCKER) =="
-          dc ps max-power-controller cpu-lora-manager cpu-2b-manager galancito-training-ollama
+          dc ps max-power-controller cpu-lora-manager galancito-training-ollama
+          if dc --profile max-power-auto config --services | grep -Fxq cpu-2b-manager; then
+            dc ps cpu-2b-manager
+            echo "== PREFLIGHT QWEN 2B CUANTIZADO =="
+            dc exec -T cpu-2b-manager python -c 'import json,sys; sys.path.insert(0,"/src/scripts"); from galant_cpu_lora_resources import snapshot; from probe_galancito_2b_cpu import blockers; capacity=snapshot("/private"); print(json.dumps({"capacity":capacity,"blockers":blockers(capacity)}))'
+          fi
           echo "== ESTADOS MAX POWER (SIN ID ORG NI CONVERSACIONES) =="
           dc exec -T db psql -U galant -d galant -A -t -c "SELECT enabled, last_status, experiments, examined_cases, worker_seen_at, next_at FROM ai_max_power_states ORDER BY updated_at DESC LIMIT 2;"
           echo "== SUPERVISOR LORA (SIN DATOS PRIVADOS) =="
@@ -59,7 +64,7 @@ jobs:
           dc exec -T max-power-controller python -c 'from app.config import settings; c=settings(); print("LOCAL_ENABLED:",c.galancito_local_ai_enabled,"MODEL:",c.galancito_local_model)'
           echo "== PERMISOS REALES DEL ALMACENAMIENTO PRIVADO (SIN MOSTRAR RUTAS DE ORGANIZACIONES) =="
           dc exec -T cpu-lora-manager python -c 'import os,stat; p="/private"; s=os.stat(p); print("TRAINER_UID:",os.geteuid(),"STORAGE_UID:",s.st_uid,"STORAGE_GID:",s.st_gid,"MODE:",oct(stat.S_IMODE(s.st_mode)),"WRITABLE:",os.access(p,os.W_OK|os.X_OK))'
-          echo "== PERMISOS DE CACHE QWEN 2B (SIN LEER DATOS) =="
+          echo "== PERMISOS DE CACHE DEL ENTRENADOR BF16 (SIN LEER DATOS) =="
           dc exec -T cpu-lora-manager python -c 'import os; p="/private/cache"; print("CACHE_EXISTS:",os.path.isdir(p),"CACHE_WRITABLE:",os.access(p,os.W_OK|os.X_OK) if os.path.exists(p) else os.access("/private",os.W_OK|os.X_OK))'
           echo "== PROCESOS LORA (SIN ARGUMENTOS NI DATOS PRIVADOS) =="
           cid="$(dc ps -q cpu-lora-manager)"

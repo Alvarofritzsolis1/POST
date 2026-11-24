@@ -21,7 +21,7 @@ from .galancito_knowledge_models import AssistantRun
 from .facebook_crm_models import FacebookChatMessage, FacebookLead
 from .config import settings
 from .db import SessionLocal
-from .galancito_trainer import messenger_busy
+from .galancito_trainer import messenger_busy, practice_threads
 from .facebook_ai import LOCAL_REPLY_INSTRUCTIONS
 from .galancito_flow import grounded_reply
 from .galancito_model_config import QWEN_2B
@@ -230,7 +230,10 @@ def schedule_next(db, user):
 
 def isolated_qwen_config():
     """One-button lab always uses Qwen 2B; never mutates production Messenger."""
-    return settings().model_copy(update={"galancito_local_model": QWEN_2B})
+    return settings().model_copy(update={
+        "galancito_local_model": QWEN_2B,
+        "galancito_num_thread": practice_threads({}, isolated=True),
+    })
 
 
 def _answer(instructions,prompt,seed,org_id):
