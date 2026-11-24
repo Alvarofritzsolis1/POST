@@ -24,7 +24,7 @@ from .facebook_crm_models import FacebookLead, FacebookChatMessage, FacebookTrad
 from .models import utcnow
 from .network_service import key
 from .galancito_triage import analyze, quick_reply, private_data
-from .galancito_intake import clarification_reply, identity_reply, model_intake_candidate, next_intake_reply, small_talk_reply, natural_messenger_reply, needs_deeper_response
+from .galancito_intake import acceptable_intake_draft, clarification_reply, identity_reply, model_intake_candidate, next_intake_reply, small_talk_reply, natural_messenger_reply, needs_deeper_response
 from .galancito_memory import aware, note_profile_sources, prior_delivered_prompt, profile_facts, reply_focus
 from .galancito_knowledge import retrieve, exact_answer, evidence_context
 from .galancito_runtime import infer, record_run
@@ -400,6 +400,8 @@ def process_chat_next(session_factory=SessionLocal, *, simulation_config=None, n
                         timings = last_timings.get()
                     if drafted:
                         drafted = grounded_reply(drafted, context)
+                    if drafted and rewrite_intake and not acceptable_intake_draft(drafted, facts):
+                        drafted = None
                     if drafted:
                         generated, source = drafted, "ai"
                     else:
