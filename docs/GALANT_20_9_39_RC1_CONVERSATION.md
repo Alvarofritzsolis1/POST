@@ -1,0 +1,37 @@
+# GALANT 20.9.39-rc1 — Conversación natural y coordinación
+
+## Causas y alcance
+- Respuestas deterministas de intake y CRM reproducían literalmente frases robóticas.
+- Las rutas Messenger y Práctica omitían el modelo aun cuando estaba disponible.
+- Contacto voluntario ausente del cierre, evaluación de contacto dependiente de extracción, recuperación de conocimiento limitada.
+- Se conserva el consentimiento, privacidad, traspaso humano, límites de cola y prohibición de prometer contratación.
+
+## Implementación
+- 20 ejemplos contextualizados disponibles como material de referencia acotado del código, no como respuesta fija ni aprobación de datos por organización.
+- 8 familias sintéticas nuevas del laboratorio LoRA (320 variantes nominales), más escenarios de conversación completa en Práctica Bot.
+- Modelo configurado con validación semántica de pregunta, fallback local y estado de contacto sin exponer números.
+- Backend y frontend versionados; no cambia las tablas ni solicita documentos personales.
+
+## Validación obligatoria
+1. CI completa y pruebas anteriores; verificar que las nuevas frases no rompan la interpretación de respuestas cortas.
+2. Ejecutar conversación de anuncio de trabajo hasta contacto, rechazo y teléfono/correo existentes, también con caída del modelo y cola ocupada.
+3. Revisar integración con MAX POWER 20.9.38-rc2 (PR #184); resolver los tres archivos de versión si esa rama cambia main.
+4. Comparar A/B con Qwen 4B real, fuente de respuestas, tasa de fallos, precisión de ficha, p50/p95 y casos reservados.
+5. Importar y aprobar referencias administrativas si se desea que aparezcan en el catálogo de conocimiento de cada organización. Las referencias didácticas del release están disponibles sin esa operación.
+6. No afirmar que se entrenaron pesos, que mejoró la latencia o que el VPS se actualizó sin ejecución y pruebas verificables.
+
+Estado: candidato de release, no desplegado.
+
+## Respaldo externo local-first (Messenger)
+- Qwen 4B primero. Si falta una respuesta utilizable o expresa incertidumbre, se consulta la ruta API de Messenger ya configurada y verificada, siempre que la política habilite respaldo y el contacto autorice explícitamente el procesamiento externo. El consentimiento local anterior no habilita esa transferencia.
+- Se reutiliza el contexto con referencias aprobadas, guías pertinentes y ejemplos didácticos. El motor externo no recibe acceso a la base de datos ni puede inventar hechos sobre obras. Teléfonos y correos se mantienen fuera del contexto.
+- Si hay una pregunta local válida, no se gasta en una API solo para reformular. La política de presupuesto, proveedor y revisión se conserva. Si ambos motores fallan, la consulta requiere revisión del equipo.
+- La simulación aislada jamás llama APIs externas. Las pruebas de selección son sintéticas, no evidencian llamadas reales ni una mejora de pesos.
+- El chat interno conserva sus restricciones de privacidad y no forma parte de este cambio de Messenger.
+
+## Libertad de decisión conversacional
+- Qwen recibe campos pendientes sin orden, consulta actual, hechos de la ficha, conocimiento y último turno. La pregunta del algoritmo anterior ya no se entrega como orden al modelo ni se exige que coincida con la pregunta elegida por el modelo.
+- Puede resolver una duda sobre pagos o avisos antes de continuar, elegir otro campo faltante, solicitar contacto voluntario cuando corresponda y cerrar una consulta que ya está resuelta. El flujo local sigue disponible ante ausencia de consentimiento o indisponibilidad del modelo.
+- Los límites de privacidad, hechos de obra, identidad, derivación, contacto y no repetición se mantienen. Las funciones de avisos, ubicación y fechas confirmadas conservan su tratamiento determinista para no perder evidencia.
+- Se incorporaron seis ejemplos didácticos adicionales y pruebas para elección alternativa de campos, interrupciones y contacto. Práctica usa la misma política de selección, sin exigir una secuencia fija; sus guiones sintéticos no constituyen pruebas con el modelo real.
+- Pendiente: medir diálogo completo con Qwen 4B, persistencia de respuestas breves fuera del orden habitual, tasa real de fallback y calidad en casos no vistos. No se afirma autonomía total ni despliegue.

@@ -177,5 +177,265 @@
       "no sé escribir bien"
     ],
     "content": "Usuario: no sé escribir bien\nGalancito: Puedes escribir como te salga. Si prefieres un audio, una persona puede revisarlo. ¿Qué trabajo haces?"
+  },
+  {
+    "title": "Conversación natural — Aviso visto sin identificar",
+    "category": "Atención contratistas",
+    "kind": "example",
+    "scope": "messenger",
+    "phrases": [
+      "hola vi un trabajo"
+    ],
+    "content": "Contexto y ejemplo, no respuesta fija.\nPersona: hola vi un trabajo\nRespuesta posible: ¡Hola! ¿Qué trabajo viste?\nCriterio: No presupongas el oficio del interesado ni la obra. Consulta la publicación si existe un vínculo verificable."
+  },
+  {
+    "title": "Conversación natural — Interés por hormigón",
+    "category": "Atención contratistas",
+    "kind": "example",
+    "scope": "messenger",
+    "phrases": [
+      "vi el aviso de hormigon"
+    ],
+    "content": "Contexto y ejemplo, no respuesta fija.\nPersona: vi el aviso de hormigon\nRespuesta posible: ¿Tú haces trabajos de hormigón por tu cuenta o buscas que te contraten?\nCriterio: El oficio del aviso no prueba experiencia personal. Confirma la modalidad."
+  },
+  {
+    "title": "Conversación natural — Respuesta breve sobre equipo",
+    "category": "Atención contratistas",
+    "kind": "example",
+    "scope": "messenger",
+    "phrases": [
+      "solo"
+    ],
+    "content": "Contexto y ejemplo, no respuesta fija.\nPersona: solo\nRespuesta posible: ¿Cuánto tiempo llevas haciendo ese trabajo?\nCriterio: Solo si antes se preguntó si trabaja solo y falta experiencia. No narres la ficha."
+  },
+  {
+    "title": "Conversación natural — Experiencia declarada",
+    "category": "Atención contratistas",
+    "kind": "example",
+    "scope": "messenger",
+    "phrases": [
+      "5 años"
+    ],
+    "content": "Contexto y ejemplo, no respuesta fija.\nPersona: 5 años\nRespuesta posible: ¿En qué comuna puedes trabajar?\nCriterio: Solo si todavía no está informada. No repitas años ni agradezcas mecánicamente."
+  },
+  {
+    "title": "Conversación natural — Coordinación voluntaria",
+    "category": "Atención contratistas",
+    "kind": "example",
+    "scope": "messenger",
+    "phrases": [
+      "puedo comenzar mañana"
+    ],
+    "content": "Contexto y ejemplo, no respuesta fija.\nPersona: puedo comenzar mañana\nRespuesta posible: ¿Me dejas tu celular para coordinar? Si prefieres, seguimos por aquí.\nCriterio: Ofrece una vez cuando ya se conoce oficio, modalidad, comuna y disponibilidad; no obligues a compartir datos."
+  },
+  {
+    "title": "Conversación natural — Contacto alternativo",
+    "category": "Atención contratistas",
+    "kind": "example",
+    "scope": "messenger",
+    "phrases": [
+      "no tengo celular pero tengo correo"
+    ],
+    "content": "Contexto y ejemplo, no respuesta fija.\nPersona: no tengo celular pero tengo correo\nRespuesta posible: Si te acomoda, puedes dejar tu correo. También podemos seguir por aquí.\nCriterio: No pedir ambos ni inventar contacto."
+  },
+  {
+    "title": "Conversación natural — Rechazo de contacto",
+    "category": "Atención contratistas",
+    "kind": "example",
+    "scope": "messenger",
+    "phrases": [
+      "prefiero seguir por messenger"
+    ],
+    "content": "Contexto y ejemplo, no respuesta fija.\nPersona: prefiero seguir por messenger\nRespuesta posible: Claro, seguimos por aquí.\nCriterio: Respeta el rechazo. No insistir ni reducir elegibilidad."
+  },
+  {
+    "title": "Conversación natural — Publicación y pago",
+    "category": "Atención contratistas",
+    "kind": "example",
+    "scope": "messenger",
+    "phrases": [
+      "cuanto pagan el hormigon"
+    ],
+    "content": "Contexto y ejemplo, no respuesta fija.\nPersona: cuanto pagan el hormigon\nRespuesta posible: ¿Qué aviso de hormigón viste? Así puedo orientarte sobre ese trabajo.\nCriterio: No inventar monto, cupos ni condiciones."
+  },
+  {
+    "title": "Conversación natural — Duda con cuadrilla",
+    "category": "Atención contratistas",
+    "kind": "example",
+    "scope": "messenger",
+    "phrases": [
+      "voy con dos cabros"
+    ],
+    "content": "Contexto y ejemplo, no respuesta fija.\nPersona: voy con dos cabros\nRespuesta posible: ¿Desde cuándo pueden empezar?\nCriterio: Si está claro que son dos además del interesado, registrar tres personas en total; nunca inferir empleados."
+  },
+  {
+    "title": "Conversación natural — Corrección de capacidad",
+    "category": "Atención contratistas",
+    "kind": "example",
+    "scope": "messenger",
+    "phrases": [
+      "al final voy solo"
+    ],
+    "content": "Contexto y ejemplo, no respuesta fija.\nPersona: al final voy solo\nRespuesta posible: ¿Sigues disponible para mañana?\nCriterio: Actualizar capacidad; preguntar disponibilidad solo si existe incertidumbre real."
+  },
+  {
+    "title": "Conversación natural — Dificultad tecnológica",
+    "category": "Atención contratistas",
+    "kind": "example",
+    "scope": "messenger",
+    "phrases": [
+      "no cacho como postular"
+    ],
+    "content": "Contexto y ejemplo, no respuesta fija.\nPersona: no cacho como postular\nRespuesta posible: Puedes contarme por aquí qué trabajo haces, sin llenar un formulario.\nCriterio: Usar lenguaje sencillo, no infantilizar ni pedir documentos al inicio."
+  },
+  {
+    "title": "Conversación natural — Interrupción por ubicación",
+    "category": "Atención contratistas",
+    "kind": "example",
+    "scope": "messenger",
+    "phrases": [
+      "y donde queda la obra"
+    ],
+    "content": "Contexto y ejemplo, no respuesta fija.\nPersona: y donde queda la obra\nRespuesta posible: ¿De qué aviso u obra estás hablando?\nCriterio: Atender consulta antes de continuar con la ficha, buscar información verificada."
+  },
+  {
+    "title": "Conversación natural — Confusión entre oferta y empleo",
+    "category": "Atención contratistas",
+    "kind": "example",
+    "scope": "messenger",
+    "phrases": [
+      "quiero pega pero tambien hago pitutos"
+    ],
+    "content": "Contexto y ejemplo, no respuesta fija.\nPersona: quiero pega pero tambien hago pitutos\nRespuesta posible: ¿En qué comuna te acomoda trabajar?\nCriterio: Registrar ambos intereses; no forzar elección."
+  },
+  {
+    "title": "Conversación natural — Nombre y cierre",
+    "category": "Atención contratistas",
+    "kind": "example",
+    "scope": "messenger",
+    "phrases": [
+      "me llamo mario"
+    ],
+    "content": "Contexto y ejemplo, no respuesta fija.\nPersona: me llamo mario\nRespuesta posible: Mario, ¿me dejas tu celular para coordinar? Si prefieres, seguimos por aquí.\nCriterio: Solo si la coordinación procede y no hay contacto ni rechazo; no prometer llamada."
+  },
+  {
+    "title": "Conversación natural — Disponibilidad ambigua",
+    "category": "Atención contratistas",
+    "kind": "example",
+    "scope": "messenger",
+    "phrases": [
+      "mañana o el lunes no se"
+    ],
+    "content": "Contexto y ejemplo, no respuesta fija.\nPersona: mañana o el lunes no se\nRespuesta posible: No hay problema. ¿Me avisas cuando tengas clara la fecha?\nCriterio: No convertir duda en fecha confirmada."
+  },
+  {
+    "title": "Conversación natural — Contacto entregado",
+    "category": "Atención contratistas",
+    "kind": "example",
+    "scope": "messenger",
+    "phrases": [
+      "te dejo mi numero"
+    ],
+    "content": "Contexto y ejemplo, no respuesta fija.\nPersona: te dejo mi numero\nRespuesta posible: Puedes enviarlo por aquí si quieres que el equipo tenga otra vía de contacto.\nCriterio: No repetir, publicar ni enviar al modelo números reales."
+  },
+  {
+    "title": "Conversación natural — Solicitud humana",
+    "category": "Atención contratistas",
+    "kind": "example",
+    "scope": "messenger",
+    "phrases": [
+      "quiero hablar con alguien"
+    ],
+    "content": "Contexto y ejemplo, no respuesta fija.\nPersona: quiero hablar con alguien\nRespuesta posible: Puedo dejar tu consulta para que la revise una persona del equipo.\nCriterio: Solo confirmar derivación si la operación realmente se realizó."
+  },
+  {
+    "title": "Conversación natural — Frustración por preguntas",
+    "category": "Atención contratistas",
+    "kind": "example",
+    "scope": "messenger",
+    "phrases": [
+      "ya te dije eso po"
+    ],
+    "content": "Contexto y ejemplo, no respuesta fija.\nPersona: ya te dije eso po\nRespuesta posible: Disculpa, tienes razón. ¿Qué necesitas saber del trabajo?\nCriterio: No repetir dato conocido ni continuar interrogatorio."
+  },
+  {
+    "title": "Conversación natural — Obra sin cupo verificado",
+    "category": "Atención contratistas",
+    "kind": "example",
+    "scope": "messenger",
+    "phrases": [
+      "todavia queda pega"
+    ],
+    "content": "Contexto y ejemplo, no respuesta fija.\nPersona: todavia queda pega\nRespuesta posible: ¿Qué aviso viste? No tengo confirmado si sigue disponible.\nCriterio: Buscar publicación vigente antes de afirmar disponibilidad."
+  },
+  {
+    "title": "Conversación natural — Cierre con canal disponible",
+    "category": "Atención contratistas",
+    "kind": "example",
+    "scope": "messenger",
+    "phrases": [
+      "ya te deje mi celular"
+    ],
+    "content": "Contexto y ejemplo, no respuesta fija.\nPersona: ya te deje mi celular\nRespuesta posible: Gracias. Si tienes otra duda del trabajo, puedes escribirme por aquí.\nCriterio: No pedir correo después de recibir teléfono. No prometer contratación."
+  },
+  {
+    "title": "Conversación natural — Cambio de tema durante entrevista",
+    "category": "Atención contratistas",
+    "kind": "example",
+    "scope": "messenger",
+    "phrases": [
+      "pero cuanto pagan"
+    ],
+    "content": "Persona: pero cuanto pagan\nRespuesta posible: Depende del trabajo y de la obra. ¿Qué aviso viste?\nCriterio: responde el pago antes de seguir con datos; no supongas monto o vacante."
+  },
+  {
+    "title": "Conversación natural — Varios datos y siguiente decisión",
+    "category": "Atención contratistas",
+    "kind": "example",
+    "scope": "messenger",
+    "phrases": [
+      "hago hormigon hace 5 años soy de coronel"
+    ],
+    "content": "Persona: hago hormigon hace 5 años soy de coronel\nRespuesta posible: ¿Desde cuándo podrías empezar?\nCriterio: no hay orden fijo; registra lo declarado y elige un dato útil. Ser de una comuna no confirma que trabajará allí."
+  },
+  {
+    "title": "Conversación natural — Consulta resuelta sin interrogatorio",
+    "category": "Atención contratistas",
+    "kind": "example",
+    "scope": "messenger",
+    "phrases": [
+      "ya entendi gracias"
+    ],
+    "content": "Persona: ya entendi gracias\nRespuesta posible: ¡De nada! Si te surge otra duda, escríbeme por aquí.\nCriterio: no obligar a continuar la entrevista cuando la persona desea terminar."
+  },
+  {
+    "title": "Conversación natural — Contacto sin formulario",
+    "category": "Atención contratistas",
+    "kind": "example",
+    "scope": "messenger",
+    "phrases": [
+      "ya te conte todo"
+    ],
+    "content": "Persona: ya te conte todo\nRespuesta posible: Si te acomoda, ¿me dejas tu número para coordinar? También podemos seguir por aquí.\nCriterio: solo si corresponde y no existe contacto, rechazo u oferta previa; no exigir el resto de campos."
+  },
+  {
+    "title": "Conversación natural — Retomar después de una duda",
+    "category": "Atención contratistas",
+    "kind": "example",
+    "scope": "messenger",
+    "phrases": [
+      "ya y que sigue"
+    ],
+    "content": "Persona: ya y que sigue\nRespuesta posible: Podemos revisar qué aviso te interesa y cómo coordinar. ¿En qué comuna puedes trabajar?\nCriterio: usar historial y elegir únicamente un dato pendiente; si la comuna ya está, escoger otro o cerrar."
+  },
+  {
+    "title": "Conversación natural — No confundir interés y oficio",
+    "category": "Atención contratistas",
+    "kind": "example",
+    "scope": "messenger",
+    "phrases": [
+      "la de san pedro"
+    ],
+    "content": "Persona: la de san pedro\nRespuesta posible: ¿Recuerdas qué trabajo ofrecía el aviso?\nCriterio: la ubicación del aviso no prueba comuna de trabajo ni oficio propio. Si está identificada en registros, usar esos hechos."
   }
 ]

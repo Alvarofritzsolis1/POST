@@ -1,5 +1,6 @@
 """Transactional conversational memory shared by Messenger ingestion paths."""
 from datetime import timedelta, timezone
+import json
 import re
 from types import SimpleNamespace
 from zoneinfo import ZoneInfo
@@ -8,9 +9,10 @@ from sqlalchemy import select
 
 from .facebook_crm_models import FacebookChatMessage, FacebookTradeGuide
 from .galancito_intake import (
-    UNKNOWN_NAMES, apply_intake, needs_deeper_response, requested_relative_start, unanswered_intake_question,
+    UNKNOWN_NAMES, apply_intake, conversation_context, needs_deeper_response, requested_relative_start, unanswered_intake_question,
     unresolved_declarations,
 )
+from .galancito_knowledge import evidence_context, conversation_example
 from .galancito_contact_email import redact_email_for_intake, remember_shared_email
 from .galancito_phone import redact_mobile_for_intake, remember_shared_phone
 from .galancito_links import audit_event, record_declared_trades, trade_declarations, trade_terms
@@ -36,7 +38,11 @@ def profile_facts(lead, *, changed=False) -> dict:
     return {**{field: getattr(lead, field) for field in FIELDS},
             "field_states": {field: evidence.get("state") for field, evidence in (lead.profile_sources or {}).items()
                              if field in FIELDS and evidence.get("state")},
-            "turn_changed": changed}
+            "turn_changed": changed,
+            # Only contact availability flags, never the phone or email itself.
+            "contact_available": bool(getattr(lead, "contact_phone", "") or getattr(lead, "contact_email", "")),
+            "contact_declined": bool(getattr(lead, "phone_opt_out", False) or getattr(lead, "email_opt_out", False)),
+            "contact_offered": bool(getattr(lead, "phone_requested_at", None))}
 
 
 def note_profile_sources(lead, fields, *, source, at, remote_id=None, states=None):
@@ -70,6 +76,55 @@ def capture_voluntary_contact(db, lead, message, prior, *, at, remote_id):
 
 def professional_message(message):
     return redact_email_for_intake(redact_mobile_for_intake(message))
+
+
+def messenger_context(message, facts, prior, turns, evidence, guide=None, *, limit=3000):
+    """One bounded, contact-redacted prompt for automatic and operator drafts.
+
+    Keep the current question and declared facts first. Include complete reference
+    records, never a JSON fragment chopped at the Ollama context boundary.
+    Input turns are newest first. No raw phone, email, or name field is exported.
+    """
+    public = {k: v for k, v in facts.items()
+              if k not in {"display_name", "name_opt_out", "turn_changed", "contact_phone", "contact_email"}
+              and v is not None and v != "" and v != []}
+    parts = [
+        "Consulta actual: " + professional_message(message)[:600],
+        conversation_context(facts),
+        "Datos profesionales declarados: " + json.dumps(public, ensure_ascii=False),
+        "Última pregunta entregada: " + professional_message(prior or "")[:220],
+    ]
+    def add(section):
+        if len("\n".join(parts)) + len(section) + 1 <= limit:
+            parts.append(section)
+            return True
+        return False
+
+    # Preserve full first-party guides and complete bounded evidence objects.
+    if guide:
+        add("Guía administrativa validada: " + professional_message(guide.explanation or "")[:600]
+            + "\nOrientación documental: " + professional_message("; ".join(guide.document_guidance or []))[:350])
+    else:
+        add("No hay guía documental validada. Deriva esas dudas al equipo.")
+    for item in evidence:
+        if not add("Referencia aprobada: " + professional_message(evidence_context([item]))):
+            break
+    history = []
+    for item in turns[:8]:
+        if (getattr(item, "consent_decision", None) is not None
+                or private_data(item.body) or "autorizas" in item.body.casefold()):
+            continue
+        history.append(("Persona: " if item.direction == "inbound" else "Red de Obras: ")
+                       + professional_message(item.body)[:200])
+    included = 0
+    # Add recent turns first; render the final selection in chronological order.
+    for n in range(len(history), 0, -1):
+        if add("Historial reciente:\n" + "\n".join(reversed(history[:n]))):
+            included = n
+            break
+    if example := conversation_example(message, prior or ""):
+        add("Ejemplo didáctico (no es un hecho de la obra): " + professional_message(example))
+    return "\n".join(parts), included
 
 
 def _known(field, value):

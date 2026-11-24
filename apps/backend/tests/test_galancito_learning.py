@@ -132,9 +132,16 @@ def test_examples_are_pending_idempotent_and_privacy_checked(network):
     n = network
     result = n["send"](n["admin"], "/galancito/knowledge-examples")
     assert result.status_code == 201, result.text
-    assert result.json()["created"] == 17
+    catalog = json.loads((Path(__file__).resolve().parents[1] / "app" / "galancito_examples.json").read_text(encoding="utf-8"))
+    expected_titles = {item["title"] for item in catalog}
+    assert len(expected_titles) == len(catalog)
+    assert len(catalog) >= 43  # Preserve original 17 plus the 26 conversation examples.
+    assert result.json()["created"] == len(catalog)
+    assert result.json()["status"] == "pending"
     assert n["send"](n["admin"], "/galancito/knowledge-examples").json()["created"] == 0
     rows = n["admin"].get("/api/v1/network/galancito/knowledge").json()
+    assert {r["title"] for r in rows} == expected_titles
+    assert len(rows) == len(catalog)
     assert all(r["status"] == "pending" for r in rows)
     for change in ({"title": "   "}, {"content": "RUT 12.345.678-5"}, {"phrases": ["clave unica: secreto"]}):
         bad = n["send"](n["admin"], "/galancito/knowledge", {"title": "Prueba", "content": "Contenido ejemplo", **change})

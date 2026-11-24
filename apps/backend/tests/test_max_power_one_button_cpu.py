@@ -295,7 +295,8 @@ def test_one_button_with_no_real_dataset_launches_isolated_curated_lab(tmp_path,
     mod.launch = fake_launch
     mod.run_once("a" * 64, plan, "", {})
     assert launches and launches[0]["synthetic"] is True
-    assert launches[0]["root"].name == "synthetic-lab-galant-curated-synthetic-intake-3"
+    from max_power_synthetic_lab import VERSION
+    assert launches[0]["root"].name == "synthetic-lab-" + VERSION
     assert launches[0]["org"] == org
     assert launches[0]["resume"] is False
     assert (launches[0]["root"] / "synthetic.jsonl").is_file()

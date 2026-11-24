@@ -94,7 +94,8 @@ def test_facebook_uses_local_ollama_after_explicit_consent(network, monkeypatch)
     assert lead["ai_consent_state"] == "not_requested"
     messages = n["admin"].get("/api/v1/network/facebook/leads/" + lead["id"]).json()["messages"]
     assert messages[-1]["automated"] is True
-    assert "gasfiter" in messages[-1]["body"].lower()
+    assert lead["specialty"] == "Gasfitería"
+    assert "cuenta" in messages[-1]["body"].lower()
     sent, generated = [], []
     monkeypatch.setattr("app.facebook_chat_worker.graph_send",
                         lambda p, u, text, token: sent.append(text) or "mid-local-" + str(len(sent)))
@@ -185,7 +186,7 @@ def test_qwen35_candidate_private_and_training_unchanged(monkeypatch):
         Settings(galancito_local_model="arbitrary-model")
 
 
-def test_qwen35_messenger_never_selects_external_team(monkeypatch):
+def test_qwen35_without_db_policy_never_selects_external_team(monkeypatch):
     from app.config import Settings
     cfg = Settings(galancito_local_model="qwen3.5:4b-q4_K_M",
                    facebook_ai_enabled=True, facebook_ai_provider="ollama",

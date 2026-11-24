@@ -22,8 +22,8 @@ from test_messenger_conversation_regression import _local_messenger, _contact
 from test_network import network
 
 
-def _app(message, prior=""):
-    lead = SimpleNamespace(org_id="synthetic-organization", page_id="synthetic-page")
+def _app(message, prior="", **facts):
+    lead = SimpleNamespace(org_id="synthetic-organization", page_id="synthetic-page", **facts)
     return application_reply(None, lead, message, prior_prompt=prior, notices=[])
 
 
@@ -100,8 +100,10 @@ def test_small_contractor_offering_services_is_not_treated_as_job_seeker(answer)
     # Company vocabulary must not imply employees are legally verified.
     prior = "Ah, era un aviso de gasfitería. " + ASK_APPLICATION_INTEREST
     reply = _app(answer, prior)
-    assert reply and "ofreces tus servicios" in reply
-    assert "comuna" in reply
+    # The advert trade is not the contractor\'s own trade. Ask only what is missing.
+    assert reply == "¿Qué trabajos haces por tu cuenta?"
+    assert _app(answer, prior, specialty="Carpintería") == "¿En qué comuna puedes trabajar?"
+    assert _app(answer, prior, specialty=None) == reply
 
 
 def test_trade_is_only_confirmed_after_person_says_it_is_their_own():
