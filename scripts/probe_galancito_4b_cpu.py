@@ -94,6 +94,7 @@ def main():
                 h.update(p.detach().float().contiguous().cpu().numpy().tobytes())
             return h.hexdigest()
         before = digest()
+        report["initial_adapter_sha256"] = before
         optimizer = torch.optim.AdamW(trainable, lr=7e-5)
         examples = [
             ("Ola compadre ando buscando peguita", "Hola, ¿qué trabajos haces normalmente?"),
@@ -159,19 +160,32 @@ def main():
             if not torch.isfinite(loss):
                 raise RuntimeError("Non-finite loss")
             loss.backward()
-            if not any(p.grad is not None and torch.count_nonzero(p.grad).item() for p in trainable):
+            gradients = [p.grad for p in trainable if p.grad is not None]
+            if not gradients or not all(torch.isfinite(g).all().item() for g in gradients):
+                raise RuntimeError("Missing or non-finite adapter gradients")
+            if not any(torch.count_nonzero(g).item() for g in gradients):
                 raise RuntimeError("No nonzero adapter gradient")
+            previous = digest()
             optimizer.step()
+            if not all(torch.isfinite(p).all().item() for p in trainable):
+                raise RuntimeError("Non-finite adapter weights")
             current = digest()
+            if current == previous:
+                raise RuntimeError("Optimizer step did not change adapter weights")
             report["adapter_changed"] = current != before
+            report["latest_adapter_sha256"] = current
             report["status"] = "running"
             report["steps"].append({"step":step,"seconds":round(monotonic()-t,2),
                 "loss":float(loss.detach()),"memory":snapshot(root),
-                "adapter_changed":report["adapter_changed"]})
+                "adapter_changed":report["adapter_changed"], "adapter_sha256":current})
             # Persist the latest adapter separately from production. This is
             # not an optimizer-resume checkpoint and cannot be auto-promoted.
             checkpoint = run_dir / ("step-" + str(step))
-            model.save_pretrained(checkpoint, safe_serialization=True)
+            staging = run_dir / (".step-" + str(step) + "-partial")
+            model.save_pretrained(staging, safe_serialization=True)
+            if not (staging / "adapter_model.safetensors").is_file() or not (staging / "adapter_config.json").is_file():
+                raise RuntimeError("Incomplete persisted adapter")
+            staging.rename(checkpoint)
             report["saved_adapter_step"] = step
             write_report(report_path, report)
         report["status"] = "candidate_evaluation"
