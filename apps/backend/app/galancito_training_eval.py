@@ -14,7 +14,7 @@ from .facebook_ai import REPLY_INSTRUCTIONS
 from .facebook_crm_models import FacebookLead, FacebookLeadTrace, FacebookLeadTrade
 from .galancito_flow import grounded_reply, numbered_menu
 from .galancito_intake import (UNKNOWN_NAMES, identity_reply, natural_messenger_reply,
-                               needs_deeper_response, next_intake_reply, small_talk_reply)
+                               model_intake_candidate, needs_deeper_response, next_intake_reply, small_talk_reply)
 from .galancito_links import suggest_requirements
 from .galancito_memory import apply_messenger_message, capture_voluntary_contact, professional_message, profile_facts
 from .galancito_profile_review import declaration_for_review, reviewed_trade_aliases
@@ -179,10 +179,11 @@ def evaluate(case, aliases, knowledge, answer=None, judge=None, corrector=None, 
                 fast, source = reviewed, "approved_correction"
             draft = ""
             unsupported_draft = False
-            if answer and eligible_for_rewrite and not reviewed and (not fast or needs_deeper_response(clean)):
+            if answer and eligible_for_rewrite and not reviewed and (not fast or needs_deeper_response(clean) or model_intake_candidate(clean, facts, previous, prior)):
                 public_facts = {k: v for k, v in last_profile.items() if k != "phone"}
                 context = json.dumps({"mensaje": clean, "ultimos_turnos": history[-4:],
-                                      "ficha_declarada": public_facts}, ensure_ascii=False)
+                                      "ficha_declarada": public_facts,
+                                      "orientacion_siguiente_pregunta": prior or ""}, ensure_ascii=False)
                 draft = answer(context)
                 numbered_draft = numbered_menu(draft)
                 grounded = grounded_reply(draft, context)
