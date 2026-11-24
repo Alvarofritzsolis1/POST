@@ -85,7 +85,7 @@ _ROLE_SERVICE = (
     "hago pitutos", "busco pitutos",
     "tengo un emprendimiento", "somos contratistas", "soy contratista",
     "somos una empresa", "tengo empresa", "tengo una empresa", "represento una empresa",
-    
+
 )
 _ROLE_WORKER = (
     "busco pega", "busco empleo", "busco trabajo", "ando buscando pega",
@@ -670,7 +670,7 @@ def semantic_reasoning_needed(message: str, prior: str, facts: dict) -> bool:
         return False
     if re.search(r"\b(?:pero|aunque|depende|en realidad|me equivoque|quise decir|a veces|no siempre)\b", value):
         return True
-    if is_intake_prompt(prior) and (analyze(message).intent == "unknown" or
+    if is_intake_prompt(prior) and ((not facts.get("turn_changed") and analyze(message).intent == "unknown") or
             any(status == "ambiguo" for status in (facts.get("field_states") or {}).values())):
         return True
     return needs_deeper_response(message) and len(value.split()) >= 10

@@ -618,6 +618,10 @@ def ingest_facebook_payload(db, payload, cfg, *, notices=None):
             elif recent >= 30 and (use_ai or reply):
                 flag_for_human(db, lead,
                                "Límite de respuestas automáticas alcanzado; revisión humana pendiente")
+                if recent == 30:
+                    db.add(FacebookChatMessage(org_id=lead.org_id, lead_id=lead.id, page_id=lead.page_id,
+                        direction="outbound", state="pending", ai_generated=False,
+                        body="Ya avisé al equipo para que te atienda una persona. Podemos retomar por aquí."))
     db.commit()
     return {"received": True}
 

@@ -336,3 +336,31 @@ def test_generated_confirmation_can_persist_a_previously_unknown_role():
     assert application_role("sipo", "Cuando dices eso, ¿te refieres a que tomas trabajos por tu cuenta?") == "service_offer"
     assert application_role("sí", "¿Quieres un empleo con contrato?") == "employment"
     assert application_role("sí", "¿Trabajas por tu cuenta o con una cuadrilla?") is None
+
+
+def test_qwen_structured_interpretation_is_confirmed_in_live_message_flow(network, monkeypatch):
+    n = network
+    _local_messenger(n, monkeypatch)
+    sent, contexts = [], []
+    monkeypatch.setattr("app.facebook_chat_worker.graph_send",
+                        lambda *a: sent.append(a[2]) or f"semantic-confirm-{len(sent)}")
+    for j, message in enumerate(["quiero postular", "gasfiter"], 1):
+        assert incoming(n, message, f"semantic-confirm-turn-{j}").status_code == 200
+        assert process_chat_next(n["Session"])
+    with n["Session"].begin() as db:
+        lead = db.get(FacebookLead, _contact(n)["lead"]["id"])
+        lead.ai_consent = True
+        lead.ai_consent_state = "accepted"
+        lead.ai_consent_provider = "ollama"
+    from app import facebook_ai
+    def local(instructions, prompt, limit, **options):
+        contexts.append(prompt)
+        return '{"reply":"Entiendo.","confirm":{"field":"team_available","value":true,"evidence":"apaño con mis cabros"}}'
+    monkeypatch.setattr(facebook_ai, "generate_local_text", local)
+    assert incoming(n, "apaño con mis cabros", "semantic-confirm-slang").status_code == 200
+    assert process_chat_next(n["Session"])
+    assert "apaño con mis cabros" in contexts[0]
+    assert sent[-1].endswith("¿Puedes llevar a otras personas a trabajar contigo?")
+    assert _contact(n)["lead"]["team_available"] is None
+    assert incoming(n, "sipo", "semantic-confirm-yes").status_code == 200
+    assert _contact(n)["lead"]["team_available"] is True
