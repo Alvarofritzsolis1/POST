@@ -394,6 +394,9 @@ def process_chat_next(session_factory=SessionLocal, *, simulation_config=None, n
                         elif ai_source == "team" and local_first_messenger(cfg):
                             # External consent has already been checked.
                             def external_backup():
+                                local_stats = last_timings.get()
+                                trace["local_before_external"] = {k: local_stats[k] for k in (
+                                    "local_model_calls", "input_tokens", "output_tokens", "queue_ms", "busy") if k in local_stats}
                                 db.refresh(current)
                                 db.refresh(current_job)
                                 if (current_job.state != "drafting" or current.last_inbound_at != inbound_at
@@ -418,6 +421,7 @@ def process_chat_next(session_factory=SessionLocal, *, simulation_config=None, n
                                 if rewrite_intake else None,
                             )
                             trace["ai_route"] = route
+                            trace["local_first_attempted"] = True
                         else:
                             drafted = infer(db, lambda: (
                                 orchestrated_text(db, org_id, task="messenger",
