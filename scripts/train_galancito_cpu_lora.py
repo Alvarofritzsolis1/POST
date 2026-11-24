@@ -244,6 +244,9 @@ def main(argv=None):
     if not args.execute:
         return 0
     if not gate["ready"]:
+        if args.control_file:
+            print(json.dumps({"status": "paused", "blockers": gate["blockers"]}))
+            return 3  # resource race is a pause, not a failed optimizer attempt
         raise SystemExit("Recursos insuficientes: "+",".join(gate["blockers"]))
     if (not args.output or not Path(args.output).is_absolute()
             or (not args.synthetic_development and not args.approval_manifest)):
@@ -276,6 +279,8 @@ def main(argv=None):
         raise SystemExit("Este ejecutor está diseñado solo para CPU aislada")
     if not automation_allowed(args.control_file, org=args.telemetry_org,
                               generation=args.expected_generation):
+        if args.control_file:
+            return 3  # expected cancellation does not exhaust retries
         raise SystemExit("MAX POWER apagado o permiso de sesión inválido")
     target, metadata_path, metadata, checkpoint = safe_output(args, bundle, attestation)
     torch.set_num_threads(min(2, os.cpu_count() or 1))
