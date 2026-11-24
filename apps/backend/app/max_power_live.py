@@ -61,6 +61,9 @@ def messenger_series(trials):
         safety += int(trial.outcome == "safety_regression")
         n = len(seen)
         points.append({"at":trial.completed_at, "pairs":n,
+                       "observed_baseline":round(100*before/n, 2),
+                       "observed_candidate":round(100*after/n, 2),
+                       "preliminary":n < 8,
                        "baseline":round(100*before/n, 2) if n >= 8 else None,
                        "candidate":round(100*after/n, 2) if n >= 8 else None,
                        "delta":round(100*(after-before)/n, 2) if n >= 8 else None,
