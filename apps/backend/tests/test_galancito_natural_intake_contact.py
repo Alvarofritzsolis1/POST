@@ -109,3 +109,20 @@ def test_free_order_questions_keep_interpretable_short_replies():
     context = conversation_context(facts)
     assert "sin orden obligatorio" in context
     assert "work_communes" in context and "availability" in context
+
+
+def test_shared_messenger_context_redacts_contact_and_keeps_complete_evidence():
+    from types import SimpleNamespace
+    from app.galancito_memory import messenger_context
+    facts = complete(contact_available=True, display_name="Nombre privado", experience="")
+    turns = [SimpleNamespace(body="Mi correo es maestro@example.com", direction="inbound"),
+             SimpleNamespace(body="¿En qué comuna puedes trabajar?", direction="outbound")]
+    evidence = [{"id": "reference", "version": 1, "kind": "faq",
+                 "content": "El pago depende de la obra.", "title": "Pago"}]
+    context, included = messenger_context("¿Cuánto pagan?", facts, "¿Cuándo puedes partir?",
+                                          turns, evidence)
+    assert "Consulta actual: ¿Cuánto pagan?" in context
+    assert "El pago depende de la obra." in context
+    assert "Nombre privado" not in context and "maestro@example.com" not in context
+    assert "sin orden obligatorio" in context
+    assert len(context) <= 3000 and included >= 1

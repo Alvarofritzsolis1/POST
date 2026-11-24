@@ -26,9 +26,9 @@ from .facebook_crm_models import FacebookLead, FacebookChatMessage, FacebookTrad
 from .models import utcnow
 from .network_service import key
 from .galancito_triage import analyze, quick_reply, private_data
-from .galancito_intake import acceptable_intake_draft, conversation_context, intake_question_fields, clarification_reply, identity_reply, model_intake_candidate, next_intake_reply, small_talk_reply, natural_messenger_reply, needs_deeper_response
-from .galancito_memory import aware, note_profile_sources, prior_delivered_prompt, profile_facts, reply_focus, professional_message
-from .galancito_knowledge import retrieve, exact_answer, evidence_context, conversation_example
+from .galancito_intake import acceptable_intake_draft, intake_question_fields, clarification_reply, identity_reply, model_intake_candidate, next_intake_reply, small_talk_reply, natural_messenger_reply, needs_deeper_response
+from .galancito_memory import aware, note_profile_sources, prior_delivered_prompt, profile_facts, reply_focus, messenger_context
+from .galancito_knowledge import retrieve, exact_answer
 from .galancito_runtime import infer, record_run
 from .galancito_local import generate_local_text, last_timings, MAX_CONTEXT_CHARS
 from .galancito_escalation import flag_for_human
@@ -305,42 +305,16 @@ def process_chat_next(session_factory=SessionLocal, *, simulation_config=None, n
             if model_needed:
                 facts["trades"] = list(db.scalars(select(FacebookLeadTrade.trade).where(
                     FacebookLeadTrade.lead_id == lead.id, FacebookLeadTrade.active.is_(True))))
-                context_turns = [
-                    ("Persona: " if item.direction == "inbound" else "Red de Obras: ") + professional_message(item.body)[:220]
-                    for item in reversed(turns[:8])
-                    if not private_data(item.body) and item.consent_decision is None
-                    and "autorizas" not in item.body.casefold()
-                ]
-                professional_facts = {k: v for k, v in facts.items()
-                                      if k not in {"display_name", "name_opt_out", "turn_changed"}}
-                trace["context_turns"] = len(context_turns)
-                trace["known_fields"] = sum(bool(value) for key, value in professional_facts.items()
-                                            if key != "field_states")
-                context = ("Consulta actual: " + professional_message(latest)[:800] +
-                           "\nÚltimos turnos de esta conversación:\n" +
-                           "\n".join(context_turns)[-1100:] +
-                           "\nDatos profesionales declarados: " +
-                           json.dumps(professional_facts, ensure_ascii=False) +
-                           "\nReferencias aprobadas: " + evidence_context(evidence))
-                if rewrite_intake:
-                    context = ("Consulta actual: " + professional_message(latest)[:600] +
-                               "\n" + conversation_context(facts) +
-                               "\nDatos profesionales declarados: " + json.dumps(professional_facts, ensure_ascii=False) +
-                               "\nReferencias aprobadas: " + evidence_context(evidence)[:650] +
-                               "\nÚltima pregunta entregada: " + professional_message(prior_question)[:250] +
-                               "\nHistorial reciente:\n" + "\n".join(context_turns)[-750:])
-                if example := conversation_example(latest, prior_question):
-                    context += "\nEjemplo didáctico contextual (no es un hecho de la obra): " + example
                 guides = db.scalars(select(FacebookTradeGuide).where(
                     FacebookTradeGuide.org_id == lead.org_id, FacebookTradeGuide.approved.is_(True)))
                 terms = {key(t) for t in [lead.specialty, *facts["trades"]] if t}
                 guide = next((g for g in guides if terms.intersection(
                     {key(g.trade), *(key(a) for a in (g.aliases or []))})), None)
-                if guide:
-                    context += ("\nGuía administrativa validada: " + guide.explanation[:1000] +
-                                "\nOrientación documental: " + "; ".join(guide.document_guidance or [])[:700])
-                else:
-                    context += "\nNo hay guía documental validada. Deriva esas dudas al equipo."
+                context, count = messenger_context(latest, facts, prior_question, turns, evidence, guide,
+                                                   limit=MAX_CONTEXT_CHARS)
+                trace["context_turns"] = count
+                trace["known_fields"] = sum(bool(value) for key, value in facts.items()
+                                            if key not in {"field_states", "turn_changed"})
         db_ms = (perf_counter() - started) * 1000
         # A separate persisted drafting state lets the UI show real stages.
         # Do not claim to be sending before the AI has generated its reply.

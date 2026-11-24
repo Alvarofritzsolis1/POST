@@ -43,12 +43,12 @@ from .galancito_triage import classify_lead, dashboard
 from .security import administrator
 from .galancito_triage import analyze, private_data, quick_reply, everyday_question_reply
 from .galancito_intake import (
-    declared_relative_start, identity_reply, model_intake_candidate, needs_deeper_response, next_intake_reply, small_talk_reply,
+    acceptable_intake_draft, declared_relative_start, identity_reply, model_intake_candidate, needs_deeper_response, next_intake_reply, small_talk_reply,
     natural_messenger_reply,
 )
 from .galancito_memory import (
     apply_messenger_message, approved_trade_aliases, aware, capture_voluntary_contact, note_profile_sources,
-    prior_delivered_prompt, professional_message, profile_facts,
+    prior_delivered_prompt, professional_message, profile_facts, messenger_context,
 )
 from .galancito_contact_profile import contact_profile
 from .galancito_conversation_summary import (
@@ -62,7 +62,7 @@ from .galancito_links import (record_manual_trade,
 from .galancito_escalation import flag_for_human
 from .facebook_lead_insights import active_trades, ranked_needs, suggestions_for_lead, trace_unique_requirement
 from .ops_models import Worksite
-from .galancito_knowledge import retrieve, exact_answer, evidence_context
+from .galancito_knowledge import retrieve, exact_answer
 from .galancito_runtime import infer
 from .galancito_flow import grounded_reply
 
@@ -1352,13 +1352,6 @@ def suggest_reply(lead_id: str, user: User = Depends(administrator),
         FacebookChatMessage.lead_id == lead.id,
         FacebookChatMessage.org_id == user.org_id).order_by(
         FacebookChatMessage.created_at.desc()).limit(8)))
-    latest = "\n".join(m.direction + ": " + m.body[:500] for m in reversed(messages)
-                       if not private_data(m.body))
-    supplied = ("Empresa: " + lead.company[:150] +
-                "\nEspecialidad declarada: " + lead.specialty[:100] +
-                "\nDotación: " + str(lead.workers or "sin informar") +
-                "\nDisponibilidad: " + lead.availability[:120] +
-                "\nConversación reciente:\n" + latest)
     if lead.needs_support:
         return {"draft": reply_for_support(lead.support_reason or "Solicitó ayuda",
                                            bool(lead.specialty)),
@@ -1374,23 +1367,17 @@ def suggest_reply(lead_id: str, user: User = Depends(administrator),
     intake = next_intake_reply(latest_inbound, facts, previous_question)
     evidence = retrieve(db, lead.org_id, latest_inbound, "messenger") if not private_data(latest_inbound) else []
     fast = intake or quick_reply(latest_inbound, known=facts)
-    if analyze(latest_inbound).intent not in {"human", "restricted", "requirements"} and not private_data(latest_inbound):
-        fast = exact_answer(evidence) or fast
-    if fast:
-        return {"draft": fast, "source": "template", "requires_review": True}
-    supplied = "Consulta actual: " + latest_inbound[:800] + "\nHechos: " + json.dumps(
-        {k: v for k, v in facts.items() if k not in {"display_name", "name_opt_out", "turn_changed"}},
-        ensure_ascii=False) + "\nReferencias: " + evidence_context(evidence)
     ai_source = messenger_ai_source(db, lead.org_id)
-    if (consented_for(lead, ai_source) and not lead.ai_paused and not private_data(supplied)):
-        guide = _guide_for(db, lead)
-        if guide:
-            supplied += ("\nGuía aprobada para el oficio: " + guide.trade
-                         + "\nExplicación simple: " + guide.explanation
-                         + "\nDocumentación a orientar, no solicitar al inicio: "
-                         + "; ".join(guide.document_guidance or []))
-        else:
-            supplied += "\nNo hay guía documental aprobada para esta especialidad."
+    model_allowed = (consented_for(lead, ai_source) and not lead.ai_paused
+                     and model_intake_candidate(latest_inbound, facts, previous_question, intake))
+    if not model_allowed:
+        if analyze(latest_inbound).intent not in {"human", "restricted", "requirements"} and not private_data(latest_inbound):
+            fast = exact_answer(evidence) or fast
+        if fast:
+            return {"draft": fast, "source": "template", "requires_review": True}
+    if model_allowed:
+        supplied, _ = messenger_context(latest_inbound, facts, previous_question, messages, evidence,
+                                        _guide_for(db, lead))
         try:
             if private_data(supplied):
                 raise RuntimeError("El contexto requiere revisión humana")
@@ -1409,12 +1396,14 @@ def suggest_reply(lead_id: str, user: User = Depends(administrator),
                                   max_output_tokens=160)
                     if ai_source == "team" else generate_text(REPLY_INSTRUCTIONS, supplied, 450)),
                     org_id=lead.org_id if ai_source == "team" else None)
-        except RuntimeError:
+        except (RuntimeError, ValueError):
             drafted = None
         if drafted:
             drafted = grounded_reply(drafted, supplied)
-        if drafted:
+        if drafted and acceptable_intake_draft(drafted, facts, intake or "", message=latest_inbound):
             return {"draft": natural_messenger_reply(drafted), "source": "ai", "requires_review": True}
+    if fast:
+        return {"draft": fast, "source": "template", "requires_review": True}
     if not lead.specialty:
         question = "¿Qué trabajo haces? Por ejemplo, gasfitería, carpintería o pintura."
     elif lead.team_available is None:
