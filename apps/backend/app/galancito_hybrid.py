@@ -2,6 +2,7 @@
 import re
 
 from .galancito_flow import grounded_reply
+from .ai_gateway import AIServiceError
 from .galancito_triage import plain, private_data
 
 UNKNOWN = re.compile(
@@ -37,7 +38,7 @@ def select_response(local, external, context, *, allow_external=False,
         return None, "private"
     try:
         answer = usable_answer(local(), context, validator)
-    except (RuntimeError, ValueError, TimeoutError, OSError):
+    except (RuntimeError, ValueError, TimeoutError, OSError, AIServiceError):
         answer = None
     if not needs_external_help(answer):
         return answer, "local_model"
@@ -46,8 +47,8 @@ def select_response(local, external, context, *, allow_external=False,
     if allow_external and external:
         try:
             candidate = usable_answer(external(), context, validator)
-        except (RuntimeError, ValueError, TimeoutError, OSError):
+        except (RuntimeError, ValueError, TimeoutError, OSError, AIServiceError):
             candidate = None
         if not needs_external_help(candidate):
             return candidate, "external_fallback"
-    return answer, "unresolved"
+    return None, "unresolved"
