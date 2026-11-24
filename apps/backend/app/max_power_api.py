@@ -188,6 +188,14 @@ def _view(db, user, row):
         MaxPowerEvent.evidence["data_kind"].as_string() == "curated_synthetic",
         MaxPowerEvent.evidence["weights_trained"].as_boolean().is_(True),
     ).limit(1))
+    pilot_event = db.scalar(select(MaxPowerEvent).where(
+        MaxPowerEvent.org_id == user.org_id, MaxPowerEvent.event == "4b_pilot_status",
+        MaxPowerEvent.round_id == user.org_id))
+    pilot = dict(pilot_event.evidence or {}) if pilot_event else None
+    if pilot:
+        pilot["live"] = bool(row and row.enabled and pilot.get("generation") == row.session_generation
+                            and isinstance(pilot.get("at"), (int,float))
+                            and 0 <= now.timestamp()-pilot["at"] <= 40)
     controller_online = bool(row and row.worker_seen_at and
                              aware(row.worker_seen_at) >= aware(now) - timedelta(seconds=30))
     resources = safe_metrics(worker.resources) if trainer_online else {}
@@ -218,6 +226,7 @@ def _view(db, user, row):
         "reason": row.last_reason if row else "MAX POWER todavía no se ha encendido",
         "controller_online": controller_online,
         "trainer_online": trainer_online,
+        "neural_4b": pilot,
         "cpu_learning": {
             "status": cpu_state if cpu_online else "manager_offline",
             "reason": (cpu_event.reason if cpu_online else
