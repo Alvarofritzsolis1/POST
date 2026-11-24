@@ -22,7 +22,7 @@ SOURCE = "sintetico_generado"
 EVENT = "synthetic_intake_completed"
 WEIGHTS = {"profile": 45, "understanding": 25, "humanity": 20, "continuity": 10}
 # Bump when extraction or the evaluation protocol changes, even with the same fixtures.
-PROTOCOL = "20.9.32.1"
+PROTOCOL = "20.9.37.low-tech.1"
 QWEN_CRITERION = "synthetic_reply"
 ANCHOR = datetime(2026, 11, 23, 15, tzinfo=timezone.utc)
 
@@ -149,6 +149,30 @@ def generate_scenarios():
                  {"interest_type": "service_offer", "entity_type": "individual", "availability": "2026-11-23"},
                  continuity=True),
         ),
+        "aprendiz-definicion-postular": (
+            Turn("q es postular", topic=("interesa", "trabajo")),
+        ),
+        "aprendiz-definicion-cuadrilla": (
+            Turn("ke es una cuadrilla", topic=("grupo", "personas")),
+        ),
+        "aprendiz-definicion-comuna": (
+            Turn("q es comuna", topic=("lugar", "trabajar")),
+        ),
+        "aprendiz-definicion-contratista": (
+            Turn("que es contratista", topic=("trabajo", "cuenta")),
+        ),
+        "aprendiz-sin-correo": (
+            Turn("no tengo correo", topic=("chat",)),
+        ),
+        "aprendiz-celular": (
+            Turn("no se usar el celular", topic=("chat",)),
+        ),
+        "aprendiz-fotos": (
+            Turn("no se mandar fotos", topic=("fotos", "escrito")),
+        ),
+        "aprendiz-frustrado": (
+            Turn("ya filo", topic=("continuar",)),
+        ),
         "pregunta-operativa-despues-del-oficio": (
             Turn("Soy maestro sanitario", {"specialty": "Gasfitería"}),
             Turn("tienen cupos", {"specialty": "Gasfitería"}, topic=("cupos", "obra"), continuity=True),
@@ -163,6 +187,7 @@ RESERVED = frozenset({
     "oficio-indeciso", "nombre-voluntario", "dato-manual",
     "pregunta-y-declaracion", "contratos-sin-capacidad", "telefono-sintetico",
     "fecha-inmediata-y-cambio-de-rol", "pregunta-operativa-despues-del-oficio",
+    "aprendiz-definicion-cuadrilla", "aprendiz-definicion-comuna", "aprendiz-celular", "aprendiz-frustrado",
 })
 
 
