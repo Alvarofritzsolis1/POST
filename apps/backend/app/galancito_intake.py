@@ -128,7 +128,17 @@ def unanswered_intake_question(lead, prompt: str) -> bool:
         ((_AVAILABILITY_QUESTION, "desde cuando puedes"), not lead.availability),
         (_NAME_PROMPTS, lead.display_name in UNKNOWN_NAMES and not lead.name_opt_out),
     )
-    return any(missing and any(match in value for match in phrases) for phrases, missing in pending)
+    fields = intake_question_fields(prompt)
+    facts = {field: getattr(lead, field, None) for field in (
+        "display_name", "name_opt_out", "specialty", "interest_type", "entity_type",
+        "team_available", "workers", "has_employees", "employee_count", "experience",
+        "work_area", "work_communes", "availability")}
+    known = conversation_fields(facts)
+    professional = fields - {"contact_phone", "contact_email"}
+    states = getattr(lead, "profile_sources", None) or {}
+    return (any(not known.get(field) and states.get(field, {}).get("state") != "rechazado_por_usuario"
+                for field in professional)
+            or any(missing and any(match in value for match in phrases) for phrases, missing in pending))
 
 
 def _affirmed(value: str, phrases: tuple[str, ...]) -> bool:
