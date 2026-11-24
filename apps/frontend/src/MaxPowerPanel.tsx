@@ -25,13 +25,7 @@ type LiveActivity = {
   qwen: {state: "off" | "waiting" | "running"; reason: string; completed?: number | null;
          total?: number; unit?: string; started_at?: string | null; retry_at?: string | null; required_ram_mb?: number};
 };
-type NeuralPilot = {stage:string;phase:string|null;live:boolean;data_kind?:string|null;candidate_status?:string|null;
-  real_reserved_validation?:{cases:number;baseline_passes:number;candidate_passes:number;gains:number;regressions:number;safety_failures:number}|null;points:Array<{step:number;seconds:number|null;loss:number|null;host_free_mb:number|null;process_rss_mb:number|null;adapter_changed:boolean}>;
-  saved_adapter_step:number|null;adapter_changed:boolean;holdout_loss_before:number|null;holdout_loss_after:number|null;
-  comparison?: {cases:number;baseline_passes:number;candidate_passes:number;wins:number;regressions:number;safety_failures:number;rollback_output_equal:boolean;lab_pass:boolean}|null};
-type Benchmark4B = {state:string;comparison?:{pairs:number;"2":{p50_ms:number;p95_ms:number};"4":{p50_ms:number;p95_ms:number};observed_p50_delta_ms:number}|null};
 type Status = {
-  neural_4b?:NeuralPilot|null;benchmark_4b?:Benchmark4B|null;
   enabled: boolean; controller_online: boolean; trainer_online: boolean;
   cpu_learning?: {status:string;reason:string;last_update_at:string|null;
                   manager_online:boolean;weights_trained:boolean;synthetic_weights_trained?:boolean;
@@ -163,14 +157,12 @@ export default function MaxPowerPanel(){
   const live = data?.live_activity;
   const model = live?.qwen;
   const practiceCompleted = practice ? practice.development.cases + practice.holdout.cases : null;
-  const pilot=data?.neural_4b;
-  const benchmark=data?.benchmark_4b;
   const cpuStatus = data?.cpu_learning;
   const cpuRunning = Boolean(data?.enabled && ["training", "training_synthetic"].includes(cpuStatus?.status ?? ""));
   const cpuPreparing = Boolean(data?.enabled && cpuStatus?.status === "preparing_synthetic");
   const cpuLabFinished = cpuStatus?.status === "finished_synthetic";
   const hasMeasuredActivity = Boolean(data?.enabled && data.controller_online &&
-    (model?.state === "running" || cpuRunning || cpuPreparing || (pilot?.live && pilot.stage==="running")));
+    (model?.state === "running" || cpuRunning || cpuPreparing));
   const powerTitle = !data?.enabled ? "MAX POWER apagado"
     : !data.controller_online ? "MAX POWER encendido · controlador desconectado"
     : hasMeasuredActivity ? "MAX POWER encendido · trabajando"
@@ -311,23 +303,12 @@ export default function MaxPowerPanel(){
       <div className="max-power-mini">
         <span>RAM libre medida<strong>{typeof resources?.available_ram_mb === "number" ? f(resources.available_ram_mb)+" MB" : "Sin lectura"}</strong></span>
         <span>Reserva inicial del diagnóstico<strong>8.500 MB</strong></span>
-        <span>Entrenamiento 4B<strong>{pilot ? (pilot.live ? pilot.stage : "Último resultado guardado") : "Sin ejecución medida"}</strong></span>
+        <span>Entrenamiento 4B<strong>Sin validación en VPS</strong></span>
       </div>
       <p>{typeof resources?.available_ram_mb !== "number" ? "No se dispone de telemetría actual para verificar capacidad." :
         resources.available_ram_mb < 8500 ? "La RAM libre actual no alcanza el umbral del diagnóstico aislado." :
         "La lectura de RAM del host supera el umbral inicial. Falta verificar el contenedor, el backend NF4 y los pasos reales."}</p>
-      {pilot && <>
-        <p>Fase: {pilot.phase??pilot.stage} · {pilot.points.length} pasos medidos · checkpoint {pilot.saved_adapter_step??"—"} · {pilot.data_kind==="human_reviewed_real"?"Datos reales firmados":"Laboratorio sintético"}</p>
-        {pilot.stage==="awaiting_approved_dataset"&&<p>Diagnóstico terminado; esperando un nuevo conjunto de casos reales autorizados específicamente para 4B.</p>}
-        <div className="max-power-events">{pilot.points.map(p=><div key={p.step} className="max-power-event"><Activity size={15}/><div><strong>Paso {p.step} · {p.adapter_changed?"adaptador modificado":"sin cambio"}</strong><small>{p.seconds??"—"} s · pérdida {p.loss??"—"} · RAM proceso {p.process_rss_mb??"—"} MB</small></div></div>)}</div>
-        <p>Pérdida reservada: {pilot.holdout_loss_before??"—"} → {pilot.holdout_loss_after??"—"}</p>
-        {pilot.real_reserved_validation&&<p>Casos reales reservados: {pilot.real_reserved_validation.baseline_passes}/{pilot.real_reserved_validation.cases} → {pilot.real_reserved_validation.candidate_passes}/{pilot.real_reserved_validation.cases}; {pilot.real_reserved_validation.regressions} regresiones, {pilot.real_reserved_validation.safety_failures} fallos de seguridad.</p>}
-        {pilot.comparison && <p>Conversaciones sintéticas completas: {pilot.comparison.baseline_passes}/{pilot.comparison.cases} → {pilot.comparison.candidate_passes}/{pilot.comparison.cases}; {pilot.comparison.regressions} regresiones; {pilot.comparison.safety_failures} fallos de seguridad. Reversión local: {pilot.comparison.rollback_output_equal?"salida reproducida":"no verificada"}. {pilot.candidate_status==="lab_candidate"?"Candidato de laboratorio":"No aceptado como candidato" }.</p>}
-      </>}
-      <p className="max-power-note">El supervisor automático 4B requiere el perfil de diagnóstico habilitado. Evalúa y guarda adaptadores aislados; no cambia pesos de producción. Los avances de 0.8B no se atribuyen al 4B.</p>
-      <h4>Rendimiento comparable · Ollama 4B</h4>
-      {benchmark?.comparison ? <div className="max-power-mini"><span>2 hilos · p50<strong>{(benchmark.comparison["2"].p50_ms/1000).toFixed(2)} s</strong></span><span>4 hilos · p50<strong>{(benchmark.comparison["4"].p50_ms/1000).toFixed(2)} s</strong></span><span>Pares medidos<strong>{benchmark.comparison.pairs}</strong></span></div> : <p>{benchmark?.state==="deferred_or_failed"?"Benchmark interrumpido o fallido; volverá a intentar.":"Sin comparación completa todavía."}</p>}
-      <p className="max-power-note">Mismos prompts, modelo y presupuesto de salida; orden alternado. Resultado exploratorio del VPS donde se ejecuta, no latencia de Messenger productivo.</p>
+      <p className="max-power-note">La prueba 4B es aislada, no se inicia automáticamente en esta versión y no altera pesos de producción. Los avances de 0.8B no se presentan como aprendizaje neuronal de 4B.</p>
     </article>
     <FineTuneProgress/>
     <div className="max-power-section-title"><Gauge size={17}/><h3>Resultados verificables de cada experimento</h3></div>

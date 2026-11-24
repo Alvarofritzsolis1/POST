@@ -19,7 +19,6 @@ RUN printf 'SOURCE_COMMIT = "%s"\n' "$SOURCE_COMMIT" > /srv/app/build_revision.p
 # de secretos ni modificar el checkout o volúmenes del VPS.
 RUN chmod -R a+rX /srv/app
 RUN useradd --uid 10001 --create-home --shell /usr/sbin/nologin galant
-RUN mkdir -p /4b-control && chown 10001:10001 /4b-control
 USER galant
 EXPOSE 8000
 CMD ["uvicorn", "app.main:app", "--host", "0.0.0.0", "--port", "8000", "--workers", "1"]

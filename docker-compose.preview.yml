@@ -177,15 +177,11 @@ services:
       GALANCITO_LOCAL_MODEL: ${GALANCITO_LOCAL_MODEL:-qwen3:1.7b}
       GALANCITO_LOCAL_AI_ENABLED: ${GALANCITO_LOCAL_AI_ENABLED:-false}
       GALANT_MAX_POWER_ISOLATED: "true"
-      GALANT_MAX_POWER_4B_SLOT: "yes"
-      GALANT_MAX_POWER_4B_BENCHMARK: "${GALANT_MAX_POWER_4B_BENCHMARK:-yes}"
       GALANT_TRAINING_OLLAMA_THREADS: ${GALANT_TRAINING_OLLAMA_THREADS:-4}
       GALANCITO_MEMORY_RESERVE_MB: ${GALANCITO_MEMORY_RESERVE_MB:-1536}
     depends_on:
       db: {condition: service_healthy}
       galancito-training-ollama: {condition: service_started}
-    volumes:
-      - galancito_4b_control:/4b-control
     networks: [internal]
     security_opt: [no-new-privileges:true]
     cap_drop: [ALL]
@@ -303,54 +299,6 @@ services:
     cpus: 4.0
     cpu_shares: 16
     logging: *logs
-  # Opt-in until the real 4B CPU gate succeeds on the VPS. Once enabled,
-  # the existing MAX POWER button controls this isolated supervisor.
-  cpu-4b-auto:
-    profiles: [max-power-4b-auto]
-    build: {context: ., dockerfile: infrastructure/Dockerfile.cpu-4b-probe}
-    entrypoint: ["python", "/src/scripts/max_power_4b_supervisor.py"]
-    restart: unless-stopped
-    read_only: true
-    init: true
-    environment:
-      GALANT_DATASET_APPROVAL_PUBLIC_KEY: ${GALANT_DATASET_APPROVAL_PUBLIC_KEY:-}
-    volumes:
-      - galancito_4b_probe:/private
-      - galancito_4b_control:/4b-control
-      - ${GALANT_4B_APPROVED_DIR:-/opt/galant-4b-approved}:/approved:ro
-    tmpfs:
-      - /tmp:size=128m,mode=1777
-    networks: [cpu-lora-egress]
-    security_opt: [no-new-privileges:true]
-    cap_drop: [ALL]
-    pids_limit: 96
-    mem_limit: 8g
-    memswap_limit: 8g
-    cpus: 4.0
-    cpu_shares: 16
-    stop_grace_period: 45s
-    logging: *logs
-  cpu-4b-shadow:
-    profiles: [max-power-4b-shadow]
-    build: {context: ., dockerfile: infrastructure/Dockerfile.cpu-4b-probe}
-    entrypoint: ["python", "/src/scripts/validate_galant_4b_ollama_candidate.py"]
-    restart: "no"
-    read_only: true
-    init: true
-    environment:
-      GALANT_4B_RELEASE_PUBLIC_KEY: ${GALANT_4B_RELEASE_PUBLIC_KEY:-}
-    volumes:
-      - galancito_4b_probe:/private
-      - galancito_4b_control:/4b-control
-    tmpfs:
-      - /tmp:size=32m,mode=1777
-    networks: [internal]
-    security_opt: [no-new-privileges:true]
-    cap_drop: [ALL]
-    pids_limit: 32
-    mem_limit: 256m
-    cpus: 0.5
-    logging: *logs
   frontend:
     build: {context: ., dockerfile: apps/frontend/Dockerfile}
     restart: unless-stopped
@@ -381,4 +329,3 @@ volumes:
   galancito_models: {}
   galancito_training_models: {}
   galancito_4b_probe: {}
-  galancito_4b_control: {}

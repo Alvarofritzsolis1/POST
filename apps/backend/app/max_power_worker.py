@@ -8,8 +8,7 @@ from concurrent.futures import ThreadPoolExecutor
 import logging
 import re
 from pathlib import Path
-from time import sleep, time
-import os
+from time import sleep
 from fastapi import HTTPException
 from sqlalchemy import select, and_, delete, or_
 from sqlalchemy.exc import SQLAlchemyError
@@ -25,9 +24,6 @@ from .galancito_training_models import ACTIVE, TrainingCase, TrainingRound, Trai
 from .galancito_training_model import TrainingModel, isolated_model_resident
 from .max_power_decisions import QWEN_MIN_RAM_MB, can_run, classify_outcome, evidence_fingerprint, select_experiment_plan, worksite_holdout_sign_test
 from .max_power_live import RESOURCE_EVENT, resource_metrics, cpu_event_blocks
-from .max_power_4b_slot import CONTROL, acquire_slot, release_slot, atomic_json, read_json
-from .max_power_4b_report import public_report
-from .max_power_4b_benchmark import eligible as benchmark_eligible, run_benchmark
 from .max_power_models import MaxPowerEvent, MaxPowerState, MaxPowerMessengerTrial
 from .max_power_messenger import schedule_next, process_one, schedule_synthetic_reply
 from .max_power_practice import EVENT as PRACTICE_EVENT, generate_scenarios, practice_id, run_practice
@@ -457,48 +453,6 @@ def tick(db, sampler, *, sampled=None, training_model=None):
                                        "budget_minutes": plan["minutes"], "plan_basis": plan["basis"]}))
     db.commit()
 
-def publish_4b_intent(db, neural_busy):
-    """Controller is the sole issuer of a short-lived opt-in training intent."""
-    row = db.scalar(select(MaxPowerState).where(MaxPowerState.enabled.is_(True))
-                    .order_by(MaxPowerState.session_started_at, MaxPowerState.org_id).limit(1))
-    quiet = bool(row and not neural_busy and not messenger_busy(db) and not messenger_recent(db))
-    intent = {"enabled":bool(row),"quiet":quiet,"at":time(),
-              "org":row.org_id if row else None,
-              "generation":row.session_generation if row else None}
-    atomic_json(CONTROL / "intent.json", intent)
-    status = read_json(CONTROL / "status.json")
-    if row:
-        report = public_report(status, row.org_id, row.session_generation)
-        if report:
-            event = db.scalar(select(MaxPowerEvent).where(
-                MaxPowerEvent.org_id == row.org_id,
-                MaxPowerEvent.event == "4b_pilot_status",
-                MaxPowerEvent.round_id == row.org_id))
-            if event is None:
-                db.add(MaxPowerEvent(org_id=row.org_id,event="4b_pilot_status",
-                    round_id=row.org_id,reason="Diagnóstico neuronal Qwen 4B",
-                    evidence={**report,"generation":row.session_generation}))
-                db.commit()
-            elif (event.evidence or {}).get("at") != report["at"]:
-                event.evidence = {**report,"generation":row.session_generation}
-                event.created_at = utcnow()
-                db.commit()
-    request = read_json(CONTROL / "request.json")
-    stamp = request.get("at")
-    return bool(quiet and request.get("org") == intent["org"]
-                and request.get("generation") == intent["generation"]
-                and type(stamp) in (int,float) and 0 <= time()-stamp <= 6)
-
-
-def benchmark_guard(org, generation, sampler):
-    with SessionLocal() as db:
-        row = db.get(MaxPowerState, org)
-        if not row or not row.enabled or row.session_generation != generation:
-            return False
-        pending = bool(messenger_busy(db) or messenger_recent(db))
-    return practice_admission(sampler.sample(), messenger_pending=pending)[0]
-
-
 def main():
     from . import main as _application  # registers all SQLAlchemy models
     logging.basicConfig(level=logging.INFO)
@@ -506,8 +460,6 @@ def main():
     practice_sampler = ResourceSampler()
     local_model = TrainingModel()
     task = None
-    task_slot = None
-    coordinate_4b = os.environ.get("GALANT_MAX_POWER_4B_SLOT") == "yes"
     # Integrate the preexisting practice engine: ON works with a single button,
     # even if the separate optional 'training' Docker profile is not running.
     # The trainer uses a PostgreSQL advisory lock to prevent duplicate claims.
@@ -531,63 +483,39 @@ def main():
                     except Exception:
                         logger.exception("MAX POWER practice cycle failed; durable state preserved")
                     task = None
-                    release_slot(task_slot)
-                    task_slot = None
                 with SessionLocal() as db:
                     neural_busy = cpu_execution_blocks(db, utcnow()) if enabled else False
-                    requested = publish_4b_intent(db, neural_busy) if coordinate_4b else False
-                if enabled and task is None and not neural_busy and not requested:
-                    task_slot = acquire_slot() if coordinate_4b else None
-                    if coordinate_4b and task_slot is None:
-                        sleep(5)
-                        continue
-                    try:
-                        # One fixed, comparable speed benchmark per protocol,
-                        # only after the private engine is available.
-                        if coordinate_4b and os.environ.get("GALANT_MAX_POWER_4B_BENCHMARK") == "yes":
-                            with SessionLocal() as db:
-                                candidate = db.scalar(select(MaxPowerState).where(
-                                    MaxPowerState.enabled.is_(True)).order_by(MaxPowerState.session_started_at).limit(1))
-                                key = (candidate.org_id,candidate.session_generation) if candidate and benchmark_eligible(db,candidate.org_id,utcnow()) else None
-                            if key and benchmark_guard(*key, practice_sampler) and local_model.waiting_reason(
-                                    practice_sampler.sample()["disk_free_mb"],QWEN_4B) is None:
-                                task = executor.submit(run_benchmark,*key,
-                                    lambda org,generation: benchmark_guard(org,generation,practice_sampler))
-                                sleep(5)
-                                continue
+                if enabled and task is None and not neural_busy:
+                    with SessionLocal() as db:
+                        due = db.scalar(select(MaxPowerMessengerTrial.id).join(
+                            MaxPowerState, MaxPowerMessengerTrial.org_id == MaxPowerState.org_id
+                        ).where(MaxPowerState.enabled.is_(True),
+                          or_(MaxPowerMessengerTrial.status == "queued",
+                              and_(MaxPowerMessengerTrial.status == "running",
+                                   or_(MaxPowerMessengerTrial.lease_until.is_(None),
+                                       MaxPowerMessengerTrial.lease_until < utcnow()))),
+                          MaxPowerMessengerTrial.next_at <= utcnow()).limit(1))
+                    if due:
                         with SessionLocal() as db:
-                            due = db.scalar(select(MaxPowerMessengerTrial.id).join(
-                                MaxPowerState, MaxPowerMessengerTrial.org_id == MaxPowerState.org_id
-                            ).where(MaxPowerState.enabled.is_(True),
-                              or_(MaxPowerMessengerTrial.status == "queued",
-                                  and_(MaxPowerMessengerTrial.status == "running",
-                                       MaxPowerMessengerTrial.lease_until < utcnow())),
-                              MaxPowerMessengerTrial.next_at <= utcnow()).limit(1))
-                        if due:
-                            with SessionLocal() as db:
-                                pending = bool(messenger_busy(db) or messenger_recent(db))
-                            snapshot = {**practice_sampler.sample(),
-                                        "cpu_pressure_avg10": _pressure("cpu"),
-                                        "memory_pressure_avg10": _pressure("memory"),
-                                        "io_pressure_avg10": _pressure("io")}
-                            allowed, block_reason = practice_admission(snapshot, messenger_pending=pending)
-                            if allowed:
-                                task = executor.submit(process_one)
-                            else:
-                                logger.debug("MAX POWER Messenger practice yielded: %s", block_reason)
+                            pending = bool(messenger_busy(db) or messenger_recent(db))
+                        snapshot = {**practice_sampler.sample(),
+                                    "cpu_pressure_avg10": _pressure("cpu"),
+                                    "memory_pressure_avg10": _pressure("memory"),
+                                    "io_pressure_avg10": _pressure("io")}
+                        allowed, block_reason = practice_admission(snapshot, messenger_pending=pending)
+                        if allowed:
+                            task = executor.submit(process_one)
                         else:
-                            with SessionLocal() as db:
-                                active = db.scalar(select(TrainingRound.id).where(
-                                    TrainingRound.state.in_(ACTIVE),
-                                    TrainingRound.config["orchestrator"].as_string() == "max_power").limit(1))
-                            if active:
-                                task = executor.submit(process_next, sampler=practice_sampler,
-                                                       training_model=local_model,
-                                                       only_orchestrator="max_power")
-                    finally:
-                        if task is None:
-                            release_slot(task_slot)
-                            task_slot = None
+                            logger.debug("MAX POWER Messenger practice yielded: %s", block_reason)
+                    else:
+                        with SessionLocal() as db:
+                            active = db.scalar(select(TrainingRound.id).where(
+                                TrainingRound.state.in_(ACTIVE),
+                                TrainingRound.config["orchestrator"].as_string() == "max_power").limit(1))
+                        if active:
+                            task = executor.submit(process_next, sampler=practice_sampler,
+                                                   training_model=local_model,
+                                                   only_orchestrator="max_power")
             except SQLAlchemyError as exc:
                 logger.warning("MAX POWER waiting for database: %s", type(exc).__name__)
             except Exception:
