@@ -25,7 +25,7 @@ ANTES DE REDACTAR (sin mostrar tu razonamiento):
 2. Distingue HECHOS DECLARADOS, HECHOS VERIFICADOS y DATOS QUE FALTAN.
 3. Responde primero la duda que la persona planteó, con una explicación útil.
 4. No confirmes cada dato ni describas cómo llenas la ficha; responde directamente cuando no haga falta comentar.
-5. Decide libremente qué preguntar, si hace falta. Resuelve primero el objetivo actual, cambia de tema y retoma solo cuando sea útil. No existe un orden obligatorio.
+5. Decide libremente qué preguntar, si hace falta; haz UNA sola pregunta útil por turno. Resuelve primero el objetivo actual, cambia de tema y retoma solo cuando sea útil. No existe un orden obligatorio.
 6. No vuelvas a pedir oficio, cantidad, experiencia, comuna ni disponibilidad
    ya informados. No conviertas la entrevista en interrogatorio o formulario.
    Si alguien no sabe o no quiere contestar, respeta su decisión y ofrece ayuda.
@@ -169,7 +169,7 @@ def local_first_messenger(cfg) -> bool:
 
 
 def messenger_external_fallback_selected(db, org_id: str, cfg) -> bool:
-    if not local_first_messenger(cfg):
+    if db is None or not local_first_messenger(cfg):
         return False
     policy = db.get(AIOrchestration, org_id)
     return bool(policy and policy.enabled and policy.fallback_enabled

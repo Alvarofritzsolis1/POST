@@ -274,8 +274,14 @@ def test_galancito_conversation_auto_reply_only_after_messenger_consent(network,
     assert status["ai_paused"] is False
     assert incoming(n, text="tengo dos ayudantes", mid="later").status_code == 200
     messages = n["admin"].get("/api/v1/network/facebook/leads/" + lead["id"]).json()["messages"]
-    assert any(msg["automated"] and msg["state"] == "pending" for msg in messages)
-    assert not any(msg["state"] == "ai_pending" for msg in messages)
+    assert any(msg["automated"] and msg["state"] == "ai_pending" for msg in messages)
+    # The consented model, rather than a fixed questionnaire, chooses the next step.
+    monkeypatch.setattr("app.facebook_chat_worker.generate_text",
+                        lambda *args, **kwargs: ai_calls.append(args[1]) or "¿En qué comuna puedes trabajar?")
+    before = len(ai_calls)
+    assert process_chat_next(n["Session"]) is True
+    assert len(ai_calls) == before + 1
+    assert "comuna" in calls[-1].lower()
 
 
 def test_manual_trade_question_continues_automatically_and_can_be_paused(network, monkeypatch):
