@@ -34,6 +34,7 @@ export default function AIAdminPanel({ onBack }: { onBack: () => void }) {
   const {section, detail} = view;
   useEffect(() => {
     const update = () => {
+      if (!/^\/admin\/(?:configuracion\/)?ia(?:\/|$)/.test(window.location.pathname)) return;
       const next = resolveAIAdminPath(window.location.pathname);
       setView(next);
       // Old links remain valid; canonicalize without adding a second history entry.
