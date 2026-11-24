@@ -5,6 +5,7 @@ import hashlib
 import json
 import math
 import os
+from uuid import uuid4
 from pathlib import Path
 from time import monotonic, time
 
@@ -32,6 +33,7 @@ def main():
     parser.add_argument("--run", action="store_true", help="Explicitly execute optimizer steps")
     parser.add_argument("--allow-download", action="store_true", help="Download public model weights only")
     parser.add_argument("--steps", type=int, choices=range(1, 11), default=10)
+    parser.add_argument("--threads", type=int, choices=(2, 4), default=4)
     args = parser.parse_args()
     root = Path("/private/4b-probe")
     root.mkdir(parents=True, exist_ok=True)
@@ -53,7 +55,8 @@ def main():
         import bitsandbytes as bnb
         from transformers import AutoTokenizer, Qwen3_5ForCausalLM, BitsAndBytesConfig
         from peft import LoraConfig, get_peft_model, prepare_model_for_kbit_training
-        torch.set_num_threads(min(4, os.cpu_count() or 1))
+        torch.set_num_threads(min(args.threads, os.cpu_count() or 1))
+        report["threads"] = torch.get_num_threads()
         torch.set_num_interop_threads(1)
         torch.manual_seed(42)
         start = monotonic()
@@ -92,13 +95,27 @@ def main():
             return h.hexdigest()
         before = digest()
         optimizer = torch.optim.AdamW(trainable, lr=7e-5)
-        examples = [("Ola compadre ando buscando peguita", "Hola, ¿qué trabajos haces normalmente?"),
-                    ("No cacho que es cuadrilla", "Es un grupo de personas que trabajan juntas. ¿Trabajas solo o con más gente?")]
-        model.train()
-        for step in range(1, args.steps+1):
-            if should_pause(snapshot(root)):
-                raise RuntimeError("Memory reserve below safe limit")
-            message, answer = examples[(step-1)%len(examples)]
+        examples = [
+            ("Ola compadre ando buscando peguita", "Hola, ¿qué trabajos haces normalmente?"),
+            ("No cacho que es cuadrilla", "Es un grupo de personas que trabajan juntas. ¿Trabajas solo o con más gente?"),
+            ("Somos tres maestros y dos ayudantes", "Perfecto, entonces son cinco personas. ¿Qué trabajos hacen?"),
+            ("Mi señora ve los papeles", "No hay problema. Primero podemos conversar sobre el trabajo y después revisar los documentos."),
+            ("Y las lucas cuanto son", "Todavía no tengo un monto confirmado. El equipo podrá aclararte las condiciones del trabajo."),
+            ("Puedo partir altiro", "Bien, tienes disponibilidad inmediata. ¿En qué comuna puedes trabajar?"),
+            ("No tengo correo", "No pasa nada, podemos seguir conversando por acá."),
+            ("Ya te dije po soy carpintero", "Tienes razón, anoté que eres carpintero. ¿Trabajas solo o con un equipo?"),
+            ("No sé usar el celu mucho", "Te puedo ayudar por acá, de a una pregunta para que sea más fácil."),
+            ("Tengo 8 años de experiencia en pintura", "Anotado, ocho años en pintura. ¿En qué comuna trabajas?")
+        ]
+        # Diagnostic references are fixed and disjoint from training examples.
+        # Loss is an experimental signal, not a conversational quality score.
+        holdout = [
+            ("Ando sin pega hace rato", "Cuéntame qué oficio tienes para orientarte sobre las opciones."),
+            ("Que significa a trato", "Es un trabajo pagado según las condiciones acordadas por una partida o tarea. El equipo debe confirmar los detalles."),
+            ("No tengo gente voy yo nomas", "Entendido, buscas trabajo para ti. ¿Qué oficio tienes?"),
+            ("Me dijieron que pagan el viernes es cierto", "No puedo confirmar esa fecha sin información del equipo."),
+        ]
+        def encode(message, answer):
             prefix = tokenizer.apply_chat_template([{"role":"user","content":message}],
                 tokenize=False, add_generation_prompt=True, enable_thinking=False)
             prompt_ids = tokenizer(prefix, add_special_tokens=False)["input_ids"]
@@ -107,6 +124,35 @@ def main():
             labels = torch.tensor([[-100]*len(prompt_ids)+answer_ids], dtype=torch.long)
             if ids.shape[1] > 192:
                 raise RuntimeError("Probe context exceeds bound")
+            return ids, labels
+
+        def heldout_loss():
+            model.eval()
+            losses = []
+            with torch.no_grad():
+                for message, answer in holdout:
+                    if should_pause(snapshot(root)):
+                        raise RuntimeError("Memory reserve below safe limit during validation")
+                    ids, labels = encode(message, answer)
+                    loss = model(input_ids=ids, labels=labels, use_cache=False).loss
+                    if not torch.isfinite(loss):
+                        raise RuntimeError("Non-finite reserved loss")
+                    losses.append(float(loss))
+            return sum(losses)/len(losses)
+
+        run_dir = root / ("candidate-" + uuid4().hex)
+        run_dir.mkdir()
+        report["candidate_id"] = run_dir.name
+        report["holdout_cases"] = len(holdout)
+        report["status"] = "baseline_evaluation"
+        write_report(report_path, report)
+        report["holdout_loss_before"] = heldout_loss()
+        write_report(report_path, report)
+        model.train()
+        for step in range(1, args.steps+1):
+            if should_pause(snapshot(root)):
+                raise RuntimeError("Memory reserve below safe limit")
+            ids, labels = encode(*examples[(step-1)%len(examples)])
             t = monotonic()
             optimizer.zero_grad(set_to_none=True)
             loss = model(input_ids=ids, labels=labels, use_cache=False).loss
@@ -122,7 +168,15 @@ def main():
             report["steps"].append({"step":step,"seconds":round(monotonic()-t,2),
                 "loss":float(loss.detach()),"memory":snapshot(root),
                 "adapter_changed":report["adapter_changed"]})
+            # Persist the latest adapter separately from production. This is
+            # not an optimizer-resume checkpoint and cannot be auto-promoted.
+            checkpoint = run_dir / ("step-" + str(step))
+            model.save_pretrained(checkpoint, safe_serialization=True)
+            report["saved_adapter_step"] = step
             write_report(report_path, report)
+        report["status"] = "candidate_evaluation"
+        write_report(report_path, report)
+        report["holdout_loss_after"] = heldout_loss()
         report["status"] = "completed" if report["adapter_changed"] else "failed"
     except Exception as exc:
         report["status"] = "failed"
