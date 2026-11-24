@@ -105,6 +105,23 @@ def examples():
                     "reference_answer": answer,
                 }
 
+def bounded_evaluation(cases, limit=12):
+    """Fixed, family-balanced loss panel; not a claim of full-corpus evaluation."""
+    groups = {}
+    for case in cases:
+        groups.setdefault(case["case_group"], []).append(case)
+    # Alternate between families and choose different trades deterministically.
+    result = []
+    for turn in range(max((len(rows) for rows in groups.values()), default=0)):
+        for group, rows in sorted(groups.items()):
+            if turn < len(rows):
+                offset = int(group[:8], 16) % len(rows)
+                result.append(rows[(offset + turn) % len(rows)])
+                if len(result) == limit:
+                    return result
+    return result
+
+
 def dataset_bytes():
     return "".join(json.dumps(case, ensure_ascii=False, sort_keys=True, separators=(",", ":")) + "\n"
                    for case in examples()).encode("utf-8")
