@@ -14,6 +14,7 @@ from sqlalchemy import func, select
 from sqlalchemy.orm import Session
 
 from .galancito_training_models import TrainingRound, TrainingWorker
+from .max_power_live import RESOURCE_EVENT
 from .max_power_models import MaxPowerEvent, MaxPowerMessengerTrial, MaxPowerState
 from .max_power_practice import EVENT as PRACTICE_EVENT, SOURCE as PRACTICE_SOURCE, WEIGHTS, generate_scenarios
 from .models import User
@@ -185,11 +186,11 @@ def build_report(db: Session, user: User, *, max_events=MAX_EVENTS):
     """Read-only, tenant-scoped evidence. No raw chat, source UUID, org ID or email."""
     state = db.get(MaxPowerState, user.org_id)
     total_events = int(db.scalar(select(func.count(MaxPowerEvent.id)).where(
-        MaxPowerEvent.org_id == user.org_id)) or 0)
+        MaxPowerEvent.org_id == user.org_id, MaxPowerEvent.event != RESOURCE_EVENT)) or 0)
     total_trials = int(db.scalar(select(func.count(MaxPowerMessengerTrial.id)).where(
         MaxPowerMessengerTrial.org_id == user.org_id)) or 0)
     latest_events = list(db.scalars(select(MaxPowerEvent).where(
-        MaxPowerEvent.org_id == user.org_id).order_by(
+        MaxPowerEvent.org_id == user.org_id, MaxPowerEvent.event != RESOURCE_EVENT).order_by(
         MaxPowerEvent.created_at.desc(), MaxPowerEvent.id.desc()
     ).limit(max_events)))
     latest_trials = list(db.scalars(select(MaxPowerMessengerTrial).where(

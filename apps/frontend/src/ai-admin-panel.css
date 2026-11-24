@@ -12,3 +12,10 @@
 @keyframes ai-admin-enter { from { opacity: 0; transform: translateY(5px) } to { opacity: 1; transform: translateY(0) } }
 @media (prefers-reduced-motion: reduce) { .ai-admin-content { animation: none; } }
 @media (max-width: 600px) { .ai-admin-heading { gap: 10px; } .ai-admin-tabs button { flex: 1; justify-content: center; } }
+
+.ai-admin-detail { margin-top: 24px; padding: 18px; background: white; border: 1px solid #dfe7ec; border-radius: 14px; }
+.ai-admin-detail > h2 { margin: 0 0 8px; font-size: 19px; }
+.ai-admin-detail > p { margin: 0 0 14px; color: #64748b; font-size: 13px; }
+.ai-admin-detail .training-grid-unified { grid-template-columns: minmax(0, 1fr); }
+.ai-admin-detail .ai-center { min-width: 0; }
+@media (max-width: 600px) { .ai-admin-detail { padding: 10px; } }

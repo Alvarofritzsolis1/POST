@@ -348,7 +348,7 @@ export default function AIConfiguration({ openTraining, section }: { openTrainin
       <section className="ai-panel ai-training-link">
         <div className="ai-panel-head">
           <div><h3>Entrenamiento de Galancito</h3><p>Prácticas nuevas con {data?.local_engine.model ?? "el modelo local"}. Historial de modelos anteriores conservado.</p></div>
-          <button type="button" className="gc-primary" onClick={openTraining}>Abrir entrenamiento</button>
+          <button type="button" className="gc-primary" onClick={openTraining}>Abrir MAX POWER</button>
         </div>
       </section>
       {loading && <p role="status">Cargando conexiones y consumo…</p>}
@@ -486,7 +486,7 @@ export default function AIConfiguration({ openTraining, section }: { openTrainin
 
       <section className="ai-panel ai-learning-panel">
         <div className="ai-panel-head"><div><h3>Aprendizaje validado</h3><p>Guías aprobadas y correcciones controladas.</p></div><span className="ai-secure"><ShieldCheck size={16} /> Con aprobación humana</span></div>
-        <div className="ai-learning-steps"><strong>Cómo se valida una mejora</strong><span>1. Medir fallas reales → 2. Corregir → 3. Evaluar casos reservados → 4. Revisar regresiones → 5. Aprobar.</span><small>La práctica sintética no constituye mejora demostrada. Las pruebas con agregados operativos no equivalen a calidad comprobada en conversaciones reales.</small><button type="button" className="gc-secondary" onClick={openTraining}>Abrir pruebas</button></div>
+        <div className="ai-learning-steps"><strong>Cómo se valida una mejora</strong><span>1. Medir fallas reales → 2. Corregir → 3. Evaluar casos reservados → 4. Revisar regresiones → 5. Aprobar.</span><small>La práctica sintética no constituye mejora demostrada. Las pruebas con agregados operativos no equivalen a calidad comprobada en conversaciones reales.</small><button type="button" className="gc-secondary" onClick={openTraining}>Ver historial de evaluaciones</button></div>
         <section className="ai-history-view" aria-label="Histórico verificable de Galancito">
           <div className="ai-history-head">
             <strong>Histórico real disponible</strong>

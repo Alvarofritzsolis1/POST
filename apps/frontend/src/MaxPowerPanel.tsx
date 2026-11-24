@@ -3,6 +3,7 @@ import { Activity, AlertTriangle, BrainCircuit, CheckCircle2, Clock3, Download, 
 import { request } from "./api";
 import "./max-power.css";
 import FineTuneProgress from "./FineTuneProgress";
+import MaxPowerLive from "./MaxPowerLive";
 
 type Sample = { quality_score: number | null; reviewed_cases: number; minimum_cases: number;
   dimension_scores: Record<string, number | null>; quality_source: string };
@@ -217,6 +218,7 @@ export default function MaxPowerPanel(){
       <strong>{controllerStatus[data.status] ?? data.status.replaceAll("_"," ")}</strong>
       <span>{data.reason}</span>
     </div>}
+    <MaxPowerLive resources={resources}/>
     <article className="max-power-card max-power-live">
       <div className="max-power-live-header">
         <div className="max-power-section-title"><Activity size={17}/><h3>Actividad en vivo</h3></div>
@@ -294,6 +296,19 @@ export default function MaxPowerPanel(){
         {typeof resources.available_ram_mb === "number" && " · RAM disponible " + f(resources.available_ram_mb) + " MB"}
         {typeof resources.disk_free_mb === "number" && " · Disco libre " + f(resources.disk_free_mb) + " MB"}
       </p>}
+    </article>
+    <article className="max-power-card">
+      <div className="max-power-section-title"><BrainCircuit size={17}/><h3>Objetivo neuronal · Qwen 4B</h3></div>
+      <p>Galancito utiliza Qwen 4B. El entrenador actual de 0.8B es un laboratorio separado: sus adaptadores no se aplican al 4B.</p>
+      <div className="max-power-mini">
+        <span>RAM libre medida<strong>{typeof resources?.available_ram_mb === "number" ? f(resources.available_ram_mb)+" MB" : "Sin lectura"}</strong></span>
+        <span>Reserva inicial del diagnóstico<strong>8.500 MB</strong></span>
+        <span>Entrenamiento 4B<strong>Sin validación en VPS</strong></span>
+      </div>
+      <p>{typeof resources?.available_ram_mb !== "number" ? "No se dispone de telemetría actual para verificar capacidad." :
+        resources.available_ram_mb < 8500 ? "La RAM libre actual no alcanza el umbral del diagnóstico aislado." :
+        "La lectura de RAM del host supera el umbral inicial. Falta verificar el contenedor, el backend NF4 y los pasos reales."}</p>
+      <p className="max-power-note">La prueba 4B es aislada, no se inicia automáticamente en esta versión y no altera pesos de producción. Los avances de 0.8B no se presentan como aprendizaje neuronal de 4B.</p>
     </article>
     <FineTuneProgress/>
     <div className="max-power-section-title"><Gauge size={17}/><h3>Resultados verificables de cada experimento</h3></div>
