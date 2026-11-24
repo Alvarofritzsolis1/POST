@@ -27,7 +27,12 @@ type LiveActivity = {
 };
 type Status = {
   enabled: boolean; controller_online: boolean; trainer_online: boolean;
-  neural_2b?: {stage:string;live:boolean;completed_steps:number;target_steps:number;data_kind:string;conversation_gate:boolean;production_promoted:boolean;holdout_loss_before:number|null;holdout_loss_after:number|null;blockers:string[]};
+  neural_2b?: {
+    stage:string; live:boolean; completed_steps:number; target_steps:number; data_kind:string;
+    conversation_gate:boolean; production_promoted:boolean; holdout_loss_before:number|null;
+    holdout_loss_after:number|null; blockers:string[]; phase_seconds?:number|null; failure?:string|null;
+    conversation_validation?: {cases:number|null; baseline_passes:number|null; candidate_passes:number|null; regressions:number|null};
+  };
   cpu_learning?: {status:string;reason:string;last_update_at:string|null;
                   manager_online:boolean;weights_trained:boolean;synthetic_weights_trained?:boolean;
                   training_kind?:string;model:string};
@@ -84,13 +89,20 @@ const controllerStatus: Record<string,string> = {
 };
 const neuralStages: Record<string,string> = {
   awaiting_resources:"En espera de memoria o disco", waiting_turn:"En espera de turno",
-  loading:"Cargando modelo", training:"Entrenando adaptador", evaluating:"Evaluando casos reservados",
+  waiting_messenger:"En pausa mientras atiende Messenger", downloading:"Descargando pesos de Qwen",
+  loading:"Cargando pesos en memoria", baseline:"Evaluando respuestas de referencia",
+  training:"Entrenando adaptador", evaluating:"Evaluando casos reservados",
   paused:"En pausa", completed:"Ronda completada", awaiting_approved_dataset:"En espera de datos autorizados",
   failed:"Ronda interrumpida", retry_exhausted:"Reintentos agotados",
 };
 const neuralBlockers: Record<string,string> = {
   host_free_mb:"RAM disponible del VPS", cgroup_limit_mb:"Límite de RAM del contenedor",
   cgroup_available_mb:"RAM disponible del contenedor", disk_free_mb:"Espacio en disco",
+};
+const neuralFailures: Record<string,string> = {
+  model_download:"Falló la descarga de los pesos", model_load:"Falló la carga de los pesos",
+  optimizer:"Falló un paso de entrenamiento", evaluation:"La evaluación se interrumpió",
+  timeout:"Se agotó el tiempo de la fase", process_exit:"El proceso terminó antes de completar la ronda",
 };
 
 export default function MaxPowerPanel(){
@@ -170,7 +182,9 @@ export default function MaxPowerPanel(){
   const practiceCompleted = practice ? practice.development.cases + practice.holdout.cases : null;
   const cpuStatus = data?.cpu_learning;
   const neural2b=data?.neural_2b;
-  const neuralRunning=Boolean(data?.enabled && neural2b?.live && ["loading","training","evaluating"].includes(neural2b.stage));
+  const dialogueEvaluation = neural2b?.conversation_validation;
+  const neuralRunning=Boolean(data?.enabled && neural2b?.live &&
+    ["downloading","loading","baseline","training","evaluating"].includes(neural2b.stage));
   const cpuRunning = Boolean(data?.enabled && ["training", "training_synthetic"].includes(cpuStatus?.status ?? ""));
   const cpuPreparing = Boolean(data?.enabled && cpuStatus?.status === "preparing_synthetic");
   const cpuLabFinished = cpuStatus?.status === "finished_synthetic";
@@ -231,8 +245,17 @@ export default function MaxPowerPanel(){
         <p>{neural2b ? `${neural2b.completed_steps} de ${neural2b.target_steps} pasos con pesos modificados` : "Esperando datos medidos del contenedor aislado"}</p>
         {neural2b && <>
           <progress aria-label="Pasos de entrenamiento QLoRA completados" value={neural2b.completed_steps} max={neural2b.target_steps}/>
-          <small>{neural2b.live ? "Informe reciente" : "Último informe guardado"}</small>
+          <small>{neural2b.live ? "Informe reciente" : "Último informe guardado"}
+            {neural2b.live && typeof neural2b.phase_seconds === "number" &&
+              ` · ${time(neural2b.phase_seconds)} en esta fase`}
+          </small>
+          {neural2b.failure && neuralFailures[neural2b.failure] && <small>{neuralFailures[neural2b.failure]}</small>}
           {neural2b.blockers.length > 0 && <small>Recursos insuficientes · {neural2b.blockers.map(key => neuralBlockers[key] ?? key).join(", ")}</small>}
+          {!!dialogueEvaluation?.cases && <small>
+            Diálogos reservados · Base {dialogueEvaluation.baseline_passes ?? "—"}/{dialogueEvaluation.cases}
+            {" · "}Adaptador {dialogueEvaluation.candidate_passes ?? "—"}/{dialogueEvaluation.cases}
+            {" · "}Regresiones {dialogueEvaluation.regressions ?? "—"}
+          </small>}
         </>}
       </div>
     </div>}

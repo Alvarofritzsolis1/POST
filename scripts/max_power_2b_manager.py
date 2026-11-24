@@ -9,14 +9,25 @@ import sys
 from pathlib import Path
 from time import sleep,time,monotonic
 from uuid import UUID
-from app.max_power_2b_control import ROOT,read,write,authorized,lock,release
+from app.max_power_2b_control import (MESSENGER_PAUSE_SECONDS, ROOT, authorized,
+                                     deferred_by_messenger, lock, read, release, write)
 from probe_galancito_2b_cpu import blockers,PROFILE
 from galant_cpu_lora_resources import snapshot
 
 HOME=Path("/private/2b-probe")
-RUN=PROFILE+"-conversation-v1"
+RUN=PROFILE+"-conversation-v2"
 STOP=False
 HEARTBEAT=Path("/tmp/max_power_2b_heartbeat")
+STAGES = {
+    "downloading_model": "downloading", "loading": "loading",
+    "baseline_evaluation": "baseline", "backward_pending": "training",
+    "running": "training", "reserved_evaluation": "evaluating",
+}
+PHASE_TIMEOUTS = {"downloading": 1800, "loading": 600, "baseline": 600}
+FAILURES = {
+    "downloading": "model_download", "loading": "model_load",
+    "baseline": "evaluation", "training": "optimizer", "evaluating": "evaluation",
+}
 
 def stop_signal(*_):
     global STOP
@@ -64,33 +75,44 @@ def run_child(key,folder,fd,approved=None):
         args.append("--resume")
     child=subprocess.Popen(args,start_new_session=True,pass_fds=(fd,))
     start=monotonic()
+    phase_started = start
+    phase = "loading"
     pause_since=None
     try:
         while child.poll() is None:
             HEARTBEAT.touch()
             current=read(folder/"latest.json")
-            stage="evaluating" if current.get("status")=="reserved_evaluation" else (
-                "training" if current.get("steps") else "loading")
-            if STOP or intent()!=key:
-                if pause_since is None:
-                    pause_since=monotonic()
-                status(key,"paused",folder)
-                # Give the engine time to finish and atomically save a step.
-                # A stale intent stops further steps at the next guard.
-                if STOP or monotonic()-pause_since>35:
-                    stop_child(child)
-                    return "paused"
+            now = monotonic()
+            stage = STAGES.get(current.get("status"), phase)
+            if stage != phase:
+                phase, phase_started = stage, now
+            signal_state = read(ROOT / "intent.json")
+            allowed = not STOP and authorized(signal_state, *key)
+            deferred = not STOP and deferred_by_messenger(signal_state, *key)
+            if allowed:
+                pause_since = None
+                status(key, phase, folder, phase_seconds=round(now - phase_started))
             else:
-                pause_since=None
-                status(key,stage,folder)
-            if monotonic()-start>7200:
+                if pause_since is None:
+                    pause_since = now
+                status(key, "waiting_messenger" if deferred else "paused", folder,
+                       phase_seconds=round(now - pause_since))
+                limit = MESSENGER_PAUSE_SECONDS if deferred else 35
+                if STOP or now - pause_since >= limit:
+                    stop_child(child)
+                    return "paused", None
+            if now - start > 7200 or (allowed and now - phase_started > PHASE_TIMEOUTS.get(phase, 7200)):
                 stop_child(child)
-                return "failed"
+                return "failed", "timeout"
             sleep(2)
         current=read(folder/"latest.json")
         if child.returncode==0 and current.get("status")=="completed":
-            return "completed"
-        return "paused" if pause_since is not None or intent()!=key or current.get("status")=="paused" else "failed"
+            return "completed", None
+        if current.get("status") in {"blocked", "memory_wait"}:
+            return "awaiting_resources", None
+        if pause_since is not None or intent()!=key or current.get("status")=="paused":
+            return "paused", None
+        return "failed", FAILURES.get(STAGES.get(current.get("failed_phase"), phase), "process_exit")
     finally:
         stop_child(child)
 
@@ -131,11 +153,12 @@ def main():
             sleep(15)
             continue
         if state.get("failures",0)>=3:
-            status(key,"retry_exhausted",folder)
+            status(key,"retry_exhausted",folder,failure=state.get("failure"))
             sleep(15)
             continue
         if time()<state.get("retry_at",0):
-            status(key,"failed",folder)
+            status(key,state.get("stage") or "failed",folder,
+                   failure=state.get("failure"),blockers=report.get("blockers",[]))
             sleep(5)
             continue
         reasons=blockers(snapshot(folder))
@@ -163,11 +186,14 @@ def main():
             failures=state.get("failures",0)+1
             write(state_path,{"failures":failures,"retry_at":time()+300})
             status(key,"loading",folder)
-            outcome=run_child(key,folder,fd,approved)
+            outcome,failure=run_child(key,folder,fd,approved)
             if outcome!="failed":
                 failures-=1
-            write(state_path,{"failures":failures,"retry_at":time()+30 if outcome=="paused" else (time()+300 if outcome=="failed" else 0)})
-            status(key,outcome,folder)
+            cooldown = {"paused": 30, "awaiting_resources": 60, "failed": 300}.get(outcome, 0)
+            write(state_path,{"failures":failures,"retry_at":time()+cooldown,
+                              "stage":outcome,"failure":failure})
+            blockers_after_run = read(folder / "latest.json").get("blockers", [])
+            status(key,outcome,folder,failure=failure,blockers=blockers_after_run)
         finally:
             release(fd)
         sleep(2)

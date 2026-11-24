@@ -49,8 +49,11 @@ jobs:
           dc ps max-power-controller cpu-lora-manager galancito-training-ollama
           if dc --profile max-power-auto config --services | grep -Fxq cpu-2b-manager; then
             dc ps cpu-2b-manager
-            echo "== PREFLIGHT QWEN 2B CUANTIZADO =="
+            echo "== RECURSOS ACTUALES QWEN 2B CUANTIZADO =="
             dc exec -T cpu-2b-manager python -c 'import json,sys; sys.path.insert(0,"/src/scripts"); from galant_cpu_lora_resources import snapshot; from probe_galancito_2b_cpu import blockers; capacity=snapshot("/private"); print(json.dumps({"capacity":capacity,"blockers":blockers(capacity)}))'
+            echo "== FASE Y PASOS DE QWEN 2B (SIN CONVERSACIONES) =="
+            dc exec -T db psql -U galant -d galant -A -t -c "SELECT evidence->>'stage', evidence->>'completed_steps', evidence->>'phase_seconds', evidence->>'failure', created_at FROM ai_max_power_events WHERE event='2b_neural_status' ORDER BY created_at DESC LIMIT 2;"
+            dc exec -T cpu-2b-manager cat /sys/fs/cgroup/memory.events /sys/fs/cgroup/pids.events
           fi
           echo "== ESTADOS MAX POWER (SIN ID ORG NI CONVERSACIONES) =="
           dc exec -T db psql -U galant -d galant -A -t -c "SELECT enabled, last_status, experiments, examined_cases, worker_seen_at, next_at FROM ai_max_power_states ORDER BY updated_at DESC LIMIT 2;"
