@@ -17,7 +17,9 @@ from .config import settings
 from .db import SessionLocal
 from .facebook_availability_reply import availability_reply
 from .facebook_worksite_reply import application_reply, worksite_reply
-from .facebook_ai import LOCAL_REPLY_INSTRUCTIONS, REPLY_INSTRUCTIONS, generate_text, messenger_ai_source
+from .facebook_ai import (LOCAL_REPLY_INSTRUCTIONS, REPLY_INSTRUCTIONS, generate_text,
+                          messenger_ai_source, local_first_messenger, messenger_external_fallback_enabled)
+from .galancito_hybrid import select_response
 from .ai_gateway import orchestrated_text
 from .galancito_flow import safe_ai_reply, consented_for, grounded_reply, is_permission_prompt
 from .facebook_crm_models import FacebookLead, FacebookChatMessage, FacebookTradeGuide, FacebookLeadTrade
@@ -25,7 +27,7 @@ from .models import utcnow
 from .network_service import key
 from .galancito_triage import analyze, quick_reply, private_data
 from .galancito_intake import acceptable_intake_draft, clarification_reply, identity_reply, model_intake_candidate, next_intake_reply, small_talk_reply, natural_messenger_reply, needs_deeper_response
-from .galancito_memory import aware, note_profile_sources, prior_delivered_prompt, profile_facts, reply_focus
+from .galancito_memory import aware, note_profile_sources, prior_delivered_prompt, profile_facts, reply_focus, professional_message
 from .galancito_knowledge import retrieve, exact_answer, evidence_context, conversation_example
 from .galancito_runtime import infer, record_run
 from .galancito_local import generate_local_text, last_timings, MAX_CONTEXT_CHARS
@@ -303,7 +305,7 @@ def process_chat_next(session_factory=SessionLocal, *, simulation_config=None, n
                 facts["trades"] = list(db.scalars(select(FacebookLeadTrade.trade).where(
                     FacebookLeadTrade.lead_id == lead.id, FacebookLeadTrade.active.is_(True))))
                 context_turns = [
-                    ("Persona: " if item.direction == "inbound" else "Red de Obras: ") + item.body[:220]
+                    ("Persona: " if item.direction == "inbound" else "Red de Obras: ") + professional_message(item.body)[:220]
                     for item in reversed(turns[:8])
                     if not private_data(item.body) and item.consent_decision is None
                     and "autorizas" not in item.body.casefold()
@@ -313,7 +315,7 @@ def process_chat_next(session_factory=SessionLocal, *, simulation_config=None, n
                 trace["context_turns"] = len(context_turns)
                 trace["known_fields"] = sum(bool(value) for key, value in professional_facts.items()
                                             if key != "field_states")
-                context = ("Consulta actual: " + latest[:800] +
+                context = ("Consulta actual: " + professional_message(latest)[:800] +
                            "\nÚltimos turnos de esta conversación:\n" +
                            "\n".join(context_turns)[-1100:] +
                            "\nDatos profesionales declarados: " +
@@ -388,7 +390,29 @@ def process_chat_next(session_factory=SessionLocal, *, simulation_config=None, n
                         if simulated:
                             # The simulator is never permitted to call an external provider.
                             drafted = (infer(db, lambda: generate_local_text(LOCAL_REPLY_INSTRUCTIONS, prepared_context, 550))
-                                       if ai_source == "ollama" else None)
+                                       if ai_source == "ollama" or local_first_messenger(cfg) else None)
+                        elif ai_source == "team" and local_first_messenger(cfg):
+                            # External consent has already been checked.
+                            def external_backup():
+                                if not messenger_external_fallback_enabled(db, org_id, cfg):
+                                    return None
+                                return infer(db, lambda: orchestrated_text(
+                                    db, org_id, task="messenger",
+                                    instructions=(REPLY_INSTRUCTIONS + "\nUsa las referencias como evidencia; "
+                                                  "no inventes hechos de obras ni datos faltantes." +
+                                                  ("\nGuía aprobada:\n" + verified_policy if verified_policy else "")),
+                                    prompt=prepared_context, max_output_tokens=230), org_id=org_id)
+
+                            drafted, route = select_response(
+                                lambda: infer(db, lambda: generate_text(
+                                    REPLY_INSTRUCTIONS, prepared_context, 550, approved_policy=verified_policy)),
+                                external_backup, prepared_context,
+                                allow_external=consented_for(current, "team"),
+                                local_fallback=fast if rewrite_intake else None,
+                                validator=(lambda value: acceptable_intake_draft(value, facts, intake or ""))
+                                if rewrite_intake else None,
+                            )
+                            trace["ai_route"] = route
                         else:
                             drafted = infer(db, lambda: (
                                 orchestrated_text(db, org_id, task="messenger",
@@ -406,7 +430,7 @@ def process_chat_next(session_factory=SessionLocal, *, simulation_config=None, n
                     if drafted and rewrite_intake and not acceptable_intake_draft(drafted, facts, intake or ""):
                         drafted = None
                     if drafted:
-                        generated, source = drafted, "ai"
+                        generated, source = drafted, ("fallback" if trace.get("ai_route") == "guided_fallback" else "ai")
                     else:
                         source = "fallback"
                 except (RuntimeError, ValueError):
