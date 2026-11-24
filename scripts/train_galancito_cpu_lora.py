@@ -12,6 +12,7 @@ from hashlib import sha256
 import json
 import os
 from pathlib import Path
+from time import monotonic
 import sys
 from uuid import uuid4
 
@@ -220,6 +221,8 @@ def main(argv=None):
                               host_free_mb=observed["host_free_mb"],
                               cgroup_free_mb=observed["cgroup_free_mb"],
                               cgroup_limit_mb=observed["cgroup_limit_mb"],
+                              cgroup_available_mb=observed.get("cgroup_available_mb"),
+                              cgroup_reclaimable_mb=observed.get("cgroup_reclaimable_mb"),
                               disk_free_mb=observed["disk_free_mb"])
             finally:
                 reporter.close()
@@ -340,7 +343,28 @@ def main(argv=None):
         session_control_file = args.control_file
         session_org = args.telemetry_org
         session_generation = args.expected_generation
+        class BaselinePaused(Exception):
+            pass
+
+        baseline_state = {"active": False, "seen": 0, "last": 0.0}
+        def baseline_progress():
+            reporter.emit("baseline_progress", step=0, total_steps=args.max_steps,
+                          evaluation_done=baseline_state["seen"], evaluation_total=len(holdout),
+                          cpu_memory_mb=process_memory_mb())
+            baseline_state["last"] = monotonic()
+
         class Monitor(TrainerCallback):
+            def on_prediction_step(self, args, state_, control, **kwargs):
+                if not baseline_state["active"]:
+                    return
+                baseline_state["seen"] += 1
+                if (not automation_allowed(session_control_file, org=session_org,
+                                           generation=session_generation)
+                        or should_pause(snapshot(target))):
+                    raise BaselinePaused()
+                if (monotonic() - baseline_state["last"] >= 15
+                        or baseline_state["seen"] == len(holdout)):
+                    baseline_progress()
             def on_train_begin(self, args, state_, control, **kwargs):
                 # Trainer loads the checkpoint *before* on_train_begin.
                 # Hash restored adapters here, never the fresh random LoRA.
@@ -386,7 +410,19 @@ def main(argv=None):
         # Test split is excluded from optimizer and checkpoint selection.
         baseline = metadata.get("heldout_loss_before")
         if baseline is None:
-            baseline = trainer.evaluate(eval_dataset=holdout,metric_key_prefix="holdout_before").get("holdout_before_loss")
+            baseline_state["active"] = True
+            try:
+                if not automation_allowed(session_control_file, org=session_org,
+                                          generation=session_generation):
+                    raise BaselinePaused()
+                baseline_progress()
+                baseline = trainer.evaluate(eval_dataset=holdout,metric_key_prefix="holdout_before").get("holdout_before_loss")
+            except BaselinePaused:
+                reporter.emit("paused", step=0, total_steps=args.max_steps,
+                              cpu_memory_mb=process_memory_mb(), weights_trained=False)
+                return 3
+            finally:
+                baseline_state["active"] = False
             metadata["heldout_loss_before"]=baseline
             metadata["trainable_lora_parameters"]=trainable_count
             metadata_path.write_text(json.dumps(metadata,sort_keys=True),encoding="utf-8")
