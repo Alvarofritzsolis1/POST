@@ -217,3 +217,16 @@ def test_qwen_exportable_diagnosis_includes_context_and_fixed_error(ai_env,monke
     monkeypatch.setattr("app.messenger_qwen_lab.generate_local_text",broken)
     failed=client.post(BASE+"/turn",headers=admin,json={"mode":"qwen","message":"hola"})
     assert failed.status_code==503 and failed.json()["detail"].startswith("invalid_or_truncated_json:")
+
+
+def test_direct_model_schema_extracts_evidence_before_answer():
+    from app.messenger_qwen_lab import SCHEMA,INSTRUCTIONS,context_for
+    assert list(SCHEMA["properties"]) == ["updates","reply"]
+    assert SCHEMA["properties"]["reply"]["maxLength"] == 220
+    assert "interest_type=service_offer" in INSTRUCTIONS
+    assert "workers=4" in INSTRUCTIONS
+    context=context_for("No entendí",{"team_available":True,"workers":4},[
+        {"role":"inbound","text":"Somos cuatro en total"},
+        {"role":"outbound","text":"¿En qué comuna puedes trabajar?"}])
+    assert '"ultima_respuesta":"¿En qué comuna puedes trabajar?"' in context
+    assert '"workers":4' in context

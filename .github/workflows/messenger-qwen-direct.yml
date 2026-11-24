@@ -56,11 +56,20 @@ jobs:
                   profile=result["profile"]
                   history.extend([{"role":"inbound","text":message},{"role":"outbound","text":result["reply"]}])
                   evidence.append({"message":message,**result,"elapsed_ms":round((perf_counter()-start)*1000)})
-              assert all(x["model_evidence"]["model"].casefold()==MODEL.casefold() and x["model_evidence"]["calls"]==1 for x in evidence)
-              assert profile.get("interest_type") in ("service_offer","both")
-              assert profile.get("specialty")=="Gasfitería"
-              assert profile.get("team_available") is True
-              assert profile.get("workers")==4
+              assert all(x["model_evidence"]["model"].casefold()==MODEL.casefold() and x["model_evidence"]["calls"]==1 for x in evidence), "Modelo/calls no verificados"
+              expected={"interest_type":"service_offer","specialty":"Gasfitería","team_available":True,"workers":4}
+              missing={k:{"expected":v,"actual":profile.get(k)} for k,v in expected.items() if profile.get(k)!=v}
+              # Log only synthetic test evidence. Never replace failures with
+              # hard-coded extraction or report model quality from mock replies.
+              summary=[{"turn":i+1,"message":x["message"],"reply":x["reply"],
+                        "new_fields":x["changed_fields"],"latency_ms":x["elapsed_ms"]}
+                       for i,x in enumerate(evidence)]
+              if missing:
+                  print(json.dumps({"missing_facts":missing,"conversation":summary},ensure_ascii=False,indent=2))
+              assert not missing, "Falló extracción semántica real; revisar evidencia adjunta"
+              assert not any("contratos" in x["reply"].lower() or "empleador" in x["reply"].lower()
+                             for x in evidence[1:]), "Desvío a requisitos laborales no solicitados"
+              assert "contrato" not in evidence[-1]["reply"].lower(), "No aclaró la confusión"
           finally:
               with open("evidence/qwen-real.json","w") as stream:
                   json.dump(evidence,stream,ensure_ascii=False,indent=2)
