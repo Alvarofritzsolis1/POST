@@ -52,7 +52,7 @@ def practice_threads(snapshot: dict, *, isolated: bool = False) -> int:
     """
     if isolated:
         try:
-            requested = int(os.environ.get("GALANT_TRAINING_OLLAMA_THREADS", "2"))
+            requested = int(os.environ.get("GALANT_TRAINING_OLLAMA_THREADS", "4"))
         except (TypeError, ValueError):
             requested = 2
         return min(4, max(1, requested))
@@ -284,7 +284,7 @@ def _charge(factory, claim, spec, instructions, prompt, seed, *, role, sampler, 
             def invoke_local():
                 return (generate_training_text(instructions, prompt, seed, cfg, thinking=True)
                         if thinking else generate_training_text(instructions, prompt, seed, cfg))
-            if spec["model"] == "qwen3.5:4b-q4_K_M":
+            if spec["model"] == "qwen3.5:4b-q4_K_M" and row.config.get("orchestrator") != "max_power":
                 # Same PostgreSQL gate as the authenticated GALANT chat and
                 # Messenger. Training cannot monopolize the shared 4B model.
                 try:
