@@ -25,9 +25,9 @@ from .galancito_flow import safe_ai_reply, consented_for, grounded_reply, is_per
 from .facebook_crm_models import FacebookLead, FacebookChatMessage, FacebookTradeGuide, FacebookLeadTrade
 from .models import utcnow
 from .network_service import key
-from .galancito_triage import analyze, quick_reply, private_data, application_ai_candidate, application_role, application_role_question
+from .galancito_triage import plain, analyze, quick_reply, private_data, application_ai_candidate, application_role, application_role_question
 from .galancito_phone import confirmed_phone_reply
-from .galancito_semantic import PROTOCOL, decode_local_reply, remember_confirmation
+from .galancito_semantic import PROTOCOL, decode_local_reply, remember_confirmation, has_semantic_opportunity, CORRECTION
 from .galancito_intake import semantic_reasoning_needed, contact_followup_reply, contact_pending_questions, model_contact_question, compose_contact_followup, CONTACT_RECEIVED_CONTEXT, acceptable_intake_draft, intake_question_fields, clarification_reply, identity_reply, model_intake_candidate, next_intake_reply, small_talk_reply, natural_messenger_reply, needs_deeper_response
 from .galancito_memory import aware, note_profile_sources, prior_delivered_prompt, profile_facts, reply_focus, messenger_context
 from .galancito_knowledge import retrieve, exact_answer
@@ -279,7 +279,7 @@ def process_chat_next(session_factory=SessionLocal, *, simulation_config=None, n
             turns = list(db.scalars(select(FacebookChatMessage).where(
                 FacebookChatMessage.lead_id == lead.id,
                 FacebookChatMessage.state.in_(["received", "sent"]),
-            ).order_by(FacebookChatMessage.updated_at.desc(), FacebookChatMessage.id.desc()).limit(12)))
+            ).order_by(FacebookChatMessage.updated_at.desc(), FacebookChatMessage.id.desc()).limit(60)))
             focus = reply_focus(turns)
             latest = focus.body if focus else ""
             facts = profile_facts(lead, changed=bool(focus and lead.profile_sources and
@@ -302,6 +302,8 @@ def process_chat_next(session_factory=SessionLocal, *, simulation_config=None, n
                               model_intake_candidate(latest, facts, prior_question, intake))
             if (not intake or rewrite_intake) and not private_data(latest) and intent not in {"human", "restricted"}:
                 evidence = retrieve(db, lead.org_id, latest, "messenger")
+                if not evidence and len(plain(latest).split()) <= 3 and prior_question and not private_data(prior_question):
+                    evidence = retrieve(db, lead.org_id, latest + " " + prior_question, "messenger")
                 if not rewrite_intake and (learned := exact_answer(evidence)):
                     fast, fast_source = learned, "knowledge"
             model_needed = (bool(latest) and not (location or follow_up) and (not apply or application_model) and not private_data(latest) and not identity_reply(latest)
@@ -318,7 +320,7 @@ def process_chat_next(session_factory=SessionLocal, *, simulation_config=None, n
                 (application_role_question(prior_question) and application_role(latest, prior_question) is None)
                 or semantic_reasoning_needed(latest, prior_question, facts)))
             semantic_protocol = bool(semantic_reasoning and ai_source == "ollama" and
-                (facts.get("interest_type") == "unknown" or facts.get("team_available") is None))
+                (has_semantic_opportunity(facts) or CORRECTION.search(plain(latest))))
             trace["semantic_reasoning_requested"] = semantic_reasoning
             model_options = {"thinking": True} if semantic_reasoning else {}
             trace["contact_followup"] = contact_turn
@@ -443,9 +445,15 @@ def process_chat_next(session_factory=SessionLocal, *, simulation_config=None, n
                         timings = last_timings.get()
                     if semantic_protocol and drafted:
                         drafted, semantic_proposal = decode_local_reply(drafted, latest, facts)
+                    grounding = context + ("\nPropuesta para confirmar: " + semantic_proposal["question"] if semantic_proposal else "")
                     if drafted:
-                        drafted = grounded_reply(drafted, context)
-                    if drafted and rewrite_intake and not acceptable_intake_draft(drafted, facts, intake or "", message=latest):
+                        drafted = grounded_reply(drafted, grounding)
+                    validation_facts = facts
+                    if semantic_proposal and semantic_proposal.get("correction"):
+                        validation_facts = {**facts, semantic_proposal["field"]: None}
+                        if semantic_proposal["field"] == "work_communes":
+                            validation_facts["work_area"] = ""
+                    if drafted and rewrite_intake and not acceptable_intake_draft(drafted, validation_facts, intake or "", message=latest):
                         drafted = None
                     if contact_turn and drafted:
                         question = model_contact_question(drafted, facts, prior_question)

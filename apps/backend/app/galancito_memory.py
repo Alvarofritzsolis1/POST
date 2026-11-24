@@ -39,6 +39,8 @@ def profile_facts(lead, *, changed=False) -> dict:
     return {**{field: getattr(lead, field) for field in FIELDS},
             "field_states": {field: evidence.get("state") for field, evidence in (lead.profile_sources or {}).items()
                              if field in FIELDS and evidence.get("state")},
+            "manual_fields": [field for field, origin in (lead.profile_sources or {}).items()
+                              if field in FIELDS and origin.get("source") == "manual"],
             "turn_changed": changed,
             # Only contact availability flags, never the phone or email itself.
             "contact_available": bool(getattr(lead, "contact_phone", "") or getattr(lead, "contact_email", "")),
@@ -87,7 +89,7 @@ def messenger_context(message, facts, prior, turns, evidence, guide=None, *, lim
     Input turns are newest first. No raw phone, email, or name field is exported.
     """
     public = {k: v for k, v in facts.items()
-              if k not in {"display_name", "name_opt_out", "turn_changed", "contact_phone", "contact_email"}
+              if k not in {"display_name", "name_opt_out", "turn_changed", "contact_phone", "contact_email", "manual_fields"}
               and v is not None and v != "" and v != []}
     parts = [
         "Consulta actual: " + professional_message(message)[:600],
@@ -101,6 +103,16 @@ def messenger_context(message, facts, prior, turns, evidence, guide=None, *, lim
             return True
         return False
 
+    # Retrieve bounded older evidence from actual messages rather than inventing a summary.
+    if evidence:
+        add("Referencia prioritaria: " + professional_message(evidence_context(evidence[:1])))
+    tokens = {token for token in plain(message + " " + (prior or "")).split() if len(token) > 3}
+    older = [item for item in turns[8:60] if item.direction == "inbound"
+             and getattr(item, "consent_decision", None) is None and not private_data(item.body)]
+    ranked = sorted(older, key=lambda item: len(tokens.intersection(plain(item.body).split())), reverse=True)
+    for item in ranked[:2]:
+        if tokens.intersection(plain(item.body).split()) and len("\n".join(parts)) + 650 < limit:
+            add("Mensaje anterior relevante (puede haber sido corregido): " + professional_message(item.body)[:140])
     # Keep the actual dialogue ahead of optional examples and reference guides.
     history = []
     for item in turns[:8]:
@@ -120,7 +132,7 @@ def messenger_context(message, facts, prior, turns, evidence, guide=None, *, lim
             + "\nOrientación documental: " + professional_message("; ".join(guide.document_guidance or []))[:350])
     else:
         add("No hay guía documental validada. Deriva esas dudas al equipo.")
-    for item in evidence:
+    for item in evidence[1:]:
         if not add("Referencia aprobada: " + professional_message(evidence_context([item]))):
             break
     if example := conversation_example(message, prior or ""):
@@ -168,10 +180,17 @@ def apply_messenger_message(db, lead, message, prior, *, remote_id, at, historic
     if not historical and not replay:
         confirmed = consume_confirmation(lead, message, prior)
         if confirmed:
+            before = {field: getattr(lead, field, None) for field in confirmed}
             for field, value in confirmed.items():
                 setattr(lead, field, value)
                 audit_event(db, lead, "field_" + field, source="message", remote_id=remote_id)
-            note_profile_sources(lead, confirmed, source="message", at=at, remote_id=remote_id)
+            if "specialty" in confirmed:
+                lead.specialty_source = "message"
+                record_declared_trades(db, lead, message, remote_id=remote_id,
+                    declarations={confirmed["specialty"]: True}, at=at)
+            states = {field: "corregido" if _known(field, before[field]) else "confirmado_por_declaracion"
+                      for field in confirmed}
+            note_profile_sources(lead, confirmed, source="message", at=at, remote_id=remote_id, states=states)
             return True
     # Treat an answer to a specific, just-asked question as the person's own
     # declaration, while never turning the advertised trade into experience.
