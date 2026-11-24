@@ -6,7 +6,8 @@ import json
 import math
 import os
 import re
-from galancito_4b_validation import evaluate_conversations, paired_report
+from galancito_4b_validation import evaluate_conversations, paired_report, check_answer, SYSTEM
+from galancito_4b_dataset import approved_bundle, select_distinct, verified_match
 from uuid import uuid4
 from pathlib import Path
 from time import monotonic, time
@@ -38,6 +39,9 @@ def main():
     parser.add_argument("--threads", type=int, choices=(2, 4), default=4)
     parser.add_argument("--conversation-eval", action="store_true")
     parser.add_argument("--resume", action="store_true", help="Resume only a verified local optimizer checkpoint")
+    parser.add_argument("--dataset", type=Path)
+    parser.add_argument("--approval-manifest", type=Path)
+    parser.add_argument("--expected-dataset-sha256")
     parser.add_argument("--output", type=Path, default=Path("/private/4b-probe"))
     args = parser.parse_args()
     root = args.output
@@ -56,6 +60,16 @@ def main():
         print(json.dumps(report))
         return 2 if reasons else 0
     try:
+        real_bundle = None
+        if any((args.dataset,args.approval_manifest,args.expected_dataset_sha256)):
+            if not all((args.dataset,args.approval_manifest,args.expected_dataset_sha256)) or not args.conversation_eval:
+                raise ValueError("Signed data requires exact digest, manifest and conversation evaluation")
+            real_bundle = approved_bundle(args.dataset,args.approval_manifest,
+                os.environ.get("GALANT_DATASET_APPROVAL_PUBLIC_KEY",""))
+            if real_bundle["dataset_digest"] != args.expected_dataset_sha256:
+                raise ValueError("Approved dataset changed before execution")
+        report["data_kind"] = "human_reviewed_real" if real_bundle else "curated_synthetic"
+        write_report(report_path,report)
         import torch
         import bitsandbytes as bnb
         from transformers import AutoConfig, AutoTokenizer, Qwen3_5ForCausalLM, BitsAndBytesConfig
@@ -69,6 +83,11 @@ def main():
         report["status"] = "loading"
         write_report(report_path, report)
         options = {"trust_remote_code":False, "local_files_only":not args.allow_download}
+        if args.resume and (root / "resume.json").is_file():
+            prior_revision = json.loads((root / "resume.json").read_text()).get("base_revision")
+            if not isinstance(prior_revision,str) or not re.fullmatch(r"[0-9a-f]{40}",prior_revision):
+                raise RuntimeError("Invalid saved base revision")
+            options["revision"] = prior_revision
         config = AutoConfig.from_pretrained(MODEL, **options)
         revision = getattr(config, "_commit_hash", None)
         if not isinstance(revision,str) or not re.fullmatch(r"[0-9a-f]{40}", revision):
@@ -129,7 +148,7 @@ def main():
             ("Me dijieron que pagan el viernes es cierto", "No puedo confirmar esa fecha sin información del equipo."),
         ]
         def encode(message, answer):
-            prefix = tokenizer.apply_chat_template([{"role":"user","content":message}],
+            prefix = tokenizer.apply_chat_template([{"role":"system","content":SYSTEM},{"role":"user","content":message}],
                 tokenize=False, add_generation_prompt=True, enable_thinking=False)
             prompt_ids = tokenizer(prefix, add_special_tokens=False)["input_ids"]
             answer_ids = tokenizer(answer, add_special_tokens=False)["input_ids"] + [tokenizer.eos_token_id]
@@ -153,7 +172,22 @@ def main():
                     losses.append(float(loss))
             return sum(losses)/len(losses)
 
-        dataset_hash = hashlib.sha256(json.dumps([examples,holdout],ensure_ascii=False).encode()).hexdigest()
+        real_test = []
+        if real_bundle:
+            def short_cases(rows):
+                for item in rows:
+                    try:
+                        encode(item["messages"][0]["content"],item["messages"][1]["content"])
+                    except RuntimeError:
+                        continue
+                    yield item
+            selected = select_distinct(short_cases(real_bundle["samples"]["train"]),args.steps)
+            real_test = select_distinct(short_cases(real_bundle["samples"]["test"]),10)
+            examples = [(x["messages"][0]["content"],x["messages"][1]["content"]) for x in selected]
+            holdout = [(x["messages"][0]["content"],x["messages"][1]["content"]) for x in real_test]
+        selection_hash = hashlib.sha256(json.dumps([SYSTEM,examples,holdout,real_test,
+            args.steps, "rank4-lr7e-5-v2"],ensure_ascii=False,sort_keys=True).encode()).hexdigest()
+        dataset_hash = real_bundle["dataset_digest"] if real_bundle else selection_hash
         report["dataset_sha256"] = dataset_hash
         resume_path = root / "resume.json"
         def file_hash(path):
@@ -167,6 +201,7 @@ def main():
                     or type(step) is not int or not 1 <= step <= args.steps
                     or saved.get("base_revision") != revision
                     or saved.get("dataset_sha256") != dataset_hash
+                    or saved.get("selection_sha256") != selection_hash
                     or saved.get("target_steps") != args.steps):
                 raise RuntimeError("Incompatible resume checkpoint")
             run_dir = root / name
@@ -242,7 +277,7 @@ def main():
                 checkpoint.rename(run_dir / ("orphan-" + uuid4().hex))
             staging.rename(checkpoint)
             write_report(resume_path,{"candidate_id":run_dir.name,"step":step,
-                "base_revision":revision,"dataset_sha256":dataset_hash,"target_steps":args.steps,
+                "base_revision":revision,"dataset_sha256":dataset_hash,"selection_sha256":selection_hash,"target_steps":args.steps,
                 "initial_adapter_sha256":before,"adapter_sha256":current,"files":files,
                 "steps":report["steps"],"holdout_loss_before":report["holdout_loss_before"]})
             report["saved_adapter_step"] = step
@@ -271,22 +306,44 @@ def main():
                 return tokenizer.decode(out[0, ids.shape[1]:], skip_special_tokens=True), monotonic()-t
             # Actual adapter on/off on exactly the same loaded base. Do not
             # compare a trained HF model against an unrelated Ollama baseline.
+            def evaluate_real():
+                checks = []
+                for item in real_test:
+                    answer, _ = generate([{"role":"system","content":SYSTEM},item["messages"][0]])
+                    _, safe = check_answer(answer,())
+                    checks.append({"passed":safe and verified_match(answer,item["reference_answer"],item["verifier"]),"safe":safe})
+                return checks
             with model.disable_adapter():
                 base = evaluate_conversations(generate, before_turn=guard)
+                real_before = evaluate_real()
                 reference, _ = generate([{"role":"user","content":"¿Qué significa cuadrilla?"}])
             candidate = evaluate_conversations(generate, before_turn=guard)
+            real_after = evaluate_real()
             with model.disable_adapter():
                 restored, _ = generate([{"role":"user","content":"¿Qué significa cuadrilla?"}])
             validation = paired_report(base, candidate)
             validation["rollback_output_equal"] = reference == restored
             validation["lab_pass"] = validation["lab_pass"] and validation["rollback_output_equal"]
             report["conversation_validation"] = validation
-            report["candidate_status"] = "lab_candidate" if validation["lab_pass"] else "rejected"
+            accepted = validation["lab_pass"]
+            if real_test:
+                gains = sum(not a["passed"] and b["passed"] for a,b in zip(real_before,real_after))
+                regressions = sum(a["passed"] and not b["passed"] for a,b in zip(real_before,real_after))
+                safety = sum(not row["safe"] for row in real_after)
+                report["real_reserved_validation"] = {"cases":len(real_test),
+                    "baseline_passes":sum(row["passed"] for row in real_before),
+                    "candidate_passes":sum(row["passed"] for row in real_after),
+                    "gains":gains,"regressions":regressions,"safety_failures":safety,
+                    "production_verified":False}
+                accepted = bool(gains and not regressions and not safety
+                    and not validation["regressions"] and not validation["safety_failures"]
+                    and validation["rollback_output_equal"])
+            report["candidate_status"] = "lab_candidate" if accepted else "rejected"
         report["status"] = "completed" if report["adapter_changed"] else "failed"
     except Exception as exc:
         report["status"] = "failed"
         report["error_type"] = type(exc).__name__
-        report["error"] = str(exc)[:300]
+        report["error"] = "Private approved-data execution failed" if report.get("data_kind") == "human_reviewed_real" else str(exc)[:300]
     write_report(report_path, report)
     print(json.dumps(report))
     return 0 if report["status"] == "completed" else 1
