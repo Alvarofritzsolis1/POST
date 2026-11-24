@@ -88,7 +88,7 @@ def priority_from_reviews(reviews):
 QWEN_MIN_RAM_MB = 8192
 
 
-def can_run(snapshot: dict, *, messenger_pending=False):
+def can_run(snapshot: dict, *, messenger_pending=False, intensive=False):
     if messenger_pending:
         return False, "Messenger tiene prioridad sobre MAX POWER"
     available = snapshot.get("available_ram_mb")
@@ -96,7 +96,7 @@ def can_run(snapshot: dict, *, messenger_pending=False):
     disk = snapshot.get("disk_free_mb")
     if available is None or available < 3072:
         return False, "RAM insuficiente o no medible para inferencia segura"
-    if cpu is None or cpu >= 70:
+    if cpu is None or cpu >= (90 if intensive else 70):
         return False, "CPU ocupada o sin medición confiable"
     if snapshot.get("cpu_pressure_avg10", 0) > 25:
         return False, "Procesos esperando CPU; inferencia de prueba suspendida"
