@@ -158,7 +158,7 @@ def _generate(instructions, data, max_chars, cfg, *, url=None, seed=None, allow_
         ],
         "stream": False,
         "think": bool(thinking),  # Ollama entrega razonamiento separado; jamás mostrarlo
-        "keep_alive": "1m" if allow_training and MAX_POWER_ISOLATED else cfg.galancito_keep_alive,
+        "keep_alive": "2m" if allow_training and MAX_POWER_ISOLATED else cfg.galancito_keep_alive,
         "options": {
             "num_ctx": cfg.galancito_num_ctx,
             # Interactive thinking retains its production safety allowance.
@@ -207,6 +207,7 @@ def _generate(instructions, data, max_chars, cfg, *, url=None, seed=None, allow_
                       "generation_ms": ms("eval_duration"), "ollama_total_ms": ms("total_duration"),
                       "transport_ms": max(0, elapsed - ms("total_duration")), "queue_ms": 0,
                       "eval_count": result.get("eval_count", 0),
+                      "prompt_eval_count": result.get("prompt_eval_count", 0),
                       "reasoning_enabled": bool(thinking),
                       "response_model": reported_model if isinstance(reported_model, str) else None})
     record_model_tokens(result.get("prompt_eval_count"), result.get("eval_count"))
