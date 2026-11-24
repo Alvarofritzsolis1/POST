@@ -15,7 +15,7 @@ from .facebook_worksite_reply import application_reply
 from .galancito_knowledge import conversation_example
 from .facebook_crm_models import FacebookLead, FacebookLeadTrace, FacebookLeadTrade
 from .galancito_flow import grounded_reply, numbered_menu
-from .galancito_intake import (UNKNOWN_NAMES, acceptable_intake_draft, identity_reply, natural_messenger_reply,
+from .galancito_intake import (UNKNOWN_NAMES, acceptable_intake_draft, conversation_context, intake_question_fields, identity_reply, natural_messenger_reply,
                                model_intake_candidate, needs_deeper_response, next_intake_reply, small_talk_reply)
 from .galancito_links import suggest_requirements
 from .galancito_memory import apply_messenger_message, capture_voluntary_contact, professional_message, profile_facts
@@ -37,7 +37,7 @@ CORRECTOR_PROMPT = """Propón una corrección concreta para el asistente de Red 
 En dos frases breves, indica qué cambiar y cómo probarlo. Omite el resumen del caso.
 Usa hasta 250 caracteres en español y evita nombres, teléfonos y datos de contacto.
 El texto queda sujeto a revisión humana y jamás se aplica automáticamente."""
-EVALUATION_VERSION = 5
+EVALUATION_VERSION = 6
 WEIGHTS = {"understanding": 20, "context": 20, "profile": 20, "naturalness": 15,
            "trades": 10, "repetition": 10, "efficiency": 5}
 PROFILE_DEFAULTS = {
@@ -180,22 +180,23 @@ def evaluate(case, aliases, knowledge, answer=None, judge=None, corrector=None, 
             source = "rules"
             eligible_for_rewrite = not private_data(message) and not identity and not asks_match and not application
             numbered_draft = bool(reviewed and eligible_for_rewrite and numbered_menu(reviewed))
-            if reviewed and eligible_for_rewrite and not numbered_draft:
+            if reviewed and eligible_for_rewrite and not numbered_draft and not answer:
                 fast, source = reviewed, "approved_correction"
             draft = ""
             unsupported_draft = False
-            if answer and eligible_for_rewrite and not reviewed and (not fast or needs_deeper_response(clean) or model_intake_candidate(clean, facts, previous, prior)):
+            if answer and eligible_for_rewrite and (not fast or needs_deeper_response(clean) or model_intake_candidate(clean, facts, previous, prior)):
                 public_facts = {k: v for k, v in last_profile.items() if k != "phone"}
                 context = json.dumps({"mensaje": clean, "ultimos_turnos": history[-4:],
                                       "ficha_declarada": public_facts,
-                                      "orientacion_siguiente_pregunta": prior or "",
+                                      "criterios_sin_orden": conversation_context(facts),
+                                      "referencia_aprobada": reviewed or "",
                                       "ejemplo_didactico": conversation_example(clean, previous)}, ensure_ascii=False)
                 draft = answer(context)
                 numbered_draft = numbered_menu(draft)
                 grounded = grounded_reply(draft, context)
                 unsupported_draft = grounded is None
                 natural = natural_messenger_reply(grounded) if grounded and not numbered_draft else ""
-                if natural and model_intake_candidate(clean, facts, previous, prior) and not acceptable_intake_draft(natural, facts, prior or ""):
+                if natural and model_intake_candidate(clean, facts, previous, prior) and not acceptable_intake_draft(natural, facts, prior or "", message=clean):
                     errors["respuesta"] += 1
                     natural = ""
                 if natural and not private_data(natural):
@@ -274,7 +275,7 @@ def evaluate(case, aliases, knowledge, answer=None, judge=None, corrector=None, 
                           "issues": issues, "critical": severe,
                           "expected": {k: ("reservado" if k == "phone" and v else v) for k, v in expected.items()},
                           "differences": {k: ("reservado" if k == "phone" and actual[k] else actual[k]) for k in mismatched}})
-            if "¿me dejas tu celular?" in reply and not lead.phone_requested_at:
+            if intake_question_fields(reply) & {"contact_phone", "contact_email"} and not lead.phone_requested_at:
                 lead.phone_requested_at = timestamp
             previous = reply
         evidence = {key: {"status": ("declared" if value != PROFILE_DEFAULTS.get(key) else "missing")}
