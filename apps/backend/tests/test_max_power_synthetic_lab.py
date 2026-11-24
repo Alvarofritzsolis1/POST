@@ -10,7 +10,7 @@ import pytest
 
 SCRIPTS = Path(__file__).resolve().parents[3] / "scripts"
 sys.path.insert(0, str(SCRIPTS))
-from max_power_synthetic_lab import VERSION, dataset_bytes, examples, prepare_lab, verify_dataset
+from max_power_synthetic_lab import VERSION, bounded_evaluation, dataset_bytes, examples, prepare_lab, verify_dataset
 
 
 def test_curated_corpus_is_large_partitioned_unique_and_never_real(tmp_path):
@@ -23,7 +23,16 @@ def test_curated_corpus_is_large_partitioned_unique_and_never_real(tmp_path):
     assert bundle["sizes"]["validation"] >= 10
     assert bundle["sizes"]["test"] >= 10
     cases = list(examples())
-    assert len(cases) >= 200
+    assert len(cases) == 2000
+    assert len({item["case_group"] for item in cases}) == 50
+    assert sum(bundle["sizes"].values()) == 2000
+    partitions = [{row["case_group"] for row in bundle["samples"][key]} for key in ("train", "validation", "test")]
+    assert all(not a & b for i, a in enumerate(partitions) for b in partitions[i+1:])
+    for key in ("validation", "test"):
+        panel = bounded_evaluation(bundle["samples"][key])
+        assert panel == bounded_evaluation(bundle["samples"][key])
+        assert len(panel) == 12
+        assert len({row["case_group"] for row in panel}) == min(12, len(partitions[1 if key == "validation" else 2]))
     assert all(item["source"] == "curated_synthetic" for item in cases)
     assert all("approved_by" not in item and "usage_authorized" not in item for item in cases)
     questions = [row["messages"][0]["content"].casefold() for row in cases]
