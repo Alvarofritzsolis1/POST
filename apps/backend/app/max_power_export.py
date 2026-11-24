@@ -273,7 +273,13 @@ def build_report(db: Session, user: User, *, max_events=MAX_EVENTS):
     practice = db.scalar(select(MaxPowerEvent).where(
         MaxPowerEvent.org_id == user.org_id, MaxPowerEvent.event == PRACTICE_EVENT,
     ).order_by(MaxPowerEvent.created_at.desc()).limit(1))
+    pilot = db.scalar(select(MaxPowerEvent).where(MaxPowerEvent.org_id == user.org_id,
+        MaxPowerEvent.event == "4b_pilot_status").order_by(MaxPowerEvent.created_at.desc()).limit(1))
+    benchmark = db.scalar(select(MaxPowerEvent).where(MaxPowerEvent.org_id == user.org_id,
+        MaxPowerEvent.event == "4b_cpu_benchmark").order_by(MaxPowerEvent.created_at.desc()).limit(1))
     return {
+        "neural_4b_pilot": pilot.evidence if pilot else None,
+        "benchmark_4b": benchmark.evidence if benchmark else None,
         "schema": SCHEMA,
         "kind": "max_power_chatgpt_handoff",
         "generated_at_utc": _date(datetime.now(timezone.utc)),
