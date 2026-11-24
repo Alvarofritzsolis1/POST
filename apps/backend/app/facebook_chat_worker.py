@@ -394,7 +394,12 @@ def process_chat_next(session_factory=SessionLocal, *, simulation_config=None, n
                         elif ai_source == "team" and local_first_messenger(cfg):
                             # External consent has already been checked.
                             def external_backup():
-                                if not messenger_external_fallback_enabled(db, org_id, cfg):
+                                db.refresh(current)
+                                db.refresh(current_job)
+                                if (current_job.state != "drafting" or current.last_inbound_at != inbound_at
+                                        or current.ai_paused or current.needs_support
+                                        or not consented_for(current, "team")
+                                        or not messenger_external_fallback_enabled(db, org_id, cfg)):
                                     return None
                                 return infer(db, lambda: orchestrated_text(
                                     db, org_id, task="messenger",
