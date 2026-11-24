@@ -17,6 +17,17 @@ from galant_cpu_lora_resources import snapshot, should_pause
 MODEL = "Qwen/Qwen3.5-4B"
 
 
+def snapshot_revision(path, expected=None):
+    path = Path(path)
+    revision = path.parent.name
+    if (path.name != "config.json" or path.parent.parent.name != "snapshots"
+            or path.parent.parent.parent.name != "models--Qwen--Qwen3.5-4B"
+            or not re.fullmatch(r"[0-9a-f]{40}", revision)
+            or (expected is not None and revision != expected)):
+        raise RuntimeError("Cannot prove exact base-model revision")
+    return revision
+
+
 def blockers(measured):
     required = {"host_free_mb": 8500, "cgroup_limit_mb": 7500,
                 "cgroup_available_mb": 7000, "disk_free_mb": 16000}
@@ -72,7 +83,7 @@ def main():
         write_report(report_path,report)
         import torch
         import bitsandbytes as bnb
-        from transformers import AutoConfig, AutoTokenizer, Qwen3_5ForCausalLM, BitsAndBytesConfig
+        from transformers import AutoTokenizer, Qwen3_5ForCausalLM, BitsAndBytesConfig
         from peft import LoraConfig, get_peft_model, prepare_model_for_kbit_training
         from peft.utils.save_and_load import load_peft_weights, set_peft_model_state_dict
         torch.set_num_threads(min(args.threads, os.cpu_count() or 1))
@@ -88,10 +99,14 @@ def main():
             if not isinstance(prior_revision,str) or not re.fullmatch(r"[0-9a-f]{40}",prior_revision):
                 raise RuntimeError("Invalid saved base revision")
             options["revision"] = prior_revision
-        config = AutoConfig.from_pretrained(MODEL, **options)
-        revision = getattr(config, "_commit_hash", None)
-        if not isinstance(revision,str) or not re.fullmatch(r"[0-9a-f]{40}", revision):
-            raise RuntimeError("Cannot prove exact base-model revision")
+        # The Hub cache path, not a private Transformers config attribute,
+        # identifies the exact immutable snapshot. Do not resolve the symlink:
+        # its target is a content blob, not the repository revision.
+        from huggingface_hub import hf_hub_download
+        config_path = Path(hf_hub_download(repo_id=MODEL, filename="config.json",
+            revision=options.get("revision"), local_files_only=options["local_files_only"],
+            token=False))
+        revision = snapshot_revision(config_path, options.get("revision"))
         options["revision"] = revision
         report["base_revision"] = revision
         tokenizer = AutoTokenizer.from_pretrained(MODEL, **options)
