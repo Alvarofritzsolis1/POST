@@ -7,7 +7,7 @@ RUN python -m pip install --no-cache-dir --index-url https://download.pytorch.or
  && python -m pip install --no-cache-dir -r /tmp/cpu-deps.txt "bitsandbytes==0.49.2" \
  && rm -f /tmp/cpu-deps.txt
 COPY scripts/galant_cpu_lora_resources.py scripts/galant_cpu_lora_resources.py
-COPY scripts/probe_galancito_4b_cpu.py scripts/galancito_4b_validation.py scripts/galancito_4b_dataset.py scripts/max_power_4b_supervisor.py /src/scripts/
+COPY scripts/probe_galancito_4b_cpu.py scripts/galancito_4b_validation.py scripts/galancito_4b_dataset.py scripts/max_power_4b_supervisor.py scripts/validate_galant_4b_ollama_candidate.py /src/scripts/
 COPY apps/backend/app/max_power_4b_slot.py /src/scripts/max_power_4b_slot.py
 COPY apps/backend/app/galancito_finetune_dataset.py /src/scripts/galancito_finetune_dataset.py
 RUN useradd --uid 10001 --create-home --shell /usr/sbin/nologin trainer && chmod -R a+rX /src && mkdir -p /private/4b-probe /private/cache /4b-control && chown -R 10001:10001 /private /4b-control
