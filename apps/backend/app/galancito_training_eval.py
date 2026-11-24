@@ -189,7 +189,7 @@ def evaluate(case, aliases, knowledge, answer=None, judge=None, corrector=None, 
                 grounded = grounded_reply(draft, context)
                 unsupported_draft = grounded is None
                 natural = natural_messenger_reply(grounded) if grounded and not numbered_draft else ""
-                if natural and model_intake_candidate(clean, facts, previous, prior) and not acceptable_intake_draft(natural, facts):
+                if natural and model_intake_candidate(clean, facts, previous, prior) and not acceptable_intake_draft(natural, facts, prior or ""):
                     errors["respuesta"] += 1
                     natural = ""
                 if natural and not private_data(natural):
@@ -236,7 +236,7 @@ def evaluate(case, aliases, knowledge, answer=None, judge=None, corrector=None, 
             efficient = len(reply) <= 450 and reply.count("?") <= 1
             checks = {"understanding": understanding, "context": contextual,
                       "profile": not any(k != "match" for k in mismatched),
-                      "trades": "trades" not in mismatched, "repetition": not repeated, "efficiency": efficient}
+                      "trades": "trades" not in mismatched, "repetition": not repeated, "efficiency": efficient and avoids_formal_template and not contact_missed}
             dimensions.update({k: float(v) for k, v in checks.items()})
             repeated_turns += repeated
             critical_count += severe
