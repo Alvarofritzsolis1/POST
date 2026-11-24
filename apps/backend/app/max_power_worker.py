@@ -21,7 +21,7 @@ from .facebook_crm_models import FacebookChatMessage
 from .galancito_training import ResourceSampler, summarize, inference_percentile_ms
 from .galancito_training_api import RoundInput, start
 from .galancito_training_models import ACTIVE, TrainingCase, TrainingRound, TrainingWorker
-from .galancito_training_model import TrainingModel
+from .galancito_training_model import TrainingModel, isolated_model_resident
 from .max_power_decisions import QWEN_MIN_RAM_MB, can_run, classify_outcome, evidence_fingerprint, select_experiment_plan, worksite_holdout_sign_test
 from .max_power_live import RESOURCE_EVENT, resource_metrics, cpu_event_blocks
 from .max_power_models import MaxPowerEvent, MaxPowerState, MaxPowerMessengerTrial
@@ -57,12 +57,19 @@ def _pressure(name):
     except (OSError, StopIteration, ValueError):
         return 0
 
+def qwen_memory_ready(snapshot):
+    available = snapshot.get("available_ram_mb")
+    if not isinstance(available, (int, float)):
+        return False
+    return available >= QWEN_MIN_RAM_MB or (available >= 3072 and isolated_model_resident(QWEN_4B))
+
+
 def isolated_qwen_status(snapshot: dict, training_model=None) -> tuple[bool, str | None]:
     """Report actual isolated Qwen4B readiness independently of Messenger."""
     if not MAX_POWER_ISOLATED:
         return False, "No existe un Ollama privado para la práctica"
-    if snapshot.get("available_ram_mb", 0) < QWEN_MIN_RAM_MB:
-        return False, "Qwen 4B necesita al menos 8 GB disponibles para proteger Messenger"
+    if not qwen_memory_ready(snapshot):
+        return False, "Qwen 4B frío requiere 8 GB libres; residente requiere 3 GB de reserva"
     if training_model is not None:
         problem = training_model.waiting_reason(snapshot["disk_free_mb"], QWEN_4B)
         if problem:
@@ -352,7 +359,7 @@ def tick(db, sampler, *, sampled=None, training_model=None):
         if not owner or not owner.enabled or owner.org_id != row.org_id or owner.role != "admin":
             set_wait(row, now, "permission_required", "No hay administrador autorizado para prácticas", 300)
             continue
-        isolated_model_ready = MAX_POWER_ISOLATED and snapshot["available_ram_mb"] >= QWEN_MIN_RAM_MB
+        isolated_model_ready = MAX_POWER_ISOLATED and qwen_memory_ready(snapshot)
         # Separate training Ollama, independent of Messenger production model.
         qwen_ready, model_problem = isolated_qwen_status(snapshot, training_model)
         if qwen_ready:
@@ -382,7 +389,7 @@ def tick(db, sampler, *, sampled=None, training_model=None):
                               qwen_ready=False, wait_status="isolation_unavailable", retry_seconds=300)
             continue
         if not isolated_model_ready:
-            _practice_or_wait(db, row, now, "Qwen 4B requiere 8 GB de RAM disponible para proteger Messenger",
+            _practice_or_wait(db, row, now, "Qwen 4B requiere 8 GB en frío o reserva comprobada cuando está residente",
                               qwen_ready=False, wait_status="resource_guard", retry_seconds=RESOURCE_RECHECK_SECONDS)
             continue
         if model_problem:
