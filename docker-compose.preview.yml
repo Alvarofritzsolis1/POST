@@ -184,6 +184,8 @@ services:
     depends_on:
       db: {condition: service_healthy}
       galancito-training-ollama: {condition: service_started}
+    volumes:
+      - galancito_4b_control:/4b-control
     networks: [internal]
     security_opt: [no-new-privileges:true]
     cap_drop: [ALL]
