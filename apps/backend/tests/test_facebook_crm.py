@@ -1278,3 +1278,54 @@ def test_inbox_revision_changes_only_after_new_persisted_inbound(network, monkey
     assert n["admin"].get(url).json()["revision"] == first
     assert incoming(n, mid="mid-revision-2").status_code == 200
     assert n["admin"].get(url).json()["revision"] != first
+
+
+def test_webhook_phone_confirmation_does_not_depend_on_ai(network, monkeypatch):
+    from app.galancito_phone import CONTACT_ACK
+    n = network
+    enable_messaging(n, monkeypatch)
+    monkeypatch.setenv("FACEBOOK_AI_ENABLED", "true")
+    monkeypatch.setenv("FACEBOOK_AI_AUTO_REPLY_ENABLED", "true")
+    settings.cache_clear()
+    sent = []
+    monkeypatch.setattr("app.facebook_chat_worker.graph_send",
+                        lambda *args: sent.append(args[2]) or "phone-ack-" + str(len(sent)))
+    monkeypatch.setattr("app.facebook_chat_worker.generate_text",
+                        lambda *a, **kw: (_ for _ in ()).throw(AssertionError("Phone ack must be local")))
+    for mid in ("phone-new-synthetic", "phone-repeat-synthetic"):
+        assert incoming(n, "+569 87654321", mid).status_code == 200
+        assert process_chat_next(n["Session"])
+    assert sent == [CONTACT_ACK, CONTACT_ACK]
+    with n["Session"]() as db:
+        lead = db.scalar(select(FacebookLead))
+        assert lead.contact_phone == "+56987654321"
+
+
+def test_recovery_queues_phone_confirmation_and_deduplicates(network, monkeypatch):
+    from datetime import datetime, timezone
+    from app import facebook_inbox_sync as recovery
+    from app.galancito_phone import CONTACT_ACK
+    n = network
+    org_id = enable_messaging(n, monkeypatch)
+    monkeypatch.setenv("FACEBOOK_AI_ENABLED", "true")
+    monkeypatch.setenv("FACEBOOK_AI_AUTO_REPLY_ENABLED", "true")
+    settings.cache_clear()
+    now = datetime.now(timezone.utc).isoformat()
+    monkeypatch.setattr(recovery, "_graph_get", lambda token, resource, edge, fields, limit:
+        {"data": [{"id": "t_phone_recovery_synthetic"}]} if edge == "conversations" else
+        {"data": [{"id": "m_phone_recovery_synthetic", "message": "+569 87654321",
+                   "from": {"id": "987654321098765"}, "created_time": now}]})
+    args = dict(page_id="1489275590928529", page_token="synthetic-page-token",
+                org_id=org_id, session_factory=n["Session"])
+    first = recovery.sync_page_inbox(**args)
+    assert first["messages_imported"] == 1 and first["replies_queued"] == 1
+    second = recovery.sync_page_inbox(**args)
+    assert second["messages_imported"] == 0 and second["replies_queued"] == 0
+    sent = []
+    monkeypatch.setattr("app.facebook_chat_worker.graph_send",
+                        lambda *a: sent.append(a[2]) or "recovery-phone-ack")
+    assert process_chat_next(n["Session"])
+    assert sent == [CONTACT_ACK]
+    with n["Session"]() as db:
+        lead = db.scalar(select(FacebookLead))
+        assert lead.contact_phone == "+56987654321"

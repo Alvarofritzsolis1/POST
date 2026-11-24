@@ -65,3 +65,13 @@ def test_redacts_number_without_discarding_professional_details():
     text = redact_mobile_for_intake("Soy gasfiter y hago pintura, mi celular es +56 9 8765 4321")
     assert "gasfiter" in text and "pintura" in text
     assert "+56 9" not in text and "8765 4321" not in text
+
+
+def test_phone_ack_only_for_committed_matching_contact():
+    from app.galancito_phone import confirmed_phone_reply, CONTACT_ACK
+    lead = contact(contact_phone="+56987654321")
+    assert confirmed_phone_reply(lead, "+569 87654321") == CONTACT_ACK
+    assert confirmed_phone_reply(lead, "+56 9 8765 4321") == CONTACT_ACK
+    assert confirmed_phone_reply(lead, "+56912345678") is None
+    assert confirmed_phone_reply(contact(), "+56987654321") is None
+    assert "87654321" not in CONTACT_ACK

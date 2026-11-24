@@ -18,21 +18,20 @@ from sqlalchemy import select, text as sql_text
 
 from .config import settings
 from .db import SessionLocal
-from .facebook_ai import messenger_ai_source
+from .facebook_ai import messenger_ai_source, local_first_messenger
 from .facebook_availability_reply import availability_reply
 from .facebook_worksite_reply import is_worksite_location, worksite_reply, application_reply, digital_help_reply
 from .facebook_crm_models import FacebookChatMessage, FacebookLead
 from .facebook_lead_insights import trace_unique_requirement
 from .galancito_flow import apply_permission_reply, consented_for, explain_permission, set_permission_request, wants_human
 from .galancito_escalation import flag_for_human
-from .galancito_intake import declared_relative_start, identity_reply, needs_deeper_response, next_intake_reply, small_talk_reply
+from .galancito_intake import declared_relative_start, identity_reply, needs_deeper_response, next_intake_reply, small_talk_reply, model_intake_candidate
 from .galancito_memory import (
     apply_messenger_message, approved_trade_aliases, aware, prior_delivered_prompt, profile_facts,
+    capture_voluntary_contact, professional_message,
 )
-from .galancito_triage import private_data, quick_reply, everyday_question_reply
-from .galancito_phone import remember_shared_phone, phone_question_when_agreed, redact_mobile_for_intake
-from .galancito_links import audit_event
-from .galancito_memory import note_profile_sources
+from .galancito_triage import private_data, quick_reply, everyday_question_reply, application_ai_candidate
+from .galancito_phone import phone_question_when_agreed, confirmed_phone_reply
 from .models import Organization, utcnow
 from .network_service import today
 
@@ -159,17 +158,16 @@ def sync_page_inbox(*, page_id: str, page_token: str, org_id: str,
             lead.unread = True
             prior = prior_delivered_prompt(db, lead, at=timestamp, since=previous if fresh else None)
             decision = apply_permission_reply(lead, body, prior) if fresh else None
-            phone_saved = fresh and remember_shared_phone(lead, body, prior, at=timestamp)
-            if phone_saved:
-                note_profile_sources(lead, ["contact_phone"], source="message", at=timestamp, remote_id=mid)
-                audit_event(db, lead, "field_contact_phone", source="message", remote_id=mid)
+            if fresh:
+                capture_voluntary_contact(db, lead, body, prior, at=timestamp, remote_id=mid)
+            phone_ack = confirmed_phone_reply(lead, body, prior) if fresh else None
             if fresh and wants_human(body):
                 flag_for_human(db, lead, "Solicitó atención humana" if decision is not False
                                else "Revocó autorización de IA y pidió atención humana")
             elif decision is False:
                 flag_for_human(db, lead, "Prefirió atención humana y no autorizó IA")
             changed = False
-            intake_body = redact_mobile_for_intake(body) if phone_saved else body
+            intake_body = professional_message(body)
             if decision is None and not private_data(intake_body):
                 changed = apply_messenger_message(
                     db, lead, intake_body, prior, remote_id=mid, at=timestamp,
@@ -191,18 +189,18 @@ def sync_page_inbox(*, page_id: str, page_token: str, org_id: str,
                 )):
                     pending.state = "cancelled"
                 preceding = latest_new.get(psid)
-                if (preceding and decision is None and not identity_reply(body)
+                if (preceding and decision is None and not phone_ack and not identity_reply(body)
                         and not wants_human(body)
                         and (needs_deeper_response(preceding[1]) or is_worksite_location(preceding[1]))
                         and not (needs_deeper_response(body) or is_worksite_location(body))
                         and declared_relative_start(body) is None):
                     body, prior = preceding[1], preceding[4]
                 latest_new[psid] = (lead, body, timestamp, cid, prior, decision,
-                                    changed or bool(preceding and preceding[6]))
+                                    changed or bool(preceding and preceding[6]), phone_ack)
             imported += 1
         cfg = settings()
         if cfg.facebook_ai_enabled:
-            for lead, body, timestamp, cid, prior, decision, changed in latest_new.values():
+            for lead, body, timestamp, cid, prior, decision, changed, phone_ack in latest_new.values():
                 last_inbound = lead.last_inbound_at
                 if last_inbound and last_inbound.tzinfo is None:
                     last_inbound = last_inbound.replace(tzinfo=timezone.utc)
@@ -210,7 +208,7 @@ def sync_page_inbox(*, page_id: str, page_token: str, org_id: str,
                         last_inbound != timestamp or
                         page_replies.get(cid, datetime.min.replace(tzinfo=timezone.utc)) >= timestamp or
                         (lead.ai_paused and decision is not False and not wants_human(body))
-                        or private_data(body)):
+                        or (private_data(body) and not phone_ack)):
                     continue
                 # Do not answer if the operator already replied or a send is
                 # pending/uncertain. Never replay a thread just because it was synced.
@@ -239,16 +237,22 @@ def sync_page_inbox(*, page_id: str, page_token: str, org_id: str,
                         ai_generated=False))
                     queued += 1
                     continue
-                direct = (follow_up or explain_permission(lead, body, prior)
+                application = application_reply(db, lead, body, prior)
+                direct = (phone_ack or follow_up or explain_permission(lead, body, prior)
                           or worksite_reply(db, lead, body, prior)
-                          or application_reply(db, lead, body, prior)
+                          or application
                           or digital_help_reply(body, prior)
                           or everyday_question_reply(body))
                 if not direct and not lead.needs_support:
                     direct = phone_question_when_agreed(lead, body)
                     if direct:
                         lead.phone_requested_at = utcnow()
-                source = "disabled" if direct else messenger_ai_source(db, org_id, cfg)
+                configured = messenger_ai_source(db, org_id, cfg)
+                if (application and direct == application and not phone_ack
+                        and local_first_messenger(cfg) and consented_for(lead, configured)
+                        and application_ai_candidate(body, prior)):
+                    direct = None
+                source = "disabled" if direct else configured
                 if direct:
                     state, reply = "pending", direct
                 elif small_talk_reply(body):
@@ -260,7 +264,9 @@ def sync_page_inbox(*, page_id: str, page_token: str, org_id: str,
                     local = next_intake_reply(body, facts, prior)
                     if not local and not needs_deeper_response(body):
                         local = quick_reply(body, known=facts)
-                    state, reply = ("pending", local) if local else ("ai_pending", "")
+                    state, reply = (("ai_pending", "") if not local or
+                        (local_first_messenger(cfg) and model_intake_candidate(body, facts, prior, local))
+                        else ("pending", local))
                 else:
                     facts = profile_facts(lead, changed=changed)
                     reply = small_talk_reply(body) or next_intake_reply(body, facts, prior)

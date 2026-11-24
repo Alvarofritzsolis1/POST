@@ -96,6 +96,21 @@ def remember_shared_phone(lead, message: str, last_question: str, *, at: datetim
     return True
 
 
+CONTACT_ACK = "Gracias, ya tengo tu número de contacto. Podemos seguir coordinando por aquí."
+
+
+def confirmed_phone_reply(lead, message: str, prior: str = "") -> str | None:
+    """Confirm only a voluntarily shared number that matches the stored record.
+
+    A repeated number merits an acknowledgement too; never claim that a
+    conflicting manually verified number was replaced.
+    """
+    shared = phone_shared_by_sender(message, prior)
+    if shared and shared == getattr(lead, "contact_phone", None):
+        return CONTACT_ACK
+    return None
+
+
 def redact_mobile_for_intake(message: str) -> str:
     """Preserve non-sensitive trade statements without passing phone digits onward."""
     return PHONE_PATTERN.sub("[teléfono reservado]", message or "")

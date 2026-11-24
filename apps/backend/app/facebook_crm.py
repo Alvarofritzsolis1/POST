@@ -55,7 +55,7 @@ from .galancito_contact_profile import contact_profile
 from .galancito_conversation_summary import (
     summarize_conversation, safe_model_input, validate_ai_brief, brief_contains_private_data,
 )
-from .galancito_phone import (QUESTION as CONTACT_PHONE_QUESTION, normalize_mobile, phone_question_when_agreed)
+from .galancito_phone import (QUESTION as CONTACT_PHONE_QUESTION, normalize_mobile, phone_question_when_agreed, confirmed_phone_reply)
 from .galancito_communes import find_communes
 from .galancito_links import (record_manual_trade,
                               suggest_requirements, link_requirement,
@@ -401,6 +401,7 @@ def ingest_facebook_payload(db, payload, cfg, *, notices=None):
         phone_saved = False
         if not historical and not audio_received:
             phone_saved, _ = capture_voluntary_contact(db, lead, body, previous_question, at=event_at, remote_id=mid)
+        phone_ack = confirmed_phone_reply(lead, body, previous_question) if not historical and not audio_received else None
         changed = False
         intake_body = professional_message(body)
         if consent is None and not audio_received and not private_data(intake_body):
@@ -430,7 +431,7 @@ def ingest_facebook_payload(db, payload, cfg, *, notices=None):
         if signal:
             flag_for_human(db, lead, signal)
         earlier = reply_turns.get(lead.id)
-        if (earlier and consent is None and not signal and not identity_reply(body)
+        if (earlier and consent is None and not signal and not phone_ack and not identity_reply(body)
                 and (needs_deeper_response(earlier[1]) or is_worksite_location(earlier[1]))
                 and not (needs_deeper_response(body) or is_worksite_location(body))
                 and declared_relative_start(body) is None):
@@ -438,9 +439,9 @@ def ingest_facebook_payload(db, payload, cfg, *, notices=None):
         reply_turns[lead.id] = (lead, intake_body, previous_question, changed or bool(earlier and earlier[3]),
                                signal or (earlier[4] if earlier else None), mid,
                                consent is True or bool(earlier and earlier[6]),
-                               phone_saved or bool(earlier and earlier[7]))
+                               phone_saved or bool(earlier and earlier[7]), phone_ack)
 
-    for lead, body, previous_question, changed, signal, mid, consent_reply, phone_saved in reply_turns.values():
+    for lead, body, previous_question, changed, signal, mid, consent_reply, phone_saved, phone_ack in reply_turns.values():
         if changed and not signal:
             trace_unique_requirement(db, lead, today=today(), remote_id=mid)
         # El mensaje entrante más reciente desplaza cualquier respuesta
@@ -474,19 +475,19 @@ def ingest_facebook_payload(db, payload, cfg, *, notices=None):
                 if phone_prompt:
                     direct = phone_prompt
                     lead.phone_requested_at = utcnow()
-            if phone_saved and not signal and not direct and not needs_deeper_response(body):
-                direct = "Gracias, registré el número que compartiste para coordinación. No confirma contratación."
+            if phone_ack and not signal and not lead.needs_support and lead.ai_consent_state != "declined":
+                direct = phone_ack
             configured_source = messenger_ai_source(db, lead.org_id, cfg)
             # Generic questions should reach the consented model; confirmed
             # worksite facts and consent operations keep their verified path.
-            if (direct and not (location or application or digital_help or phone_saved)
+            if (direct and not (location or application or digital_help or phone_saved or phone_ack)
                     and direct == everyday_question_reply(body)
                     and consented_for(lead, configured_source)):
                 direct = None
             # Let Qwen choose the next conversational question when authorized.
             # Before consent, an unclear role can request authorization instead
             # of being forced into employment by a fixed yes/no question.
-            application_model = bool(application and direct == application and not phone_saved
+            application_model = bool(application and direct == application and not phone_saved and not phone_ack
                                      and not signal and not lead.needs_support
                                      and local_first_messenger(cfg)
                                      and application_ai_candidate(body, previous_question))
