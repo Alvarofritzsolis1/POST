@@ -1,6 +1,6 @@
 {
   "name": "galant-post-frontend",
-  "version": "20.9.39-rc2",
+  "version": "20.9.39-rc3",
   "private": true,
   "type": "module",
   "scripts": {
