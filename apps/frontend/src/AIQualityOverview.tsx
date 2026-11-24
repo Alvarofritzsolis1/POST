@@ -186,7 +186,7 @@ export default function AIQualityOverview({
                 {item && <p>Corrección propuesta: {item.method} · Qwen real: {item.practice.better} mejoras revisadas,
                   {" "}{item.practice.same} sin cambio y {item.practice.worse} regresiones. No demuestra mejora general.</p>}
                 {item?.ready_for_practice && <button type="button" onClick={() => onPractice(channel, key)}>
-                  Práctica complementaria <ArrowRight size={13}/>
+                  Ver evaluaciones <ArrowRight size={13}/>
                 </button>}
               </article>;
             })}
@@ -198,7 +198,7 @@ export default function AIQualityOverview({
               {Object.entries(data.delivery_states).map(([state, count]) => <span key={state}>{state}: {fmt.format(count)}</span>)}
             </details>}
           <button className="ai-quality-practice" type="button" onClick={() => onPractice(channel)}>
-            <FlaskConical size={16} /> Abrir pruebas de {channel === "messenger" ? "Messenger" : "Galancito"} <ArrowRight size={15} />
+            <FlaskConical size={16} /> Ver historial de {channel === "messenger" ? "Messenger" : "Galancito"} <ArrowRight size={15} />
           </button>
         </section>;
       })}
@@ -212,7 +212,7 @@ export default function AIQualityOverview({
       {overview?.findings.map((finding, index) => <div className="ai-quality-finding" key={finding.channel + finding.type + index}>
         <TriangleAlert size={16} aria-hidden="true" />
         <div><strong>{finding.label}</strong><span>{names[finding.channel]}{finding.count != null ? " · " + fmt.format(finding.count) + " registros" : ""}</span></div>
-        <button type="button" onClick={() => onPractice(finding.channel, finding.focus)}>Evaluar <ArrowRight size={14} /></button>
+        <button type="button" onClick={() => onPractice(finding.channel, finding.focus)}>Ver resultados <ArrowRight size={14} /></button>
       </div>)}
       {overview?.operational_lab && <div className="ai-quality-lab">
         <Clock3 size={16} /><div><strong>Última prueba con agregados de GALANT: {overview.operational_lab.score ?? "—"} / 100</strong>
@@ -223,7 +223,7 @@ export default function AIQualityOverview({
     <section className="ai-quality-next">
       <div><span className="ai-quality-eyebrow"><CheckCircle2 size={14} /> ÚLTIMO PASO</span>
         <h3>Aprendizaje y mejora</h3><p>Diagnosticar, corregir, probar de nuevo y validar antes de aplicar. Una práctica sintética nunca se presenta como mejora real.</p></div>
-      <button type="button" onClick={onLearning}>Revisar aprendizaje <ArrowRight size={16} /></button>
+      <button type="button" onClick={onLearning}>Abrir MAX POWER <ArrowRight size={16} /></button>
     </section>
   </div>;
 }
