@@ -175,8 +175,6 @@ def apply_messenger_message(db, lead, message, prior, *, remote_id, at, historic
             message = "trabajo en " + trade[0]
             prior = ""
     elif application_role_question(prior):
-        if ambiguous_application_role(message, prior):
-            return False  # No role was declared; Qwen may ask a clarification.
         role = application_role(message, prior)
         if role == "employment":
             message, prior = "busco trabajo", ""
@@ -186,7 +184,10 @@ def apply_messenger_message(db, lead, message, prior, *, remote_id, at, historic
             message, prior = ("ofrezco servicios. " + extra).strip(), ""
         elif role == "both":
             message, prior = "busco trabajo y ofrezco servicios", ""
-    if asking_about_notice := (asks_about_application(message) or referring_to_application(prior)):
+    # A role confirmation is not a request for an advert. Do not discard
+    # professional corrections and additional declarations in that context.
+    if asking_about_notice := (asks_about_application(message) or (
+            referring_to_application(prior) and not application_role_question(prior))):
         # An oficio or comuna quoted from an advert belongs to that advert.
         # Preserve separate first-person declarations in the same message.
         fragments = re.split(r"(?<=[,.!?;])\s+|\by\s+(?=soy\b|soi\b|hago\b|ofrezco\b)", message, flags=re.I)
@@ -194,11 +195,14 @@ def apply_messenger_message(db, lead, message, prior, *, remote_id, at, historic
                            and not asks_about_application(part)).strip()
         if not message:
             return False
-    declarations = trade_declarations(message, prior, extra=aliases, allow_bare=not asking_about_notice)
+    declarations = trade_declarations(message, prior, extra=aliases,
+        allow_bare=not asking_about_notice and not application_role_question(prior))
     before = {field: getattr(lead, field) for field in FIELDS}
     candidate = SimpleNamespace(**before, specialty_source=lead.specialty_source)
     apply_intake(candidate, message, prior, declarations=declarations,
                  on_date=aware(at).astimezone(CHILE).date())
+    if application_role_question(prior) and ambiguous_application_role(message, prior):
+        candidate.interest_type = before["interest_type"]
     prior_sources = lead.profile_sources or {}
     accepted = {}
     unresolved = unresolved_declarations(message, prior) if not (historical or replay) else {}

@@ -428,6 +428,10 @@ def ingest_facebook_payload(db, payload, cfg, *, notices=None):
                   if consent is None and not explain_permission(lead, body, previous_question) else None)
         if consent is False:
             signal = "Prefirió atención humana y no autorizó IA externa"
+        if (signal and not audio_received and not wants_human(body) and consent is not False
+                and not lead.ai_paused and not lead.needs_support and local_first_messenger(cfg)
+                and consented_for(lead, messenger_ai_source(db, lead.org_id, cfg))):
+            signal = None  # Authorized Qwen gets a chance to explain before handoff.
         if signal:
             flag_for_human(db, lead, signal)
         earlier = reply_turns.get(lead.id)
@@ -496,6 +500,9 @@ def ingest_facebook_payload(db, payload, cfg, *, notices=None):
                 and application_role(body, previous_question) is None
                 and lead.ai_consent_state == "not_requested"
                 and not consented_for(lead, configured_source))
+            if (digital_help and direct == digital_help and not phone_ack and not signal
+                    and local_first_messenger(cfg) and consented_for(lead, configured_source)):
+                direct = None
             if application_model and consented_for(lead, configured_source):
                 direct = None
             elif application_permission:

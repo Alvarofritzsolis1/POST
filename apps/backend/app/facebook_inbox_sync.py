@@ -249,6 +249,9 @@ def sync_page_inbox(*, page_id: str, page_token: str, org_id: str,
                     if direct:
                         lead.phone_requested_at = utcnow()
                 configured = messenger_ai_source(db, org_id, cfg)
+                if (direct and direct == digital_help_reply(body, prior) and not phone_ack
+                        and local_first_messenger(cfg) and consented_for(lead, configured)):
+                    direct = None
                 if (application and direct == application and not phone_ack
                         and local_first_messenger(cfg) and consented_for(lead, configured)
                         and application_ai_candidate(body, prior)):

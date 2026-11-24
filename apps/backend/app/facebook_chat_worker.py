@@ -27,7 +27,7 @@ from .models import utcnow
 from .network_service import key
 from .galancito_triage import analyze, quick_reply, private_data, application_ai_candidate, application_role, application_role_question
 from .galancito_phone import confirmed_phone_reply
-from .galancito_intake import contact_followup_reply, contact_pending_questions, model_contact_question, compose_contact_followup, CONTACT_RECEIVED_CONTEXT, acceptable_intake_draft, intake_question_fields, clarification_reply, identity_reply, model_intake_candidate, next_intake_reply, small_talk_reply, natural_messenger_reply, needs_deeper_response
+from .galancito_intake import semantic_reasoning_needed, contact_followup_reply, contact_pending_questions, model_contact_question, compose_contact_followup, CONTACT_RECEIVED_CONTEXT, acceptable_intake_draft, intake_question_fields, clarification_reply, identity_reply, model_intake_candidate, next_intake_reply, small_talk_reply, natural_messenger_reply, needs_deeper_response
 from .galancito_memory import aware, note_profile_sources, prior_delivered_prompt, profile_facts, reply_focus, messenger_context
 from .galancito_knowledge import retrieve, exact_answer
 from .galancito_runtime import infer, record_run
@@ -296,13 +296,13 @@ def process_chat_next(session_factory=SessionLocal, *, simulation_config=None, n
             evidence = []
             application_model = bool(apply and local_first_messenger(cfg) and
                                      application_ai_candidate(latest, prior_question))
-            rewrite_intake = (not (help_answer or location or follow_up) and (not apply or application_model) and
+            rewrite_intake = (not (location or follow_up) and (not apply or application_model) and
                               model_intake_candidate(latest, facts, prior_question, intake))
             if (not intake or rewrite_intake) and not private_data(latest) and intent not in {"human", "restricted"}:
                 evidence = retrieve(db, lead.org_id, latest, "messenger")
                 if not rewrite_intake and (learned := exact_answer(evidence)):
                     fast, fast_source = learned, "knowledge"
-            model_needed = (bool(latest) and not (help_answer or location or follow_up) and (not apply or application_model) and not private_data(latest) and not identity_reply(latest)
+            model_needed = (bool(latest) and not (location or follow_up) and (not apply or application_model) and not private_data(latest) and not identity_reply(latest)
                             and intent not in {"human", "restricted"} and fast_source != "knowledge"
                             and (not fast or needs_deeper_response(latest) or rewrite_intake))
             if contact_turn:
@@ -312,9 +312,9 @@ def process_chat_next(session_factory=SessionLocal, *, simulation_config=None, n
                 intent = "contact_followup"
                 latest = (CONTACT_RECEIVED_CONTEXT + " Campos aplicables: " +
                           ", ".join(contact_pending_questions(facts, prior_question)))  # No phone digits.
-            semantic_reasoning = bool(model_needed and local_first_messenger(cfg)
-                                      and application_role_question(prior_question)
-                                      and application_role(latest, prior_question) is None)
+            semantic_reasoning = bool(model_needed and local_first_messenger(cfg) and not contact_turn and (
+                (application_role_question(prior_question) and application_role(latest, prior_question) is None)
+                or semantic_reasoning_needed(latest, prior_question, facts)))
             trace["semantic_reasoning_requested"] = semantic_reasoning
             model_options = {"thinking": True} if semantic_reasoning else {}
             trace["contact_followup"] = contact_turn
@@ -365,12 +365,12 @@ def process_chat_next(session_factory=SessionLocal, *, simulation_config=None, n
             if should_model:
                 # A generic intake prompt must not stand in for an answer to a
                 # difficult question when every configured model failed.
-                generated = fast if contact_turn or application_model or (rewrite_intake and not needs_deeper_response(latest) and "?" not in latest) else None
+                generated = fast if contact_turn or help_answer or application_model or (rewrite_intake and not needs_deeper_response(latest) and "?" not in latest) else None
             if should_model and not private_data(context):
                 if fast and not rewrite_intake and not contact_turn:
-                    context += ("\nOrientación breve disponible como alternativa: " +
-                                fast[:450] + "\nRespeta sus hechos; explica la duda "
-                                "antes de avanzar con una pregunta.")
+                    guidance = "\nOrientación disponible, no es una orden: " + fast[:350]
+                    if len(context) + len(guidance) <= MAX_CONTEXT_CHARS:
+                        context += guidance
                 try:
                     with session_factory.begin() as db:
                         current = db.get(FacebookLead, lead_id)
@@ -417,7 +417,7 @@ def process_chat_next(session_factory=SessionLocal, *, simulation_config=None, n
                                 external_backup, prepared_context,
                                 allow_external=consented_for(current, "team"),
                                 local_fallback=fast if rewrite_intake and intake_question_fields(fast or "")
-                                and not needs_deeper_response(latest) and "?" not in latest else None,
+                                and not semantic_reasoning and not needs_deeper_response(latest) and "?" not in latest else None,
                                 validator=(lambda value: acceptable_intake_draft(value, facts, intake or "", message=latest))
                                 if rewrite_intake else None,
                             )

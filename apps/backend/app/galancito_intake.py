@@ -82,16 +82,17 @@ def unresolved_declarations(message: str, prior: str) -> dict[str, str]:
 
 _ROLE_SERVICE = (
     "ofrezco servicios", "ofresco servicios", "mis servicios", "por mi cuenta", "por las mias", "por mi propia cuenta",
-    "hago pitutos", "busco pitutos", "trabajo a trato",
+    "hago pitutos", "busco pitutos",
     "tengo un emprendimiento", "somos contratistas", "soy contratista",
     "somos una empresa", "tengo empresa", "tengo una empresa", "represento una empresa",
-    "tengo cuadrilla", "tengo una cuadrilla",
+    
 )
 _ROLE_WORKER = (
     "busco pega", "busco empleo", "busco trabajo", "ando buscando pega",
     "ando en busca de pega", "quiero empleo", "quiero trabajar contratado",
     "nesesito pega", "necesito pega", "ando sin pega", "quiero pega",
     "postulo como trabajador", "postular a un empleo", "soy trabajador", "soy trabajadora",
+    "trabajo apatronado", "quiero trabajar apatronado", "busco trabajo apatronado",
 )
 _NAME_PROMPTS = (
     "como prefieres que te llamemos", "cual es tu nombre", "como te llamas",
@@ -542,7 +543,7 @@ def pending_professional_questions(facts: dict) -> dict[str, str]:
     intent = facts.get("interest_type", "unknown")
     candidates = {
         "specialty": "¿Qué trabajo realizas?",
-        "interest_type": "¿Buscas empleo como trabajador o quieres trabajar por tu cuenta como contratista?",
+        "interest_type": "¿Ofreces trabajos por tu cuenta, buscas empleo o haces las dos cosas?",
     }
     if intent in {"service_offer", "both"}:
         if facts.get("team_available") is None:
@@ -656,10 +657,23 @@ def next_intake_reply(message: str, facts: dict, prior_prompt: str = "") -> str 
 def model_intake_candidate(message: str, facts: dict, prior: str, fallback: str | None) -> bool:
     """Ordinary conversation can be decided by the model, not a fixed interview."""
     if (not message or private_data(message) or identity_reply(message)
-            or clarification_reply(message, prior) or is_pure_greeting(message)
+            or is_pure_greeting(message)
             or plain(message) in {"gracias", "muchas gracias", "vale gracias"}):
         return False
     return analyze(message).intent not in {"human", "restricted", "publish"}
+
+
+def semantic_reasoning_needed(message: str, prior: str, facts: dict) -> bool:
+    """Reason more deeply only for ambiguous professional decisions or complex turns."""
+    value = plain(message)
+    if not value:
+        return False
+    if re.search(r"\b(?:pero|aunque|depende|en realidad|me equivoque|quise decir|a veces|no siempre)\b", value):
+        return True
+    if is_intake_prompt(prior) and (analyze(message).intent == "unknown" or
+            any(status == "ambiguo" for status in (facts.get("field_states") or {}).values())):
+        return True
+    return needs_deeper_response(message) and len(value.split()) >= 10
 
 
 def conversation_fields(facts: dict) -> dict:
@@ -703,7 +717,7 @@ def acceptable_intake_draft(draft: str, facts: dict, expected_question: str = ""
                             *, message: str = "") -> bool:
     """Validate independent constraints, not agreement with a scripted next question."""
     value = plain(draft)
-    if not draft or draft.count("?") > 1 or private_data(draft) or any(p in value for p in (
+    if not draft or private_data(draft) or any(p in value for p in (
         "me queda clara la cantidad", "tengo anotada tu experiencia", "ya se en que comuna",
         "escribe paso", "quedo anotado", "puedes escribir con confianza"
     )):
@@ -719,6 +733,9 @@ def acceptable_intake_draft(draft: str, facts: dict, expected_question: str = ""
             phrase in value for phrase in ("si prefieres", "si quieres", "si te acomoda", "opcional", "si te parece")
         ):
             return False
+    # A short clarification plus a useful follow-up is fine, but do not interrogate.
+    if draft.count("?") > 2 or (draft.count("?") > 1 and len(asked) > 1):
+        return False
     # A question about a publication or a genuine clarification is allowed.
     # Do not force a professional field when the person has another concern.
     if "?" in draft:
@@ -764,7 +781,7 @@ def needs_deeper_response(message: str) -> bool:
                  "hay alguna obra", "que obras", "que papeles", "que documentos",
                  "puedo postular", "como postulo", "necesito orientacion")
     return any(q in text for q in questions) or (
-        ("?" in message or "¿" in message) and len(text.split()) >= 6)
+        ("?" in message or "¿" in message) and bool(text))
 
 
 def small_talk_reply(message: str, prior_prompt: str = "") -> str | None:

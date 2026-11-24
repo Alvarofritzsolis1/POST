@@ -126,7 +126,8 @@ def application_reply(db: Session, lead, message: str, prior_prompt: str = "", *
             return ("¿En qué comuna puedes trabajar?" if getattr(lead, "specialty", None) else
                     "¿Qué trabajos haces por tu cuenta?")
         if role == "both":
-            return "Entiendo, te interesan las dos opciones. ¿Qué trabajo realizas?"
+            return ("Entiendo, te interesan las dos opciones. ¿Trabajas solo o puedes venir con otras personas?"
+                    if getattr(lead, "specialty", None) else "Entiendo, te interesan las dos opciones. ¿Qué trabajo realizas?")
         if norm in {"no entiendo", "que significa", "no cacho", "como es eso", "solo", "sola", "solito", "solita"}:
             if plain(prior_prompt).endswith(plain(ASK_APPLICATION_ROLE_CLARIFY)):
                 return "No hay problema, podemos seguir sin aclarar eso ahora. ¿Qué trabajo realizas?"
