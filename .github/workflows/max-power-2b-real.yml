@@ -62,6 +62,17 @@ jobs:
           assert b["conversation_validation"]["production_verified"] is False
           assert b["production_verified"] is False
           PY
+      - name: Comprobar que guardar checkpoints conserva el modelo base en una sola ejecución
+        run: |
+          docker run --rm --network none --memory=5g --memory-swap=5g --cpus=2 --pids-limit=96 -v galant-ci-2b:/private galant-2b-root --run --steps 10 --output /private/uninterrupted
+          docker run --rm --entrypoint cat -v galant-ci-2b:/private:ro galant-2b-root /private/uninterrupted/latest.json > evidence/uninterrupted.json
+          python - <<'PY'
+          import json
+          r=json.load(open("evidence/uninterrupted.json"))
+          assert r["status"]=="completed"
+          assert r["saved_adapter_step"]==10 and r["baseline_restored"] is True
+          assert len({p["adapter_sha256"] for p in r["steps"]})==10
+          PY
       - name: Conservar evidencia incluso ante fallo
         if: always()
         run: |

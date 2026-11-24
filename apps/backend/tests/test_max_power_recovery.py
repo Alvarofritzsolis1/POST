@@ -18,6 +18,32 @@ class StaticSampler:
                 "worker_ram_limit_mb": 384, "worker_cores": 1,
                 "host_ram_mb": 8192, "host_cores": 2}
 
+
+def test_controller_distinguishes_messenger_deferral_from_shutdown(ai_env, monkeypatch, tmp_path):
+    from app import max_power_2b_control as control
+    from app import max_power_worker as worker
+
+    client, sessions = ai_env["client"], ai_env["sessions"]
+    headers = signin(client, "admin")
+    org = ai_env["org_id"]
+    monkeypatch.setattr(control, "ROOT", tmp_path)
+    monkeypatch.setattr(worker, "messenger_recent", lambda _: True)
+    assert client.post(BASE + "/control/on", headers=headers).status_code == 200
+    with sessions() as db:
+        generation = db.get(MaxPowerState, org).session_generation
+        assert not worker.neural_intent(db, task_busy=False, model_download=False)
+    signal = control.read(tmp_path / "intent.json")
+    assert control.deferred_by_messenger(signal, org, generation)
+    assert not control.authorized(signal, org, generation)
+
+    assert client.post(BASE + "/control/off", headers=headers).status_code == 200
+    with sessions() as db:
+        assert not worker.neural_intent(db, task_busy=False, model_download=False)
+    signal = control.read(tmp_path / "intent.json")
+    assert not control.deferred_by_messenger(signal, org, generation)
+    assert not control.authorized(signal, org, generation)
+
+
 def test_finished_round_is_recorded_once_across_repeated_ticks(ai_env):
     client, sessions = ai_env["client"], ai_env["sessions"]
     admin = signin(client, "admin")

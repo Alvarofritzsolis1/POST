@@ -381,7 +381,11 @@ def main():
             report["steps"].append(point)
             checkpoint=folder/("step-"+str(step))
             temporary=folder/(".step-"+str(step)+"-"+uuid4().hex)
-            model.save_pretrained(temporary,safe_serialization=True)
+            # Exporting all weights invokes bitsandbytes' CPU unpacking in
+            # state_dict(), which mutates the frozen model used for evaluation.
+            adapter_state = {name: parameter.detach() for name, parameter in named}
+            model.save_pretrained(temporary, safe_serialization=True,
+                                  state_dict=adapter_state, save_embedding_layers=False)
             torch.save(optimizer.state_dict(),temporary/"optimizer.pt")
             files={name:file_hash(temporary/name) for name in
                    ("adapter_model.safetensors","adapter_config.json","optimizer.pt")}
