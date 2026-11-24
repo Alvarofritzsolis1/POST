@@ -447,24 +447,12 @@ def identity_reply(message: str) -> str | None:
 def _friendly_ack(message: str, facts: dict, question: str, prior: str = "") -> str:
     """Brief, grounded acknowledgement, not a repetitive scripted self-introduction."""
     norm = plain(message)
-    trade = (facts.get("specialty") or "").strip()
     if is_pure_greeting(message):
         return "¡Hola, qué tal!"
     if not _CORRECTION.search(norm) and any(q in plain(prior) for q in ("cual es tu nombre", "como te llamas", "como prefieres que te llamemos")):
         if facts.get("display_name") not in (None, "", "Interesado de Facebook", "Contacto sin nombre"):
             return "Un gusto, " + facts["display_name"].split()[0].title() + "."
-    if "trabajas solo" in plain(question) and facts.get("interest_type") == "service_offer":
-        return "Perfecto, entonces ofreces tus servicios."
-    if "cuantas personas" in plain(question):
-        return "Ya, entiendo que puedes venir con otras personas."
-    if "cuanto tiempo llevas" in plain(question) and facts.get("workers") is not None:
-        return "Gracias, me queda clara la cantidad de personas."
-    if "en que comuna" in plain(question) and facts.get("experience"):
-        return "Gracias, también tengo anotada tu experiencia."
-    if "desde cuando" in plain(question) and facts.get("work_area"):
-        return "Bien, ya sé en qué comuna puedes trabajar."
-    if "ofreces trabajos" in plain(question) and trade:
-        return "Entiendo que trabajas en " + trade.lower() + "."
+    # No narration of the extraction process. A direct question is often enough.
     if facts.get("turn_changed") and _CORRECTION.search(norm):
         return "Listo, actualicé ese dato."
     return ""
@@ -593,14 +581,19 @@ def next_intake_reply(message: str, facts: dict, prior_prompt: str = "") -> str 
     elif ("display_name" in facts and facts.get("display_name") in {
         "", "Interesado de Facebook", "Contacto sin nombre", None
     } and not facts.get("name_opt_out") and missing("display_name")):
-        question = "¿Cómo prefieres que te llamemos? Si prefieres no decirlo, escribe paso."
+        question = "¿Cómo te llamas?"
+    elif (intent in {"service_offer", "employment", "both"}
+          and (facts.get("specialty") or facts.get("trades"))
+          and facts.get("work_area") and facts.get("availability")
+          and not any(facts.get(k) for k in ("contact_available", "contact_declined", "contact_offered"))
+          and "contact_phone" not in intake_question_fields(prior_prompt)
+          and "contact_email" not in intake_question_fields(prior_prompt)):
+        return "Para coordinar, ¿me dejas tu celular? Si prefieres, seguimos por aquí."
     else:
-        if facts.get("turn_changed"):
-            return "Gracias, quedó anotado. Si cambia algún dato, me puedes avisar por acá."
-        return "Si necesitas orientación o quieres actualizar algún dato, seguimos por acá."
+        return "Podemos seguir por aquí si tienes dudas sobre el trabajo."
     if plain(question) in plain(prior_prompt):
         if facts.get("turn_changed"):
-            return "Ya, tomé nota de eso. Podemos seguir por acá si quieres agregar algo."
+            return "Podemos seguir por aquí si quieres agregar algo."
         return "Está bien. Podemos seguir con esto cuando tengas el dato o conversar sobre otra duda."
     return (_friendly_ack(message, facts, question, prior_prompt) + " " + question).strip()[:540]
 
