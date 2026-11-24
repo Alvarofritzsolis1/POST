@@ -57,7 +57,7 @@ def phone_shared_by_sender(message: str, last_question: str = "") -> str | None:
 
 
 def phone_declined(message: str, last_question: str) -> bool:
-    return bool(DECLINED.search(message) and
+    return bool((DECLINED.search(message) or message.strip().casefold() in {"no", "paso", "prefiero no", "no gracias"}) and
                 re.search(r"(?i)\b(?:tel[eé]fono|celular|n[uú]mero|w(?:hats)?app)\b", last_question))
 
 
