@@ -18,7 +18,7 @@ type TurnResult = {
   checks: {safe: boolean; repeated_fields: string[]; repeated_intro: boolean;
            numbered_menu: boolean; question_displaced: boolean} | null;
   review_required: boolean;
-  diagnostics?: {protocol:string;instruction_sha256:string;context_sha256:string;context_chars:number;history_available:number;history_included:number;profile_before:TurnResult["profile"];updates:{field:string;status:string;reason:string;value?:unknown;quote?:string}[];same_as_previous_reply:boolean;semantic_correctness:string};
+  diagnostics?: {protocol:string;instruction_sha256:string;context_sha256:string;context_chars:number;history_available:number;history_included:number;profile_before:TurnResult["profile"];updates:{field:string;status:string;reason:string;value?:unknown;quote?:string}[];same_as_previous_reply:boolean;reply_sanitized?:boolean;semantic_correctness:string};
   model_evidence?: {model:string; calls:number; output_tokens:number; thinking:boolean; budget_tokens:number; load_ms?:number; prompt_ms?:number; generation_ms?:number; ollama_total_ms?:number; prompt_eval_count?:number};
 };
 type Exchange = {
@@ -161,6 +161,7 @@ export default function MessengerSimulator() {
     if(r.checks?.numbered_menu) alerts.push("numbered_menu");
     if(r.checks?.safe===false) alerts.push("safety_check_failed");
     if(r.diagnostics?.same_as_previous_reply) alerts.push("identical_previous_reply");
+    if(r.diagnostics?.reply_sanitized) alerts.push("model_reply_sanitized");
     if(r.diagnostics?.updates.some(x=>x.status==="rejected"||x.status==="reverted")) alerts.push("profile_proposal_rejected");
     if(item.natural===false) alerts.push("reviewer_unnatural");
     if(item.useful===false) alerts.push("reviewer_unhelpful");

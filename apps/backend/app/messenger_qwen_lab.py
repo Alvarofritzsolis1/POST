@@ -29,6 +29,9 @@ Ejemplos de interpretación, NO son un guion de conversación:
 - «Somos cuatro en total» implica workers=4, contando a quien escribe.
 - «No entendí» pide explicar con lenguaje simple la última pregunta, no repetirla.
 No interrogues sobre contratos, situación legal o condición de empleador si nadie lo pidió.
+Si la persona añade que puede llevar más gente, es información NUEVA: responde a ese dato,
+NO repitas tu respuesta anterior, NO vuelvas a preguntar si tiene equipo y pregunta
+por la cantidad solo si aún la desconoces. Si ya dijo cuántos son, acepta la cantidad.
 No confundas «por mi cuenta» con trabajar solo. Si ya informó cuatro personas, no preguntes cuántas.
 Haz una sola pregunta útil, breve y natural como máximo; explica antes de preguntar si está confundido.
 Si hay datos pendientes, decide tú cuál conviene consultar. No inventes números,
@@ -129,6 +132,21 @@ def apply_updates(profile,updates,message,*,diagnostics=None):
         result["trades"]=[result["specialty"]]
     return result,sorted(changed)
 
+# A numeric answer such as "4" is grounded when the user explicitly said
+# "cuatro"; this only widens the safety reference, never writes a fact.
+NUMBER_WORDS={"cero":0,"uno":1,"una":1,"un":1,"dos":2,"tres":3,"cuatro":4,
+              "cinco":5,"seis":6,"siete":7,"ocho":8,"nueve":9,"diez":10,
+              "once":11,"doce":12,"trece":13,"catorce":14,"quince":15,
+              "dieciseis":16,"diecisiete":17,"dieciocho":18,
+              "diecinueve":19,"veinte":20}
+
+def grounded_reference(supplied):
+    import re
+    normalized=plain(supplied)
+    words=set(re.findall(r"\\b[a-z]+\\b",normalized))
+    numbers=sorted({str(value) for key,value in NUMBER_WORDS.items() if key in words})
+    return supplied+" "+" ".join(numbers) if numbers else supplied
+
 def decide(message,profile,history):
     if private_data(message):
         raise ValueError("Usa únicamente datos ficticios sin identificadores personales")
@@ -155,9 +173,10 @@ def decide(message,profile,history):
             not isinstance(obj["reply"],str) or not obj["reply"].strip() or
             len(obj["reply"])>220 or not isinstance(obj["updates"],list) or len(obj["updates"])>4):
         raise RuntimeError("invalid_decision_schema")
-    reply=grounded_reply(obj["reply"],supplied)
-    if not reply or private_data(reply) or reply!=obj["reply"].strip():
+    reply=grounded_reply(obj["reply"],grounded_reference(supplied))
+    if not reply or private_data(reply):
         raise RuntimeError("response_rejected_by_guard")
+    sanitized=reply!=obj["reply"].strip()
     updates=[]
     result,changed=apply_updates(profile,obj["updates"],message,diagnostics=updates)
     metrics={"model":timings["response_model"],"calls":1,"output_tokens":timings["eval_count"],
@@ -173,6 +192,7 @@ def decide(message,profile,history):
         "history_available":len(history),"history_included":history_count,
         "profile_before":profile,"updates":updates,
         "same_as_previous_reply":bool(previous and plain(previous)==plain(reply)),
+        "reply_sanitized":sanitized,
         "semantic_correctness":"not_independently_verified"}
     return {"reply":reply,"profile":result,"changed_fields":changed,"model_evidence":metrics,
             "diagnostics":diagnostics,"review_required":wants_human(message)}

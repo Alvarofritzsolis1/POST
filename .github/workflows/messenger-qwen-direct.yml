@@ -67,6 +67,7 @@ jobs:
               if missing:
                   print(json.dumps({"missing_facts":missing,"conversation":summary},ensure_ascii=False,indent=2))
               assert not missing, "Falló extracción semántica real; revisar evidencia adjunta"
+              assert not any(x.get("diagnostics",{}).get("same_as_previous_reply") for x in evidence), "Qwen repitió una respuesta sin considerar el nuevo dato"
               assert not any("contratos" in x["reply"].lower() or "empleador" in x["reply"].lower()
                              for x in evidence[1:]), "Desvío a requisitos laborales no solicitados"
               assert "contrato" not in evidence[-1]["reply"].lower(), "No aclaró la confusión"

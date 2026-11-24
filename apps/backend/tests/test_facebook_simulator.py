@@ -230,3 +230,30 @@ def test_direct_model_schema_extracts_evidence_before_answer():
         {"role":"outbound","text":"¿En qué comuna puedes trabajar?"}])
     assert '"ultima_respuesta":"¿En qué comuna puedes trabajar?"' in context
     assert '"workers":4' in context
+
+
+def test_spoken_numbers_are_grounded_for_safe_model_reply():
+    from app.messenger_qwen_lab import grounded_reference
+    from app.galancito_flow import grounded_reply
+    original='{"mensaje_actual":"Somos cuatro en total","ficha_confirmada":{}}'
+    assert grounded_reply("Entonces son 4 en total.",original) is None
+    assert grounded_reply("Entonces son 4 en total.",grounded_reference(original)) is not None
+    assert grounded_reply("Entonces son 9 en total.",grounded_reference(original)) is None
+
+
+def test_model_reports_sanitized_reply_in_diagnostic(ai_env,monkeypatch):
+    from app.messenger_qwen_lab import MODEL
+    from app.galancito_local import last_timings
+    import json
+    monkeypatch.setenv("GALANCITO_LOCAL_AI_ENABLED","true")
+    monkeypatch.setenv("GALANCITO_LOCAL_MODEL",MODEL)
+    settings.cache_clear()
+    def model(*args,**kwargs):
+        last_timings.set({"response_model":MODEL,"local_model_calls":1,"eval_count":65})
+        return json.dumps({"updates":[],"reply":"¿De qué oficio es? ¿Y dónde trabajas?"})
+    monkeypatch.setattr("app.messenger_qwen_lab.generate_local_text",model)
+    response=ai_env["client"].post(BASE+"/turn",headers=signin(ai_env["client"]),
+         json={"mode":"qwen","message":"Vi un aviso"})
+    assert response.status_code==200,response.text
+    assert response.json()["diagnostics"]["reply_sanitized"] is True
+    assert response.json()["reply"].count("?")==1
