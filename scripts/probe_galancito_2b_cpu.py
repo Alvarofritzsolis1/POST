@@ -422,10 +422,12 @@ def main():
                     ids=tokenizer(prompt,add_special_tokens=False,return_tensors="pt")["input_ids"]
                     if ids.shape[1]>384:
                         raise RuntimeError("Reserved conversation exceeds context budget")
+                    # Qwen's chat template and text model have distinct stop tokens.
                     with torch.no_grad():
                         output=model.generate(input_ids=ids,attention_mask=torch.ones_like(ids),
                             max_new_tokens=40,do_sample=False,use_cache=True,
-                            pad_token_id=tokenizer.eos_token_id)
+                            eos_token_id=[tokenizer.eos_token_id, tokenizer.pad_token_id],
+                            pad_token_id=tokenizer.pad_token_id)
                     return tokenizer.decode(output[0,ids.shape[1]:],skip_special_tokens=True).strip()
                 model.eval()
                 def evaluate_real():
