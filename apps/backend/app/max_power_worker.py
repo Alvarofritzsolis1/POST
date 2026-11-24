@@ -23,7 +23,7 @@ from .galancito_training_api import RoundInput, start
 from .galancito_training_models import ACTIVE, TrainingCase, TrainingRound, TrainingWorker
 from .galancito_training_model import TrainingModel
 from .max_power_decisions import QWEN_MIN_RAM_MB, can_run, classify_outcome, evidence_fingerprint, select_experiment_plan, worksite_holdout_sign_test
-from .max_power_live import RESOURCE_EVENT, resource_metrics
+from .max_power_live import RESOURCE_EVENT, resource_metrics, cpu_event_blocks
 from .max_power_models import MaxPowerEvent, MaxPowerState, MaxPowerMessengerTrial
 from .max_power_messenger import schedule_next, process_one, schedule_synthetic_reply
 from .max_power_practice import EVENT as PRACTICE_EVENT, generate_scenarios, practice_id, run_practice
@@ -73,6 +73,14 @@ def isolated_qwen_status(snapshot: dict, training_model=None) -> tuple[bool, str
 def isolated_qwen_ready(snapshot: dict, training_model=None) -> bool:
     """Boolean-compatible wrapper for existing readiness checks."""
     return isolated_qwen_status(snapshot, training_model)[0]
+
+
+def cpu_execution_blocks(db, now):
+    events = db.scalars(select(MaxPowerEvent).where(
+        MaxPowerEvent.event == "cpu_supervisor_status",
+        MaxPowerEvent.created_at >= now - timedelta(minutes=5)))
+    return any(cpu_event_blocks(e.evidence or {}, aware(e.created_at), aware(now))
+               for e in events)
 
 
 def set_wait(row, now, code, reason, seconds=RECHECK_SECONDS):
@@ -329,27 +337,11 @@ def tick(db, sampler, *, sampled=None, training_model=None):
         if current:
             set_wait(row, now, "manual_round_busy", "Evaluación anterior en curso; MAX POWER espera", 60)
             continue
-        # CPU LoRA and 4B practice must never compete for the same six CPUs.
-        # The separate, signed supervisor refreshes this durable heartbeat
-        # while genuine optimizer steps run.
-        cpu_event = db.scalar(select(MaxPowerEvent).where(
-            MaxPowerEvent.org_id == row.org_id,
-            MaxPowerEvent.round_id == row.org_id,
-            MaxPowerEvent.event == "cpu_supervisor_status"))
-        drain_until = (cpu_event.evidence or {}).get("draining_until_epoch", 0) if cpu_event else 0
-        if isinstance(drain_until, (int, float)) and drain_until > aware(now).timestamp():
+        # Waiting for a turn is not an active trainer. Never make a queued
+        # 4B task wait on a supervisor which is itself waiting for that task.
+        if cpu_execution_blocks(db, now):
             set_wait(row, now, "cpu_neural_training",
-                     "Esperando el cierre seguro del proceso neuronal anterior; Qwen 4B en espera", 10)
-            continue
-        if (cpu_event is not None
-                and (cpu_event.evidence or {}).get("state") in ("training", "preparing_synthetic", "training_synthetic", "pausing", "cpu_waiting_turn")
-                and aware(cpu_event.created_at) >= aware(now) - timedelta(seconds=55)):
-            set_wait(row, now, "cpu_neural_training",
-                     ("Reservando turno para LoRA CPU verificado; práctica 4B en espera" if
-                      (cpu_event.evidence or {}).get("state") == "cpu_waiting_turn" else
-                      ("Preparando LoRA CPU, sin pasos nuevos verificados" if
-                       (cpu_event.evidence or {}).get("state") == "preparing_synthetic" else
-                       "LoRA CPU ejecuta pasos verificados; prueba 4B en espera")), 30)
+                     "LoRA anterior activo o cerrándose; esperando liberación segura", 10)
             continue
         ok, reason = can_run(snapshot, messenger_pending=bool(
             messenger_busy(db) or messenger_recent(db)), intensive=True)
@@ -473,7 +465,9 @@ def main():
                     except Exception:
                         logger.exception("MAX POWER practice cycle failed; durable state preserved")
                     task = None
-                if enabled and task is None:
+                with SessionLocal() as db:
+                    neural_busy = cpu_execution_blocks(db, utcnow()) if enabled and task is None else False
+                if enabled and task is None and not neural_busy:
                     with SessionLocal() as db:
                         due = db.scalar(select(MaxPowerMessengerTrial.id).join(
                             MaxPowerState, MaxPowerMessengerTrial.org_id == MaxPowerState.org_id
