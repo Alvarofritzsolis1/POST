@@ -277,6 +277,27 @@ services:
     cpus: 1.5
     cpu_shares: 16
     logging: *logs
+  # Explicit diagnostic only; never runs in normal deployment or MAX POWER ON.
+  # Must run with MAX POWER OFF and the 0.8B supervisor idle.
+  cpu-4b-probe:
+    profiles: [cpu-4b-probe]
+    build: {context: ., dockerfile: infrastructure/Dockerfile.cpu-4b-probe}
+    restart: "no"
+    read_only: true
+    init: true
+    volumes:
+      - ${GALANT_CPU_LORA_PRIVATE_DIR:-/opt/galant-cpu-lora-private}/4b-diagnostic:/private
+    tmpfs:
+      - /tmp:size=128m,mode=1777
+    networks: [cpu-lora-egress]
+    security_opt: [no-new-privileges:true]
+    cap_drop: [ALL]
+    pids_limit: 96
+    mem_limit: 8g
+    memswap_limit: 8g
+    cpus: 4.0
+    cpu_shares: 16
+    logging: *logs
   frontend:
     build: {context: ., dockerfile: apps/frontend/Dockerfile}
     restart: unless-stopped
