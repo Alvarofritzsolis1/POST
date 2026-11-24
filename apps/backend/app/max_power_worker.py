@@ -327,7 +327,7 @@ def tick(db, sampler, *, sampled=None, training_model=None):
         current = db.scalar(select(TrainingRound.id).where(
             TrainingRound.org_id == row.org_id, TrainingRound.state.in_(ACTIVE)))
         if current:
-            set_wait(row, now, "manual_round_busy", "Práctica Bot está ocupado; MAX POWER espera", 60)
+            set_wait(row, now, "manual_round_busy", "Evaluación anterior en curso; MAX POWER espera", 60)
             continue
         # CPU LoRA and 4B practice must never compete for the same six CPUs.
         # The separate, signed supervisor refreshes this durable heartbeat
@@ -352,7 +352,7 @@ def tick(db, sampler, *, sampled=None, training_model=None):
                        "LoRA CPU ejecuta pasos verificados; prueba 4B en espera")), 30)
             continue
         ok, reason = can_run(snapshot, messenger_pending=bool(
-            messenger_busy(db) or messenger_recent(db)))
+            messenger_busy(db) or messenger_recent(db)), intensive=True)
         if not ok:
             set_wait(row, now, "resource_guard", reason, RESOURCE_RECHECK_SECONDS)
             continue
@@ -416,7 +416,7 @@ def tick(db, sampler, *, sampled=None, training_model=None):
             result = start(db, owner, RoundInput(
                 profile="interno", suite="live", model="ollama",
                 cases=plan["cases"], cycles=plan["cycles"],
-                minutes=plan["minutes"], cpu_limit_percent=70,
+                minutes=plan["minutes"], cpu_limit_percent=90,
                 ram_limit_mb=0, token_budget=plan["token_budget"],
                 cost_budget=0, night=False), orchestrator="max_power", commit=False)
         except Exception as exc:
@@ -487,7 +487,7 @@ def main():
                                     "cpu_pressure_avg10": _pressure("cpu"),
                                     "memory_pressure_avg10": _pressure("memory"),
                                     "io_pressure_avg10": _pressure("io")}
-                        allowed, block_reason = can_run(snapshot, messenger_pending=pending)
+                        allowed, block_reason = can_run(snapshot, messenger_pending=pending, intensive=True)
                         if allowed and MAX_POWER_ISOLATED and snapshot["available_ram_mb"] >= QWEN_MIN_RAM_MB:
                             task = executor.submit(process_one)
                         else:
