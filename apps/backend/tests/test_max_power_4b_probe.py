@@ -90,3 +90,19 @@ def test_neural_report_never_exports_raw_chat_or_promotes():
     assert result["completed_steps"]==1
     assert result["production_promoted"] is False
     assert "private" not in str(result)
+
+
+def test_signed_dataset_group_selection_requires_independent_groups():
+    import pytest
+    # Docker places the shared dataset validator beside the worker. Unit
+    # tests use the exact backend module without modifying production imports.
+    import sys
+    from app import galancito_finetune_dataset
+    from unittest.mock import patch
+    with patch.dict(sys.modules,{"galancito_finetune_dataset":galancito_finetune_dataset}):
+        from galancito_4b_approved import select_groups
+    def row(g,c): return {"group":g,"criterion":c}
+    picked=select_groups([row("a","context"),row("a","safety"),row("b","context"),row("c","safety")],3)
+    assert len({r["group"] for r in picked})==3
+    with pytest.raises(ValueError):
+        select_groups([row("a","context"),row("a","safety")],2)

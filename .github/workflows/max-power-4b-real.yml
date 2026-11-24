@@ -5,6 +5,7 @@ on:
       - 'scripts/probe_galancito_4b_cpu.py'
       - 'scripts/galant_cpu_lora_resources.py'
       - 'scripts/galancito_4b_conversation_gate.py'
+      - 'scripts/galancito_4b_approved.py'
       - 'scripts/max_power_4b_manager.py'
       - 'apps/backend/app/max_power_4b_control.py'
       - 'infrastructure/Dockerfile.cpu-4b-probe'
@@ -22,7 +23,7 @@ jobs:
     steps:
       - uses: actions/checkout@v4
       - name: Sintaxis
-        run: python3 -m py_compile scripts/probe_galancito_4b_cpu.py scripts/max_power_4b_manager.py scripts/galancito_4b_conversation_gate.py apps/backend/app/max_power_4b_control.py
+        run: python3 -m py_compile scripts/probe_galancito_4b_cpu.py scripts/max_power_4b_manager.py scripts/galancito_4b_conversation_gate.py scripts/galancito_4b_approved.py apps/backend/app/max_power_4b_control.py
       - name: Build CPU
         run: docker build -f infrastructure/Dockerfile.cpu-4b-probe -t galant-4b-root .
       - name: Primer paso neuronal real

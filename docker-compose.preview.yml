@@ -309,11 +309,20 @@ services:
     build: {context: ., dockerfile: infrastructure/Dockerfile.cpu-4b-probe}
     entrypoint: ["python", "/src/scripts/max_power_4b_manager.py"]
     restart: unless-stopped
+    healthcheck:
+      test: ["CMD-SHELL", "python -c 'import os,time,sys; p=\"/tmp/max_power_4b_heartbeat\"; sys.exit(0 if os.path.isfile(p) and time.time()-os.path.getmtime(p)<60 else 1)'"]
+      interval: 20s
+      timeout: 5s
+      retries: 3
+      start_period: 45s
     read_only: true
     init: true
+    environment:
+      GALANT_DATASET_APPROVAL_PUBLIC_KEY: ${GALANT_DATASET_APPROVAL_PUBLIC_KEY:-}
     volumes:
       - galancito_4b_probe:/private
       - galancito_4b_control:/4b-control
+      - ${GALANT_4B_APPROVED_DIR:-/opt/galant-4b-approved}:/approved:ro
     tmpfs:
       - /tmp:size=128m,mode=1777
     networks: [cpu-lora-egress]

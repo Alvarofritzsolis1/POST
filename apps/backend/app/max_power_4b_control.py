@@ -79,6 +79,9 @@ def measured_report(status):
     evaluation=raw.get("conversation_validation")
     if not isinstance(evaluation,dict):
         evaluation={}
+    approved_eval=raw.get("approved_reserved_validation")
+    if not isinstance(approved_eval,dict):
+        approved_eval={}
     out={"stage":stage,"at":status.get("at"),"generation":status.get("generation"),
         "model":"Qwen/Qwen3.5-4B","points":points,"completed_steps":len(points),
         "target_steps":10,"data_kind":raw.get("data_kind") if raw.get("data_kind") in
@@ -90,6 +93,9 @@ def measured_report(status):
         "conversation_validation":{k:number(evaluation.get(k)) for k in
             ("cases","baseline_passes","candidate_passes","regressions","safety_regressions")},
         "conversation_gate":evaluation.get("lab_pass") is True,
+        "approved_reserved_validation":{k:number(approved_eval.get(k)) for k in
+            ("cases","baseline_passes","candidate_passes","regressions","safety_regressions")},
+        "approved_gate":approved_eval.get("gate_pass") is True,
         "blockers":[v for v in status.get("blockers",[]) if v in
             ("host_free_mb","cgroup_limit_mb","cgroup_available_mb","disk_free_mb")]}
     return out

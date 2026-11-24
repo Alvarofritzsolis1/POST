@@ -97,6 +97,8 @@ def main():
     parser.add_argument("--control-file",type=Path)
     parser.add_argument("--org")
     parser.add_argument("--generation",type=int)
+    parser.add_argument("--approved-dir",type=Path)
+    parser.add_argument("--expected-dataset-sha256")
     parser.add_argument("--output",type=Path,default=Path("/private/4b-probe"))
     args=parser.parse_args()
     if args.control_file and (not args.org or not args.generation):
@@ -106,6 +108,8 @@ def main():
             from max_power_4b_control import authorized,read
             if not authorized(read(args.control_file),args.org,args.generation):
                 raise InterruptedError("MAX POWER paused or session expired")
+    if bool(args.approved_dir)!=bool(args.expected_dataset_sha256) or (args.approved_dir and not args.conversation_eval):
+        parser.error("Approved training requires signed dataset digest and reserved evaluation")
     root=args.output
     root.mkdir(parents=True,exist_ok=True)
     path=root/"latest.json"
@@ -121,6 +125,14 @@ def main():
         return 2 if reasons else 0
     try:
         control_guard()
+        bundle=None
+        if args.approved_dir:
+            from galancito_4b_approved import approved_bundle,select_groups
+            bundle=approved_bundle(args.approved_dir,os.environ.get("GALANT_DATASET_APPROVAL_PUBLIC_KEY",""))
+            if bundle["dataset_digest"]!=args.expected_dataset_sha256:
+                raise RuntimeError("Approved dataset changed before training")
+            report.update(data_kind="human_reviewed_real",approved_dataset_sha256=bundle["dataset_digest"])
+            write_report(path,report)
         import torch
         import bitsandbytes as bnb
         import transformers, peft
@@ -193,9 +205,6 @@ def main():
             return h.hexdigest()
         initial=digest()
         optimizer=torch.optim.AdamW(params,lr=7e-5)
-        dataset=hashlib.sha256(json.dumps([SYSTEM,EXAMPLES,HOLDOUT,PROFILE,args.steps],
-                                          ensure_ascii=False).encode()).hexdigest()
-        report["dataset_sha256"]=dataset
         def encode(question,answer):
             prefix=tokenizer.apply_chat_template([{"role":"system","content":SYSTEM},
                         {"role":"user","content":question}],tokenize=False,
@@ -205,11 +214,29 @@ def main():
             if not b or len(a)+len(b)>192:
                 raise RuntimeError("Diagnostic example exceeds token budget")
             return torch.tensor([a+b],dtype=torch.long),torch.tensor([[-100]*len(a)+b],dtype=torch.long)
+        examples=EXAMPLES
+        holdout=HOLDOUT
+        reserved_real=[]
+        if bundle:
+            def short(rows):
+                for row in rows:
+                    try:
+                        encode(row["messages"][0]["content"],row["messages"][1]["content"])
+                    except RuntimeError:
+                        continue
+                    yield row
+            train_rows=select_groups(short(bundle["samples"]["train"]),args.steps)
+            reserved_real=select_groups(short(bundle["samples"]["test"]),10)
+            examples=tuple((r["messages"][0]["content"],r["messages"][1]["content"]) for r in train_rows)
+            holdout=tuple((r["messages"][0]["content"],r["messages"][1]["content"]) for r in reserved_real)
+        dataset=hashlib.sha256(json.dumps([SYSTEM,examples,holdout,PROFILE,args.steps,
+                    bundle["dataset_digest"] if bundle else None],ensure_ascii=False).encode()).hexdigest()
+        report["dataset_sha256"]=dataset
         def reserved_loss():
             model.eval()
             values=[]
             with torch.no_grad():
-                for q,a in HOLDOUT:
+                for q,a in holdout:
                     guard()
                     ids,labels=encode(q,a)
                     loss=model(input_ids=ids,labels=labels,use_cache=False).loss
@@ -258,7 +285,7 @@ def main():
         stop=min(args.steps,args.stop_after or args.steps)
         for step in range(start+1,stop+1):
             guard()
-            ids,labels=encode(*EXAMPLES[step-1])
+            ids,labels=encode(*examples[step-1])
             report.update(status="backward_pending",active_step=step)
             write_report(path,report)
             t=monotonic()
@@ -328,10 +355,32 @@ def main():
                             pad_token_id=tokenizer.eos_token_id)
                     return tokenizer.decode(output[0,ids.shape[1]:],skip_special_tokens=True).strip()
                 model.eval()
+                def evaluate_real():
+                    from galancito_finetune_dataset import verified_match
+                    from galancito_4b_conversation_gate import safety
+                    rows=[]
+                    for row in reserved_real:
+                        answer=generate([row["messages"][0]])
+                        safe=safety(answer)
+                        rows.append({"passed":safe and verified_match(answer,row["reference_answer"],row["verifier"]),
+                                     "safe":safe})
+                    return rows
                 with model.disable_adapter():
                     base_conversations=evaluate(generate)
+                    base_real=evaluate_real() if reserved_real else []
                 candidate_conversations=evaluate(generate)
                 report["conversation_validation"]=compare(base_conversations,candidate_conversations)
+                if reserved_real:
+                    candidate_real=evaluate_real()
+                    gains=sum(not x["passed"] and y["passed"] for x,y in zip(base_real,candidate_real))
+                    regressions=sum(x["passed"] and not y["passed"] for x,y in zip(base_real,candidate_real))
+                    report["approved_reserved_validation"]={"cases":len(reserved_real),
+                        "baseline_passes":sum(x["passed"] for x in base_real),
+                        "candidate_passes":sum(x["passed"] for x in candidate_real),
+                        "regressions":regressions,
+                        "safety_regressions":sum(x["safe"] and not y["safe"] for x,y in zip(base_real,candidate_real)),
+                        "gate_pass":gains>0 and regressions==0 and all(y["safe"] for y in candidate_real)}
+                # Even a passing limited gate is not proof of production quality.
                 # No activation on a production route; these are limited synthetic checks.
                 report["quality_improvement_verified"]=False
             report["status"]="completed"

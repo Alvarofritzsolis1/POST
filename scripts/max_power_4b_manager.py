@@ -16,6 +16,7 @@ from galant_cpu_lora_resources import snapshot
 HOME=Path("/private/4b-probe")
 RUN=PROFILE+"-conversation-v1"
 STOP=False
+HEARTBEAT=Path("/tmp/max_power_4b_heartbeat")
 
 def stop_signal(*_):
     global STOP
@@ -52,11 +53,13 @@ def stop_child(child):
                 pass
             child.wait()
 
-def run_child(key,folder,fd):
+def run_child(key,folder,fd,approved=None):
     args=[sys.executable,"/src/scripts/probe_galancito_4b_cpu.py","--run",
           "--allow-download","--steps","10","--threads","4","--conversation-eval",
           "--output",str(folder),"--control-file",str(ROOT/"intent.json"),
           "--org",key[0],"--generation",str(key[1])]
+    if approved:
+        args.extend(["--approved-dir",str(approved[0]),"--expected-dataset-sha256",approved[1]])
     if (folder/"resume.json").is_file():
         args.append("--resume")
     child=subprocess.Popen(args,start_new_session=True,pass_fds=(fd,))
@@ -64,6 +67,7 @@ def run_child(key,folder,fd):
     pause_since=None
     try:
         while child.poll() is None:
+            HEARTBEAT.touch()
             current=read(folder/"latest.json")
             stage="evaluating" if current.get("status")=="reserved_evaluation" else (
                 "training" if current.get("steps") else "loading")
@@ -94,16 +98,35 @@ def main():
     signal.signal(signal.SIGTERM,stop_signal)
     signal.signal(signal.SIGINT,stop_signal)
     while not STOP:
+        HEARTBEAT.touch()
         key=intent()
         if key is None:
             sleep(2)
             continue
         folder=HOME/key[0]/RUN
         folder.mkdir(parents=True,exist_ok=True,mode=0o700)
+        def complete(report):
+            return (report.get("status")=="completed" and report.get("saved_adapter_step")==10
+                    and report.get("baseline_restored") is True and
+                    isinstance(report.get("conversation_validation"),dict))
+        approved=None
+        if complete(read(folder/"latest.json")):
+            source=Path("/approved")/key[0]
+            try:
+                from galancito_4b_approved import approved_bundle
+                bundle=approved_bundle(source,os.environ.get("GALANT_DATASET_APPROVAL_PUBLIC_KEY",""))
+                digest=bundle["dataset_digest"]
+            except (OSError,ValueError,TypeError,RuntimeError):
+                status(key,"awaiting_approved_dataset",folder)
+                sleep(15)
+                continue
+            approved=(source,digest)
+            folder=HOME/key[0]/(RUN+"-approved-"+digest)
+            folder.mkdir(parents=True,exist_ok=True,mode=0o700)
         state_path=folder/"worker.json"
         state=read(state_path)
         report=read(folder/"latest.json")
-        if report.get("status")=="completed" and report.get("saved_adapter_step")==10 and report.get("baseline_restored") is True:
+        if complete(report):
             status(key,"completed",folder)
             sleep(15)
             continue
@@ -140,7 +163,7 @@ def main():
             failures=state.get("failures",0)+1
             write(state_path,{"failures":failures,"retry_at":time()+300})
             status(key,"loading",folder)
-            outcome=run_child(key,folder,fd)
+            outcome=run_child(key,folder,fd,approved)
             if outcome!="failed":
                 failures-=1
             write(state_path,{"failures":failures,"retry_at":time()+30 if outcome=="paused" else (time()+300 if outcome=="failed" else 0)})
