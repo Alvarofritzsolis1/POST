@@ -22,7 +22,7 @@ sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "apps" / "backend")
 from galant_cpu_lora_resources import capacity_gate, process_memory_mb, should_pause, snapshot
 from galancito_lora_progress import ProgressReporter
 from app.galancito_finetune_dataset import load_approved, verified_training_manifest, verified_match
-from max_power_synthetic_lab import verify_dataset
+from max_power_synthetic_lab import bounded_evaluation, verify_dataset
 
 MODEL = "Qwen/Qwen3.5-0.8B"
 SYSTEM = "Responde en español con precisión. No inventes información ni identificadores."
@@ -322,8 +322,13 @@ def main(argv=None):
         _, trainable_count = hash_trainable(model,torch)
         model.config.use_cache = False
         train_data = encode_cases(tokenizer,bundle["samples"]["train"],args.max_tokens)
-        validation = encode_cases(tokenizer,bundle["samples"]["validation"],args.max_tokens)
-        holdout = encode_cases(tokenizer,bundle["samples"]["test"],args.max_tokens)
+        validation_cases = bundle["samples"]["validation"]
+        holdout_cases = bundle["samples"]["test"]
+        if args.synthetic_development:
+            validation_cases = bounded_evaluation(validation_cases)
+            holdout_cases = bounded_evaluation(holdout_cases)
+        validation = encode_cases(tokenizer,validation_cases,args.max_tokens)
+        holdout = encode_cases(tokenizer,holdout_cases,args.max_tokens)
         settings = TrainingArguments(
             output_dir=str(target/"checkpoints"),
             max_steps=args.max_steps, learning_rate=7e-5,
@@ -331,7 +336,7 @@ def main(argv=None):
             gradient_accumulation_steps=2,logging_steps=1,logging_strategy="steps",
             save_strategy="steps",save_steps=args.checkpoint_steps,
             save_total_limit=3,eval_strategy="steps",
-            eval_steps=args.checkpoint_steps,
+            eval_steps=max(args.checkpoint_steps, 10) if args.synthetic_development else args.checkpoint_steps,
             gradient_checkpointing=True,
             dataloader_num_workers=0,report_to="none",use_cpu=True,
             fp16=False,bf16=False,remove_unused_columns=False,
@@ -473,6 +478,9 @@ def main(argv=None):
             "optimizer_start_sha256":proof["optimizer_start_sha256"],
             "optimizer_end_sha256":proof["optimizer_end_sha256"],
             "dataset_sha256":bundle["dataset_digest"],
+            "dataset_partition_sizes":bundle["sizes"],
+            "validation_examples_measured":len(validation),
+            "holdout_examples_measured":len(holdout),
             "heldout_loss_before":baseline,"heldout_loss_after":final,
             "reasoning_improvement_proven":False,
             "needs":"Independent exact-answer and regression evaluation before promotion",
