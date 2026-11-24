@@ -598,6 +598,18 @@ def next_intake_reply(message: str, facts: dict, prior_prompt: str = "") -> str 
     return (_friendly_ack(message, facts, question, prior_prompt) + " " + question).strip()[:540]
 
 
+def model_intake_candidate(message: str, facts: dict, prior: str, fallback: str | None) -> bool:
+    """Let the configured model phrase normal intake after consent; keep safety and contact local."""
+    if (not fallback or private_data(message) or identity_reply(message)
+            or clarification_reply(message, prior) or is_pure_greeting(message)
+            or plain(message) in {"gracias", "muchas gracias", "vale gracias"}
+            or facts.get("contact_declined")
+            or "¿me dejas tu celular?" in fallback):
+        return False
+    return bool(intake_question_fields(fallback) and analyze(message).intent not in
+                {"human", "restricted", "documents", "requirements", "about", "publish"})
+
+
 def needs_deeper_response(message: str) -> bool:
     """Prefer the configured AI for real questions; keep one-word replies local.
 
