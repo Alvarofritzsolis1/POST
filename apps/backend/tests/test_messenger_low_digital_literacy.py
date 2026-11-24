@@ -291,3 +291,32 @@ def test_new_role_question_never_treats_ambiguous_yes_as_employment():
     assert application_role("quiero trabajar apatronado", ASK_APPLICATION_INTEREST) == "employment"
     assert application_ai_candidate("apaño con mis cabros", ASK_APPLICATION_INTEREST)
     assert not application_ai_candidate("mi celular es +56900000000", ASK_APPLICATION_INTEREST)
+
+
+def test_authorized_qwen_can_choose_role_response_and_receives_original_slang(network, monkeypatch):
+    n = network
+    _local_messenger(n, monkeypatch)
+    sent, contexts = [], []
+    monkeypatch.setattr("app.facebook_chat_worker.graph_send",
+                        lambda *a: sent.append(a[2]) or f"semantic-{len(sent)}")
+    for i, message in enumerate(["quiero postular", "gasfiter"], 1):
+        assert incoming(n, message, f"semantic-turn-{i}").status_code == 200
+        assert process_chat_next(n["Session"])
+    assert sent[-1].endswith(ASK_APPLICATION_INTEREST)
+    with n["Session"].begin() as db:
+        lead = db.get(FacebookLead, _contact(n)["lead"]["id"])
+        lead.ai_consent = True
+        lead.ai_consent_state = "accepted"
+        lead.ai_consent_provider = "ollama"
+    from app import facebook_ai
+    def local(instructions, prompt, limit, **options):
+        contexts.append((prompt, options))
+        return "Cuando dices eso, ¿te refieres a que tomas trabajos por tu cuenta?"
+    monkeypatch.setattr(facebook_ai, "generate_local_text", local)
+    assert incoming(n, "me las arreglo con mis cabros", "semantic-slang").status_code == 200
+    assert process_chat_next(n["Session"])
+    assert len(contexts) == 1
+    assert "me las arreglo con mis cabros" in contexts[0][0]
+    assert contexts[0][1].get("thinking") is True
+    assert "cuando dices eso" in sent[-1].lower()
+    assert _contact(n)["lead"]["interest_type"] == "unknown"

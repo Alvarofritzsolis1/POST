@@ -25,7 +25,7 @@ from .galancito_flow import safe_ai_reply, consented_for, grounded_reply, is_per
 from .facebook_crm_models import FacebookLead, FacebookChatMessage, FacebookTradeGuide, FacebookLeadTrade
 from .models import utcnow
 from .network_service import key
-from .galancito_triage import analyze, quick_reply, private_data, application_ai_candidate
+from .galancito_triage import analyze, quick_reply, private_data, application_ai_candidate, application_role, application_role_question
 from .galancito_intake import acceptable_intake_draft, intake_question_fields, clarification_reply, identity_reply, model_intake_candidate, next_intake_reply, small_talk_reply, natural_messenger_reply, needs_deeper_response
 from .galancito_memory import aware, note_profile_sources, prior_delivered_prompt, profile_facts, reply_focus, messenger_context
 from .galancito_knowledge import retrieve, exact_answer
@@ -302,6 +302,11 @@ def process_chat_next(session_factory=SessionLocal, *, simulation_config=None, n
             model_needed = (bool(latest) and not (help_answer or location or follow_up) and (not apply or application_model) and not private_data(latest) and not identity_reply(latest)
                             and intent not in {"human", "restricted"} and fast_source != "knowledge"
                             and (not fast or needs_deeper_response(latest) or rewrite_intake))
+            semantic_reasoning = bool(model_needed and local_first_messenger(cfg)
+                                      and application_role_question(prior_question)
+                                      and application_role(latest, prior_question) is None)
+            trace["semantic_reasoning_requested"] = semantic_reasoning
+            model_options = {"thinking": True} if semantic_reasoning else {}
             trace["model_requested"] = bool(model_needed)
             trace["knowledge_count"] = len(evidence)
             if model_needed:
@@ -370,7 +375,7 @@ def process_chat_next(session_factory=SessionLocal, *, simulation_config=None, n
                         trace["approved_coaching"] = bool(verified_policy)
                         if simulated:
                             # The simulator is never permitted to call an external provider.
-                            drafted = (infer(db, lambda: generate_local_text(LOCAL_REPLY_INSTRUCTIONS, prepared_context, 550))
+                            drafted = (infer(db, lambda: generate_local_text(LOCAL_REPLY_INSTRUCTIONS, prepared_context, 550, **model_options))
                                        if ai_source == "ollama" or local_first_messenger(cfg) else None)
                         elif ai_source == "team" and local_first_messenger(cfg):
                             # External consent has already been checked.
@@ -394,7 +399,7 @@ def process_chat_next(session_factory=SessionLocal, *, simulation_config=None, n
 
                             drafted, route = select_response(
                                 lambda: infer(db, lambda: generate_text(
-                                    REPLY_INSTRUCTIONS, prepared_context, 550, approved_policy=verified_policy)),
+                                    REPLY_INSTRUCTIONS, prepared_context, 550, approved_policy=verified_policy, **model_options)),
                                 external_backup, prepared_context,
                                 allow_external=consented_for(current, "team"),
                                 local_fallback=fast if rewrite_intake and intake_question_fields(fast or "")
@@ -412,8 +417,8 @@ def process_chat_next(session_factory=SessionLocal, *, simulation_config=None, n
                                                   prompt=prepared_context, max_output_tokens=230)
                                 if ai_source == "team" else
                                 (generate_text(REPLY_INSTRUCTIONS, prepared_context, 550,
-                                               approved_policy=verified_policy) if verified_policy else
-                                 generate_text(REPLY_INSTRUCTIONS, prepared_context, 550))),
+                                               approved_policy=verified_policy, **model_options) if verified_policy else
+                                 generate_text(REPLY_INSTRUCTIONS, prepared_context, 550, **model_options))),
                                 org_id=org_id if ai_source == "team" else None)
                         timings = last_timings.get()
                     if drafted:

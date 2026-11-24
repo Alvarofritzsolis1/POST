@@ -216,7 +216,7 @@ def galancito_red_ai_available(cfg=None) -> bool:
 
 
 def generate_text(instructions: str, supplied_data: str, max_chars: int = 1200,
-                  *, approved_policy: str = "") -> str | None:
+                  *, approved_policy: str = "", thinking: bool = False) -> str | None:
     """Messenger replies; Red de Obras ads use the separate fact-preserving helper."""
     cfg = settings()
     if cfg.facebook_ai_provider == "ollama":
@@ -226,6 +226,8 @@ def generate_text(instructions: str, supplied_data: str, max_chars: int = 1200,
                     approved_policy) if approved_policy else LOCAL_REPLY_INSTRUCTIONS
         if len(complete) > MAX_INSTRUCTIONS_CHARS:
             raise ValueError("Las guías aprobadas exceden el límite de instrucciones")
+        if thinking:
+            return generate_local_text(complete, supplied_data, min(max_chars, 1200), thinking=True)
         return generate_local_text(complete, supplied_data, min(max_chars, 1200))
     if not (cfg.facebook_ai_provider == "openai" and cfg.facebook_ai_enabled and
             cfg.facebook_ai_api_key):
