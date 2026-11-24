@@ -14,7 +14,7 @@ from .db import get_db
 from .galancito_memory import aware
 from .galancito_training_models import ACTIVE, TrainingRound, TrainingWorker
 from .max_power_decisions import QWEN_MIN_RAM_MB, latency_diagnosis, priority_from_reviews
-from .max_power_live import RESOURCE_EVENT, general_series, messenger_series, resource_metrics
+from .max_power_live import RESOURCE_EVENT, general_series, messenger_series, resource_metrics, synthetic_4b_series, latency_series
 from .max_power_models import MaxPowerEvent, MaxPowerState, MaxPowerMessengerTrial
 from .max_power_export import build_report, MAX_EVENTS, safe_metrics
 from .max_power_practice import EVENT as PRACTICE_EVENT, QWEN_CRITERION, generate_scenarios
@@ -276,7 +276,14 @@ def live_history(user: User = Depends(administrator), db: Session = Depends(get_
         MaxPowerEvent.org_id == org, MaxPowerEvent.event == RESOURCE_EVENT,
         MaxPowerEvent.created_at >= now - timedelta(hours=24)
     ).order_by(MaxPowerEvent.created_at.desc()).limit(1440)))
+    synthetic = list(db.scalars(select(MaxPowerMessengerTrial).where(
+        MaxPowerMessengerTrial.org_id == org, MaxPowerMessengerTrial.status == "completed",
+        MaxPowerMessengerTrial.criterion == QWEN_CRITERION,
+        MaxPowerMessengerTrial.completed_at.is_not(None)
+    ).order_by(MaxPowerMessengerTrial.completed_at.desc(), MaxPowerMessengerTrial.id.desc()).limit(500)))
     return {"at": now, "general": general_series(reversed(events)),
+            "synthetic_4b": synthetic_4b_series(reversed(synthetic)),
+            "latency_4b": latency_series(sorted(trials + synthetic, key=lambda t: (aware(t.completed_at), t.id))),
             "messenger": messenger_series(reversed(trials)),
             "resources": [{"at": event.created_at, **resource_metrics(event.evidence or {})}
                           for event in reversed(resources)],
