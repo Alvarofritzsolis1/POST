@@ -107,3 +107,18 @@ def test_4b_memory_gate_requires_real_residency(monkeypatch):
     assert worker.qwen_memory_ready({"available_ram_mb":4000})
     assert not worker.qwen_memory_ready({"available_ram_mb":2000})
     assert not worker.qwen_memory_ready({})
+
+
+def test_dispatch_admission_uses_warm_model_policy(monkeypatch):
+    from app import max_power_worker as worker
+    monkeypatch.setattr(worker,"MAX_POWER_ISOLATED",True)
+    monkeypatch.setattr(worker,"isolated_model_resident",lambda _:True)
+    snapshot = {"host_cpu_percent":40,"available_ram_mb":4000,"disk_free_mb":10000}
+    assert worker.practice_admission(snapshot)[0]
+    assert not worker.practice_admission(snapshot,messenger_pending=True)[0]
+    assert not worker.practice_admission({**snapshot,"available_ram_mb":2000})[0]
+    monkeypatch.setattr(worker,"isolated_model_resident",lambda _:False)
+    assert not worker.practice_admission(snapshot)[0]
+    assert worker.practice_admission({**snapshot,"available_ram_mb":9000})[0]
+    monkeypatch.setattr(worker,"MAX_POWER_ISOLATED",False)
+    assert not worker.practice_admission({**snapshot,"available_ram_mb":9000})[0]
