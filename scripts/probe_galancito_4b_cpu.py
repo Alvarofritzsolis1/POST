@@ -5,6 +5,7 @@ import hashlib
 import json
 import math
 import os
+import re
 from galancito_4b_validation import evaluate_conversations, paired_report
 from uuid import uuid4
 from pathlib import Path
@@ -36,6 +37,7 @@ def main():
     parser.add_argument("--steps", type=int, choices=range(1, 11), default=10)
     parser.add_argument("--threads", type=int, choices=(2, 4), default=4)
     parser.add_argument("--conversation-eval", action="store_true")
+    parser.add_argument("--resume", action="store_true", help="Resume only a verified local optimizer checkpoint")
     parser.add_argument("--output", type=Path, default=Path("/private/4b-probe"))
     args = parser.parse_args()
     root = args.output
@@ -56,8 +58,9 @@ def main():
     try:
         import torch
         import bitsandbytes as bnb
-        from transformers import AutoTokenizer, Qwen3_5ForCausalLM, BitsAndBytesConfig
+        from transformers import AutoConfig, AutoTokenizer, Qwen3_5ForCausalLM, BitsAndBytesConfig
         from peft import LoraConfig, get_peft_model, prepare_model_for_kbit_training
+        from peft.utils.save_and_load import load_peft_weights, set_peft_model_state_dict
         torch.set_num_threads(min(args.threads, os.cpu_count() or 1))
         report["threads"] = torch.get_num_threads()
         torch.set_num_interop_threads(1)
@@ -66,6 +69,12 @@ def main():
         report["status"] = "loading"
         write_report(report_path, report)
         options = {"trust_remote_code":False, "local_files_only":not args.allow_download}
+        config = AutoConfig.from_pretrained(MODEL, **options)
+        revision = getattr(config, "_commit_hash", None)
+        if not isinstance(revision,str) or not re.fullmatch(r"[0-9a-f]{40}", revision):
+            raise RuntimeError("Cannot prove exact base-model revision")
+        options["revision"] = revision
+        report["base_revision"] = revision
         tokenizer = AutoTokenizer.from_pretrained(MODEL, **options)
         model, loading = Qwen3_5ForCausalLM.from_pretrained(
             MODEL, dtype=torch.bfloat16, device_map={"":"cpu"}, low_cpu_mem_usage=True,
@@ -144,16 +153,54 @@ def main():
                     losses.append(float(loss))
             return sum(losses)/len(losses)
 
-        run_dir = root / ("candidate-" + uuid4().hex)
-        run_dir.mkdir()
+        dataset_hash = hashlib.sha256(json.dumps([examples,holdout],ensure_ascii=False).encode()).hexdigest()
+        report["dataset_sha256"] = dataset_hash
+        resume_path = root / "resume.json"
+        def file_hash(path):
+            with path.open("rb") as stream:
+                return hashlib.file_digest(stream,"sha256").hexdigest()
+        start_step = 0
+        if args.resume and resume_path.exists():
+            saved = json.loads(resume_path.read_text())
+            name, step = saved.get("candidate_id"), saved.get("step")
+            if (not isinstance(name,str) or not re.fullmatch(r"candidate-[0-9a-f]{32}",name)
+                    or type(step) is not int or not 1 <= step <= args.steps
+                    or saved.get("base_revision") != revision
+                    or saved.get("dataset_sha256") != dataset_hash
+                    or saved.get("target_steps") != args.steps):
+                raise RuntimeError("Incompatible resume checkpoint")
+            run_dir = root / name
+            checkpoint = run_dir / ("step-" + str(step))
+            for filename in ("adapter_model.safetensors","adapter_config.json","optimizer.pt"):
+                path = checkpoint / filename
+                if path.is_symlink() or file_hash(path) != saved["files"][filename]:
+                    raise RuntimeError("Checkpoint integrity mismatch")
+            if not checkpoint.resolve().is_relative_to(root.resolve()):
+                raise RuntimeError("Checkpoint outside private storage")
+            set_peft_model_state_dict(model, load_peft_weights(str(checkpoint),device="cpu"))
+            if digest() != saved["adapter_sha256"]:
+                raise RuntimeError("Restored adapter digest mismatch")
+            optimizer.load_state_dict(torch.load(checkpoint / "optimizer.pt",map_location="cpu",weights_only=True))
+            before = saved["initial_adapter_sha256"]
+            report["initial_adapter_sha256"] = before
+            report["steps"] = saved["steps"]
+            report["holdout_loss_before"] = saved["holdout_loss_before"]
+            report["saved_adapter_step"] = step
+            report["adapter_changed"] = digest() != before
+            report["latest_adapter_sha256"] = digest()
+            start_step = step
+        else:
+            run_dir = root / ("candidate-" + uuid4().hex)
+            run_dir.mkdir()
+            report["status"] = "baseline_evaluation"
+            write_report(report_path, report)
+            report["holdout_loss_before"] = heldout_loss()
         report["candidate_id"] = run_dir.name
         report["holdout_cases"] = len(holdout)
-        report["status"] = "baseline_evaluation"
-        write_report(report_path, report)
-        report["holdout_loss_before"] = heldout_loss()
+        report["resumed_from_step"] = start_step
         write_report(report_path, report)
         model.train()
-        for step in range(1, args.steps+1):
+        for step in range(start_step+1, args.steps+1):
             if should_pause(snapshot(root)):
                 raise RuntimeError("Memory reserve below safe limit")
             ids, labels = encode(*examples[(step-1)%len(examples)])
@@ -181,14 +228,23 @@ def main():
             report["steps"].append({"step":step,"seconds":round(monotonic()-t,2),
                 "loss":float(loss.detach()),"memory":snapshot(root),
                 "adapter_changed":report["adapter_changed"], "adapter_sha256":current})
-            # Persist the latest adapter separately from production. This is
-            # not an optimizer-resume checkpoint and cannot be auto-promoted.
+            # Atomic adapter + optimizer checkpoint, never auto-promoted.
             checkpoint = run_dir / ("step-" + str(step))
-            staging = run_dir / (".step-" + str(step) + "-partial")
+            staging = run_dir / (".step-" + str(step) + "-" + uuid4().hex + "-partial")
             model.save_pretrained(staging, safe_serialization=True)
             if not (staging / "adapter_model.safetensors").is_file() or not (staging / "adapter_config.json").is_file():
                 raise RuntimeError("Incomplete persisted adapter")
+            torch.save(optimizer.state_dict(),staging / "optimizer.pt")
+            files = {name:file_hash(staging / name) for name in
+                     ("adapter_model.safetensors","adapter_config.json","optimizer.pt")}
+            if checkpoint.exists():
+                # A crash between rename and pointer publication leaves an orphan.
+                checkpoint.rename(run_dir / ("orphan-" + uuid4().hex))
             staging.rename(checkpoint)
+            write_report(resume_path,{"candidate_id":run_dir.name,"step":step,
+                "base_revision":revision,"dataset_sha256":dataset_hash,"target_steps":args.steps,
+                "initial_adapter_sha256":before,"adapter_sha256":current,"files":files,
+                "steps":report["steps"],"holdout_loss_before":report["holdout_loss_before"]})
             report["saved_adapter_step"] = step
             write_report(report_path, report)
         report["status"] = "candidate_evaluation"
