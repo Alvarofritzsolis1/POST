@@ -342,7 +342,7 @@ def process_chat_next(session_factory=SessionLocal, *, simulation_config=None, n
                     context = PROTOCOL + "\n" + context
                 trace["context_turns"] = count
                 trace["known_fields"] = sum(bool(value) for key, value in facts.items()
-                                            if key not in {"field_states", "turn_changed"})
+                                            if key not in {"field_states", "turn_changed", "manual_fields"})
         db_ms = (perf_counter() - started) * 1000
         # A separate persisted drafting state lets the UI show real stages.
         # Do not claim to be sending before the AI has generated its reply.

@@ -228,3 +228,13 @@ def test_context_prioritizes_relevant_old_messages_and_actual_knowledge():
     assert "Mi experiencia incluye termofusión" in context
     assert "maestro@example.com" not in context
     assert len(context) <= 3000
+
+
+def test_distinct_declared_experience_is_not_reduced_to_first_duration():
+    from types import SimpleNamespace
+    from app.galancito_intake import apply_intake
+    from test_galancito_curriculum_20 import blank_lead
+    lead = blank_lead()
+    apply_intake(lead, "4 años como contratista y 3 años apatronado", "¿Cuánto tiempo llevas en ese oficio?")
+    assert "4 años como contratista" in lead.experience
+    assert "3 años apatronado" in lead.experience

@@ -443,6 +443,12 @@ def apply_intake(lead, message: str, prior_prompt: str = "", *,
         elif asked and re.fullmatch(r"\d{1,2}", value) and "cuantos anos" in prev:
             lead.experience = value + " años declarados"
         elif experience and (asked or volunteered):
+            # Preserve distinct kinds of declared experience without reducing them to the first number.
+            if (re.search(r"\b(?:independiente|contratista|por mi cuenta)\b", value) and
+                    re.search(r"\b(?:apatronado|contratado|con contrato|dependiente)\b", value) and
+                    len(re.findall(_COUNT, value)) >= 2):
+                lead.experience = statement.strip()[:250]
+                return
             amount = experience[1]
             number = int(amount) if amount.isdecimal() else _NUMBERS[amount]
             if 0 <= number <= 99:
