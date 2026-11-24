@@ -26,6 +26,7 @@ from .galancito_training_model import TrainingModel, isolated_model_resident
 from .max_power_decisions import QWEN_MIN_RAM_MB, can_run, classify_outcome, evidence_fingerprint, select_experiment_plan, worksite_holdout_sign_test
 from .max_power_live import RESOURCE_EVENT, resource_metrics, cpu_event_blocks
 from .max_power_4b_slot import CONTROL, acquire_slot, release_slot, atomic_json, read_json
+from .max_power_4b_report import public_report
 from .max_power_models import MaxPowerEvent, MaxPowerState, MaxPowerMessengerTrial
 from .max_power_messenger import schedule_next, process_one, schedule_synthetic_reply
 from .max_power_practice import EVENT as PRACTICE_EVENT, generate_scenarios, practice_id, run_practice
@@ -464,6 +465,23 @@ def publish_4b_intent(db, neural_busy):
               "org":row.org_id if row else None,
               "generation":row.session_generation if row else None}
     atomic_json(CONTROL / "intent.json", intent)
+    status = read_json(CONTROL / "status.json")
+    if row:
+        report = public_report(status, row.org_id, row.session_generation)
+        if report:
+            event = db.scalar(select(MaxPowerEvent).where(
+                MaxPowerEvent.org_id == row.org_id,
+                MaxPowerEvent.event == "4b_pilot_status",
+                MaxPowerEvent.round_id == row.org_id))
+            if event is None:
+                db.add(MaxPowerEvent(org_id=row.org_id,event="4b_pilot_status",
+                    round_id=row.org_id,reason="Diagnóstico neuronal Qwen 4B",
+                    evidence={**report,"generation":row.session_generation}))
+                db.commit()
+            elif (event.evidence or {}).get("at") != report["at"]:
+                event.evidence = {**report,"generation":row.session_generation}
+                event.created_at = utcnow()
+                db.commit()
     request = read_json(CONTROL / "request.json")
     stamp = request.get("at")
     return bool(quiet and request.get("org") == intent["org"]
