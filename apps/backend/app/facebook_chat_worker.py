@@ -24,7 +24,7 @@ from .facebook_crm_models import FacebookLead, FacebookChatMessage, FacebookTrad
 from .models import utcnow
 from .network_service import key
 from .galancito_triage import analyze, quick_reply, private_data
-from .galancito_intake import clarification_reply, identity_reply, next_intake_reply, small_talk_reply, natural_messenger_reply, needs_deeper_response
+from .galancito_intake import clarification_reply, identity_reply, model_intake_candidate, next_intake_reply, small_talk_reply, natural_messenger_reply, needs_deeper_response
 from .galancito_memory import aware, note_profile_sources, prior_delivered_prompt, profile_facts, reply_focus
 from .galancito_knowledge import retrieve, exact_answer, evidence_context
 from .galancito_runtime import infer, record_run
@@ -289,13 +289,14 @@ def process_chat_next(session_factory=SessionLocal, *, simulation_config=None, n
             intent = "worksite_location" if location else "apply" if apply else analyze(latest).intent
             fast = intake or quick_reply(latest, known=facts)
             evidence = []
-            if not intake and not private_data(latest) and intent not in {"human", "restricted"}:
+            rewrite_intake = model_intake_candidate(latest, facts, prior_question, intake)
+            if (not intake or rewrite_intake) and not private_data(latest) and intent not in {"human", "restricted"}:
                 evidence = retrieve(db, lead.org_id, latest, "messenger")
-                if learned := exact_answer(evidence):
+                if not rewrite_intake and (learned := exact_answer(evidence)):
                     fast, fast_source = learned, "knowledge"
             model_needed = (bool(latest) and not (help_answer or location or follow_up or apply) and not private_data(latest) and not identity_reply(latest)
                             and intent not in {"human", "restricted"} and fast_source != "knowledge"
-                            and (not fast or needs_deeper_response(latest)))
+                            and (not fast or needs_deeper_response(latest) or rewrite_intake))
             trace["model_requested"] = bool(model_needed)
             trace["knowledge_count"] = len(evidence)
             if model_needed:
@@ -318,6 +319,8 @@ def process_chat_next(session_factory=SessionLocal, *, simulation_config=None, n
                            "\nDatos profesionales declarados: " +
                            json.dumps(professional_facts, ensure_ascii=False) +
                            "\nReferencias aprobadas: " + evidence_context(evidence))
+                if rewrite_intake:
+                    context += "\nOrientación de la pregunta siguiente (no copiar mecánicamente): " + (intake or "")
                 guides = db.scalars(select(FacebookTradeGuide).where(
                     FacebookTradeGuide.org_id == lead.org_id, FacebookTradeGuide.approved.is_(True)))
                 terms = {key(t) for t in [lead.specialty, *facts["trades"]] if t}
