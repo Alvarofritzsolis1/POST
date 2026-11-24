@@ -32,6 +32,7 @@ LOOP_SECONDS = 8
 PREFLIGHT_RECHECK = 600
 MAX_GRACE_SECONDS = 90
 MAX_STEPS = 4
+SYNTHETIC_STEPS = 40  # bounded pilot, not a full epoch over 2,000 examples
 CHECKPOINT_STEPS = 2
 MAX_FAILED_ATTEMPTS = 3
 
@@ -212,7 +213,7 @@ def launch(root: Path, output: Path, resume: bool, org: str, generation: int,
     args = [
         sys.executable, "/src/scripts/train_galancito_cpu_lora.py",
         "--dataset", str(root / ("synthetic.jsonl" if synthetic else "approved.jsonl")),
-        "--output", str(output), "--max-steps", str(MAX_STEPS),
+        "--output", str(output), "--max-steps", str(SYNTHETIC_STEPS if synthetic else MAX_STEPS),
         "--checkpoint-steps", str(CHECKPOINT_STEPS), "--execute",
         "--control-file", str(control_file),
         "--expected-generation", str(generation),
