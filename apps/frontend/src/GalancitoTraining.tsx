@@ -77,7 +77,7 @@ type Metrics = {
 type Round = {
   id: string; state: string; target: number; completed: number; reason: string | null; next_at: string;
   created_at: string; finished_at?: string | null; previous_id: string | null; dataset_hash: string; leased: boolean;
-  config: { profile?: "postulantes" | "interno"; cycles?: number; cases?: number; level: number; suite: string; focus?: string; model: Model; judge: Model; night: boolean; evaluation_version?: number; profile_review?: boolean; snapshot_reused?: boolean };
+  config: { profile?: "postulantes" | "interno"; cycles?: number; cases?: number; level: number; suite: string; focus?: string; model: Model; judge: Model; night: boolean; evaluation_version?: number; profile_review?: boolean; snapshot_reused?: boolean; orchestrator?: string };
   metrics: Metrics;
 };
 type Overview = {
@@ -114,8 +114,8 @@ const fields = [
   ["night_end", "Hora nocturna final en Chile", 0, 23, 1],
 ] as const;
 
-export default function GalancitoTraining({ back, initialProfile = "interno", initialFocus = "" }: {
-  back: () => void; initialProfile?: "postulantes" | "interno"; initialFocus?: string;
+export default function GalancitoTraining({ back, initialProfile = "interno", initialFocus = "", automatic = false }: {
+  back: () => void; initialProfile?: "postulantes" | "interno"; initialFocus?: string; automatic?: boolean;
 }) {
   const [data, setData] = useState<Overview | null>(null);
   const [form, setForm] = useState({ ...defaults, profile: initialProfile, focus: initialFocus });
@@ -221,10 +221,10 @@ export default function GalancitoTraining({ back, initialProfile = "interno", in
   );
 
   return <div className="ai-center training" data-testid="galancito-training">
-    <button className="training-back" onClick={back}><ArrowLeft size={16} /> Inteligencia artificial</button>
+    {!automatic && <button className="training-back" onClick={back}><ArrowLeft size={16} /> Inteligencia artificial</button>}
     <div className="training-compact-head">
       <div><span className="ai-eyebrow"><Beaker size={14} /> EVALUACIÓN CONTROLADA</span>
-        <h1>Práctica Bot</h1></div>
+        <h1>{automatic ? "Historial de evaluaciones" : "Práctica Bot"}</h1></div>
       <span className={"training-pill " + (active?.state ?? (data?.worker.available ? "completed" : "error"))}>
         {!data ? "Consultando" : !data.worker.available ? "Servicio desconectado" : active ? labels[active.state] : "Disponible"}
       </span>
@@ -240,10 +240,10 @@ export default function GalancitoTraining({ back, initialProfile = "interno", in
             setSelection(null); setFailures(null);
           }}>{profiles[profile]}</button>)}
     </div>
-    <p className="training-muted">En Messenger, el diagnóstico inicial procede de chats auditados. Las épocas especializadas permiten practicar fallas similares con ejemplos ficticios; para confirmar una mejora hay que volver a evaluar mensajes reales.</p>
+    <p className="training-muted">{automatic ? "Resultados registrados por el motor de práctica. MAX POWER gestiona las nuevas rondas. Los resultados sintéticos y operativos no demuestran por sí solos mejoras de producción." : "En Messenger, el diagnóstico inicial procede de chats auditados. Las épocas especializadas permiten practicar fallas similares con ejemplos ficticios; para confirmar una mejora hay que volver a evaluar mensajes reales."}</p>
     <div className="training-model-line">
       <span>Motor: <strong>{data?.local_model ?? "Consultando"}</strong></span>
-      <span>Origen: <strong>{form.suite === "live" ? "Agregados reales de GALANT" : "Simulación sintética"}</strong></span>
+      <span>Origen: <strong>{(automatic ? round?.config.suite : form.suite) === "live" ? "Agregados reales de GALANT" : automatic && !round ? "Sin ronda" : "Simulación sintética"}</strong></span>
     </div>
     {loadError && <p role="alert" className="ai-error">{loadError}</p>}
     {error && <p role="alert" className="ai-error">{error}</p>}
@@ -252,8 +252,8 @@ export default function GalancitoTraining({ back, initialProfile = "interno", in
     {form.profile === "interno" && data?.local_model !== "qwen3.5:4b-q4_K_M" && form.model === "ollama" &&
       <p className="ai-warning" role="alert">El motor Qwen3.5 4B aún no está confirmado para esta práctica.</p>}
 
-    <div className="training-grid">
-      <section className="ai-panel training-launch">
+    <div className={"training-grid" + (automatic ? " training-grid-unified" : "")}>
+      {!automatic && <section className="ai-panel training-launch">
         <div className="ai-panel-head"><h3>Nueva práctica · {profiles[form.profile]}</h3></div>
         <form id="galancito-training-form" onSubmit={event => { event.preventDefault(); start(false); }}>
           <div className="training-fields">
@@ -318,7 +318,7 @@ export default function GalancitoTraining({ back, initialProfile = "interno", in
             <button type="button" className="gc-secondary" disabled={busy || Boolean(active)} onClick={() => start(true)}><Moon size={16} /> Programar nocturna</button>
           </div>
         </form>
-      </section>
+      </section>}
       <section className="ai-panel training-current">
         <div className="ai-panel-head"><h3>{round ? "Resultados de la ronda" : "Estado del entrenamiento"}</h3>
           {round && <span className={"training-pill " + round.state}>{labels[round.state]}</span>}
@@ -391,7 +391,7 @@ export default function GalancitoTraining({ back, initialProfile = "interno", in
           {!!stats?.reserved_tokens && <p className="training-muted">{number(stats.reserved_tokens)} tokens reservados sin medición del proveedor.</p>}
           {form.profile === "postulantes" && stats?.fields ? <p className="training-muted">Fichas: {number(stats.correct_fields)} de {number(stats.fields)} campos presentes correctos.</p> : null}
           <div className="training-actions">
-            {running.includes(round.state) && <>
+            {running.includes(round.state) && (!automatic || round.config.orchestrator !== "max_power") && <>
               <button className="gc-secondary" disabled={busy} onClick={() => void perform(async () => {
                 await json("/rounds/" + round.id + "/control/" + (round.state === "paused" ? "resume" : "pause"), null);
               })}>{round.state === "paused" ? <><Play size={15} /> Reanudar</> : <><Pause size={15} /> Pausar</>}</button>
@@ -412,7 +412,7 @@ export default function GalancitoTraining({ back, initialProfile = "interno", in
                 href={exportUrl("/rounds/" + round.id + "/export/json")}>
                 <Download size={15} /> Exportar resultados a ChatGPT
               </a>
-              <a className="gc-secondary" href={exportUrl("/rounds/" + round.id + "/export/md")}>Informe Markdown</a>
+              {!automatic && <a className="gc-secondary" href={exportUrl("/rounds/" + round.id + "/export/md")}>Informe Markdown</a>}
             </>}
           </div>
           {round.completed > 0 && <p id="training-export-help" className="training-muted">
@@ -464,7 +464,7 @@ export default function GalancitoTraining({ back, initialProfile = "interno", in
             {sameEvaluation ? `${number(round.metrics.score)} / 100 frente a ${number(comparison.metrics.score)} / 100 · mismo conjunto`
               : "Metodología o evaluador distinto"}
           </small></div>}
-          {!active && <div className="training-actions">
+          {!automatic && !active && <div className="training-actions">
             <button className="gc-secondary" disabled={busy} onClick={() => repeatRound(round.id)}>
               <RotateCcw size={15} /> Reevaluar conjunto
             </button>
