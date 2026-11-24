@@ -255,6 +255,8 @@ def _team_update(lead, value: str, previous: str) -> None:
     if "team_available" in intake_question_fields(previous + "?") or _TEAM_QUESTION in previous or "puedes venir con" in previous:
         solo |= value in {"1", "uno", "solito", "solo", "sola", "sin gente", "sin equipo"}
         capacity |= value in {"2", "dos", "con gente", "con equipo", "con personas"}
+    if any(p in previous for p in ("vas solo", "irias solo", "trabajas solo")) and value in {"si", "si po", "sipo", "si claro"}:
+        solo = True
     if solo and not capacity:
         lead.team_available, lead.workers = False, 1
     elif capacity:
@@ -272,7 +274,7 @@ def _team_update(lead, value: str, previous: str) -> None:
         + r" (?:ayudantes?|personas?|maestros?|trabajadores?|cabros?|compas?|companeros?)\b", value)
     if not helpers:
         helpers = re.fullmatch(r"yo y " + count + r" mas", value)
-    if not total and not helpers and ("cuantas personas" in previous or "con cuantas" in previous):
+    if not total and not helpers and ("workers" in intake_question_fields(previous + "?") or "cuantas personas" in previous or "con cuantas" in previous):
         total = re.fullmatch(r"(?:con |en total )?" + count + r"(?: personas| maestros| trabajadores| gente)?", value)
     if not total and not helpers:
         return
@@ -668,7 +670,8 @@ def acceptable_intake_draft(draft: str, facts: dict, expected_question: str = ""
     # A question about a publication or a genuine clarification is allowed.
     # Do not force a professional field when the person has another concern.
     if "?" in draft:
-        return True
+        # Only explicit field questions or useful clarification, not a generic loop.
+        return bool(asked or not any(p in value for p in ("me cuentas mas", "cuentame mas", "que mas")))
     # Do not accept a bare acknowledgement or premature closure of an active intake.
     if value in {"ok", "bien", "perfecto", "gracias", "entendido", "listo", "de acuerdo"}:
         return False
