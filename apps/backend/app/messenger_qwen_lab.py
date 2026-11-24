@@ -143,7 +143,7 @@ NUMBER_WORDS={"cero":0,"uno":1,"una":1,"un":1,"dos":2,"tres":3,"cuatro":4,
 def grounded_reference(supplied):
     import re
     normalized=plain(supplied)
-    words=set(re.findall(r"\\b[a-z]+\\b",normalized))
+    words=set(re.findall(r"\b[a-z]+\b",normalized))
     numbers=sorted({str(value) for key,value in NUMBER_WORDS.items() if key in words})
     return supplied+" "+" ".join(numbers) if numbers else supplied
 
