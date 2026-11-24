@@ -44,6 +44,21 @@ def pull_model(model_name=MODEL):
     raise RuntimeError("No se pudo completar la descarga de Qwen")
 
 
+def isolated_model_resident(model_name=ADVANCED_MODEL):
+    """Verify actual residency on the private Ollama; failure is a cold start."""
+    if not MAX_POWER_ISOLATED:
+        return False
+    try:
+        with _opener.open(Request(TRAINING_OLLAMA + "/api/ps"), timeout=1) as response:
+            data = json.loads(response.read(65536))
+        return any(isinstance(item, dict)
+                   and str(item.get("name") or item.get("model") or "").casefold() == model_name.casefold()
+                   and type(item.get("size")) is int and item["size"] > 0
+                   for item in data.get("models", []))
+    except (OSError, ValueError, AttributeError, TypeError):
+        return False
+
+
 class TrainingModel:
     def __init__(self):
         self.download = None
