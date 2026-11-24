@@ -88,7 +88,7 @@ class Intake:
 
 _APPLICATION = re.compile(
     r"\b(?:vi|lei|encontre|me aparecio|me interesa|escribo por|vengo por) "
-    r"(?:\w+ ){0,3}(?:aviso|publicacion|postulacion|oferta|vacante|anuncio|pega)\b|"
+    r"(?:\w+ ){0,3}(?:aviso|publicacion|postulacion|oferta|vacante|anuncio|pega|trabajo)\b|"
     r"\b(?:(?:como|quiero|puedo) (?:puedo )?postul(?:o|ar)(?:me)?|me quiero postular)\b"
 )
 # Prompts actuales: lenguaje sencillo, sin exigir enlaces ni conocimientos de Facebook.
@@ -96,6 +96,7 @@ ASK_APPLICATION = "Claro, te ayudo. ¿De qué trabajo era el aviso?"
 ASK_APPLICATION_LINK = "No necesitas mandar ningún enlace. ¿Recuerdas el trabajo o la comuna?"
 # Reconocer textos enviados en versiones anteriores, sin romper conversaciones.
 _LEGACY_APPLICATION_PROMPTS = {
+    "¡Hola! ¿Qué trabajo viste?",
     "¿Qué aviso viste? Con el nombre de la obra o el link te puedo orientar para postular.",
     "Con ese dato aún no ubico el aviso. ¿Tienes el link de la publicación?",
 }
@@ -135,7 +136,7 @@ def application_role(message: str, prior: str) -> str | None:
                  "tengo cuadrilla", "mi cuadrilla", "tengo una cuadrilla", "con mi cuadrilla",
                  "yo con mi gente", "ofrezco servicios", "ofresco servicios", "tengo empresa",
                  "tengo una empresa", "somos varios", "trabajo con gente", "por mi cuenta",
-                 "soy independiente", "independiente", "a trato", "hago pitutos"}:
+                 "soy independiente", "independiente", "a trato", "hago pitutos", "trabajos por mi cuenta", "trabajo por mi cuenta"}:
         return "service_offer"
     if value in {"ambos", "ambas", "las dos", "las dos cosas", "los dos",
                  "las dos opciones", "busco pega y ofrezco servicios",
