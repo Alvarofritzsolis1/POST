@@ -321,6 +321,11 @@ def tick(db, sampler, *, sampled=None, training_model=None):
             MaxPowerEvent.org_id == row.org_id,
             MaxPowerEvent.round_id == row.org_id,
             MaxPowerEvent.event == "cpu_supervisor_status"))
+        drain_until = (cpu_event.evidence or {}).get("draining_until_epoch", 0) if cpu_event else 0
+        if isinstance(drain_until, (int, float)) and drain_until > aware(now).timestamp():
+            set_wait(row, now, "cpu_neural_training",
+                     "Esperando el cierre seguro del proceso neuronal anterior; Qwen 4B en espera", 10)
+            continue
         if (cpu_event is not None
                 and (cpu_event.evidence or {}).get("state") in ("training", "preparing_synthetic", "training_synthetic", "pausing", "cpu_waiting_turn")
                 and aware(cpu_event.created_at) >= aware(now) - timedelta(seconds=55)):
