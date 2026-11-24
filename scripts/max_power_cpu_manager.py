@@ -392,7 +392,7 @@ def run_once(secret: str, plan: dict, public_key: str, last_preflight: dict,
             # Exit zero alone is not proof of a completed gradient update.
             record_failure(root, bundle["dataset_digest"])
             report("failed")
-    elif code == 3 or (code == -15 and paused_since is not None):
+    elif code == 3 or (code in (-15, -9) and paused_since is not None):
         report("paused")
     else:
         record_failure(root, bundle["dataset_digest"])
