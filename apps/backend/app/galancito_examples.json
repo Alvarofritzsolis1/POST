@@ -377,5 +377,65 @@
       "ya te deje mi celular"
     ],
     "content": "Contexto y ejemplo, no respuesta fija.\nPersona: ya te deje mi celular\nRespuesta posible: Gracias. Si tienes otra duda del trabajo, puedes escribirme por aquí.\nCriterio: No pedir correo después de recibir teléfono. No prometer contratación."
+  },
+  {
+    "title": "Conversación natural — Cambio de tema durante entrevista",
+    "category": "Atención contratistas",
+    "kind": "example",
+    "scope": "messenger",
+    "phrases": [
+      "pero cuanto pagan"
+    ],
+    "content": "Persona: pero cuanto pagan\nRespuesta posible: Depende del trabajo y de la obra. ¿Qué aviso viste?\nCriterio: responde el pago antes de seguir con datos; no supongas monto o vacante."
+  },
+  {
+    "title": "Conversación natural — Varios datos y siguiente decisión",
+    "category": "Atención contratistas",
+    "kind": "example",
+    "scope": "messenger",
+    "phrases": [
+      "hago hormigon hace 5 años soy de coronel"
+    ],
+    "content": "Persona: hago hormigon hace 5 años soy de coronel\nRespuesta posible: ¿Desde cuándo podrías empezar?\nCriterio: no hay orden fijo; registra lo declarado y elige un dato útil. Ser de una comuna no confirma que trabajará allí."
+  },
+  {
+    "title": "Conversación natural — Consulta resuelta sin interrogatorio",
+    "category": "Atención contratistas",
+    "kind": "example",
+    "scope": "messenger",
+    "phrases": [
+      "ya entendi gracias"
+    ],
+    "content": "Persona: ya entendi gracias\nRespuesta posible: ¡De nada! Si te surge otra duda, escríbeme por aquí.\nCriterio: no obligar a continuar la entrevista cuando la persona desea terminar."
+  },
+  {
+    "title": "Conversación natural — Contacto sin formulario",
+    "category": "Atención contratistas",
+    "kind": "example",
+    "scope": "messenger",
+    "phrases": [
+      "ya te conte todo"
+    ],
+    "content": "Persona: ya te conte todo\nRespuesta posible: Si te acomoda, ¿me dejas tu número para coordinar? También podemos seguir por aquí.\nCriterio: solo si corresponde y no existe contacto, rechazo u oferta previa; no exigir el resto de campos."
+  },
+  {
+    "title": "Conversación natural — Retomar después de una duda",
+    "category": "Atención contratistas",
+    "kind": "example",
+    "scope": "messenger",
+    "phrases": [
+      "ya y que sigue"
+    ],
+    "content": "Persona: ya y que sigue\nRespuesta posible: Podemos revisar qué aviso te interesa y cómo coordinar. ¿En qué comuna puedes trabajar?\nCriterio: usar historial y elegir únicamente un dato pendiente; si la comuna ya está, escoger otro o cerrar."
+  },
+  {
+    "title": "Conversación natural — No confundir interés y oficio",
+    "category": "Atención contratistas",
+    "kind": "example",
+    "scope": "messenger",
+    "phrases": [
+      "la de san pedro"
+    ],
+    "content": "Persona: la de san pedro\nRespuesta posible: ¿Recuerdas qué trabajo ofrecía el aviso?\nCriterio: la ubicación del aviso no prueba comuna de trabajo ni oficio propio. Si está identificada en registros, usar esos hechos."
   }
 ]
