@@ -43,7 +43,7 @@ def intake_question_fields(prompt: str) -> set[str]:
     value = " ".join(plain(part.rsplit("¿", 1)[-1]) for part in prompt.split("?")[:-1])
     patterns = {
         "display_name": _NAME_PROMPTS,
-        "specialty": (*_TRADE_PROMPTS, "que trabajo haces", "a que te dedicas", "en que trabajas"),
+        "specialty": (*_TRADE_PROMPTS, "que trabajo haces", "que trabajos haces", "a que te dedicas", "en que trabajas"),
         "interest_type": (_INTEREST_QUESTION, "buscas empleo o", "buscas empleo como trabajador"),
         "entity_type": ("representas una empresa", "con una empresa o a tu propio nombre"),
         "team_available": (_TEAM_QUESTION, "puedes venir con"),
