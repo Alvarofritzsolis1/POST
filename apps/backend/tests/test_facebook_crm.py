@@ -302,8 +302,8 @@ def test_manual_trade_question_continues_automatically_and_can_be_paused(network
     assert detail["lead"]["ai_paused"] is False
     queued = detail["messages"][-1]
     assert queued["state"] == "pending" and queued["automated"] is True
-    assert "gasfitería" in queued["body"].lower()
     assert "cuenta" in queued["body"].lower()
+    assert "gracias por informar" not in queued["body"].lower()
     assert process_chat_next(n["Session"])
     detail = n["admin"].get("/api/v1/network/facebook/leads/" + lead_id).json()
     assert detail["messages"][-1]["state"] == "sent"
@@ -331,7 +331,8 @@ def test_new_inbound_replaces_unsent_automatic_question(network, monkeypatch):
     assert incoming(n, text="soy gasfiter", mid="replacement-2").status_code == 200
     messages = n["admin"].get("/api/v1/network/facebook/leads/" + lead_id).json()["messages"]
     assert next(msg for msg in messages if msg["id"] == first["id"])["state"] == "cancelled"
-    assert messages[-1]["state"] == "pending" and "gasfitería" in messages[-1]["body"].lower()
+    assert messages[-1]["state"] == "pending" and "cuenta" in messages[-1]["body"].lower()
+    assert n["admin"].get("/api/v1/network/facebook/leads/" + lead_id).json()["lead"]["specialty"] == "Gasfitería"
 
 
 def test_explicit_human_request_notifies_administration(network, monkeypatch):
