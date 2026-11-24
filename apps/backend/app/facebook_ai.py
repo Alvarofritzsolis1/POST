@@ -168,13 +168,17 @@ def local_first_messenger(cfg) -> bool:
                 and cfg.galancito_local_model == "qwen3.5:4b-q4_K_M")
 
 
-def messenger_external_fallback_enabled(db, org_id: str, cfg) -> bool:
+def messenger_external_fallback_selected(db, org_id: str, cfg) -> bool:
     if not local_first_messenger(cfg):
         return False
     policy = db.get(AIOrchestration, org_id)
     return bool(policy and policy.enabled and policy.fallback_enabled
-                and (policy.task_routes or {}).get("messenger")
-                and orchestration_available(db, org_id, "messenger"))
+                and (policy.task_routes or {}).get("messenger"))
+
+
+def messenger_external_fallback_enabled(db, org_id: str, cfg) -> bool:
+    return (messenger_external_fallback_selected(db, org_id, cfg)
+            and orchestration_available(db, org_id, "messenger"))
 
 
 def messenger_ai_source(db, org_id: str, cfg=None) -> str:
@@ -183,7 +187,7 @@ def messenger_ai_source(db, org_id: str, cfg=None) -> str:
         return "disabled"
     if cfg.galancito_local_model == "qwen3.5:4b-q4_K_M":
         # Team consent explicitly authorizes external processing; old local consent does not.
-        if messenger_external_fallback_enabled(db, org_id, cfg):
+        if messenger_external_fallback_selected(db, org_id, cfg):
             return "team"
         return "ollama" if cfg.facebook_ai_provider == "ollama" and facebook_reply_ai_available(cfg) else "disabled"
     if orchestration_selected(db, org_id, "messenger"):
