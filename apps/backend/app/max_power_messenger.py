@@ -230,7 +230,10 @@ def schedule_next(db, user):
 
 def isolated_qwen_config():
     """One-button lab always uses Qwen4B; never mutates production Messenger."""
-    return settings().model_copy(update={"galancito_local_model": QWEN_4B})
+    from .galancito_trainer import practice_threads
+    return settings().model_copy(update={"galancito_local_model": QWEN_4B,
+                                        "galancito_num_thread": practice_threads({}, isolated=True),
+                                        "galancito_num_predict": 140})
 
 
 def _answer(instructions,prompt,seed,org_id):
@@ -257,7 +260,7 @@ def _answer(instructions,prompt,seed,org_id):
         raise RuntimeError("El modelo no confirmó Qwen3.5 4B")
     return str(result),{key:round(float(v),2) for key,v in timing.items()
                         if key in ("load_ms","prompt_ms","generation_ms",
-                                   "ollama_total_ms","transport_ms")
+                                   "ollama_total_ms","transport_ms","prompt_eval_count","eval_count")
                         and isinstance(v,(int,float))}
 
 
