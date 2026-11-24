@@ -44,6 +44,7 @@ jobs:
           tests/test_galancito_cpu_lora.py
           tests/test_max_power_one_button_cpu.py
           tests/test_max_power_one_button_readiness.py
+          tests/test_max_power_4b_probe.py
           tests/test_max_power_synthetic_lab.py
       - name: Comprobar sintaxis del controlador y exportación
         run: python -m compileall -q app/max_power_*.py
@@ -253,7 +254,16 @@ jobs:
           # CPU supervisor is profile-scoped: never expose private trainer files in QA.
           profiled=["docker","compose","--profile","max-power-auto","--env-file",".env.preview",
                     "-f","docker-compose.preview.yml","config","--format","json"]
-          mgr=json.loads(subprocess.check_output(profiled,text=True))["services"]["cpu-lora-manager"]
+          managers=json.loads(subprocess.check_output(profiled,text=True))["services"]
+          mgr=managers["cpu-lora-manager"]
+          fourb=managers["cpu-4b-manager"]
+          assert not fourb.get("ports")
+          assert "DATABASE_URL" not in fourb.get("environment",{})
+          assert "FACEBOOK_PAGE_TOKEN" not in fourb.get("environment",{})
+          assert not any("/var/run/docker.sock" in str(x) for x in fourb.get("volumes",[]))
+          assert str(fourb["mem_limit"]).lower() in ("8g","8589934592")
+          assert any(x["target"]=="/4b-control" for x in fourb["volumes"])
+          assert any(x["target"]=="/4b-control" for x in managers["max-power-controller"]["volumes"])
           assert not mgr.get("ports")
           assert "DATABASE_URL" not in mgr["environment"]
           assert "FACEBOOK_PAGE_TOKEN" not in mgr["environment"]

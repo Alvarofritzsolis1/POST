@@ -177,11 +177,14 @@ services:
       GALANCITO_LOCAL_MODEL: ${GALANCITO_LOCAL_MODEL:-qwen3:1.7b}
       GALANCITO_LOCAL_AI_ENABLED: ${GALANCITO_LOCAL_AI_ENABLED:-false}
       GALANT_MAX_POWER_ISOLATED: "true"
-      GALANT_TRAINING_OLLAMA_THREADS: ${GALANT_TRAINING_OLLAMA_THREADS:-2}
+      GALANT_MAX_POWER_4B_COORDINATION: "yes"
+      GALANT_TRAINING_OLLAMA_THREADS: ${GALANT_TRAINING_OLLAMA_THREADS:-4}
       GALANCITO_MEMORY_RESERVE_MB: ${GALANCITO_MEMORY_RESERVE_MB:-1536}
     depends_on:
       db: {condition: service_healthy}
       galancito-training-ollama: {condition: service_started}
+    volumes:
+      - galancito_4b_control:/4b-control
     networks: [internal]
     security_opt: [no-new-privileges:true]
     cap_drop: [ALL]
@@ -200,13 +203,13 @@ services:
       OLLAMA_MAX_LOADED_MODELS: "1"
       OLLAMA_MAX_QUEUE: "1"
       OLLAMA_CONTEXT_LENGTH: "2048"
-      OLLAMA_KEEP_ALIVE: "1m"
+      OLLAMA_KEEP_ALIVE: "2m"
     volumes:
       - galancito_training_models:/root/.ollama
     networks: [internal, galancito-egress]
     mem_limit: 5g
     # Only the isolated training model gets more CPU; production stays unchanged.
-    cpus: ${GALANT_TRAINING_OLLAMA_CPUS:-2.0}
+    cpus: ${GALANT_TRAINING_OLLAMA_CPUS:-4.0}
     cpu_shares: 32
     pids_limit: 180
     security_opt: [no-new-privileges:true]
@@ -233,6 +236,7 @@ services:
     environment:
       GALANT_FINETUNE_METRICS_SECRET: ${GALANT_FINETUNE_METRICS_SECRET:-}
       GALANT_DATASET_APPROVAL_PUBLIC_KEY: ${GALANT_DATASET_APPROVAL_PUBLIC_KEY:-}
+      GALANT_MAX_POWER_08B_AUTOMATIC: "no"
       GALANT_MAX_POWER_SYNTHETIC_LORA: "yes"  # Corpus ficticio integrado; no autoriza datos reales
       GALANT_FINETUNE_ALLOW_PRIVATE_HTTP: "yes"
       HF_HOME: /private/cache
@@ -298,6 +302,39 @@ services:
     cpus: 4.0
     cpu_shares: 16
     logging: *logs
+  # Same max-power-auto deployment profile as the existing neural manager.
+  # Idle until the controller authorizes the single, isolated 4B turn.
+  cpu-4b-manager:
+    profiles: [max-power-auto]
+    build: {context: ., dockerfile: infrastructure/Dockerfile.cpu-4b-probe}
+    entrypoint: ["python", "/src/scripts/max_power_4b_manager.py"]
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD-SHELL", "python -c 'import os,time,sys; p=\"/tmp/max_power_4b_heartbeat\"; sys.exit(0 if os.path.isfile(p) and time.time()-os.path.getmtime(p)<60 else 1)'"]
+      interval: 20s
+      timeout: 5s
+      retries: 3
+      start_period: 45s
+    read_only: true
+    init: true
+    environment:
+      GALANT_DATASET_APPROVAL_PUBLIC_KEY: ${GALANT_DATASET_APPROVAL_PUBLIC_KEY:-}
+    volumes:
+      - galancito_4b_probe:/private
+      - galancito_4b_control:/4b-control
+      - ${GALANT_4B_APPROVED_DIR:-/opt/galant-4b-approved}:/approved:ro
+    tmpfs:
+      - /tmp:size=128m,mode=1777
+    networks: [cpu-lora-egress]
+    security_opt: [no-new-privileges:true]
+    cap_drop: [ALL]
+    pids_limit: 96
+    mem_limit: 8g
+    memswap_limit: 8g
+    cpus: 4.0
+    cpu_shares: 16
+    stop_grace_period: 60s
+    logging: *logs
   frontend:
     build: {context: ., dockerfile: apps/frontend/Dockerfile}
     restart: unless-stopped
@@ -328,3 +365,4 @@ volumes:
   galancito_models: {}
   galancito_training_models: {}
   galancito_4b_probe: {}
+  galancito_4b_control: {}

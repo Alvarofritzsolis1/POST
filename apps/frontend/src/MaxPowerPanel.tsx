@@ -27,6 +27,7 @@ type LiveActivity = {
 };
 type Status = {
   enabled: boolean; controller_online: boolean; trainer_online: boolean;
+  neural_4b?: {stage:string;live:boolean;completed_steps:number;target_steps:number;data_kind:string;conversation_gate:boolean;production_promoted:boolean;holdout_loss_before:number|null;holdout_loss_after:number|null;blockers:string[]};
   cpu_learning?: {status:string;reason:string;last_update_at:string|null;
                   manager_online:boolean;weights_trained:boolean;synthetic_weights_trained?:boolean;
                   training_kind?:string;model:string};
@@ -158,11 +159,13 @@ export default function MaxPowerPanel(){
   const model = live?.qwen;
   const practiceCompleted = practice ? practice.development.cases + practice.holdout.cases : null;
   const cpuStatus = data?.cpu_learning;
+  const neural4b=data?.neural_4b;
+  const neuralRunning=Boolean(data?.enabled && neural4b?.live && ["loading","training","evaluating"].includes(neural4b.stage));
   const cpuRunning = Boolean(data?.enabled && ["training", "training_synthetic"].includes(cpuStatus?.status ?? ""));
   const cpuPreparing = Boolean(data?.enabled && cpuStatus?.status === "preparing_synthetic");
   const cpuLabFinished = cpuStatus?.status === "finished_synthetic";
   const hasMeasuredActivity = Boolean(data?.enabled && data.controller_online &&
-    (model?.state === "running" || cpuRunning || cpuPreparing));
+    (model?.state === "running" || cpuRunning || cpuPreparing || neuralRunning));
   const powerTitle = !data?.enabled ? "MAX POWER apagado"
     : !data.controller_online ? "MAX POWER encendido · controlador desconectado"
     : hasMeasuredActivity ? "MAX POWER encendido · trabajando"
@@ -213,6 +216,12 @@ export default function MaxPowerPanel(){
         <span className="max-power-stat"><ShieldCheck size={16}/> Casos examinados <strong>{data?f(data.examined_cases):"—"}</strong></span>
       </div>
     </div>
+    {data && <div className="max-power-status">
+      <div><strong>Entrenamiento neuronal Qwen 4B · {neural4b ? neural4b.stage.replaceAll("_"," ") : "sin informe del trabajador"}</strong>
+        <p>{neural4b ? `${neural4b.completed_steps} de ${neural4b.target_steps} pasos con pesos modificados` : "Esperando datos medidos del contenedor aislado"}</p>
+        {neural4b && <><progress value={neural4b.completed_steps} max={neural4b.target_steps}/><small>{neural4b.live ? "Informe reciente" : "Último informe guardado"} · {neural4b.blockers.join(", ") || "Sin bloqueos de preflight reportados"} · candidato sin activar en producción</small></>}
+      </div>
+    </div>}
     {data && <div className="max-power-status">
       <span className={"max-power-dot" + (data.enabled && data.controller_online?" live":"")}/>
       <strong>{controllerStatus[data.status] ?? data.status.replaceAll("_"," ")}</strong>

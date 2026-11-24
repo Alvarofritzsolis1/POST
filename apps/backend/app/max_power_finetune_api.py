@@ -87,6 +87,7 @@ def scoped_token(org_id: str) -> str:
 # a short-lived HMAC derived from the server-only metrics secret.
 AUTOMATION_STATES = {
     "off": "MAX POWER apagado: entrenamiento neuronal detenido",
+    "legacy_lab_disabled": "Laboratorio 0.8B desactivado: prioridad a Qwen 4B",
     "awaiting_approved_dataset": "Falta un conjunto real autorizado y firmado para LoRA CPU",
     "synthetic_data_invalid": "Corpus sintético no válido o modificado: entrenamiento de prueba detenido",
     "preparing_synthetic": "Preparando Qwen 0.8B y datos ficticios; todavía no hay pasos de entrenamiento",
@@ -129,7 +130,7 @@ class SupervisorStatus(BaseModel):
     model_config = ConfigDict(extra="forbid")
     org_id: UUID
     generation: int = Field(ge=1)
-    status: Literal["off", "awaiting_approved_dataset", "awaiting_resources",
+    status: Literal["off", "legacy_lab_disabled", "awaiting_approved_dataset", "awaiting_resources",
                     "synthetic_data_invalid", "preparing_synthetic", "training_synthetic", "finished_synthetic",
                     "messenger_priority", "practice_priority", "cpu_waiting_turn",
                     "retry_cooldown", "retry_exhausted", "preflight", "training", "pausing",

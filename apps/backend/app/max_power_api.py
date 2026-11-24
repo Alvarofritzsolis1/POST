@@ -14,7 +14,7 @@ from .db import get_db
 from .galancito_memory import aware
 from .galancito_training_models import ACTIVE, TrainingRound, TrainingWorker
 from .max_power_decisions import QWEN_MIN_RAM_MB, latency_diagnosis, priority_from_reviews
-from .max_power_live import RESOURCE_EVENT, general_series, messenger_series, resource_metrics
+from .max_power_live import RESOURCE_EVENT, general_series, messenger_series, resource_metrics, synthetic_4b_series, latency_series
 from .max_power_models import MaxPowerEvent, MaxPowerState, MaxPowerMessengerTrial
 from .max_power_export import build_report, MAX_EVENTS, safe_metrics
 from .max_power_practice import EVENT as PRACTICE_EVENT, QWEN_CRITERION, generate_scenarios
@@ -106,9 +106,20 @@ def _qwen_activity(db, row, controller_online, trials, resources, now):
         row.last_status == "resource_guard" and "Messenger tiene prioridad" in row.last_reason
     ):
         return {"state": "waiting", "reason": row.last_reason}
-    if isinstance(available, (int, float)) and available < QWEN_MIN_RAM_MB:
-        return {"state": "waiting", "reason": "RAM disponible por debajo del mínimo de Qwen 4B para proteger Messenger",
-                "required_ram_mb": QWEN_MIN_RAM_MB}
+    # The synthetic ficha pass can finish even while the private Qwen cannot
+    # start. Keep the measured memory blocker visible in that intermediate
+    # state. Do not infer a cold-start blocker solely from low available RAM:
+    # the controller can admit a verified resident model with a lower reserve.
+    memory_blocked = row.last_status in {"resource_guard", "synthetic_practice_completed"} and (
+        "Qwen 4B requiere 8 GB en frío" in row.last_reason
+        or "Qwen 4B frío requiere 8 GB libres" in row.last_reason
+    )
+    if memory_blocked and type(available) in (int, float) and available < QWEN_MIN_RAM_MB:
+        return {"state": "waiting", "reason": row.last_reason,
+                "required_ram_mb": QWEN_MIN_RAM_MB,
+                "ram_requirement_kind": "cold_start"}
+    if row.last_status == "resource_guard":
+        return {"state": "waiting", "reason": row.last_reason or "Reserva de recursos insuficiente"}
     queued = min((item for item in trials if item.status == "queued"), key=lambda item: aware(item.next_at), default=None)
     if queued:
         return {"state": "waiting", "reason": queued.reason or "Ensayo en cola",
@@ -189,6 +200,12 @@ def _view(db, user, row):
         MaxPowerEvent.evidence["data_kind"].as_string() == "curated_synthetic",
         MaxPowerEvent.evidence["weights_trained"].as_boolean().is_(True),
     ).limit(1))
+    neural_event=db.scalar(select(MaxPowerEvent).where(MaxPowerEvent.org_id==user.org_id,
+        MaxPowerEvent.event=="4b_neural_status",MaxPowerEvent.round_id==user.org_id))
+    neural_4b=dict(neural_event.evidence or {}) if neural_event else None
+    if neural_4b:
+        neural_4b["live"]=bool(row and row.enabled and neural_4b.get("generation")==row.session_generation
+            and aware(neural_event.created_at)>=aware(now)-timedelta(seconds=45))
     controller_online = bool(row and row.worker_seen_at and
                              aware(row.worker_seen_at) >= aware(now) - timedelta(seconds=30))
     resources = safe_metrics(worker.resources) if trainer_online else {}
@@ -219,6 +236,7 @@ def _view(db, user, row):
         "reason": row.last_reason if row else "MAX POWER todavía no se ha encendido",
         "controller_online": controller_online,
         "trainer_online": trainer_online,
+        "neural_4b": neural_4b,
         "cpu_learning": {
             "status": cpu_state if cpu_online else "manager_offline",
             "reason": (cpu_event.reason if cpu_online else
@@ -276,7 +294,14 @@ def live_history(user: User = Depends(administrator), db: Session = Depends(get_
         MaxPowerEvent.org_id == org, MaxPowerEvent.event == RESOURCE_EVENT,
         MaxPowerEvent.created_at >= now - timedelta(hours=24)
     ).order_by(MaxPowerEvent.created_at.desc()).limit(1440)))
+    synthetic = list(db.scalars(select(MaxPowerMessengerTrial).where(
+        MaxPowerMessengerTrial.org_id == org, MaxPowerMessengerTrial.status == "completed",
+        MaxPowerMessengerTrial.criterion == QWEN_CRITERION,
+        MaxPowerMessengerTrial.completed_at.is_not(None)
+    ).order_by(MaxPowerMessengerTrial.completed_at.desc(), MaxPowerMessengerTrial.id.desc()).limit(500)))
     return {"at": now, "general": general_series(reversed(events)),
+            "synthetic_4b": synthetic_4b_series(reversed(synthetic)),
+            "latency_4b": latency_series(sorted(trials + synthetic, key=lambda t: (aware(t.completed_at), t.id))),
             "messenger": messenger_series(reversed(trials)),
             "resources": [{"at": event.created_at, **resource_metrics(event.evidence or {})}
                           for event in reversed(resources)],

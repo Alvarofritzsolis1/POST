@@ -1,0 +1,77 @@
+name: MAX POWER - Qwen 4B root CPU gate
+on:
+  pull_request:
+    paths:
+      - 'scripts/probe_galancito_4b_cpu.py'
+      - 'scripts/galant_cpu_lora_resources.py'
+      - 'scripts/galancito_4b_conversation_gate.py'
+      - 'scripts/galancito_4b_approved.py'
+      - 'scripts/max_power_4b_manager.py'
+      - 'apps/backend/app/max_power_4b_control.py'
+      - 'infrastructure/Dockerfile.cpu-4b-probe'
+      - '.github/workflows/max-power-4b-real.yml'
+  workflow_dispatch:
+permissions:
+  contents: read
+concurrency:
+  group: 4b-root-${{ github.ref }}
+  cancel-in-progress: false
+jobs:
+  real-4b:
+    runs-on: ubuntu-latest
+    timeout-minutes: 150
+    steps:
+      - uses: actions/checkout@v4
+      - name: Sintaxis
+        run: python3 -m py_compile scripts/probe_galancito_4b_cpu.py scripts/max_power_4b_manager.py scripts/galancito_4b_conversation_gate.py scripts/galancito_4b_approved.py apps/backend/app/max_power_4b_control.py
+      - name: Build CPU
+        run: docker build -f infrastructure/Dockerfile.cpu-4b-probe -t galant-4b-root .
+      - name: Primer paso neuronal real
+        run: |
+          docker volume create galant-ci-4b
+          docker run --rm --memory=8g --memory-swap=8g --cpus=4 -v galant-ci-4b:/private galant-4b-root --run --allow-download --steps 10 --stop-after 1
+          mkdir -p evidence
+          docker run --rm --entrypoint cat -v galant-ci-4b:/private:ro galant-4b-root /private/4b-probe/latest.json > evidence/first-step.json
+          python - <<'PY'
+          import json
+          r=json.load(open("evidence/first-step.json"))
+          assert r["status"]=="paused_after_verified_step"
+          assert r["saved_adapter_step"]==1
+          assert r["initial_adapter_sha256"]!=r["latest_adapter_sha256"]
+          assert r["steps"][0]["grad_norm"]>0
+          PY
+      - name: Restaurar optimizador y completar diez pasos reales
+        run: |
+          docker run --rm --memory=8g --memory-swap=8g --cpus=4 -v galant-ci-4b:/private galant-4b-root --run --allow-download --steps 10 --resume --conversation-eval
+          docker run --rm --entrypoint cat -v galant-ci-4b:/private:ro galant-4b-root /private/4b-probe/latest.json > evidence/final.json
+          python - <<'PY'
+          import json
+          a=json.load(open("evidence/first-step.json"))
+          b=json.load(open("evidence/final.json"))
+          assert b["status"]=="completed"
+          assert b["model"]=="Qwen/Qwen3.5-4B"
+          assert b["base_revision"]==a["base_revision"]
+          assert b["restored_adapter_sha256"]==a["latest_adapter_sha256"]
+          assert b["restored_optimizer_step"]==1
+          assert b["saved_adapter_step"]==10
+          assert len({p["adapter_sha256"] for p in b["steps"]})==10
+          assert all(p["grad_norm"]>0 and p["seconds"]>0 for p in b["steps"])
+          assert b["baseline_restored"] is True
+          assert b["conversation_validation"]["cases"] == 4
+          assert b["conversation_validation"]["production_verified"] is False
+          assert b["production_verified"] is False
+          PY
+      - name: Conservar evidencia incluso ante fallo
+        if: always()
+        run: |
+          mkdir -p evidence
+          docker run --rm --entrypoint cat -v galant-ci-4b:/private:ro galant-4b-root /private/4b-probe/latest.json > evidence/latest.json
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: qwen-4b-root-evidence
+          path: evidence/*.json
+          if-no-files-found: warn
+      - name: Limpiar volumen aislado
+        if: always()
+        run: docker volume rm galant-ci-4b || true

@@ -1,13 +1,11 @@
-# Optional 4B CPU experiment. Never installed into the GALANT API or 0.8B trainer.
+# Root CPU experiment; no application or production chatbot dependencies.
 FROM python:3.12-slim
 ENV PYTHONUNBUFFERED=1 PYTHONDONTWRITEBYTECODE=1 OMP_NUM_THREADS=4 MKL_NUM_THREADS=4 OPENBLAS_NUM_THREADS=1 TOKENIZERS_PARALLELISM=false HF_HOME=/private/cache HF_HUB_DISABLE_TELEMETRY=1
 WORKDIR /src
-COPY scripts/requirements-galancito-cpu.txt /tmp/cpu-deps.txt
 RUN python -m pip install --no-cache-dir --index-url https://download.pytorch.org/whl/cpu "torch==2.7.1" \
- && python -m pip install --no-cache-dir -r /tmp/cpu-deps.txt "bitsandbytes==0.49.2" \
- && rm -f /tmp/cpu-deps.txt
-COPY scripts/galant_cpu_lora_resources.py scripts/galant_cpu_lora_resources.py
-COPY scripts/probe_galancito_4b_cpu.py scripts/probe_galancito_4b_cpu.py
-RUN useradd --uid 10001 --create-home --shell /usr/sbin/nologin trainer && chmod -R a+rX /src && mkdir -p /private/4b-probe /private/cache && chown -R 10001:10001 /private
+ && python -m pip install --no-cache-dir "transformers==5.24.0" "peft==0.22.0" "accelerate==1.16.0" "bitsandbytes==0.49.2" "huggingface_hub==1.33.0" "safetensors==0.8.0" "tokenizers==0.23.3" "cryptography==48.0.1"
+COPY scripts/galant_cpu_lora_resources.py scripts/probe_galancito_4b_cpu.py scripts/max_power_4b_manager.py scripts/galancito_4b_conversation_gate.py scripts/galancito_4b_approved.py /src/scripts/
+COPY apps/backend/app/max_power_4b_control.py apps/backend/app/galancito_finetune_dataset.py /src/scripts/
+RUN useradd --uid 10001 --create-home --shell /usr/sbin/nologin trainer && chmod -R a+rX /src && mkdir -p /private/4b-probe /private/cache /4b-control && chown -R 10001:10001 /private /4b-control
 USER 10001:10001
-ENTRYPOINT ["timeout", "--signal=TERM", "--kill-after=30s", "7200s", "python", "/src/scripts/probe_galancito_4b_cpu.py"]
+ENTRYPOINT ["timeout","--signal=TERM","--kill-after=30s","7200s","python","/src/scripts/probe_galancito_4b_cpu.py"]

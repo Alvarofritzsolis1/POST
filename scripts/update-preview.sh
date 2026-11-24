@@ -47,6 +47,9 @@ configure_compose() {
     max_power_services=()
     if grep -q "^  max-power-controller:" docker-compose.preview.yml; then
         max_power_services=(max-power-controller galancito-training-ollama cpu-lora-manager)
+        if grep -q "^  cpu-4b-manager:" docker-compose.preview.yml; then
+            max_power_services+=(cpu-4b-manager)
+        fi
         compose+=(--profile max-power-auto)
     fi
     if grep -q "^  facebook-publisher:" docker-compose.preview.yml; then
@@ -199,7 +202,18 @@ if (( ${#max_power_services[@]} )); then
         sleep 4
     done
     [[ "$manager_health" == "healthy" ]] || { echo "Supervisor neuronal sin heartbeat; se revierte." >&2; exit 1; }
-    echo "MAX POWER: supervisor neuronal operativo; no se entrenan pesos sin dataset firmado."
+    if grep -q "^  cpu-4b-manager:" docker-compose.preview.yml; then
+        fourb_id="$("${compose[@]}" ps --quiet cpu-4b-manager)"
+        [[ -n "$fourb_id" ]] || { echo "Trabajador 4B ausente; se revierte." >&2; exit 1; }
+        fourb_health=""
+        for i in {1..15}; do
+            fourb_health="$(docker inspect --format '{{.State.Health.Status}}' "$fourb_id" 2>/dev/null || true)"
+            [[ "$fourb_health" == "healthy" ]] && break
+            sleep 4
+        done
+        [[ "$fourb_health" == "healthy" ]] || { echo "Trabajador 4B sin heartbeat; se revierte." >&2; exit 1; }
+    fi
+    echo "MAX POWER: trabajadores disponibles; piloto sintético separado de datos reales firmados."
 fi
 "${compose[@]}" exec -T api python -m app.deploy_verify --expected-commit "$target_ref" --training-worker-only
 # Check the exact build and additive migration, and exercise the authenticated
