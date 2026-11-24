@@ -14,6 +14,7 @@ from uuid import UUID
 
 from galant_cpu_lora_resources import snapshot
 from probe_galancito_4b_cpu import blockers
+from galancito_4b_dataset import approved_bundle
 from max_power_4b_slot import CONTROL, acquire_slot, atomic_json, read_json, release_slot, valid_intent
 
 PILOT = "contractors-multiturn-v1"
@@ -53,12 +54,16 @@ def stop_child(child):
             child.wait()
 
 
-def supervise(key, folder, fd):
+def supervise(key, folder, fd, real=None):
     # Inherit the lock FD: a surviving subprocess cannot silently free the
     # engine slot if the supervisor is terminated.
-    child = subprocess.Popen([sys.executable, "/src/scripts/probe_galancito_4b_cpu.py",
-        "--run","--allow-download","--steps","4","--threads","4","--conversation-eval","--resume",
-        "--output",str(folder)], start_new_session=True, pass_fds=(fd,))
+    command = [sys.executable, "/src/scripts/probe_galancito_4b_cpu.py",
+        "--run","--allow-download","--steps","10" if real else "4","--threads","4",
+        "--conversation-eval","--resume","--output",str(folder)]
+    if real:
+        command.extend(["--dataset",str(real[0]),"--approval-manifest",str(real[1]),
+                        "--expected-dataset-sha256",real[2]])
+    child = subprocess.Popen(command, start_new_session=True, pass_fds=(fd,))
     started = monotonic()
     try:
         while child.poll() is None:
@@ -93,6 +98,24 @@ def main():
         folder.mkdir(parents=True, exist_ok=True)
         state_path = folder / "supervisor.json"
         state = read_json(state_path)
+        real = None
+        # First establish real numerical compatibility on the harmless pilot.
+        # Afterwards, only a newly signed 4B corpus can start another cycle.
+        if state.get("completed"):
+            data = Path("/approved") / org / "approved.jsonl"
+            manifest = data.with_name("approval.json")
+            try:
+                bundle = approved_bundle(data,manifest,os.environ.get("GALANT_DATASET_APPROVAL_PUBLIC_KEY",""))
+                digest = bundle["dataset_digest"]
+                real = (data,manifest,digest)
+            except (OSError,ValueError,TypeError):
+                status(key,"awaiting_approved_dataset",report=read_json(folder / "latest.json"))
+                sleep(30)
+                continue
+            folder = ROOT / org / ("approved-" + digest)
+            folder.mkdir(parents=True,exist_ok=True)
+            state_path = folder / "supervisor.json"
+            state = read_json(state_path)
         if state.get("completed") or int(state.get("attempts",0)) >= MAX_ATTEMPTS:
             status(key, "completed" if state.get("completed") else "retry_exhausted",
                    report=read_json(folder / "latest.json"))
@@ -101,8 +124,9 @@ def main():
         if time() < float(state.get("retry_at",0)):
             sleep(5)
             continue
-        if waiting_key != key:
-            waiting_key, waiting_since = key, monotonic()
+        work_key = (key,str(folder))
+        if waiting_key != work_key:
+            waiting_key, waiting_since = work_key, monotonic()
         if monotonic()-waiting_since > 150:
             atomic_json(state_path,{**state,"retry_at":time()+COOLDOWN})
             status(key,"capacity_wait",blockers=blockers(snapshot(folder)))
@@ -127,7 +151,7 @@ def main():
             state = {"attempts":int(state.get("attempts",0))+1,"retry_at":time()+COOLDOWN}
             atomic_json(state_path,state)
             status(key,"starting")
-            outcome = supervise(key,folder,fd)
+            outcome = supervise(key,folder,fd,real)
             # Normal priority changes are not model failures. Crash and actual
             # timeout attempts remain bounded; resume a verified checkpoint.
             if outcome == "interrupted":
