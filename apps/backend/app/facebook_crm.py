@@ -515,7 +515,7 @@ def ingest_facebook_payload(db, payload, cfg, *, notices=None):
                     "not_requested", "accepted", "accepted_team"):
                 facts = profile_facts(lead, changed=changed)
                 reply = next_intake_reply(body, facts, previous_question)
-                if not reply:
+                if not reply or model_intake_candidate(body, facts, previous_question, reply):
                     reply = set_permission_request(lead, ai_source)
             elif (ai_source != "disabled" and lead.ai_consent_state in
                   ("requested", "requested_team") and lead.ai_consent_provider != ai_source):
@@ -563,8 +563,6 @@ def ingest_facebook_payload(db, payload, cfg, *, notices=None):
                         direction="outbound", state="pending", body=reply,
                         ai_generated=False))
             elif reply and recent < 30:
-                if "¿me dejas tu celular?" in reply and not lead.phone_requested_at:
-                    lead.phone_requested_at = utcnow()
                 db.add(FacebookChatMessage(
                     org_id=lead.org_id, lead_id=lead.id, page_id=lead.page_id,
                     direction="outbound", state="pending", body=reply[:550],
