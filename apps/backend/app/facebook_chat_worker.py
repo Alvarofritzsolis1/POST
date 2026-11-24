@@ -25,7 +25,7 @@ from .galancito_flow import safe_ai_reply, consented_for, grounded_reply, is_per
 from .facebook_crm_models import FacebookLead, FacebookChatMessage, FacebookTradeGuide, FacebookLeadTrade
 from .models import utcnow
 from .network_service import key
-from .galancito_triage import analyze, quick_reply, private_data
+from .galancito_triage import analyze, quick_reply, private_data, application_ai_candidate
 from .galancito_intake import acceptable_intake_draft, intake_question_fields, clarification_reply, identity_reply, model_intake_candidate, next_intake_reply, small_talk_reply, natural_messenger_reply, needs_deeper_response
 from .galancito_memory import aware, note_profile_sources, prior_delivered_prompt, profile_facts, reply_focus, messenger_context
 from .galancito_knowledge import retrieve, exact_answer
@@ -291,13 +291,15 @@ def process_chat_next(session_factory=SessionLocal, *, simulation_config=None, n
             intent = "worksite_location" if location else "apply" if apply else analyze(latest).intent
             fast = intake or quick_reply(latest, known=facts)
             evidence = []
-            rewrite_intake = (not (help_answer or location or follow_up or apply) and
+            application_model = bool(apply and local_first_messenger(cfg) and
+                                     application_ai_candidate(latest, prior_question))
+            rewrite_intake = (not (help_answer or location or follow_up) and (not apply or application_model) and
                               model_intake_candidate(latest, facts, prior_question, intake))
             if (not intake or rewrite_intake) and not private_data(latest) and intent not in {"human", "restricted"}:
                 evidence = retrieve(db, lead.org_id, latest, "messenger")
                 if not rewrite_intake and (learned := exact_answer(evidence)):
                     fast, fast_source = learned, "knowledge"
-            model_needed = (bool(latest) and not (help_answer or location or follow_up or apply) and not private_data(latest) and not identity_reply(latest)
+            model_needed = (bool(latest) and not (help_answer or location or follow_up) and (not apply or application_model) and not private_data(latest) and not identity_reply(latest)
                             and intent not in {"human", "restricted"} and fast_source != "knowledge"
                             and (not fast or needs_deeper_response(latest) or rewrite_intake))
             trace["model_requested"] = bool(model_needed)
@@ -347,7 +349,7 @@ def process_chat_next(session_factory=SessionLocal, *, simulation_config=None, n
             if should_model:
                 # A generic intake prompt must not stand in for an answer to a
                 # difficult question when every configured model failed.
-                generated = fast if rewrite_intake and not needs_deeper_response(latest) and "?" not in latest else None
+                generated = fast if application_model or (rewrite_intake and not needs_deeper_response(latest) and "?" not in latest) else None
             if should_model and not private_data(context):
                 if fast and not rewrite_intake:
                     context += ("\nOrientación breve disponible como alternativa: " +

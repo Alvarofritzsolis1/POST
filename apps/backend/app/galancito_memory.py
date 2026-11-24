@@ -100,15 +100,7 @@ def messenger_context(message, facts, prior, turns, evidence, guide=None, *, lim
             return True
         return False
 
-    # Preserve full first-party guides and complete bounded evidence objects.
-    if guide:
-        add("Guía administrativa validada: " + professional_message(guide.explanation or "")[:600]
-            + "\nOrientación documental: " + professional_message("; ".join(guide.document_guidance or []))[:350])
-    else:
-        add("No hay guía documental validada. Deriva esas dudas al equipo.")
-    for item in evidence:
-        if not add("Referencia aprobada: " + professional_message(evidence_context([item]))):
-            break
+    # Keep the actual dialogue ahead of optional examples and reference guides.
     history = []
     for item in turns[:8]:
         if (getattr(item, "consent_decision", None) is not None
@@ -121,6 +113,14 @@ def messenger_context(message, facts, prior, turns, evidence, guide=None, *, lim
     for n in range(len(history), 0, -1):
         if add("Historial reciente:\n" + "\n".join(reversed(history[:n]))):
             included = n
+            break
+    if guide:
+        add("Guía administrativa validada: " + professional_message(guide.explanation or "")[:600]
+            + "\nOrientación documental: " + professional_message("; ".join(guide.document_guidance or []))[:350])
+    else:
+        add("No hay guía documental validada. Deriva esas dudas al equipo.")
+    for item in evidence:
+        if not add("Referencia aprobada: " + professional_message(evidence_context([item]))):
             break
     if example := conversation_example(message, prior or ""):
         add("Ejemplo didáctico (no es un hecho de la obra): " + professional_message(example))

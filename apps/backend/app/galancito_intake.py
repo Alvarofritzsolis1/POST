@@ -44,7 +44,7 @@ def intake_question_fields(prompt: str) -> set[str]:
     patterns = {
         "display_name": _NAME_PROMPTS,
         "specialty": (*_TRADE_PROMPTS, "que trabajo haces", "que trabajos haces", "a que te dedicas", "en que trabajas"),
-        "interest_type": (_INTEREST_QUESTION, "buscas empleo o", "buscas empleo como trabajador", "buscas trabajo para ti", "buscas que te contraten", "ofreces tus servicios", "trabajo por tu cuenta o"),
+        "interest_type": (_INTEREST_QUESTION, "buscas empleo o", "buscas empleo como trabajador", "buscas trabajo para ti", "buscas que te contraten", "ofreces tus servicios", "trabajo por tu cuenta o", "quieres trabajar por tu cuenta como contratista", "empleo con contrato o tomar trabajos", "como trabajador o", "como contratista"),
         "entity_type": ("representas una empresa", "con una empresa o a tu propio nombre"),
         "team_available": (_TEAM_QUESTION, "puedes venir con", "vas solo", "irias solo", "trabajas con alguien", "tienes cuadrilla"),
         "workers": ("cuantas personas", "con cuantas", "cuantos puedes traer", "cuantos maestros", "cuantos son en total"),
@@ -81,7 +81,7 @@ def unresolved_declarations(message: str, prior: str) -> dict[str, str]:
 
 
 _ROLE_SERVICE = (
-    "ofrezco servicios", "ofresco servicios", "mis servicios", "por mi cuenta",
+    "ofrezco servicios", "ofresco servicios", "mis servicios", "por mi cuenta", "por las mias", "por mi propia cuenta",
     "hago pitutos", "busco pitutos", "trabajo a trato",
     "tengo un emprendimiento", "somos contratistas", "soy contratista",
     "somos una empresa", "tengo empresa", "tengo una empresa", "represento una empresa",

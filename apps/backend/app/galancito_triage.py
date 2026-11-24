@@ -100,10 +100,12 @@ _LEGACY_APPLICATION_PROMPTS = {
     "¿Qué aviso viste? Con el nombre de la obra o el link te puedo orientar para postular.",
     "Con ese dato aún no ubico el aviso. ¿Tienes el link de la publicación?",
 }
-ASK_APPLICATION_INTEREST = "¿Buscas trabajo para ti o quieres ofrecer tus servicios?"
+ASK_APPLICATION_INTEREST = "¿Buscas empleo como trabajador o quieres trabajar por tu cuenta como contratista?"
 ASK_APPLICATION_OWN = "Entiendo, buscas trabajo para ti. ¿Trabajas en "
-ASK_APPLICATION_ROLE_CLARIFY = "¿Buscas que te contraten a ti?"
+ASK_APPLICATION_ROLE_CLARIFY = "¿Quieres un empleo con contrato o tomar trabajos por tu cuenta?"
 _LEGACY_ROLE_PROMPTS = (
+    "¿Buscas trabajo para ti o quieres ofrecer tus servicios?",
+    "¿Buscas que te contraten a ti?",
     "¿El trabajo lo buscas para ti o para tu equipo?",
     "¿Buscas trabajo para ti o quieres llevar una cuadrilla?",
 )
@@ -127,22 +129,34 @@ def application_role(message: str, prior: str) -> str | None:
                  "pami", "para mi no mas", "busco pega", "busco trabajo",
                  "quiero trabajar", "quiero postular", "para trabajar", "busco empleo",
                  "soy yo", "que me contraten", "quiero que me contraten", "con contrato",
-                 "quiero pega", "nesesito pega", "necesito pega"}:
+                 "quiero pega", "nesesito pega", "necesito pega", "apatronado", "trabajar apatronado",
+                 "quiero trabajar apatronado", "busco trabajo apatronado", "quiero un empleo", "empleo con contrato"}:
         return "employment"
-    if (plain(prior).endswith(plain(ASK_APPLICATION_ROLE_CLARIFY))
+    if (plain(prior).endswith(plain("¿Buscas que te contraten a ti?"))
             and value in {"si", "sipo", "si po", "claro", "exacto", "asi es", "si claro"}):
         return "employment"
     if value in {"mi equipo", "con mi equipo", "con mi gente", "tengo gente",
                  "tengo cuadrilla", "mi cuadrilla", "tengo una cuadrilla", "con mi cuadrilla",
                  "yo con mi gente", "ofrezco servicios", "ofresco servicios", "tengo empresa",
                  "tengo una empresa", "somos varios", "trabajo con gente", "por mi cuenta",
-                 "soy independiente", "independiente", "a trato", "hago pitutos", "trabajos por mi cuenta", "trabajo por mi cuenta"}:
+                 "soy independiente", "independiente", "a trato", "hago pitutos", "trabajos por mi cuenta", "trabajo por mi cuenta",
+                 "ofrecer mis servicios", "quiero ofrecer mis servicios", "ofrecer servicios",
+                 "ofrezco mis servicios", "ofresco mis servicios", "contratista", "como contratista",
+                 "soy contratista", "quiero trabajar como contratista", "trabajo por las mias",
+                 "por las mias", "por mi propia cuenta", "tomo trabajos por mi cuenta"}:
         return "service_offer"
     if value in {"ambos", "ambas", "las dos", "las dos cosas", "los dos",
                  "las dos opciones", "busco pega y ofrezco servicios",
                  "busco trabajo y ofrezco servicios"}:
         return "both"
     return None
+
+
+def application_ai_candidate(message: str, prior: str) -> bool:
+    """Contextual role/trade turns should reach the authorized language model."""
+    return bool(message and not private_data(message) and not is_pure_greeting(message)
+                and (application_role_question(prior) or prior.startswith(ASK_APPLICATION_OWN))
+                and analyze(message).intent not in {"human", "restricted", "publish"})
 
 
 def asks_about_application(message: str) -> bool:

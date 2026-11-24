@@ -42,7 +42,7 @@ from .facebook_publication_models import FacebookPostSnapshot, FacebookPostJob
 from .network_service import key, today
 from .galancito_triage import classify_lead, dashboard
 from .security import administrator
-from .galancito_triage import analyze, private_data, quick_reply, everyday_question_reply
+from .galancito_triage import analyze, private_data, quick_reply, everyday_question_reply, application_ai_candidate, application_role, application_role_question
 from .galancito_intake import (
     acceptable_intake_draft, declared_relative_start, identity_reply, model_intake_candidate, needs_deeper_response, next_intake_reply, small_talk_reply,
     natural_messenger_reply,
@@ -483,6 +483,24 @@ def ingest_facebook_payload(db, payload, cfg, *, notices=None):
                     and direct == everyday_question_reply(body)
                     and consented_for(lead, configured_source)):
                 direct = None
+            # Let Qwen choose the next conversational question when authorized.
+            # Before consent, an unclear role can request authorization instead
+            # of being forced into employment by a fixed yes/no question.
+            application_model = bool(application and direct == application and not phone_saved
+                                     and not signal and not lead.needs_support
+                                     and local_first_messenger(cfg)
+                                     and application_ai_candidate(body, previous_question))
+            application_permission = bool(application_model
+                and application_role_question(previous_question)
+                and application_role(body, previous_question) is None
+                and lead.ai_consent_state == "not_requested"
+                and not consented_for(lead, configured_source))
+            if application_model and consented_for(lead, configured_source):
+                direct = None
+            elif application_permission:
+                direct = set_permission_request(lead, configured_source)
+            else:
+                application_model = False
             ai_source = "disabled" if direct else configured_source
             recent = db.scalar(select(func.count(FacebookChatMessage.id)).where(
                 FacebookChatMessage.lead_id == lead.id,
@@ -501,6 +519,8 @@ def ingest_facebook_payload(db, payload, cfg, *, notices=None):
                               "Te pueden ayudar por este chat; no necesitas enviar documentos."))
             elif direct:
                 reply = direct
+            elif application_model:
+                reply, use_ai = application, True
             elif local and identity_reply(body):
                 reply = local
             elif local and not waiting_for_ai and not lead.needs_support:

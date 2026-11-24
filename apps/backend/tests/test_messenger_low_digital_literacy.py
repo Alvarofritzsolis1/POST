@@ -272,3 +272,22 @@ def test_contextual_role_survives_clarifications_and_legacy_question(answer):
     assert application_role("solo", ASK_APPLICATION_INTEREST) is None
     assert application_role("no tengo gente", ASK_APPLICATION_INTEREST) is None
     assert application_role("¿para mi?", ASK_APPLICATION_INTEREST) is None
+
+
+@pytest.mark.parametrize("answer", ["OFRECER MIS SERVICIOS", "quiero ofrecer mis servicios",
+                                    "trabajo por las mías", "como contratista"])
+def test_explicit_service_role_is_not_overridden(answer):
+    from app.galancito_triage import application_role, application_ai_candidate
+    for prior in (ASK_APPLICATION_INTEREST, "¿Buscas trabajo para ti o quieres ofrecer tus servicios?"):
+        assert application_role(answer, prior) == "service_offer"
+        assert application_ai_candidate(answer, prior)
+        assert _app(answer, prior) == "¿Qué trabajos haces por tu cuenta?"
+
+
+def test_new_role_question_never_treats_ambiguous_yes_as_employment():
+    from app.galancito_triage import ASK_APPLICATION_ROLE_CLARIFY, application_role, application_ai_candidate
+    assert application_role("sí", ASK_APPLICATION_INTEREST) is None
+    assert application_role("sipo", ASK_APPLICATION_ROLE_CLARIFY) is None
+    assert application_role("quiero trabajar apatronado", ASK_APPLICATION_INTEREST) == "employment"
+    assert application_ai_candidate("apaño con mis cabros", ASK_APPLICATION_INTEREST)
+    assert not application_ai_candidate("mi celular es +56900000000", ASK_APPLICATION_INTEREST)
