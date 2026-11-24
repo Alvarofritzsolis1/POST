@@ -10,7 +10,7 @@ import re
 from pathlib import Path
 from time import sleep
 from fastapi import HTTPException
-from sqlalchemy import select, and_, delete
+from sqlalchemy import select, and_, delete, or_
 from sqlalchemy.exc import SQLAlchemyError
 
 from .db import SessionLocal
@@ -80,6 +80,17 @@ def isolated_qwen_status(snapshot: dict, training_model=None) -> tuple[bool, str
 def isolated_qwen_ready(snapshot: dict, training_model=None) -> bool:
     """Boolean-compatible wrapper for existing readiness checks."""
     return isolated_qwen_status(snapshot, training_model)[0]
+
+
+def practice_admission(snapshot, *, messenger_pending=False):
+    allowed, reason = can_run(snapshot, messenger_pending=messenger_pending, intensive=True)
+    if not allowed:
+        return False, reason
+    if not MAX_POWER_ISOLATED:
+        return False, "Ollama de práctica aislado no disponible"
+    if not qwen_memory_ready(snapshot):
+        return False, "RAM insuficiente para cargar o conservar Qwen 4B"
+    return True, None
 
 
 def cpu_execution_blocks(db, now):
@@ -479,7 +490,9 @@ def main():
                         due = db.scalar(select(MaxPowerMessengerTrial.id).join(
                             MaxPowerState, MaxPowerMessengerTrial.org_id == MaxPowerState.org_id
                         ).where(MaxPowerState.enabled.is_(True),
-                          MaxPowerMessengerTrial.status.in_(("queued", "running")),
+                          or_(MaxPowerMessengerTrial.status == "queued",
+                              and_(MaxPowerMessengerTrial.status == "running",
+                                   MaxPowerMessengerTrial.lease_until < utcnow())),
                           MaxPowerMessengerTrial.next_at <= utcnow()).limit(1))
                     if due:
                         with SessionLocal() as db:
@@ -488,8 +501,8 @@ def main():
                                     "cpu_pressure_avg10": _pressure("cpu"),
                                     "memory_pressure_avg10": _pressure("memory"),
                                     "io_pressure_avg10": _pressure("io")}
-                        allowed, block_reason = can_run(snapshot, messenger_pending=pending, intensive=True)
-                        if allowed and MAX_POWER_ISOLATED and snapshot["available_ram_mb"] >= QWEN_MIN_RAM_MB:
+                        allowed, block_reason = practice_admission(snapshot, messenger_pending=pending)
+                        if allowed:
                             task = executor.submit(process_one)
                         else:
                             logger.debug("MAX POWER Messenger practice yielded: %s", block_reason)
