@@ -689,13 +689,14 @@ def contact_ready(facts: dict) -> bool:
 
 
 def conversation_context(facts: dict) -> str:
-    known = conversation_fields(facts)
-    pending = sorted(field for field, filled in known.items()
-                     if not filled and facts.get("field_states", {}).get(field) != "rechazado_por_usuario"
-                     and (not field.startswith("contact_") or contact_ready(facts)))
-    return ("Datos pendientes (sin orden obligatorio, pregunta solo lo útil): " + ", ".join(pending)
-            + ". Contacto opcional disponible para solicitar: " + ("sí" if contact_ready(facts) else "no")
-            + ". Responde primero la consulta actual; puedes cambiar de tema, aclarar o no preguntar.")
+    pending = list(pending_professional_questions(facts))
+    if contact_ready(facts):
+        pending.append("contact_phone o contact_email (opcional, solo uno)")
+    return ("Datos profesionales pendientes aplicables (sin orden obligatorio, pregunta solo lo útil): "
+            + (", ".join(pending) or "ninguno")
+            + ". Distingue lo desconocido de lo rechazado y no confundas equipo con empleados."
+            + " Responde primero la consulta actual; elige el siguiente paso según el objetivo y el historial."
+            + " Si la ficha sigue incompleta, retoma un dato útil cuando corresponda.")
 
 
 def acceptable_intake_draft(draft: str, facts: dict, expected_question: str = "",
