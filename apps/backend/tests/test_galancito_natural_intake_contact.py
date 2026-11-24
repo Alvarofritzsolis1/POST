@@ -50,11 +50,11 @@ def test_job_advert_first():
     assert quick_reply("hola vi un trabajo") == "¡Hola! ¿Qué trabajo viste?"
 
 
-def test_rewrite_must_keep_question_semantics():
+def test_model_may_choose_any_missing_field_not_scripted_field():
     facts = complete(experience="", work_area="")
     question = "¿Cuánto tiempo llevas en ese oficio?"
     assert acceptable_intake_draft("¿Cuánta experiencia tienes?", facts, question)
-    assert not acceptable_intake_draft("¿En qué comuna puedes trabajar?", facts, question)
+    assert acceptable_intake_draft("¿En qué comuna puedes trabajar?", facts, question)
     assert not acceptable_intake_draft("¿Me cuentas más?", facts, question)
 
 
@@ -76,3 +76,36 @@ def test_curated_example_is_context_not_verbatim_reply():
     from app.galancito_knowledge import conversation_example
     assert not conversation_example("solo")
     assert "Criterio:" in conversation_example("solo", "¿Trabajas solo?")
+
+
+def test_interruption_can_be_answered_without_intake_question():
+    facts = complete(experience="", work_area="")
+    prior = "¿Cuánto tiempo llevas en ese oficio?"
+    assert acceptable_intake_draft("El pago depende del acuerdo con la obra. ¿Qué aviso viste?",
+        facts, prior, message="pero cuanto pagan")
+    assert acceptable_intake_draft("El monto depende del trabajo y aún no está confirmado.",
+        facts, prior, message="¿Cuánto pagan?")
+    assert model_intake_candidate("cuanto pagan", facts, prior, None)
+    assert not acceptable_intake_draft("Perfecto.", facts, prior, message="5 años")
+
+
+def test_model_can_offer_contact_before_name_or_experience():
+    facts = complete(experience="", display_name="Contacto sin nombre")
+    assert acceptable_intake_draft("¿Me dejas tu número para coordinar? Si prefieres, seguimos por aquí.",
+        facts, "¿Cuánto tiempo llevas en ese oficio?")
+    assert not acceptable_intake_draft("¿Me dejas tu número para coordinar? Si prefieres, seguimos por aquí.",
+        complete(contact_declined=True))
+    assert not acceptable_intake_draft("¿Me dejas tu número para coordinar? Si prefieres, seguimos por aquí.",
+        complete(work_area=""))
+    assert not acceptable_intake_draft("¿Me dejas tu número?", facts)
+
+
+def test_free_order_questions_keep_interpretable_short_replies():
+    from app.galancito_intake import intake_question_fields, conversation_context
+    facts = complete(experience="", work_area="", availability="")
+    assert intake_question_fields("¿Dónde puedes trabajar?") == {"work_communes"}
+    assert intake_question_fields("¿Cuándo puedes partir?") == {"availability"}
+    assert intake_question_fields("¿Cuántos maestros pueden venir?") == {"workers"}
+    context = conversation_context(facts)
+    assert "sin orden obligatorio" in context
+    assert "work_communes" in context and "availability" in context
