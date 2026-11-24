@@ -8,6 +8,6 @@ RUN python -m pip install --no-cache-dir --index-url https://download.pytorch.or
  && rm -f /tmp/cpu-deps.txt
 COPY scripts/galant_cpu_lora_resources.py scripts/galant_cpu_lora_resources.py
 COPY scripts/probe_galancito_4b_cpu.py scripts/probe_galancito_4b_cpu.py
-RUN useradd --uid 10001 --create-home --shell /usr/sbin/nologin trainer && chmod -R a+rX /src
+RUN useradd --uid 10001 --create-home --shell /usr/sbin/nologin trainer && chmod -R a+rX /src && mkdir -p /private/4b-probe /private/cache && chown -R 10001:10001 /private
 USER 10001:10001
 ENTRYPOINT ["timeout", "--signal=TERM", "--kill-after=30s", "7200s", "python", "/src/scripts/probe_galancito_4b_cpu.py"]
