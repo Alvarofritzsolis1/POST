@@ -473,7 +473,14 @@ def ingest_facebook_payload(db, payload, cfg, *, notices=None):
                     lead.phone_requested_at = utcnow()
             if phone_saved and not signal and not direct and not needs_deeper_response(body):
                 direct = "Gracias, registré el número que compartiste para coordinación. No confirma contratación."
-            ai_source = "disabled" if direct else messenger_ai_source(db, lead.org_id, cfg)
+            configured_source = messenger_ai_source(db, lead.org_id, cfg)
+            # Generic questions should reach the consented model; confirmed
+            # worksite facts and consent operations keep their verified path.
+            if (direct and not (location or application or digital_help or phone_saved)
+                    and direct == everyday_question_reply(body)
+                    and consented_for(lead, configured_source)):
+                direct = None
+            ai_source = "disabled" if direct else configured_source
             recent = db.scalar(select(func.count(FacebookChatMessage.id)).where(
                 FacebookChatMessage.lead_id == lead.id,
                 FacebookChatMessage.direction == "outbound",
