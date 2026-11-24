@@ -461,10 +461,16 @@ def process_one():
             if (row and state and state.enabled and
                 state.session_generation == generation and
                 row.status == "running" and row.claim_token == claim_token):
-                final=isinstance(exc,ValueError) or row.attempts>=3
-                row.status="blocked" if final else "queued"
-                row.next_at=utcnow()+timedelta(minutes=2**row.attempts)
                 detail = str(exc)
+                # Normal production priority is not an inference failure.
+                # Preserve retries for actual execution faults.
+                deferred = detail == "Messenger tiene prioridad sobre experimentos"
+                if deferred:
+                    row.attempts = max(0, row.attempts - 1)
+                final = not deferred and (isinstance(exc, ValueError) or row.attempts >= 3)
+                row.status = "blocked" if final else "queued"
+                row.next_at = utcnow() + (timedelta(seconds=90) if deferred else
+                                         timedelta(minutes=2**row.attempts))
                 row.reason = (detail if detail in {
                     "MAX POWER no ejecuta ensayos de Messenger sobre Ollama de producción",
                     "Messenger tiene prioridad sobre experimentos", "El modelo no confirmó Qwen3.5 4B",
