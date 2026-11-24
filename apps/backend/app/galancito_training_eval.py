@@ -11,6 +11,8 @@ from sqlalchemy import create_engine, select
 from sqlalchemy.orm import Session
 
 from .facebook_ai import REPLY_INSTRUCTIONS
+from .facebook_worksite_reply import application_reply
+from .galancito_knowledge import conversation_example
 from .facebook_crm_models import FacebookLead, FacebookLeadTrace, FacebookLeadTrade
 from .galancito_flow import grounded_reply, numbered_menu
 from .galancito_intake import (UNKNOWN_NAMES, acceptable_intake_draft, identity_reply, natural_messenger_reply,
@@ -165,7 +167,8 @@ def evaluate(case, aliases, knowledge, answer=None, judge=None, corrector=None, 
 
             # Share the production deterministic policies, including identity and intake.
             identity = identity_reply(clean)
-            prior = next_intake_reply(clean, facts, previous)
+            application = application_reply(db, lead, clean, previous, notices=[])
+            prior = application or next_intake_reply(clean, facts, previous)
             asks_match = match is not None and bool(re.search(r"\bcompatible\b", plain(message))) and "?" in message
             fast = identity or (match_reply(match) if asks_match else None)
             fast = fast or small_talk_reply(clean, previous) or prior or quick_reply(clean, known=facts)
@@ -173,7 +176,7 @@ def evaluate(case, aliases, knowledge, answer=None, judge=None, corrector=None, 
                              if item.get("phrase") and plain(item["phrase"]) == plain(clean)), None)
             # Preserve identity, private turn and need handling before candidate knowledge.
             source = "rules"
-            eligible_for_rewrite = not private_data(message) and not identity and not asks_match
+            eligible_for_rewrite = not private_data(message) and not identity and not asks_match and not application
             numbered_draft = bool(reviewed and eligible_for_rewrite and numbered_menu(reviewed))
             if reviewed and eligible_for_rewrite and not numbered_draft:
                 fast, source = reviewed, "approved_correction"
@@ -183,7 +186,8 @@ def evaluate(case, aliases, knowledge, answer=None, judge=None, corrector=None, 
                 public_facts = {k: v for k, v in last_profile.items() if k != "phone"}
                 context = json.dumps({"mensaje": clean, "ultimos_turnos": history[-4:],
                                       "ficha_declarada": public_facts,
-                                      "orientacion_siguiente_pregunta": prior or ""}, ensure_ascii=False)
+                                      "orientacion_siguiente_pregunta": prior or "",
+                                      "ejemplo_didactico": conversation_example(clean, previous)}, ensure_ascii=False)
                 draft = answer(context)
                 numbered_draft = numbered_menu(draft)
                 grounded = grounded_reply(draft, context)
