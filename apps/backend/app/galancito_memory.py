@@ -14,7 +14,7 @@ from .galancito_intake import (
 from .galancito_contact_email import redact_email_for_intake, remember_shared_email
 from .galancito_phone import redact_mobile_for_intake, remember_shared_phone
 from .galancito_links import audit_event, record_declared_trades, trade_declarations, trade_terms
-from .galancito_triage import (ASK_APPLICATION_INTEREST, ASK_APPLICATION_OWN,
+from .galancito_triage import (ASK_APPLICATION_OWN, application_role, application_role_question,
                               analyze, asks_about_application, plain, private_data, referring_to_application)
 
 FIELDS = (
@@ -119,13 +119,16 @@ def apply_messenger_message(db, lead, message, prior, *, remote_id, at, historic
         if len(trade) == 1:
             message = "trabajo en " + trade[0]
             prior = ""
-    elif prior.endswith(ASK_APPLICATION_INTEREST):
-        if normalized in {"yo", "yo solo", "yo sola", "solo yo", "solamente yo",
-                          "yo no mas", "yo nomas", "pa mi", "para mi", "soy yo"}:
+    elif application_role_question(prior):
+        role = application_role(message, prior)
+        if role == "employment":
             message, prior = "busco trabajo", ""
-        elif normalized in {"mi equipo", "con mi gente", "tengo cuadrilla", "somos varios",
-                                 "tengo gente", "yo con mi gente", "con mi cuadrilla"}:
-            message, prior = "ofrezco servicios", ""
+        elif role == "service_offer":
+            # Preserve explicit team/company facts; don't turn a bare role into employees.
+            extra = message if _PERSONAL_DECLARATION.match(normalized) else ""
+            message, prior = ("ofrezco servicios. " + extra).strip(), ""
+        elif role == "both":
+            message, prior = "busco trabajo y ofrezco servicios", ""
     if asking_about_notice := (asks_about_application(message) or referring_to_application(prior)):
         # An oficio or comuna quoted from an advert belongs to that advert.
         # Preserve separate first-person declarations in the same message.

@@ -22,7 +22,7 @@ SOURCE = "sintetico_generado"
 EVENT = "synthetic_intake_completed"
 WEIGHTS = {"profile": 45, "understanding": 25, "humanity": 20, "continuity": 10}
 # Bump when extraction or the evaluation protocol changes, even with the same fixtures.
-PROTOCOL = "20.9.37.low-tech.1"
+PROTOCOL = "20.9.37.low-tech.2"
 QWEN_CRITERION = "synthetic_reply"
 ANCHOR = datetime(2026, 11, 23, 15, tzinfo=timezone.utc)
 
@@ -41,6 +41,24 @@ class Turn:
 def generate_scenarios():
     """Each case has independent, authored values, context and expected outcomes."""
     return {
+        "aviso-respuesta-ambigua": (
+            Turn("Vi una postulación de trabajo", {"specialty": "", "interest_type": "unknown"}),
+            Turn("de gasfiter", {"specialty": "", "interest_type": "unknown"}, continuity=True),
+            Turn("solo", {"specialty": "", "interest_type": "unknown"}, continuity=True),
+            Turn("para mi", {"specialty": "", "interest_type": "employment"}, continuity=True),
+            Turn("si", {"specialty": "Gasfitería", "interest_type": "employment"}, continuity=True),
+        ),
+        "aviso-rol-doble": (
+            Turn("Vi un aviso", {"specialty": ""}),
+            Turn("de pintura", {"specialty": "", "interest_type": "unknown"}, continuity=True),
+            Turn("las dos cosas", {"specialty": "", "interest_type": "both"}, continuity=True),
+        ),
+        "aviso-aclaracion-repetida": (
+            Turn("Vi un aviso", {"specialty": ""}),
+            Turn("de soldadura", {"specialty": "", "interest_type": "unknown"}, continuity=True),
+            Turn("solo", {"specialty": "", "interest_type": "unknown"}, continuity=True),
+            Turn("solo", {"specialty": "", "interest_type": "unknown"}, continuity=True),
+        ),
         "giro-y-pega": (
             Turn("ola soi carpintreo, busco pega y también ofresco servicios.",
                  {"specialty": "Carpintería", "interest_type": "both", "entity_type": "unknown"}),
@@ -183,6 +201,7 @@ def generate_scenarios():
 # Distinct situations, fixed before evaluation. The reserved set is never used
 # by the signed real-data training pipeline or by the development summary.
 RESERVED = frozenset({
+    "aviso-respuesta-ambigua", "aviso-aclaracion-repetida",
     "giro-y-pega", "equipo-sin-contratos", "movilidad-y-domicilio", "fecha-retomada",
     "oficio-indeciso", "nombre-voluntario", "dato-manual",
     "pregunta-y-declaracion", "contratos-sin-capacidad", "telefono-sintetico",
@@ -228,6 +247,7 @@ def _measure(scenarios, case_ids, engine):
     failed = []
     evaluated_turns = 0
     from .max_power_messenger import objective_checks
+    from .facebook_worksite_reply import application_reply
 
     for case_id in sorted(case_ids):
         previous_answer = ""
@@ -266,7 +286,8 @@ def _measure(scenarios, case_ids, engine):
                 expected_known = {key for key, value in {**prior_facts, **turn.expected}.items()
                                   if value not in (None, "", "unknown", [], "Interesado de Facebook")}
                 answer = "" if turn.late else (
-                    small_talk_reply(body, prior) or next_intake_reply(body, facts, prior)
+                    application_reply(session, lead, body, prior, notices=[])
+                    or small_talk_reply(body, prior) or next_intake_reply(body, facts, prior)
                     or quick_reply(body, known=facts) or "")
                 wrong = []
                 for field_name, expected in turn.expected.items():
@@ -301,6 +322,9 @@ def _measure(scenarios, case_ids, engine):
                     if not understood:
                         wrong.append("consulta")
                 if turn.continuity:
+                    same_answer = bool(previous_answer and plain(previous_answer) == plain(answer))
+                    if case_id.startswith("aviso-") and same_answer:
+                        wrong.append("bucle_conversacional")
                     continuity.append(not wrong and not repeated)
                 if repeated:
                     wrong.append("pregunta_repetida")

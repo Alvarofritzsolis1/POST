@@ -257,3 +257,16 @@ def test_human_handoff_is_not_a_revocation_of_accepted_ai_permission():
     assert not lead.ai_consent
     assert lead.ai_consent_state == "declined"
     assert lead.ai_consent_provider == ""
+
+
+@pytest.mark.parametrize("answer", ["pa mi no mas", "para mí mismo", "pami", "que me contraten", "con contrato"])
+def test_contextual_role_survives_clarifications_and_legacy_question(answer):
+    from app.galancito_triage import ASK_APPLICATION_ROLE_CLARIFY, application_role
+    for prior in (ASK_APPLICATION_INTEREST, ASK_APPLICATION_ROLE_CLARIFY,
+                  "¿El trabajo lo buscas para ti o para tu equipo?"):
+        assert application_role(answer, prior) == "employment"
+        assert _app(answer, prior) and "oficio" in _app(answer, prior)
+    assert application_role(answer, "¿En qué comuna puedes trabajar?") is None
+    assert application_role("solo", ASK_APPLICATION_INTEREST) is None
+    assert application_role("no tengo gente", ASK_APPLICATION_INTEREST) is None
+    assert application_role("¿para mi?", ASK_APPLICATION_INTEREST) is None

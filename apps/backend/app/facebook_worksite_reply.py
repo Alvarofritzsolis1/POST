@@ -9,6 +9,7 @@ from .facebook_crm_models import FacebookChatMessage
 from .galancito_knowledge import exact_answer, retrieve
 from .galancito_triage import (
     ASK_APPLICATION, ASK_APPLICATION_LINK, ASK_APPLICATION_INTEREST, ASK_APPLICATION_OWN,
+    ASK_APPLICATION_ROLE_CLARIFY, application_role, application_role_question,
     analyze, asks_about_application, is_pure_greeting, plain, private_data, referring_to_application,
 )
 from .network_models import NetworkFacebookPost, NetworkRequirement
@@ -92,22 +93,6 @@ def digital_help_reply(message: str, prior_prompt: str = "") -> str | None:
     return ASK_APPLICATION_LINK
 
 
-def _application_role(message: str) -> str | None:
-    value = plain(message)
-    if value in {"yo", "yo solo", "yo sola", "solo yo", "solamente yo",
-                 "yo no mas", "yo nomas", "pa mi", "para mi",
-                 "busco pega", "busco trabajo", "quiero trabajar",
-                 "quiero postular", "para trabajar", "busco empleo", "soy yo"}:
-        return "employment"
-    if any(p in value for p in (
-        "tengo gente", "tengo cuadrilla", "con mi equipo", "con mi gente",
-        "ofrezco servicios", "ofresco servicios", "tengo una empresa",
-        "tengo empresa", "somos varios", "mi cuadrilla", "trabajo con gente",
-    )):
-        return "service_offer"
-    return None
-
-
 def application_reply(db: Session, lead, message: str, prior_prompt: str = "", *, notices=None) -> str | None:
     """Advance a real conversation, not a Facebook link-gathering script.
 
@@ -130,8 +115,8 @@ def application_reply(db: Session, lead, message: str, prior_prompt: str = "", *
         if value in {"no", "no es mi oficio", "no trabajo en eso", "todavia no"}:
             return "Está bien, no voy a asumir tu oficio. ¿Qué trabajo realizas?"
         return None
-    if prior_prompt.endswith(ASK_APPLICATION_INTEREST):
-        role = _application_role(message)
+    if application_role_question(prior_prompt):
+        role = application_role(message, prior_prompt)
         if role == "employment":
             trades = trade_terms(prior_prompt)
             if len(trades) == 1:
@@ -139,12 +124,22 @@ def application_reply(db: Session, lead, message: str, prior_prompt: str = "", *
             return "Entiendo, quieres postular tú. ¿Qué oficio realizas?"
         if role == "service_offer":
             return "Entiendo, ofreces tus servicios. ¿En qué comuna puedes trabajar?"
-        if norm in {"no entiendo", "que significa", "no cacho", "como es eso"}:
-            return "Te explico: ¿buscas trabajo para ti o quieres llevar una cuadrilla?"
+        if role == "both":
+            return "Entiendo, te interesan las dos opciones. ¿Qué trabajo realizas?"
+        if norm in {"no entiendo", "que significa", "no cacho", "como es eso", "solo", "sola", "solito", "solita"}:
+            if plain(prior_prompt).endswith(plain(ASK_APPLICATION_ROLE_CLARIFY)):
+                return "No hay problema, podemos seguir sin aclarar eso ahora. ¿Qué trabajo realizas?"
+            trades = trade_terms(prior_prompt)
+            context = ("El aviso era de " + trades[0].lower() + ". ") if len(trades) == 1 else ""
+            return "Te explico: " + context + ASK_APPLICATION_ROLE_CLARIFY
         # If a person volunteers an occupational fact, do not force an unrelated role menu.
         if any(p in norm for p in ("soy ", "soi ", "trabajo ", "hago ", "me dedico ")):
             return None
-        return "¿El trabajo lo buscas para ti o para tu equipo?"
+        if plain(prior_prompt).endswith(plain(ASK_APPLICATION_ROLE_CLARIFY)):
+            return "Podemos dejar ese dato pendiente. ¿Qué trabajo realizas?"
+        trades = trade_terms(prior_prompt)
+        context = ("El aviso era de " + trades[0].lower() + ". ") if len(trades) == 1 else ""
+        return context + ASK_APPLICATION_ROLE_CLARIFY
     if _simple_digital_help(message):
         # Reassure; after repeated difficulty, keep helping instead of looping.
         if prior_prompt == ASK_APPLICATION_LINK:
