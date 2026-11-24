@@ -42,7 +42,7 @@ from .galancito_triage import classify_lead, dashboard
 from .security import administrator
 from .galancito_triage import analyze, private_data, quick_reply, everyday_question_reply
 from .galancito_intake import (
-    declared_relative_start, identity_reply, needs_deeper_response, next_intake_reply, small_talk_reply,
+    declared_relative_start, identity_reply, model_intake_candidate, needs_deeper_response, next_intake_reply, small_talk_reply,
     natural_messenger_reply,
 )
 from .galancito_memory import (
@@ -510,7 +510,7 @@ def ingest_facebook_payload(db, payload, cfg, *, notices=None):
             elif consented_for(lead, ai_source):
                 if not (waiting_for_ai or consent_reply):
                     reply = next_intake_reply(body, profile_facts(lead, changed=changed), previous_question)
-                use_ai = not reply
+                use_ai = not reply or model_intake_candidate(body, profile_facts(lead, changed=changed), previous_question, reply)
             elif ai_source != "disabled" and lead.ai_consent_state in (
                     "not_requested", "accepted", "accepted_team"):
                 facts = profile_facts(lead, changed=changed)
@@ -549,6 +549,10 @@ def ingest_facebook_payload(db, payload, cfg, *, notices=None):
                         direction="outbound", state="ai_pending",
                         body="", ai_generated=True, updated_at=received_at,
                     ))
+                elif reply:
+                    # Keep the safe local question if the bounded model queue is busy.
+                    db.add(FacebookChatMessage(org_id=lead.org_id, lead_id=lead.id, page_id=lead.page_id,
+                        direction="outbound", state="pending", body=reply[:550], ai_generated=False))
                 else:
                     flag_for_human(db, lead,
                                    "Cola del asistente ocupada; requiere revisión humana")
