@@ -144,7 +144,7 @@ def _affirmed(value: str, phrases: tuple[str, ...]) -> bool:
 def _role_update(lead, value: str, previous: str) -> None:
     service = _affirmed(value, _ROLE_SERVICE)
     worker = _affirmed(value, _ROLE_WORKER)
-    if "interest_type" in intake_question_fields(previous) or _INTEREST_QUESTION in previous:
+    if "interest_type" in intake_question_fields(previous + "?") or _INTEREST_QUESTION in previous:
         service |= value in {"1", "uno", "servicios", "contratista", "independiente", "ofrezco trabajo", "por mi cuenta"}
         worker |= value in {"2", "dos", "empleo", "pega", "trabajador", "trabajadora"}
         if value in {"ambos", "ambas", "las dos", "los dos", "las dos cosas", "ambos roles"}:
@@ -213,7 +213,7 @@ def _name_update(lead, message: str, previous: str) -> None:
 
 def _commune_update(lead, message: str, previous: str) -> None:
     value = plain(message)
-    asked = "work_communes" in intake_question_fields(previous) or _COMMUNE_QUESTION in previous
+    asked = "work_communes" in intake_question_fields(previous + "?") or _COMMUNE_QUESTION in previous
     found = []
     continues_area = False
     for fragment in re.split(r"[,;.!\n]+|\bpero\b", message, flags=re.I):
@@ -252,7 +252,7 @@ def _team_update(lead, value: str, previous: str) -> None:
                              "voy a ir solo", "voy a ir sola", "yo solo", "yo sola", "sin equipo"))
     if value in {"no puedo llevar gente", "no tengo gente", "no tengo cuadrilla"}:
         solo = True
-    if "team_available" in intake_question_fields(previous) or _TEAM_QUESTION in previous or "puedes venir con" in previous:
+    if "team_available" in intake_question_fields(previous + "?") or _TEAM_QUESTION in previous or "puedes venir con" in previous:
         solo |= value in {"1", "uno", "solito", "solo", "sola", "sin gente", "sin equipo"}
         capacity |= value in {"2", "dos", "con gente", "con equipo", "con personas"}
     if solo and not capacity:
@@ -342,7 +342,7 @@ def work_date_answer(message: str, previous: str) -> tuple[bool, date] | None:
 def _availability_update(lead, message: str, previous: str, *, on_date=None) -> None:
     clean = message.strip()
     value = plain(clean)
-    asked = "availability" in intake_question_fields(previous) or _AVAILABILITY_QUESTION in previous or "desde cuando puedes" in previous
+    asked = "availability" in intake_question_fields(previous + "?") or _AVAILABILITY_QUESTION in previous or "desde cuando puedes" in previous
     if (asked or "disponib" in value or "puedo" in value) and re.search(
         r"\b(?:quizas|tal vez|puede que|no se si|depende)\b|\b(?:lunes|martes|miercoles|jueves|viernes|sabado|domingo|hoy|manana) o\b", value
     ):
