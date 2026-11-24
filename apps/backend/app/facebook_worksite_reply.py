@@ -123,7 +123,7 @@ def application_reply(db: Session, lead, message: str, prior_prompt: str = "", *
                 return ASK_APPLICATION_OWN + trades[0].lower() + "?"
             return "Entiendo, quieres postular tú. ¿Qué oficio realizas?"
         if role == "service_offer":
-            return ("¿En qué comuna puedes trabajar?" if lead.specialty else
+            return ("¿En qué comuna puedes trabajar?" if getattr(lead, "specialty", None) else
                     "¿Qué trabajos haces por tu cuenta?")
         if role == "both":
             return "Entiendo, te interesan las dos opciones. ¿Qué trabajo realizas?"
