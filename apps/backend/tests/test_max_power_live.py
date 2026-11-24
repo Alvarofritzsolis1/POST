@@ -122,3 +122,15 @@ def test_dispatch_admission_uses_warm_model_policy(monkeypatch):
     assert worker.practice_admission({**snapshot,"available_ram_mb":9000})[0]
     monkeypatch.setattr(worker,"MAX_POWER_ISOLATED",False)
     assert not worker.practice_admission({**snapshot,"available_ram_mb":9000})[0]
+
+
+def test_replay_prompt_never_truncates_current_question():
+    from app.max_power_messenger import replay_prompt
+    from app.galancito_local import MAX_CONTEXT_CHARS
+    question = "No cacho la postulación. " + "x" * 600 + " ¿Me ayudas?"
+    history = [{"role":"inbound","text":"oficio " + "y"*650} for _ in range(4)]
+    prompt = replay_prompt({"question":question,"history":[*history,{"role":"inbound","text":question}]})
+    assert len(prompt) <= MAX_CONTEXT_CHARS
+    assert prompt.endswith(question)
+    assert prompt.count(question) == 1
+    assert replay_prompt({"question":question,"history":history}).endswith(question)
