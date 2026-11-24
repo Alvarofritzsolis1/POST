@@ -10,7 +10,7 @@ import re
 from pathlib import Path
 from time import sleep
 from fastapi import HTTPException
-from sqlalchemy import select, and_
+from sqlalchemy import select, and_, delete
 from sqlalchemy.exc import SQLAlchemyError
 
 from .db import SessionLocal
@@ -23,6 +23,7 @@ from .galancito_training_api import RoundInput, start
 from .galancito_training_models import ACTIVE, TrainingCase, TrainingRound, TrainingWorker
 from .galancito_training_model import TrainingModel
 from .max_power_decisions import QWEN_MIN_RAM_MB, can_run, classify_outcome, evidence_fingerprint, select_experiment_plan, worksite_holdout_sign_test
+from .max_power_live import RESOURCE_EVENT, resource_metrics
 from .max_power_models import MaxPowerEvent, MaxPowerState, MaxPowerMessengerTrial
 from .max_power_messenger import schedule_next, process_one, schedule_synthetic_reply
 from .max_power_practice import EVENT as PRACTICE_EVENT, generate_scenarios, practice_id, run_practice
@@ -201,7 +202,7 @@ def _result(db, row, completed, now):
     # No falsely asserted production gain. A lab win still awaits review/promotion.
     # Keep value-bearing aggregate evidence even after routine training-case pruning.
     audit_snapshot = {
-        "source": "real_db_aggregate", "model": row.latest_result["model"],
+        "source": "real_db_aggregate", "round_state": completed.state if not interrupted else "interrupted", "model": row.latest_result["model"],
         "system_version": completed.system_version,
         "prompt_version": completed.prompt_version,
         "dataset_hash": completed.dataset_hash,
@@ -267,6 +268,20 @@ def tick(db, sampler, *, sampled=None, training_model=None):
             row.on_seconds += int(min(seconds, 15))
         row.last_tick_at = now
         row.updated_at = now
+        # One measured reading per minute, independent of browser polling.
+        bucket = now.strftime("%Y%m%d%H%M")
+        existing = db.scalar(select(MaxPowerEvent.id).where(
+            MaxPowerEvent.org_id == row.org_id, MaxPowerEvent.event == RESOURCE_EVENT,
+            MaxPowerEvent.round_id == bucket))
+        if not existing:
+            measured = resource_metrics(snapshot)
+            if measured:
+                db.add(MaxPowerEvent(org_id=row.org_id, event=RESOURCE_EVENT,
+                    round_id=bucket, reason="Recursos medidos", evidence=measured))
+            if now.minute == 0:
+                db.execute(delete(MaxPowerEvent).where(MaxPowerEvent.org_id == row.org_id,
+                    MaxPowerEvent.event == RESOURCE_EVENT,
+                    MaxPowerEvent.created_at < now - timedelta(days=7)))
         if not row.active_round_id:
             # Recover a committed queue after interruption between start() and checkpoint.
             # Recover active work first, then the oldest terminal round with no
