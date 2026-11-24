@@ -970,7 +970,7 @@ def test_automatic_messenger_recovery_does_not_need_manual_click(network, monkey
     monkeypatch.setattr(recovery, "sync_page_inbox", fake_sync)
     signal = StopAfterFirstCycle()
     recovery.periodic_recovery(signal)
-    assert signal.waits == [5, 30]
+    assert signal.waits == [5, 20]
     assert len(observed) == 1
     assert observed[0]["org_id"] == org_id
     assert observed[0]["conversation_limit"] == 10
@@ -1261,3 +1261,20 @@ def test_contact_sheet_profile_only_skips_expensive_message_history(network, mon
     assert compact.json()["lead"]["specialty"] == full.json()["lead"]["specialty"]
     assert n["send"](n["a"], "/facebook/leads/"+lead_id+"?include_messages=false",
                      method="GET").status_code == 403
+
+
+
+def test_inbox_revision_changes_only_after_new_persisted_inbound(network, monkeypatch):
+    n = network
+    enable_messaging(n, monkeypatch)
+    url = "/api/v1/network/facebook/inbox/revision"
+    assert n["send"](n["a"], "/facebook/inbox/revision", method="GET").status_code == 403
+    before = n["admin"].get(url)
+    assert before.status_code == 200
+    assert incoming(n, mid="mid-revision-1").status_code == 200
+    first = n["admin"].get(url).json()["revision"]
+    assert first != before.json()["revision"]
+    assert incoming(n, mid="mid-revision-1").status_code == 200
+    assert n["admin"].get(url).json()["revision"] == first
+    assert incoming(n, mid="mid-revision-2").status_code == 200
+    assert n["admin"].get(url).json()["revision"] != first

@@ -15,6 +15,7 @@ from urllib.request import HTTPRedirectHandler, Request as HTTPRequest, build_op
 
 from fastapi import APIRouter, Depends, HTTPException, Query, Request
 from fastapi.responses import PlainTextResponse
+from starlette.concurrency import run_in_threadpool
 from pydantic import BaseModel, ConfigDict, Field
 from sqlalchemy import func, select, text as sql_text
 from sqlalchemy.orm import Session
@@ -294,7 +295,9 @@ async def webhook(request: Request, db: Session = Depends(get_db)):
         raise HTTPException(400, "Evento inválido") from None
     if not isinstance(payload, dict):
         raise HTTPException(400, "Evento inválido")
-    return ingest_facebook_payload(db, payload, cfg)
+    # SQLAlchemy and intake rules are synchronous. Keep the ASGI event loop
+    # responsive while persisting the signed event. Acknowledge only after commit.
+    return await run_in_threadpool(ingest_facebook_payload, db, payload, cfg)
 
 
 def ingest_facebook_payload(db, payload, cfg, *, notices=None):
@@ -713,6 +716,15 @@ def galancito_analyze_lead(lead_id: str, user: User = Depends(administrator),
     return {"triage": summary, "ai_note": note[:360],
             "source": source, "human_review_required": True,
             "changes_applied": False}
+
+
+@router.get("/inbox/revision")
+def inbox_revision(user: User = Depends(administrator), db: Session = Depends(get_db)):
+    """Cheap organization-scoped signal for inbound changes, no model or Meta calls."""
+    count, latest = db.execute(select(
+        func.count(FacebookLead.id), func.max(FacebookLead.updated_at),
+    ).where(FacebookLead.org_id == user.org_id)).one()
+    return {"revision": f"{count}:{latest.isoformat() if latest else ''}"}
 
 
 @router.get("/center")
