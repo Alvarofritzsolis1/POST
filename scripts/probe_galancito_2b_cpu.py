@@ -158,12 +158,13 @@ def main():
                                     revision=REVISION,local_files_only=options["local_files_only"],token=False)
         report["base_revision"]=snapshot_revision(config_path,REVISION)
         tokenizer=AutoTokenizer.from_pretrained(MODEL,**options)
-        # The 2B recurrent gate projections have 16 outputs. The bitsandbytes
-        # CPU packing kernel requires blocks of 32, so these stay in BF16.
+        # The recurrent gates have 16 outputs, below the 32-output CPU packing
+        # block. Keep those in BF16 and quantize the other linear layers once.
+        # Nested quantization spawns native workers outside the CPU thread limit.
         model,loading=Qwen3_5ForCausalLM.from_pretrained(MODEL,dtype=torch.bfloat16,
             device_map={"":"cpu"},low_cpu_mem_usage=True,attn_implementation="eager",
             quantization_config=BitsAndBytesConfig(load_in_4bit=True,bnb_4bit_quant_type="nf4",
-                bnb_4bit_use_double_quant=True,bnb_4bit_compute_dtype=torch.float32,
+                bnb_4bit_use_double_quant=False,bnb_4bit_compute_dtype=torch.float32,
                 llm_int8_skip_modules=["lm_head", "in_proj_a", "in_proj_b"]),
             output_loading_info=True,**options)
         if any(k.startswith(("model.","lm_head")) for k in loading.get("missing_keys",())):

@@ -30,7 +30,7 @@ jobs:
       - name: Primer paso neuronal real
         run: |
           docker volume create galant-ci-2b
-          docker run --rm --memory=5g --memory-swap=5g --cpus=2 -v galant-ci-2b:/private galant-2b-root --run --allow-download --steps 10 --stop-after 1
+          docker run --rm --memory=5g --memory-swap=5g --cpus=2 --pids-limit=96 -v galant-ci-2b:/private galant-2b-root --run --allow-download --steps 10 --stop-after 1
           mkdir -p evidence
           docker run --rm --entrypoint cat -v galant-ci-2b:/private:ro galant-2b-root /private/2b-probe/latest.json > evidence/first-step.json
           python - <<'PY'
@@ -43,7 +43,7 @@ jobs:
           PY
       - name: Restaurar optimizador y completar diez pasos reales
         run: |
-          docker run --rm --memory=5g --memory-swap=5g --cpus=2 -v galant-ci-2b:/private galant-2b-root --run --allow-download --steps 10 --resume --conversation-eval
+          docker run --rm --memory=5g --memory-swap=5g --cpus=2 --pids-limit=96 -v galant-ci-2b:/private galant-2b-root --run --allow-download --steps 10 --resume --conversation-eval
           docker run --rm --entrypoint cat -v galant-ci-2b:/private:ro galant-2b-root /private/2b-probe/latest.json > evidence/final.json
           python - <<'PY'
           import json
