@@ -44,16 +44,16 @@ def intake_question_fields(prompt: str) -> set[str]:
     patterns = {
         "display_name": _NAME_PROMPTS,
         "specialty": (*_TRADE_PROMPTS, "que trabajo haces", "que trabajos haces", "a que te dedicas", "en que trabajas"),
-        "interest_type": (_INTEREST_QUESTION, "buscas empleo o", "buscas empleo como trabajador"),
+        "interest_type": (_INTEREST_QUESTION, "buscas empleo o", "buscas empleo como trabajador", "buscas trabajo para ti", "buscas que te contraten", "ofreces tus servicios", "trabajo por tu cuenta o"),
         "entity_type": ("representas una empresa", "con una empresa o a tu propio nombre"),
-        "team_available": (_TEAM_QUESTION, "puedes venir con"),
-        "workers": ("cuantas personas", "con cuantas", "cuantos puedes traer"),
+        "team_available": (_TEAM_QUESTION, "puedes venir con", "vas solo", "irias solo", "trabajas con alguien", "tienes cuadrilla"),
+        "workers": ("cuantas personas", "con cuantas", "cuantos puedes traer", "cuantos maestros", "cuantos son en total"),
         "has_employees": ("tienes trabajadores contratados", "tienes empleados"),
         "employee_count": ("cuantos trabajadores contratados", "cuantos empleados"),
         "experience": (_EXPERIENCE_QUESTION, "cuantos anos", "cuanta experiencia", "anos o meses"),
-        "work_communes": (_COMMUNE_QUESTION, "en cuales comunas", "en que comunas"),
-        "availability": ("desde cuando", "cuando podrias comenzar", "cuando puedes empezar"),
-        "contact_phone": ("tu telefono", "tu celular", "numero de celular"),
+        "work_communes": (_COMMUNE_QUESTION, "en cuales comunas", "en que comunas", "donde puedes trabajar", "donde trabajas", "que comunas"),
+        "availability": ("desde cuando", "cuando podrias comenzar", "cuando puedes empezar", "cuando puedes partir", "cuando podrias partir", "cuando podrias empezar", "cuando puedes comenzar", "cuando estas disponible"),
+        "contact_phone": ("tu telefono", "tu celular", "numero de celular", "tu numero", "numero de telefono", "tu whatsapp"),
         "contact_email": ("tu correo", "tu email"),
     }
     return {field for field, phrases in patterns.items() if any(phrase in value for phrase in phrases)}
@@ -601,45 +601,80 @@ def next_intake_reply(message: str, facts: dict, prior_prompt: str = "") -> str 
 
 
 def model_intake_candidate(message: str, facts: dict, prior: str, fallback: str | None) -> bool:
-    """Let the configured model phrase normal intake after consent; keep safety and contact local."""
-    if (not fallback or private_data(message) or identity_reply(message)
+    """Ordinary conversation can be decided by the model, not a fixed interview."""
+    if (not message or private_data(message) or identity_reply(message)
             or clarification_reply(message, prior) or is_pure_greeting(message)
-            or plain(message) in {"gracias", "muchas gracias", "vale gracias"}
-            or "¿me dejas tu celular?" in fallback):
+            or plain(message) in {"gracias", "muchas gracias", "vale gracias"}):
         return False
-    return bool(intake_question_fields(fallback) and analyze(message).intent not in
-                {"human", "restricted", "documents", "requirements", "about", "publish"})
+    return analyze(message).intent not in {"human", "restricted", "publish"}
 
 
-def acceptable_intake_draft(draft: str, facts: dict, expected_question: str = "") -> bool:
-    """Reject robotic or repetitive model rewrites; never reveal contact values."""
-    value = plain(draft)
-    if not draft or draft.count("?") > 1 or any(p in value for p in (
-        "me queda clara la cantidad", "tengo anotada tu experiencia", "ya se en que comuna",
-        "escribe paso", "quedo anotado", "puedes escribir con confianza"
-    )):
-        return False
-    known = {
-        "display_name": facts.get("display_name") not in UNKNOWN_NAMES,
+def conversation_fields(facts: dict) -> dict:
+    """Independent availability of each professional field, without a preferred order."""
+    return {
+        "display_name": facts.get("display_name") not in UNKNOWN_NAMES or facts.get("name_opt_out"),
         "specialty": bool(facts.get("specialty") or facts.get("trades")),
         "interest_type": facts.get("interest_type") in {"employment", "service_offer", "both"},
+        "entity_type": facts.get("entity_type") not in {None, "", "unknown"},
         "team_available": facts.get("team_available") is not None,
         "workers": facts.get("workers") is not None,
+        "has_employees": facts.get("has_employees") is not None,
+        "employee_count": facts.get("employee_count") is not None,
         "experience": bool(facts.get("experience")),
         "work_communes": bool(facts.get("work_area") or facts.get("work_communes")),
         "availability": bool(facts.get("availability")),
         "contact_phone": any(facts.get(k) for k in ("contact_available", "contact_declined", "contact_offered")),
         "contact_email": any(facts.get(k) for k in ("contact_available", "contact_declined", "contact_offered")),
     }
+
+
+def contact_ready(facts: dict) -> bool:
+    known = conversation_fields(facts)
+    return bool(known["specialty"] and known["interest_type"] and known["work_communes"]
+                and known["availability"] and facts.get("availability") != "Sin disponibilidad"
+                and not known["contact_phone"])
+
+
+def conversation_context(facts: dict) -> str:
+    known = conversation_fields(facts)
+    pending = sorted(field for field, filled in known.items()
+                     if not filled and facts.get("field_states", {}).get(field) != "rechazado_por_usuario"
+                     and (not field.startswith("contact_") or contact_ready(facts)))
+    return ("Datos pendientes (sin orden obligatorio, pregunta solo lo útil): " + ", ".join(pending)
+            + ". Contacto opcional disponible para solicitar: " + ("sí" if contact_ready(facts) else "no")
+            + ". Responde primero la consulta actual; puedes cambiar de tema, aclarar o no preguntar.")
+
+
+def acceptable_intake_draft(draft: str, facts: dict, expected_question: str = "",
+                            *, message: str = "") -> bool:
+    """Validate independent constraints, not agreement with a scripted next question."""
+    value = plain(draft)
+    if not draft or draft.count("?") > 1 or private_data(draft) or any(p in value for p in (
+        "me queda clara la cantidad", "tengo anotada tu experiencia", "ya se en que comuna",
+        "escribe paso", "quedo anotado", "puedes escribir con confianza"
+    )):
+        return False
+    known = conversation_fields(facts)
     asked = intake_question_fields(draft)
     if any(known.get(field) or facts.get("field_states", {}).get(field) == "rechazado_por_usuario"
            for field in asked):
         return False
-    # The next short reply must be attributable to the intended field.
-    expected = intake_question_fields(expected_question)
-    if expected and asked != expected:
+    contact_fields = asked & {"contact_phone", "contact_email"}
+    if contact_fields:
+        if not contact_ready(facts) or len(contact_fields) != 1 or not any(
+            phrase in value for phrase in ("si prefieres", "si quieres", "si te acomoda", "opcional", "si te parece")
+        ):
+            return False
+    # A question about a publication or a genuine clarification is allowed.
+    # Do not force a professional field when the person has another concern.
+    if "?" in draft:
+        return True
+    # Do not accept a bare acknowledgement or premature closure of an active intake.
+    if value in {"ok", "bien", "perfecto", "gracias", "entendido", "listo", "de acuerdo"}:
         return False
-    return bool(asked and "?" in draft)
+    if expected_question and intake_question_fields(expected_question) and not needs_deeper_response(message) and "?" not in message:
+        return False
+    return True
 
 
 def needs_deeper_response(message: str) -> bool:
