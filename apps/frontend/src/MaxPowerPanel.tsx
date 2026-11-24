@@ -3,6 +3,7 @@ import { Activity, AlertTriangle, BrainCircuit, CheckCircle2, Clock3, Download, 
 import { request } from "./api";
 import "./max-power.css";
 import FineTuneProgress from "./FineTuneProgress";
+import MaxPowerLive from "./MaxPowerLive";
 
 type Sample = { quality_score: number | null; reviewed_cases: number; minimum_cases: number;
   dimension_scores: Record<string, number | null>; quality_source: string };
@@ -217,6 +218,7 @@ export default function MaxPowerPanel(){
       <strong>{controllerStatus[data.status] ?? data.status.replaceAll("_"," ")}</strong>
       <span>{data.reason}</span>
     </div>}
+    <MaxPowerLive resources={resources}/>
     <article className="max-power-card max-power-live">
       <div className="max-power-live-header">
         <div className="max-power-section-title"><Activity size={17}/><h3>Actividad en vivo</h3></div>
