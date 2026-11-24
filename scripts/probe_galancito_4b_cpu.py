@@ -77,7 +77,9 @@ def main():
             raise RuntimeError("Memory reserve below safe limit after loading")
         model.config.use_cache = False
         model = prepare_model_for_kbit_training(model, use_gradient_checkpointing=True)
-        # Avoid converting every frozen bf16 embedding to fp32 permanently.
+        # PEFT preparation can expand frozen non-quantized tensors; monitor the measured reserve.
+        if should_pause(snapshot(root)):
+            raise RuntimeError("Memory reserve below safe limit after PEFT preparation")
         model = get_peft_model(model, LoraConfig(r=4,lora_alpha=8,lora_dropout=0,
             target_modules=["q_proj","v_proj"],task_type="CAUSAL_LM"))
         trainable = [p for p in model.parameters() if p.requires_grad]
