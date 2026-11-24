@@ -8,6 +8,7 @@ from __future__ import annotations
 
 import json
 import re
+from concurrent.futures import ThreadPoolExecutor
 from datetime import datetime, timedelta, timezone
 from urllib.error import HTTPError
 from urllib.parse import urlencode
@@ -90,14 +91,20 @@ def sync_page_inbox(*, page_id: str, page_token: str, org_id: str,
                                conversation_limit)["data"]
     collected = []
     page_replies: dict[str, datetime] = {}
-    for conversation in conversations:
-        if not isinstance(conversation, dict):
-            continue
-        cid = str(conversation.get("id") or "")
-        if not re.fullmatch(r"[A-Za-z0-9_-]{5,120}", cid):
-            continue
-        messages = _graph_get(page_token, cid, "messages", "id,message,from,created_time",
-                              message_limit)["data"]
+    conversation_ids = list(dict.fromkeys(
+        str(conversation.get("id") or "") for conversation in conversations
+        if isinstance(conversation, dict)
+        and re.fullmatch(r"[A-Za-z0-9_-]{5,120}", str(conversation.get("id") or ""))
+    ))
+    def fetch_messages(cid):
+        return cid, _graph_get(page_token, cid, "messages", "id,message,from,created_time",
+                               message_limit)["data"]
+
+    # Same bounded Meta requests as before, at most three in flight.
+    # Complete network I/O before opening the database transaction.
+    with ThreadPoolExecutor(max_workers=3) as pool:
+        message_batches = list(pool.map(fetch_messages, conversation_ids))
+    for cid, messages in message_batches:
         for m in messages:
             if not isinstance(m, dict):
                 continue
@@ -277,11 +284,11 @@ def sync_page_inbox(*, page_id: str, page_token: str, org_id: str,
             "new_contacts": created_leads, "replies_queued": queued}
 
 
-def periodic_recovery(stop_event, *, interval_seconds: int = 30, startup_delay: int = 5) -> None:
+def periodic_recovery(stop_event, *, interval_seconds: int = 20, startup_delay: int = 5) -> None:
     """Lightweight safety net for missed webhooks, isolated from reply worker queue.
 
     Webhooks remain the real-time source. This thread reconciles a bounded recent
-    window about every 30 seconds, never auto-replies to old messages. Failures
+    window about every 20 seconds, never auto-replies to old messages. Failures
     automatically back off to protect Meta's request quota.
     """
     import logging

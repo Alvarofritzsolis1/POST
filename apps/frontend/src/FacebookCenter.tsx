@@ -178,6 +178,7 @@ export default function FacebookCenter({ catalog }: { catalog: Catalog }) {
   const nearBottomRef = useRef(true);
   const centerPollingRef = useRef(false);
   const inboxPollingRef = useRef(false);
+  const wakeInboxRef = useRef<(() => Promise<void>) | null>(null);
   const [triageFilter, setTriageFilter] = useState<"all"|"high"|"support"|"unlinked"|"due">("all");
   const [trackingQuery, setTrackingQuery] = useState("");
   selectedIdRef.current = selectedId;
@@ -348,9 +349,47 @@ export default function FacebookCenter({ catalog }: { catalog: Catalog }) {
       } catch { /* No borrar la conversación si hay un fallo temporal de red. */ }
       finally { inboxPollingRef.current = false; }
     };
+    wakeInboxRef.current = refreshMessages;
+    // Fallback also updates outbound states, which need not change the lead revision.
     const interval = window.setInterval(() => { void refreshMessages(); }, 3000);
-    return () => window.clearInterval(interval);
+    return () => {
+      window.clearInterval(interval);
+      if (wakeInboxRef.current === refreshMessages) wakeInboxRef.current = null;
+    };
   }, [selectedId, tab, refreshInsights]);
+
+  useEffect(() => {
+    if (tab !== "inbox") return;
+    let active = true;
+    let checking = false;
+    let revision: string | undefined;
+    const check = async () => {
+      if (!active || document.hidden || checking ||
+          centerPollingRef.current || inboxPollingRef.current) return;
+      checking = true;
+      try {
+        const result = await net<{revision: string}>("/facebook/inbox/revision");
+        if (!active || result.revision === revision ||
+            centerPollingRef.current || inboxPollingRef.current) return;
+        // Refresh only after a real persisted change, never the full dashboard
+        // every second. Existing polling remains a fallback if this call fails.
+        await Promise.all([refresh(), wakeInboxRef.current?.()]);
+        if (active) revision = result.revision;
+      } catch { /* Retry on the next tick; keep the existing conversation. */ }
+      finally { checking = false; }
+    };
+    const timer = window.setInterval(() => void check(), 1000);
+    const wake = () => void check();
+    document.addEventListener("visibilitychange", wake);
+    window.addEventListener("focus", wake);
+    void check();
+    return () => {
+      active = false;
+      window.clearInterval(timer);
+      document.removeEventListener("visibilitychange", wake);
+      window.removeEventListener("focus", wake);
+    };
+  }, [tab, refresh]);
 
   useEffect(() => {
     if (tab !== "tracking") return;
