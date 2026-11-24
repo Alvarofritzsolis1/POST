@@ -48,10 +48,19 @@ def args_parser():
     parser.add_argument("--telemetry-org", help="UUID organización autorizada para ver el gráfico")
     parser.add_argument("--control-file", help="Archivo interno de encendido/apagado del supervisor")
     parser.add_argument("--expected-generation", type=int, help="Generación MAX POWER que autorizó la ronda")
+    parser.add_argument("--yield-after-steps", type=int, default=0,
+                        help="Ceder turno a práctica 4B después de guardar N pasos nuevos; 0 desactiva")
     return parser
 
 
+def should_yield_training(step, start, total, budget):
+    """Never interrupt the final optimizer step or count restored steps as new."""
+    return bool(budget > 0 and start < step < total and step - start >= budget)
+
+
 def validate_parameters(args):
+    if not 0 <= args.yield_after_steps <= 100 or (args.yield_after_steps and not args.control_file):
+        raise SystemExit("La cesión de turno requiere supervisor y entre 1 y 100 pasos")
     if not 1 <= args.max_steps <= MAX_STEPS:
         raise SystemExit("--max-steps debe estar entre 1 y 1000")
     if not 1 <= args.checkpoint_steps <= 20:
@@ -292,7 +301,7 @@ def main(argv=None):
         telemetry_token=os.environ.get("GALANT_FINETUNE_TELEMETRY_TOKEN") if args.telemetry_url else None)
     reporter.data_kind = kind  # Propagate provenance to signed telemetry, never infer consent.
     resume_step = int(Path(checkpoint).name.rsplit("-", 1)[-1]) if checkpoint else 0
-    state = {"step":resume_step,"paused":False,"weights_changed":False,
+    state = {"step":resume_step,"paused":False,"yielded":False,"weights_changed":False,
              "optimizer_start_hash":None,"optimizer_start_step":resume_step}
     try:
         reporter.emit("start",step=resume_step,total_steps=args.max_steps,
@@ -353,6 +362,7 @@ def main(argv=None):
         session_control_file = args.control_file
         session_org = args.telemetry_org
         session_generation = args.expected_generation
+        yield_after = args.yield_after_steps
         class BaselinePaused(Exception):
             pass
 
@@ -403,6 +413,11 @@ def main(argv=None):
                     state["paused"]=True
                     control.should_save=True
                     control.should_training_stop=True
+                elif should_yield_training(state_.global_step, state["optimizer_start_step"],
+                                           state_.max_steps or args.max_steps, yield_after):
+                    state["paused"] = state["yielded"] = True
+                    control.should_save = True
+                    control.should_training_stop = True
                 return control
             def on_save(self, args, state_, control, **kwargs):
                 reporter.emit("checkpoint",step=state_.global_step,
@@ -462,7 +477,7 @@ def main(argv=None):
             reporter.emit("paused",step=trainer.state.global_step,
                           total_steps=args.max_steps,cpu_memory_mb=process_memory_mb(),
                           weights_trained=state["weights_changed"], **proof)
-            return 3
+            return 4 if state["yielded"] and state["weights_changed"] else 3
         if not state["weights_changed"]:
             raise RuntimeError(
                 "No se verificaron pasos NUEVOS de optimización ni cambios "

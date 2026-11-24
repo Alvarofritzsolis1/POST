@@ -42,6 +42,11 @@ NUMERIC_KEYS = (
     "worker_ram_limit_mb", "host_cpu_percent", "available_ram_mb",
     "disk_free_mb", "cpu_pressure_avg10", "memory_pressure_avg10",
     "io_pressure_avg10",
+    "step", "total_steps", "loss", "eval_loss", "grad_norm", "learning_rate",
+    "holdout_loss_before", "holdout_loss_after", "evaluation_done", "evaluation_total",
+    "host_free_mb", "cgroup_free_mb", "cgroup_limit_mb", "cgroup_available_mb",
+    "cgroup_reclaimable_mb", "optimizer_steps_new", "baseline_prompt_chars",
+    "candidate_prompt_chars", "baseline_compute_ms", "candidate_compute_ms", "compute_delta_ms",
 )
 BOOLEAN_KEYS = (
     "lab_verified", "production_verified", "weights_changed",
@@ -49,7 +54,7 @@ BOOLEAN_KEYS = (
     "safety_check", "safe", "known_trade", "repeated_trade_question",
     "repeated_intro", "context_pass", "naturalness_check",
     "verified_in_production", "gate_passed", "numbered_menu", "question_displaced", "understanding_check",
-    "answer_priority_check",
+    "answer_priority_check", "preflight_ready", "weights_trained", "candidate_accepted",
 )
 ENUM_KEYS = {
     "criterion": {"context", "profile", "understanding", "naturalness",
@@ -58,6 +63,8 @@ ENUM_KEYS = {
     "source": {"real_db_aggregate", "human_reviewed_production",
                "consented_production_objective", PRACTICE_SOURCE},
     "split": {"development", "holdout"},
+    "kind": {"preflight", "start", "baseline_progress", "baseline", "metric", "eval", "checkpoint", "finished", "failed", "paused"},
+    "data_kind": {"unspecified", "curated_synthetic", "human_reviewed_real"},
     "data_type": {"db_aggregate"},
     "plan_basis": {"resource_guard_and_recorded_p95", "conservative_initial_budget"},
     "outcome": {"objective_gain", "objective_regression", "safety_regression",
@@ -65,7 +72,7 @@ ENUM_KEYS = {
 }
 EVENT_KINDS = {
     "power_on", "power_off", "experiment_queued", "experiment_completed",
-    "messenger_queued", "messenger_experiment", PRACTICE_EVENT, "synthetic_qwen_trial",
+    "messenger_queued", "messenger_experiment", PRACTICE_EVENT, "synthetic_qwen_trial", "cpu_supervisor_status",
 }
 TRIAL_STATES = {"queued", "running", "completed", "blocked"}
 ROUND_STATES = {"queued", "practicing", "evaluating", "correcting",
@@ -79,12 +86,13 @@ SAFE_CODES = {
     "lab_gain", "not_verified", "messenger_objective_gain",
     "messenger_unverifiable", "messenger_no_objective_gain",
     "messenger_safety_regression", "messenger_objective_regression", "synthetic_practice_completed",
-    "synthetic_model_evaluation", "synthetic_model_evaluated",
+    "synthetic_model_evaluation", "synthetic_model_evaluated", "cpu_neural_training",
+    "preparing_qwen", "isolation_unavailable",
 }
 # Text identifiers are only included if they are code-generated and resemble
 # a model/version, NEVER inferred from arbitrary user content.
 IDENTIFIER = re.compile(r"^[A-Za-z0-9_.:/+-]{1,120}$")
-ALLOWED_MODELS = {"qwen3:1.7b", "qwen3.5:4b-q4_K_M"}
+ALLOWED_MODELS = {"qwen3:1.7b", "qwen3.5:4b-q4_K_M", "Qwen/Qwen3.5-0.8B", "Qwen/Qwen3.5-4B"}
 ALLOWED_CRITERIA = set(ENUM_KEYS["criterion"]) | {
     "usefulness", "security", "numeric_accuracy", "calculation", "data_grounding"
 }
@@ -92,6 +100,9 @@ PRACTICE_FIELDS = {field for turns in generate_scenarios().values() for turn in 
     field + "_estado" for turns in generate_scenarios().values() for turn in turns for field in turn.states}
 DIAGNOSES = {
     "resource_guard": ("Servidor con capacidad insuficiente", "Medir CPU, memoria, PSI y cola antes de repetir"),
+    "cpu_neural_training": ("Turno reservado al entrenador neuronal", "Revisar los pasos y el estado firmado del supervisor"),
+    "preparing_qwen": ("Preparando Ollama aislado", "Revisar la disponibilidad real del modelo"),
+    "isolation_unavailable": ("Falta Ollama aislado", "No ejecutar prácticas en el motor productivo"),
     "insufficient_evidence": ("Faltan casos autorizados verificables", "Ampliar muestras reales y conservar conjuntos reservados"),
     "awaiting_new_evidence": ("No aparecen datos nuevos", "Buscar nuevas fallas; no reciclar un mismo holdout"),
     "plateau": ("Las estrategias probadas dejaron de mejorar", "Cambiar estrategia y ensayar casos nuevos"),
@@ -196,13 +207,26 @@ def build_report(db: Session, user: User, *, max_events=MAX_EVENTS):
         MaxPowerMessengerTrial.org_id == user.org_id).order_by(
         MaxPowerMessengerTrial.created_at.desc(), MaxPowerMessengerTrial.id.desc()
     ).limit(MAX_TRIALS)))
+    from .max_power_finetune_api import AUTOMATION_STATES
     timeline = []
     for i, event in enumerate(reversed(latest_events), 1):
+        measurements = safe_metrics(event.evidence)
+        kind = event.event if event.event in EVENT_KINDS else "other"
+        if event.event.startswith("ft_") and event.event[3:].isdigit():
+            kind = "finetune_" + measurements["kind"] if "kind" in measurements else "finetune_unknown"
+        if event.event == "cpu_supervisor_status":
+            payload = event.evidence or {}
+            if payload.get("state") in AUTOMATION_STATES:
+                measurements["state"] = payload["state"]
+            allowed = {"host_ram_reserve", "dedicated_cgroup_limit_missing", "cgroup_memory_headroom", "disk_space"}
+            blockers = payload.get("blockers")
+            if isinstance(blockers, list):
+                measurements["blockers"] = [b for b in blockers if isinstance(b, str) and b in allowed]
         timeline.append({
             "sequence_in_export": i,
             "timestamp_utc": _date(event.created_at),
-            "kind": event.event if event.event in EVENT_KINDS else "other",
-            "measurements": safe_metrics(event.evidence),
+            "kind": kind,
+            "measurements": measurements,
         })
     trials = []
     for i, trial in enumerate(reversed(latest_trials), 1):
@@ -221,7 +245,7 @@ def build_report(db: Session, user: User, *, max_events=MAX_EVENTS):
     # No raw dataset, conversation or adapter ever leaves this report.
     gpu_events = [e for e in latest_events if e.event.startswith("ft_")
                   and e.event[3:].isdigit() and isinstance(e.evidence, dict)]
-    latest_gpu = gpu_events[0] if gpu_events else None
+    latest_gpu = next((e for e in gpu_events if e.evidence.get("kind") != "preflight"), None)
     gpu_run = [e.evidence for e in gpu_events if e.round_id == latest_gpu.round_id] if latest_gpu else []
     def gpu_last(key):
         for event in sorted(gpu_run, key=lambda x: int(x.get("sequence") or 0), reverse=True):

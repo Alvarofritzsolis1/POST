@@ -95,6 +95,7 @@ AUTOMATION_STATES = {
     "awaiting_resources": "RAM o disco insuficientes; se protege Messenger",
     "messenger_priority": "Messenger activo; entrenamiento neuronal en pausa",
     "practice_priority": "Prueba MAX POWER activa; entrenamiento neuronal en espera",
+    "practice_window": "Checkpoint guardado; turno de práctica Qwen 4B antes de reanudar LoRA",
     "cpu_waiting_turn": "Datos autorizados listos; esperando que termine la práctica 4B para entrenar pesos",
     "retry_cooldown": "Entrenador liberó recursos; espera segura antes del siguiente intento (hasta 30 minutos con checkpoint recuperable)",
     "retry_exhausted": "Tres fallos reales: se suspenden reintentos para proteger GALANT; revisar recursos o datos",
@@ -131,7 +132,7 @@ class SupervisorStatus(BaseModel):
     generation: int = Field(ge=1)
     status: Literal["off", "awaiting_approved_dataset", "awaiting_resources",
                     "synthetic_data_invalid", "preparing_synthetic", "training_synthetic", "finished_synthetic",
-                    "messenger_priority", "practice_priority", "cpu_waiting_turn",
+                    "messenger_priority", "practice_priority", "practice_window", "cpu_waiting_turn",
                     "retry_cooldown", "retry_exhausted", "preflight", "training", "pausing",
                     "paused", "finished", "awaiting_new_dataset",
                     "cannot_resume", "failed"]

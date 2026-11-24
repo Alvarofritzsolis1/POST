@@ -35,6 +35,8 @@ MAX_GRACE_SECONDS = 90
 MAX_STEPS = 4
 SYNTHETIC_STEPS = 40  # bounded pilot, not a full epoch over 2,000 examples
 CHECKPOINT_STEPS = 2
+PRACTICE_WINDOW_SECONDS = 600
+NEURAL_TURN_STEPS = 4
 MAX_FAILED_ATTEMPTS = 3
 
 
@@ -240,6 +242,7 @@ def launch(root: Path, output: Path, resume: bool, org: str, generation: int,
         "--dataset", str(root / ("synthetic.jsonl" if synthetic else "approved.jsonl")),
         "--output", str(output), "--max-steps", str(SYNTHETIC_STEPS if synthetic else MAX_STEPS),
         "--checkpoint-steps", str(CHECKPOINT_STEPS), "--execute",
+        "--yield-after-steps", str(NEURAL_TURN_STEPS),
         "--control-file", str(control_file),
         "--expected-generation", str(generation),
         "--telemetry-url", API + "/telemetry", "--telemetry-org", org,
@@ -310,6 +313,10 @@ def run_once(secret: str, plan: dict, public_key: str, last_preflight: dict,
 
     if plan.get("messenger_busy"):
         report("messenger_priority")
+        return
+    window_key = ("practice_window_until", org, generation)
+    if monotonic() < status_cache.get(window_key, 0):
+        report("practice_window")
         return
     # Do not reserve CPU time until signed private examples and sufficient
     # real resources exist; evaluation practice must otherwise keep running.
@@ -430,6 +437,10 @@ def run_once(secret: str, plan: dict, public_key: str, last_preflight: dict,
             # Exit zero alone is not proof of a completed gradient update.
             record_failure(root, bundle["dataset_digest"])
             report("failed")
+    elif code == 4:
+        # The child has saved its checkpoint and exited; yield RAM/CPU to Qwen4B.
+        status_cache[window_key] = monotonic() + PRACTICE_WINDOW_SECONDS
+        report("practice_window")
     elif code == 3 or (code in (-15, -9) and paused_since is not None):
         report("paused")
     else:

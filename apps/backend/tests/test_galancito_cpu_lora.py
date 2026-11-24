@@ -261,3 +261,12 @@ def test_baseline_progress_is_measured_without_optimizer_steps(tmp_path):
     reporter.close()
     assert point["evaluation_done"] == 3 and point["evaluation_total"] == 12
     assert point["step"] == 0 and not point["weights_trained"]
+
+
+def test_neural_turn_yields_only_new_steps_before_final():
+    mod = trainer()
+    assert not mod.should_yield_training(20, 20, 40, 4)
+    assert not mod.should_yield_training(23, 20, 40, 4)
+    assert mod.should_yield_training(24, 20, 40, 4)
+    assert not mod.should_yield_training(40, 36, 40, 4)
+    assert not mod.should_yield_training(24, 20, 40, 0)

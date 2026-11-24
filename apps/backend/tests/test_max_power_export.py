@@ -114,3 +114,18 @@ def test_allowlist_drops_unknown_and_non_finite_values():
         "failed_by_criterion": {"context": 4},
         "holdout_pairs": None,
     }
+
+
+def test_export_neural_progress_is_not_other_or_replaced_by_preflight(ai_env):
+    with ai_env["sessions"].begin() as db:
+        db.add(MaxPowerEvent(org_id=ai_env["org_id"], round_id=ai_env["org_id"], event="ft_00000001",
+            reason="checkpoint", evidence={"kind":"checkpoint","step":20,"total_steps":40,"cpu_memory_mb":2153.5,"sequence":1,
+            "model":"Qwen/Qwen3.5-0.8B","private_prompt":"DO_NOT_EXPORT"}))
+        from uuid import uuid4
+        db.add(MaxPowerEvent(org_id=ai_env["org_id"], round_id=str(uuid4()), event="ft_00000002",
+            reason="preflight", evidence={"kind":"preflight","step":0,"total_steps":0,"sequence":2,"preflight_ready":True}))
+    response = ai_env["client"].get(BASE + "/export", headers=signin(ai_env["client"], "admin"))
+    body = response.json()
+    assert body["finetuning"]["step"] == 20 and body["finetuning"]["total_steps"] == 40
+    assert any(e["kind"] == "finetune_checkpoint" and e["measurements"]["step"] == 20 for e in body["history"]["events"])
+    assert "DO_NOT_EXPORT" not in response.text

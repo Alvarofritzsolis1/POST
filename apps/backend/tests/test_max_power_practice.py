@@ -242,3 +242,19 @@ def test_low_tech_experience_does_not_invent_units_or_name():
     apply_intake(lead, "Puedo ir con 2 cabros")
     assert lead.workers == 3
     assert lead.has_employees is None
+
+
+def test_compact_qwen_candidate_reduces_input_without_claiming_speed_or_quality(monkeypatch):
+    from app.max_power_messenger import compact_synthetic_instructions, evaluate_synthetic_reply, LOCAL_REPLY_INSTRUCTIONS
+    from app.max_power_practice import dataset_digest
+    assert len(compact_synthetic_instructions()) < len(LOCAL_REPLY_INSTRUCTIONS) / 2
+    calls = []
+    def fake_answer(policy, prompt, seed, org):
+        calls.append(policy)
+        return "El equipo de la obra confirma el pago.", {"prompt_ms":100, "generation_ms":50, "load_ms":10000 if len(calls)==1 else 0}
+    monkeypatch.setattr("app.max_power_messenger._answer", fake_answer)
+    outcome, _, metrics = evaluate_synthetic_reply("test", "consulta-de-pago", dataset_digest(generate_scenarios()))
+    assert len(calls) == 2 and calls[1] == compact_synthetic_instructions()
+    assert metrics["compute_delta_ms"] == 0
+    assert not metrics["production_verified"] and not metrics["weights_changed"]
+    assert outcome == "no_objective_gain"
