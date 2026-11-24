@@ -36,7 +36,11 @@ def profile_facts(lead, *, changed=False) -> dict:
     return {**{field: getattr(lead, field) for field in FIELDS},
             "field_states": {field: evidence.get("state") for field, evidence in (lead.profile_sources or {}).items()
                              if field in FIELDS and evidence.get("state")},
-            "turn_changed": changed}
+            "turn_changed": changed,
+            # Only contact availability flags, never the phone or email itself.
+            "contact_available": bool(lead.contact_phone or lead.contact_email),
+            "contact_declined": bool(lead.phone_opt_out or lead.email_opt_out),
+            "contact_offered": bool(lead.phone_requested_at)}
 
 
 def note_profile_sources(lead, fields, *, source, at, remote_id=None, states=None):
