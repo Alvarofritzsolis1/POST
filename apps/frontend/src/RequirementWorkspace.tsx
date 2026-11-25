@@ -49,7 +49,7 @@ const init = (candidate: Candidate | undefined) => ({
 const easyDate = (value: string) => /^\d{4}-\d{2}-\d{2}$/.test(value) ? dateText(value) : value || "Por confirmar";
 
 export default function RequirementWorkspace({
-  requirement, children, onCapacity, onEdit, onDelete, deleting,
+  requirement, children, onCapacity, onEdit, onDelete, deleting, deleteError,
 }: {
   requirement: Requirement;
   children: ReactNode;
@@ -57,6 +57,7 @@ export default function RequirementWorkspace({
   onEdit: () => void;
   onDelete?: () => void;
   deleting?: boolean;
+  deleteError?: string;
 }) {
   const [tab, setTab] = useState<"candidates" | "facebook" | "admin">("candidates");
   const [data, setData] = useState<CandidatesResponse | null>(null);
@@ -181,9 +182,10 @@ export default function RequirementWorkspace({
           {requirement.priority === "urgent" ? "Urgente" : requirement.priority === "high" ? "Alta prioridad" : requirement.priority === "low" ? "Baja prioridad" : "Normal"}
         </span>
         {requirement.editable && <button className="nwc-ghost" type="button" onClick={() => { if (confirmAbandon()) onEdit(); }}><FileText size={16}/> Editar solicitud</button>}
-        {onDelete && <button className="nwc-ghost nw-request-delete" type="button" disabled={deleting} onClick={() => { if (confirmAbandon()) onDelete(); }}><Trash2 size={16}/> Eliminar solicitud</button>}
+
       </div>
     </div>
+    {requirement.state === "archived" && <div className="nwc-warning" role="status">Solicitud retirada de la red. Se conserva su seguimiento.</div>}
     {data?.classification_warning && <div className="nwc-warning" role="status"><CircleAlert size={18}/>{data.classification_warning}</div>}
     <div className="nwc-kpis" aria-label="Resumen del seguimiento">
       <div><strong>{data?.candidate_total ?? "—"}</strong><span>Posibles perfiles</span></div>
@@ -331,5 +333,11 @@ export default function RequirementWorkspace({
     </div>}
 
     {tab === "admin" && <div className="nwc-admin">{children}</div>}
+    {onDelete && <section className="nw-delete-section">
+      <h3>Eliminar publicación</h3>
+      <p>Retira esta solicitud de Red de Obras. Las adjudicaciones y coordinaciones vinculadas se conservan.</p>
+      {deleteError && <p role="alert" className="nw-error">{deleteError}</p>}
+      <button className="nwc-ghost nw-request-delete" type="button" disabled={deleting || saving} onClick={() => { if (confirmAbandon()) onDelete(); }}><Trash2 size={16}/> {deleting ? "Eliminando…" : "Eliminar solicitud"}</button>
+    </section>}
   </div>;
 }

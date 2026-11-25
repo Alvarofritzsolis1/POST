@@ -2129,3 +2129,32 @@
 .nw-home button:focus-visible, .nw .nw-request-delete:focus-visible { outline: 2px solid var(--nw-accent); outline-offset: 2px; }
 @media(max-width:600px) { .nw-home .nw-home-summary { gap: 2px; } .nw-home-summary button { font-size: 12px; padding: 7px; } .nw-home .nw-publish-choice { padding: 10px; } }
 @media(prefers-reduced-motion:reduce) { .nw-home .nw-publish-choice { transition: none; } .nw-home .nw-publish-choice:hover { transform: none; } }
+
+/* Primary actions have permanent contrast and short, purposeful feedback. */
+.nw-home .nw-publish-hub { margin: 16px 0 18px; }
+.nw-home .nw-publish-choices { gap: 14px; }
+.nw-home .nw-publish-choice { min-height: 82px; padding: 15px 19px; gap: 14px; border: 1px solid transparent; border-radius: 13px; color: #fff; box-shadow: 0 3px 8px #102a4320; transition: transform 160ms ease, box-shadow 160ms ease, background 160ms ease; }
+.nw-home .nw-publish-need { background: #1959a5; }
+.nw-home .nw-publish-available { background: #087865; }
+.nw-home .nw-publish-choice b { font-size: 17px; font-weight: 750; line-height: 1.25; }
+.nw-home .nw-publish-choice small { color: #fff; opacity: .92; font-size: 12px; }
+.nw-home .nw-publish-choice-icon { width: 44px; height: 44px; background: #ffffff25; border-radius: 11px; transition: transform 160ms ease; }
+.nw-home .nw-publish-choice > svg { flex-shrink: 0; transition: transform 160ms ease; }
+@media(hover:hover) and (pointer:fine) {
+  .nw-home .nw-publish-choice:hover { transform: translateY(-3px); box-shadow: 0 8px 18px #102a4340; }
+  .nw-home .nw-publish-need:hover { background: #124a8c; }
+  .nw-home .nw-publish-available:hover { background: #056555; }
+  .nw-home .nw-publish-choice:hover > svg { transform: translateX(4px); }
+  .nw-home .nw-publish-choice:hover .nw-publish-choice-icon { transform: scale(1.06); }
+}
+.nw-home .nw-publish-choice:active { transform: scale(.985); box-shadow: 0 1px 3px #102a4330; }
+.nw-home .nw-publish-choice:focus-visible { outline: 3px solid var(--nw-accent); outline-offset: 4px; }
+.nw-home .nw-home-summary button { transition: background 140ms ease, transform 140ms ease; }
+.nw-home .nw-home-summary button:active { transform: scale(.97); }
+@media(max-width:600px) { .nw-home .nw-publish-choice { min-height: 72px; padding: 12px 14px; } .nw-home .nw-publish-choice b { font-size: 15px; } }
+@media(prefers-reduced-motion:reduce) { .nw-home .nw-publish-choice, .nw-home .nw-publish-choice > svg, .nw-home .nw-publish-choice-icon, .nw-home .nw-home-summary button { transition: none !important; transform: none !important; } }
+/* Destructive actions appear only at the end of detail views. */
+.nw-delete-section { margin-top: 36px; padding: 20px 0 6px; border-top: 1px solid var(--nw-border); display: grid; gap: 9px; justify-items: start; }
+.nw-delete-section p { color: var(--nw-muted); font-size: 13px; }
+.nw .nw-delete-section .nw-request-delete { padding: 10px 15px; border: 1px solid currentColor; min-height: 42px; font-weight: 650; }
+.nw .nw-delete-section [role="alert"] { color: #b42318; }

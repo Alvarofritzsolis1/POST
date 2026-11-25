@@ -1006,3 +1006,39 @@ def test_delete_capacity_and_active_feed(network):
     assert n["a"].get(ROOT + "/capacities?active_only=true&mine=true").json()["total"] == 0
     assert n["b"].get(ROOT + "/overview?mine=true").json()["capacities"] == 1
     assert n["send"](n["admin"], "/capacities/" + expired["id"] + "?version=1", method="DELETE").status_code == 200
+
+
+
+def test_remove_linked_publications_preserves_awards_and_conversations(network):
+    n = network
+    req = requirement(n, items=1)
+    cap = capacity(n)
+    match = n["a"].get(ROOT + "/matches").json()["rows"][0]
+    response = n["send"](n["a"], "/coordinations", {"match_id": match["id"]})
+    assert response.status_code == 201, response.text
+    coord = response.json()
+    message = n["send"](n["a"], "/conversations/" + coord["conversation_id"] + "/messages",
+                        {"body": "Conservar seguimiento", "client_key": str(uuid4())})
+    assert message.status_code == 201
+    response = n["send"](n["admin"], "/awards", award_body(n, req, 100))
+    assert response.status_code == 201, response.text
+    award = response.json()
+    for kind, record, actor in (("requirements", req, n["a"]), ("capacities", cap, n["b"])):
+        path = "/" + kind + "/" + record["id"]
+        version = actor.get(ROOT + path).json()["version"]
+        result = n["send"](actor, path + "?version=" + str(version), method="DELETE")
+        assert result.status_code == 200, result.text
+        assert result.json()["archived"] is True
+        detail = actor.get(ROOT + path).json()
+        assert detail["state"] == "archived" and not detail["editable"] and not detail["can_delete"]
+        assert record["id"] not in {r["id"] for r in actor.get(ROOT + "/" + kind).json()["rows"]}
+    assert n["a"].get(ROOT + "/matches").json()["total"] == 0
+    assert n["a"].get(ROOT + "/coordinations").status_code == 200
+    messages = n["b"].get(ROOT + "/conversations/" + coord["conversation_id"] + "/messages")
+    assert messages.status_code == 200 and messages.json()["rows"][0]["body"] == "Conservar seguimiento"
+    assert any(a["id"] == award["id"] for a in n["admin"].get(ROOT + "/awards").json()["rows"])
+    assert n["a"].get(ROOT + "/history/" + req["id"]).status_code == 200
+    assert n["send"](n["admin"], "/awards", award_body(n, req, 1)).status_code == 409
+    assert n["send"](n["admin"], "/awards/" + award["id"],
+                     {"state": "revoked", "executed": 0, "version": award["version"],
+                      "reason": "Cierre autorizado"}, "PATCH").status_code == 200

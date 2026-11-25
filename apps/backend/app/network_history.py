@@ -46,6 +46,7 @@ FIELDS = {
 }
 STATES = {
     "published": "Publicado", "draft": "Borrador", "cancelled": "Cancelado",
+    "archived": "Retirado de la red", "deleted": "Eliminado",
     "low": "Baja", "normal": "Normal", "high": "Alta", "urgent": "Urgente",
     "assigned": "Adjudicado", "ready": "Habilitado", "in_progress": "En ejecución",
     "completed": "Finalizado", "revoked": "Revocado",
