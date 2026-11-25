@@ -96,6 +96,7 @@ def messenger_context(message, facts, prior, turns, evidence, guide=None, *, lim
     parts = [
         "Consulta actual: " + professional_message(message)[:600],
         conversation_context(facts),
+        "La procedencia declarada no confirma dónde puede trabajar. Una cuadrilla ampliable no confirma más integrantes ni personal contratado. Usa estos datos para no repetir preguntas.",
         "Datos profesionales declarados: " + json.dumps(public, ensure_ascii=False),
         "Última pregunta entregada: " + professional_message(prior or "")[:220],
     ]
