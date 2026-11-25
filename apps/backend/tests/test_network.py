@@ -965,8 +965,12 @@ def test_delete_requirement_is_scoped_and_keeps_audit(network):
     assert shared["can_delete"] is True and shared["editable"] is False
     assert n["send"](neighbor, path + "?version=1", method="DELETE").status_code == 200
     assert n["send"](neighbor, path + "?version=1", method="DELETE").status_code == 200
-    for client in (n["a"], n["b"], n["admin"]):
-        assert req["id"] not in {r["id"] for r in client.get(ROOT + "/requirements").json()["rows"]}
+    # Reassigning a resident's worksite intentionally revokes the old session.
+    assert n["b"].get(ROOT + "/requirements").status_code == 401
+    for client in (n["a"], neighbor, n["c"], n["admin"]):
+        response = client.get(ROOT + "/requirements")
+        assert response.status_code == 200, response.text
+        assert req["id"] not in {r["id"] for r in response.json()["rows"]}
     assert n["admin"].get(ROOT + path).status_code == 404
     with n["Session"]() as db:
         from app.network_models import NetworkRequirement
