@@ -120,6 +120,8 @@ def record_for(db, model, user, record_id, lock=False):
 
 def requirement_for(db, user, record_id, detail=False, write=False):
     row = record_for(db, NetworkRequirement, user, record_id, lock=write)
+    if row.state == "deleted":
+        raise HTTPException(404, "Solicitud eliminada")
     own = manages(db, user, row.site_id)
     if row.state == "draft" and not own:
         raise HTTPException(404, "Requerimiento no encontrado")
@@ -135,6 +137,8 @@ def requirement_for(db, user, record_id, detail=False, write=False):
 
 def capacity_for(db, user, record_id, write=False):
     row = record_for(db, NetworkCapacity, user, record_id, lock=write)
+    if row.state == "deleted":
+        raise HTTPException(404, "Disponibilidad eliminada")
     if row.state == "draft" and not manages(db, user, row.site_id):
         raise HTTPException(404, "Publicación no encontrada")
     if write:
@@ -406,6 +410,7 @@ def requirement_view(db, user, req, detailed=False):
         "created_at": req.created_at,
         "updated_at": req.updated_at,
         "editable": editable,
+        "can_delete": req.state != "deleted" and (user.role == "admin" or (user.role == "resident" and own)),
         "can_award": own
         and (
             user.role == "admin"
@@ -452,6 +457,7 @@ def capacity_view(db, user, cap):
         "updated_at": cap.updated_at,
         "editable": manages(db, user, cap.site_id)
         and (user.role != "resident" or cap.created_by == user.id),
+        "can_delete": cap.state != "deleted" and (user.role == "admin" or (user.role == "resident" and manages(db, user, cap.site_id))),
         "version": cap.version,
         "pending_items": [
             {

@@ -98,6 +98,7 @@ export type Requirement = {
   created_at: string;
   updated_at: string;
   editable: boolean;
+  can_delete?: boolean;
   can_award: boolean;
   version: number;
   facebook?: {
@@ -142,6 +143,7 @@ export type Capacity = {
   stale: boolean;
   updated_at: string;
   editable: boolean;
+  can_delete?: boolean;
   version: number;
   pending_items: PendingItem[];
 };

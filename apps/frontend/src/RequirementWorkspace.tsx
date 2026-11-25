@@ -2,7 +2,7 @@ import { useCallback, useEffect, useMemo, useState, type ReactNode } from "react
 import {
   ArrowRight, Check, CheckCircle2, CircleAlert, Clock3, Mail, Phone, MessageCircle,
   ExternalLink, FileText, Facebook, Filter, LoaderCircle, MessageSquare,
-  RefreshCw, Search, Users, BriefcaseBusiness
+  RefreshCw, Search, Users, BriefcaseBusiness, Trash2
 } from "lucide-react";
 import PersonAvatar from "./PersonAvatar";
 import RequirementCandidateChat from "./RequirementCandidateChat";
@@ -49,12 +49,14 @@ const init = (candidate: Candidate | undefined) => ({
 const easyDate = (value: string) => /^\d{4}-\d{2}-\d{2}$/.test(value) ? dateText(value) : value || "Por confirmar";
 
 export default function RequirementWorkspace({
-  requirement, children, onCapacity, onEdit,
+  requirement, children, onCapacity, onEdit, onDelete, deleting,
 }: {
   requirement: Requirement;
   children: ReactNode;
   onCapacity: (candidate: CapacityMatch) => void;
   onEdit: () => void;
+  onDelete?: () => void;
+  deleting?: boolean;
 }) {
   const [tab, setTab] = useState<"candidates" | "facebook" | "admin">("candidates");
   const [data, setData] = useState<CandidatesResponse | null>(null);
@@ -179,6 +181,7 @@ export default function RequirementWorkspace({
           {requirement.priority === "urgent" ? "Urgente" : requirement.priority === "high" ? "Alta prioridad" : requirement.priority === "low" ? "Baja prioridad" : "Normal"}
         </span>
         {requirement.editable && <button className="nwc-ghost" type="button" onClick={() => { if (confirmAbandon()) onEdit(); }}><FileText size={16}/> Editar solicitud</button>}
+        {onDelete && <button className="nwc-ghost nw-request-delete" type="button" disabled={deleting} onClick={() => { if (confirmAbandon()) onDelete(); }}><Trash2 size={16}/> Eliminar solicitud</button>}
       </div>
     </div>
     {data?.classification_warning && <div className="nwc-warning" role="status"><CircleAlert size={18}/>{data.classification_warning}</div>}

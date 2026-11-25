@@ -17,7 +17,6 @@ import {
   CircleHelp,
   Clock3,
   FileCheck2,
-  FileSpreadsheet,
   Facebook,
   LayoutDashboard,
   LayoutGrid,
@@ -28,6 +27,7 @@ import {
   Search,
   Send,
   Sparkles,
+  Trash2,
   Users,
   Workflow,
 } from "lucide-react";
@@ -75,10 +75,9 @@ import {
   todayISO,
 } from "./NetworkUI";
 import "./network.css";
-const IneHistory = lazy(() => import("./Ine"));
 
 const tabs = [
-  ["home", "Feed", LayoutDashboard],
+  ["home", "Inicio", LayoutDashboard],
   ["requirements", "Necesidades", Building2],
   ["capacities", "Disponibles", Users],
   ["matches", "Seguimiento", Sparkles],
@@ -121,8 +120,6 @@ export function ResidentNetwork({
   version: string | null;
   logout: () => void;
 }) {
-  const [viewIne, setViewIne] = useState(false);
-  if (viewIne) return <Suspense fallback={<div className="app-loading">Cargando histórico INE…</div>}><IneHistory user={user} version={version} logout={logout} onBack={() => setViewIne(false)}/></Suspense>;
   return (
     <div className="nw nw-resident-shell">
       <header className="nw-resident-header">
@@ -135,7 +132,7 @@ export function ResidentNetwork({
             <small>Red de Obras</small>
           </div>
         </div>
-        <div className="nw-resident-extra"><button type="button" className="nw-ine-history-link" onClick={() => setViewIne(true)}><FileSpreadsheet size={16}/> Histórico INE</button><NetworkAccountMenu user={user} logout={logout} /></div>
+        <div className="nw-resident-extra"><NetworkAccountMenu user={user} logout={logout} /></div>
       </header>
       <main>
         <RedDeObras user={user} />
@@ -169,6 +166,8 @@ export default function RedDeObras({ user }: { user: Profile }) {
   const [error, setError] = useState(""),
     [notice, setNotice] = useState(""),
     [loading, setLoading] = useState(true);
+  const [deletingReq, setDeletingReq] = useState<string | null>(null);
+  const deletionInFlight = useRef(false);
   const [panel, setPanel] = useState(""),
     [selectedReq, setSelectedReq] = useState<Requirement | null>(null),
     [selectedCap, setSelectedCap] = useState<Capacity | null>(null);
@@ -243,7 +242,8 @@ export default function RedDeObras({ user }: { user: Profile }) {
           : null,
         ["home", "capacities"].includes(tab)
           ? net<Page<Capacity>>(
-              "/capacities" + suffix + "&q=" + encodeURIComponent(debouncedSearch),
+              "/capacities" + suffix + "&q=" + encodeURIComponent(debouncedSearch) +
+              "&mine=" + mine + (tab === "home" ? "&active_only=true" : ""),
             )
           : null,
         ["home", "matches"].includes(tab)
@@ -478,6 +478,32 @@ export default function RedDeObras({ user }: { user: Profile }) {
       </button>
     </div>
   );
+  async function removeRequirement(r: Requirement) {
+    if (!r.can_delete || deletionInFlight.current) return;
+    const facebookNote = r.publish_to_facebook ? "\nSi existe un aviso automático vinculado en Facebook, se solicitará su retiro." : "";
+    if (!window.confirm(`¿Eliminar la solicitud "${r.title}" de ${r.site}?\nDejará de aparecer en Red de Obras.${facebookNote}`)) return;
+    deletionInFlight.current = true;
+    setDeletingReq(r.id);
+    setError("");
+    try {
+      await change<{ id: string; deleted: boolean }>(`/requirements/${r.id}?version=${r.version}`, undefined, "DELETE");
+      ++generation.current;
+      setReqs(old => ({ rows: old.rows.filter(item => item.id !== r.id), total: Math.max(0, old.total - 1) }));
+      if (selectedReq?.id === r.id) {
+        setSelectedReq(null);
+        setPanel("");
+      }
+      setNotice("Solicitud eliminada correctamente.");
+      if (page > 0 && reqs.rows.length === 1) setPage(page - 1);
+      else await refresh();
+      window.dispatchEvent(new Event("galant-network-changed"));
+    } catch (err) {
+      setError(errorText(err));
+    } finally {
+      deletionInFlight.current = false;
+      setDeletingReq(null);
+    }
+  }
   const reqCard = (r: Requirement) => {
     const fb = r.facebook;
     const fbError = fb?.state === "failed" || fb?.state === "uncertain";
@@ -485,7 +511,9 @@ export default function RedDeObras({ user }: { user: Profile }) {
       <article className="nw-card nw-feed-card" key={r.id}>
         <div className="nw-feed-card-top">
           <span className="nw-site"><Building2 size={14} /> {r.site}</span>
-          <Badge value={r.priority} />
+          <div className="nw-request-actions"><Badge value={r.priority} />
+            {r.can_delete && <button type="button" className="nw-request-delete" title="Eliminar solicitud" aria-label={`Eliminar solicitud: ${r.title}`} disabled={deletingReq !== null} onClick={() => void removeRequirement(r)}><Trash2 size={15} /></button>}
+          </div>
         </div>
         <span className="nw-specialty">{r.specialty}</span>
         <h3><button className="nw-text-button" onClick={() => void openReq(r.id)}>{r.title}</button></h3>
@@ -503,7 +531,7 @@ export default function RedDeObras({ user }: { user: Profile }) {
           )}
         </div>
         <div className="nw-card-footer">
-          <span>{r.coverage > 0 ? "En proceso de adjudicación" : "Solicitud de contratista"}</span>
+          {r.coverage > 0 && <span>En proceso de adjudicación</span>}
           <button className="nw-text-button" onClick={() => void openReq(r.id)}>
             Ver solicitud <ArrowRight size={15} />
           </button>
@@ -511,11 +539,36 @@ export default function RedDeObras({ user }: { user: Profile }) {
       </article>
     );
   };
+  async function removeCapacity(c: Capacity) {
+    if (!c.can_delete || deletionInFlight.current) return;
+    if (!window.confirm(`¿Eliminar la disponibilidad de "${c.contractor}" en ${c.site}?\nNo se eliminará la ficha del contratista.`)) return;
+    deletionInFlight.current = true;
+    setDeletingReq(c.id);
+    setError("");
+    try {
+      await change<{ id: string; deleted: boolean }>(`/capacities/${c.id}?version=${c.version}`, undefined, "DELETE");
+      ++generation.current;
+      setCaps(old => ({rows: old.rows.filter(item => item.id !== c.id), total: Math.max(0, old.total - 1)}));
+      if (selectedCap?.id === c.id) { setSelectedCap(null); setPanel(""); }
+      setNotice("Disponibilidad eliminada correctamente.");
+      if (page > 0 && caps.rows.length === 1) setPage(page - 1);
+      else await refresh();
+      window.dispatchEvent(new Event("galant-network-changed"));
+    } catch (err) {
+      setError(errorText(err));
+    } finally {
+      deletionInFlight.current = false;
+      setDeletingReq(null);
+    }
+  }
   const capCard = (c: Capacity) => (
     <article className="nw-card nw-feed-card nw-capacity-card" key={c.id}>
       <div className="nw-feed-card-top">
         <span className="nw-site"><Building2 size={14} /> {c.site}</span>
-        <Badge value={c.expired ? "Caducada" : c.stale ? "Requiere actualización" : c.availability} />
+        <div className="nw-request-actions">
+          <Badge value={c.expired ? "Caducada" : c.stale ? "Requiere actualización" : c.availability} />
+          {c.can_delete && <button type="button" className="nw-request-delete" title="Eliminar disponibilidad" aria-label={`Eliminar disponibilidad: ${c.contractor}`} disabled={deletingReq !== null} onClick={() => void removeCapacity(c)}><Trash2 size={15}/></button>}
+        </div>
       </div>
       <span className="nw-specialty">{c.specialty}</span>
       <h3><button className="nw-text-button" onClick={() => void openCap(c.id)}>{c.contractor}</button></h3>
@@ -524,10 +577,8 @@ export default function RedDeObras({ user }: { user: Profile }) {
         <span><CalendarDays size={15} /> Desde {dateText(c.available_date)}</span>
       </div>
       <div className="nw-card-footer">
-        <span>Contratista disponible</span>
-        <button className="nw-text-button" onClick={() => void contactCap(c)}>
-          Contactar <ArrowRight size={15} />
-        </button>
+        <button className="nw-text-button" onClick={() => void openCap(c.id)}>Ver disponibilidad <ArrowRight size={15}/></button>
+        {!c.expired && c.state === "published" && !["discarded", "committed"].includes(c.availability) && <button className="nw-text-button" onClick={() => void contactCap(c)}>Contactar</button>}
       </div>
     </article>
   );
@@ -568,7 +619,7 @@ export default function RedDeObras({ user }: { user: Profile }) {
     </article>
   );
   return (
-    <section className={"nw nw-portal" + (tab === "facebook" ? " nw-facebook-workspace" : "")}>
+    <section className={"nw nw-portal" + (tab === "facebook" ? " nw-facebook-workspace" : tab === "home" ? " nw-home" : "")}>
       {tab !== "facebook" && <div className="nw-heading">
         <div><h1>Red de Obras<span>.</span></h1></div>
         {canPublish && tab !== "home" && (
@@ -611,17 +662,13 @@ export default function RedDeObras({ user }: { user: Profile }) {
       </nav>
       {tab === "home" && canPublish && (
         <section className="nw-publish-hub" aria-label="Publicación rápida">
-          <div className="nw-publish-hub-heading">
-            <strong>¿Qué necesitas hacer?</strong>
-            <span>Publica en pocos pasos</span>
-          </div>
           <div className="nw-publish-choices">
             <button type="button" className="nw-publish-choice nw-publish-need" onClick={() => {
               setSelectedReq(null);
               setPanel("request-form");
             }}>
               <span className="nw-publish-choice-icon"><Plus size={22} /></span>
-              <span><b>Necesito contratista</b><small>Publicar una necesidad</small></span>
+              <span><b>Necesito contratista</b></span>
               <ArrowRight size={18} />
             </button>
             <button type="button" className="nw-publish-choice nw-publish-available" onClick={() => {
@@ -629,7 +676,7 @@ export default function RedDeObras({ user }: { user: Profile }) {
               setPanel("capacity-form");
             }}>
               <span className="nw-publish-choice-icon"><Users size={22} /></span>
-              <span><b>Tengo contratista disponible</b><small>Compartir disponibilidad</small></span>
+              <span><b>Tengo contratista disponible</b></span>
               <ArrowRight size={18} />
             </button>
           </div>
@@ -728,7 +775,7 @@ export default function RedDeObras({ user }: { user: Profile }) {
             </label>
           </>
         )}
-        {tab === "home" && user.role === "resident" && (
+        {["home", "capacities"].includes(tab) && user.role === "resident" && (
           <label className="nw-check">
             <input
               type="checkbox"
@@ -740,6 +787,11 @@ export default function RedDeObras({ user }: { user: Profile }) {
             />
             Solo mis obras
           </label>
+        )}
+        {["home", "requirements", "capacities"].includes(tab) && (site || specialty || search || mine || priority) && (
+          <button type="button" className="nw-text-button nw-clear-filters" onClick={() => {
+            setSite(""); setSpecialty(""); setSearch(""); setPriority(""); setMine(false); setPage(0);
+          }}>Limpiar filtros</button>
         )}
         {["requirements", "capacities"].includes(tab) && (
           <div className="nw-view-toggle">
@@ -793,21 +845,12 @@ export default function RedDeObras({ user }: { user: Profile }) {
       )}
       {tab === "home" && overview && (
         <>
-          <div className="nw-kpis nw-feed-kpis">
-            <button className="nw-kpi nw-feed-kpi nw-feed-kpi-blue" onClick={() => go("requirements")}>
-              <span><Building2 size={17} /> Necesidades</span>
-              <strong>{number(overview.requirements)}</strong>
-              {overview.urgent > 0 && <small>{number(overview.urgent)} urgentes</small>}
-            </button>
-            <button className="nw-kpi nw-feed-kpi nw-feed-kpi-green" onClick={() => go("capacities")}>
-              <span><Users size={17} /> Disponibles</span>
-              <strong>{number(overview.capacities)}</strong>
-            </button>
-            <button className="nw-kpi nw-feed-kpi nw-feed-kpi-amber" onClick={() => go("messages")}>
-              <span><MessageSquare size={17} /> Mensajes nuevos</span>
-              <strong>{number(overview.unread_messages)}</strong>
-            </button>
-          </div>
+          <nav className="nw-home-summary" aria-label="Resumen operativo">
+            <button type="button" onClick={() => { setPriority(""); go("requirements"); }}><Building2 size={17}/><strong>{number(overview.requirements)}</strong> necesidades activas</button>
+            {!!overview.urgent && <button type="button" className="nw-home-urgent" onClick={() => { setPriority("attention"); go("requirements"); }}><strong>{number(overview.urgent)}</strong> alta prioridad o urgentes <ArrowRight size={14}/></button>}
+            <button type="button" onClick={() => go("capacities")}><Users size={17}/><strong>{number(overview.capacities)}</strong> disponibles</button>
+            <button type="button" onClick={() => go("messages")}><MessageSquare size={17}/><strong>{number(overview.unread_messages)}</strong> mensajes nuevos</button>
+          </nav>
           <div className="nw-section-title">
             <h2>Necesidades recientes</h2>
             <button
@@ -820,10 +863,7 @@ export default function RedDeObras({ user }: { user: Profile }) {
           {reqs.rows.length ? (
             <div className="nw-cards nw-feed-cards">{reqs.rows.slice(0, 6).map(reqCard)}</div>
           ) : (
-            <Empty title="La red está lista para conectar tus obras">
-              Publica el primer requerimiento o comparte la capacidad de un
-              contratista registrado.
-            </Empty>
+            <Empty title={site || specialty || search || mine || priority ? "No hay solicitudes con estos filtros" : "Aún no hay solicitudes publicadas"} />
           )}
           <div className="nw-section-title">
             <h2>Contratistas disponibles</h2>
@@ -1247,6 +1287,8 @@ export default function RedDeObras({ user }: { user: Profile }) {
             <RequirementWorkspace
               requirement={selectedReq}
               onEdit={() => setPanel("request-form")}
+              onDelete={selectedReq.can_delete ? () => void removeRequirement(selectedReq) : undefined}
+              deleting={deletingReq !== null}
               onCapacity={(candidate) => void interest({
                 id: candidate.id,
                 score: candidate.score,
@@ -1516,12 +1558,13 @@ export default function RedDeObras({ user }: { user: Profile }) {
                 </p>
               ))}
               <div className="nw-row nw-wrap">
-                <button
+                {!selectedCap.expired && selectedCap.state === "published" && !["discarded", "committed"].includes(selectedCap.availability) && <button
                   className="nw-btn nw-primary"
                   onClick={() => void contactCap(selectedCap)}
                 >
                   Contactar residente
-                </button>
+                </button>}
+                {selectedCap.can_delete && <button type="button" className="nw-btn nw-request-delete" disabled={deletingReq !== null} onClick={() => void removeCapacity(selectedCap)}><Trash2 size={16}/> Eliminar disponibilidad</button>}
                 {selectedCap.editable && (
                   <>
                     <button

@@ -117,7 +117,7 @@ def main():
                 "contractor_id"
             ]
             admin.get_by_role("button", name="Red de Obras", exact=True).click()
-            expect(admin.locator(".nw-kpis")).to_be_visible()
+            expect(admin.locator(".nw-home-summary")).to_be_visible()
             expect(admin.get_by_text("Actualizando información compartida…", exact=True)).not_to_be_visible()
             admin.screenshot(path=str(args.output / "administrador.png"), full_page=True)
             admin.get_by_role("navigation", name="Red de Obras", exact=True).get_by_role("button", name="Necesidades", exact=True).click()
@@ -129,7 +129,7 @@ def main():
             resident_email = next(u["email"] for u in api(admin_ctx, "/users") if u["id"] == req["created_by"])
             _, resident = context()
             login(resident, resident_email)
-            expect(resident.locator(".nw-kpis")).to_be_visible()
+            expect(resident.locator(".nw-home-summary")).to_be_visible()
             expect(resident.get_by_text("Actualizando información compartida…", exact=True)).not_to_be_visible()
             resident.screenshot(path=str(args.output / "residente.png"), full_page=True)
             resident.set_viewport_size({"width": 390, "height": 844})
@@ -398,16 +398,16 @@ def main():
         admin.screenshot(path=str(args.output / "adjudicacion.png"), full_page=True)
         admin.get_by_role("dialog").get_by_role("button", name="Cerrar panel").click()
         admin.get_by_role("navigation", name="Red de Obras", exact=True).get_by_role(
-            "button", name="Feed", exact=True
+            "button", name="Inicio", exact=True
         ).click()
-        expect(admin.locator(".nw-kpis")).to_be_visible()
+        expect(admin.locator(".nw-home-summary")).to_be_visible()
         admin.screenshot(path=str(args.output / "administrador.png"), full_page=True)
         a.get_by_role("navigation", name="Red de Obras", exact=True).get_by_role(
-            "button", name="Feed", exact=True
+            "button", name="Inicio", exact=True
         ).click()
         a.screenshot(path=str(args.output / "residente.png"), full_page=True)
         a.set_viewport_size({"width": 390, "height": 844})
-        expect(a.locator(".nw-kpis")).to_be_visible()
+        expect(a.locator(".nw-home-summary")).to_be_visible()
         assert a.evaluate(
             "document.documentElement.scrollWidth <= window.innerWidth"
         ), "Desbordamiento horizontal en móvil"
