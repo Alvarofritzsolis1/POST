@@ -99,6 +99,7 @@ def wants_human(message: str) -> bool:
         "me puede atender una persona", "me atiende una persona",
         "quiero que me atienda alguien", "necesito que me atienda una persona",
         "quiero hablar con alguien del equipo", "quiero hablar con una persona real",
+        "necesito una persona real", "necesito hablar con una persona", "necesito hablar con un humano",
         "me pueden pasar con alguien", "quiero atencion de una persona",
         "quiero hablar con un trabajador del equipo",
         "alguien del equipo", "una persona del equipo", "prefiero alguien del equipo",

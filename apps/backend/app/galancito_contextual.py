@@ -291,11 +291,15 @@ def validated_reply(decision, facts, declarations, context, fragments):
     }
     known["crew"] |= bool(facts.get("declared_context", {}).get("crew_size"))
     reply = decision.r.strip()
-    if any(len(plain(part.text).split()) >= 4 and plain(part.text) == plain(reply) for part in fragments):
-        return None
+    normalized_reply = plain(reply)
+    for part in fragments:
+        normalized_input = plain(part.text)
+        min_words = 3 if "?" in part.text else 4
+        if len(normalized_input.split()) >= min_words and normalized_input == normalized_reply:
+            return None
     if re.match(r"^(?:(?:hola|buenas) )?(?:soy (?:un[oa]? )?(?:contratista|maestr[oa]|"
                 r"trabajador[ai]?|pintor[ai]?|especialista)|hago|trabajo de|me dedico|somos)\b",
-                plain(reply)):
+                normalized_reply):
         return None
     known_fields = {
         "trade": "specialty", "crew": "workers", "area": "work_communes", "team": "team_available",

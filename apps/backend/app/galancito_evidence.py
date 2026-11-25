@@ -34,7 +34,7 @@ OWN_WORK = re.compile(r"\b(?:hago|hacemos|me dedico a|nos dedicamos a|me especia
 WORK_MODE = re.compile(r"^(?:a trato|por mi cuenta|por las mias|por mi propia cuenta|sol[oa])\b")
 EXTRA_TRADES = (("Yeso", ("yeso", "yesero", "yesera", "yesería")),
                 ("Andamios", ("andamio", "andamios", "andamiero")))
-CHANNEL_NAMES = {"wsp": "whatsapp", "wa": "whatsapp"}
+CHANNEL_NAMES = {"wsp": "whatsapp", "wa": "whatsapp", "guasap": "whatsapp"}
 
 
 def declaration_segments(text):

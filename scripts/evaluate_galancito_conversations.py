@@ -155,9 +155,11 @@ def run(dataset, source_root, *, real_local=False, contextual=False, loopback=Fa
                         db.add(FacebookLead(org_id=org_id, page_id=env["FACEBOOK_PAGE_ID"], psid=psid,
                             ai_consent=True, ai_consent_state="accepted", ai_consent_provider="ollama"))
                 turns = []
+                pending_inputs = []
                 case_model_calls = 0
                 case_model_output = 0
                 for number, turn in enumerate(case["turns"], start=1):
+                    pending_inputs.append(turn["message"])
                     expected.update(turn.get("profile", {}))
                     mid = f"synthetic-{index}-{number}"
                     data = json.dumps({"object": "page", "entry": [{"id": env["FACEBOOK_PAGE_ID"],
@@ -247,8 +249,11 @@ def run(dataset, source_root, *, real_local=False, contextual=False, loopback=Fa
                         "single_coherent_reply": len(replies) <= 1 and answer.count("?") <= 1,
                         "expected_reply": (not turn.get("flush", True) or bool(answer)) and
                                           all(plain(x) in answer_norm for x in required),
-                        "does_not_echo_sender": len(plain(turn["message"]).split()) < 4 or
-                                                answer_norm != plain(turn["message"]),
+                        "does_not_echo_sender": not any(
+                            plain(message) == answer_norm
+                            and len(answer_norm.split()) >= (3 if "?" in message else 4)
+                            for message in pending_inputs
+                        ),
                         "avoids_known_questions": not repeated,
                         "no_unsupported_reply": not any(plain(x) in answer_norm for x in forbidden),
                         "profile": not errors,
@@ -264,6 +269,8 @@ def run(dataset, source_root, *, real_local=False, contextual=False, loopback=Fa
                                   "extracted_profile": redact(actual), "runs": observed,
                                   "repeated_fields": repeated, "reply": redact(answer),
                                   "elapsed_ms": round(elapsed, 3)})
+                    if replies or turn.get("flush", True):
+                        pending_inputs.clear()
                 actual_inference = case_model_calls > 0 if real_local else None
                 model_requirement_met = not case.get("requires_model", real_local) or case_model_output > 0
                 results.append({"id": case["id"], "passed": all(all(t["checks"].values()) for t in turns)

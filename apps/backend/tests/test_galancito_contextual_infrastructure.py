@@ -130,6 +130,15 @@ def test_parroting_the_current_question_is_rejected():
     decision = Turn(i="question", q="other", r=message, d=[])
     assert validated_reply(decision, {}, [], message, (fragment,)) is None
 
+
+def test_parroting_an_earlier_short_question_in_the_burst_is_rejected():
+    fragments = (
+        Fragment("test-opening", utcnow(), "¿Qué hago ahora?"),
+        Fragment("test-latest", utcnow(), "Necesito una persona real"),
+    )
+    draft = Turn(i="question", q="other", r="¿Qué hago ahora?", d=[])
+    assert validated_reply(draft, {}, [], "", fragments) is None
+
 def test_model_cannot_answer_as_a_contractor():
     fragment = Fragment("test-introduction", utcnow(), "Soy contratista, hago pintura")
     decision = Turn(i="intake", q="none", r="Hola. Soy un contratista especializado en pintura.", d=[])
@@ -185,6 +194,8 @@ def test_evidence_preserves_out_of_catalog_trade_and_ignores_business_contact():
         (0, "trade", "quemadores industriales", "quemadores industriales"),
         (2, "channel", "whatsapp", "wasap"),
     ]
+    phonetic = Fragment("phonetic", utcnow(), "Me sirve el guasap.")
+    assert evidence_options((phonetic,)) == [(0, "channel", "whatsapp", "guasap")]
 
 
 def test_payment_guidance_does_not_treat_a_declaration_as_a_question():
@@ -201,8 +212,11 @@ def test_explicit_human_requests_survive_contextual_routing():
     from app.galancito_flow import wants_human
 
     assert wants_human("Quiero hablar con un humano")
+    assert wants_human("Necesito una persona real")
+    assert wants_human("Necesito hablar con una persona del equipo")
     assert wants_human("¿Habrá una persona que me pueda ayudar?")
     assert not wants_human("¿Habrá una persona que trabaje en la obra?")
+    assert not wants_human("Necesito una persona para pintar la obra")
 
 
 def test_unconfirmed_payment_does_not_pause_later_messages(network, monkeypatch):
