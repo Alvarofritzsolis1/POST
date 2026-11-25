@@ -122,6 +122,8 @@ def requirement_for(db, user, record_id, detail=False, write=False):
     row = record_for(db, NetworkRequirement, user, record_id, lock=write)
     if row.state == "deleted":
         raise HTTPException(404, "Solicitud eliminada")
+    if write and row.state == "archived":
+        raise HTTPException(409, "Solicitud retirada de la red")
     own = manages(db, user, row.site_id)
     if row.state == "draft" and not own:
         raise HTTPException(404, "Requerimiento no encontrado")
@@ -139,6 +141,8 @@ def capacity_for(db, user, record_id, write=False):
     row = record_for(db, NetworkCapacity, user, record_id, lock=write)
     if row.state == "deleted":
         raise HTTPException(404, "Disponibilidad eliminada")
+    if write and row.state == "archived":
+        raise HTTPException(409, "Disponibilidad retirada de la red")
     if row.state == "draft" and not manages(db, user, row.site_id):
         raise HTTPException(404, "Publicación no encontrada")
     if write:
@@ -339,7 +343,7 @@ def award_view(db, user, award, with_clearance=True):
 def requirement_view(db, user, req, detailed=False):
     from .network_facebook import status_view
     own = manages(db, user, req.site_id)
-    editable = own and (user.role != "resident" or req.created_by == user.id)
+    editable = req.state not in {"deleted", "archived"} and own and (user.role != "resident" or req.created_by == user.id)
     items = list(
         db.scalars(
             select(NetworkItem)
@@ -410,7 +414,7 @@ def requirement_view(db, user, req, detailed=False):
         "created_at": req.created_at,
         "updated_at": req.updated_at,
         "editable": editable,
-        "can_delete": req.state != "deleted" and (user.role == "admin" or (user.role == "resident" and own)),
+        "can_delete": req.state not in {"deleted", "archived"} and (user.role == "admin" or (user.role == "resident" and own)),
         "can_award": own
         and (
             user.role == "admin"
@@ -455,9 +459,9 @@ def capacity_view(db, user, cap):
         "expired": cap.expires_on < today(),
         "stale": stale,
         "updated_at": cap.updated_at,
-        "editable": manages(db, user, cap.site_id)
+        "editable": cap.state not in {"deleted", "archived"} and manages(db, user, cap.site_id)
         and (user.role != "resident" or cap.created_by == user.id),
-        "can_delete": cap.state != "deleted" and (user.role == "admin" or (user.role == "resident" and manages(db, user, cap.site_id))),
+        "can_delete": cap.state not in {"deleted", "archived"} and (user.role == "admin" or (user.role == "resident" and manages(db, user, cap.site_id))),
         "version": cap.version,
         "pending_items": [
             {

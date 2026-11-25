@@ -31,6 +31,8 @@ export const labels: Record<string, string> = {
   draft: "Borrador",
   published: "Publicado",
   cancelled: "Cancelado",
+  archived: "Retirado de la red",
+  deleted: "Eliminado",
   none: "Sin adjudicaciones",
   full: "Totalmente adjudicado",
   partial: "Parcial",

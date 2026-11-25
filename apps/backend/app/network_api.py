@@ -84,11 +84,13 @@ def pagination(query, db, limit, offset):
     return list(db.scalars(query.limit(limit).offset(offset))), total
 
 
-def scoped_requirements(db, user):
+def scoped_requirements(db, user, include_archived=False):
     query = select(NetworkRequirement).where(
         NetworkRequirement.org_id == user.org_id,
         NetworkRequirement.state != "deleted",
     )
+    if not include_archived:
+        query = query.where(NetworkRequirement.state != "archived")
     if user.role == "resident":
         query = query.where(
             (NetworkRequirement.state != "draft")
@@ -337,7 +339,7 @@ def create_requirement(
         )
     )
     if prior:
-        if prior.state == "deleted":
+        if prior.state in {"deleted", "archived"}:
             raise HTTPException(409, "La solicitud fue eliminada; crea una nueva publicación")
         if (
             prior.created_by != user.id
@@ -457,11 +459,10 @@ def delete_requirement(
     row = record_for(db, NetworkRequirement, user, record_id, lock=True)
     if user.role == "resident" and row.site_id not in assigned_sites(db, user):
         raise HTTPException(403, "Solo puedes eliminar solicitudes de tus obras asignadas")
-    if row.state == "deleted":
-        return {"id": row.id, "deleted": True}
+    if row.state in {"deleted", "archived"}:
+        return {"id": row.id, "deleted": True, "archived": row.state == "archived"}
     check_version(row, version)
-    # Do not orphan formal awards or conversations. They need a separate,
-    # explicitly reviewed lifecycle; cancelling a request remains available.
+    # Withdraw linked publications from discovery without breaking existing workflows.
     award_id = db.scalar(
         select(NetworkAward.id)
         .join(NetworkItem, NetworkItem.id == NetworkAward.item_id)
@@ -474,18 +475,16 @@ def delete_requirement(
         .where(NetworkMatch.requirement_id == row.id)
         .limit(1)
     )
-    if award_id or coordination_id:
-        raise HTTPException(409, "La solicitud tiene adjudicaciones o coordinaciones vinculadas. Conserva su historial y utiliza la cancelación.")
     before = requirement_view(db, user, row)
-    row.state = "deleted"
+    row.state = "archived" if award_id or coordination_id else "deleted"
     row.version += 1
     row.updated_at = utcnow()
     event(db, user, "requirement", row.id, before,
-          {"state": "deleted", "version": row.version}, "Eliminación de solicitud")
+          {"state": row.state, "version": row.version}, "Eliminación de solicitud de la red")
     rebuild_matches(db, user)
     enqueue(db, row)
     db.commit()
-    return {"id": row.id, "deleted": True}
+    return {"id": row.id, "deleted": True, "archived": row.state == "archived"}
 
 
 @router.post("/requirements/{record_id}/facebook/sync")
@@ -528,7 +527,7 @@ def capacities(
 ):
     query = select(NetworkCapacity).where(
         NetworkCapacity.org_id == user.org_id,
-        NetworkCapacity.state != "deleted",
+        NetworkCapacity.state.notin_(["deleted", "archived"]),
     )
     if active_only:
         query = query.where(
@@ -623,7 +622,7 @@ def create_capacity(
         )
     )
     if prior:
-        if prior.state == "deleted":
+        if prior.state in {"deleted", "archived"}:
             raise HTTPException(409, "La disponibilidad fue eliminada; crea una nueva publicación")
         if prior.created_by != user.id or prior.contractor_id != body.contractor_id:
             raise HTTPException(409, "La clave de publicación ya se utilizó")
@@ -683,8 +682,8 @@ def delete_capacity(
     row = record_for(db, NetworkCapacity, user, record_id, lock=True)
     if user.role == "resident" and row.site_id not in assigned_sites(db, user):
         raise HTTPException(403, "Solo puedes eliminar disponibilidades de tus obras asignadas")
-    if row.state == "deleted":
-        return {"id": row.id, "deleted": True}
+    if row.state in {"deleted", "archived"}:
+        return {"id": row.id, "deleted": True, "archived": row.state == "archived"}
     check_version(row, version)
     award_id = db.scalar(select(NetworkAward.id).where(
         NetworkAward.capacity_id == row.id).limit(1))
@@ -693,17 +692,15 @@ def delete_capacity(
         .join(NetworkMatch, NetworkMatch.id == NetworkCoordination.match_id)
         .where(NetworkMatch.capacity_id == row.id).limit(1)
     )
-    if award_id or coordination_id:
-        raise HTTPException(409, "La disponibilidad tiene adjudicaciones o coordinaciones vinculadas. Conserva su historial y actualiza su estado.")
     before = capacity_view(db, user, row)
-    row.state = "deleted"
+    row.state = "archived" if award_id or coordination_id else "deleted"
     row.version += 1
     row.updated_at = utcnow()
     event(db, user, "capacity", row.id, before,
-          {"state": "deleted", "version": row.version}, "Eliminación de disponibilidad")
+          {"state": row.state, "version": row.version}, "Eliminación de disponibilidad de la red")
     rebuild_matches(db, user)
     db.commit()
-    return {"id": row.id, "deleted": True}
+    return {"id": row.id, "deleted": True, "archived": row.state == "archived"}
 
 
 @router.post("/capacities/{record_id}/renew")
@@ -1457,6 +1454,8 @@ def amend_item(
     previous = str(row.quantity)
     row.quantity = body.quantity
     req = db.get(NetworkRequirement, row.requirement_id)
+    if req.state in {"deleted", "archived"}:
+        raise HTTPException(409, "La publicación fue retirada de la red")
     req.version += 1
     event(
         db,
@@ -1851,8 +1850,8 @@ def calendar(
     if end < start or (end - start).days > 93:
         raise HTTPException(422, "Selecciona un rango de hasta 93 días")
     events = []
-    query = scoped_requirements(db, user).where(
-        NetworkRequirement.state == "published",
+    query = scoped_requirements(db, user, include_archived=True).where(
+        NetworkRequirement.state.in_(["published", "archived"]),
         NetworkRequirement.start_date_pending.is_(False),
         NetworkRequirement.start_date <= end,
         NetworkRequirement.end_date >= start,
@@ -1863,17 +1862,18 @@ def calendar(
     if specialty:
         query = query.where(NetworkRequirement.specialty_key == key(specialty))
     for req in db.scalars(query):
-        events.append(
-            {
-                "id": req.id,
-                "kind": "requirement",
-                "title": req.title,
-                "site_id": req.site_id,
-                "date": req.start_date,
-                "end_date": req.end_date,
-                "overdue": req.deadline < today(),
-            }
-        )
+        if req.state == "published":
+            events.append(
+                {
+                    "id": req.id,
+                    "kind": "requirement",
+                    "title": req.title,
+                    "site_id": req.site_id,
+                    "date": req.start_date,
+                    "end_date": req.end_date,
+                    "overdue": req.deadline < today(),
+                }
+            )
         if manages(db, user, req.site_id):
             for award in db.scalars(
                 select(NetworkAward)
@@ -1930,7 +1930,7 @@ def network_report(
     import csv
     from io import StringIO
 
-    query = scoped_requirements(db, user)
+    query = scoped_requirements(db, user, include_archived=True)
     if user.role == "resident":
         query = query.where(NetworkRequirement.site_id.in_(assigned_sites(db, user)))
     if site_id:
