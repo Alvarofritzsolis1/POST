@@ -208,6 +208,7 @@ def run(dataset, source_root, *, real_local=False, contextual=False, loopback=Fa
                                 observed.append({"source": run_record.source, "intent": run_record.intent,
                                     "model": stats.get("response_model"), "fallback_reason": stats.get("fallback_reason"),
                                     "question_field": stats.get("question_field"),
+                                    "guided_followup": stats.get("guided_followup"),
                                     "fragments": stats.get("fragment_count"), "semantic_updates": stats.get("semantic_updates"),
                                     "elapsed_ms": run_record.elapsed_ms, "conversation_ms": stats.get("conversation_ms"),
                                     "input_tokens": stats.get("input_tokens"), "output_tokens": stats.get("output_tokens")})

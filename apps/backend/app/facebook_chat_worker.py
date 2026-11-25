@@ -21,7 +21,7 @@ from .facebook_ai import (LOCAL_REPLY_INSTRUCTIONS, REPLY_INSTRUCTIONS, generate
                           messenger_contact_ai_source, local_first_messenger, messenger_external_fallback_enabled)
 from .galancito_hybrid import select_response
 from .ai_gateway import AIServiceError, orchestrated_text
-from .galancito_flow import safe_ai_reply, consented_for, grounded_reply, is_permission_prompt, external_permission_prompt
+from .galancito_flow import wants_human, safe_ai_reply, consented_for, grounded_reply, is_permission_prompt, external_permission_prompt
 from .facebook_crm_models import FacebookLead, FacebookChatMessage, FacebookTradeGuide, FacebookLeadTrade
 from .models import utcnow
 from .network_service import key
@@ -578,6 +578,11 @@ def process_chat_next(session_factory=SessionLocal, *, simulation_config=None, n
                 trace["semantic_updates"] = contextual.apply_declarations(db, current, declarations)
                 if trace["semantic_updates"]:
                     trace_unique_requirement(db, current, today=today(), remote_id=structured_fragments[-1].message_id)
+                if failed_ai and decision and declarations:
+                    followup = contextual.verified_followup(decision, profile_facts(current), structured_fragments)
+                    if followup:
+                        body, failed_ai = followup, False
+                        trace["guided_followup"] = decision.q
                 if requested_handoff or failed_ai:
                     flag_for_human(db, current, "Solicitó atención humana" if requested_handoff else
                                   "Galancito no obtuvo una respuesta confirmada; revisión pendiente")
@@ -649,7 +654,9 @@ def _contextual_reply(session_factory, cfg, *, lead_id, job_id, inbound_at, clai
     if private_data(grounding):
         return (decision, declarations, None), "fallback", timings, "private_context"
 
+    hints = contextual.evidence_options(fragments)
     for attempt in range(2):
+        selecting = bool(hints and attempt == 0)
         revision = ("El primer borrador no pasó la validación. El campo que intentó preguntar fue " +
                     decision.q + ". Responde la consulta o pregunta por otro dato pertinente."
                     if attempt and decision else "")
@@ -658,24 +665,37 @@ def _contextual_reply(session_factory, cfg, *, lead_id, job_id, inbound_at, clai
                 return (None, [], None), "fallback", timings, "superseded"
             policy = approved_coaching(db, org_id, "messenger")
             try:
-                candidate = infer(db, lambda: contextual.request_turn(context, fragments, revision=revision, policy=policy))
+                if selecting:
+                    selected = infer(db, lambda: contextual.request_attribution(fragments, hints))
+                    candidate = None
+                else:
+                    candidate = infer(db, lambda: contextual.request_turn(
+                        context, fragments, revision=revision, policy=policy, accepted=declarations))
             except (RuntimeError, ValueError) as exc:
                 failure = type(exc).__name__
-                candidate = None
+                candidate, selected = None, []
             step = last_timings.get()
             totals = {metric: timings.get(metric, 0) + step.get(metric, 0)
                       for metric in ("local_model_calls", "input_tokens", "output_tokens")}
             timings = {**timings, **step, **totals}
+        if selecting:
+            if failure == "RuntimeError":
+                break
+            declarations = contextual.supported_declarations(selected, fragments)
+            continue
         if candidate is None:
             break
-        proposed = contextual.supported_declarations(candidate, fragments)
+        proposed = contextual.supported_declarations(candidate.d, fragments)
+        declarations = list(dict.fromkeys([*declarations, *proposed]))
         if not revision:
-            decision, declarations = candidate, proposed
-        answer = contextual.validated_reply(candidate, facts, [*declarations, *proposed], grounding, fragments)
-        if answer or candidate.i == "human":
-            # Keep first-pass evidence if the repair was only to fix wording.
-            if revision:
-                declarations = list(dict.fromkeys([*declarations, *proposed]))
+            decision = candidate
+        answer = contextual.validated_reply(candidate, facts, declarations, grounding, fragments)
+        if candidate.i == "human":
+            if any(wants_human(part.text) for part in fragments):
+                return (candidate, declarations, answer), "ai", timings, None
+            decision = None
+            continue
+        if answer:
             return (candidate, declarations, answer), "ai", timings, None
 
     if allow_external and not simulated and ai_source == "team":

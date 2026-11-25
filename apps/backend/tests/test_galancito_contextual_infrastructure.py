@@ -3,10 +3,16 @@ from datetime import timedelta
 
 from sqlalchemy import func, select
 
+import pytest
+
 from app.config import settings
 from app.facebook_chat_worker import process_chat_next
 from app.facebook_crm_models import FacebookChatMessage, FacebookLead
-from app.galancito_contextual import Fragment, Turn, apply_declarations, supported_declarations, validated_reply
+from app.galancito_contextual import (
+    Declaration, Fragment, Turn, apply_declarations, request_attribution, supported_declarations, validated_reply,
+    verified_followup,
+)
+from app.galancito_evidence import evidence_options
 from app.models import utcnow
 from test_facebook_crm import enable_messaging, incoming, network, no_real_meta_sender_actions
 
@@ -43,6 +49,7 @@ def test_burst_replay_and_worker_restart(network, monkeypatch):
     def unavailable(context, fragments, **kwargs):
         observed.extend((item.message_id, item.text) for item in fragments)
         raise RuntimeError("Ollama is unavailable")
+    monkeypatch.setattr("app.galancito_contextual.request_attribution", lambda *args: [])
     monkeypatch.setattr("app.galancito_contextual.request_turn", unavailable)
     monkeypatch.setattr("app.facebook_chat_worker.graph_send", lambda *args: "test-meta-sent")
     assert process_chat_next(sessions)
@@ -82,7 +89,7 @@ def test_evidence_bounds_manual_fields_and_idempotence(network, monkeypatch):
         {"f": "origin", "v": "Chillán", "e": "Somos de Chillán"},
         {"f": "crew", "v": "cerca de 15 en la cuadrilla", "e": "somos cerca de 15 en la cuadrilla"},
     ])
-    declarations = supported_declarations(raw, fragments)
+    declarations = supported_declarations(raw.d, fragments)
     assert [declaration[1] for declaration in declarations] == ["Chillán", "cerca de 15 en la cuadrilla"]
     with sessions.begin() as db:
         lead = db.scalar(select(FacebookLead).with_for_update())
@@ -112,7 +119,7 @@ def test_questions_and_partial_counts_cannot_supply_profile_values():
         {"f": "crew", "v": "Bulnes", "e": "Bulnes"},
         {"f": "crew", "v": "más de 10 maestros", "e": "más de 10 maestros"},
     ])
-    assert [(field, value) for field, value, _ in supported_declarations(draft, fragments)] == [
+    assert [(field, value) for field, value, _ in supported_declarations(draft.d, fragments)] == [
         ("crew", "más de 10 maestros"),
     ]
 
@@ -126,3 +133,42 @@ def test_model_cannot_answer_as_a_contractor():
     fragment = Fragment("test-introduction", utcnow(), "Soy contratista, hago pintura")
     decision = Turn(i="intake", q="none", r="Hola. Soy un contratista especializado en pintura.", d=[])
     assert validated_reply(decision, {}, [], fragment.text, (fragment,)) is None
+
+def test_evidence_options_preserve_literals_and_exclude_other_speakers():
+    at = utcnow()
+    fragments = (
+        Fragment("first", at, "¿Cuánto pagan los eléctricos? Un vecino trae 25 maestros."),
+        Fragment("own", at, "Soy de Constitución, hacemos carpintería en madera y metal, somos alrededor de ocho."),
+        Fragment("correction", at, "Ya no hago gasfitería."),
+        Fragment("reference", at, "En el aviso buscan pintores para Castro."),
+    )
+    options = evidence_options(fragments)
+    assert options == [
+        (1, "origin", "constitucion", "constitucion"),
+        (1, "trade", "carpinteria en madera y metal", "carpinteria en madera y metal"),
+        (1, "crew", "alrededor de ocho", "alrededor de ocho"),
+    ]
+    provenance = [
+        Declaration(f="crew", v="25 maestros", e="25 maestros"),
+        Declaration(f="origin", v="constitucion", e="constitucion", message_index=0),
+        Declaration(f="origin", v="constitucion", e="constitucion", message_index=1),
+    ]
+    assert supported_declarations(provenance, fragments) == [("origin", "constitucion", fragments[1])]
+
+
+def test_attribution_outputs_cannot_reference_facts_outside_this_request(monkeypatch):
+    fragments = (Fragment("own", utcnow(), "Vivo en Maullín."),)
+    options = evidence_options(fragments)
+    monkeypatch.setattr("app.galancito_contextual.generate_local_text", lambda *args, **kw: '{"aceptar":["999"]}')
+    with pytest.raises(ValueError, match="Selección de evidencia inválida"):
+        request_attribution(fragments, options)
+
+def test_verified_followup_only_renders_a_pending_question_for_an_intake_turn():
+    declaration = Fragment("own", utcnow(), "Hago tabiquería y cuento con mi equipo.")
+    question = Fragment("query", utcnow(), "¿Hay obras en Penco?")
+    decision = Turn(i="intake", q="area", r="¿En qué comuna quieres comprar pintura?", d=[])
+    assert verified_followup(decision, {}, (declaration,)) == "¿En qué comuna puedes trabajar?"
+    assert verified_followup(decision, {"work_communes": ["Penco"]}, (declaration,)) is None
+    assert verified_followup(decision, {"field_states": {"work_communes": "rechazado_por_usuario"}},
+                             (declaration,)) is None
+    assert verified_followup(decision, {}, (declaration, question)) is None

@@ -94,6 +94,17 @@ _ROLE_WORKER = (
     "postulo como trabajador", "postular a un empleo", "soy trabajador", "soy trabajadora",
     "trabajo apatronado", "quiero trabajar apatronado", "busco trabajo apatronado",
 )
+def role_mentions(value: str):
+    """Possible self-descriptions in normalized text, without inferring the actor."""
+    for role, phrases in (("service_offer", (*_ROLE_SERVICE, "contratista", "contratistas", "ofrezco", "ofresco")),
+                          ("employment", (*_ROLE_WORKER, "buscando pega"))):
+        for phrase in phrases:
+            match = re.search(r"\b" + re.escape(phrase) + r"\b", value)
+            if match:
+                yield match, role
+                break
+
+
 _NAME_PROMPTS = (
     "como prefieres que te llamemos", "cual es tu nombre", "como te llamas",
     "dime tu nombre", "me dices tu nombre", "me puedes decir tu nombre", "tu nombre por favor",
