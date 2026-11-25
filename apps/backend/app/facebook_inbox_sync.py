@@ -18,7 +18,7 @@ from sqlalchemy import select, text as sql_text
 
 from .config import settings
 from .db import SessionLocal
-from .facebook_ai import messenger_ai_source, local_first_messenger
+from .facebook_ai import messenger_contact_ai_source, local_first_messenger
 from .facebook_availability_reply import availability_reply
 from .facebook_worksite_reply import is_worksite_location, worksite_reply, application_reply, digital_help_reply
 from .facebook_crm_models import FacebookChatMessage, FacebookLead
@@ -28,7 +28,7 @@ from .galancito_escalation import flag_for_human
 from .galancito_intake import declared_relative_start, identity_reply, needs_deeper_response, next_intake_reply, small_talk_reply, model_intake_candidate, contact_followup_reply, contact_pending_questions
 from .galancito_memory import (
     apply_messenger_message, approved_trade_aliases, aware, prior_delivered_prompt, profile_facts,
-    capture_voluntary_contact, professional_message,
+    capture_voluntary_contact, professional_message, recover_missing_contact,
 )
 from .galancito_triage import private_data, quick_reply, everyday_question_reply, application_ai_candidate
 from .galancito_phone import phone_question_when_agreed, confirmed_phone_reply
@@ -198,6 +198,10 @@ def sync_page_inbox(*, page_id: str, page_token: str, org_id: str,
                 latest_new[psid] = (lead, body, timestamp, cid, prior, decision,
                                     changed or bool(preceding and preceding[6]), phone_ack)
             imported += 1
+        # Recover out-of-order contact details after the entire batch is stored.
+        db.flush()
+        for lead in leads.values():
+            recover_missing_contact(db, lead)
         cfg = settings()
         if cfg.facebook_ai_enabled:
             for lead, body, timestamp, cid, prior, decision, changed, phone_ack in latest_new.values():
@@ -248,7 +252,7 @@ def sync_page_inbox(*, page_id: str, page_token: str, org_id: str,
                     direct = phone_question_when_agreed(lead, body)
                     if direct:
                         lead.phone_requested_at = utcnow()
-                configured = messenger_ai_source(db, org_id, cfg)
+                configured = messenger_contact_ai_source(db, lead, cfg)
                 if (direct and direct == digital_help_reply(body, prior) and not phone_ack
                         and local_first_messenger(cfg) and consented_for(lead, configured)):
                     direct = None
@@ -288,8 +292,8 @@ def sync_page_inbox(*, page_id: str, page_token: str, org_id: str,
                 if state == "pending" and not reply:
                     flag_for_human(db, lead,
                                    "Galancito no encontró una respuesta confirmada; revisión humana pendiente")
-                    reply = ("No tengo una respuesta confirmada para eso. "
-                             "Avisé al equipo para que pueda ayudarte.")
+                    reply = ("Aún no puedo confirmar ese dato. "
+                             "Dejé tu consulta para que la revise el equipo.")
                 db.add(FacebookChatMessage(
                     org_id=org_id, lead_id=lead.id, page_id=page_id,
                     direction="outbound", state=state, body=reply,

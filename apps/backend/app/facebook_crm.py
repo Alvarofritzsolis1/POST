@@ -23,7 +23,7 @@ from sqlalchemy.orm import Session
 from .config import settings
 from .db import get_db, SessionLocal
 from .facebook_ai import (AD_INSTRUCTIONS, REPLY_INSTRUCTIONS, generate_text,
-                          messenger_ai_source, verified_ad_copy, local_first_messenger, messenger_external_fallback_enabled,
+                          messenger_ai_source, messenger_contact_ai_source, verified_ad_copy, local_first_messenger, messenger_external_fallback_enabled,
                           generate_triage_note)
 from .ai_gateway import orchestrated_text, AIServiceError
 from .galancito_hybrid import select_response
@@ -49,7 +49,7 @@ from .galancito_intake import (
 )
 from .galancito_memory import (
     apply_messenger_message, approved_trade_aliases, aware, capture_voluntary_contact, note_profile_sources,
-    prior_delivered_prompt, professional_message, profile_facts, messenger_context,
+    prior_delivered_prompt, professional_message, profile_facts, messenger_context, recover_missing_contact,
 )
 from .galancito_contact_profile import contact_profile
 from .galancito_conversation_summary import (
@@ -421,6 +421,8 @@ def ingest_facebook_payload(db, payload, cfg, *, notices=None):
             consent_decision=consent,
         ))
         if historical or event_at < received_at - timedelta(hours=24):
+            if not audio_received:
+                recover_missing_contact(db, lead)
             continue
         signal = ("Solicitó atención humana" if wants_human(body) else
                   assistance_signal(body, is_audio=audio_received,
@@ -430,7 +432,7 @@ def ingest_facebook_payload(db, payload, cfg, *, notices=None):
             signal = "Prefirió atención humana y no autorizó IA externa"
         if (signal and not audio_received and not wants_human(body) and consent is not False
                 and not lead.ai_paused and not lead.needs_support and local_first_messenger(cfg)
-                and consented_for(lead, messenger_ai_source(db, lead.org_id, cfg))):
+                and consented_for(lead, messenger_contact_ai_source(db, lead, cfg))):
             signal = None  # Authorized Qwen gets a chance to explain before handoff.
         if signal:
             flag_for_human(db, lead, signal)
@@ -481,7 +483,7 @@ def ingest_facebook_payload(db, payload, cfg, *, notices=None):
                     lead.phone_requested_at = utcnow()
             if phone_ack and not signal and not lead.needs_support and lead.ai_consent_state != "declined":
                 direct = contact_followup_reply(phone_ack, profile_facts(lead, changed=changed), previous_question)
-            configured_source = messenger_ai_source(db, lead.org_id, cfg)
+            configured_source = messenger_contact_ai_source(db, lead, cfg)
             # Generic questions should reach the consented model; confirmed
             # worksite facts and consent operations keep their verified path.
             if (direct and not (location or application or digital_help or phone_saved or phone_ack)
@@ -499,6 +501,7 @@ def ingest_facebook_payload(db, payload, cfg, *, notices=None):
                 and application_role_question(previous_question)
                 and application_role(body, previous_question) is None
                 and lead.ai_consent_state == "not_requested"
+                and configured_source == "ollama"
                 and not consented_for(lead, configured_source))
             if (digital_help and direct == digital_help and not phone_ack and not signal
                     and local_first_messenger(cfg) and consented_for(lead, configured_source)):
@@ -525,7 +528,7 @@ def ingest_facebook_payload(db, payload, cfg, *, notices=None):
             reply, use_ai = None, False
             local = small_talk_reply(body, previous_question)
             if signal:
-                if recent < 3:
+                if recent < 3 or wants_human(body):
                     reply = (("Ya avisé al equipo para que te atienda una persona. "
                               "No necesitas enviar documentos por aquí.") if wants_human(body) else
                              AI_PERMISSION_DECLINED if lead.ai_consent_state == "declined" else
@@ -562,7 +565,8 @@ def ingest_facebook_payload(db, payload, cfg, *, notices=None):
                     "not_requested", "accepted", "accepted_team"):
                 facts = profile_facts(lead, changed=changed)
                 reply = next_intake_reply(body, facts, previous_question)
-                if not reply or (local_first_messenger(cfg) and model_intake_candidate(body, facts, previous_question, reply)):
+                if not reply or (local_first_messenger(cfg) and model_intake_candidate(body, facts, previous_question, reply)
+                                 and not facts.get("declared_context", {}).get("declared_origin")):
                     reply = set_permission_request(lead, ai_source)
             elif (ai_source != "disabled" and lead.ai_consent_state in
                   ("requested", "requested_team") and lead.ai_consent_provider != ai_source):
@@ -1089,7 +1093,7 @@ def _conversation_brief(db: Session, lead: FacebookLead) -> dict:
     brief = summarize_conversation(lead, messages)
     trades = active_trades(db, lead)
     brief["trades"] = trades
-    source = messenger_ai_source(db, lead.org_id)
+    source = messenger_contact_ai_source(db, lead)
     allowed = source != "disabled" and consented_for(lead, source) and not lead.ai_paused
     brief["ai_eligible"] = bool(allowed)
     cache = (lead.profile_sources or {}).get(_BRIEF_CACHE_KEY, {})
@@ -1118,7 +1122,7 @@ def generate_conversation_brief(lead_id: str, user: User = Depends(administrator
     brief = _conversation_brief(db, lead)
     if brief["ai"] or not brief["ai_eligible"] or not brief["evidence"]:
         return brief
-    source = messenger_ai_source(db, lead.org_id)
+    source = messenger_contact_ai_source(db, lead)
     # Check only human-readable content. Internal IDs may look like RUT/phone numbers.
     if brief_contains_private_data(brief):
         return brief
@@ -1148,6 +1152,16 @@ def generate_conversation_brief(lead_id: str, user: User = Depends(administrator
     return brief
 
 
+@router.post("/leads/{lead_id}/recover-contact")
+def recover_contact_fields(lead_id: str, user: User = Depends(administrator),
+                           db: Session = Depends(get_db)):
+    lead = _lead(db, user, lead_id, lock=True)
+    if recover_missing_contact(db, lead):
+        lead.updated_at = utcnow()
+    db.commit()
+    return _lead_view(db, lead)
+
+
 @router.post("/leads/{lead_id}/refresh-profile")
 def refresh_declared_profile(lead_id: str, user: User = Depends(administrator),
                              db: Session = Depends(get_db)):
@@ -1157,10 +1171,11 @@ def refresh_declared_profile(lead_id: str, user: User = Depends(administrator),
     while respecting names already set by an operator or Meta.
     """
     lead = _lead(db, user, lead_id, lock=True)
+    recover_missing_contact(db, lead)
     messages = list(db.scalars(select(FacebookChatMessage).where(
         FacebookChatMessage.org_id == user.org_id,
         FacebookChatMessage.lead_id == lead.id,
-    ).order_by(FacebookChatMessage.created_at, FacebookChatMessage.id).limit(200)))
+    ).order_by(FacebookChatMessage.created_at.desc(), FacebookChatMessage.id.desc()).limit(200)))[::-1]
     previous_question = ""
     aliases = approved_trade_aliases(db, lead.org_id)
     for item in messages:
@@ -1419,7 +1434,7 @@ def suggest_reply(lead_id: str, user: User = Depends(administrator),
     intake = next_intake_reply(latest_inbound, facts, previous_question)
     evidence = retrieve(db, lead.org_id, latest_inbound, "messenger") if not private_data(latest_inbound) else []
     fast = intake or quick_reply(latest_inbound, known=facts)
-    ai_source = messenger_ai_source(db, lead.org_id)
+    ai_source = messenger_contact_ai_source(db, lead)
     model_allowed = (consented_for(lead, ai_source) and not lead.ai_paused
                      and model_intake_candidate(latest_inbound, facts, previous_question, intake))
     if not model_allowed:

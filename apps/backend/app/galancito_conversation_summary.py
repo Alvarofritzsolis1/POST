@@ -80,6 +80,17 @@ def summarize_conversation(lead, messages: Sequence) -> dict:
             "at": origin.get("at") if isinstance(origin, dict) else None,
             "source_message_id": origin.get("message_id") if isinstance(origin, dict) else None,
         })
+    context = sources.get("_declared_context") or {}
+    for key, label in (("crew_expandable", "Posibilidad de ampliar cuadrilla"),
+                       ("declared_origin", "Procedencia declarada (no zona de trabajo)")):
+        origin = context.get(key) or {}
+        val = origin.get("value")
+        if val is None:
+            continue
+        value = ("Sí; cantidad adicional no confirmada" if val else "No") if key == "crew_expandable" else _clean(str(val), 60)
+        if value and not private_data(value):
+            fields.append({"key": key, "label": label, "value": value, "source": "chat",
+                           "at": origin.get("at"), "source_message_id": origin.get("message_id")})
     # A unified narrative for residents and Facebook admins. Avoid the
     # unnatural 'field: value. field: value' fallback.
     profile = contact_profile(lead)

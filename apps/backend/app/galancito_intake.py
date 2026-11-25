@@ -618,6 +618,16 @@ def next_intake_reply(message: str, facts: dict, prior_prompt: str = "") -> str 
         return explanation
     if plain(message) in {"hola vi un trabajo", "ola vi un trabajo", "vi un trabajo", "hola vi un aviso", "vi un aviso"}:
         return "¡Hola! ¿Qué trabajo viste?"
+    # A reply about where someone is from is not a declaration of work coverage.
+    # Preserve the distinction even when a greeting precedes the place.
+    origin_question = re.search(r"\bde donde (?:es(?: usted)?|eres|son|viene[n]?)\b", plain(prior_prompt))
+    origin_reply = re.fullmatch(r"(?:(?:hola|ola|buenas) )?(?:soy |somos )?de (.+)", plain(message))
+    if origin_question and origin_reply and find_communes(origin_reply[1]):
+        if not facts.get("specialty") and not facts.get("trades"):
+            return "Perfecto, gracias. ¿Qué tipo de trabajos realizan?" if (facts.get("workers") or 0) > 1 else "Perfecto, gracias. ¿Qué tipo de trabajo realizas?"
+        pending = pending_professional_questions(facts)
+        question = next(iter(pending.values()), None)
+        return "Perfecto, gracias. " + (question or "Podemos seguir coordinando por aquí.")
     info = analyze(message)
     capacity_statement = any(p in plain(message) for p in (
         "puedo traer gente", "puedo llevar gente", "tengo cuadrilla",

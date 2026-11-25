@@ -50,6 +50,15 @@ def incoming(n, text="soy maestro gasfiter", mid="mid-1", audio=False):
                                     "Content-Type": "application/json"})
 
 
+def seed_previous_consent(n, provider="openai"):
+    """Synthetic fixture for a contact who consented before external notices were retired."""
+    with n["Session"].begin() as db:
+        lead = db.scalar(select(FacebookLead))
+        lead.ai_consent = True
+        lead.ai_consent_provider = provider
+        lead.ai_consent_state = "accepted_team" if provider == "team" else "accepted"
+
+
 def deliver_permission(n, monkeypatch):
     with monkeypatch.context() as patched:
         patched.setattr("app.facebook_chat_worker.graph_send", lambda *_: "permission-" + uuid4().hex)
@@ -98,7 +107,7 @@ def test_trade_guide_explains_documents_without_requiring_formality(network, mon
     assert incoming(n, text="¿Cuáles son los requisitos para postular?").status_code == 200
     leads = n["admin"].get("/api/v1/network/facebook/center").json()["leads"]
     lead_id = leads[0]["id"]
-    assert leads[0]["ai_consent_state"] == "requested"
+    assert leads[0]["ai_consent_state"] == "not_requested"
     guide = {"trade": "Gasfitería", "aliases": ["gasfiter", "maestro sanitario"],
              "explanation": "Repara tuberías y desagües.",
              "document_guidance": ["Mutualidad: protección ante accidentes en obra, confirmar según contrato."],
@@ -133,9 +142,7 @@ def test_trade_guide_explains_documents_without_requiring_formality(network, mon
     forged = n["send"](n["admin"], "/facebook/leads/" + lead_id,
         {"ai_consent": True}, "PATCH")
     assert forged.status_code == 422
-    deliver_permission(n, monkeypatch)
-    consent = incoming(n, text="sí", mid="mid-authorized")
-    assert consent.status_code == 200
+    seed_previous_consent(n)
     lead = n["admin"].get("/api/v1/network/facebook/leads/" + lead_id).json()["lead"]
     assert lead["ai_consent"] is True and lead["ai_consent_state"] == "accepted"
     # Simple intake stays deterministic; a nuanced explanation uses the
@@ -243,10 +250,10 @@ def test_galancito_conversation_auto_reply_only_after_messenger_consent(network,
     assert readiness["auto_reply"]["configured"] is True
     assert incoming(n, text="¿Cuáles son los requisitos para postular?", mid="first").status_code == 200
     lead = n["admin"].get("/api/v1/network/facebook/center").json()["leads"][0]
-    assert lead["ai_consent"] is False and lead["ai_consent_state"] == "requested"
+    assert lead["ai_consent"] is False and lead["ai_consent_state"] == "not_requested"
     pending = n["admin"].get("/api/v1/network/facebook/leads/" + lead["id"]).json()["messages"]
     assert len(pending) == 2
-    assert "OpenAI" in pending[-1]["body"] and "autorizas" in pending[-1]["body"]
+    assert "OpenAI" not in pending[-1]["body"] and "autorizas" not in pending[-1]["body"]
     calls, ai_calls = [], []
 
     def send_mock(page_id, psid, msg, token):
@@ -261,6 +268,15 @@ def test_galancito_conversation_auto_reply_only_after_messenger_consent(network,
     assert process_chat_next(n["Session"]) is True
     assert len(calls) == 1 and not ai_calls
     assert incoming(n, text="Sí", mid="consent-yes").status_code == 200
+    assert not n["admin"].get("/api/v1/network/facebook/center").json()["leads"][0]["ai_consent"]
+    seed_previous_consent(n)
+    # A verified provider grant does not lift a pending human handoff.
+    resumed = n["send"](n["admin"], "/facebook/leads/" + lead["id"],
+                         {"needs_support": False, "ai_paused": False}, method="PATCH")
+    assert resumed.status_code == 200
+    assert resumed.json()["ai_paused"] is False
+    assert resumed.json()["needs_support"] is False
+    assert incoming(n, text="¿Cuáles son los requisitos para postular?", mid="consented-request").status_code == 200
     assert process_chat_next(n["Session"]) is True
     assert len(calls) == 2 and len(ai_calls) == 1
     assert "¿Qué oficio haces?" in calls[-1]
@@ -449,7 +465,7 @@ def test_galancito_respects_refusal_without_external_ai(network, monkeypatch):
     settings.cache_clear()
     assert incoming(n, text="Hola, soy maestro", mid="intro").status_code == 200
     deliver_permission(n, monkeypatch)
-    assert incoming(n, text="no", mid="declined").status_code == 200
+    assert incoming(n, text="no autorizo", mid="declined").status_code == 200
     lead = n["admin"].get("/api/v1/network/facebook/center").json()["leads"][0]
     assert lead["ai_consent_state"] == "declined" and lead["ai_consent"] is False
     assert lead["needs_support"] is True
@@ -458,7 +474,7 @@ def test_galancito_respects_refusal_without_external_ai(network, monkeypatch):
     assert any("una persona" in m["body"].lower() for m in msgs if m["direction"] == "outbound")
 
 
-def test_verified_ai_team_answers_messenger_only_after_new_consent(network, monkeypatch):
+def test_verified_ai_team_answers_messenger_only_with_previously_verified_consent(network, monkeypatch):
     from cryptography.fernet import Fernet
     from app import ai_gateway
     from app.ai_models import AIConnection, AIOrchestration, AIUsage
@@ -515,11 +531,20 @@ def test_verified_ai_team_answers_messenger_only_after_new_consent(network, monk
 
     assert incoming(n, text="Necesito orientación para preparar una oferta", mid="team-1").status_code == 200
     lead = n["admin"].get("/api/v1/network/facebook/center").json()["leads"][0]
-    assert lead["ai_consent_state"] == "requested_team"
+    assert lead["ai_consent_state"] == "not_requested"
     assert process_chat_next(n["Session"]) is True
-    assert "proveedores de IA externos" in sent[0]
+    assert "proveedores de IA externos" not in sent[0] and "autorizas" not in sent[0].lower()
     assert calls == []
     assert incoming(n, text="sí", mid="team-consent").status_code == 200
+    assert not n["admin"].get("/api/v1/network/facebook/center").json()["leads"][0]["ai_consent"]
+    seed_previous_consent(n, "team")
+    # A verified provider grant does not lift a pending human handoff.
+    resumed = n["send"](n["admin"], "/facebook/leads/" + lead["id"],
+                         {"needs_support": False, "ai_paused": False}, method="PATCH")
+    assert resumed.status_code == 200
+    assert resumed.json()["ai_paused"] is False
+    assert resumed.json()["needs_support"] is False
+    assert incoming(n, text="Necesito orientación para preparar una oferta", mid="team-previous-consent").status_code == 200
     lead = n["admin"].get("/api/v1/network/facebook/center").json()["leads"][0]
     assert lead["ai_consent_state"] == "accepted_team"
     assert process_chat_next(n["Session"]) is True
@@ -535,7 +560,7 @@ def test_verified_ai_team_answers_messenger_only_after_new_consent(network, monk
 
 
 
-def test_messenger_reasks_when_legacy_consent_precedes_team_assignment(network, monkeypatch):
+def test_messenger_does_not_reask_or_transfer_legacy_consent_to_team(network, monkeypatch):
     from cryptography.fernet import Fernet
     from app import ai_gateway
     from app.ai_models import AIConnection, AIOrchestration
@@ -547,8 +572,7 @@ def test_messenger_reasks_when_legacy_consent_precedes_team_assignment(network, 
     monkeypatch.setenv("AI_CREDENTIAL_ENCRYPTION_KEY", Fernet.generate_key().decode())
     settings.cache_clear()
     assert incoming(n, text="¿Cuáles son los requisitos para postular?", mid="old-1").status_code == 200
-    deliver_permission(n, monkeypatch)
-    assert incoming(n, text="sí", mid="old-consent").status_code == 200
+    seed_previous_consent(n)
     lead = n["admin"].get("/api/v1/network/facebook/center").json()["leads"][0]
     assert lead["ai_consent_state"] == "accepted"
 
@@ -569,9 +593,11 @@ def test_messenger_reasks_when_legacy_consent_precedes_team_assignment(network, 
 
     assert incoming(n, text="¿Qué necesito para ofrecer servicios?", mid="new-2").status_code == 200
     detail = n["admin"].get("/api/v1/network/facebook/leads/" + lead["id"]).json()
-    assert detail["lead"]["ai_consent_state"] == "requested_team"
-    assert detail["lead"]["ai_consent"] is False
-    assert any("proveedores de IA externos" in message["body"] for message in detail["messages"])
+    from app.facebook_ai import messenger_contact_ai_source
+    with n["Session"]() as db:
+        row = db.get(FacebookLead, lead["id"])
+        assert messenger_contact_ai_source(db, row) != "team"
+    assert not any("proveedores de IA externos" in message["body"] for message in detail["messages"])
     assert not any(message["state"] == "ai_pending" for message in detail["messages"])
 
 
@@ -1085,7 +1111,8 @@ def test_messenger_reports_real_drafting_and_sending_stages(network, monkeypatch
         return "mid-state-" + str(len(calls))
     monkeypatch.setattr("app.facebook_chat_worker.graph_send", mock_send)
     assert process_chat_next(n["Session"])
-    assert incoming(n, text="Sí", mid="staged-2").status_code == 200
+    seed_previous_consent(n)
+    assert incoming(n, text="¿Cuáles son los requisitos para postular?", mid="staged-2").status_code == 200
     def fake_generation(instructions, prompt, max_chars):
         with n["Session"]() as db:
             state = db.scalar(select(FacebookChatMessage.state).where(
@@ -1200,8 +1227,7 @@ def test_consented_ai_brief_has_existing_evidence_and_is_cached(network, monkeyp
         item.ai_consent_state="accepted"
         item.ai_consent_provider="openai"
     calls=[]
-    monkeypatch.setattr("app.facebook_crm.messenger_ai_source",lambda *_: "openai")
-    monkeypatch.setattr("app.facebook_crm.consented_for",lambda *_: True)
+    monkeypatch.setattr("app.facebook_ai.messenger_ai_source",lambda *_: "openai")
     def simulate_model(instructions,prompt,chars):
         parsed=json.loads(prompt)
         assert any("carpinter" in x["text"].lower() for x in parsed["messages"])
@@ -1389,3 +1415,38 @@ def test_contact_followup_uses_qwen_or_pending_field_fallback(network, monkeypat
         assert lead.contact_phone == normalize_mobile("+569 87654321")
         assert lead.team_available is None
         assert not lead.needs_support
+
+
+def test_recover_missing_voluntary_phone_from_saved_chat(network, monkeypatch):
+    from datetime import timedelta
+    from app.models import utcnow
+    n = network
+    enable_messaging(n, monkeypatch)
+    assert incoming(n, text="Hago pintura", mid="repair-intro").status_code == 200
+    lead_id = n["admin"].get("/api/v1/network/facebook/center").json()["leads"][0]["id"]
+    with n["Session"].begin() as db:
+        lead = db.get(FacebookLead, lead_id)
+        db.add(FacebookChatMessage(org_id=lead.org_id, lead_id=lead.id, page_id=lead.page_id,
+            direction="inbound", state="received", remote_id="repair-phone",
+            body="Y el numero es 900000000", created_at=utcnow()-timedelta(minutes=1)))
+    endpoint = "/facebook/leads/" + lead_id + "/recover-contact"
+    recovered = n["send"](n["admin"], endpoint, {})
+    assert recovered.status_code == 200, recovered.text
+    assert recovered.json()["contact_phone"] == "+56900000000"
+    assert recovered.json()["profile"]["sources"]["contact_phone"]["message_id"] == "repair-phone"
+    assert n["send"](n["admin"], endpoint, {}).json()["contact_phone"] == "+56900000000"
+    cleared = n["send"](n["admin"], "/facebook/leads/" + lead_id, {"contact_phone": ""}, "PATCH")
+    assert cleared.status_code == 200
+    assert n["send"](n["admin"], endpoint, {}).json()["contact_phone"] == ""
+
+
+def test_webhook_captures_number_after_ai_handoff(network, monkeypatch):
+    n = network
+    enable_messaging(n, monkeypatch)
+    monkeypatch.setenv("FACEBOOK_AI_ENABLED", "true")
+    settings.cache_clear()
+    assert incoming(n, text="Alguien del equipo porfi", mid="repair-handoff").status_code == 200
+    assert incoming(n, text="Y el numero es 900000000", mid="repair-phone-live").status_code == 200
+    lead = n["admin"].get("/api/v1/network/facebook/center").json()["leads"][0]
+    assert lead["contact_phone"] == "+56900000000"
+    assert lead["ai_paused"] is True

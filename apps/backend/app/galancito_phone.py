@@ -12,6 +12,7 @@ SHARING = re.compile(
     r"|(?:te|les)\s+(?:dejo|paso|env[ií]o)\s+(?:mi\s+)?(?:n[uú]mero|celular|tel[eé]fono|w(?:hats)?app)?"
     r"|(?:ll[aá]m[ae]me|pueden\s+llamarme)\s+(?:al\s+)?"
     r"|(?:cont[aá]ct[ae]me|escr[ií]banme)\s+(?:al\s+)?"
+    r"|^\s*(?:y\s+)?(?:el\s+)?(?:n[uú]mero|celular|tel[eé]fono|w(?:hats)?app)\s+es\s*"
     r"|(?:n[uú]mero|celular|tel[eé]fono|w(?:hats)?app)\s*[:=])"
 )
 COORDINATE = re.compile(

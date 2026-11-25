@@ -196,6 +196,22 @@ def messenger_ai_source(db, org_id: str, cfg=None) -> str:
     return cfg.facebook_ai_provider if facebook_reply_ai_available(cfg) else "disabled"
 
 
+def messenger_contact_ai_source(db, lead, cfg=None) -> str:
+    """Never ask Messenger contacts to share messages with an external AI.
+    
+    Existing explicit provider-specific consent remains valid. Otherwise prefer
+    the configured local model; if unavailable, keep deterministic intake/handoff.
+    """
+    from .galancito_flow import consented_for
+    cfg = cfg or settings()
+    source = messenger_ai_source(db, lead.org_id, cfg)
+    if source in {"team", "openai"} and not consented_for(lead, source):
+        if cfg.facebook_ai_provider == "ollama" and cfg.galancito_local_ai_enabled:
+            return "ollama"
+        return "disabled"
+    return source
+
+
 def facebook_reply_ai_available(cfg=None) -> bool:
     """Messenger reply availability; Red de Obras ads use their dedicated local writer."""
     cfg = cfg or settings()
