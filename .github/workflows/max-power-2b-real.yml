@@ -22,7 +22,7 @@ jobs:
     name: Qwen 2B CPU — ${{ matrix.label }}
     runs-on: ubuntu-latest
     # Each full training run needs its own budget on slower two-core runners.
-    timeout-minutes: 335
+    timeout-minutes: 355
     strategy:
       fail-fast: false
       matrix:
@@ -148,7 +148,9 @@ jobs:
         if: always()
         run: |
           docker rm -f galant-ci-2b-prefetch galant-ci-2b-training >/dev/null 2>&1 || true
-          docker volume rm galant-ci-2b
+          if docker volume inspect galant-ci-2b >/dev/null 2>&1; then
+            docker volume rm galant-ci-2b
+          fi
   real-2b:
     needs: cpu
     if: always()
