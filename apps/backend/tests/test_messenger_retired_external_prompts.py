@@ -83,3 +83,31 @@ def test_origin_reply_continues_without_assuming_work_area():
     lead = SimpleNamespace(work_communes=[], work_area="")
     _commune_update(lead, "Hola de san pedro", "de donde es usted")
     assert not lead.work_area
+
+
+def test_smart_sheet_preserves_crew_flexibility_and_origin_with_evidence():
+    from datetime import datetime, timezone
+    from app.galancito_memory import remember_declared_context
+    from app.galancito_contact_profile import contact_profile
+    from app.galancito_conversation_summary import summarize_conversation
+    lead = SimpleNamespace(profile_sources={}, workers=4, team_available=True,
+                           contact_phone="+56900000000", work_area="")
+    now = datetime.now(timezone.utc)
+    assert remember_declared_context(lead, "Somos cuatro personas, pero podemos sumar mas",
+                                      "", remote_id="crew", at=now)
+    assert remember_declared_context(lead, "Hola de san pedro", "¿De donde es usted?",
+                                      remote_id="origin", at=now)
+    profile = contact_profile(lead)
+    assert profile["declared_context"]["crew_expandable"]["value"] is True
+    assert profile["declared_context"]["declared_origin"]["value"] == "San Pedro"
+    assert "cantidad adicional no confirmada" in profile["summary"]
+    assert "No equivale a zona de trabajo confirmada" in profile["summary"]
+    assert lead.work_area == ""
+    summary = summarize_conversation(lead, [])
+    context = {fact["key"]: fact for fact in summary["facts"]}
+    assert context["crew_expandable"]["source_message_id"] == "crew"
+    assert context["declared_origin"]["source_message_id"] == "origin"
+    assert "work_area" not in context
+    assert remember_declared_context(lead, "No podemos sumar mas", "", remote_id="correction", at=now)
+    assert contact_profile(lead)["declared_context"]["crew_expandable"]["value"] is False
+    assert not remember_declared_context(lead, "Podemos sumar mas", "", remote_id="older", at=now, historical=True)
