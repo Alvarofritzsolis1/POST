@@ -245,6 +245,8 @@ def run(dataset, source_root, *, real_local=False, contextual=False, loopback=Fa
                         "single_coherent_reply": len(replies) <= 1 and answer.count("?") <= 1,
                         "expected_reply": (not turn.get("flush", True) or bool(answer)) and
                                           all(plain(x) in answer_norm for x in required),
+                        "does_not_echo_sender": len(plain(turn["message"]).split()) < 4 or
+                                                answer_norm != plain(turn["message"]),
                         "avoids_known_questions": not repeated,
                         "no_unsupported_reply": not any(plain(x) in answer_norm for x in forbidden),
                         "profile": not errors,

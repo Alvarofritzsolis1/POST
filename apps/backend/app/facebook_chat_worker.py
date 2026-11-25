@@ -649,7 +649,10 @@ def _contextual_reply(session_factory, cfg, *, lead_id, job_id, inbound_at, clai
     if private_data(grounding):
         return (decision, declarations, None), "fallback", timings, "private_context"
 
-    for revision in ("", "Corrige la respuesta anterior. No preguntes por datos conocidos o presentes en la tanda."):
+    for attempt in range(2):
+        revision = ("El primer borrador no pasó la validación. El campo que intentó preguntar fue " +
+                    decision.q + ". Responde la consulta o pregunta por otro dato pertinente."
+                    if attempt and decision else "")
         with session_factory.begin() as db:
             if not is_current(db):
                 return (None, [], None), "fallback", timings, "superseded"
@@ -668,7 +671,7 @@ def _contextual_reply(session_factory, cfg, *, lead_id, job_id, inbound_at, clai
         proposed = contextual.supported_declarations(candidate, fragments)
         if not revision:
             decision, declarations = candidate, proposed
-        answer = contextual.validated_reply(candidate, facts, [*declarations, *proposed], grounding)
+        answer = contextual.validated_reply(candidate, facts, [*declarations, *proposed], grounding, fragments)
         if answer or candidate.i == "human":
             # Keep first-pass evidence if the repair was only to fix wording.
             if revision:

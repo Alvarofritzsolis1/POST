@@ -6,7 +6,7 @@ from sqlalchemy import func, select
 from app.config import settings
 from app.facebook_chat_worker import process_chat_next
 from app.facebook_crm_models import FacebookChatMessage, FacebookLead
-from app.galancito_contextual import Fragment, Turn, apply_declarations, supported_declarations
+from app.galancito_contextual import Fragment, Turn, apply_declarations, supported_declarations, validated_reply
 from app.models import utcnow
 from test_facebook_crm import enable_messaging, incoming, network, no_real_meta_sender_actions
 
@@ -115,3 +115,14 @@ def test_questions_and_partial_counts_cannot_supply_profile_values():
     assert [(field, value) for field, value, _ in supported_declarations(draft, fragments)] == [
         ("crew", "más de 10 maestros"),
     ]
+
+def test_parroting_the_current_question_is_rejected():
+    message = "¿A cuánto pagan el metro de pintura?"
+    fragment = Fragment("test-question", utcnow(), message)
+    decision = Turn(i="question", q="other", r=message, d=[])
+    assert validated_reply(decision, {}, [], message, (fragment,)) is None
+
+def test_model_cannot_answer_as_a_contractor():
+    fragment = Fragment("test-introduction", utcnow(), "Soy contratista, hago pintura")
+    decision = Turn(i="intake", q="none", r="Hola. Soy un contratista especializado en pintura.", d=[])
+    assert validated_reply(decision, {}, [], fragment.text, (fragment,)) is None

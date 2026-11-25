@@ -8,10 +8,10 @@ La opción `GALANCITO_CONTEXTUAL_MESSENGER_ENABLED` viene desactivada. En una in
 
 ## Causas reproducidas en la base
 
-- `facebook_crm.ingest_facebook_payload` y `facebook_inbox_sync.sync_page_inbox` completaban la ficha con `galancito_memory.apply_messenger_message` y después decidían si crear una tarea del modelo. `next_intake_reply`, `small_talk_reply` y las rutas rápidas podían resolver el turno antes de que llegara a Qwen.
-- `facebook_chat_worker.process_chat_next` seleccionaba un mensaje mediante `reply_focus` y volvía a decidir si preparar un prompt. `galancito_semantic.decode_local_reply` aceptaba una propuesta de confirmación con un único campo. `remember_confirmation` la vinculaba al envío y `consume_confirmation` esperaba un «sí». La generación de una respuesta de texto por Qwen podía dejar la ficha intacta.
-- `galancito_memory.messenger_context` ya incluía ficha profesional, pregunta anterior, historial redactado, recuperación y referencias. El turno actual era un texto individual. El conjunto de fragmentos sin contestar no estaba identificado como fuente de datos nueva.
-- Messenger y el simulador de conversación ya llamaban al mismo webhook y worker. El simulador aislaba Meta y los proveedores externos, pero usaba directamente un prompt local y tenía distinta procedencia de autorización. La práctica de entrenamiento MAX POWER tiene un circuito de laboratorio separado. Su paridad de aprendizaje queda fuera de la evidencia del simulador.
+- `facebook_crm.ingest_facebook_payload` y `facebook_inbox_sync.sync_page_inbox` completaban la ficha con `galancito_memory.apply_messenger_message` y después decidían si crear una tarea del modelo. `next_intake_reply`, `small_talk_reply` y las rutas rápidas podían resolver el turno antes de que llegara a Qwen. [Webhook](https://github.com/Alvarofritzsolis1/POST/blob/9f4e8c2/apps/backend/app/facebook_crm.py#L303) [Recuperación](https://github.com/Alvarofritzsolis1/POST/blob/9f4e8c2/apps/backend/app/facebook_inbox_sync.py#L76) [Intake](https://github.com/Alvarofritzsolis1/POST/blob/9f4e8c2/apps/backend/app/galancito_intake.py#L609)
+- `facebook_chat_worker.process_chat_next` seleccionaba un mensaje mediante `reply_focus` y volvía a decidir si preparar un prompt. `galancito_semantic.decode_local_reply` aceptaba una propuesta de confirmación con un único campo. `remember_confirmation` la vinculaba al envío y `consume_confirmation` esperaba un «sí». La generación de una respuesta de texto por Qwen podía dejar la ficha intacta. [Worker](https://github.com/Alvarofritzsolis1/POST/blob/9f4e8c2/apps/backend/app/facebook_chat_worker.py#L219) [Foco](https://github.com/Alvarofritzsolis1/POST/blob/9f4e8c2/apps/backend/app/galancito_memory.py#L381) [Protocolo](https://github.com/Alvarofritzsolis1/POST/blob/9f4e8c2/apps/backend/app/galancito_semantic.py#L85)
+- `galancito_memory.messenger_context` ya incluía ficha profesional, pregunta anterior, historial redactado, recuperación y referencias. El turno actual era un texto individual. El conjunto de fragmentos sin contestar no estaba identificado como fuente de datos nueva. [Composición de contexto](https://github.com/Alvarofritzsolis1/POST/blob/9f4e8c2/apps/backend/app/galancito_memory.py#L136)
+- Messenger y el simulador de conversación ya llamaban al mismo webhook y worker. El simulador aislaba Meta y los proveedores externos, pero usaba directamente un prompt local y tenía distinta procedencia de autorización. La práctica de entrenamiento MAX POWER tiene un circuito de laboratorio separado. Su paridad de aprendizaje queda fuera de la evidencia del simulador. [Adaptador del simulador](https://github.com/Alvarofritzsolis1/POST/blob/9f4e8c2/apps/backend/app/facebook_simulator.py#L102)
 - El webhook y la recuperación comparten el bloqueo de escritura de PostgreSQL y la unicidad de los identificadores de Meta. La base cancelaba borradores con nuevas entradas, sin una espera persistente para reunir fragmentos ni una recuperación específica de borradores de IA abandonados antes del envío. Una salida ya entregada a Meta con resultado incierto sigue requiriendo revisión manual.
 
 ## Flujo propuesto
@@ -54,3 +54,35 @@ python scripts/evaluate_galancito_conversations.py \
 ```
 
 Puede omitirse `--ollama-loopback` si se ejecuta dentro de la red privada configurada. Los argumentos `--offset` y `--limit` permiten reproducir subconjuntos con el mismo banco. Las latencias desde recepción hasta confirmación de entrega corresponden a Graph simulado. El informe distingue esa medida de la duración de la inferencia y de los tiempos de un VPS de producción.
+
+## Resultados medidos y decisión
+
+La comparación completa ejecutó 153 conversaciones y 215 turnos por versión con Ollama 0.40.18, Qwen3.5 2B Q4_K_M y Meta simulado. El candidato del ensayo completo es `5ecba4a`. Las correcciones posteriores se comprobaron con pruebas focalizadas y quedaron separadas en el JSON. [Ejecución completa y artefactos](https://github.com/Alvarofritzsolis1/POST/actions/runs/45651604158)
+
+| Indicador medido | Base | Candidato del ensayo completo |
+| --- | ---: | ---: |
+| Escenarios que cumplieron sus comprobaciones | 121/153 | 119/153 |
+| Campos etiquetados con el valor esperado | 107/137 | 109/137 |
+| Escenarios con salida del Qwen esperado | 146/153 | 147/153 |
+| Entregas con respuesta del modelo | 129 | 52 |
+| Entregas por respaldo | 32 | 99 |
+| Mediana desde entrada hasta procesamiento | 11,26 s | 22,86 s |
+| P95 desde entrada hasta procesamiento | 37,49 s | 31,73 s |
+| Entradas guardadas una sola vez | 215/215 | 215/215 |
+| Preguntas repetidas detectadas por las reglas del evaluador | 0/215 | 0/215 |
+
+La comparación comprueba campos y condiciones etiquetados. Los conteos de intención de cada ruta se conservan en el JSON con sus etiquetas de origen. La base y el candidato usan taxonomías distintas. Una revisión de la salida encontró respuestas que copiaban la pregunta o adoptaban la voz del contratista, además de errores de atribución de datos. La comprobación original de preguntas repetidas por sí sola no detectaba esos errores.
+
+### Incidente del contratista
+
+La versión desplegada reportada por el usuario preguntó de nuevo «¿Qué trabajo realizas?». En el ensayo comparativo, la base describió erróneamente la cantidad de maestros como años de trayectoria. El primer candidato respondió en primera persona como contratista y tampoco completó la ficha.
+
+La repetición local con la validación posterior agrupó los cuatro fragmentos, conservó un único registro por entrada, normalizó el teléfono sintético, clasificó el turno como ficha y entregó una sola derivación real a revisión en la base de prueba. Quedaron pendientes modalidad, procedencia, tamaño de cuadrilla, canal preferido y cobertura de oficios. En otra prueba, la pintura que solo aparecía en una pregunta de precio quedó fuera de la ficha, y la respuesta que copiaba esa pregunta se descartó.
+
+### Pruebas, paridad y despliegue
+
+- 242 pruebas de Messenger, memoria y simulador pasaron con SQLite y PostgreSQL. La suite específica verificó agrupación, mensajes duplicados, un borrador recuperado tras reinicio, entrada durante inferencia, idempotencia, campos manuales y guardas de salida. La regresión anterior pasó 40 de 40 y compiló el frontend.
+- Una prueba real del adaptador de Messenger y el simulador produjo la misma intención, los mismos campos comparados y el mismo respaldo ante una extracción incompleta. La evidencia de paridad se limita a ese escenario.
+- El CI general pasó en el commit del ensayo completo. La puerta de calidad con Qwen quedó en rojo en siete de nueve bloques. La activación del candidato quedó deshabilitada y el PR sigue en borrador. La verificación de despliegue y la comprobación de un adaptador LoRA activo en el VPS quedan pendientes. [CI general](https://github.com/Alvarofritzsolis1/POST/actions/runs/45651603993) · [PR #192](https://github.com/Alvarofritzsolis1/POST/pull/192)
+
+El JSON consolidado incluye los mensajes anonimizados, respuestas, extracciones, criterios, latencias, causas y la comparación local de las correcciones posteriores. [Descargar el JSON desde GitHub](https://github.com/Alvarofritzsolis1/POST/raw/refs/heads/codex/galancito-contextual-memory/docs/evaluations/galancito-contextual-evaluation.json)
