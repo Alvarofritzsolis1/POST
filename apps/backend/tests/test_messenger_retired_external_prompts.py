@@ -56,3 +56,30 @@ def test_information_about_publication_is_recognized(message):
     lead = SimpleNamespace(org_id="test", page_id="test")
     assert application_reply(None, lead, message, notices=[]) == (
         "Claro, te ayudo. ¿De qué trabajo era el aviso?")
+
+
+def test_crew_size_colloquial_singular():
+    from app.galancito_triage import analyze
+    from app.galancito_intake import _team_update
+    text = "Somos 4 persona pero pueden ser mas"
+    assert analyze(text).workers == 4
+    lead = SimpleNamespace(team_available=None, workers=None)
+    _team_update(lead, "somos 4 persona | pueden ser mas", "")
+    assert lead.workers == 4 and lead.team_available is True
+
+
+@pytest.mark.parametrize("message", ["Y el numero es 912345678", "El teléfono es 912345678"])
+def test_voluntary_phone_continuation(message):
+    from app.galancito_phone import phone_shared_by_sender
+    assert phone_shared_by_sender(message) == "+56912345678"
+    assert phone_shared_by_sender("El número de otro trabajador es 912345678") is None
+
+
+def test_origin_reply_continues_without_assuming_work_area():
+    from app.galancito_intake import next_intake_reply, _commune_update
+    facts = {"workers": 4, "team_available": True, "contact_available": True}
+    reply = next_intake_reply("Hola de san pedro", facts, "¿De donde es usted?")
+    assert reply == "Perfecto, gracias. ¿Qué tipo de trabajos realizan?"
+    lead = SimpleNamespace(work_communes=[], work_area="")
+    _commune_update(lead, "Hola de san pedro", "de donde es usted")
+    assert not lead.work_area
