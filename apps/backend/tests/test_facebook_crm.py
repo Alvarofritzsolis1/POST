@@ -403,8 +403,13 @@ def test_explicit_human_request_notifies_administration(network, monkeypatch):
     assert len(repeated) == 2 * len(alerts)
 
 
-@pytest.mark.parametrize("draft", [None, "No sé.", "¿Me autorizas a usar IA local?"])
-def test_model_failure_notifies_human_without_sending_a_reply(network, monkeypatch, draft):
+@pytest.mark.parametrize(("question", "draft"), [
+    ("¿Cuánto pagan en una obra?", None),
+    ("¿Cuánto pagan en una obra?", "No sé."),
+    ("¿Cuánto pagan en una obra?", "¿Me autorizas a usar IA local?"),
+    ("¿Se trabaja el sábado?", "¿Qué día de la semana prefieres que te contacte?"),
+])
+def test_model_failure_notifies_human_without_sending_a_reply(network, monkeypatch, question, draft):
     from app.network_models import NetworkNotification
 
     n = network
@@ -424,7 +429,7 @@ def test_model_failure_notifies_human_without_sending_a_reply(network, monkeypat
                 FacebookChatMessage.lead_id == lead_id,
                 FacebookChatMessage.direction == "outbound")):
             pending.state = "cancelled"
-    assert incoming(n, text="¿Cuánto pagan en una obra?", mid="complex-question").status_code == 200
+    assert incoming(n, text=question, mid="complex-question").status_code == 200
     def generate(*args):
         if draft is None:
             raise RuntimeError("model unavailable")

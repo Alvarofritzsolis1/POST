@@ -257,6 +257,18 @@ _PAYMENT_QUESTION = re.compile(
     r"(?:se|les|te|me) paga por|pagan por (?:avance|dia|jornada|metro|hora|trato)|"
     r"cual es (?:el (?:pago|sueldo|monto|precio)|la tarifa))\b"
 )
+_WEEKEND_SCHEDULE = re.compile(
+    r"\b(?:se trabaja|trabajan|hay (?:trabajo|turnos?)) (?:el |los |este |en )?"
+    r"(?:sabados?|domingos?|(?:fin|fines) de semana)\b"
+)
+
+
+def weekend_schedule_question(message: str) -> bool:
+    """Recognize a request about the employer's weekend schedule."""
+    value = plain(message)
+    if "?" in message or "¿" in message:
+        return bool(_WEEKEND_SCHEDULE.search(value))
+    return bool(_WEEKEND_SCHEDULE.match(value))
 
 
 def payment_guidance(message: str) -> str | None:
