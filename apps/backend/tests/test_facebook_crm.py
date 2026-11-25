@@ -1123,7 +1123,7 @@ def test_messenger_reports_real_drafting_and_sending_stages(network, monkeypatch
     monkeypatch.setenv("FACEBOOK_AI_ENABLED", "true")
     monkeypatch.setenv("FACEBOOK_AI_API_KEY", "fake-synthetic-key")
     settings.cache_clear()
-    assert incoming(n, text="¿Cuáles son los requisitos para postular?", mid="staged-1").status_code == 200
+    assert incoming(n, text="Hola", mid="staged-1").status_code == 200
     calls = []
     def mock_send(page_id, psid, body, token):
         with n["Session"]() as db:
