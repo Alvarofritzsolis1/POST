@@ -99,7 +99,14 @@ def test_simulator_short_application_answers_do_not_loop_or_invent_trade(ai_env,
     assert ambiguous["reply"].endswith(ASK_APPLICATION_ROLE_CLARIFY)
     assert ambiguous["profile"]["interest_type"] == "unknown"
     assert not ambiguous["profile"]["specialty"]
-    personal = send("para mi", ambiguous["state"])
+    personal_ambiguous = send("para mi", ambiguous["state"])
+    assert personal_ambiguous["profile"]["interest_type"] == "unknown"
+    assert not personal_ambiguous["profile"]["specialty"]
+    assert personal_ambiguous["reply"].endswith("¿Buscas un empleo con contrato?")
+    independent = send("por mi cuenta", personal_ambiguous["state"])
+    assert independent["profile"]["interest_type"] == "service_offer"
+    assert not independent["profile"]["specialty"]
+    personal = send("si", personal_ambiguous["state"])
     assert personal["profile"]["interest_type"] == "employment"
     assert personal["reply"] == ASK_APPLICATION_OWN + "gasfitería?"
     assert not personal["profile"]["specialty"]
