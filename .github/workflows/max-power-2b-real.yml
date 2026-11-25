@@ -20,7 +20,9 @@ concurrency:
 jobs:
   real-2b:
     runs-on: ubuntu-latest
-    timeout-minutes: 150
+    # The real two-core CPU gate includes two training passes and 16 generations.
+    # Leave enough time for evidence upload and cleanup within the hosted runner limit.
+    timeout-minutes: 350
     steps:
       - uses: actions/checkout@v4
       - name: Sintaxis
@@ -42,8 +44,10 @@ jobs:
           assert r["steps"][0]["grad_norm"]>0
           PY
       - name: Restaurar optimizador y completar diez pasos reales
+        timeout-minutes: 245
         run: |
-          docker run --rm --memory=5g --memory-swap=5g --cpus=2 --pids-limit=96 -v galant-ci-2b:/private galant-2b-root --run --allow-download --steps 10 --resume --conversation-eval
+          # Override only the CI deadline; preserve the production image's two-hour guard.
+          docker run --rm --memory=5g --memory-swap=5g --cpus=2 --pids-limit=96 -v galant-ci-2b:/private --entrypoint timeout galant-2b-root --signal=TERM --kill-after=30s 14400s python /src/scripts/probe_galancito_2b_cpu.py --run --allow-download --steps 10 --resume --conversation-eval
           docker run --rm --entrypoint cat -v galant-ci-2b:/private:ro galant-2b-root /private/2b-probe/latest.json > evidence/final.json
           python - <<'PY'
           import json
