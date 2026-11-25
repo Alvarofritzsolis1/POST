@@ -86,3 +86,31 @@ La repetición local con la validación posterior agrupó los cuatro fragmentos,
 - El CI general pasó en el commit del ensayo completo. La puerta de calidad con Qwen quedó en rojo en siete de nueve bloques. La activación del candidato quedó deshabilitada y el PR sigue en borrador. La verificación de despliegue y la comprobación de un adaptador LoRA activo en el VPS quedan pendientes. [CI general](https://github.com/Alvarofritzsolis1/POST/actions/runs/45651603993) · [PR #192](https://github.com/Alvarofritzsolis1/POST/pull/192)
 
 El JSON consolidado incluye los mensajes anonimizados, respuestas, extracciones, criterios, latencias, causas y la comparación local de las correcciones posteriores. [Descargar el JSON desde GitHub](https://github.com/Alvarofritzsolis1/POST/raw/refs/heads/codex/galancito-contextual-memory/docs/evaluations/galancito-contextual-evaluation.json)
+
+## Seguimiento · Evidencia por mensaje
+
+La revisión `08e7ebd` separa la atribución de la redacción cuando el turno contiene menciones localizables. Qwen selecciona citas textuales identificadas por mensaje. Una cita inválida o ajena queda fuera de la ficha. La segunda inferencia redacta con los datos atribuidos. La ruta de extracción abierta sigue disponible para oficios y expresiones fuera del vocabulario. Cuando la redacción libre falla en una presentación profesional, se puede formular la pregunta que Qwen eligió siempre que ese campo siga pendiente en la ficha persistida. Las preguntas del remitente siguen su propia ruta. Se conserva la autorización previa y la comprobación de vigencia antes de escribir datos o enviar. [Citas de origen](https://github.com/Alvarofritzsolis1/POST/blob/08e7ebd/apps/backend/app/galancito_evidence.py#L35) · [Selección con Qwen](https://github.com/Alvarofritzsolis1/POST/blob/08e7ebd/apps/backend/app/galancito_contextual.py#L150) · [Pregunta validada](https://github.com/Alvarofritzsolis1/POST/blob/08e7ebd/apps/backend/app/galancito_contextual.py#L318)
+
+El caso original pasó con Qwen3.5 2B real y Meta simulado. Se conservaron los oficios de yeso, pintura y carpintería en madera y metal, Concepción como procedencia, «más de 10 maestros» como cantidad aproximada y WhatsApp como canal preferido. El teléfono sintético quedó registrado. La zona de trabajo siguió pendiente y la respuesta fue «¿En qué comuna puedes trabajar?». Qwen eligió ese campo y se usó la formulación validada de GALANT después de que el texto generado falló la validación. El turno se completó con dos llamadas a Qwen y sin derivación humana. Esta ejecución local registró 11,73 s desde la última entrada hasta la entrega simulada.
+
+El piloto de siete escenarios alcanzó cinco aprobaciones automáticas y 23 de 25 campos etiquetados correctos. Fallaron el oficio fuera del vocabulario y una ráfaga que mencionaba Los Ángeles. En la revisión manual, la respuesta de precio tampoco resolvió la pregunta, aunque cumplió las comprobaciones automáticas de ese caso. Los tres casos adicionales pasaron con datos de terceros, procedencia distinta de cobertura laboral y un oficio negado. Pasaron 29 pruebas de infraestructura, memoria y simulador en SQLite y PostgreSQL.
+
+El mismo mensaje que distinguía Maullín como procedencia y Puerto Varas como zona de trabajo produjo la misma ficha, intención y respuesta en Messenger simulado y en el adaptador del simulador. La comparación ejecutó Qwen 2B y se limita a ese caso.
+
+El CI volvió a comparar base y candidato sobre 153 escenarios. Se añadió un reintento acotado de la descarga de Ollama tras un fallo anterior del registro. La activación del candidato permanece deshabilitada mientras se verifica el resultado global. [Evaluación de la revisión](https://github.com/Alvarofritzsolis1/POST/actions/runs/45661705143) · [CI general](https://github.com/Alvarofritzsolis1/POST/actions/runs/45661705103)
+
+### Comparación completa del seguimiento
+
+Los nueve bloques terminaron con el mismo modelo base en Ollama. La comparación cubrió 153 conversaciones y 215 turnos por revisión. El caso original pasó también en el ejecutor remoto, con 12,62 s desde la última entrada hasta el envío simulado.
+
+| Indicador | Base `9f4e8c2` | Candidato `08e7ebd` |
+| --- | ---: | ---: |
+| Escenarios que pasaron los criterios automáticos | 119/153 | 133/153 |
+| Campos correctos de ficha | 107/138 | 128/138 |
+| Turnos con respuesta de texto del modelo | 128 | 22 |
+| Preguntas de respaldo sobre un campo elegido por Qwen | 0 | 55 |
+| Otros respaldos | 32 | 79 |
+| Mediana de turnos con respuesta y entrega simulada | 12,21 s | 12,69 s |
+| P95 de turnos con respuesta y entrega simulada | 45,78 s | 23,36 s |
+
+El CI general de `08e7ebd` pasó. La evaluación de razonamiento quedó en rojo por los 20 escenarios que todavía incumplen comprobaciones. La revisión manual también detectó una respuesta que desviaba la consulta de precio. El PR queda en borrador y la activación permanece deshabilitada. La comparación verifica una mejora sobre el caso crítico, la ficha y los criterios automáticos. La entrega real de Meta y la calidad general de la redacción quedan pendientes. [Evaluación completa](https://github.com/Alvarofritzsolis1/POST/actions/runs/45661705143) · [CI general](https://github.com/Alvarofritzsolis1/POST/actions/runs/45661705103)
