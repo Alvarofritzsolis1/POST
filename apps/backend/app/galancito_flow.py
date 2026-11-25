@@ -225,9 +225,10 @@ def apply_permission_reply(lead, message: str, delivered_prompt: str) -> bool | 
         # explicitly accepted provider consent. The person can return later.
         return None
     elif (lead.ai_consent_state in {"requested", "requested_team"} and
-          not external_permission_prompt(delivered_prompt) and
           is_permission_prompt(lead, delivered_prompt)):
         result = consent_decision(message)
+        if result is True and external_permission_prompt(delivered_prompt):
+            return None
     else:
         return None
     if result is True:

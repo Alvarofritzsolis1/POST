@@ -161,7 +161,7 @@ jobs:
           tests/test_messenger_low_digital_literacy.py
           tests/test_galancito_learning.py
           tests/test_facebook_crm.py
-          tests/test_messenger_conversation_regression.py
+          tests/test_messenger_conversation_regression.py tests/test_messenger_retired_external_prompts.py
           tests/test_galancito_meta_setup.py
           tests/test_galancito_local.py
           tests/test_galancito_training.py

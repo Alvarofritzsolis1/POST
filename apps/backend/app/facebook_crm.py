@@ -563,7 +563,8 @@ def ingest_facebook_payload(db, payload, cfg, *, notices=None):
                     "not_requested", "accepted", "accepted_team"):
                 facts = profile_facts(lead, changed=changed)
                 reply = next_intake_reply(body, facts, previous_question)
-                if not reply or (local_first_messenger(cfg) and model_intake_candidate(body, facts, previous_question, reply)):
+                if not reply or (local_first_messenger(cfg) and model_intake_candidate(body, facts, previous_question, reply)
+                                 and not facts.get("declared_context", {}).get("declared_origin")):
                     reply = set_permission_request(lead, ai_source)
             elif (ai_source != "disabled" and lead.ai_consent_state in
                   ("requested", "requested_team") and lead.ai_consent_provider != ai_source):
