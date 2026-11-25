@@ -45,11 +45,34 @@ jobs:
         run: |
           docker build -f infrastructure/Dockerfile.cpu-2b-probe -t galant-2b-root .
           docker volume create galant-ci-2b
+      - name: Preparar revisión fija del modelo con reintentos acotados
+        timeout-minutes: 20
+        run: |
+          set -euo pipefail
+          # Download separately from training, retaining partial files in the isolated volume.
+          # A slow or stalled Hub request must not consume the neural validation budget.
+          name=galant-ci-2b-prefetch
+          trap 'docker rm -f "$name" >/dev/null 2>&1 || true' EXIT
+          for attempt in 1 2 3; do
+            echo "Model cache attempt $attempt/3"
+            if docker run --rm --name "$name" --memory=5g --memory-swap=5g --cpus=2 --pids-limit=96 \
+              -v galant-ci-2b:/private --entrypoint timeout galant-2b-root \
+              --signal=TERM --kill-after=15s 330s python -u -c 'import sys; sys.path.insert(0,"/src/scripts"); from probe_galancito_2b_cpu import prepare_model_cache, snapshot_revision, REVISION; p=prepare_model_cache(True, lambda: print("Downloading pinned model files", flush=True)); print("Verified cached revision:", snapshot_revision(p, REVISION), flush=True)'; then
+              exit 0
+            fi
+            docker rm -f "$name" >/dev/null 2>&1 || true
+            if [[ "$attempt" != 3 ]]; then sleep "$((attempt * 10))"; fi
+          done
+          echo "::error::Pinned Qwen model cache could not be prepared; no neural training was attempted."
+          exit 1
       - name: Primer paso neuronal real
         if: matrix.scenario == 'resume'
         timeout-minutes: 50
         run: |
-          docker run --rm --memory=5g --memory-swap=5g --cpus=2 --pids-limit=96 -v galant-ci-2b:/private galant-2b-root --run --allow-download --steps 10 --stop-after 1
+          docker run --rm --name galant-ci-2b-training --network none --memory=5g --memory-swap=5g --cpus=2 --pids-limit=96 \
+            -v galant-ci-2b:/private --entrypoint timeout galant-2b-root \
+            --signal=TERM --kill-after=30s 2700s python /src/scripts/probe_galancito_2b_cpu.py \
+            --run --steps 10 --stop-after 1
           mkdir -p evidence
           docker run --rm --entrypoint cat -v galant-ci-2b:/private:ro galant-2b-root "$REPORT_DIR/latest.json" > evidence/first-step.json
           python - <<'PY'
@@ -65,7 +88,7 @@ jobs:
         timeout-minutes: 255
         run: |
           # Override only the CI deadline; preserve the production image's two-hour guard.
-          docker run --rm --network none --memory=5g --memory-swap=5g --cpus=2 --pids-limit=96 \
+          docker run --rm --name galant-ci-2b-training --network none --memory=5g --memory-swap=5g --cpus=2 --pids-limit=96 \
             -v galant-ci-2b:/private --entrypoint timeout galant-2b-root \
             --signal=TERM --kill-after=30s "$TRAINING_TIMEOUT_SECONDS" python /src/scripts/probe_galancito_2b_cpu.py \
             --run --steps 10 --resume --conversation-eval
@@ -91,10 +114,10 @@ jobs:
         if: matrix.scenario == 'uninterrupted'
         timeout-minutes: 255
         run: |
-          docker run --rm --memory=5g --memory-swap=5g --cpus=2 --pids-limit=96 \
+          docker run --rm --name galant-ci-2b-training --network none --memory=5g --memory-swap=5g --cpus=2 --pids-limit=96 \
             -v galant-ci-2b:/private --entrypoint timeout galant-2b-root \
             --signal=TERM --kill-after=30s "$TRAINING_TIMEOUT_SECONDS" python /src/scripts/probe_galancito_2b_cpu.py \
-            --run --allow-download --steps 10 --output "$REPORT_DIR"
+            --run --steps 10 --output "$REPORT_DIR"
           mkdir -p evidence
           docker run --rm --entrypoint cat -v galant-ci-2b:/private:ro galant-2b-root "$REPORT_DIR/latest.json" > evidence/uninterrupted.json
           python - <<'PY'
@@ -123,7 +146,9 @@ jobs:
           if-no-files-found: warn
       - name: Limpiar volumen aislado
         if: always()
-        run: docker volume rm galant-ci-2b || true
+        run: |
+          docker rm -f galant-ci-2b-prefetch galant-ci-2b-training >/dev/null 2>&1 || true
+          docker volume rm galant-ci-2b
   real-2b:
     needs: cpu
     if: always()
