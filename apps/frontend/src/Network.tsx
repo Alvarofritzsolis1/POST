@@ -671,7 +671,7 @@ export default function RedDeObras({ user }: { user: Profile }) {
       {tab === "home" && canPublish && (
         <section className="nw-publish-hub" aria-label="Publicación rápida">
           <div className="nw-publish-choices">
-            <button type="button" className="nw-publish-choice nw-publish-need" onClick={() => {
+            <button type="button" className="nw-publish-choice nw-publish-need" aria-label="Necesito contratista" onClick={() => {
               setSelectedReq(null);
               setPanel("request-form");
             }}>
@@ -679,7 +679,7 @@ export default function RedDeObras({ user }: { user: Profile }) {
               <span><b>Necesito contratista</b><small>Publicar una necesidad</small></span>
               <ArrowRight size={18} />
             </button>
-            <button type="button" className="nw-publish-choice nw-publish-available" onClick={() => {
+            <button type="button" className="nw-publish-choice nw-publish-available" aria-label="Tengo contratista disponible" onClick={() => {
               setSelectedCap(null);
               setPanel("capacity-form");
             }}>
