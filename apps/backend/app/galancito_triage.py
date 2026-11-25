@@ -211,7 +211,7 @@ def analyze(message: str, trades: dict | None = None) -> Intake:
     specialty = next((name for name, aliases in {**TRADES, **(trades or {})}.items()
                       if any(contains(text, a) and not contains(text, "no soy " + a)
                              for a in aliases)), "")
-    workers_match = re.search(r"\b(?:tengo|somos|con) (\d{1,4}) (?:trabajadores|maestros|personas|ayudantes)\b", text)
+    workers_match = re.search(r"\b(?:tengo|somos|con) (\d{1,4}) (?:trabajador(?:es)?|maestros?|personas?|ayudantes?)\b", text)
     workers = int(workers_match[1]) if workers_match and 1 <= int(workers_match[1]) <= 5000 else None
     company = any(contains(text, p) for p in ("tengo una empresa", "tengo empresa", "somos una empresa", "mi empresa"))
     individual = any(contains(text, p) for p in ("trabajo solo", "a mi nombre", "no tengo empresa", "soy independiente"))
