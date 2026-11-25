@@ -114,3 +114,39 @@ Los nueve bloques terminaron con el mismo modelo base en Ollama. La comparación
 | P95 de turnos con respuesta y entrega simulada | 45,78 s | 23,36 s |
 
 El CI general de `08e7ebd` pasó. La evaluación de razonamiento quedó en rojo por los 20 escenarios que todavía incumplen comprobaciones. La revisión manual también detectó una respuesta que desviaba la consulta de precio. El PR queda en borrador y la activación permanece deshabilitada. La comparación verifica una mejora sobre el caso crítico, la ficha y los criterios automáticos. La entrega real de Meta y la calidad general de la redacción quedan pendientes. [Evaluación completa](https://github.com/Alvarofritzsolis1/POST/actions/runs/45661705143) · [CI general](https://github.com/Alvarofritzsolis1/POST/actions/runs/45661705103)
+
+## Seguimiento · Continuidad del chat y preferencia de contacto
+
+En siete escenarios, una pregunta sobre pago por avance terminaba en una derivación que pausaba la automatización. Cuando la persona volvía a declarar su zona laboral o cambiaba de tema, la cola ya no generaba una respuesta contextual. En `2b0fa41`, una consulta sobre pago sin condiciones verificadas obtiene orientación para confirmar el monto y la modalidad con quien contrata, y la conversación sigue activa. Una declaración sobre un pago anterior no activa esa ruta. Una solicitud explícita de atención humana conserva la derivación. [Guía de pago](https://github.com/Alvarofritzsolis1/POST/blob/2b0fa41/apps/backend/app/galancito_triage.py) · [Worker](https://github.com/Alvarofritzsolis1/POST/blob/2b0fa41/apps/backend/app/facebook_chat_worker.py) · [Derivación](https://github.com/Alvarofritzsolis1/POST/blob/2b0fa41/apps/backend/app/galancito_flow.py)
+
+La ficha acepta como candidatos para Qwen oficios declarados fuera del catálogo y expresiones de empleo o trabajo a trato. Los datos conservan su vínculo con la declaración original. La preferencia de contacto exige señales en la declaración personal, como «me acomoda más el wasap». Una mención del WhatsApp de una página no cambia esa preferencia. La lista de comunas devuelve «Los Ángeles» con su grafía oficial. [Atribución](https://github.com/Alvarofritzsolis1/POST/blob/2b0fa41/apps/backend/app/galancito_evidence.py) · [Flujo de ficha](https://github.com/Alvarofritzsolis1/POST/blob/2b0fa41/apps/backend/app/galancito_contextual.py) · [Comunas](https://github.com/Alvarofritzsolis1/POST/blob/2b0fa41/apps/backend/app/comunas_chile.txt)
+
+El evaluador exige que la respuesta de pago mencione monto y modalidad y que el chat continúe activo. Tres escenarios de ubicación y teléfono pasaron a exigir el resultado operativo esperado, dado que esas rutas ya contaban con datos verificados. Ambas versiones se compararon con los mismos criterios actualizados. La prueba de concurrencia recibe un mensaje nuevo durante la primera etapa de inferencia y comprueba que el borrador obsoleto se cancela antes del envío. [Banco de escenarios](https://github.com/Alvarofritzsolis1/POST/blob/2b0fa41/apps/backend/tests/fixtures/galancito_contextual_holdout.jsonl) · [Pruebas de infraestructura](https://github.com/Alvarofritzsolis1/POST/blob/2b0fa41/apps/backend/tests/test_galancito_contextual_infrastructure.py)
+
+La evaluación de `2b0fa41` reprodujo una derivación omitida. Después de «¿Qué hago ahora?» y «Necesito una persona real», Galancito reenvió la pregunta previa y dejó el caso sin marcar para atención. En `b63355e`, las solicitudes inequívocas de hablar con una persona usan la ruta operativa de atención. La validación rechaza un borrador que copia preguntas breves de cualquier fragmento agrupado. La revisión también acepta «guasap» como forma de WhatsApp para que Qwen pueda atribuir la preferencia a quien escribe. En la reproducción local de la solicitud, la ficha quedó marcada para atención y el envío simulado confirmó la derivación. [Reproducción en CI](https://github.com/Alvarofritzsolis1/POST/actions/runs/45672352277) · [Corrección](https://github.com/Alvarofritzsolis1/POST/commit/b63355e)
+
+La revisión `2b0fa41` cerró la comparación con 152 de 153 escenarios aprobados. El caso original y «me acomoda más el wasap» pasaron. La derivación anterior fue el único fallo de esa ejecución. El CI general de esa revisión pasó. [Evaluación](https://github.com/Alvarofritzsolis1/POST/actions/runs/45672352277) · [CI general](https://github.com/Alvarofritzsolis1/POST/actions/runs/45672352366)
+
+En `b63355e` pasaron 35 pruebas locales de infraestructura, memoria y simulador con SQLite y PostgreSQL. También se repitió con Qwen real el caso que distingue un aviso de terceros en Copiapó, la procedencia de Tomé y el oficio propio de montaje de bombas hidráulicas. Messenger simulado y el simulador guardaron los mismos datos y produjeron la misma intención y respuesta en ese caso.
+
+De seis escenarios adicionales, cuatro cumplieron sus criterios. Qwen omitió una preferencia expresada como «me sirve más el guasap» cuando llegó junto con la presentación laboral, y el respaldo derivó el turno. El otro caso pedía guardar correo como canal preferido. La ficha contextual admite WhatsApp y Messenger como canales preferidos y mantiene el correo voluntario en su campo de contacto. La naturalidad de las respuestas sigue requiriendo revisión de los diálogos.
+
+La configuración compilada de Docker Compose confirmó que la opción contextual se propaga como `false` por omisión y como `true` cuando se activa de manera explícita. Esa comprobación se hizo con valores sintéticos y sin iniciar servicios. El ensayo usó el modelo base de Qwen. La entrega con Meta real, el despliegue y la existencia de un adaptador LoRA activo en el VPS siguen pendientes de verificación.
+
+### Comparación final de esta ronda
+
+Se ejecutaron 153 conversaciones y 215 turnos por versión con Qwen3.5 2B real en Ollama y Meta simulado. Las cifras de intención se limitan a los turnos etiquetados. El caso original volvió a responder «¿En qué comuna puedes trabajar?» después de guardar su ficha. La entrega simulada del turno tardó 12,62 s desde la última entrada.
+
+| Indicador | Base `9f4e8c2` | Candidato `b63355e` |
+| --- | ---: | ---: |
+| Conversaciones que cumplieron los criterios | 115/153 | 153/153 |
+| Campos de ficha correctos | 117/155 | 155/155 |
+| Criterios de intención cumplidos | 0/5 | 5/5 |
+| Turnos sin copia textual de la persona | 215/215 | 215/215 |
+| Turnos que evitaron las preguntas repetidas etiquetadas | 215/215 | 215/215 |
+| Escenarios con salida de Qwen | 146 | 144 |
+| Llamadas locales al modelo | 159 | 307 |
+| Mediana de turnos con entrega simulada | 12,88 s | 10,35 s |
+| P95 de turnos con entrega simulada | 48,85 s | 22,32 s |
+
+Pasaron la evaluación conversacional y el CI general de `b63355e`. Nueve escenarios del candidato se resolvieron por rutas operativas sin salida de Qwen y cumplían los criterios definidos para esas rutas. El PR #192 sigue en borrador y la función viene desactivada. El JSON conserva las comparaciones anteriores y los seis casos adicionales, incluidos los fallos. [Corrida con Qwen](https://github.com/Alvarofritzsolis1/POST/actions/runs/45674949068) · [CI general](https://github.com/Alvarofritzsolis1/POST/actions/runs/45674949059) · [JSON anonimizado](https://github.com/Alvarofritzsolis1/POST/raw/refs/heads/codex/galancito-contextual-memory/docs/evaluations/galancito-contextual-evaluation.json)
