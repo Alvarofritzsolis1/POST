@@ -14,6 +14,7 @@ from .galancito_intake import (
 )
 from .galancito_knowledge import evidence_context, conversation_example
 from .galancito_semantic import consume_confirmation
+from .galancito_communes import find_communes
 from .galancito_contact_email import redact_email_for_intake, remember_shared_email
 from .galancito_phone import redact_mobile_for_intake, remember_shared_phone
 from .galancito_links import audit_event, record_declared_trades, trade_declarations, trade_terms
@@ -42,6 +43,7 @@ def profile_facts(lead, *, changed=False) -> dict:
             "manual_fields": [field for field, origin in (lead.profile_sources or {}).items()
                               if field in FIELDS and origin.get("source") == "manual"],
             "turn_changed": changed,
+            "declared_context": {k: v.get("value") for k, v in ((lead.profile_sources or {}).get("_declared_context") or {}).items() if isinstance(v, dict) and k in {"crew_expandable", "declared_origin"}},
             # Only contact availability flags, never the phone or email itself.
             "contact_available": bool(getattr(lead, "contact_phone", "") or getattr(lead, "contact_email", "")),
             "contact_declined": bool(getattr(lead, "phone_opt_out", False) or getattr(lead, "email_opt_out", False)),
@@ -175,10 +177,43 @@ def approved_trade_aliases(db, org_id):
                                          FacebookTradeGuide.approved.is_(True)).limit(100))}
 
 
+def remember_declared_context(lead, message, prior, *, remote_id, at, historical=False):
+    """Persist bounded, evidence-linked declarations, not guesses or work coverage."""
+    value = plain(message)
+    previous = plain(prior)
+    current = dict((lead.profile_sources or {}).get("_declared_context") or {})
+    proposed = {}
+    if re.search(r"\b(?:no podemos|no puedo|no pueden) (?:ser|llevar|traer|sumar) mas\b", value):
+        proposed["crew_expandable"] = False
+    elif re.search(r"\b(?:pueden|podemos|puedo) (?:ser|llevar|traer|sumar) mas\b", value):
+        proposed["crew_expandable"] = True
+    origin = re.fullmatch(r"(?:(?:hola|ola|buenas) )?(?:(?:soy|somos) )?de (.+)", value)
+    if origin and re.search(r"\bde donde (?:es(?: usted)?|eres|son|viene[n]?)\b", previous):
+        place = origin[1]
+        if len(place) <= 60 and (place == "san pedro" or find_communes(place)) and re.fullmatch(r"[a-z ]+", place):
+            proposed["declared_origin"] = place.title()
+    elif (origin := re.fullmatch(r"(?:(?:hola|ola|buenas) )?(?:soy|somos) de (.+)", value)):
+        place = origin[1]
+        if len(place) <= 60 and (place == "san pedro" or find_communes(place)) and re.fullmatch(r"[a-z ]+", place):
+            proposed["declared_origin"] = place.title()
+    changed = False
+    for field, fact in proposed.items():
+        old = current.get(field) or {}
+        if old.get("source") == "manual" or (historical and "value" in old) or old.get("value") == fact:
+            continue
+        current[field] = {"value": fact, "source": "message", "state": "confirmado_por_declaracion",
+                          "at": at.isoformat(), "message_id": remote_id}
+        changed = True
+    if changed:
+        lead.profile_sources = {**(lead.profile_sources or {}), "_declared_context": current}
+    return changed
+
+
 def apply_messenger_message(db, lead, message, prior, *, remote_id, at, historical=False,
                             replay=False, aliases=None) -> bool:
     if not message or private_data(message) or analyze(message).intent in {"human", "restricted"}:
         return False
+    context_changed = remember_declared_context(lead, message, prior, remote_id=remote_id, at=at, historical=historical or replay)
     if not historical and not replay:
         confirmed = consume_confirmation(lead, message, prior)
         if confirmed:
@@ -224,7 +259,7 @@ def apply_messenger_message(db, lead, message, prior, *, remote_id, at, historic
         message = " ".join(part for part in fragments if _PERSONAL_DECLARATION.match(plain(part))
                            and not asks_about_application(part)).strip()
         if not message:
-            return False
+            return context_changed
     declarations = trade_declarations(message, prior, extra=aliases,
         allow_bare=not asking_about_notice and not application_role_question(prior))
     before = {field: getattr(lead, field) for field in FIELDS}
@@ -289,7 +324,7 @@ def apply_messenger_message(db, lead, message, prior, *, remote_id, at, historic
     for field in changed:
         if field != "work_area":  # The same evidence is recorded for work_communes.
             audit_event(db, lead, "field_" + field, source="message", remote_id=remote_id)
-    return bool(changed or trades_changed)
+    return bool(changed or trades_changed or context_changed)
 
 
 def reply_focus(messages):
