@@ -94,6 +94,16 @@ def contact_profile(lead) -> dict:
     elif team is True:
         chunks.append("Puede trabajar con un equipo, pero falta confirmar cuántas personas.")
 
+    context = (getattr(lead, "profile_sources", None) or {}).get("_declared_context") or {}
+    flexibility = context.get("crew_expandable", {}).get("value")
+    origin = context.get("declared_origin", {}).get("value")
+    if flexibility is True:
+        chunks.append("Indicó que puede ampliar la cuadrilla; cantidad adicional no confirmada.")
+    elif flexibility is False:
+        chunks.append("Indicó que no puede sumar más personas.")
+    if isinstance(origin, str) and origin:
+        chunks.append("Procedencia declarada: " + origin[:60] + ". No equivale a zona de trabajo confirmada.")
+
     employees = getattr(lead, "employee_count", None)
     if getattr(lead, "has_employees", None) is False:
         chunks.append("Declaró que trabaja sin personal contratado.")
@@ -139,6 +149,7 @@ def contact_profile(lead) -> dict:
         "next_field": missing[0] if missing else None,
         "evidence": "Datos declarados en Messenger o registrados por un operador; no acreditan experiencia ni cumplimiento documental.",
         "sources": sources,
+        "declared_context": context,
         "specialty_origin": (
             "Registrado por administración" if getattr(lead, "specialty_source", "") == "manual"
             else "Interpretado del mensaje; requiere confirmación"
