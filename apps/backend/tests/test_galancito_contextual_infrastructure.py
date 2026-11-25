@@ -245,3 +245,27 @@ def test_unconfirmed_payment_does_not_pause_later_messages(network, monkeypatch)
         assert not lead.ai_paused and not lead.needs_support
         assert db.scalar(select(func.count()).select_from(FacebookChatMessage).where(
             FacebookChatMessage.state == "ai_pending")) == 1
+
+
+@pytest.mark.parametrize("message, expected", [
+    ("Guasap", "whatsapp"), ("Watsap", "whatsapp"),
+    ("Me acomoda más el guasap.", "whatsapp"),
+    ("Prefiero correo electrónico.", "email"), ("Escríbanme por mail.", "email"),
+    ("Prefiero Messenger.", "messenger"), ("No uso correo.", None),
+    ("Mi primo prefiere WhatsApp.", None), ("¿Tienen WhatsApp?", None),
+    ("Si prefiero correo, ¿se puede?", None), ("[correo reservado]", None),
+    ("Prefiero correo o WhatsApp.", None),
+])
+def test_explicit_channel_survives_model_omission(message, expected):
+    from app.galancito_contextual import explicit_channel_declarations
+    fragment = Fragment("channel-test", utcnow(), message)
+    result = explicit_channel_declarations((fragment,))
+    assert result == ([("channel", expected, fragment)] if expected else [])
+
+
+def test_channel_evidence_cannot_be_relabelled():
+    fragment = Fragment("channel-test", utcnow(), "Prefiero correo.")
+    raw = Declaration(f="channel", v="whatsapp", e="correo")
+    assert supported_declarations([raw], (fragment,)) == []
+    raw = Declaration(f="channel", v="email", e="correo")
+    assert supported_declarations([raw], (fragment,)) == [("channel", "email", fragment)]
