@@ -244,8 +244,11 @@ def process_chat_next(session_factory=SessionLocal, *, simulation_config=None, n
             job.state, job.error = "failed", "Fuera de la ventana estándar de 24 horas"
             return True
         if job.state == "pending" and job.operator_id is None and external_permission_prompt(job.body):
-            job.state, job.error = "cancelled", "Solicitud externa retirada"
-            return True
+            if lead.ai_paused or lead.needs_support:
+                job.state, job.error = "cancelled", "Solicitud externa retirada"
+                return True
+            flag_for_human(db, lead, "Consulta pendiente tras retirar solicitud externa")
+            job.body = "Dejé tu consulta para que la revise una persona del equipo."
         permission_request = job.state == "pending" and job.operator_id is None and "autorizas" in job.body.casefold()
         ai_source = (messenger_contact_ai_source(db, lead, cfg)
                      if job.state == "ai_pending" or permission_request else "disabled")
@@ -271,7 +274,9 @@ def process_chat_next(session_factory=SessionLocal, *, simulation_config=None, n
             body.startswith("Ya avisé al equipo para que te atienda una persona.")
             or body.startswith("Entendido, no usaré IA con tus mensajes.")
             or body.startswith("Entendido. No usaré IA con tus mensajes.")
-            or body.startswith("Dejé tu consulta para que la revise una persona del equipo.")))
+            or body.startswith("Dejé tu consulta para que la revise una persona del equipo.")
+            or body.startswith("Aún no puedo confirmar ese dato. Dejé tu consulta para que la revise el equipo.")
+            or body.startswith("Ahora no puedo resolver esa consulta por aquí. La dejé para que la revise el equipo.")))
         inbound_at = lead.last_inbound_at
         outbound_queue_ms = max(0, round((utcnow() - aware(job.created_at)).total_seconds() * 1000))
         fast, intent, fast_source, model_needed, context = None, "unknown", "local", False, ""
@@ -485,6 +490,9 @@ def process_chat_next(session_factory=SessionLocal, *, simulation_config=None, n
                 body = ("Aún no puedo confirmar ese dato. "
                         "Dejé tu consulta para que la revise el equipo.")
                 failed_ai = True
+        if automated_reply and external_permission_prompt(body):
+            body = "Aún no puedo confirmar ese dato. Dejé tu consulta para que la revise el equipo."
+            failed_ai, source = True, "fallback"
         # Re-check after slow inference: a human may have taken over or the
         # contact may have revoked permission/sent a newer question meanwhile.
         with session_factory.begin() as db:
