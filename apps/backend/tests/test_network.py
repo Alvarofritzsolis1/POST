@@ -943,3 +943,37 @@ def test_quick_need_requires_real_part_details_before_award(network):
     updated = n["send"](n["a"], "/requirements/" + req["id"], body, "PUT")
     assert updated.status_code == 200, updated.text
     assert n["send"](n["admin"], "/awards", award_body(n, updated.json(), 1)).status_code == 201
+
+
+
+def test_delete_requirement_is_scoped_and_keeps_audit(network):
+    n = network
+    req = requirement(n, items=1)
+    path = "/requirements/" + req["id"]
+    assert req["can_delete"] is True
+    other = n["b"].get(ROOT + path).json()
+    assert other["can_delete"] is False
+    assert n["send"](n["b"], path + "?version=1", method="DELETE").status_code == 403
+    assert n["send"](n["a"], path + "?version=99", method="DELETE").status_code == 409
+    # Same-site residents may remove requests but still cannot edit another author's.
+    person = n["b_user"]
+    update = {k: person[k] for k in ["name", "title", "role", "enabled", "site_ids", "can_award"]}
+    update["site_ids"] = [n["sites"][0]]
+    assert n["send"](n["admin"], "/users/" + person["id"], update, "PATCH").status_code == 200
+    neighbor = n["login"](person["email"])
+    shared = neighbor.get(ROOT + path).json()
+    assert shared["can_delete"] is True and shared["editable"] is False
+    assert n["send"](neighbor, path + "?version=1", method="DELETE").status_code == 200
+    assert n["send"](neighbor, path + "?version=1", method="DELETE").status_code == 200
+    for client in (n["a"], n["b"], n["admin"]):
+        assert req["id"] not in {r["id"] for r in client.get(ROOT + "/requirements").json()["rows"]}
+    assert n["admin"].get(ROOT + path).status_code == 404
+    with n["Session"]() as db:
+        from app.network_models import NetworkRequirement
+        assert db.get(NetworkRequirement, req["id"]).state == "deleted"
+        events = list(db.scalars(select(OpsChange).where(
+            OpsChange.entity_type == "network_requirement", OpsChange.entity_id == req["id"]
+        )))
+        assert any(e.changes["to"].get("state") == "deleted" for e in events)
+    second = requirement(n, items=1)
+    assert n["send"](n["admin"], "/requirements/" + second["id"] + "?version=1", method="DELETE").status_code == 200

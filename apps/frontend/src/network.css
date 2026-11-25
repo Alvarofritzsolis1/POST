@@ -2101,3 +2101,9 @@
   .nw-publish-choice b { font-size: 13px; }
   .nw-portal .nw-tabs > button { padding: 9px 11px; font-size: 12px; }
 }
+
+/* Request deletion: compact, explicit and scoped to authorized users. */
+.nw-request-actions { display: flex; align-items: center; gap: 6px; }
+.nw .nw-request-delete { display: inline-flex; align-items: center; justify-content: center; gap: 6px; min-height: 30px; min-width: 30px; padding: 5px; border: 1px solid transparent; border-radius: 7px; background: transparent; color: #b42318; cursor: pointer; }
+.nw .nw-request-delete:hover:not(:disabled), .nw .nw-request-delete:focus-visible { background: #fff1f0; border-color: #f3b6b1; }
+.nw .nw-request-delete:disabled { opacity: .5; cursor: wait; }

@@ -28,6 +28,7 @@ import {
   Search,
   Send,
   Sparkles,
+  Trash2,
   Users,
   Workflow,
 } from "lucide-react";
@@ -169,6 +170,8 @@ export default function RedDeObras({ user }: { user: Profile }) {
   const [error, setError] = useState(""),
     [notice, setNotice] = useState(""),
     [loading, setLoading] = useState(true);
+  const [deletingReq, setDeletingReq] = useState<string | null>(null);
+  const deletionInFlight = useRef(false);
   const [panel, setPanel] = useState(""),
     [selectedReq, setSelectedReq] = useState<Requirement | null>(null),
     [selectedCap, setSelectedCap] = useState<Capacity | null>(null);
@@ -478,6 +481,32 @@ export default function RedDeObras({ user }: { user: Profile }) {
       </button>
     </div>
   );
+  async function removeRequirement(r: Requirement) {
+    if (!r.can_delete || deletionInFlight.current) return;
+    const facebookNote = r.publish_to_facebook ? "\nSi existe un aviso automático vinculado en Facebook, se solicitará su retiro." : "";
+    if (!window.confirm(`¿Eliminar la solicitud "${r.title}" de ${r.site}?\nDejará de aparecer en Red de Obras.${facebookNote}`)) return;
+    deletionInFlight.current = true;
+    setDeletingReq(r.id);
+    setError("");
+    try {
+      await change<{ id: string; deleted: boolean }>(`/requirements/${r.id}?version=${r.version}`, undefined, "DELETE");
+      ++generation.current;
+      setReqs(old => ({ rows: old.rows.filter(item => item.id !== r.id), total: Math.max(0, old.total - 1) }));
+      if (selectedReq?.id === r.id) {
+        setSelectedReq(null);
+        setPanel("");
+      }
+      setNotice("Solicitud eliminada correctamente.");
+      if (page > 0 && reqs.rows.length === 1) setPage(page - 1);
+      else await refresh();
+      window.dispatchEvent(new Event("galant-network-changed"));
+    } catch (err) {
+      setError(errorText(err));
+    } finally {
+      deletionInFlight.current = false;
+      setDeletingReq(null);
+    }
+  }
   const reqCard = (r: Requirement) => {
     const fb = r.facebook;
     const fbError = fb?.state === "failed" || fb?.state === "uncertain";
@@ -485,7 +514,9 @@ export default function RedDeObras({ user }: { user: Profile }) {
       <article className="nw-card nw-feed-card" key={r.id}>
         <div className="nw-feed-card-top">
           <span className="nw-site"><Building2 size={14} /> {r.site}</span>
-          <Badge value={r.priority} />
+          <div className="nw-request-actions"><Badge value={r.priority} />
+            {r.can_delete && <button type="button" className="nw-request-delete" title="Eliminar solicitud" aria-label={`Eliminar solicitud: ${r.title}`} disabled={deletingReq !== null} onClick={() => void removeRequirement(r)}><Trash2 size={15} /></button>}
+          </div>
         </div>
         <span className="nw-specialty">{r.specialty}</span>
         <h3><button className="nw-text-button" onClick={() => void openReq(r.id)}>{r.title}</button></h3>
@@ -1247,6 +1278,8 @@ export default function RedDeObras({ user }: { user: Profile }) {
             <RequirementWorkspace
               requirement={selectedReq}
               onEdit={() => setPanel("request-form")}
+              onDelete={selectedReq.can_delete ? () => void removeRequirement(selectedReq) : undefined}
+              deleting={deletingReq !== null}
               onCapacity={(candidate) => void interest({
                 id: candidate.id,
                 score: candidate.score,
