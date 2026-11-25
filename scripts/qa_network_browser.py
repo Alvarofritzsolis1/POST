@@ -398,12 +398,12 @@ def main():
         admin.screenshot(path=str(args.output / "adjudicacion.png"), full_page=True)
         admin.get_by_role("dialog").get_by_role("button", name="Cerrar panel").click()
         admin.get_by_role("navigation", name="Red de Obras", exact=True).get_by_role(
-            "button", name="Feed", exact=True
+            "button", name="Inicio", exact=True
         ).click()
         expect(admin.locator(".nw-kpis")).to_be_visible()
         admin.screenshot(path=str(args.output / "administrador.png"), full_page=True)
         a.get_by_role("navigation", name="Red de Obras", exact=True).get_by_role(
-            "button", name="Feed", exact=True
+            "button", name="Inicio", exact=True
         ).click()
         a.screenshot(path=str(args.output / "residente.png"), full_page=True)
         a.set_viewport_size({"width": 390, "height": 844})
