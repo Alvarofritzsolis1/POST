@@ -220,7 +220,7 @@ def apply_messenger_message(db, lead, message, prior, *, remote_id, at, historic
             referring_to_application(prior) and not application_role_question(prior))):
         # An oficio or comuna quoted from an advert belongs to that advert.
         # Preserve separate first-person declarations in the same message.
-        fragments = re.split(r"(?<=[,.!?;])\s+|\by\s+(?=soy\b|soi\b|hago\b|ofrezco\b)", message, flags=re.I)
+        fragments = re.split(r"(?<=[,.!?;])\s+|\n+|\by\s+(?=soy\b|soi\b|hago\b|ofrezco\b)", message, flags=re.I)
         message = " ".join(part for part in fragments if _PERSONAL_DECLARATION.match(plain(part))
                            and not asks_about_application(part)).strip()
         if not message:
