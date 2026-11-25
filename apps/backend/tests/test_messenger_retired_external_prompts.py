@@ -42,3 +42,17 @@ def test_unconsented_external_route_uses_local_or_disabled(monkeypatch, provider
     lead.ai_consent_provider = provider
     lead.ai_consent_state = "accepted_team" if provider == "team" else "accepted"
     assert facebook_ai.messenger_contact_ai_source(None, lead, cfg) == provider
+
+
+@pytest.mark.parametrize("message", [
+    "Hola me daría más información por la publicación que le comenté porfavor",
+    "Quiero más información sobre el aviso",
+    "Me da detalles de la publicación",
+])
+def test_information_about_publication_is_recognized(message):
+    from app.galancito_triage import asks_about_application
+    from app.facebook_worksite_reply import application_reply
+    assert asks_about_application(message)
+    lead = SimpleNamespace(org_id="test", page_id="test")
+    assert application_reply(None, lead, message, notices=[]) == (
+        "Claro, te ayudo. ¿De qué trabajo era el aviso?")
