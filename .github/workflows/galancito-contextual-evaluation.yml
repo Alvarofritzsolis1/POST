@@ -25,7 +25,7 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        offset: [0, 17, 34, 51, 68, 85, 102, 119, 136]
+        offset: [0, 17, 34, 51, 68, 85, 102, 119, 136, 153, 170, 187]
     env:
       GALANCITO_BASE_REF: ${{ github.event.pull_request.base.sha }}
       GALANCITO_OFFSET: ${{ matrix.offset }}
@@ -81,7 +81,7 @@ jobs:
           for side in base candidate; do
             args=(--contextual)
             if [[ "$side" == base ]]; then
-              args=(--source-root "$RUNNER_TEMP/galancito-base")
+              args=(--contextual --source-root "$RUNNER_TEMP/galancito-base")
             fi
             python scripts/evaluate_galancito_conversations.py --cases "$fixtures" \
               --real-local --ollama-loopback --offset "$GALANCITO_OFFSET" --limit 17 \
