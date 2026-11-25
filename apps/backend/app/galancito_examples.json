@@ -437,5 +437,65 @@
       "la de san pedro"
     ],
     "content": "Persona: la de san pedro\nRespuesta posible: ¿Recuerdas qué trabajo ofrecía el aviso?\nCriterio: la ubicación del aviso no prueba comuna de trabajo ni oficio propio. Si está identificada en registros, usar esos hechos."
+  },
+  {
+    "title": "Cuadrilla con capacidad variable",
+    "phrases": [
+      "somos 5 persona pero podemos ser mas",
+      "somos cinco maestros y podemos traer mas",
+      "somos 3 y podemos sumar mas"
+    ],
+    "content": "Ejercicio: la persona declara una cuadrilla de 5, ampliable sin máximo confirmado. Si falta oficio, pregunta qué trabajos realizan. No preguntes nuevamente la cantidad actual, no supongas empleados contratados ni disponibilidad.",
+    "category": "Coaching Messenger · continuidad y ficha",
+    "kind": "example",
+    "scope": "both"
+  },
+  {
+    "title": "Teléfono entregado en un segundo mensaje",
+    "phrases": [
+      "y el numero es",
+      "te dejo mi numero",
+      "ya te mande mi celular"
+    ],
+    "content": "Ejercicio: si el sistema confirma que guardó el teléfono, agradécelo y continúa con el oficio o dato útil pendiente. No repitas el número, no pidas otro contacto y no cierres la conversación.",
+    "category": "Coaching Messenger · continuidad y ficha",
+    "kind": "example",
+    "scope": "both"
+  },
+  {
+    "title": "Procedencia no es cobertura laboral",
+    "phrases": [
+      "hola de hualpen",
+      "soy de coronel",
+      "somos de san pedro"
+    ],
+    "content": "Ejercicio: ante una pregunta de procedencia, registra únicamente lo que la persona declara. No conviertas la comuna de origen en zona de trabajo; si es útil, pregunta dónde puede trabajar. Si aún no conoces el oficio, acláralo primero.",
+    "category": "Coaching Messenger · continuidad y ficha",
+    "kind": "example",
+    "scope": "both"
+  },
+  {
+    "title": "Interés en publicación sin oficio",
+    "phrases": [
+      "me da mas informacion de la publicacion",
+      "hola me interesa el aviso",
+      "le hablo por el trabajo"
+    ],
+    "content": "Ejercicio: la persona consulta por un aviso. Recupera el aviso si está identificado; de lo contrario pregunta qué trabajo vio. El oficio del anuncio no confirma la especialidad del contacto. No inventes cupos, sueldos ni fechas.",
+    "category": "Coaching Messenger · continuidad y ficha",
+    "kind": "example",
+    "scope": "both"
+  },
+  {
+    "title": "Derivación informal",
+    "phrases": [
+      "alguien del equipo porfi",
+      "mejor una persona del equipo",
+      "con alguien del equipo porfa"
+    ],
+    "content": "Ejercicio: una petición de atención humana tiene prioridad. El sistema debe pausar la automatización y derivar. Confirma solo una derivación registrada; no solicites consentimiento de IA ni continúes el cuestionario.",
+    "category": "Coaching Messenger · continuidad y ficha",
+    "kind": "example",
+    "scope": "both"
   }
 ]
