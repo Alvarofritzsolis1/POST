@@ -9,10 +9,9 @@ from sqlalchemy import select
 from app.config import settings
 from app.facebook_chat_worker import process_chat_next
 from app.facebook_crm_models import FacebookChatMessage, FacebookLead
-from app.galancito_flow import set_permission_request
 from app.galancito_intake import small_talk_reply
 from app.galancito_triage import analyze
-from test_facebook_crm import enable_messaging, incoming
+from test_facebook_crm import enable_messaging, incoming, seed_historical_permission
 from test_network import network
 
 
@@ -120,7 +119,7 @@ def test_identity_question_is_answered_truthfully_not_as_human(network, monkeypa
     assert "soy humano" not in sent[0].lower()
 
 
-def test_complex_question_resumes_after_one_permission_and_real_worker(network, monkeypatch):
+def test_complex_question_resumes_after_historical_permission_and_real_worker(network, monkeypatch):
     n = network
     _local_messenger(n, monkeypatch)
     replies, model_contexts = [], []
@@ -128,13 +127,10 @@ def test_complex_question_resumes_after_one_permission_and_real_worker(network, 
                         lambda *a: replies.append(a[2]) or f"synthetic-delivered-{len(replies)}")
     assert incoming(n, "hola buenos dias", "resume-hi").status_code == 200
     assert process_chat_next(n["Session"])
-    assert incoming(n, "¿Cuáles son los requisitos para postular?", "resume-q").status_code == 200
-    state = _contact(n)
-    assert state["lead"]["ai_consent_state"] == "requested"
-    assert "autoriz" in state["messages"][-1]["body"].lower()
-    assert process_chat_next(n["Session"])
+    seed_historical_permission(n)
     assert incoming(n, "si", "resume-consent").status_code == 200
     assert _contact(n)["lead"]["ai_consent_state"] == "accepted"
+    assert incoming(n, "¿Cuáles son los requisitos para postular?", "resume-q").status_code == 200
 
     from app import facebook_ai
     monkeypatch.setattr(facebook_ai, "generate_local_text",
@@ -142,9 +138,10 @@ def test_complex_question_resumes_after_one_permission_and_real_worker(network, 
                             model_contexts.append(prompt) or
                             "Te puedo orientar con los pasos generales. ¿Qué trabajo realizas?"))
     assert process_chat_next(n["Session"])
-    assert len(replies) == 3
+    assert len(replies) == 2
     assert len(model_contexts) == 1
     assert "requisitos" in model_contexts[0].lower()
+    assert "autorizas" not in model_contexts[0].lower()
     assert "respuesta confirmada" not in replies[-1].lower()
     assert "qué trabajo" in replies[-1].lower()
     assert _contact(n)["lead"]["needs_support"] is False
@@ -161,16 +158,11 @@ def test_legacy_greeting_consent_never_claims_model_outage(network, monkeypatch)
     first = _contact(n)
     lead_id = first["lead"]["id"]
     with n["Session"].begin() as db:
-        lead = db.get(FacebookLead, lead_id)
         for row in db.scalars(select(FacebookChatMessage).where(
                 FacebookChatMessage.lead_id == lead_id,
                 FacebookChatMessage.direction == "outbound")):
             row.state = "cancelled"
-        db.add(FacebookChatMessage(
-            org_id=lead.org_id, lead_id=lead.id, page_id=lead.page_id,
-            direction="outbound", state="pending",
-            body=set_permission_request(lead, "ollama")))
-    assert process_chat_next(n["Session"])
+    seed_historical_permission(n)
     assert incoming(n, "si", "legacy-consent").status_code == 200
     assert _contact(n)["lead"]["ai_consent_state"] == "accepted"
     monkeypatch.setattr("app.facebook_chat_worker.generate_text",

@@ -4,6 +4,7 @@ from functools import lru_cache
 from pathlib import Path
 from sqlalchemy import select, or_, func, literal_column
 from sqlalchemy.orm import Session
+from .galancito_flow import retired_permission_prompt
 from .galancito_knowledge_models import Knowledge
 from .galancito_triage import plain
 
@@ -33,6 +34,8 @@ def retrieve(db: Session, org_id: str, message: str, channel: str) -> list[dict]
     ranked = []
     normalized = plain(message)
     for row in rows:
+        if channel == "messenger" and retired_permission_prompt(row.content):
+            continue
         exact = normalized in [plain(p) for p in row.phrases]
         score = sum(1 for t in tokens if t in row.search_text.split()) + (20 if exact else 0)
         if not score:

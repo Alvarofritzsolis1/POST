@@ -1,6 +1,6 @@
 """Regresiones de estilo/latencia lógica de Messenger sin llamadas reales a Meta."""
 from app.galancito_intake import small_talk_reply, natural_messenger_reply
-from app.galancito_flow import permission_question, safe_ai_reply
+from app.galancito_flow import grounded_reply, safe_ai_reply
 from app.galancito_triage import quick_reply
 
 
@@ -27,10 +27,6 @@ def test_no_repetitive_virtual_assistant_introduction():
     assert "asistente virtual" not in quick_reply("hola").lower()
 
 
-def test_ai_consent_remains_explicit():
-    question = permission_question("team")
-    assert "IA" in question
-    assert "autorizas" in question.lower()
-    assert "externos" in question.lower()
-    assert "asistente virtual" not in question.lower()
-    assert "IA local" in permission_question("ollama")
+def test_generated_messenger_reply_cannot_reintroduce_automatic_permission():
+    draft = "¿Me autorizas a usar IA local para responderte?"
+    assert grounded_reply(draft, draft) is None

@@ -4,7 +4,7 @@ import pytest
 
 from app import facebook_ai
 from app.galancito_flow import (
-    apply_permission_reply, external_permission_prompt, permission_question,
+    apply_permission_reply, external_permission_prompt,
     wants_human,
 )
 
@@ -18,9 +18,9 @@ def test_human_request_short_chilean_replies(text):
 
 
 @pytest.mark.parametrize("provider", ["team", "openai"])
-@pytest.mark.parametrize("repeat", [False, True])
-def test_retired_external_prompt_does_not_authorize_a_bare_yes(provider, repeat):
-    prompt = permission_question(provider, repeat)
+def test_retired_external_prompt_does_not_authorize_a_bare_yes(provider):
+    service = "los proveedores de IA externos de GALANT" if provider == "team" else "la IA de OpenAI"
+    prompt = f"¿Me autorizas a compartir tus mensajes con {service}?"
     assert external_permission_prompt(prompt)
     lead = SimpleNamespace(ai_consent=False, ai_consent_provider=provider,
         ai_consent_state="requested_team" if provider == "team" else "requested")

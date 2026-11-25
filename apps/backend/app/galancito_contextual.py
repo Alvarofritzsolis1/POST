@@ -18,7 +18,7 @@ from .galancito_intake import (
 from .galancito_links import audit_event, canonical_trade, record_declared_trades
 from .galancito_knowledge import evidence_context
 from .galancito_local import generate_local_text, MAX_CONTEXT_CHARS
-from .galancito_memory import aware, note_profile_sources, professional_message
+from .galancito_memory import aware, note_profile_sources, messenger_prompt_text
 from .galancito_semantic import CORRECTION
 from .galancito_triage import analyze, plain, private_data
 
@@ -92,7 +92,7 @@ def authorized(cfg, lead):
 
 
 def eligible(body):
-    cleaned = professional_message(body)
+    cleaned = messenger_prompt_text(body)
     return bool(plain(cleaned) and not private_data(cleaned) and analyze(cleaned).intent not in {"human", "restricted"})
 
 
@@ -111,7 +111,7 @@ def current_fragments(turns, *, max_chars=780):
             break
         if item.consent_decision is not None or not item.remote_id or not eligible(item.body):
             continue
-        body = professional_message(item.body).strip()
+        body = messenger_prompt_text(item.body).strip()
         reserve = min(max_chars, 300) if selected else min(max_chars, 500)
         if reserve < 12 or len(selected) == 6:
             break
@@ -131,19 +131,19 @@ def memory_text(facts, turns, fragments, prior, evidence, guide):
     for item in turns:
         if item.remote_id in current_ids or item.consent_decision is not None:
             continue
-        text = professional_message(item.body)
-        if text and not private_data(text) and "autorizas" not in plain(text):
+        text = messenger_prompt_text(item.body)
+        if text and not private_data(text):
             recent.append(("Persona: " if item.direction == "inbound" else "GALANT: ") + text[:130])
         if len(recent) >= 5:
             break
     if recent:
         lines.append("Historial anterior: " + " | ".join(reversed(recent)))
-    if prior and not private_data(prior):
-        lines.append("Pregunta anterior de GALANT: " + prior[:160])
-    if evidence:
-        lines.append("Referencia de GALANT: " + professional_message(evidence_context(evidence[:1]))[:450])
-    if guide and guide.explanation:
-        lines.append("Orientación aprobada: " + professional_message(guide.explanation)[:300])
+    if prior and not private_data(prior) and (text := messenger_prompt_text(prior)):
+        lines.append("Pregunta anterior de GALANT: " + text[:160])
+    if evidence and (text := messenger_prompt_text(evidence_context(evidence[:1]))):
+        lines.append("Referencia de GALANT: " + text[:450])
+    if guide and guide.explanation and (text := messenger_prompt_text(guide.explanation)):
+        lines.append("Orientación aprobada: " + text[:300])
     return "\n".join(lines)[:1650], len(recent)
 
 

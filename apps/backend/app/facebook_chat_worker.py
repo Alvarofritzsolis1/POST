@@ -19,9 +19,9 @@ from .facebook_availability_reply import availability_reply
 from .facebook_worksite_reply import application_reply, worksite_reply
 from .facebook_ai import (LOCAL_REPLY_INSTRUCTIONS, REPLY_INSTRUCTIONS, generate_text,
                           messenger_contact_ai_source, local_first_messenger, messenger_external_fallback_enabled)
-from .galancito_hybrid import select_response
+from .galancito_hybrid import needs_external_help, select_response
 from .ai_gateway import AIServiceError, orchestrated_text
-from .galancito_flow import wants_human, safe_ai_reply, consented_for, grounded_reply, is_permission_prompt, external_permission_prompt
+from .galancito_flow import wants_human, safe_ai_reply, consented_for, grounded_reply, retired_permission_prompt
 from .facebook_crm_models import FacebookLead, FacebookChatMessage, FacebookTradeGuide, FacebookLeadTrade
 from .models import utcnow
 from .network_service import key
@@ -32,7 +32,7 @@ from .facebook_lead_insights import trace_unique_requirement
 from .network_service import today
 from .galancito_semantic import PROTOCOL, decode_local_reply, remember_confirmation, has_semantic_opportunity, CORRECTION
 from .galancito_intake import semantic_reasoning_needed, contact_followup_reply, contact_pending_questions, model_contact_question, compose_contact_followup, CONTACT_RECEIVED_CONTEXT, acceptable_intake_draft, intake_question_fields, clarification_reply, identity_reply, model_intake_candidate, next_intake_reply, small_talk_reply, natural_messenger_reply, needs_deeper_response
-from .galancito_memory import aware, note_profile_sources, prior_delivered_prompt, profile_facts, reply_focus, messenger_context
+from .galancito_memory import aware, note_profile_sources, prior_delivered_prompt, profile_facts, reply_focus, messenger_context, messenger_prompt_text
 from .galancito_knowledge import retrieve, exact_answer
 from .galancito_runtime import infer, record_run
 from .galancito_local import generate_local_text, last_timings, MAX_CONTEXT_CHARS
@@ -44,6 +44,10 @@ class NoRedirect(HTTPRedirectHandler):
         raise URLError("La API de Meta redirigió el envío")
 
 _opener = build_opener(NoRedirect)
+_RETIRED_REVIEW_PREFIXES = (
+    "Aún no puedo confirmar ese dato. Dejé tu consulta para que la revise el equipo.",
+    "Ahora no puedo resolver esa consulta por aquí. La dejé para que la revise el equipo.",
+)
 
 
 def graph_send(page_id: str, psid: str, message: str, token: str) -> str:
@@ -260,20 +264,27 @@ def process_chat_next(session_factory=SessionLocal, *, simulation_config=None, n
         if not _within_24h(lead):
             job.state, job.error = "failed", "Fuera de la ventana estándar de 24 horas"
             return True
-        if job.state == "pending" and job.operator_id is None and external_permission_prompt(job.body):
-            if lead.ai_paused or lead.needs_support:
-                job.state, job.error = "cancelled", "Solicitud externa retirada"
-                return True
-            flag_for_human(db, lead, "Consulta pendiente tras retirar solicitud externa")
-            job.body = "Dejé tu consulta para que la revise una persona del equipo."
-        permission_request = job.state == "pending" and job.operator_id is None and "autorizas" in job.body.casefold()
-        ai_source = (messenger_contact_ai_source(db, lead, cfg)
-                     if job.state == "ai_pending" or permission_request else "disabled")
-        if permission_request and (ai_source == "disabled" or lead.ai_consent_provider != ai_source or
-                lead.ai_consent_state not in {"requested", "requested_team"} or
-                not is_permission_prompt(lead, job.body)):
-            job.state, job.error = "cancelled", "Solicitud de consentimiento superada"
+        if job.state == "pending" and job.operator_id is None and job.body.startswith(_RETIRED_REVIEW_PREFIXES):
+            if not lead.needs_support:
+                flag_for_human(db, lead, "Consulta pendiente de atención humana")
+            job.body, job.state, job.error = "", "cancelled", "Derivada a atención humana"
             return True
+        if job.state == "pending" and job.operator_id is None and retired_permission_prompt(job.body):
+            reply = None
+            if not (lead.ai_paused or lead.needs_support):
+                latest = db.scalar(select(FacebookChatMessage.body).where(
+                    FacebookChatMessage.lead_id == lead.id,
+                    FacebookChatMessage.direction == "inbound",
+                    FacebookChatMessage.consent_decision.is_(None),
+                ).order_by(FacebookChatMessage.created_at.desc(), FacebookChatMessage.id.desc()).limit(1))
+                reply = worksite_reply(db, lead, latest, notices=notices) if latest else None
+            if not reply:
+                if not (lead.ai_paused or lead.needs_support):
+                    flag_for_human(db, lead, "Consulta pendiente tras retirar el aviso de autorización")
+                job.body, job.state, job.error = "", "cancelled", "Aviso de autorización retirado"
+                return True
+            job.body = reply
+        ai_source = messenger_contact_ai_source(db, lead, cfg) if job.state == "ai_pending" else "disabled"
         if job.state == "ai_pending" and lead.needs_support:
             job.state, job.error = "cancelled", "El contacto pidió apoyo: revisión humana prioritaria"
             return True
@@ -291,9 +302,7 @@ def process_chat_next(session_factory=SessionLocal, *, simulation_config=None, n
             body.startswith("Ya avisé al equipo para que te atienda una persona.")
             or body.startswith("Entendido, no usaré IA con tus mensajes.")
             or body.startswith("Entendido. No usaré IA con tus mensajes.")
-            or body.startswith("Dejé tu consulta para que la revise una persona del equipo.")
-            or body.startswith("Aún no puedo confirmar ese dato. Dejé tu consulta para que la revise el equipo.")
-            or body.startswith("Ahora no puedo resolver esa consulta por aquí. La dejé para que la revise el equipo.")))
+            or body.startswith("Dejé tu consulta para que la revise una persona del equipo.")))
         inbound_at = lead.last_inbound_at
         outbound_queue_ms = max(0, round((utcnow() - aware(job.created_at)).total_seconds() * 1000))
         fast, intent, fast_source, model_needed, context = None, "unknown", "local", False, ""
@@ -436,7 +445,6 @@ def process_chat_next(session_factory=SessionLocal, *, simulation_config=None, n
                     and not any(needs_deeper_response(item.text) for item in structured_fragments)):
                 body = natural_messenger_reply(safe_ai_reply(fast))
             else:
-                body = "Dejé tu consulta para que la revise el equipo. Te pueden ayudar por este chat."
                 failed_ai = True
         elif state == "ai_pending":
             generated = fast
@@ -460,7 +468,7 @@ def process_chat_next(session_factory=SessionLocal, *, simulation_config=None, n
                                 current.last_inbound_at != inbound_at or current.ai_paused or current.needs_support or
                                 not consented_for(current, ai_source) or messenger_contact_ai_source(db, current, cfg) != ai_source):
                             raise ValueError("La conversación cambió durante la preparación")
-                        verified_policy = approved_coaching(db, org_id, "messenger")
+                        verified_policy = messenger_prompt_text(approved_coaching(db, org_id, "messenger"))
                         prepared_context = context
                         trace["context_truncated"] = len(prepared_context) > MAX_CONTEXT_CHARS
                         trace["context_chars"] = len(prepared_context)
@@ -522,6 +530,8 @@ def process_chat_next(session_factory=SessionLocal, *, simulation_config=None, n
                     grounding = context + ("\nPropuesta para confirmar: " + semantic_proposal["question"] if semantic_proposal else "")
                     if drafted:
                         drafted = grounded_reply(drafted, grounding)
+                    if needs_external_help(drafted):
+                        drafted = None
                     validation_facts = facts
                     if semantic_proposal and semantic_proposal.get("correction"):
                         validation_facts = {**facts, semantic_proposal["field"]: None}
@@ -548,13 +558,8 @@ def process_chat_next(session_factory=SessionLocal, *, simulation_config=None, n
                 body = "Te leo. Cuéntame qué necesitas y seguimos por aquí."
                 source = "local_recovery"
             else:
-                # A genuine unresolved question must be visible for human
-                # review; do not invent a job, wage or hiring decision.
-                body = ("Aún no puedo confirmar ese dato. "
-                        "Dejé tu consulta para que la revise el equipo.")
                 failed_ai = True
-        if automated_reply and external_permission_prompt(body):
-            body = "Aún no puedo confirmar ese dato. Dejé tu consulta para que la revise el equipo."
+        if automated_reply and retired_permission_prompt(body):
             failed_ai, source = True, "fallback"
         # Re-check after slow inference: a human may have taken over or the
         # contact may have revoked permission/sent a newer question meanwhile.
@@ -586,9 +591,16 @@ def process_chat_next(session_factory=SessionLocal, *, simulation_config=None, n
                     if followup:
                         body, failed_ai = followup, False
                         trace["guided_followup"] = decision.q
-                if requested_handoff or failed_ai:
-                    flag_for_human(db, current, "Solicitó atención humana" if requested_handoff else
-                                  "Galancito no obtuvo una respuesta confirmada; revisión pendiente")
+                if requested_handoff:
+                    flag_for_human(db, current, "Solicitó atención humana")
+            if failed_ai:
+                flag_for_human(db, current, "Galancito no obtuvo una respuesta confirmada; revisión pendiente")
+                current_job.state, current_job.error = "cancelled", "Derivada a atención humana"
+                record_run(db, org_id=org_id, channel="messenger", source="fallback",
+                           intent=intent, started=started, db_ms=db_ms,
+                           timings={**timings, **trace, "graph_calls": graph_calls + int(typing_started),
+                                    "model_error": True, "human_review": True})
+                return True
             if automated_reply:
                 current_job.state, current_job.updated_at = "sending", utcnow()
         if simulated:
@@ -631,10 +643,6 @@ def process_chat_next(session_factory=SessionLocal, *, simulation_config=None, n
                                 "conversation_ms": max(0, round((outcome_at - aware(inbound_at)).total_seconds() * 1000)),
                                 "delivery_error": not bool(result_id), "model_error": failed_ai,
                                 "outbound_message_id": row.id})
-        if failed_ai and not structured_fragments:
-            if contact:
-                flag_for_human(db, contact,
-                               "Galancito no obtuvo una respuesta confirmada; revisión pendiente")
         if automated_reply and not result_id:
             if contact:
                 flag_for_human(db, contact,
@@ -666,7 +674,7 @@ def _contextual_reply(session_factory, cfg, *, lead_id, job_id, inbound_at, clai
         with session_factory.begin() as db:
             if not is_current(db):
                 return (None, [], None), "fallback", timings, "superseded"
-            policy = approved_coaching(db, org_id, "messenger")
+            policy = messenger_prompt_text(approved_coaching(db, org_id, "messenger"))
             try:
                 if selecting:
                     selected = infer(db, lambda: contextual.request_attribution(fragments, hints))
@@ -698,7 +706,7 @@ def _contextual_reply(session_factory, cfg, *, lead_id, job_id, inbound_at, clai
                 return (candidate, declarations, answer), "ai", timings, None
             decision = None
             continue
-        if answer:
+        if not needs_external_help(answer):
             return (candidate, declarations, answer), "ai", timings, None
 
     if allow_external and not simulated and ai_source == "team":
@@ -711,6 +719,7 @@ def _contextual_reply(session_factory, cfg, *, lead_id, job_id, inbound_at, clai
                 except (AIServiceError, RuntimeError, ValueError):
                     answer = None
                 timings["external_model_calls"] = last_timings.get().get("external_model_calls", 0)
-                if answer and acceptable_intake_draft(answer, facts) and (answer := grounded_reply(answer, grounding)):
+                if (answer and acceptable_intake_draft(answer, facts)
+                        and not needs_external_help(answer := grounded_reply(answer, grounding))):
                     return (decision, declarations, answer), "external", timings, failure
     return (decision, declarations, None), "fallback", timings, failure

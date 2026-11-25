@@ -13,7 +13,7 @@ from sqlalchemy import create_engine, inspect, text
 from app.config import settings
 from app.facebook_chat_worker import process_chat_next
 from app.migrations.v20_9_1_galancito_memory import upgrade
-from test_facebook_crm import deliver_permission, enable_messaging, incoming
+from test_facebook_crm import LEGACY_LOCAL_NOTICE, enable_messaging, incoming, seed_historical_permission
 from test_network import network
 
 
@@ -76,7 +76,7 @@ def test_affirmation_before_delivery_and_provider_switch_do_not_grant_permission
     assert incoming(n, "¿Cuáles son los requisitos para postular?", mid="privacy-1").status_code == 200
     assert incoming(n, "sí", mid="privacy-2").status_code == 200
     assert not _detail(n)["lead"]["ai_consent"]
-    deliver_permission(n, monkeypatch)
+    seed_historical_permission(n)
     assert incoming(n, "sí", mid="privacy-3").status_code == 200
     assert _detail(n)["lead"]["ai_consent"]
     monkeypatch.setenv("FACEBOOK_AI_PROVIDER", "openai")
@@ -89,7 +89,8 @@ def test_affirmation_before_delivery_and_provider_switch_do_not_grant_permission
     from app.facebook_ai import messenger_contact_ai_source
     with n["Session"]() as db:
         assert messenger_contact_ai_source(db, db.scalar(select(FacebookLead))) != "openai"
-    assert not any("OpenAI" in message["body"] for message in detail["messages"])
+    assert not any("OpenAI" in message["body"] for message in detail["messages"]
+                   if message["body"] != LEGACY_LOCAL_NOTICE)
     assert not any(message["state"] == "ai_pending" for message in detail["messages"])
 
 
@@ -123,7 +124,7 @@ def test_40_conversations_use_the_signed_webhook_and_durable_worker(tmp_path):
 def test_unanswered_question_survives_a_detail_before_consent(network, monkeypatch):
     n = network
     enable_messaging(n, monkeypatch)
-    monkeypatch.setenv("FACEBOOK_AI_ENABLED", "true")
+    monkeypatch.setenv("FACEBOOK_AI_ENABLED", "false")
     monkeypatch.setenv("FACEBOOK_AI_PROVIDER", "ollama")
     monkeypatch.setenv("GALANCITO_LOCAL_AI_ENABLED", "true")
     monkeypatch.setenv("FACEBOOK_AI_API_KEY", "")
@@ -132,8 +133,10 @@ def test_unanswered_question_survives_a_detail_before_consent(network, monkeypat
     assert incoming(n, "Hago pintura y trabajo en Coronel", mid="focus-2").status_code == 200
     detail = _detail(n)
     assert detail["lead"]["trades"] == ["Pintura"]
-    assert "autorizas" in detail["messages"][-1]["body"].casefold()
-    deliver_permission(n, monkeypatch)
+    assert not any("autorizas" in message["body"].casefold() for message in detail["messages"])
+    seed_historical_permission(n)
+    monkeypatch.setenv("FACEBOOK_AI_ENABLED", "true")
+    settings.cache_clear()
     assert incoming(n, "sí", mid="focus-3").status_code == 200
     sent = []
     def generate(_instructions, prompt, _limit):
@@ -166,6 +169,59 @@ def test_second_fragment_can_answer_a_still_pending_question(network, monkeypatc
     assert detail["lead"]["work_communes"] == ["Penco"]
     assert set(detail["lead"]["trades"]) == {"Carpintería", "Electricidad"}
     assert detail["lead"]["profile"]["sources"]["work_communes"]["message_id"] == "fragment-commune"
+
+
+@pytest.mark.parametrize("path", ["webhook", "recovery", "queued_notice"])
+def test_project_question_before_sharing_phone_gets_a_project_reply(network, monkeypatch, path):
+    from sqlalchemy import select
+    from app import facebook_inbox_sync
+    from app.facebook_crm_models import FacebookChatMessage
+    from app.network_models import NetworkFacebookPost
+    from test_network import requirement
+
+    n = network
+    org_id = enable_messaging(n, monkeypatch)
+    monkeypatch.setenv("FACEBOOK_AI_ENABLED", "true")
+    monkeypatch.setenv("FACEBOOK_AI_PROVIDER", "ollama")
+    monkeypatch.setenv("GALANCITO_LOCAL_AI_ENABLED", "true")
+    settings.cache_clear()
+    sent = []
+    monkeypatch.setattr("app.facebook_chat_worker.graph_send",
+                        lambda _page, _psid, body, _token: sent.append(body) or f"project-reply-{len(sent)}")
+    monkeypatch.setattr("app.facebook_chat_worker.generate_text",
+                        lambda *_args, **_kwargs: pytest.fail("La consulta se resuelve con datos del aviso"))
+    message = ("Trabajo con un contratista. Me dice el proyecto para así darle la inf y num de tlf "
+               "por donde nos podamos comunicar con usted.")
+    if path == "recovery":
+        monkeypatch.setattr(facebook_inbox_sync, "_graph_get", lambda _token, _resource, edge, _fields, _limit:
+            {"data": [{"id": "project-thread"}]} if edge == "conversations" else
+            {"data": [{"id": "project-before-contact", "message": message,
+                       "from": {"id": "123456789012345"}, "created_time": datetime.now(timezone.utc).isoformat()}]})
+        recovered = facebook_inbox_sync.sync_page_inbox(page_id=settings().facebook_page_id,
+            page_token="synthetic", org_id=org_id, session_factory=n["Session"])
+        assert recovered["replies_queued"] == 1
+    else:
+        assert incoming(n, message, mid="project-before-contact").status_code == 200
+    if path == "queued_notice":
+        with n["Session"].begin() as db:
+            db.scalar(select(FacebookChatMessage).where(FacebookChatMessage.state == "pending")).state = "cancelled"
+        seed_historical_permission(n, state="pending")
+    assert process_chat_next(n["Session"])
+    assert sent == ["Claro. ¿Recuerdas el nombre de la obra, el trabajo o la comuna del aviso?"]
+    lead = _detail(n)["lead"]
+    assert not lead["ai_consent"]
+    assert not lead["contact_phone"]
+    assert not lead["phone_requested_at"]
+    assert not lead["needs_support"]
+
+    req = requirement(n)
+    with n["Session"].begin() as db:
+        db.add(NetworkFacebookPost(org_id=org_id, requirement_id=req["id"],
+            page_id=settings().facebook_page_id, state="published", post_id="1489275590928529_123456"))
+    assert incoming(n, "Brisas de Junquillar", mid="identified-project").status_code == 200
+    assert process_chat_next(n["Session"])
+    assert sent[-1] == ("La obra indicada es Brisas de Junquillar. "
+                        "Te dejo el aviso: https://www.facebook.com/1489275590928529_123456")
 
 
 def test_location_question_asks_for_notice_before_any_provider_and_uses_public_data(network, monkeypatch):
@@ -227,21 +283,15 @@ def test_consent_confusion_and_relative_date_resume_the_conversation(network, mo
     monkeypatch.setenv("FACEBOOK_AI_API_KEY", "synthetic")
     settings.cache_clear()
     # Historical notice already delivered by the previous release.
-    from app.galancito_flow import set_permission_request
-    from app.facebook_crm_models import FacebookChatMessage
     monkeypatch.setattr("app.facebook_ai.messenger_ai_source", lambda *_: "team")
     sent = []
     monkeypatch.setattr("app.facebook_chat_worker.graph_send",
                         lambda _page, _psid, body, _token: sent.append(body) or f"m-dates-{len(sent)}")
 
-    assert incoming(n, "¿Cuáles son los requisitos para postular?", mid="date-intro").status_code == 200
+    assert incoming(n, "Hola", mid="date-intro").status_code == 200
     assert process_chat_next(n["Session"])
     assert "autorizas" not in sent[-1].lower()
-    with n["Session"].begin() as db:
-        row = db.scalar(select(FacebookLead))
-        db.add(FacebookChatMessage(org_id=row.org_id, lead_id=row.id, page_id=row.page_id,
-            direction="outbound", state="sent", remote_id="historical-permission",
-            body=set_permission_request(row, "team"), updated_at=utcnow()))
+    seed_historical_permission(n, provider="team")
     assert incoming(n, "no entiendo", mid="date-confusion").status_code == 200
     assert process_chat_next(n["Session"])
     assert sent[-1] == "Podemos seguir por acá. Cuéntame qué necesitas y vemos cómo ayudarte."

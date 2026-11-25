@@ -13,6 +13,7 @@ from .galancito_intake import (
     unresolved_declarations,
 )
 from .galancito_knowledge import evidence_context, conversation_example
+from .galancito_flow import retired_permission_prompt
 from .galancito_semantic import consume_confirmation
 from .galancito_communes import find_communes
 from .galancito_contact_email import redact_email_for_intake, remember_shared_email, email_shared_by_sender, REFUSAL
@@ -133,6 +134,10 @@ def professional_message(message):
     return redact_email_for_intake(redact_mobile_for_intake(message))
 
 
+def messenger_prompt_text(message: str) -> str:
+    return "" if retired_permission_prompt(message) else professional_message(message)
+
+
 def messenger_context(message, facts, prior, turns, evidence, guide=None, *, limit=3000):
     """One bounded, contact-redacted prompt for automatic and operator drafts.
 
@@ -143,13 +148,15 @@ def messenger_context(message, facts, prior, turns, evidence, guide=None, *, lim
     public = {k: v for k, v in facts.items()
               if k not in {"display_name", "name_opt_out", "turn_changed", "contact_phone", "contact_email", "manual_fields"}
               and v is not None and v != "" and v != []}
+    prior = messenger_prompt_text(prior or "")
     parts = [
-        "Consulta actual: " + professional_message(message)[:600],
+        "Consulta actual: " + messenger_prompt_text(message)[:600],
         conversation_context(facts),
         "La procedencia declarada no confirma dónde puede trabajar. Una cuadrilla ampliable no confirma más integrantes ni personal contratado. Usa estos datos para no repetir preguntas.",
         "Datos profesionales declarados: " + json.dumps(public, ensure_ascii=False),
-        "Última pregunta entregada: " + professional_message(prior or "")[:220],
     ]
+    if prior:
+        parts.append("Última pregunta entregada: " + prior[:220])
     def add(section):
         if len("\n".join(parts)) + len(section) + 1 <= limit:
             parts.append(section)
@@ -158,8 +165,8 @@ def messenger_context(message, facts, prior, turns, evidence, guide=None, *, lim
 
     # Retrieve bounded older evidence from actual messages rather than inventing a summary.
     if evidence:
-        reference = professional_message(evidence_context(evidence[:1]))
-        if not private_data(reference):
+        reference = messenger_prompt_text(evidence_context(evidence[:1]))
+        if reference and not private_data(reference):
             add("Referencia prioritaria: " + reference)
     tokens = {token for token in plain(message + " " + (prior or "")).split() if len(token) > 3}
     older = [item for item in turns[8:60] if item.direction == "inbound"
@@ -167,15 +174,15 @@ def messenger_context(message, facts, prior, turns, evidence, guide=None, *, lim
     ranked = sorted(older, key=lambda item: len(tokens.intersection(plain(item.body).split())), reverse=True)
     for item in ranked[:2]:
         if tokens.intersection(plain(item.body).split()) and len("\n".join(parts)) + 650 < limit:
-            add("Mensaje anterior relevante (puede haber sido corregido): " + professional_message(item.body)[:140])
+            if text := messenger_prompt_text(item.body):
+                add("Mensaje anterior relevante (puede haber sido corregido): " + text[:140])
     # Keep the actual dialogue ahead of optional examples and reference guides.
     history = []
     for item in turns[:8]:
-        if (getattr(item, "consent_decision", None) is not None
-                or private_data(item.body) or "autorizas" in item.body.casefold()):
+        if getattr(item, "consent_decision", None) is not None or private_data(item.body):
             continue
-        history.append(("Persona: " if item.direction == "inbound" else "Red de Obras: ")
-                       + professional_message(item.body)[:200])
+        if text := messenger_prompt_text(item.body):
+            history.append(("Persona: " if item.direction == "inbound" else "Red de Obras: ") + text[:200])
     included = 0
     # Add recent turns first; render the final selection in chronological order.
     for n in range(len(history), 0, -1):
@@ -183,15 +190,15 @@ def messenger_context(message, facts, prior, turns, evidence, guide=None, *, lim
             included = n
             break
     if guide:
-        add("Guía administrativa validada: " + professional_message(guide.explanation or "")[:600]
-            + "\nOrientación documental: " + professional_message("; ".join(guide.document_guidance or []))[:350])
+        add("Guía administrativa validada: " + messenger_prompt_text(guide.explanation or "")[:600]
+            + "\nOrientación documental: " + messenger_prompt_text("; ".join(guide.document_guidance or []))[:350])
     else:
         add("No hay guía documental validada. Deriva esas dudas al equipo.")
     for item in evidence[1:]:
-        if not add("Referencia aprobada: " + professional_message(evidence_context([item]))):
+        if (reference := messenger_prompt_text(evidence_context([item]))) and not add("Referencia aprobada: " + reference):
             break
-    if example := conversation_example(message, prior or ""):
-        add("Ejemplo didáctico (no es un hecho de la obra): " + professional_message(example))
+    if example := messenger_prompt_text(conversation_example(message, prior)):
+        add("Ejemplo didáctico (no es un hecho de la obra): " + example)
     return "\n".join(parts), included
 
 

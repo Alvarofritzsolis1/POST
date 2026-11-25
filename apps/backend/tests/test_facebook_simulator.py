@@ -1,4 +1,5 @@
 """Interactive simulation must use the Messenger flow without touching its live stores."""
+import pytest
 from sqlalchemy import func, select
 
 from app.config import settings
@@ -48,7 +49,7 @@ def test_simulator_is_admin_scoped_and_retains_only_its_test_profile(ai_env, mon
     assert client.get(BASE, headers=resident).status_code == 403
 
 
-def test_simulator_local_mode_checks_consent_and_never_calls_external_services(ai_env, monkeypatch):
+def test_simulator_local_mode_uses_operator_choice_without_asking_in_chat(ai_env, monkeypatch):
     client = ai_env["client"]
     admin = signin(client)
     monkeypatch.setenv("GALANCITO_LOCAL_AI_ENABLED", "true")
@@ -68,14 +69,31 @@ def test_simulator_local_mode_checks_consent_and_never_calls_external_services(a
         "mode": "local", "message": "¿Cuáles son los requisitos para postular?",
     })
     assert first.status_code == 200, first.text
-    assert first.json()["source"] == "consent" and not calls
-    assert "IA local" in first.json()["reply"]
+    assert first.json()["source"] == "ai"
+    assert "autorizas" not in first.json()["reply"].lower()
+    assert calls and "requisitos para postular" in calls[0]
+
+
+@pytest.mark.parametrize("mode", ["rules", "local"])
+def test_simulator_answers_project_and_leaves_unknown_for_human(ai_env, monkeypatch, mode):
+    client = ai_env["client"]
+    admin = signin(client)
+    monkeypatch.setenv("GALANCITO_LOCAL_AI_ENABLED", "true")
+    settings.cache_clear()
+    monkeypatch.setattr("app.facebook_chat_worker.generate_local_text",
+                        lambda *_args: "No sé cómo responder eso.")
+    first = client.post(BASE + "/turn", headers=admin, json={"mode": mode, "message": (
+        "Trabajo con un contratista. Me dice el proyecto para así darle la inf y num de tlf "
+        "por donde nos podamos comunicar con usted.")})
+    assert first.status_code == 200, first.text
+    assert first.json()["reply"] == "Claro. ¿Recuerdas el nombre de la obra, el trabajo o la comuna del aviso?"
+    assert not first.json()["review_required"]
     second = client.post(BASE + "/turn", headers=admin, json={
-        "mode": "local", "message": "Sí, autorizo", "state": first.json()["state"],
+        "mode": mode, "state": first.json()["state"], "message": "¿Aceptan que uno emita factura en otra moneda?",
     })
     assert second.status_code == 200, second.text
-    assert second.json()["source"] == "ai"
-    assert calls and "requisitos para postular" in calls[0]
+    assert second.json()["reply"] is None
+    assert second.json()["review_required"]
 
 
 def test_simulator_short_application_answers_do_not_loop_or_invent_trade(ai_env, monkeypatch):
