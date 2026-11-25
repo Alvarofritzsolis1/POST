@@ -123,6 +123,9 @@ def main():
             admin.get_by_role("navigation", name="Red de Obras", exact=True).get_by_role("button", name="Necesidades", exact=True).click()
             admin.get_by_role("button", name=req["title"], exact=True).click()
             expect(admin.get_by_role("dialog").get_by_role("heading", name="Candidatos relacionados")).to_be_visible()
+            drawer = admin.get_by_role("dialog")
+            assert drawer.locator(".nwc-header-actions .nw-request-delete").count() == 0
+            expect(drawer.locator(".nw-delete-section").get_by_role("button", name="Eliminar solicitud", exact=True)).to_be_visible()
             admin.get_by_role("dialog").get_by_role("button", name="Partidas y documentos", exact=True).click()
             expect(admin.get_by_role("dialog").get_by_text("ADJUDICADO A: " + req["items"][0]["awards"][0]["contractor"], exact=True)).to_be_visible()
             admin.screenshot(path=str(args.output / "adjudicacion.png"), full_page=True)
@@ -150,6 +153,10 @@ def main():
         expect(
             admin.get_by_role("heading", name="Red de Obras.", exact=True)
         ).to_be_visible()
+        expect(admin.locator(".nw-publish-need")).to_be_visible()
+        expect(admin.locator(".nw-publish-available")).to_be_visible()
+        expect(admin.locator(".nw-publish-need")).to_have_css("background-color", "rgb(25, 89, 165)")
+        assert admin.locator(".nw-feed-card .nw-request-delete").count() == 0
         catalog = api(admin_ctx, "/catalog")
         assert len(catalog["sites"]) >= 2
         destination = next(
