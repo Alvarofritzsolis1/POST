@@ -65,11 +65,12 @@ def test_new_inbound_invalidates_draft_before_meta(network, monkeypatch):
         job = db.scalar(select(FacebookChatMessage).where(FacebookChatMessage.state == "ai_pending"))
         job.updated_at = utcnow() - timedelta(seconds=2)
 
-    def interrupted(context, fragments, **kwargs):
+    def interrupted(*args, **kwargs):
         assert incoming(network, "¿Dónde queda la obra?", mid="test-newer").status_code == 200
         raise RuntimeError("Ollama is unavailable")
     def unexpected(*args):
         raise AssertionError("The superseded outbound must not reach Meta")
+    monkeypatch.setattr("app.galancito_contextual.request_attribution", interrupted)
     monkeypatch.setattr("app.galancito_contextual.request_turn", interrupted)
     monkeypatch.setattr("app.facebook_chat_worker.graph_send", unexpected)
     assert process_chat_next(sessions)
@@ -178,11 +179,11 @@ def test_evidence_preserves_out_of_catalog_trade_and_ignores_business_contact():
     fragments = (
         Fragment("trade", utcnow(), "Trabajo reparando quemadores industriales en terreno."),
         Fragment("reference", utcnow(), "La página dice que tienen WhatsApp. ¿Cuál es?"),
-        Fragment("preference", utcnow(), "Prefiero que me contacten por WhatsApp."),
+        Fragment("preference", utcnow(), "Me acomoda más el wasap."),
     )
     assert evidence_options(fragments) == [
         (0, "trade", "quemadores industriales", "quemadores industriales"),
-        (2, "channel", "whatsapp", "whatsapp"),
+        (2, "channel", "whatsapp", "wasap"),
     ]
 
 

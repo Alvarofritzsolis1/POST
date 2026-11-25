@@ -59,7 +59,8 @@ def _quantity_mentions(value):
 
 def channel_preference(value):
     return bool(re.fullmatch(r"[a-z]+", value) or re.search(
-        r"\b(?:por|prefiero|mandame|manda|escribeme|escribanme|contactame|mi)\b", value))
+        r"\b(?:por|prefiero|mandame|manda|escribeme|escribanme|contactame|mi|"
+        r"me (?:acomoda|sirve|conviene|queda (?:mas )?comod[oa]))\b", value))
 
 
 def _channel_mentions(value):
