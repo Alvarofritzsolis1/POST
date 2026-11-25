@@ -192,6 +192,8 @@ def test_payment_guidance_does_not_treat_a_declaration_as_a_question():
     assert payment_guidance("A todo esto, ¿se paga por avance?")
     assert payment_guidance("¿A cuánto están pagando el metro de pintura en la obra?")
     assert not payment_guidance("Me pagan por avance. ¿Dónde queda la obra?")
+    assert not payment_guidance("Me pagan por avance.")
+    assert not payment_guidance("¿Cuánto cuestan las herramientas?")
 
 
 def test_explicit_human_requests_survive_contextual_routing():
