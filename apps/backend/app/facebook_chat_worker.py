@@ -27,7 +27,7 @@ from .models import utcnow
 from .network_service import key
 from .galancito_triage import (
     payment_guidance, plain, analyze, quick_reply, private_data, application_ai_candidate,
-    application_role, application_role_question, weekend_schedule_question,
+    application_role, application_role_question, worksite_details_question,
 )
 from .galancito_phone import confirmed_phone_reply
 from . import galancito_contextual as contextual
@@ -314,7 +314,7 @@ def process_chat_next(session_factory=SessionLocal, *, simulation_config=None, n
         declarations = []
         decision = None
         requested_handoff = False
-        schedule_question = False
+        requires_verified_details = False
         trace = {"trace_version": 1, "context_turns": 0, "known_fields": 0,
                  "knowledge_count": 0, "model_requested": False, "context_truncated": False}
         if state == "ai_pending":
@@ -324,7 +324,7 @@ def process_chat_next(session_factory=SessionLocal, *, simulation_config=None, n
             ).order_by(FacebookChatMessage.updated_at.desc(), FacebookChatMessage.id.desc()).limit(60)))
             focus = reply_focus(turns)
             latest = focus.body if focus else ""
-            schedule_question = weekend_schedule_question(latest)
+            requires_verified_details = worksite_details_question(latest)
             facts = profile_facts(lead, changed=bool(focus and lead.profile_sources and
                 any(origin.get("message_id") == focus.remote_id for origin in lead.profile_sources.values())))
             prior_question = (prior_delivered_prompt(db, lead, at=focus.created_at)
@@ -564,13 +564,13 @@ def process_chat_next(session_factory=SessionLocal, *, simulation_config=None, n
                 source = "local_recovery"
             else:
                 failed_ai = True
-        if schedule_question and not requested_handoff:
-            if schedule := exact_answer(evidence):
-                body, source, intent, failed_ai = schedule, "knowledge", "question", False
-                trace["verified_guidance"] = "work_schedule"
+        if requires_verified_details and not requested_handoff:
+            if confirmed_details := exact_answer(evidence):
+                body, source, intent, failed_ai = confirmed_details, "knowledge", "question", False
+                trace["verified_guidance"] = "worksite_details"
             else:
                 failed_ai = True
-                trace["fallback_reason"] = "unverified_work_schedule"
+                trace["fallback_reason"] = "unverified_worksite_details"
         if automated_reply and retired_permission_prompt(body):
             failed_ai, source = True, "fallback"
         # Re-check after slow inference: a human may have taken over or the
@@ -598,7 +598,7 @@ def process_chat_next(session_factory=SessionLocal, *, simulation_config=None, n
                 trace["semantic_updates"] = contextual.apply_declarations(db, current, declarations)
                 if trace["semantic_updates"]:
                     trace_unique_requirement(db, current, today=today(), remote_id=structured_fragments[-1].message_id)
-                if failed_ai and decision and declarations and not schedule_question:
+                if failed_ai and decision and declarations and not requires_verified_details:
                     followup = contextual.verified_followup(decision, profile_facts(current), structured_fragments)
                     if followup:
                         body, failed_ai = followup, False

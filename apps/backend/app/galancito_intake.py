@@ -9,7 +9,7 @@ import re
 from datetime import date, timedelta
 from .galancito_triage import (
     analyze, asks_about_application, declaration_text, is_pure_greeting, plain, private_data,
-    weekend_schedule_question,
+    worksite_details_question,
 )
 from .galancito_links import trade_declarations
 from .galancito_communes import find_communes
@@ -795,7 +795,7 @@ def needs_deeper_response(message: str) -> bool:
     """
     if private_data(message):
         return False
-    if asks_about_application(message) or weekend_schedule_question(message):
+    if asks_about_application(message) or worksite_details_question(message):
         return True
     text = plain(message)
     if text in {"si", "no", "1", "2", "uno", "dos", "hola", "ola",

@@ -408,6 +408,10 @@ def test_explicit_human_request_notifies_administration(network, monkeypatch):
     ("¿Cuánto pagan en una obra?", "No sé."),
     ("¿Cuánto pagan en una obra?", "¿Me autorizas a usar IA local?"),
     ("¿Se trabaja el sábado?", "¿Qué día de la semana prefieres que te contacte?"),
+    ("¿De cuántos son los turnos?", "¿Cuántos turnos tienes disponibles hoy?"),
+    ("¿Cuánto se demora la postulación?", "¿Desde cuándo estás disponible?"),
+    ("¿Se necesita llevar casco?", "¿Qué trabajo realizas?"),
+    ("¿Sigue vigente el aviso?", "¿En qué comuna puedes trabajar?"),
 ])
 def test_model_failure_notifies_human_without_sending_a_reply(network, monkeypatch, question, draft):
     from app.network_models import NetworkNotification
