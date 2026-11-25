@@ -4,7 +4,7 @@ from hashlib import sha256
 import json
 from math import gcd
 
-DATASET_VERSION = 3
+DATASET_VERSION = 4
 SYNTHETIC_PHONE = "+56900000000"
 MAX_CASES = 10_000
 
@@ -93,6 +93,15 @@ def focused_messenger_case(config: dict, index: int) -> Scenario:
         turns = [
             (f"Wena, soi {name} y le pego a la {colloquial}.", {"name": name, "trades": [primary]}),
             (f"Tambien hago {secondary.lower()} po.", {"trades": sorted([primary, secondary])}),
+        ]
+    elif focus == "profile" and index % 3 == 0:
+        count = 2 + selector % 7
+        turns = [
+            (f"Hola, soy {name}. Hago {primary.lower()}.", {"name": name, "trades": [primary]}),
+            (f"Somos {count} persona pero podemos sumar mas.", {"workers": count, "team_available": True}),
+            ("Y el número es " + SYNTHETIC_PHONE, {"phone": SYNTHETIC_PHONE, "workers": count}),
+            (f"Soy de {commune}.", {"workers": count, "work_communes": []}),
+            (f"Puedo trabajar en {other_commune}.", {"work_communes": [other_commune], "workers": count}),
         ]
     elif focus == "profile":
         turns = [
