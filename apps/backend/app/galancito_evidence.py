@@ -35,7 +35,9 @@ OWN_WORK = re.compile(r"\b(?:hago|hacemos|me dedico a|nos dedicamos a|me especia
 WORK_MODE = re.compile(r"^(?:a trato|por mi cuenta|por las mias|por mi propia cuenta|sol[oa])\b")
 EXTRA_TRADES = (("Yeso", ("yeso", "yesero", "yesera", "yesería")),
                 ("Andamios", ("andamio", "andamios", "andamiero")))
-CHANNEL_NAMES = {"wsp": "whatsapp", "wa": "whatsapp", "guasap": "whatsapp"}
+CHANNEL_NAMES = {"wsp": "whatsapp", "wa": "whatsapp", "guasap": "whatsapp",
+                 "wasap": "whatsapp", "watsap": "whatsapp", "guasa": "whatsapp",
+                 "correo": "email", "email": "email", "mail": "email", "correo electronico": "email"}
 
 
 def declaration_segments(text):
@@ -61,7 +63,9 @@ def _quantity_mentions(value):
 
 
 def channel_preference(value):
-    return bool(re.fullmatch(r"[a-z]+", value) or re.search(
+    if re.search(r"\b(?:no|nunca|sin|ejemplo|reservado|hipotetico)\b", value):
+        return False
+    return bool(re.fullmatch(r"[a-z]+(?: electronico)?", value) or re.search(
         r"\b(?:por|prefiero|mandame|manda|escribeme|escribanme|contactame|mi|"
         r"me (?:acomoda|sirve|conviene|queda (?:mas )?comod[oa]))\b", value))
 
@@ -74,6 +78,26 @@ def _channel_mentions(value):
                  get_close_matches(candidate, ("whatsapp", "messenger"), n=1, cutoff=.75))
         if names:
             yield word.start(), "channel", names[0], candidate
+
+
+def explicit_channel_mentions(text):
+    """Recover only unambiguous volunteered channel labels, not conversational intent."""
+    value = plain(text)
+    if ("?" in text or "¿" in text or PARTIES.search(value) or REPORTED.search(value)
+            or re.search(r"\b(?:no|nunca|sin|si|quizas|tal vez|ejemplo|reservado|otro|otra)\b", value)):
+        return []
+    # A short channel label is common after a voluntarily shared phone number.
+    mentions = list(_channel_mentions(value))
+    if len({item[2] for item in mentions}) != 1:
+        return []
+    for _, _, channel, evidence in mentions:
+        if (value in CHANNEL_NAMES or value in {"whatsapp", "messenger"}
+                or re.search(r"\b(?:prefiero|me acomoda(?: mas)?|me sirve(?: mas)?|me conviene|"
+                             r"escribeme|escribanme|contactame|contactenme|mandame|mandenme|"
+                             r"mejor) (?:el |la |por |al |a |via )?"
+                             + re.escape(evidence) + r"\b", value)):
+            return [(channel, evidence)]
+    return []
 
 
 def evidence_options(fragments):
