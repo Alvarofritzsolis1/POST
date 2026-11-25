@@ -49,7 +49,7 @@ from .galancito_intake import (
 )
 from .galancito_memory import (
     apply_messenger_message, approved_trade_aliases, aware, capture_voluntary_contact, note_profile_sources,
-    prior_delivered_prompt, professional_message, profile_facts, messenger_context,
+    prior_delivered_prompt, professional_message, profile_facts, messenger_context, recover_missing_contact,
 )
 from .galancito_contact_profile import contact_profile
 from .galancito_conversation_summary import (
@@ -421,6 +421,8 @@ def ingest_facebook_payload(db, payload, cfg, *, notices=None):
             consent_decision=consent,
         ))
         if historical or event_at < received_at - timedelta(hours=24):
+            if not audio_received:
+                recover_missing_contact(db, lead)
             continue
         signal = ("Solicitó atención humana" if wants_human(body) else
                   assistance_signal(body, is_audio=audio_received,
@@ -1150,6 +1152,16 @@ def generate_conversation_brief(lead_id: str, user: User = Depends(administrator
     return brief
 
 
+@router.post("/leads/{lead_id}/recover-contact")
+def recover_contact_fields(lead_id: str, user: User = Depends(administrator),
+                           db: Session = Depends(get_db)):
+    lead = _lead(db, user, lead_id, lock=True)
+    if recover_missing_contact(db, lead):
+        lead.updated_at = utcnow()
+    db.commit()
+    return _lead_view(db, lead)
+
+
 @router.post("/leads/{lead_id}/refresh-profile")
 def refresh_declared_profile(lead_id: str, user: User = Depends(administrator),
                              db: Session = Depends(get_db)):
@@ -1159,10 +1171,11 @@ def refresh_declared_profile(lead_id: str, user: User = Depends(administrator),
     while respecting names already set by an operator or Meta.
     """
     lead = _lead(db, user, lead_id, lock=True)
+    recover_missing_contact(db, lead)
     messages = list(db.scalars(select(FacebookChatMessage).where(
         FacebookChatMessage.org_id == user.org_id,
         FacebookChatMessage.lead_id == lead.id,
-    ).order_by(FacebookChatMessage.created_at, FacebookChatMessage.id).limit(200)))
+    ).order_by(FacebookChatMessage.created_at.desc(), FacebookChatMessage.id.desc()).limit(200)))[::-1]
     previous_question = ""
     aliases = approved_trade_aliases(db, lead.org_id)
     for item in messages:

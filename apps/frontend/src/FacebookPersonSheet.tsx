@@ -93,6 +93,8 @@ export default function FacebookPersonSheet({person,onClose,onChanged,onOpenChat
   const closeButton=useRef<HTMLButtonElement>(null);
   // Evitar que un clic externo o un cambio al chat descarte datos pendientes.
   const unsavedRef=useRef(false);
+  const editingRef=useRef(false);
+  editingRef.current=editing;
   unsavedRef.current=Boolean(editing && data && (
     phone.trim()!==(data.lead.contact_phone||"") ||
     email.trim()!==(data.lead.contact_email||"") ||
@@ -150,7 +152,29 @@ export default function FacebookPersonSheet({person,onClose,onChanged,onOpenChat
       setPhone(detail.lead.contact_phone||"");setEmail(detail.lead.contact_email||"");setDate(detail.lead.follow_up_on||"");
       setNotes(detail.lead.follow_up_note||"");
     }).catch(e=>{if(enabled)setError(errorText(e));});
-    return()=>{enabled=false;};
+    let refreshing=false;
+    let recoveryAttempted=false;
+    const refreshFacts=async()=>{
+      if(!enabled||document.hidden||editingRef.current||refreshing)return;
+      refreshing=true;
+      try{
+        let detail=await net<Detail>("/facebook/leads/"+person.id+"?include_messages=false");
+        if(!enabled||editingRef.current)return;
+        if(!recoveryAttempted&&(!detail.lead.contact_phone||!detail.lead.contact_email)){
+          recoveryAttempted=true;
+          await change("/facebook/leads/"+person.id+"/recover-contact",{});
+          detail=await net<Detail>("/facebook/leads/"+person.id+"?include_messages=false");
+        }
+        if(!enabled||editingRef.current)return;
+        setData(detail);
+        setPhone(detail.lead.contact_phone||"");setEmail(detail.lead.contact_email||"");
+        setDate(detail.lead.follow_up_on||"");setNotes(detail.lead.follow_up_note||"");
+      }catch{/* Keep the last confirmed record; normal reload remains available. */}
+      finally{refreshing=false;}
+    };
+    const timer=window.setInterval(refreshFacts,15000);
+    window.addEventListener("focus",refreshFacts);
+    return()=>{enabled=false;window.clearInterval(timer);window.removeEventListener("focus",refreshFacts);};
   },[person.id]);
   useEffect(()=>{
     let active=true;
@@ -194,9 +218,14 @@ export default function FacebookPersonSheet({person,onClose,onChanged,onOpenChat
     if(email.trim() && !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email.trim())){setError("Correo electrónico inválido.");return;}
     setSaving(true);setError("");setNotice("");
     try{
-      await change("/facebook/leads/"+person.id,{
-        contact_phone:phone.trim(),contact_email:email.trim(),follow_up_on:date||null,follow_up_note:notes.trim(),
-      },"PATCH");
+      // Do not overwrite a contact captured while this form was open unless
+      // the operator explicitly edited that field.
+      const patch:Record<string,string|null>={};
+      if(phone.trim()!==(data.lead.contact_phone||""))patch.contact_phone=phone.trim();
+      if(email.trim()!==(data.lead.contact_email||""))patch.contact_email=email.trim();
+      if(date!==(data.lead.follow_up_on||""))patch.follow_up_on=date||null;
+      if(notes.trim()!==(data.lead.follow_up_note||""))patch.follow_up_note=notes.trim();
+      if(Object.keys(patch).length)await change("/facebook/leads/"+person.id,patch,"PATCH");
       await reload();setEditing(false);setNotice("Ficha actualizada.");onChanged();
     }catch(e){setError(errorText(e));}
     finally{setSaving(false);}

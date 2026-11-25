@@ -1415,3 +1415,38 @@ def test_contact_followup_uses_qwen_or_pending_field_fallback(network, monkeypat
         assert lead.contact_phone == normalize_mobile("+569 87654321")
         assert lead.team_available is None
         assert not lead.needs_support
+
+
+def test_recover_missing_voluntary_phone_from_saved_chat(network, monkeypatch):
+    from datetime import timedelta
+    from app.models import utcnow
+    n = network
+    enable_messaging(n, monkeypatch)
+    assert incoming(n, text="Hago pintura", mid="repair-intro").status_code == 200
+    lead_id = n["admin"].get("/api/v1/network/facebook/center").json()["leads"][0]["id"]
+    with n["Session"].begin() as db:
+        lead = db.get(FacebookLead, lead_id)
+        db.add(FacebookChatMessage(org_id=lead.org_id, lead_id=lead.id, page_id=lead.page_id,
+            direction="inbound", state="received", remote_id="repair-phone",
+            body="Y el numero es 900000000", created_at=utcnow()-timedelta(minutes=1)))
+    endpoint = "/facebook/leads/" + lead_id + "/recover-contact"
+    recovered = n["send"](n["admin"], endpoint, {})
+    assert recovered.status_code == 200, recovered.text
+    assert recovered.json()["contact_phone"] == "+56900000000"
+    assert recovered.json()["profile"]["sources"]["contact_phone"]["message_id"] == "repair-phone"
+    assert n["send"](n["admin"], endpoint, {}).json()["contact_phone"] == "+56900000000"
+    cleared = n["send"](n["admin"], "/facebook/leads/" + lead_id, {"contact_phone": ""}, "PATCH")
+    assert cleared.status_code == 200
+    assert n["send"](n["admin"], endpoint, {}).json()["contact_phone"] == ""
+
+
+def test_webhook_captures_number_after_ai_handoff(network, monkeypatch):
+    n = network
+    enable_messaging(n, monkeypatch)
+    monkeypatch.setenv("FACEBOOK_AI_ENABLED", "true")
+    settings.cache_clear()
+    assert incoming(n, text="Alguien del equipo porfi", mid="repair-handoff").status_code == 200
+    assert incoming(n, text="Y el numero es 900000000", mid="repair-phone-live").status_code == 200
+    lead = n["admin"].get("/api/v1/network/facebook/center").json()["leads"][0]
+    assert lead["contact_phone"] == "+56900000000"
+    assert lead["ai_paused"] is True

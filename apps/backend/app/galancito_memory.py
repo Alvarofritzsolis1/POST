@@ -15,8 +15,8 @@ from .galancito_intake import (
 from .galancito_knowledge import evidence_context, conversation_example
 from .galancito_semantic import consume_confirmation
 from .galancito_communes import find_communes
-from .galancito_contact_email import redact_email_for_intake, remember_shared_email
-from .galancito_phone import redact_mobile_for_intake, remember_shared_phone
+from .galancito_contact_email import redact_email_for_intake, remember_shared_email, email_shared_by_sender, REFUSAL
+from .galancito_phone import redact_mobile_for_intake, remember_shared_phone, phone_shared_by_sender, phone_declined
 from .galancito_links import audit_event, record_declared_trades, trade_declarations, trade_terms
 from .galancito_triage import (ASK_APPLICATION_OWN, application_role, application_role_question,
                               analyze, asks_about_application, plain, private_data, referring_to_application, ambiguous_application_role)
@@ -77,6 +77,56 @@ def capture_voluntary_contact(db, lead, message, prior, *, at, remote_id):
             states[field] = "rechazado_por_usuario"
     note_profile_sources(lead, states, source="message", at=at, remote_id=remote_id, states=states)
     return phone_saved, email_saved
+
+
+def recover_missing_contact(db, lead):
+    """Restore missing contact fields from the newest explicit inbound evidence.
+
+    No inference, no external calls, no reply, no override of manual edits or
+    later refusal. Read only this contact's bounded, persisted conversation.
+    """
+    sources = lead.profile_sources or {}
+    phone_pending = not (lead.contact_phone or lead.phone_opt_out or
+                         sources.get("contact_phone", {}).get("source") == "manual")
+    email_pending = not (lead.contact_email or lead.email_opt_out or
+                         sources.get("contact_email", {}).get("source") == "manual")
+    if not (phone_pending or email_pending):
+        return False
+    rows = db.scalars(select(FacebookChatMessage).where(
+        FacebookChatMessage.org_id == lead.org_id,
+        FacebookChatMessage.lead_id == lead.id,
+        FacebookChatMessage.direction == "inbound",
+    ).order_by(FacebookChatMessage.created_at.desc(), FacebookChatMessage.id.desc()).limit(200))
+    recovered = False
+    for item in rows:
+        if not (phone_pending or email_pending):
+            break
+        if item.consent_decision is not None:
+            continue
+        body, at = item.body or "", aware(item.created_at)
+        if not at:
+            continue
+        prior = prior_delivered_prompt(db, lead, at=at)
+        if phone_pending and phone_declined(body, prior):
+            phone_pending = False
+        if email_pending and REFUSAL.search(body):
+            email_pending = False
+        states = {}
+        if phone_pending and phone_shared_by_sender(body, prior):
+            if remember_shared_phone(lead, body, prior, at=at):
+                states["contact_phone"] = "confirmado_por_declaracion"
+            phone_pending = False
+        if email_pending and email_shared_by_sender(body, prior):
+            if remember_shared_email(lead, body, prior, at=at):
+                states["contact_email"] = "confirmado_por_declaracion"
+            email_pending = False
+        if states:
+            note_profile_sources(lead, states, source="message", at=at,
+                                 remote_id=item.remote_id, states=states)
+            for field in states:
+                audit_event(db, lead, "field_" + field, source="message", remote_id=item.remote_id)
+            recovered = True
+    return recovered
 
 
 def professional_message(message):
