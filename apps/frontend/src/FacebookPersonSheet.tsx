@@ -27,7 +27,12 @@ type Lead = {
   contact_phone?: string | null; phone_source?: string | null; phone_requested_at?: string | null;
   phone_opt_out?: boolean; contact_email?: string | null;
   email_source?: string | null; email_opt_out?: boolean; can_reply: boolean;
-  profile: { summary: string; percent: number; completed:number; total:number; missing: string[]; evidence: string };
+  profile: { summary: string; percent: number; completed:number; total:number; missing: string[]; evidence: string;
+    declared_context?: {
+      crew_size?: { value: string }; declared_origin?: { value: string };
+      preferred_contact?: { value: "whatsapp" | "messenger" };
+    };
+  };
 };
 type Detail = { lead: Lead };
 type BriefFact = { key:string; label:string; value:string; source:"chat"|"manual"|"registrado";
@@ -346,6 +351,8 @@ export default function FacebookPersonSheet({person,onClose,onChanged,onOpenChat
                 <Mail size={14}/> Falta teléfono o correo para coordinar fuera de Messenger.
                 Se pueden solicitar solo de manera opcional cuando corresponda.
               </p>}
+              {lead.profile.declared_context?.preferred_contact &&
+                <Cell title="Canal preferido" value={lead.profile.declared_context.preferred_contact.value === "whatsapp" ? "WhatsApp" : "Messenger"}/>}
               <Cell title="Origen del número" value={lead.phone_source==="message"?"Enviado voluntariamente":
                 lead.phone_source==="manual"?"Registrado por administración":"Sin dato"}/>
               {!lead.contact_phone&&!lead.phone_opt_out&&!lead.phone_requested_at&&lead.can_reply&&
@@ -361,12 +368,14 @@ export default function FacebookPersonSheet({person,onClose,onChanged,onOpenChat
                 (lead.specialty?[lead.specialty]:[]))].map(t=><span key={t} className="fbps-tag trade">{t}</span>)}</div>
               <div className="fbps-fields"><Cell title="Experiencia" value={lead.experience}/>
                 <Cell title="Trabaja con equipo" value={lead.team_available===null?"Por confirmar":lead.team_available?"Sí":"No"}/>
-                <Cell title="Personas disponibles" value={lead.workers}/>
+                <Cell title="Cuadrilla declarada" value={lead.profile.declared_context?.crew_size?.value ?? lead.workers}/>
                 <Cell title="Tiene empleados" value={lead.has_employees===null?"Por confirmar":lead.has_employees?"Sí":"No"}/>
               </div></section>
             <section className="fbps-card"><h3><MapPin size={18}/> Disponibilidad y cobertura</h3>
               <div className="fbps-fields"><Cell title="Disponibilidad" value={lead.availability}/>
-                <Cell title="Comunas" value={lead.work_communes?.length?lead.work_communes.join(", "):lead.work_area}/>
+                <Cell title="Comunas de trabajo" value={lead.work_communes?.length?lead.work_communes.join(", "):lead.work_area}/>
+                {lead.profile.declared_context?.declared_origin &&
+                  <Cell title="Procedencia" value={lead.profile.declared_context.declared_origin.value}/>}
                 <Cell title="Último mensaje" value={dateText(lead.last_inbound_at)}/>
                 <Cell title="Próximo seguimiento" value={dateText(lead.follow_up_on)}/></div></section>
             <section className="fbps-card"><h3><ShieldCheck size={18}/> Estado del proceso</h3>

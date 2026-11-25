@@ -56,6 +56,7 @@ class Settings(BaseSettings):
     # Ollama se habilita solo tras descargar y probar el modelo en el VPS.
     galancito_local_model: Literal["qwen3.5:2b-q4_K_M"] = QWEN_2B
     galancito_local_ai_enabled: bool = False
+    galancito_contextual_messenger_enabled: bool = False
     # 2m preserves warm service after 20s idle; generation limits stay bounded.
     galancito_keep_alive: Literal["20s", "2m", "5m"] = "2m"
     galancito_num_predict: int = Field(default=140, ge=40, le=140)

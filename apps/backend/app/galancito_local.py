@@ -110,7 +110,7 @@ def interactive_timeout_seconds(cfg) -> float:
 
 def generate_local_text(instructions: str, data: str,
                         max_chars: int = 550, *, thinking: bool = False,
-                        seed: int | None = None) -> str:
+                        seed: int | None = None, response_format: dict | None = None) -> str:
     """Synchronous bounded chat with a single small model, no external APIs."""
     last_timings.set({})
     if not 1 <= max_chars <= 1200:
@@ -133,7 +133,7 @@ def generate_local_text(instructions: str, data: str,
         last_timings.set({"queue_ms": 0, "busy": True})
         raise RuntimeError("Galancito está ocupado")
     try:
-        return _generate(instructions, data, max_chars, cfg, thinking=thinking, seed=seed)
+        return _generate(instructions, data, max_chars, cfg, thinking=thinking, seed=seed, response_format=response_format)
     finally:
         _slot.release()
 
@@ -149,7 +149,7 @@ def training_timeout_seconds(tokens: int, *, thinking: bool = False) -> int:
 
 
 def _generate(instructions, data, max_chars, cfg, *, url=None, seed=None, allow_training=False,
-              thinking=False):
+              thinking=False, response_format=None):
     payload = {
         "model": getattr(cfg, "galancito_local_model", MODEL) if allow_training else cfg.galancito_local_model,
         "messages": [
@@ -171,6 +171,9 @@ def _generate(instructions, data, max_chars, cfg, *, url=None, seed=None, allow_
             "temperature": 0.2,
         },
     }
+    if response_format is not None:
+        payload["format"] = response_format
+        payload["options"].update(temperature=0, num_predict=300)
     if seed is not None:
         payload["options"]["seed"] = seed
     request = Request(
@@ -181,7 +184,8 @@ def _generate(instructions, data, max_chars, cfg, *, url=None, seed=None, allow_
     record_model_attempt(external=False)
     try:
         with _opener.open(request, timeout=(training_timeout_seconds(cfg.galancito_num_predict, thinking=thinking)
-                                            if allow_training else interactive_timeout_seconds(cfg))) as response:
+                                            if allow_training else max(45, interactive_timeout_seconds(cfg))
+                                            if response_format is not None else interactive_timeout_seconds(cfg))) as response:
             result = json.loads(response.read(100000).decode("utf-8"))
     except HTTPError as exc:
         if allow_training:
@@ -225,6 +229,8 @@ def _generate(instructions, data, max_chars, cfg, *, url=None, seed=None, allow_
     clean = content.strip()
     if not clean:
         raise RuntimeError("Galancito local no devolvió contenido útil")
+    if response_format is not None and (len(clean) > max_chars or result.get("done_reason") == "length"):
+        raise RuntimeError("Galancito local devolvió JSON incompleto")
     return clean[:max_chars]
 
 

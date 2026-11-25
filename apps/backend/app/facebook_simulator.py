@@ -13,6 +13,7 @@ from sqlalchemy.orm import Session, sessionmaker
 from .config import settings
 from .db import Base, get_db
 from .facebook_chat_worker import process_chat_next
+from .galancito_contextual import enabled as contextual_enabled
 from .facebook_crm import ingest_facebook_payload
 from .facebook_crm_models import FacebookChatMessage, FacebookLead, FacebookLeadTrade
 from .facebook_worksite_reply import published_notices
@@ -88,7 +89,8 @@ def _profile(db, lead):
     }
     if fields["display_name"] in UNKNOWN_NAMES:
         fields["display_name"] = None
-    return {**fields, "trades": trades}, view["field_states"]
+    declared = {field: data["value"] for field, data in view["declared_context"].items()}
+    return {**fields, "trades": trades, **declared}, view["field_states"]
 
 
 @router.get("")
@@ -133,6 +135,12 @@ def turn(body: TurnInput, response: Response, user: User = Depends(administrator
                 db.add_all(_restore(model, row) for row in state["rows"].get(model.__tablename__, []))
                 db.flush()
             lead = db.scalar(select(FacebookLead))
+            if lead is None and contextual_enabled(cfg):
+                # The operator explicitly chose local inference for this isolated conversation.
+                lead = FacebookLead(org_id=user.org_id, page_id=PAGE, psid=SENDER,
+                                    ai_consent=True, ai_consent_state="accepted", ai_consent_provider="ollama")
+                db.add(lead)
+                db.flush()
             before, _ = _profile(db, lead)
             history = [{"role": item.direction, "text": item.body} for item in db.scalars(
                 select(FacebookChatMessage).order_by(FacebookChatMessage.created_at, FacebookChatMessage.id))]
@@ -161,7 +169,7 @@ def turn(body: TurnInput, response: Response, user: User = Depends(administrator
                 "reply": reply,
                 "source": ("consent" if reply and is_permission_prompt(lead, reply)
                            else run.source if run else None),
-                "intent": analyze(message).intent,
+                "intent": run.intent if run and (run.timings or {}).get("contextual_turn") else analyze(message).intent,
                 "elapsed_ms": run.elapsed_ms if run else None,
                 "profile": fields,
                 "field_states": statuses,

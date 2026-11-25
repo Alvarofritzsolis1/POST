@@ -43,7 +43,7 @@ def profile_facts(lead, *, changed=False) -> dict:
             "manual_fields": [field for field, origin in (lead.profile_sources or {}).items()
                               if field in FIELDS and origin.get("source") == "manual"],
             "turn_changed": changed,
-            "declared_context": {k: v.get("value") for k, v in ((lead.profile_sources or {}).get("_declared_context") or {}).items() if isinstance(v, dict) and k in {"crew_expandable", "declared_origin"}},
+            "declared_context": {k: v.get("value") for k, v in ((lead.profile_sources or {}).get("_declared_context") or {}).items() if isinstance(v, dict) and k in {"crew_expandable", "declared_origin", "crew_size", "preferred_contact"}},
             # Only contact availability flags, never the phone or email itself.
             "contact_available": bool(getattr(lead, "contact_phone", "") or getattr(lead, "contact_email", "")),
             "contact_declined": bool(getattr(lead, "phone_opt_out", False) or getattr(lead, "email_opt_out", False)),

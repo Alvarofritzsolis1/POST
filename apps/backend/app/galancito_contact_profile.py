@@ -38,12 +38,15 @@ def contact_profile(lead) -> dict:
         ("work_area", "Comunas donde puede trabajar"),
         ("availability", "Disponibilidad"),
     ]
+    context = (getattr(lead, "profile_sources", None) or {}).get("_declared_context") or {}
+    declared = {field: context[field]["value"] for field in (
+        "declared_origin", "crew_size", "preferred_contact") if (context.get(field) or {}).get("value")}
     counts = {
         "interest_type": choice in {"service_offer", "employment", "both"},
         "specialty": bool(_value(lead, "specialty")),
         "entity_type": _value(lead, "entity_type") not in {"", "unknown"},
         "team_available": team is not None,
-        "workers": workers is not None,
+        "workers": workers is not None or bool(declared.get("crew_size")),
         "experience": bool(_value(lead, "experience")),
         "work_area": bool(_value(lead, "work_area")),
         # A relative answer such as 'mañana' is known as a declaration,
@@ -87,14 +90,15 @@ def contact_profile(lead) -> dict:
     first += "."
     chunks = [first]
 
-    if team is False:
+    if crew := declared.get("crew_size"):
+        chunks.append("Tamaño de cuadrilla declarado: «" + crew[:100] + "».")
+    elif team is False:
         chunks.append("Indicó que trabaja por su cuenta.")
     elif team is True and workers is not None:
         chunks.append(f"Señaló que puede acudir con {workers} {'persona' if workers == 1 else 'personas'} en total.")
     elif team is True:
         chunks.append("Puede trabajar con un equipo, pero falta confirmar cuántas personas.")
 
-    context = (getattr(lead, "profile_sources", None) or {}).get("_declared_context") or {}
     flexibility = context.get("crew_expandable", {}).get("value")
     origin = context.get("declared_origin", {}).get("value")
     if flexibility is True:
@@ -137,6 +141,9 @@ def contact_profile(lead) -> dict:
         channels = ("teléfono y correo" if contact_phone and contact_email
                     else "teléfono" if contact_phone else "correo")
         chunks.append("Datos de contacto disponibles: " + channels + ".")
+    channel = {"whatsapp": "WhatsApp", "messenger": "Messenger"}.get(declared.get("preferred_contact"))
+    if channel:
+        chunks.append("Prefiere conversar por " + channel + ".")
     answered = sum(counts[key] and states[key] != "rechazado_por_usuario" for key, _ in fields)
     applicable = sum(states[key] != "rechazado_por_usuario" for key, _ in fields)
     return {
@@ -144,7 +151,8 @@ def contact_profile(lead) -> dict:
         "completed": answered, "total": applicable,
         "percent": round(answered * 100 / applicable) if applicable else None,
         "missing": missing,
-        "field_states": states,
+        "field_states": {**states, **{field: context[field].get("state", "confirmado_por_declaracion")
+                                    for field in declared}},
         "contact_state": ("canal_voluntario" if contact_phone or contact_email else "solo_messenger"),
         "next_field": missing[0] if missing else None,
         "evidence": "Datos declarados en Messenger o registrados por un operador; no acreditan experiencia ni cumplimiento documental.",

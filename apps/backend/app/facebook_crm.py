@@ -21,6 +21,7 @@ from sqlalchemy import func, select, text as sql_text
 from sqlalchemy.orm import Session
 
 from .config import settings
+from . import galancito_contextual as contextual
 from .db import get_db, SessionLocal
 from .facebook_ai import (AD_INSTRUCTIONS, REPLY_INSTRUCTIONS, generate_text,
                           messenger_ai_source, messenger_contact_ai_source, verified_ad_copy, local_first_messenger, messenger_external_fallback_enabled,
@@ -453,6 +454,8 @@ def ingest_facebook_payload(db, payload, cfg, *, notices=None):
         # El mensaje entrante más reciente desplaza cualquier respuesta
         # automática aún no enviada, incluidas las reglas locales.
         waiting_for_ai, waiting_for_permission = False, False
+        coalesced = None
+        contextual_allowed = contextual.authorized(cfg, lead)
         for previous in db.scalars(select(FacebookChatMessage).where(
             FacebookChatMessage.lead_id == lead.id,
             FacebookChatMessage.operator_id.is_(None),
@@ -461,6 +464,9 @@ def ingest_facebook_payload(db, payload, cfg, *, notices=None):
         )):
             waiting_for_ai |= previous.ai_generated
             waiting_for_permission |= previous.state in {"pending", "drafting"} and "autorizas" in previous.body.casefold()
+            if (contextual_allowed and not coalesced and previous.state == "ai_pending"
+                    and aware(previous.updated_at) >= received_at - timedelta(seconds=3)):
+                coalesced = previous
             previous.state = "cancelled"
         # The first human-handoff turn still needs a brief acknowledgement,
         # even though flag_for_human has already paused automation.
@@ -518,6 +524,13 @@ def ingest_facebook_payload(db, payload, cfg, *, notices=None):
             contact_fallback = direct if contact_model else None
             if contact_model:
                 direct = None
+            contextual_turn = bool(contextual_allowed and not (signal or location or lead.needs_support
+                or lead.ai_paused or (application and not application_model)
+                or identity_reply(body) or small_talk_reply(body))
+                and contextual.eligible(body)
+                and (not direct or direct == digital_help or direct == contact_fallback))
+            if contextual_turn:
+                direct = None
             ai_source = "disabled" if direct else configured_source
             recent = db.scalar(select(func.count(FacebookChatMessage.id)).where(
                 FacebookChatMessage.lead_id == lead.id,
@@ -534,6 +547,9 @@ def ingest_facebook_payload(db, payload, cfg, *, notices=None):
                              AI_PERMISSION_DECLINED if lead.ai_consent_state == "declined" else
                              ("Dejé tu consulta para que la revise una persona del equipo. "
                               "Te pueden ayudar por este chat; no necesitas enviar documentos."))
+            elif contextual_turn:
+                reply, use_ai = contact_fallback or next_intake_reply(
+                    body, profile_facts(lead, changed=changed), previous_question), True
             elif direct:
                 reply = direct
             elif contact_model:
@@ -594,7 +610,9 @@ def ingest_facebook_payload(db, payload, cfg, *, notices=None):
                 queued = db.scalar(select(func.count(FacebookChatMessage.id)).where(
                     FacebookChatMessage.org_id == lead.org_id,
                     FacebookChatMessage.state == "ai_pending")) or 0
-                if queue_locked and queued < 2:
+                if coalesced is not None:
+                    coalesced.state, coalesced.updated_at = "ai_pending", received_at
+                elif queue_locked and queued < 2:
                     db.add(FacebookChatMessage(
                         org_id=lead.org_id, lead_id=lead.id, page_id=lead.page_id,
                         direction="outbound", state="ai_pending",
