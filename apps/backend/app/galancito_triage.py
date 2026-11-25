@@ -89,7 +89,8 @@ class Intake:
 _APPLICATION = re.compile(
     r"\b(?:vi|lei|encontre|me aparecio|me interesa|escribo por|vengo por) "
     r"(?:\w+ ){0,3}(?:aviso|publicacion|postulacion|oferta|vacante|anuncio|pega|trabajo)\b|"
-    r"\b(?:(?:como|quiero|puedo) (?:puedo )?postul(?:o|ar)(?:me)?|me quiero postular)\b"
+    r"\b(?:(?:como|quiero|puedo) (?:puedo )?postul(?:o|ar)(?:me)?|me quiero postular)\b|"
+    r"\b(?:informacion|info|detalles|consultar|consulta) (?:\w+ ){0,5}(?:publicacion|aviso|anuncio|oferta|vacante)\b"
 )
 # Prompts actuales: lenguaje sencillo, sin exigir enlaces ni conocimientos de Facebook.
 ASK_APPLICATION = "Claro, te ayudo. ¿De qué trabajo era el aviso?"
