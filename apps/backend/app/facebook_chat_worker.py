@@ -677,6 +677,7 @@ def _contextual_reply(session_factory, cfg, *, lead_id, job_id, inbound_at, clai
     if private_data(grounding):
         return (decision, declarations, None), "fallback", timings, "private_context"
 
+    declarations = contextual.explicit_channel_declarations(fragments)
     hints = contextual.evidence_options(fragments)
     for attempt in range(2):
         selecting = bool(hints and attempt == 0)
@@ -704,7 +705,7 @@ def _contextual_reply(session_factory, cfg, *, lead_id, job_id, inbound_at, clai
         if selecting:
             if failure == "RuntimeError":
                 break
-            declarations = contextual.supported_declarations(selected, fragments)
+            declarations = list(dict.fromkeys([*declarations, *contextual.supported_declarations(selected, fragments)]))
             continue
         if candidate is None:
             break
