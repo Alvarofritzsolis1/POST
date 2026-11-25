@@ -30,7 +30,7 @@ type Lead = {
   profile: { summary: string; percent: number; completed:number; total:number; missing: string[]; evidence: string;
     declared_context?: {
       crew_size?: { value: string }; declared_origin?: { value: string };
-      preferred_contact?: { value: "whatsapp" | "messenger" };
+      preferred_contact?: { value: "whatsapp" | "messenger" | "email" };
     };
   };
 };
@@ -352,7 +352,7 @@ export default function FacebookPersonSheet({person,onClose,onChanged,onOpenChat
                 Se pueden solicitar solo de manera opcional cuando corresponda.
               </p>}
               {lead.profile.declared_context?.preferred_contact &&
-                <Cell title="Canal preferido" value={lead.profile.declared_context.preferred_contact.value === "whatsapp" ? "WhatsApp" : "Messenger"}/>}
+                <Cell title="Canal preferido" value={lead.profile.declared_context.preferred_contact.value === "whatsapp" ? "WhatsApp" : lead.profile.declared_context.preferred_contact.value === "email" ? "Correo electrónico" : "Messenger"}/>}
               <Cell title="Origen del número" value={lead.phone_source==="message"?"Enviado voluntariamente":
                 lead.phone_source==="manual"?"Registrado por administración":"Sin dato"}/>
               {!lead.contact_phone&&!lead.phone_opt_out&&!lead.phone_requested_at&&lead.can_reply&&
