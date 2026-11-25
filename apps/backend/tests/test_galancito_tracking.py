@@ -108,7 +108,7 @@ def test_analisis_no_auto_changes_and_ollama_requires_consent(network, monkeypat
     monkeypatch.setenv("FACEBOOK_AI_AUTO_REPLY_ENABLED", "true")
     settings.cache_clear()
     # A notice already delivered by the previous release still accepts a reply.
-    assert incoming(n, text="Hola de nuevo", mid="m-triage-2").status_code == 200
+    assert incoming(n, text="Hola", mid="m-triage-2").status_code == 200
     seed_historical_permission(n)
     assert incoming(n, text="Sí", mid="m-triage-3").status_code == 200
     after = n["send"](n["admin"], "/facebook/leads/" + lead["id"] + "/galancito/analyze")
