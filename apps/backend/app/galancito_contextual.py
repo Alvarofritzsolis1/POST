@@ -9,7 +9,7 @@ from typing import Literal
 
 from .facebook_ai import local_first_messenger
 from .galancito_communes import find_communes
-from .galancito_evidence import declaration_segments, evidence_options, QUANTITY_PATTERN, QUALIFIED_CREW
+from .galancito_evidence import channel_preference, declaration_segments, evidence_options, QUANTITY_PATTERN, QUALIFIED_CREW
 from .galancito_flow import consented_for, grounded_reply
 from .galancito_intake import (
     UNKNOWN_NAMES, acceptable_intake_draft, intake_question_fields, needs_deeper_response,
@@ -255,7 +255,8 @@ def supported_declarations(declarations, fragments):
                     fragments[item.message_index:item.message_index + 1])
         boundary = re.compile(r"(?<!\w)" + re.escape(evidence) + r"(?!\w)")
         fragment = next((part for part in reversed(possible)
-                         if any(boundary.search(clause) for clause in declaration_segments(part.text))), None)
+                         if any(boundary.search(clause) and (item.f != "channel" or channel_preference(clause))
+                                for clause in declaration_segments(part.text))), None)
         if fragment is None or private_data(item.e):
             continue
         if item.f == "crew":

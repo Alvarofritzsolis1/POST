@@ -172,3 +172,59 @@ def test_verified_followup_only_renders_a_pending_question_for_an_intake_turn():
     assert verified_followup(decision, {"field_states": {"work_communes": "rechazado_por_usuario"}},
                              (declaration,)) is None
     assert verified_followup(decision, {}, (declaration, question)) is None
+
+
+def test_evidence_preserves_out_of_catalog_trade_and_ignores_business_contact():
+    fragments = (
+        Fragment("trade", utcnow(), "Trabajo reparando quemadores industriales en terreno."),
+        Fragment("reference", utcnow(), "La página dice que tienen WhatsApp. ¿Cuál es?"),
+        Fragment("preference", utcnow(), "Prefiero que me contacten por WhatsApp."),
+    )
+    assert evidence_options(fragments) == [
+        (0, "trade", "quemadores industriales", "quemadores industriales"),
+        (2, "channel", "whatsapp", "whatsapp"),
+    ]
+
+
+def test_payment_guidance_does_not_treat_a_declaration_as_a_question():
+    from app.galancito_triage import payment_guidance
+
+    assert payment_guidance("A todo esto, ¿se paga por avance?")
+    assert payment_guidance("¿A cuánto están pagando el metro de pintura en la obra?")
+    assert not payment_guidance("Me pagan por avance. ¿Dónde queda la obra?")
+
+
+def test_explicit_human_requests_survive_contextual_routing():
+    from app.galancito_flow import wants_human
+
+    assert wants_human("Quiero hablar con un humano")
+    assert wants_human("¿Habrá una persona que me pueda ayudar?")
+    assert not wants_human("¿Habrá una persona que trabaje en la obra?")
+
+
+def test_unconfirmed_payment_does_not_pause_later_messages(network, monkeypatch):
+    sessions = configure(network, monkeypatch)
+    assert incoming(network, "A todo esto, ¿se paga por avance?", mid="test-payment").status_code == 200
+    with sessions.begin() as db:
+        job = db.scalar(select(FacebookChatMessage).where(FacebookChatMessage.state == "ai_pending"))
+        job.updated_at = utcnow() - timedelta(seconds=2)
+
+    sent = []
+
+    def unavailable(*args, **kwargs):
+        raise RuntimeError("Ollama is unavailable")
+
+    def send(_page, _psid, body, _token):
+        sent.append(body)
+        return "payment-reply"
+
+    monkeypatch.setattr("app.galancito_contextual.request_turn", unavailable)
+    monkeypatch.setattr("app.facebook_chat_worker.graph_send", send)
+    assert process_chat_next(sessions)
+    assert len(sent) == 1 and "forma de pago" in sent[0]
+    assert incoming(network, "Puedo trabajar en Lebu.", mid="test-next-location").status_code == 200
+    with sessions() as db:
+        lead = db.scalar(select(FacebookLead))
+        assert not lead.ai_paused and not lead.needs_support
+        assert db.scalar(select(func.count()).select_from(FacebookChatMessage).where(
+            FacebookChatMessage.state == "ai_pending")) == 1

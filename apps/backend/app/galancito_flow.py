@@ -90,7 +90,8 @@ def wants_human(message: str) -> bool:
     phrases = {
         "no quiero ia", "sin ia", "no usar ia", "no mas ia",
         "prefiero persona", "quiero una persona", "quiero hablar con alguien",
-        "hablar con humano", "atencion humana", "deten el bot",
+        "hablar con humano", "hablar con un humano", "quiero hablar con un humano",
+        "atencion humana", "deten el bot",
         "detener bot", "parar bot", "deja de responder", "no mas bot",
         "retirar consentimiento", "revoco mi autorizacion",
         "quiero hablar con una persona", "hablar con administracion",
@@ -105,7 +106,9 @@ def wants_human(message: str) -> bool:
         "alguien del equipo por favor", "alguien del equipo porfa",
         "que me atienda alguien del equipo", "mejor alguien del equipo",
     }
-    return any(value == phrase or value.startswith(phrase + " ") for phrase in phrases)
+    return (any(value == phrase or value.startswith(phrase + " ") for phrase in phrases)
+            or bool(re.fullmatch(r"(?:hay|habra) (?:alguien|una persona) que me "
+                                 r"(?:pueda|puede) (?:ayudar|atender)(?: por favor)?", value)))
 
 _NUMBERED_MENU = re.compile(
     r"\(\s*\d{1,2}\s*\)|(?:^|[\s:])\d{1,2}\)\s*|(?:^|\n)\s*\d{1,2}\.\s+"

@@ -19,7 +19,8 @@ CREW_SPAN = re.compile(r"\b(?:(?:" + QUALIFIER + r") )?(?:" + QUANTITY + r")"
 PARTIES = re.compile(r"\b(?:mi|un|una|el|la) (?:vecin[oa]|amig[oa]|herman[oa]|prim[oa]|colega|jefe|"
                      r"conocid[oa]|cunad[oa]|companero|companera)\b")
 REPORTED = re.compile(r"\b(?:(?:segun|en) (?:el aviso|la publicacion)|"
-                      r"(?:el aviso|la publicacion) (?:pide|busca|dice|ofrece))\b")
+                      r"(?:el aviso|la publicacion|la pagina|el sitio|la empresa) "
+                      r"(?:pide|busca|dice|ofrece|tiene|publica))\b")
 SELF = re.compile(r"\b(?:yo|por mi parte|en mi caso|por mi lado)\b")
 BREAK = re.compile(r"[,.;!\n]+|\b(?:pero|mientras que)\b", re.I)
 NEGATED = re.compile(r"^(?:(?:yo|ya) )*no (?:soy|somos|hago|hacemos|tengo|tenemos|"
@@ -27,6 +28,10 @@ NEGATED = re.compile(r"^(?:(?:yo|ya) )*no (?:soy|somos|hago|hacemos|tengo|tenemo
 ORIGIN_PREFIX = re.compile(r"(?:^|\b)(?:de|vivo en|vivimos en|radico en|resido en|residimos en|"
                            r"somos de|soy de|vengo de|desde) $")
 TRADE_DETAILS = re.compile(r" (?:en|de) (\w+(?: y \w+)?)\b")
+OWN_WORK = re.compile(r"\b(?:hago|hacemos|me dedico a|nos dedicamos a|me especializo en|"
+                      r"trabaj(?:o|amos) (?:de|en|\w+(?:ando|iendo))) "
+                      r"(?P<trade>\w+(?: (?!en\b|para\b|desde\b|pero\b|porque\b|cuando\b)\w+){0,5})")
+WORK_MODE = re.compile(r"^(?:a trato|por mi cuenta|por las mias|por mi propia cuenta|sol[oa])\b")
 EXTRA_TRADES = (("Yeso", ("yeso", "yesero", "yesera", "yesería")),
                 ("Andamios", ("andamio", "andamios", "andamiero")))
 CHANNEL_NAMES = {"wsp": "whatsapp", "wa": "whatsapp"}
@@ -52,6 +57,11 @@ def _quantity_mentions(value):
             yield match.start(), "crew", text, text
 
 
+def channel_preference(value):
+    return bool(re.fullmatch(r"[a-z]+", value) or re.search(
+        r"\b(?:por|prefiero|mandame|manda|escribeme|escribanme|contactame|mi)\b", value))
+
+
 def _channel_mentions(value):
     words = list(re.finditer(r"\b[a-z]+\b", value))
     for word in words:
@@ -74,7 +84,8 @@ def evidence_options(fragments):
                 prefix = value[:match.start()]
                 field = "origin" if ORIGIN_PREFIX.search(prefix) else "area"
                 mentions.append((match.start(), field, match[0], match[0]))
-            for match in trade_mentions(value, extra=EXTRA_TRADES):
+            catalog = list(trade_mentions(value, extra=EXTRA_TRADES))
+            for match in catalog:
                 detail = TRADE_DETAILS.match(value, match.end())
                 end = match.end()
                 if detail and not list(commune_mentions(detail[1])) and not list(
@@ -82,8 +93,14 @@ def evidence_options(fragments):
                     end = detail.end()
                 span = value[match.start():end]
                 mentions.append((match.start(), "trade", span, span))
+            if not catalog and (work := OWN_WORK.search(value)):
+                trade = work["trade"]
+                # An idiom about contracting is not an occupation.
+                if not WORK_MODE.search(trade) and not list(commune_mentions(trade)):
+                    mentions.append((work.start("trade"), "trade", trade, trade))
             mentions.extend(_quantity_mentions(value))
-            mentions.extend(_channel_mentions(value))
+            if channel_preference(value):
+                mentions.extend(_channel_mentions(value))
             for _, field, normalized, evidence in sorted(mentions):
                 key = field, normalized
                 if key not in seen:

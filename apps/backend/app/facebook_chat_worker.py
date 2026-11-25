@@ -25,7 +25,7 @@ from .galancito_flow import wants_human, safe_ai_reply, consented_for, grounded_
 from .facebook_crm_models import FacebookLead, FacebookChatMessage, FacebookTradeGuide, FacebookLeadTrade
 from .models import utcnow
 from .network_service import key
-from .galancito_triage import plain, analyze, quick_reply, private_data, application_ai_candidate, application_role, application_role_question
+from .galancito_triage import payment_guidance, plain, analyze, quick_reply, private_data, application_ai_candidate, application_role, application_role_question
 from .galancito_phone import confirmed_phone_reply
 from . import galancito_contextual as contextual
 from .facebook_lead_insights import trace_unique_requirement
@@ -427,6 +427,9 @@ def process_chat_next(session_factory=SessionLocal, *, simulation_config=None, n
                          fallback_reason=failure, semantic_fields=sorted({field for field, _, _ in declarations}))
             if requested_handoff:
                 body = "Dejé tu consulta para que te atienda una persona del equipo."
+            elif guidance := payment_guidance(focus.body if focus else ""):
+                body, source, intent = guidance, "local", "question"
+                trace.update(provider="local", verified_guidance="payment_terms")
             elif drafted:
                 body = natural_messenger_reply(safe_ai_reply(drafted))
             elif (fast and not intake_question_fields(fast)

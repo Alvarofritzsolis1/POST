@@ -209,6 +209,7 @@ def run(dataset, source_root, *, real_local=False, contextual=False, loopback=Fa
                                     "model": stats.get("response_model"), "fallback_reason": stats.get("fallback_reason"),
                                     "question_field": stats.get("question_field"),
                                     "guided_followup": stats.get("guided_followup"),
+                                    "verified_guidance": stats.get("verified_guidance"),
                                     "fragments": stats.get("fragment_count"), "semantic_updates": stats.get("semantic_updates"),
                                     "elapsed_ms": run_record.elapsed_ms, "conversation_ms": stats.get("conversation_ms"),
                                     "input_tokens": stats.get("input_tokens"), "output_tokens": stats.get("output_tokens")})
@@ -264,8 +265,9 @@ def run(dataset, source_root, *, real_local=False, contextual=False, loopback=Fa
                                   "repeated_fields": repeated, "reply": redact(answer),
                                   "elapsed_ms": round(elapsed, 3)})
                 actual_inference = case_model_calls > 0 if real_local else None
+                model_requirement_met = not case.get("requires_model", real_local) or case_model_output > 0
                 results.append({"id": case["id"], "passed": all(all(t["checks"].values()) for t in turns)
-                                and (not case.get("requires_model", real_local) or case_model_output > 0),
+                                and model_requirement_met, "model_requirement_met": model_requirement_met,
                                 "real_model_output_tokens": case_model_output,
                                 "category": case.get("category"), "real_model_attempted": actual_inference,
                                 "model_calls": case_model_calls, "turns": turns})
