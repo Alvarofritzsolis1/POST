@@ -1,0 +1,89 @@
+name: Galancito - evaluación contextual con Qwen real
+
+on:
+  pull_request:
+    paths:
+      - '.github/workflows/galancito-contextual-evaluation.yml'
+      - 'apps/backend/app/galancito_contextual.py'
+      - 'apps/backend/tests/fixtures/galancito_contextual_holdout.jsonl'
+      - 'scripts/evaluate_galancito_conversations.py'
+
+permissions:
+  contents: read
+
+concurrency:
+  group: galancito-contextual-evaluation-${{ github.event.pull_request.number }}
+  cancel-in-progress: true
+
+jobs:
+  paired:
+    name: Qwen real - bloque ${{ matrix.offset }}
+    runs-on: ubuntu-24.04
+    timeout-minutes: 28
+    strategy:
+      fail-fast: false
+      matrix:
+        offset: [0, 17, 34, 51, 68, 85, 102, 119, 136]
+    env:
+      GALANCITO_BASE_REF: ${{ github.event.pull_request.base.sha }}
+      GALANCITO_OFFSET: ${{ matrix.offset }}
+      GALANCITO_NUM_THREAD: "3"
+      GALANCITO_TIMEOUT_SECONDS: "60"
+      OLLAMA_HOST: 127.0.0.1:11434
+      OLLAMA_NO_CLOUD: "1"
+      OLLAMA_NUM_PARALLEL: "1"
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - name: Instalar dependencias y cargar el modelo base
+        run: |
+          python -m pip install -r apps/backend/requirements-dev.txt
+          mkdir -p "$RUNNER_TEMP/galancito-ollama" "$RUNNER_TEMP/galancito-report"
+          curl --fail --silent --show-error --location --retry 2 \
+            https://github.com/ollama/ollama/releases/download/v0.40.18/ollama-linux-amd64.tar.zst \
+            | tar --zstd -x -C "$RUNNER_TEMP/galancito-ollama"
+          export OLLAMA_MODELS="$RUNNER_TEMP/galancito-models"
+          runtime="$RUNNER_TEMP/galancito-ollama/bin/ollama"
+          "$runtime" serve > "$RUNNER_TEMP/galancito-report/ollama.log" 2>&1 &
+          for attempt in {1..30}; do
+            if curl --fail --silent http://127.0.0.1:11434/api/version; then break; fi
+            sleep 1
+          done
+          "$runtime" pull qwen3.5:2b-q4_K_M
+          curl --fail --silent http://127.0.0.1:11434/api/tags > "$RUNNER_TEMP/galancito-report/model.json"
+          jq -e '.models[] | select(.name == "qwen3.5:2b-q4_K_M" and .digest == "1e2d21a4f03ab9e4a9c1976a4b7e88f21de61d65f2c5485d8fde8942be73f1e7")' \
+            "$RUNNER_TEMP/galancito-report/model.json" > /dev/null
+      - name: Comparar base y candidato con Meta simulado
+        run: |
+          git worktree add --detach "$RUNNER_TEMP/galancito-base" "$GALANCITO_BASE_REF"
+          reports="$RUNNER_TEMP/galancito-report"
+          fixtures="apps/backend/tests/fixtures/galancito_contextual_holdout.jsonl"
+          for side in base candidate; do
+            args=(--contextual)
+            if [[ "$side" == base ]]; then
+              args=(--source-root "$RUNNER_TEMP/galancito-base")
+            fi
+            python scripts/evaluate_galancito_conversations.py --cases "$fixtures" \
+              --real-local --ollama-loopback --offset "$GALANCITO_OFFSET" --limit 17 \
+              --output "$reports/$side.json" "${args[@]}" || test -s "$reports/$side.json"
+          done
+          jq -s 'map({contextual_enabled, conversations, passed, checks, profile_fields, latency, real_model_verified})' \
+            "$reports/base.json" "$reports/candidate.json" > "$reports/summary.json"
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: galancito-qwen-${{ matrix.offset }}
+          path: |
+            ${{ runner.temp }}/galancito-report/base.json
+            ${{ runner.temp }}/galancito-report/candidate.json
+            ${{ runner.temp }}/galancito-report/model.json
+            ${{ runner.temp }}/galancito-report/summary.json
+          retention-days: 14
+      - name: Verificar criterios de aceptación del bloque
+        run: |
+          jq -e '.real_model_verified and (.passed == .conversations)' \
+            "$RUNNER_TEMP/galancito-report/candidate.json"

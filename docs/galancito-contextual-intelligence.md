@@ -29,18 +29,18 @@ La opción `GALANCITO_CONTEXTUAL_MESSENGER_ENABLED` viene desactivada. En una in
 | --- | --- |
 | Seguridad e integridad | Conservar firma, alcance de la organización, ventana de Meta, pausa y revocación, protección de datos, distinción de avisos y ficha, y prioridad de ediciones manuales. |
 | Operación | Conservar confirmación de entrega, deduplicación, respuestas sustentadas por obras y control del equipo humano. |
-| Redundantes | Omitir la segunda selección de preguntas de ficha y la reescritura guionada en el camino contextual autorizado. |
+| Redundantes | Dar prioridad al turno estructurado sobre las preguntas calculadas para el respaldo. |
 | Perjudiciales para el razonamiento | Omitir el orden fijo de preguntas y las respuestas rápidas genéricas cuando Qwen puede evaluar el turno completo. |
 | Obsoletas | Mantener la regla del PR #191 que retiró los avisos de autorización externa. |
 | Interferencia con Qwen | Sustituir la confirmación de un único campo por un esquema de declaraciones múltiples y validar lo pedido contra la ficha y los datos del turno. |
 
 ## Modelo y MAX POWER
 
-El código de Messenger solicita `qwen3.5:2b-q4_K_M`. La autorización, las métricas de recursos y las recomendaciones de MAX POWER son independientes de los pesos. `galancito_local._generate` solicita el identificador del modelo configurado. El reporte del laboratorio anota el modelo devuelto, los tokens y la ruta usados. Una etiqueta igual no permite probar por sí sola una promoción LoRA en un VPS. Para eso se requieren el digest del modelo servido, la trazabilidad del adaptador, la comparación base/candidato y la prueba de rollback de esa promoción. Los resultados que acompaña este cambio corresponden al modelo base descargado del registro de Ollama.
+El código de Messenger solicita `qwen3.5:2b-q4_K_M`. La autorización, las métricas de recursos y las recomendaciones de MAX POWER son independientes de los pesos. `galancito_local._generate` solicita el identificador del modelo configurado. El reporte del laboratorio anota el modelo devuelto, los tokens y la ruta usados. Una etiqueta igual no permite probar por sí sola una promoción LoRA en un VPS. Para eso se requieren el digest del modelo servido, la trazabilidad del adaptador, la comparación base/candidato y la prueba de rollback de esa promoción. Los resultados que acompañan este cambio corresponden al modelo base descargado del registro de Ollama.
 
 ## Evaluación
 
-El archivo `apps/backend/tests/fixtures/galancito_contextual_holdout.jsonl` contiene 153 escenarios independientes. El primer caso reproduce el orden y el contenido semántico del incidente con un teléfono sintético. Los casos de infraestructura usan fallas controladas. El evaluador real ejecuta la ruta de webhook firmado, almacenamiento aislado y procesamiento normal de la cola. La entrega de Meta es simulada. Un caso pasa cuando satisface todos sus criterios y cuando, si corresponde, se registra una llamada al modelo. Las métricas semánticas se limitan a los campos, intenciones y condiciones etiquetadas. La naturalidad requiere revisión de las respuestas del informe.
+El archivo `apps/backend/tests/fixtures/galancito_contextual_holdout.jsonl` contiene 153 escenarios independientes. El primer caso reproduce el orden y el contenido semántico del incidente con un teléfono sintético. Los casos de infraestructura usan fallas controladas. El evaluador real ejecuta la ruta de webhook firmado, almacenamiento aislado y procesamiento normal de la cola. La entrega de Meta es simulada. Un caso pasa cuando satisface todos sus criterios y cuando, si corresponde, se registra salida del modelo esperado por escenario. Las métricas semánticas se limitan a los campos, intenciones y condiciones etiquetadas. La naturalidad requiere revisión de las respuestas del informe.
 
 ```bash
 python scripts/evaluate_galancito_conversations.py \

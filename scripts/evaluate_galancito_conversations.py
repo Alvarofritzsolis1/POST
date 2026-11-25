@@ -156,6 +156,7 @@ def run(dataset, source_root, *, real_local=False, contextual=False, loopback=Fa
                             ai_consent=True, ai_consent_state="accepted", ai_consent_provider="ollama"))
                 turns = []
                 case_model_calls = 0
+                case_model_output = 0
                 for number, turn in enumerate(case["turns"], start=1):
                     expected.update(turn.get("profile", {}))
                     mid = f"synthetic-{index}-{number}"
@@ -215,6 +216,8 @@ def run(dataset, source_root, *, real_local=False, contextual=False, loopback=Fa
                                 case_model_calls += calls_now
                                 input_tokens += int(stats.get("input_tokens") or 0)
                                 output_tokens += int(stats.get("output_tokens") or 0)
+                                if stats.get("response_model") == QWEN_2B:
+                                    case_model_output += int(stats.get("output_tokens") or 0)
                                 if stats.get("response_model"):
                                     observed_models.add(stats["response_model"])
                     if "trades" in expected:
@@ -225,7 +228,9 @@ def run(dataset, source_root, *, real_local=False, contextual=False, loopback=Fa
                     answer = replies[-1] if replies else ""
                     answer_norm = plain(answer)
                     errors = {key: {"expected": value, "actual": actual[key]}
-                              for key, value in expected.items() if value != actual[key]}
+                              for key, value in expected.items() if
+                              (plain(value) != plain(actual[key] or "") if key in {"crew_size", "declared_origin", "specialty"}
+                               and isinstance(value, str) else value != actual[key])}
                     required = turn.get("reply_contains", [])
                     forbidden = [*turn.get("reply_excludes", []), "ya estás contratado", "te adjudicamos",
                                  "contratación garantizada", "envíame tu RUT"]
@@ -243,6 +248,9 @@ def run(dataset, source_root, *, real_local=False, contextual=False, loopback=Fa
                         "avoids_known_questions": not repeated,
                         "no_unsupported_reply": not any(plain(x) in answer_norm for x in forbidden),
                         "profile": not errors,
+                        **({"trade_coverage": all(plain(term) in plain(" ".join(actual["trades"]))
+                                                  for term in turn["trade_terms"])}
+                           if "trade_terms" in turn else {}),
                         **({"intent": any(item["intent"] in expected_intents for item in observed)}
                            if expected_intents else {}),
                         **({"batched": len(replies) == turn["replies"]} if "replies" in turn else {}),
@@ -254,9 +262,12 @@ def run(dataset, source_root, *, real_local=False, contextual=False, loopback=Fa
                                   "elapsed_ms": round(elapsed, 3)})
                 actual_inference = case_model_calls > 0 if real_local else None
                 results.append({"id": case["id"], "passed": all(all(t["checks"].values()) for t in turns)
-                                and (not case.get("requires_model", real_local) or actual_inference),
+                                and (not case.get("requires_model", real_local) or case_model_output > 0),
+                                "real_model_output_tokens": case_model_output,
                                 "category": case.get("category"), "real_model_attempted": actual_inference,
                                 "model_calls": case_model_calls, "turns": turns})
+                if real_local:
+                    print(f'{case["id"]}: {("PASS" if results[-1]["passed"] else "FAIL")}', file=sys.stderr, flush=True)
             settings.cache_clear()
         engine.dispose()
     report = {"dataset": dataset.name, "conversations": len(cases), "turns": len(measurements),

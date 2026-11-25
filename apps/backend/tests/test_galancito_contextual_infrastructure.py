@@ -98,3 +98,20 @@ def test_evidence_bounds_manual_fields_and_idempotence(network, monkeypatch):
         saved = lead.profile_sources["_declared_context"]["crew_size"]
         assert saved["message_id"] == "test-origin"
         assert saved["value"] == "cerca de 15 en la cuadrilla"
+
+def test_questions_and_partial_counts_cannot_supply_profile_values():
+    at = utcnow()
+    fragments = (
+        Fragment("test-price", at, "¿A cuánto pagan la pintura?"),
+        Fragment("test-crew", at, "Somos más de 10 maestros"),
+        Fragment("test-town", at, "Me puedo mover a Bulnes"),
+    )
+    draft = Turn(i="question", q="none", r="Lo confirma el equipo.", d=[
+        {"f": "trade", "v": "pintura", "e": "pintura"},
+        {"f": "crew", "v": "10 maestros", "e": "10 maestros"},
+        {"f": "crew", "v": "Bulnes", "e": "Bulnes"},
+        {"f": "crew", "v": "más de 10 maestros", "e": "más de 10 maestros"},
+    ])
+    assert [(field, value) for field, value, _ in supported_declarations(draft, fragments)] == [
+        ("crew", "más de 10 maestros"),
+    ]
