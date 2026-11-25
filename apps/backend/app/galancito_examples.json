@@ -445,7 +445,7 @@
       "somos cinco maestros y podemos traer mas",
       "somos 3 y podemos sumar mas"
     ],
-    "content": "Ejercicio: la persona declara una cuadrilla de 5, ampliable sin máximo confirmado. Si falta oficio, pregunta qué trabajos realizan. No preguntes nuevamente la cantidad actual, no supongas empleados contratados ni disponibilidad.",
+    "content": "Ejercicio: conserva exactamente la cantidad de personas declarada. El equipo es ampliable sin máximo confirmado. Si falta oficio, pregunta qué trabajos realizan. No repitas la pregunta de cantidad ni supongas empleados contratados o disponibilidad.",
     "category": "Coaching Messenger · continuidad y ficha",
     "kind": "example",
     "scope": "both"
