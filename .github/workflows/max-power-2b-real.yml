@@ -16,25 +16,42 @@ permissions:
   contents: read
 concurrency:
   group: 2b-root-${{ github.ref }}
-  cancel-in-progress: false
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
 jobs:
-  real-2b:
+  cpu:
+    name: Qwen 2B CPU — ${{ matrix.label }}
     runs-on: ubuntu-latest
-    # The real two-core CPU gate includes two training passes and 16 generations.
-    # Leave enough time for evidence upload and cleanup within the hosted runner limit.
-    timeout-minutes: 350
+    # Each full training run needs its own budget on slower two-core runners.
+    timeout-minutes: 335
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - scenario: resume
+            label: Reanudación y diálogos
+            report_dir: /private/2b-probe
+          - scenario: uninterrupted
+            label: Entrenamiento continuo
+            report_dir: /private/uninterrupted
+    env:
+      REPORT_DIR: ${{ matrix.report_dir }}
+      TRAINING_TIMEOUT_SECONDS: 15000
     steps:
       - uses: actions/checkout@v4
       - name: Sintaxis
         run: python3 -m py_compile scripts/probe_galancito_2b_cpu.py scripts/max_power_2b_manager.py scripts/galancito_2b_conversation_gate.py scripts/galancito_2b_approved.py apps/backend/app/max_power_2b_control.py
       - name: Build CPU
-        run: docker build -f infrastructure/Dockerfile.cpu-2b-probe -t galant-2b-root .
-      - name: Primer paso neuronal real
+        timeout-minutes: 20
         run: |
+          docker build -f infrastructure/Dockerfile.cpu-2b-probe -t galant-2b-root .
           docker volume create galant-ci-2b
+      - name: Primer paso neuronal real
+        if: matrix.scenario == 'resume'
+        timeout-minutes: 50
+        run: |
           docker run --rm --memory=5g --memory-swap=5g --cpus=2 --pids-limit=96 -v galant-ci-2b:/private galant-2b-root --run --allow-download --steps 10 --stop-after 1
           mkdir -p evidence
-          docker run --rm --entrypoint cat -v galant-ci-2b:/private:ro galant-2b-root /private/2b-probe/latest.json > evidence/first-step.json
+          docker run --rm --entrypoint cat -v galant-ci-2b:/private:ro galant-2b-root "$REPORT_DIR/latest.json" > evidence/first-step.json
           python - <<'PY'
           import json
           r=json.load(open("evidence/first-step.json"))
@@ -44,11 +61,15 @@ jobs:
           assert r["steps"][0]["grad_norm"]>0
           PY
       - name: Restaurar optimizador y completar diez pasos reales
-        timeout-minutes: 245
+        if: matrix.scenario == 'resume'
+        timeout-minutes: 255
         run: |
           # Override only the CI deadline; preserve the production image's two-hour guard.
-          docker run --rm --memory=5g --memory-swap=5g --cpus=2 --pids-limit=96 -v galant-ci-2b:/private --entrypoint timeout galant-2b-root --signal=TERM --kill-after=30s 14400s python /src/scripts/probe_galancito_2b_cpu.py --run --allow-download --steps 10 --resume --conversation-eval
-          docker run --rm --entrypoint cat -v galant-ci-2b:/private:ro galant-2b-root /private/2b-probe/latest.json > evidence/final.json
+          docker run --rm --network none --memory=5g --memory-swap=5g --cpus=2 --pids-limit=96 \
+            -v galant-ci-2b:/private --entrypoint timeout galant-2b-root \
+            --signal=TERM --kill-after=30s "$TRAINING_TIMEOUT_SECONDS" python /src/scripts/probe_galancito_2b_cpu.py \
+            --run --steps 10 --resume --conversation-eval
+          docker run --rm --entrypoint cat -v galant-ci-2b:/private:ro galant-2b-root "$REPORT_DIR/latest.json" > evidence/final.json
           python - <<'PY'
           import json
           a=json.load(open("evidence/first-step.json"))
@@ -67,9 +88,15 @@ jobs:
           assert b["production_verified"] is False
           PY
       - name: Comprobar que guardar checkpoints conserva el modelo base en una sola ejecución
+        if: matrix.scenario == 'uninterrupted'
+        timeout-minutes: 255
         run: |
-          docker run --rm --network none --memory=5g --memory-swap=5g --cpus=2 --pids-limit=96 -v galant-ci-2b:/private galant-2b-root --run --steps 10 --output /private/uninterrupted
-          docker run --rm --entrypoint cat -v galant-ci-2b:/private:ro galant-2b-root /private/uninterrupted/latest.json > evidence/uninterrupted.json
+          docker run --rm --memory=5g --memory-swap=5g --cpus=2 --pids-limit=96 \
+            -v galant-ci-2b:/private --entrypoint timeout galant-2b-root \
+            --signal=TERM --kill-after=30s "$TRAINING_TIMEOUT_SECONDS" python /src/scripts/probe_galancito_2b_cpu.py \
+            --run --allow-download --steps 10 --output "$REPORT_DIR"
+          mkdir -p evidence
+          docker run --rm --entrypoint cat -v galant-ci-2b:/private:ro galant-2b-root "$REPORT_DIR/latest.json" > evidence/uninterrupted.json
           python - <<'PY'
           import json
           r=json.load(open("evidence/uninterrupted.json"))
@@ -80,14 +107,30 @@ jobs:
       - name: Conservar evidencia incluso ante fallo
         if: always()
         run: |
-          mkdir -p evidence
-          docker run --rm --entrypoint cat -v galant-ci-2b:/private:ro galant-2b-root /private/2b-probe/latest.json > evidence/latest.json
+          if docker volume inspect galant-ci-2b >/dev/null 2>&1; then
+            mkdir -p evidence
+            docker run --rm --entrypoint sh -v galant-ci-2b:/private:ro galant-2b-root \
+              -c 'if [ -s "$1" ]; then cat "$1"; fi' sh "$REPORT_DIR/latest.json" > evidence/latest.json
+            if [[ ! -s evidence/latest.json ]]; then
+              rm evidence/latest.json
+            fi
+          fi
       - uses: actions/upload-artifact@v4
         if: always()
         with:
-          name: qwen-2b-root-evidence
+          name: qwen-2b-root-evidence-${{ matrix.scenario }}
           path: evidence/*.json
           if-no-files-found: warn
       - name: Limpiar volumen aislado
         if: always()
         run: docker volume rm galant-ci-2b || true
+  real-2b:
+    needs: cpu
+    if: always()
+    runs-on: ubuntu-latest
+    timeout-minutes: 2
+    steps:
+      - name: Confirmar ambos entrenamientos
+        env:
+          CPU_RESULT: ${{ needs.cpu.result }}
+        run: test "$CPU_RESULT" = success
