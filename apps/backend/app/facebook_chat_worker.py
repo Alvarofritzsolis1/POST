@@ -18,10 +18,10 @@ from .db import SessionLocal
 from .facebook_availability_reply import availability_reply
 from .facebook_worksite_reply import application_reply, worksite_reply
 from .facebook_ai import (LOCAL_REPLY_INSTRUCTIONS, REPLY_INSTRUCTIONS, generate_text,
-                          messenger_ai_source, local_first_messenger, messenger_external_fallback_enabled)
+                          messenger_contact_ai_source, local_first_messenger, messenger_external_fallback_enabled)
 from .galancito_hybrid import select_response
 from .ai_gateway import orchestrated_text
-from .galancito_flow import safe_ai_reply, consented_for, grounded_reply, is_permission_prompt
+from .galancito_flow import safe_ai_reply, consented_for, grounded_reply, is_permission_prompt, external_permission_prompt
 from .facebook_crm_models import FacebookLead, FacebookChatMessage, FacebookTradeGuide, FacebookLeadTrade
 from .models import utcnow
 from .network_service import key
@@ -243,8 +243,11 @@ def process_chat_next(session_factory=SessionLocal, *, simulation_config=None, n
         if not _within_24h(lead):
             job.state, job.error = "failed", "Fuera de la ventana estándar de 24 horas"
             return True
+        if job.state == "pending" and job.operator_id is None and external_permission_prompt(job.body):
+            job.state, job.error = "cancelled", "Solicitud externa retirada"
+            return True
         permission_request = job.state == "pending" and job.operator_id is None and "autorizas" in job.body.casefold()
-        ai_source = (messenger_ai_source(db, lead.org_id, cfg)
+        ai_source = (messenger_contact_ai_source(db, lead, cfg)
                      if job.state == "ai_pending" or permission_request else "disabled")
         if permission_request and (ai_source == "disabled" or lead.ai_consent_provider != ai_source or
                 lead.ai_consent_state not in {"requested", "requested_team"} or
@@ -387,7 +390,7 @@ def process_chat_next(session_factory=SessionLocal, *, simulation_config=None, n
                         current_job = db.get(FacebookChatMessage, job_id)
                         if (current is None or current_job is None or current_job.state != "drafting" or
                                 current.last_inbound_at != inbound_at or current.ai_paused or current.needs_support or
-                                not consented_for(current, ai_source) or messenger_ai_source(db, org_id, cfg) != ai_source):
+                                not consented_for(current, ai_source) or messenger_contact_ai_source(db, current, cfg) != ai_source):
                             return True
                         verified_policy = approved_coaching(db, org_id, "messenger")
                         prepared_context = context
@@ -493,7 +496,7 @@ def process_chat_next(session_factory=SessionLocal, *, simulation_config=None, n
                     (automated_reply and ((current.ai_paused and not handoff_ack)
                                           or current.last_inbound_at != inbound_at)) or
                     (state == "ai_pending" and (current.needs_support or not consented_for(current, ai_source)
-                     or messenger_ai_source(db, org_id, cfg) != ai_source))):
+                     or messenger_contact_ai_source(db, current, cfg) != ai_source))):
                 if current_job:
                     current_job.state, current_job.error = "cancelled", "La conversación cambió antes del envío"
                 if automated_reply:

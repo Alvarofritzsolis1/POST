@@ -100,6 +100,10 @@ def wants_human(message: str) -> bool:
         "quiero hablar con alguien del equipo", "quiero hablar con una persona real",
         "me pueden pasar con alguien", "quiero atencion de una persona",
         "quiero hablar con un trabajador del equipo",
+        "alguien del equipo", "una persona del equipo", "prefiero alguien del equipo",
+        "prefiero a alguien del equipo", "con alguien del equipo", "una persona porfi",
+        "alguien del equipo por favor", "alguien del equipo porfa",
+        "que me atienda alguien del equipo", "mejor alguien del equipo",
     }
     return any(value == phrase or value.startswith(phrase + " ") for phrase in phrases)
 
@@ -185,6 +189,19 @@ def is_permission_prompt(lead, message: str) -> bool:
     })
 
 
+def external_permission_prompt(message: str) -> bool:
+    """Match retired automated notices, including previously queued versions."""
+    value = _plain(message)
+    return any(value == _plain(prompt)
+               for provider in ("team", "openai")
+               for repeat in (False, True)
+               for prompt in (permission_question(provider, repeat),
+                              _legacy_permission_question(provider, repeat))) or (
+        "autoriz" in value and
+        ("proveedores de ia externos" in value or "ia de openai" in value)
+    )
+
+
 def explain_permission(lead, message: str, previous: str) -> str | None:
     if (_plain(message) in {"no entiendo", "no comprendo", "no cacho", "que significa eso",
                             "que quieres decir", "no entendi", "no entiendo lo del permiso"}
@@ -208,6 +225,7 @@ def apply_permission_reply(lead, message: str, delivered_prompt: str) -> bool | 
         # explicitly accepted provider consent. The person can return later.
         return None
     elif (lead.ai_consent_state in {"requested", "requested_team"} and
+          not external_permission_prompt(delivered_prompt) and
           is_permission_prompt(lead, delivered_prompt)):
         result = consent_decision(message)
     else:
