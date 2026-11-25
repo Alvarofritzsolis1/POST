@@ -31,7 +31,7 @@ import {
   Users,
   Workflow,
 } from "lucide-react";
-import type { Profile } from "./api";
+import { ApiError, type Profile } from "./api";
 import PersonAvatar from "./PersonAvatar";
 import {
   attach,
@@ -167,6 +167,7 @@ export default function RedDeObras({ user }: { user: Profile }) {
     [notice, setNotice] = useState(""),
     [loading, setLoading] = useState(true);
   const [deletingReq, setDeletingReq] = useState<string | null>(null);
+  const [deleteError, setDeleteError] = useState("");
   const deletionInFlight = useRef(false);
   const [panel, setPanel] = useState(""),
     [selectedReq, setSelectedReq] = useState<Requirement | null>(null),
@@ -319,6 +320,7 @@ export default function RedDeObras({ user }: { user: Profile }) {
         net<Requirement>("/requirements/" + encodeURIComponent(id)),
         refreshCatalog(true),
       ]);
+      setDeleteError("");
       setSelectedReq(requirement);
       setPanel("detail");
       setFiles([]);
@@ -332,6 +334,7 @@ export default function RedDeObras({ user }: { user: Profile }) {
       setSelectedCap(
         await net<Capacity>("/capacities/" + encodeURIComponent(id)),
       );
+      setDeleteError("");
       setPanel("capacity-detail");
     } catch (err) {
       setError(errorText(err));
@@ -361,7 +364,7 @@ export default function RedDeObras({ user }: { user: Profile }) {
     return () => window.removeEventListener("hashchange", handle);
   }, []);
   useEffect(() => {
-    if (panel !== "detail" || !selectedReq?.editable) return;
+    if (panel !== "detail" || !selectedReq || !(selectedReq.editable || (selectedReq.state === "archived" && catalog.sites.some(s => s.id === selectedReq.site_id && s.editable)))) return;
     let active = true;
     const id = selectedReq.id;
     void Promise.all([
@@ -391,7 +394,7 @@ export default function RedDeObras({ user }: { user: Profile }) {
       active = false;
       clearInterval(timer);
     };
-  }, [panel, selectedReq?.id, selectedReq?.editable]);
+  }, [panel, selectedReq?.id, selectedReq?.editable, selectedReq?.state, catalog]);
   function go(next: string) {
     setTab(next);
     setPage(0);
@@ -481,24 +484,29 @@ export default function RedDeObras({ user }: { user: Profile }) {
   async function removeRequirement(r: Requirement) {
     if (!r.can_delete || deletionInFlight.current) return;
     const facebookNote = r.publish_to_facebook ? "\nSi existe un aviso automático vinculado en Facebook, se solicitará su retiro." : "";
-    if (!window.confirm(`¿Eliminar la solicitud "${r.title}" de ${r.site}?\nDejará de aparecer en Red de Obras.${facebookNote}`)) return;
+    if (!window.confirm(`¿Eliminar la solicitud "${r.title}" de ${r.site}?\nSe retirará de la red; las adjudicaciones y coordinaciones vinculadas se conservan.${facebookNote}`)) return;
     deletionInFlight.current = true;
     setDeletingReq(r.id);
     setError("");
+    setDeleteError("");
     try {
-      await change<{ id: string; deleted: boolean }>(`/requirements/${r.id}?version=${r.version}`, undefined, "DELETE");
+      const result = await change<{ id: string; deleted: boolean; archived?: boolean }>(`/requirements/${r.id}?version=${r.version}`, undefined, "DELETE");
       ++generation.current;
       setReqs(old => ({ rows: old.rows.filter(item => item.id !== r.id), total: Math.max(0, old.total - 1) }));
       if (selectedReq?.id === r.id) {
         setSelectedReq(null);
         setPanel("");
       }
-      setNotice("Solicitud eliminada correctamente.");
+      setNotice(result.archived ? "Solicitud retirada de la red. Se conservó su seguimiento." : "Solicitud eliminada correctamente.");
       if (page > 0 && reqs.rows.length === 1) setPage(page - 1);
       else await refresh();
       window.dispatchEvent(new Event("galant-network-changed"));
     } catch (err) {
-      setError(errorText(err));
+      setDeleteError(errorText(err));
+      if (err instanceof ApiError && err.status === 409) {
+        try { setSelectedReq(await net<Requirement>("/requirements/" + encodeURIComponent(r.id))); }
+        catch { /* retain original actionable error */ }
+      }
     } finally {
       deletionInFlight.current = false;
       setDeletingReq(null);
@@ -511,9 +519,7 @@ export default function RedDeObras({ user }: { user: Profile }) {
       <article className="nw-card nw-feed-card" key={r.id}>
         <div className="nw-feed-card-top">
           <span className="nw-site"><Building2 size={14} /> {r.site}</span>
-          <div className="nw-request-actions"><Badge value={r.priority} />
-            {r.can_delete && <button type="button" className="nw-request-delete" title="Eliminar solicitud" aria-label={`Eliminar solicitud: ${r.title}`} disabled={deletingReq !== null} onClick={() => void removeRequirement(r)}><Trash2 size={15} /></button>}
-          </div>
+          <Badge value={r.priority} />
         </div>
         <span className="nw-specialty">{r.specialty}</span>
         <h3><button className="nw-text-button" onClick={() => void openReq(r.id)}>{r.title}</button></h3>
@@ -541,21 +547,26 @@ export default function RedDeObras({ user }: { user: Profile }) {
   };
   async function removeCapacity(c: Capacity) {
     if (!c.can_delete || deletionInFlight.current) return;
-    if (!window.confirm(`¿Eliminar la disponibilidad de "${c.contractor}" en ${c.site}?\nNo se eliminará la ficha del contratista.`)) return;
+    if (!window.confirm(`¿Eliminar la disponibilidad de "${c.contractor}" en ${c.site}?\nSe conservarán la ficha del contratista y sus adjudicaciones o coordinaciones vinculadas.`)) return;
     deletionInFlight.current = true;
     setDeletingReq(c.id);
     setError("");
+    setDeleteError("");
     try {
-      await change<{ id: string; deleted: boolean }>(`/capacities/${c.id}?version=${c.version}`, undefined, "DELETE");
+      const result = await change<{ id: string; deleted: boolean; archived?: boolean }>(`/capacities/${c.id}?version=${c.version}`, undefined, "DELETE");
       ++generation.current;
       setCaps(old => ({rows: old.rows.filter(item => item.id !== c.id), total: Math.max(0, old.total - 1)}));
       if (selectedCap?.id === c.id) { setSelectedCap(null); setPanel(""); }
-      setNotice("Disponibilidad eliminada correctamente.");
+      setNotice(result.archived ? "Disponibilidad retirada de la red. Se conservó su seguimiento." : "Disponibilidad eliminada correctamente.");
       if (page > 0 && caps.rows.length === 1) setPage(page - 1);
       else await refresh();
       window.dispatchEvent(new Event("galant-network-changed"));
     } catch (err) {
-      setError(errorText(err));
+      setDeleteError(errorText(err));
+      if (err instanceof ApiError && err.status === 409) {
+        try { setSelectedCap(await net<Capacity>("/capacities/" + encodeURIComponent(c.id))); }
+        catch { /* retain original actionable error */ }
+      }
     } finally {
       deletionInFlight.current = false;
       setDeletingReq(null);
@@ -565,10 +576,7 @@ export default function RedDeObras({ user }: { user: Profile }) {
     <article className="nw-card nw-feed-card nw-capacity-card" key={c.id}>
       <div className="nw-feed-card-top">
         <span className="nw-site"><Building2 size={14} /> {c.site}</span>
-        <div className="nw-request-actions">
-          <Badge value={c.expired ? "Caducada" : c.stale ? "Requiere actualización" : c.availability} />
-          {c.can_delete && <button type="button" className="nw-request-delete" title="Eliminar disponibilidad" aria-label={`Eliminar disponibilidad: ${c.contractor}`} disabled={deletingReq !== null} onClick={() => void removeCapacity(c)}><Trash2 size={15}/></button>}
-        </div>
+        <Badge value={c.expired ? "Caducada" : c.stale ? "Requiere actualización" : c.availability} />
       </div>
       <span className="nw-specialty">{c.specialty}</span>
       <h3><button className="nw-text-button" onClick={() => void openCap(c.id)}>{c.contractor}</button></h3>
@@ -668,7 +676,7 @@ export default function RedDeObras({ user }: { user: Profile }) {
               setPanel("request-form");
             }}>
               <span className="nw-publish-choice-icon"><Plus size={22} /></span>
-              <span><b>Necesito contratista</b></span>
+              <span><b>Necesito contratista</b><small>Publicar una necesidad</small></span>
               <ArrowRight size={18} />
             </button>
             <button type="button" className="nw-publish-choice nw-publish-available" onClick={() => {
@@ -676,7 +684,7 @@ export default function RedDeObras({ user }: { user: Profile }) {
               setPanel("capacity-form");
             }}>
               <span className="nw-publish-choice-icon"><Users size={22} /></span>
-              <span><b>Tengo contratista disponible</b></span>
+              <span><b>Tengo contratista disponible</b><small>Compartir disponibilidad</small></span>
               <ArrowRight size={18} />
             </button>
           </div>
@@ -1289,6 +1297,7 @@ export default function RedDeObras({ user }: { user: Profile }) {
               onEdit={() => setPanel("request-form")}
               onDelete={selectedReq.can_delete ? () => void removeRequirement(selectedReq) : undefined}
               deleting={deletingReq !== null}
+              deleteError={deleteError}
               onCapacity={(candidate) => void interest({
                 id: candidate.id,
                 score: candidate.score,
@@ -1457,7 +1466,7 @@ export default function RedDeObras({ user }: { user: Profile }) {
                           Adjudicar partida
                         </button>
                       )}
-                      {user.role === "admin" && (
+                      {user.role === "admin" && selectedReq.state !== "archived" && (
                         <button
                           className="nw-btn"
                           onClick={() => {
@@ -1472,11 +1481,11 @@ export default function RedDeObras({ user }: { user: Profile }) {
                   )}
                 </div>
               ))}
-              {selectedReq.editable && (
+              {(selectedReq.editable || (selectedReq.state === "archived" && catalog.sites.some(s => s.id === selectedReq.site_id && s.editable))) && (
                 <>
                   <h3>Documentación complementaria</h3>
                   <AttachmentList files={files} />
-                  <FileUpload
+                  {selectedReq.editable && <FileUpload
                     kind="requirement_id"
                     id={selectedReq.id}
                     done={() =>
@@ -1484,7 +1493,7 @@ export default function RedDeObras({ user }: { user: Profile }) {
                         "/attachments?requirement_id=" + selectedReq.id,
                       ).then(setFiles)
                     }
-                  />
+                  />}
                   <div className="nw-history-heading">
                     <h3>Historial y trazabilidad</h3>
                     <span>{history.total} movimientos</span>
@@ -1564,7 +1573,6 @@ export default function RedDeObras({ user }: { user: Profile }) {
                 >
                   Contactar residente
                 </button>}
-                {selectedCap.can_delete && <button type="button" className="nw-btn nw-request-delete" disabled={deletingReq !== null} onClick={() => void removeCapacity(selectedCap)}><Trash2 size={16}/> Eliminar disponibilidad</button>}
                 {selectedCap.editable && (
                   <>
                     <button
@@ -1577,6 +1585,13 @@ export default function RedDeObras({ user }: { user: Profile }) {
                   </>
                 )}
               </div>
+              {selectedCap.state === "archived" && <p className="nw-callout">Disponibilidad retirada de la red. Se conserva su historial.</p>}
+              {selectedCap.can_delete && <section className="nw-delete-section">
+                <h3>Eliminar publicación</h3>
+                <p>Retira esta disponibilidad de Red de Obras sin eliminar la ficha del contratista.</p>
+                {deleteError && <p role="alert" className="nw-error">{deleteError}</p>}
+                <button type="button" className="nw-btn nw-request-delete" disabled={deletingReq !== null} onClick={() => void removeCapacity(selectedCap)}><Trash2 size={16}/> {deletingReq ? "Eliminando…" : "Eliminar disponibilidad"}</button>
+              </section>}
             </div>
           )}
           {panel === "coordination" && activeCoord && (
