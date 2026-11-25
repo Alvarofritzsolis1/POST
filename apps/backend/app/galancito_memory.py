@@ -13,11 +13,12 @@ from .galancito_intake import (
     unresolved_declarations,
 )
 from .galancito_knowledge import evidence_context, conversation_example
+from .galancito_semantic import consume_confirmation
 from .galancito_contact_email import redact_email_for_intake, remember_shared_email
 from .galancito_phone import redact_mobile_for_intake, remember_shared_phone
 from .galancito_links import audit_event, record_declared_trades, trade_declarations, trade_terms
 from .galancito_triage import (ASK_APPLICATION_OWN, application_role, application_role_question,
-                              analyze, asks_about_application, plain, private_data, referring_to_application)
+                              analyze, asks_about_application, plain, private_data, referring_to_application, ambiguous_application_role)
 
 FIELDS = (
     "display_name", "name_opt_out", "specialty", "entity_type", "interest_type",
@@ -38,6 +39,8 @@ def profile_facts(lead, *, changed=False) -> dict:
     return {**{field: getattr(lead, field) for field in FIELDS},
             "field_states": {field: evidence.get("state") for field, evidence in (lead.profile_sources or {}).items()
                              if field in FIELDS and evidence.get("state")},
+            "manual_fields": [field for field, origin in (lead.profile_sources or {}).items()
+                              if field in FIELDS and origin.get("source") == "manual"],
             "turn_changed": changed,
             # Only contact availability flags, never the phone or email itself.
             "contact_available": bool(getattr(lead, "contact_phone", "") or getattr(lead, "contact_email", "")),
@@ -86,7 +89,7 @@ def messenger_context(message, facts, prior, turns, evidence, guide=None, *, lim
     Input turns are newest first. No raw phone, email, or name field is exported.
     """
     public = {k: v for k, v in facts.items()
-              if k not in {"display_name", "name_opt_out", "turn_changed", "contact_phone", "contact_email"}
+              if k not in {"display_name", "name_opt_out", "turn_changed", "contact_phone", "contact_email", "manual_fields"}
               and v is not None and v != "" and v != []}
     parts = [
         "Consulta actual: " + professional_message(message)[:600],
@@ -100,15 +103,19 @@ def messenger_context(message, facts, prior, turns, evidence, guide=None, *, lim
             return True
         return False
 
-    # Preserve full first-party guides and complete bounded evidence objects.
-    if guide:
-        add("Guía administrativa validada: " + professional_message(guide.explanation or "")[:600]
-            + "\nOrientación documental: " + professional_message("; ".join(guide.document_guidance or []))[:350])
-    else:
-        add("No hay guía documental validada. Deriva esas dudas al equipo.")
-    for item in evidence:
-        if not add("Referencia aprobada: " + professional_message(evidence_context([item]))):
-            break
+    # Retrieve bounded older evidence from actual messages rather than inventing a summary.
+    if evidence:
+        reference = professional_message(evidence_context(evidence[:1]))
+        if not private_data(reference):
+            add("Referencia prioritaria: " + reference)
+    tokens = {token for token in plain(message + " " + (prior or "")).split() if len(token) > 3}
+    older = [item for item in turns[8:60] if item.direction == "inbound"
+             and getattr(item, "consent_decision", None) is None and not private_data(item.body)]
+    ranked = sorted(older, key=lambda item: len(tokens.intersection(plain(item.body).split())), reverse=True)
+    for item in ranked[:2]:
+        if tokens.intersection(plain(item.body).split()) and len("\n".join(parts)) + 650 < limit:
+            add("Mensaje anterior relevante (puede haber sido corregido): " + professional_message(item.body)[:140])
+    # Keep the actual dialogue ahead of optional examples and reference guides.
     history = []
     for item in turns[:8]:
         if (getattr(item, "consent_decision", None) is not None
@@ -121,6 +128,14 @@ def messenger_context(message, facts, prior, turns, evidence, guide=None, *, lim
     for n in range(len(history), 0, -1):
         if add("Historial reciente:\n" + "\n".join(reversed(history[:n]))):
             included = n
+            break
+    if guide:
+        add("Guía administrativa validada: " + professional_message(guide.explanation or "")[:600]
+            + "\nOrientación documental: " + professional_message("; ".join(guide.document_guidance or []))[:350])
+    else:
+        add("No hay guía documental validada. Deriva esas dudas al equipo.")
+    for item in evidence[1:]:
+        if not add("Referencia aprobada: " + professional_message(evidence_context([item]))):
             break
     if example := conversation_example(message, prior or ""):
         add("Ejemplo didáctico (no es un hecho de la obra): " + professional_message(example))
@@ -164,6 +179,21 @@ def apply_messenger_message(db, lead, message, prior, *, remote_id, at, historic
                             replay=False, aliases=None) -> bool:
     if not message or private_data(message) or analyze(message).intent in {"human", "restricted"}:
         return False
+    if not historical and not replay:
+        confirmed = consume_confirmation(lead, message, prior)
+        if confirmed:
+            before = {field: getattr(lead, field, None) for field in confirmed}
+            for field, value in confirmed.items():
+                setattr(lead, field, value)
+                audit_event(db, lead, "field_" + field, source="message", remote_id=remote_id)
+            if "specialty" in confirmed:
+                lead.specialty_source = "message"
+                record_declared_trades(db, lead, message, remote_id=remote_id,
+                    declarations={confirmed["specialty"]: True}, at=at)
+            states = {field: "corregido" if _known(field, before[field]) else "confirmado_por_declaracion"
+                      for field in confirmed}
+            note_profile_sources(lead, confirmed, source="message", at=at, remote_id=remote_id, states=states)
+            return True
     # Treat an answer to a specific, just-asked question as the person's own
     # declaration, while never turning the advertised trade into experience.
     normalized = plain(message)
@@ -184,7 +214,10 @@ def apply_messenger_message(db, lead, message, prior, *, remote_id, at, historic
             message, prior = ("ofrezco servicios. " + extra).strip(), ""
         elif role == "both":
             message, prior = "busco trabajo y ofrezco servicios", ""
-    if asking_about_notice := (asks_about_application(message) or referring_to_application(prior)):
+    # A role confirmation is not a request for an advert. Do not discard
+    # professional corrections and additional declarations in that context.
+    if asking_about_notice := (asks_about_application(message) or (
+            referring_to_application(prior) and not application_role_question(prior))):
         # An oficio or comuna quoted from an advert belongs to that advert.
         # Preserve separate first-person declarations in the same message.
         fragments = re.split(r"(?<=[,.!?;])\s+|\by\s+(?=soy\b|soi\b|hago\b|ofrezco\b)", message, flags=re.I)
@@ -192,11 +225,14 @@ def apply_messenger_message(db, lead, message, prior, *, remote_id, at, historic
                            and not asks_about_application(part)).strip()
         if not message:
             return False
-    declarations = trade_declarations(message, prior, extra=aliases, allow_bare=not asking_about_notice)
+    declarations = trade_declarations(message, prior, extra=aliases,
+        allow_bare=not asking_about_notice and not application_role_question(prior))
     before = {field: getattr(lead, field) for field in FIELDS}
     candidate = SimpleNamespace(**before, specialty_source=lead.specialty_source)
     apply_intake(candidate, message, prior, declarations=declarations,
                  on_date=aware(at).astimezone(CHILE).date())
+    if application_role_question(prior) and ambiguous_application_role(message, prior):
+        candidate.interest_type = before["interest_type"]
     prior_sources = lead.profile_sources or {}
     accepted = {}
     unresolved = unresolved_declarations(message, prior) if not (historical or replay) else {}

@@ -25,8 +25,10 @@ from .galancito_flow import safe_ai_reply, consented_for, grounded_reply, is_per
 from .facebook_crm_models import FacebookLead, FacebookChatMessage, FacebookTradeGuide, FacebookLeadTrade
 from .models import utcnow
 from .network_service import key
-from .galancito_triage import analyze, quick_reply, private_data
-from .galancito_intake import acceptable_intake_draft, intake_question_fields, clarification_reply, identity_reply, model_intake_candidate, next_intake_reply, small_talk_reply, natural_messenger_reply, needs_deeper_response
+from .galancito_triage import plain, analyze, quick_reply, private_data, application_ai_candidate, application_role, application_role_question
+from .galancito_phone import confirmed_phone_reply
+from .galancito_semantic import PROTOCOL, decode_local_reply, remember_confirmation, has_semantic_opportunity, CORRECTION
+from .galancito_intake import semantic_reasoning_needed, contact_followup_reply, contact_pending_questions, model_contact_question, compose_contact_followup, CONTACT_RECEIVED_CONTEXT, acceptable_intake_draft, intake_question_fields, clarification_reply, identity_reply, model_intake_candidate, next_intake_reply, small_talk_reply, natural_messenger_reply, needs_deeper_response
 from .galancito_memory import aware, note_profile_sources, prior_delivered_prompt, profile_facts, reply_focus, messenger_context
 from .galancito_knowledge import retrieve, exact_answer
 from .galancito_runtime import infer, record_run
@@ -270,19 +272,22 @@ def process_chat_next(session_factory=SessionLocal, *, simulation_config=None, n
         inbound_at = lead.last_inbound_at
         outbound_queue_ms = max(0, round((utcnow() - aware(job.created_at)).total_seconds() * 1000))
         fast, intent, fast_source, model_needed, context = None, "unknown", "local", False, ""
+        semantic_proposal = None
         trace = {"trace_version": 1, "context_turns": 0, "known_fields": 0,
                  "knowledge_count": 0, "model_requested": False, "context_truncated": False}
         if state == "ai_pending":
             turns = list(db.scalars(select(FacebookChatMessage).where(
                 FacebookChatMessage.lead_id == lead.id,
                 FacebookChatMessage.state.in_(["received", "sent"]),
-            ).order_by(FacebookChatMessage.updated_at.desc(), FacebookChatMessage.id.desc()).limit(12)))
+            ).order_by(FacebookChatMessage.updated_at.desc(), FacebookChatMessage.id.desc()).limit(60)))
             focus = reply_focus(turns)
             latest = focus.body if focus else ""
             facts = profile_facts(lead, changed=bool(focus and lead.profile_sources and
                 any(origin.get("message_id") == focus.remote_id for origin in lead.profile_sources.values())))
             prior_question = (prior_delivered_prompt(db, lead, at=focus.created_at)
                               if focus else "")
+            phone_ack = confirmed_phone_reply(lead, latest, prior_question)
+            contact_turn = bool(phone_ack)
             help_answer = clarification_reply(latest, prior_question)
             location = None if help_answer else worksite_reply(db, lead, latest, prior_question, notices=notices)
             follow_up = availability_reply(db, lead, latest, prior_question, focus.created_at) if focus and not help_answer else None
@@ -291,15 +296,36 @@ def process_chat_next(session_factory=SessionLocal, *, simulation_config=None, n
             intent = "worksite_location" if location else "apply" if apply else analyze(latest).intent
             fast = intake or quick_reply(latest, known=facts)
             evidence = []
-            rewrite_intake = (not (help_answer or location or follow_up or apply) and
+            application_model = bool(apply and local_first_messenger(cfg) and
+                                     application_ai_candidate(latest, prior_question))
+            rewrite_intake = (not (location or follow_up) and (not apply or application_model) and
                               model_intake_candidate(latest, facts, prior_question, intake))
             if (not intake or rewrite_intake) and not private_data(latest) and intent not in {"human", "restricted"}:
                 evidence = retrieve(db, lead.org_id, latest, "messenger")
+                if not evidence and len(plain(latest).split()) <= 3 and prior_question and not private_data(prior_question):
+                    evidence = retrieve(db, lead.org_id, latest + " " + prior_question, "messenger")
                 if not rewrite_intake and (learned := exact_answer(evidence)):
-                    fast, fast_source = learned, "knowledge"
-            model_needed = (bool(latest) and not (help_answer or location or follow_up or apply) and not private_data(latest) and not identity_reply(latest)
+                    fast = learned
+                    if not local_first_messenger(cfg) or not needs_deeper_response(latest):
+                        fast_source = "knowledge"
+            model_needed = (bool(latest) and not (location or follow_up) and (not apply or application_model) and not private_data(latest) and not identity_reply(latest)
                             and intent not in {"human", "restricted"} and fast_source != "knowledge"
                             and (not fast or needs_deeper_response(latest) or rewrite_intake))
+            if contact_turn:
+                fast = contact_followup_reply(phone_ack, facts, prior_question)
+                model_needed = bool(local_first_messenger(cfg) and contact_pending_questions(facts, prior_question))
+                rewrite_intake = False
+                intent = "contact_followup"
+                latest = (CONTACT_RECEIVED_CONTEXT + " Campos aplicables: " +
+                          ", ".join(contact_pending_questions(facts, prior_question)))  # No phone digits.
+            semantic_reasoning = bool(model_needed and local_first_messenger(cfg) and not contact_turn and (
+                (application_role_question(prior_question) and application_role(latest, prior_question) is None)
+                or semantic_reasoning_needed(latest, prior_question, facts)))
+            semantic_protocol = bool(semantic_reasoning and ai_source == "ollama" and
+                (has_semantic_opportunity(facts) or CORRECTION.search(plain(latest))))
+            trace["semantic_reasoning_requested"] = semantic_reasoning
+            model_options = {"thinking": True} if semantic_reasoning else {}
+            trace["contact_followup"] = contact_turn
             trace["model_requested"] = bool(model_needed)
             trace["knowledge_count"] = len(evidence)
             if model_needed:
@@ -311,10 +337,12 @@ def process_chat_next(session_factory=SessionLocal, *, simulation_config=None, n
                 guide = next((g for g in guides if terms.intersection(
                     {key(g.trade), *(key(a) for a in (g.aliases or []))})), None)
                 context, count = messenger_context(latest, facts, prior_question, turns, evidence, guide,
-                                                   limit=MAX_CONTEXT_CHARS)
+                    limit=MAX_CONTEXT_CHARS - (len(PROTOCOL) + 1 if semantic_protocol else 0))
+                if semantic_protocol:
+                    context = PROTOCOL + "\n" + context
                 trace["context_turns"] = count
                 trace["known_fields"] = sum(bool(value) for key, value in facts.items()
-                                            if key not in {"field_states", "turn_changed"})
+                                            if key not in {"field_states", "turn_changed", "manual_fields"})
         db_ms = (perf_counter() - started) * 1000
         # A separate persisted drafting state lets the UI show real stages.
         # Do not claim to be sending before the AI has generated its reply.
@@ -347,12 +375,12 @@ def process_chat_next(session_factory=SessionLocal, *, simulation_config=None, n
             if should_model:
                 # A generic intake prompt must not stand in for an answer to a
                 # difficult question when every configured model failed.
-                generated = fast if rewrite_intake and not needs_deeper_response(latest) and "?" not in latest else None
+                generated = fast if contact_turn or help_answer or application_model or (rewrite_intake and not needs_deeper_response(latest) and "?" not in latest) else None
             if should_model and not private_data(context):
-                if fast and not rewrite_intake:
-                    context += ("\nOrientación breve disponible como alternativa: " +
-                                fast[:450] + "\nRespeta sus hechos; explica la duda "
-                                "antes de avanzar con una pregunta.")
+                if fast and not rewrite_intake and not contact_turn:
+                    guidance = "\nOrientación disponible, no es una orden: " + fast[:350]
+                    if len(context) + len(guidance) <= MAX_CONTEXT_CHARS:
+                        context += guidance
                 try:
                     with session_factory.begin() as db:
                         current = db.get(FacebookLead, lead_id)
@@ -368,8 +396,11 @@ def process_chat_next(session_factory=SessionLocal, *, simulation_config=None, n
                         trace["approved_coaching"] = bool(verified_policy)
                         if simulated:
                             # The simulator is never permitted to call an external provider.
-                            drafted = (infer(db, lambda: generate_local_text(LOCAL_REPLY_INSTRUCTIONS, prepared_context, 550))
+                            drafted = (infer(db, lambda: generate_local_text(LOCAL_REPLY_INSTRUCTIONS, prepared_context, 550, **model_options))
                                        if ai_source == "ollama" or local_first_messenger(cfg) else None)
+                        elif contact_turn:
+                            # Contact follow-up is local-only, even with external consent.
+                            drafted = infer(db, lambda: generate_text(REPLY_INSTRUCTIONS, prepared_context, 550))
                         elif ai_source == "team" and local_first_messenger(cfg):
                             # External consent has already been checked.
                             def external_backup():
@@ -392,11 +423,12 @@ def process_chat_next(session_factory=SessionLocal, *, simulation_config=None, n
 
                             drafted, route = select_response(
                                 lambda: infer(db, lambda: generate_text(
-                                    REPLY_INSTRUCTIONS, prepared_context, 550, approved_policy=verified_policy)),
+                                    REPLY_INSTRUCTIONS, prepared_context, 550, approved_policy=verified_policy, **model_options)),
                                 external_backup, prepared_context,
                                 allow_external=consented_for(current, "team"),
+                                prefer_external=semantic_reasoning or needs_deeper_response(latest),
                                 local_fallback=fast if rewrite_intake and intake_question_fields(fast or "")
-                                and not needs_deeper_response(latest) and "?" not in latest else None,
+                                and not semantic_reasoning and not needs_deeper_response(latest) and "?" not in latest else None,
                                 validator=(lambda value: acceptable_intake_draft(value, facts, intake or "", message=latest))
                                 if rewrite_intake else None,
                             )
@@ -410,17 +442,29 @@ def process_chat_next(session_factory=SessionLocal, *, simulation_config=None, n
                                                   prompt=prepared_context, max_output_tokens=230)
                                 if ai_source == "team" else
                                 (generate_text(REPLY_INSTRUCTIONS, prepared_context, 550,
-                                               approved_policy=verified_policy) if verified_policy else
-                                 generate_text(REPLY_INSTRUCTIONS, prepared_context, 550))),
+                                               approved_policy=verified_policy, **model_options) if verified_policy else
+                                 generate_text(REPLY_INSTRUCTIONS, prepared_context, 550, **model_options))),
                                 org_id=org_id if ai_source == "team" else None)
                         timings = last_timings.get()
+                    if semantic_protocol and drafted:
+                        drafted, semantic_proposal = decode_local_reply(drafted, latest, facts)
+                    grounding = context + ("\nPropuesta para confirmar: " + semantic_proposal["question"] if semantic_proposal else "")
                     if drafted:
-                        drafted = grounded_reply(drafted, context)
-                    if drafted and rewrite_intake and not acceptable_intake_draft(drafted, facts, intake or "", message=latest):
+                        drafted = grounded_reply(drafted, grounding)
+                    validation_facts = facts
+                    if semantic_proposal and semantic_proposal.get("correction"):
+                        validation_facts = {**facts, semantic_proposal["field"]: None}
+                        if semantic_proposal["field"] == "work_communes":
+                            validation_facts["work_area"] = ""
+                    if drafted and rewrite_intake and not acceptable_intake_draft(drafted, validation_facts, intake or "", message=latest):
                         drafted = None
+                    if contact_turn and drafted:
+                        question = model_contact_question(drafted, facts, prior_question)
+                        drafted = compose_contact_followup(question) if question else None
                     if drafted:
                         generated, source = drafted, ("fallback" if trace.get("ai_route") == "guided_fallback" else "ai")
                     else:
+                        semantic_proposal = None
                         source = "fallback"
                 except (RuntimeError, ValueError):
                     source = "fallback"
@@ -486,6 +530,10 @@ def process_chat_next(session_factory=SessionLocal, *, simulation_config=None, n
         row.remote_id = result_id
         row.state = "sent" if result_id else ("uncertain" if uncertain else "failed")
         row.error, row.updated_at = problem, utcnow()
+        if result_id and automated_reply and semantic_proposal and source == "ai":
+            contact = db.get(FacebookLead, lead_id, with_for_update=True)
+            if contact is not None and contact.last_inbound_at == inbound_at and not contact.ai_paused:
+                remember_confirmation(contact, semantic_proposal, body, result_id)
         if result_id and automated_reply and intake_question_fields(body) & {"contact_phone", "contact_email"}:
             contact = db.get(FacebookLead, lead_id, with_for_update=True)
             if contact is not None and not contact.phone_requested_at:

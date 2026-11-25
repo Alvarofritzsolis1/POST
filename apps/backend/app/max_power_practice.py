@@ -45,7 +45,8 @@ def generate_scenarios():
             Turn("Vi una postulación de trabajo", {"specialty": "", "interest_type": "unknown"}),
             Turn("de gasfiter", {"specialty": "", "interest_type": "unknown"}, continuity=True),
             Turn("solo", {"specialty": "", "interest_type": "unknown"}, continuity=True),
-            Turn("para mi", {"specialty": "", "interest_type": "employment"}, continuity=True),
+            Turn("para mi", {"specialty": "", "interest_type": "unknown"}, continuity=True),
+            Turn("si", {"specialty": "", "interest_type": "employment"}, continuity=True),
             Turn("si", {"specialty": "Gasfitería", "interest_type": "employment"}, continuity=True),
         ),
         "aviso-rol-doble": (

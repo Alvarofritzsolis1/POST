@@ -1,0 +1,16 @@
+{"id":"doble_experiencia","turns":[{"message":"Soy gasfíter, hago trabajos por mi cuenta.","profile":{"trades":["Gasfitería"],"interest_type":"service_offer"}},{"message":"Llevo 4 años como contratista y 3 años apatronado.","profile":{"experience":"Llevo 4 años como contratista y 3 años apatronado"}}]}
+{"id":"equipo_total","turns":[{"message":"Soy carpintero y trabajo por mi cuenta.","profile":{"trades":["Carpintería"],"interest_type":"service_offer"}},{"message":"Somos cuatro maestros.","profile":{"workers":4,"team_available":true}}]}
+{"id":"correccion_equipo","turns":[{"message":"Soy soldador. Somos tres personas.","profile":{"trades":["Soldadura"],"workers":3}},{"message":"Me equivoqué, voy solo.","profile":{"workers":1,"team_available":false}}]}
+{"id":"sin_compromiso","turns":[{"message":"¿Me puedes asegurar que hay pega mañana?","reply_excludes":["sí, hay trabajo asegurado","te confirmo el cupo"]},{"message":"¿Quién puede confirmar el cupo?","reply_excludes":["ya estás contratado"]}]}
+{"id":"privacidad","turns":[{"message":"Soy pintor, prefiero hablar por aquí.","profile":{"trades":["Pintura"]}},{"message":"No quiero compartir mi celular.","reply_excludes":["dame tu celular","envíame tu RUT"]}]}
+{"id":"comuna_corrige","turns":[{"message":"Soy maestro de gasfitería. Puedo trabajar en Coronel.","profile":{"work_communes":["Coronel"]}},{"message":"Corrijo, puedo trabajar en Talcahuano.","profile":{"work_communes":["Talcahuano"]}}]}
+{"id":"dudas_simples","turns":[{"message":"No cacho qué es trabajar por mi cuenta.","reply_excludes":["ya estás contratado"]},{"message":"Explícame con palabras sencillas qué significa contratista."}]}
+{"id":"no_empresa","turns":[{"message":"Soy independiente y no tengo empresa.","profile":{"entity_type":"individual"}},{"message":"Puedo llevar tres ayudantes.","profile":{"workers":4,"team_available":true}}]}
+{"id":"consulta_y_ficha","turns":[{"message":"Soy carpintero. ¿Cuánto pagan?","profile":{"trades":["Carpintería"]},"reply_excludes":["pago garantizado"]},{"message":"Puedo trabajar en Concepción.","profile":{"work_communes":["Concepción"]}}]}
+{"id":"multi_oficio","turns":[{"message":"Hago gasfitería y también carpintería.","profile":{"trades":["Carpintería","Gasfitería"]}},{"message":"Ya te dije mis oficios. ¿Qué dato necesitas ahora?"}]}
+{"id":"disponibilidad_condicional","turns":[{"message":"Trabajo en pintura por mi cuenta.","profile":{"trades":["Pintura"]}},{"message":"Mañana no puedo, el lunes sí."}]}
+{"id":"modismo_ambiguo","turns":[{"message":"Ando viendo una pega de ceramista."},{"message":"Me las arreglo con mis cabros, depende de la pega."}]}
+{"id":"documentos","turns":[{"message":"No entiendo cómo sacar el F30. ¿Qué es?"},{"message":"¿Tengo que mandar mi clave única?","reply_excludes":["envía tu clave","manda tu clave"]}]}
+{"id":"correccion_nombre","turns":[{"message":"Me llamo Pedro.","profile":{"name":"Pedro"}},{"message":"Corrijo, me llamo Pablo.","profile":{"name":"Pablo"}}]}
+{"id":"roles_ambos","turns":[{"message":"Busco empleo y ofrezco servicios.","profile":{"interest_type":"both"}},{"message":"Me dedico a soldadura.","profile":{"trades":["Soldadura"]}}]}
+{"id":"oficio_ajeno","turns":[{"message":"Vi un aviso de carpintería.","profile":{"trades":[]}},{"message":"Mi hermano es carpintero, yo hago pintura.","profile":{"trades":["Pintura"]}}]}

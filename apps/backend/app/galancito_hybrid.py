@@ -27,7 +27,7 @@ def needs_external_help(answer):
 
 
 def select_response(local, external, context, *, allow_external=False,
-                    local_fallback=None, validator=None):
+                    local_fallback=None, validator=None, prefer_external=False):
     """At most one call to the external gateway (it enforces its own limits).
 
     A valid guided fallback wins over spending API tokens on simple wording.
@@ -42,7 +42,7 @@ def select_response(local, external, context, *, allow_external=False,
         answer = None
     if not needs_external_help(answer):
         return answer, "local_model"
-    if local_fallback:
+    if local_fallback and not prefer_external:
         return local_fallback, "guided_fallback"
     if allow_external and external:
         try:
@@ -51,4 +51,6 @@ def select_response(local, external, context, *, allow_external=False,
             candidate = None
         if not needs_external_help(candidate):
             return candidate, "external_fallback"
+    if local_fallback:
+        return local_fallback, "guided_fallback"
     return None, "unresolved"

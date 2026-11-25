@@ -85,8 +85,8 @@ def test_forgotten_ad_does_not_dead_end(answer):
 
 
 @pytest.mark.parametrize("answer", [
-    "yo", "yo solo", "yo no mas", "pa mi", "solo yo", "para mi",
-    "quiero trabajar", "busco pega",
+    "busco empleo", "quiero un empleo", "quiero trabajar apatronado",
+    "que me contraten", "con contrato",
 ])
 def test_job_seeker_short_roles_ask_if_advertised_trade_is_their_own(answer):
     prior = "Ah, era un aviso de gasfitería. " + ASK_APPLICATION_INTEREST
@@ -108,7 +108,7 @@ def test_small_contractor_offering_services_is_not_treated_as_job_seeker(answer)
 
 def test_trade_is_only_confirmed_after_person_says_it_is_their_own():
     prior = "Ah, era un aviso de gasfitería. " + ASK_APPLICATION_INTEREST
-    followup = _app("yo solo", prior)
+    followup = _app("busco empleo", prior)
     assert followup == ASK_APPLICATION_OWN + "gasfitería?"
     assert _app("sí", followup).endswith("¿En qué comuna puedes trabajar?")
     assert "no voy a asumir" in _app("no", followup)
@@ -145,7 +145,7 @@ def test_signed_messenger_conversation_retains_context_and_never_claims_own_trad
                         lambda *a, **kw: (_ for _ in ()).throw(
                             AssertionError("Simple postulation needs no model")))
     for i, message in enumerate([
-        "Vi una postulacion de trabajo", "DE GASFITER", "yo solo", "si"
+        "Vi una postulacion de trabajo", "DE GASFITER", "busco empleo", "si"
     ], 1):
         assert incoming(n, message, f"simple-{i}").status_code == 200
         assert process_chat_next(n["Session"])
@@ -261,7 +261,7 @@ def test_human_handoff_is_not_a_revocation_of_accepted_ai_permission():
     assert lead.ai_consent_provider == ""
 
 
-@pytest.mark.parametrize("answer", ["pa mi no mas", "para mí mismo", "pami", "que me contraten", "con contrato"])
+@pytest.mark.parametrize("answer", ["que me contraten", "con contrato"])
 def test_contextual_role_survives_clarifications_and_legacy_question(answer):
     from app.galancito_triage import ASK_APPLICATION_ROLE_CLARIFY, application_role
     for prior in (ASK_APPLICATION_INTEREST, ASK_APPLICATION_ROLE_CLARIFY,
@@ -272,3 +272,95 @@ def test_contextual_role_survives_clarifications_and_legacy_question(answer):
     assert application_role("solo", ASK_APPLICATION_INTEREST) is None
     assert application_role("no tengo gente", ASK_APPLICATION_INTEREST) is None
     assert application_role("¿para mi?", ASK_APPLICATION_INTEREST) is None
+
+
+@pytest.mark.parametrize("answer", ["OFRECER MIS SERVICIOS", "quiero ofrecer mis servicios",
+                                    "trabajo por las mías", "como contratista"])
+def test_explicit_service_role_is_not_overridden(answer):
+    from app.galancito_triage import application_role, application_ai_candidate
+    for prior in (ASK_APPLICATION_INTEREST, "¿Buscas trabajo para ti o quieres ofrecer tus servicios?"):
+        assert application_role(answer, prior) == "service_offer"
+        assert application_ai_candidate(answer, prior)
+        assert _app(answer, prior) == "¿Qué trabajos haces por tu cuenta?"
+
+
+def test_new_role_question_never_treats_ambiguous_yes_as_employment():
+    from app.galancito_triage import ASK_APPLICATION_ROLE_CLARIFY, application_role, application_ai_candidate
+    assert application_role("sí", ASK_APPLICATION_INTEREST) is None
+    assert application_role("sipo", ASK_APPLICATION_ROLE_CLARIFY) is None
+    assert application_role("quiero trabajar apatronado", ASK_APPLICATION_INTEREST) == "employment"
+    assert application_ai_candidate("apaño con mis cabros", ASK_APPLICATION_INTEREST)
+    assert not application_ai_candidate("mi celular es +56900000000", ASK_APPLICATION_INTEREST)
+
+
+def test_authorized_qwen_can_choose_role_response_and_receives_original_slang(network, monkeypatch):
+    n = network
+    _local_messenger(n, monkeypatch)
+    sent, contexts = [], []
+    monkeypatch.setattr("app.facebook_chat_worker.graph_send",
+                        lambda *a: sent.append(a[2]) or f"semantic-{len(sent)}")
+    for i, message in enumerate(["quiero postular", "gasfiter"], 1):
+        assert incoming(n, message, f"semantic-turn-{i}").status_code == 200
+        assert process_chat_next(n["Session"])
+    assert sent[-1].endswith(ASK_APPLICATION_INTEREST)
+    with n["Session"].begin() as db:
+        lead = db.get(FacebookLead, _contact(n)["lead"]["id"])
+        lead.ai_consent = True
+        lead.ai_consent_state = "accepted"
+        lead.ai_consent_provider = "ollama"
+    from app import facebook_ai
+    def local(instructions, prompt, limit, **options):
+        contexts.append((prompt, options))
+        return "Cuando dices eso, ¿te refieres a que tomas trabajos por tu cuenta?"
+    monkeypatch.setattr(facebook_ai, "generate_local_text", local)
+    assert incoming(n, "me las arreglo con mis cabros", "semantic-slang").status_code == 200
+    assert process_chat_next(n["Session"])
+    assert len(contexts) == 1
+    assert "me las arreglo con mis cabros" in contexts[0][0]
+    assert contexts[0][1].get("thinking") is True
+    assert "cuando dices eso" in sent[-1].lower()
+    assert _contact(n)["lead"]["interest_type"] == "unknown"
+    assert incoming(n, "sipo", "semantic-confirmation").status_code == 200
+    assert _contact(n)["lead"]["interest_type"] == "service_offer"
+
+
+def test_ambiguous_solo_or_pega_does_not_define_role():
+    from app.galancito_triage import application_role
+    for answer in ("yo solo", "pa mi no mas", "busco pega", "quiero trabajar"):
+        assert application_role(answer, ASK_APPLICATION_INTEREST) is None
+    assert application_role("yo solo", "¿El trabajo lo buscas para ti o para tu equipo?") == "employment"
+
+
+def test_generated_confirmation_can_persist_a_previously_unknown_role():
+    from app.galancito_triage import application_role
+    assert application_role("sipo", "Cuando dices eso, ¿te refieres a que tomas trabajos por tu cuenta?") == "service_offer"
+    assert application_role("sí", "¿Quieres un empleo con contrato?") == "employment"
+    assert application_role("sí", "¿Trabajas por tu cuenta o con una cuadrilla?") is None
+
+
+def test_qwen_structured_interpretation_is_confirmed_in_live_message_flow(network, monkeypatch):
+    n = network
+    _local_messenger(n, monkeypatch)
+    sent, contexts = [], []
+    monkeypatch.setattr("app.facebook_chat_worker.graph_send",
+                        lambda *a: sent.append(a[2]) or f"semantic-confirm-{len(sent)}")
+    for j, message in enumerate(["quiero postular", "gasfiter"], 1):
+        assert incoming(n, message, f"semantic-confirm-turn-{j}").status_code == 200
+        assert process_chat_next(n["Session"])
+    with n["Session"].begin() as db:
+        lead = db.get(FacebookLead, _contact(n)["lead"]["id"])
+        lead.ai_consent = True
+        lead.ai_consent_state = "accepted"
+        lead.ai_consent_provider = "ollama"
+    from app import facebook_ai
+    def local(instructions, prompt, limit, **options):
+        contexts.append(prompt)
+        return '{"reply":"Entiendo.","confirm":{"field":"team_available","value":true,"evidence":"apaño con mis cabros"}}'
+    monkeypatch.setattr(facebook_ai, "generate_local_text", local)
+    assert incoming(n, "apaño con mis cabros", "semantic-confirm-slang").status_code == 200
+    assert process_chat_next(n["Session"])
+    assert "apaño con mis cabros" in contexts[0]
+    assert sent[-1].endswith("¿Puedes llevar a otras personas a trabajar contigo?")
+    assert _contact(n)["lead"]["team_available"] is None
+    assert incoming(n, "sipo", "semantic-confirm-yes").status_code == 200
+    assert _contact(n)["lead"]["team_available"] is True

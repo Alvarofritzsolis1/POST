@@ -50,7 +50,8 @@ def contact_profile(lead) -> dict:
         # but it cannot confirm a calendar date for a specific worksite.
         "availability": bool(_value(lead, "availability")),
     }
-    sources = getattr(lead, "profile_sources", None) or {}
+    sources = {field: origin for field, origin in (getattr(lead, "profile_sources", None) or {}).items()
+               if not field.startswith("_")}
     known = {**counts, "work_communes": counts["work_area"],
              "has_employees": getattr(lead, "has_employees", None) is not None,
              "employee_count": getattr(lead, "employee_count", None) is not None,

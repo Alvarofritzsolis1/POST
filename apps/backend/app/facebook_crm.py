@@ -42,10 +42,10 @@ from .facebook_publication_models import FacebookPostSnapshot, FacebookPostJob
 from .network_service import key, today
 from .galancito_triage import classify_lead, dashboard
 from .security import administrator
-from .galancito_triage import analyze, private_data, quick_reply, everyday_question_reply
+from .galancito_triage import analyze, private_data, quick_reply, everyday_question_reply, application_ai_candidate, application_role, application_role_question
 from .galancito_intake import (
     acceptable_intake_draft, declared_relative_start, identity_reply, model_intake_candidate, needs_deeper_response, next_intake_reply, small_talk_reply,
-    natural_messenger_reply,
+    natural_messenger_reply, contact_followup_reply, contact_pending_questions,
 )
 from .galancito_memory import (
     apply_messenger_message, approved_trade_aliases, aware, capture_voluntary_contact, note_profile_sources,
@@ -55,7 +55,7 @@ from .galancito_contact_profile import contact_profile
 from .galancito_conversation_summary import (
     summarize_conversation, safe_model_input, validate_ai_brief, brief_contains_private_data,
 )
-from .galancito_phone import (QUESTION as CONTACT_PHONE_QUESTION, normalize_mobile, phone_question_when_agreed)
+from .galancito_phone import (QUESTION as CONTACT_PHONE_QUESTION, normalize_mobile, phone_question_when_agreed, confirmed_phone_reply)
 from .galancito_communes import find_communes
 from .galancito_links import (record_manual_trade,
                               suggest_requirements, link_requirement,
@@ -401,6 +401,7 @@ def ingest_facebook_payload(db, payload, cfg, *, notices=None):
         phone_saved = False
         if not historical and not audio_received:
             phone_saved, _ = capture_voluntary_contact(db, lead, body, previous_question, at=event_at, remote_id=mid)
+        phone_ack = confirmed_phone_reply(lead, body, previous_question) if not historical and not audio_received else None
         changed = False
         intake_body = professional_message(body)
         if consent is None and not audio_received and not private_data(intake_body):
@@ -427,10 +428,14 @@ def ingest_facebook_payload(db, payload, cfg, *, notices=None):
                   if consent is None and not explain_permission(lead, body, previous_question) else None)
         if consent is False:
             signal = "Prefirió atención humana y no autorizó IA externa"
+        if (signal and not audio_received and not wants_human(body) and consent is not False
+                and not lead.ai_paused and not lead.needs_support and local_first_messenger(cfg)
+                and consented_for(lead, messenger_ai_source(db, lead.org_id, cfg))):
+            signal = None  # Authorized Qwen gets a chance to explain before handoff.
         if signal:
             flag_for_human(db, lead, signal)
         earlier = reply_turns.get(lead.id)
-        if (earlier and consent is None and not signal and not identity_reply(body)
+        if (earlier and consent is None and not signal and not phone_ack and not identity_reply(body)
                 and (needs_deeper_response(earlier[1]) or is_worksite_location(earlier[1]))
                 and not (needs_deeper_response(body) or is_worksite_location(body))
                 and declared_relative_start(body) is None):
@@ -438,9 +443,9 @@ def ingest_facebook_payload(db, payload, cfg, *, notices=None):
         reply_turns[lead.id] = (lead, intake_body, previous_question, changed or bool(earlier and earlier[3]),
                                signal or (earlier[4] if earlier else None), mid,
                                consent is True or bool(earlier and earlier[6]),
-                               phone_saved or bool(earlier and earlier[7]))
+                               phone_saved or bool(earlier and earlier[7]), phone_ack)
 
-    for lead, body, previous_question, changed, signal, mid, consent_reply, phone_saved in reply_turns.values():
+    for lead, body, previous_question, changed, signal, mid, consent_reply, phone_saved, phone_ack in reply_turns.values():
         if changed and not signal:
             trace_unique_requirement(db, lead, today=today(), remote_id=mid)
         # El mensaje entrante más reciente desplaza cualquier respuesta
@@ -474,14 +479,41 @@ def ingest_facebook_payload(db, payload, cfg, *, notices=None):
                 if phone_prompt:
                     direct = phone_prompt
                     lead.phone_requested_at = utcnow()
-            if phone_saved and not signal and not direct and not needs_deeper_response(body):
-                direct = "Gracias, registré el número que compartiste para coordinación. No confirma contratación."
+            if phone_ack and not signal and not lead.needs_support and lead.ai_consent_state != "declined":
+                direct = contact_followup_reply(phone_ack, profile_facts(lead, changed=changed), previous_question)
             configured_source = messenger_ai_source(db, lead.org_id, cfg)
             # Generic questions should reach the consented model; confirmed
             # worksite facts and consent operations keep their verified path.
-            if (direct and not (location or application or digital_help or phone_saved)
+            if (direct and not (location or application or digital_help or phone_saved or phone_ack)
                     and direct == everyday_question_reply(body)
                     and consented_for(lead, configured_source)):
+                direct = None
+            # Let Qwen choose the next conversational question when authorized.
+            # Before consent, an unclear role can request authorization instead
+            # of being forced into employment by a fixed yes/no question.
+            application_model = bool(application and direct == application and not phone_saved and not phone_ack
+                                     and not signal and not lead.needs_support
+                                     and local_first_messenger(cfg)
+                                     and application_ai_candidate(body, previous_question))
+            application_permission = bool(application_model
+                and application_role_question(previous_question)
+                and application_role(body, previous_question) is None
+                and lead.ai_consent_state == "not_requested"
+                and not consented_for(lead, configured_source))
+            if (digital_help and direct == digital_help and not phone_ack and not signal
+                    and local_first_messenger(cfg) and consented_for(lead, configured_source)):
+                direct = None
+            if application_model and consented_for(lead, configured_source):
+                direct = None
+            elif application_permission:
+                direct = set_permission_request(lead, configured_source)
+            else:
+                application_model = False
+            contact_model = bool(phone_ack and direct and not signal and not lead.needs_support
+                and local_first_messenger(cfg) and consented_for(lead, configured_source)
+                and contact_pending_questions(profile_facts(lead, changed=changed), previous_question))
+            contact_fallback = direct if contact_model else None
+            if contact_model:
                 direct = None
             ai_source = "disabled" if direct else configured_source
             recent = db.scalar(select(func.count(FacebookChatMessage.id)).where(
@@ -501,6 +533,10 @@ def ingest_facebook_payload(db, payload, cfg, *, notices=None):
                               "Te pueden ayudar por este chat; no necesitas enviar documentos."))
             elif direct:
                 reply = direct
+            elif contact_model:
+                reply, use_ai = contact_fallback, True
+            elif application_model:
+                reply, use_ai = application, True
             elif local and identity_reply(body):
                 reply = local
             elif local and not waiting_for_ai and not lead.needs_support:
@@ -582,6 +618,10 @@ def ingest_facebook_payload(db, payload, cfg, *, notices=None):
             elif recent >= 30 and (use_ai or reply):
                 flag_for_human(db, lead,
                                "Límite de respuestas automáticas alcanzado; revisión humana pendiente")
+                if recent == 30:
+                    db.add(FacebookChatMessage(org_id=lead.org_id, lead_id=lead.id, page_id=lead.page_id,
+                        direction="outbound", state="pending", ai_generated=False,
+                        body="Ya avisé al equipo para que te atienda una persona. Podemos retomar por aquí."))
     db.commit()
     return {"received": True}
 

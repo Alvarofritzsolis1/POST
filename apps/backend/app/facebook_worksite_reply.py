@@ -9,7 +9,7 @@ from .facebook_crm_models import FacebookChatMessage
 from .galancito_knowledge import exact_answer, retrieve
 from .galancito_triage import (
     ASK_APPLICATION, ASK_APPLICATION_LINK, ASK_APPLICATION_INTEREST, ASK_APPLICATION_OWN,
-    ASK_APPLICATION_ROLE_CLARIFY, application_role, application_role_question,
+    ASK_APPLICATION_ROLE_CLARIFY, ambiguous_application_role, application_role, application_role_question,
     analyze, asks_about_application, is_pure_greeting, plain, private_data, referring_to_application,
 )
 from .network_models import NetworkFacebookPost, NetworkRequirement
@@ -126,13 +126,21 @@ def application_reply(db: Session, lead, message: str, prior_prompt: str = "", *
             return ("¿En qué comuna puedes trabajar?" if getattr(lead, "specialty", None) else
                     "¿Qué trabajos haces por tu cuenta?")
         if role == "both":
-            return "Entiendo, te interesan las dos opciones. ¿Qué trabajo realizas?"
+            return ("Entiendo, te interesan las dos opciones. ¿Trabajas solo o puedes venir con otras personas?"
+                    if getattr(lead, "specialty", None) else "Entiendo, te interesan las dos opciones. ¿Qué trabajo realizas?")
         if norm in {"no entiendo", "que significa", "no cacho", "como es eso", "solo", "sola", "solito", "solita"}:
             if plain(prior_prompt).endswith(plain(ASK_APPLICATION_ROLE_CLARIFY)):
                 return "No hay problema, podemos seguir sin aclarar eso ahora. ¿Qué trabajo realizas?"
             trades = trade_terms(prior_prompt)
             context = ("El aviso era de " + trades[0].lower() + ". ") if len(trades) == 1 else ""
             return "Te explico: " + context + ASK_APPLICATION_ROLE_CLARIFY
+        # A personal answer identifies who wants work, not contractual modality.
+        # Ask once in simpler language, preserving the advertised trade as context.
+        if (plain(prior_prompt).endswith(plain(ASK_APPLICATION_ROLE_CLARIFY))
+                and ambiguous_application_role(message, prior_prompt)):
+            trades = trade_terms(prior_prompt)
+            context = ("El aviso era de " + trades[0].lower() + ". ") if len(trades) == 1 else ""
+            return context + "¿Buscas un empleo con contrato?"
         # If a person volunteers an occupational fact, do not force an unrelated role menu.
         if any(p in norm for p in ("soy ", "soi ", "trabajo ", "hago ", "me dedico ")):
             return None

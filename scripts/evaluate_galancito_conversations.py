@@ -12,6 +12,7 @@ import sys
 from tempfile import TemporaryDirectory
 from time import perf_counter
 from unittest.mock import patch
+from contextlib import nullcontext
 from uuid import uuid4
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -57,7 +58,7 @@ def metrics(values):
             "p95_ms": round(ordered[math.ceil(.95 * len(ordered)) - 1], 3)}
 
 
-def run(dataset, source_root):
+def run(dataset, source_root, *, real_local=False):
     sys.path.insert(0, str(source_root / "apps/backend"))
     from fastapi import FastAPI
     from fastapi.testclient import TestClient
@@ -68,6 +69,8 @@ def run(dataset, source_root):
     from app.facebook_crm import router
     from app.facebook_crm_models import FacebookChatMessage, FacebookLead, FacebookLeadTrade
     from app.galancito_triage import plain
+    from app.galancito_knowledge_models import AssistantRun
+    from app.galancito_model_config import QWEN_2B
     from app.main import app as _full_app  # Register related tables on Base.
     from app.models import Organization
     from app.facebook_chat_worker import process_chat_next
@@ -77,6 +80,7 @@ def run(dataset, source_root):
     application.include_router(router)
     sent, measurements, results = [], [], []
     calls = {"graph_send": 0, "graph_sender_action": 0, "external_ai": 0}
+    observed_models, local_calls, input_tokens, output_tokens = set(), 0, 0, 0
 
     def graph_send(page, psid, body, token):
         calls["graph_send"] += 1
@@ -110,19 +114,27 @@ def run(dataset, source_root):
             "FACEBOOK_MESSAGING_ENABLED": "true", "FACEBOOK_AI_ENABLED": "true",
             "FACEBOOK_ORG_ID": org_id, "FACEBOOK_PAGE_ID": "123450000",
             "FACEBOOK_APP_SECRET": "only-for-synthetic-evaluation",
-            "FACEBOOK_PAGE_TOKEN": "simulated-meta", "FACEBOOK_AI_PROVIDER": "openai",
-            "FACEBOOK_AI_API_KEY": "", "GALANCITO_LOCAL_AI_ENABLED": "false",
+            "FACEBOOK_PAGE_TOKEN": "simulated-meta", "FACEBOOK_AI_PROVIDER": "ollama" if real_local else "openai",
+            "FACEBOOK_AI_API_KEY": "", "GALANCITO_LOCAL_AI_ENABLED": "true" if real_local else "false",
+            "GALANCITO_LOCAL_MODEL": QWEN_2B,
         }
         with (patch.dict(os.environ, env),
               patch("app.facebook_chat_worker.graph_send", graph_send),
               patch("app.facebook_chat_worker.graph_sender_action", graph_action),
-              patch("app.facebook_chat_worker.generate_text", unexpected_ai),
+              patch("app.facebook_chat_worker.orchestrated_text", unexpected_ai),
+              (nullcontext() if real_local else patch("app.facebook_chat_worker.generate_text", unexpected_ai)),
               TestClient(application) as client):
             settings.cache_clear()
             for index, case in enumerate(cases, start=1):
                 psid = str(70000000000 + index)
-                expected = dict(DEFAULT_PROFILE)
+                expected = {} if real_local else dict(DEFAULT_PROFILE)
+                if real_local:
+                    # This explicit synthetic authorization is never written to production.
+                    with session.begin() as db:
+                        db.add(FacebookLead(org_id=org_id, page_id=env["FACEBOOK_PAGE_ID"], psid=psid,
+                            ai_consent=True, ai_consent_state="accepted", ai_consent_provider="ollama"))
                 turns = []
+                case_model_calls = 0
                 for number, turn in enumerate(case["turns"], start=1):
                     expected.update(turn.get("profile", {}))
                     mid = f"synthetic-{index}-{number}"
@@ -132,6 +144,8 @@ def run(dataset, source_root):
                     signature = hmac.new(env["FACEBOOK_APP_SECRET"].encode(), data, hashlib.sha256).hexdigest()
                     headers = {"X-Hub-Signature-256": f"sha256={signature}"}
                     started, start_count = perf_counter(), len(sent)
+                    with session() as db:
+                        seen_runs = {r.id for r in db.scalars(select(AssistantRun))} if real_local else set()
                     response = client.post("/api/v1/network/facebook/webhook", content=data, headers=headers)
                     if turn.get("replay"):
                         replay = client.post("/api/v1/network/facebook/webhook", content=data, headers=headers)
@@ -154,8 +168,22 @@ def run(dataset, source_root):
                         persisted = len(db.scalars(select(FacebookChatMessage.id).where(
                             FacebookChatMessage.lead_id == lead.id, FacebookChatMessage.remote_id == mid,
                             FacebookChatMessage.direction == "inbound")).all())
-                    expected["trades"] = sorted(expected["trades"])
-                    expected["work_communes"] = sorted(expected["work_communes"])
+                        if real_local:
+                            for run_record in db.scalars(select(AssistantRun)):
+                                if run_record.id in seen_runs:
+                                    continue
+                                stats = run_record.timings or {}
+                                calls_now = int(stats.get("local_model_calls") or 0)
+                                local_calls += calls_now
+                                case_model_calls += calls_now
+                                input_tokens += int(stats.get("input_tokens") or 0)
+                                output_tokens += int(stats.get("output_tokens") or 0)
+                                if stats.get("response_model"):
+                                    observed_models.add(stats["response_model"])
+                    if "trades" in expected:
+                        expected["trades"] = sorted(expected["trades"])
+                    if "work_communes" in expected:
+                        expected["work_communes"] = sorted(expected["work_communes"])
                     replies = sent[start_count:]
                     answer = replies[-1] if replies else ""
                     answer_norm = plain(answer)
@@ -166,7 +194,7 @@ def run(dataset, source_root):
                                  "contratación garantizada", "envíame tu RUT"]
                     question = plain(answer.rsplit("¿", 1)[-1]) if "?" in answer else ""
                     repeated = [field for field, phrases in KNOWN_FIELD_QUESTIONS.items()
-                                if expected[field] != DEFAULT_PROFILE[field]
+                                if field in expected and expected[field] != DEFAULT_PROFILE[field]
                                 and any(phrase in question for phrase in phrases)]
                     checks = {
                         "webhook": response.status_code == 200 and (not turn.get("replay") or replay.status_code == 200),
@@ -181,14 +209,22 @@ def run(dataset, source_root):
                     turns.append({"turn": number, "checks": checks, "profile_errors": errors,
                                   "repeated_fields": repeated, "reply": answer,
                                   "elapsed_ms": round(elapsed, 3)})
-                results.append({"id": case["id"], "passed": all(all(t["checks"].values()) for t in turns),
-                                "turns": turns})
+                actual_inference = case_model_calls > 0 if real_local else None
+                results.append({"id": case["id"], "passed": all(all(t["checks"].values()) for t in turns)
+                                and (not real_local or actual_inference), "real_model_attempted": actual_inference,
+                                "model_calls": case_model_calls, "turns": turns})
             settings.cache_clear()
         engine.dispose()
-    return {"dataset": dataset.name, "conversations": len(cases), "turns": len(measurements),
+    report = {"dataset": dataset.name, "conversations": len(cases), "turns": len(measurements),
             "passed": sum(r["passed"] for r in results),
             "failed_checks": sum(not check for r in results for turn in r["turns"] for check in turn["checks"].values()),
-            "latency": metrics(measurements), "calls_simulated": calls, "tokens": 0, "results": results}
+            "latency": metrics(measurements), "calls_simulated": calls, "tokens": input_tokens + output_tokens, "results": results}
+    if real_local:
+        report.update(mode="real_local", local_model_calls=local_calls, input_tokens=input_tokens,
+                      output_tokens=output_tokens, observed_models=sorted(observed_models),
+                      real_model_verified=bool(output_tokens and observed_models == {QWEN_2B}),
+                      production_verified=False)
+    return report
 
 
 def main():
@@ -196,12 +232,15 @@ def main():
     parser.add_argument("--cases", type=Path, default=DATA / "galancito_regresion_40.jsonl")
     parser.add_argument("--source-root", type=Path, default=ROOT)
     parser.add_argument("--output", type=Path, required=True)
+    parser.add_argument("--real-local", action="store_true", help="Use real isolated Qwen; Meta stays simulated. Requires a Qwen-ready environment and explicit synthetic dataset.")
     args = parser.parse_args()
-    report = run(args.cases, args.source_root)
+    if args.real_local and args.cases == DATA / "galancito_regresion_40.jsonl":
+        parser.error("Real-local mode requires a dedicated dataset with explicit independent expectations.")
+    report = run(args.cases, args.source_root, real_local=args.real_local)
     args.output.parent.mkdir(parents=True, exist_ok=True)
     args.output.write_text(json.dumps(report, ensure_ascii=False, indent=2) + "\n", encoding="utf-8")
     print(json.dumps({k: v for k, v in report.items() if k != "results"}, ensure_ascii=False))
-    return 0 if report["passed"] == report["conversations"] else 1
+    return 0 if report["passed"] == report["conversations"] and (not args.real_local or report["real_model_verified"]) else 1
 
 
 if __name__ == "__main__":
