@@ -270,6 +270,12 @@ def test_galancito_conversation_auto_reply_only_after_messenger_consent(network,
     assert incoming(n, text="Sí", mid="consent-yes").status_code == 200
     assert not n["admin"].get("/api/v1/network/facebook/center").json()["leads"][0]["ai_consent"]
     seed_previous_consent(n)
+    # A verified provider grant does not lift a pending human handoff.
+    resumed = n["send"](n["admin"], "/facebook/leads/" + lead["id"],
+                         {"needs_support": False, "ai_paused": False}, method="PATCH")
+    assert resumed.status_code == 200
+    assert resumed.json()["ai_paused"] is False
+    assert resumed.json()["needs_support"] is False
     assert incoming(n, text="¿Cuáles son los requisitos para postular?", mid="consented-request").status_code == 200
     assert process_chat_next(n["Session"]) is True
     assert len(calls) == 2 and len(ai_calls) == 1
@@ -532,6 +538,12 @@ def test_verified_ai_team_answers_messenger_only_with_previously_verified_consen
     assert incoming(n, text="sí", mid="team-consent").status_code == 200
     assert not n["admin"].get("/api/v1/network/facebook/center").json()["leads"][0]["ai_consent"]
     seed_previous_consent(n, "team")
+    # A verified provider grant does not lift a pending human handoff.
+    resumed = n["send"](n["admin"], "/facebook/leads/" + lead["id"],
+                         {"needs_support": False, "ai_paused": False}, method="PATCH")
+    assert resumed.status_code == 200
+    assert resumed.json()["ai_paused"] is False
+    assert resumed.json()["needs_support"] is False
     assert incoming(n, text="Necesito orientación para preparar una oferta", mid="team-previous-consent").status_code == 200
     lead = n["admin"].get("/api/v1/network/facebook/center").json()["leads"][0]
     assert lead["ai_consent_state"] == "accepted_team"
