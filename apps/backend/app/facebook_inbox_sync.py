@@ -32,7 +32,7 @@ from .galancito_memory import (
     apply_messenger_message, approved_trade_aliases, aware, prior_delivered_prompt, profile_facts,
     capture_voluntary_contact, professional_message, recover_missing_contact,
 )
-from .galancito_triage import private_data, quick_reply, everyday_question_reply, application_ai_candidate
+from .galancito_triage import private_data, quick_reply, everyday_question_reply, application_ai_candidate, payment_guidance
 from .galancito_phone import phone_question_when_agreed, confirmed_phone_reply
 from .models import Organization, utcnow
 from .network_service import today
@@ -289,7 +289,7 @@ def sync_page_inbox(*, page_id: str, page_token: str, org_id: str,
                 else:
                     facts = profile_facts(lead, changed=changed)
                     if needs_deeper_response(body):
-                        reply = exact_answer(retrieve(db, lead.org_id, body, "messenger"))
+                        reply = exact_answer(retrieve(db, lead.org_id, body, "messenger")) or payment_guidance(body)
                     else:
                         reply = next_intake_reply(body, facts, prior) or quick_reply(body, known=facts)
                     state = "pending"

@@ -14,6 +14,7 @@ from .galancito_intake import (
 )
 from .galancito_knowledge import evidence_context, conversation_example
 from .galancito_flow import retired_permission_prompt
+from .galancito_evidence import REPORTED
 from .galancito_semantic import consume_confirmation
 from .galancito_communes import find_communes
 from .galancito_contact_email import redact_email_for_intake, remember_shared_email, email_shared_by_sender, REFUSAL
@@ -309,7 +310,7 @@ def apply_messenger_message(db, lead, message, prior, *, remote_id, at, historic
             message, prior = "busco trabajo y ofrezco servicios", ""
     # A role confirmation is not a request for an advert. Do not discard
     # professional corrections and additional declarations in that context.
-    if asking_about_notice := (asks_about_application(message) or (
+    if asking_about_notice := (REPORTED.search(plain(message)) or asks_about_application(message) or (
             referring_to_application(prior) and not application_role_question(prior))):
         # An oficio or comuna quoted from an advert belongs to that advert.
         # Preserve separate first-person declarations in the same message.

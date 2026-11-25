@@ -12,6 +12,7 @@ from app.galancito_flow import (
 @pytest.mark.parametrize("text", [
     "Alguien del equipo porfi", "alguien del equipo porfa",
     "Prefiero alguien del equipo", "con alguien del equipo por favor",
+    "Pásame con una persona, por favor",
 ])
 def test_human_request_short_chilean_replies(text):
     assert wants_human(text)

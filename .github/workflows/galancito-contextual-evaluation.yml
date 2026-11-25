@@ -45,9 +45,19 @@ jobs:
         run: |
           python -m pip install -r apps/backend/requirements-dev.txt
           mkdir -p "$RUNNER_TEMP/galancito-ollama" "$RUNNER_TEMP/galancito-report"
-          curl --fail --silent --show-error --location --retry 2 \
-            https://github.com/ollama/ollama/releases/download/v0.40.18/ollama-linux-amd64.tar.zst \
-            | tar --zstd -x -C "$RUNNER_TEMP/galancito-ollama"
+          release_url="https://github.com/ollama/ollama/releases/download/v0.40.18/ollama-linux-amd64.tar.zst"
+          for attempt in 1 2 3; do
+            # Each runner and retry needs a fresh redirect to the signed release asset.
+            if curl --fail --silent --show-error --location --connect-timeout 15 --max-time 180 \
+                "$release_url?run=$GITHUB_RUN_ID-$GITHUB_RUN_ATTEMPT-$GALANCITO_OFFSET-$attempt" \
+                --output "$RUNNER_TEMP/ollama.tar.zst"; then
+              break
+            fi
+            if [[ "$attempt" == 3 ]]; then exit 1; fi
+            sleep "$((attempt * 3))"
+          done
+          tar --zstd -xf "$RUNNER_TEMP/ollama.tar.zst" -C "$RUNNER_TEMP/galancito-ollama"
+          rm "$RUNNER_TEMP/ollama.tar.zst"
           export OLLAMA_MODELS="$RUNNER_TEMP/galancito-models"
           runtime="$RUNNER_TEMP/galancito-ollama/bin/ollama"
           "$runtime" serve > "$RUNNER_TEMP/galancito-report/ollama.log" 2>&1 &

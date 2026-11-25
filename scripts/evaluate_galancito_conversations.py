@@ -26,7 +26,7 @@ DEFAULT_PROFILE = {
 }
 
 EXTRA_PROFILE = {"specialty", "contact_phone", "contact_email", "declared_origin",
-                 "crew_size", "preferred_contact", "needs_support", "has_employees"}
+                 "crew_size", "preferred_contact", "needs_support", "ai_paused", "has_employees"}
 
 KNOWN_FIELD_QUESTIONS = {
     "name": ("cual es tu nombre", "como te llamas", "como prefieres que te llamemos"),
@@ -238,7 +238,8 @@ def run(dataset, source_root, *, real_local=False, contextual=False, loopback=Fa
                                and isinstance(value, str) else value != actual[key])}
                     required = turn.get("reply_contains", [])
                     human_review = bool(actual["needs_support"])
-                    handoff_without_reply = (human_review and not awaiting_human and len(replies) == 0)
+                    handoff_without_reply = (human_review and actual["ai_paused"]
+                                             and not awaiting_human and len(replies) == 0)
                     awaiting_human = human_review
                     allows_handoff = handoff_without_reply and not required and not turn.get("replies", 0)
                     forbidden = [*turn.get("reply_excludes", []), "ya estás contratado", "te adjudicamos",

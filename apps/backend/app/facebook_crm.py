@@ -43,7 +43,7 @@ from .facebook_publication_models import FacebookPostSnapshot, FacebookPostJob
 from .network_service import key, today
 from .galancito_triage import classify_lead, dashboard
 from .security import administrator
-from .galancito_triage import analyze, private_data, quick_reply, everyday_question_reply, application_ai_candidate
+from .galancito_triage import analyze, private_data, quick_reply, everyday_question_reply, application_ai_candidate, payment_guidance
 from .galancito_intake import (
     acceptable_intake_draft, declared_relative_start, identity_reply, model_intake_candidate, needs_deeper_response, next_intake_reply, small_talk_reply,
     natural_messenger_reply, contact_followup_reply, contact_pending_questions,
@@ -567,7 +567,7 @@ def ingest_facebook_payload(db, payload, cfg, *, notices=None):
                 facts = profile_facts(lead, changed=changed)
                 if needs_deeper_response(body):
                     if not private_data(body):
-                        reply = exact_answer(retrieve(db, lead.org_id, body, "messenger"))
+                        reply = exact_answer(retrieve(db, lead.org_id, body, "messenger")) or payment_guidance(body)
                 else:
                     reply = next_intake_reply(body, facts, previous_question) or quick_reply(body, known=facts)
             if not use_ai and not reply and not lead.needs_support and lead.ai_consent_state != "declined":

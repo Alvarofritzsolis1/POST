@@ -56,7 +56,7 @@ def galancito_prefix(message: str) -> str:
 
 def wants_human(message: str) -> bool:
     """Explicit stop requests are honored even after prior AI consent."""
-    value = _plain(message)
+    value = " ".join(re.sub(r"[,;]+", " ", _plain(message)).split())
     phrases = {
         "no quiero ia", "sin ia", "no usar ia", "no mas ia",
         "prefiero persona", "quiero una persona", "quiero hablar con alguien",

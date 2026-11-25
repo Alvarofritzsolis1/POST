@@ -166,7 +166,7 @@ def test_webhook_answers_question_preserves_manual_count_and_sources(network, mo
     assert lead["employee_count"] == 2
     assert lead["profile"]["sources"]["employee_count"]["source"] == "manual"
     assert lead["profile"]["sources"]["workers"]["message_id"] == "first-professional"
-    assert "pago depende" in sent[-1]
+    assert "monto" in sent[-1] and "forma de pago" in sent[-1]
     assert "?" not in sent[-1]
 
 

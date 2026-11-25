@@ -21,7 +21,7 @@ from app.models import User
 from app import galancito_local
 from app.galancito_runtime import infer
 from test_network import network as network, request_body
-from test_facebook_crm import enable_messaging, incoming
+from test_facebook_crm import enable_messaging, incoming, seed_previous_consent
 
 CASES = json.loads(Path(__file__).with_name("fixtures").joinpath("galancito_evaluation.json").read_text())
 
@@ -256,16 +256,22 @@ def test_messenger_revocation_during_inference_prevents_sending(network, monkeyp
                 "FACEBOOK_AI_PROVIDER": "ollama", "GALANCITO_LOCAL_AI_ENABLED": "true"}.items():
         monkeypatch.setenv(k,v)
     settings.cache_clear()
-    assert incoming(n, text="Explícame una coordinación compleja", mid="intro").status_code == 200
-    sent=[]
+    assert incoming(n, text="Hola", mid="intro").status_code == 200
+    sent = []
     monkeypatch.setattr("app.facebook_chat_worker.graph_send", lambda *a: sent.append(a) or "sent-1")
     assert process_chat_next(n["Session"])
-    assert incoming(n, text="sí", mid="consent").status_code == 200
+    seed_previous_consent(n, "ollama")
+    assert incoming(n, text="¿Cómo puedo coordinar una obra con mi equipo?", mid="question").status_code == 200
+    attempts = []
+
     def revoke(*args):
+        attempts.append(True)
         assert incoming(n, text="no quiero IA", mid="revocation").status_code == 200
         return "Soy Galancito. Respuesta pendiente."
+
     monkeypatch.setattr("app.facebook_chat_worker.generate_text", revoke)
     assert process_chat_next(n["Session"])
+    assert attempts == [True]
     assert len(sent) == 1
 
 

@@ -20,7 +20,8 @@ PARTIES = re.compile(r"\b(?:mi|un|una|el|la) (?:vecin[oa]|amig[oa]|herman[oa]|pr
                      r"conocid[oa]|cunad[oa]|companero|companera)\b")
 REPORTED = re.compile(r"\b(?:(?:segun|en) (?:el aviso|la publicacion)|"
                       r"(?:el aviso|la publicacion|la pagina|el sitio|la empresa) "
-                      r"(?:pide|busca|dice|ofrece|tiene|publica))\b")
+                      r"(?:pide|busca|dice|ofrece|tiene|publica)|"
+                      r"(?:vi|lei|dicen|dijeron) que (?:piden|buscan|necesitan|ofrecen))\b")
 SELF = re.compile(r"\b(?:yo|por mi parte|en mi caso|por mi lado)\b")
 BREAK = re.compile(r"[,.;!\n]+|\b(?:pero|mientras que)\b", re.I)
 NEGATED = re.compile(r"^(?:(?:yo|ya) )*no (?:soy|somos|hago|hacemos|tengo|tenemos|"
@@ -44,7 +45,9 @@ def declaration_segments(text):
         if other := (PARTIES.search(normalized) or REPORTED.search(normalized)):
             own = SELF.search(normalized, other.end())
             normalized = normalized[own.end():].strip() if own else ""
-        if normalized and not NEGATED.search(normalized):
+        if (normalized and not NEGATED.search(normalized)
+                and not (normalized.startswith("no ") and any(
+                    match.start() == 0 for match in trade_mentions(normalized[3:], extra=EXTRA_TRADES)))):
             yield normalized
 
 
