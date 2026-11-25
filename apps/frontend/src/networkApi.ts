@@ -143,6 +143,7 @@ export type Capacity = {
   stale: boolean;
   updated_at: string;
   editable: boolean;
+  can_delete?: boolean;
   version: number;
   pending_items: PendingItem[];
 };

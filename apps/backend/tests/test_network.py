@@ -977,3 +977,28 @@ def test_delete_requirement_is_scoped_and_keeps_audit(network):
         assert any(e.changes["to"].get("state") == "deleted" for e in events)
     second = requirement(n, items=1)
     assert n["send"](n["admin"], "/requirements/" + second["id"] + "?version=1", method="DELETE").status_code == 200
+
+
+
+def test_delete_capacity_and_active_feed(network):
+    n = network
+    cap = capacity(n)
+    path = "/capacities/" + cap["id"]
+    assert cap["can_delete"] is True
+    assert n["a"].get(ROOT + path).json()["can_delete"] is False
+    assert n["send"](n["a"], path + "?version=1", method="DELETE").status_code == 403
+    assert n["send"](n["b"], path + "?version=99", method="DELETE").status_code == 409
+    assert n["send"](n["b"], path + "?version=1", method="DELETE").status_code == 200
+    assert n["admin"].get(ROOT + path).status_code == 404
+    assert n["admin"].get(ROOT + "/capacities").json()["total"] == 0
+    with n["Session"]() as db:
+        assert db.get(NetworkCapacity, cap["id"]).state == "deleted"
+        assert db.get(Contractor, cap["contractor_id"]) is not None
+    expired = capacity(n)
+    with n["Session"].begin() as db:
+        db.get(NetworkCapacity, expired["id"]).expires_on = today() - timedelta(days=1)
+    live = capacity(n)
+    assert {r["id"] for r in n["admin"].get(ROOT + "/capacities?active_only=true").json()["rows"]} == {live["id"]}
+    assert n["a"].get(ROOT + "/capacities?active_only=true&mine=true").json()["total"] == 0
+    assert n["b"].get(ROOT + "/overview?mine=true").json()["capacities"] == 1
+    assert n["send"](n["admin"], "/capacities/" + expired["id"] + "?version=1", method="DELETE").status_code == 200

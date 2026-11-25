@@ -137,6 +137,8 @@ def requirement_for(db, user, record_id, detail=False, write=False):
 
 def capacity_for(db, user, record_id, write=False):
     row = record_for(db, NetworkCapacity, user, record_id, lock=write)
+    if row.state == "deleted":
+        raise HTTPException(404, "Disponibilidad eliminada")
     if row.state == "draft" and not manages(db, user, row.site_id):
         raise HTTPException(404, "Publicación no encontrada")
     if write:
@@ -455,6 +457,7 @@ def capacity_view(db, user, cap):
         "updated_at": cap.updated_at,
         "editable": manages(db, user, cap.site_id)
         and (user.role != "resident" or cap.created_by == user.id),
+        "can_delete": cap.state != "deleted" and (user.role == "admin" or (user.role == "resident" and manages(db, user, cap.site_id))),
         "version": cap.version,
         "pending_items": [
             {

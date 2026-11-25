@@ -191,13 +191,13 @@ def test_admin_can_edit_any_period_and_only_admin_sees_changes(context):
                        json={"version": 2, "cct": 9, "cesp": 0, "ind": 0, "th": 3, "tm": 0}).status_code == 403
 
 
-def test_historic_is_visible_to_all_roles_but_changes_remain_private(context):
+def test_historic_is_visible_to_authorized_roles_but_not_residents(context):
     ctx = context
     imported = ctx["call"](ctx["admin"], "POST", "/import",
         files={"file": ("INE_original.xlsx", ctx["source"], "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet")},
         data={"year": "2026"})
     assert imported.status_code == 200, imported.text
-    for role in ("admin", "supervisor", "resident", "administrative", "reviewer"):
+    for role in ("admin", "supervisor", "administrative", "reviewer"):
         client = ctx[role]
         config = ctx["call"](client, "GET", "/config")
         assert config.status_code == 200, (role, config.text)
@@ -222,6 +222,11 @@ def test_historic_is_visible_to_all_roles_but_changes_remain_private(context):
             assert ctx["call"](client, "GET", "/export?year=2026").status_code == 403
             assert ctx["call"](client, "POST", "/rows/manual",
                 json={"version": 0, "site_name": "PROHIBIDO", "period": "2026-11"}).status_code == 403
+    resident = ctx["resident"]
+    for path in ("/config", "/rows?period=2026-01", "/summary?year=2026", "/archive", "/history", "/original", "/export?year=2026"):
+        assert ctx["call"](resident, "GET", path).status_code == 403, path
+    admin_archive = ctx["call"](ctx["admin"], "GET", "/archive").json()
+    assert ctx["call"](resident, "GET", "/archive/" + admin_archive["sheets"][0]["id"]).status_code == 403
     outsider = ctx["call"](ctx["foreign"], "GET", "/archive")
     assert outsider.status_code == 200 and outsider.json()["sheets"] == []
     assert ctx["call"](ctx["foreign"], "GET", "/rows?period=2026-01").json()["rows"] == []

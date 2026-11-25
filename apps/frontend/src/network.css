@@ -2107,3 +2107,25 @@
 .nw .nw-request-delete { display: inline-flex; align-items: center; justify-content: center; gap: 6px; min-height: 30px; min-width: 30px; padding: 5px; border: 1px solid transparent; border-radius: 7px; background: transparent; color: #b42318; cursor: pointer; }
 .nw .nw-request-delete:hover:not(:disabled), .nw .nw-request-delete:focus-visible { background: #fff1f0; border-color: #f3b6b1; }
 .nw .nw-request-delete:disabled { opacity: .5; cursor: wait; }
+
+/* Compact, action-oriented Red de Obras home. */
+.nw-home .nw-heading { margin-bottom: 10px; }
+.nw-home .nw-publish-hub { border: 0; background: transparent; padding: 0; margin: 12px 0; }
+.nw-home .nw-publish-choice { padding: 11px 14px; gap: 10px; }
+.nw-home .nw-publish-choice-icon { width: 34px; height: 34px; border-radius: 8px; }
+.nw-home .nw-home-summary { display: flex; flex-wrap: wrap; align-items: center; gap: 4px 12px; padding: 6px 10px; margin: 10px 0 16px; border: 1px solid var(--nw-border); border-radius: 10px; background: var(--nw-paper); }
+.nw-home-summary button { display: inline-flex; align-items: center; flex-wrap: wrap; gap: 6px; background: transparent; color: var(--nw-ink); border: 0; border-radius: 6px; padding: 8px; min-height: 36px; font-size: 13px; cursor: pointer; }
+.nw-home-summary button strong { color: var(--nw-accent); font-size: 16px; }
+.nw-home-summary button.nw-home-urgent strong { color: #b45309; }
+.nw-home-summary button:hover { background: var(--nw-light); }
+.nw .nw-clear-filters { min-height: 36px; white-space: nowrap; }
+.nw-home .nw-feed-card { gap: 6px; padding: 12px 14px; }
+.nw-home .nw-feed-card .nw-card-footer { padding-top: 8px; }
+.nw-home .nw-card-footer > button:only-child { margin-left: auto; }
+.nw-home .nw-section-title { margin-top: 15px; }
+.nw .nw-request-delete { color: #b42318; }
+[data-theme="dark"] .nw .nw-request-delete { color: #fca5a5; }
+[data-theme="dark"] .nw .nw-request-delete:hover:not(:disabled) { background: #542720; }
+.nw-home button:focus-visible, .nw .nw-request-delete:focus-visible { outline: 2px solid var(--nw-accent); outline-offset: 2px; }
+@media(max-width:600px) { .nw-home .nw-home-summary { gap: 2px; } .nw-home-summary button { font-size: 12px; padding: 7px; } .nw-home .nw-publish-choice { padding: 10px; } }
+@media(prefers-reduced-motion:reduce) { .nw-home .nw-publish-choice { transition: none; } .nw-home .nw-publish-choice:hover { transform: none; } }

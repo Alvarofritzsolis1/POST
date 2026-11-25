@@ -523,8 +523,21 @@ def capacities(
     user: User = Depends(authorized_user),
     db: Session = Depends(get_db),
     contractor_id: str | None = None,
+    active_only: bool = False,
+    mine: bool = False,
 ):
-    query = select(NetworkCapacity).where(NetworkCapacity.org_id == user.org_id)
+    query = select(NetworkCapacity).where(
+        NetworkCapacity.org_id == user.org_id,
+        NetworkCapacity.state != "deleted",
+    )
+    if active_only:
+        query = query.where(
+            NetworkCapacity.state == "published",
+            NetworkCapacity.expires_on >= today(),
+            NetworkCapacity.availability.notin_(["discarded", "committed"]),
+        )
+    if mine and user.role == "resident":
+        query = query.where(NetworkCapacity.site_id.in_(assigned_sites(db, user)))
     if user.role == "resident":
         query = query.where(
             (NetworkCapacity.state != "draft")
@@ -610,6 +623,8 @@ def create_capacity(
         )
     )
     if prior:
+        if prior.state == "deleted":
+            raise HTTPException(409, "La disponibilidad fue eliminada; crea una nueva publicación")
         if prior.created_by != user.id or prior.contractor_id != body.contractor_id:
             raise HTTPException(409, "La clave de publicación ya se utilizó")
         return capacity_view(db, user, prior)
@@ -653,6 +668,42 @@ def update_capacity(
     rebuild_matches(db, user)
     db.commit()
     return capacity_view(db, user, row)
+
+
+@router.delete("/capacities/{record_id}")
+def delete_capacity(
+    record_id: str,
+    version: int = Query(..., ge=1),
+    user: User = Depends(authorized_user),
+    db: Session = Depends(get_db),
+):
+    if user.role not in {"admin", "resident"}:
+        raise HTTPException(403, "No tienes permiso para eliminar disponibilidades")
+    lock_org(db, user)
+    row = record_for(db, NetworkCapacity, user, record_id, lock=True)
+    if user.role == "resident" and row.site_id not in assigned_sites(db, user):
+        raise HTTPException(403, "Solo puedes eliminar disponibilidades de tus obras asignadas")
+    if row.state == "deleted":
+        return {"id": row.id, "deleted": True}
+    check_version(row, version)
+    award_id = db.scalar(select(NetworkAward.id).where(
+        NetworkAward.capacity_id == row.id).limit(1))
+    coordination_id = db.scalar(
+        select(NetworkCoordination.id)
+        .join(NetworkMatch, NetworkMatch.id == NetworkCoordination.match_id)
+        .where(NetworkMatch.capacity_id == row.id).limit(1)
+    )
+    if award_id or coordination_id:
+        raise HTTPException(409, "La disponibilidad tiene adjudicaciones o coordinaciones vinculadas. Conserva su historial y actualiza su estado.")
+    before = capacity_view(db, user, row)
+    row.state = "deleted"
+    row.version += 1
+    row.updated_at = utcnow()
+    event(db, user, "capacity", row.id, before,
+          {"state": "deleted", "version": row.version}, "Eliminación de disponibilidad")
+    rebuild_matches(db, user)
+    db.commit()
+    return {"id": row.id, "deleted": True}
 
 
 @router.post("/capacities/{record_id}/renew")
@@ -1673,6 +1724,8 @@ def overview(
         NetworkCapacity.expires_on >= today(),
         NetworkCapacity.availability.notin_(["discarded", "committed"]),
     )
+    if mine and user.role == "resident":
+        capacities_q = capacities_q.where(NetworkCapacity.site_id.in_(assigned_sites(db, user)))
     if site_id:
         capacities_q = capacities_q.where(NetworkCapacity.site_id == site_id)
     if specialty:
