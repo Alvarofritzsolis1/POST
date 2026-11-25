@@ -17,6 +17,7 @@ from urllib.request import HTTPRedirectHandler, Request, build_opener
 from sqlalchemy import select, text as sql_text
 
 from .config import settings
+from . import galancito_contextual as contextual
 from .db import SessionLocal
 from .facebook_ai import messenger_contact_ai_source, local_first_messenger
 from .facebook_availability_reply import availability_reply
@@ -177,7 +178,7 @@ def sync_page_inbox(*, page_id: str, page_token: str, org_id: str,
                     trace_unique_requirement(db, lead, today=today(), remote_id=mid)
             db.add(FacebookChatMessage(
                 org_id=org_id, lead_id=lead.id, page_id=page_id, remote_id=mid,
-                direction="inbound", state="received", body=body, created_at=timestamp,
+                direction="inbound", state="received", body=body, created_at=timestamp, updated_at=timestamp,
                 consent_decision=decision))
             if fresh:
                 for pending in db.scalars(select(FacebookChatMessage).where(
@@ -264,7 +265,11 @@ def sync_page_inbox(*, page_id: str, page_token: str, org_id: str,
                     and consented_for(lead, configured)
                     and contact_pending_questions(profile_facts(lead, changed=changed), prior))
                 source = "disabled" if direct and not contact_model else configured
-                if contact_model:
+                contextual_turn = bool(contextual.authorized(cfg, lead) and not follow_up
+                    and not (application and direct == application) and not identity_reply(body)
+                    and not small_talk_reply(body) and contextual.eligible(body)
+                    and (not direct or direct == contact_reply or direct == everyday_question_reply(body)))
+                if contact_model or contextual_turn:
                     state, reply = "ai_pending", ""
                 elif direct:
                     state, reply = "pending", direct

@@ -252,6 +252,29 @@ def analyze(message: str, trades: dict | None = None) -> Intake:
     return Intake(intent, specialty, entity, workers, availability)
 
 
+_PAYMENT_QUESTION = re.compile(
+    r"\b(?:cuanto(?: se| estan| te| me| les| nos)? (?:pag\w*|cobr\w*|ofrecen)|"
+    r"(?:se|les|te|me) paga por|pagan por (?:avance|dia|jornada|metro|hora|trato)|"
+    r"cual es (?:el (?:pago|sueldo|monto|precio)|la tarifa))\b"
+)
+
+
+def payment_guidance(message: str) -> str | None:
+    """Explain unverified terms without promising an amount or a payment method."""
+    if private_data(message):
+        return None
+    if "?" in message or "¿" in message:
+        question = plain(" ".join(_QUESTION_CLAUSE.findall(message)))
+    else:
+        question = plain(message)
+        if not re.search(r"\b(?:cuanto|cual es)\b", question):
+            return None
+    if _PAYMENT_QUESTION.search(question):
+        return ("El monto y la forma de pago se acuerdan con quien contrata para cada obra. "
+                "Pide que te confirmen si pagan por avance, por jornada o con otra modalidad antes de aceptar.")
+    return None
+
+
 def everyday_question_reply(message: str) -> str | None:
     """Short, generic job questions do not need a model or technical consent.
 

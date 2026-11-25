@@ -94,6 +94,23 @@ _ROLE_WORKER = (
     "postulo como trabajador", "postular a un empleo", "soy trabajador", "soy trabajadora",
     "trabajo apatronado", "quiero trabajar apatronado", "busco trabajo apatronado",
 )
+
+_ROLE_MENTION_PATTERNS = {
+    "service_offer": re.compile(r"\b(?:" + "|".join(map(re.escape, _ROLE_SERVICE)) +
+                                r"|contratistas?|ofrezco|ofresco|trabaj(?:o|amos|ar) a trato)\b"),
+    "employment": re.compile(r"\b(?:" + "|".join(map(re.escape, _ROLE_WORKER)) +
+                              r"|buscando (?:pega|(?:un )?contrato)|necesito empleo|"
+                              r"quiero que me contraten|trabajar apatronad[oa])\b"),
+}
+
+
+def role_mentions(value: str):
+    """Possible self-descriptions in normalized text, without inferring the actor."""
+    for role, pattern in _ROLE_MENTION_PATTERNS.items():
+        if match := pattern.search(value):
+            yield match, role
+
+
 _NAME_PROMPTS = (
     "como prefieres que te llamemos", "cual es tu nombre", "como te llamas",
     "dime tu nombre", "me dices tu nombre", "me puedes decir tu nombre", "tu nombre por favor",

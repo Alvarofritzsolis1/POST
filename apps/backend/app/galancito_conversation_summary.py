@@ -82,7 +82,9 @@ def summarize_conversation(lead, messages: Sequence) -> dict:
         })
     context = sources.get("_declared_context") or {}
     for key, label in (("crew_expandable", "Posibilidad de ampliar cuadrilla"),
-                       ("declared_origin", "Procedencia declarada (no zona de trabajo)")):
+                       ("declared_origin", "Procedencia declarada"),
+                       ("crew_size", "Tamaño de cuadrilla declarado"),
+                       ("preferred_contact", "Canal de contacto preferido")):
         origin = context.get(key) or {}
         val = origin.get("value")
         if val is None:

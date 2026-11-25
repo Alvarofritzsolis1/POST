@@ -77,6 +77,12 @@ def _trade_matcher(extra: tuple):
     return by_alias, pattern
 
 
+def trade_mentions(value: str, *, extra=()):
+    """Return catalog spans, with attribution left to the caller."""
+    _, matcher = _trade_matcher(extra)
+    return matcher.finditer(value)
+
+
 def trade_declarations(message: str, prior_prompt: str = "", *,
                        extra: dict | None = None, allow_bare: bool = False) -> dict[str, bool]:
     """True adds an explicitly stated trade; False corrects an earlier declaration."""

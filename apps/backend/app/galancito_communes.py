@@ -17,5 +17,10 @@ _PATTERN = re.compile(r"\b(?:" + "|".join(
 ) + r")\b")
 
 
+def commune_mentions(value: str):
+    """Return literal spans and canonical commune names in normalized text."""
+    return ((match, _NAMES[match[0]]) for match in _PATTERN.finditer(value))
+
+
 def find_communes(text: str) -> list[str]:
-    return list(dict.fromkeys(_NAMES[match[0]] for match in _PATTERN.finditer(plain(text))))
+    return list(dict.fromkeys(name for _, name in commune_mentions(plain(text))))
