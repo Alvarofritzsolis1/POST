@@ -241,7 +241,10 @@ def run(dataset, source_root, *, real_local=False, contextual=False, loopback=Fa
                     handoff_without_reply = (human_review and actual["ai_paused"]
                                              and not awaiting_human and len(replies) == 0)
                     awaiting_human = human_review
-                    allows_handoff = handoff_without_reply and not required and not turn.get("replies", 0)
+                    # A turn that asks for a delivery must opt in to a silent handoff.
+                    # Required answer content still needs to reach the user.
+                    allows_handoff = (handoff_without_reply and not required
+                                      and (not turn.get("replies", 0) or turn.get("allow_silent_handoff", False)))
                     forbidden = [*turn.get("reply_excludes", []), "ya estás contratado", "te adjudicamos",
                                  "contratación garantizada", "envíame tu RUT"]
                     question = plain(answer.rsplit("¿", 1)[-1]) if "?" in answer else ""
@@ -268,7 +271,8 @@ def run(dataset, source_root, *, real_local=False, contextual=False, loopback=Fa
                            if "trade_terms" in turn else {}),
                         **({"intent": any(item["intent"] in expected_intents for item in observed)}
                            if expected_intents else {}),
-                        **({"batched": len(replies) == turn["replies"]} if "replies" in turn else {}),
+                        **({"batched": len(replies) == turn["replies"] or allows_handoff}
+                           if "replies" in turn else {}),
                     }
                     turns.append({"turn": number, "message": redact(turn["message"]), "checks": checks,
                                   "profile_errors": redact(errors), "expected_profile": redact(expected),
