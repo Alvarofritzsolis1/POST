@@ -466,11 +466,15 @@ def neural_intent(db, task_busy, model_download):
         TrainingRound.state.in_(ACTIVE),
         or_(TrainingRound.config["orchestrator"].as_string().is_(None),
             TrainingRound.config["orchestrator"].as_string()!="max_power")).limit(1)))
-    allowed=bool(row and owner and owner.enabled and owner.role=="admin" and owner.org_id==org
-                 and not task_busy and not model_download and not manual_busy
-                 and not cpu_execution_blocks(db,utcnow()) and not messenger_busy(db)
-                 and not messenger_recent(db))
-    neural.write(neural.ROOT/"intent.json",{"org":org,"generation":generation,"at":time(),"allowed":allowed})
+    eligible = bool(row and owner and owner.enabled and owner.role == "admin" and owner.org_id == org
+                    and not task_busy and not model_download and not manual_busy
+                    and not cpu_execution_blocks(db, utcnow()))
+    waiting_for_messenger = eligible and bool(messenger_busy(db) or messenger_recent(db))
+    allowed = eligible and not waiting_for_messenger
+    neural.write(neural.ROOT / "intent.json", {
+        "org": org, "generation": generation, "at": time(),
+        "allowed": allowed, "wait_for_messenger": waiting_for_messenger,
+    })
     status=neural.read(neural.ROOT/"status.json")
     if row and neural.matches(status,org,generation) and neural.fresh(status,40):
         evidence=neural.measured_report(status)

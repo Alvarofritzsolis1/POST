@@ -4,7 +4,9 @@ Galancito, Messenger, Red de Obras y las prácticas de MAX POWER usan `qwen3.5:2
 
 Al encender MAX POWER, el entrenador por CPU mide la memoria y el disco. El preflight requiere 6.000 MB disponibles en el host, un contenedor de 5 GiB y 7.000 MB libres en disco. El entrenador usa NF4 en la base `Qwen/Qwen3.5-2B` y modifica un adaptador LoRA en la última proyección MLP. Una ronda inicial realiza hasta diez pasos sobre ejemplos ficticios. Guarda el adaptador y el optimizador en checkpoints verificables para reanudar. Messenger tiene prioridad sobre la práctica y el entrenamiento.
 
-El panel registra los pasos que modificaron el adaptador, la pérdida y el resultado de los casos reservados. Un adaptador queda como candidato de laboratorio hasta que se evalúe y se apruebe su uso en producción.
+El panel distingue descarga, carga, evaluación de referencia, pasos del adaptador y evaluación reservada. Durante una interrupción breve de Messenger el trabajador conserva el modelo hasta cinco minutos si dispone de memoria. Apagar MAX POWER o cambiar de sesión cancela el turno y conserva el último checkpoint.
+
+El piloto usa diálogos ficticios de contratistas chilenos con modismos, errores de escritura y respuestas cortas. Practica explicaciones en palabras comunes, una pregunta a la vez, recordar lo ya dicho, aclarar el uso de IA cuando se pregunta y ofrecer atención humana. Evalúa conversaciones reservadas con el modelo base y el adaptador. El adaptador queda como candidato de laboratorio hasta que se revise su uso en producción.
 
 ## Entrenamiento con datos autorizados
 

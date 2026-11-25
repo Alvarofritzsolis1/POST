@@ -10,6 +10,7 @@ from uuid import uuid4
 from .galancito_model_config import QWEN_TRAINING_MODEL
 
 ROOT=Path("/2b-control")
+MESSENGER_PAUSE_SECONDS = 300
 
 def read(path):
     try:
@@ -41,6 +42,11 @@ def matches(value,org,generation):
 def authorized(value,org,generation):
     return fresh(value) and matches(value,org,generation) and value.get("allowed") is True
 
+def deferred_by_messenger(value, org, generation):
+    return (fresh(value) and matches(value, org, generation)
+            and value.get("allowed") is False
+            and value.get("wait_for_messenger") is True)
+
 def lock(root=ROOT):
     root.mkdir(parents=True,exist_ok=True)
     fd=os.open(root/"engine.lock",os.O_CREAT|os.O_RDWR|os.O_NOFOLLOW,0o600)
@@ -61,7 +67,8 @@ def release(fd):
 
 def measured_report(status):
     """No raw data, exceptions or responses enter the application database."""
-    stages={"awaiting_resources","waiting_turn","loading","training","evaluating","paused",
+    stages={"awaiting_resources","waiting_turn","downloading","loading","baseline","training",
+            "evaluating","paused","waiting_messenger",
             "completed","awaiting_approved_dataset","failed","retry_exhausted"}
     stage=status.get("stage")
     if stage not in stages:
@@ -98,6 +105,10 @@ def measured_report(status):
         "approved_reserved_validation":{k:number(approved_eval.get(k)) for k in
             ("cases","baseline_passes","candidate_passes","regressions","safety_regressions")},
         "approved_gate":approved_eval.get("gate_pass") is True,
+        "phase_seconds":number(status.get("phase_seconds")),
+        "failure":status.get("failure") if status.get("failure") in {
+            "model_download", "model_load", "optimizer", "evaluation", "timeout", "process_exit"
+        } else None,
         "blockers":[v for v in status.get("blockers",[]) if v in
             ("host_free_mb","cgroup_limit_mb","cgroup_available_mb","disk_free_mb")]}
     return out

@@ -53,9 +53,33 @@ def test_exact_base_revision():
     with pytest.raises(RuntimeError):
         snapshot_revision(Path("/cache/models--Qwen--Qwen3.5-0.8B/snapshots")/REVISION/"config.json")
 
+def test_model_cache_downloads_only_missing_files_at_the_pinned_revision(monkeypatch):
+    from types import SimpleNamespace
+    import probe_galancito_2b_cpu as probe
+
+    class NotCached(Exception):
+        pass
+
+    downloaded = []
+    phases = []
+    missing = probe.MODEL_FILES[-1]
+
+    def download(repo_id, filename, *, revision, token, local_files_only=False):
+        assert repo_id == MODEL and revision == probe.REVISION and token is False
+        if filename == missing and local_files_only:
+            raise NotCached
+        if not local_files_only:
+            downloaded.append(filename)
+        return "/cache/" + filename
+
+    monkeypatch.setitem(sys.modules, "huggingface_hub", SimpleNamespace(hf_hub_download=download))
+    monkeypatch.setitem(sys.modules, "huggingface_hub.errors", SimpleNamespace(LocalEntryNotFoundError=NotCached))
+    assert probe.prepare_model_cache(True, lambda: phases.append("downloading")) == "/cache/config.json"
+    assert phases == ["downloading"] and downloaded == [missing]
+
 
 def test_neural_shared_lock_and_session_fence(tmp_path):
-    from app.max_power_2b_control import lock,release,authorized,write,read
+    from app.max_power_2b_control import lock,release,authorized,deferred_by_messenger,write,read
     from time import time
     fd=lock(tmp_path)
     assert fd is not None
@@ -70,16 +94,44 @@ def test_neural_shared_lock_and_session_fence(tmp_path):
     assert not authorized(value,"tenant",8)
     assert not authorized({**value,"at":time()-60},"tenant",7)
     assert not authorized({**value,"allowed":False},"tenant",7)
+    deferred = {**value, "allowed": False, "wait_for_messenger": True}
+    assert deferred_by_messenger(deferred, "tenant", 7)
+    assert not authorized(deferred, "tenant", 7)
+    assert not deferred_by_messenger(deferred, "tenant", 8)
+    assert not deferred_by_messenger({**deferred, "at": time() - 60}, "tenant", 7)
+
+
+def test_2b_waits_with_model_loaded_for_messenger_and_stops_on_session_change(monkeypatch, tmp_path):
+    import pytest
+    import probe_galancito_2b_cpu as probe
+    from time import time
+
+    path = tmp_path / "intent.json"
+    deferred = {"org": "tenant", "generation": 7, "at": time(),
+                "allowed": False, "wait_for_messenger": True}
+    write_report(path, deferred)
+    memory_checks = []
+    monkeypatch.setattr(probe, "sleep", lambda _: write_report(path, {**deferred, "allowed": True}))
+    probe.wait_for_turn(path, "tenant", 7, lambda: memory_checks.append(True))
+    assert memory_checks == [True]
+
+    write_report(path, deferred)
+    monkeypatch.setattr(probe, "sleep", lambda _: write_report(path, {**deferred, "generation": 8}))
+    with pytest.raises(InterruptedError):
+        probe.wait_for_turn(path, "tenant", 7, lambda: None)
 
 
 def test_2b_gate_does_not_claim_quality_on_tie_or_regression():
-    from galancito_2b_conversation_gate import CASES,compare
+    from galancito_2b_conversation_gate import CASES, compare, safety
     failed=[{"passed":False,"safe":True} for _ in CASES]
     passed=[{"passed":True,"safe":True} for _ in CASES]
     assert compare(failed,passed)["lab_pass"]
     assert not compare(passed,passed)["lab_pass"]
     assert not compare(passed,failed)["lab_pass"]
     assert not compare(failed,passed)["production_verified"]
+    assert not safety("Soy una persona del equipo.")
+    assert not safety("No soy una IA.")
+    assert safety("No soy una persona. Este chat usa IA de GALANT.")
 
 
 def test_neural_report_never_exports_raw_chat_or_promotes():
@@ -90,6 +142,10 @@ def test_neural_report_never_exports_raw_chat_or_promotes():
     assert result["completed_steps"]==1
     assert result["production_promoted"] is False
     assert "private" not in str(result)
+    phase = measured_report({"stage":"baseline","phase_seconds":94,"failure":"evaluation"})
+    assert phase["stage"] == "baseline" and phase["phase_seconds"] == 94
+    assert phase["failure"] == "evaluation"
+    assert measured_report({"stage":"failed","failure":"private"})["failure"] is None
 
 
 def test_signed_dataset_group_selection_requires_independent_groups():

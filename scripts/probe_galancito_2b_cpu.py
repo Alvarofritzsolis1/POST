@@ -12,35 +12,88 @@ import math
 import os
 import re
 from pathlib import Path
-from time import monotonic, time
+from time import monotonic, sleep, time
 from uuid import uuid4
 import sys
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "apps" / "backend"))
 from app.galancito_model_config import QWEN_TRAINING_MODEL as MODEL
-from galant_cpu_lora_resources import snapshot, should_pause
+from app.max_power_2b_control import (MESSENGER_PAUSE_SECONDS, authorized,
+                                     deferred_by_messenger, read)
+from galant_cpu_lora_resources import PAUSE_HOST_MB, snapshot, should_pause
 
 PROFILE = "last-down-proj-fp32-v1"
 REVISION = "15852e8c16360a2fea060d615a32b45270f8a8fc"
-SYSTEM = "Orienta a contratistas chilenos con lenguaje sencillo. No inventes datos."
+SYSTEM = (
+    "Atiende a contratistas en Chile. Entiende modismos, errores y frases cortas. "
+    "Responde con respeto, en palabras simples y una pregunta a la vez. Recuerda lo que ya te contaron. "
+    "Si preguntan, explica que este chat usa IA. Si piden una persona, ofrece esa opción. "
+    "No inventes cupos, sueldos ni gestiones y no pidas datos privados."
+)
 EXAMPLES = (
-    ("Ola busco peguita", "Hola, ¿qué oficio tienes?"),
-    ("No cacho qué es cuadrilla", "Es un grupo de personas que trabajan juntas."),
-    ("Somos tres maestros", "Entendido, son tres maestros. ¿Qué trabajos realizan?"),
-    ("Y las lucas cuanto son", "El equipo debe confirmar el monto."),
-    ("Puedo partir altiro", "Anotado, tienes disponibilidad inmediata."),
-    ("No tengo correo", "Puedes seguir conversando por aquí."),
-    ("Ya te dije que soy carpintero", "Tienes razón. ¿Trabajas solo o con un equipo?"),
-    ("No entiendo el formulario", "Te ayudo por acá, una pregunta a la vez."),
-    ("Hago pintura hace ocho años", "Anotado, ocho años de experiencia en pintura."),
-    ("Me puede atender una persona", "Podemos solicitar ayuda al equipo.")
+    ("ola maestro ando bscando peguita", "Claro, te ayudo. ¿Qué trabajo haces?"),
+    ("ago gasfiteria", "¿Trabajas solo o con más gente?", "solo po compa",
+     "Entiendo, haces gasfitería por tu cuenta. ¿En qué comuna puedes trabajar?"),
+    ("pintura y yeso", "¿Tienes una cuadrilla?", "no cacho eso de cuadrilla",
+     "Es la gente con la que trabajas. ¿Trabajas solo o con más personas?"),
+    ("y cuantas lucas son la pega", "El pago depende del aviso. ¿Recuerdas dónde lo viste?"),
+    ("toy en temuco ago techumbres", "¿Cuándo podrías empezar?", "altiro",
+     "Perfecto, puedes empezar de inmediato. ¿Te quedaría bien trabajar dentro de Temuco?"),
+    ("no uso correo y me cuesta escribir aca", "Está bien, podemos seguir por aquí. Con una palabra basta. ¿Qué trabajo haces?"),
+    ("soi carpintero te dije", "Tienes razón, ya me dijiste que haces carpintería. ¿En qué comuna buscas pega?"),
+    ("llevo tres cabros", "¿Cuántas personas serían en total, contándote a ti?", "cuatro conmigo",
+     "Perfecto, son cuatro contando contigo."),
+    ("oye esto responde una persona?", "Este chat usa IA de GALANT. Si prefieres hablar con una persona, podemos pedir ayuda al equipo."),
+    ("prefiero hablar con alguien soy malo pa escribir", "Claro, puedes pedir que te atienda alguien del equipo. Puedes escribir con tus palabras."),
 )
 HOLDOUT = (
-    ("Ando sin trabajo hace rato", "Cuéntame qué oficio tienes."),
-    ("Qué significa a trato", "Es un trabajo pagado según las condiciones acordadas."),
-    ("No tengo gente voy yo nomas", "Entendido, trabajas solo."),
-    ("Me dijeron que pagan el viernes", "No puedo confirmar esa fecha.")
+    ("andaba buscando un pitutito de soldador", "¿En qué comuna puedes trabajar de soldador?"),
+    ("q es trabajar a trato no entiendo", "Es cobrar por el trabajo acordado. Antes de empezar, aclara qué harás y cuánto te pagarán."),
+    ("hago ceramica", "¿Puedes ir con otras personas?", "voy yo nomas",
+     "Entiendo, vas solo. ¿En qué comuna puedes trabajar?"),
+    ("me dijieron que pagan el viernes es seguro", "No puedo confirmar el día de pago. ¿Sabes a qué aviso se refiere?"),
 )
+MODEL_FILES = (
+    "config.json", "tokenizer.json", "tokenizer_config.json", "chat_template.jinja",
+    "model.safetensors.index.json", "model.safetensors-00001-of-00001.safetensors",
+)
+
+
+class ResourceWait(Exception):
+    pass
+
+
+def wait_for_turn(path, org, generation, check_memory):
+    deadline = monotonic() + MESSENGER_PAUSE_SECONDS
+    while True:
+        value = read(path)
+        if authorized(value, org, generation):
+            return
+        if not deferred_by_messenger(value, org, generation) or monotonic() >= deadline:
+            raise InterruptedError("MAX POWER paused or session expired")
+        check_memory()
+        sleep(2)
+
+
+def prepare_model_cache(allow_download, on_download):
+    from huggingface_hub import hf_hub_download
+    from huggingface_hub.errors import LocalEntryNotFoundError
+
+    missing = []
+    cached = {}
+    for filename in MODEL_FILES:
+        try:
+            cached[filename] = hf_hub_download(MODEL, filename, revision=REVISION,
+                                               local_files_only=True, token=False)
+        except LocalEntryNotFoundError:
+            if not allow_download:
+                raise
+            missing.append(filename)
+    if missing:
+        on_download()
+        for filename in missing:
+            cached[filename] = hf_hub_download(MODEL, filename, revision=REVISION, token=False)
+    return cached["config.json"]
 
 def snapshot_revision(path, expected=None):
     path = Path(path)
@@ -106,11 +159,6 @@ def main():
     args=parser.parse_args()
     if args.control_file and (not args.org or not args.generation):
         parser.error("Control file requires organization and generation")
-    def control_guard():
-        if args.control_file:
-            from app.max_power_2b_control import authorized,read
-            if not authorized(read(args.control_file),args.org,args.generation):
-                raise InterruptedError("MAX POWER paused or session expired")
     if bool(args.approved_dir)!=bool(args.expected_dataset_sha256) or (args.approved_dir and not args.conversation_eval):
         parser.error("Approved training requires signed dataset digest and reserved evaluation")
     root=args.output
@@ -126,6 +174,23 @@ def main():
     write_report(path,report)
     if reasons or not args.run:
         return 2 if reasons else 0
+
+    def check_memory():
+        memory = snapshot(root)
+        if should_pause(memory):
+            report["blockers"] = (["host_free_mb"] if memory["host_free_mb"] < PAUSE_HOST_MB
+                                  else ["cgroup_available_mb"])
+            raise ResourceWait("Memory reserve below safe limit")
+        return memory
+
+    def control_guard():
+        if args.control_file:
+            wait_for_turn(args.control_file, args.org, args.generation, check_memory)
+
+    def mark_downloading():
+        report["status"] = "downloading_model"
+        write_report(path, report)
+
     try:
         control_guard()
         bundle=None
@@ -136,10 +201,15 @@ def main():
                 raise RuntimeError("Approved dataset changed before training")
             report.update(data_kind="human_reviewed_real",approved_dataset_sha256=bundle["dataset_digest"])
             write_report(path,report)
+        config_path = prepare_model_cache(args.allow_download, mark_downloading)
+        report["base_revision"] = snapshot_revision(config_path, REVISION)
+        control_guard()
+        report["status"] = "loading"
+        write_report(path, report)
+        t = monotonic()
         import torch
         import bitsandbytes as bnb
         import transformers, peft
-        from huggingface_hub import hf_hub_download
         from transformers import AutoTokenizer,Qwen3_5ForCausalLM,BitsAndBytesConfig
         from peft import LoraConfig,get_peft_model
         from peft.utils.save_and_load import load_peft_weights,set_peft_model_state_dict
@@ -149,14 +219,8 @@ def main():
         report["software"]={"torch":torch.__version__,"bitsandbytes":bnb.__version__,
                             "transformers":transformers.__version__,"peft":peft.__version__}
         report["threads"]=torch.get_num_threads()
-        report["status"]="loading"
-        write_report(path,report)
-        t=monotonic()
-        options={"trust_remote_code":False,"local_files_only":not args.allow_download,
+        options={"trust_remote_code":False,"local_files_only":True,
                  "revision":REVISION,"token":False}
-        config_path=hf_hub_download(repo_id=MODEL,filename="config.json",
-                                    revision=REVISION,local_files_only=options["local_files_only"],token=False)
-        report["base_revision"]=snapshot_revision(config_path,REVISION)
         tokenizer=AutoTokenizer.from_pretrained(MODEL,**options)
         # The recurrent gates have 16 outputs, below the 32-output CPU packing
         # block. Keep those in BF16 and quantize the other linear layers once.
@@ -176,10 +240,7 @@ def main():
         def guard(check_control=True):
             if check_control:
                 control_guard()
-            memory=snapshot(root)
-            if should_pause(memory):
-                raise RuntimeError("Memory reserve below safe limit")
-            return memory
+            return check_memory()
         guard()
         # No generic k-bit preparation: that expands frozen tensors to FP32
         # and enables input gradients. Only the adapter is FP32 trainable.
@@ -212,12 +273,13 @@ def main():
             return h.hexdigest()
         initial=digest()
         optimizer=torch.optim.AdamW(params,lr=7e-5)
-        def encode(question,answer):
-            prefix=tokenizer.apply_chat_template([{"role":"system","content":SYSTEM},
-                        {"role":"user","content":question}],tokenize=False,
+        def encode(dialogue):
+            history = [{"role": "assistant" if i % 2 else "user", "content": message}
+                       for i, message in enumerate(dialogue[:-1])]
+            prefix=tokenizer.apply_chat_template([{"role":"system","content":SYSTEM}] + history,tokenize=False,
                         add_generation_prompt=True,enable_thinking=False)
             a=tokenizer(prefix,add_special_tokens=False)["input_ids"]
-            b=tokenizer(answer,add_special_tokens=False)["input_ids"]+[tokenizer.eos_token_id]
+            b=tokenizer(dialogue[-1],add_special_tokens=False)["input_ids"]+[tokenizer.eos_token_id]
             if not b or len(a)+len(b)>192:
                 raise RuntimeError("Diagnostic example exceeds token budget")
             return torch.tensor([a+b],dtype=torch.long),torch.tensor([[-100]*len(a)+b],dtype=torch.long)
@@ -228,14 +290,14 @@ def main():
             def short(rows):
                 for row in rows:
                     try:
-                        encode(row["messages"][0]["content"],row["messages"][1]["content"])
+                        encode(tuple(message["content"] for message in row["messages"]))
                     except RuntimeError:
                         continue
                     yield row
             train_rows=select_groups(short(bundle["samples"]["train"]),args.steps)
             reserved_real=select_groups(short(bundle["samples"]["test"]),10)
-            examples=tuple((r["messages"][0]["content"],r["messages"][1]["content"]) for r in train_rows)
-            holdout=tuple((r["messages"][0]["content"],r["messages"][1]["content"]) for r in reserved_real)
+            examples=tuple(tuple(message["content"] for message in r["messages"]) for r in train_rows)
+            holdout=tuple(tuple(message["content"] for message in r["messages"]) for r in reserved_real)
         dataset=hashlib.sha256(json.dumps([SYSTEM,examples,holdout,PROFILE,args.steps,
                     bundle["dataset_digest"] if bundle else None],ensure_ascii=False).encode()).hexdigest()
         report["dataset_sha256"]=dataset
@@ -243,9 +305,9 @@ def main():
             model.eval()
             values=[]
             with torch.no_grad():
-                for q,a in holdout:
+                for dialogue in holdout:
                     guard()
-                    ids,labels=encode(q,a)
+                    ids,labels=encode(dialogue)
                     loss=model(input_ids=ids,labels=labels,use_cache=False).loss
                     if not torch.isfinite(loss):
                         raise RuntimeError("Non-finite reserved loss")
@@ -292,7 +354,7 @@ def main():
         stop=min(args.steps,args.stop_after or args.steps)
         for step in range(start+1,stop+1):
             guard()
-            ids,labels=encode(*examples[step-1])
+            ids,labels=encode(examples[step-1])
             report.update(status="backward_pending",active_step=step)
             write_report(path,report)
             t=monotonic()
@@ -319,7 +381,11 @@ def main():
             report["steps"].append(point)
             checkpoint=folder/("step-"+str(step))
             temporary=folder/(".step-"+str(step)+"-"+uuid4().hex)
-            model.save_pretrained(temporary,safe_serialization=True)
+            # Exporting all weights invokes bitsandbytes' CPU unpacking in
+            # state_dict(), which mutates the frozen model used for evaluation.
+            adapter_state = {name: parameter.detach() for name, parameter in named}
+            model.save_pretrained(temporary, safe_serialization=True,
+                                  state_dict=adapter_state, save_embedding_layers=False)
             torch.save(optimizer.state_dict(),temporary/"optimizer.pt")
             files={name:file_hash(temporary/name) for name in
                    ("adapter_model.safetensors","adapter_config.json","optimizer.pt")}
@@ -356,10 +422,12 @@ def main():
                     ids=tokenizer(prompt,add_special_tokens=False,return_tensors="pt")["input_ids"]
                     if ids.shape[1]>384:
                         raise RuntimeError("Reserved conversation exceeds context budget")
+                    # Qwen's chat template and text model have distinct stop tokens.
                     with torch.no_grad():
                         output=model.generate(input_ids=ids,attention_mask=torch.ones_like(ids),
                             max_new_tokens=40,do_sample=False,use_cache=True,
-                            pad_token_id=tokenizer.eos_token_id)
+                            eos_token_id=[tokenizer.eos_token_id, tokenizer.pad_token_id],
+                            pad_token_id=tokenizer.pad_token_id)
                     return tokenizer.decode(output[0,ids.shape[1]:],skip_special_tokens=True).strip()
                 model.eval()
                 def evaluate_real():
@@ -393,8 +461,11 @@ def main():
             report["status"]="completed"
     except InterruptedError:
         report["status"]="paused"
+    except ResourceWait:
+        report["status"]="memory_wait"
     except Exception as exc:
-        report.update(status="failed",error_type=type(exc).__name__,error=str(exc)[:400])
+        report.update(status="failed",failed_phase=report["status"],
+                      error_type=type(exc).__name__,error=str(exc)[:400])
     write_report(path,report)
     print(json.dumps(report,ensure_ascii=False,allow_nan=False),flush=True)
     return 0 if report["status"] in {"completed","paused_after_verified_step"} else 1
