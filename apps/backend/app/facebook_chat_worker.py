@@ -656,6 +656,16 @@ def process_chat_next(session_factory=SessionLocal, *, simulation_config=None, n
             if model_only and automated_reply and "?" in body and source not in {"ai", "external"}:
                 failed_ai = True
                 trace["fallback_reason"] = "scripted_question_blocked"
+            if (failed_ai and model_only and not requires_verified_details and not requested_handoff
+                    and focus and analyze(focus.body).intent in {"trade_offer", "capacity", "company_offer", "job_seeker"}
+                    and "?" not in focus.body and not private_data(focus.body)):
+                # A failed draft is not a request for human takeover. Keep facts and
+                # allow the next inbound to trigger inference again.
+                current_job.state, current_job.error = "cancelled", "Modelo sin respuesta válida; ficha conservada"
+                record_run(db, org_id=org_id, channel="messenger", source="fallback",
+                           intent=intent, started=started, db_ms=db_ms,
+                           timings={**timings, **trace, "model_error": True, "human_review": False})
+                return True
             if failed_ai:
                 flag_for_human(db, current, "Galancito no obtuvo una respuesta confirmada; revisión pendiente")
                 current_job.state, current_job.error = "cancelled", "Derivada a atención humana"
