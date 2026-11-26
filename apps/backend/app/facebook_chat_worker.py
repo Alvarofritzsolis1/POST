@@ -27,7 +27,7 @@ from .models import utcnow
 from .network_service import key
 from .galancito_triage import (
     payment_guidance, plain, analyze, quick_reply, private_data, application_ai_candidate,
-    application_role, application_role_question, worksite_details_question,
+    application_role, application_role_question, worksite_details_question, contextual_payment_question,
 )
 from .galancito_phone import confirmed_phone_reply
 from . import galancito_contextual as contextual
@@ -598,6 +598,12 @@ def process_chat_next(session_factory=SessionLocal, *, simulation_config=None, n
             if confirmed_details := exact_answer(evidence):
                 body, source, intent, failed_ai = confirmed_details, "knowledge", "question", False
                 trace["verified_guidance"] = "worksite_details"
+            elif state == "ai_pending" and focus and contextual_payment_question(focus.body):
+                # Qwen interprets the goal, but cannot confirm a specific
+                # payment method without a verified project record.
+                body = payment_guidance(focus.body) or "Todavía no tengo confirmada la modalidad de pago de esa obra."
+                source, intent, failed_ai = "local", "question", False
+                trace["verified_guidance"] = "unverified_payment_terms"
             else:
                 failed_ai = True
                 trace["fallback_reason"] = "unverified_worksite_details"
