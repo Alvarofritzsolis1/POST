@@ -4,7 +4,6 @@ import { request } from "./api";
 import "./messenger-simulator.css";
 
 const path = "/admin/ai/messenger-simulator";
-type Mode = "rules" | "local";
 type Settings = {local_model: string | null; max_turns: number};
 type TurnResult = {
   state: string;
@@ -56,7 +55,7 @@ function display(value: TurnResult["profile"][string]) {
 
 export default function MessengerSimulator() {
   const [config, setConfig] = useState<Settings | null>(null);
-  const [mode, setMode] = useState<Mode>("rules");
+  const mode = "local";
   const [exchanges, setExchanges] = useState<Exchange[]>([]);
   const [selected, setSelected] = useState(-1);
   const [input, setInput] = useState("");
@@ -145,13 +144,7 @@ export default function MessengerSimulator() {
       <article className="messenger-lab-chat">
         <header>
           <div><strong>Galancito</strong><small>Entrega simulada</small></div>
-          <label>Modo
-            <select value={mode} disabled={sending || exchanges.length > 0}
-              onChange={event => setMode(event.target.value === "local" ? "local" : "rules")}>
-              <option value="rules">Reglas de Messenger</option>
-              <option value="local" disabled={!config?.local_model}>Modelo local</option>
-            </select>
-          </label>
+          <span role="status">{config?.local_model ? `Modelo local · ${config.local_model}` : "Modelo local no disponible"}</span>
         </header>
         <div className="messenger-lab-transcript" role="log" aria-label="Conversación de prueba" ref={transcript}>
           {!exchanges.length && <p className="messenger-lab-empty">Escribe un mensaje para comenzar.</p>}
@@ -165,14 +158,14 @@ export default function MessengerSimulator() {
         </div>
         <form ref={formRef} className="messenger-lab-compose" onSubmit={send}>
           <textarea ref={inputRef} aria-label="Mensaje de prueba" rows={2} maxLength={1500}
-            placeholder="Vi una postulación de trabajo" value={input} disabled={reachedLimit || sending}
+            placeholder="Vi una postulación de trabajo" value={input} disabled={reachedLimit || sending || !config?.local_model}
             onChange={event => setInput(event.target.value)} onKeyDown={event => {
               if (event.key === "Enter" && !event.shiftKey && !event.nativeEvent.isComposing) {
                 event.preventDefault();
                 if (input.trim() && !sending) formRef.current?.requestSubmit();
               }
             }}/>
-          <button type="submit" disabled={!input.trim() || sending || reachedLimit} aria-label="Enviar mensaje de prueba">
+          <button type="submit" disabled={!input.trim() || sending || reachedLimit || !config?.local_model} aria-label="Enviar mensaje de prueba">
             <Send size={18} aria-hidden="true"/>
           </button>
         </form>
