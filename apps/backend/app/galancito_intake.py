@@ -49,7 +49,7 @@ def intake_question_fields(prompt: str) -> set[str]:
     patterns = {
         "additional_services": ("que otros trabajos", "que otros servicios", "que otros oficios"),
         "display_name": _NAME_PROMPTS,
-        "specialty": (*_TRADE_PROMPTS, "que trabajo haces", "que trabajos haces", "a que te dedicas", "en que trabajas"),
+        "specialty": (*_TRADE_PROMPTS, "que trabajo hace", "que trabajo realiza", "que trabajos realiza", "que labores realizas", "que labores realiza", "que trabajo haces", "que trabajos haces", "a que te dedicas", "en que trabajas"),
         "interest_type": (_INTEREST_QUESTION, "buscas empleo o", "buscas empleo como trabajador", "buscas trabajo para ti", "buscas que te contraten", "ofreces tus servicios", "trabajo por tu cuenta o", "quieres trabajar por tu cuenta como contratista", "empleo con contrato o tomar trabajos", "como trabajador o", "como contratista", "tomas trabajos por tu cuenta", "tomar trabajos por tu cuenta", "ofreces servicios por tu cuenta", "buscas un empleo", "quieres un empleo"),
         "entity_type": ("representas una empresa", "con una empresa o a tu propio nombre"),
         "team_available": (_TEAM_QUESTION, "puedes venir con", "vas solo", "irias solo", "trabajas con alguien", "tienes cuadrilla", "puedes llevar gente", "puedes llevar otras personas", "puedes traer gente", "puedes trabajar con mas gente", "trabajas por tu cuenta solo", "trabajarias solo"),
