@@ -146,7 +146,7 @@ def turn(body: TurnInput, response: Response, user: User = Depends(administrator
                 "object": "page", "entry": [{"id": PAGE, "messaging": [
                     {"sender": {"id": SENDER}, "message": {"mid": remote_id, "text": message}}
                 ]}],
-            }, cfg, notices=notices)
+            }, cfg, notices=notices, rules_only=body.mode == "rules")
         process_chat_next(sessions, simulation_config=cfg, notices=notices)
         with sessions() as db:
             lead = db.scalar(select(FacebookLead))
