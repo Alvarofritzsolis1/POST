@@ -631,8 +631,14 @@ def test_cuento_con_equipo_burst_does_not_force_human(network, monkeypatch):
     ))
     assert process_chat_next(sessions)
     assert len(delivered) == 1
-    assert "equipo de trabajo" in delivered[0].lower()
-    assert "comuna" in delivered[0].lower()
+    # The model may ask about service-offer intent before the work commune.
+    # Both are legitimate missing fields. Neither should re-ask the known
+    # specialties/team or transfer the conversation to human attention.
+    from app.galancito_intake import intake_question_fields
+    asked = intake_question_fields(delivered[0])
+    assert asked & {"interest_type", "work_communes", "workers", "experience"}
+    assert not asked & {"specialty", "team_available"}
+    assert "atención humana" not in delivered[0].lower()
     with sessions() as db:
         lead = db.scalar(select(FacebookLead))
         assert not lead.needs_support and not lead.ai_paused
