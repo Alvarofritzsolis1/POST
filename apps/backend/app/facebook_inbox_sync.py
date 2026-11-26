@@ -302,6 +302,12 @@ def sync_page_inbox(*, page_id: str, page_token: str, org_id: str,
                     else:
                         reply = intake or quick_reply(body, known=facts)
                     state = "pending"
+                # Recovery must obey the same model-only question policy as the webhook.
+                if state == "pending" and reply and "?" in reply:
+                    if consented_for(lead, configured) and not private_data(body) and not lead.needs_support:
+                        state, reply = "ai_pending", ""
+                    else:
+                        reply = None
                 if state == "pending" and not reply:
                     flag_for_human(db, lead,
                                    "Galancito no encontró una respuesta confirmada; revisión humana pendiente")
