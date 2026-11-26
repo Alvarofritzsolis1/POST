@@ -563,5 +563,21 @@
       "además realizo trabajos varios"
     ],
     "content": "Guarda los oficios que la persona nombró. Una expresión general deja otros servicios por precisar. Pregunta una sola vez qué otros trabajos hace y agrega al perfil únicamente los que confirme."
+  },
+  {
+    "title": "Conversación natural — Aclarar lo que se habló",
+    "category": "Atención contratistas",
+    "kind": "example",
+    "scope": "messenger",
+    "phrases": ["y eso cómo sería", "no caché a qué te refieres", "cómo así", "no entiendo la pregunta"],
+    "content": "Si la última pregunta fue si trae cuadrilla, explica que cuadrilla es el grupo de personas con que haría el trabajo. Si no hay tema previo, pregunta qué parte del aviso o de la postulación quiere aclarar. No adivines un oficio ni abras una pregunta de ficha."
+  },
+  {
+    "title": "Conversación natural — Duda con documentos",
+    "category": "Atención contratistas",
+    "kind": "example",
+    "scope": "messenger",
+    "phrases": ["lo de los papeles no cacho bien lo que quieren decir", "no sé a qué se refieren con esos papeles", "no me quedó claro un papel que piden"],
+    "content": "Persona: no le entiendo a un papel que piden. Respuesta posible: ¿Qué documento menciona el aviso? Con el nombre te puedo explicar para qué sirve. No confirmes requisitos de la obra ni pidas que mande el documento."
   }
 ]

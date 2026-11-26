@@ -80,7 +80,9 @@ def wants_human(message: str) -> bool:
     }
     return (any(value == phrase or value.startswith(phrase + " ") for phrase in phrases)
             or bool(re.fullmatch(r"(?:hay|habra) (?:alguien|una persona) que me "
-                                 r"(?:pueda|puede) (?:ayudar|atender)(?: por favor)?", value)))
+                                 r"(?:pueda|puede) (?:ayudar|atender)(?: por favor)?", value))
+            or bool(re.fullmatch(r"(?:(?:de lo anterior|para esto|en ese caso) )?(?:prefiero|me gustaria) "
+                                 r"hablar con (?:una persona(?: real)?|alguien del equipo)(?: por favor)?", value)))
 
 _NUMBERED_MENU = re.compile(
     r"\(\s*\d{1,2}\s*\)|(?:^|[\s:])\d{1,2}\)\s*|(?:^|\n)\s*\d{1,2}\.\s+"

@@ -517,13 +517,8 @@ def ingest_facebook_payload(db, payload, cfg, *, notices=None):
             contact_fallback = direct if contact_model else None
             if contact_model:
                 direct = None
-            contextual_turn = bool(contextual_allowed and not (signal or location or lead.needs_support
-                or lead.ai_paused or (application and not application_model)
-                or identity_reply(body) or small_talk_reply(body))
-                and contextual.eligible(body)
-                and (not direct or direct == digital_help or direct == contact_fallback))
-            if contextual_turn:
-                direct = None
+            contextual_turn = bool(contextual_allowed and not (signal or direct or lead.needs_support)
+                                   and contextual.conversational_message(body))
             ai_source = "disabled" if direct else configured_source
             facts = profile_facts(lead, changed=changed)
             intake = (next_intake_reply(body, facts, previous_question)
@@ -551,7 +546,8 @@ def ingest_facebook_payload(db, payload, cfg, *, notices=None):
             elif intake == GALILEA_QUESTION:
                 reply = intake
             elif contextual_turn:
-                reply, use_ai = contact_fallback or intake, True
+                # A busy model queue must not send a profile question as an answer to a different topic.
+                reply, use_ai = contact_fallback, True
             elif direct:
                 reply = direct
             elif contact_model:

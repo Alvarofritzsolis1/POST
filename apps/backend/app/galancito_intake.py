@@ -137,9 +137,11 @@ _OFFERS = re.compile(r"\b(?:pega|trabaj|servici|contrat|postul|dispon|equipo|cua
 _DATE = r"(?:\d{1,2}/\d{1,2}/20\d{2}|20\d{2}-\d{2}-\d{2})"
 _DAY = (r"(?:hoy|manana|lunes|martes|miercoles|jueves|viernes|sabado|domingo|"
         r"(?:la )?proxima semana|en dos semanas|fin de mes|cuando me necesiten|inmediat[oa])")
-_AREA_CUE = re.compile(
-    r"\b(?:me muevo|puedo trabajar|trabajo|trabajamos|atiendo|busco (?:pega|trabajo|empleo)) "
-    r"(?:por|en)\b|\b(?:solo en|comunas? de trabajo)\b"
+WORK_AREA_CUE = re.compile(
+    r"\b(?:(?:me muevo|nos movemos|me puedo mover|nos podemos mover|puedo ir|puedo trabajar|"
+    r"trabajo|trabajamos|atiendo|atendemos|busco (?:pega|trabajo|empleo)) (?:solo )?(?:en|por|a)|"
+    r"puedo hacer (?:la pega )?en|(?:las )?obras que tomo son en|"
+    r"(?:hago|hacemos|instalo|reparo) (?:\w+ ){1,4}en|(?:tambien|solo) en|comunas? de trabajo)\b"
 )
 
 
@@ -256,16 +258,13 @@ def _commune_update(lead, message: str, previous: str) -> None:
     continues_area = False
     for fragment in re.split(r"[,;.!\n]+|\bpero\b", message, flags=re.I):
         clause = plain(fragment)
-        cue = _AREA_CUE.search(clause)
-        if re.search(r"\b(?:vivo en|resido en|no trabajo en|no voy a|no puedo ir a|no puedo trabajar en)\b", clause):
+        cue = WORK_AREA_CUE.search(clause)
+        if re.search(r"\b(?:vivo en|resido en|donde vivo es|soy de|somos de|no trabajo en|no voy a|"
+                     r"no puedo ir a|no puedo trabajar en)\b", clause):
             continues_area = False
             continue
         if not cue and not asked and not continues_area and not clause.startswith(("tambien en ", "y en ", "en ")):
-            # "Hago aseo en Hualpén" relates the commune to the work.
-            match = re.search(r"\b(?:hago|hacemos|instalo|reparo) (?:\w+ ){1,4}en\b", clause)
-            if not match:
-                continue
-            cue = match
+            continue
         communes = find_communes(clause[cue.end():] if cue else clause)
         found.extend(communes)
         continues_area = bool(communes)
@@ -303,7 +302,7 @@ def _team_update(lead, value: str, previous: str) -> None:
         lead.team_available = True
 
     count = _COUNT
-    total = re.search(r"\b(?:somos|equipo de|iremos) " + count +
+    total = re.search(r"\b(?:somos|(?:cuadrilla|equipo) (?:es )?de|iremos) " + count +
                       r"(?= (?:personas?|maestros?|trabajadores?|ayudantes?|cabros?|en total|"
                       r"que (?:necesitan?|hay que) hacer|y (?:podemos|pueden|puedo|el resto))\b|\s*(?:\||$))", value)
     if not total:
@@ -435,10 +434,10 @@ def apply_intake(lead, message: str, prior_prompt: str = "", *,
         return
     if analyze(message).intent in {"human", "restricted"} or identity_reply(message):
         return
-    if clarification_reply(message, prior_prompt) is not None:
+    statement = declaration_text(message)
+    if clarification_reply(message, prior_prompt) is not None and (not statement or "?" not in message):
         return  # A question, objection or bare ambiguous number is not a new fact.
     prev = plain(prior_prompt)
-    statement = declaration_text(message)
     value = " | ".join(plain(part) for part in re.split(r"[,;.!\n]+|\bpero\b", statement, flags=re.I)
                        if plain(part))
     if declarations is None:
@@ -527,8 +526,12 @@ def clarification_reply(message: str, prior: str = "") -> str | None:
     definitions = (
         (r"(?:que|ke|q) (?:es|significa|quiere decir) (?:una? )?postular(?:se)?", 
          "Postular es decir que te interesa un trabajo para que el equipo pueda considerarte. No significa que ya tengas el puesto."),
-        (r"(?:que|ke|q) (?:es|significa|quiere decir) (?:una? )?contratista",
+        (r"(?:que|ke|q) (?:es|significa|quiere decir) (?:ser )?(?:una? )?contratista(?: independiente)?",
          "Un contratista ofrece hacer un trabajo por su cuenta o mediante una empresa. Es distinto de buscar un empleo."),
+        (r"(?:que|ke|q) (?:es|significa|quiere decir) (?:trabajar )?a trato",
+         "Trabajar a trato significa acordar cuánto se paga por una tarea o resultado. Conviene dejar claro el monto y qué trabajo incluye."),
+        (r"puedo ofrecer (?:mis )?servicios (?:aunque no tenga|sin) (?:una )?(?:cuadrilla|equipo)",
+         "Puedes ofrecer los servicios que haces por tu cuenta. Si te interesa un aviso, revisa con quien contrata si ese trabajo requiere cuadrilla."),
         (r"(?:que|ke|q) (?:es|significa|quiere decir) (?:una? )?cuadrilla",
          "Una cuadrilla es un grupo de personas que trabaja junto. Eso no significa que sean trabajadores contratados por ti."),
         (r"(?:que|ke|q) (?:es|significa|quiere decir) (?:una? )?comuna",
@@ -544,8 +547,9 @@ def clarification_reply(message: str, prior: str = "") -> str | None:
         (r"(?:ya filo|me aburri|no quiero seguir|me canse de responder)",
          "Está bien, no hace falta responder más ahora. Si después quieres continuar, puedes escribir por aquí."),
     )
+    question = plain(message.rsplit("¿", 1)[-1]) if message.count("?") == 1 and "¿" in message else value
     for pattern, answer in definitions:
-        if re.fullmatch(pattern, value):
+        if re.fullmatch(pattern, question):
             return answer
     if value not in {"no entiendo", "no entendi", "no cacho", "no cache", "no comprendo",
                      "no entiendo la pregunta", "como asi", "que significa", "a que te refieres"}:

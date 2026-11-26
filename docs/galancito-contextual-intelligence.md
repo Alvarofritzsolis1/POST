@@ -4,7 +4,13 @@
 
 Base auditada `9f4e8c2` (`20.9.41-rc4`, PR #191). La rama del cambio es `codex/galancito-contextual-memory`. El PR #190 trabaja sobre la continuidad del entrenamiento de MAX POWER y permanece independiente. Esta propuesta conserva la numeración de la versión base durante la evaluación.
 
-La opción `GALANCITO_CONTEXTUAL_MESSENGER_ENABLED` viene desactivada. En una instalación de prueba puede activarse en los contenedores API y publicador junto con `FACEBOOK_AI_PROVIDER=ollama` y `GALANCITO_LOCAL_AI_ENABLED=true`. Messenger conserva la autorización local por contacto. El modo local del simulador aplica la misma autorización dentro de su almacenamiento aislado por elección del operador. La reversión consiste en desactivar la opción en ambos contenedores y recrearlos. Las fichas ya guardadas siguen accesibles. El cambio reutiliza `profile_sources` y las tablas de conversación existentes.
+La opción `GALANCITO_CONTEXTUAL_MESSENGER_ENABLED` viene activada cuando Messenger usa Qwen local (`FACEBOOK_AI_PROVIDER=ollama` y `GALANCITO_LOCAL_AI_ENABLED=true`). Cada contacto conserva su autorización por proveedor. El simulador usa la misma ruta con datos aislados cuando el operador elige el modelo local. Para volver al flujo anterior, configura `GALANCITO_CONTEXTUAL_MESSENGER_ENABLED=false` en API y publicador y recrea los contenedores.
+
+Qwen recibe la ficha, la pregunta anterior, los mensajes todavía sin responder y ejemplos aprobados de aclaraciones. Si el borrador es inválido, puede intentar una aclaración concreta dentro del tiempo de procesamiento. Las reglas de aplicación resuelven datos operativos comprobables, actualizan la ficha con evidencia y gestionan las derivaciones. Los ejemplos orientan al modelo al responder y se cargan sin modificar sus pesos.
+
+La respuesta prioriza la última consulta concreta de la persona. Una pregunta de ficha por sí sola no resuelve esa consulta. Si la persona pide una definición que ya tiene una orientación verificada, el asistente puede usarla cuando el borrador desvía la conversación. Las condiciones que la persona aún no confirma quedan pendientes.
+
+Para guardar una declaración, se verifica tanto su frase de origen como el significado del campo. Una comuna de residencia no se usa como cobertura laboral y una cantidad de personas no se toma por años de experiencia. Los datos de terceros y las hipótesis quedan fuera de la ficha. Las comunas compatibles del mismo mensaje se guardan juntas y las propuestas incompatibles para un mismo campo requieren aclaración antes de escribirlo.
 
 ## Causas reproducidas en la base
 

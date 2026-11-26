@@ -9,7 +9,8 @@ from app.config import settings
 from app.facebook_chat_worker import process_chat_next
 from app.facebook_crm_models import FacebookChatMessage, FacebookLead
 from app.galancito_contextual import (
-    Declaration, Fragment, Turn, apply_declarations, request_attribution, supported_declarations, validated_reply,
+    Declaration, Fragment, Turn, apply_declarations, reconcile_declarations, request_attribution,
+    supported_declarations, validated_reply,
     verified_followup,
 )
 from app.galancito_evidence import evidence_options
@@ -19,9 +20,10 @@ from test_facebook_crm import enable_messaging, incoming, network, no_real_meta_
 
 def configure(network, monkeypatch):
     org_id = enable_messaging(network, monkeypatch)
+    monkeypatch.delenv("GALANCITO_CONTEXTUAL_MESSENGER_ENABLED", raising=False)
     for name, value in {
         "FACEBOOK_AI_ENABLED": "true", "FACEBOOK_AI_PROVIDER": "ollama",
-        "GALANCITO_LOCAL_AI_ENABLED": "true", "GALANCITO_CONTEXTUAL_MESSENGER_ENABLED": "true",
+        "GALANCITO_LOCAL_AI_ENABLED": "true",
     }.items():
         monkeypatch.setenv(name, value)
     settings.cache_clear()
@@ -124,6 +126,84 @@ def test_questions_and_partial_counts_cannot_supply_profile_values():
         ("crew", "más de 10 maestros"),
     ]
 
+
+def test_evidence_must_support_the_field_and_the_speaker():
+    at = utcnow()
+    mixed = Fragment("mixed", at, "Mi vecino trabaja en Lota y vivo en Tomé. "
+                     "Yo trabajo en Penco y Talcahuano y mi compañero trabaja en Coronel.")
+    numbers = Fragment("numbers", at, "Si me prestan un furgón, podría llevar a 7 maestros. Tengo 30 años de edad.")
+    proposals = [Declaration(f=field, v=value, e=value) for field, value in (
+        ("area", "Lota"), ("area", "Tomé"), ("origin", "Tomé"), ("area", "Penco"), ("area", "Talcahuano"),
+        ("area", "Coronel"), ("name", "Penco"), ("crew", "7 maestros"), ("experience", "30 años"),
+    )]
+    proposals += [Declaration(f="team", v="yes", e="30 años"),
+                  Declaration(f="entity", v="company", e="trabajo en Penco")]
+    assert reconcile_declarations(supported_declarations(proposals, (mixed, numbers))) == [
+        ("origin", "Tomé", mixed), ("area", "Penco, Talcahuano", mixed),
+    ]
+
+
+def test_conflicting_interpretations_of_one_message_stay_pending():
+    fragment = Fragment("choices", utcnow(), "Soy de Talca pero también soy de Chillán")
+    assert reconcile_declarations([
+        ("origin", "Talca", fragment), ("origin", "Chillán", fragment),
+        ("trade", "soldadura", fragment), ("trade", "Soldadura", fragment),
+    ]) == [("trade", "soldadura", fragment)]
+
+
+def test_justified_roles_keep_their_normalized_enum_values():
+    fragment = Fragment("role", utcnow(), "Soy contratista de pintura")
+    proposed = [Declaration(f="role", v=role, e="contratista") for role in ("service_offer", "employment")]
+    assert supported_declarations(proposed, (fragment,)) == [("role", "service_offer", fragment)]
+
+
+def test_work_by_the_job_needs_a_service_declaration_to_support_contractor_role():
+    at = utcnow()
+    proposed = [Declaration(f="role", v="service_offer", e="trabajo a trato")]
+    unclear = Fragment("rate", at, "Trabajo a trato")
+    employee = Fragment("employee", at, "Trabajo a trato para mi patrón y hago mantenciones de edificios")
+    service = Fragment("service", at, "Trabajo a trato y hago mantenciones de edificios")
+    assert supported_declarations(proposed, (unclear,)) == []
+    assert supported_declarations(proposed, (employee,)) == []
+    assert supported_declarations(proposed, (service,)) == [("role", "service_offer", service)]
+
+
+@pytest.mark.parametrize(("message", "communes", "origin"), [
+    ("Atendemos en Los Ángeles", ["Los Ángeles"], None),
+    ("Nos podemos mover a Hualpén y Chiguayante", ["Hualpén", "Chiguayante"], None),
+    ("Vivo en Lota, la pega la puedo hacer en Coronel", ["Coronel"], "Lota"),
+    ("Soy de Cañete. Las obras que tomo son en Arauco", ["Arauco"], "Cañete"),
+])
+def test_explicit_work_coverage_is_saved_before_model_runs(network, monkeypatch, message, communes, origin):
+    sessions = configure(network, monkeypatch)
+    assert incoming(network, message, mid="coverage").status_code == 200
+    with sessions() as db:
+        lead = db.scalar(select(FacebookLead))
+        assert lead.work_communes == communes
+        assert lead.profile_sources["work_communes"]["message_id"] == "coverage"
+        declared = lead.profile_sources.get("_declared_context", {}).get("declared_origin", {})
+        assert declared.get("value") == origin
+
+    fragment = Fragment("coverage", utcnow(), message)
+    locations = [value for _, field, value, _ in evidence_options((fragment,)) if field == "area"]
+    assert len(locations) == len(communes)
+
+
+def test_intake_question_does_not_answer_a_new_request():
+    fragment = Fragment("question", utcnow(), "Trabajo en pintura. ¿Puedo participar si soy independiente?")
+    draft = Turn(i="intake", q="area", r="Perfecto, gracias. ¿En qué comuna puedes trabajar?", d=[])
+    assert validated_reply(draft, {}, [], fragment.text, (fragment,)) is None
+
+@pytest.mark.parametrize("reply", [
+    "Seguro que ya dominas el trabajo en alta mar. ¿En qué comuna puedes trabajar?",
+    "¿En qué lugar te gustaría probar tus manos?",
+])
+def test_intake_rejects_speculation_and_questions_that_do_not_match_the_chosen_field(reply):
+    fragment = Fragment("work", utcnow(), "Llevo 8 años de soldador")
+    draft = Turn(i="intake", q="area", r=reply, d=[])
+    assert validated_reply(draft, {}, [], fragment.text, (fragment,)) is None
+
+
 def test_parroting_the_current_question_is_rejected():
     message = "¿A cuánto pagan el metro de pintura?"
     fragment = Fragment("test-question", utcnow(), message)
@@ -138,6 +218,65 @@ def test_parroting_an_earlier_short_question_in_the_burst_is_rejected():
     )
     draft = Turn(i="question", q="other", r="¿Qué hago ahora?", d=[])
     assert validated_reply(draft, {}, [], "", fragments) is None
+
+
+@pytest.mark.parametrize("reply", [
+    "¿En qué comuna puedes trabajar?",
+    "¿Me puedes dar más detalles?",
+    "Ya avisé al equipo para que revise tu caso.",
+])
+def test_rejects_repeated_generic_and_unconfirmed_replies(reply):
+    fragment = Fragment("follow-up", utcnow(), "No caché a qué te refieres.")
+    draft = Turn(i="clarification", q="other" if "?" in reply else "none", r=reply, d=[])
+    assert validated_reply(draft, {}, [], fragment.text, (fragment,),
+                           prior="¿En qué comuna puedes trabajar?") is None
+
+
+def test_tries_a_contextual_clarification_before_handing_off(network, monkeypatch):
+    sessions = configure(network, monkeypatch)
+    assert incoming(network, "No cacho bien lo de los papeles", mid="documents-doubt").status_code == 200
+    with sessions.begin() as db:
+        job = db.scalar(select(FacebookChatMessage).where(FacebookChatMessage.state == "ai_pending"))
+        job.updated_at = utcnow() - timedelta(seconds=2)
+
+    revisions = []
+
+    def draft(context, fragments, *, revision, **kwargs):
+        assert [part.text for part in fragments] == ["No cacho bien lo de los papeles"]
+        revisions.append(revision)
+        if not revision:
+            raise ValueError("Esquema de turno inválido")
+        return Turn(i="clarification", q="other", d=[],
+                    r="No tengo ese dato. ¿Qué documento menciona el aviso?")
+
+    sent = []
+    monkeypatch.setattr("app.galancito_contextual.request_turn", draft)
+    monkeypatch.setattr("app.facebook_chat_worker.graph_send", lambda *args: sent.append(args[2]) or "meta-doubt")
+    assert process_chat_next(sessions)
+    assert len(revisions) == 2 and not revisions[0] and revisions[1]
+    assert sent == ["No tengo ese dato. ¿Qué documento menciona el aviso?"]
+    with sessions() as db:
+        assert db.scalar(select(FacebookLead)).needs_support is False
+
+
+def test_a_revised_draft_preserves_the_intent_of_a_professional_declaration(network, monkeypatch):
+    sessions = configure(network, monkeypatch)
+    assert incoming(network, "Hago pintura en Lebu", mid="paint-intake").status_code == 200
+    with sessions.begin() as db:
+        job = db.scalar(select(FacebookChatMessage).where(FacebookChatMessage.state == "ai_pending"))
+        job.updated_at = utcnow() - timedelta(seconds=2)
+
+    drafts = iter((Turn(i="intake", q="availability", d=[], r="Hago pintura en Lebu"),
+                   Turn(i="clarification", q="other", d=[], r="¿Qué duda tienes sobre pintura?")))
+    monkeypatch.setattr("app.galancito_contextual.request_attribution", lambda *args: [
+        Declaration(f="trade", v="Pintura", e="pintura", message_index=0),
+    ])
+    monkeypatch.setattr("app.galancito_contextual.request_turn", lambda *args, **kwargs: next(drafts))
+    sent = []
+    monkeypatch.setattr("app.facebook_chat_worker.graph_send", lambda *args: sent.append(args[2]) or "meta-intake")
+    assert process_chat_next(sessions)
+    assert sent == ["¿Desde cuándo podrías comenzar?"]
+
 
 def test_model_cannot_answer_as_a_contractor():
     fragment = Fragment("test-introduction", utcnow(), "Soy contratista, hago pintura")

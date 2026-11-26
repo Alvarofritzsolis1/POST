@@ -584,7 +584,11 @@ def galancito_chat(body: ChatInput, user: User = Depends(authorized_user),
         # The latest query is first: truncating context must never lose it.
         matching = [g for g in guides if any(key(a) and key(a) in key(text)
                     for a in [g.trade, *(g.aliases or [])])][:2]
-        context = ("Consulta del usuario:\n" + text + "\nIndicadores comprobables: " +
+        previous = [turn.text for turn in body.history if turn.role == "user" and not private_data(turn.text)]
+        context = ("Consulta del usuario:\n" + text +
+                   ("\nConsultas previas para interpretar referencias (solo contexto):\n" +
+                    "\n".join(question[:120] for question in previous[-3:]) if previous else "") +
+                   "\nIndicadores comprobables: " +
                    "; ".join(name + "=" + str(value) for name, value in stats.items()) +
                    "\nNecesidades publicadas (títulos): " +
                    json.dumps(titles, ensure_ascii=False) + "\nDatos actuales de Red de Obras: " +
