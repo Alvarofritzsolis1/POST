@@ -19,6 +19,9 @@ Toma EXCLUSIVAMENTE la descripción de labores proporcionada por el usuario.
 Escribe UNA oración natural, específica y fácil de leer (idealmente 12 a 28
 palabras, máximo 220 caracteres), en español de Chile, sin MAYÚSCULAS SOSTENIDAS.
 Pon primero la actividad y, si constan, el elemento/superficie y el alcance.
+Escribe para una persona que lee Facebook desde el celular: directo, claro,
+con términos de construcción de Chile, sin eslóganes ni redundancias.
+La especialidad orienta el vocabulario, pero no añade labores no descritas.
 Ejemplos de transformación sin inventar datos:
 - 'PINTURA EN EXTERIOR' -> 'Trabajos de pintura en exteriores.'
 - 'realizar instalacion de guardapolvos y puertas' ->

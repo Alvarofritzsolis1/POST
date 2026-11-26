@@ -1,5 +1,6 @@
 import { useId, useMemo, useRef, useState, type KeyboardEvent } from "react";
 import { Check, ChevronDown, Search } from "lucide-react";
+import { matchesTrade, normalizeTrade, recruitmentPhotos, tradeFor } from "./networkRecruitmentCatalog";
 
 /** Searchable editable combobox. Free-text trades remain possible. Native datalist
  * was intentionally removed: its OS popup cannot be styled or made consistent. */
@@ -19,28 +20,28 @@ export function NetworkSpecialtyPicker({
   const inputRef = useRef<HTMLInputElement>(null);
   const [open, setOpen] = useState(false);
   const [active, setActive] = useState(-1);
-  const normal = (value: string) => value.normalize("NFD").replace(/[\u0300-\u036f]/g, "").toLowerCase().trim();
+  const normal = normalizeTrade;
   const options = useMemo(() => {
     const seen = new Set<string>();
-    const needle = normal(value);
+    const selected = suggestions.some(term => normal(term) === normal(value));
+    const needle = selected ? "" : normal(value);
     return [...suggestions]
       .filter((term) => {
         const key = normal(term);
         if (!key || seen.has(key)) return false;
         seen.add(key);
-        return !needle || key.includes(needle);
+        return matchesTrade(term, needle);
       })
       .sort((a, b) => {
         const aa = normal(a).startsWith(needle) ? 0 : 1;
         const bb = normal(b).startsWith(needle) ? 0 : 1;
         return aa - bb || a.localeCompare(b, "es-CL");
-      }).slice(0, 6);
+      });
   }, [suggestions, value]);
   function select(next: string) {
     onChange(next);
     setOpen(false);
     setActive(-1);
-    inputRef.current?.focus();
   }
   function keyDown(event: KeyboardEvent<HTMLInputElement>) {
     if (event.key === "Escape" && open) {
@@ -76,7 +77,7 @@ export function NetworkSpecialtyPicker({
           autoComplete="off"
           minLength={2}
           maxLength={100}
-          placeholder="Escribe o busca un oficio"
+          placeholder="Busca entre 26 especialidades o escribe otra"
           onFocus={() => { setOpen(true); setActive(-1); }}
           onBlur={() => { setOpen(false); setActive(-1); }}
           onKeyDown={keyDown}
@@ -86,22 +87,27 @@ export function NetworkSpecialtyPicker({
           aria-expanded={open}
           onMouseDown={(event) => event.preventDefault()}
           onClick={() => {
-            setOpen((current) => !current);
-            setActive(-1);
-            inputRef.current?.focus();
+            if (open) { setOpen(false); setActive(-1); }
+            else { inputRef.current?.focus(); setOpen(true); setActive(-1); }
           }}><ChevronDown size={16} aria-hidden="true" /></button>
       </div>
       {open && options.length > 0 && (
-        <div className="nq-options" id={listId} role="listbox" aria-label="Especialidades sugeridas">
-          {options.map((term, index) => (
-            <div role="option" key={term} id={listId + "-" + index}
+        <div className="nq-options nq-visual-options" id={listId} role="listbox" aria-label="Especialidades sugeridas">
+          <div className="nq-option-count" role="presentation">{options.length} especialidades disponibles</div>
+          {options.map((term, index) => {
+            const item = tradeFor(term);
+            const thumb = recruitmentPhotos(term)[0];
+            return <div role="option" key={term} id={listId + "-" + index}
+              ref={node => { if (index === active) node?.scrollIntoView({ block: "nearest" }); }}
               aria-selected={normal(term) === normal(value)}
-              className={"nq-option" + (index === active ? " active" : "")}
-              onMouseDown={(event) => { event.preventDefault(); select(term); }}>
-              <span>{term}</span>
+              className={"nq-option nq-visual-option" + (index === active ? " active" : "")}
+              onPointerDown={(event) => event.preventDefault()}
+              onClick={() => select(term)}>
+              <span className="nq-trade-art" aria-hidden="true"><span>{item?.glyph ?? "＋"}</span>{thumb && <img src={thumb} loading="lazy" alt="" onError={event => { event.currentTarget.hidden = true; }}/>}</span>
+              <span className="nq-trade-label"><strong>{term}</strong><small>{item?.group ?? "Personalizado"}</small></span>
               {normal(term) === normal(value) && <Check size={16} aria-hidden="true"/>}
-            </div>
-          ))}
+            </div>;
+          })}
         </div>
       )}
       {open && !options.length && value.trim().length > 1 && (

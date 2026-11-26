@@ -3,14 +3,12 @@ import { AlertCircle, CalendarDays, CheckCircle2, ChevronDown, Facebook, FileTex
 import { change, type Catalog, type Requirement } from "./networkApi";
 import { todayISO, errorText } from "./NetworkUI";
 import { NetworkSpecialtyPicker } from "./NetworkSpecialtyPicker";
+import { initialRecruitmentSummary, recruitmentOptions } from "./networkRecruitmentCatalog";
 import SocialPoster, { type SocialPosterHandle } from "./NetworkSocialPoster";
 import "./network-quick-premium.css";
 
 /** Compact publication flow. Nonessential programming remains in the full editor. */
 const QUICK_PARTS = ["Instalaciones", "Terminaciones", "Estructura", "Obras exteriores", "Otras"];
-const TRADES = ["Carpintería", "Electricidad", "Gasfitería", "Albañilería", "Pintura",
-  "Enfierradura", "Terminaciones", "Cerámica", "Impermeabilización", "Techumbre",
-  "Soldadura", "Ventanas", "Climatización", "Jardinería", "Paisajismo", "Excavaciones"];
 
 const normalize = (s: string) =>
   s.normalize("NFD").replace(/[\u0300-\u036f]/g, "").toLowerCase().trim();
@@ -110,7 +108,15 @@ export function NetworkQuickForm({
 
   // Debounced, bounded model call. Never overwrite edits made by the resident.
   useEffect(() => {
-    if (!publishFacebook || !siteId || !tradeOk || !descriptionOk || copyEdited) return;
+    if (!publishFacebook || copyEdited) return;
+    setCopyBusy(false);
+    setCopyError("");
+    if (!siteId || !tradeOk || !descriptionOk) {
+      setPublicSummary(tradeOk ? initialRecruitmentSummary(specialty) : "");
+      setCopySource(tradeOk ? "Borrador inicial · agrega las labores reales" : "");
+      setDetailQuestion("");
+      return;
+    }
     let active = true;
     setPublicSummary(localCopyDraft(summary));
     setCopySource("Redacción inicial · en revisión");
@@ -204,7 +210,7 @@ export function NetworkQuickForm({
       </div>
       <section className={"nq-main" + (mobilePane === "fields" ? " nq-mobile-active" : "")}
         aria-label="Datos de la necesidad">
-        <div className="nq-head"><b>Datos de la necesidad</b><span>Lo esencial, sin pasos innecesarios</span></div>
+        <div className="nq-head"><b>Datos de la necesidad</b></div>
         <div className="nq-field">
           <label htmlFor="nq-site">Obra <StateMark ok={siteOk}/></label>
           {sites.length === 1
@@ -225,7 +231,7 @@ export function NetworkQuickForm({
               setDetailQuestion("");
               if (copyEdited) setCopyNeedsReview(true);
             }}
-            suggestions={[...TRADES, ...catalog.specialties]} invalid={submitted && !tradeOk}/>
+            suggestions={recruitmentOptions(catalog.specialties)} invalid={submitted && !tradeOk}/>
           <div className="nq-field-progress"><StateMark ok={tradeOk}/></div>
         </div>
         <div className="nq-field nq-description">
@@ -240,7 +246,7 @@ export function NetworkQuickForm({
               if (!copyEdited) { setPublicSummary(""); setCopySource(""); }
             }}
             placeholder="Ej. Instalación y pintura de fachadas exteriores en edificios."/>
-          <small className="nq-soft">Describe las labores reales. La IA creará un resumen más claro.</small>
+          <small className="nq-soft">Indica las labores reales. El anuncio se actualizará automáticamente.</small>
         </div>
         {publishFacebook && <div className="nq-copy">
           <div className="nq-copy-title">
@@ -251,17 +257,17 @@ export function NetworkQuickForm({
             <button type="button" disabled={!tradeOk || !descriptionOk || copyBusy}
               onClick={() => { setPublicSummary(""); setCopyEdited(false); setCopyNeedsReview(false); setCopySource(""); setCopyCycle(v => v + 1); }}
               aria-label="Volver a mejorar el resumen con IA">
-              <Sparkles size={14}/> {copyBusy ? "Mejorando…" : "Mejorar redacción"}
+              <Sparkles size={14}/> {copyBusy ? "Mejorando…" : "Regenerar con IA"}
             </button>
           </div>
-          <textarea id="nq-public-copy" rows={3} maxLength={400}
+          <textarea id="nq-public-copy" rows={2} maxLength={400}
             aria-invalid={submitted && !copyOk}
             value={publicSummary}
             onChange={(e) => {
               setPublicSummary(e.target.value); setCopyEdited(true); setCopyNeedsReview(false); setCopyBusy(false);
               setCopySource("Editado por ti"); setCopyError("");
             }}
-            placeholder={copyBusy ? "Analizando las labores…" : "El resumen editable aparecerá aquí"}/>
+            placeholder={copyBusy ? "Mejorando las labores…" : "Selecciona el oficio para comenzar"}/>
           <div className="nq-copy-foot">
             <small>{copyNeedsReview ? "El oficio o las labores cambiaron. Revisa el resumen editado." : (copyError || copySource || "Basado en la descripción, sin inventar datos.")}</small>
             <small>{publicSummary.length}/400</small>

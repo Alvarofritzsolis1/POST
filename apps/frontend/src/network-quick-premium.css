@@ -151,3 +151,14 @@ background:var(--nw-paper);color:var(--nw-ink);font-weight:650;font-size:11px;cu
   border:1px solid #f0d394;border-radius:6px;padding:3px 6px;font-weight:800;
   font-size:10px;white-space:nowrap}
 [data-theme="dark"] .nq-copy-basic{background:#503c1a;color:#ffe5af;border-color:#917039}
+
+/* Smart Recruitment Studio: contained, compact visual picker. */
+.nq-visual-options{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:5px;max-height:min(42vh,320px);padding:7px}
+.nq-option-count{grid-column:1/-1;font-size:11px;font-weight:650;color:var(--nw-muted);padding:4px 7px;position:sticky;top:-7px;background:var(--nw-paper);z-index:1}
+.nq-visual-option{justify-content:flex-start;min-height:55px;padding:5px 7px;border:1px solid transparent;transition:background .16s,border-color .16s;min-width:0}
+.nq-visual-option:is(.active,:hover),.nq-visual-option[aria-selected=true]{border-color:#87c8c1}
+.nq-trade-art{width:43px;height:43px;flex:0 0 43px;display:grid;place-items:center;background:#e2efeb;color:#14645e;border-radius:8px;position:relative;overflow:hidden;font-size:21px}
+.nq-trade-art img{position:absolute;width:100%;height:100%;object-fit:cover;inset:0}.nq-trade-art img[hidden]{display:none}
+.nq-trade-label{display:flex;flex-direction:column;flex:1;min-width:0;gap:3px;line-height:1.15;overflow-wrap:anywhere}.nq-trade-label strong{font-size:12px}.nq-trade-label small{font-size:10px;font-weight:500;color:var(--nw-muted)}
+@media(max-width:480px){.nq-visual-options{grid-template-columns:1fr;max-height: min(43vh,310px)}}
+@media(prefers-reduced-motion:reduce){.nq-visual-option{transition:none!important}}

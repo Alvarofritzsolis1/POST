@@ -1,6 +1,7 @@
 import { forwardRef, useCallback, useEffect, useImperativeHandle, useMemo, useState } from "react";
 import { Camera, ImagePlus, MapPin, RefreshCw, Pencil } from "lucide-react";
 import "./network-social-poster.css";
+import { normalizeTrade, recruitmentPhotos, recruitmentTone, tradeFor } from "./networkRecruitmentCatalog";
 
 export type SocialPosterHandle = { exportJpeg: () => Promise<string> };
 type Props = {
@@ -13,40 +14,6 @@ type Props = {
   compact?: boolean;
 };
 
-// Curated stock-photo slots. Administrators should replace/approve photographs
-// for each specialty; a photographed trade must actually match the vacancy.
-const PHOTO_SETS: Record<string, string[]> = {
-  carpinteria: [
-    "photo-1504307651254-35680f356dfd",
-    "photo-1531835551805-16d864c8d311",
-  ],
-  electricidad: [
-    "photo-1621905251189-08b45d6a269e",
-    "photo-1581091226825-a6a2a5aee158",
-  ],
-  gasfiteria: [
-    "photo-1581092160562-40aa08e78837",
-    "photo-1600566753190-17f0baa2a6c3",
-  ],
-  pintura: [
-    "photo-1562259949-e8e7689d7828",
-    "photo-1600585154340-be6161a56a0c",
-  ],
-  construccion: [
-    "photo-1504307651254-35680f356dfd",
-    "photo-1503387762-592deb58ef4e",
-  ],
-};
-const urlFor = (id: string) => "https://images.unsplash.com/" + id + "?w=1200&q=85&fit=crop&auto=format";
-
-function categoryFor(role: string): string {
-  const r = role.normalize("NFD").replace(/[\u0300-\u036f]/g, "").toLowerCase();
-  if (/carpinter|muebl|madera|techumbr/.test(r)) return "carpinteria";
-  if (/electri|cable|tablero/.test(r)) return "electricidad";
-  if (/gasfit|sanitari|fontan|tuber/.test(r)) return "gasfiteria";
-  if (/pint|revestim/.test(r)) return "pintura";
-  return "construccion";
-}
 function loadImage(src: string): Promise<HTMLImageElement> {
   return new Promise((resolve, reject) => {
     const picture = new Image();
@@ -76,15 +43,15 @@ function format(date: string) {
 }
 export function publicCaption(specialty: string, location: string, workers: number, start: string, publicSummary = "") {
   return [
-    "Buscamos empresas contratistas de " + (specialty.trim().toLowerCase() || "especialidad por confirmar") + ".",
+    "¡Buscamos contratistas de " + (specialty.trim().toLowerCase() || "especialidad por confirmar") + "!",
     "",
     publicSummary.trim(),
     "",
     "📍 Sector: " + (location || "Por confirmar"),
-    "👷 Dotación estimada: " + (workers || 1) + " personas",
+    "👷 Dotación estimada: " + (workers || 1) + ((workers || 1) === 1 ? " persona" : " personas"),
     ...(start ? ["📅 Inicio estimado: " + format(start)] : []),
     "",
-    "¿Tu empresa realiza estos trabajos? Escríbenos por mensaje privado.",
+    "¿Realizas estos trabajos? Escríbenos por mensaje privado.",
     "Convocatoria sujeta a evaluación y adjudicación.",
   ].join("\n").replace(/\n{3,}/g, "\n\n").trim();
 }
@@ -92,22 +59,26 @@ export function publicCaption(specialty: string, location: string, workers: numb
 const SocialPoster = forwardRef<SocialPosterHandle, Props>(function SocialPoster(
   { specialty, publicLocation, publicSummary = "", workers, start, enabled, compact = false }, ref,
 ) {
-  const category = categoryFor(specialty);
-  const candidates = useMemo(() => PHOTO_SETS[category].map(urlFor), [category]);
+  const category = tradeFor(specialty)?.id ?? normalizeTrade(specialty);
+  const candidates = useMemo(() => recruitmentPhotos(specialty), [specialty]);
   const [choice, setChoice] = useState(0);
   const [uploaded, setUploaded] = useState("");
+  const [uploadedRole, setUploadedRole] = useState("");
   const [tone, setTone] = useState<"teal" | "blue" | "copper">("teal");
   const [zoom, setZoom] = useState(1.12);
   const [vertical, setVertical] = useState(0.48);
   const [preview, setPreview] = useState("");
+  const [previewKey, setPreviewKey] = useState("");
   const [error, setError] = useState("");
   const [mobile, setMobile] = useState(false);
   const [editImage, setEditImage] = useState(false);
-  const photo = uploaded || candidates[choice % candidates.length];
+  const photo = (uploadedRole === category ? uploaded : "") || (choice >= 0 && candidates.length ? candidates[choice % candidates.length] : "");
+  const compositionKey = JSON.stringify([photo, specialty, publicLocation, tone, zoom, vertical]);
 
   useEffect(() => {
     setChoice(0);
     setUploaded("");
+    setTone(recruitmentTone(specialty));
   }, [category]);
   useEffect(() => {
     if (!uploaded) return;
@@ -117,7 +88,7 @@ const SocialPoster = forwardRef<SocialPosterHandle, Props>(function SocialPoster
     if (!specialty.trim() || !publicLocation.trim()) {
       throw new Error("Completa el oficio y la comuna o sector aproximado.");
     }
-    const image = await loadImage(photo);
+    const image = photo ? await loadImage(photo) : null;
     const canvas = document.createElement("canvas");
     canvas.width = 1080;
     canvas.height = 1350;
@@ -125,7 +96,19 @@ const SocialPoster = forwardRef<SocialPosterHandle, Props>(function SocialPoster
     if (!ctx) throw new Error("El navegador no permite crear la imagen.");
     ctx.fillStyle = "#123b45";
     ctx.fillRect(0, 0, 1080, 1350);
-    cover(ctx, image, zoom, vertical);
+    if (image) cover(ctx, image, zoom, vertical);
+    else {
+      // Intentional typography-only artwork, never a misleading stock photograph.
+      ctx.fillStyle = tone === "blue" ? "#17345d" : tone === "copper" ? "#674733" : "#15635f";
+      ctx.fillRect(0, 0, 1080, 760);
+      ctx.strokeStyle = "#ffffff24"; ctx.lineWidth = 3;
+      for (let i = -800; i < 1400; i += 120) { ctx.beginPath(); ctx.moveTo(i, 0); ctx.lineTo(i + 780, 760); ctx.stroke(); }
+      ctx.fillStyle = "#ffffff"; ctx.font = "800 45px Arial, sans-serif";
+      ctx.fillText("RED DE OBRAS", 76, 115);
+      ctx.font = "900 128px Arial, sans-serif";
+      ctx.fillText("TRABAJO", 70, 270);
+      ctx.fillText("EN OBRA", 70, 420);
+    }
     const gradient = ctx.createLinearGradient(0, 390, 0, 1350);
     const base = tone === "blue" ? "7,27,65" : tone === "copper" ? "48,34,25" : "4,43,48";
     gradient.addColorStop(0, "rgba(" + base + ",0)");
@@ -176,19 +159,20 @@ const SocialPoster = forwardRef<SocialPosterHandle, Props>(function SocialPoster
     let cancelled = false;
     const timer = window.setTimeout(() => {
       void compose().then((value) => {
-        if (!cancelled) { setPreview(value); setError(""); }
+        if (!cancelled) { setPreview(value); setPreviewKey(compositionKey); setError(""); }
       }).catch((cause: unknown) => {
         if (!cancelled) { setPreview(""); setError(cause instanceof Error ? cause.message : "No se pudo generar la imagen."); }
       });
     }, 250);
     return () => { cancelled = true; window.clearTimeout(timer); };
-  }, [compose, enabled]);
+  }, [compose, enabled, compositionKey]);
 
   function upload(file?: File) {
     if (!file) return;
     if (!["image/png", "image/jpeg"].includes(file.type) || file.size > 8_000_000) {
       setError("Usa un JPG o PNG de hasta 8 MB."); return;
     }
+    setUploadedRole(category);
     setUploaded(URL.createObjectURL(file));
     setError("");
   }
@@ -213,6 +197,7 @@ const SocialPoster = forwardRef<SocialPosterHandle, Props>(function SocialPoster
                 <img src={src} alt={"Fotografía " + (index + 1) + " para la especialidad"} />
               </button>
             ))}
+            <button type="button" aria-pressed={!uploaded && choice === -1} onClick={() => { setChoice(-1); setUploaded(""); }}>Diseño sin foto</button>
             <label className="nsp-upload"><ImagePlus size={20}/> Subir foto
               <input type="file" accept="image/jpeg,image/png" onChange={(e) => upload(e.target.files?.[0])}/>
             </label>
@@ -234,7 +219,7 @@ const SocialPoster = forwardRef<SocialPosterHandle, Props>(function SocialPoster
           </label>
           <p>La fotografía debe corresponder al oficio y no contener marcas ni rostros sin autorización. Puedes reemplazarla por una propia.</p>
           <button type="button" className="nsp-reset" onClick={() => {
-            setChoice(0); setUploaded(""); setZoom(1.12); setVertical(0.48); setTone("teal");
+            setChoice(0); setUploaded(""); setZoom(1.12); setVertical(0.48); setTone(recruitmentTone(specialty));
           }}><RefreshCw size={14}/> Restablecer</button>
         </div>
         <div className="nsp-right">
@@ -246,22 +231,23 @@ const SocialPoster = forwardRef<SocialPosterHandle, Props>(function SocialPoster
           <div className={"nsp-facebook" + (mobile ? " mobile" : "")}>
             <div className="nsp-fbhead"><span className="nsp-profile"><Camera size={16}/></span><span><b>Página de Facebook</b><small>Vista previa · Público</small></span><b className="nsp-more">···</b></div>
             <div className="nsp-caption">
-              <strong className="nsp-copy-headline">Buscamos empresas contratistas de {specialty.trim().toLowerCase() || "…"}</strong>
+              <strong className="nsp-copy-headline">¡Buscamos contratistas de {specialty.trim().toLowerCase() || "…"}!</strong>
               <p className="nsp-work-summary">{publicSummary.trim() || "El resumen de las labores aparecerá aquí."}</p>
               <div className="nsp-facts" aria-label="Datos de la convocatoria">
                 <span><MapPin size={13} aria-hidden="true"/> {publicLocation || "Ubicación por confirmar"}</span>
                 <span>{workers || 1} {(workers || 1) === 1 ? "persona estimada" : "personas estimadas"}</span>
                 {start && <span>Inicio: {format(start)}</span>}
               </div>
-              <p className="nsp-copy-cta">¿Tu empresa realiza estos trabajos? Escríbenos por mensaje privado.</p>
+              <p className="nsp-copy-cta">¿Realizas estos trabajos? Escríbenos por mensaje privado.</p>
               <details className="nsp-caption-more"><summary>Ver el texto exacto para Facebook</summary>
                 <pre>{publicCaption(specialty, publicLocation, workers, start, publicSummary)}</pre>
               </details>
             </div>
-            {preview ? <img className="nsp-poster" src={preview} alt={"Anuncio para " + specialty + " en " + publicLocation}/> :
+            {preview && previewKey === compositionKey ? <img className="nsp-poster" src={preview} alt={"Anuncio para " + specialty + " en " + publicLocation}/> :
               <div className="nsp-empty">{error || "Generando imagen…"}</div>}
             <div className="nsp-reactions"><span>♡ Me gusta</span><span>▤ Comentar</span><span>↗ Compartir</span></div>
           </div>
+          {!photo && specialty.trim() && <p className="nsp-disclaimer">Diseño sin fotografía. Puedes subir una foto del oficio en Editar fotografía.</p>}
           {error && <p role="alert" className="nsp-error">{error}</p>}
           <p className="nsp-disclaimer"><MapPin size={13}/> En Facebook solo aparecerá la ubicación aproximada, nunca el nombre interno de la obra.</p>
         </div>

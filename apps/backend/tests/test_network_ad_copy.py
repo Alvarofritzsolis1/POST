@@ -48,7 +48,9 @@ def test_public_message_omits_internal_site_and_pending_date():
         title="Brisas de Junquillar", description="Planos privados"
     )
     message = public_message(None, req)
-    assert message.startswith("Buscamos empresas contratistas de carpintería.")
+    assert message.startswith("¡Buscamos contratistas de carpintería!")
+    assert "¿Realizas estos trabajos?" in message
+    assert "3 personas" in message
     assert "Montaje de muebles y puertas." in message
     assert "San Pedro de la Paz" in message
     assert "Brisas de Junquillar" not in message
