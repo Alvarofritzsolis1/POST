@@ -22,7 +22,9 @@ def plain(text: str) -> str:
 TRADES = {
     "Gasfitería": ("gasfite", "gasfiter", "gasfiteria", "gasfitero", "gasfitero", "gafiter", "gasfítera", "gasfíteres", "maestro sanitario"),
     "Carpintería": ("carpintero", "carpintera", "carpinteros", "carpinteria", "carpinter", "carpintreo", "carpinterio", "mueblista", "mueblero"),
-    "Pintura": ("pintor", "pintora", "pintores", "pintura", "pinturas", "pinturero", "pintur"),
+    "Pintura": ("pintor", "pintora", "pintores", "pintura", "pinturas", "pinturero", "pintur", "pintura completa"),
+    "Yeso": ("yeso", "yesero", "yesera", "yesería"),
+    "Pasta muro": ("pasta muro", "pasta de muro", "pastamuro", "empastado"),
     "Albañilería": ("albanil", "albaniles", "albanileria", "albanir", "pandereta"),
     "Electricidad": ("electrico", "electrica", "electricista", "electricidad", "electricito", "eletricista", "electrisista"),
     "Aseo": ("aseo", "limpieza", "limpio"),
@@ -40,7 +42,7 @@ TRADES = {
     "Excavación": ("excavacion",),
     "Terminaciones": ("terminaciones", "terminacion"),
     "Movimiento de tierra": ("movimiento de tierra", "movimiento de tierras"),
-    "EIFS": ("eifs",),
+    "EIFS": ("eifs", "eif"),
     "Maquinaria": ("maquinaria",),
     "Obras civiles": ("obras civiles", "construccion obras civiles", "construccion de obras civiles"),
 }
