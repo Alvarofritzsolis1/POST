@@ -333,6 +333,7 @@ def process_chat_next(session_factory=SessionLocal, *, simulation_config=None, n
         declarations = []
         decision = None
         requested_handoff = False
+        focus = None
         requires_verified_details = False
         trace = {"trace_version": 1, "context_turns": 0, "known_fields": 0,
                  "knowledge_count": 0, "model_requested": False, "context_truncated": False}
