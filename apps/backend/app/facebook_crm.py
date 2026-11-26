@@ -44,7 +44,8 @@ from .network_service import key, today
 from .galancito_triage import classify_lead, dashboard
 from .security import administrator
 from .galancito_triage import (analyze, private_data, quick_reply, everyday_question_reply,
-                              application_ai_candidate, payment_guidance, worksite_payment_terms_question)
+                              application_ai_candidate, payment_guidance, worksite_payment_terms_question,
+                              contextual_payment_question)
 from .galancito_intake import (
     GALILEA_QUESTION, acceptable_intake_draft, declared_relative_start, identity_reply, model_intake_candidate, needs_deeper_response, next_intake_reply, small_talk_reply,
     natural_messenger_reply, contact_followup_reply, contact_pending_questions,
@@ -543,6 +544,9 @@ def ingest_facebook_payload(db, payload, cfg, *, notices=None):
             elif (not lead.needs_support and lead.ai_consent_state != "declined"
                     and not private_data(body) and worksite_payment_terms_question(body)):
                 reply = exact_answer(retrieve(db, lead.org_id, body, "messenger"))
+                if not reply and contextual_allowed and contextual_payment_question(body):
+                    # Understand the objective with Qwen, but never invent payment terms.
+                    use_ai = True
             elif intake == GALILEA_QUESTION:
                 reply = intake
             elif contextual_turn:
