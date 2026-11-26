@@ -35,7 +35,7 @@ CHILE = ZoneInfo("America/Santiago")
 _PERSONAL_DECLARATION = re.compile(
     r"^(?:corrijo |aclaro |yo )*(?:soy|soi|me llamo|mi nombre es|trabajo|trabajamos|hago|ofrezco|ofresco|busco|"
     r"puedo|estoy disponible|tengo|somos|llevo|voy con|me dedico|realizo|realizamos|vivo|resido|me muevo|"
-    r"mi cuadrilla|mi equipo)\b"
+    r"mi cuadrilla|mi equipo|cuento con|contamos con)\b"
 )
 
 
