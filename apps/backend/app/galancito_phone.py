@@ -21,17 +21,17 @@ def labeled_whatsapp_phone(message: str) -> bool:
 def introducing_phone_number(message: str) -> bool:
     return bool(_NUMBER_INTRO.search(message)) and not PHONE_PATTERN.search(message) and "?" not in message
 SHARING = re.compile(
-    r"(?i)(?:mi\s+(?:n[uú]mero|celular|tel[eé]fono|w(?:hats)?app)"
-    r"|(?:te|les)\s+(?:dejo|paso|env[ií]o)\s+(?:mi\s+)?(?:n[uú]mero|celular|tel[eé]fono|w(?:hats)?app)?"
+    r"(?i)(?:mi\s+(?:n[uú]mero|celular|tel[eé]fono|(?:whatsapp|wapp|wsp|wasap|guasap|watsap))"
+    r"|(?:te|les)\s+(?:dejo|paso|env[ií]o)\s+(?:mi\s+)?(?:n[uú]mero|celular|tel[eé]fono|(?:whatsapp|wapp|wsp|wasap|guasap|watsap))?"
     r"|(?:ll[aá]m[ae]me|pueden\s+llamarme)\s+(?:al\s+)?"
     r"|(?:cont[aá]ct[ae]me|escr[ií]banme)\s+(?:al\s+)?"
-    r"|^\s*(?:y\s+)?(?:el\s+)?(?:n[uú]mero|celular|tel[eé]fono|w(?:hats)?app)\s+es\s*"
-    r"|(?:n[uú]mero|celular|tel[eé]fono|w(?:hats)?app)\s*[:=])"
+    r"|^\s*(?:y\s+)?(?:el\s+)?(?:n[uú]mero|celular|tel[eé]fono|(?:whatsapp|wapp|wsp|wasap|guasap|watsap))\s+es\s*"
+    r"|(?:n[uú]mero|celular|tel[eé]fono|(?:whatsapp|wapp|wsp|wasap|guasap|watsap))\s*[:=])"
 )
 COORDINATE = re.compile(
     r"(?i)\b(?:me\s+pueden\s+llamar|pueden\s+llamarme|ll[aá]m[ae]me|"
     r"nos\s+(?:podemos\s+)?(?:llamar|hablar\s+por\s+tel[eé]fono)|"
-    r"coordin(?:amos|emos)\s+por\s+(?:tel[eé]fono|w(?:hats)?app)|"
+    r"coordin(?:amos|emos)\s+por\s+(?:tel[eé]fono|(?:whatsapp|wapp|wsp|wasap|guasap|watsap))|"
     r"quiero\s+(?:dejar|dar|pasar)\s+mi\s+n[uú]mero)\b"
 )
 DECLINED = re.compile(
@@ -65,14 +65,14 @@ def phone_shared_by_sender(message: str, last_question: str = "") -> str | None:
         return None
     # A standalone number is an intentional reply even without the old prompt.
     standalone = not re.sub(r"[\d\s+().\-]", "", message).strip()
-    asked = bool(re.search(r"(?i)\b(?:tel[eé]fono|celular|n[uú]mero|w(?:hats)?app)\b", last_question.removeprefix(WHATSAPP_ACK)))
+    asked = bool(re.search(r"(?i)\b(?:tel[eé]fono|celular|n[uú]mero|(?:whatsapp|wapp|wsp|wasap|guasap|watsap))\b", last_question.removeprefix(WHATSAPP_ACK)))
     context = SHARING.search(message[:match.start()])
     return phone if standalone or asked or context or labeled_whatsapp_phone(message) else None
 
 
 def phone_declined(message: str, last_question: str) -> bool:
     return bool((DECLINED.search(message) or message.strip().casefold() in {"no", "paso", "prefiero no", "no gracias"}) and
-                re.search(r"(?i)\b(?:tel[eé]fono|celular|n[uú]mero|w(?:hats)?app)\b", last_question.removeprefix(WHATSAPP_ACK)))
+                re.search(r"(?i)\b(?:tel[eé]fono|celular|n[uú]mero|(?:whatsapp|wapp|wsp|wasap|guasap|watsap))\b", last_question.removeprefix(WHATSAPP_ACK)))
 
 
 def phone_question_when_agreed(lead, message: str, *, at: datetime | None = None) -> str | None:
