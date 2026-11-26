@@ -493,6 +493,25 @@ def test_paint_plaster_putty_and_eifs_across_messages_are_additive(network, monk
         assert trades == {"Pintura", "Yeso", "Pasta muro", "EIFS"}
         assert not lead.ai_paused
 
+    # Even if both Qwen drafting attempts are rejected, the verified additive
+    # trade is acknowledged without pausing Messenger or inventing an oficio.
+    delivered = []
+    monkeypatch.setattr("app.facebook_chat_worker.graph_send",
+                        lambda *args: delivered.append(args[2]) or "synthetic-trade-ack")
+    monkeypatch.setattr("app.facebook_chat_worker.graph_sender_action", lambda *args: None)
+    monkeypatch.setattr("app.facebook_chat_worker._contextual_reply", lambda *args, **kwargs: (
+        (Turn(i="intake", q="none", r="Perfecto.", d=[]), [], None),
+        "fallback", {}, "invalid_reply",
+    ))
+    with sessions.begin() as db:
+        job = db.scalar(select(FacebookChatMessage).where(FacebookChatMessage.state == "ai_pending"))
+        assert job is not None
+        job.updated_at = utcnow() - timedelta(seconds=3)
+    assert process_chat_next(sessions)
+    assert delivered == ["Perfecto, también anoté EIFS entre tus trabajos."]
+    with sessions() as db:
+        assert not db.scalar(select(FacebookLead)).needs_support
+
 
 def test_joined_experience_units_and_natural_operator_question(network, monkeypatch):
     from app.galancito_intake import intake_question_fields
