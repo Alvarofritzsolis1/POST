@@ -463,4 +463,16 @@ def test_legacy_scripted_trade_question_cannot_reach_meta(network, monkeypatch):
     monkeypatch.setattr("app.facebook_chat_worker.graph_send", unexpected)
     assert process_chat_next(sessions)
     with sessions() as db:
-        assert db.scalar(select(FacebookLead)).needs_support
+        assert not db.scalar(select(FacebookLead)).needs_support
+
+
+def test_multiline_trade_list_is_saved_without_waiting_for_model(network, monkeypatch):
+    sessions = configure(network, monkeypatch)
+    from app.facebook_crm_models import FacebookLeadTrade
+    message = "Movimiento de tierra\nAlbañilería\nCarpintería\nTerminación\nPintura\nEifs\nHormigón vacio Y pulido"
+    assert incoming(network, message, mid="seven-trades").status_code == 200
+    with sessions() as db:
+        lead = db.scalar(select(FacebookLead))
+        trades = set(db.scalars(select(FacebookLeadTrade.trade).where(FacebookLeadTrade.lead_id == lead.id, FacebookLeadTrade.active.is_(True))))
+        assert trades == {"Movimiento de tierra", "Albañilería", "Carpintería", "Terminaciones", "Pintura", "EIFS", "Hormigón vaciado y pulido"}
+        assert not lead.ai_paused
