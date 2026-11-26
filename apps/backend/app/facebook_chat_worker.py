@@ -47,6 +47,9 @@ from .galancito_local import generate_local_text, last_timings, MAX_CONTEXT_CHAR
 from .galancito_escalation import flag_for_human
 from .ai_defect_learning import approved_coaching
 
+DRAFT_LEASE = timedelta(seconds=150)
+
+
 class NoRedirect(HTTPRedirectHandler):
     def redirect_request(self, req, fp, code, msg, headers, newurl):
         raise URLError("La API de Meta redirigió el envío")
@@ -245,13 +248,13 @@ def process_chat_next(session_factory=SessionLocal, *, simulation_config=None, n
         pickable = FacebookChatMessage.state.in_(["pending", "ai_pending"])
         if contextual.enabled(cfg) and not simulated:
             pickable = or_(
-                and_(FacebookChatMessage.state == "pending", FacebookChatMessage.operator_id.is_not(None)),
-                and_(FacebookChatMessage.state.in_(["pending", "ai_pending"]), or_(
+                FacebookChatMessage.state == "pending",
+                and_(FacebookChatMessage.state == "ai_pending", or_(
                     FacebookChatMessage.updated_at <= now - timedelta(milliseconds=700),
                     FacebookChatMessage.created_at <= now - timedelta(seconds=3),
                 )),
                 and_(FacebookChatMessage.state == "drafting", FacebookChatMessage.ai_generated.is_(True),
-                     FacebookChatMessage.updated_at < now - timedelta(seconds=150)),
+                     FacebookChatMessage.updated_at < now - DRAFT_LEASE),
             )
         job = db.scalar(select(FacebookChatMessage).where(
             FacebookChatMessage.org_id == cfg.facebook_org_id,
@@ -371,15 +374,19 @@ def process_chat_next(session_factory=SessionLocal, *, simulation_config=None, n
                 or semantic_reasoning_needed(latest, prior_question, facts)))
             semantic_protocol = bool(semantic_reasoning and ai_source == "ollama" and
                 (has_semantic_opportunity(facts) or CORRECTION.search(plain(latest))))
-            if (contextual.authorized(cfg, lead) and intake != GALILEA_QUESTION
+            if (contextual.authorized(cfg, lead) and not contact_turn and intake != GALILEA_QUESTION
                     and not (location or follow_up or (apply and not application_model))
-                    and not identity_reply(focus.body if focus else "")):
+                    and contextual.conversational_message(focus.body if focus else "")):
                 structured_fragments = contextual.current_fragments(turns)
                 if structured_fragments:
                     model_needed = True
                     semantic_protocol = False
                     semantic_reasoning = False
-                    evidence = evidence or retrieve(db, lead.org_id, structured_fragments[-1].text, "messenger")
+                    topic = next((part.text for part in structured_fragments if part.message_id == focus.remote_id),
+                                 structured_fragments[-1].text)
+                    evidence = evidence or retrieve(db, lead.org_id, topic, "messenger")
+                    if not evidence and prior_question and len(plain(topic).split()) <= 5:
+                        evidence = retrieve(db, lead.org_id, topic + " " + prior_question, "messenger")
             trace["semantic_reasoning_requested"] = semantic_reasoning
             trace["contextual_turn"] = bool(structured_fragments)
             trace["fragment_count"] = len(structured_fragments)
@@ -397,6 +404,8 @@ def process_chat_next(session_factory=SessionLocal, *, simulation_config=None, n
                     {key(g.trade), *(key(a) for a in (g.aliases or []))})), None)
                 if structured_fragments:
                     context, count = contextual.memory_text(facts, turns, structured_fragments, prior_question, evidence, guide)
+                    if help_answer:
+                        context = "Orientación disponible para esta duda: " + help_answer + "\n" + context
                 else:
                     context, count = messenger_context(latest, facts, prior_question, turns, evidence, guide,
                         limit=MAX_CONTEXT_CHARS - (len(PROTOCOL) + 1 if semantic_protocol else 0))
@@ -436,7 +445,8 @@ def process_chat_next(session_factory=SessionLocal, *, simulation_config=None, n
                 session_factory, cfg, lead_id=lead_id, job_id=job_id, inbound_at=inbound_at,
                 claimed_at=claimed_at, org_id=org_id, ai_source=ai_source, simulated=simulated,
                 context=context, grounding=grounding, fragments=structured_fragments, facts=facts,
-                allow_external=not contact_turn,
+                prior=prior_question, allow_external=not (contact_turn or requires_verified_details),
+                verified_explanation=bool(help_answer and "?" not in help_answer),
             )
             decision, declarations, drafted = generated
             if decision:
@@ -450,10 +460,17 @@ def process_chat_next(session_factory=SessionLocal, *, simulation_config=None, n
             elif guidance := payment_guidance(focus.body if focus else ""):
                 body, source, intent = guidance, "local", "question"
                 trace.update(provider="local", verified_guidance="payment_terms")
-            elif drafted:
+            elif drafted and not (help_answer and "?" not in help_answer and "?" in drafted):
                 body = natural_messenger_reply(safe_ai_reply(drafted))
-            elif (fast and not intake_question_fields(fast)
-                    and not any(needs_deeper_response(item.text) for item in structured_fragments)):
+            elif help_answer:
+                body, source = help_answer, "local"
+                trace.update(provider="local", verified_guidance="clarification")
+            elif fast_source == "knowledge":
+                body, source = natural_messenger_reply(safe_ai_reply(fast)), "knowledge"
+            elif contextual.has_tentative_claim(structured_fragments) and not contextual.latest_question(structured_fragments):
+                body, source = "Entiendo, queda pendiente. Cuando puedas confirmarlo, avísame por aquí.", "local"
+                trace.update(provider="local", verified_guidance="tentative_statement")
+            elif fast and not intake_question_fields(fast) and contextual.is_declaration_turn(structured_fragments):
                 body = natural_messenger_reply(safe_ai_reply(fast))
             else:
                 failed_ai = True
@@ -677,7 +694,8 @@ def process_chat_next(session_factory=SessionLocal, *, simulation_config=None, n
 
 
 def _contextual_reply(session_factory, cfg, *, lead_id, job_id, inbound_at, claimed_at, org_id,
-                      ai_source, simulated, context, grounding, fragments, facts, allow_external):
+                      ai_source, simulated, context, grounding, fragments, facts, prior, allow_external,
+                      verified_explanation=False):
     """Use the same inference and validation for real and simulated Messenger."""
     decision, declarations, timings = None, [], {}
     failure = "invalid_reply"
@@ -693,22 +711,33 @@ def _contextual_reply(session_factory, cfg, *, lead_id, job_id, inbound_at, clai
 
     declarations = contextual.explicit_channel_declarations(fragments)
     hints = contextual.evidence_options(fragments)
-    for attempt in range(2):
-        selecting = bool(hints and attempt == 0)
-        revision = ("El primer borrador no pasó la validación. El campo que intentó preguntar fue " +
-                    decision.q + ". Responde la consulta o pregunta por otro dato pertinente."
-                    if attempt and decision else "")
+    tentative_only = contextual.has_tentative_claim(fragments) and not contextual.latest_question(fragments)
+    phases = ("attribution", "draft", "repair") if hints else ("draft", "repair")
+    for phase in phases:
+        # A third request must fit within the draft lease even at the maximum Ollama timeout.
+        if phase == "repair" and (verified_explanation or (tentative_only and not declarations)
+                                  or utcnow() - aware(claimed_at) >= DRAFT_LEASE - timedelta(seconds=75)):
+            break
+        revision = ("El primer borrador no fue utilizable. Retoma la última consulta. Si no puedes resolverla, "
+                    "pregunta por un dato concreto del mismo tema. Evita repetir la pregunta anterior."
+                    if phase == "repair" else "")
+        repairing_intake = (phase == "repair" and decision and declarations
+                            and decision.i in {"intake", "contact"} and contextual.is_declaration_turn(fragments))
+        if repairing_intake:
+            revision = ("La persona presentó sus datos y no hizo una consulta. Agradece brevemente o pregunta "
+                        "por un solo dato profesional pendiente. Conserva i=" + decision.i + ".")
         with session_factory.begin() as db:
             if not is_current(db):
                 return (None, [], None), "fallback", timings, "superseded"
-            policy = messenger_prompt_text(approved_coaching(db, org_id, "messenger"))
             try:
-                if selecting:
+                if phase == "attribution":
                     selected = infer(db, lambda: contextual.request_attribution(fragments, hints))
                     candidate = None
                 else:
+                    policy = messenger_prompt_text(approved_coaching(db, org_id, "messenger"))
                     candidate = infer(db, lambda: contextual.request_turn(
-                        context, fragments, revision=revision, policy=policy, accepted=declarations))
+                        context, fragments, revision=revision, policy=policy,
+                        accepted=contextual.reconcile_declarations(declarations)))
             except (RuntimeError, ValueError) as exc:
                 failure = type(exc).__name__
                 candidate, selected = None, []
@@ -716,37 +745,46 @@ def _contextual_reply(session_factory, cfg, *, lead_id, job_id, inbound_at, clai
             totals = {metric: timings.get(metric, 0) + step.get(metric, 0)
                       for metric in ("local_model_calls", "input_tokens", "output_tokens")}
             timings = {**timings, **step, **totals}
-        if selecting:
-            if failure == "RuntimeError":
-                break
-            declarations = list(dict.fromkeys([*declarations, *contextual.supported_declarations(selected, fragments)]))
+        if failure == "RuntimeError":
+            break
+        if phase == "attribution":
+            declarations = list(dict.fromkeys([
+                *declarations, *contextual.supported_declarations(selected, fragments, prior=prior),
+            ]))
             continue
         if candidate is None:
-            break
-        proposed = contextual.supported_declarations(candidate.d, fragments)
+            continue
+        if repairing_intake and candidate.i not in {"intake", "contact"}:
+            continue
+        proposed = contextual.supported_declarations(candidate.d, fragments, prior=prior)
         declarations = list(dict.fromkeys([*declarations, *proposed]))
-        if not revision:
+        if decision is None:
             decision = candidate
-        answer = contextual.validated_reply(candidate, facts, declarations, grounding, fragments)
+        confirmed = contextual.reconcile_declarations(declarations)
+        answer = contextual.validated_reply(candidate, facts, confirmed, grounding, fragments, prior=prior)
         if candidate.i == "human":
             if any(wants_human(part.text) for part in fragments):
-                return (candidate, declarations, answer), "ai", timings, None
+                return (candidate, confirmed, answer), "ai", timings, None
             decision = None
             continue
-        if not needs_external_help(answer):
-            return (candidate, declarations, answer), "ai", timings, None
+        if answer and (not needs_external_help(answer) or (candidate.i == "clarification" and candidate.q == "other"
+                                                            and "?" in answer)):
+            return (candidate, confirmed, answer), "ai", timings, None
 
-    if allow_external and not simulated and ai_source == "team":
+    confirmed = contextual.reconcile_declarations(declarations)
+    if allow_external and not (simulated or verified_explanation or tentative_only) and ai_source == "team":
         with session_factory.begin() as db:
             if is_current(db) and messenger_external_fallback_enabled(db, org_id, cfg):
                 try:
                     answer = infer(db, lambda: orchestrated_text(
-                        db, org_id, task="messenger", instructions=REPLY_INSTRUCTIONS,
+                        db, org_id, task="messenger", instructions=REPLY_INSTRUCTIONS + "\n" + contextual.CONVERSATION_GUIDANCE,
                         prompt=grounding, max_output_tokens=160), org_id=org_id)
                 except (AIServiceError, RuntimeError, ValueError):
                     answer = None
                 timings["external_model_calls"] = last_timings.get().get("external_model_calls", 0)
-                if (answer and acceptable_intake_draft(answer, facts)
-                        and not needs_external_help(answer := grounded_reply(answer, grounding))):
-                    return (decision, declarations, answer), "external", timings, failure
-    return (decision, declarations, None), "fallback", timings, failure
+                if answer and 0 < len(answer.strip()) <= 240:
+                    draft = contextual.Turn(d=[], i="question", q="other" if "?" in answer else "none", r=answer)
+                    answer = contextual.validated_reply(draft, facts, confirmed, grounding, fragments, prior=prior)
+                    if not needs_external_help(answer):
+                        return (decision, confirmed, answer), "external", timings, failure
+    return (decision, confirmed, None), "fallback", timings, failure

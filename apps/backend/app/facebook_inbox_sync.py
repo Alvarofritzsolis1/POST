@@ -247,21 +247,22 @@ def sync_page_inbox(*, page_id: str, page_token: str, org_id: str,
                         ai_generated=False))
                     queued += 1
                     continue
-                application = application_reply(db, lead, body, prior)
+                location = worksite_reply(db, lead, body, prior)
+                application = application_reply(db, lead, body, prior) if not location else None
+                digital_help = digital_help_reply(body, prior)
+                everyday = everyday_question_reply(body)
                 facts = profile_facts(lead, changed=changed)
                 contact_reply = contact_followup_reply(phone_ack, facts, prior) if phone_ack else None
                 direct = (contact_reply or follow_up or explain_permission(lead, body, prior)
-                          or worksite_reply(db, lead, body, prior)
-                          or application
-                          or digital_help_reply(body, prior)
-                          or everyday_question_reply(body))
+                          or location or application or digital_help or everyday)
                 if not direct and not lead.needs_support:
                     direct = phone_question_when_agreed(lead, body)
                     if direct:
                         lead.phone_requested_at = utcnow()
                 configured = messenger_contact_ai_source(db, lead, cfg)
-                if (direct and direct == digital_help_reply(body, prior) and not phone_ack
-                        and local_first_messenger(cfg) and consented_for(lead, configured)):
+                if (direct and direct in (digital_help, everyday) and direct not in (location, follow_up)
+                        and not phone_ack and consented_for(lead, configured)
+                        and (direct == everyday or local_first_messenger(cfg))):
                     direct = None
                 if (application and direct == application and not phone_ack
                         and local_first_messenger(cfg) and consented_for(lead, configured)
@@ -271,10 +272,8 @@ def sync_page_inbox(*, page_id: str, page_token: str, org_id: str,
                     and consented_for(lead, configured)
                     and contact_pending_questions(facts, prior))
                 source = "disabled" if direct and not contact_model else configured
-                contextual_turn = bool(contextual.authorized(cfg, lead) and not follow_up
-                    and not (application and direct == application) and not identity_reply(body)
-                    and not small_talk_reply(body) and contextual.eligible(body)
-                    and (not direct or direct == contact_reply or direct == everyday_question_reply(body)))
+                contextual_turn = bool(contextual.authorized(cfg, lead) and not direct
+                                       and contextual.conversational_message(body))
                 intake = next_intake_reply(body, facts, prior) if not direct else None
                 if introducing_phone_number(body) and not (phone_ack or direct):
                     continue

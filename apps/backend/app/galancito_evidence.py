@@ -12,22 +12,30 @@ QUANTITY = (r"\d{1,4}|un[oa]?|dos|tres|cuatro|cinco|seis|siete|ocho|nueve|diez|"
             r"sesenta|setenta|ochenta|noventa|cien|ciento|varios|varias")
 QUALIFIER = r"mas de|menos de|como|alrededor de|cerca de|unas?|aprox\w*|entre|hasta|sobre"
 QUALIFIED_CREW = re.compile(r"\b(?:" + QUALIFIER + r")\b")
-QUANTITY_PATTERN = re.compile(r"\b(?:" + QUANTITY + r")\b")
 CREW_UNIT = r"maestros?|personas?|trabajadores?|ayudantes?|cabros?|compas?|integrantes?"
 CREW_SPAN = re.compile(r"\b(?:(?:" + QUALIFIER + r") )?(?:" + QUANTITY + r")"
                        r"(?: (?:a|y) (?:" + QUANTITY + r"))?(?: " + CREW_UNIT + r")?\b")
-PARTIES = re.compile(r"\b(?:mi|un|una|el|la) (?:vecin[oa]|amig[oa]|herman[oa]|prim[oa]|colega|jefe|"
-                     r"conocid[oa]|cunad[oa]|companero|companera)\b")
+PARTY = (r"(?:mi|un|una|el|la) (?:vecin[oa]|amig[oa]|herman[oa]|prim[oa]|colega|jefe|"
+         r"conocid[oa]|cu[nñ]ad[oa]|compa[nñ]er[oa])")
+PARTIES = re.compile(r"\b" + PARTY + r"\b")
 REPORTED = re.compile(r"\b(?:(?:segun|en) (?:el aviso|la publicacion)|"
                       r"(?:el aviso|la publicacion|la pagina|el sitio|la empresa) "
                       r"(?:pide|busca|dice|ofrece|tiene|publica)|"
                       r"(?:vi|lei|dicen|dijeron) que (?:piden|buscan|necesitan|ofrecen))\b")
-SELF = re.compile(r"\b(?:yo|por mi parte|en mi caso|por mi lado)\b")
-BREAK = re.compile(r"[,.;!\n]+|\b(?:pero|mientras que)\b", re.I)
+SENTENCES = re.compile(r"[.!;\n]+")
+CLAUSES = re.compile(r",+|\b(?:pero|mientras que)\b|\by\s+(?=(?:yo|soy|trabajo|vivo|resido|hago|ofrezco|"
+                     r"me dedico|me muevo|no s[eé]|por mi parte|en mi caso|por mi lado|el aviso|la publicaci[oó]n|"
+                     + PARTY + r")\b)", re.I)
+UNCERTAIN = re.compile(r"\b(?:tal vez|quizas?|puede que|capaz que|a lo mejor|no se si|podria(?:mos)?|"
+                       r"si (?:me|nos|se|hay|consigo|conseguimos)|en caso de que)\b")
 NEGATED = re.compile(r"^(?:(?:yo|ya) )*no (?:soy|somos|hago|hacemos|tengo|tenemos|"
                      r"ofrezco|ofrecemos|trabajo|trabajamos|vivo|vivimos|busco|buscamos)\b")
-ORIGIN_PREFIX = re.compile(r"(?:^|\b)(?:de|vivo en|vivimos en|radico en|resido en|residimos en|"
-                           r"somos de|soy de|vengo de|desde) $")
+ORIGIN_PREFIX = re.compile(r"\b(?:vivo en|vivimos en|radico en|resido en|residimos en|donde vivo es|"
+                           r"somos de|soy de|vengo de)\b")
+AREA_PREFIX = re.compile(r"\b(?:(?:me muevo|nos movemos|me puedo mover|puedo ir|puedo trabajar|"
+                         r"trabajo|trabajamos|atiendo|busco (?:pega|trabajo|empleo)) (?:solo )?(?:en|por|a)|"
+                         r"(?:hago|hacemos|instalo|reparo) (?:\w+ ){1,4}en|(?:tambien |solo )en)\b")
+ORIGIN_TRADE = re.compile(r"\b(?:contratista|soy|somos)\b.*\bde $")
 TRADE_DETAILS = re.compile(r" (?:en|de) (\w+(?: y \w+)?)\b")
 OWN_WORK = re.compile(r"\b(?:hago|hacemos|me dedico a|nos dedicamos a|me especializo en|"
                       r"trabaj(?:o|amos) (?:de|en|\w+(?:ando|iendo))) "
@@ -40,25 +48,48 @@ CHANNEL_NAMES = {"wsp": "whatsapp", "wa": "whatsapp", "guasap": "whatsapp",
                  "correo": "email", "email": "email", "mail": "email", "correo electronico": "email"}
 
 
+def personal_statements(text):
+    """Preserve the speaker's own statements and explicit corrections."""
+    for sentence in SENTENCES.split(declaration_text(text)):
+        stripped = sentence.strip()
+        if re.match(r"si\s+(?!(?:claro|po|obvio|dale|bueno)\b)\w", stripped, re.I) and "," in stripped:
+            continue  # A leading condition also governs the clause after the comma.
+        for clause in CLAUSES.split(stripped):
+            normalized = plain(clause)
+            if normalized and not (PARTIES.search(normalized) or REPORTED.search(normalized)
+                                   or UNCERTAIN.search(normalized)):
+                yield clause.strip()
+
+
 def declaration_segments(text):
-    """Keep the speaker's clause when it follows a clear reference to somebody else."""
-    for clause in BREAK.split(declaration_text(text)):
+    for clause in personal_statements(text):
         normalized = plain(clause)
-        if other := (PARTIES.search(normalized) or REPORTED.search(normalized)):
-            own = SELF.search(normalized, other.end())
-            normalized = normalized[own.end():].strip() if own else ""
         if (normalized and not NEGATED.search(normalized)
                 and not (normalized.startswith("no ") and any(
                     match.start() == 0 for match in trade_mentions(normalized[3:], extra=EXTRA_TRADES)))):
             yield normalized
 
 
-def _quantity_mentions(value):
+def location_mentions(value):
+    """Attribute each commune using its own preceding cue."""
+    cues = [(match.start(), "origin") for match in ORIGIN_PREFIX.finditer(value)]
+    cues.extend((match.start(), "area") for match in AREA_PREFIX.finditer(value))
+    cues.sort()
+    for match, commune in commune_mentions(value):
+        field = next((role for start, role in reversed(cues) if start < match.start()), None)
+        if field is None and ORIGIN_TRADE.search(value[:match.start()]):
+            field = "origin"
+        yield match, commune, field
+
+
+def crew_mentions(value):
     for match in CREW_SPAN.finditer(value):
         text = match[0]
         prefix = value[:match.start()]
+        if re.match(r" (?:contratad[oa]s?|con contrato)\b", value[match.end():]):
+            continue
         if (re.search(r"\b(?:" + CREW_UNIT + r")$", text)
-                or re.search(r"\b(?:somos|vamos|van|andamos|cuadrilla de|equipo de|voy con) $", prefix)):
+                or re.search(r"\b(?:somos|vamos|van|andamos|(?:cuadrilla|equipo) (?:es )?de|voy con) $", prefix)):
             yield match.start(), "crew", text, text
 
 
@@ -106,11 +137,10 @@ def evidence_options(fragments):
     seen = set()
     for index, fragment in enumerate(fragments):
         for value in declaration_segments(fragment.text):
-            cities = list(commune_mentions(value))
             mentions = [(match.start(), "role", role, match[0]) for match, role in role_mentions(value)]
-            for match, _ in cities:
-                prefix = value[:match.start()]
-                field = "origin" if ORIGIN_PREFIX.search(prefix) else "area"
+            for match, _, field in location_mentions(value):
+                if field is None:
+                    continue
                 mentions.append((match.start(), field, match[0], match[0]))
             catalog = list(trade_mentions(value, extra=EXTRA_TRADES))
             for match in catalog:
@@ -126,7 +156,7 @@ def evidence_options(fragments):
                 # An idiom about contracting is not an occupation.
                 if not WORK_MODE.search(trade) and not list(commune_mentions(trade)):
                     mentions.append((work.start("trade"), "trade", trade, trade))
-            mentions.extend(_quantity_mentions(value))
+            mentions.extend(crew_mentions(value))
             if channel_preference(value):
                 mentions.extend(_channel_mentions(value))
             for _, field, normalized, evidence in sorted(mentions):

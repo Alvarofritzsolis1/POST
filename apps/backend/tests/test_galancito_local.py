@@ -81,6 +81,7 @@ def test_facebook_uses_local_ollama_after_explicit_consent(network, monkeypatch)
     enable_messaging(n, monkeypatch)
     for k, v in {
         "FACEBOOK_AI_PROVIDER": "ollama",
+        "GALANCITO_CONTEXTUAL_MESSENGER_ENABLED": "false",
         "GALANCITO_LOCAL_AI_ENABLED": "true",
         "FACEBOOK_AI_ENABLED": "true",
         "FACEBOOK_AI_AUTO_REPLY_ENABLED": "true",
@@ -129,9 +130,16 @@ def test_red_de_obras_local_ai_without_external_api(network, monkeypatch):
     assert state["local_ai_available"] is True
     assert state["external_ai_available"] is False
     response = n["send"](n["admin"], "/galancito/chat",
-        {"message": "Explica cómo organizar una coordinación de servicios", "area": "red_obras", "allow_external_ai": False})
+        {"message": "Explica cómo organizar esa coordinación de servicios", "area": "red_obras",
+         "allow_external_ai": False, "history": [
+             {"role": "user", "text": "Quiero comparar disponibilidad para aislar una sala"},
+             {"role": "assistant", "text": "Respuesta previa sin verificar"},
+             {"role": "user", "text": "Mi móvil es +56900000000"},
+         ]})
     assert response.status_code == 200
     assert response.json()["source"] == "ai" and len(calls) == 1
+    assert "aislar una sala" in calls[0][1]
+    assert "sin verificar" not in calls[0][1] and "+56900000000" not in calls[0][1]
     blocked = n["send"](n["admin"], "/galancito/chat",
         {"message": "ayúdame en trabajadores", "area": "galant"})
     assert blocked.status_code == 422

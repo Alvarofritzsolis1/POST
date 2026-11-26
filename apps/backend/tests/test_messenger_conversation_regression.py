@@ -38,6 +38,7 @@ def _local_messenger(n, monkeypatch):
     enable_messaging(n, monkeypatch)
     for key, value in {
         "FACEBOOK_AI_PROVIDER": "ollama",
+        "GALANCITO_CONTEXTUAL_MESSENGER_ENABLED": "false",
         "GALANCITO_LOCAL_AI_ENABLED": "true",
         "FACEBOOK_AI_ENABLED": "true",
         "FACEBOOK_AI_AUTO_REPLY_ENABLED": "true",

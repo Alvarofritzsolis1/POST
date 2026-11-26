@@ -6,6 +6,8 @@ on:
       - '.github/workflows/galancito-contextual-evaluation.yml'
       - 'apps/backend/app/galancito_contextual.py'
       - 'apps/backend/app/galancito_evidence.py'
+      - 'apps/backend/app/galancito_intake.py'
+      - 'apps/backend/app/galancito_memory.py'
       - 'apps/backend/app/facebook_chat_worker.py'
       - 'apps/backend/tests/fixtures/galancito_contextual_holdout.jsonl'
       - 'scripts/evaluate_galancito_conversations.py'
@@ -25,7 +27,7 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        offset: [0, 17, 34, 51, 68, 85, 102, 119, 136, 153, 170, 187]
+        offset: [0, 17, 34, 51, 68, 85, 102, 119, 136, 153, 170, 187, 204]
     env:
       GALANCITO_BASE_REF: ${{ github.event.pull_request.base.sha }}
       GALANCITO_OFFSET: ${{ matrix.offset }}

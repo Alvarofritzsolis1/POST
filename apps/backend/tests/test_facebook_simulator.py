@@ -56,12 +56,12 @@ def test_simulator_local_mode_uses_operator_choice_without_asking_in_chat(ai_env
     monkeypatch.setenv("FACEBOOK_AI_PROVIDER", "openai")
     settings.cache_clear()
     calls = []
-    def local(instructions, context, limit):
+    def local(instructions, context, limit, **options):
         calls.append(context)
-        return "Los requisitos los confirma el equipo de cada obra."
+        return '{"i":"question","q":"none","r":"Los requisitos los confirma el equipo de cada obra.","d":{}}'
     def unexpected(*args, **kwargs):
         raise AssertionError("Only the configured local model can receive a test message")
-    monkeypatch.setattr("app.facebook_chat_worker.generate_local_text", local)
+    monkeypatch.setattr("app.galancito_contextual.generate_local_text", local)
     monkeypatch.setattr("app.facebook_chat_worker.generate_text", unexpected)
     monkeypatch.setattr("app.facebook_chat_worker.orchestrated_text", unexpected)
     monkeypatch.setattr("app.facebook_chat_worker.graph_send", unexpected)
@@ -82,6 +82,8 @@ def test_simulator_answers_project_and_leaves_unknown_for_human(ai_env, monkeypa
     settings.cache_clear()
     monkeypatch.setattr("app.facebook_chat_worker.generate_local_text",
                         lambda *_args: "No sé cómo responder eso.")
+    monkeypatch.setattr("app.galancito_contextual.generate_local_text",
+                        lambda *args, **kwargs: '{"i":"question","q":"none","r":"No sé cómo responder eso.","d":{}}')
     first = client.post(BASE + "/turn", headers=admin, json={"mode": mode, "message": (
         "Trabajo con un contratista. Me dice el proyecto para así darle la inf y num de tlf "
         "por donde nos podamos comunicar con usted.")})

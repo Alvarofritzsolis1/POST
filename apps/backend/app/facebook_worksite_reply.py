@@ -23,7 +23,7 @@ ASK_WORKSITE = "¿Cuál obra viste? Mándame el nombre o el link del aviso."
 ASK_PROJECT = "Claro. ¿Recuerdas el nombre de la obra, el trabajo o la comuna del aviso?"
 
 _LOCATION = re.compile(
-    r"\b(?:(?:donde|dnde) (?:q(?:u?e)d[ao]|esta|se ubica|se encuentra|ubico|es|seria)|"
+    r"\b(?:(?:donde|dnde) (?:q(?:u?e)d[ao]|quedaria|esta|se ubica|se encuentra|ubico|es|seria)|"
     r"en (?:que|q) (?:comuna|sector|ciudad)|cual es la (?:direccion|ubicacion)|"
     r"(?:pasas|mandas|envias|dices) la (?:direccion|ubicacion))\b"
 )
@@ -34,7 +34,7 @@ _PROJECT = re.compile(
     r"de que (?:proyecto|obra|faena) se trata)\b"
 )
 _BARE = re.compile(r"(?:(?:y|hola|ola|buenas|disculpa) )*"
-                   r"(?:(?:donde|dnde) (?:(?:q(?:u?e)d[ao]|esta|es|seria)(?: ubicad[ao])?)|"
+                   r"(?:(?:donde|dnde) (?:(?:q(?:u?e)d[ao]|quedaria|esta|es|seria)(?: ubicad[ao])?)|"
                    r"en (?:que|q) comuna|(?:la )?(?:ubicacion|direccion)(?: porfa)?)")
 _POST_LINK = re.compile(
     r"https?://(?:(?:www|m)\.)?facebook\.com/(?:"

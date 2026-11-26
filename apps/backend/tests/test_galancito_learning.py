@@ -250,6 +250,11 @@ def test_generated_facts_and_promises_are_rejected(unsafe):
 
 
 def test_messenger_revocation_during_inference_prevents_sending(network, monkeypatch):
+    from datetime import timedelta
+    from app.facebook_crm_models import FacebookChatMessage
+    from app.galancito_contextual import Turn
+    from app.models import utcnow
+
     n = network
     enable_messaging(n, monkeypatch)
     for k,v in {"FACEBOOK_AI_AUTO_REPLY_ENABLED": "true", "FACEBOOK_AI_ENABLED": "true",
@@ -264,12 +269,16 @@ def test_messenger_revocation_during_inference_prevents_sending(network, monkeyp
     assert incoming(n, text="¿Cómo puedo coordinar una obra con mi equipo?", mid="question").status_code == 200
     attempts = []
 
-    def revoke(*args):
+    def revoke(*args, **kwargs):
         attempts.append(True)
         assert incoming(n, text="no quiero IA", mid="revocation").status_code == 200
-        return "Soy Galancito. Respuesta pendiente."
+        return Turn(i="question", q="none", d=[], r="Para coordinar, acuerda qué trabajos puede hacer la cuadrilla.")
 
-    monkeypatch.setattr("app.facebook_chat_worker.generate_text", revoke)
+    monkeypatch.setattr("app.galancito_contextual.request_attribution", lambda *args: [])
+    monkeypatch.setattr("app.galancito_contextual.request_turn", revoke)
+    with n["Session"].begin() as db:
+        job = db.scalar(select(FacebookChatMessage).where(FacebookChatMessage.state == "ai_pending"))
+        job.updated_at = utcnow() - timedelta(seconds=2)
     assert process_chat_next(n["Session"])
     assert attempts == [True]
     assert len(sent) == 1

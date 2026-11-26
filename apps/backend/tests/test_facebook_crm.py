@@ -1435,6 +1435,9 @@ def test_contact_followup_uses_qwen_or_pending_field_fallback(network, monkeypat
         result = recovery.sync_page_inbox(page_id=page, page_token="synthetic-page-token",
                                         org_id=org_id, session_factory=n["Session"])
         assert result["replies_queued"] == 1
+    with n["Session"].begin() as db:
+        job = db.scalar(select(FacebookChatMessage).where(FacebookChatMessage.state == "ai_pending"))
+        job.updated_at = datetime.now(timezone.utc) - timedelta(seconds=2)
     assert process_chat_next(n["Session"])
     assert len(contexts) == len(sent) == 1
     assert "87654321" not in contexts[0]

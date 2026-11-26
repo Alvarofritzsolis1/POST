@@ -15,7 +15,7 @@ from .galancito_intake import (
 )
 from .galancito_knowledge import evidence_context, conversation_example
 from .galancito_flow import retired_permission_prompt
-from .galancito_evidence import REPORTED, declaration_segments
+from .galancito_evidence import REPORTED, declaration_segments, location_mentions, personal_statements
 from .galancito_semantic import consume_confirmation
 from .galancito_communes import find_communes
 from .galancito_contact_email import redact_email_for_intake, remember_shared_email, email_shared_by_sender, REFUSAL
@@ -33,8 +33,9 @@ FIELDS = (
 )
 CHILE = ZoneInfo("America/Santiago")
 _PERSONAL_DECLARATION = re.compile(
-    r"^(?:corrijo |aclaro )?(?:soy|soi|me llamo|mi nombre es|trabajo|trabajamos|hago|ofrezco|ofresco|busco|"
-    r"puedo|estoy disponible|tengo|somos|llevo|voy con|me dedico|realizo|realizamos)\b"
+    r"^(?:corrijo |aclaro |yo )*(?:soy|soi|me llamo|mi nombre es|trabajo|trabajamos|hago|ofrezco|ofresco|busco|"
+    r"puedo|estoy disponible|tengo|somos|llevo|voy con|me dedico|realizo|realizamos|vivo|resido|me muevo|"
+    r"mi cuadrilla|mi equipo)\b"
 )
 
 
@@ -272,13 +273,14 @@ _GALILEA_WORK = re.compile(
 
 def remember_declared_context(lead, message, prior, *, remote_id, at, historical=False):
     """Persist bounded, evidence-linked declarations, not guesses or work coverage."""
-    value = plain(message)
+    personal = ", ".join(personal_statements(message))
+    value = plain(personal)
     previous = plain(prior)
     current = dict((lead.profile_sources or {}).get("_declared_context") or {})
     proposed = {}
     if trade := advertised_trade(message):
         proposed["notice_trade"] = trade
-    statement = plain(declaration_text(message))
+    statement = value
     asked_for_services = "additional_services" in intake_question_fields(prior)
     other_services = r"(?:de todo un poco|varios oficios|trabajos varios)"
     own_statement = re.sub(r"^(?:(?:yo|tambien|ademas|y) )+", "", statement)
@@ -292,7 +294,7 @@ def remember_declared_context(lead, message, prior, *, remote_id, at, historical
                                 or any(trade_declarations(message, prior, allow_bare=True).values())):
         proposed["additional_services_pending"] = False
     answer = re.sub(r"^(?:yo |corrijo |aclaro |en realidad )", "", statement, count=1)
-    if re.match(r"\s*(?:sí\b|si\s*,)", message, re.I):
+    if re.match(r"\s*(?:sí\b|si\s*,)", personal, re.I):
         answer = answer.removeprefix("si ")
     if work := _GALILEA_WORK.match(answer):
         proposed["worked_at_galilea"] = not bool(work["negative"])
@@ -318,10 +320,12 @@ def remember_declared_context(lead, message, prior, *, remote_id, at, historical
         place = origin[1]
         if len(place) <= 60 and (place == "san pedro" or find_communes(place)) and re.fullmatch(r"[a-z ]+", place):
             proposed["declared_origin"] = place.title()
-    elif (origin := re.fullmatch(r"(?:(?:hola|ola|buenas) )?(?:soy|somos) de (.+)", value)):
-        place = origin[1]
-        if len(place) <= 60 and (place == "san pedro" or find_communes(place)) and re.fullmatch(r"[a-z ]+", place):
-            proposed["declared_origin"] = place.title()
+    elif origins := {commune for clause in declaration_segments(personal)
+                     for _, commune, field in location_mentions(clause) if field == "origin"}:
+        if len(origins) == 1:
+            proposed["declared_origin"] = origins.pop()
+    elif re.fullmatch(r"(?:(?:hola|ola|buenas) )?(?:soy|somos) de san pedro", value):
+        proposed["declared_origin"] = "San Pedro"
     changed = False
     for field, fact in proposed.items():
         old = current.get(field) or {}
@@ -347,7 +351,8 @@ def apply_messenger_message(db, lead, message, prior, *, remote_id, at, historic
                             replay=False, aliases=None) -> bool:
     if not message or private_data(message) or analyze(message).intent in {"human", "restricted"}:
         return False
-    context_changed = remember_declared_context(lead, message, prior, remote_id=remote_id, at=at, historical=historical or replay)
+    context_changed = remember_declared_context(lead, message, prior, remote_id=remote_id, at=at,
+                                               historical=historical or replay)
     if not historical and not replay:
         confirmed = consume_confirmation(lead, message, prior)
         if confirmed:
@@ -388,11 +393,15 @@ def apply_messenger_message(db, lead, message, prior, *, remote_id, at, historic
             referring_to_application(prior) and not application_role_question(prior))):
         # An oficio or comuna quoted from an advert belongs to that advert.
         # Preserve separate first-person declarations in the same message.
-        fragments = re.split(r"(?<=[,.!?;])\s+|\n+|\by\s+(?=soy\b|soi\b|hago\b|ofrezco\b)", message, flags=re.I)
-        message = " ".join(part for part in fragments if _PERSONAL_DECLARATION.match(plain(part))
-                           and not asks_about_application(part)).strip()
+        message = ", ".join(part for part in personal_statements(message)
+                            if _PERSONAL_DECLARATION.match(plain(part)) and not asks_about_application(part))
         if not message:
             return context_changed
+    personal = ", ".join(personal_statements(message))
+    if not personal:
+        return context_changed
+    if plain(personal) != plain(declaration_text(message)):
+        message = personal
     declarations = trade_declarations(message, prior, extra=aliases,
         allow_bare=not asking_about_notice and not application_role_question(prior))
     before = {field: getattr(lead, field) for field in FIELDS}

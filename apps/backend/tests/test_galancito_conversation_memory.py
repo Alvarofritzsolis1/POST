@@ -122,6 +122,10 @@ def test_40_conversations_use_the_signed_webhook_and_durable_worker(tmp_path):
 
 
 def test_unanswered_question_survives_a_detail_before_consent(network, monkeypatch):
+    from sqlalchemy import select
+    from app.facebook_crm_models import FacebookChatMessage
+    from app.galancito_contextual import Turn
+
     n = network
     enable_messaging(n, monkeypatch)
     monkeypatch.setenv("FACEBOOK_AI_ENABLED", "false")
@@ -139,13 +143,18 @@ def test_unanswered_question_survives_a_detail_before_consent(network, monkeypat
     settings.cache_clear()
     assert incoming(n, "sí", mid="focus-3").status_code == 200
     sent = []
-    def generate(_instructions, prompt, _limit):
-        assert "Consulta actual: ¿Cuáles son los requisitos para postular?" in prompt
-        assert "Coronel" in prompt
-        return "Los requisitos dependen de la obra. El equipo puede orientarte."
-    monkeypatch.setattr("app.facebook_chat_worker.generate_text", generate)
+    def generate(context, fragments, **kwargs):
+        assert [item.text for item in fragments] == ["¿Cuáles son los requisitos para postular?",
+                                                    "Hago pintura y trabajo en Coronel"]
+        assert "Coronel" in context and "autorizas" not in context.lower()
+        return Turn(i="question", q="none", d=[], r="Los requisitos dependen de la obra. El equipo puede orientarte.")
+    monkeypatch.setattr("app.galancito_contextual.request_turn", generate)
+    monkeypatch.setattr("app.galancito_contextual.request_attribution", lambda *args: [])
     monkeypatch.setattr("app.facebook_chat_worker.graph_sender_action", lambda *_: None)
     monkeypatch.setattr("app.facebook_chat_worker.graph_send", lambda *args: sent.append(args[2]) or "focus-sent")
+    with n["Session"].begin() as db:
+        job = db.scalar(select(FacebookChatMessage).where(FacebookChatMessage.state == "ai_pending"))
+        job.updated_at = datetime.now(timezone.utc) - timedelta(seconds=2)
     assert process_chat_next(n["Session"])
     assert sent == ["Los requisitos dependen de la obra. El equipo puede orientarte."]
 

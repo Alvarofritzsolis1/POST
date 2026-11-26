@@ -1,3 +1,9 @@
+## 20.9.45-rc1 — Galancito: respuestas contextualizadas y Ficha Inteligente
+
+- Qwen local tiene prioridad en las conversaciones autorizadas de Messenger. Usa la última consulta, el historial y la ficha antes de redactar. Los borradores que repiten la pregunta, se desvían hacia la ficha o hacen afirmaciones sin respaldo se descartan o se reformulan.
+- La Ficha Inteligente verifica cada dato contra el mensaje que lo respalda. Distingue procedencia de cobertura laboral y experiencia de tamaño de cuadrilla. Las hipótesis y los datos de terceros quedan pendientes o fuera de la ficha, según corresponda.
+- Pruebas locales con Qwen real y Messenger simulado. Aprobaron los seis casos nuevos de fiabilidad y la regresión histórica del contratista. También aprobaron 40 conversaciones de regresión y 182 pruebas focalizadas del backend en SQLite y PostgreSQL. El tiempo de respuesta en el VPS queda por medir.
+
 ## Qwen3.5 2B en Galancito y MAX POWER
 
 - Galancito, Messenger, Red de Obras y MAX POWER usan un solo modelo local Qwen3.5 2B. Las evaluaciones de respuestas conservan el modelo que las generó.
