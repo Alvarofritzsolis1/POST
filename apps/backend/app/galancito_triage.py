@@ -54,9 +54,9 @@ def is_pure_greeting(message: str) -> bool:
     value = plain(message)
     return bool(re.fullmatch(
         r"(?:hola+|ola+|buenas|buen dia|buenos dias|muy buenos dias|buenas tardes|muy buenas tardes|"
-        r"buenas noches|que tal|como estas|como estai|como estan|todo bien)"
+        r"buenas noches|buenas trades|que tal|como estas|como estai|como estan|todo bien)"
         r"(?: (?:galancito|buenos dias|buen dia|muy buenos dias|"
-        r"buenas tardes|muy buenas tardes|buenas noches|buenas|"
+        r"buenas tardes|muy buenas tardes|buenas trades|buenas noches|buenas|"
         r"que tal|como estas|como estai|como estan|todo bien))*",
         value,
     ))
