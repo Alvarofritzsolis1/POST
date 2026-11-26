@@ -519,3 +519,47 @@ def test_joined_experience_units_and_natural_operator_question(network, monkeypa
     assert supported_declarations([declaration], (fragment,), prior=prompt)
     assert not supported_declarations([declaration], (fragment,), prior="¿Dónde vives?")
 
+def test_known_tradespeople_are_not_a_confirmed_crew():
+    from app.galancito_evidence import crew_mentions
+    from app.galancito_triage import plain
+    from app.galancito_contextual import supported_declarations
+
+    fragment = Fragment("synthetic-acquaintances", utcnow(), "Conozco varios maestros")
+    assert list(crew_mentions(plain(fragment.text))) == []
+    assert supported_declarations(
+        [Declaration(f="crew", v="varios maestros", e="varios maestros")],
+        (fragment,),
+    ) == []
+    assert supported_declarations(
+        [Declaration(f="team", v="yes", e="varios maestros")],
+        (fragment,),
+    ) == []
+
+
+def test_compound_payment_question_is_answered_without_guessing_terms(network, monkeypatch):
+    sessions = configure(network, monkeypatch)
+    message = ("¿La pega es a trato o por día? "
+               "Quiero cachar si vale la pena antes de hablar con los maestros.")
+    replies = []
+    called = []
+    monkeypatch.setattr("app.facebook_chat_worker.graph_send",
+                        lambda *args: replies.append(args[2]) or "synthetic-payment-terms")
+    monkeypatch.setattr("app.galancito_contextual.request_attribution", lambda *args: [])
+    def draft(*args, **kwargs):
+        called.append(True)
+        return Turn(i="question", q="none",
+                    r="Primero hay que confirmar las condiciones de esa obra.", d=[])
+    monkeypatch.setattr("app.galancito_contextual.request_turn", draft)
+    assert incoming(network, message, mid="payment-context").status_code == 200
+    with sessions.begin() as db:
+        job = db.scalar(select(FacebookChatMessage).where(FacebookChatMessage.state == "ai_pending"))
+        assert job is not None
+        job.updated_at = utcnow() - timedelta(seconds=3)
+    assert process_chat_next(sessions)
+    assert called and len(replies) == 1
+    assert "no tengo confirmada" in replies[0].lower()
+    assert "modalidad de pago" in replies[0].lower()
+    with sessions() as db:
+        lead = db.scalar(select(FacebookLead))
+        assert lead.needs_support is False and lead.ai_paused is False
+
