@@ -729,3 +729,15 @@ def test_phone_and_two_trades_in_same_message_are_both_preserved(network, monkey
         assert lead.contact_phone
         assert not lead.needs_support
 
+def test_qwen_schema_accepts_26_trades_plus_other_professional_fields():
+    from app.galancito_contextual import FORMAT
+    assert FORMAT["properties"]["d"]["properties"]["trade"]["maxItems"] == 26
+    fields = (
+        "origin", "area", "crew", "experience", "availability", "name",
+        "role", "team", "entity", "channel",
+    )
+    declarations = [Declaration(f="trade", v="Pintura", e="pintura") for _ in range(26)]
+    declarations += [Declaration(f=field, v="declarado", e="declarado") for field in fields]
+    turn = Turn(d=declarations, i="intake", q="none", r="Gracias por contarme.")
+    assert len(turn.d) == 36
+
