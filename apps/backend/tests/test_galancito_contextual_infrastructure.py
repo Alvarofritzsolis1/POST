@@ -592,7 +592,9 @@ def test_compound_payment_question_is_answered_without_guessing_terms(network, m
 def test_cuento_con_equipo_burst_does_not_force_human(network, monkeypatch):
     """The production-style presentation cannot be lost to a drafting outage."""
     from app.galancito_links import trade_terms
+    from app.galancito_triage import is_pure_greeting
     from app.galancito_contextual import field_supported
+    assert is_pure_greeting("Buenas trades")
     assert set(trade_terms("pintura yeso eifs textura completo")) == {
         "Pintura", "Yeso", "EIFS", "Textura",
     }
