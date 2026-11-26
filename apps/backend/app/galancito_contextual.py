@@ -351,6 +351,8 @@ def field_supported(field, value, clause, prior, message_statements):
     if field == "team":
         if value == "yes":
             return bool(list(crew_mentions(clause)) or re.search(
+                r"\b(?:cuento|contamos) con (?:un |una )?(?:equipo|cuadrilla)\b", clause)
+                or re.search(
                 r"\b(?:tengo|tenemos|llevo|llevo a|voy con|vamos con|puedo (?:ir con|traer|llevar)) "
                 r"(?:\w+ ){0,3}(?:cuadrilla|equipo|gente|ayudantes?|compas?|maestros?|cabros?)\b", clause))
         return bool(re.search(r"\b(?:trabajo|voy|ando) sol[oa]\b(?! en\b)|\bsin (?:equipo|cuadrilla)\b", clause))
