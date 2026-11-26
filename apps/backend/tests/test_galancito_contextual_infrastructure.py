@@ -710,3 +710,22 @@ def test_busy_qwen_queue_preserves_authorized_conversation(network, monkeypatch)
         assert len(jobs) == 3
         assert any(job.lead_id == main.id for job in jobs)
 
+def test_phone_and_two_trades_in_same_message_are_both_preserved(network, monkeypatch):
+    """A shared WhatsApp number cannot hide unrelated occupational statements."""
+    from app.facebook_crm_models import FacebookLeadTrade
+    from app.galancito_triage import private_data
+
+    sessions = configure(network, monkeypatch)
+    message = "Mi watsap es 912345678, hago pintura y yeso"
+    assert private_data(message)
+    assert incoming(network, message, mid="contact-with-multiple-trades").status_code == 200
+    with sessions() as db:
+        lead = db.scalar(select(FacebookLead))
+        found = set(db.scalars(select(FacebookLeadTrade.trade).where(
+            FacebookLeadTrade.lead_id == lead.id,
+            FacebookLeadTrade.active.is_(True),
+        )))
+        assert found == {"Pintura", "Yeso"}
+        assert lead.contact_phone
+        assert not lead.needs_support
+
