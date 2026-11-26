@@ -50,7 +50,8 @@ class Declaration(BaseModel):
 
 class Turn(BaseModel):
     model_config = ConfigDict(extra="forbid", strict=True)
-    d: list[Declaration] = Field(max_length=32)
+    # 26 declared trades plus up to 10 other evidence-linked fields.
+    d: list[Declaration] = Field(max_length=40)
     i: Intent
     q: Question
     r: str = Field(min_length=1, max_length=240)
