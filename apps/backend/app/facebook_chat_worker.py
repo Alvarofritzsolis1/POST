@@ -664,6 +664,22 @@ def process_chat_next(session_factory=SessionLocal, *, simulation_config=None, n
                         source, failed_ai = "local_recovery", False
                         trace["verified_guidance"] = "saved_trade_confirmation"
                         trace["model_error"] = True
+                    elif (current.team_available is True and
+                          (current.profile_sources or {}).get("team_available", {}).get("message_id") == focus.remote_id):
+                        # This exact inbound message confirms a team, not its size.
+                        # Avoid human handoff when Qwen's draft fails, using only
+                        # evidence recorded before the generation attempt.
+                        if not current.work_communes:
+                            body = ("Perfecto, anoté que cuentas con un equipo de trabajo. "
+                                    "¿En qué comuna pueden trabajar?")
+                        elif current.workers is None:
+                            body = ("Anoté que cuentas con un equipo de trabajo. "
+                                    "¿Cuántas personas podrían trabajar contigo?")
+                        else:
+                            body = "Perfecto, quedó registrada la información sobre tu equipo de trabajo."
+                        source, failed_ai = "local_recovery", False
+                        trace["verified_guidance"] = "saved_team_confirmation"
+                        trace["model_error"] = True
                 if requested_handoff:
                     flag_for_human(db, current, "Solicitó atención humana")
             if failed_ai:
