@@ -476,3 +476,21 @@ def test_multiline_trade_list_is_saved_without_waiting_for_model(network, monkey
         trades = set(db.scalars(select(FacebookLeadTrade.trade).where(FacebookLeadTrade.lead_id == lead.id, FacebookLeadTrade.active.is_(True))))
         assert trades == {"Movimiento de tierra", "Albañilería", "Carpintería", "Terminaciones", "Pintura", "EIFS", "Hormigón vaciado y pulido"}
         assert not lead.ai_paused
+
+
+def test_paint_plaster_putty_and_eifs_across_messages_are_additive(network, monkeypatch):
+    sessions = configure(network, monkeypatch)
+    from app.facebook_crm_models import FacebookLeadTrade
+    from app.galancito_links import trade_declarations
+    first = "Pintura completa yeso pasta muro pintura"
+    assert trade_declarations(first, "¿Usted qué trabajo realiza?") == {"Pintura": True, "Yeso": True, "Pasta muro": True}
+    assert trade_declarations("Y eif", allow_bare=True) == {"EIFS": True}
+    assert trade_declarations("¿Y eif?", allow_bare=True) == {}
+    assert trade_declarations("Mi hermano hace EIFS", allow_bare=True) == {}
+    assert incoming(network, first, mid="paint-plaster-putty").status_code == 200
+    assert incoming(network, "Y eif", mid="add-eifs").status_code == 200
+    with sessions() as db:
+        lead = db.scalar(select(FacebookLead))
+        trades = set(db.scalars(select(FacebookLeadTrade.trade).where(FacebookLeadTrade.lead_id == lead.id, FacebookLeadTrade.active.is_(True))))
+        assert trades == {"Pintura", "Yeso", "Pasta muro", "EIFS"}
+        assert not lead.ai_paused
