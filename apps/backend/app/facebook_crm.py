@@ -581,6 +581,13 @@ def ingest_facebook_payload(db, payload, cfg, *, notices=None, rules_only=False)
             # Only a model may formulate a live conversational question.
             # Keep deterministic answers to verified facts and explicit handoffs.
             if not rules_only and not signal:
+                if (not lead.needs_support and not lead.ai_paused
+                        and consented_for(lead, configured_source)
+                        and contextual.eligible(body)
+                        and not (location or (direct and direct == availability_reply(db, lead, body, previous_question, lead.last_inbound_at)))
+                        and not worksite_payment_terms_question(body)
+                        and not identity_reply(body)):
+                    reply, use_ai, ai_source = None, True, configured_source
                 if reply and "?" in reply:
                     reply = None
                     if consented_for(lead, configured_source) and not private_data(body) and not lead.needs_support:
@@ -588,8 +595,9 @@ def ingest_facebook_payload(db, payload, cfg, *, notices=None, rules_only=False)
                 if use_ai:
                     reply = None  # Never substitute a template when the model queue is busy.
             if not use_ai and not reply and not lead.needs_support and lead.ai_consent_state != "declined":
-                flag_for_human(db, lead,
-                               "Galancito no encontró una respuesta confirmada; revisión humana pendiente")
+                if rules_only or analyze(body).intent not in {"trade_offer", "capacity", "company_offer", "job_seeker"} or "?" in body or private_data(body):
+                    flag_for_human(db, lead,
+                                   "Galancito no encontró una respuesta confirmada; revisión humana pendiente")
             if use_ai and recent < 30 and ai_source != "disabled":
                 queue_locked = (db.bind.dialect.name != "postgresql" or db.scalar(
                     sql_text("SELECT pg_try_advisory_xact_lock(2075002)")))
@@ -605,7 +613,7 @@ def ingest_facebook_payload(db, payload, cfg, *, notices=None, rules_only=False)
                         body="", ai_generated=True, updated_at=received_at,
                     ))
                 elif reply:
-                    # Keep the safe local question if the bounded model queue is busy.
+                    # Only explicit diagnostic rules mode can retain a local question.
                     db.add(FacebookChatMessage(org_id=lead.org_id, lead_id=lead.id, page_id=lead.page_id,
                         direction="outbound", state="pending", body=reply[:550], ai_generated=False))
                 else:
