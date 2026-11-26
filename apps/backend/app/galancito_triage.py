@@ -298,6 +298,12 @@ def worksite_payment_terms_question(message: str) -> bool:
     return False
 
 
+def contextual_payment_question(message: str) -> bool:
+    """A question about job payment plus the sender's separate reason for asking."""
+    return (worksite_payment_terms_question(message) and
+            "?" in message and len(plain(declaration_text(message)).split()) >= 4)
+
+
 def worksite_details_question(message: str) -> bool:
     """Recognize questions about facts a specific job or advert must verify."""
     if worksite_payment_terms_question(message):
@@ -318,6 +324,9 @@ def payment_guidance(message: str) -> str | None:
         question = plain(message)
         if not re.search(r"\b(?:cuanto|cual es)\b", question):
             return None
+    if worksite_payment_terms_question(message):
+        return ("Todavía no tengo confirmada la modalidad de pago de esa obra. "
+                "Conviene revisar con el equipo encargado si es a trato, por jornada o de otra forma.")
     if _PAYMENT_QUESTION.search(question):
         return ("El monto y la forma de pago se acuerdan con quien contrata para cada obra. "
                 "Pide que te confirmen si pagan por avance, por jornada o con otra modalidad antes de aceptar.")
