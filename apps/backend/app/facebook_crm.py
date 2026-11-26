@@ -583,8 +583,28 @@ def ingest_facebook_payload(db, payload, cfg, *, notices=None):
                 else:
                     reply = intake or quick_reply(body, known=facts)
             if not use_ai and not reply and not lead.needs_support and lead.ai_consent_state != "declined":
-                flag_for_human(db, lead,
-                               "Galancito no encontró una respuesta confirmada; revisión humana pendiente")
+                # A declaration about trades or an existing team is not a
+                # request for human support. The local, non-model intake path
+                # is permitted when Qwen is not authorized; never send the
+                # unconsented contact's messages to an external provider.
+                normalized = plain(body)
+                professional = (
+                    not signal and not private_data(body) and not needs_deeper_response(body)
+                    and (changed or bool(trade_terms(body))
+                         or ("equipo" in normalized and
+                             any(word in normalized for word in ("cuento con", "contamos con", "tenemos"))))
+                )
+                if professional:
+                    if lead.interest_type in (None, "", "unknown"):
+                        reply = ("Gracias por contarme sobre los trabajos y tu equipo. "
+                                 "¿Quieres ofrecer estos servicios como contratista o buscas empleo?")
+                    elif not lead.work_communes:
+                        reply = "Gracias por contarme. ¿En qué comuna pueden trabajar?"
+                    else:
+                        reply = "Gracias, recibí los datos de los trabajos y tu equipo."
+                else:
+                    flag_for_human(db, lead,
+                                   "Galancito no encontró una respuesta confirmada; revisión humana pendiente")
             if use_ai and recent < 30 and ai_source != "disabled":
                 queue_locked = (db.bind.dialect.name != "postgresql" or db.scalar(
                     sql_text("SELECT pg_try_advisory_xact_lock(2075002)")))
