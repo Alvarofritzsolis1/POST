@@ -284,7 +284,9 @@ def _commune_update(lead, message: str, previous: str) -> None:
 
 
 def _team_update(lead, value: str, previous: str) -> None:
-    capacity = _affirmed(value, ("puedo traer gente", "puedo llevar gente", "tengo cuadrilla",
+    capacity = _affirmed(value, ("cuento con equipo", "cuento con un equipo", "cuento con equipo de trabajo",
+                                 "contamos con equipo", "tenemos equipo de trabajo", "tenemos un equipo",
+                                 "puedo traer gente", "puedo llevar gente", "tengo cuadrilla",
                                  "tengo una cuadrilla", "somos un equipo",
                                  "tengo ayudantes", "trabajamos varios", "puedo ir con gente"))
     # In “trabajo solo en Ñuñoa”, solo limits the work area.
