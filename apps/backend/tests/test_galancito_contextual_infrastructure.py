@@ -423,7 +423,7 @@ def test_contextual_memory_uses_advert_and_galilea_as_distinct_chat_evidence():
     assert "Respeta la respuesta" in context
 
 
-def test_invalid_model_draft_never_sends_scripted_question_after_commune_saved(network, monkeypatch):
+def test_invalid_model_draft_can_continue_after_the_work_commune_was_saved(network, monkeypatch):
     sessions = configure(network, monkeypatch)
     with sessions.begin() as db:
         lead = db.scalar(select(FacebookLead))
@@ -442,12 +442,10 @@ def test_invalid_model_draft_never_sends_scripted_question_after_commune_saved(n
         job.updated_at = utcnow() - timedelta(seconds=3)
 
     assert process_chat_next(sessions)
-    assert replies == []
+    assert replies == ["¿Trabajas solo o puedes venir con otras personas?"]
     with sessions() as db:
         lead = db.scalar(select(FacebookLead))
-        assert lead.work_communes == ["Hualqui"]
-        assert lead.needs_support and lead.ai_paused
-
+        assert not lead.needs_support and not lead.ai_paused
 
 def test_legacy_scripted_trade_question_cannot_reach_meta(network, monkeypatch):
     sessions = configure(network, monkeypatch)
@@ -520,3 +518,4 @@ def test_joined_experience_units_and_natural_operator_question(network, monkeypa
     declaration = Declaration(f="experience", v="6 meses", e="6 meses")
     assert supported_declarations([declaration], (fragment,), prior=prompt)
     assert not supported_declarations([declaration], (fragment,), prior="¿Dónde vives?")
+
