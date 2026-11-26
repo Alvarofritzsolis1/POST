@@ -137,9 +137,11 @@ _OFFERS = re.compile(r"\b(?:pega|trabaj|servici|contrat|postul|dispon|equipo|cua
 _DATE = r"(?:\d{1,2}/\d{1,2}/20\d{2}|20\d{2}-\d{2}-\d{2})"
 _DAY = (r"(?:hoy|manana|lunes|martes|miercoles|jueves|viernes|sabado|domingo|"
         r"(?:la )?proxima semana|en dos semanas|fin de mes|cuando me necesiten|inmediat[oa])")
-_AREA_CUE = re.compile(
-    r"\b(?:me muevo|puedo trabajar|trabajo|trabajamos|atiendo|busco (?:pega|trabajo|empleo)) "
-    r"(?:por|en)\b|\b(?:solo en|comunas? de trabajo)\b"
+WORK_AREA_CUE = re.compile(
+    r"\b(?:(?:me muevo|nos movemos|me puedo mover|nos podemos mover|puedo ir|puedo trabajar|"
+    r"trabajo|trabajamos|atiendo|atendemos|busco (?:pega|trabajo|empleo)) (?:solo )?(?:en|por|a)|"
+    r"puedo hacer (?:la pega )?en|(?:las )?obras que tomo son en|"
+    r"(?:hago|hacemos|instalo|reparo) (?:\w+ ){1,4}en|(?:tambien|solo) en|comunas? de trabajo)\b"
 )
 
 
@@ -256,17 +258,13 @@ def _commune_update(lead, message: str, previous: str) -> None:
     continues_area = False
     for fragment in re.split(r"[,;.!\n]+|\bpero\b", message, flags=re.I):
         clause = plain(fragment)
-        cue = _AREA_CUE.search(clause)
+        cue = WORK_AREA_CUE.search(clause)
         if re.search(r"\b(?:vivo en|resido en|donde vivo es|soy de|somos de|no trabajo en|no voy a|"
                      r"no puedo ir a|no puedo trabajar en)\b", clause):
             continues_area = False
             continue
         if not cue and not asked and not continues_area and not clause.startswith(("tambien en ", "y en ", "en ")):
-            # "Hago aseo en Hualpén" relates the commune to the work.
-            match = re.search(r"\b(?:hago|hacemos|instalo|reparo) (?:\w+ ){1,4}en\b", clause)
-            if not match:
-                continue
-            cue = match
+            continue
         communes = find_communes(clause[cue.end():] if cue else clause)
         found.extend(communes)
         continues_area = bool(communes)

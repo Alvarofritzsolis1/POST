@@ -398,7 +398,9 @@ def apply_messenger_message(db, lead, message, prior, *, remote_id, at, historic
         if not message:
             return context_changed
     personal = ", ".join(personal_statements(message))
-    if not personal:
+    # A tentative answer can describe why a field is pending without supplying a value.
+    unresolved = unresolved_declarations(personal or message, prior) if not (historical or replay) else {}
+    if not personal and not unresolved:
         return context_changed
     if plain(personal) != plain(declaration_text(message)):
         message = personal
@@ -412,7 +414,6 @@ def apply_messenger_message(db, lead, message, prior, *, remote_id, at, historic
         candidate.interest_type = before["interest_type"]
     prior_sources = lead.profile_sources or {}
     accepted = {}
-    unresolved = unresolved_declarations(message, prior) if not (historical or replay) else {}
     for field, old in before.items():
         value = getattr(candidate, field)
         if old == value or (field in unresolved and field != "experience"):

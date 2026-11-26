@@ -321,7 +321,7 @@ def explicit_channel_declarations(fragments):
     return result if len({value for _, value, _ in result}) <= 1 else []
 
 
-def field_supported(field, value, clause, prior):
+def field_supported(field, value, clause, prior, message_statements):
     """A literal quotation also has to support the role of its value."""
     if field in {"origin", "area"}:
         places = set(find_communes(value))
@@ -340,8 +340,11 @@ def field_supported(field, value, clause, prior):
             or "experience" in intake_question_fields(prior))
     if field == "role":
         roles = {role for _, role in role_mentions(clause)}
-        if "service_offer" in roles and re.search(r"\b(?:(?:para|con) un contratista|trabaj\w* a trato)\b", clause):
-            if not re.search(r"\b(?:soy contratista|ofrezco|ofresco|por mi cuenta)\b", clause):
+        if "service_offer" in roles and not re.search(r"\b(?:soy contratista|ofrezco|ofresco|por mi cuenta)\b", clause):
+            works_for_someone = re.search(r"\b(?:para|con) (?:un contratista|una empresa|mi (?:jefe|patron))\b", clause)
+            rate_without_service = (re.search(r"\btrabaj\w* a trato\b", clause)
+                                    and not any(OWN_WORK.search(statement) for statement in message_statements))
+            if works_for_someone or rate_without_service:
                 roles.discard("service_offer")
         return (len(roles) == 2 if value == "both" else value in roles)
     if field == "team":
@@ -371,6 +374,7 @@ def field_supported(field, value, clause, prior):
 
 def supported_declarations(declarations, fragments, *, prior=""):
     found = []
+    statements = {part: tuple(declaration_segments(part.text)) for part in fragments}
     for item in declarations:
         evidence = plain(item.e)
         value = item.v.strip()
@@ -381,9 +385,10 @@ def supported_declarations(declarations, fragments, *, prior=""):
         boundary = re.compile(r"(?<!\w)" + re.escape(evidence) + r"(?!\w)")
         supported_value = value.casefold() if item.f in ENUMS else plain(value)
         fragment = next((part for part in reversed(possible)
-                         if any(boundary.search(clause) and field_supported(item.f, supported_value, clause, prior)
+                         if any(boundary.search(clause)
+                                and field_supported(item.f, supported_value, clause, prior, statements[part])
                                 and (item.f != "channel" or channel_preference(clause))
-                                for clause in declaration_segments(part.text))), None)
+                                for clause in statements[part])), None)
         if fragment is None or private_data(item.e):
             continue
         if item.f in ENUMS:

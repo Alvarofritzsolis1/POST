@@ -3,7 +3,7 @@ from difflib import get_close_matches
 import re
 
 from .galancito_communes import commune_mentions
-from .galancito_intake import role_mentions
+from .galancito_intake import WORK_AREA_CUE, role_mentions
 from .galancito_links import trade_mentions
 from .galancito_triage import declaration_text, plain
 
@@ -32,9 +32,6 @@ NEGATED = re.compile(r"^(?:(?:yo|ya) )*no (?:soy|somos|hago|hacemos|tengo|tenemo
                      r"ofrezco|ofrecemos|trabajo|trabajamos|vivo|vivimos|busco|buscamos)\b")
 ORIGIN_PREFIX = re.compile(r"\b(?:vivo en|vivimos en|radico en|resido en|residimos en|donde vivo es|"
                            r"somos de|soy de|vengo de)\b")
-AREA_PREFIX = re.compile(r"\b(?:(?:me muevo|nos movemos|me puedo mover|puedo ir|puedo trabajar|"
-                         r"trabajo|trabajamos|atiendo|busco (?:pega|trabajo|empleo)) (?:solo )?(?:en|por|a)|"
-                         r"(?:hago|hacemos|instalo|reparo) (?:\w+ ){1,4}en|(?:tambien |solo )en)\b")
 ORIGIN_TRADE = re.compile(r"\b(?:contratista|soy|somos)\b.*\bde $")
 TRADE_DETAILS = re.compile(r" (?:en|de) (\w+(?: y \w+)?)\b")
 OWN_WORK = re.compile(r"\b(?:hago|hacemos|me dedico a|nos dedicamos a|me especializo en|"
@@ -73,7 +70,7 @@ def declaration_segments(text):
 def location_mentions(value):
     """Attribute each commune using its own preceding cue."""
     cues = [(match.start(), "origin") for match in ORIGIN_PREFIX.finditer(value)]
-    cues.extend((match.start(), "area") for match in AREA_PREFIX.finditer(value))
+    cues.extend((match.start(), "area") for match in WORK_AREA_CUE.finditer(value))
     cues.sort()
     for match, commune in commune_mentions(value):
         field = next((role for start, role in reversed(cues) if start < match.start()), None)

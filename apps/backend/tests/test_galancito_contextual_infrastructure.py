@@ -157,6 +157,38 @@ def test_justified_roles_keep_their_normalized_enum_values():
     assert supported_declarations(proposed, (fragment,)) == [("role", "service_offer", fragment)]
 
 
+def test_work_by_the_job_needs_a_service_declaration_to_support_contractor_role():
+    at = utcnow()
+    proposed = [Declaration(f="role", v="service_offer", e="trabajo a trato")]
+    unclear = Fragment("rate", at, "Trabajo a trato")
+    employee = Fragment("employee", at, "Trabajo a trato para mi patrón y hago mantenciones de edificios")
+    service = Fragment("service", at, "Trabajo a trato y hago mantenciones de edificios")
+    assert supported_declarations(proposed, (unclear,)) == []
+    assert supported_declarations(proposed, (employee,)) == []
+    assert supported_declarations(proposed, (service,)) == [("role", "service_offer", service)]
+
+
+@pytest.mark.parametrize(("message", "communes", "origin"), [
+    ("Atendemos en Los Ángeles", ["Los Ángeles"], None),
+    ("Nos podemos mover a Hualpén y Chiguayante", ["Hualpén", "Chiguayante"], None),
+    ("Vivo en Lota, la pega la puedo hacer en Coronel", ["Coronel"], "Lota"),
+    ("Soy de Cañete. Las obras que tomo son en Arauco", ["Arauco"], "Cañete"),
+])
+def test_explicit_work_coverage_is_saved_before_model_runs(network, monkeypatch, message, communes, origin):
+    sessions = configure(network, monkeypatch)
+    assert incoming(network, message, mid="coverage").status_code == 200
+    with sessions() as db:
+        lead = db.scalar(select(FacebookLead))
+        assert lead.work_communes == communes
+        assert lead.profile_sources["work_communes"]["message_id"] == "coverage"
+        declared = lead.profile_sources.get("_declared_context", {}).get("declared_origin", {})
+        assert declared.get("value") == origin
+
+    fragment = Fragment("coverage", utcnow(), message)
+    locations = [value for _, field, value, _ in evidence_options((fragment,)) if field == "area"]
+    assert len(locations) == len(communes)
+
+
 def test_intake_question_does_not_answer_a_new_request():
     fragment = Fragment("question", utcnow(), "Trabajo en pintura. ¿Puedo participar si soy independiente?")
     draft = Turn(i="intake", q="area", r="Perfecto, gracias. ¿En qué comuna puedes trabajar?", d=[])
