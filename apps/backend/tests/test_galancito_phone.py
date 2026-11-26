@@ -24,6 +24,9 @@ def test_only_intentionally_shared_numbers_are_extracted():
     assert phone_shared_by_sender("mi WhatsApp es +56 9 8765 4321") == "+56987654321"
     assert phone_shared_by_sender("te dejo mi numero 987654321") == "+56987654321"
     assert phone_shared_by_sender("987654321") == "+56987654321"
+    assert phone_shared_by_sender("987654321 WhatsApp") == "+56987654321"
+    assert phone_shared_by_sender("WSP: +56 9 8765 4321") == "+56987654321"
+    assert phone_shared_by_sender("El WhatsApp de mi colega es 987654321") is None
     assert phone_shared_by_sender("me pueden contactar al 987654321", "¿Tu número?") == "+56987654321"
     assert phone_shared_by_sender("Ejemplo: +56 9 8765 4321") is None
     assert phone_shared_by_sender("Hay 2 personas y fecha 2026-11-19") is None

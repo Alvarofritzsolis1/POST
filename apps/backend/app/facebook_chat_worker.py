@@ -34,7 +34,12 @@ from . import galancito_contextual as contextual
 from .facebook_lead_insights import trace_unique_requirement
 from .network_service import today
 from .galancito_semantic import PROTOCOL, decode_local_reply, remember_confirmation, has_semantic_opportunity, CORRECTION
-from .galancito_intake import semantic_reasoning_needed, contact_followup_reply, contact_pending_questions, model_contact_question, compose_contact_followup, CONTACT_RECEIVED_CONTEXT, acceptable_intake_draft, intake_question_fields, clarification_reply, identity_reply, model_intake_candidate, next_intake_reply, small_talk_reply, natural_messenger_reply, needs_deeper_response
+from .galancito_intake import (
+    CONTACT_RECEIVED_CONTEXT, GALILEA_QUESTION, acceptable_intake_draft, clarification_reply,
+    compose_contact_followup, contact_followup_reply, contact_pending_questions, identity_reply,
+    intake_question_fields, model_contact_question, model_intake_candidate, natural_messenger_reply,
+    needs_deeper_response, next_intake_reply, semantic_reasoning_needed, small_talk_reply,
+)
 from .galancito_memory import aware, note_profile_sources, prior_delivered_prompt, profile_facts, reply_focus, messenger_context, messenger_prompt_text
 from .galancito_knowledge import retrieve, exact_answer
 from .galancito_runtime import infer, record_run
@@ -366,7 +371,8 @@ def process_chat_next(session_factory=SessionLocal, *, simulation_config=None, n
                 or semantic_reasoning_needed(latest, prior_question, facts)))
             semantic_protocol = bool(semantic_reasoning and ai_source == "ollama" and
                 (has_semantic_opportunity(facts) or CORRECTION.search(plain(latest))))
-            if (contextual.authorized(cfg, lead) and not (location or follow_up or (apply and not application_model))
+            if (contextual.authorized(cfg, lead) and intake != GALILEA_QUESTION
+                    and not (location or follow_up or (apply and not application_model))
                     and not identity_reply(focus.body if focus else "")):
                 structured_fragments = contextual.current_fragments(turns)
                 if structured_fragments:
@@ -598,11 +604,19 @@ def process_chat_next(session_factory=SessionLocal, *, simulation_config=None, n
                 trace["semantic_updates"] = contextual.apply_declarations(db, current, declarations)
                 if trace["semantic_updates"]:
                     trace_unique_requirement(db, current, today=today(), remote_id=structured_fragments[-1].message_id)
-                if failed_ai and decision and declarations and not requires_verified_details:
-                    followup = contextual.verified_followup(decision, profile_facts(current), structured_fragments)
+                if failed_ai and decision and not requires_verified_details:
+                    saved_facts = profile_facts(current, changed=facts["turn_changed"])
+                    followup = (contextual.verified_followup(decision, saved_facts, structured_fragments)
+                                if declarations else None)
                     if followup:
                         body, failed_ai = followup, False
                         trace["guided_followup"] = decision.q
+                    elif (focus and saved_facts["turn_changed"] and decision.i == "intake" and decision.q == "none"
+                          and contextual.is_declaration_turn(structured_fragments)):
+                        followup = next_intake_reply(focus.body, saved_facts, prior_question)
+                        if followup and acceptable_intake_draft(followup, saved_facts):
+                            body, source, failed_ai = followup, "local", False
+                            trace["verified_guidance"] = "saved_intake"
                 if requested_handoff:
                     flag_for_human(db, current, "Solicitó atención humana")
             if failed_ai:

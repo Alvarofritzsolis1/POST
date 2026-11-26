@@ -9,8 +9,9 @@ import pytest
 from sqlalchemy import select
 
 from app.facebook_crm_models import FacebookLead
-from app.galancito_intake import apply_intake, next_intake_reply, natural_messenger_reply, needs_deeper_response
+from app.galancito_intake import GALILEA_QUESTION, apply_intake, next_intake_reply, natural_messenger_reply, needs_deeper_response
 from app.galancito_contact_profile import contact_profile
+from app.galancito_memory import remember_declared_context
 from app.galancito_triage import analyze, private_data
 from app.models import User
 from test_network import network
@@ -20,7 +21,7 @@ def blank_lead(**changes):
     values = dict(
         entity_type="unknown", interest_type="unknown", specialty="",
         specialty_source="message", team_available=None, workers=None,
-        has_employees=None, experience="", work_area="", availability="",
+        has_employees=None, experience="", work_area="", availability="", profile_sources={},
     )
     values.update(changes)
     return SimpleNamespace(**values)
@@ -29,7 +30,10 @@ def blank_lead(**changes):
 def respond(lead, question: str, reply: str) -> str | None:
     before = vars(lead).copy()
     apply_intake(lead, reply, question)
-    return next_intake_reply(reply, {**vars(lead), 'turn_changed': before != vars(lead)}, question)
+    remember_declared_context(lead, reply, question, remote_id="synthetic", at=datetime.now(timezone.utc))
+    declared = {key: field["value"] for key, field in lead.profile_sources.get("_declared_context", {}).items()}
+    return next_intake_reply(reply, {**vars(lead), "declared_context": declared,
+                                    "turn_changed": before != vars(lead)}, question)
 
 
 def test_small_contractor_with_natural_questions_and_legacy_answers():
@@ -53,7 +57,8 @@ def test_small_contractor_with_natural_questions_and_legacy_answers():
     assert "Desde cuándo" in next_question
     last = respond(lead, next_question, "mañana")
     assert lead.availability == "mañana"
-    assert "celular" in last
+    assert last == GALILEA_QUESTION
+    assert "celular" in respond(lead, last, "No")
     assert lead.entity_type == "unknown"  # No assumed company or employees.
     assert lead.has_employees is None
 
@@ -189,7 +194,7 @@ def test_each_contact_has_own_progress_and_summary():
     prompt = respond(first, prompt, "1")
     prompt = respond(first, prompt, "2")
     assert "Personas que pueden acudir" in contact_profile(first)["missing"]
-    assert contact_profile(first)["total"] == 8
+    assert contact_profile(first)["total"] == 9
     prompt = respond(first, prompt, "3")
     assert first.workers == 3
     summary = contact_profile(first)["summary"]
@@ -213,8 +218,9 @@ def test_local_profile_progress_is_not_employment_approval():
         workers=1, experience="4 años", work_area="Coronel", availability="mañana")
     profile = contact_profile(lead)
     assert profile["percent"] < 100
-    assert profile["completed"] == profile["total"] - 1
+    assert profile["completed"] == profile["total"] - 2
     assert "Ofrece servicios como independiente o empresa" in profile["missing"]
+    assert "Experiencia previa en Galilea" in profile["missing"]
     assert profile["contact_state"] == "solo_messenger"
     assert "no ha compartido teléfono ni correo" in profile["summary"]
     assert not hasattr(lead, "documents_state")
@@ -244,6 +250,8 @@ def test_optional_name_does_not_block_or_fake_identity():
     lead.work_area = "Coronel"
     lead.availability = "desde mañana"
     question = next_intake_reply("mañana", vars(lead), "¿Desde cuándo podrías comenzar?")
+    assert question == GALILEA_QUESTION
+    question = respond(lead, question, "Sí")
     assert "te llamas" in question
     final = respond(lead, question, "paso")
     assert lead.name_opt_out is True

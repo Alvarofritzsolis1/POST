@@ -17,6 +17,7 @@ def complete(**changes):
         "work_area": "San Pedro de la Paz",
         "availability": "mañana",
         "display_name": "Maestro de prueba",
+        "declared_context": {"worked_at_galilea": False},
         "turn_changed": True,
         **changes,
     }

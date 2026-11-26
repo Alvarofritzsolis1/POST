@@ -11,18 +11,19 @@ from .galancito_triage import (
     ASK_APPLICATION, ASK_APPLICATION_LINK, ASK_APPLICATION_INTEREST, ASK_APPLICATION_OWN,
     ASK_APPLICATION_ROLE_CLARIFY, ambiguous_application_role, application_role, application_role_question,
     analyze, asks_about_application, is_pure_greeting, plain, private_data, referring_to_application,
+    worksite_details_question, ASK_CONTRACTOR_TRADE, TRADE_CONFIRMATIONS, contractor_trade_question,
 )
 from .network_models import NetworkFacebookPost, NetworkRequirement
 from .models import utcnow
 from .network_service import today
 from .ops_models import Worksite
-from .galancito_links import trade_terms
+from .galancito_links import advertised_trade, trade_terms
 
 ASK_WORKSITE = "¿Cuál obra viste? Mándame el nombre o el link del aviso."
 ASK_PROJECT = "Claro. ¿Recuerdas el nombre de la obra, el trabajo o la comuna del aviso?"
 
 _LOCATION = re.compile(
-    r"\b(?:(?:donde|dnde) (?:q(?:u?e)d[ao]|esta|se ubica|se encuentra|ubico|es)|"
+    r"\b(?:(?:donde|dnde) (?:q(?:u?e)d[ao]|esta|se ubica|se encuentra|ubico|es|seria)|"
     r"en (?:que|q) (?:comuna|sector|ciudad)|cual es la (?:direccion|ubicacion)|"
     r"(?:pasas|mandas|envias|dices) la (?:direccion|ubicacion))\b"
 )
@@ -33,7 +34,7 @@ _PROJECT = re.compile(
     r"de que (?:proyecto|obra|faena) se trata)\b"
 )
 _BARE = re.compile(r"(?:(?:y|hola|ola|buenas|disculpa) )*"
-                   r"(?:(?:donde|dnde) (?:(?:q(?:u?e)d[ao]|esta|es)(?: ubicad[ao])?)|"
+                   r"(?:(?:donde|dnde) (?:(?:q(?:u?e)d[ao]|esta|es|seria)(?: ubicad[ao])?)|"
                    r"en (?:que|q) comuna|(?:la )?(?:ubicacion|direccion)(?: porfa)?)")
 _POST_LINK = re.compile(
     r"https?://(?:(?:www|m)\.)?facebook\.com/(?:"
@@ -110,7 +111,8 @@ def application_reply(db: Session, lead, message: str, prior_prompt: str = "", *
     """
     follow_up = referring_to_application(prior_prompt)
     asks = asks_about_application(message)
-    if not (asks or follow_up) or private_data(message) or is_pure_greeting(message):
+    if (not (asks or follow_up) or private_data(message) or is_pure_greeting(message)
+            or worksite_details_question(message)):
         return None
     norm = plain(message)
     info = analyze(message)
@@ -118,11 +120,13 @@ def application_reply(db: Session, lead, message: str, prior_prompt: str = "", *
         return None
     if follow_up and not asks and "?" in message and not _simple_digital_help(message):
         return None  # The person is asking a new question; let its router answer.
-    if prior_prompt.startswith(ASK_APPLICATION_OWN):
-        value = norm
-        if value in {"si", "si claro", "si ese es mi oficio", "si trabajo en eso", "claro", "exacto"}:
-            return "¿En qué comuna puedes trabajar?"
-        if value in {"no", "no es mi oficio", "no trabajo en eso", "todavia no"}:
+    contractor_trade = contractor_trade_question(prior_prompt)
+    if prior_prompt.startswith(ASK_APPLICATION_OWN) or contractor_trade:
+        if norm in TRADE_CONFIRMATIONS:
+            return "¿En qué comuna puedes trabajar?" if not getattr(lead, "work_area", None) else None
+        if norm in {"no", "no es mi oficio", "no trabajo en eso", "todavia no"}:
+            if contractor_trade:
+                return "Entiendo. ¿Qué necesitas saber del aviso?"
             return "Está bien, no voy a asumir tu oficio. ¿Qué trabajo realizas?"
         return None
     if application_role_question(prior_prompt):
@@ -174,10 +178,18 @@ def application_reply(db: Session, lead, message: str, prior_prompt: str = "", *
         # A verified match is useful; do not force a link or a confirmation loop.
         return ("Encontré un aviso de " + notice.title[:95] + " en " + notice.site_name[:70] +
                 ". " + ASK_APPLICATION_INTEREST)[:550]
-    trades = trade_terms(message)
-    if follow_up and len(trades) == 1:
-        name = trades[0].lower()
-        return ("Ah, era un aviso de " + name + ". " + ASK_APPLICATION_INTEREST)[:550]
+    if follow_up:
+        trades = trade_terms(message)
+        if len(trades) == 1:
+            return f"Ah, era un aviso de {trades[0].lower()}. {ASK_APPLICATION_INTEREST}"
+    elif ad_trade := advertised_trade(message):
+        trade = ad_trade.lower()
+        acknowledgement = f"Gracias por escribir por el aviso de {trade}."
+        if plain(getattr(lead, "specialty", None) or "") == plain(ad_trade):
+            return acknowledgement + " ¿Qué necesitas saber del aviso?"
+        if re.search(r"\bcontratistas?\b", norm):
+            return f"{acknowledgement} {ASK_CONTRACTOR_TRADE}{trade} como contratista?"
+        return f"{acknowledgement} {ASK_APPLICATION_INTEREST}"
     if len(matches) > 1:
         return "Encontré varios avisos parecidos; no quiero confundirte. " + ASK_APPLICATION_INTEREST
     if asks and not follow_up:
@@ -207,7 +219,8 @@ def worksite_reply(db: Session, lead, message: str, prior_prompt: str = "", *, n
     remaining = _TOPIC.sub(" ", _LOCATION.sub(" ", value)).split()
     generic = set(remaining) <= {"la", "el", "las", "los", "de", "del", "esa", "ese", "esta", "este",
                                  "ubicada", "ubicado", "ubicacion", "direccion", "y", "hola", "porfa",
-                                 "por", "favor", "que", "q", "comuna", "donde", "dnde", "disculpa"}
+                                 "por", "favor", "que", "q", "comuna", "donde", "dnde", "disculpa",
+                                 "amigo", "amiga", "compadre", "estimado", "estimada"}
     if not matches and not follow_up and notices and generic and not _POST_LINK.search(message):
         # Allow a reference from the user's recent messages in this same thread.
         recent = db.scalars(select(FacebookChatMessage.body).where(

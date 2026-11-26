@@ -12,10 +12,12 @@ from .galancito_triage import (
     worksite_details_question,
 )
 from .galancito_links import trade_declarations
+from .galancito_phone import WHATSAPP_ACK
 from .galancito_communes import find_communes
 from .galancito_profile_review import declaration_for_review, JOB_ROLES
 
 UNKNOWN_NAMES = {"", None, "Interesado de Facebook", "Contacto sin nombre"}
+GALILEA_QUESTION = "¿Has trabajado antes en Galilea?"
 
 _INTEREST_QUESTION = "ofreces trabajos por tu cuenta"
 _TEAM_QUESTION = "trabajas solo"
@@ -45,6 +47,7 @@ def intake_question_fields(prompt: str) -> set[str]:
     """Identify the professional fields asked for in visible questions."""
     value = " ".join(plain(part.rsplit("¿", 1)[-1]) for part in prompt.split("?")[:-1])
     patterns = {
+        "additional_services": ("que otros trabajos", "que otros servicios", "que otros oficios"),
         "display_name": _NAME_PROMPTS,
         "specialty": (*_TRADE_PROMPTS, "que trabajo haces", "que trabajos haces", "a que te dedicas", "en que trabajas"),
         "interest_type": (_INTEREST_QUESTION, "buscas empleo o", "buscas empleo como trabajador", "buscas trabajo para ti", "buscas que te contraten", "ofreces tus servicios", "trabajo por tu cuenta o", "quieres trabajar por tu cuenta como contratista", "empleo con contrato o tomar trabajos", "como trabajador o", "como contratista", "tomas trabajos por tu cuenta", "tomar trabajos por tu cuenta", "ofreces servicios por tu cuenta", "buscas un empleo", "quieres un empleo"),
@@ -59,7 +62,11 @@ def intake_question_fields(prompt: str) -> set[str]:
         "contact_phone": ("tu telefono", "tu celular", "numero de celular", "tu numero", "numero de telefono", "tu whatsapp"),
         "contact_email": ("tu correo", "tu email"),
     }
-    return {field for field, phrases in patterns.items() if any(phrase in value for phrase in phrases)}
+    fields = {field for field, phrases in patterns.items() if any(phrase in value for phrase in phrases)}
+    if re.search(r"\b(?:(?:has trabajado|habias trabajado|trabajaste) (?:(?:antes|anteriormente|alguna vez) )?"
+                 r"(?:en|para|con) (?:(?:una |alguna )?obras? de )?|tienes experiencia (?:previa )?en )galilea\b", value):
+        fields.add("worked_at_galilea")
+    return fields
 
 
 def unresolved_declarations(message: str, prior: str) -> dict[str, str]:
@@ -297,7 +304,8 @@ def _team_update(lead, value: str, previous: str) -> None:
 
     count = _COUNT
     total = re.search(r"\b(?:somos|equipo de|iremos) " + count +
-                      r"(?= (?:personas?|maestros?|trabajadores?|ayudantes?|cabros?|en total)\b|\s*(?:\||$))", value)
+                      r"(?= (?:personas?|maestros?|trabajadores?|ayudantes?|cabros?|en total|"
+                      r"que (?:necesitan?|hay que) hacer|y (?:podemos|pueden|puedo|el resto))\b|\s*(?:\||$))", value)
     if not total:
         total = re.search(r"\btengo " + count + r" (?:ayudantes?|personas?|maestros?|trabajadores?) disponibles\b", value)
     helpers = re.search(
@@ -551,6 +559,7 @@ def clarification_reply(message: str, prior: str = "") -> str | None:
             "team_available": "Quiero saber si irías tú solo o si podrías llevar a otras personas para trabajar.",
             "workers": "Cuenta a todas las personas que podrían trabajar, incluyéndote. ¿Cuántos serían?",
             "experience": "Quiero saber desde hace cuánto haces ese trabajo. Puede ser en meses o años; si no sabes, no pasa nada.",
+            "worked_at_galilea": "¿Has trabajado alguna vez en una obra de Galilea? Si prefieres, podemos dejarlo pendiente.",
             "work_communes": "Quiero saber en qué lugar puedes trabajar, por ejemplo Coronel o Concepción. No necesito tu dirección.",
             "availability": "Quiero saber desde qué día podrías comenzar a trabajar. Si todavía no sabes, está bien.",
             "display_name": "Solo quiero saber cómo prefieres que te llamemos. No tienes que dar tu nombre si no quieres.",
@@ -567,10 +576,10 @@ def pending_professional_questions(facts: dict) -> dict[str, str]:
     known = conversation_fields(facts)
     states = facts.get("field_states") or {}
     intent = facts.get("interest_type", "unknown")
-    candidates = {
-        "specialty": "¿Qué trabajo realizas?",
-        "interest_type": "¿Ofreces trabajos por tu cuenta, buscas empleo o haces las dos cosas?",
-    }
+    candidates = {"specialty": "¿Qué trabajo realizas?"}
+    if (facts.get("declared_context") or {}).get("additional_services_pending"):
+        candidates["additional_services"] = "¿Qué otros trabajos realizas habitualmente?"
+    candidates["interest_type"] = "¿Ofreces trabajos por tu cuenta, buscas empleo o haces las dos cosas?"
     if intent in {"service_offer", "both"}:
         if facts.get("team_available") is None:
             candidates["team_available"] = "¿Trabajas solo o puedes venir con otras personas?"
@@ -581,6 +590,8 @@ def pending_professional_questions(facts: dict) -> dict[str, str]:
         "work_communes": "¿En qué comuna puedes trabajar?",
         "availability": "¿Desde cuándo podrías comenzar?",
     })
+    if known["interest_type"] and known["specialty"]:
+        candidates["worked_at_galilea"] = GALILEA_QUESTION
     if "display_name" in facts:
         candidates["display_name"] = "¿Cómo te llamas?"
     return {field: question for field, question in candidates.items()
@@ -603,6 +614,8 @@ def contact_pending_questions(facts: dict, prior: str = "") -> dict[str, str]:
 def contact_followup_reply(ack: str, facts: dict, prior: str = "") -> str:
     pending = contact_pending_questions(facts, prior)
     question = next(iter(pending.values()), None)
+    if ack == WHATSAPP_ACK and not facts.get("specialty"):
+        return ack + " ¿De qué aviso o trabajo necesitas más información?"
     return compose_contact_followup(question) if question else ack
 
 
@@ -687,12 +700,14 @@ def next_intake_reply(message: str, facts: dict, prior_prompt: str = "") -> str 
         if facts.get("turn_changed"):
             return "Podemos seguir por aquí si quieres agregar algo."
         return "Está bien. Podemos seguir con esto cuando tengas el dato o conversar sobre otra duda."
+    if question == GALILEA_QUESTION:
+        return question
     return (_friendly_ack(message, facts, question, prior_prompt) + " " + question).strip()[:540]
 
 
 def model_intake_candidate(message: str, facts: dict, prior: str, fallback: str | None) -> bool:
     """Ordinary conversation can be decided by the model, not a fixed interview."""
-    if (not message or private_data(message) or identity_reply(message)
+    if (fallback == GALILEA_QUESTION or not message or private_data(message) or identity_reply(message)
             or is_pure_greeting(message)
             or plain(message) in {"gracias", "muchas gracias", "vale gracias"}):
         return False
@@ -726,6 +741,7 @@ def conversation_fields(facts: dict) -> dict:
         "has_employees": facts.get("has_employees") is not None,
         "employee_count": facts.get("employee_count") is not None,
         "experience": bool(facts.get("experience")),
+        "worked_at_galilea": "worked_at_galilea" in facts.get("declared_context", {}),
         "work_communes": bool(facts.get("work_area") or facts.get("work_communes")),
         "availability": bool(facts.get("availability")),
         "contact_phone": any(facts.get(k) for k in ("contact_available", "contact_declined", "contact_offered")),
@@ -741,7 +757,9 @@ def contact_ready(facts: dict) -> bool:
 
 
 def conversation_context(facts: dict) -> str:
-    pending = list(pending_professional_questions(facts))
+    labels = {"worked_at_galilea": "worked_at_galilea (si trabajó antes en Galilea)",
+              "additional_services": "additional_services (otros trabajos que ofrece)"}
+    pending = [labels.get(key, key) for key in pending_professional_questions(facts)]
     if contact_ready(facts):
         pending.append("contact_phone o contact_email (opcional, solo uno)")
     return ("Datos profesionales pendientes aplicables (sin orden obligatorio, pregunta solo lo útil): "
@@ -764,6 +782,9 @@ def acceptable_intake_draft(draft: str, facts: dict, expected_question: str = ""
     asked = intake_question_fields(draft)
     if any(known.get(field) or facts.get("field_states", {}).get(field) == "rechazado_por_usuario"
            for field in asked):
+        return False
+    scoped_questions = asked & {"worked_at_galilea", "additional_services"}
+    if scoped_questions and not scoped_questions.issubset(pending_professional_questions(facts)):
         return False
     contact_fields = asked & {"contact_phone", "contact_email"}
     if contact_fields:

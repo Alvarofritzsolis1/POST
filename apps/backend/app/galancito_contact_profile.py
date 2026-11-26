@@ -39,6 +39,16 @@ def contact_profile(lead) -> dict:
         ("availability", "Disponibilidad"),
     ]
     context = (getattr(lead, "profile_sources", None) or {}).get("_declared_context") or {}
+    additional_services_pending = (context.get("additional_services_pending") or {}).get("value") is True
+    if additional_services_pending:
+        fields.append(("additional_services", "Servicios adicionales por precisar"))
+    galilea = context.get("worked_at_galilea") or {}
+    worked_at_galilea = galilea.get("value")
+    galilea_label = {True: "Sí, declarado", False: "No, declarado"}.get(worked_at_galilea)
+    if galilea.get("state") == "rechazado_por_usuario":
+        galilea_label = "Prefirió no responder"
+    if choice in {"service_offer", "employment", "both"} and _value(lead, "specialty"):
+        fields.append(("worked_at_galilea", "Experiencia previa en Galilea"))
     declared = {field: context[field]["value"] for field in (
         "declared_origin", "crew_size", "preferred_contact") if (context.get(field) or {}).get("value")}
     counts = {
@@ -48,6 +58,8 @@ def contact_profile(lead) -> dict:
         "team_available": team is not None,
         "workers": workers is not None or bool(declared.get("crew_size")),
         "experience": bool(_value(lead, "experience")),
+        "additional_services": not additional_services_pending,
+        "worked_at_galilea": worked_at_galilea is not None,
         "work_area": bool(_value(lead, "work_area")),
         # A relative answer such as 'mañana' is known as a declaration,
         # but it cannot confirm a calendar date for a specific worksite.
@@ -64,7 +76,7 @@ def contact_profile(lead) -> dict:
     known["display_name"] = known_name
     states = {}
     for field, present in known.items():
-        recorded = sources.get(field, {}).get("state")
+        recorded = (galilea if field == "worked_at_galilea" else sources.get(field, {})).get("state")
         if recorded and (present or recorded != "confirmado_por_declaracion"):
             states[field] = recorded
         else:
@@ -79,6 +91,7 @@ def contact_profile(lead) -> dict:
 
     subject = name[:75] if known_name else "Este contacto"
     trade = _value(lead, "specialty")
+    notice_trade = (context.get("notice_trade") or {}).get("value")
     intro = {
         "employment": "busca empleo",
         "service_offer": "ofrece servicios",
@@ -89,6 +102,10 @@ def contact_profile(lead) -> dict:
         first += (" de " if choice != "employment" else " en ") + trade[:90]
     first += "."
     chunks = [first]
+    if notice_trade:
+        chunks.append(f"Consultó un aviso de {notice_trade.lower()}.")
+    if additional_services_pending:
+        chunks.append("Indicó que ofrece otros servicios; falta precisar cuáles.")
 
     if crew := declared.get("crew_size"):
         chunks.append("Tamaño de cuadrilla declarado: «" + crew[:100] + "».")
@@ -121,6 +138,10 @@ def contact_profile(lead) -> dict:
     experience = _value(lead, "experience")
     if experience:
         chunks.append("Experiencia declarada: " + experience[:150].rstrip(".") + ".")
+    if worked_at_galilea is True:
+        chunks.append("Declaró que trabajó antes en Galilea.")
+    elif worked_at_galilea is False:
+        chunks.append("Declaró que no ha trabajado antes en Galilea.")
     area = _value(lead, "work_area")
     if area:
         chunks.append("Zona de trabajo: " + area[:100].rstrip(".") + ".")
@@ -158,6 +179,9 @@ def contact_profile(lead) -> dict:
         "evidence": "Datos declarados en Messenger o registrados por un operador; no acreditan experiencia ni cumplimiento documental.",
         "sources": sources,
         "declared_context": context,
+        "galilea_experience": galilea_label,
+        "notice_trade": notice_trade,
+        "additional_services_pending": additional_services_pending,
         "specialty_origin": (
             "Registrado por administración" if getattr(lead, "specialty_source", "") == "manual"
             else "Interpretado del mensaje; requiere confirmación"

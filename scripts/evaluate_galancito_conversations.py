@@ -26,7 +26,7 @@ DEFAULT_PROFILE = {
 }
 
 EXTRA_PROFILE = {"specialty", "contact_phone", "contact_email", "declared_origin",
-                 "crew_size", "preferred_contact", "needs_support", "ai_paused", "has_employees"}
+                 "crew_size", "preferred_contact", "needs_support", "ai_paused", "has_employees", "worked_at_galilea", "notice_trade"}
 
 KNOWN_FIELD_QUESTIONS = {
     "name": ("cual es tu nombre", "como te llamas", "como prefieres que te llamemos"),
@@ -37,6 +37,7 @@ KNOWN_FIELD_QUESTIONS = {
     "experience": ("cuanto tiempo llevas",),
     "team_available": ("trabajas solo",),
     "workers": ("cuantas personas",),
+    "worked_at_galilea": ("has trabajado antes en galilea", "has trabajado en galilea"),
 }
 
 
@@ -196,7 +197,7 @@ def run(dataset, source_root, *, real_local=False, contextual=False, loopback=Fa
                                       work_communes=sorted(getattr(lead, "work_communes", []) or []))
                         actual.update({key: getattr(lead, key) for key in EXTRA_PROFILE
                                        if hasattr(lead, key)})
-                        for key in ("declared_origin", "crew_size", "preferred_contact"):
+                        for key in ("declared_origin", "crew_size", "preferred_contact", "worked_at_galilea", "notice_trade"):
                             entry = (lead.profile_sources or {}).get("_declared_context", {}).get(key) or {}
                             actual[key] = entry.get("value")
                         persisted = len(db.scalars(select(FacebookChatMessage.id).where(

@@ -26,14 +26,18 @@ from .facebook_crm_models import FacebookChatMessage, FacebookLead
 from .facebook_lead_insights import trace_unique_requirement
 from .galancito_flow import apply_permission_reply, consented_for, explain_permission, wants_human
 from .galancito_escalation import flag_for_human
-from .galancito_intake import declared_relative_start, identity_reply, needs_deeper_response, next_intake_reply, small_talk_reply, model_intake_candidate, contact_followup_reply, contact_pending_questions
+from .galancito_intake import (
+    GALILEA_QUESTION, contact_followup_reply, contact_pending_questions, declared_relative_start,
+    identity_reply, model_intake_candidate, needs_deeper_response, next_intake_reply, small_talk_reply,
+)
 from .galancito_knowledge import exact_answer, retrieve
 from .galancito_memory import (
     apply_messenger_message, approved_trade_aliases, aware, prior_delivered_prompt, profile_facts,
     capture_voluntary_contact, professional_message, recover_missing_contact,
 )
-from .galancito_triage import private_data, quick_reply, everyday_question_reply, application_ai_candidate, payment_guidance
-from .galancito_phone import phone_question_when_agreed, confirmed_phone_reply
+from .galancito_triage import (private_data, quick_reply, everyday_question_reply, application_ai_candidate,
+                              payment_guidance, worksite_payment_terms_question)
+from .galancito_phone import confirmed_phone_reply, introducing_phone_number, phone_question_when_agreed
 from .models import Organization, utcnow
 from .network_service import today
 
@@ -244,7 +248,8 @@ def sync_page_inbox(*, page_id: str, page_token: str, org_id: str,
                     queued += 1
                     continue
                 application = application_reply(db, lead, body, prior)
-                contact_reply = contact_followup_reply(phone_ack, profile_facts(lead, changed=changed), prior) if phone_ack else None
+                facts = profile_facts(lead, changed=changed)
+                contact_reply = contact_followup_reply(phone_ack, facts, prior) if phone_ack else None
                 direct = (contact_reply or follow_up or explain_permission(lead, body, prior)
                           or worksite_reply(db, lead, body, prior)
                           or application
@@ -264,13 +269,20 @@ def sync_page_inbox(*, page_id: str, page_token: str, org_id: str,
                     direct = None
                 contact_model = bool(contact_reply and local_first_messenger(cfg)
                     and consented_for(lead, configured)
-                    and contact_pending_questions(profile_facts(lead, changed=changed), prior))
+                    and contact_pending_questions(facts, prior))
                 source = "disabled" if direct and not contact_model else configured
                 contextual_turn = bool(contextual.authorized(cfg, lead) and not follow_up
                     and not (application and direct == application) and not identity_reply(body)
                     and not small_talk_reply(body) and contextual.eligible(body)
                     and (not direct or direct == contact_reply or direct == everyday_question_reply(body)))
-                if contact_model or contextual_turn:
+                intake = next_intake_reply(body, facts, prior) if not direct else None
+                if introducing_phone_number(body) and not (phone_ack or direct):
+                    continue
+                if worksite_payment_terms_question(body):
+                    state, reply = "pending", exact_answer(retrieve(db, lead.org_id, body, "messenger"))
+                elif intake == GALILEA_QUESTION:
+                    state, reply = "pending", intake
+                elif contact_model or contextual_turn:
                     state, reply = "ai_pending", ""
                 elif direct:
                     state, reply = "pending", direct
@@ -279,19 +291,17 @@ def sync_page_inbox(*, page_id: str, page_token: str, org_id: str,
                     # webhook, even when consent was granted in an older chat.
                     state, reply = "pending", small_talk_reply(body)
                 elif consented_for(lead, source):
-                    facts = profile_facts(lead, changed=changed)
-                    local = next_intake_reply(body, facts, prior)
+                    local = intake
                     if not local and not needs_deeper_response(body):
                         local = quick_reply(body, known=facts)
                     state, reply = (("ai_pending", "") if not local or
                         (local_first_messenger(cfg) and model_intake_candidate(body, facts, prior, local))
                         else ("pending", local))
                 else:
-                    facts = profile_facts(lead, changed=changed)
                     if needs_deeper_response(body):
                         reply = exact_answer(retrieve(db, lead.org_id, body, "messenger")) or payment_guidance(body)
                     else:
-                        reply = next_intake_reply(body, facts, prior) or quick_reply(body, known=facts)
+                        reply = intake or quick_reply(body, known=facts)
                     state = "pending"
                 if state == "pending" and not reply:
                     flag_for_human(db, lead,

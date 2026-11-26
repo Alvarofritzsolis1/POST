@@ -1482,3 +1482,24 @@ def test_webhook_captures_number_after_ai_handoff(network, monkeypatch):
     lead = n["admin"].get("/api/v1/network/facebook/center").json()["leads"][0]
     assert lead["contact_phone"] == "+56900000000"
     assert lead["ai_paused"] is True
+
+
+def test_inbox_recovery_pauses_unconfirmed_worksite_payment(network, monkeypatch):
+    from datetime import datetime, timezone
+    from app import facebook_inbox_sync as recovery
+
+    n = network
+    org_id = enable_messaging(n, monkeypatch)
+    monkeypatch.setenv("FACEBOOK_AI_ENABLED", "true")
+    settings.cache_clear()
+    now = datetime.now(timezone.utc).isoformat()
+    monkeypatch.setattr(recovery, "_graph_get", lambda token, resource, edge, fields, limit:
+        {"data": [{"id": "t_unconfirmed_terms"}]} if edge == "conversations" else
+        {"data": [{"id": "m_unconfirmed_terms", "message": "Y el trabajo es a trato",
+                   "from": {"id": "987654321098765"}, "created_time": now}]})
+
+    result = recovery.sync_page_inbox(page_id="1489275590928529", page_token="synthetic-page-token",
+                                      org_id=org_id, session_factory=n["Session"])
+    assert result["messages_imported"] == 1 and result["replies_queued"] == 0
+    lead = n["admin"].get("/api/v1/network/facebook/center").json()["leads"][0]
+    assert lead["needs_support"] and lead["ai_paused"]
