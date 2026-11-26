@@ -43,7 +43,7 @@ from .facebook_publication_models import FacebookPostSnapshot, FacebookPostJob
 from .network_service import key, today
 from .galancito_triage import classify_lead, dashboard
 from .security import administrator
-from .galancito_triage import (analyze, private_data, quick_reply, everyday_question_reply,
+from .galancito_triage import (analyze, plain, private_data, quick_reply, everyday_question_reply,
                               application_ai_candidate, payment_guidance, worksite_payment_terms_question,
                               contextual_payment_question)
 from .galancito_intake import (
