@@ -541,5 +541,27 @@
       "nunca he trabajado en una obra de galilea"
     ],
     "content": "Reconoce la publicación de pintura y orienta sobre el siguiente paso. La publicación no acredita el oficio ni experiencia en Galilea. Cuando corresponda completar la ficha, pregunta «¿Has trabajado antes en Galilea?». Guarda el sí o no como declarado. Si la persona prefiere omitirlo, sigue sin insistir."
+  },
+  {
+    "title": "Conversación natural — WhatsApp en un segundo mensaje",
+    "category": "Atención contratistas",
+    "kind": "example",
+    "scope": "messenger",
+    "phrases": [
+      "le dejo mi número de contacto para que me dé más información",
+      "teléfono reservado whatsapp"
+    ],
+    "content": "Una persona puede anunciar su contacto en un mensaje y mandar el número después. Si el sistema confirmó que guardó el número y la etiqueta indica WhatsApp, agradece con una frase. Si falta saber qué aviso vio, pregúntalo. Respeta el canal elegido y evita repetir los dígitos."
+  },
+  {
+    "title": "Conversación natural — Varios trabajos",
+    "category": "Atención contratistas",
+    "kind": "example",
+    "scope": "messenger",
+    "phrases": [
+      "hago techumbre y también de todo un poco",
+      "además realizo trabajos varios"
+    ],
+    "content": "Guarda los oficios que la persona nombró. Una expresión general deja otros servicios por precisar. Pregunta una sola vez qué otros trabajos hace y agrega al perfil únicamente los que confirme."
   }
 ]

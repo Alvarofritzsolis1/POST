@@ -64,7 +64,7 @@ def advertised_trade(message: str) -> str | None:
 
 
 _OWN_TRADE = re.compile(
-    r"\b(?:soy|soi|trabajo|trabajamos|hago|hacemos|ofrezco|ofresco|instalo|reparo|"
+    r"\b(?:soy|soi|trabajo|trabajamos|hago|hacemos|realizo|realizamos|ofrezco|ofresco|instalo|reparo|"
     r"me dedico|me manejo|le pego|tengo experiencia|trabajar en|quiero ofrecer|"
     r"mi (?:oficio|especialidad) (?:principal )?es|busco (?:pega|empleo|trabajo) (?:de|en|como))\b"
 )

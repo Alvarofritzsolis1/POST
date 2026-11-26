@@ -39,6 +39,9 @@ def contact_profile(lead) -> dict:
         ("availability", "Disponibilidad"),
     ]
     context = (getattr(lead, "profile_sources", None) or {}).get("_declared_context") or {}
+    additional_services_pending = (context.get("additional_services_pending") or {}).get("value") is True
+    if additional_services_pending:
+        fields.append(("additional_services", "Servicios adicionales por precisar"))
     galilea = context.get("worked_at_galilea") or {}
     worked_at_galilea = galilea.get("value")
     galilea_label = {True: "Sí, declarado", False: "No, declarado"}.get(worked_at_galilea)
@@ -55,6 +58,7 @@ def contact_profile(lead) -> dict:
         "team_available": team is not None,
         "workers": workers is not None or bool(declared.get("crew_size")),
         "experience": bool(_value(lead, "experience")),
+        "additional_services": not additional_services_pending,
         "worked_at_galilea": worked_at_galilea is not None,
         "work_area": bool(_value(lead, "work_area")),
         # A relative answer such as 'mañana' is known as a declaration,
@@ -100,6 +104,8 @@ def contact_profile(lead) -> dict:
     chunks = [first]
     if notice_trade:
         chunks.append(f"Consultó un aviso de {notice_trade.lower()}.")
+    if additional_services_pending:
+        chunks.append("Indicó que ofrece otros servicios; falta precisar cuáles.")
 
     if crew := declared.get("crew_size"):
         chunks.append("Tamaño de cuadrilla declarado: «" + crew[:100] + "».")
@@ -175,6 +181,7 @@ def contact_profile(lead) -> dict:
         "declared_context": context,
         "galilea_experience": galilea_label,
         "notice_trade": notice_trade,
+        "additional_services_pending": additional_services_pending,
         "specialty_origin": (
             "Registrado por administración" if getattr(lead, "specialty_source", "") == "manual"
             else "Interpretado del mensaje; requiere confirmación"

@@ -57,7 +57,10 @@ from .galancito_contact_profile import contact_profile
 from .galancito_conversation_summary import (
     summarize_conversation, safe_model_input, validate_ai_brief, brief_contains_private_data,
 )
-from .galancito_phone import (QUESTION as CONTACT_PHONE_QUESTION, normalize_mobile, phone_question_when_agreed, confirmed_phone_reply)
+from .galancito_phone import (
+    QUESTION as CONTACT_PHONE_QUESTION, confirmed_phone_reply, introducing_phone_number,
+    normalize_mobile, phone_question_when_agreed,
+)
 from .galancito_communes import find_communes
 from .galancito_links import (record_manual_trade,
                               suggest_requirements, link_requirement,
@@ -540,6 +543,8 @@ def ingest_facebook_payload(db, payload, cfg, *, notices=None):
                              AI_PERMISSION_DECLINED if lead.ai_consent_state == "declined" else
                              ("Dejé tu consulta para que la revise una persona del equipo. "
                               "Te pueden ayudar por este chat; no necesitas enviar documentos."))
+            elif introducing_phone_number(body) and not (phone_ack or direct):
+                continue
             elif (not lead.needs_support and lead.ai_consent_state != "declined"
                     and not private_data(body) and worksite_payment_terms_question(body)):
                 reply = exact_answer(retrieve(db, lead.org_id, body, "messenger"))

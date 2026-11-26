@@ -37,7 +37,7 @@ from .galancito_memory import (
 )
 from .galancito_triage import (private_data, quick_reply, everyday_question_reply, application_ai_candidate,
                               payment_guidance, worksite_payment_terms_question)
-from .galancito_phone import phone_question_when_agreed, confirmed_phone_reply
+from .galancito_phone import confirmed_phone_reply, introducing_phone_number, phone_question_when_agreed
 from .models import Organization, utcnow
 from .network_service import today
 
@@ -276,6 +276,8 @@ def sync_page_inbox(*, page_id: str, page_token: str, org_id: str,
                     and not small_talk_reply(body) and contextual.eligible(body)
                     and (not direct or direct == contact_reply or direct == everyday_question_reply(body)))
                 intake = next_intake_reply(body, facts, prior) if not direct else None
+                if introducing_phone_number(body) and not (phone_ack or direct):
+                    continue
                 if worksite_payment_terms_question(body):
                     state, reply = "pending", exact_answer(retrieve(db, lead.org_id, body, "messenger"))
                 elif intake == GALILEA_QUESTION:

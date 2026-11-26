@@ -30,6 +30,7 @@ type Lead = {
   profile: { summary: string; percent: number; completed:number; total:number; missing: string[]; evidence: string;
     galilea_experience?: string | null;
     notice_trade?: string | null;
+    additional_services_pending?: boolean;
     declared_context?: {
       crew_size?: { value: string }; declared_origin?: { value: string };
       preferred_contact?: { value: "whatsapp" | "messenger" | "email" };
@@ -368,6 +369,7 @@ export default function FacebookPersonSheet({person,onClose,onChanged,onOpenChat
             <section className="fbps-card"><h3><BriefcaseBusiness size={18}/> Oficios y experiencia</h3>
               <div className="fbps-tags">{[...new Set(lead.trades?.length?lead.trades:
                 (lead.specialty?[lead.specialty]:[]))].map(t=><span key={t} className="fbps-tag trade">{t}</span>)}</div>
+              {lead.profile.additional_services_pending ? <p className="fbps-muted">Servicios adicionales por precisar</p> : null}
               <div className="fbps-fields"><Cell title="Experiencia" value={lead.experience}/>
                 {lead.profile.notice_trade ? <Cell title="Interés en aviso" value={lead.profile.notice_trade}/> : null}
                 <Cell title="Experiencia previa en Galilea" value={lead.profile.galilea_experience}/>

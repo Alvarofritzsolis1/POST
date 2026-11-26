@@ -7,6 +7,19 @@ import re
 from datetime import datetime, timedelta, timezone
 
 PHONE_PATTERN = re.compile(r"(?<!\d)(?:\+?56[\s.-]?)?9[\s.-]?\d{4}[\s.-]?\d{4}(?!\d)")
+_WHATSAPP_LABEL = re.compile(r"(?:whatsapp|wsp|wasap|guasap|watsap)", re.I)
+_NUMBER_INTRO = re.compile(
+    r"(?i)\b(?:te|le|les) (?:dejo|paso|env[ií]o|mando) (?:mi )?(?:n[uú]mero|tel[eé]fono|celular)\b"
+)
+
+
+def labeled_whatsapp_phone(message: str) -> bool:
+    parts = PHONE_PATTERN.split(message, maxsplit=1)
+    return len(parts) == 2 and bool(_WHATSAPP_LABEL.fullmatch(" ".join(parts).strip(" .-:(),!")))
+
+
+def introducing_phone_number(message: str) -> bool:
+    return bool(_NUMBER_INTRO.search(message)) and not PHONE_PATTERN.search(message) and "?" not in message
 SHARING = re.compile(
     r"(?i)(?:mi\s+(?:n[uú]mero|celular|tel[eé]fono|w(?:hats)?app)"
     r"|(?:te|les)\s+(?:dejo|paso|env[ií]o)\s+(?:mi\s+)?(?:n[uú]mero|celular|tel[eé]fono|w(?:hats)?app)?"
@@ -52,14 +65,14 @@ def phone_shared_by_sender(message: str, last_question: str = "") -> str | None:
         return None
     # A standalone number is an intentional reply even without the old prompt.
     standalone = not re.sub(r"[\d\s+().\-]", "", message).strip()
-    asked = bool(re.search(r"(?i)\b(?:tel[eé]fono|celular|n[uú]mero|w(?:hats)?app)\b", last_question))
+    asked = bool(re.search(r"(?i)\b(?:tel[eé]fono|celular|n[uú]mero|w(?:hats)?app)\b", last_question.removeprefix(WHATSAPP_ACK)))
     context = SHARING.search(message[:match.start()])
-    return phone if standalone or asked or context else None
+    return phone if standalone or asked or context or labeled_whatsapp_phone(message) else None
 
 
 def phone_declined(message: str, last_question: str) -> bool:
     return bool((DECLINED.search(message) or message.strip().casefold() in {"no", "paso", "prefiero no", "no gracias"}) and
-                re.search(r"(?i)\b(?:tel[eé]fono|celular|n[uú]mero|w(?:hats)?app)\b", last_question))
+                re.search(r"(?i)\b(?:tel[eé]fono|celular|n[uú]mero|w(?:hats)?app)\b", last_question.removeprefix(WHATSAPP_ACK)))
 
 
 def phone_question_when_agreed(lead, message: str, *, at: datetime | None = None) -> str | None:
@@ -98,6 +111,7 @@ def remember_shared_phone(lead, message: str, last_question: str, *, at: datetim
 
 
 CONTACT_ACK = "Gracias, ya tengo tu número de contacto. Podemos seguir coordinando por aquí."
+WHATSAPP_ACK = "Gracias por dejar tu WhatsApp."
 
 
 def confirmed_phone_reply(lead, message: str, prior: str = "") -> str | None:
@@ -108,7 +122,7 @@ def confirmed_phone_reply(lead, message: str, prior: str = "") -> str | None:
     """
     shared = phone_shared_by_sender(message, prior)
     if shared and shared == getattr(lead, "contact_phone", None):
-        return CONTACT_ACK
+        return WHATSAPP_ACK if labeled_whatsapp_phone(message) else CONTACT_ACK
     return None
 
 

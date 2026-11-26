@@ -12,6 +12,7 @@ from .galancito_triage import (
     worksite_details_question,
 )
 from .galancito_links import trade_declarations
+from .galancito_phone import WHATSAPP_ACK
 from .galancito_communes import find_communes
 from .galancito_profile_review import declaration_for_review, JOB_ROLES
 
@@ -46,6 +47,7 @@ def intake_question_fields(prompt: str) -> set[str]:
     """Identify the professional fields asked for in visible questions."""
     value = " ".join(plain(part.rsplit("¿", 1)[-1]) for part in prompt.split("?")[:-1])
     patterns = {
+        "additional_services": ("que otros trabajos", "que otros servicios", "que otros oficios"),
         "display_name": _NAME_PROMPTS,
         "specialty": (*_TRADE_PROMPTS, "que trabajo haces", "que trabajos haces", "a que te dedicas", "en que trabajas"),
         "interest_type": (_INTEREST_QUESTION, "buscas empleo o", "buscas empleo como trabajador", "buscas trabajo para ti", "buscas que te contraten", "ofreces tus servicios", "trabajo por tu cuenta o", "quieres trabajar por tu cuenta como contratista", "empleo con contrato o tomar trabajos", "como trabajador o", "como contratista", "tomas trabajos por tu cuenta", "tomar trabajos por tu cuenta", "ofreces servicios por tu cuenta", "buscas un empleo", "quieres un empleo"),
@@ -574,10 +576,10 @@ def pending_professional_questions(facts: dict) -> dict[str, str]:
     known = conversation_fields(facts)
     states = facts.get("field_states") or {}
     intent = facts.get("interest_type", "unknown")
-    candidates = {
-        "specialty": "¿Qué trabajo realizas?",
-        "interest_type": "¿Ofreces trabajos por tu cuenta, buscas empleo o haces las dos cosas?",
-    }
+    candidates = {"specialty": "¿Qué trabajo realizas?"}
+    if (facts.get("declared_context") or {}).get("additional_services_pending"):
+        candidates["additional_services"] = "¿Qué otros trabajos realizas habitualmente?"
+    candidates["interest_type"] = "¿Ofreces trabajos por tu cuenta, buscas empleo o haces las dos cosas?"
     if intent in {"service_offer", "both"}:
         if facts.get("team_available") is None:
             candidates["team_available"] = "¿Trabajas solo o puedes venir con otras personas?"
@@ -612,6 +614,8 @@ def contact_pending_questions(facts: dict, prior: str = "") -> dict[str, str]:
 def contact_followup_reply(ack: str, facts: dict, prior: str = "") -> str:
     pending = contact_pending_questions(facts, prior)
     question = next(iter(pending.values()), None)
+    if ack == WHATSAPP_ACK and not facts.get("specialty"):
+        return ack + " ¿De qué aviso o trabajo necesitas más información?"
     return compose_contact_followup(question) if question else ack
 
 
@@ -753,8 +757,9 @@ def contact_ready(facts: dict) -> bool:
 
 
 def conversation_context(facts: dict) -> str:
-    pending = ["worked_at_galilea (si trabajó antes en Galilea)" if key == "worked_at_galilea" else key
-               for key in pending_professional_questions(facts)]
+    labels = {"worked_at_galilea": "worked_at_galilea (si trabajó antes en Galilea)",
+              "additional_services": "additional_services (otros trabajos que ofrece)"}
+    pending = [labels.get(key, key) for key in pending_professional_questions(facts)]
     if contact_ready(facts):
         pending.append("contact_phone o contact_email (opcional, solo uno)")
     return ("Datos profesionales pendientes aplicables (sin orden obligatorio, pregunta solo lo útil): "
@@ -778,7 +783,8 @@ def acceptable_intake_draft(draft: str, facts: dict, expected_question: str = ""
     if any(known.get(field) or facts.get("field_states", {}).get(field) == "rechazado_por_usuario"
            for field in asked):
         return False
-    if "worked_at_galilea" in asked and "worked_at_galilea" not in pending_professional_questions(facts):
+    scoped_questions = asked & {"worked_at_galilea", "additional_services"}
+    if scoped_questions and not scoped_questions.issubset(pending_professional_questions(facts)):
         return False
     contact_fields = asked & {"contact_phone", "contact_email"}
     if contact_fields:

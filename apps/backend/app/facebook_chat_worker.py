@@ -604,11 +604,19 @@ def process_chat_next(session_factory=SessionLocal, *, simulation_config=None, n
                 trace["semantic_updates"] = contextual.apply_declarations(db, current, declarations)
                 if trace["semantic_updates"]:
                     trace_unique_requirement(db, current, today=today(), remote_id=structured_fragments[-1].message_id)
-                if failed_ai and decision and declarations and not requires_verified_details:
-                    followup = contextual.verified_followup(decision, profile_facts(current), structured_fragments)
+                if failed_ai and decision and not requires_verified_details:
+                    saved_facts = profile_facts(current, changed=facts["turn_changed"])
+                    followup = (contextual.verified_followup(decision, saved_facts, structured_fragments)
+                                if declarations else None)
                     if followup:
                         body, failed_ai = followup, False
                         trace["guided_followup"] = decision.q
+                    elif (focus and saved_facts["turn_changed"] and decision.i == "intake" and decision.q == "none"
+                          and contextual.is_declaration_turn(structured_fragments)):
+                        followup = next_intake_reply(focus.body, saved_facts, prior_question)
+                        if followup and acceptable_intake_draft(followup, saved_facts):
+                            body, source, failed_ai = followup, "local", False
+                            trace["verified_guidance"] = "saved_intake"
                 if requested_handoff:
                     flag_for_human(db, current, "Solicitó atención humana")
             if failed_ai:

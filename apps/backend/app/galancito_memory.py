@@ -15,11 +15,13 @@ from .galancito_intake import (
 )
 from .galancito_knowledge import evidence_context, conversation_example
 from .galancito_flow import retired_permission_prompt
-from .galancito_evidence import REPORTED
+from .galancito_evidence import REPORTED, declaration_segments
 from .galancito_semantic import consume_confirmation
 from .galancito_communes import find_communes
 from .galancito_contact_email import redact_email_for_intake, remember_shared_email, email_shared_by_sender, REFUSAL
-from .galancito_phone import redact_mobile_for_intake, remember_shared_phone, phone_shared_by_sender, phone_declined
+from .galancito_phone import (
+    labeled_whatsapp_phone, phone_declined, phone_shared_by_sender, redact_mobile_for_intake, remember_shared_phone,
+)
 from .galancito_links import advertised_trade, audit_event, record_declared_trades, trade_declarations, trade_terms
 from .galancito_triage import (ASK_APPLICATION_OWN, application_role, application_role_question,
                               analyze, asks_about_application, declaration_text, plain, private_data, referring_to_application,
@@ -32,7 +34,7 @@ FIELDS = (
 CHILE = ZoneInfo("America/Santiago")
 _PERSONAL_DECLARATION = re.compile(
     r"^(?:corrijo |aclaro )?(?:soy|soi|me llamo|mi nombre es|trabajo|trabajamos|hago|ofrezco|ofresco|busco|"
-    r"puedo|estoy disponible|tengo|somos|llevo|voy con|me dedico)\b"
+    r"puedo|estoy disponible|tengo|somos|llevo|voy con|me dedico|realizo|realizamos)\b"
 )
 
 
@@ -50,7 +52,8 @@ def profile_facts(lead, *, changed=False) -> dict:
             "turn_changed": changed,
             "declared_context": {key: item.get("value") for key, item in context.items() if isinstance(item, dict)
                                  and key in {"crew_expandable", "declared_origin", "crew_size",
-                                             "preferred_contact", "worked_at_galilea", "notice_trade"}},
+                                             "preferred_contact", "worked_at_galilea", "notice_trade",
+                                             "additional_services_pending"}},
             # Only contact availability flags, never the phone or email itself.
             "contact_available": bool(getattr(lead, "contact_phone", "") or getattr(lead, "contact_email", "")),
             "contact_declined": bool(getattr(lead, "phone_opt_out", False) or getattr(lead, "email_opt_out", False)),
@@ -67,10 +70,26 @@ def note_profile_sources(lead, fields, *, source, at, remote_id=None, states=Non
         }
 
 
+def remember_whatsapp_channel(lead, message, *, at, remote_id):
+    if not labeled_whatsapp_phone(message) or phone_shared_by_sender(message) != lead.contact_phone:
+        return
+    sources = lead.profile_sources or {}
+    context = sources.get("_declared_context") or {}
+    previous = context.get("preferred_contact") or {}
+    if (previous.get("source") == "manual" or
+            previous.get("at") and aware(datetime.fromisoformat(previous["at"])) >= aware(at)):
+        return
+    lead.profile_sources = {**sources, "_declared_context": {**context, "preferred_contact": {
+        "value": "whatsapp", "source": "message", "state": "confirmado_por_declaracion",
+        "at": at.isoformat(), "message_id": remote_id,
+    }}}
+
+
 def capture_voluntary_contact(db, lead, message, prior, *, at, remote_id):
     """Store only channels volunteered by the sender, with independent source evidence."""
     before = (lead.contact_phone, lead.contact_email, lead.phone_opt_out, lead.email_opt_out)
     phone_saved = remember_shared_phone(lead, message, prior, at=at)
+    remember_whatsapp_channel(lead, message, at=at, remote_id=remote_id)
     email_saved = remember_shared_email(lead, message, prior, at=at)
     states = {}
     for field, saved, old, opted_out, old_opt_out in (
@@ -121,6 +140,7 @@ def recover_missing_contact(db, lead):
         states = {}
         if phone_pending and phone_shared_by_sender(body, prior):
             if remember_shared_phone(lead, body, prior, at=at):
+                remember_whatsapp_channel(lead, body, at=at, remote_id=item.remote_id)
                 states["contact_phone"] = "confirmado_por_declaracion"
             phone_pending = False
         if email_pending and email_shared_by_sender(body, prior):
@@ -259,6 +279,18 @@ def remember_declared_context(lead, message, prior, *, remote_id, at, historical
     if trade := advertised_trade(message):
         proposed["notice_trade"] = trade
     statement = plain(declaration_text(message))
+    asked_for_services = "additional_services" in intake_question_fields(prior)
+    other_services = r"(?:de todo un poco|varios oficios|trabajos varios)"
+    own_statement = re.sub(r"^(?:(?:yo|tambien|ademas|y) )+", "", statement)
+    if (any(re.search(r"\b" + other_services + r"\b", clause) and
+            not re.search(r"\b(?:no|nunca|quizas)\b", clause) for clause in declaration_segments(message))
+            and (_PERSONAL_DECLARATION.match(own_statement) or
+                 (getattr(lead, "specialty", "") and re.fullmatch(
+                     r"(?:y |pero )?(?:tambien )?" + other_services, statement)))):
+        proposed["additional_services_pending"] = True
+    elif asked_for_services and (statement in {"paso", "prefiero no responder", "prefiero no decir"}
+                                or any(trade_declarations(message, prior, allow_bare=True).values())):
+        proposed["additional_services_pending"] = False
     answer = re.sub(r"^(?:yo |corrijo |aclaro |en realidad )", "", statement, count=1)
     if re.match(r"\s*(?:sí\b|si\s*,)", message, re.I):
         answer = answer.removeprefix("si ")
@@ -295,7 +327,7 @@ def remember_declared_context(lead, message, prior, *, remote_id, at, historical
         old = current.get(field) or {}
         if old.get("source") == "manual":
             continue
-        if field in {"worked_at_galilea", "notice_trade"}:
+        if field in {"worked_at_galilea", "notice_trade", "additional_services_pending"}:
             if old.get("at") and aware(datetime.fromisoformat(old["at"])) >= aware(at):
                 continue
         elif "value" in old and (historical or old["value"] == fact):

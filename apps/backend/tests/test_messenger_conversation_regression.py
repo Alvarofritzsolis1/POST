@@ -420,3 +420,57 @@ def test_galilea_history_needs_a_personal_declaration_or_a_direct_question(messa
     lead = SimpleNamespace(profile_sources={})
     assert not remember_declared_context(lead, message, "", remote_id="synthetic", at=utcnow())
     assert not lead.profile_sources
+
+
+def test_number_with_whatsapp_label_completes_the_contact_without_triggering_handoff(network, monkeypatch):
+    n = network
+    _local_messenger(n, monkeypatch)
+    sent = []
+    monkeypatch.setattr("app.facebook_chat_worker.graph_send",
+                        lambda *args: sent.append(args[2]) or "synthetic-whatsapp-reply")
+
+    intro = "Buenas noches, le dejo mi número de contacto para que me dé más información, gracias"
+    assert incoming(n, intro, "whatsapp-introduction").status_code == 200
+    assert not process_chat_next(n["Session"])
+    assert not _contact(n)["lead"]["needs_support"]
+
+    assert incoming(n, "912345678 WhatsApp", "whatsapp-number").status_code == 200
+    assert process_chat_next(n["Session"])
+    assert not process_chat_next(n["Session"])
+    detail = _contact(n)["lead"]
+    assert detail["contact_phone"] == "+56912345678"
+    assert detail["profile"]["declared_context"]["preferred_contact"]["value"] == "whatsapp"
+    assert not detail["needs_support"] and not detail["ai_paused"]
+    assert sent == ["Gracias por dejar tu WhatsApp. ¿De qué aviso o trabajo necesitas más información?"]
+
+    with n["Session"].begin() as db:
+        lead = db.get(FacebookLead, detail["id"])
+        lead.contact_phone, lead.profile_sources = "", {}
+    recovered = n["send"](n["admin"], f'/facebook/leads/{detail["id"]}/recover-contact', {})
+    assert recovered.json()["contact_phone"] == "+56912345678"
+    assert recovered.json()["profile"]["declared_context"]["preferred_contact"]["value"] == "whatsapp"
+    assert not process_chat_next(n["Session"])
+
+
+def test_vague_additional_services_are_visible_until_the_contact_names_them(network, monkeypatch):
+    n = network
+    _local_messenger(n, monkeypatch)
+    sent = []
+    monkeypatch.setattr("app.facebook_chat_worker.graph_send",
+                        lambda *args: sent.append(args[2]) or f"synthetic-trades-{len(sent)}")
+
+    assert incoming(n, "Realizo pintura pero también de todo un poco", "trades-unspecified").status_code == 200
+    assert process_chat_next(n["Session"])
+    detail = _contact(n)["lead"]
+    assert detail["specialty"] == "Pintura" and detail["trades"] == ["Pintura"]
+    assert detail["profile"]["additional_services_pending"] is True
+    assert "Servicios adicionales por precisar" in detail["profile"]["missing"]
+    assert "¿Qué otros trabajos" in sent[-1]
+
+    assert incoming(n, "Hago también gasfitería y carpintería", "trades-specified").status_code == 200
+    assert process_chat_next(n["Session"])
+    detail = _contact(n)["lead"]
+    assert detail["specialty"] == "Pintura"
+    assert set(detail["trades"]) == {"Pintura", "Gasfitería", "Carpintería"}
+    assert detail["profile"]["additional_services_pending"] is False
+    assert "¿Qué otros trabajos" not in sent[-1]

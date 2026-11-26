@@ -129,6 +129,8 @@ def memory_text(facts, turns, fragments, prior, evidence, guide):
     declared_context = facts.get("declared_context", {})
     if declared_context.get("notice_trade"):
         lines.append("notice_trade describe el aviso consultado. No confirma el oficio propio.")
+    if declared_context.get("additional_services_pending"):
+        lines.append("Dijo que hace otros trabajos. Pregunta cuáles si es útil. Conserva sus oficios declarados.")
     if "worked_at_galilea" in declared_context:
         lines.append("La experiencia previa en Galilea ya se trató. Respeta la respuesta o reserva de la persona.")
     current_ids = {item.message_id for item in fragments}

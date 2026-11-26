@@ -37,6 +37,8 @@ type ContactProfile = {
   missing: string[]; next_field: string | null; evidence: string; specialty_origin: string; sources?: Record<string, Evidence>;
   galilea_experience?: string | null;
   notice_trade?: string | null;
+  additional_services_pending?: boolean;
+  declared_context?: { preferred_contact?: { value: "whatsapp" | "messenger" | "email" } };
 };
 type Lead = {
   id: string; name: string; company: string; specialty: string; workers: number | null;
@@ -48,6 +50,7 @@ type Lead = {
   interest_type: "unknown" | "service_offer" | "employment" | "both";
   team_available: boolean | null; work_area: string; profile: ContactProfile;
   last_inbound_at: string | null; can_reply: boolean; analysis: Analysis;
+  contact_phone?: string | null;
   trades?: string[]; linked_needs?: string[]; work_communes?: string[];
   trade_sources?: (Evidence & { trade: string })[];
   follow_up_on: string | null; follow_up_note: string;
@@ -968,12 +971,19 @@ export default function FacebookCenter({ catalog }: { catalog: Catalog }) {
                 onClick={() => patchLead({name: String(item.value)})}>Confirmar nombre</button>
             </div>)}
             <div className="fbc-summary-data">
-              <div><small>{!lead.specialty && lead.profile.notice_trade ? "Interés en aviso" : "Oficio"}</small>
-                <strong>{lead.specialty || lead.profile.notice_trade || "Por confirmar"}</strong></div>
+              <div><small>{(lead.trades?.length ?? 0) > 1 ? "Oficios" :
+                !lead.specialty && lead.profile.notice_trade ? "Interés en aviso" : "Oficio"}</small>
+                <strong>{lead.trades?.join(", ") || lead.specialty || lead.profile.notice_trade || "Por confirmar"}</strong>
+                {lead.profile.additional_services_pending ? <small>Servicios adicionales por precisar</small> : null}
+              </div>
               <div><small>Personas</small><strong>{lead.workers ?? "Sin dato"}</strong></div>
               <div><small>Disponible desde</small><strong>{lead.availability || "Sin confirmar"}</strong></div>
               <div><small>Experiencia previa en Galilea</small>
                 <strong>{lead.profile.galilea_experience ?? "Por confirmar"}</strong></div>
+              {lead.contact_phone ? <div>
+                <small>{lead.profile.declared_context?.preferred_contact?.value === "whatsapp" ? "WhatsApp" : "Teléfono"}</small>
+                <strong>{lead.contact_phone}</strong>
+              </div> : null}
             </div>
             <div className="fbc-next-action">
               <span><Sparkles size={15} /> Próximo paso sugerido</span>

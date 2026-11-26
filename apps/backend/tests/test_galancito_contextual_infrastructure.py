@@ -282,3 +282,28 @@ def test_contextual_memory_uses_advert_and_galilea_as_distinct_chat_evidence():
     assert "aviso consultado" in context and "oficio propio" in context
     assert "Ejemplo de práctica" in context
     assert "Respeta la respuesta" in context
+
+
+def test_invalid_model_draft_can_continue_after_the_work_commune_was_saved(network, monkeypatch):
+    sessions = configure(network, monkeypatch)
+    with sessions.begin() as db:
+        lead = db.scalar(select(FacebookLead))
+        lead.interest_type, lead.specialty = "service_offer", "Yeso"
+
+    replies = []
+    monkeypatch.setattr("app.facebook_chat_worker.graph_send",
+                        lambda *args: replies.append(args[2]) or "synthetic-continuity")
+    monkeypatch.setattr("app.facebook_chat_worker._contextual_reply", lambda *args, **kwargs: (
+        (Turn(i="intake", q="none", r="Perfecto.", d=[]), [], None), "fallback", {}, "invalid_reply",
+    ))
+    assert incoming(network, "Puedo trabajar en Hualqui", mid="saved-commune").status_code == 200
+    with sessions.begin() as db:
+        assert db.scalar(select(FacebookLead)).work_communes == ["Hualqui"]
+        job = db.scalar(select(FacebookChatMessage).where(FacebookChatMessage.state == "ai_pending"))
+        job.updated_at = utcnow() - timedelta(seconds=3)
+
+    assert process_chat_next(sessions)
+    assert replies == ["¿Trabajas solo o puedes venir con otras personas?"]
+    with sessions() as db:
+        lead = db.scalar(select(FacebookLead))
+        assert not lead.needs_support and not lead.ai_paused
