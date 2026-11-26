@@ -647,6 +647,23 @@ def process_chat_next(session_factory=SessionLocal, *, simulation_config=None, n
                         if followup and acceptable_intake_draft(followup, saved_facts):
                             body, source, failed_ai = followup, "local", False
                             trace["verified_guidance"] = "saved_intake"
+                if (failed_ai and not requested_handoff and not requires_verified_details
+                        and focus and contextual.is_declaration_turn(structured_fragments)):
+                    # New trades were already persisted independently of Qwen. A
+                    # rejected draft should not pause a person merely because
+                    # they added "Y eif" to an earlier occupational list.
+                    # Confirm only facts linked to this exact inbound message.
+                    new_trades = list(db.scalars(select(FacebookLeadTrade.trade).where(
+                        FacebookLeadTrade.lead_id == current.id,
+                        FacebookLeadTrade.source_remote_id == focus.remote_id,
+                        FacebookLeadTrade.active.is_(True),
+                    ).order_by(FacebookLeadTrade.trade).limit(5)))
+                    if new_trades:
+                        body = ("Perfecto, también anoté " + ", ".join(new_trades)
+                                + " entre tus trabajos.")
+                        source, failed_ai = "local_recovery", False
+                        trace["verified_guidance"] = "saved_trade_confirmation"
+                        trace["model_error"] = True
                 if requested_handoff:
                     flag_for_human(db, current, "Solicitó atención humana")
             if failed_ai:
