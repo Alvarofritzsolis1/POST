@@ -589,3 +589,71 @@ def test_compound_payment_question_is_answered_without_guessing_terms(network, m
         lead = db.scalar(select(FacebookLead))
         assert lead.needs_support is False and lead.ai_paused is False
 
+def test_cuento_con_equipo_burst_does_not_force_human(network, monkeypatch):
+    """The production-style presentation cannot be lost to a drafting outage."""
+    from app.galancito_links import trade_terms
+    from app.galancito_contextual import field_supported
+    assert set(trade_terms("pintura yeso eifs textura completo")) == {
+        "Pintura", "Yeso", "EIFS", "Textura",
+    }
+    assert field_supported(
+        "team", "yes", "cuento con equipo de trabajo en ambas partidas", "", (),
+    )
+
+    sessions = configure(network, monkeypatch)
+    for i, line in enumerate((
+        "Hola", "Buenas trades",
+        "Le. Ablo por trabajo de pintura yeso eifs textura completo",
+        "Cuento con equipo de trabajo en ambas partidas",
+    ), start=1):
+        assert incoming(network, line, mid=f"contractor-burst-{i}").status_code == 200
+    with sessions.begin() as db:
+        job = db.scalar(select(FacebookChatMessage).where(
+            FacebookChatMessage.direction == "outbound",
+            FacebookChatMessage.state == "ai_pending",
+        ))
+        assert job is not None
+        job.updated_at = utcnow() - timedelta(seconds=3)
+        lead = db.scalar(select(FacebookLead))
+        assert lead.team_available is True
+        assert lead.workers is None
+        assert not lead.needs_support
+
+    delivered = []
+    monkeypatch.setattr("app.facebook_chat_worker.graph_send",
+                        lambda *args: delivered.append(args[2]) or "contractor-team-ack")
+    monkeypatch.setattr("app.facebook_chat_worker.graph_sender_action", lambda *args: None)
+    monkeypatch.setattr("app.facebook_chat_worker._contextual_reply", lambda *args, **kwargs: (
+        (Turn(i="intake", q="none", r="Gracias.", d=[]), [], None),
+        "fallback", {}, "invalid_reply",
+    ))
+    assert process_chat_next(sessions)
+    assert len(delivered) == 1
+    assert "equipo de trabajo" in delivered[0].lower()
+    assert "comuna" in delivered[0].lower()
+    with sessions() as db:
+        lead = db.scalar(select(FacebookLead))
+        assert not lead.needs_support and not lead.ai_paused
+        assert lead.team_available is True and lead.workers is None
+
+
+def test_non_model_professional_presentation_does_not_auto_handoff(network, monkeypatch):
+    """An unconsented message must not invoke Qwen or turn into a human takeover."""
+    sessions = configure(network, monkeypatch)
+    with sessions.begin() as db:
+        lead = db.scalar(select(FacebookLead))
+        lead.ai_consent = False
+        lead.ai_consent_state = "not_requested"
+        lead.ai_consent_provider = "disabled"
+    monkeypatch.setattr(
+        "app.facebook_chat_worker.graph_send",
+        lambda *args: "synthetic-intake-no-consent",
+    )
+    assert incoming(network, "Cuento con equipo de trabajo en ambas partidas",
+                    mid="team-no-consent").status_code == 200
+    with sessions() as db:
+        lead = db.scalar(select(FacebookLead))
+        assert lead.team_available is True and lead.workers is None
+        assert lead.needs_support is False
+        assert lead.ai_paused is False
+
