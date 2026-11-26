@@ -423,7 +423,7 @@ def test_contextual_memory_uses_advert_and_galilea_as_distinct_chat_evidence():
     assert "Respeta la respuesta" in context
 
 
-def test_invalid_model_draft_can_continue_after_the_work_commune_was_saved(network, monkeypatch):
+def test_invalid_model_draft_never_sends_scripted_question_after_commune_saved(network, monkeypatch):
     sessions = configure(network, monkeypatch)
     with sessions.begin() as db:
         lead = db.scalar(select(FacebookLead))
@@ -442,7 +442,25 @@ def test_invalid_model_draft_can_continue_after_the_work_commune_was_saved(netwo
         job.updated_at = utcnow() - timedelta(seconds=3)
 
     assert process_chat_next(sessions)
-    assert replies == ["¿Trabajas solo o puedes venir con otras personas?"]
+    assert replies == []
     with sessions() as db:
         lead = db.scalar(select(FacebookLead))
-        assert not lead.needs_support and not lead.ai_paused
+        assert lead.work_communes == ["Hualqui"]
+        assert lead.needs_support and lead.ai_paused
+
+
+def test_legacy_scripted_trade_question_cannot_reach_meta(network, monkeypatch):
+    sessions = configure(network, monkeypatch)
+    assert incoming(network, "Construcción obras civiles", mid="civil-works").status_code == 200
+    with sessions.begin() as db:
+        job = db.scalar(select(FacebookChatMessage).where(FacebookChatMessage.state == "ai_pending"))
+        job.state, job.body, job.ai_generated = "pending", "¿Qué trabajo realizas?", False
+    monkeypatch.setattr("app.facebook_chat_worker._contextual_reply", lambda *args, **kwargs: (
+        (None, [], None), "fallback", {}, "invalid_reply",
+    ))
+    def unexpected(*args):
+        pytest.fail("A scripted question cannot be sent to Meta")
+    monkeypatch.setattr("app.facebook_chat_worker.graph_send", unexpected)
+    assert process_chat_next(sessions)
+    with sessions() as db:
+        assert db.scalar(select(FacebookLead)).needs_support
