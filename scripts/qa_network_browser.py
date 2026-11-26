@@ -239,7 +239,14 @@ def main():
         # Una sola obra asignada: se muestra la obra sin permitir cambiar el origen.
         expect(drawer.get_by_text(destination["name"], exact=True)).to_be_visible()
         assert drawer.get_by_role("combobox", name="Obra", exact=True).count() == 0
-        drawer.get_by_label("Oficio o especialidad", exact=True).fill("Carpintería")
+        specialty_input = drawer.get_by_label("Oficio o especialidad", exact=True)
+        specialty_input.click()
+        expect(drawer.get_by_role("option", name="Albañilería Obra gruesa")).to_be_visible()
+        assert drawer.locator(".nq-visual-option").count() >= 26
+        specialty_input.fill("gasfiter")
+        expect(drawer.locator(".nq-visual-option").filter(has_text="Gasfitería")).to_be_visible()
+        specialty_input.fill("Carpintería")
+        expect(drawer.get_by_label("Resumen para Facebook", exact=False)).to_have_value("Trabajos de carpintería.")
         drawer.locator(".nq-extra summary").click()
         drawer.get_by_label("Título interno personalizado", exact=True).fill(title)
         drawer.get_by_label("Personas aprox.", exact=True).fill("3")

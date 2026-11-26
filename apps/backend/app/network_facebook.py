@@ -77,15 +77,15 @@ def status_view(db: Session, req: NetworkRequirement) -> dict:
 def public_message(db: Session, req: NetworkRequirement) -> str:
     """Public copy: never expose worksite, title, notes or operational items."""
     lines = [
-        "Buscamos empresas contratistas de " + req.specialty.strip().lower() + ".",
+        "¡Buscamos contratistas de " + req.specialty.strip().lower() + "!",
         "",
         req.public_summary.strip() if req.public_summary else "",
         "",
         "📍 Sector: " + req.public_location,
-        "👷 Dotación estimada: " + str(req.workers) + " personas",
+        "👷 Dotación estimada: " + str(req.workers) + (" persona" if req.workers == 1 else " personas"),
         "📅 Inicio estimado: " + req.start_date.strftime("%d/%m/%Y") if not req.start_date_pending else "",
         "",
-        "¿Tu empresa realiza estos trabajos? Escríbenos por mensaje privado.",
+        "¿Realizas estos trabajos? Escríbenos por mensaje privado.",
         "Convocatoria sujeta a evaluación y adjudicación.",
     ]
     return re.sub(r"\n{3,}", "\n\n", "\n".join(lines)).strip()[:3900]
