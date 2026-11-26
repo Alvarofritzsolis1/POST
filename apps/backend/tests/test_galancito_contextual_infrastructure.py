@@ -671,3 +671,34 @@ def test_team_declaration_after_an_advert_question_keeps_the_speaker_attribution
         assert lead.workers is None
         assert (lead.profile_sources or {}).get("team_available", {}).get("message_id") == "speaker-team-followup"
 
+def test_busy_qwen_queue_preserves_authorized_conversation(network, monkeypatch):
+    """A third contact must not be transferred to a person when two jobs wait."""
+    sessions = configure(network, monkeypatch)
+    with sessions.begin() as db:
+        main = db.scalar(select(FacebookLead))
+        for i in (1, 2):
+            other = FacebookLead(
+                org_id=main.org_id, page_id=main.page_id, psid=f"synthetic-backlog-{i}",
+                ai_consent=True, ai_consent_provider="ollama", ai_consent_state="accepted",
+            )
+            db.add(other)
+            db.flush()
+            db.add(FacebookChatMessage(
+                org_id=main.org_id, lead_id=other.id, page_id=main.page_id,
+                direction="outbound", state="ai_pending", body="", ai_generated=True,
+            ))
+    assert incoming(network, "Cuento con equipo de trabajo en ambas partidas",
+                    mid="busy-queue-contact").status_code == 200
+    with sessions() as db:
+        main = db.scalar(select(FacebookLead).where(
+            FacebookLead.psid == "123456789012345",
+        ))
+        assert main.team_available is True and main.workers is None
+        assert not main.needs_support and not main.ai_paused
+        jobs = list(db.scalars(select(FacebookChatMessage).where(
+            FacebookChatMessage.state == "ai_pending",
+            FacebookChatMessage.direction == "outbound",
+        )))
+        assert len(jobs) == 3
+        assert any(job.lead_id == main.id for job in jobs)
+
