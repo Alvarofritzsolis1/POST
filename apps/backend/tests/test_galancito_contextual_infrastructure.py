@@ -510,7 +510,12 @@ def test_paint_plaster_putty_and_eifs_across_messages_are_additive(network, monk
     assert process_chat_next(sessions)
     assert delivered == ["Perfecto, también anoté EIFS entre tus trabajos."]
     with sessions() as db:
+        from app.galancito_knowledge_models import AssistantRun
         assert not db.scalar(select(FacebookLead)).needs_support
+        run = db.scalar(select(AssistantRun).order_by(AssistantRun.created_at.desc()).limit(1))
+        assert run is not None and run.source == "local_recovery"
+        assert run.timings.get("model_error") is True
+        assert run.timings.get("verified_guidance") == "saved_trade_confirmation"
 
 
 def test_joined_experience_units_and_natural_operator_question(network, monkeypatch):
@@ -521,6 +526,8 @@ def test_joined_experience_units_and_natural_operator_question(network, monkeypa
     prompt = "Excelente hace cuanto trabajas como contratista?"
     assert "experience" in intake_question_fields(prompt)
     assert "interest_type" not in intake_question_fields(prompt)
+    assert "specialty" in intake_question_fields("¿Usted qué trabajo realiza?")
+    assert "specialty" in intake_question_fields("¿Qué labores realiza?")
     with sessions.begin() as db:
         lead = db.scalar(select(FacebookLead))
         lead.ai_paused = True
