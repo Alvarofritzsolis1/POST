@@ -714,7 +714,7 @@ def process_chat_next(session_factory=SessionLocal, *, simulation_config=None, n
                        intent=intent, started=started, db_ms=db_ms,
                        timings={**timings, **trace, "graph_calls": graph_calls, "outbound_queue_ms": outbound_queue_ms,
                                 "conversation_ms": max(0, round((outcome_at - aware(inbound_at)).total_seconds() * 1000)),
-                                "delivery_error": not bool(result_id), "model_error": failed_ai,
+                                "delivery_error": not bool(result_id), "model_error": bool(failed_ai or trace.get("model_error")),
                                 "outbound_message_id": row.id})
         if automated_reply and not result_id:
             if contact:
