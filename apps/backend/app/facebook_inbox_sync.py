@@ -35,7 +35,7 @@ from .galancito_memory import (
     apply_messenger_message, approved_trade_aliases, aware, prior_delivered_prompt, profile_facts,
     capture_voluntary_contact, professional_message, recover_missing_contact,
 )
-from .galancito_triage import (analyze, private_data, quick_reply, everyday_question_reply, application_ai_candidate,
+from .galancito_triage import (private_data, quick_reply, everyday_question_reply, application_ai_candidate,
                               payment_guidance, worksite_payment_terms_question)
 from .galancito_phone import confirmed_phone_reply, introducing_phone_number, phone_question_when_agreed
 from .models import Organization, utcnow
@@ -302,19 +302,9 @@ def sync_page_inbox(*, page_id: str, page_token: str, org_id: str,
                     else:
                         reply = intake or quick_reply(body, known=facts)
                     state = "pending"
-                # Recovery must obey the same model-only question policy as the webhook.
-                if (consented_for(lead, configured) and contextual.eligible(body)
-                        and not (location or follow_up or worksite_payment_terms_question(body) or identity_reply(body))):
-                    state, reply = "ai_pending", ""
-                if state == "pending" and reply and "?" in reply:
-                    if consented_for(lead, configured) and not private_data(body) and not lead.needs_support:
-                        state, reply = "ai_pending", ""
-                    else:
-                        reply = None
                 if state == "pending" and not reply:
-                    if analyze(body).intent not in {"trade_offer", "capacity", "company_offer", "job_seeker"} or "?" in body or private_data(body):
-                        flag_for_human(db, lead,
-                                       "Galancito no encontró una respuesta confirmada; revisión humana pendiente")
+                    flag_for_human(db, lead,
+                                   "Galancito no encontró una respuesta confirmada; revisión humana pendiente")
                     continue
                 db.add(FacebookChatMessage(
                     org_id=org_id, lead_id=lead.id, page_id=page_id,
