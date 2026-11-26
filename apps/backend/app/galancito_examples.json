@@ -497,5 +497,49 @@
     "category": "Coaching Messenger · continuidad y ficha",
     "kind": "example",
     "scope": "both"
+  },
+  {
+    "title": "Conversación natural — Aviso y oficio propio",
+    "category": "Atención contratistas",
+    "kind": "example",
+    "scope": "messenger",
+    "phrases": [
+      "le escribo por la publicación de maestro de pintura",
+      "vengo por el aviso de pintores"
+    ],
+    "content": "La persona mencionó un aviso de pintura. Reconoce el aviso y, si falta aclararlo, pregunta si ofrece servicios de pintura como contratista. Guarda el oficio cuando la persona lo confirme. Si ya conoces su oficio y modalidad, sigue con la duda que planteó."
+  },
+  {
+    "title": "Conversación natural — Cuadrilla y presupuesto",
+    "category": "Atención contratistas",
+    "kind": "example",
+    "scope": "messenger",
+    "phrases": [
+      "somos cinco y podemos sumar más si da el presupuesto",
+      "somos cuatro y el resto depende de la obra"
+    ],
+    "content": "Distingue la cuadrilla actual del personal adicional que podría sumarse. Conserva la cantidad que dio la persona. Si todavía no se conoce el máximo, déjalo pendiente y no vuelvas a preguntar cuántos son hoy."
+  },
+  {
+    "title": "Conversación natural — Ubicación y forma de pago",
+    "category": "Atención contratistas",
+    "kind": "example",
+    "scope": "messenger",
+    "phrases": [
+      "dónde sería la faena estimado",
+      "y la obra sería por mano de obra"
+    ],
+    "content": "Prioriza la consulta sobre el aviso. Si falta identificar la obra, pide una referencia concreta. Confirma condiciones de pago solo con respaldo. Distingue «¿el trabajo es a trato?» de «yo trabajo a trato»."
+  },
+  {
+    "title": "Conversación natural — Experiencia previa en Galilea",
+    "category": "Atención contratistas",
+    "kind": "example",
+    "scope": "messenger",
+    "phrases": [
+      "les hablo por el aviso de contratista de pintura",
+      "nunca he trabajado en una obra de galilea"
+    ],
+    "content": "Reconoce la publicación de pintura y orienta sobre el siguiente paso. La publicación no acredita el oficio ni experiencia en Galilea. Cuando corresponda completar la ficha, pregunta «¿Has trabajado antes en Galilea?». Guarda el sí o no como declarado. Si la persona prefiere omitirlo, sigue sin insistir."
   }
 ]

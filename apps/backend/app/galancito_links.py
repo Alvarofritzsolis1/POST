@@ -49,6 +49,20 @@ def trade_terms(value: str) -> list[str]:
     return list(dict.fromkeys(found))
 
 
+_NOTICE_TRADE = re.compile(
+    r"\b(?:aviso|publicaci[oó]n|anuncio|oferta|vacante)\s+(?:de|para)\s+([^,.!?;:\n]+)", re.I
+)
+_PERSONAL_TRADE = re.compile(r"\b(?:yo|soy|soi|hago|ofrezco|trabajo en)\b", re.I)
+
+
+def advertised_trade(message: str) -> str | None:
+    """Read a named trade from an advert reference without attributing it to the sender."""
+    if not asks_about_application(message) or private_data(message) or not (notice := _NOTICE_TRADE.search(message)):
+        return None
+    trades = trade_terms(_PERSONAL_TRADE.split(notice[1], maxsplit=1)[0])
+    return trades[0] if len(trades) == 1 else None
+
+
 _OWN_TRADE = re.compile(
     r"\b(?:soy|soi|trabajo|trabajamos|hago|hacemos|ofrezco|ofresco|instalo|reparo|"
     r"me dedico|me manejo|le pego|tengo experiencia|trabajar en|quiero ofrecer|"

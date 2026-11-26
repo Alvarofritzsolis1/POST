@@ -224,7 +224,8 @@ def test_project_question_before_sharing_phone_gets_a_project_reply(network, mon
                         "Te dejo el aviso: https://www.facebook.com/1489275590928529_123456")
 
 
-def test_location_question_asks_for_notice_before_any_provider_and_uses_public_data(network, monkeypatch):
+@pytest.mark.parametrize("question", ["donde queda ubicada la obra", "Donde sería el trabajo amigo"])
+def test_location_question_asks_for_notice_before_any_provider_and_uses_public_data(network, monkeypatch, question):
     from app.facebook_worksite_reply import ASK_WORKSITE
     from app.galancito_knowledge import search_value
     from app.galancito_knowledge_models import Knowledge
@@ -243,7 +244,7 @@ def test_location_question_asks_for_notice_before_any_provider_and_uses_public_d
     monkeypatch.setattr("app.facebook_chat_worker.generate_text",
                         lambda *_args: pytest.fail("No debe llamar a IA para contestar ubicación."))
 
-    assert incoming(n, "donde queda ubicada la obra", mid="location-question").status_code == 200
+    assert incoming(n, question, mid="location-question").status_code == 200
     assert process_chat_next(n["Session"])
     assert pending == [ASK_WORKSITE]
     assert _detail(n)["lead"]["ai_consent_state"] == "not_requested"
@@ -264,7 +265,9 @@ def test_location_question_asks_for_notice_before_any_provider_and_uses_public_d
         db.add(Knowledge(org_id=org_id, updated_by=n["a_user"]["id"], title=title,
                          kind="faq", scope="messenger", content=answer, phrases=[phrase],
                          status="approved", search_text=search_value(title, answer, [phrase])))
-    assert incoming(n, "en q comuna queda la obra Brisas de Junquillar", mid="location-approved").status_code == 200
+    follow_up = ("en q comuna queda la obra Brisas de Junquillar"
+                 if question.startswith("donde queda") else question)
+    assert incoming(n, follow_up, mid="location-approved").status_code == 200
     assert process_chat_next(n["Session"])
     assert pending[-1] == answer
     assert not process_chat_next(n["Session"])

@@ -16,7 +16,7 @@ from .galancito_intake import (
     pending_professional_questions,
 )
 from .galancito_links import audit_event, canonical_trade, record_declared_trades
-from .galancito_knowledge import evidence_context
+from .galancito_knowledge import conversation_example, evidence_context
 from .galancito_local import generate_local_text, MAX_CONTEXT_CHARS
 from .galancito_memory import aware, note_profile_sources, messenger_prompt_text
 from .galancito_semantic import CORRECTION
@@ -126,6 +126,11 @@ def memory_text(facts, turns, fragments, prior, evidence, guide):
               if key not in {"display_name", "turn_changed", "manual_fields"}
               and val not in (None, "", [], {}, "unknown")}
     lines = ["Ficha acumulada: " + json.dumps(fields, ensure_ascii=False)]
+    declared_context = facts.get("declared_context", {})
+    if declared_context.get("notice_trade"):
+        lines.append("notice_trade describe el aviso consultado. No confirma el oficio propio.")
+    if "worked_at_galilea" in declared_context:
+        lines.append("La experiencia previa en Galilea ya se trató. Respeta la respuesta o reserva de la persona.")
     current_ids = {item.message_id for item in fragments}
     recent = []
     for item in turns:
@@ -144,7 +149,12 @@ def memory_text(facts, turns, fragments, prior, evidence, guide):
         lines.append("Referencia de GALANT: " + text[:450])
     if guide and guide.explanation and (text := messenger_prompt_text(guide.explanation)):
         lines.append("Orientación aprobada: " + text[:300])
-    return "\n".join(lines)[:1650], len(recent)
+    context = "\n".join(lines)
+    if fragments and (example := conversation_example(fragments[-1].text, prior)):
+        coaching = "\nEjemplo de práctica, no información de la obra: " + example
+        if len(context) + len(coaching) <= 1650:
+            context += coaching
+    return context[:1650], len(recent)
 
 
 def request_attribution(fragments, options):

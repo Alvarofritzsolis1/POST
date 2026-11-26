@@ -25,13 +25,15 @@ def assistance_signal(message: str, is_audio: bool = False,
     if is_audio:
         return "Solicitó comunicación por audio; requiere atención humana para escucharlo"
     text = _normal(message)
-    # In a job-ad dialogue, "no cacho" is a request for a simpler
-    # explanation; it isn't proof that a person requires human intervention.
+    # A basic clarification about an advert or a known interview question
+    # can be answered locally in simpler words.
     # Explicit requests for a person are handled independently.
     if prior_prompt and text in {"no cacho", "no entiendo", "no comprendo",
-                                 "no se", "nose", "no recuerdo", "no me acuerdo"}:
+                                 "no se", "nose", "no recuerdo", "no me acuerdo",
+                                 "no entiendo la pregunta"}:
+        from .galancito_intake import intake_question_fields
         from .galancito_triage import referring_to_application
-        if referring_to_application(prior_prompt):
+        if referring_to_application(prior_prompt) or "worked_at_galilea" in intake_question_fields(prior_prompt):
             return None
     if re.search(r"\b(no necesito ayuda|ya entiendo|no tengo dudas)\b", text):
         return None

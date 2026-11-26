@@ -269,3 +269,16 @@ def test_channel_evidence_cannot_be_relabelled():
     assert supported_declarations([raw], (fragment,)) == []
     raw = Declaration(f="channel", v="email", e="correo")
     assert supported_declarations([raw], (fragment,)) == [("channel", "email", fragment)]
+
+
+def test_contextual_memory_uses_advert_and_galilea_as_distinct_chat_evidence():
+    from app.galancito_contextual import memory_text
+
+    fragments = (Fragment("synthetic-ad", utcnow(), "les hablo por el aviso de contratista de pintura"),)
+    profile = {"declared_context": {"notice_trade": "Pintura", "worked_at_galilea": False}}
+    context, _ = memory_text(profile, (), fragments, "", (), None)
+
+    assert '"worked_at_galilea": false' in context
+    assert "aviso consultado" in context and "oficio propio" in context
+    assert "Ejemplo de práctica" in context
+    assert "Respeta la respuesta" in context

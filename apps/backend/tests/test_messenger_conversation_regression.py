@@ -240,3 +240,183 @@ def test_messenger_identity_is_transparent_without_unprompted_assistant_name():
     options = safe_ai_reply("¿Buscas empleo (1) u ofreces servicios (2)?")
     assert "Buscas empleo" in options
     assert "(1)" not in options and "(2)" not in options
+
+
+def test_contractor_crew_count_and_conditional_capacity_are_kept(network, monkeypatch):
+    n = network
+    _local_messenger(n, monkeypatch)
+    sent = []
+    monkeypatch.setattr("app.facebook_chat_worker.graph_send",
+                        lambda *args: sent.append(args[2]) or f"synthetic-crew-{len(sent)}")
+
+    for index, message in enumerate((
+        "Hola, soy contratista de pintura",
+        "Tengo una cuadrilla somos 4 que necesita hacer",
+        "Según el presupuesto se puede contratar más personas",
+    )):
+        assert incoming(n, message, f"crew-{index}").status_code == 200
+        process_chat_next(n["Session"])
+
+    detail = _contact(n)["lead"]
+    assert detail["specialty"] == "Pintura"
+    assert detail["workers"] == 4
+    assert detail["team_available"] is True
+    assert detail["has_employees"] is None
+    with n["Session"]() as db:
+        lead = db.get(FacebookLead, detail["id"])
+        context = lead.profile_sources["_declared_context"]
+        assert context["crew_expandable"]["value"] is True
+    assert "cuántas personas" not in " ".join(sent).lower()
+
+
+def test_trade_in_a_colloquial_ad_reference_does_not_fill_the_profile(network, monkeypatch):
+    n = network
+    _local_messenger(n, monkeypatch)
+    sent = []
+    monkeypatch.setattr("app.facebook_chat_worker.graph_send",
+                        lambda *args: sent.append(args[2]) or f"synthetic-ad-reference-{len(sent)}")
+
+    message = "Buenas noches te hablo por la publicación de contratista pintor"
+    assert incoming(n, message, "ad-reference").status_code == 200
+    assert process_chat_next(n["Session"])
+    detail = _contact(n)["lead"]
+    assert not detail["specialty"] and detail["profile"]["notice_trade"] == "Pintura"
+    assert sent == ["Gracias por escribir por el aviso de pintura. ¿Ofreces servicios de pintura como contratista?"]
+
+    # Recover the same interest from a conversation received before this version.
+    with n["Session"].begin() as db:
+        lead = db.get(FacebookLead, detail["id"])
+        lead.profile_sources = {"_declared_context": {}}
+    repaired = n["send"](n["admin"], f'/facebook/leads/{detail["id"]}/refresh-profile', {})
+    assert repaired.status_code == 200
+    assert repaired.json()["profile"]["notice_trade"] == "Pintura"
+    assert not repaired.json()["specialty"]
+    assert not process_chat_next(n["Session"])
+
+    assert incoming(n, "Sí po", "ad-confirmation").status_code == 200
+    assert process_chat_next(n["Session"])
+    detail = _contact(n)["lead"]
+    assert detail["specialty"] == "Pintura" and detail["interest_type"] == "service_offer"
+    assert sent[-1] == "¿En qué comuna puedes trabajar?"
+
+
+@pytest.mark.parametrize("approved", [False, True])
+@pytest.mark.parametrize("consented", [False, True])
+def test_colloquial_worksite_payment_requires_verified_terms(network, monkeypatch, approved, consented):
+    from app.galancito_knowledge import search_value
+    from app.galancito_knowledge_models import Knowledge
+
+    n = network
+    _local_messenger(n, monkeypatch)
+    sent = []
+    monkeypatch.setattr("app.facebook_chat_worker.graph_send",
+                        lambda *args: sent.append(args[2]) or f"synthetic-terms-{len(sent)}")
+    message = "Y la pega es a trató"
+    answer = "El aviso de práctica indica pago por jornada."
+    assert incoming(n, "Vi un aviso para trabajar", "terms-ad").status_code == 200
+    assert process_chat_next(n["Session"])
+    assert len(sent) == 1 and "aviso" in sent[0].lower()
+    with n["Session"].begin() as db:
+        lead = db.scalar(select(FacebookLead))
+        if consented:
+            lead.ai_consent = True
+            lead.ai_consent_state = "accepted"
+            lead.ai_consent_provider = "ollama"
+        if approved:
+            title = "Modalidad de pago del aviso"
+            db.add(Knowledge(org_id=lead.org_id, updated_by=n["a_user"]["id"], title=title,
+                             kind="faq", scope="messenger", content=answer, phrases=[message],
+                             status="approved", search_text=search_value(title, answer, [message])))
+    monkeypatch.setattr("app.facebook_chat_worker.generate_text",
+                        lambda *_args: pytest.fail("Las condiciones del aviso requieren una respuesta aprobada"))
+
+    assert incoming(n, message, "terms-question").status_code == 200
+    assert process_chat_next(n["Session"]) is approved
+    assert not process_chat_next(n["Session"])
+    lead = _contact(n)["lead"]
+    assert lead["needs_support"] is (not approved)
+    assert lead["ai_paused"] is (not approved)
+    assert lead["ai_consent_state"] == ("accepted" if consented else "not_requested")
+    assert sent[1:] == ([answer] if approved else [])
+
+
+@pytest.mark.parametrize("message", [
+    "Yo trabajo a trato", "Realizo trabajos por obra vendida o mano de obra",
+    "La pega es a trato y quedé conforme", "Somos 4 maestros a jornada",
+    "A todo esto, ¿se paga por avance?",
+])
+def test_worksite_payment_questions_do_not_swallow_offer_terms(message):
+    from app.galancito_triage import worksite_details_question
+
+    assert not worksite_details_question(message)
+
+
+@pytest.mark.parametrize("answer, value, state", [
+    ("Sí po", True, "confirmado_por_declaracion"),
+    ("Todavía no", False, "confirmado_por_declaracion"),
+    ("Prefiero no responder", None, "rechazado_por_usuario"),
+])
+def test_galilea_question_is_asked_once_and_saved_with_evidence(network, monkeypatch, answer, value, state):
+    from app.galancito_intake import GALILEA_QUESTION, acceptable_intake_draft
+    from app.galancito_memory import profile_facts
+
+    n = network
+    _local_messenger(n, monkeypatch)
+    sent = []
+    monkeypatch.setattr("app.facebook_chat_worker.graph_send",
+                        lambda *args: sent.append(args[2]) or f"synthetic-galilea-{len(sent)}")
+    assert incoming(n, "Buenas tardes", "galilea-greeting").status_code == 200
+    assert process_chat_next(n["Session"])
+    with n["Session"].begin() as db:
+        lead = db.scalar(select(FacebookLead))
+        lead.interest_type = "service_offer"
+        lead.specialty = "Pintura"
+        lead.team_available, lead.workers = True, 4
+        lead.experience = "5 años"
+        lead.work_area = "Coronel"
+        lead.work_communes = ["Coronel"]
+
+    assert incoming(n, "Puedo partir mañana", "galilea-availability").status_code == 200
+    assert process_chat_next(n["Session"])
+    assert sent[-1] == GALILEA_QUESTION
+    if value is True:
+        assert incoming(n, "No cacho", "galilea-clarify").status_code == 200
+        assert process_chat_next(n["Session"])
+        assert "alguna vez en una obra de Galilea" in sent[-1]
+    assert incoming(n, answer, "galilea-answer").status_code == 200
+    assert process_chat_next(n["Session"])
+    assert sent.count(GALILEA_QUESTION) == 1
+
+    detail = _contact(n)["lead"]
+    profile = detail["profile"]
+    experience = profile["declared_context"]["worked_at_galilea"]
+    assert experience["value"] is value
+    assert experience["state"] == state and experience["message_id"] == "galilea-answer"
+    assert "Experiencia previa en Galilea" not in profile["missing"]
+    assert profile["galilea_experience"] == {
+        True: "Sí, declarado", False: "No, declarado", None: "Prefirió no responder",
+    }[value]
+    assert detail["documents_state"] == "unverified"
+    with n["Session"]() as db:
+        facts = profile_facts(db.get(FacebookLead, detail["id"]))
+    assert not acceptable_intake_draft("¿Has trabajado en Galilea?", facts)
+    assert not acceptable_intake_draft("¿Has trabajado alguna vez en una obra de Galilea?", facts)
+
+
+@pytest.mark.parametrize("message", [
+    "Vengo por el aviso de una obra de Galilea",
+    "Mi cuadrilla conoce a alguien que trabajó en Galilea",
+    "¿Trabajaron en Galilea?",
+    "Si trabajé en Galilea tendría que revisar los papeles",
+    "Quiero trabajar en Galilea",
+    "Sí",
+])
+def test_galilea_history_needs_a_personal_declaration_or_a_direct_question(message):
+    from types import SimpleNamespace
+
+    from app.galancito_memory import remember_declared_context
+    from app.models import utcnow
+
+    lead = SimpleNamespace(profile_sources={})
+    assert not remember_declared_context(lead, message, "", remote_id="synthetic", at=utcnow())
+    assert not lead.profile_sources

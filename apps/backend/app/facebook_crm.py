@@ -43,9 +43,10 @@ from .facebook_publication_models import FacebookPostSnapshot, FacebookPostJob
 from .network_service import key, today
 from .galancito_triage import classify_lead, dashboard
 from .security import administrator
-from .galancito_triage import analyze, private_data, quick_reply, everyday_question_reply, application_ai_candidate, payment_guidance
+from .galancito_triage import (analyze, private_data, quick_reply, everyday_question_reply,
+                              application_ai_candidate, payment_guidance, worksite_payment_terms_question)
 from .galancito_intake import (
-    acceptable_intake_draft, declared_relative_start, identity_reply, model_intake_candidate, needs_deeper_response, next_intake_reply, small_talk_reply,
+    GALILEA_QUESTION, acceptable_intake_draft, declared_relative_start, identity_reply, model_intake_candidate, needs_deeper_response, next_intake_reply, small_talk_reply,
     natural_messenger_reply, contact_followup_reply, contact_pending_questions,
 )
 from .galancito_memory import (
@@ -521,6 +522,9 @@ def ingest_facebook_payload(db, payload, cfg, *, notices=None):
             if contextual_turn:
                 direct = None
             ai_source = "disabled" if direct else configured_source
+            facts = profile_facts(lead, changed=changed)
+            intake = (next_intake_reply(body, facts, previous_question)
+                      if not (direct or signal or lead.needs_support or lead.ai_consent_state == "declined") else None)
             recent = db.scalar(select(func.count(FacebookChatMessage.id)).where(
                 FacebookChatMessage.lead_id == lead.id,
                 FacebookChatMessage.direction == "outbound",
@@ -536,9 +540,13 @@ def ingest_facebook_payload(db, payload, cfg, *, notices=None):
                              AI_PERMISSION_DECLINED if lead.ai_consent_state == "declined" else
                              ("Dejé tu consulta para que la revise una persona del equipo. "
                               "Te pueden ayudar por este chat; no necesitas enviar documentos."))
+            elif (not lead.needs_support and lead.ai_consent_state != "declined"
+                    and not private_data(body) and worksite_payment_terms_question(body)):
+                reply = exact_answer(retrieve(db, lead.org_id, body, "messenger"))
+            elif intake == GALILEA_QUESTION:
+                reply = intake
             elif contextual_turn:
-                reply, use_ai = contact_fallback or next_intake_reply(
-                    body, profile_facts(lead, changed=changed), previous_question), True
+                reply, use_ai = contact_fallback or intake, True
             elif direct:
                 reply = direct
             elif contact_model:
@@ -561,15 +569,14 @@ def ingest_facebook_payload(db, payload, cfg, *, notices=None):
                 reply = None
             elif consented_for(lead, ai_source):
                 if not (waiting_for_ai or consent_reply):
-                    reply = next_intake_reply(body, profile_facts(lead, changed=changed), previous_question)
-                use_ai = not reply or model_intake_candidate(body, profile_facts(lead, changed=changed), previous_question, reply)
+                    reply = intake
+                use_ai = not reply or model_intake_candidate(body, facts, previous_question, reply)
             else:
-                facts = profile_facts(lead, changed=changed)
                 if needs_deeper_response(body):
                     if not private_data(body):
                         reply = exact_answer(retrieve(db, lead.org_id, body, "messenger")) or payment_guidance(body)
                 else:
-                    reply = next_intake_reply(body, facts, previous_question) or quick_reply(body, known=facts)
+                    reply = intake or quick_reply(body, known=facts)
             if not use_ai and not reply and not lead.needs_support and lead.ai_consent_state != "declined":
                 flag_for_human(db, lead,
                                "Galancito no encontró una respuesta confirmada; revisión humana pendiente")

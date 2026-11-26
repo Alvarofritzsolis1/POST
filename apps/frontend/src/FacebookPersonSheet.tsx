@@ -28,6 +28,8 @@ type Lead = {
   phone_opt_out?: boolean; contact_email?: string | null;
   email_source?: string | null; email_opt_out?: boolean; can_reply: boolean;
   profile: { summary: string; percent: number; completed:number; total:number; missing: string[]; evidence: string;
+    galilea_experience?: string | null;
+    notice_trade?: string | null;
     declared_context?: {
       crew_size?: { value: string }; declared_origin?: { value: string };
       preferred_contact?: { value: "whatsapp" | "messenger" | "email" };
@@ -367,6 +369,8 @@ export default function FacebookPersonSheet({person,onClose,onChanged,onOpenChat
               <div className="fbps-tags">{[...new Set(lead.trades?.length?lead.trades:
                 (lead.specialty?[lead.specialty]:[]))].map(t=><span key={t} className="fbps-tag trade">{t}</span>)}</div>
               <div className="fbps-fields"><Cell title="Experiencia" value={lead.experience}/>
+                {lead.profile.notice_trade ? <Cell title="Interés en aviso" value={lead.profile.notice_trade}/> : null}
+                <Cell title="Experiencia previa en Galilea" value={lead.profile.galilea_experience}/>
                 <Cell title="Trabaja con equipo" value={lead.team_available===null?"Por confirmar":lead.team_available?"Sí":"No"}/>
                 <Cell title="Cuadrilla declarada" value={lead.profile.declared_context?.crew_size?.value ?? lead.workers}/>
                 <Cell title="Tiene empleados" value={lead.has_employees===null?"Por confirmar":lead.has_employees?"Sí":"No"}/>

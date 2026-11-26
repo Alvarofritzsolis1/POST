@@ -84,12 +84,19 @@ def summarize_conversation(lead, messages: Sequence) -> dict:
     for key, label in (("crew_expandable", "Posibilidad de ampliar cuadrilla"),
                        ("declared_origin", "Procedencia declarada"),
                        ("crew_size", "Tamaño de cuadrilla declarado"),
-                       ("preferred_contact", "Canal de contacto preferido")):
+                       ("preferred_contact", "Canal de contacto preferido"),
+                       ("worked_at_galilea", "Experiencia previa en Galilea"),
+                       ("notice_trade", "Aviso consultado")):
         origin = context.get(key) or {}
         val = origin.get("value")
         if val is None:
             continue
-        value = ("Sí; cantidad adicional no confirmada" if val else "No") if key == "crew_expandable" else _clean(str(val), 60)
+        if key == "crew_expandable":
+            value = "Sí; cantidad adicional no confirmada" if val else "No"
+        elif key == "worked_at_galilea":
+            value = "Sí" if val else "No"
+        else:
+            value = _clean(str(val), 60)
         if value and not private_data(value):
             fields.append({"key": key, "label": label, "value": value, "source": "chat",
                            "at": origin.get("at"), "source_message_id": origin.get("message_id")})

@@ -35,6 +35,8 @@ const sourceLabels: Record<string, string> = {
 type ContactProfile = {
   summary: string; completed: number; total: number; percent: number;
   missing: string[]; next_field: string | null; evidence: string; specialty_origin: string; sources?: Record<string, Evidence>;
+  galilea_experience?: string | null;
+  notice_trade?: string | null;
 };
 type Lead = {
   id: string; name: string; company: string; specialty: string; workers: number | null;
@@ -966,9 +968,12 @@ export default function FacebookCenter({ catalog }: { catalog: Catalog }) {
                 onClick={() => patchLead({name: String(item.value)})}>Confirmar nombre</button>
             </div>)}
             <div className="fbc-summary-data">
-              <div><small>Oficio</small><strong>{lead.specialty || "Por confirmar"}</strong></div>
+              <div><small>{!lead.specialty && lead.profile.notice_trade ? "Interés en aviso" : "Oficio"}</small>
+                <strong>{lead.specialty || lead.profile.notice_trade || "Por confirmar"}</strong></div>
               <div><small>Personas</small><strong>{lead.workers ?? "Sin dato"}</strong></div>
               <div><small>Disponible desde</small><strong>{lead.availability || "Sin confirmar"}</strong></div>
+              <div><small>Experiencia previa en Galilea</small>
+                <strong>{lead.profile.galilea_experience ?? "Por confirmar"}</strong></div>
             </div>
             <div className="fbc-next-action">
               <span><Sparkles size={15} /> Próximo paso sugerido</span>

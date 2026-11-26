@@ -87,7 +87,7 @@ class Intake:
 
 
 _APPLICATION = re.compile(
-    r"\b(?:vi|lei|encontre|me aparecio|me interesa|escribo por|vengo por) "
+    r"\b(?:vi|lei|encontre|me aparecio|me interesa|escribo por|hablo por|vengo por) "
     r"(?:\w+ ){0,3}(?:aviso|publicacion|postulacion|oferta|vacante|anuncio|pega|trabajo)\b|"
     r"\b(?:(?:como|quiero|puedo) (?:puedo )?postul(?:o|ar)(?:me)?|me quiero postular)\b|"
     r"\b(?:informacion|info|detalles|consultar|consulta) (?:\w+ ){0,5}(?:publicacion|aviso|anuncio|oferta|vacante)\b"
@@ -103,6 +103,8 @@ _LEGACY_APPLICATION_PROMPTS = {
 }
 ASK_APPLICATION_INTEREST = "¿Buscas empleo como trabajador o quieres trabajar por tu cuenta como contratista?"
 ASK_APPLICATION_OWN = "Entiendo, buscas trabajo para ti. ¿Trabajas en "
+ASK_CONTRACTOR_TRADE = "¿Ofreces servicios de "
+TRADE_CONFIRMATIONS = {"si", "si claro", "si ese es mi oficio", "si trabajo en eso", "claro", "exacto", "si po", "sipo"}
 ASK_APPLICATION_ROLE_CLARIFY = "¿Quieres un empleo con contrato o tomar trabajos por tu cuenta?"
 _LEGACY_ROLE_PROMPTS = (
     "¿Buscas trabajo para ti o quieres ofrecer tus servicios?",
@@ -186,10 +188,15 @@ def application_role(message: str, prior: str) -> str | None:
     return None
 
 
+def contractor_trade_question(prompt: str) -> bool:
+    return ASK_CONTRACTOR_TRADE in prompt and prompt.endswith(" como contratista?")
+
+
 def application_ai_candidate(message: str, prior: str) -> bool:
     """Contextual role/trade turns should reach the authorized language model."""
     return bool(message and not private_data(message) and not is_pure_greeting(message)
-                and (application_role_question(prior) or prior.startswith(ASK_APPLICATION_OWN))
+                and (application_role_question(prior) or prior.startswith(ASK_APPLICATION_OWN)
+                     or contractor_trade_question(prior))
                 and analyze(message).intent not in {"human", "restricted", "publish"})
 
 
@@ -202,7 +209,8 @@ def referring_to_application(prompt: str) -> bool:
     # buscar enlaces. Las respuestas cortas continúan el mismo tema.
     return (prompt in {ASK_APPLICATION, ASK_APPLICATION_LINK, *_LEGACY_APPLICATION_PROMPTS}
             or application_role_question(prompt)
-            or prompt.startswith(ASK_APPLICATION_OWN))
+            or prompt.startswith(ASK_APPLICATION_OWN)
+            or contractor_trade_question(prompt))
 
 
 def analyze(message: str, trades: dict | None = None) -> Intake:
@@ -268,8 +276,27 @@ _WORKSITE_DETAILS = re.compile(
 )
 
 
+_WORKSITE_PAYMENT_TERMS = re.compile(
+    r"\b(?:la pega|el trabajo|la obra|el aviso|el pago) (?:es|seria|se paga) "
+    r"(?:a trato|por (?:avance|dia|jornada|metro|hora|trato)|(?:por )?(?:obra vendida|mano de obra))\b"
+)
+
+
+def worksite_payment_terms_question(message: str) -> bool:
+    """Distinguish a job's payment terms from services the sender offers."""
+    if any(_WORKSITE_PAYMENT_TERMS.search(plain(question)) for question in _QUESTION_CLAUSE.findall(message)):
+        return True
+    value = plain(message)
+    for opener in ("y ", "queria saber si ", "quiero saber si "):
+        if value.startswith(opener) and _WORKSITE_PAYMENT_TERMS.fullmatch(value[len(opener):]):
+            return True
+    return False
+
+
 def worksite_details_question(message: str) -> bool:
     """Recognize questions about facts a specific job or advert must verify."""
+    if worksite_payment_terms_question(message):
+        return True
     questions = _QUESTION_CLAUSE.findall(message)
     if questions:
         return any(_WORKSITE_DETAILS.search(plain(question)) for question in questions)

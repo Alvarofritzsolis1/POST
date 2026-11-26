@@ -1,5 +1,5 @@
 """Transactional conversational memory shared by Messenger ingestion paths."""
-from datetime import timedelta, timezone
+from datetime import datetime, timedelta, timezone
 import json
 import re
 from types import SimpleNamespace
@@ -9,7 +9,8 @@ from sqlalchemy import select
 
 from .facebook_crm_models import FacebookChatMessage, FacebookTradeGuide
 from .galancito_intake import (
-    UNKNOWN_NAMES, apply_intake, conversation_context, needs_deeper_response, requested_relative_start, unanswered_intake_question,
+    UNKNOWN_NAMES, apply_intake, conversation_context, intake_question_fields, needs_deeper_response,
+    requested_relative_start, unanswered_intake_question,
     unresolved_declarations,
 )
 from .galancito_knowledge import evidence_context, conversation_example
@@ -19,9 +20,10 @@ from .galancito_semantic import consume_confirmation
 from .galancito_communes import find_communes
 from .galancito_contact_email import redact_email_for_intake, remember_shared_email, email_shared_by_sender, REFUSAL
 from .galancito_phone import redact_mobile_for_intake, remember_shared_phone, phone_shared_by_sender, phone_declined
-from .galancito_links import audit_event, record_declared_trades, trade_declarations, trade_terms
+from .galancito_links import advertised_trade, audit_event, record_declared_trades, trade_declarations, trade_terms
 from .galancito_triage import (ASK_APPLICATION_OWN, application_role, application_role_question,
-                              analyze, asks_about_application, plain, private_data, referring_to_application, ambiguous_application_role)
+                              analyze, asks_about_application, declaration_text, plain, private_data, referring_to_application,
+                              ambiguous_application_role, TRADE_CONFIRMATIONS, contractor_trade_question)
 
 FIELDS = (
     "display_name", "name_opt_out", "specialty", "entity_type", "interest_type",
@@ -39,13 +41,16 @@ def aware(timestamp):
 
 
 def profile_facts(lead, *, changed=False) -> dict:
+    context = (lead.profile_sources or {}).get("_declared_context") or {}
     return {**{field: getattr(lead, field) for field in FIELDS},
             "field_states": {field: evidence.get("state") for field, evidence in (lead.profile_sources or {}).items()
                              if field in FIELDS and evidence.get("state")},
             "manual_fields": [field for field, origin in (lead.profile_sources or {}).items()
                               if field in FIELDS and origin.get("source") == "manual"],
             "turn_changed": changed,
-            "declared_context": {k: v.get("value") for k, v in ((lead.profile_sources or {}).get("_declared_context") or {}).items() if isinstance(v, dict) and k in {"crew_expandable", "declared_origin", "crew_size", "preferred_contact"}},
+            "declared_context": {key: item.get("value") for key, item in context.items() if isinstance(item, dict)
+                                 and key in {"crew_expandable", "declared_origin", "crew_size",
+                                             "preferred_contact", "worked_at_galilea", "notice_trade"}},
             # Only contact availability flags, never the phone or email itself.
             "contact_available": bool(getattr(lead, "contact_phone", "") or getattr(lead, "contact_email", "")),
             "contact_declined": bool(getattr(lead, "phone_opt_out", False) or getattr(lead, "email_opt_out", False)),
@@ -156,6 +161,8 @@ def messenger_context(message, facts, prior, turns, evidence, guide=None, *, lim
         "La procedencia declarada no confirma dónde puede trabajar. Una cuadrilla ampliable no confirma más integrantes ni personal contratado. Usa estos datos para no repetir preguntas.",
         "Datos profesionales declarados: " + json.dumps(public, ensure_ascii=False),
     ]
+    if public.get("declared_context", {}).get("notice_trade"):
+        parts.append("notice_trade describe el aviso consultado. El oficio propio requiere declaración del contacto.")
     if prior:
         parts.append("Última pregunta entregada: " + prior[:220])
     def add(section):
@@ -236,15 +243,43 @@ def approved_trade_aliases(db, org_id):
                                          FacebookTradeGuide.approved.is_(True)).limit(100))}
 
 
+_GALILEA_WORK = re.compile(
+    r"(?P<negative>(?:nunca |jamas |no )|(?:(?:aun|todavia) no ))?"
+    r"(?:trabaje|trabajamos|he trabajado|hemos trabajado|trabajado) "
+    r"(?:(?:antes|alguna vez) )?(?:en |para |con )(?:(?:una |alguna )?obras? de )?galilea\b"
+)
+
+
 def remember_declared_context(lead, message, prior, *, remote_id, at, historical=False):
     """Persist bounded, evidence-linked declarations, not guesses or work coverage."""
     value = plain(message)
     previous = plain(prior)
     current = dict((lead.profile_sources or {}).get("_declared_context") or {})
     proposed = {}
-    if re.search(r"\b(?:no podemos|no puedo|no pueden) (?:ser|llevar|traer|sumar) mas\b", value):
+    if trade := advertised_trade(message):
+        proposed["notice_trade"] = trade
+    statement = plain(declaration_text(message))
+    answer = re.sub(r"^(?:yo |corrijo |aclaro |en realidad )", "", statement, count=1)
+    if re.match(r"\s*(?:sí\b|si\s*,)", message, re.I):
+        answer = answer.removeprefix("si ")
+    if work := _GALILEA_WORK.match(answer):
+        proposed["worked_at_galilea"] = not bool(work["negative"])
+    elif "worked_at_galilea" in intake_question_fields(prior) and "?" not in message and "¿" not in message:
+        if statement in {"si", "si po", "sipo", "si ya", "si antes", "si claro", "claro que si", "si he trabajado"}:
+            proposed["worked_at_galilea"] = True
+        elif statement in {"no", "nop", "no po", "no nunca", "nunca", "aun no", "todavia no", "no todavia", "no he trabajado"}:
+            proposed["worked_at_galilea"] = False
+        elif statement in {"prefiero no responder", "prefiero no decir", "no quiero responder",
+                           "prefiero dejarlo pendiente", "prefiero no contestar", "paso"}:
+            proposed["worked_at_galilea"] = None
+    if re.search(r"\b(?:no podemos|no puedo|no pueden) (?:ser|llevar|traer|sumar|contratar) mas\b", statement):
         proposed["crew_expandable"] = False
-    elif re.search(r"\b(?:pueden|podemos|puedo) (?:ser|llevar|traer|sumar) mas\b", value):
+    elif re.search(r"\b(?:pueden|podemos|puedo) (?:ser|llevar|traer|sumar|contratar) mas\b", statement) or (
+        getattr(lead, "team_available", False)
+        and re.fullmatch(r"(?:(?:segun|depende (?:de)?) (?:el trabajo|la obra|el presupuesto)"
+                         r"(?: y (?:de )?el presupuesto)? )?se puede contratar mas (?:personas|maestros|gente)",
+                         statement)
+    ):
         proposed["crew_expandable"] = True
     origin = re.fullmatch(r"(?:(?:hola|ola|buenas) )?(?:(?:soy|somos) )?de (.+)", value)
     if origin and re.search(r"\bde donde (?:es(?: usted)?|eres|son|viene[n]?)\b", previous):
@@ -258,9 +293,17 @@ def remember_declared_context(lead, message, prior, *, remote_id, at, historical
     changed = False
     for field, fact in proposed.items():
         old = current.get(field) or {}
-        if old.get("source") == "manual" or (historical and "value" in old) or old.get("value") == fact:
+        if old.get("source") == "manual":
             continue
-        current[field] = {"value": fact, "source": "message", "state": "confirmado_por_declaracion",
+        if field in {"worked_at_galilea", "notice_trade"}:
+            if old.get("at") and aware(datetime.fromisoformat(old["at"])) >= aware(at):
+                continue
+        elif "value" in old and (historical or old["value"] == fact):
+            continue
+        state = "rechazado_por_usuario" if fact is None else "confirmado_por_declaracion"
+        if field == "worked_at_galilea" and fact is not None and old.get("value") is not None:
+            state = old.get("state", state) if old["value"] == fact else "corregido"
+        current[field] = {"value": fact, "source": "message", "state": state,
                           "at": at.isoformat(), "message_id": remote_id}
         changed = True
     if changed:
@@ -291,12 +334,11 @@ def apply_messenger_message(db, lead, message, prior, *, remote_id, at, historic
     # Treat an answer to a specific, just-asked question as the person's own
     # declaration, while never turning the advertised trade into experience.
     normalized = plain(message)
-    if prior.startswith(ASK_APPLICATION_OWN) and normalized in {
-            "si", "si claro", "si ese es mi oficio", "si trabajo en eso",
-            "claro", "exacto"}:
+    contractor_confirmation = contractor_trade_question(prior)
+    if (prior.startswith(ASK_APPLICATION_OWN) or contractor_confirmation) and normalized in TRADE_CONFIRMATIONS:
         trade = trade_terms(prior)
         if len(trade) == 1:
-            message = "trabajo en " + trade[0]
+            message = ("soy contratista y hago " if contractor_confirmation else "trabajo en ") + trade[0]
             prior = ""
     elif application_role_question(prior):
         role = application_role(message, prior)
