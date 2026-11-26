@@ -7,7 +7,10 @@ legal employment, suitability, or award work. No external model is required.
 """
 import re
 from datetime import date, timedelta
-from .galancito_triage import analyze, asks_about_application, declaration_text, is_pure_greeting, plain, private_data
+from .galancito_triage import (
+    analyze, asks_about_application, declaration_text, is_pure_greeting, plain, private_data,
+    worksite_details_question,
+)
 from .galancito_links import trade_declarations
 from .galancito_communes import find_communes
 from .galancito_profile_review import declaration_for_review, JOB_ROLES
@@ -792,7 +795,7 @@ def needs_deeper_response(message: str) -> bool:
     """
     if private_data(message):
         return False
-    if asks_about_application(message):
+    if asks_about_application(message) or worksite_details_question(message):
         return True
     text = plain(message)
     if text in {"si", "no", "1", "2", "uno", "dos", "hola", "ola",

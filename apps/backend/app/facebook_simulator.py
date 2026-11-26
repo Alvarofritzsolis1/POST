@@ -13,12 +13,10 @@ from sqlalchemy.orm import Session, sessionmaker
 from .config import settings
 from .db import Base, get_db
 from .facebook_chat_worker import process_chat_next
-from .galancito_contextual import enabled as contextual_enabled
 from .facebook_crm import ingest_facebook_payload
 from .facebook_crm_models import FacebookChatMessage, FacebookLead, FacebookLeadTrade
 from .facebook_worksite_reply import published_notices
 from .galancito_contact_profile import contact_profile
-from .galancito_flow import is_permission_prompt
 from .galancito_intake import UNKNOWN_NAMES
 from .galancito_knowledge_models import AssistantRun
 from .galancito_triage import analyze
@@ -135,7 +133,7 @@ def turn(body: TurnInput, response: Response, user: User = Depends(administrator
                 db.add_all(_restore(model, row) for row in state["rows"].get(model.__tablename__, []))
                 db.flush()
             lead = db.scalar(select(FacebookLead))
-            if lead is None and contextual_enabled(cfg):
+            if lead is None and body.mode == "local":
                 # The operator explicitly chose local inference for this isolated conversation.
                 lead = FacebookLead(org_id=user.org_id, page_id=PAGE, psid=SENDER,
                                     ai_consent=True, ai_consent_state="accepted", ai_consent_provider="ollama")
@@ -152,12 +150,10 @@ def turn(body: TurnInput, response: Response, user: User = Depends(administrator
         process_chat_next(sessions, simulation_config=cfg, notices=notices)
         with sessions() as db:
             lead = db.scalar(select(FacebookLead))
-            outbound = db.scalar(select(FacebookChatMessage).where(
-                FacebookChatMessage.direction == "outbound", FacebookChatMessage.state == "sent",
-                FacebookChatMessage.remote_id.is_not(None),
-            ).order_by(FacebookChatMessage.created_at.desc(), FacebookChatMessage.id.desc()).limit(1))
             run = db.scalar(select(AssistantRun))
-            reply = outbound.body if outbound and run else None
+            outbound_id = (run.timings or {}).get("outbound_message_id") if run else None
+            outbound = db.get(FacebookChatMessage, outbound_id) if outbound_id else None
+            reply = outbound.body if outbound and outbound.state == "sent" else None
             fields, statuses = _profile(db, lead)
             known = {field for field, value in fields.items() if value not in (None, "", "unknown", [])}
             checks = objective_checks({"question": message, "history": history}, reply, known_fields=known) if reply else None
@@ -167,8 +163,7 @@ def turn(body: TurnInput, response: Response, user: User = Depends(administrator
                 "state": jwt.encode({"sub": user.id, "org": user.org_id, "mode": body.mode, "exp": utcnow() + LIFETIME,
                                      "turn": state["turn"] + 1, "rows": rows}, key, algorithm="HS256"),
                 "reply": reply,
-                "source": ("consent" if reply and is_permission_prompt(lead, reply)
-                           else run.source if run else None),
+                "source": run.source if run else None,
                 "intent": run.intent if run and (run.timings or {}).get("contextual_turn") else analyze(message).intent,
                 "elapsed_ms": run.elapsed_ms if run else None,
                 "profile": fields,

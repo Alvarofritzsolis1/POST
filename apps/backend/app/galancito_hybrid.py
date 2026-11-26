@@ -6,7 +6,8 @@ from .ai_gateway import AIServiceError
 from .galancito_triage import plain, private_data
 
 UNKNOWN = re.compile(
-    r"\b(?:no se (?:como responder|que responder|la respuesta)|no tengo (?:informacion|datos) "
+    r"^(?:no se|no lo se)$|\b(?:no se (?:como responder|que responder|la respuesta)|"
+    r"no (?:tengo|cuento con) (?:ese dato|esa informacion)|no tengo (?:informacion|datos) "
     r"(?:suficiente|suficientes)|no puedo (?:responder|resolver|confirmar)|"
     r"no dispongo de (?:informacion|datos)|no tengo una respuesta|"
     r"deje tu consulta para que la revise el equipo|necesito mas informacion)\b"

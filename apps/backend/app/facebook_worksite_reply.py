@@ -1,4 +1,4 @@
-"""Local answers to Messenger questions about the location of a worksite."""
+"""Local answers to Messenger questions about a published worksite."""
 import re
 from datetime import timedelta
 
@@ -19,6 +19,7 @@ from .ops_models import Worksite
 from .galancito_links import trade_terms
 
 ASK_WORKSITE = "¿Cuál obra viste? Mándame el nombre o el link del aviso."
+ASK_PROJECT = "Claro. ¿Recuerdas el nombre de la obra, el trabajo o la comuna del aviso?"
 
 _LOCATION = re.compile(
     r"\b(?:(?:donde|dnde) (?:q(?:u?e)d[ao]|esta|se ubica|se encuentra|ubico|es)|"
@@ -26,6 +27,11 @@ _LOCATION = re.compile(
     r"(?:pasas|mandas|envias|dices) la (?:direccion|ubicacion))\b"
 )
 _TOPIC = re.compile(r"\b(?:obra|obras|aviso|faena|proyecto|pega|trabajo|puesto|convocatoria)\b")
+_PROJECT = re.compile(
+    r"\b(?:(?:me|nos) (?:dice[sn]?|indica[sn]?|cuenta[sn]?) (?:cual es )?(?:el proyecto|la obra|la faena)|"
+    r"cual (?:es|era|seria) (?:el proyecto|la obra|la faena)|"
+    r"de que (?:proyecto|obra|faena) se trata)\b"
+)
 _BARE = re.compile(r"(?:(?:y|hola|ola|buenas|disculpa) )*"
                    r"(?:(?:donde|dnde) (?:(?:q(?:u?e)d[ao]|esta|es)(?: ubicad[ao])?)|"
                    r"en (?:que|q) comuna|(?:la )?(?:ubicacion|direccion)(?: porfa)?)")
@@ -41,6 +47,10 @@ def is_worksite_location(message: str) -> bool:
     return bool(_BARE.fullmatch(value) or (
         _TOPIC.search(value) and (_LOCATION.search(value) or re.match(r"^(?:la )?(?:direccion|ubicacion) ", value))
     ))
+
+
+def is_worksite_question(message: str) -> bool:
+    return is_worksite_location(message) or bool(_PROJECT.search(plain(message)))
 
 
 def _matches_public_notice(message, notices):
@@ -181,8 +191,12 @@ def application_reply(db: Session, lead, message: str, prior_prompt: str = "", *
 
 
 def worksite_reply(db: Session, lead, message: str, prior_prompt: str = "", *, notices=None) -> str | None:
-    follow_up = prior_prompt == ASK_WORKSITE
-    if not (follow_up or is_worksite_location(message)):
+    location_question = is_worksite_location(message)
+    project_question = bool(_PROJECT.search(plain(message)))
+    follow_up = prior_prompt in {ASK_WORKSITE, ASK_PROJECT}
+    if not (follow_up or location_question or project_question):
+        return None
+    if follow_up and not (location_question or project_question) and "?" in message:
         return None
     value = plain(message)
     if (not value or private_data(message) or analyze(message).intent in {"human", "restricted"}
@@ -209,8 +223,10 @@ def worksite_reply(db: Session, lead, message: str, prior_prompt: str = "", *, n
     if len({row.site_name for row in matches}) != 1:
         if follow_up:
             return "No ubiqué ese aviso. ¿Tienes el link de la publicación?"
-        return ASK_WORKSITE
+        return ASK_PROJECT if project_question and not location_question else ASK_WORKSITE
     notice = matches[0]
+    if not location_question and (project_question or prior_prompt == ASK_PROJECT):
+        return f"La obra indicada es {notice.site_name}. Te dejo el aviso: https://www.facebook.com/{notice.post_id}"
     question = "Dónde queda la obra " + notice.site_name
     approved = exact_answer(retrieve(db, lead.org_id, question, "messenger"))
     if approved and not private_data(approved) and approved.count("?") <= 1:

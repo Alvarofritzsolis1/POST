@@ -5,52 +5,22 @@ Text parsing is intentionally narrow to avoid treating casual phrases as permiss
 """
 import unicodedata
 import re
+from hashlib import sha256
 
 ASSISTANT_NAME = "Galancito"
-AI_PERMISSION_QUESTION = (
-    "¡Hola! Soy Galancito de Red de Obras. "
-    "Para orientarte con IA de OpenAI necesito procesar tus mensajes. "
-    "¿Me autorizas? Responde sí o no; si prefieres, te atiende una persona."
-)
-AI_PERMISSION_REASK = (
-    "Para responderte usando IA necesito tu permiso. "
-    "¿Autorizas que use IA de OpenAI con estos mensajes? Escribe SÍ o NO. "
-    "También puedes hablar con una persona."
-)
 AI_PERMISSION_DECLINED = (
     "Entendido, no usaré IA con tus mensajes. "
     "Una persona de GALANT podrá ayudarte. No necesitas enviar documentos por aquí."
 )
 
-
-def _legacy_permission_question(provider: str, repeat: bool = False) -> str:
-    """Recognize prompts already delivered before the wording changed."""
-    if provider == "team":
-        opening = "" if repeat else "¡Hola! Soy Galancito de Red de Obras. "
-        return (opening + "Puedo orientarte usando los proveedores de IA externos "
-                "configurados para este servicio. ¿Me autorizas a procesar allí "
-                "tus mensajes? Responde sí o no. También puede atenderte una persona.")
-    if provider == "ollama":
-        if repeat:
-            return ("¿Me autorizas a usar IA local de GALANT "
-                    "para responderte? Tu mensaje se procesa en nuestro servidor. "
-                    "Escribe SÍ o NO. Si prefieres, te atiende una persona.")
-        return ("Hola, te habla Galancito de GALANT. "
-                "¿Me autorizas a utilizar IA local para responderte? "
-                "Tus mensajes se procesan en nuestro servidor, sin OpenAI. "
-                "Responde SÍ o NO; también puedes hablar con una persona.")
-    return AI_PERMISSION_REASK if repeat else AI_PERMISSION_QUESTION
-
-
-def permission_question(provider: str, repeat: bool = False) -> str:
-    if provider == "ollama":
-        request = ("Si te acomoda, puedo revisar tu consulta con la IA de GALANT en nuestro servidor. ¿Me autorizas?"
-                   if repeat else "Puedo usar la IA local de GALANT. Tu mensaje se procesa en nuestro servidor. ¿Me autorizas?")
-    else:
-        service = "los proveedores de IA externos de GALANT" if provider == "team" else "la IA de OpenAI"
-        request = (f"Para responderte con IA tendría que compartir estos mensajes con {service}. ¿Me autorizas?"
-                   if repeat else f"Puedo revisar tu consulta con {service}. ¿Me autorizas a compartir tus mensajes?")
-    return request + " Si prefieres, te puede atender alguien del equipo."
+# Exact fingerprints of the four notices previously delivered for Ollama.
+# Only a reply to one of those delivered texts can still complete that opt-in.
+_PREVIOUS_LOCAL_NOTICE_HASHES = frozenset({
+    "63f00411ea902cc500576f0582cf8264793d757512c41d9b3347ffce798ede09",
+    "d28a4a388f1fc8a006d1b29ddd91533a2d54bafc5b25360db2a8c9684f372715",
+    "5974f4b251022c2b3b9c4ecf6af67427ed37e1a5deb452a1b1ece06a5bf1f80e",
+    "9627fa3a79fef9a8b45f1e65b5bcce5aaf1400c3f97a4d1a3a99619cff47cbf0",
+})
 
 
 def _plain(message: str) -> str:
@@ -86,18 +56,19 @@ def galancito_prefix(message: str) -> str:
 
 def wants_human(message: str) -> bool:
     """Explicit stop requests are honored even after prior AI consent."""
-    value = _plain(message)
+    value = " ".join(re.sub(r"[,;]+", " ", _plain(message)).split())
     phrases = {
         "no quiero ia", "sin ia", "no usar ia", "no mas ia",
         "prefiero persona", "quiero una persona", "quiero hablar con alguien",
         "hablar con humano", "hablar con un humano", "quiero hablar con un humano",
-        "atencion humana", "deten el bot",
+        "atencion humana", "prefiero atencion humana", "deten el bot",
         "detener bot", "parar bot", "deja de responder", "no mas bot",
         "retirar consentimiento", "revoco mi autorizacion",
         "quiero hablar con una persona", "hablar con administracion",
         "quiero hablar con administracion", "quiero un humano", "humano",
         "me puede atender una persona", "me atiende una persona",
         "quiero que me atienda alguien", "necesito que me atienda una persona",
+        "quiero que me atienda una persona", "pasame con una persona", "necesito alguien del equipo",
         "quiero hablar con alguien del equipo", "quiero hablar con una persona real",
         "necesito una persona real", "necesito hablar con una persona", "necesito hablar con un humano",
         "me pueden pasar con alguien", "quiero atencion de una persona",
@@ -152,6 +123,8 @@ def grounded_reply(draft: str, supplied: str) -> str | None:
     """Bounded guard, not a general proof of factuality: reject new numbers/URLs."""
     text = _plain(draft)
     reference = _plain(supplied)
+    if retired_permission_prompt(draft):
+        return None
     referenced_topics = (r"\b(?:prestamos?|bancos?|creditos?)\b", r"\bformularios?\b")
     if any(re.search(topic, text) and not re.search(topic, reference) for topic in referenced_topics):
         return None
@@ -178,32 +151,25 @@ def consented_for(lead, provider: str) -> bool:
                     "accepted_team" if provider == "team" else "accepted"))
 
 
-def set_permission_request(lead, provider: str, *, repeat=False) -> str:
-    lead.ai_consent = False
-    lead.ai_consent_provider = provider
-    lead.ai_consent_state = "requested_team" if provider == "team" else "requested"
-    return permission_question(provider, repeat=repeat)
+def external_permission_prompt(message: str) -> bool:
+    """Recognize retired notices for external providers, never grant consent."""
+    value = _plain(message)
+    return ("autoriz" in value or "permiso" in value) and (
+        "proveedores de ia externos" in value or "ia de openai" in value)
+
+
+def retired_permission_prompt(message: str) -> bool:
+    """Block the former automatic permission notices and generated equivalents."""
+    value = _plain(message)
+    return external_permission_prompt(message) or (
+        ("autoriz" in value or "permiso" in value)
+        and ("ia local" in value or ("ia de galant" in value and "servidor" in value)))
 
 
 def is_permission_prompt(lead, message: str) -> bool:
-    provider = lead.ai_consent_provider
-    return bool(provider and message in {
-        permission_question(provider), permission_question(provider, repeat=True),
-        _legacy_permission_question(provider), _legacy_permission_question(provider, repeat=True),
-    })
-
-
-def external_permission_prompt(message: str) -> bool:
-    """Match retired automated notices, including previously queued versions."""
-    value = _plain(message)
-    return any(value == _plain(prompt)
-               for provider in ("team", "openai")
-               for repeat in (False, True)
-               for prompt in (permission_question(provider, repeat),
-                              _legacy_permission_question(provider, repeat))) or (
-        "autoriz" in value and
-        ("proveedores de ia externos" in value or "ia de openai" in value)
-    )
+    if lead.ai_consent_provider == "ollama":
+        return sha256(message.encode()).hexdigest() in _PREVIOUS_LOCAL_NOTICE_HASHES
+    return lead.ai_consent_provider in {"team", "openai"} and external_permission_prompt(message)
 
 
 def explain_permission(lead, message: str, previous: str) -> str | None:

@@ -257,6 +257,23 @@ _PAYMENT_QUESTION = re.compile(
     r"(?:se|les|te|me) paga por|pagan por (?:avance|dia|jornada|metro|hora|trato)|"
     r"cual es (?:el (?:pago|sueldo|monto|precio)|la tarifa))\b"
 )
+_WORKSITE_DETAILS = re.compile(
+    r"\b(?:(?:se trabaja|trabajan|hay (?:trabajo|turnos?)) (?:el |los |este |en )?"
+    r"(?:sabados?|domingos?|(?:fin|fines) de semana)|"
+    r"(?:de cuanto[s]? son|cuanto[s]? duran|como son|cuales son) (?:los )?turnos|"
+    r"hay turnos? de (?:dia|noche)|"
+    r"(?:se necesita|hay que|es obligatorio|piden) (?:\w+ ){0,2}(?:casco|licencia)|"
+    r"cuanto (?:se demora|tarda) (?:la |una )?postulacion|"
+    r"(?:sigue|esta) (?:vigente|disponible))\b"
+)
+
+
+def worksite_details_question(message: str) -> bool:
+    """Recognize questions about facts a specific job or advert must verify."""
+    questions = _QUESTION_CLAUSE.findall(message)
+    if questions:
+        return any(_WORKSITE_DETAILS.search(plain(question)) for question in questions)
+    return bool(_WORKSITE_DETAILS.fullmatch(plain(message)))
 
 
 def payment_guidance(message: str) -> str | None:

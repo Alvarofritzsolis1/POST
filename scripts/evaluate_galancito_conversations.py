@@ -26,7 +26,7 @@ DEFAULT_PROFILE = {
 }
 
 EXTRA_PROFILE = {"specialty", "contact_phone", "contact_email", "declared_origin",
-                 "crew_size", "preferred_contact", "needs_support", "has_employees"}
+                 "crew_size", "preferred_contact", "needs_support", "ai_paused", "has_employees"}
 
 KNOWN_FIELD_QUESTIONS = {
     "name": ("cual es tu nombre", "como te llamas", "como prefieres que te llamemos"),
@@ -156,6 +156,7 @@ def run(dataset, source_root, *, real_local=False, contextual=False, loopback=Fa
                             ai_consent=True, ai_consent_state="accepted", ai_consent_provider="ollama"))
                 turns = []
                 pending_inputs = []
+                awaiting_human = False
                 case_model_calls = 0
                 case_model_output = 0
                 for number, turn in enumerate(case["turns"], start=1):
@@ -236,6 +237,14 @@ def run(dataset, source_root, *, real_local=False, contextual=False, loopback=Fa
                               (plain(value) != plain(actual[key] or "") if key in {"crew_size", "declared_origin", "specialty"}
                                and isinstance(value, str) else value != actual[key])}
                     required = turn.get("reply_contains", [])
+                    human_review = bool(actual["needs_support"])
+                    handoff_without_reply = (human_review and actual["ai_paused"]
+                                             and not awaiting_human and len(replies) == 0)
+                    awaiting_human = human_review
+                    # A turn that asks for a delivery must opt in to a silent handoff.
+                    # Required answer content still needs to reach the user.
+                    allows_handoff = (handoff_without_reply and not required
+                                      and (not turn.get("replies", 0) or turn.get("allow_silent_handoff", False)))
                     forbidden = [*turn.get("reply_excludes", []), "ya estás contratado", "te adjudicamos",
                                  "contratación garantizada", "envíame tu RUT"]
                     question = plain(answer.rsplit("¿", 1)[-1]) if "?" in answer else ""
@@ -247,7 +256,7 @@ def run(dataset, source_root, *, real_local=False, contextual=False, loopback=Fa
                         "webhook": response.status_code == 200 and (not turn.get("replay") or replay.status_code == 200),
                         "persisted_once": persisted == 1,
                         "single_coherent_reply": len(replies) <= 1 and answer.count("?") <= 1,
-                        "expected_reply": (not turn.get("flush", True) or bool(answer)) and
+                        "expected_reply": (not turn.get("flush", True) or bool(answer) or allows_handoff) and
                                           all(plain(x) in answer_norm for x in required),
                         "does_not_echo_sender": not any(
                             plain(message) == answer_norm
@@ -262,11 +271,13 @@ def run(dataset, source_root, *, real_local=False, contextual=False, loopback=Fa
                            if "trade_terms" in turn else {}),
                         **({"intent": any(item["intent"] in expected_intents for item in observed)}
                            if expected_intents else {}),
-                        **({"batched": len(replies) == turn["replies"]} if "replies" in turn else {}),
+                        **({"batched": len(replies) == turn["replies"] or allows_handoff}
+                           if "replies" in turn else {}),
                     }
                     turns.append({"turn": number, "message": redact(turn["message"]), "checks": checks,
                                   "profile_errors": redact(errors), "expected_profile": redact(expected),
                                   "extracted_profile": redact(actual), "runs": observed,
+                                  "handoff_without_reply": handoff_without_reply,
                                   "repeated_fields": repeated, "reply": redact(answer),
                                   "elapsed_ms": round(elapsed, 3)})
                     if replies or turn.get("flush", True):

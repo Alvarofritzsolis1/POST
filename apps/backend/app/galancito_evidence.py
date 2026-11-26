@@ -20,7 +20,8 @@ PARTIES = re.compile(r"\b(?:mi|un|una|el|la) (?:vecin[oa]|amig[oa]|herman[oa]|pr
                      r"conocid[oa]|cunad[oa]|companero|companera)\b")
 REPORTED = re.compile(r"\b(?:(?:segun|en) (?:el aviso|la publicacion)|"
                       r"(?:el aviso|la publicacion|la pagina|el sitio|la empresa) "
-                      r"(?:pide|busca|dice|ofrece|tiene|publica))\b")
+                      r"(?:pide|busca|dice|ofrece|tiene|publica)|"
+                      r"(?:vi|lei|dicen|dijeron) que (?:piden|buscan|necesitan|ofrecen))\b")
 SELF = re.compile(r"\b(?:yo|por mi parte|en mi caso|por mi lado)\b")
 BREAK = re.compile(r"[,.;!\n]+|\b(?:pero|mientras que)\b", re.I)
 NEGATED = re.compile(r"^(?:(?:yo|ya) )*no (?:soy|somos|hago|hacemos|tengo|tenemos|"
@@ -34,7 +35,9 @@ OWN_WORK = re.compile(r"\b(?:hago|hacemos|me dedico a|nos dedicamos a|me especia
 WORK_MODE = re.compile(r"^(?:a trato|por mi cuenta|por las mias|por mi propia cuenta|sol[oa])\b")
 EXTRA_TRADES = (("Yeso", ("yeso", "yesero", "yesera", "yesería")),
                 ("Andamios", ("andamio", "andamios", "andamiero")))
-CHANNEL_NAMES = {"wsp": "whatsapp", "wa": "whatsapp", "guasap": "whatsapp"}
+CHANNEL_NAMES = {"wsp": "whatsapp", "wa": "whatsapp", "guasap": "whatsapp",
+                 "wasap": "whatsapp", "watsap": "whatsapp", "guasa": "whatsapp",
+                 "correo": "email", "email": "email", "mail": "email", "correo electronico": "email"}
 
 
 def declaration_segments(text):
@@ -44,7 +47,9 @@ def declaration_segments(text):
         if other := (PARTIES.search(normalized) or REPORTED.search(normalized)):
             own = SELF.search(normalized, other.end())
             normalized = normalized[own.end():].strip() if own else ""
-        if normalized and not NEGATED.search(normalized):
+        if (normalized and not NEGATED.search(normalized)
+                and not (normalized.startswith("no ") and any(
+                    match.start() == 0 for match in trade_mentions(normalized[3:], extra=EXTRA_TRADES)))):
             yield normalized
 
 
@@ -58,7 +63,9 @@ def _quantity_mentions(value):
 
 
 def channel_preference(value):
-    return bool(re.fullmatch(r"[a-z]+", value) or re.search(
+    if re.search(r"\b(?:no|nunca|sin|ejemplo|reservado|hipotetico)\b", value):
+        return False
+    return bool(re.fullmatch(r"[a-z]+(?: electronico)?", value) or re.search(
         r"\b(?:por|prefiero|mandame|manda|escribeme|escribanme|contactame|mi|"
         r"me (?:acomoda|sirve|conviene|queda (?:mas )?comod[oa]))\b", value))
 
@@ -71,6 +78,26 @@ def _channel_mentions(value):
                  get_close_matches(candidate, ("whatsapp", "messenger"), n=1, cutoff=.75))
         if names:
             yield word.start(), "channel", names[0], candidate
+
+
+def explicit_channel_mentions(text):
+    """Recover only unambiguous volunteered channel labels, not conversational intent."""
+    value = plain(text)
+    if ("?" in text or "¿" in text or PARTIES.search(value) or REPORTED.search(value)
+            or re.search(r"\b(?:no|nunca|sin|si|quizas|tal vez|ejemplo|reservado|otro|otra)\b", value)):
+        return []
+    # A short channel label is common after a voluntarily shared phone number.
+    mentions = list(_channel_mentions(value))
+    if len({item[2] for item in mentions}) != 1:
+        return []
+    for _, _, channel, evidence in mentions:
+        if (value in CHANNEL_NAMES or value in {"whatsapp", "messenger"}
+                or re.search(r"\b(?:prefiero|me acomoda(?: mas)?|me sirve(?: mas)?|me conviene|"
+                             r"escribeme|escribanme|contactame|contactenme|mandame|mandenme|"
+                             r"mejor) (?:el |la |por |al |a |via )?"
+                             + re.escape(evidence) + r"\b", value)):
+            return [(channel, evidence)]
+    return []
 
 
 def evidence_options(fragments):

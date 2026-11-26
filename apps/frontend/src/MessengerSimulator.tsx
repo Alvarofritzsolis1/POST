@@ -38,7 +38,7 @@ const values: Record<string,string> = {
   company:"Empresa", individual:"Independiente", unknown:"Pendiente",
 };
 const sources: Record<string,string> = {
-  local:"Reglas de Messenger", consent:"Solicitud de permiso", ai:"Modelo local",
+  local:"Reglas de Messenger", ai:"Modelo local",
   knowledge:"Guía aprobada", local_recovery:"Respuesta local", fallback:"Derivación",
 };
 const intents: Record<string,string> = {

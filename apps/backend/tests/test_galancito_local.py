@@ -7,7 +7,7 @@ from app.config import settings
 from app.facebook_ai import AD_INSTRUCTIONS, REPLY_INSTRUCTIONS
 from app.facebook_chat_worker import process_chat_next
 from app import facebook_ai, galancito_local
-from test_facebook_crm import enable_messaging, incoming
+from test_facebook_crm import enable_messaging, incoming, seed_historical_permission
 from test_network import network
 
 
@@ -91,11 +91,11 @@ def test_facebook_uses_local_ollama_after_explicit_consent(network, monkeypatch)
     center = n["admin"].get("/api/v1/network/facebook/center").json()
     lead = center["leads"][0]
     assert center["ai_provider"] == "ollama"
-    assert lead["ai_consent_state"] == "requested"
+    assert lead["ai_consent_state"] == "not_requested"
     messages = n["admin"].get("/api/v1/network/facebook/leads/" + lead["id"]).json()["messages"]
     assert messages[-1]["automated"] is True
     assert lead["specialty"] == "Gasfitería"
-    assert "IA local" in messages[-1]["body"]
+    assert "autorizas" not in messages[-1]["body"].casefold()
     sent, generated = [], []
     monkeypatch.setattr("app.facebook_chat_worker.graph_send",
                         lambda p, u, text, token: sent.append(text) or "mid-local-" + str(len(sent)))
@@ -105,7 +105,10 @@ def test_facebook_uses_local_ollama_after_explicit_consent(network, monkeypatch)
         AssertionError("No paid API")))
     assert process_chat_next(n["Session"])
     assert len(sent) == 1 and not generated
+    seed_historical_permission(n)
     assert incoming(n, text="sí", mid="local-2").status_code == 200
+    assert incoming(n, text="¿Cómo puedo coordinar mi disponibilidad para la próxima obra?",
+                    mid="local-3").status_code == 200
     assert process_chat_next(n["Session"])
     assert generated and len(sent) == 2
     assert "¿En qué comuna trabajas?" in sent[-1]

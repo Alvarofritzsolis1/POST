@@ -141,7 +141,7 @@ def contact_profile(lead) -> dict:
         channels = ("teléfono y correo" if contact_phone and contact_email
                     else "teléfono" if contact_phone else "correo")
         chunks.append("Datos de contacto disponibles: " + channels + ".")
-    channel = {"whatsapp": "WhatsApp", "messenger": "Messenger"}.get(declared.get("preferred_contact"))
+    channel = {"whatsapp": "WhatsApp", "messenger": "Messenger", "email": "correo electrónico"}.get(declared.get("preferred_contact"))
     if channel:
         chunks.append("Prefiere conversar por " + channel + ".")
     answered = sum(counts[key] and states[key] != "rechazado_por_usuario" for key, _ in fields)

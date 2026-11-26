@@ -21,17 +21,18 @@ from . import galancito_contextual as contextual
 from .db import SessionLocal
 from .facebook_ai import messenger_contact_ai_source, local_first_messenger
 from .facebook_availability_reply import availability_reply
-from .facebook_worksite_reply import is_worksite_location, worksite_reply, application_reply, digital_help_reply
+from .facebook_worksite_reply import is_worksite_question, worksite_reply, application_reply, digital_help_reply
 from .facebook_crm_models import FacebookChatMessage, FacebookLead
 from .facebook_lead_insights import trace_unique_requirement
-from .galancito_flow import apply_permission_reply, consented_for, explain_permission, set_permission_request, wants_human
+from .galancito_flow import apply_permission_reply, consented_for, explain_permission, wants_human
 from .galancito_escalation import flag_for_human
 from .galancito_intake import declared_relative_start, identity_reply, needs_deeper_response, next_intake_reply, small_talk_reply, model_intake_candidate, contact_followup_reply, contact_pending_questions
+from .galancito_knowledge import exact_answer, retrieve
 from .galancito_memory import (
     apply_messenger_message, approved_trade_aliases, aware, prior_delivered_prompt, profile_facts,
     capture_voluntary_contact, professional_message, recover_missing_contact,
 )
-from .galancito_triage import private_data, quick_reply, everyday_question_reply, application_ai_candidate
+from .galancito_triage import private_data, quick_reply, everyday_question_reply, application_ai_candidate, payment_guidance
 from .galancito_phone import phone_question_when_agreed, confirmed_phone_reply
 from .models import Organization, utcnow
 from .network_service import today
@@ -192,8 +193,8 @@ def sync_page_inbox(*, page_id: str, page_token: str, org_id: str,
                 preceding = latest_new.get(psid)
                 if (preceding and decision is None and not phone_ack and not identity_reply(body)
                         and not wants_human(body)
-                        and (needs_deeper_response(preceding[1]) or is_worksite_location(preceding[1]))
-                        and not (needs_deeper_response(body) or is_worksite_location(body))
+                        and (needs_deeper_response(preceding[1]) or is_worksite_question(preceding[1]))
+                        and not (needs_deeper_response(body) or is_worksite_question(body))
                         and declared_relative_start(body) is None):
                     body, prior = preceding[1], preceding[4]
                 latest_new[psid] = (lead, body, timestamp, cid, prior, decision,
@@ -287,18 +288,15 @@ def sync_page_inbox(*, page_id: str, page_token: str, org_id: str,
                         else ("pending", local))
                 else:
                     facts = profile_facts(lead, changed=changed)
-                    reply = small_talk_reply(body) or next_intake_reply(body, facts, prior)
-                    if not reply and source == "disabled":
-                        reply = quick_reply(body, known=facts)
-                    if not reply and source != "disabled":
-                        reply = set_permission_request(
-                            lead, source, repeat=lead.ai_consent_provider == source)
+                    if needs_deeper_response(body):
+                        reply = exact_answer(retrieve(db, lead.org_id, body, "messenger")) or payment_guidance(body)
+                    else:
+                        reply = next_intake_reply(body, facts, prior) or quick_reply(body, known=facts)
                     state = "pending"
                 if state == "pending" and not reply:
                     flag_for_human(db, lead,
                                    "Galancito no encontró una respuesta confirmada; revisión humana pendiente")
-                    reply = ("Aún no puedo confirmar ese dato. "
-                             "Dejé tu consulta para que la revise el equipo.")
+                    continue
                 db.add(FacebookChatMessage(
                     org_id=org_id, lead_id=lead.id, page_id=page_id,
                     direction="outbound", state=state, body=reply,
