@@ -494,3 +494,29 @@ def test_paint_plaster_putty_and_eifs_across_messages_are_additive(network, monk
         trades = set(db.scalars(select(FacebookLeadTrade.trade).where(FacebookLeadTrade.lead_id == lead.id, FacebookLeadTrade.active.is_(True))))
         assert trades == {"Pintura", "Yeso", "Pasta muro", "EIFS"}
         assert not lead.ai_paused
+
+
+def test_joined_experience_units_and_natural_operator_question(network, monkeypatch):
+    from app.galancito_intake import intake_question_fields
+    from app.galancito_memory import apply_messenger_message
+
+    sessions = configure(network, monkeypatch)
+    prompt = "Excelente hace cuanto trabajas como contratista?"
+    assert "experience" in intake_question_fields(prompt)
+    assert "interest_type" not in intake_question_fields(prompt)
+    with sessions.begin() as db:
+        lead = db.scalar(select(FacebookLead))
+        lead.ai_paused = True
+        lead.needs_support = True
+        assert apply_messenger_message(db, lead, "2años", prompt, remote_id="joined-experience",
+                                       at=utcnow())
+        assert lead.experience == "2 años"
+        apply_messenger_message(db, lead, "Formalmente", prompt, remote_id="formal-experience",
+                                at=utcnow())
+        assert lead.experience == "2 años"
+        assert lead.ai_paused
+
+    fragment = Fragment("joined-months", utcnow(), "6meses")
+    declaration = Declaration(f="experience", v="6 meses", e="6 meses")
+    assert supported_declarations([declaration], (fragment,), prior=prompt)
+    assert not supported_declarations([declaration], (fragment,), prior="¿Dónde vives?")
