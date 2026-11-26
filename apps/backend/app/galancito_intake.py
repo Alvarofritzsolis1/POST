@@ -63,6 +63,10 @@ def intake_question_fields(prompt: str) -> set[str]:
         "contact_email": ("tu correo", "tu email"),
     }
     fields = {field for field, phrases in patterns.items() if any(phrase in value for phrase in phrases)}
+    if re.search(r"\b(?:hace cuanto|desde hace cuanto|cuanto tiempo) (?:que )?(?:trabajas?|trabajan|llevas?|llevan|ejerces?|ejercen|eres|son)\b", value):
+        fields.add("experience")
+        if not re.search(r"\b(?:buscas|ofreces|quieres|prefieres)\b", value):
+            fields.discard("interest_type")
     if re.search(r"\b(?:(?:has trabajado|habias trabajado|trabajaste) (?:(?:antes|anteriormente|alguna vez) )?"
                  r"(?:en|para|con) (?:(?:una |alguna )?obras? de )?|tienes experiencia (?:previa )?en )galilea\b", value):
         fields.add("worked_at_galilea")
@@ -456,8 +460,8 @@ def apply_intake(lead, message: str, prior_prompt: str = "", *,
     _commune_update(lead, statement, prev)
     _availability_update(lead, statement, prev, on_date=on_date)
     if not lead.experience or lead.experience == "No informado por el interesado" or _CORRECTION.search(value):
-        experience = re.search(r"\b" + _COUNT + r"\s+(anos?|mes(?:es)?)\b", value)
-        asked = any(s in prev for s in (_EXPERIENCE_QUESTION, "cuanta experiencia", "cuantos anos", "anos o meses"))
+        experience = re.search(r"\b" + _COUNT + r"\s*(anos?|mes(?:es)?)\b", value)
+        asked = "experience" in intake_question_fields(prior_prompt) or any(s in prev for s in (_EXPERIENCE_QUESTION, "cuanta experiencia", "cuantos anos", "anos o meses"))
         volunteered = (bool(re.search(r"\b(?:experiencia|llevo|llevamos)\b", value))
                        and not re.search(r"\b(?:viviendo|residiendo)\b", value))
         if value in {"sin experiencia", "no tengo experiencia", "recien comienzo"} or (
