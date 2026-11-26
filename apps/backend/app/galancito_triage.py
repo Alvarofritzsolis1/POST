@@ -31,15 +31,18 @@ TRADES = {
     "Tabiquería": ("tabique", "tabiques", "tabiquero", "tabiqueria", "volcanita"),
     "Impermeabilización": ("impermeabilizacion", "impermeabilizar", "impermiabilizacion"),
     "Enfierradura": ("enfierrador", "enfierradura", "enfierador", "fierrero"),
+    "Hormigón vaciado y pulido": ("hormigon vacio y pulido", "hormigon vaciado y pulido", "hormigon vaciado pulido"),
     "Hormigonado": ("hormigon", "hormigonado", "hormigonero"),
     "Techumbres": ("techumbre", "techumbres", "techero", "techera", "cubiertas", "cubierta"),
     "Ventanas": ("ventanero", "ventanas", "aluminio", "vidrios", "ventaneria"),
     "Pavimentación": ("pavimentos", "pavimentacion", "pavimentador"),
     "Jardinería": ("jardinero", "jardinera", "jardineria", "paisajismo"),
     "Excavación": ("excavacion",),
-    "Terminaciones": ("terminaciones",),
+    "Terminaciones": ("terminaciones", "terminacion"),
+    "Movimiento de tierra": ("movimiento de tierra", "movimiento de tierras"),
+    "EIFS": ("eifs",),
     "Maquinaria": ("maquinaria",),
-    "Obras civiles": ("obras civiles",),
+    "Obras civiles": ("obras civiles", "construccion obras civiles", "construccion de obras civiles"),
 }
 
 
