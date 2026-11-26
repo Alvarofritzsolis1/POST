@@ -606,26 +606,18 @@ def ingest_facebook_payload(db, payload, cfg, *, notices=None):
                     flag_for_human(db, lead,
                                    "Galancito no encontró una respuesta confirmada; revisión humana pendiente")
             if use_ai and recent < 30 and ai_source != "disabled":
-                queue_locked = (db.bind.dialect.name != "postgresql" or db.scalar(
-                    sql_text("SELECT pg_try_advisory_xact_lock(2075002)")))
-                queued = db.scalar(select(func.count(FacebookChatMessage.id)).where(
-                    FacebookChatMessage.org_id == lead.org_id,
-                    FacebookChatMessage.state == "ai_pending")) or 0
+                # Persist one queued model turn per contact. The worker owns
+                # execution capacity; a full *temporary* queue is not a reason
+                # to transfer a normal contractor conversation to a person.
+                # New inbound messages cancel/coalesce previous unsent jobs above.
                 if coalesced is not None:
                     coalesced.state, coalesced.updated_at = "ai_pending", received_at
-                elif queue_locked and queued < 2:
+                else:
                     db.add(FacebookChatMessage(
                         org_id=lead.org_id, lead_id=lead.id, page_id=lead.page_id,
                         direction="outbound", state="ai_pending",
                         body="", ai_generated=True, updated_at=received_at,
                     ))
-                elif reply:
-                    # Keep the safe local question if the bounded model queue is busy.
-                    db.add(FacebookChatMessage(org_id=lead.org_id, lead_id=lead.id, page_id=lead.page_id,
-                        direction="outbound", state="pending", body=reply[:550], ai_generated=False))
-                else:
-                    flag_for_human(db, lead,
-                                   "Cola del asistente ocupada; requiere revisión humana")
             elif reply and recent < 30:
                 db.add(FacebookChatMessage(
                     org_id=lead.org_id, lead_id=lead.id, page_id=lead.page_id,
