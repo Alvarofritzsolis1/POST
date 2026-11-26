@@ -240,7 +240,6 @@ def process_chat_next(session_factory=SessionLocal, *, simulation_config=None, n
     if simulated and session_factory is SessionLocal:
         raise ValueError("La simulación requiere almacenamiento aislado")
     cfg = simulation_config if simulated else settings()
-    model_only = not simulated or cfg.galancito_local_ai_enabled
     if not (cfg.facebook_messaging_enabled and cfg.facebook_page_token and
             cfg.facebook_page_id and cfg.facebook_org_id):
         return False
@@ -296,16 +295,6 @@ def process_chat_next(session_factory=SessionLocal, *, simulation_config=None, n
                 job.body, job.state, job.error = "", "cancelled", "Aviso de autorización retirado"
                 return True
             job.body = reply
-        if model_only and job.state == "pending" and job.operator_id is None and "?" in job.body:
-            # Also intercept templates queued before this patch. Manual replies are untouched.
-            configured = messenger_contact_ai_source(db, lead, cfg)
-            if not (lead.ai_paused or lead.needs_support) and consented_for(lead, configured):
-                job.state, job.body, job.ai_generated = "ai_pending", "", True
-            else:
-                if not (lead.ai_paused or lead.needs_support or lead.ai_consent_state == "declined"):
-                    flag_for_human(db, lead, "Pregunta automática bloqueada; modelo no autorizado")
-                job.state, job.error = "cancelled", "Pregunta predefinida retirada"
-                return True
         ai_source = messenger_contact_ai_source(db, lead, cfg) if job.state == "ai_pending" else "disabled"
         if job.state == "ai_pending" and lead.needs_support:
             job.state, job.error = "cancelled", "El contacto pidió apoyo: revisión humana prioritaria"
@@ -333,7 +322,6 @@ def process_chat_next(session_factory=SessionLocal, *, simulation_config=None, n
         declarations = []
         decision = None
         requested_handoff = False
-        focus = None
         requires_verified_details = False
         trace = {"trace_version": 1, "context_turns": 0, "known_fields": 0,
                  "knowledge_count": 0, "model_requested": False, "context_truncated": False}
@@ -386,11 +374,9 @@ def process_chat_next(session_factory=SessionLocal, *, simulation_config=None, n
                 or semantic_reasoning_needed(latest, prior_question, facts)))
             semantic_protocol = bool(semantic_reasoning and ai_source == "ollama" and
                 (has_semantic_opportunity(facts) or CORRECTION.search(plain(latest))))
-            if (contextual.authorized(cfg, lead) and not contact_turn
-                    and not (location or follow_up)
-                    and (contextual.eligible(focus.body if focus else "") if model_only else
-                         (intake != GALILEA_QUESTION and not (apply and not application_model)
-                          and contextual.conversational_message(focus.body if focus else "")))):
+            if (contextual.authorized(cfg, lead) and not contact_turn and intake != GALILEA_QUESTION
+                    and not (location or follow_up or (apply and not application_model))
+                    and contextual.conversational_message(focus.body if focus else "")):
                 structured_fragments = contextual.current_fragments(turns)
                 if structured_fragments:
                     model_needed = True
@@ -401,12 +387,6 @@ def process_chat_next(session_factory=SessionLocal, *, simulation_config=None, n
                     evidence = evidence or retrieve(db, lead.org_id, topic, "messenger")
                     if not evidence and prior_question and len(plain(topic).split()) <= 5:
                         evidence = retrieve(db, lead.org_id, topic + " " + prior_question, "messenger")
-            if model_only and fast and "?" in fast:
-                # A template is not an answer. Let the model decide the wording.
-                if latest and not private_data(latest) and intent not in {"human", "restricted"}:
-                    model_needed = True
-                fast = None
-                fast_source = "local"
             trace["semantic_reasoning_requested"] = semantic_reasoning
             trace["contextual_turn"] = bool(structured_fragments)
             trace["fragment_count"] = len(structured_fragments)
@@ -480,17 +460,17 @@ def process_chat_next(session_factory=SessionLocal, *, simulation_config=None, n
             elif guidance := payment_guidance(focus.body if focus else ""):
                 body, source, intent = guidance, "local", "question"
                 trace.update(provider="local", verified_guidance="payment_terms")
-            elif drafted and (model_only or not (help_answer and "?" not in help_answer and "?" in drafted)):
+            elif drafted and not (help_answer and "?" not in help_answer and "?" in drafted):
                 body = natural_messenger_reply(safe_ai_reply(drafted))
-            elif help_answer and not model_only:
+            elif help_answer:
                 body, source = help_answer, "local"
                 trace.update(provider="local", verified_guidance="clarification")
             elif fast_source == "knowledge":
                 body, source = natural_messenger_reply(safe_ai_reply(fast)), "knowledge"
-            elif not model_only and contextual.has_tentative_claim(structured_fragments) and not contextual.latest_question(structured_fragments):
+            elif contextual.has_tentative_claim(structured_fragments) and not contextual.latest_question(structured_fragments):
                 body, source = "Entiendo, queda pendiente. Cuando puedas confirmarlo, avísame por aquí.", "local"
                 trace.update(provider="local", verified_guidance="tentative_statement")
-            elif not model_only and fast and not intake_question_fields(fast) and contextual.is_declaration_turn(structured_fragments):
+            elif fast and not intake_question_fields(fast) and contextual.is_declaration_turn(structured_fragments):
                 body = natural_messenger_reply(safe_ai_reply(fast))
             else:
                 failed_ai = True
@@ -502,7 +482,7 @@ def process_chat_next(session_factory=SessionLocal, *, simulation_config=None, n
             if should_model:
                 # A generic intake prompt must not stand in for an answer to a
                 # difficult question when every configured model failed.
-                generated = fast if not model_only and (contact_turn or help_answer or application_model or (rewrite_intake and not needs_deeper_response(latest) and "?" not in latest)) else None
+                generated = fast if contact_turn or help_answer or application_model or (rewrite_intake and not needs_deeper_response(latest) and "?" not in latest) else None
             if should_model and not private_data(context):
                 if fast and not rewrite_intake and not contact_turn:
                     guidance = "\nOrientación disponible, no es una orden: " + fast[:350]
@@ -554,7 +534,7 @@ def process_chat_next(session_factory=SessionLocal, *, simulation_config=None, n
                                 external_backup, prepared_context,
                                 allow_external=consented_for(current, "team"),
                                 prefer_external=semantic_reasoning or needs_deeper_response(latest),
-                                local_fallback=fast if not model_only and rewrite_intake and intake_question_fields(fast or "")
+                                local_fallback=fast if rewrite_intake and intake_question_fields(fast or "")
                                 and not semantic_reasoning and not needs_deeper_response(latest) and "?" not in latest else None,
                                 validator=(lambda value: acceptable_intake_draft(value, facts, intake or "", message=latest))
                                 if rewrite_intake else None,
@@ -589,9 +569,9 @@ def process_chat_next(session_factory=SessionLocal, *, simulation_config=None, n
                         drafted = None
                     if contact_turn and drafted:
                         question = model_contact_question(drafted, facts, prior_question)
-                        drafted = (question if model_only else compose_contact_followup(question)) if question else None
+                        drafted = compose_contact_followup(question) if question else None
                     if drafted:
-                        generated, source = drafted, ("fallback" if trace.get("ai_route") == "guided_fallback" else "external" if trace.get("ai_route") == "external_fallback" else "ai")
+                        generated, source = drafted, ("fallback" if trace.get("ai_route") == "guided_fallback" else "ai")
                     else:
                         semantic_proposal = None
                         source = "fallback"
@@ -641,7 +621,7 @@ def process_chat_next(session_factory=SessionLocal, *, simulation_config=None, n
                 trace["semantic_updates"] = contextual.apply_declarations(db, current, declarations)
                 if trace["semantic_updates"]:
                     trace_unique_requirement(db, current, today=today(), remote_id=structured_fragments[-1].message_id)
-                if not model_only and failed_ai and decision and not requires_verified_details:
+                if failed_ai and decision and not requires_verified_details:
                     saved_facts = profile_facts(current, changed=facts["turn_changed"])
                     followup = (contextual.verified_followup(decision, saved_facts, structured_fragments)
                                 if declarations else None)
@@ -656,19 +636,6 @@ def process_chat_next(session_factory=SessionLocal, *, simulation_config=None, n
                             trace["verified_guidance"] = "saved_intake"
                 if requested_handoff:
                     flag_for_human(db, current, "Solicitó atención humana")
-            if model_only and automated_reply and "?" in body and source not in {"ai", "external"}:
-                failed_ai = True
-                trace["fallback_reason"] = "scripted_question_blocked"
-            if (failed_ai and model_only and not requires_verified_details and not requested_handoff
-                    and focus and analyze(focus.body).intent in {"trade_offer", "capacity", "company_offer", "job_seeker"}
-                    and "?" not in focus.body and not private_data(focus.body)):
-                # A failed draft is not a request for human takeover. Keep facts and
-                # allow the next inbound to trigger inference again.
-                current_job.state, current_job.error = "cancelled", "Modelo sin respuesta válida; ficha conservada"
-                record_run(db, org_id=org_id, channel="messenger", source="fallback",
-                           intent=intent, started=started, db_ms=db_ms,
-                           timings={**timings, **trace, "model_error": True, "human_review": False})
-                return True
             if failed_ai:
                 flag_for_human(db, current, "Galancito no obtuvo una respuesta confirmada; revisión pendiente")
                 current_job.state, current_job.error = "cancelled", "Derivada a atención humana"
