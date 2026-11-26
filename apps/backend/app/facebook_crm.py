@@ -596,12 +596,12 @@ def ingest_facebook_payload(db, payload, cfg, *, notices=None):
                 )
                 if professional:
                     if lead.interest_type in (None, "", "unknown"):
-                        reply = ("Gracias por contarme sobre los trabajos y tu equipo. "
-                                 "¿Quieres ofrecer estos servicios como contratista o buscas empleo?")
+                        reply = ("Gracias por escribir. ¿Quieres ofrecer estos servicios "
+                                 "como contratista o buscas empleo?")
                     elif not lead.work_communes:
-                        reply = "Gracias por contarme. ¿En qué comuna pueden trabajar?"
+                        reply = "Gracias por contarme. ¿En qué comuna puedes trabajar?"
                     else:
-                        reply = "Gracias, recibí los datos de los trabajos y tu equipo."
+                        reply = "Gracias, recibí la información y podemos continuar por aquí."
                 else:
                     flag_for_human(db, lead,
                                    "Galancito no encontró una respuesta confirmada; revisión humana pendiente")
