@@ -265,7 +265,7 @@ export default function FacebookPersonSheet({person,onClose,onChanged,onOpenChat
         <header className="fbps-header">
           <PersonAvatar name={nameOf(lead)} size="lg" className="fbps-avatar-portrait" />
           <div className="fbps-person"><h2>{nameOf(lead)}</h2><div className="fbps-tags">
-            <span className="fbps-tag trade">{lead.specialty||person.category||"Oficio por confirmar"}</span>
+            <span className="fbps-tag trade">{lead.trades && lead.trades.length > 1 ? `${lead.trades.length} oficios declarados` : lead.specialty||person.category||"Oficio por confirmar"}</span>
             <span className={"fbps-tag "+(person.needs_support?"amber":person.urgency==="high"?"rose":"mint")}>
               {person.stage}</span>
             <span className="fbps-tag pale">{lead.profile.completed}/{lead.profile.total} datos básicos</span>
