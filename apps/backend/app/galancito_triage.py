@@ -43,6 +43,7 @@ TRADES = {
     "Terminaciones": ("terminaciones", "terminacion"),
     "Movimiento de tierra": ("movimiento de tierra", "movimiento de tierras"),
     "EIFS": ("eifs", "eif"),
+    "Textura": ("textura", "texturas", "texturado", "revestimiento texturado"),
     "Maquinaria": ("maquinaria",),
     "Obras civiles": ("obras civiles", "construccion obras civiles", "construccion de obras civiles"),
 }
