@@ -657,3 +657,17 @@ def test_non_model_professional_presentation_does_not_auto_handoff(network, monk
         assert lead.needs_support is False
         assert lead.ai_paused is False
 
+def test_team_declaration_after_an_advert_question_keeps_the_speaker_attribution(network, monkeypatch):
+    from app.galancito_memory import apply_messenger_message
+    sessions = configure(network, monkeypatch)
+    with sessions.begin() as db:
+        lead = db.scalar(select(FacebookLead))
+        assert apply_messenger_message(
+            db, lead, "Cuento con equipo de trabajo en ambas partidas",
+            "Claro, te ayudo. ¿De qué trabajo era el aviso?",
+            remote_id="speaker-team-followup", at=utcnow(),
+        )
+        assert lead.team_available is True
+        assert lead.workers is None
+        assert (lead.profile_sources or {}).get("team_available", {}).get("message_id") == "speaker-team-followup"
+
