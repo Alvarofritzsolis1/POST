@@ -23,9 +23,9 @@ def test_curated_corpus_is_large_partitioned_unique_and_never_real(tmp_path):
     assert bundle["sizes"]["validation"] >= 10
     assert bundle["sizes"]["test"] >= 10
     cases = list(examples())
-    assert len(cases) == 2320
-    assert len({item["case_group"] for item in cases}) == 58
-    assert sum(bundle["sizes"].values()) == 2320
+    assert len(cases) == 2384
+    assert len({item["case_group"] for item in cases}) == 90
+    assert sum(bundle["sizes"].values()) == 2384
     partitions = [{row["case_group"] for row in bundle["samples"][key]} for key in ("train", "validation", "test")]
     assert all(not a & b for i, a in enumerate(partitions) for b in partitions[i+1:])
     for key in ("validation", "test"):
@@ -68,3 +68,40 @@ def test_cpu_trainer_synthetic_mode_requires_explicit_switch(monkeypatch, tmp_pa
         module.main(["--dataset", str(lab / "synthetic.jsonl"),
                      "--synthetic-development", "--execute",
                      "--output", str(lab / "runs" / "pilot")])
+
+
+def test_contextual_training_matches_messenger_protocol_without_leaking_partitions(tmp_path):
+    from max_power_synthetic_lab import training_panel, contextual_loss_panel
+    _, bundle = prepare_lab(tmp_path / "org")
+    by_split = {key: [row for row in values if row.get("sample_kind") == "contextual_turn"]
+                for key, values in bundle["samples"].items()}
+    assert sum(map(len, by_split.values())) == 64
+    assert all(by_split.values())
+    for rows in by_split.values():
+        for row in rows:
+            turn = json.loads(row["reference_answer"])
+            assert set(turn) == {"d", "i", "q", "r"}
+            assert isinstance(turn["d"], dict)
+            assert len(turn["r"]) <= 220
+            assert turn["r"].endswith((".", "?"))
+            prompt = row["messages"][0]["content"]
+            assert "Mensajes nuevos (única fuente para datos nuevos):\n" in prompt
+            assert (turn["q"] == "none") == ("?" not in turn["r"])
+            for value in turn["d"].values():
+                evidence = value if isinstance(value, str) else value
+                if isinstance(evidence, str):
+                    assert evidence in prompt
+                else:
+                    assert all(isinstance(item, str) for item in evidence)
+                    assert evidence[-1] in prompt
+    contextual = [row for rows in by_split.values() for row in rows]
+    assert any(row["messages"][0]["content"].startswith("Pregunta anterior de GALANT:") and "\nMensajes nuevos" in row["messages"][0]["content"] for row in contextual)
+    panel = training_panel(bundle["samples"]["train"], 80)
+    assert len(panel) == 80
+    assert sum(row.get("sample_kind") == "contextual_turn" for row in panel) == len(by_split["train"])
+    assert {row["case_group"] for row in panel}.isdisjoint(
+        {row["case_group"] for split in ("validation", "test") for row in bundle["samples"][split]})
+    for split in ("validation", "test"):
+        evaluation = contextual_loss_panel(bundle["samples"][split])
+        assert len(evaluation) == 12
+        assert any(row.get("sample_kind") == "contextual_turn" for row in evaluation)
