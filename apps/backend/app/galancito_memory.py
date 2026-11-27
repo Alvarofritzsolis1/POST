@@ -426,7 +426,13 @@ def apply_messenger_message(db, lead, message, prior, *, remote_id, at, historic
             continue
         origin = prior_sources.get(field, {})
         known = _known(field, old)
-        if (origin.get("source") == "manual" or
+        # The explicit admin refresh may restore a cleared, unknown name;
+        # preserve a real manual name, all other manual fields, and refusal.
+        restore_cleared_name = (replay and field == "display_name" and not known
+                                and not lead.name_opt_out
+                                and origin.get("state") != "rechazado_por_usuario"
+                                and _known(field, value))
+        if ((origin.get("source") == "manual" and not restore_cleared_name) or
                 ((historical or replay) and known and field not in {"work_communes", "work_area"})):
             continue
         if (historical or replay) and field in {"work_area", "work_communes"} and known:

@@ -186,3 +186,27 @@ def test_recovery_preview_rolls_back_and_preserves_manual_fields(network, monkey
     repeated = network["send"](network["admin"], base + "?dry_run=true", {})
     assert repeated.status_code == 200
     assert repeated.json()["changes"] == {}
+
+
+@pytest.mark.parametrize("known_name,opt_out,expected", [
+    ("Interesado de Facebook", False, "Nombre Ejemplo"),
+    ("Nombre Manual", False, "Nombre Manual"),
+    ("Interesado de Facebook", True, "Interesado de Facebook"),
+])
+def test_explicit_recovery_restores_only_cleared_non_refused_name(
+        network, monkeypatch, known_name, opt_out, expected):
+    from app.models import utcnow
+    from app.galancito_memory import apply_messenger_message
+    org_id = enable_messaging(network, monkeypatch)
+    with network["Session"].begin() as db:
+        lead = FacebookLead(org_id=org_id, page_id=settings().facebook_page_id,
+                            psid="123456789012345", display_name=known_name,
+                            name_opt_out=opt_out,
+                            profile_sources={"display_name": {"source": "manual"},
+                                             "name_opt_out": {"source": "manual"}})
+        db.add(lead)
+        db.flush()
+        apply_messenger_message(db, lead, "Nombre Ejemplo", "¿Cuál es tu nombre?",
+                                remote_id="synthetic-name-evidence", at=utcnow(), replay=True)
+        assert lead.display_name == expected
+        assert lead.name_opt_out is opt_out
