@@ -19,6 +19,7 @@ COPY scripts/max_power_synthetic_lab.py scripts/max_power_synthetic_lab.py
 COPY scripts/max_power_end_to_end_smoke.py scripts/max_power_end_to_end_smoke.py
 COPY apps/backend/app/__init__.py apps/backend/app/__init__.py
 COPY apps/backend/app/galancito_model_config.py apps/backend/app/galancito_model_config.py
+COPY apps/backend/app/max_power_2b_control.py apps/backend/app/max_power_2b_control.py
 COPY apps/backend/app/galancito_finetune_dataset.py apps/backend/app/galancito_finetune_dataset.py
 RUN useradd --uid 10001 --create-home --shell /usr/sbin/nologin trainer \
  && chmod -R a+rX /src

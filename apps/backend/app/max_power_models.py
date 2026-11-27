@@ -78,3 +78,24 @@ class MaxPowerMessengerTrial(Base):
     reason: Mapped[str | None] = mapped_column(String(280))
     metrics: Mapped[dict] = mapped_column(JSON, nullable=False, default=dict)
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow)
+
+
+def qwen_only(db, state):
+    """Exclusive synthetic LoRA authorization, fenced to the active generation."""
+    from sqlalchemy import select
+    if not state or not state.enabled:
+        return False
+    return db.scalar(select(MaxPowerEvent.id).where(
+        MaxPowerEvent.org_id == state.org_id,
+        MaxPowerEvent.event == "qwen_only_session",
+        MaxPowerEvent.round_id == str(state.session_generation),
+    ).limit(1)) is not None
+
+
+def exclusive_qwen_active(db):
+    return any(qwen_only(db, state) for state in db.scalars(select_enabled_states()))
+
+
+def select_enabled_states():
+    from sqlalchemy import select
+    return select(MaxPowerState).where(MaxPowerState.enabled.is_(True))

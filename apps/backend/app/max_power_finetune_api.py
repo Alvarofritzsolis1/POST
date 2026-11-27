@@ -19,7 +19,7 @@ from sqlalchemy.orm import Session
 
 from .db import get_db
 from .galancito_model_config import QWEN_TRAINING_MODEL
-from .max_power_models import MaxPowerEvent, MaxPowerState, MaxPowerMessengerTrial
+from .max_power_models import MaxPowerEvent, MaxPowerState, MaxPowerMessengerTrial, qwen_only
 from .models import User, utcnow
 from .security import administrator
 
@@ -153,6 +153,7 @@ def automated_plan(x_galant_manager_timestamp: str = Header(default=""),
     if not enabled:
         return {"enabled": False}
     row = enabled[0]
+    exclusive = qwen_only(db, row)
     from .galancito_trainer import messenger_busy
     from .max_power_worker import messenger_recent
     busy = bool(messenger_busy(db) or messenger_recent(db))
@@ -166,7 +167,8 @@ def automated_plan(x_galant_manager_timestamp: str = Header(default=""),
     practice_busy = practice_busy or bool(db.scalar(select(MaxPowerMessengerTrial.id).where(
         or_(
             and_(MaxPowerMessengerTrial.status == "queued",
-                 MaxPowerMessengerTrial.next_at <= now + timedelta(seconds=90)),
+                 MaxPowerMessengerTrial.next_at <= now + timedelta(seconds=90),
+                 not exclusive),
             and_(MaxPowerMessengerTrial.status == "running",
                  MaxPowerMessengerTrial.lease_until > now),
         )
@@ -176,6 +178,7 @@ def automated_plan(x_galant_manager_timestamp: str = Header(default=""),
         "generation": row.session_generation,
         "messenger_busy": busy,
         "practice_busy": practice_busy,
+        "qwen_only": exclusive,
         "other_organizations_waiting": len(enabled) > 1,
     }
 

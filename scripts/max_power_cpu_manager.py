@@ -310,7 +310,7 @@ def run_once(secret: str, plan: dict, public_key: str, last_preflight: dict,
             LOG.warning("Estado neuronal no enviado: %s", type(exc).__name__)
 
     # The quantized worker has priority in the standard VPS deployment.
-    if os.environ.get("GALANT_MAX_POWER_BF16_AUTOMATIC", "yes").lower() != "yes":
+    if not plan.get("qwen_only") and os.environ.get("GALANT_MAX_POWER_BF16_AUTOMATIC", "yes").lower() != "yes":
         report("legacy_lab_disabled")
         return
     if plan.get("messenger_busy"):
@@ -347,7 +347,7 @@ def run_once(secret: str, plan: dict, public_key: str, last_preflight: dict,
     if not gate["ready"]:
         report("awaiting_resources", blockers=gate["blockers"])
         return
-    approved = approved_inputs(root, data, manifest, public_key)
+    approved = None if plan.get("qwen_only") else approved_inputs(root, data, manifest, public_key)
     synthetic = False
     if approved is None:
         if os.environ.get("GALANT_MAX_POWER_SYNTHETIC_LORA") != "yes":
@@ -456,7 +456,17 @@ def main():
             plan = api_call("/automation/plan", secret)
             Path("/tmp/max_power_cpu_manager_heartbeat").touch()
             if valid_plan(plan):
-                run_once(secret, plan, public_key, last_preflight, status_cache)
+                if plan.get("qwen_only"):
+                    # Exclude the quantized worker and any prior in-flight practice.
+                    from app.max_power_2b_control import lock, release
+                    fd = lock()
+                    if fd is not None:
+                        try:
+                            run_once(secret, plan, public_key, last_preflight, status_cache)
+                        finally:
+                            release(fd)
+                else:
+                    run_once(secret, plan, public_key, last_preflight, status_cache)
         except (OSError, ValueError) as exc:
             LOG.warning("MAX POWER CPU en espera: %s", type(exc).__name__)
         except Exception:

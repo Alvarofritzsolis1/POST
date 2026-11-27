@@ -37,3 +37,21 @@ def test_admin_only_and_persistent_on_off(ai_env):
     outsider = signin(client, "outside")
     assert client.get(BASE).json()["sessions"] == 0
     assert client.post(BASE + "/control/off", headers=outsider).status_code == 409
+
+
+def test_qwen_exclusive_session_is_admin_scoped_and_generation_fenced(ai_env):
+    client, sessions = ai_env["client"], ai_env["sessions"]
+    admin = signin(client, "admin")
+    resident = signin(client, "resident")
+    assert client.post(BASE + "/control/qwen-on", headers=resident).status_code == 403
+    start = client.post(BASE + "/control/qwen-on", headers=admin)
+    assert start.status_code == 200, start.text
+    assert start.json()["qwen_only"] is True
+    assert client.get(BASE, headers=admin).json()["qwen_only"] is True
+    assert client.post(BASE + "/control/on", headers=admin).status_code == 409
+    assert client.post(BASE + "/control/qwen-off", headers=admin).json()["qwen_only"] is False
+    regular = client.post(BASE + "/control/on", headers=admin)
+    assert regular.status_code == 200, regular.text
+    assert regular.json()["qwen_only"] is False
+    assert client.post(BASE + "/control/qwen-on", headers=admin).status_code == 409
+    assert client.post(BASE + "/control/qwen-off", headers=admin).status_code == 409

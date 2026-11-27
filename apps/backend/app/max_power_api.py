@@ -16,7 +16,7 @@ from .galancito_training_models import ACTIVE, TrainingRound, TrainingWorker
 from .max_power_decisions import QWEN_MEMORY_REASON, QWEN_MIN_RAM_MB, latency_diagnosis, priority_from_reviews
 from .galancito_model_config import QWEN_2B, QWEN_TRAINING_MODEL
 from .max_power_live import RESOURCE_EVENT, general_series, messenger_series, resource_metrics, synthetic_2b_series, latency_series
-from .max_power_models import MaxPowerEvent, MaxPowerState, MaxPowerMessengerTrial
+from .max_power_models import MaxPowerEvent, MaxPowerState, MaxPowerMessengerTrial, qwen_only, exclusive_qwen_active
 from .max_power_export import build_report, MAX_EVENTS, safe_metrics
 from .max_power_practice import EVENT as PRACTICE_EVENT, QWEN_CRITERION, generate_scenarios
 from .models import AuditEvent, Organization, User, utcnow
@@ -150,7 +150,9 @@ def _view(db, user, row):
         MaxPowerEvent.round_id == user.org_id,
         MaxPowerEvent.event == "cpu_supervisor_status"))
     cpu_state = (cpu_event.evidence or {}).get("state") if cpu_event else None
-    cpu_online = bool(cpu_event and aware(cpu_event.created_at) >= aware(now) - timedelta(seconds=55))
+    exclusive = qwen_only(db, row)
+    cpu_online = bool(cpu_event and aware(cpu_event.created_at) >= aware(now) - timedelta(seconds=55)
+                      and (not exclusive or (cpu_event.evidence or {}).get("generation") == row.session_generation))
     messenger_trials = list(db.scalars(select(MaxPowerMessengerTrial).where(
         MaxPowerMessengerTrial.org_id == user.org_id, MaxPowerMessengerTrial.criterion != QWEN_CRITERION,
     ).order_by(MaxPowerMessengerTrial.created_at.desc()).limit(150)))
@@ -227,6 +229,7 @@ def _view(db, user, row):
                                 "sample_count": current[channel]["reviewed_cases"]}
     return {
         "enabled": bool(row.enabled) if row else False,
+        "qwen_only": exclusive,
         "first_started_at": row.first_started_at if row else None,
         "session_started_at": row.session_started_at if row else None,
         "last_stopped_at": row.last_stopped_at if row else None,
@@ -339,10 +342,19 @@ def export_chatgpt_report(max_events: int = Query(default=MAX_EVENTS, ge=1, le=M
     })
 
 @router.post("/control/{action}")
-def control(action: Literal["on", "off"], user: User = Depends(administrator),
+def control(action: Literal["on", "off", "qwen-on", "qwen-off"], user: User = Depends(administrator),
             db: Session = Depends(get_db)):
     db.scalar(select(Organization.id).where(Organization.id == user.org_id).with_for_update())
     row = db.get(MaxPowerState, user.org_id)
+    exclusive_request = action == "qwen-on"
+    if action == "qwen-off" and not qwen_only(db, row):
+        raise HTTPException(409, "No existe una sesión exclusiva de Qwen activa")
+    if action == "on" and exclusive_qwen_active(db):
+        raise HTTPException(409, "Primero detén el entrenamiento exclusivo de Qwen")
+    if exclusive_request and db.scalar(select(MaxPowerState.org_id).where(
+            MaxPowerState.enabled.is_(True)).limit(1)):
+        raise HTTPException(409, "Primero detén MAX POWER; Qwen requiere un turno exclusivo")
+    action = "on" if exclusive_request else "off" if action == "qwen-off" else action
     now = utcnow()
     if row is None:
         if action == "off":
@@ -363,6 +375,10 @@ def control(action: Literal["on", "off"], user: User = Depends(administrator),
         row.last_tick_at = None
         row.last_status = "starting"
         row.last_reason = "En espera del controlador y capacidad del VPS"
+        if exclusive_request:
+            row.last_reason = "Qwen exclusivo: esperando supervisor LoRA y recursos"
+            db.add(MaxPowerEvent(org_id=user.org_id, event="qwen_only_session",
+                round_id=str(row.session_generation), reason=row.last_reason))
         if row.first_started_at is None:
             row.first_started_at = now
     else:

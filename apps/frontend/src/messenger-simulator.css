@@ -35,3 +35,10 @@
 .messenger-lab-checks{font-size:12px;padding-left:18px;margin:10px 0;color:#375b59}
 .messenger-lab-rating{display:flex;align-items:center;flex-wrap:wrap;gap:6px;margin-top:8px;font-size:12px}
 @media(max-width:900px){.messenger-lab-grid{grid-template-columns:1fr}}
+
+.messenger-lab-actions{display:flex;align-items:center;gap:8px;flex-wrap:wrap}
+.messenger-lab-header .messenger-lab-train,.qwen-exclusive .qwen-start{display:inline-flex;align-items:center;justify-content:center;gap:7px;background:#12685b;color:#fff;border:1px solid #12685b;border-radius:9px;padding:9px 13px;font:inherit;font-weight:600;cursor:pointer;transition:background .16s,transform .16s}
+.messenger-lab-header .messenger-lab-train:hover,.qwen-exclusive .qwen-start:hover:not(:disabled){background:#0d5147;transform:translateY(-1px)}
+.qwen-exclusive{border:1px solid #c9dcda;border-radius:14px;padding:16px;background:#fff;display:grid;gap:12px}
+.qwen-exclusive h3,.qwen-exclusive p{margin:0}.qwen-exclusive p{font-size:13px;color:#516973}.qwen-exclusive-actions{display:flex;align-items:center;gap:12px;flex-wrap:wrap}.qwen-exclusive-status{font-size:13px;overflow-wrap:anywhere}.qwen-exclusive .qwen-start:disabled{opacity:.5;cursor:default}
+@media(prefers-reduced-motion:reduce){.messenger-lab-header .messenger-lab-train,.qwen-exclusive .qwen-start{transition:none;transform:none!important}}

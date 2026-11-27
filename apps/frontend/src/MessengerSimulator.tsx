@@ -1,6 +1,7 @@
 import { useEffect, useRef, useState, type FormEvent } from "react";
-import { MessageCircle, RotateCcw, Send } from "lucide-react";
+import { BrainCircuit, MessageCircle, RotateCcw, Send } from "lucide-react";
 import { request } from "./api";
+import QwenExclusiveTraining from "./QwenExclusiveTraining";
 import "./messenger-simulator.css";
 
 const path = "/admin/ai/messenger-simulator";
@@ -54,6 +55,7 @@ function display(value: TurnResult["profile"][string]) {
 }
 
 export default function MessengerSimulator() {
+  const [showTraining, setShowTraining] = useState(false);
   const [config, setConfig] = useState<Settings | null>(null);
   const mode = "local";
   const [exchanges, setExchanges] = useState<Exchange[]>([]);
@@ -136,10 +138,17 @@ export default function MessengerSimulator() {
     <header className="messenger-lab-header">
       <div><h2><MessageCircle size={22} aria-hidden="true"/> Simulador Messenger</h2>
         <p>Escribe como postulante y revisa la respuesta y la ficha. Usa datos de prueba.</p></div>
-      <button type="button" className="messenger-lab-reset" onClick={reset} disabled={sending || !exchanges.length}>
-        <RotateCcw size={16} aria-hidden="true"/> Nueva conversación
-      </button>
+      <div className="messenger-lab-actions">
+        <button type="button" className="messenger-lab-train" aria-expanded={showTraining}
+          onClick={() => setShowTraining(value => !value)}>
+          <BrainCircuit size={17} aria-hidden="true"/> Entrenar Qwen
+        </button>
+        <button type="button" className="messenger-lab-reset" onClick={reset} disabled={sending || !exchanges.length}>
+          <RotateCcw size={16} aria-hidden="true"/> Nueva conversación
+        </button>
+      </div>
     </header>
+    {showTraining && <QwenExclusiveTraining/>}
     <div className="messenger-lab-grid">
       <article className="messenger-lab-chat">
         <header>
