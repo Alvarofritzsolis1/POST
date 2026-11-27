@@ -12,6 +12,7 @@ from .db import get_db
 from .security import administrator
 from .models import User, utcnow
 from .version import VERSION, SOURCE_COMMIT
+from .galancito_contact_profile import contact_profile
 from .facebook_crm_models import FacebookLead, FacebookChatMessage, FacebookLeadTrade, FacebookLeadTrace, FacebookNeedAssociation
 from .facebook_publication_models import FacebookPostComment, FacebookPostSnapshot, FacebookPostJob
 from .network_models import NetworkRequirement, NetworkFacebookPost, NetworkFacebookManual, NetworkCandidateFollowUp, NetworkCapacity, NetworkMatch
@@ -106,7 +107,11 @@ def feedback_export(days: int = Query(default=0, ge=0, le=90),
                     item[field] = value
             if model is FacebookLead:
                 item.update(phone_recorded=bool(row.contact_phone), email_recorded=bool(row.contact_email),
-                            name_recorded=bool(row.display_name and row.display_name != "Interesado de Facebook"))
+                            name_recorded=bool(row.display_name and row.display_name not in ("Interesado de Facebook", "Contacto sin nombre")))
+                profile = contact_profile(row)
+                item["profile_completion"] = {key: profile[key] for key in ("completed", "total", "percent", "missing", "field_states", "contact_state", "additional_services_pending")}
+                item["declared_context"] = {key: safe_text(value.get("value"), names) if isinstance(value.get("value"), str) and include_text else value.get("value") if type(value.get("value")) in (bool, int, float) else None
+                                            for key, value in profile["declared_context"].items() if key in ("declared_origin", "crew_size", "preferred_contact", "worked_at_galilea", "crew_expandable", "notice_trade", "additional_services_pending") and isinstance(value, dict)}
             if model in (FacebookChatMessage, FacebookPostJob, NetworkFacebookPost, NetworkFacebookManual):
                 item["error_recorded"] = bool(getattr(row, "error", None) or getattr(row, "last_error", None))
             if model is AssistantRun:
@@ -116,11 +121,21 @@ def feedback_export(days: int = Query(default=0, ge=0, le=90),
                                    (k in TIMING_LABELS and isinstance(v, str) and re.fullmatch(r"[\w.:/-]{1,100}", v))}
             rows.append(item)
         result[key] = rows
+    findings = {
+        "messages_with_recorded_error": sum(row["error_recorded"] for row in result["messages"]),
+        "leads_missing_profile_fields": sum(bool(row["profile_completion"]["missing"]) for row in result["leads"]),
+        "leads_needing_support": sum(row["needs_support"] for row in result["leads"]),
+        "runs_reported_incorrect": sum(row["feedback"] == "incorrect" for row in result["runs"]),
+        "runs_with_fallback": sum(row["source"] == "fallback" for row in result["runs"]),
+        "runs_without_message_link": sum(row["channel"] == "messenger" and not row["timings"].get("outbound_message_id") for row in result["runs"]),
+    }
     payload = {
         "schema_version": 1, "version": VERSION, "source_commit": SOURCE_COMMIT,
         "generated_at": now, "since": since, "period_days": days,
         "scope": "red_obras", "include_text": include_text,
         "counts": {key: len(rows) for key, rows in result.items()},
+        "findings": findings,
+        "findings_note": "Indicadores observados; campos pendientes, fallback y falta de vínculo no son por sí solos errores de IA.",
         "limitations": [
             "Solo registros persistidos de la organización autenticada.",
             "Los filtros temporales se aplican por fecha indicada en cada colección; las fichas son su estado actual, no reconstrucciones históricas.",

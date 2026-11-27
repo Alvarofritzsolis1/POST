@@ -8,11 +8,12 @@ export default function AIFeedbackPanel() {
   const [includeText, setIncludeText] = useState(false);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState("");
+  const [findings, setFindings] = useState<Record<string, number> | null>(null);
   const [counts, setCounts] = useState<Record<string, number> | null>(null);
   async function download() {
-    setBusy(true); setError(""); setCounts(null);
+    setBusy(true); setError(""); setCounts(null); setFindings(null);
     try {
-      const data = await request<{counts: Record<string, number>; generated_at: string}>(
+      const data = await request<{counts: Record<string, number>; generated_at: string; findings: Record<string, number>}>(
         "/admin/ai/red-obras/feedback-export?days=" + days + "&include_text=" + includeText);
       const blob = new Blob([JSON.stringify(data, null, 2)], {type:"application/json"});
       const url = URL.createObjectURL(blob);
@@ -22,7 +23,7 @@ export default function AIFeedbackPanel() {
       document.body.appendChild(anchor);
       anchor.click(); anchor.remove();
       window.setTimeout(() => URL.revokeObjectURL(url), 1000);
-      setCounts(data.counts);
+      setCounts(data.counts); setFindings(data.findings);
     } catch (reason) {
       setError(reason instanceof Error ? reason.message : "No se pudo generar el diagnóstico.");
     } finally { setBusy(false); }
@@ -48,5 +49,6 @@ export default function AIFeedbackPanel() {
       {error && <p role="alert" className="ai-feedback-error">{error}</p>}
       {counts && <p role="status">Archivo generado: {Object.values(counts).reduce((a,b)=>a+b,0).toLocaleString("es-CL")} registros en {Object.keys(counts).length} colecciones.</p>}
     </div>
+    {findings && <section aria-label="Indicadores observados"><h3>Indicadores para revisar</h3><p>No equivalen a fallos confirmados: requieren contrastar la evidencia.</p><div className="ai-feedback-grid">{Object.entries({messages_with_recorded_error:"Mensajes con error registrado",leads_missing_profile_fields:"Fichas con campos pendientes",leads_needing_support:"Contactos que requieren apoyo",runs_reported_incorrect:"Respuestas reportadas incorrectas",runs_with_fallback:"Ejecuciones con fallback",runs_without_message_link:"Ejecuciones sin vínculo al mensaje"}).map(([key,label])=><div key={key}><strong>{findings[key].toLocaleString("es-CL")}</strong><span>{label}</span></div>)}</div></section>}
   </section>;
 }
