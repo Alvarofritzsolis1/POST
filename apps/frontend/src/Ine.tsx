@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import type { Profile } from "./api";
 import { request } from "./api";
 import {
@@ -129,6 +129,8 @@ export default function Ine({ user, version, onBack, logout }: {
   const [showNew, setShowNew] = useState(false);
   const [expandedRow, setExpandedRow] = useState("");
   const [moreCharts, setMoreCharts] = useState(false);
+  const monthRequest = useRef(0);
+  const summaryRequest = useRef(0);
   const [newName, setNewName] = useState("");
   const [newSiteId, setNewSiteId] = useState("");
   const [newCounts, setNewCounts] = useState<Record<Field, string>>(emptyFields);
@@ -145,13 +147,16 @@ export default function Ine({ user, version, onBack, logout }: {
     return result;
   }, []);
   const loadMonth = useCallback(async (target: string) => {
+    const sequence = ++monthRequest.current;
     const result = await request<{ rows: SheetRow[] }>("/ine/rows?period=" + encodeURIComponent(target));
+    if (sequence !== monthRequest.current) return;
     setRows(result.rows);
     setDrafts({});
   }, []);
   const loadSummary = useCallback(async (target: string) => {
+    const sequence = ++summaryRequest.current;
     const result = await request<Summary>("/ine/summary?year=" + target.slice(0, 4));
-    setSummary(result);
+    if (sequence === summaryRequest.current) setSummary(result);
   }, []);
   const loadArchive = useCallback(async () => {
     const result = await request<Archive>("/ine/archive");
@@ -326,7 +331,8 @@ export default function Ine({ user, version, onBack, logout }: {
     finally { setBusy(""); }
   }
 
-  const graph = summary?.months || [];
+  const graph = summary?.year === Number(period.slice(0,4)) ? summary.months : [];
+  const tracking = period >= "2026-11" && !!config && period <= config.current_month;
   const maxContract = Math.max(1, ...graph.map(item => sumFields(item, ["cct", "cesp", "ind"])));
   const maxWorkers = Math.max(1, ...graph.map(item => sumFields(item, ["th", "tm"])));
   const contractorSplit = fields.slice(0, 3).map(col => ({
@@ -366,28 +372,40 @@ export default function Ine({ user, version, onBack, logout }: {
     return { name, count: data.length, complete, pending: data.length - complete,
       progress: percent(complete, data.length) };
   }).sort((a, b) => b.pending - a.pending || a.name.localeCompare(b.name, "es-CL"));
-  const annualRows = graph.filter(item => item.rows > 0);
+  const annualRows = graph.filter(item => item.rows > 0 && item.period >= "2026-11" && item.period <= (config?.current_month || ""));
   const annualProgress = Math.round(
     annualRows.reduce((sum, item) => sum + item.complete, 0) /
     Math.max(1, annualRows.reduce((sum, item) => sum + item.rows, 0)) * 100);
   const openRow = (row: SheetRow) => {
-    if (!row.editable) return;
-    setExpandedRow(rowKey(row));
-    setEditingDetails("");
-    window.setTimeout(() => document.getElementById("ine-quick-editor")
-      ?.scrollIntoView({ behavior: "smooth", block: "center" }), 50);
+    if (!row.editable || busy || loading) return;
+    if (chosen && rowKey(chosen) !== rowKey(row) && dirty(chosen)) {
+      setError("Guarda los cambios de la obra seleccionada antes de continuar."); return;
+    }
+    setSearch(""); setRowFilter("all");
+    setExpandedRow(rowKey(row)); setEditingDetails("");
+    window.setTimeout(() => {
+      const input = document.getElementById("ine-cell-" + rowKey(row) + "-" +
+        (fields.find(col => row[col.key] === null)?.key || "cct"));
+      input?.focus({preventScroll:true});
+      input?.scrollIntoView({behavior: window.matchMedia("(prefers-reduced-motion: reduce)").matches ? "auto" : "smooth", block:"nearest"});
+    }, 60);
   };
-  const gotoMonth = (next: string) => { if (next) { setPeriod(next); setExpandedRow(""); } };
+  const gotoMonth = (next: string) => {
+    if (!next || next === period || busy) return;
+    if (chosen && dirty(chosen)) { setError("Guarda los cambios antes de cambiar de mes."); return; }
+    ++monthRequest.current; ++summaryRequest.current;
+    setLoading(true); setRows([]); setPeriod(next); setExpandedRow(""); setEditingDetails("");
+    setRowFilter("all"); setSearch("");
+  };
 
-  return <main className="ine ine-v2051 ine-simplified">
+  return <main className="ine ine-v2051 ine-simplified ine-analytics-ux">
     <header className="ine-simple-header">
       <div className="ine-simple-heading">
         {onBack && <button className="ine-back" type="button" onClick={onBack}>
           <ArrowLeft size={15}/> Volver a GALANT</button>}
         <div className="ine-simple-caption"><FileSpreadsheet size={16}/> GALANT / INE
           <span>v{version || "20.5.1"}</span></div>
-        <h1>Control general</h1>
-        <p>Avance de las obras, responsables y registros mensuales en un solo lugar.</p>
+        <h1>INE · Control de obras</h1>
       </div>
       <div className="ine-simple-user">
         <span>{admin ? <ShieldCheck size={15}/> : <LockKeyhole size={15}/>}
@@ -412,12 +430,21 @@ export default function Ine({ user, version, onBack, logout }: {
           onClick={() => gotoMonth(config.previous_month)}>Mes anterior</button>
       </div>}
       <button type="button" className="ine-simple-refresh" disabled={!period || loading}
-        onClick={() => void Promise.all([loadMonth(period), loadSummary(period)])}>
+        onClick={() => { if (chosen && dirty(chosen)) { setError("Guarda los cambios antes de actualizar."); return; } void Promise.all([loadMonth(period), loadSummary(period)]).catch(e => setError(errText(e))); }}>
         <RefreshCw size={15}/> Actualizar</button>
     </div>
+    {period && <div className="ine-ux-months" aria-label="Meses del año">
+      {monthsShort.map((label, index) => {
+        const target = period.slice(0,4) + "-" + String(index+1).padStart(2,"0");
+        return <button type="button" key={target} aria-pressed={period===target} disabled={!!busy}
+          onClick={() => gotoMonth(target)}>{label}</button>;
+      })}
+    </div>}
     <nav className="ine-simple-tabs" aria-label="Secciones INE">
       <button type="button" className={tab === "registro" ? "selected" : ""}
-        onClick={() => setTab("registro")}><BarChart3 size={16}/> Control general</button>
+        onClick={() => setTab("registro")}><FileSpreadsheet size={16}/> Rellenar y consultar</button>
+      <button type="button" className={tab === "analisis" ? "selected" : ""}
+        onClick={() => setTab("analisis")}><BarChart3 size={16}/> Análisis y evolución</button>
       <button type="button" className={tab === "historico" ? "selected" : ""}
         onClick={() => setTab("historico")}><BookOpenText size={16}/> Histórico del Excel</button>
       {admin && <button type="button" className={tab === "auditoria" ? "selected" : ""}
@@ -434,7 +461,7 @@ export default function Ine({ user, version, onBack, logout }: {
           Importar Excel <ChevronRight size={15}/></button>}
       </div>}
 
-      <section className="ine-summary-card">
+      {tracking && <section className="ine-summary-card">
         <div className="ine-summary-primary">
           <span className="ine-overline">AVANCE DEL MES · {monthLabel(period)}</span>
           <div className="ine-summary-percent">{rows.length ? fieldProgress + "%" : "—"}</div>
@@ -451,7 +478,7 @@ export default function Ine({ user, version, onBack, logout }: {
           <div className="ine-stat ine-stat-amber"><span>Faltan completar</span><strong>{tally.pending}</strong><small>{missingCount} casillas pendientes</small></div>
           <div className="ine-stat ine-stat-red"><span>Sin comenzar</span><strong>{noStarted}</strong><small>Sin ninguna cifra informada</small></div>
         </div>
-      </section>
+      </section>}
 
       <div className="ine-simple-insight">
         <Info size={15}/>{admin ? "Puedes editar cualquier mes y obra." :
@@ -460,11 +487,11 @@ export default function Ine({ user, version, onBack, logout }: {
         {" "}Las casillas vacías no se cuentan como cero.
       </div>
 
-      {chosen && chosen.editable && <section id="ine-quick-editor" className="ine-simple-editor">
+      {chosen && chosen.editable && editingDetails && <section id="ine-quick-editor" className="ine-simple-editor">
         <div className="ine-section-head">
           <div><span className="ine-eyebrow">EDICIÓN RÁPIDA</span>
             <h2>{chosen.site_name}</h2><p>Modifica las cifras y presiona Guardar. El Excel original no cambia.</p></div>
-          <button type="button" className="ine-simple-close" onClick={() => setExpandedRow("")}><X size={16}/> Cerrar</button>
+          <button type="button" className="ine-simple-close" onClick={() => setEditingDetails("")}><X size={16}/> Cerrar</button>
         </div>
         {admin && chosen.id && <div className="ine-details-access">
           <button type="button" className="ine-text-action" onClick={() => {
@@ -522,7 +549,7 @@ export default function Ine({ user, version, onBack, logout }: {
             onClick={() => void createManual()}><Plus size={15}/> Crear obra</button></div>
       </section>}
 
-      <section className="ine-dashboard-main">
+      {tracking && <section className="ine-dashboard-main">
         <div className="ine-dashboard-section-head">
           <div><span className="ine-eyebrow">PRIORIDADES</span><h2>¿Quiénes faltan?</h2>
             <p>Obras que necesitan completar o informar datos de {monthLabel(period)}.</p></div>
@@ -554,39 +581,40 @@ export default function Ine({ user, version, onBack, logout }: {
           setRowFilter("pending");
           document.getElementById("ine-all-rows")?.scrollIntoView({behavior:"smooth"});
         }}>Ver todas las {pendingRows.length} obras pendientes <ChevronRight size={15}/></button>}
-      </section>
+      </section>}
 
-      <div className="ine-dashboard-charts">
+      {tracking && <div className="ine-dashboard-charts">
         <section className="ine-simple-chart">
           <div className="ine-chart-head"><span className="ine-eyebrow">EVOLUCIÓN</span>
             <h3>Progreso por mes</h3><p>Porcentaje de obras con los cinco datos completos.</p></div>
           <div className="ine-annual-bars">
             {graph.map((item, index) => {
+              const eligible = item.period >= "2026-11" && item.period <= (config?.current_month || "");
               const progress = percent(item.complete, item.rows);
               return <div className="ine-annual-col" key={item.period}
-                title={monthLabel(item.period) + " · " + (item.rows ? progress + "% de obras completas" : "sin datos")}>
-                <span>{item.rows ? progress + "%" : "—"}</span>
-                <div className="ine-annual-track"><i className={item.rows ? "filled" : ""}
-                  style={{height: item.rows ? Math.max(3, progress) + "%" : "0%"}}/></div>
+                title={monthLabel(item.period) + " · " + (eligible && item.rows ? progress + "% de obras completas" : "sin seguimiento")}>
+                <span>{eligible && item.rows ? progress + "%" : "—"}</span>
+                <div className="ine-annual-track"><i className={eligible && item.rows ? "filled" : ""}
+                  style={{height: eligible && item.rows ? progress + "%" : "0%"}}/></div>
                 <small>{monthsShort[index]}</small>
               </div>;
             })}
           </div>
-          <p className="ine-chart-bottom">Promedio ponderado anual: <strong>{annualRows.length ? annualProgress + "%" : "Sin datos"}</strong></p>
+          <p className="ine-chart-bottom">Avance desde noviembre 2026: <strong>{annualRows.length ? annualProgress + "%" : "Sin datos"}</strong></p>
         </section>
         <section className="ine-simple-chart">
           <div className="ine-chart-head"><span className="ine-eyebrow">RESPONSABLES</span>
             <h3>Avance por supervisor</h3><p>Comparación de las obras agrupadas por el supervisor indicado en el Excel.</p></div>
-          {responsible.length ? <div className="ine-responsible-list">{responsible.slice(0, 7).map(item =>
+          {responsible.length ? <div className="ine-responsible-list">{responsible.map(item =>
             <div className="ine-responsible-row" key={item.name}>
-              <div><strong title={item.name}>{item.name}</strong>
+              <div><button type="button" className="ine-table-edit" title={item.name} onClick={()=>{setSearch(item.name==="Sin responsable definido"?"":item.name);setRowFilter("all");document.getElementById("ine-all-rows")?.scrollIntoView({block:"nearest"});}}>{item.name}</button>
                 <small>{item.pending ? item.pending + " pendiente(s)" : "Completo"}</small></div>
               <div className="ine-responsible-track"><span style={{width:item.progress+"%"}}/></div>
               <b>{item.progress}%</b>
             </div>)}</div> :
             <div className="ine-simple-empty"><Info size={23}/><span>No hay responsables para mostrar.</span></div>}
         </section>
-      </div>
+      </div>}
 
       <section className="ine-chart-disclosure">
         <button type="button" onClick={() => setMoreCharts(previous => !previous)}>
@@ -633,7 +661,7 @@ export default function Ine({ user, version, onBack, logout }: {
       <section id="ine-all-rows" className="ine-all-rows">
         <div className="ine-dashboard-section-head">
           <div><span className="ine-eyebrow">REGISTRO MENSUAL</span><h2>Todas las obras</h2>
-            <p>Revisa el estado y usa «Editar» solo cuando necesites cambiar una obra.</p></div>
+            <p>Selecciona una obra para rellenar sus cifras directamente en la tabla.</p></div>
           {admin && <button type="button" className="ine-primary-action" onClick={() => {
             setShowNew(true);
             window.setTimeout(() => document.querySelector(".ine-simple-new")?.scrollIntoView({behavior:"smooth"}), 50);
@@ -644,26 +672,40 @@ export default function Ine({ user, version, onBack, logout }: {
             <input type="search" value={search} onChange={event => setSearch(event.target.value)}
               placeholder="Buscar obra o supervisor" aria-label="Buscar obra o supervisor"/></label>
           <div className="ine-filter-buttons">
-            {[["all","Todas"],["pending","Pendientes"],["complete","Completas"]].map(([key,label]) =>
+            {(tracking ? [["all","Todas"],["pending","Por rellenar"],["complete","Completas"]] : [["all","Todas"]]).map(([key,label]) =>
               <button type="button" key={key} className={rowFilter===key?"selected":""}
                 onClick={()=>setRowFilter(key)}>{label}</button>)}
           </div>
           <span className="ine-table-count">{filteredRows.length} obras</span>
         </div>
         <div className="ine-table-wrap"><table className="ine-control-table">
-          <thead><tr><th>Obra / responsable</th><th>Estado</th><th>Avance</th>
+          <thead><tr><th>Obra / responsable</th>{tracking && <><th>Estado</th><th>Avance</th></>}
             {fields.map(col=><th key={col.key} title={col.hint}>{col.label}</th>)}<th></th></tr></thead>
           <tbody>{filteredRows.map(row=>{
             const filled=fields.filter(col=>row[col.key]!==null).length;
-            return <tr key={rowKey(row)} className={!reported(row)?"ine-row-empty":""}>
-              <td><strong>{row.site_name}</strong><small>{row.supervisor || "Sin responsable definido"}</small></td>
-              <td><span className={"ine-table-status "+(row.complete?"done":reported(row)?"part":"empty")}>
-                {row.complete?"Completa":reported(row)?"Incompleta":"Sin informar"}</span></td>
-              <td><div className="ine-table-progress"><span style={{width:(filled/5*100)+"%"}}/></div><small>{filled}/5</small></td>
-              {fields.map(col=><td className={row[col.key]===null?"ine-null":""} key={col.key}>
-                {row[col.key]===null?"—":fmtNumber(row[col.key]||0)}</td>)}
-              <td>{row.editable?<button type="button" className="ine-table-edit" onClick={()=>openRow(row)}>
-                Editar <Pencil size={13}/></button>:<LockKeyhole size={14} color="#94a3b8"/>}</td>
+            const editing = expandedRow === rowKey(row) && row.editable;
+            return <tr key={rowKey(row)} className={(tracking ? row.complete ? "ine-ux-done" : reported(row) ? "ine-ux-part" : "ine-ux-empty" : "") + (editing ? " ine-ux-editing" : "")}>
+              <td><strong>{row.site_name}</strong><small>{row.supervisor || "—"}</small></td>
+              {tracking && <><td><span className={"ine-table-status "+(row.complete?"done":reported(row)?"part":"empty")}>
+                {row.complete?<><CheckCircle2 size={13}/> Completa</>:reported(row)?"En progreso":"Por rellenar"}</span></td>
+              <td><div className="ine-table-progress"><span style={{width:(filled/5*100)+"%"}}/></div><small>{filled}/5</small></td></>}
+              {fields.map((col,index)=><td className={tracking && row[col.key]===null?"ine-null":""} key={col.key}>
+                {editing ? <input className={"ine-ux-cell " + (tracking && value(row,col.key)==="" ? "missing" : "")}
+                  id={"ine-cell-"+rowKey(row)+"-"+col.key} type="number" min={0} max={1000000} step={1}
+                  aria-label={col.hint+" de "+row.site_name} placeholder="—" disabled={!!busy}
+                  value={value(row,col.key)} onChange={event=>setValue(row,col.key,event.target.value)}
+                  onKeyDown={event=>{
+                    if(event.key==="Enter"){event.preventDefault();const next=fields[index+1];
+                      if(next) document.getElementById("ine-cell-"+rowKey(row)+"-"+next.key)?.focus();
+                      else if(dirty(row)&&!busy) void saveRow(row);}
+                  }}/> : row[col.key]===null?"—":fmtNumber(row[col.key]??0)}</td>)}
+              <td><div className="ine-ux-actions">{row.editable ? editing ? <>
+                <button type="button" className="ine-save" disabled={!!busy || !dirty(row)} onClick={()=>void saveRow(row)}>
+                  <Save size={14}/>{busy===rowKey(row)?"Guardando…":"Guardar"}</button>
+                <button type="button" className="ine-table-edit" disabled={!!busy || dirty(row)} onClick={()=>{setExpandedRow("");setEditingDetails("");}}>Cerrar</button>
+                {admin && row.id && <button type="button" className="ine-table-edit" disabled={!!busy || dirty(row)} onClick={()=>{setDetailName(row.site_name);setDetailSupervisor(row.supervisor);setEditingDetails(row.id || "");window.setTimeout(()=>document.getElementById("ine-quick-editor")?.scrollIntoView({block:"nearest"}),50);}}>Datos de obra</button>}
+                </> : <button type="button" className="ine-table-edit" disabled={!!busy || loading} onClick={()=>openRow(row)}>Rellenar <Pencil size={13}/></button>
+                : <LockKeyhole size={14} color="#94a3b8"/>}</div></td>
             </tr>;
           })}</tbody></table>
           {!filteredRows.length && <div className="ine-simple-empty"><Info size={22}/>
@@ -672,6 +714,7 @@ export default function Ine({ user, version, onBack, logout }: {
       </section>
     </>}
 
+    {tab === "analisis" && !loading && period && <IneAnalytics key={period.slice(0,4)} period={period} rows={rows} graph={graph} onMonth={gotoMonth}/>}
     {tab === "historico" && <section className="ine-panel ine-history-library">
       <div className="ine-section-head"><div><span className="ine-eyebrow">CONSULTA DE SOLO LECTURA</span>
         <h2>Histórico del Excel</h2><p>Consulta cualquier hoja original. No se modifican sus cifras ni fórmulas.</p></div>
@@ -749,4 +792,94 @@ export default function Ine({ user, version, onBack, logout }: {
         </div></section>}
     </section>}
   </main>;
+}
+
+
+type Metric = "workers" | "contractors" | "ind";
+const metricFields: Record<Metric, Field[]> = {workers:["th","tm"],contractors:["cct","cesp","ind"],ind:["ind"]};
+const metricLabels: Record<Metric,string> = {workers:"Trabajadores",contractors:"Contratistas",ind:"Independientes"};
+function observed(row: Counts, metric: Metric) {
+  return metricFields[metric].every(key=>row[key]!==null) ? sumFields(row,metricFields[metric]) : null;
+}
+function IneAnalytics({period,rows,graph,onMonth}: {period:string;rows:SheetRow[];graph:MonthSummary[];onMonth:(period:string)=>void}) {
+  const [metric,setMetric]=useState<Metric>("workers");
+  const [site,setSite]=useState("");
+  const [history,setHistory]=useState<Record<string,SheetRow[]> | null>(null);
+  const [historyError,setHistoryError]=useState("");
+  const year=period.slice(0,4);
+  const identity=(r:SheetRow)=>r.site_id ? "site:"+r.site_id : "name:"+r.site_name;
+  const allSites=Array.from(new Map([...Object.values(history||{}).flat(),...rows].map(r=>[identity(r),r])).values()).sort((a,b)=>a.site_name.localeCompare(b.site_name,"es-CL"));
+  const selected=allSites.find(r=>identity(r)===site);
+  useEffect(()=>{
+    let active=true; setHistory(null); setHistoryError("");
+    const periods=Array.from({length:12},(_,i)=>year+"-"+String(i+1).padStart(2,"0"));
+    void Promise.all(periods.map(async target=>{
+      const result=await request<{rows:SheetRow[]}>("/ine/rows?period="+encodeURIComponent(target));
+      return [target,result.rows] as const;
+    })).then(items=>{if(active)setHistory(Object.fromEntries(items));})
+      .catch(e=>{if(active)setHistoryError(errText(e));});
+    return()=>{active=false;};
+  },[year]);
+  const totals=fields.map(f=>({ ...f, value: rows.reduce((n,r)=>n+(r[f.key]??0),0), known:rows.filter(r=>r[f.key]!==null).length }));
+  const workers=totals[3].value+totals[4].value, contractors=totals[0].value+totals[1].value+totals[2].value;
+  const ranked=rows.map(row=>({name:row.site_name,key:identity(row),value:observed(row,metric)}))
+    .filter((item):item is {name:string;key:string;value:number}=>item.value!==null).sort((a,b)=>b.value-a.value);
+  const peak=ranked[0];
+  const points=Array.from({length:12},(_,i)=>{
+    const target=year+"-"+String(i+1).padStart(2,"0");
+    const monthRows=target===period ? rows : history?.[target]||[];
+    const matches=site?monthRows.filter(r=>identity(r)===site):monthRows;
+    const known=matches.filter(r=>metricFields[metric].some(key=>r[key]!==null));
+    const value=site ? matches.length===1?observed(matches[0],metric):null :
+      known.length ? known.reduce((sum,r)=>sum+sumFields(r,metricFields[metric]),0):null;
+    return {period:target,label:monthsShort[i],value,coverage:known.length};
+  });
+  const scale=Math.max(1,...points.map(p=>p.value??0));
+  const current=points.find(p=>p.period===period);
+  const previousIndex=points.findIndex(p=>p.period===period)-1;
+  const previous=points[previousIndex];
+  const delta=current?.value!=null && previous?.value!=null ? current.value-previous.value : null;
+  const observedCount=rows.filter(row=>observed(row,metric)!==null).length;
+  const knownWorkers=totals.slice(3).some(f=>f.known>0), knownContractors=totals.slice(0,3).some(f=>f.known>0);
+  return <section className="ine-ux-analysis">
+    <div className="ine-dashboard-section-head"><div><h2>Análisis de {monthLabel(period)}</h2><p>Cifras registradas · {rows.filter(reported).length} obras con información de {rows.length}</p></div></div>
+    <div className="ine-ux-kpis">
+      <div><span>Trabajadores</span><strong>{numOrDash(workers,knownWorkers)}</strong><small>{numOrDash(totals[3].value,totals[3].known>0)} hombres · {numOrDash(totals[4].value,totals[4].known>0)} mujeres</small></div>
+      <div><span>Contratistas</span><strong>{numOrDash(contractors,knownContractors)}</strong><small>Permanentes + esporádicos + independientes</small></div>
+      <div><span>Independientes</span><strong>{numOrDash(totals[2].value,totals[2].known>0)}</strong><small>Sobre cifras informadas</small></div>
+    </div>
+    <div className="ine-ux-insights"><strong>Lectura de los datos</strong>
+      <p>{peak ? peak.name+" registra la mayor cantidad de "+metricLabels[metric].toLowerCase()+" ("+fmtNumber(peak.value)+"), entre "+observedCount+" obras con esta cifra completa." : "No hay cifras completas para comparar obras en este indicador."}</p>
+      {totals[2].known>0 && knownContractors && contractors>0 && <p>Los independientes representan {Math.round(totals[2].value/contractors*100)}% de los contratistas registrados (CCT + CESP + IND). No equivale al porcentaje oficial de independientes de la planilla.</p>}
+    </div>
+    <div className="ine-ux-analysis-grid">
+      <section className="ine-simple-chart"><h3>Composición de contratistas</h3>
+        {totals.slice(0,3).map((f,i)=><div key={f.key} className="ine-ux-bar-row"><span>{f.hint}</span><div><i style={{width:(contractors?f.value/contractors*100:0)+"%",background:["#245c88","#469b90","#c18a47"][i]}}/></div><b>{numOrDash(f.value,f.known>0)}</b></div>)}
+      </section>
+      <section className="ine-simple-chart"><h3>Dotación de trabajadores</h3>
+        {totals.slice(3).map((f,i)=><div key={f.key} className="ine-ux-bar-row"><span>{f.hint}</span><div><i style={{width:(workers?f.value/workers*100:0)+"%",background:["#245c88","#469b90"][i]}}/></div><b>{numOrDash(f.value,f.known>0)}</b></div>)}
+      </section>
+    </div>
+    <section className="ine-simple-chart ine-ux-trend">
+      <div className="ine-ux-chart-head"><div><h3>Evolución {year}</h3><p>{selected?selected.site_name:"Todas las obras · cifras registradas"}</p></div>
+        <label>Indicador<select value={metric} onChange={e=>setMetric(e.target.value as Metric)}>{Object.entries(metricLabels).map(([k,label])=><option key={k} value={k}>{label}</option>)}</select></label>
+        <label>Obra<select value={site} onChange={e=>setSite(e.target.value)}><option value="">Todas las obras</option>{allSites.map(r=><option key={identity(r)} value={identity(r)}>{r.site_name}</option>)}</select></label>
+      </div>
+      {!history && !historyError ? <p role="status">Consultando evolución…</p> : historyError ? <p role="alert">{historyError}</p> :
+      <><div className="ine-ux-line-scroll"><svg viewBox="0 0 720 245" role="img" aria-label={"Evolución anual de "+metricLabels[metric]}>
+        {[0,.25,.5,.75,1].map(f=><g key={f}><line x1="45" x2="700" y1={200-f*165} y2={200-f*165} stroke="#dce5ec"/><text x="38" y={204-f*165} textAnchor="end" fontSize="11" fill="#617589">{fmtNumber(Math.round(scale*f))}</text></g>)}
+        {points.map((p,i)=>{const prev=points[i-1];const x=50+i*58;const y=200-(p.value??0)/scale*165;return <g key={p.period}>
+          {p.value!==null && prev && prev.value!==null && <line x1={x-58} y1={200-prev.value/scale*165} x2={x} y2={y} stroke="#297f78" strokeWidth="3"/>}
+          {p.value!==null&&<circle cx={x} cy={y} r={p.period===period?6:4} fill={p.period===period?"#1d3b58":"#297f78"}><title>{p.label}: {fmtNumber(p.value)}</title></circle>}
+          <text x={x} y="223" fontSize="11" fill="#617589" textAnchor="middle">{p.label}</text>
+        </g>;})}
+      </svg></div>
+      <p>{delta===null?"No hay dos meses consecutivos con cifras para comparar.": "Variación registrada frente al mes anterior: "+(delta>0?"+":"")+fmtNumber(delta)+ (previous?.value ? " ("+(delta>0?"+":"")+(delta/previous.value*100).toFixed(1)+"%).":".")} {!site && "La cobertura de obras puede variar entre meses."}</p>
+      <div className="ine-ux-month-values">{points.map(p=><button key={p.period} type="button" aria-pressed={p.period===period} onClick={()=>onMonth(p.period)}><span>{p.label}</span><b>{p.value===null?"—":fmtNumber(p.value)}</b></button>)}</div></>}
+    </section>
+    <section className="ine-simple-chart"><h3>Comparación por obra · {metricLabels[metric]}</h3><p>Selecciona una obra para analizar su historial.</p>
+      {ranked.map(item=><button type="button" key={item.key} className="ine-ux-bar-row ine-ux-rank" onClick={()=>setSite(item.key)}><span>{item.name}</span><div><i style={{width:(peak?.value?item.value/peak.value*100:0)+"%"}}/></div><b>{fmtNumber(item.value)}</b></button>)}
+      {!ranked.length && <p>Sin cifras completas para este indicador.</p>}
+    </section>
+  </section>;
 }
