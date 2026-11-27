@@ -1,7 +1,6 @@
 """Read-only, tenant-scoped evidence export for Red de Obras diagnostics."""
 import re
 from datetime import timedelta
-from typing import Literal
 
 from fastapi import APIRouter, Depends, HTTPException, Query
 from fastapi.encoders import jsonable_encoder
@@ -77,9 +76,11 @@ def selection(model, org_id, date_field, since):
     return stmt.order_by(getattr(model, date_field))
 
 @router.get("/red-obras/feedback-export")
-def feedback_export(days: Literal[0, 7, 30, 90] = Query(default=0),
+def feedback_export(days: int = Query(default=0, ge=0, le=90),
                     include_text: bool = Query(default=False),
                     user: User = Depends(administrator), db: Session = Depends(get_db)):
+    if days not in (0, 7, 30, 90):
+        raise HTTPException(422, "Período no admitido.")
     now = utcnow()
     since = now - timedelta(days=days) if days else None
     # Use tenant-local known names only; redaction is best effort, not anonymity.
