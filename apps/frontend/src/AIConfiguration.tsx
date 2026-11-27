@@ -344,12 +344,12 @@ export default function AIConfiguration({ openTraining, section }: { openTrainin
           {" · "}En memoria: {data?.local_engine.loaded ? "Sí" : "No / inactivo"}
           {" · "}Messenger: {data?.local_engine.messenger ? "Local" : "Otra configuración"}
           {" · "}Red de Obras: {data?.local_engine.red_obras ? "Local" : "Otra configuración"}.</p>
-        {data?.messenger_ready.provider === "ollama" && !data.messenger_ready.local_processing_authorized &&
-          <p className="ai-help" role="status">El procesamiento local de contactos nuevos requiere autorización documentada del responsable en el servidor. Mientras tanto, se respeta la autorización individual de cada contacto.</p>}
-        {data?.messenger_ready.provider === "ollama" && !data.messenger_ready.local_ai_enabled &&
-          <p className="ai-help" role="status">La IA local está desactivada. Prueba Qwen en el servidor antes de habilitarla.</p>}
         {localTest && <p className="ai-help" role="status">Modelo probado: {localTest.model} · Tiempo total: {(localTest.elapsed_ms / 1000).toFixed(2)} s · Respuesta: {localTest.response}</p>}
       </section>
+      {data?.messenger_ready.provider === "ollama" && !data.messenger_ready.local_processing_authorized &&
+        <p className="ai-help" role="status">El procesamiento local de contactos nuevos requiere autorización documentada del responsable en el servidor. Mientras tanto, se respeta la autorización individual de cada contacto.</p>}
+      {data?.messenger_ready.provider === "ollama" && !data.messenger_ready.local_ai_enabled &&
+        <p className="ai-help" role="status">La IA local está desactivada. Prueba Qwen en el servidor antes de habilitarla.</p>}
       <section className="ai-panel ai-training-link">
         <div className="ai-panel-head">
           <div><h3>Entrenamiento de Galancito</h3><p>Prácticas nuevas con {data?.local_engine.model ?? "el modelo local"}. Historial de modelos anteriores conservado.</p></div>

@@ -72,7 +72,7 @@ def intake_question_fields(prompt: str) -> set[str]:
         fields.add("experience")
         if not re.search(r"\b(?:buscas|ofreces|quieres|prefieres)\b", value):
             fields.discard("interest_type")
-    if re.search(r"\b(?:(?:(?:has|ha|han|habias|habia) trabajado|trabajaste) (?:(?:antes|anteriormente|alguna vez) )?"
+    if re.search(r"\b(?:(?:(?:has|ha|han|habias|habia|a) trabajado|trabajaste) (?:(?:antes|anteriormente|alguna vez) )?"
                  r"(?:en|para|con) (?:(?:una |alguna )?obras? de )?|tienes experiencia (?:previa )?en )galilea\b", value):
         fields.add("worked_at_galilea")
     return fields

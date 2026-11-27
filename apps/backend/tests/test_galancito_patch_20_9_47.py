@@ -74,8 +74,8 @@ def test_channel_replay_respects_manual_and_newer_evidence():
     assert lead.profile_sources["_declared_context"]["preferred_contact"]["value"] == "whatsapp"
 
 
-def test_galilea_role_answer_keeps_master_and_contractor_distinct():
-    prior = "¿Ha trabajado para Galilea antes?"
+@pytest.mark.parametrize("prior", ["¿Ha trabajado para Galilea antes?", "Necesito una información adicional, ¿a trabajado para Galilea antes?"])
+def test_galilea_role_answer_keeps_master_and_contractor_distinct(prior):
     assert "worked_at_galilea" in intake_question_fields(prior)
     lead = blank_lead()
     context = remember(lead, "Como subcontrato no pero sí como maestro en San Pedro", prior)
