@@ -40,6 +40,7 @@ from .models import Organization, User, utcnow
 from .network_facebook import public_message
 from .network_models import NetworkFacebookPost, NetworkFacebookManual, NetworkRequirement
 from .facebook_publication_models import FacebookPostSnapshot, FacebookPostJob
+from .facebook_refresh_policy import automatic_refresh_allowed
 from .network_service import key, today
 from .galancito_triage import classify_lead, dashboard
 from .security import administrator
@@ -355,7 +356,8 @@ def ingest_facebook_payload(db, payload, cfg, *, notices=None):
                 FacebookPostJob.post_record_id == post.id,
                 FacebookPostJob.action == "refresh",
                 FacebookPostJob.state.in_(["pending", "sending"])).limit(1))
-            if not already_queued:
+            if not already_queued and automatic_refresh_allowed(
+                    db, post.id, post.org_id, post.page_id, received_at):
                 db.add(FacebookPostJob(
                     org_id=cfg.facebook_org_id, post_record_id=post.id,
                     page_id=post.page_id,
