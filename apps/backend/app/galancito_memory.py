@@ -426,7 +426,7 @@ def apply_messenger_message(db, lead, message, prior, *, remote_id, at, historic
             continue
         origin = prior_sources.get(field, {})
         known = _known(field, old)
-        if ((origin.get("source") == "manual" and (known or not replay)) or
+        if (origin.get("source") == "manual" or
                 ((historical or replay) and known and field not in {"work_communes", "work_area"})):
             continue
         if (historical or replay) and field in {"work_area", "work_communes"} and known:
