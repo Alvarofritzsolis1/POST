@@ -96,6 +96,14 @@ def numbered_menu(text: str) -> bool:
     return bool(_NUMBERED_MENU.search(text))
 
 
+def retired_privacy_warning(message: str) -> bool:
+    """Retire the generic privacy script, not the underlying data protection."""
+    text = _plain(message or "")
+    return ("no compartas datos personales ni contrasenas" in text
+            or "para revisarlos, solicita un canal seguro" in text
+            or "para revisar esos datos, solicita orientacion de administracion por un canal seguro" in text)
+
+
 def safe_ai_reply(draft: str) -> str:
     """Reject unsafe external output before it reaches a contractor in Messenger."""
     clean = draft.strip()[:550]
@@ -106,8 +114,8 @@ def safe_ai_reply(draft: str) -> str:
         r"(ya estas contratado|te contratamos|ya estas habilitado|te adjudicamos)",
         r"(paga primero|paga una comision|depositame)",
     )
-    if not clean or any(re.search(p, normalized) for p in forbidden):
-        return "Para revisar esos datos, solicita orientación de administración por un canal seguro."
+    if not clean or retired_privacy_warning(clean) or any(re.search(p, normalized) for p in forbidden):
+        return "¿Qué necesitas resolver de tu consulta?"
     if numbered_menu(clean):
         # Keep helpful advice; only remove numbered-choice markers.
         clean = re.sub(r"\(\s*\d{1,2}\s*\)", "", clean)
@@ -125,7 +133,7 @@ def grounded_reply(draft: str, supplied: str) -> str | None:
     """Bounded guard, not a general proof of factuality: reject new numbers/URLs."""
     text = _plain(draft)
     reference = _plain(supplied)
-    if retired_permission_prompt(draft):
+    if retired_permission_prompt(draft) or retired_privacy_warning(draft):
         return None
     referenced_topics = (r"\b(?:prestamos?|bancos?|creditos?)\b", r"\bformularios?\b")
     if any(re.search(topic, text) and not re.search(topic, reference) for topic in referenced_topics):

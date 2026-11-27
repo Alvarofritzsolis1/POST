@@ -210,7 +210,8 @@ def professional_message(message):
 
 
 def messenger_prompt_text(message: str) -> str:
-    return "" if retired_permission_prompt(message) else professional_message(message)
+    from .galancito_flow import retired_privacy_warning
+    return "" if retired_permission_prompt(message) or retired_privacy_warning(message) else professional_message(message)
 
 
 def messenger_context(message, facts, prior, turns, evidence, guide=None, *, limit=3000):

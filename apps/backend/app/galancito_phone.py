@@ -22,7 +22,7 @@ def introducing_phone_number(message: str) -> bool:
     return bool(_NUMBER_INTRO.search(message)) and not PHONE_PATTERN.search(message) and "?" not in message
 SHARING = re.compile(
     r"(?i)(?:mi\s+(?:n[uú]mero|celular|tel[eé]fono|(?:whatsapp|wapp|wsp|wasap|guasap|watsap))"
-    r"|(?:te|les)\s+(?:dejo|paso|env[ií]o)\s+(?:mi\s+)?(?:n[uú]mero|celular|tel[eé]fono|(?:whatsapp|wapp|wsp|wasap|guasap|watsap))?"
+    r"|(?:te|le|les)\s+(?:dejo|paso|env[ií]o)\s+(?:mi\s+)?(?:n[uú]mero|celular|tel[eé]fono|(?:whatsapp|wapp|wsp|wasap|guasap|watsap))?"
     r"|(?:ll[aá]m[ae]me|pueden\s+llamarme)\s+(?:al\s+)?"
     r"|(?:cont[aá]ct[ae]me|escr[ií]banme)\s+(?:al\s+)?"
     r"|^\s*(?:y\s+)?(?:el\s+)?(?:n[uú]mero|celular|tel[eé]fono|(?:whatsapp|wapp|wsp|wasap|guasap|watsap))\s+es\s*"

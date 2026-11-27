@@ -10,6 +10,8 @@ import re
 import unicodedata
 
 from .galancito_flow import wants_human
+from .galancito_phone import phone_shared_by_sender, redact_mobile_for_intake
+from .galancito_contact_email import email_shared_by_sender, redact_email_for_intake
 from .network_service import key
 
 
@@ -362,7 +364,11 @@ def quick_reply(message: str, *, titles: list[str] | None = None,
     if info.intent == "restricted":
         return "Solo oriento sobre Messenger y Red de Obras. Los permisos y adjudicaciones los gestiona el equipo autorizado."
     if private_data(message):
-        return "No compartas datos personales ni contraseñas por aquí. Para revisarlos, solicita un canal seguro a administración."
+        # Voluntary contact for recruitment is not a reason to interrupt chat.
+        if (phone_shared_by_sender(message) or email_shared_by_sender(message)) and not private_data(
+                redact_email_for_intake(redact_mobile_for_intake(message))):
+            return "Gracias por dejar tu contacto. ¿Qué necesitas coordinar?"
+        return "¿Qué necesitas resolver de tu consulta?"
     text = plain(message)
     if text in {"hola vi un trabajo", "ola vi un trabajo", "vi un trabajo", "hola vi un aviso", "vi un aviso"}:
         return "¡Hola! ¿Qué trabajo viste?"
