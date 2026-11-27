@@ -1,3 +1,11 @@
+## 20.9.47-rc1 — Reparación de fichas y configuración de Messenger
+
+- La autorización local documentada llega de forma coherente a API, worker y publicador por Docker Compose. El instalador la solicita al responsable y el panel muestra su estado; no se concede consentimiento individual ni acceso a proveedores externos.
+- Se conservan cantidades de cuadrillas expresadas con oficios, aproximaciones, preferencias voluntarias de canal y experiencia en Galilea diferenciada por función. La recuperación mantiene la vista previa, la procedencia y la protección de campos manuales.
+- Los refresh dejan de repetir errores permanentes de autenticación, recursos y parámetros. Los límites de solicitudes y fallos transitorios conservan recuperación con espera; una lectura manual exitosa restablece la sincronización.
+- La exportación separa fallos operativos, canales, referencias y entregas. Las evaluaciones parciales muestran sus denominadores y no representan la totalidad del objetivo.
+- [Alcance, validación e instalación del parche](docs/galancito-patch-20.9.47-rc1.md). Candidata para revisión; la autenticación de Meta y la operación real del VPS requieren verificación posterior.
+
 ## 20.9.45-rc1 — Galancito: respuestas contextualizadas y Ficha Inteligente
 
 - Qwen local tiene prioridad en las conversaciones autorizadas de Messenger. Usa la última consulta, el historial y la ficha antes de redactar. Los borradores que repiten la pregunta, se desvían hacia la ficha o hacen afirmaciones sin respaldo se descartan o se reformulan.

@@ -18,7 +18,8 @@ type Bootstrap = {
   providers: Provider[]; tasks: Task[]; connections: Connection[];
   local_engine: { provider: string; model: string; enabled: boolean; status: string; loaded: boolean; messenger: boolean; red_obras: boolean };
   policy: Policy; monthly_tokens: number; server_ready: boolean;
-  messenger_ready: { messaging_enabled: boolean; ai_enabled: boolean; auto_reply_enabled: boolean; page_configured: boolean };
+  messenger_ready: { messaging_enabled: boolean; ai_enabled: boolean; auto_reply_enabled: boolean; page_configured: boolean;
+    provider: string; local_ai_enabled: boolean; local_processing_authorized: boolean; contextual_enabled: boolean };
   learning: { approved: number; pending: number; disabled: number; feedback: Record<string, number>; method: string };
 };
 type UsageGroup = {
@@ -345,6 +346,10 @@ export default function AIConfiguration({ openTraining, section }: { openTrainin
           {" · "}Red de Obras: {data?.local_engine.red_obras ? "Local" : "Otra configuración"}.</p>
         {localTest && <p className="ai-help" role="status">Modelo probado: {localTest.model} · Tiempo total: {(localTest.elapsed_ms / 1000).toFixed(2)} s · Respuesta: {localTest.response}</p>}
       </section>
+      {data?.messenger_ready.provider === "ollama" && !data.messenger_ready.local_processing_authorized &&
+        <p className="ai-help" role="status">El procesamiento local de contactos nuevos requiere autorización documentada del responsable en el servidor. Mientras tanto, se respeta la autorización individual de cada contacto.</p>}
+      {data?.messenger_ready.provider === "ollama" && !data.messenger_ready.local_ai_enabled &&
+        <p className="ai-help" role="status">La IA local está desactivada. Prueba Qwen en el servidor antes de habilitarla.</p>}
       <section className="ai-panel ai-training-link">
         <div className="ai-panel-head">
           <div><h3>Entrenamiento de Galancito</h3><p>Prácticas nuevas con {data?.local_engine.model ?? "el modelo local"}. Historial de modelos anteriores conservado.</p></div>

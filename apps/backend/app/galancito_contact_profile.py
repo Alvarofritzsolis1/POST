@@ -138,7 +138,10 @@ def contact_profile(lead) -> dict:
     experience = _value(lead, "experience")
     if experience:
         chunks.append("Experiencia declarada: " + experience[:150].rstrip(".") + ".")
-    if worked_at_galilea is True:
+    galilea_detail = (context.get("galilea_experience_detail") or {}).get("value")
+    if isinstance(galilea_detail, str) and galilea_detail:
+        chunks.append("Experiencia en Galilea declarada: «" + galilea_detail[:250] + "».")
+    elif worked_at_galilea is True:
         chunks.append("Declaró que trabajó antes en Galilea.")
     elif worked_at_galilea is False:
         chunks.append("Declaró que no ha trabajado antes en Galilea.")

@@ -15,7 +15,8 @@ from .galancito_intake import (
 )
 from .galancito_knowledge import evidence_context, conversation_example
 from .galancito_flow import retired_permission_prompt
-from .galancito_evidence import REPORTED, declaration_segments, location_mentions, personal_statements
+from .galancito_evidence import (REPORTED, QUALIFIED_CREW, crew_mentions, declaration_segments,
+                                 explicit_channel_mentions, location_mentions, personal_statements)
 from .galancito_semantic import consume_confirmation
 from .galancito_communes import find_communes
 from .galancito_contact_email import redact_email_for_intake, remember_shared_email, email_shared_by_sender, REFUSAL
@@ -54,7 +55,7 @@ def profile_facts(lead, *, changed=False) -> dict:
             "declared_context": {key: item.get("value") for key, item in context.items() if isinstance(item, dict)
                                  and key in {"crew_expandable", "declared_origin", "crew_size",
                                              "preferred_contact", "worked_at_galilea", "notice_trade",
-                                             "additional_services_pending"}},
+                                             "galilea_experience_detail", "additional_services_pending"}},
             # Only contact availability flags, never the phone or email itself.
             "contact_available": bool(getattr(lead, "contact_phone", "") or getattr(lead, "contact_email", "")),
             "contact_declined": bool(getattr(lead, "phone_opt_out", False) or getattr(lead, "email_opt_out", False)),
@@ -327,6 +328,14 @@ def remember_declared_context(lead, message, prior, *, remote_id, at, historical
     previous = plain(prior)
     current = dict((lead.profile_sources or {}).get("_declared_context") or {})
     proposed = {}
+    channels = {channel for clause in personal_statements(message)
+                for channel, _ in explicit_channel_mentions(clause)}
+    if len(channels) == 1:
+        proposed["preferred_contact"] = channels.pop()
+    crews = {literal for clause in declaration_segments(message)
+             for _, _, literal, _ in crew_mentions(clause) if QUALIFIED_CREW.search(literal)}
+    if len(crews) == 1:
+        proposed["crew_size"] = crews.pop()
     if trade := advertised_trade(message):
         proposed["notice_trade"] = trade
     statement = value
@@ -355,6 +364,21 @@ def remember_declared_context(lead, message, prior, *, remote_id, at, historical
         elif statement in {"prefiero no responder", "prefiero no decir", "no quiero responder",
                            "prefiero dejarlo pendiente", "prefiero no contestar", "paso"}:
             proposed["worked_at_galilea"] = None
+    if "worked_at_galilea" in intake_question_fields(prior) and not re.search(r"[?¿]", message):
+        role = r"maestr[oa]|trabajador[ae]?|contratista|subcontratista|subcontrato"
+        roles = [(match[1] or match[4], match[2] or match[3]) for match in re.finditer(
+            r"\b(?:como (" + role + r") (si|no)|(si|no) como (" + role + r"))\b", statement)]
+        if roles:
+            # A positive role confirms some experience; a negative role alone
+            # cannot rule out experience in every other role.
+            denies_target = re.search(r"\bno (?:en|para|con) (?:la (?:constructora|empresa) )?galilea\b", statement)
+            other_company = re.search(r"\b(?:en|para|con) otra (?:constructora|empresa)\b", statement)
+            if denies_target:
+                proposed["worked_at_galilea"] = False
+            elif (any(answer == "si" for _, answer in roles)
+                  and proposed.get("worked_at_galilea") is not False and not other_company):
+                proposed["worked_at_galilea"] = True
+            proposed["galilea_experience_detail"] = personal[:250]
     if re.search(r"\b(?:no podemos|no puedo|no pueden) (?:ser|llevar|traer|sumar|contratar) mas\b", statement):
         proposed["crew_expandable"] = False
     elif re.search(r"\b(?:pueden|podemos|puedo) (?:ser|llevar|traer|sumar|contratar) mas\b", statement) or (
@@ -382,7 +406,8 @@ def remember_declared_context(lead, message, prior, *, remote_id, at, historical
             continue
         if protected_context is not None and old.get("at") and aware(datetime.fromisoformat(old["at"])) >= aware(at):
             continue
-        if field in {"worked_at_galilea", "notice_trade", "additional_services_pending"}:
+        if field in {"worked_at_galilea", "galilea_experience_detail", "preferred_contact",
+                     "crew_size", "notice_trade", "additional_services_pending"}:
             if old.get("at") and aware(datetime.fromisoformat(old["at"])) >= aware(at):
                 continue
         elif "value" in old and ((historical and protected_context is None) or old["value"] == fact):
